@@ -257,11 +257,16 @@ describe('Donation Flow Integration Tests', () => {
   // Confirming a donation used to be an ADMIN-only PATCH endpoint
   // (POST /api/donations/[id]/confirm). Task M4 deleted it: that job now
   // belongs to the payment provider's webhook, not a human clicking a button.
-  // The behaviour these four tests asserted -- updating paymentStatus,
-  // incrementing campaign.collectedAmount, and sending donor/creator
-  // notifications -- is not gone, it moves to the webhook handler landing in
-  // task M5. They are left as it.todo rather than deleted so the requirement
-  // stays visible until M5 rewrites them against the webhook route.
+  // The behaviour these tests asserted -- updating paymentStatus, incrementing
+  // campaign.collectedAmount, sending donor/creator notifications, AND the
+  // status guards (unknown donation, already-confirmed, already-failed) -- is
+  // not gone, it moves to the webhook handler landing in task M5. The guards
+  // matter MORE under a webhook than they did under the old endpoint: a
+  // provider retries deliveries automatically, so the webhook also needs
+  // idempotency against a replayed event, or a retried notification
+  // double-processes a payment. All of it is left as it.todo rather than
+  // deleted so the requirement stays visible until M5 rewrites it against the
+  // webhook route.
   describe('3. Confirmation endpoint updates donation status and increments campaign amount', () => {
     it.todo('should confirm donation, update status, and increment collectedAmount');
     it.todo('should mark campaign as completed when collectedAmount meets targetAmount');
@@ -272,7 +277,17 @@ describe('Donation Flow Integration Tests', () => {
     it.todo('should only create creator notification when donation is anonymous (no donorId)');
   });
 
-  describe('5. Balance donation deducts from user balance', () => {
+  // See the comment above describe block 3 -- these are the status guards the
+  // old ADMIN confirm endpoint had (404 unknown donation, 400 already
+  // confirmed, 400 already failed) plus the idempotency guard a webhook needs
+  // that a human-clicked endpoint never did. Named for task M5.
+  describe('5. Payment status guards move to the M5 webhook', () => {
+    it.todo('should reject a webhook event whose providerRef matches no Payment');
+    it.todo('should not double-process a replayed webhook event (idempotent by provider event id)');
+    it.todo('should reject a webhook event for a Payment already in a terminal status (PAID/FAILED/EXPIRED)');
+  });
+
+  describe('6. Balance donation deducts from user balance', () => {
     it('should deduct balance and create confirmed donation in one transaction', async () => {
       mockGetServerSession.mockResolvedValue({
         user: { id: 'user-balance', name: 'Balance User', email: 'balance@test.com' },
@@ -308,7 +323,7 @@ describe('Donation Flow Integration Tests', () => {
     });
   });
 
-  describe('6. Balance donation rejects when insufficient balance', () => {
+  describe('7. Balance donation rejects when insufficient balance', () => {
     it('should return 400 with current balance info when balance is too low', async () => {
       mockGetServerSession.mockResolvedValue({
         user: { id: 'user-low', name: 'Low Balance', email: 'low@test.com' },
@@ -366,7 +381,7 @@ describe('Donation Flow Integration Tests', () => {
     });
   });
 
-  describe('7. Balance donation marks campaign as completed when target met', () => {
+  describe('8. Balance donation marks campaign as completed when target met', () => {
     it('should mark campaign as completed when donation causes collectedAmount >= targetAmount', async () => {
       mockGetServerSession.mockResolvedValue({
         user: { id: 'user-complete', name: 'Final Donor', email: 'final@test.com' },

@@ -112,6 +112,18 @@ export async function POST(request: NextRequest) {
       // The donation id IS the provider's order id -- the webhook (task M5)
       // gets only an order_id back from the provider and finds this Payment
       // by providerRef, so the two must be the same value from the start.
+      //
+      // CONSTRAINT FOR THE NEXT PROVIDER: this call runs inside an open
+      // database transaction, holding a pooled connection and row locks for
+      // its duration. That is safe ONLY because MockPaymentProvider does no
+      // I/O -- it is a synchronous, in-memory computation. A real Midtrans/
+      // Xendit adapter makes this an actual HTTP round-trip, and holding a
+      // transaction open across one is how provider latency (or an outage)
+      // exhausts the connection pool and takes the whole site down. When a
+      // real adapter lands, move createCharge outside this transaction:
+      // create the Donation, commit, call the provider, then write the
+      // Payment (reconciling any charge failure through the webhook/a status
+      // check rather than a rollback).
       const charge = await provider.createCharge({
         orderId: donation.id,
         grossAmount: amount,
