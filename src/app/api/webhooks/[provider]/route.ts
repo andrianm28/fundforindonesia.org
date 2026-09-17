@@ -58,6 +58,11 @@ export async function POST(
   // returns an unverified event -- it throws instead -- so a bad signature is
   // caught here and nothing downstream is ever written: no WebhookEvent row,
   // no log entry that implies acceptance.
+  //
+  // No Zod schema on the request body on purpose: parseWebhook is what reads
+  // and validates it, via an HMAC signature -- a stronger guarantee than a
+  // shape check. Adding one here would validate a body already proven
+  // authentic, and give the contract a second place to drift out of sync.
   let event;
   try {
     event = await provider.parseWebhook(request);
@@ -124,8 +129,12 @@ export async function POST(
     const { campaign } = donation;
 
     if (event.status === 'paid') {
-      // MockPaymentProvider reports no fee today; a real adapter's webhook
-      // payload is where a genuine fee would come from.
+      // MockPaymentProvider reports no fee today, so this is 0 rather than
+      // derived from anything. A real adapter's webhook payload is where a
+      // genuine fee must come from -- paymentSettledLegs credits the campaign
+      // the NET, so a fee silently left at zero credits the campaign money
+      // the provider actually kept. That is invisible until the
+      // reconciliation report disagrees with the bank.
       const providerFee = 0;
       const paidAt = new Date();
       const releaseAt = escrowReleaseAt(paidAt);
@@ -185,13 +194,24 @@ export async function POST(
         amount: payment.amount,
       });
     } else {
-      // failed / expired: mark the payment, post nothing -- no money moved.
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: event.status === 'expired' ? PaymentStatus.EXPIRED : PaymentStatus.FAILED,
-          rawPayload: event.rawPayload as Prisma.InputJsonValue,
-        },
+      // failed / expired: mark the payment and the donation, post nothing --
+      // no money moved. Donation.paymentStatus only ever has
+      // pending/confirmed/failed, so both provider outcomes map onto
+      // 'failed' -- a donor who never paid should see that the attempt
+      // lapsed rather than a donation stuck reading "pending" forever.
+      await prisma.$transaction(async (tx) => {
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: event.status === 'expired' ? PaymentStatus.EXPIRED : PaymentStatus.FAILED,
+            rawPayload: event.rawPayload as Prisma.InputJsonValue,
+          },
+        });
+
+        await tx.donation.update({
+          where: { id: donation.id },
+          data: { paymentStatus: 'failed' },
+        });
       });
     }
 

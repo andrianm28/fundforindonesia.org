@@ -220,23 +220,42 @@ describe('POST /api/webhooks/[provider]', () => {
     });
   });
 
-  it('marks failed/expired events without posting any ledger entries', async () => {
-    mockGetPaymentProvider.mockReturnValue({
-      parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, status: 'expired', providerEventId: 'evt-2' }),
-    });
-    mockPaymentFindUnique.mockResolvedValue(makePayment());
-    mockPaymentUpdate.mockResolvedValue({});
+  it.each([
+    ['expired', 'EXPIRED'],
+    ['deny', 'FAILED'],
+  ] as const)(
+    'marks the Payment %s and the Donation failed, without posting any ledger entries',
+    async (eventStatus, expectedPaymentStatus) => {
+      mockGetPaymentProvider.mockReturnValue({
+        parseWebhook: vi.fn().mockResolvedValue({
+          ...PAID_EVENT,
+          status: eventStatus === 'expired' ? 'expired' : 'failed',
+          providerEventId: 'evt-2',
+        }),
+      });
+      mockPaymentFindUnique.mockResolvedValue(makePayment());
+      const { tx } = makeTx();
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 
-    const response = await POST(createRequest(), routeContext());
+      const response = await POST(createRequest(), routeContext());
 
-    expect(response.status).toBe(200);
-    expect(mockPaymentUpdate).toHaveBeenCalledWith({
-      where: { id: 'payment-1' },
-      data: expect.objectContaining({ status: 'EXPIRED' }),
-    });
-    // No money moved: postTransaction is never reached for failed/expired.
-    expect(mockTransaction).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(200);
+      expect(tx.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: expect.objectContaining({ status: expectedPaymentStatus }),
+      });
+      // Donation.paymentStatus only ever has pending/confirmed/failed -- both
+      // provider outcomes land on 'failed' so the donor's own page stops
+      // reading "pending" for an attempt that will never complete.
+      expect(tx.donation.update).toHaveBeenCalledWith({
+        where: { id: 'donation-1' },
+        data: { paymentStatus: 'failed' },
+      });
+      // No money moved: postTransaction/the campaign are never touched.
+      expect(tx.campaign.update).not.toHaveBeenCalled();
+      expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
+    },
+  );
 
   it('logs and answers 200 without ever creating a Payment for an unknown providerRef', async () => {
     mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
