@@ -21,8 +21,12 @@ export async function GET(
       );
     }
 
-    const disbursements = await prisma.disbursement.findMany({
-      where: { campaignId: campaign.id },
+    // Only COMPLETED payouts are a public record of money that has actually
+    // moved -- a draft or pending payout is not something this page can
+    // answer questions about, so it is filtered out here rather than left to
+    // the client to hide.
+    const payouts = await prisma.payout.findMany({
+      where: { campaignId: campaign.id, status: 'COMPLETED' },
       select: {
         id: true,
         amount: true,
@@ -34,7 +38,7 @@ export async function GET(
     });
 
     return NextResponse.json({
-      disbursements,
+      disbursements: payouts,
     });
   } catch (error) {
     console.error('Error fetching campaign disbursements:', error);

@@ -78,12 +78,16 @@ export async function notifyCampaignUpdate(params: {
 }
 
 /**
- * Create notification for disbursement.
+ * Create notification for a completed payout (formerly "disbursement").
  * Notifies all donors who donated to this campaign.
+ *
+ * The notification's `type` stays the string "disbursement" -- that value is
+ * stored in the database and read back by the inbox UI, so it is external
+ * behaviour, not an internal detail this rename touches.
  *
  * Validates: Requirements 17.2, 17.3
  */
-export async function notifyDisbursement(params: {
+export async function notifyPayout(params: {
   campaignId: string;
   campaignTitle: string;
   amount: number;

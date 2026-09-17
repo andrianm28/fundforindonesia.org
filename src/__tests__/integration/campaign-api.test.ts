@@ -18,7 +18,7 @@ vi.mock('@/lib/prisma', () => ({
       findMany: vi.fn(),
       count: vi.fn(),
     },
-    disbursement: {
+    payout: {
       findMany: vi.fn(),
     },
   },
@@ -49,7 +49,7 @@ const mockUpdateFindMany = vi.mocked(prisma.campaignUpdate.findMany);
 const mockUpdateCount = vi.mocked(prisma.campaignUpdate.count);
 const mockDonationFindMany = vi.mocked(prisma.donation.findMany);
 const mockDonationCount = vi.mocked(prisma.donation.count);
-const mockDisbursementFindMany = vi.mocked(prisma.disbursement.findMany);
+const mockPayoutFindMany = vi.mocked(prisma.payout.findMany);
 
 // Helpers
 function createGetRequest(url: string): NextRequest {
@@ -592,15 +592,15 @@ describe('Campaign API Integration Tests', () => {
     });
 
     describe('GET /api/campaigns/[slug]/disbursements', () => {
-      it('returns all disbursement records for the campaign', async () => {
+      it('returns all completed payout records for the campaign', async () => {
         mockFindUnique.mockResolvedValue({ id: 'campaign-1' } as never);
 
-        const disbursements = [
-          { id: 'dis1', amount: 10000000, description: 'Pembelian bahan bangunan', proofImage: 'https://proof.com/1.jpg', createdAt: new Date() },
-          { id: 'dis2', amount: 5000000, description: 'Biaya transportasi', proofImage: null, createdAt: new Date() },
+        const payouts = [
+          { id: 'payout1', amount: 10000000, description: 'Pembelian bahan bangunan', proofImage: 'https://proof.com/1.jpg', createdAt: new Date() },
+          { id: 'payout2', amount: 5000000, description: 'Biaya transportasi', proofImage: null, createdAt: new Date() },
         ];
 
-        mockDisbursementFindMany.mockResolvedValue(disbursements as never);
+        mockPayoutFindMany.mockResolvedValue(payouts as never);
 
         const request = createGetRequest('/api/campaigns/bantuan-banjir-abc123/disbursements');
         const response = await getCampaignDisbursements(request, {
@@ -612,6 +612,22 @@ describe('Campaign API Integration Tests', () => {
         expect(data.disbursements).toHaveLength(2);
         expect(data.disbursements[0].amount).toBe(10000000);
         expect(data.disbursements[1].description).toBe('Biaya transportasi');
+      });
+
+      it('only queries payouts with status COMPLETED, never drafts or pending ones', async () => {
+        mockFindUnique.mockResolvedValue({ id: 'campaign-1' } as never);
+        mockPayoutFindMany.mockResolvedValue([] as never);
+
+        const request = createGetRequest('/api/campaigns/bantuan-banjir-abc123/disbursements');
+        await getCampaignDisbursements(request, {
+          params: Promise.resolve({ slug: 'bantuan-banjir-abc123' }),
+        });
+
+        expect(mockPayoutFindMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { campaignId: 'campaign-1', status: 'COMPLETED' },
+          })
+        );
       });
 
       it('returns 404 if campaign slug does not exist', async () => {

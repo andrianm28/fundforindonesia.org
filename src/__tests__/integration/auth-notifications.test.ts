@@ -42,7 +42,7 @@ import { GET as unreadCountGET } from '@/app/api/notifications/unread-count/rout
 import {
   notifyDonationConfirmed,
   notifyCampaignUpdate,
-  notifyDisbursement,
+  notifyPayout,
 } from '@/lib/notifications';
 
 const mockGetServerSession = getServerSession as unknown as Mock;
@@ -470,7 +470,7 @@ describe('Auth & Notifications Integration Tests', () => {
         { donorId: 'donor-3' },
       ]);
 
-      await notifyDisbursement({
+      await notifyPayout({
         campaignId: 'campaign-1',
         campaignTitle: 'Bantu Anak Yatim',
         amount: 10000000,
