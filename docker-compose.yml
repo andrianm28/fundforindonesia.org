@@ -29,6 +29,12 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Deliberately has no default. Every other variable here falls back to a
+      # placeholder; this one must not, because a default webhook secret is a
+      # published one, and the whole point of the signature is that only the
+      # provider knows it. Unset means the container refuses to start, which
+      # beats a running site that accepts forged payment notifications.
+      MOCK_MIDTRANS_SERVER_KEY: ${MOCK_MIDTRANS_SERVER_KEY:?set MOCK_MIDTRANS_SERVER_KEY in .env}
     depends_on:
       db:
         condition: service_healthy
