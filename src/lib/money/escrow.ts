@@ -124,6 +124,34 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
         // campaign aggregate.
         await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${paymentCampaignId} FOR UPDATE`;
 
+        // Every refund against THIS payment, whatever its status. Refund.paymentId
+        // is what ties a refund back to the specific payment it came out of
+        // (refundLegs, ./ledger.ts, posts against a refundId, not a paymentId, so
+        // the ledger itself cannot answer this -- the Refund row is what's
+        // joined here).
+        const refunds = await tx.refund.findMany({
+          where: { paymentId: payment.id },
+          select: { amount: true, status: true },
+        });
+
+        // escrowReleasedAt means "this payment's escrow is settled, for
+        // good" -- the sweep's own predicate treats it as permanent and will
+        // never look at this payment again. That can only be true once every
+        // refund against it has a FINAL outcome. REQUESTED and PROCESSING are
+        // not final: the money might come back to the campaign (REJECTED) or
+        // leave for good (COMPLETED), and which one hasn't happened yet.
+        // Stamping now and computing amountToRelease as 0 -- as if the refund
+        // had already completed -- would look identical to "this payment's
+        // money is genuinely gone" on every future sweep, and if the refund
+        // is later REJECTED, that money would sit in ESCROW_HOLD stranded
+        // forever with nothing left to ever release it. So an in-flight
+        // refund defers the whole payment: nothing is claimed, nothing is
+        // posted, and escrowReleaseAt/escrowReleasedAt still say "not yet
+        // resolved", which is exactly true -- a later sweep, after the
+        // refund resolves, picks this payment up again.
+        const hasRefundInFlight = refunds.some((r) => r.status === 'REQUESTED' || r.status === 'PROCESSING');
+        if (hasRefundInFlight) return false;
+
         // Claim this payment before doing anything else. Whichever of two
         // concurrent sweeps commits this update first wins; the other sees
         // count 0 and stops here, before ever posting a ledger entry.
@@ -133,28 +161,21 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
         });
         if (claimed.count === 0) return false;
 
-        // The amount to release is the NET this payment originally credited
-        // to ESCROW_HOLD (paymentSettledLegs credits amount - providerFee,
-        // never the gross), minus whatever has already been refunded
-        // specifically against THIS payment. Deliberately not capped against
-        // the campaign's overall ESCROW_HOLD balance: that account is shared
-        // by every payment still inside its hold window, so a cap measured
+        // Every refund above is now final (COMPLETED or REJECTED), so the
+        // amount to release is knowable for good: the NET this payment
+        // originally credited to ESCROW_HOLD (paymentSettledLegs credits
+        // amount - providerFee, never the gross), minus whatever COMPLETED
+        // refunds actually took back. REJECTED refunds never moved money and
+        // are excluded. Deliberately not capped against the campaign's
+        // overall ESCROW_HOLD balance: that account is shared by every
+        // payment still inside its own hold window, so a cap measured
         // against the shared pot would let this payment's release "borrow"
         // headroom that in fact belongs to a sibling payment which has not
-        // matured yet -- releasing it under THIS payment's transactionId and
-        // bypassing that sibling's own hold window entirely. Refund.paymentId
-        // is what ties a refund back to the specific payment it came out of
-        // (refundLegs, ./ledger.ts, posts against a refundId, not a
-        // paymentId, so the ledger itself cannot answer this -- the Refund
-        // row is what's joined here). REJECTED refunds never moved money and
-        // are excluded; every other status is treated as already spoken for,
-        // so a refund in flight is not raced by a release.
+        // matured yet.
         const netAmount = payment.amount - payment.providerFee;
-        const refunds = await tx.refund.findMany({
-          where: { paymentId: payment.id, status: { not: 'REJECTED' } },
-          select: { amount: true },
-        });
-        const refundedAmount = refunds.reduce((sum, r) => sum + r.amount, 0);
+        const refundedAmount = refunds
+          .filter((r) => r.status !== 'REJECTED')
+          .reduce((sum, r) => sum + r.amount, 0);
         const amountToRelease = Math.max(0, netAmount - refundedAmount);
 
         if (amountToRelease > 0) {
@@ -164,11 +185,11 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
             { paymentId: payment.id, transactionId: `escrow-release:${payment.id}` },
           );
         }
-        // amountToRelease <= 0 means a refund already took all of this
-        // payment's held money before the hold matured -- there is nothing
-        // left to move, so nothing is posted. escrowReleasedAt is already
-        // stamped above regardless, so this payment is not reconsidered by
-        // every future sweep.
+        // amountToRelease <= 0 means a COMPLETED refund already took all of
+        // this payment's held money -- a final outcome, not a guess -- so
+        // there is genuinely nothing left to move. escrowReleasedAt is
+        // already stamped above, and correctly so: this payment is finished,
+        // not merely quiet for now.
 
         return true;
       });

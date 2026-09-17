@@ -11,7 +11,7 @@ import { findUnbalancedTransactions } from '@/lib/money/ledger';
  * that evidence is the only way to learn what broke -- so nothing in this
  * file writes anything.
  *
- * Four things it surfaces:
+ * What it surfaces:
  *
  *  - unbalancedTransactions: findUnbalancedTransactions (./ledger.ts). Should
  *    always be empty -- postTransaction refuses to post an unbalanced set of
@@ -34,6 +34,15 @@ import { findUnbalancedTransactions } from '@/lib/money/ledger';
  *    right when the two disagree -- this reports the gap, it does not touch
  *    collectedAmount to close it. `caveat` carries the preLedger explanation
  *    in the payload itself so it travels with the response.
+ *  - strandedEscrow: a Payment with `escrowReleasedAt` set (releaseMaturedEscrow,
+ *    ./escrow.ts, considers it permanently finished) whose credited net still
+ *    does not add up against what has actually left ESCROW_HOLD on its
+ *    behalf -- either released directly, or debited by a refund against it.
+ *    Should always be empty; it exists as the safety net for the exact class
+ *    of bug fixed in escrow.ts (stamping a payment "done" while a refund
+ *    against it was still in flight, then that refund resolving in a way the
+ *    stamp never gets to react to) recurring by some other route -- a human
+ *    sees it here instead of the money simply going quiet.
  *  - stuckPayouts: two payout states nothing in this codebase currently
  *    drains. Surfaced, not fixed -- see the comments below for why.
  */
@@ -146,6 +155,94 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
       }
     }
 
+    // Every payment releaseMaturedEscrow (./escrow.ts) considers permanently
+    // finished. For each, "what's left of its credited net" is computed two
+    // independent ways and compared: the net it originally credited to
+    // ESCROW_HOLD (Payment.amount - Payment.providerFee, no query needed --
+    // these are the same two fields the release itself reads) minus (a) what
+    // has actually been released on its behalf, and (b) what a refund
+    // against it has actually debited. A nonzero remainder means this
+    // payment's own money is sitting in ESCROW_HOLD with nothing left able
+    // to ever move it, because escrowReleasedAt already took it out of the
+    // sweep's predicate.
+    const releasedPayments = await tx.payment.findMany({
+      where: { escrowReleasedAt: { not: null } },
+      select: {
+        id: true,
+        amount: true,
+        providerFee: true,
+        donation: { select: { campaignId: true } },
+      },
+    });
+    const releasedPaymentIds = releasedPayments.map((p) => p.id);
+
+    // (a) What escrow-release actually posted for each payment. Its DEBIT
+    // ESCROW_HOLD leg carries paymentId (postTransaction stamps it from
+    // PostOptions.paymentId, escrow.ts's own release call), so this is a
+    // direct sum, not an attribution.
+    const releasedLedgerRows = releasedPaymentIds.length
+      ? await tx.ledgerEntry.groupBy({
+          by: ['paymentId'],
+          where: { account: 'ESCROW_HOLD', direction: 'DEBIT', paymentId: { in: releasedPaymentIds } },
+          _sum: { amount: true },
+        })
+      : [];
+    const releasedAmountByPayment = new Map<string, number>(
+      releasedLedgerRows.map((r) => [r.paymentId as string, r._sum.amount ?? 0]),
+    );
+
+    // (b) What a refund against each payment has actually debited. A
+    // refund's ESCROW_HOLD debit carries refundId, not paymentId (refundLegs,
+    // ./ledger.ts, is posted with PostOptions.refundId) -- so, the same way
+    // PROVIDER_FEE was attributed to a campaign above, this is joined
+    // through Refund.paymentId rather than read off the ledger entry itself.
+    const refundsOnReleasedPayments = releasedPaymentIds.length
+      ? await tx.refund.findMany({
+          where: { paymentId: { in: releasedPaymentIds } },
+          select: { id: true, paymentId: true },
+        })
+      : [];
+    const paymentIdByRefundId = new Map(refundsOnReleasedPayments.map((r) => [r.id, r.paymentId]));
+    const refundIds = refundsOnReleasedPayments.map((r) => r.id);
+    const refundDebitRows = refundIds.length
+      ? await tx.ledgerEntry.groupBy({
+          by: ['refundId'],
+          where: { account: 'ESCROW_HOLD', direction: 'DEBIT', refundId: { in: refundIds } },
+          _sum: { amount: true },
+        })
+      : [];
+    const refundedAmountByPayment = new Map<string, number>();
+    for (const row of refundDebitRows) {
+      const paymentId = paymentIdByRefundId.get(row.refundId as string);
+      if (!paymentId) continue;
+      refundedAmountByPayment.set(paymentId, (refundedAmountByPayment.get(paymentId) ?? 0) + (row._sum.amount ?? 0));
+    }
+
+    const strandedEscrow: Array<{
+      paymentId: string;
+      campaignId: string;
+      creditedNet: number;
+      releasedAmount: number;
+      refundedAmount: number;
+      residual: number;
+    }> = [];
+    for (const payment of releasedPayments) {
+      const creditedNet = payment.amount - payment.providerFee;
+      const releasedAmount = releasedAmountByPayment.get(payment.id) ?? 0;
+      const refundedAmount = refundedAmountByPayment.get(payment.id) ?? 0;
+      const residual = creditedNet - releasedAmount - refundedAmount;
+      if (residual !== 0) {
+        strandedEscrow.push({
+          paymentId: payment.id,
+          campaignId: payment.donation.campaignId,
+          creditedNet,
+          releasedAmount,
+          refundedAmount,
+          residual,
+        });
+      }
+    }
+
     // Two payout states nothing in this codebase currently drains -- see the
     // module doc comment above for why fixing either is out of scope here.
     const processingPayouts = await tx.payout.findMany({
@@ -168,6 +265,7 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
         'the ledger) or are seed/demo data. They are expected, not incidents. mismatches are ' +
         'campaigns that DO have ledger activity and still disagree with collectedAmount -- those are the real findings.',
       mismatches,
+      strandedEscrow,
       stuckPayouts: {
         // Instructed to the bank (CAMPAIGN_BALANCE debited, PAYOUT_CLEARING
         // credited, payoutInstructedLegs in ./ledger.ts) but nothing in this

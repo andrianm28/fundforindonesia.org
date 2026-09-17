@@ -100,10 +100,8 @@ function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = [], refunds: R
         }),
       },
       refund: {
-        findMany: vi.fn(async ({ where }: { where: { paymentId: string; status: { not: string } } }) =>
-          refunds
-            .filter((r) => r.paymentId === where.paymentId && r.status !== where.status.not)
-            .map((r) => ({ amount: r.amount })),
+        findMany: vi.fn(async ({ where }: { where: { paymentId: string } }) =>
+          refunds.filter((r) => r.paymentId === where.paymentId).map((r) => ({ amount: r.amount, status: r.status })),
         ),
       },
       ledgerEntry: {
@@ -186,21 +184,68 @@ describe('releaseMaturedEscrow', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('leaves nothing to release when a refund against this exact payment already covers its net', async () => {
+  it('stamps a fully-refunded payment (refund COMPLETED -- a final outcome) and never reconsiders it', async () => {
     const { rows, paymentState } = makeDb(
       [makePayment({ id: 'payment-1', amount: 50_000, campaignId: 'campaign-1' })],
       [],
       [{ paymentId: 'payment-1', amount: 50_000, status: 'COMPLETED' }],
     );
 
-    const result = await releaseMaturedEscrow('campaign-1');
+    const firstSweep = await releaseMaturedEscrow('campaign-1');
 
     // Claimed and finished -- escrowReleasedAt is stamped so this payment is
     // not reconsidered by every future sweep -- but nothing was posted,
     // because this payment's own refund already accounts for its full net.
+    expect(firstSweep).toEqual({ releasedCount: 1, consideredCount: 1 });
     expect(paymentState.get('payment-1')!.escrowReleasedAt).not.toBeNull();
     expect(rows.filter((r) => r.transactionId === 'escrow-release:payment-1')).toHaveLength(0);
+
+    // A later sweep never reconsiders it: escrowReleasedAt is no longer
+    // null, so it drops out of the query's own predicate.
+    const secondSweep = await releaseMaturedEscrow('campaign-1');
+    expect(secondSweep).toEqual({ releasedCount: 0, consideredCount: 0 });
   });
+
+  it(
+    'defers a payment with an in-flight refund rather than stamping it prematurely, then finishes it ' +
+      'once the refund resolves',
+    async () => {
+      // The stranding bug: if the sweep stamped escrowReleasedAt while a
+      // refund was still REQUESTED (treating the undecided amount as
+      // refunded, i.e. releasing 0), and that refund later came back
+      // REJECTED, the money would sit in ESCROW_HOLD forever with nothing
+      // left to ever release it -- escrowReleasedAt is not null, so no
+      // future sweep would ever look at this payment again.
+      const refunds: RefundRow[] = [{ paymentId: 'payment-1', amount: 100_000, status: 'REQUESTED' }];
+      const { rows, paymentState } = makeDb(
+        [makePayment({ id: 'payment-1', amount: 100_000, campaignId: 'campaign-1' })],
+        [],
+        refunds,
+      );
+
+      const firstSweep = await releaseMaturedEscrow('campaign-1');
+
+      // Deferred, not finished: no claim, no post. The payment is still
+      // eligible for a later sweep.
+      expect(firstSweep).toEqual({ releasedCount: 0, consideredCount: 1 });
+      expect(paymentState.get('payment-1')!.escrowReleasedAt).toBeNull();
+      expect(rows.filter((r) => r.transactionId === 'escrow-release:payment-1')).toHaveLength(0);
+
+      // The refund is later rejected -- the donor keeps nothing back, so the
+      // money is genuinely the campaign's.
+      refunds[0].status = 'REJECTED';
+
+      const secondSweep = await releaseMaturedEscrow('campaign-1');
+
+      expect(secondSweep).toEqual({ releasedCount: 1, consideredCount: 1 });
+      expect(paymentState.get('payment-1')!.escrowReleasedAt).not.toBeNull();
+      const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
+      expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({
+        account: 'CAMPAIGN_BALANCE',
+        amount: 100_000,
+      });
+    },
+  );
 
   it('ignores a REJECTED refund -- it never moved money, so it does not reduce the release', async () => {
     const { rows } = makeDb(

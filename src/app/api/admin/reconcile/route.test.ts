@@ -29,6 +29,7 @@ type LedgerRow = {
   account: string;
   campaignId: string | null;
   paymentId?: string | null;
+  refundId?: string | null;
 };
 
 type PayoutRow = {
@@ -40,9 +41,28 @@ type PayoutRow = {
   approvedAt: Date | null;
 };
 
-type PaymentRow = { id: string; campaignId: string };
+type PaymentRow = {
+  id: string;
+  campaignId: string;
+  amount?: number;
+  providerFee?: number;
+  escrowReleasedAt?: Date | null;
+};
+
+type RefundRow = { id: string; paymentId: string };
 
 type CampaignRow = { id: string; title: string; collectedAmount: number };
+
+/** Handles the `{ not }` and `{ in }` Prisma filter shapes this route's queries use. */
+function matchesWhere(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([k, v]) => {
+    if (v && typeof v === 'object') {
+      if ('not' in (v as Record<string, unknown>)) return row[k] !== (v as { not: unknown }).not;
+      if ('in' in (v as Record<string, unknown>)) return (v as { in: unknown[] }).in.includes(row[k]);
+    }
+    return row[k] === v;
+  });
+}
 
 /**
  * Minimal in-memory stand-in for the transaction client the route wraps its
@@ -53,25 +73,19 @@ function makeTx(options: {
   ledgerRows?: LedgerRow[];
   payouts?: PayoutRow[];
   payments?: PaymentRow[];
+  refunds?: RefundRow[];
   campaigns?: CampaignRow[];
 } = {}) {
   const rows = options.ledgerRows ?? [];
   const payouts = options.payouts ?? [];
   const payments = options.payments ?? [];
+  const refunds = options.refunds ?? [];
   const campaigns = options.campaigns ?? [];
 
   return {
     ledgerEntry: {
       groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
-        const filtered = rows.filter((r) => {
-          const w = args.where ?? {};
-          return Object.entries(w).every(([k, v]) => {
-            if (v && typeof v === 'object' && 'not' in (v as Record<string, unknown>)) {
-              return (r as never as Record<string, unknown>)[k] !== (v as { not: unknown }).not;
-            }
-            return (r as never as Record<string, unknown>)[k] === v;
-          });
-        });
+        const filtered = rows.filter((r) => matchesWhere(r as never as Record<string, unknown>, args.where ?? {}));
         const buckets = new Map<string, { row: Record<string, unknown>; sum: number }>();
         for (const r of filtered) {
           const key = args.by.map((k) => String((r as never as Record<string, unknown>)[k])).join('|');
@@ -85,21 +99,35 @@ function makeTx(options: {
         return Array.from(buckets.values()).map((b) => ({ ...b.row, _sum: { amount: b.sum } }));
       }),
       findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
-        rows.filter((r) =>
-          Object.entries(where).every(([k, v]) => {
-            if (v && typeof v === 'object' && 'not' in (v as Record<string, unknown>)) {
-              return (r as never as Record<string, unknown>)[k] !== (v as { not: unknown }).not;
-            }
-            return (r as never as Record<string, unknown>)[k] === v;
-          }),
-        ),
+        rows.filter((r) => matchesWhere(r as never as Record<string, unknown>, where)),
       ),
     },
     payment: {
-      findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
-        payments
-          .filter((p) => where.id.in.includes(p.id))
-          .map((p) => ({ id: p.id, donation: { campaignId: p.campaignId } })),
+      // Backs two different call shapes in the route: `id: { in: [...] }`
+      // (PROVIDER_FEE attribution) and `escrowReleasedAt: { not: null }`
+      // (the strandedEscrow safety net) -- matchesWhere handles both, and
+      // returning every field regardless of which `select` was requested is
+      // harmless since each call site only reads the fields it asked for.
+      findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+        // Default escrowReleasedAt to null (as a real, unreleased Payment
+        // row would have) rather than leaving it undefined, so `{ not: null
+        // }` correctly excludes a fixture that never mentioned the field.
+        const normalized = payments.map((p) => ({ ...p, escrowReleasedAt: p.escrowReleasedAt ?? null }));
+        return normalized
+          .filter((p) => matchesWhere(p as never as Record<string, unknown>, where))
+          .map((p) => ({
+            id: p.id,
+            amount: p.amount ?? 0,
+            providerFee: p.providerFee ?? 0,
+            donation: { campaignId: p.campaignId },
+          }));
+      }),
+    },
+    refund: {
+      findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
+        refunds
+          .filter((r) => matchesWhere(r as never as Record<string, unknown>, where))
+          .map((r) => ({ id: r.id, paymentId: r.paymentId })),
       ),
     },
     campaign: {
@@ -108,7 +136,7 @@ function makeTx(options: {
     payout: {
       findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
         payouts
-          .filter((p) => Object.entries(where).every(([k, v]) => (p as never as Record<string, unknown>)[k] === v))
+          .filter((p) => matchesWhere(p as never as Record<string, unknown>, where))
           .map((p) => ({
             id: p.id,
             campaignId: p.campaignId,
@@ -165,6 +193,7 @@ describe('GET /api/admin/reconcile', () => {
     expect(data.preLedger).toEqual([]);
     expect(data.mismatches).toEqual([]);
     expect(typeof data.caveat).toBe('string');
+    expect(data.strandedEscrow).toEqual([]);
     expect(data.stuckPayouts.processing).toEqual([]);
     expect(data.stuckPayouts.approvedWithoutProviderRef).toEqual([]);
   });
@@ -257,6 +286,93 @@ describe('GET /api/admin/reconcile', () => {
     ]);
     expect(data.mismatches).toEqual([]);
     expect(data.caveat).toMatch(/preLedger/);
+  });
+
+  it('does not flag a payment that released cleanly (its DEBIT ESCROW_HOLD leg accounts for the full net)', async () => {
+    const tx = makeTx({
+      ledgerRows: [
+        {
+          transactionId: 'escrow-release:payment-1',
+          direction: 'DEBIT',
+          amount: 100_000,
+          account: 'ESCROW_HOLD',
+          campaignId: 'campaign-1',
+          paymentId: 'payment-1',
+        },
+        {
+          transactionId: 'escrow-release:payment-1',
+          direction: 'CREDIT',
+          amount: 100_000,
+          account: 'CAMPAIGN_BALANCE',
+          campaignId: 'campaign-1',
+        },
+      ],
+      payments: [
+        { id: 'payment-1', campaignId: 'campaign-1', amount: 100_000, providerFee: 0, escrowReleasedAt: new Date('2026-08-10') },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.strandedEscrow).toEqual([]);
+  });
+
+  it('does not flag a payment that was fully and finally refunded (refund debit accounts for the full net)', async () => {
+    const tx = makeTx({
+      ledgerRows: [
+        {
+          transactionId: 'refund-1',
+          direction: 'DEBIT',
+          amount: 100_000,
+          account: 'ESCROW_HOLD',
+          campaignId: 'campaign-1',
+          refundId: 'refund-1',
+        },
+        { transactionId: 'refund-1', direction: 'CREDIT', amount: 100_000, account: 'REFUND_CLEARING', campaignId: null },
+      ],
+      payments: [
+        { id: 'payment-1', campaignId: 'campaign-1', amount: 100_000, providerFee: 0, escrowReleasedAt: new Date('2026-08-10') },
+      ],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1' }],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.strandedEscrow).toEqual([]);
+  });
+
+  it('flags a payment stamped escrowReleasedAt whose net was neither released nor refunded -- the stranding bug', async () => {
+    // The exact shape the fixed bug in escrow.ts used to leave behind: a
+    // payment claimed and stamped `escrowReleasedAt`, but with no release
+    // leg posted (its own refund was in flight when the stamp happened) and
+    // no refund debit either (that refund never resolved, or was silently
+    // lost) -- its 100_000 net is sitting in ESCROW_HOLD, unreachable by any
+    // future sweep.
+    const tx = makeTx({
+      ledgerRows: [],
+      payments: [
+        { id: 'payment-1', campaignId: 'campaign-1', amount: 100_000, providerFee: 0, escrowReleasedAt: new Date('2026-08-10') },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.strandedEscrow).toEqual([
+      {
+        paymentId: 'payment-1',
+        campaignId: 'campaign-1',
+        creditedNet: 100_000,
+        releasedAmount: 0,
+        refundedAmount: 0,
+        residual: 100_000,
+      },
+    ]);
   });
 
   it('lists a stuck PROCESSING payout', async () => {
