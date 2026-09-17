@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { escrowBalance, escrowReleaseLegs, postTransaction } from './ledger';
+import { escrowReleaseLegs, postTransaction } from './ledger';
 
 /**
  * The escrow hold: how long settled money sits in ESCROW_HOLD before it
@@ -74,6 +74,11 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
 
   const matured = await prisma.payment.findMany({
     where: {
+      // Only a settled payment can have anything left to release. A payment
+      // that later moved to REFUNDED (fully refunded) has nothing of its own
+      // left either, and excluding it here is cheaper than discovering that
+      // inside the transaction below.
+      status: 'PAID',
       escrowReleaseAt: { lte: now },
       escrowReleasedAt: null,
       ...(campaignId ? { donation: { campaignId } } : {}),
@@ -84,8 +89,24 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
       providerFee: true,
       donation: { select: { campaignId: true } },
     },
+    // Oldest hold first, so that if the sweep limit below truncates the
+    // list, which holds get left for the next call is deterministic rather
+    // than whatever order the database happens to return.
+    orderBy: { escrowReleaseAt: 'asc' },
     take: ESCROW_RELEASE_SWEEP_LIMIT,
   });
+
+  if (matured.length === ESCROW_RELEASE_SWEEP_LIMIT) {
+    // Silence here would mean a campaign sitting on a backlog bigger than
+    // one sweep can look like nothing is wrong -- the caller sees a normal
+    // result, and the only symptom is a campaigner needing to ask for a
+    // payout more than once before every matured hold has actually released.
+    console.warn(
+      `releaseMaturedEscrow: hit the sweep limit of ${ESCROW_RELEASE_SWEEP_LIMIT}` +
+        `${campaignId ? ` for campaign ${campaignId}` : ''} -- more matured holds remain ` +
+        'and will be picked up by a later call.',
+    );
+  }
 
   let releasedCount = 0;
   for (const payment of matured) {
@@ -93,12 +114,14 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
     try {
       const released = await prisma.$transaction(async (tx) => {
         // Lock the campaign row before touching its ESCROW_HOLD /
-        // CAMPAIGN_BALANCE pot, for the same reason approveAndReleasePayout
-        // locks it before spending CAMPAIGN_BALANCE (./payouts.ts): two
-        // different payments maturing for the SAME campaign at once would
-        // otherwise both read the same pre-release escrow balance below and
-        // could together release more than the campaign's ESCROW_HOLD
-        // actually holds.
+        // CAMPAIGN_BALANCE accounts, the same precaution approveAndReleasePayout
+        // takes before spending CAMPAIGN_BALANCE (./payouts.ts). amountToRelease
+        // below is computed entirely from this payment's own fields and its own
+        // Refund rows, never from a campaign-wide aggregate, so two sibling
+        // payments of the same campaign releasing concurrently no longer share
+        // anything this lock would need to protect -- it stays as the standing
+        // guard for any future write in this function that does touch a shared
+        // campaign aggregate.
         await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${paymentCampaignId} FOR UPDATE`;
 
         // Claim this payment before doing anything else. Whichever of two
@@ -112,19 +135,27 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
 
         // The amount to release is the NET this payment originally credited
         // to ESCROW_HOLD (paymentSettledLegs credits amount - providerFee,
-        // never the gross), capped at what the campaign's ESCROW_HOLD
-        // account actually holds right now. The cap is what keeps a refund
-        // honest: a refund inside the hold window debits ESCROW_HOLD
-        // directly (refundLegs, ./ledger.ts), so if this payment's share of
-        // that shared, campaign-level account has already gone back to a
-        // donor, there is less than the full net left to release -- possibly
-        // nothing. Releasing the net amount unconditionally would debit
-        // ESCROW_HOLD past what a refund left in it and drive the account
-        // negative, which is exactly the failure this cap exists to rule
-        // out.
+        // never the gross), minus whatever has already been refunded
+        // specifically against THIS payment. Deliberately not capped against
+        // the campaign's overall ESCROW_HOLD balance: that account is shared
+        // by every payment still inside its hold window, so a cap measured
+        // against the shared pot would let this payment's release "borrow"
+        // headroom that in fact belongs to a sibling payment which has not
+        // matured yet -- releasing it under THIS payment's transactionId and
+        // bypassing that sibling's own hold window entirely. Refund.paymentId
+        // is what ties a refund back to the specific payment it came out of
+        // (refundLegs, ./ledger.ts, posts against a refundId, not a
+        // paymentId, so the ledger itself cannot answer this -- the Refund
+        // row is what's joined here). REJECTED refunds never moved money and
+        // are excluded; every other status is treated as already spoken for,
+        // so a refund in flight is not raced by a release.
         const netAmount = payment.amount - payment.providerFee;
-        const held = await escrowBalance(tx, paymentCampaignId);
-        const amountToRelease = Math.min(netAmount, held);
+        const refunds = await tx.refund.findMany({
+          where: { paymentId: payment.id, status: { not: 'REJECTED' } },
+          select: { amount: true },
+        });
+        const refundedAmount = refunds.reduce((sum, r) => sum + r.amount, 0);
+        const amountToRelease = Math.max(0, netAmount - refundedAmount);
 
         if (amountToRelease > 0) {
           await postTransaction(

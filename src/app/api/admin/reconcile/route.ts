@@ -21,14 +21,19 @@ import { findUnbalancedTransactions } from '@/lib/money/ledger';
  *    Should be impossible given the caps in releaseMaturedEscrow
  *    (./escrow.ts) and the balance checks in ./payouts.ts; this is what
  *    would catch it if one of those was ever wrong.
- *  - collectedAmountMismatches: Campaign.collectedAmount disagreeing with
- *    what the ledger says this campaign has ever been credited. Per
- *    ledger.ts's doc comment, the ledger is right when the two disagree --
- *    this reports the gap, it does not touch collectedAmount to close it.
- *    A campaign funded through /api/balance/donate (the wallet flow, which
- *    posts no ledger entries at all) will always show up here -- that is a
- *    real, pre-existing gap between that flow and the money layer, not a
- *    bug in this comparison.
+ *  - preLedger / mismatches: both compare Campaign.collectedAmount against
+ *    what the ledger says this campaign has ever been credited, but they are
+ *    reported separately because they mean different things. A campaign with
+ *    collectedAmount > 0 and NO ledger entries at all -- e.g. one funded
+ *    entirely through /api/balance/donate (the wallet flow), which posts
+ *    nothing to the ledger -- predates the money layer by construction, not
+ *    by a date this file would have to keep in sync; every one of those goes
+ *    to `preLedger`, a known, expected bucket. A campaign that DOES have
+ *    ledger entries and still disagrees with collectedAmount is the real
+ *    finding, in `mismatches`. Per ledger.ts's doc comment, the ledger is
+ *    right when the two disagree -- this reports the gap, it does not touch
+ *    collectedAmount to close it. `caveat` carries the preLedger explanation
+ *    in the payload itself so it travels with the response.
  *  - stuckPayouts: two payout states nothing in this codebase currently
  *    drains. Surfaced, not fixed -- see the comments below for why.
  */
@@ -107,24 +112,37 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
       select: { id: true, title: true, collectedAmount: true },
     });
 
-    const collectedAmountMismatches: Array<{
+    type CollectedAmountRow = {
       campaignId: string;
       campaignTitle: string;
       collectedAmount: number;
       ledgerAmount: number;
       difference: number;
-    }> = [];
+    };
+    const preLedger: CollectedAmountRow[] = [];
+    const mismatches: CollectedAmountRow[] = [];
     for (const campaign of campaigns) {
       const ledgerAmount =
         (netEverCreditedByCampaign.get(campaign.id) ?? 0) + (feeByCampaign.get(campaign.id) ?? 0);
-      if (ledgerAmount !== campaign.collectedAmount) {
-        collectedAmountMismatches.push({
-          campaignId: campaign.id,
-          campaignTitle: campaign.title,
-          collectedAmount: campaign.collectedAmount,
-          ledgerAmount,
-          difference: campaign.collectedAmount - ledgerAmount,
-        });
+      if (ledgerAmount === campaign.collectedAmount) continue;
+
+      const row: CollectedAmountRow = {
+        campaignId: campaign.id,
+        campaignTitle: campaign.title,
+        collectedAmount: campaign.collectedAmount,
+        ledgerAmount,
+        difference: campaign.collectedAmount - ledgerAmount,
+      };
+      // "No ledger entries at all" checked directly, not inferred from
+      // ledgerAmount being 0 -- a campaign that DOES have ledger activity but
+      // nets to exactly 0 (fully refunded, say) must still land in
+      // `mismatches` if collectedAmount disagrees, not be waved through as
+      // pre-ledger.
+      const hasLedgerActivity = balances.has(campaign.id) || feeByCampaign.has(campaign.id);
+      if (!hasLedgerActivity) {
+        preLedger.push(row);
+      } else {
+        mismatches.push(row);
       }
     }
 
@@ -143,7 +161,13 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
       generatedAt: new Date().toISOString(),
       unbalancedTransactions,
       negativeBalances,
-      collectedAmountMismatches,
+      preLedger,
+      caveat:
+        'preLedger campaigns have collectedAmount > 0 but no ledger entries at all -- they ' +
+        'predate the money layer (e.g. funded via /api/balance/donate, which never posts to ' +
+        'the ledger) or are seed/demo data. They are expected, not incidents. mismatches are ' +
+        'campaigns that DO have ledger activity and still disagree with collectedAmount -- those are the real findings.',
+      mismatches,
       stuckPayouts: {
         // Instructed to the bank (CAMPAIGN_BALANCE debited, PAYOUT_CLEARING
         // credited, payoutInstructedLegs in ./ledger.ts) but nothing in this

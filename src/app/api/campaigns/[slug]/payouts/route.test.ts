@@ -70,6 +70,10 @@ function makeTx(options: {
           return { count: 1 };
         }),
       },
+      // No refunds in any of these tests -- releaseMaturedEscrow's per-payment
+      // cap (src/lib/money/escrow.ts) reads this to find out how much of a
+      // payment's net has already gone back to a donor.
+      refund: { findMany: vi.fn().mockResolvedValue([]) },
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
       ledgerEntry: {
         count: vi.fn(async () => 0),

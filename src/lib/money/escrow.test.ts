@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 // Mock prisma wholesale, matching src/app/api/webhooks/[provider]/route.test.ts
 // and the payout tests. The fake tx below runs the real ledger's
-// groupBy/count/createMany (same simulation as src/lib/money/ledger.test.ts),
-// so escrowBalance and postTransaction are exercised for real -- assertions
-// below check the rows actually handed to ledgerEntry.createMany, not merely
-// that some function was called.
+// count/createMany (same simulation as src/lib/money/ledger.test.ts), so
+// postTransaction is exercised for real -- assertions below check the rows
+// actually handed to ledgerEntry.createMany, not merely that some function
+// was called.
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     payment: { findMany: vi.fn() },
@@ -25,6 +25,7 @@ type PaymentRow = {
   id: string;
   amount: number;
   providerFee: number;
+  status: string;
   escrowReleaseAt: Date | null;
   escrowReleasedAt: Date | null;
   campaignId: string;
@@ -39,11 +40,14 @@ type LedgerRow = {
   paymentId?: string | null;
 };
 
+type RefundRow = { paymentId: string; amount: number; status: string };
+
 function makePayment(overrides: Partial<PaymentRow> = {}): PaymentRow {
   return {
     id: 'payment-1',
     amount: 100_000,
     providerFee: 0,
+    status: 'PAID',
     escrowReleaseAt: new Date(Date.now() - MS_PER_DAY), // matured yesterday
     escrowReleasedAt: null,
     campaignId: 'campaign-1',
@@ -51,33 +55,15 @@ function makePayment(overrides: Partial<PaymentRow> = {}): PaymentRow {
   };
 }
 
-/** Same groupBy simulation as src/lib/money/ledger.test.ts, reused by every fake tx below. */
-function groupByAccount(rows: LedgerRow[], args: { by: string[]; where?: Record<string, unknown> }) {
-  const filtered = rows.filter((r) => {
-    const w = args.where ?? {};
-    return Object.entries(w).every(([k, v]) => (r as never as Record<string, unknown>)[k] === v);
-  });
-  const buckets = new Map<string, { row: Record<string, unknown>; sum: number }>();
-  for (const r of filtered) {
-    const key = args.by.map((k) => String((r as never as Record<string, unknown>)[k])).join('|');
-    const b = buckets.get(key) ?? {
-      row: Object.fromEntries(args.by.map((k) => [k, (r as never as Record<string, unknown>)[k]])),
-      sum: 0,
-    };
-    b.sum += r.amount;
-    buckets.set(key, b);
-  }
-  return Array.from(buckets.values()).map((b) => ({ ...b.row, _sum: { amount: b.sum } }));
-}
-
 /**
- * A fake "database": a mutable map of Payment rows plus a mutable array of
- * LedgerEntry rows, wired up so `prisma.payment.findMany` applies the exact
- * where-shape releaseMaturedEscrow queries with, and `prisma.$transaction`
- * hands the callback a tx whose $queryRaw/payment.updateMany/ledgerEntry.*
- * are real enough for escrowBalance and postTransaction to run unmocked.
+ * A fake "database": a mutable map of Payment rows, a mutable array of
+ * LedgerEntry rows, and a fixed list of Refund rows, wired up so
+ * `prisma.payment.findMany` applies the exact where-shape releaseMaturedEscrow
+ * queries with, and `prisma.$transaction` hands the callback a tx whose
+ * $queryRaw/payment.updateMany/refund.findMany/ledgerEntry.* are real enough
+ * for postTransaction to run unmocked.
  */
-function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = []) {
+function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = [], refunds: RefundRow[] = []) {
   const paymentState = new Map(payments.map((p) => [p.id, { ...p }]));
   const rows: LedgerRow[] = [...ledgerRows];
 
@@ -87,6 +73,7 @@ function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = []) {
       const campaignFilter = (where.donation as { campaignId: string } | undefined)?.campaignId;
       const matches = Array.from(paymentState.values()).filter(
         (p) =>
+          p.status === where.status &&
           p.escrowReleaseAt !== null &&
           p.escrowReleaseAt.getTime() <= now.getTime() &&
           p.escrowReleasedAt === null &&
@@ -112,6 +99,13 @@ function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = []) {
           return { count: 1 };
         }),
       },
+      refund: {
+        findMany: vi.fn(async ({ where }: { where: { paymentId: string; status: { not: string } } }) =>
+          refunds
+            .filter((r) => r.paymentId === where.paymentId && r.status !== where.status.not)
+            .map((r) => ({ amount: r.amount })),
+        ),
+      },
       ledgerEntry: {
         count: vi.fn(async ({ where }: { where: { transactionId: string } }) =>
           rows.filter((r) => r.transactionId === where.transactionId).length,
@@ -120,7 +114,6 @@ function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = []) {
           rows.push(...data);
           return { count: data.length };
         }),
-        groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => groupByAccount(rows, args)),
       },
     };
   }
@@ -137,10 +130,9 @@ describe('releaseMaturedEscrow', () => {
 
   it('releases a payment whose hold matured (8 days old, 7-day hold)', async () => {
     const eightDaysAgo = new Date(Date.now() - 8 * MS_PER_DAY);
-    const { rows } = makeDb(
-      [makePayment({ id: 'payment-1', amount: 100_000, escrowReleaseAt: eightDaysAgo, campaignId: 'campaign-1' })],
-      [{ transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 100_000, campaignId: 'campaign-1' }],
-    );
+    const { rows } = makeDb([
+      makePayment({ id: 'payment-1', amount: 100_000, escrowReleaseAt: eightDaysAgo, campaignId: 'campaign-1' }),
+    ]);
 
     const result = await releaseMaturedEscrow('campaign-1');
 
@@ -161,10 +153,7 @@ describe('releaseMaturedEscrow', () => {
   it('does not release a payment whose hold has not matured yet (6 days old, 7-day hold)', async () => {
     const sixDaysAgo = new Date(Date.now() - 6 * MS_PER_DAY);
     const notYetMatured = new Date(sixDaysAgo.getTime() + ESCROW_HOLD_DAYS * MS_PER_DAY); // 1 day from now
-    const { rows } = makeDb(
-      [makePayment({ id: 'payment-1', escrowReleaseAt: notYetMatured, campaignId: 'campaign-1' })],
-      [{ transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 100_000, campaignId: 'campaign-1' }],
-    );
+    const { rows } = makeDb([makePayment({ id: 'payment-1', escrowReleaseAt: notYetMatured, campaignId: 'campaign-1' })]);
 
     const result = await releaseMaturedEscrow('campaign-1');
 
@@ -175,7 +164,7 @@ describe('releaseMaturedEscrow', () => {
 
   it('never sweeps a payment refused for an amount mismatch (PENDING, escrowReleaseAt null)', async () => {
     const { rows } = makeDb([
-      makePayment({ id: 'payment-1', escrowReleaseAt: null, campaignId: 'campaign-1' }),
+      makePayment({ id: 'payment-1', status: 'PENDING', escrowReleaseAt: null, campaignId: 'campaign-1' }),
     ]);
 
     const result = await releaseMaturedEscrow('campaign-1');
@@ -185,33 +174,80 @@ describe('releaseMaturedEscrow', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('leaves nothing to release when a refund inside the hold window already emptied ESCROW_HOLD', async () => {
-    // Settlement credited 50_000, then a refund (refundLegs, ./ledger.ts)
-    // debited the same 50_000 back out of ESCROW_HOLD before the hold
-    // matured -- the campaign's ESCROW_HOLD balance is genuinely 0.
+  it('never sweeps a payment that has moved to REFUNDED, even if its hold looks matured', async () => {
+    // A fully-refunded payment's status moves off PAID -- excluded by the
+    // query itself so this never even reaches the per-payment refund lookup.
+    const { rows } = makeDb([makePayment({ id: 'payment-1', status: 'REFUNDED', campaignId: 'campaign-1' })]);
+
+    const result = await releaseMaturedEscrow('campaign-1');
+
+    expect(result).toEqual({ releasedCount: 0, consideredCount: 0 });
+    expect(rows).toHaveLength(0);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('leaves nothing to release when a refund against this exact payment already covers its net', async () => {
     const { rows, paymentState } = makeDb(
       [makePayment({ id: 'payment-1', amount: 50_000, campaignId: 'campaign-1' })],
-      [
-        { transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 50_000, campaignId: 'campaign-1' },
-        { transactionId: 'refund-1', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 50_000, campaignId: 'campaign-1' },
-      ],
+      [],
+      [{ paymentId: 'payment-1', amount: 50_000, status: 'COMPLETED' }],
     );
 
     const result = await releaseMaturedEscrow('campaign-1');
 
     // Claimed and finished -- escrowReleasedAt is stamped so this payment is
     // not reconsidered by every future sweep -- but nothing was posted,
-    // because releasing the full net here (ignoring the refund) would debit
-    // ESCROW_HOLD past zero and drive the account negative.
+    // because this payment's own refund already accounts for its full net.
     expect(paymentState.get('payment-1')!.escrowReleasedAt).not.toBeNull();
     expect(rows.filter((r) => r.transactionId === 'escrow-release:payment-1')).toHaveLength(0);
   });
 
-  it('posts one set of entries when two release sweeps race for the same matured payment', async () => {
-    const { rows, paymentState } = makeDb(
-      [makePayment({ id: 'payment-1', amount: 100_000, campaignId: 'campaign-1' })],
-      [{ transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 100_000, campaignId: 'campaign-1' }],
+  it('ignores a REJECTED refund -- it never moved money, so it does not reduce the release', async () => {
+    const { rows } = makeDb(
+      [makePayment({ id: 'payment-1', amount: 50_000, campaignId: 'campaign-1' })],
+      [],
+      [{ paymentId: 'payment-1', amount: 50_000, status: 'REJECTED' }],
     );
+
+    await releaseMaturedEscrow('campaign-1');
+
+    const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
+    expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({ amount: 50_000 });
+  });
+
+  it(
+    "caps a release at this payment's own net minus its own refunds, never at a sibling payment's " +
+      'still-held money in the same campaign-level ESCROW_HOLD account',
+    async () => {
+      // The exact scenario the campaign-wide cap got wrong: payment A is
+      // matured and fully refunded (nothing left of its own); payment B is a
+      // second, unrelated settlement sharing the same campaign's ESCROW_HOLD
+      // account and still has its full 100_000 sitting there. Sweeping A must
+      // release 0 -- not "borrow" B's still-held money under A's
+      // transactionId, which is what capping against the campaign's overall
+      // ESCROW_HOLD balance used to do.
+      const { rows } = makeDb(
+        [makePayment({ id: 'payment-A', amount: 100_000, campaignId: 'campaign-1' })],
+        [
+          { transactionId: 'settle-A', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 100_000, campaignId: 'campaign-1' },
+          { transactionId: 'settle-B', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 100_000, campaignId: 'campaign-1' },
+        ],
+        [{ paymentId: 'payment-A', amount: 100_000, status: 'COMPLETED' }],
+      );
+
+      const result = await releaseMaturedEscrow('campaign-1');
+
+      expect(result.consideredCount).toBe(1);
+      const releaseLegsA = rows.filter((r) => r.transactionId === 'escrow-release:payment-A');
+      expect(releaseLegsA).toHaveLength(0);
+      // Payment B's own settlement leg is the only thing left in the ledger
+      // -- untouched, not partially consumed by A's release.
+      expect(rows.filter((r) => r.transactionId === 'settle-B')).toHaveLength(1);
+    },
+  );
+
+  it('posts one set of entries when two release sweeps race for the same matured payment', async () => {
+    const { rows, paymentState } = makeDb([makePayment({ id: 'payment-1', amount: 100_000, campaignId: 'campaign-1' })]);
 
     // A strict FIFO mutex standing in for a real `SELECT ... FOR UPDATE` on
     // the Campaign row: whichever concurrent call reaches $queryRaw first
@@ -245,6 +281,7 @@ describe('releaseMaturedEscrow', () => {
             return { count: 1 };
           }),
         },
+        refund: { findMany: vi.fn(async () => []) },
         ledgerEntry: {
           count: vi.fn(async ({ where }: { where: { transactionId: string } }) =>
             rows.filter((r) => r.transactionId === where.transactionId).length,
@@ -253,7 +290,6 @@ describe('releaseMaturedEscrow', () => {
             rows.push(...data);
             return { count: data.length };
           }),
-          groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => groupByAccount(rows, args)),
         },
       };
       try {

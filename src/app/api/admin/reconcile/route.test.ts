@@ -162,7 +162,9 @@ describe('GET /api/admin/reconcile', () => {
     expect(response.status).toBe(200);
     expect(data.unbalancedTransactions).toEqual([]);
     expect(data.negativeBalances).toEqual([]);
-    expect(data.collectedAmountMismatches).toEqual([]);
+    expect(data.preLedger).toEqual([]);
+    expect(data.mismatches).toEqual([]);
+    expect(typeof data.caveat).toBe('string');
     expect(data.stuckPayouts.processing).toEqual([]);
     expect(data.stuckPayouts.approvedWithoutProviderRef).toEqual([]);
   });
@@ -202,7 +204,7 @@ describe('GET /api/admin/reconcile', () => {
     ]);
   });
 
-  it('reports a campaign whose collectedAmount disagrees with the ledger, attributing PROVIDER_FEE via the payment it names', async () => {
+  it('reports, as a real mismatch, a campaign with ledger activity whose collectedAmount still disagrees -- attributing PROVIDER_FEE via the payment it names', async () => {
     const tx = makeTx({
       ledgerRows: [
         { transactionId: 't1', direction: 'CREDIT', amount: 95_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1' },
@@ -210,9 +212,9 @@ describe('GET /api/admin/reconcile', () => {
       ],
       payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
       // The ledger says this campaign's gross was 95_000 + 5_000 = 100_000,
-      // but collectedAmount says 130_000 -- e.g. a wallet donation
-      // (/api/balance/donate) that bumped collectedAmount without ever
-      // touching the ledger.
+      // but collectedAmount says 130_000 -- this campaign genuinely has
+      // ledger activity (the ESCROW_HOLD credit), so the extra 30_000 is a
+      // real finding, not pre-ledger noise.
       campaigns: [{ id: 'campaign-1', title: 'Campaign One', collectedAmount: 130_000 }],
     });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
@@ -220,7 +222,7 @@ describe('GET /api/admin/reconcile', () => {
     const response = await GET(createRequest());
     const data = await response.json();
 
-    expect(data.collectedAmountMismatches).toEqual([
+    expect(data.mismatches).toEqual([
       {
         campaignId: 'campaign-1',
         campaignTitle: 'Campaign One',
@@ -229,6 +231,32 @@ describe('GET /api/admin/reconcile', () => {
         difference: 30_000,
       },
     ]);
+    expect(data.preLedger).toEqual([]);
+  });
+
+  it('partitions a campaign with collectedAmount > 0 and no ledger entries at all into preLedger, not mismatches', async () => {
+    const tx = makeTx({
+      ledgerRows: [],
+      // e.g. a campaign funded entirely through /api/balance/donate, which
+      // bumps collectedAmount and never touches the ledger.
+      campaigns: [{ id: 'campaign-1', title: 'Wallet-funded Campaign', collectedAmount: 500_000 }],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.preLedger).toEqual([
+      {
+        campaignId: 'campaign-1',
+        campaignTitle: 'Wallet-funded Campaign',
+        collectedAmount: 500_000,
+        ledgerAmount: 0,
+        difference: 500_000,
+      },
+    ]);
+    expect(data.mismatches).toEqual([]);
+    expect(data.caveat).toMatch(/preLedger/);
   });
 
   it('lists a stuck PROCESSING payout', async () => {
