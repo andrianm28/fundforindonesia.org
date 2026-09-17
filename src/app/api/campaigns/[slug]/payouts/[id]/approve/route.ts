@@ -56,9 +56,10 @@ export const POST = withRoleCheck('ADMIN', async (_request: NextRequest, context
   }
 
   try {
-    const updated = await prisma.$transaction((tx) =>
-      approveAndReleasePayout(tx, { payoutId: id, approvedById, provider }),
-    );
+    // approveAndReleasePayout owns its own transaction boundaries -- it is
+    // two separate transactions around the provider call, not one -- so the
+    // plain client is passed straight through rather than wrapped here.
+    const updated = await approveAndReleasePayout(prisma, { payoutId: id, approvedById, provider });
 
     return NextResponse.json({
       id: updated.id,
@@ -92,11 +93,10 @@ export const POST = withRoleCheck('ADMIN', async (_request: NextRequest, context
       );
     }
     if (error instanceof BankAccountNotEligibleError) {
-      // Not reachable today -- requestPayout already enforced this at
-      // creation time, and nothing between request and approval can change a
-      // BankAccount's owner or verifiedAt. Handled anyway so an approve
-      // response never falls through to a bare 500 for a case the type
-      // system cannot rule out.
+      // Genuinely reachable: approveAndReleasePayout re-checks ownership and
+      // verifiedAt at approval time, not just at request time, because an
+      // operator can revoke verification on a bank account discovered to be
+      // fraudulent in the window between the two.
       return NextResponse.json(
         { error: 'Rekening tujuan tidak lagi memenuhi syarat' },
         { status: 403 },

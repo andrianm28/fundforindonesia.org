@@ -1,4 +1,4 @@
-import type { Payout, Prisma } from '@/generated/prisma/client';
+import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
 import type { PaymentProvider } from '@/lib/payments';
 import { campaignBalance, payoutInstructedLegs, postTransaction } from './ledger';
 
@@ -9,11 +9,6 @@ import { campaignBalance, payoutInstructedLegs, postTransaction } from './ledger
  * (packages/db/src/schema/disbursement-requests.ts:40-47). Money leaves the
  * platform through exactly one door -- this file -- the same way the webhook
  * (task M5) is the only door it comes in through.
- *
- * Both functions here take a `Prisma.TransactionClient`, not the global
- * prisma client, for the same reason ledger.ts's functions do: a payout's
- * status change and the ledger entries describing it must commit together or
- * not at all.
  *
  * This task does not implement a submit step, so DRAFT -- what requestPayout
  * creates -- is the only status a payout is ever in before approval. SUBMITTED
@@ -75,7 +70,10 @@ export class PayoutNotFoundError extends Error {
 /**
  * Campaign-owner requests a payout. Creates a DRAFT and posts nothing to the
  * ledger -- a request is not yet a movement of money, only a proposal to make
- * one.
+ * one. This function takes a `Prisma.TransactionClient` because its caller
+ * (the route) wraps it in a single `prisma.$transaction`; nothing here does
+ * external I/O, so there is no reason to split it the way approval is split
+ * below.
  *
  * Ownership of the campaign itself (campaign.creatorId === requestedById) is
  * the caller's responsibility: withRoleCheck only proves "a campaign
@@ -84,6 +82,12 @@ export class PayoutNotFoundError extends Error {
  * `bankAccount.ownerId` must equal `requestedById` too. A verified account
  * that belongs to someone else satisfies "has a verifiedAt" on its own, and
  * would send this campaign's money to a stranger.
+ *
+ * Nothing is reserved against the balance here -- two DRAFT requests can be
+ * created for more than the campaign has. That is deliberate: the balance is
+ * only ever spent at approval, and approveAndReleasePayout is what actually
+ * closes the "satisfiable twice" gap, under a lock, at the moment money
+ * would really move.
  */
 export async function requestPayout(
   tx: Prisma.TransactionClient,
@@ -124,31 +128,53 @@ export async function requestPayout(
 
 /**
  * ADMIN approves a DRAFT payout and, in the same action, releases it: calls
- * the provider, posts the instructed legs, and lands on PROCESSING. The brief
- * describes "approve" and "release" as two steps; this task exposes one
- * route for both, so they are one atomic transaction rather than a durable
- * APPROVED state a second call has to find and finish.
+ * the provider, posts the instructed legs, and lands on PROCESSING.
  *
- * Order of checks matters. Self-approval is checked before any write, so a
- * self-approval attempt leaves the payout completely untouched -- not
- * REJECTED, not annotated, because it is an error, not a decision. Balance is
- * re-read here rather than trusted from request time, because it can have
- * moved: a refund, another payout approved first.
+ * This takes the top-level `PrismaClient`, not a `Prisma.TransactionClient`,
+ * because it owns two SEPARATE transactions around one external call in
+ * between -- unlike every other function in the money layer, which takes a
+ * tx because it never does I/O of its own.
  *
- * CONSTRAINT FOR THE NEXT PROVIDER: provider.createPayout is called inside
- * this open database transaction, exactly like task M4's createCharge call in
- * src/app/api/donations/route.ts, and safe for the same reason: this repo's
- * MockPaymentProvider does no real I/O. A real Xendit/Midtrans payouts
- * adapter turns this into an HTTP round-trip, and holding a transaction open
- * across one is how provider latency exhausts the connection pool. When a
- * real adapter lands, split this: commit the DRAFT -> APPROVED transition and
- * the balance check in one transaction, call the provider outside it, then
- * post the instructed legs and flip to PROCESSING in a second transaction --
- * reconciling a provider failure by leaving the payout APPROVED for a human
- * to retry, rather than rolling back an approval that genuinely happened.
+ * WHY TWO TRANSACTIONS, NOT ONE. An earlier version of this function called
+ * provider.createPayout from inside a single transaction wrapping the whole
+ * approval, following the precedent set by task M4's createCharge call
+ * (src/app/api/donations/route.ts). That precedent does not transfer: an
+ * uncommitted Payment stub is an abandoned charge link, harmless to lose to a
+ * rollback. An uncommitted PAYOUT is a real transfer that may have already
+ * reached the bank, and rolling it back on any later failure -- a deadlock,
+ * a dropped connection, anything after the provider call -- would erase every
+ * trace of it from this database: status back to DRAFT, re-approvable, no
+ * providerRef, no ledger entry, and nothing here reconciles against the
+ * provider's own records. So the transactions are split so that whatever can
+ * be committed durably before the provider is ever called, is:
+ *
+ *   Phase 1 (transaction): the two-person check, the status guard, the
+ *   destination re-check, the balance re-check under a row lock, the
+ *   DRAFT -> APPROVED transition, and the instructed ledger legs. Commits.
+ *   The money has now stopped being withdrawable, and that fact is durable
+ *   regardless of what happens next.
+ *
+ *   Provider call: outside any transaction.
+ *
+ *   Phase 2 (a second transaction): record providerRef and move to
+ *   PROCESSING.
+ *
+ * A crash or a thrown error between the two phases leaves the payout
+ * APPROVED, with its legs already posted and no providerRef -- visibly
+ * incomplete and reconcilable by a human, and NOT double-spendable, because
+ * phase 1 already spent the balance. This function deliberately does not
+ * guess FAILED on a provider error and auto-revert it: an error from a real
+ * adapter (a timeout, a dropped connection) does not prove the transfer
+ * never reached the bank, and the webhook route already established the
+ * precedent for this exact shape of ambiguity -- see the AMOUNT MISMATCH
+ * branch in src/app/api/webhooks/[provider]/route.ts, which leaves a Payment
+ * PENDING rather than mark it FAILED on an outcome it cannot be sure of. This
+ * repo has no reconciliation sweep for a stuck APPROVED payout, the same way
+ * it has none yet for a stuck-unprocessed WebhookEvent row -- both are left
+ * for a human today.
  */
 export async function approveAndReleasePayout(
-  tx: Prisma.TransactionClient,
+  prisma: PrismaClient,
   params: {
     payoutId: string;
     approvedById: string;
@@ -157,67 +183,137 @@ export async function approveAndReleasePayout(
 ): Promise<Payout> {
   const { payoutId, approvedById, provider } = params;
 
-  const payout = await tx.payout.findUnique({
-    where: { id: payoutId },
-    include: { bankAccount: true },
+  const instructed = await prisma.$transaction(async (tx) => {
+    const payout = await tx.payout.findUnique({
+      where: { id: payoutId },
+      include: { bankAccount: true },
+    });
+    if (!payout) {
+      throw new PayoutNotFoundError(payoutId);
+    }
+
+    // The entire two-person rule, checked before any write: a self-approval
+    // attempt leaves the payout completely untouched, because it is an
+    // error, not a decision this payout has been through.
+    if (payout.requestedById === approvedById) {
+      throw new SelfApprovalError();
+    }
+
+    if (payout.status !== 'DRAFT') {
+      throw new InvalidPayoutStatusError(payout.status);
+    }
+
+    // Re-checked here, not trusted from request time. Nothing in this repo
+    // writes a BankAccount after creation except (by hand, outside the app)
+    // clearing verifiedAt when one turns out to be fraudulent -- exactly the
+    // scenario this exists to catch, in the window between a campaigner's
+    // request and an admin's approval. Ownership is re-checked for the same
+    // reason it was checked at all: ownerId is the only thing tying this
+    // destination to the campaign's creator.
+    const { bankAccount } = payout;
+    if (!bankAccount || bankAccount.ownerId !== payout.requestedById || !bankAccount.verifiedAt) {
+      throw new BankAccountNotEligibleError();
+    }
+
+    // The contended resource is the campaign's withdrawable BALANCE, not
+    // this payout row -- a second, different DRAFT payout against the same
+    // campaign is a different row entirely and would sail straight past a
+    // lock on this one. Locking the Campaign row is what serialises two
+    // admins approving two different payouts against the same balance at
+    // once. Without it: campaignBalance below is a plain SELECT ... GROUP BY
+    // with no row to lock, these transactions run at Postgres's default READ
+    // COMMITTED (there is no isolationLevel set anywhere in this repo), and
+    // each transaction only locks its own Payout row via the updateMany
+    // further down -- so two concurrent approvals of two DIFFERENT payouts
+    // would each read the same pre-spend balance, each pass the check below,
+    // and both commit. CAMPAIGN_BALANCE would go negative with nothing to
+    // stop it, since balances are derived by summing entries, never stored.
+    await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${payout.campaignId} FOR UPDATE`;
+
+    // Balance can have moved since the request -- a refund, another payout
+    // approved first -- and, now that this transaction holds the campaign's
+    // row lock, this read is guaranteed current for as long as the lock is
+    // held.
+    const balance = await campaignBalance(tx, payout.campaignId);
+    if (payout.amount > balance) {
+      throw new InsufficientBalanceError(payout.amount, balance);
+    }
+
+    // Still guarded on status too, even with the campaign lock held: the
+    // lock closes the cross-payout balance race above, this closes a second
+    // approval of THIS SAME row racing in with a stale read of its own. The
+    // loser sees count 0 and never reaches the ledger post below.
+    const claimed = await tx.payout.updateMany({
+      where: { id: payoutId, status: 'DRAFT' },
+      data: { status: 'APPROVED', approvedById, approvedAt: new Date() },
+    });
+    if (claimed.count === 0) {
+      // payout.status above is the pre-update read and is now stale -- some
+      // other write got here first, but this function does not re-read to
+      // find out what it left behind. The message says so rather than
+      // repeating a status that may no longer be true.
+      throw new InvalidPayoutStatusError('unknown (changed concurrently)', 'lost the approval race');
+    }
+
+    // Posted at instruction, not completion, and committed in THIS
+    // transaction -- before the provider is ever called. Money in flight
+    // must stop being withdrawable immediately, and that fact must be
+    // durable immediately: see this function's doc comment for why the
+    // provider call does not happen inside this transaction. transactionId
+    // is keyed on the payout id so this specific post can never happen
+    // twice, on top of (not instead of) the updateMany guard above.
+    await postTransaction(
+      tx,
+      payoutInstructedLegs({ campaignId: payout.campaignId, amount: payout.amount }),
+      { payoutId: payout.id, transactionId: `payout-instructed-${payout.id}` },
+    );
+
+    return {
+      campaignId: payout.campaignId,
+      amount: payout.amount,
+      description: payout.description,
+      bankAccount: payout.bankAccount,
+    };
   });
-  if (!payout) {
-    throw new PayoutNotFoundError(payoutId);
+
+  let result;
+  try {
+    result = await provider.createPayout({
+      referenceId: payoutId,
+      amount: instructed.amount,
+      channelCode: instructed.bankAccount.bankCode,
+      accountNumber: instructed.bankAccount.accountNumber,
+      accountHolderName: instructed.bankAccount.accountName,
+      description: instructed.description,
+    });
+  } catch (err) {
+    // Not caught to recover from -- re-thrown after logging loudly, exactly
+    // like every other anomaly branch in this money layer. The payout stays
+    // APPROVED with its legs already posted: see this function's doc comment
+    // for why that is the correct state to leave it in, not FAILED and not a
+    // rollback.
+    console.error(
+      `Payout ${payoutId}: provider.createPayout failed after its instructed legs were already ` +
+        'committed. Left APPROVED with no providerRef for manual reconciliation.',
+      err,
+    );
+    throw err;
   }
 
-  // The entire two-person rule. Without this equality check, approvedById is
-  // decoration on the schema and nothing else enforces it.
-  if (payout.requestedById === approvedById) {
-    throw new SelfApprovalError();
-  }
-
-  if (payout.status !== 'DRAFT') {
-    throw new InvalidPayoutStatusError(payout.status);
-  }
-
-  const balance = await campaignBalance(tx, payout.campaignId);
-  if (payout.amount > balance) {
-    throw new InsufficientBalanceError(payout.amount, balance);
-  }
-
-  // The database decides who wins, once: two approvals racing for the same
-  // payout both pass every check above before either writes, so this
-  // status-predicated update is what actually closes the window. The loser
-  // sees count 0 and nothing it would have done next -- the provider call,
-  // the ledger post, the PROCESSING flip -- ever runs.
-  const claimed = await tx.payout.updateMany({
-    where: { id: payoutId, status: 'DRAFT' },
-    data: { status: 'APPROVED', approvedById, approvedAt: new Date() },
-  });
-  if (claimed.count === 0) {
-    // payout.status above is the pre-update read and is now stale -- some
-    // other write got here first, but this function does not re-read to find
-    // out what it left behind. The message says so rather than repeating a
-    // status that may no longer be true.
-    throw new InvalidPayoutStatusError('unknown (changed concurrently)', 'lost the approval race');
-  }
-
-  const result = await provider.createPayout({
-    referenceId: payout.id,
-    amount: payout.amount,
-    channelCode: payout.bankAccount.bankCode,
-    accountNumber: payout.bankAccount.accountNumber,
-    accountHolderName: payout.bankAccount.accountName,
-    description: payout.description,
-  });
-
-  // Posted at instruction, not completion -- see payoutInstructedLegs' own
-  // doc comment in ledger.ts. Money in flight must stop being withdrawable
-  // immediately, or the same balance can be paid out twice while the first
-  // transfer is still settling.
-  await postTransaction(
-    tx,
-    payoutInstructedLegs({ campaignId: payout.campaignId, amount: payout.amount }),
-    { payoutId: payout.id },
-  );
-
-  return tx.payout.update({
-    where: { id: payoutId },
+  // Phase 2: a second, separate transaction, guarded the same way as phase
+  // 1's transition even though nothing else in this codebase writes an
+  // APPROVED payout today -- a status-predicated update costs nothing and
+  // rules out this call ever completing twice.
+  const claimed = await prisma.payout.updateMany({
+    where: { id: payoutId, status: 'APPROVED' },
     data: { status: 'PROCESSING', providerRef: result.payoutId },
   });
+  if (claimed.count === 0) {
+    // Should not happen -- nothing else transitions an APPROVED payout --
+    // but the provider has already been instructed by this point, so this
+    // must not be silently swallowed if it ever does.
+    throw new InvalidPayoutStatusError('APPROVED', 'phase 2 update matched no row');
+  }
+
+  return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
 }

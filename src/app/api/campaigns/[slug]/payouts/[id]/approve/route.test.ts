@@ -7,10 +7,15 @@ import { POST } from './route';
 // campaignBalance and postTransaction are exercised for real -- assertions
 // below check the rows actually handed to ledgerEntry.createMany, not merely
 // that some function was called.
+//
+// payout.updateMany/findUniqueOrThrow at the TOP level (not tx) exist because
+// approveAndReleasePayout runs two separate transactions around the provider
+// call: phase 1 is `prisma.$transaction(...)` (the `tx` fake below), phase 2
+// is a second, plain `prisma.payout.updateMany` + `findUniqueOrThrow`.
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     campaign: { findUnique: vi.fn() },
-    payout: { findUnique: vi.fn() },
+    payout: { findUnique: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -33,6 +38,8 @@ import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/pay
 
 const mockCampaignFindUnique = prisma.campaign.findUnique as unknown as Mock;
 const mockPayoutFindUnique = prisma.payout.findUnique as unknown as Mock;
+const mockPayoutUpdateManyTop = prisma.payout.updateMany as unknown as Mock;
+const mockPayoutFindUniqueOrThrow = prisma.payout.findUniqueOrThrow as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
@@ -58,19 +65,23 @@ function makePayoutRow(overrides: Record<string, unknown> = {}) {
     providerRef: null,
     bankAccount: {
       id: 'bank-1',
+      ownerId: 'creator-1',
       bankCode: 'BCA',
       accountNumber: '1234567890',
       accountName: 'Creator One',
+      verifiedAt: new Date('2026-01-01'),
     },
     ...overrides,
   };
 }
 
 /**
- * A fake tx client backing the approve+release transaction: a mutable
- * `payout` row plus the real ledger's groupBy/count/createMany (same
+ * A fake tx client backing PHASE 1 (the transaction inside
+ * approveAndReleasePayout): a mutable `state` row, a `$queryRaw` stand-in for
+ * the campaign row lock, and the real ledger's groupBy/count/createMany (same
  * simulation as src/lib/money/ledger.test.ts), so the transition, the
- * balance recheck and the posted legs are all exercised for real.
+ * destination re-check, the balance recheck and the posted legs are all
+ * exercised for real.
  */
 function makeTx(options: {
   payout: ReturnType<typeof makePayoutRow> | null;
@@ -79,24 +90,22 @@ function makeTx(options: {
 }) {
   const { payout, ledgerRows = [], updateManyCount = 1 } = options;
   const rows: LedgerRow[] = [...ledgerRows];
-  let currentStatus = payout?.status;
+  const state = payout ? { ...payout } : null;
 
-  const findUnique = vi.fn().mockResolvedValue(payout);
+  const findUnique = vi.fn().mockResolvedValue(state);
   const updateMany = vi.fn(async ({ where, data }: { where: { status: string }; data: Record<string, unknown> }) => {
-    if (updateManyCount === 0 || currentStatus !== where.status) {
+    if (!state || updateManyCount === 0 || state.status !== where.status) {
       return { count: 0 };
     }
-    currentStatus = data.status as string;
+    Object.assign(state, data);
     return { count: 1 };
   });
-  const update = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-    ...payout,
-    ...data,
-  }));
+  const queryRaw = vi.fn().mockResolvedValue([{ id: payout?.campaignId ?? 'campaign-1' }]);
 
   return {
     tx: {
-      payout: { findUnique, updateMany, update },
+      payout: { findUnique, updateMany },
+      $queryRaw: queryRaw,
       ledgerEntry: {
         count: vi.fn(async () => 0),
         createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {
@@ -122,9 +131,26 @@ function makeTx(options: {
         }),
       },
     },
+    state,
     ledgerRows: rows,
     updateMany,
-    update,
+    queryRaw,
+  };
+}
+
+/** A strict FIFO async mutex, used only by the genuine-concurrency test below. */
+function makeMutex() {
+  let tail: Promise<void> = Promise.resolve();
+  return {
+    enter(): Promise<() => void> {
+      let release!: () => void;
+      const next = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const acquired = tail.then(() => release);
+      tail = next;
+      return acquired;
+    },
   };
 }
 
@@ -134,8 +160,8 @@ function createRequest(): NextRequest {
   });
 }
 
-function routeContext() {
-  return { params: Promise.resolve({ slug: 'test-campaign', id: 'payout-1' }) };
+function routeContext(id = 'payout-1') {
+  return { params: Promise.resolve({ slug: 'test-campaign', id }) };
 }
 
 const FULL_BALANCE_ROWS: LedgerRow[] = [
@@ -151,6 +177,12 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     mockGetPaymentProvider.mockReturnValue({
       createPayout: vi.fn().mockResolvedValue({ payoutId: 'provider-payout-1', status: 'completed' }),
     });
+    // Phase 2 defaults: succeeds and returns the payout in its final shape.
+    // Individual tests override when they need to inspect the response body.
+    mockPayoutUpdateManyTop.mockResolvedValue({ count: 1 });
+    mockPayoutFindUniqueOrThrow.mockResolvedValue(
+      makePayoutRow({ status: 'PROCESSING', approvedById: 'admin-1', providerRef: 'provider-payout-1' }),
+    );
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -193,7 +225,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
   it('refuses self-approval with 403 and leaves the payout completely untouched', async () => {
     // The requester and the approver are the same person.
     mockGetServerSession.mockResolvedValue({ user: { id: 'creator-1', role: 'ADMIN' } });
-    const { tx, updateMany, update } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
+    const { tx, updateMany, queryRaw } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
     const response = await POST(createRequest(), routeContext());
@@ -201,28 +233,64 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
 
     expect(response.status).toBe(403);
     expect(data.error).toMatch(/mengajukan|approv/i);
-    // Not REJECTED, not annotated -- no write of any kind.
+    // Not REJECTED, not annotated -- no write of any kind, not even the
+    // campaign row lock.
+    expect(queryRaw).not.toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
-    expect(update).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
+    expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
   });
 
   it('refuses to approve a payout that is not DRAFT (e.g. already COMPLETED) with 409', async () => {
-    const { tx, updateMany } = makeTx({ payout: makePayoutRow({ status: 'COMPLETED' }), ledgerRows: FULL_BALANCE_ROWS });
+    const { tx, updateMany, queryRaw } = makeTx({ payout: makePayoutRow({ status: 'COMPLETED' }), ledgerRows: FULL_BALANCE_ROWS });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(409);
+    expect(queryRaw).not.toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses approval when the bank account is no longer eligible (verifiedAt cleared since the request) with 403', async () => {
+    // Simulates an operator revoking verification on an account discovered
+    // to be fraudulent in the window between request and approval -- the
+    // scenario ownership/verification is re-checked at approval to catch.
+    const { tx, updateMany } = makeTx({
+      payout: makePayoutRow({ bankAccount: { ...makePayoutRow().bankAccount, verifiedAt: null } }),
+      ledgerRows: FULL_BALANCE_ROWS,
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data.error).toMatch(/rekening/i);
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
+    expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
+  });
+
+  it('refuses approval when the bank account has changed owner since the request', async () => {
+    const { tx, updateMany } = makeTx({
+      payout: makePayoutRow({ bankAccount: { ...makePayoutRow().bankAccount, ownerId: 'a-stranger' } }),
+      ledgerRows: FULL_BALANCE_ROWS,
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(403);
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
   it('rejects approval when the balance no longer covers it, re-checked at approval time', async () => {
     // The payout asks for 100_000 but the ledger only shows 40_000 left --
     // simulating a refund or another payout eating the balance since the
     // request was made.
-    const { tx, updateMany } = makeTx({
+    const { tx, updateMany, queryRaw } = makeTx({
       payout: makePayoutRow({ amount: 100_000 }),
       ledgerRows: [
         { transactionId: 't1', direction: 'CREDIT', amount: 40_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1' },
@@ -235,11 +303,15 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
 
     expect(response.status).toBe(400);
     expect(data.error).toMatch(/saldo/i);
+    // The lock IS taken here -- the balance check happens after it -- but
+    // the transition never does.
+    expect(queryRaw).toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
+    expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
   });
 
   it('approves and releases: PROCESSING, balanced entries, and the balance drops by exactly the payout', async () => {
-    const { tx, ledgerRows } = makeTx({ payout: makePayoutRow({ amount: 100_000 }), ledgerRows: FULL_BALANCE_ROWS });
+    const { tx, ledgerRows, queryRaw } = makeTx({ payout: makePayoutRow({ amount: 100_000 }), ledgerRows: FULL_BALANCE_ROWS });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
     const response = await POST(createRequest(), routeContext());
@@ -249,19 +321,30 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     expect(data.status).toBe('PROCESSING');
     expect(data.providerRef).toBe('provider-payout-1');
 
+    // The campaign row lock is taken before the balance is trusted.
+    expect(queryRaw).toHaveBeenCalled();
+
     // The legs themselves: debit withdrawable, credit clearing, exactly the
-    // payout amount, and debits equal credits.
-    expect(ledgerRows.filter((r) => r.transactionId !== 't1')).toEqual([
+    // payout amount, and debits equal credits. Committed in phase 1, before
+    // the provider is ever called.
+    const posted = ledgerRows.filter((r) => r.transactionId !== 't1');
+    expect(posted).toEqual([
       expect.objectContaining({ account: 'CAMPAIGN_BALANCE', direction: 'DEBIT', amount: 100_000, campaignId: 'campaign-1' }),
       expect.objectContaining({ account: 'PAYOUT_CLEARING', direction: 'CREDIT', amount: 100_000, campaignId: null }),
     ]);
-    const posted = ledgerRows.filter((r) => r.transactionId !== 't1');
+    expect(posted[0].transactionId).toBe('payout-instructed-payout-1');
     const debits = posted.filter((r) => r.direction === 'DEBIT').reduce((s, r) => s + r.amount, 0);
     const credits = posted.filter((r) => r.direction === 'CREDIT').reduce((s, r) => s + r.amount, 0);
     expect(debits).toBe(credits);
 
     // Balance drops by exactly the payout: was 100_000, now 0.
     expect(await import('@/lib/money/ledger').then((m) => m.campaignBalance(tx as never, 'campaign-1'))).toBe(0);
+
+    // Phase 2 ran, and only after phase 1 (and the provider) resolved.
+    expect(mockPayoutUpdateManyTop).toHaveBeenCalledWith({
+      where: { id: 'payout-1', status: 'APPROVED' },
+      data: { status: 'PROCESSING', providerRef: 'provider-payout-1' },
+    });
   });
 
   it('a second approval that loses the race changes nothing: no provider call, no ledger post, no final update', async () => {
@@ -271,7 +354,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     // this payout's status out of DRAFT between this call's read and its
     // write -- exactly what a real database's WHERE-matched updateMany
     // returns for the loser.
-    const { tx, update } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS, updateManyCount: 0 });
+    const { tx } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS, updateManyCount: 0 });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
     const response = await POST(createRequest(), routeContext());
@@ -279,37 +362,144 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     expect(response.status).toBe(409);
     expect(providerCreatePayout).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
-    expect(update).not.toHaveBeenCalled();
+    expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
   });
 
-  it('a payout is not satisfiable twice against one balance: approving a second DRAFT payout after the first already spent it fails', async () => {
-    // Two separate DRAFT payouts each ask for the full 100_000 balance.
-    // Nothing is posted at request time (see the sibling payouts/route.test.ts),
-    // so both could be created; the ledger recheck inside approval is what
-    // actually stops the second one from being paid out too.
-    const first = makeTx({ payout: makePayoutRow({ id: 'payout-1', amount: 100_000 }), ledgerRows: FULL_BALANCE_ROWS });
-    mockTransaction.mockImplementationOnce((cb: (tx: unknown) => unknown) => cb(first.tx));
-    const firstResponse = await POST(createRequest(), routeContext());
-    expect(firstResponse.status).toBe(200);
-
-    // Second payout, same campaign, sharing the ledger state the first
-    // approval left behind (the CAMPAIGN_BALANCE credit plus the instructed
-    // debit already posted).
-    mockPayoutFindUnique.mockResolvedValue({ campaignId: 'campaign-1' });
-    const second = makeTx({
-      payout: makePayoutRow({ id: 'payout-2', amount: 100_000 }),
-      ledgerRows: [...first.ledgerRows],
+  it('leaves the payout APPROVED with its legs posted and no providerRef when the provider call fails between phases', async () => {
+    // Models a crash or an error between phase 1 (committed) and phase 2: the
+    // provider call throws. Phase 1's transaction has already committed by
+    // this point in the real code (the fake tx below mutates `state`
+    // synchronously the same way a commit would durably persist it), so the
+    // payout must be left APPROVED with its legs intact -- not rolled back,
+    // not silently marked FAILED. See the reasoning in payouts.ts's doc
+    // comment.
+    mockGetPaymentProvider.mockReturnValue({
+      createPayout: vi.fn().mockRejectedValue(new Error('provider timeout')),
     });
-    mockTransaction.mockImplementationOnce((cb: (tx: unknown) => unknown) => cb(second.tx));
+    const { tx, state, ledgerRows } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const secondResponse = await POST(
-      createRequest(),
-      { params: Promise.resolve({ slug: 'test-campaign', id: 'payout-2' }) },
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(500);
+    // Phase 1's effects are durable and visible: APPROVED, legs posted.
+    expect(state?.status).toBe('APPROVED');
+    expect(ledgerRows.filter((r) => r.transactionId !== 't1')).toHaveLength(2);
+    // Phase 2 never ran -- no providerRef was ever recorded.
+    expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
+    expect(mockPayoutFindUniqueOrThrow).not.toHaveBeenCalled();
+    expect(state?.providerRef).toBeNull();
+    // The failure was logged, not swallowed.
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('does not let two different DRAFT payouts on one campaign both spend the same balance when approved concurrently', async () => {
+    // The Critical fix under test: campaignBalance() is a plain aggregate
+    // with no row of its own to lock, so two admins approving two DIFFERENT
+    // payouts against the same campaign at once must be serialised on the
+    // Campaign row, not on either Payout row (that guard already existed and
+    // is covered by the "loses the race" test above, which is about ONE
+    // payout, not this). This test drives two POSTs genuinely concurrently
+    // via Promise.all against one shared in-memory database, and a FIFO
+    // mutex standing in for a real `SELECT ... FOR UPDATE` on the Campaign
+    // row -- if the application code did not take that lock before reading
+    // the balance, both approvals would read the pre-spend 100_000 and both
+    // would succeed, driving the balance negative.
+    const payoutRows = new Map<string, ReturnType<typeof makePayoutRow>>([
+      ['payout-a', makePayoutRow({ id: 'payout-a', amount: 100_000 })],
+      ['payout-b', makePayoutRow({ id: 'payout-b', amount: 100_000 })],
+    ]);
+    const ledgerRows: LedgerRow[] = [...FULL_BALANCE_ROWS];
+    const mutex = makeMutex();
+    const lockBox: { release?: () => void } = {};
+
+    const sharedTx = {
+      payout: {
+        findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+          const row = payoutRows.get(where.id);
+          return row ? { ...row } : null;
+        }),
+        updateMany: vi.fn(
+          async ({ where, data }: { where: { id: string; status: string }; data: Record<string, unknown> }) => {
+            const row = payoutRows.get(where.id);
+            if (!row || row.status !== where.status) return { count: 0 };
+            Object.assign(row, data);
+            return { count: 1 };
+          },
+        ),
+      },
+      $queryRaw: vi.fn(async () => {
+        lockBox.release = await mutex.enter();
+        return [{ id: 'campaign-1' }];
+      }),
+      ledgerEntry: {
+        count: vi.fn(async () => 0),
+        createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {
+          ledgerRows.push(...data);
+          return { count: data.length };
+        }),
+        groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
+          const filtered = ledgerRows.filter((r) => {
+            const w = args.where ?? {};
+            return Object.entries(w).every(([k, v]) => (r as never as Record<string, unknown>)[k] === v);
+          });
+          const buckets = new Map<string, { row: Record<string, unknown>; sum: number }>();
+          for (const r of filtered) {
+            const key = args.by.map((k) => String((r as never as Record<string, unknown>)[k])).join('|');
+            const b = buckets.get(key) ?? {
+              row: Object.fromEntries(args.by.map((k) => [k, (r as never as Record<string, unknown>)[k]])),
+              sum: 0,
+            };
+            b.sum += r.amount;
+            buckets.set(key, b);
+          }
+          return Array.from(buckets.values()).map((b) => ({ ...b.row, _sum: { amount: b.sum } }));
+        }),
+      },
+    };
+
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => {
+      try {
+        return await cb(sharedTx);
+      } finally {
+        lockBox.release?.();
+        lockBox.release = undefined;
+      }
+    });
+    mockPayoutFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) => {
+      const row = payoutRows.get(where.id);
+      return row ? { campaignId: row.campaignId } : null;
+    });
+    mockPayoutUpdateManyTop.mockImplementation(
+      async ({ where, data }: { where: { id: string; status: string }; data: Record<string, unknown> }) => {
+        const row = payoutRows.get(where.id);
+        if (!row || row.status !== where.status) return { count: 0 };
+        Object.assign(row, data);
+        return { count: 1 };
+      },
     );
-    const secondData = await secondResponse.json();
+    mockPayoutFindUniqueOrThrow.mockImplementation(async ({ where }: { where: { id: string } }) => ({
+      ...payoutRows.get(where.id),
+    }));
 
-    expect(secondResponse.status).toBe(400);
-    expect(secondData.error).toMatch(/saldo/i);
-    expect(second.update).not.toHaveBeenCalled();
+    const [responseA, responseB] = await Promise.all([
+      POST(createRequest(), routeContext('payout-a')),
+      POST(createRequest(), routeContext('payout-b')),
+    ]);
+    const statuses = [responseA.status, responseB.status].sort();
+
+    // Exactly one succeeds and one is refused for insufficient balance --
+    // never both, never neither.
+    expect(statuses).toEqual([200, 400]);
+
+    // The decisive assertion: the balance never goes negative. Without the
+    // campaign lock, both would read the pre-spend 100_000, both would post
+    // a 100_000 debit, and this would be -100_000.
+    const finalBalance = await import('@/lib/money/ledger').then((m) =>
+      m.campaignBalance(sharedTx as never, 'campaign-1'),
+    );
+    expect(finalBalance).toBe(0);
   });
 });
