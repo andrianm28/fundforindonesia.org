@@ -166,6 +166,10 @@ export async function POST(
     const { donation } = payment;
     const { campaign } = donation;
 
+    // event.status is taken on trust here: the signature check above proved
+    // this payload is genuine, not that this specific field is genuine --
+    // see the requirement on PaymentProvider.parseWebhook in
+    // src/lib/payments/types.ts for what a real adapter must do about that.
     if (event.status === 'paid') {
       if (event.grossAmount !== payment.amount) {
         // The provider's own signed amount disagrees with what this
