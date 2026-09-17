@@ -1,0 +1,93 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { prisma } from '@/lib/prisma';
+import { getServerSession } from '@/lib/auth';
+import { withRoleCheck } from '@/lib/withRoleCheck';
+import {
+  requestPayout,
+  BankAccountNotEligibleError,
+  InsufficientBalanceError,
+} from '@/lib/money/payouts';
+
+const requestPayoutSchema = z.object({
+  bankAccountId: z.string().min(1, 'Rekening bank harus dipilih'),
+  amount: z.number().int('Jumlah harus berupa bilangan bulat').min(1, 'Jumlah pencairan harus lebih dari 0'),
+  description: z.string().min(1, 'Keterangan harus diisi').max(500, 'Keterangan maksimal 500 karakter'),
+});
+
+/**
+ * POST /api/campaigns/[slug]/payouts -- campaign owner requests a payout.
+ *
+ * withRoleCheck('CAMPAIGN_CREATOR') only proves the caller is A campaign
+ * creator, not the creator of THIS campaign -- it gates on role and does not
+ * pass the session to the handler, so getServerSession is called again here
+ * and the ownership check below is what actually stops one creator from
+ * draining another's campaign.
+ */
+export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextRequest, context: any) => {
+  const { slug } = await context.params;
+  const session = await getServerSession();
+  const userId = session!.user!.id as string;
+
+  const body = await request.json().catch(() => null);
+  const parsed = requestPayoutSchema.safeParse(body);
+  if (!parsed.success) {
+    const fieldErrors = parsed.error.flatten().fieldErrors;
+    return NextResponse.json({ error: 'Validasi gagal', fieldErrors }, { status: 400 });
+  }
+  const { bankAccountId, amount, description } = parsed.data;
+
+  const campaign = await prisma.campaign.findUnique({
+    where: { slug },
+    select: { id: true, creatorId: true },
+  });
+  if (!campaign) {
+    return NextResponse.json({ error: 'Campaign tidak ditemukan' }, { status: 404 });
+  }
+  if (campaign.creatorId !== userId) {
+    return NextResponse.json(
+      { error: 'Anda tidak berhak mengajukan pencairan untuk campaign ini' },
+      { status: 403 },
+    );
+  }
+
+  try {
+    const payout = await prisma.$transaction((tx) =>
+      requestPayout(tx, {
+        campaignId: campaign.id,
+        requestedById: userId,
+        bankAccountId,
+        amount,
+        description,
+      }),
+    );
+
+    return NextResponse.json(
+      {
+        id: payout.id,
+        campaignId: payout.campaignId,
+        bankAccountId: payout.bankAccountId,
+        amount: payout.amount,
+        description: payout.description,
+        status: payout.status,
+        createdAt: payout.createdAt,
+      },
+      { status: 201 },
+    );
+  } catch (error) {
+    if (error instanceof BankAccountNotEligibleError) {
+      return NextResponse.json(
+        { error: 'Rekening bank tidak valid, bukan milik Anda, atau belum terverifikasi' },
+        { status: 403 },
+      );
+    }
+    if (error instanceof InsufficientBalanceError) {
+      return NextResponse.json(
+        { error: 'Saldo campaign tidak mencukupi untuk jumlah pencairan ini' },
+        { status: 400 },
+      );
+    }
+    console.error('Error requesting payout:', error);
+    return NextResponse.json({ error: 'Gagal mengajukan pencairan' }, { status: 500 });
+  }
+});
