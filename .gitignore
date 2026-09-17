@@ -45,3 +45,6 @@ next-env.d.ts
 /playwright-report
 /test-results
 *.log
+
+# Superpowers SDD scratch: ledger, briefs, review packages. Never committed.
+.superpowers/
