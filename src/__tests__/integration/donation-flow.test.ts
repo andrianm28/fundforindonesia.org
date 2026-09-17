@@ -525,8 +525,16 @@ describe('Donation Flow Integration Tests', () => {
     });
   });
 
-  describe('6. Balance donation deducts from user balance', () => {
-    it('should deduct balance and create confirmed donation in one transaction', async () => {
+  // Sections 6-8 used to cover balance-donation deduction, insufficient-balance
+  // rejection, and target-completion via the wallet. The wallet is now
+  // disabled (WALLET_ENABLED = false, src/lib/wallet.ts): POST
+  // /api/balance/donate spent minted balance and wrote straight to
+  // campaign.collectedAmount, a second, uncontrolled writer of the field the
+  // settled-payment webhook is supposed to own alone. Every one of those
+  // scenarios is now unreachable - the endpoint refuses before touching the
+  // session, the campaign, or the user's balance at all.
+  describe('6. Balance donation is disabled', () => {
+    it('should return 503 without touching the campaign, the balance, or a transaction', async () => {
       mockGetServerSession.mockResolvedValue({
         user: { id: 'user-balance', name: 'Balance User', email: 'balance@test.com' },
       });
@@ -539,11 +547,6 @@ describe('Donation Flow Integration Tests', () => {
       mockUserFindUnique.mockResolvedValue({
         donationBalance: 200000,
       });
-      mockTransaction.mockResolvedValue([
-        { donationBalance: 150000 }, // new user balance after deduction
-        { id: 'donation-bal', amount: 50000 }, // created donation
-        { id: 'campaign-bal', collectedAmount: 450000 }, // updated campaign
-      ]);
 
       const request = createPostRequest('http://localhost:3000/api/balance/donate', {
         campaignId: 'campaign-bal',
@@ -553,136 +556,10 @@ describe('Donation Flow Integration Tests', () => {
       const response = await balanceDonate(request);
       const data = await response.json();
 
-      expect(response.status).toBe(201);
-      expect(data.donationId).toBe('donation-bal');
-      expect(data.newBalance).toBe(150000);
-      expect(data.message).toBe('Donasi berhasil');
-      expect(mockTransaction).toHaveBeenCalled();
-    });
-  });
-
-  describe('7. Balance donation rejects when insufficient balance', () => {
-    it('should return 400 with current balance info when balance is too low', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-low', name: 'Low Balance', email: 'low@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-x',
-        status: 'active',
-        targetAmount: 500000,
-        collectedAmount: 100000,
-      });
-      mockUserFindUnique.mockResolvedValue({
-        donationBalance: 20000,
-      });
-
-      const request = createPostRequest('http://localhost:3000/api/balance/donate', {
-        campaignId: 'campaign-x',
-        amount: 50000,
-      });
-
-      const response = await balanceDonate(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
-      expect(data.error).toBe('Saldo tidak mencukupi');
-      expect(data.currentBalance).toBe(20000);
-      // Transaction should NOT be called
+      expect(response.status).toBe(503);
+      expect(typeof data.error).toBe('string');
+      expect(mockCampaignFindUnique).not.toHaveBeenCalled();
       expect(mockTransaction).not.toHaveBeenCalled();
-    });
-
-    it('should reject when balance is exactly zero', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-zero', name: 'Zero Balance', email: 'zero@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-y',
-        status: 'active',
-        targetAmount: 500000,
-        collectedAmount: 100000,
-      });
-      mockUserFindUnique.mockResolvedValue({
-        donationBalance: 0,
-      });
-
-      const request = createPostRequest('http://localhost:3000/api/balance/donate', {
-        campaignId: 'campaign-y',
-        amount: 10000,
-      });
-
-      const response = await balanceDonate(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
-      expect(data.error).toBe('Saldo tidak mencukupi');
-      expect(data.currentBalance).toBe(0);
-    });
-  });
-
-  describe('8. Balance donation marks campaign as completed when target met', () => {
-    it('should mark campaign as completed when donation causes collectedAmount >= targetAmount', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-complete', name: 'Final Donor', email: 'final@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-almost',
-        status: 'active',
-        targetAmount: 100000,
-        collectedAmount: 80000, // 80000 + 30000 = 110000 >= 100000
-      });
-      mockUserFindUnique.mockResolvedValue({
-        donationBalance: 50000,
-      });
-      mockTransaction.mockResolvedValue([
-        { donationBalance: 20000 },
-        { id: 'donation-final', amount: 30000 },
-        { id: 'campaign-almost', collectedAmount: 110000, status: 'completed' },
-      ]);
-
-      const request = createPostRequest('http://localhost:3000/api/balance/donate', {
-        campaignId: 'campaign-almost',
-        amount: 30000,
-      });
-
-      const response = await balanceDonate(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(201);
-      expect(data.donationId).toBe('donation-final');
-      // The transaction was called - verify the campaign should be marked complete
-      expect(mockTransaction).toHaveBeenCalled();
-    });
-
-    it('should NOT mark campaign as completed when donation does not meet target', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-partial', name: 'Partial Donor', email: 'partial@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-partial',
-        status: 'active',
-        targetAmount: 1000000,
-        collectedAmount: 200000, // 200000 + 50000 = 250000 < 1000000
-      });
-      mockUserFindUnique.mockResolvedValue({
-        donationBalance: 100000,
-      });
-      mockTransaction.mockResolvedValue([
-        { donationBalance: 50000 },
-        { id: 'donation-partial', amount: 50000 },
-        { id: 'campaign-partial', collectedAmount: 250000, status: 'active' },
-      ]);
-
-      const request = createPostRequest('http://localhost:3000/api/balance/donate', {
-        campaignId: 'campaign-partial',
-        amount: 50000,
-      });
-
-      const response = await balanceDonate(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(201);
-      expect(data.donationId).toBe('donation-partial');
-      expect(mockTransaction).toHaveBeenCalled();
     });
   });
 });

@@ -34,190 +34,58 @@ function createRequest(body: unknown): NextRequest {
   });
 }
 
+// The wallet is disabled (WALLET_ENABLED = false, src/lib/wallet.ts). This
+// endpoint used to mint donationBalance with no payment behind it at all -
+// any authenticated user could call it repeatedly for up to Rp10.000.000 a
+// time. It must now refuse every request, before touching the session, the
+// body, or the database, and it must never create a TopUp or credit a
+// balance again.
 describe("POST /api/user/topup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("returns 401 if user is not authenticated", async () => {
+  it("returns 503 even for a valid, authenticated top-up request", async () => {
+    mockedGetServerSession.mockResolvedValue({
+      user: { id: "user-1", name: "Test", email: "test@test.com" },
+      expires: "2099-01-01",
+    } as any);
+
+    const request = createRequest({ amount: 50000, paymentMethod: "BCA" });
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(typeof data.error).toBe("string");
+    expect(data.error.length).toBeGreaterThan(0);
+  });
+
+  it("returns 503 when there is no session at all", async () => {
     mockedGetServerSession.mockResolvedValue(null);
 
     const request = createRequest({ amount: 50000, paymentMethod: "BCA" });
     const response = await POST(request);
-    const data = await response.json();
 
-    expect(response.status).toBe(401);
-    expect(data.error).toBe("Unauthorized");
+    expect(response.status).toBe(503);
   });
 
-  it("returns 400 if amount is below minimum (10000)", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
-      expires: "2099-01-01",
-    } as any);
-
-    const request = createRequest({ amount: 5000, paymentMethod: "BCA" });
-    const response = await POST(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(data.error).toBe("Validasi gagal");
-    expect(data.fieldErrors.amount).toBeDefined();
-  });
-
-  it("returns 400 if amount exceeds maximum (10000000)", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
-      expires: "2099-01-01",
-    } as any);
-
-    const request = createRequest({ amount: 20000000, paymentMethod: "BCA" });
-    const response = await POST(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(data.error).toBe("Validasi gagal");
-    expect(data.fieldErrors.amount).toBeDefined();
-  });
-
-  it("returns 400 if paymentMethod is invalid", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
-      expires: "2099-01-01",
-    } as any);
-
-    const request = createRequest({ amount: 50000, paymentMethod: "Bitcoin" });
-    const response = await POST(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(data.error).toBe("Validasi gagal");
-    expect(data.fieldErrors.paymentMethod).toBeDefined();
-  });
-
-  it("returns 400 if paymentMethod is missing", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
-      expires: "2099-01-01",
-    } as any);
-
-    const request = createRequest({ amount: 50000 });
-    const response = await POST(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(data.error).toBe("Validasi gagal");
-  });
-
-  it("returns 400 if amount is missing", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
-      expires: "2099-01-01",
-    } as any);
-
-    const request = createRequest({ paymentMethod: "BCA" });
-    const response = await POST(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(data.error).toBe("Validasi gagal");
-  });
-
-  it("successfully creates top-up and returns 201 with topUp and balance", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
-      expires: "2099-01-01",
-    } as any);
-
-    const mockTopUp = {
-      id: "topup-1",
-      amount: 50000,
-      paymentMethod: "BCA",
-      status: "confirmed",
-      userId: "user-1",
-      createdAt: new Date().toISOString(),
-    };
-
-    mockedTransaction.mockResolvedValue([
-      mockTopUp,
-      { donationBalance: 150000 },
-    ]);
-
-    const request = createRequest({ amount: 50000, paymentMethod: "BCA" });
-    const response = await POST(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(201);
-    expect(data.topUp).toEqual(mockTopUp);
-    expect(data.balance).toBe(150000);
-  });
-
-  it("accepts minimum amount (10000)", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
-      expires: "2099-01-01",
-    } as any);
-
-    mockedTransaction.mockResolvedValue([
-      { id: "topup-2", amount: 10000, paymentMethod: "GoPay", status: "confirmed" },
-      { donationBalance: 10000 },
-    ]);
-
-    const request = createRequest({ amount: 10000, paymentMethod: "GoPay" });
+  it("returns 503 for a malformed body, without ever validating it", async () => {
+    const request = createRequest({ amount: "not-a-number" });
     const response = await POST(request);
 
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(503);
   });
 
-  it("accepts maximum amount (10000000)", async () => {
+  it("never creates a TopUp or credits a balance while disabled", async () => {
     mockedGetServerSession.mockResolvedValue({
       user: { id: "user-1", name: "Test", email: "test@test.com" },
       expires: "2099-01-01",
     } as any);
 
-    mockedTransaction.mockResolvedValue([
-      { id: "topup-3", amount: 10000000, paymentMethod: "Mandiri", status: "confirmed" },
-      { donationBalance: 10000000 },
-    ]);
+    const request = createRequest({ amount: 10000000, paymentMethod: "BCA" });
+    await POST(request);
 
-    const request = createRequest({ amount: 10000000, paymentMethod: "Mandiri" });
-    const response = await POST(request);
-
-    expect(response.status).toBe(201);
-  });
-
-  it("accepts all valid payment methods", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
-      expires: "2099-01-01",
-    } as any);
-
-    const validMethods = ["BCA", "Mandiri", "BNI", "GoPay", "OVO", "Dana"];
-
-    for (const method of validMethods) {
-      mockedTransaction.mockResolvedValue([
-        { id: `topup-${method}`, amount: 50000, paymentMethod: method, status: "confirmed" },
-        { donationBalance: 50000 },
-      ]);
-
-      const request = createRequest({ amount: 50000, paymentMethod: method });
-      const response = await POST(request);
-
-      expect(response.status).toBe(201);
-    }
-  });
-
-  it("returns 400 if amount is not a number", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
-      expires: "2099-01-01",
-    } as any);
-
-    const request = createRequest({ amount: "50000", paymentMethod: "BCA" });
-    const response = await POST(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(data.error).toBe("Validasi gagal");
+    expect(mockedTransaction).not.toHaveBeenCalled();
+    expect(mockedGetServerSession).not.toHaveBeenCalled();
   });
 });

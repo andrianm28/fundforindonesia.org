@@ -25,45 +25,36 @@ describe("GET /api/balance", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 401 when not authenticated", async () => {
+  // The wallet is disabled (WALLET_ENABLED = false, src/lib/wallet.ts) while
+  // top-ups mint balance with no payment behind them. Every request now gets
+  // a 503 before session or database access happen at all.
+
+  it("returns 503 regardless of authentication", async () => {
     mockedGetServerSession.mockResolvedValue(null);
 
     const response = await GET();
     const data = await response.json();
 
-    expect(response.status).toBe(401);
-    expect(data.message).toBe("Anda harus login terlebih dahulu");
+    expect(response.status).toBe(503);
+    expect(typeof data.error).toBe("string");
+    expect(data.error.length).toBeGreaterThan(0);
   });
 
-  it("returns user donation balance when authenticated", async () => {
+  it("returns 503 even for an authenticated user with a stored balance", async () => {
     mockedGetServerSession.mockResolvedValue({
       user: { id: "user-1", name: "Test", email: "test@test.com", role: "DONOR" as const, isVerified: false, verificationType: null },
       expires: "2099-01-01",
     });
-    mockedFindUnique.mockResolvedValue({ donationBalance: 50000 } as any);
 
     const response = await GET();
-    const data = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(data.balance).toBe(50000);
-    expect(mockedFindUnique).toHaveBeenCalledWith({
-      where: { id: "user-1" },
-      select: { donationBalance: true },
-    });
+    expect(response.status).toBe(503);
   });
 
-  it("returns 0 balance when user not found in database", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-missing", name: "Test", email: "test@test.com", role: "DONOR" as const, isVerified: false, verificationType: null },
-      expires: "2099-01-01",
-    });
-    mockedFindUnique.mockResolvedValue(null);
+  it("never reads the session or the database while disabled", async () => {
+    await GET();
 
-    const response = await GET();
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.balance).toBe(0);
+    expect(mockedGetServerSession).not.toHaveBeenCalled();
+    expect(mockedFindUnique).not.toHaveBeenCalled();
   });
 });

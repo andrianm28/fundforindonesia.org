@@ -419,7 +419,11 @@ describe("Feature: platform-polish, Property 5: Verification Role Upgrade", () =
 
 // ============================================================
 // Property 6: Top-Up Amount Bounds
-// Amount always validated between 10000 and 10000000 inclusive
+// Formerly: amount always validated between 10000 and 10000000 inclusive.
+// The wallet is now disabled (WALLET_ENABLED = false, src/lib/wallet.ts):
+// this endpoint used to mint donationBalance with no payment behind it at
+// all. Every amount - in bounds, out of bounds, or malformed - now gets a
+// 503 before validation ever runs, and never reaches $transaction.
 // **Validates: Requirements 5.4, 5.5**
 // ============================================================
 describe("Feature: platform-polish, Property 6: Top-Up Amount Bounds", () => {
@@ -432,21 +436,16 @@ describe("Feature: platform-polish, Property 6: Top-Up Amount Bounds", () => {
     "Dana"
   );
 
-  // Arbitrary for amounts below the minimum (< 10000)
-  const belowMinAmountArb = fc.integer({ min: -1000000, max: 9999 });
+  // Covers below-minimum, in-range, and above-maximum amounts alike - none
+  // of them should reach the old bounds check any more.
+  const anyAmountArb = fc.integer({ min: -1000000, max: 100000000 });
 
-  // Arbitrary for amounts above the maximum (> 10000000)
-  const aboveMaxAmountArb = fc.integer({ min: 10000001, max: 100000000 });
-
-  // Arbitrary for valid amounts (10000-10000000)
-  const validAmountArb = fc.integer({ min: 10000, max: 10000000 });
-
-  test("amounts below 10000 are always rejected", async () => {
+  test("every amount is rejected with 503 and never reaches the database", async () => {
     const { POST } = await import("@/app/api/user/topup/route");
 
     await fc.assert(
       fc.asyncProperty(
-        belowMinAmountArb,
+        anyAmountArb,
         validPaymentMethodArb,
         async (amount, paymentMethod) => {
           vi.clearAllMocks();
@@ -464,131 +463,11 @@ describe("Feature: platform-polish, Property 6: Top-Up Amount Bounds", () => {
 
           const response = await POST(request);
 
-          // Must reject with 400
-          expect(response.status).toBe(400);
-
-          // Must never create a transaction
+          expect(response.status).toBe(503);
           expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
         }
       ),
       { numRuns: 50 }
     );
-  });
-
-  test("amounts above 10000000 are always rejected", async () => {
-    const { POST } = await import("@/app/api/user/topup/route");
-
-    await fc.assert(
-      fc.asyncProperty(
-        aboveMaxAmountArb,
-        validPaymentMethodArb,
-        async (amount, paymentMethod) => {
-          vi.clearAllMocks();
-
-          mockedGetServerSession.mockResolvedValue(mockAuthSession());
-
-          const request = new NextRequest(
-            new URL("http://localhost:3000/api/user/topup"),
-            {
-              method: "POST",
-              body: JSON.stringify({ amount, paymentMethod }),
-              headers: { "Content-Type": "application/json" },
-            }
-          );
-
-          const response = await POST(request);
-
-          // Must reject with 400
-          expect(response.status).toBe(400);
-
-          // Must never create a transaction
-          expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
-        }
-      ),
-      { numRuns: 50 }
-    );
-  });
-
-  test("amounts between 10000 and 10000000 inclusive are always accepted", async () => {
-    const { POST } = await import("@/app/api/user/topup/route");
-
-    await fc.assert(
-      fc.asyncProperty(
-        validAmountArb,
-        validPaymentMethodArb,
-        async (amount, paymentMethod) => {
-          vi.clearAllMocks();
-
-          mockedGetServerSession.mockResolvedValue(mockAuthSession());
-          mockedPrisma.$transaction.mockResolvedValue([
-            {
-              id: "topup-123",
-              amount,
-              paymentMethod,
-              status: "confirmed",
-              userId: "user-123",
-              createdAt: new Date(),
-            },
-            { donationBalance: amount },
-          ] as any);
-
-          const request = new NextRequest(
-            new URL("http://localhost:3000/api/user/topup"),
-            {
-              method: "POST",
-              body: JSON.stringify({ amount, paymentMethod }),
-              headers: { "Content-Type": "application/json" },
-            }
-          );
-
-          const response = await POST(request);
-
-          // Must succeed with 201
-          expect(response.status).toBe(201);
-
-          const body = await response.json();
-          expect(body.topUp).toBeDefined();
-          expect(body.balance).toBeDefined();
-
-          // Must create a transaction
-          expect(mockedPrisma.$transaction).toHaveBeenCalledTimes(1);
-        }
-      ),
-      { numRuns: 50 }
-    );
-  });
-
-  test("boundary values 10000 and 10000000 are always accepted", async () => {
-    const { POST } = await import("@/app/api/user/topup/route");
-    const boundaries = [10000, 10000000];
-
-    for (const amount of boundaries) {
-      vi.clearAllMocks();
-
-      mockedGetServerSession.mockResolvedValue(mockAuthSession());
-      mockedPrisma.$transaction.mockResolvedValue([
-        {
-          id: "topup-123",
-          amount,
-          paymentMethod: "BCA",
-          status: "confirmed",
-          userId: "user-123",
-          createdAt: new Date(),
-        },
-        { donationBalance: amount },
-      ] as any);
-
-      const request = new NextRequest(
-        new URL("http://localhost:3000/api/user/topup"),
-        {
-          method: "POST",
-          body: JSON.stringify({ amount, paymentMethod: "BCA" }),
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-
-      const response = await POST(request);
-      expect(response.status).toBe(201);
-    }
   });
 });

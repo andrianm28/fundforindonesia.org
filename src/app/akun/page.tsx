@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { formatRupiah } from '@/lib/utils/currency';
-import { TopUpDialog } from '@/components/dialogs/TopUpDialog';
 import { VerificationDialog } from '@/components/dialogs/VerificationDialog';
 
 export default function AkunPage() {
@@ -13,7 +12,6 @@ export default function AkunPage() {
   const router = useRouter();
   const [balance, setBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(true);
-  const [topUpOpen, setTopUpOpen] = useState(false);
   const [verifyOpen, setVerifyOpen] = useState(false);
 
   useEffect(() => {
@@ -100,25 +98,19 @@ export default function AkunPage() {
         </div>
       </div>
 
-      {/* Balance Card */}
+      {/* Balance Card. Kantong Donasi top-up is disabled (WALLET_ENABLED,
+          src/lib/wallet.ts) so there is no action here — just the existing
+          balance, which is a liability to honour later, not data to hide. */}
       <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[#757575] text-xs">Saldo Kantong Donasi</p>
-            {balanceLoading ? (
-              <div className="h-6 w-28 bg-[#E0E0E0] rounded animate-pulse mt-1" />
-            ) : (
-              <p className="text-[#212121] text-lg font-bold mt-0.5">
-                {formatRupiah(balance ?? 0)}
-              </p>
-            )}
-          </div>
-          <button
-            onClick={() => setTopUpOpen(true)}
-            className="bg-[#0073E6] text-white text-sm px-4 py-2 rounded-lg font-medium hover:bg-[#005BB5] transition-colors"
-          >
-            Top Up
-          </button>
+        <div>
+          <p className="text-[#757575] text-xs">Saldo Kantong Donasi</p>
+          {balanceLoading ? (
+            <div className="h-6 w-28 bg-[#E0E0E0] rounded animate-pulse mt-1" />
+          ) : (
+            <p className="text-[#212121] text-lg font-bold mt-0.5">
+              {formatRupiah(balance ?? 0)}
+            </p>
+          )}
         </div>
       </div>
 
@@ -184,13 +176,6 @@ export default function AkunPage() {
           Keluar
         </button>
       </div>
-
-      {/* Top Up Dialog */}
-      <TopUpDialog
-        isOpen={topUpOpen}
-        onClose={() => setTopUpOpen(false)}
-        onSuccess={fetchBalance}
-      />
 
       {/* Verification Dialog */}
       <VerificationDialog
