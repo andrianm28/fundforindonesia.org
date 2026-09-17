@@ -62,6 +62,7 @@ export default async function CategoryPage({ params }: Props) {
     category: c.category,
     deadline: c.deadline,
     isUrgent: c.isUrgent,
+    isDemo: c.isDemo,
     creator: {
       name: c.creator.name,
       isVerified: c.creator.isVerified,

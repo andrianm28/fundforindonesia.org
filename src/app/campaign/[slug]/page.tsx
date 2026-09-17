@@ -84,6 +84,7 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     category: campaign.category,
     status: campaign.status,
     isUrgent: campaign.isUrgent,
+    isDemo: campaign.isDemo,
     deadline: campaign.deadline ? campaign.deadline.toISOString() : null,
     createdAt: campaign.createdAt.toISOString(),
     creator: campaign.creator,

@@ -48,13 +48,24 @@ export async function POST(request: NextRequest) {
     // 3. Verify campaign exists and is active
     const campaign = await prisma.campaign.findUnique({
       where: { id: campaignId },
-      select: { id: true, status: true, title: true },
+      select: { id: true, status: true, title: true, isDemo: true },
     });
 
     if (!campaign) {
       return NextResponse.json(
         { error: 'Campaign tidak ditemukan' },
         { status: 404 }
+      );
+    }
+
+    // Demo campaigns are sample content that predates the money layer and
+    // must never take real money -- refused here, before the status check,
+    // before the provider is built, before anything is written. A label on
+    // the card (CampaignCard.tsx) is not the mechanism; this is.
+    if (campaign.isDemo) {
+      return NextResponse.json(
+        { error: 'Ini adalah campaign contoh dan tidak dapat menerima donasi.' },
+        { status: 403 }
       );
     }
 

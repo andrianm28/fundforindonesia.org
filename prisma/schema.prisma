@@ -93,6 +93,20 @@ model Campaign {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  /// Sample/demo content, not a real appeal. Set by a one-time migration for
+  /// the 30 campaigns that existed before the money layer (task M9) -- every
+  /// one of them had zero Payment rows behind any of their donations, which
+  /// is what proves they predate real money rather than a date this schema
+  /// would have to keep in sync. NEVER set true by application code: `false`
+  /// is the only default, a new campaign never inherits it, and nothing in
+  /// this codebase should ever flip it back on. It is enforcement, not just
+  /// a label -- POST /api/donations and requestPayout (src/lib/money/
+  /// payouts.ts) both refuse a campaign with this flag before writing
+  /// anything, and GET /api/admin/reconcile excludes it from its comparison
+  /// entirely, because its collectedAmount is fixture data with no ledger
+  /// behind it by design.
+  isDemo          Boolean   @default(false)
+
   // Relations
   creator       User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   donations     Donation[]

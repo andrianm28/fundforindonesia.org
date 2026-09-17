@@ -125,6 +125,17 @@ describe('CampaignCard', () => {
     expect(screen.getByText('DARURAT')).toBeDefined();
   });
 
+  it('renders a "Kampanye contoh" badge for demo campaigns', () => {
+    const demoCampaign = { ...mockCampaign, isDemo: true };
+    render(<CampaignCard campaign={demoCampaign} variant="standard" />);
+    expect(screen.getByText('Kampanye contoh')).toBeDefined();
+  });
+
+  it('does not render the demo badge for a regular campaign', () => {
+    render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    expect(screen.queryByText('Kampanye contoh')).toBeNull();
+  });
+
   it('navigates to /campaign/[slug] on click', () => {
     const { container } = render(<CampaignCard campaign={mockCampaign} variant="standard" />);
     const card = container.firstChild as HTMLElement;

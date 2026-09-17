@@ -20,6 +20,7 @@ const mockCampaign: Campaign = {
   category: 'bencana-alam',
   status: 'active',
   isUrgent: true,
+  isDemo: false,
   deadline: null,
   creatorId: 'user-1',
   createdAt: new Date('2024-01-01'),

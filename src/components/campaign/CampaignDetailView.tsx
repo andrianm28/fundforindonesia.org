@@ -21,6 +21,8 @@ export interface CampaignDetailData {
   category: string;
   status: string;
   isUrgent: boolean;
+  /** Sample content (task M9) -- the badge below is additional, not the refusal mechanism; POST /api/donations refuses it regardless. */
+  isDemo: boolean;
   deadline: string | null;
   createdAt: string;
   creator: {
@@ -127,6 +129,15 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
 
       {/* Content */}
       <div className="max-w-3xl mx-auto px-4 py-4">
+        {/* Demo campaign badge (task M9) -- plain Indonesian, above the
+            title, so it is seen before "Donasi sekarang" at the bottom is
+            ever tapped, not discovered after the donation is refused. */}
+        {campaign.isDemo && (
+          <span className="inline-block bg-gray-800/90 text-white text-xs font-semibold px-2.5 py-1 rounded mb-2">
+            Kampanye contoh — tidak menerima donasi sungguhan
+          </span>
+        )}
+
         {/* Title */}
         <h2 className="text-lg font-bold text-text leading-tight mb-3">
           {campaign.title}

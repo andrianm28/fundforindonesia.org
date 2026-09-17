@@ -271,6 +271,7 @@ describe('POST /api/donations', () => {
       id: 'campaign-1',
       status: 'completed',
       title: 'Completed Campaign',
+      isDemo: false,
     });
 
     const request = createRequest(validBody);
@@ -279,6 +280,29 @@ describe('POST /api/donations', () => {
 
     expect(response.status).toBe(400);
     expect(data.error).toContain('tidak aktif');
+  });
+
+  it('should return 403 for a demo campaign and write nothing -- not a Donation, not a Payment, and never call the provider', async () => {
+    mockCampaignFindUnique.mockResolvedValue({
+      id: 'campaign-1',
+      status: 'active',
+      title: 'Demo Campaign',
+      isDemo: true,
+    });
+    const chargeCreate = vi.fn();
+    mockGetPaymentProvider.mockReturnValue({ createCharge: chargeCreate });
+
+    const request = createRequest(validBody);
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data.error).toMatch(/contoh/i);
+    // Refused before the transaction is ever opened -- no Donation, no
+    // Payment, and the provider was never asked for a charge.
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(chargeCreate).not.toHaveBeenCalled();
+    expect(mockPrayerCreate).not.toHaveBeenCalled();
   });
 
   it('should allow anonymous donation (no session)', async () => {

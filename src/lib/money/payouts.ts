@@ -16,6 +16,18 @@ import { campaignBalance, payoutInstructedLegs, postTransaction } from './ledger
  * it, and approveAndReleasePayout does not accept it.
  */
 
+export class DemoCampaignError extends Error {
+  constructor() {
+    super(
+      'Campaign is marked isDemo -- sample content from before the money layer existed, with no ' +
+        'real ledger balance behind it. Refused by name so the reason is "this is a demo ' +
+        'campaign", not "insufficient balance", which would send an operator hunting for money ' +
+        'that was never there.',
+    );
+    this.name = 'DemoCampaignError';
+  }
+}
+
 export class BankAccountNotEligibleError extends Error {
   constructor() {
     super(
@@ -100,6 +112,20 @@ export async function requestPayout(
   },
 ): Promise<Payout> {
   const { campaignId, requestedById, bankAccountId, amount, description } = params;
+
+  // Checked before the bank account and the balance: a demo campaign has no
+  // ledger balance either, so InsufficientBalanceError would already stop
+  // this -- but that message reads as "the money isn't here yet", which
+  // sends whoever sees it looking for a shortfall that does not exist. This
+  // is the one door money leaves the platform through (see the module doc
+  // comment above), so it is also the one place this needs to be checked.
+  const campaign = await tx.campaign.findUnique({
+    where: { id: campaignId },
+    select: { isDemo: true },
+  });
+  if (campaign?.isDemo) {
+    throw new DemoCampaignError();
+  }
 
   const bankAccount = await tx.bankAccount.findUnique({ where: { id: bankAccountId } });
   if (!bankAccount || bankAccount.ownerId !== requestedById || !bankAccount.verifiedAt) {

@@ -51,7 +51,7 @@ type PaymentRow = {
 
 type RefundRow = { id: string; paymentId: string };
 
-type CampaignRow = { id: string; title: string; collectedAmount: number };
+type CampaignRow = { id: string; title: string; collectedAmount: number; isDemo?: boolean };
 
 /** Handles the `{ not }` and `{ in }` Prisma filter shapes this route's queries use. */
 function matchesWhere(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
@@ -286,6 +286,53 @@ describe('GET /api/admin/reconcile', () => {
     ]);
     expect(data.mismatches).toEqual([]);
     expect(data.caveat).toMatch(/preLedger/);
+  });
+
+  it('excludes an isDemo campaign from preLedger entirely, even though it has collectedAmount and no ledger rows -- the exact shape the M9 migration produces', async () => {
+    const tx = makeTx({
+      ledgerRows: [],
+      campaigns: [
+        { id: 'demo-1', title: 'Bantu Korban Bencana (contoh)', collectedAmount: 25_000_000, isDemo: true },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    // Not preLedger either -- belt-and-braces on top of that partition, not
+    // routed through it. This is the number that proves task M9 worked: on
+    // the live database, every one of the 30 demo campaigns would otherwise
+    // have landed here.
+    expect(data.preLedger).toEqual([]);
+    expect(data.mismatches).toEqual([]);
+  });
+
+  it('still reports a real mismatch on a non-demo campaign sitting alongside an excluded isDemo one', async () => {
+    const tx = makeTx({
+      ledgerRows: [
+        { transactionId: 't1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1' },
+      ],
+      campaigns: [
+        { id: 'campaign-1', title: 'Real Campaign', collectedAmount: 999_999, isDemo: false },
+        { id: 'demo-1', title: 'Demo Campaign', collectedAmount: 25_000_000, isDemo: true },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.mismatches).toEqual([
+      {
+        campaignId: 'campaign-1',
+        campaignTitle: 'Real Campaign',
+        collectedAmount: 999_999,
+        ledgerAmount: 100_000,
+        difference: 899_999,
+      },
+    ]);
+    expect(data.preLedger).toEqual([]);
   });
 
   it('does not flag a payment that released cleanly (its DEBIT ESCROW_HOLD leg accounts for the full net)', async () => {

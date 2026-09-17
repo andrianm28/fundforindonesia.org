@@ -20,6 +20,8 @@ export interface CampaignCardProps {
     category: string;
     deadline: string | null;
     isUrgent: boolean;
+    /** Sample content (task M9) -- cannot receive donations. Shown as a badge, not a tooltip. */
+    isDemo?: boolean;
     creator: {
       name: string;
       isVerified: boolean;
@@ -87,6 +89,15 @@ export function CampaignCard({
         {campaign.isUrgent && (
           <span className="absolute top-2 left-2 bg-danger text-white text-xs font-semibold px-2 py-0.5 rounded">
             DARURAT
+          </span>
+        )}
+        {/* Demo campaigns (task M9) cannot receive donations -- this badge
+            says so before a donor ever taps through, not after they are
+            refused. Plain Indonesian text, not a tooltip, so it reads at a
+            glance on a phone the same way DARURAT does. */}
+        {campaign.isDemo && (
+          <span className="absolute top-2 right-2 bg-gray-800/90 text-white text-xs font-semibold px-2 py-0.5 rounded">
+            Kampanye contoh
           </span>
         )}
       </div>

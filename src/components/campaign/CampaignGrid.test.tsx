@@ -56,6 +56,7 @@ const createMockCampaigns = (count: number): CampaignCardData[] =>
     category: 'bencana-alam',
     deadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     isUrgent: false,
+    isDemo: false,
     creator: {
       name: `Creator ${i}`,
       isVerified: true,

@@ -14,6 +14,8 @@ export interface Campaign {
   category: string;
   status: CampaignStatus;
   isUrgent: boolean;
+  /** Sample content marked by the task M9 migration -- see schema.prisma. Never take money from a campaign where this is true. */
+  isDemo: boolean;
   deadline?: Date | null;
   creatorId: string;
   createdAt: Date;
@@ -148,6 +150,7 @@ export interface CampaignCardData {
   category: string;
   deadline: Date | null;
   isUrgent: boolean;
+  isDemo: boolean;
   creator: {
     name: string;
     isVerified: boolean;

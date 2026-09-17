@@ -70,6 +70,7 @@ function toCampaignCardData(campaign: {
   category: string;
   deadline: Date | null;
   isUrgent: boolean;
+  isDemo: boolean;
   creator: {
     name: string;
     isVerified: boolean;
@@ -86,6 +87,7 @@ function toCampaignCardData(campaign: {
     category: campaign.category,
     deadline: campaign.deadline,
     isUrgent: campaign.isUrgent,
+    isDemo: campaign.isDemo,
     creator: campaign.creator,
   };
 }

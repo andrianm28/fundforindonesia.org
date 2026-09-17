@@ -51,6 +51,7 @@ function makeTx(options: {
   bankAccount?: Record<string, unknown> | null;
   payoutCreate?: (data: unknown) => Record<string, unknown>;
   paymentState?: Map<string, { escrowReleasedAt: Date | null }>;
+  isDemo?: boolean;
 } = {}) {
   const rows: LedgerRow[] = [...(options.ledgerRows ?? [])];
   const bankAccountFindUnique = vi.fn().mockResolvedValue(options.bankAccount ?? null);
@@ -60,6 +61,10 @@ function makeTx(options: {
   const paymentState = options.paymentState ?? new Map<string, { escrowReleasedAt: Date | null }>();
   return {
     tx: {
+      // requestPayout's very first check, ahead of the bank account lookup
+      // -- not demo by default, so every existing test in this file exercises
+      // the checks it actually targets rather than tripping this one.
+      campaign: { findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false }) },
       bankAccount: { findUnique: bankAccountFindUnique },
       payout: { create: payoutCreate },
       payment: {
@@ -181,6 +186,26 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     mockCampaignFindUnique.mockResolvedValue(null);
     const response = await POST(createRequest(VALID_BODY), routeContext());
     expect(response.status).toBe(404);
+  });
+
+  it('rejects a demo campaign with 403 by name, before the bank account is even looked up, and creates nothing', async () => {
+    const { tx, bankAccountFindUnique, payoutCreate } = makeTx({
+      bankAccount: verifiedBankAccount(),
+      isDemo: true,
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(VALID_BODY), routeContext());
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    // Not "saldo tidak mencukupi" -- a demo campaign has no balance either,
+    // but that message sends an operator hunting for money that was never
+    // there. This must say what is actually true.
+    expect(data.error).toMatch(/contoh/i);
+    expect(data.error).not.toMatch(/saldo/i);
+    expect(bankAccountFindUnique).not.toHaveBeenCalled();
+    expect(payoutCreate).not.toHaveBeenCalled();
   });
 
   it('rejects an unverified bank account with 403 and creates nothing', async () => {

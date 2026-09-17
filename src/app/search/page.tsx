@@ -89,6 +89,7 @@ function SearchContent() {
                   category: c.category,
                   deadline: c.deadline ? new Date(c.deadline) : null,
                   isUrgent: c.isUrgent,
+                  isDemo: c.isDemo,
                   creator: {
                     name: c.creator.name,
                     isVerified: c.creator.isVerified,

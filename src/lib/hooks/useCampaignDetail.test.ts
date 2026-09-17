@@ -21,6 +21,7 @@ const mockCampaign: CampaignWithRelations = {
   category: 'bencana-alam',
   status: 'active',
   isUrgent: true,
+  isDemo: false,
   deadline: null,
   creatorId: 'user1',
   createdAt: new Date(),

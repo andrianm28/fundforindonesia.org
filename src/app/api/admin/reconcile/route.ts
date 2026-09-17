@@ -33,7 +33,11 @@ import { findUnbalancedTransactions } from '@/lib/money/ledger';
  *    finding, in `mismatches`. Per ledger.ts's doc comment, the ledger is
  *    right when the two disagree -- this reports the gap, it does not touch
  *    collectedAmount to close it. `caveat` carries the preLedger explanation
- *    in the payload itself so it travels with the response.
+ *    in the payload itself so it travels with the response. Campaigns with
+ *    `isDemo` (task M9) are excluded from BOTH buckets before this
+ *    comparison ever runs -- their collectedAmount is fixture data with no
+ *    ledger behind it by design, and this report should never spend a line
+ *    on that.
  *  - strandedEscrow: a Payment with `escrowReleasedAt` set (releaseMaturedEscrow,
  *    ./escrow.ts, considers it permanently finished) whose credited net still
  *    does not add up against what has actually left ESCROW_HOLD on its
@@ -118,7 +122,7 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
     }
 
     const campaigns = await tx.campaign.findMany({
-      select: { id: true, title: true, collectedAmount: true },
+      select: { id: true, title: true, collectedAmount: true, isDemo: true },
     });
 
     type CollectedAmountRow = {
@@ -131,6 +135,15 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
     const preLedger: CollectedAmountRow[] = [];
     const mismatches: CollectedAmountRow[] = [];
     for (const campaign of campaigns) {
+      // Demo campaigns (task M9) are excluded here, belt-and-braces, on top
+      // of the "no ledger activity at all" partition below -- every one of
+      // them already falls into that bucket, but this does not rely on that
+      // holding forever. Their collectedAmount is fixture data with no
+      // ledger behind it BY DESIGN, not a fault this report should ever
+      // flag: skipping them here is why preLedger is expected to be empty on
+      // this database, not merely small.
+      if (campaign.isDemo) continue;
+
       const ledgerAmount =
         (netEverCreditedByCampaign.get(campaign.id) ?? 0) + (feeByCampaign.get(campaign.id) ?? 0);
       if (ledgerAmount === campaign.collectedAmount) continue;
@@ -262,7 +275,8 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
       caveat:
         'preLedger campaigns have collectedAmount > 0 but no ledger entries at all -- they ' +
         'predate the money layer (e.g. funded via /api/balance/donate, which never posts to ' +
-        'the ledger) or are seed/demo data. They are expected, not incidents. mismatches are ' +
+        'the ledger). They are expected, not incidents. Campaigns with isDemo=true are excluded ' +
+        'from both preLedger and mismatches entirely, above, for the same reason. mismatches are ' +
         'campaigns that DO have ledger activity and still disagree with collectedAmount -- those are the real findings.',
       mismatches,
       strandedEscrow,

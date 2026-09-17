@@ -13,6 +13,7 @@ export interface UrgentCampaignItem {
   category: string;
   deadline: string | Date | null;
   isUrgent: boolean;
+  isDemo?: boolean;
   creator: {
     name: string;
     isVerified: boolean;
