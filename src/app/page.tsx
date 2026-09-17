@@ -7,8 +7,25 @@ import { PrayerWall } from '@/components/home/PrayerWall';
 import type { CampaignCardData } from '@/types/campaign';
 import type { PrayerStreamItem } from '@/lib/hooks/usePrayerStream';
 
-// ISR: revalidate every 5 minutes
-export const revalidate = 300;
+/**
+ * Rendered per request, not prerendered.
+ *
+ * This page was `export const revalidate = 300`, which makes Next prerender it
+ * at build time and refresh it in the background afterwards. Neither half
+ * worked here. The Docker build runs with a dummy DATABASE_URL, so the baked
+ * HTML contains no campaigns at all -- the sections are conditional on
+ * `length > 0` and simply vanish. And the background refresh cannot persist:
+ * the runtime image has no writable `.next`, so the container serves that
+ * empty snapshot.
+ *
+ * The result was a donation homepage listing nothing while the database held
+ * 23 active campaigns, with no error anywhere to say so.
+ *
+ * Caching a live campaign list at build time is the wrong shape regardless: a
+ * campaign published after the image was built would not appear until someone
+ * rebuilt it. Four indexed queries per request is the cheaper mistake.
+ */
+export const dynamic = 'force-dynamic';
 
 // Hero banner slides
 const heroBannerSlides = [

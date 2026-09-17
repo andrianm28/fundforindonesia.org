@@ -25,36 +25,63 @@ describe("GET /api/balance", () => {
     vi.clearAllMocks();
   });
 
-  // The wallet is disabled (WALLET_ENABLED = false, src/lib/wallet.ts) while
-  // top-ups mint balance with no payment behind them. Every request now gets
-  // a 503 before session or database access happen at all.
+  // The wallet is disabled (WALLET_ENABLED = false, src/lib/wallet.ts) because
+  // top-ups minted balance with no payment behind them. Reading a balance is
+  // deliberately NOT gated: it cannot create a rupiah or move one, and the
+  // people holding a balance should be able to see that it still exists.
 
-  it("returns 503 regardless of authentication", async () => {
-    mockedGetServerSession.mockResolvedValue(null);
+  const session = {
+    user: {
+      id: "user-1",
+      name: "Test",
+      email: "test@test.com",
+      role: "DONOR" as const,
+      isVerified: false,
+      verificationType: null,
+    },
+    expires: "2099-01-01",
+  };
+
+  it("returns the stored balance to the user who owns it", async () => {
+    mockedGetServerSession.mockResolvedValue(session);
+    mockedFindUnique.mockResolvedValue({ donationBalance: 1_371_884 } as never);
 
     const response = await GET();
     const data = await response.json();
 
-    expect(response.status).toBe(503);
-    expect(typeof data.error).toBe("string");
-    expect(data.error.length).toBeGreaterThan(0);
+    expect(response.status).toBe(200);
+    expect(data.balance).toBe(1_371_884);
+    // Scoped to the caller. A balance endpoint that reads any other id is a
+    // different kind of bug entirely.
+    expect(mockedFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "user-1" } }),
+    );
   });
 
-  it("returns 503 even for an authenticated user with a stored balance", async () => {
-    mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com", role: "DONOR" as const, isVerified: false, verificationType: null },
-      expires: "2099-01-01",
-    });
+  it("requires a session", async () => {
+    mockedGetServerSession.mockResolvedValue(null);
 
     const response = await GET();
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(401);
+    expect(mockedFindUnique).not.toHaveBeenCalled();
   });
 
-  it("never reads the session or the database while disabled", async () => {
-    await GET();
+  it("reports zero rather than failing when the user row has no balance", async () => {
+    mockedGetServerSession.mockResolvedValue(session);
+    mockedFindUnique.mockResolvedValue(null);
 
-    expect(mockedGetServerSession).not.toHaveBeenCalled();
-    expect(mockedFindUnique).not.toHaveBeenCalled();
+    const response = await GET();
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.balance).toBe(0);
+  });
+
+  it("only ever reads -- the disabled wallet's guarantee is that nothing mints", async () => {
+    // The prisma mock exposes user.findUnique and nothing else. If this route
+    // ever gained a write, this file would fail to run rather than quietly
+    // permit it.
+    expect(Object.keys(prisma.user)).toEqual(["findUnique"]);
   });
 });
