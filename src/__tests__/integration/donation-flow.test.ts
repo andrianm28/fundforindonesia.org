@@ -9,7 +9,6 @@ vi.mock('@/lib/prisma', () => ({
       update: vi.fn(),
     },
     donation: {
-      findUnique: vi.fn(),
       create: vi.fn(),
     },
     prayer: {
@@ -18,9 +17,6 @@ vi.mock('@/lib/prisma', () => ({
     user: {
       findUnique: vi.fn(),
       update: vi.fn(),
-    },
-    notification: {
-      createMany: vi.fn(),
     },
     $transaction: vi.fn(),
   },
@@ -31,28 +27,32 @@ vi.mock('@/lib/auth', () => ({
   getServerSession: vi.fn(),
 }));
 
-// Confirming a donation is ADMIN-only now (it increments collectedAmount and
-// shipped unauthenticated). Cases that reach the confirm endpoint need a
-// session with that role.
-const ADMIN_SESSION = { user: { id: 'admin1', role: 'ADMIN' } };
+// Mock the payment provider. The real MockPaymentProvider (charge issuance,
+// webhook signature verification) is exercised in
+// src/lib/payments/mock-provider.test.ts; this integration test only needs
+// createCharge to return something so POST /api/donations can run end to end.
+vi.mock('@/lib/payments', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/payments')>('@/lib/payments');
+  return {
+    ...actual,
+    getPaymentProvider: vi.fn(),
+  };
+});
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { getPaymentProvider } from '@/lib/payments';
 
 // Import route handlers
 import { POST as createDonation } from '@/app/api/donations/route';
-import { PATCH as confirmDonation } from '@/app/api/donations/[id]/confirm/route';
 import { POST as balanceDonate } from '@/app/api/balance/donate/route';
 
 // Typed mock references
 const mockCampaignFindUnique = prisma.campaign.findUnique as unknown as Mock;
-const mockDonationCreate = prisma.donation.create as unknown as Mock;
-const mockDonationFindUnique = prisma.donation.findUnique as unknown as Mock;
-const mockPrayerCreate = prisma.prayer.create as unknown as Mock;
 const mockUserFindUnique = prisma.user.findUnique as unknown as Mock;
-const mockNotificationCreateMany = prisma.notification.createMany as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
+const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 
 // Helper to create POST requests
 function createPostRequest(url: string, body: unknown): NextRequest {
@@ -63,15 +63,31 @@ function createPostRequest(url: string, body: unknown): NextRequest {
   });
 }
 
-// Helper to create PATCH requests
-function createPatchRequest(url: string): NextRequest {
-  return new NextRequest(url, { method: 'PATCH' });
+/**
+ * Fake tx client backing POST /api/donations' donation + payment
+ * transaction. Mirrors what src/app/api/donations/route.ts actually calls:
+ * tx.donation.create then tx.payment.create.
+ */
+function makeDonationTx(donation: Record<string, unknown>) {
+  return {
+    donation: { create: vi.fn().mockResolvedValue(donation) },
+    payment: { create: vi.fn().mockResolvedValue({ id: 'payment-1' }) },
+  };
 }
+
+const VA_EXPIRY = new Date('2099-01-02T00:00:00.000Z');
 
 describe('Donation Flow Integration Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockNotificationCreateMany.mockResolvedValue({ count: 0 });
+    mockGetPaymentProvider.mockReturnValue({
+      createCharge: vi.fn().mockResolvedValue({
+        providerOrderId: 'order',
+        method: 'bank_transfer_va',
+        vaNumber: '8808123456789',
+        expiresAt: VA_EXPIRY,
+      }),
+    });
   });
 
   describe('1. Donation creation validates campaign is active', () => {
@@ -108,10 +124,13 @@ describe('Donation Flow Integration Tests', () => {
         title: 'Expired Campaign',
       });
 
+      // bank_transfer, not ewallet: this test is about campaign state, not
+      // payment method availability -- ewallet would now be rejected earlier
+      // with 503 regardless of campaign status.
       const request = createPostRequest('http://localhost:3000/api/donations', {
         campaignId: 'campaign-2',
         amount: 25000,
-        paymentMethod: 'ewallet',
+        paymentMethod: 'bank_transfer',
       });
 
       const response = await createDonation(request);
@@ -130,7 +149,7 @@ describe('Donation Flow Integration Tests', () => {
         status: 'active',
         title: 'Active Campaign',
       });
-      mockDonationCreate.mockResolvedValue({
+      const tx = makeDonationTx({
         id: 'donation-new',
         amount: 50000,
         paymentMethod: 'bank_transfer',
@@ -138,6 +157,7 @@ describe('Donation Flow Integration Tests', () => {
         campaignId: 'campaign-3',
         donorId: 'user-1',
       });
+      mockTransaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(tx));
 
       const request = createPostRequest('http://localhost:3000/api/donations', {
         campaignId: 'campaign-3',
@@ -164,15 +184,17 @@ describe('Donation Flow Integration Tests', () => {
         status: 'active',
         title: 'Campaign With Prayer',
       });
-      mockDonationCreate.mockResolvedValue({
+      const tx = makeDonationTx({
         id: 'donation-prayer',
         amount: 100000,
-        paymentMethod: 'ewallet',
+        paymentMethod: 'bank_transfer',
         paymentStatus: 'pending',
         campaignId: 'campaign-1',
         donorId: 'user-1',
         message: 'Semoga cepat sembuh ya',
       });
+      mockTransaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(tx));
+      const mockPrayerCreate = prisma.prayer.create as unknown as Mock;
       mockPrayerCreate.mockResolvedValue({
         id: 'prayer-1',
         text: 'Semoga cepat sembuh ya',
@@ -182,7 +204,7 @@ describe('Donation Flow Integration Tests', () => {
       const request = createPostRequest('http://localhost:3000/api/donations', {
         campaignId: 'campaign-1',
         amount: 100000,
-        paymentMethod: 'ewallet',
+        paymentMethod: 'bank_transfer',
         message: 'Semoga cepat sembuh ya',
       });
 
@@ -208,7 +230,7 @@ describe('Donation Flow Integration Tests', () => {
         status: 'active',
         title: 'Campaign No Prayer',
       });
-      mockDonationCreate.mockResolvedValue({
+      const tx = makeDonationTx({
         id: 'donation-no-prayer',
         amount: 25000,
         paymentMethod: 'bank_transfer',
@@ -217,6 +239,8 @@ describe('Donation Flow Integration Tests', () => {
         donorId: 'user-1',
         message: null,
       });
+      mockTransaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(tx));
+      const mockPrayerCreate = prisma.prayer.create as unknown as Mock;
 
       const request = createPostRequest('http://localhost:3000/api/donations', {
         campaignId: 'campaign-1',
@@ -230,152 +254,22 @@ describe('Donation Flow Integration Tests', () => {
     });
   });
 
+  // Confirming a donation used to be an ADMIN-only PATCH endpoint
+  // (POST /api/donations/[id]/confirm). Task M4 deleted it: that job now
+  // belongs to the payment provider's webhook, not a human clicking a button.
+  // The behaviour these four tests asserted -- updating paymentStatus,
+  // incrementing campaign.collectedAmount, and sending donor/creator
+  // notifications -- is not gone, it moves to the webhook handler landing in
+  // task M5. They are left as it.todo rather than deleted so the requirement
+  // stays visible until M5 rewrites them against the webhook route.
   describe('3. Confirmation endpoint updates donation status and increments campaign amount', () => {
-    it('should confirm donation, update status, and increment collectedAmount', async () => {
-      mockDonationFindUnique.mockResolvedValue({
-        id: 'donation-1',
-        amount: 75000,
-        paymentStatus: 'pending',
-        donorId: 'user-1',
-        campaignId: 'campaign-1',
-        campaign: {
-          id: 'campaign-1',
-          title: 'Active Campaign',
-          targetAmount: 1000000,
-          collectedAmount: 300000,
-          creatorId: 'creator-1',
-        },
-        prayer: null,
-      });
-
-      mockTransaction.mockResolvedValue({
-        updatedDonation: { id: 'donation-1', paymentStatus: 'confirmed', amount: 75000 },
-        updatedCampaign: { id: 'campaign-1', status: 'active', collectedAmount: 375000 },
-      });
-
-      const request = createPatchRequest('http://localhost:3000/api/donations/donation-1/confirm');
-      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
-      const response = await confirmDonation(request, { params: { id: 'donation-1' } });
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(data.paymentStatus).toBe('confirmed');
-      expect(data.collectedAmount).toBe(375000);
-      expect(data.campaignStatus).toBe('active');
-      expect(mockTransaction).toHaveBeenCalled();
-    });
-
-    it('should mark campaign as completed when collectedAmount meets targetAmount', async () => {
-      mockDonationFindUnique.mockResolvedValue({
-        id: 'donation-final',
-        amount: 200000,
-        paymentStatus: 'pending',
-        donorId: 'user-2',
-        campaignId: 'campaign-target',
-        campaign: {
-          id: 'campaign-target',
-          title: 'Almost Done Campaign',
-          targetAmount: 500000,
-          collectedAmount: 350000, // 350000 + 200000 = 550000 >= 500000
-          creatorId: 'creator-2',
-        },
-        prayer: null,
-      });
-
-      mockTransaction.mockResolvedValue({
-        updatedDonation: { id: 'donation-final', paymentStatus: 'confirmed', amount: 200000 },
-        updatedCampaign: { id: 'campaign-target', status: 'completed', collectedAmount: 550000 },
-      });
-
-      const request = createPatchRequest('http://localhost:3000/api/donations/donation-final/confirm');
-      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
-      const response = await confirmDonation(request, { params: { id: 'donation-final' } });
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(data.campaignStatus).toBe('completed');
-      expect(data.collectedAmount).toBe(550000);
-    });
+    it.todo('should confirm donation, update status, and increment collectedAmount');
+    it.todo('should mark campaign as completed when collectedAmount meets targetAmount');
   });
 
   describe('4. Confirmation creates notifications for donor and creator', () => {
-    it('should create notifications for both donor and campaign creator', async () => {
-      mockDonationFindUnique.mockResolvedValue({
-        id: 'donation-notif',
-        amount: 100000,
-        paymentStatus: 'pending',
-        donorId: 'donor-1',
-        campaignId: 'campaign-notif',
-        campaign: {
-          id: 'campaign-notif',
-          title: 'Campaign Notifications',
-          targetAmount: 5000000,
-          collectedAmount: 1000000,
-          creatorId: 'creator-notif',
-        },
-        prayer: null,
-      });
-
-      mockTransaction.mockResolvedValue({
-        updatedDonation: { id: 'donation-notif', paymentStatus: 'confirmed', amount: 100000 },
-        updatedCampaign: { id: 'campaign-notif', status: 'active', collectedAmount: 1100000 },
-      });
-
-      const request = createPatchRequest('http://localhost:3000/api/donations/donation-notif/confirm');
-      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
-      await confirmDonation(request, { params: { id: 'donation-notif' } });
-
-      expect(mockNotificationCreateMany).toHaveBeenCalledWith({
-        data: expect.arrayContaining([
-          // Donor notification
-          expect.objectContaining({
-            type: 'donation_confirmed',
-            userId: 'donor-1',
-            title: 'Donasi Berhasil',
-          }),
-          // Creator notification
-          expect.objectContaining({
-            type: 'donation_confirmed',
-            userId: 'creator-notif',
-            title: 'Donasi Baru',
-          }),
-        ]),
-      });
-
-      const notifications = mockNotificationCreateMany.mock.calls[0][0].data;
-      expect(notifications).toHaveLength(2);
-    });
-
-    it('should only create creator notification when donation is anonymous (no donorId)', async () => {
-      mockDonationFindUnique.mockResolvedValue({
-        id: 'donation-anon',
-        amount: 50000,
-        paymentStatus: 'pending',
-        donorId: null,
-        campaignId: 'campaign-anon',
-        campaign: {
-          id: 'campaign-anon',
-          title: 'Anonymous Donation Campaign',
-          targetAmount: 2000000,
-          collectedAmount: 500000,
-          creatorId: 'creator-anon',
-        },
-        prayer: null,
-      });
-
-      mockTransaction.mockResolvedValue({
-        updatedDonation: { id: 'donation-anon', paymentStatus: 'confirmed', amount: 50000 },
-        updatedCampaign: { id: 'campaign-anon', status: 'active', collectedAmount: 550000 },
-      });
-
-      const request = createPatchRequest('http://localhost:3000/api/donations/donation-anon/confirm');
-      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
-      await confirmDonation(request, { params: { id: 'donation-anon' } });
-
-      const notifications = mockNotificationCreateMany.mock.calls[0][0].data;
-      expect(notifications).toHaveLength(1);
-      expect(notifications[0].userId).toBe('creator-anon');
-    });
+    it.todo('should create notifications for both donor and campaign creator');
+    it.todo('should only create creator notification when donation is anonymous (no donorId)');
   });
 
   describe('5. Balance donation deducts from user balance', () => {
