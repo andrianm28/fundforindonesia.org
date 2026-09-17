@@ -48,6 +48,16 @@ export interface WebhookEvent {
   providerEventId: string;
   providerOrderId: string;
   status: 'paid' | 'failed' | 'expired';
+  /**
+   * The settled amount the provider is vouching for, in whole rupiah, read
+   * from the same signed fields the signature covers. Not what the webhook
+   * route credits -- Payment.amount (this platform's own record of what was
+   * charged) stays the credited figure -- but what it cross-checks against
+   * before crediting anything. A provider that settles a different amount
+   * than it was charged (a partial capture, an underpaid VA) must not be
+   * credited as if the full charge arrived.
+   */
+  grossAmount: number;
   rawPayload: unknown;
 }
 

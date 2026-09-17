@@ -20,10 +20,11 @@ vi.mock('@/lib/prisma', () => ({
     },
     payment: {
       findUnique: vi.fn(),
-      update: vi.fn(),
     },
     webhookEvent: {
       create: vi.fn(),
+      update: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
     },
     notification: {
       createMany: vi.fn(),
@@ -62,8 +63,8 @@ import { POST as webhook } from '@/app/api/webhooks/[provider]/route';
 const mockCampaignFindUnique = prisma.campaign.findUnique as unknown as Mock;
 const mockUserFindUnique = prisma.user.findUnique as unknown as Mock;
 const mockPaymentFindUnique = prisma.payment.findUnique as unknown as Mock;
-const mockPaymentUpdate = prisma.payment.update as unknown as Mock;
 const mockWebhookEventCreate = prisma.webhookEvent.create as unknown as Mock;
+const mockWebhookEventUpdate = prisma.webhookEvent.update as unknown as Mock;
 const mockNotificationCreateMany = prisma.notification.createMany as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
@@ -122,9 +123,10 @@ type LedgerRow = {
 function makeWebhookTx() {
   const ledgerRows: LedgerRow[] = [];
   const tx = {
-    payment: { update: vi.fn().mockResolvedValue({}) },
+    payment: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     donation: { update: vi.fn().mockResolvedValue({}) },
     campaign: { update: vi.fn().mockResolvedValue({}) },
+    webhookEvent: { update: vi.fn().mockResolvedValue({}) },
     ledgerEntry: {
       count: vi.fn().mockResolvedValue(0),
       createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {
@@ -161,6 +163,8 @@ const WEBHOOK_PAID_EVENT = {
   providerEventId: 'evt-webhook-1',
   providerOrderId: 'donation-webhook-1',
   status: 'paid' as const,
+  // Matches makeWebhookPayment()'s default amount.
+  grossAmount: 75_000,
   rawPayload: { order_id: 'donation-webhook-1', transaction_status: 'settlement' },
 };
 
@@ -359,6 +363,7 @@ describe('Donation Flow Integration Tests', () => {
         parseWebhook: vi.fn().mockResolvedValue(WEBHOOK_PAID_EVENT),
       });
       mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
+      mockWebhookEventUpdate.mockResolvedValue({});
       mockNotificationCreateMany.mockResolvedValue({ count: 0 });
     });
 
@@ -378,8 +383,8 @@ describe('Donation Flow Integration Tests', () => {
         where: { id: 'campaign-webhook-1' },
         data: { collectedAmount: { increment: 75_000 } },
       });
-      expect(tx.payment.update).toHaveBeenCalledWith({
-        where: { id: 'payment-webhook-1' },
+      expect(tx.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-webhook-1', status: 'PENDING' },
         data: expect.objectContaining({ status: 'PAID' }),
       });
     });
@@ -418,6 +423,7 @@ describe('Donation Flow Integration Tests', () => {
         parseWebhook: vi.fn().mockResolvedValue(WEBHOOK_PAID_EVENT),
       });
       mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
+      mockWebhookEventUpdate.mockResolvedValue({});
       mockNotificationCreateMany.mockResolvedValue({ count: 0 });
     });
 
@@ -473,6 +479,7 @@ describe('Donation Flow Integration Tests', () => {
         parseWebhook: vi.fn().mockResolvedValue(WEBHOOK_PAID_EVENT),
       });
       mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
+      mockWebhookEventUpdate.mockResolvedValue({});
       mockNotificationCreateMany.mockResolvedValue({ count: 0 });
     });
 
@@ -487,13 +494,15 @@ describe('Donation Flow Integration Tests', () => {
       expect(response.status).toBe(200);
       expect(data.received).toBe(true);
       expect(mockTransaction).not.toHaveBeenCalled();
-      expect(mockPaymentUpdate).not.toHaveBeenCalled();
     });
 
     it('[M5 webhook] should not double-process a replayed webhook event (idempotent by provider event id)', async () => {
       // The WebhookEvent @@unique([provider, providerEventId]) constraint
-      // firing on a duplicate delivery.
+      // firing on a duplicate delivery of an event that was already fully
+      // processed.
       mockWebhookEventCreate.mockRejectedValue(Object.assign(new Error('duplicate'), { code: 'P2002' }));
+      const mockWebhookEventFindUniqueOrThrow = prisma.webhookEvent.findUniqueOrThrow as unknown as Mock;
+      mockWebhookEventFindUniqueOrThrow.mockResolvedValue({ id: 'we-1', processedAt: new Date() });
 
       const response = await webhook(createWebhookRequest({}), webhookContext());
       const data = await response.json();
@@ -513,7 +522,6 @@ describe('Donation Flow Integration Tests', () => {
       expect(response.status).toBe(200);
       expect(data.received).toBe(true);
       expect(mockTransaction).not.toHaveBeenCalled();
-      expect(mockPaymentUpdate).not.toHaveBeenCalled();
     });
   });
 

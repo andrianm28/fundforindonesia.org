@@ -18,6 +18,15 @@ import { notifyDonationConfirmed } from '@/lib/notifications';
  * out of PENDING. That asymmetry is deliberate -- a forged or duplicated
  * request here is the one mistake this platform cannot absorb, so every step
  * below fails closed rather than guessing.
+ *
+ * WebhookEvent.processedAt is this route's other invariant: it is stamped
+ * only as the last statement of whatever transaction decided this event's
+ * outcome. A row that exists with processedAt still null is not a duplicate
+ * -- it is an earlier delivery that got as far as being recorded and then
+ * never finished (a deadlock, a dropped connection, any throw before
+ * commit). Treating an unfinished row as "already handled" is how a
+ * donor's money arrives at the provider and this platform ends up with no
+ * record of it.
  */
 
 function isUniqueConstraintViolation(error: unknown): boolean {
@@ -75,24 +84,42 @@ export async function POST(
   }
 
   try {
-    // 3. Insert WebhookEvent first. Its @@unique([provider, providerEventId])
-    // IS the idempotency mechanism -- a duplicate delivery hits the
-    // constraint right here and the handler returns 200 having done nothing
-    // else. Providers retry aggressively, and answering a duplicate with
-    // anything other than 200 makes them retry harder, not less.
+    // 3. Record the event first. Its @@unique([provider, providerEventId])
+    // is the idempotency mechanism, but a row existing is not by itself
+    // proof this event was ever finished being handled -- see the
+    // processedAt note above the function. A create that hits the
+    // constraint has to look at the existing row to tell the two cases
+    // apart: processed means a genuine replay (200, do nothing further);
+    // unprocessed means an earlier delivery never finished, and this
+    // delivery picks up where it left off rather than being treated as a
+    // no-op duplicate.
+    let webhookEventId: string;
     try {
-      await prisma.webhookEvent.create({
+      const created = await prisma.webhookEvent.create({
         data: {
           provider: event.provider,
           providerEventId: event.providerEventId,
           payload: event.rawPayload as Prisma.InputJsonValue,
         },
       });
+      webhookEventId = created.id;
     } catch (err) {
-      if (isUniqueConstraintViolation(err)) {
+      if (!isUniqueConstraintViolation(err)) throw err;
+
+      const existing = await prisma.webhookEvent.findUniqueOrThrow({
+        where: {
+          provider_providerEventId: {
+            provider: event.provider,
+            providerEventId: event.providerEventId,
+          },
+        },
+      });
+
+      if (existing.processedAt) {
         return NextResponse.json({ received: true }, { status: 200 });
       }
-      throw err;
+
+      webhookEventId = existing.id;
     }
 
     // 4. Find the Payment this event is about. Payment.providerRef is the
@@ -110,6 +137,10 @@ export async function POST(
       console.error(
         `[webhooks/${providerParam}] event ${event.providerEventId} references unknown providerRef ${event.providerOrderId}`,
       );
+      await prisma.webhookEvent.update({
+        where: { id: webhookEventId },
+        data: { processedAt: new Date() },
+      });
       return NextResponse.json({ received: true }, { status: 200 });
     }
 
@@ -118,10 +149,17 @@ export async function POST(
       // the WebhookEvent unique constraint above: that one catches the exact
       // same event replayed, this one catches a different event (e.g. a
       // stray "paid" arriving after the payment already expired) landing on
-      // a Payment that has already left PENDING.
+      // a Payment that has already left PENDING. This is a cheap read-based
+      // early exit for the common case; the atomic updateMany guard below is
+      // what actually closes the race between two distinct events for the
+      // same Payment arriving concurrently.
       console.error(
         `[webhooks/${providerParam}] event ${event.providerEventId} ignored: payment ${payment.id} already ${payment.status}`,
       );
+      await prisma.webhookEvent.update({
+        where: { id: webhookEventId },
+        data: { processedAt: new Date() },
+      });
       return NextResponse.json({ received: true }, { status: 200 });
     }
 
@@ -129,6 +167,26 @@ export async function POST(
     const { campaign } = donation;
 
     if (event.status === 'paid') {
+      if (event.grossAmount !== payment.amount) {
+        // The provider's own signed amount disagrees with what this
+        // platform charged -- a partial capture, an underpaid VA, or worse.
+        // Crediting payment.amount anyway is exactly the gap that shows up
+        // at bank reconciliation months later with no explanation. Refuse
+        // to settle. The Payment is left PENDING rather than FAILED: this
+        // is not a definitive outcome the provider reported, it is an
+        // anomaly that needs a human, and FAILED would tell the donor
+        // their donation failed when money may genuinely be sitting at the
+        // provider.
+        console.error(
+          `[webhooks/${providerParam}] AMOUNT MISMATCH: event ${event.providerEventId} for payment ${payment.id} reports gross ${event.grossAmount}, Payment.amount is ${payment.amount} -- refusing to settle`,
+        );
+        await prisma.webhookEvent.update({
+          where: { id: webhookEventId },
+          data: { processedAt: new Date() },
+        });
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
+
       // MockPaymentProvider reports no fee today, so this is 0 rather than
       // derived from anything. A real adapter's webhook payload is where a
       // genuine fee must come from -- paymentSettledLegs credits the campaign
@@ -141,9 +199,15 @@ export async function POST(
       const newCollectedAmount = campaign.collectedAmount + payment.amount;
       const targetMet = newCollectedAmount >= campaign.targetAmount;
 
-      await prisma.$transaction(async (tx) => {
-        await tx.payment.update({
-          where: { id: payment.id },
+      const settled = await prisma.$transaction(async (tx) => {
+        // The database decides who wins, once: two DISTINCT events for the
+        // same Payment (different providerEventId, so both clear the
+        // WebhookEvent constraint on their own) can both read PENDING
+        // before either writes. Keying this update on status too, and
+        // checking how many rows it actually touched, closes that window --
+        // whichever commits first wins, and the loser sees count 0.
+        const updated = await tx.payment.updateMany({
+          where: { id: payment.id, status: PaymentStatus.PENDING },
           data: {
             status: PaymentStatus.PAID,
             providerFee,
@@ -152,6 +216,17 @@ export async function POST(
             escrowReleaseAt: releaseAt,
           },
         });
+
+        if (updated.count === 0) {
+          // Lost the race: another delivery already settled this Payment.
+          // This event is still finished -- its outcome is "do nothing" --
+          // so it still gets marked processed.
+          await tx.webhookEvent.update({
+            where: { id: webhookEventId },
+            data: { processedAt: new Date() },
+          });
+          return false;
+        }
 
         await tx.donation.update({
           where: { id: donation.id },
@@ -181,36 +256,70 @@ export async function POST(
             transactionId: `webhook:${event.provider}:${event.providerEventId}`,
           },
         );
+
+        // Stamped last, and only here: a transaction that reaches this line
+        // has written Payment, Donation, Campaign and the ledger. If
+        // anything above throws, the transaction rolls back, this never
+        // runs, and the row keeps processedAt null -- so a retry resumes
+        // the settlement instead of being told it already happened.
+        await tx.webhookEvent.update({
+          where: { id: webhookEventId },
+          data: { processedAt: new Date() },
+        });
+
+        return true;
       });
 
-      // Notifications outside the transaction, same as every other write
-      // path in this codebase: a failed notification must not roll back
-      // money that has genuinely settled.
-      await notifyDonationConfirmed({
-        donorId: donation.donorId,
-        creatorId: campaign.creatorId,
-        campaignId: campaign.id,
-        campaignTitle: campaign.title,
-        amount: payment.amount,
-      });
+      if (settled) {
+        // Notifications outside the transaction, same as every other write
+        // path in this codebase: a failed notification must not roll back
+        // money that has genuinely settled.
+        await notifyDonationConfirmed({
+          donorId: donation.donorId,
+          creatorId: campaign.creatorId,
+          campaignId: campaign.id,
+          campaignTitle: campaign.title,
+          amount: payment.amount,
+        });
+      } else {
+        console.error(
+          `[webhooks/${providerParam}] event ${event.providerEventId} lost the settlement race for payment ${payment.id} -- another delivery settled it first`,
+        );
+      }
     } else {
       // failed / expired: mark the payment and the donation, post nothing --
       // no money moved. Donation.paymentStatus only ever has
       // pending/confirmed/failed, so both provider outcomes map onto
       // 'failed' -- a donor who never paid should see that the attempt
       // lapsed rather than a donation stuck reading "pending" forever.
+      // Guarded by the same status-keyed updateMany as the paid path, for
+      // the same reason: two distinct events for one Payment must not both
+      // apply.
       await prisma.$transaction(async (tx) => {
-        await tx.payment.update({
-          where: { id: payment.id },
+        const updated = await tx.payment.updateMany({
+          where: { id: payment.id, status: PaymentStatus.PENDING },
           data: {
             status: event.status === 'expired' ? PaymentStatus.EXPIRED : PaymentStatus.FAILED,
             rawPayload: event.rawPayload as Prisma.InputJsonValue,
           },
         });
 
+        if (updated.count === 0) {
+          await tx.webhookEvent.update({
+            where: { id: webhookEventId },
+            data: { processedAt: new Date() },
+          });
+          return;
+        }
+
         await tx.donation.update({
           where: { id: donation.id },
           data: { paymentStatus: 'failed' },
+        });
+
+        await tx.webhookEvent.update({
+          where: { id: webhookEventId },
+          data: { processedAt: new Date() },
         });
       });
     }

@@ -12,6 +12,19 @@ import type {
 const VA_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Midtrans sends gross_amount as a decimal string ("100000.00") even for
+ * IDR, which has no subunit. Splitting on "." and parsing the integer part
+ * keeps this off of parseFloat -- rupiah are Int, never float, all the way
+ * through this boundary, not just once it reaches a Prisma column. A
+ * malformed string parses to NaN, which compares unequal to every real
+ * Payment.amount, so a corrupt amount fails closed as a mismatch rather than
+ * silently becoming 0.
+ */
+function parseGrossAmount(raw: string): number {
+  return parseInt(raw.split('.')[0] ?? '', 10);
+}
+
+/**
  * Behaves like a real bank-transfer-VA provider -- issues a VA number, and
  * accepts webhook payloads shaped and signed exactly like Midtrans's real ones
  * -- with no network call and no merchant account.
@@ -126,6 +139,7 @@ export class MockPaymentProvider implements PaymentProvider {
       providerEventId: String(body.transaction_id ?? ''),
       providerOrderId: orderId,
       status,
+      grossAmount: parseGrossAmount(grossAmount),
       rawPayload: body,
     };
   }
