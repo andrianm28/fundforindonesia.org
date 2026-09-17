@@ -268,13 +268,13 @@ describe('Donation Flow Integration Tests', () => {
   // deleted so the requirement stays visible until M5 rewrites it against the
   // webhook route.
   describe('3. Confirmation endpoint updates donation status and increments campaign amount', () => {
-    it.todo('should confirm donation, update status, and increment collectedAmount');
-    it.todo('should mark campaign as completed when collectedAmount meets targetAmount');
+    it.todo('[M5 webhook] should confirm donation, update status, and increment collectedAmount');
+    it.todo('[M5 webhook] should mark campaign as completed when collectedAmount meets targetAmount');
   });
 
   describe('4. Confirmation creates notifications for donor and creator', () => {
-    it.todo('should create notifications for both donor and campaign creator');
-    it.todo('should only create creator notification when donation is anonymous (no donorId)');
+    it.todo('[M5 webhook] should create notifications for both donor and campaign creator');
+    it.todo('[M5 webhook] should only create creator notification when donation is anonymous (no donorId)');
   });
 
   // See the comment above describe block 3 -- these are the status guards the
@@ -282,9 +282,9 @@ describe('Donation Flow Integration Tests', () => {
   // confirmed, 400 already failed) plus the idempotency guard a webhook needs
   // that a human-clicked endpoint never did. Named for task M5.
   describe('5. Payment status guards move to the M5 webhook', () => {
-    it.todo('should reject a webhook event whose providerRef matches no Payment');
-    it.todo('should not double-process a replayed webhook event (idempotent by provider event id)');
-    it.todo('should reject a webhook event for a Payment already in a terminal status (PAID/FAILED/EXPIRED)');
+    it.todo('[M5 webhook] should reject a webhook event whose providerRef matches no Payment');
+    it.todo('[M5 webhook] should not double-process a replayed webhook event (idempotent by provider event id)');
+    it.todo('[M5 webhook] should reject a webhook event for a Payment already in a terminal status (PAID/FAILED/EXPIRED)');
   });
 
   describe('6. Balance donation deducts from user balance', () => {
