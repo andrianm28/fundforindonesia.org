@@ -197,25 +197,18 @@ export default function DonasiOtomatisPage() {
         </div>
       </div>
 
-      {/* Balance Info */}
+      {/* Balance Info. Kantong Donasi top-up is disabled (WALLET_ENABLED,
+          src/lib/wallet.ts), so there is no Top Up entry point here. */}
       <div className="bg-white mx-4 -mt-2 rounded-xl shadow-sm p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[#757575] text-xs">Saldo Kantong Donasi</p>
-            {balanceLoading ? (
-              <div className="h-6 w-28 bg-[#E0E0E0] rounded animate-pulse mt-1" />
-            ) : (
-              <p className="text-[#212121] text-lg font-bold mt-0.5">
-                {formatRupiah(balance)}
-              </p>
-            )}
-          </div>
-          <button
-            onClick={() => router.push('/akun')}
-            className="text-[#0073E6] text-sm font-medium hover:underline"
-          >
-            Top Up
-          </button>
+        <div>
+          <p className="text-[#757575] text-xs">Saldo Kantong Donasi</p>
+          {balanceLoading ? (
+            <div className="h-6 w-28 bg-[#E0E0E0] rounded animate-pulse mt-1" />
+          ) : (
+            <p className="text-[#212121] text-lg font-bold mt-0.5">
+              {formatRupiah(balance)}
+            </p>
+          )}
         </div>
       </div>
 

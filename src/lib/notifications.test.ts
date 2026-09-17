@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import {
   notifyDonationConfirmed,
   notifyCampaignUpdate,
-  notifyDisbursement,
+  notifyPayout,
 } from './notifications';
 
 // Mock prisma
@@ -174,14 +174,14 @@ describe('notifications', () => {
     });
   });
 
-  describe('notifyDisbursement', () => {
+  describe('notifyPayout', () => {
     it('should notify all unique donors of the campaign', async () => {
       mockDonationFindMany.mockResolvedValue([
         { donorId: 'donor-1' },
         { donorId: 'donor-2' },
       ]);
 
-      await notifyDisbursement({
+      await notifyPayout({
         campaignId: 'campaign-1',
         campaignTitle: 'Test Campaign',
         amount: 5000000,
@@ -216,7 +216,7 @@ describe('notifications', () => {
     it('should not create notifications when there are no donors', async () => {
       mockDonationFindMany.mockResolvedValue([]);
 
-      await notifyDisbursement({
+      await notifyPayout({
         campaignId: 'campaign-1',
         campaignTitle: 'Test Campaign',
         amount: 1000000,
@@ -231,7 +231,7 @@ describe('notifications', () => {
         { donorId: 'donor-1' },
       ]);
 
-      await notifyDisbursement({
+      await notifyPayout({
         campaignId: 'campaign-1',
         campaignTitle: 'Test Campaign',
         amount: 500000,

@@ -9,7 +9,6 @@ vi.mock('@/lib/prisma', () => ({
       update: vi.fn(),
     },
     donation: {
-      findUnique: vi.fn(),
       create: vi.fn(),
     },
     prayer: {
@@ -18,6 +17,14 @@ vi.mock('@/lib/prisma', () => ({
     user: {
       findUnique: vi.fn(),
       update: vi.fn(),
+    },
+    payment: {
+      findUnique: vi.fn(),
+    },
+    webhookEvent: {
+      create: vi.fn(),
+      update: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
     },
     notification: {
       createMany: vi.fn(),
@@ -31,28 +38,37 @@ vi.mock('@/lib/auth', () => ({
   getServerSession: vi.fn(),
 }));
 
-// Confirming a donation is ADMIN-only now (it increments collectedAmount and
-// shipped unauthenticated). Cases that reach the confirm endpoint need a
-// session with that role.
-const ADMIN_SESSION = { user: { id: 'admin1', role: 'ADMIN' } };
+// Mock the payment provider. The real MockPaymentProvider (charge issuance,
+// webhook signature verification) is exercised in
+// src/lib/payments/mock-provider.test.ts; this integration test only needs
+// createCharge to return something so POST /api/donations can run end to end.
+vi.mock('@/lib/payments', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/payments')>('@/lib/payments');
+  return {
+    ...actual,
+    getPaymentProvider: vi.fn(),
+  };
+});
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { getPaymentProvider } from '@/lib/payments';
 
 // Import route handlers
 import { POST as createDonation } from '@/app/api/donations/route';
-import { PATCH as confirmDonation } from '@/app/api/donations/[id]/confirm/route';
 import { POST as balanceDonate } from '@/app/api/balance/donate/route';
+import { POST as webhook } from '@/app/api/webhooks/[provider]/route';
 
 // Typed mock references
 const mockCampaignFindUnique = prisma.campaign.findUnique as unknown as Mock;
-const mockDonationCreate = prisma.donation.create as unknown as Mock;
-const mockDonationFindUnique = prisma.donation.findUnique as unknown as Mock;
-const mockPrayerCreate = prisma.prayer.create as unknown as Mock;
 const mockUserFindUnique = prisma.user.findUnique as unknown as Mock;
+const mockPaymentFindUnique = prisma.payment.findUnique as unknown as Mock;
+const mockWebhookEventCreate = prisma.webhookEvent.create as unknown as Mock;
+const mockWebhookEventUpdate = prisma.webhookEvent.update as unknown as Mock;
 const mockNotificationCreateMany = prisma.notification.createMany as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
+const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 
 // Helper to create POST requests
 function createPostRequest(url: string, body: unknown): NextRequest {
@@ -63,15 +79,106 @@ function createPostRequest(url: string, body: unknown): NextRequest {
   });
 }
 
-// Helper to create PATCH requests
-function createPatchRequest(url: string): NextRequest {
-  return new NextRequest(url, { method: 'PATCH' });
+/**
+ * Fake tx client backing POST /api/donations' donation + payment
+ * transaction. Mirrors what src/app/api/donations/route.ts actually calls:
+ * tx.donation.create then tx.payment.create.
+ */
+function makeDonationTx(donation: Record<string, unknown>) {
+  return {
+    donation: { create: vi.fn().mockResolvedValue(donation) },
+    payment: { create: vi.fn().mockResolvedValue({ id: 'payment-1' }) },
+  };
 }
+
+const VA_EXPIRY = new Date('2099-01-02T00:00:00.000Z');
+
+/** Builds a webhook POST request for src/app/api/webhooks/[provider]/route.ts. */
+function createWebhookRequest(body: unknown): NextRequest {
+  return new NextRequest('http://localhost:3000/api/webhooks/mock', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function webhookContext() {
+  return { params: Promise.resolve({ provider: 'mock' }) };
+}
+
+type LedgerRow = {
+  account: string;
+  direction: string;
+  amount: number;
+  campaignId: string | null;
+  transactionId: string;
+};
+
+/**
+ * Fake tx client backing the webhook's settlement transaction. Runs the real
+ * postTransaction (not mocked), so the ledger rows it actually writes can be
+ * asserted on directly rather than asserting postTransaction was merely
+ * called.
+ */
+function makeWebhookTx() {
+  const ledgerRows: LedgerRow[] = [];
+  const tx = {
+    payment: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    donation: { update: vi.fn().mockResolvedValue({}) },
+    campaign: { update: vi.fn().mockResolvedValue({}) },
+    webhookEvent: { update: vi.fn().mockResolvedValue({}) },
+    ledgerEntry: {
+      count: vi.fn().mockResolvedValue(0),
+      createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {
+        ledgerRows.push(...data);
+        return { count: data.length };
+      }),
+    },
+  };
+  return { tx, ledgerRows };
+}
+
+function makeWebhookPayment(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'payment-webhook-1',
+    amount: 75_000,
+    status: 'PENDING',
+    donation: {
+      id: 'donation-webhook-1',
+      donorId: 'donor-webhook-1',
+      campaign: {
+        id: 'campaign-webhook-1',
+        title: 'Webhook Test Campaign',
+        creatorId: 'creator-webhook-1',
+        collectedAmount: 200_000,
+        targetAmount: 1_000_000,
+      },
+    },
+    ...overrides,
+  };
+}
+
+const WEBHOOK_PAID_EVENT = {
+  provider: 'mock',
+  providerEventId: 'evt-webhook-1',
+  providerOrderId: 'donation-webhook-1',
+  status: 'paid' as const,
+  // Matches makeWebhookPayment()'s default amount.
+  grossAmount: 75_000,
+  rawPayload: { order_id: 'donation-webhook-1', transaction_status: 'settlement' },
+};
 
 describe('Donation Flow Integration Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockNotificationCreateMany.mockResolvedValue({ count: 0 });
+    mockGetPaymentProvider.mockReturnValue({
+      createCharge: vi.fn().mockResolvedValue({
+        providerOrderId: 'order',
+        method: 'bank_transfer_va',
+        vaNumber: '8808123456789',
+        expiresAt: VA_EXPIRY,
+      }),
+    });
   });
 
   describe('1. Donation creation validates campaign is active', () => {
@@ -108,10 +215,13 @@ describe('Donation Flow Integration Tests', () => {
         title: 'Expired Campaign',
       });
 
+      // bank_transfer, not ewallet: this test is about campaign state, not
+      // payment method availability -- ewallet would now be rejected earlier
+      // with 503 regardless of campaign status.
       const request = createPostRequest('http://localhost:3000/api/donations', {
         campaignId: 'campaign-2',
         amount: 25000,
-        paymentMethod: 'ewallet',
+        paymentMethod: 'bank_transfer',
       });
 
       const response = await createDonation(request);
@@ -130,7 +240,7 @@ describe('Donation Flow Integration Tests', () => {
         status: 'active',
         title: 'Active Campaign',
       });
-      mockDonationCreate.mockResolvedValue({
+      const tx = makeDonationTx({
         id: 'donation-new',
         amount: 50000,
         paymentMethod: 'bank_transfer',
@@ -138,6 +248,7 @@ describe('Donation Flow Integration Tests', () => {
         campaignId: 'campaign-3',
         donorId: 'user-1',
       });
+      mockTransaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(tx));
 
       const request = createPostRequest('http://localhost:3000/api/donations', {
         campaignId: 'campaign-3',
@@ -164,15 +275,17 @@ describe('Donation Flow Integration Tests', () => {
         status: 'active',
         title: 'Campaign With Prayer',
       });
-      mockDonationCreate.mockResolvedValue({
+      const tx = makeDonationTx({
         id: 'donation-prayer',
         amount: 100000,
-        paymentMethod: 'ewallet',
+        paymentMethod: 'bank_transfer',
         paymentStatus: 'pending',
         campaignId: 'campaign-1',
         donorId: 'user-1',
         message: 'Semoga cepat sembuh ya',
       });
+      mockTransaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(tx));
+      const mockPrayerCreate = prisma.prayer.create as unknown as Mock;
       mockPrayerCreate.mockResolvedValue({
         id: 'prayer-1',
         text: 'Semoga cepat sembuh ya',
@@ -182,7 +295,7 @@ describe('Donation Flow Integration Tests', () => {
       const request = createPostRequest('http://localhost:3000/api/donations', {
         campaignId: 'campaign-1',
         amount: 100000,
-        paymentMethod: 'ewallet',
+        paymentMethod: 'bank_transfer',
         message: 'Semoga cepat sembuh ya',
       });
 
@@ -208,7 +321,7 @@ describe('Donation Flow Integration Tests', () => {
         status: 'active',
         title: 'Campaign No Prayer',
       });
-      mockDonationCreate.mockResolvedValue({
+      const tx = makeDonationTx({
         id: 'donation-no-prayer',
         amount: 25000,
         paymentMethod: 'bank_transfer',
@@ -217,6 +330,8 @@ describe('Donation Flow Integration Tests', () => {
         donorId: 'user-1',
         message: null,
       });
+      mockTransaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(tx));
+      const mockPrayerCreate = prisma.prayer.create as unknown as Mock;
 
       const request = createPostRequest('http://localhost:3000/api/donations', {
         campaignId: 'campaign-1',
@@ -230,156 +345,196 @@ describe('Donation Flow Integration Tests', () => {
     });
   });
 
+  // Confirming a donation used to be an ADMIN-only PATCH endpoint
+  // (POST /api/donations/[id]/confirm). Task M4 deleted it: that job now
+  // belongs to the payment provider's webhook, not a human clicking a button.
+  // The behaviour these tests asserted -- updating paymentStatus, incrementing
+  // campaign.collectedAmount, sending donor/creator notifications, AND the
+  // status guards (unknown donation, already-confirmed, already-failed) --
+  // was not gone, it moved to the webhook handler in task M5, which is what
+  // these describe blocks now exercise via POST /api/webhooks/[provider]. The
+  // guards matter MORE under a webhook than they did under the old endpoint:
+  // a provider retries deliveries automatically, so the webhook also needs
+  // idempotency against a replayed event, or a retried notification would
+  // double-process a payment.
   describe('3. Confirmation endpoint updates donation status and increments campaign amount', () => {
-    it('should confirm donation, update status, and increment collectedAmount', async () => {
-      mockDonationFindUnique.mockResolvedValue({
-        id: 'donation-1',
-        amount: 75000,
-        paymentStatus: 'pending',
-        donorId: 'user-1',
-        campaignId: 'campaign-1',
-        campaign: {
-          id: 'campaign-1',
-          title: 'Active Campaign',
-          targetAmount: 1000000,
-          collectedAmount: 300000,
-          creatorId: 'creator-1',
-        },
-        prayer: null,
+    beforeEach(() => {
+      mockGetPaymentProvider.mockReturnValue({
+        parseWebhook: vi.fn().mockResolvedValue(WEBHOOK_PAID_EVENT),
       });
-
-      mockTransaction.mockResolvedValue({
-        updatedDonation: { id: 'donation-1', paymentStatus: 'confirmed', amount: 75000 },
-        updatedCampaign: { id: 'campaign-1', status: 'active', collectedAmount: 375000 },
-      });
-
-      const request = createPatchRequest('http://localhost:3000/api/donations/donation-1/confirm');
-      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
-      const response = await confirmDonation(request, { params: { id: 'donation-1' } });
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(data.paymentStatus).toBe('confirmed');
-      expect(data.collectedAmount).toBe(375000);
-      expect(data.campaignStatus).toBe('active');
-      expect(mockTransaction).toHaveBeenCalled();
+      mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
+      mockWebhookEventUpdate.mockResolvedValue({});
+      mockNotificationCreateMany.mockResolvedValue({ count: 0 });
     });
 
-    it('should mark campaign as completed when collectedAmount meets targetAmount', async () => {
-      mockDonationFindUnique.mockResolvedValue({
-        id: 'donation-final',
-        amount: 200000,
-        paymentStatus: 'pending',
-        donorId: 'user-2',
-        campaignId: 'campaign-target',
-        campaign: {
-          id: 'campaign-target',
-          title: 'Almost Done Campaign',
-          targetAmount: 500000,
-          collectedAmount: 350000, // 350000 + 200000 = 550000 >= 500000
-          creatorId: 'creator-2',
-        },
-        prayer: null,
-      });
+    it('[M5 webhook] should confirm donation, update status, and increment collectedAmount', async () => {
+      mockPaymentFindUnique.mockResolvedValue(makeWebhookPayment());
+      const { tx } = makeWebhookTx();
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 
-      mockTransaction.mockResolvedValue({
-        updatedDonation: { id: 'donation-final', paymentStatus: 'confirmed', amount: 200000 },
-        updatedCampaign: { id: 'campaign-target', status: 'completed', collectedAmount: 550000 },
-      });
-
-      const request = createPatchRequest('http://localhost:3000/api/donations/donation-final/confirm');
-      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
-      const response = await confirmDonation(request, { params: { id: 'donation-final' } });
-      const data = await response.json();
+      const response = await webhook(createWebhookRequest({}), webhookContext());
 
       expect(response.status).toBe(200);
-      expect(data.campaignStatus).toBe('completed');
-      expect(data.collectedAmount).toBe(550000);
+      expect(tx.donation.update).toHaveBeenCalledWith({
+        where: { id: 'donation-webhook-1' },
+        data: { paymentStatus: 'confirmed' },
+      });
+      expect(tx.campaign.update).toHaveBeenCalledWith({
+        where: { id: 'campaign-webhook-1' },
+        data: { collectedAmount: { increment: 75_000 } },
+      });
+      expect(tx.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-webhook-1', status: 'PENDING' },
+        data: expect.objectContaining({ status: 'PAID' }),
+      });
+    });
+
+    it('[M5 webhook] should mark campaign as completed when collectedAmount meets targetAmount', async () => {
+      mockPaymentFindUnique.mockResolvedValue(
+        makeWebhookPayment({
+          donation: {
+            id: 'donation-webhook-1',
+            donorId: 'donor-webhook-1',
+            campaign: {
+              id: 'campaign-webhook-1',
+              title: 'Webhook Test Campaign',
+              creatorId: 'creator-webhook-1',
+              collectedAmount: 950_000,
+              targetAmount: 1_000_000,
+            },
+          },
+        }),
+      );
+      const { tx } = makeWebhookTx();
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+      await webhook(createWebhookRequest({}), webhookContext());
+
+      expect(tx.campaign.update).toHaveBeenCalledWith({
+        where: { id: 'campaign-webhook-1' },
+        data: { collectedAmount: { increment: 75_000 }, status: 'completed' },
+      });
     });
   });
 
   describe('4. Confirmation creates notifications for donor and creator', () => {
-    it('should create notifications for both donor and campaign creator', async () => {
-      mockDonationFindUnique.mockResolvedValue({
-        id: 'donation-notif',
-        amount: 100000,
-        paymentStatus: 'pending',
-        donorId: 'donor-1',
-        campaignId: 'campaign-notif',
-        campaign: {
-          id: 'campaign-notif',
-          title: 'Campaign Notifications',
-          targetAmount: 5000000,
-          collectedAmount: 1000000,
-          creatorId: 'creator-notif',
-        },
-        prayer: null,
+    beforeEach(() => {
+      mockGetPaymentProvider.mockReturnValue({
+        parseWebhook: vi.fn().mockResolvedValue(WEBHOOK_PAID_EVENT),
       });
-
-      mockTransaction.mockResolvedValue({
-        updatedDonation: { id: 'donation-notif', paymentStatus: 'confirmed', amount: 100000 },
-        updatedCampaign: { id: 'campaign-notif', status: 'active', collectedAmount: 1100000 },
-      });
-
-      const request = createPatchRequest('http://localhost:3000/api/donations/donation-notif/confirm');
-      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
-      await confirmDonation(request, { params: { id: 'donation-notif' } });
-
-      expect(mockNotificationCreateMany).toHaveBeenCalledWith({
-        data: expect.arrayContaining([
-          // Donor notification
-          expect.objectContaining({
-            type: 'donation_confirmed',
-            userId: 'donor-1',
-            title: 'Donasi Berhasil',
-          }),
-          // Creator notification
-          expect.objectContaining({
-            type: 'donation_confirmed',
-            userId: 'creator-notif',
-            title: 'Donasi Baru',
-          }),
-        ]),
-      });
-
-      const notifications = mockNotificationCreateMany.mock.calls[0][0].data;
-      expect(notifications).toHaveLength(2);
+      mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
+      mockWebhookEventUpdate.mockResolvedValue({});
+      mockNotificationCreateMany.mockResolvedValue({ count: 0 });
     });
 
-    it('should only create creator notification when donation is anonymous (no donorId)', async () => {
-      mockDonationFindUnique.mockResolvedValue({
-        id: 'donation-anon',
-        amount: 50000,
-        paymentStatus: 'pending',
-        donorId: null,
-        campaignId: 'campaign-anon',
-        campaign: {
-          id: 'campaign-anon',
-          title: 'Anonymous Donation Campaign',
-          targetAmount: 2000000,
-          collectedAmount: 500000,
-          creatorId: 'creator-anon',
-        },
-        prayer: null,
+    it('[M5 webhook] should create notifications for both donor and campaign creator', async () => {
+      mockPaymentFindUnique.mockResolvedValue(makeWebhookPayment());
+      const { tx } = makeWebhookTx();
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+      await webhook(createWebhookRequest({}), webhookContext());
+
+      expect(mockNotificationCreateMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({ userId: 'donor-webhook-1' }),
+          expect.objectContaining({ userId: 'creator-webhook-1' }),
+        ],
       });
+    });
 
-      mockTransaction.mockResolvedValue({
-        updatedDonation: { id: 'donation-anon', paymentStatus: 'confirmed', amount: 50000 },
-        updatedCampaign: { id: 'campaign-anon', status: 'active', collectedAmount: 550000 },
+    it('[M5 webhook] should only create creator notification when donation is anonymous (no donorId)', async () => {
+      mockPaymentFindUnique.mockResolvedValue(
+        makeWebhookPayment({
+          donation: {
+            id: 'donation-webhook-1',
+            donorId: null,
+            campaign: {
+              id: 'campaign-webhook-1',
+              title: 'Webhook Test Campaign',
+              creatorId: 'creator-webhook-1',
+              collectedAmount: 200_000,
+              targetAmount: 1_000_000,
+            },
+          },
+        }),
+      );
+      const { tx } = makeWebhookTx();
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+      await webhook(createWebhookRequest({}), webhookContext());
+
+      expect(mockNotificationCreateMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ userId: 'creator-webhook-1' })],
       });
-
-      const request = createPatchRequest('http://localhost:3000/api/donations/donation-anon/confirm');
-      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
-      await confirmDonation(request, { params: { id: 'donation-anon' } });
-
-      const notifications = mockNotificationCreateMany.mock.calls[0][0].data;
-      expect(notifications).toHaveLength(1);
-      expect(notifications[0].userId).toBe('creator-anon');
     });
   });
 
-  describe('5. Balance donation deducts from user balance', () => {
-    it('should deduct balance and create confirmed donation in one transaction', async () => {
+  // See the comment above describe block 3 -- these are the status guards the
+  // old ADMIN confirm endpoint had (404 unknown donation, 400 already
+  // confirmed, 400 already failed) plus the idempotency guard a webhook needs
+  // that a human-clicked endpoint never did.
+  describe('5. Payment status guards move to the M5 webhook', () => {
+    beforeEach(() => {
+      mockGetPaymentProvider.mockReturnValue({
+        parseWebhook: vi.fn().mockResolvedValue(WEBHOOK_PAID_EVENT),
+      });
+      mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
+      mockWebhookEventUpdate.mockResolvedValue({});
+      mockNotificationCreateMany.mockResolvedValue({ count: 0 });
+    });
+
+    it('[M5 webhook] should reject a webhook event whose providerRef matches no Payment', async () => {
+      mockPaymentFindUnique.mockResolvedValue(null);
+
+      const response = await webhook(createWebhookRequest({}), webhookContext());
+      const data = await response.json();
+
+      // Retrying forever helps nobody, so this is 200 -- but no Payment is
+      // ever created for an event nobody can attribute.
+      expect(response.status).toBe(200);
+      expect(data.received).toBe(true);
+      expect(mockTransaction).not.toHaveBeenCalled();
+    });
+
+    it('[M5 webhook] should not double-process a replayed webhook event (idempotent by provider event id)', async () => {
+      // The WebhookEvent @@unique([provider, providerEventId]) constraint
+      // firing on a duplicate delivery of an event that was already fully
+      // processed.
+      mockWebhookEventCreate.mockRejectedValue(Object.assign(new Error('duplicate'), { code: 'P2002' }));
+      const mockWebhookEventFindUniqueOrThrow = prisma.webhookEvent.findUniqueOrThrow as unknown as Mock;
+      mockWebhookEventFindUniqueOrThrow.mockResolvedValue({ id: 'we-1', processedAt: new Date() });
+
+      const response = await webhook(createWebhookRequest({}), webhookContext());
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.received).toBe(true);
+      expect(mockPaymentFindUnique).not.toHaveBeenCalled();
+      expect(mockTransaction).not.toHaveBeenCalled();
+    });
+
+    it('[M5 webhook] should reject a webhook event for a Payment already in a terminal status (PAID/FAILED/EXPIRED)', async () => {
+      mockPaymentFindUnique.mockResolvedValue(makeWebhookPayment({ status: 'PAID' }));
+
+      const response = await webhook(createWebhookRequest({}), webhookContext());
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.received).toBe(true);
+      expect(mockTransaction).not.toHaveBeenCalled();
+    });
+  });
+
+  // Sections 6-8 used to cover balance-donation deduction, insufficient-balance
+  // rejection, and target-completion via the wallet. The wallet is now
+  // disabled (WALLET_ENABLED = false, src/lib/wallet.ts): POST
+  // /api/balance/donate spent minted balance and wrote straight to
+  // campaign.collectedAmount, a second, uncontrolled writer of the field the
+  // settled-payment webhook is supposed to own alone. Every one of those
+  // scenarios is now unreachable - the endpoint refuses before touching the
+  // session, the campaign, or the user's balance at all.
+  describe('6. Balance donation is disabled', () => {
+    it('should return 503 without touching the campaign, the balance, or a transaction', async () => {
       mockGetServerSession.mockResolvedValue({
         user: { id: 'user-balance', name: 'Balance User', email: 'balance@test.com' },
       });
@@ -392,11 +547,6 @@ describe('Donation Flow Integration Tests', () => {
       mockUserFindUnique.mockResolvedValue({
         donationBalance: 200000,
       });
-      mockTransaction.mockResolvedValue([
-        { donationBalance: 150000 }, // new user balance after deduction
-        { id: 'donation-bal', amount: 50000 }, // created donation
-        { id: 'campaign-bal', collectedAmount: 450000 }, // updated campaign
-      ]);
 
       const request = createPostRequest('http://localhost:3000/api/balance/donate', {
         campaignId: 'campaign-bal',
@@ -406,136 +556,10 @@ describe('Donation Flow Integration Tests', () => {
       const response = await balanceDonate(request);
       const data = await response.json();
 
-      expect(response.status).toBe(201);
-      expect(data.donationId).toBe('donation-bal');
-      expect(data.newBalance).toBe(150000);
-      expect(data.message).toBe('Donasi berhasil');
-      expect(mockTransaction).toHaveBeenCalled();
-    });
-  });
-
-  describe('6. Balance donation rejects when insufficient balance', () => {
-    it('should return 400 with current balance info when balance is too low', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-low', name: 'Low Balance', email: 'low@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-x',
-        status: 'active',
-        targetAmount: 500000,
-        collectedAmount: 100000,
-      });
-      mockUserFindUnique.mockResolvedValue({
-        donationBalance: 20000,
-      });
-
-      const request = createPostRequest('http://localhost:3000/api/balance/donate', {
-        campaignId: 'campaign-x',
-        amount: 50000,
-      });
-
-      const response = await balanceDonate(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
-      expect(data.error).toBe('Saldo tidak mencukupi');
-      expect(data.currentBalance).toBe(20000);
-      // Transaction should NOT be called
+      expect(response.status).toBe(503);
+      expect(typeof data.error).toBe('string');
+      expect(mockCampaignFindUnique).not.toHaveBeenCalled();
       expect(mockTransaction).not.toHaveBeenCalled();
-    });
-
-    it('should reject when balance is exactly zero', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-zero', name: 'Zero Balance', email: 'zero@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-y',
-        status: 'active',
-        targetAmount: 500000,
-        collectedAmount: 100000,
-      });
-      mockUserFindUnique.mockResolvedValue({
-        donationBalance: 0,
-      });
-
-      const request = createPostRequest('http://localhost:3000/api/balance/donate', {
-        campaignId: 'campaign-y',
-        amount: 10000,
-      });
-
-      const response = await balanceDonate(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
-      expect(data.error).toBe('Saldo tidak mencukupi');
-      expect(data.currentBalance).toBe(0);
-    });
-  });
-
-  describe('7. Balance donation marks campaign as completed when target met', () => {
-    it('should mark campaign as completed when donation causes collectedAmount >= targetAmount', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-complete', name: 'Final Donor', email: 'final@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-almost',
-        status: 'active',
-        targetAmount: 100000,
-        collectedAmount: 80000, // 80000 + 30000 = 110000 >= 100000
-      });
-      mockUserFindUnique.mockResolvedValue({
-        donationBalance: 50000,
-      });
-      mockTransaction.mockResolvedValue([
-        { donationBalance: 20000 },
-        { id: 'donation-final', amount: 30000 },
-        { id: 'campaign-almost', collectedAmount: 110000, status: 'completed' },
-      ]);
-
-      const request = createPostRequest('http://localhost:3000/api/balance/donate', {
-        campaignId: 'campaign-almost',
-        amount: 30000,
-      });
-
-      const response = await balanceDonate(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(201);
-      expect(data.donationId).toBe('donation-final');
-      // The transaction was called - verify the campaign should be marked complete
-      expect(mockTransaction).toHaveBeenCalled();
-    });
-
-    it('should NOT mark campaign as completed when donation does not meet target', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-partial', name: 'Partial Donor', email: 'partial@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-partial',
-        status: 'active',
-        targetAmount: 1000000,
-        collectedAmount: 200000, // 200000 + 50000 = 250000 < 1000000
-      });
-      mockUserFindUnique.mockResolvedValue({
-        donationBalance: 100000,
-      });
-      mockTransaction.mockResolvedValue([
-        { donationBalance: 50000 },
-        { id: 'donation-partial', amount: 50000 },
-        { id: 'campaign-partial', collectedAmount: 250000, status: 'active' },
-      ]);
-
-      const request = createPostRequest('http://localhost:3000/api/balance/donate', {
-        campaignId: 'campaign-partial',
-        amount: 50000,
-      });
-
-      const response = await balanceDonate(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(201);
-      expect(data.donationId).toBe('donation-partial');
-      expect(mockTransaction).toHaveBeenCalled();
     });
   });
 });

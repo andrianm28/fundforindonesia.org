@@ -48,6 +48,16 @@ export interface WebhookEvent {
   providerEventId: string;
   providerOrderId: string;
   status: 'paid' | 'failed' | 'expired';
+  /**
+   * The settled amount the provider is vouching for, in whole rupiah, read
+   * from the same signed fields the signature covers. Not what the webhook
+   * route credits -- Payment.amount (this platform's own record of what was
+   * charged) stays the credited figure -- but what it cross-checks against
+   * before crediting anything. A provider that settles a different amount
+   * than it was charged (a partial capture, an underpaid VA) must not be
+   * credited as if the full charge arrived.
+   */
+  grossAmount: number;
   rawPayload: unknown;
 }
 
@@ -82,6 +92,23 @@ export interface PaymentProvider {
    * Verifies the signature and returns the event, or throws. It must never
    * return an unverified event: the caller has no other way to tell a genuine
    * notification from a forged one.
+   *
+   * The returned `status` is only as trustworthy as whatever the signature
+   * actually covers. Midtrans's documented scheme -- the one signature.ts
+   * implements -- signs `order_id + status_code + gross_amount + server_key`
+   * and nothing else; `transaction_status` and `transaction_id` sit outside
+   * the signed message. That means a single observed, correctly signed
+   * payload for an order can be replayed with `transaction_status` changed
+   * from e.g. `expire` to `settlement` and a fresh `transaction_id` --
+   * defeating both the WebhookEvent dedupe and the paid/failed distinction --
+   * without failing signature verification, because the signature never
+   * covered either field. A real adapter for a provider with this same gap
+   * MUST NOT treat `status` as settled on the notification's say-so alone; it
+   * must confirm settlement through the provider's own status API
+   * (`getStatus` here) before returning `status: 'paid'`. This mock does not
+   * do that -- MockPaymentProvider.getStatus always reports 'pending' for
+   * every known charge, since it has no real settlement to observe, so
+   * calling it here would break settlement rather than harden it.
    */
   parseWebhook(req: Request): Promise<WebhookEvent>;
   getStatus(orderId: string): Promise<PaymentStatusResult>;

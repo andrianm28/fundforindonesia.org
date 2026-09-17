@@ -71,6 +71,18 @@ describe('parseWebhook', () => {
     expect(event.rawPayload).toEqual(payload);
   });
 
+  it('reports grossAmount as a whole-rupiah integer, not the signed decimal string', async () => {
+    const p = provider();
+    const payload = await p.simulateWebhookPayload('ORDER-1', 100_000, 'settlement');
+    const event = await p.parseWebhook(webhookRequest(payload));
+
+    // gross_amount is signed as "100000.00"; the webhook route compares
+    // grossAmount directly against Payment.amount (an Int), so this must
+    // already be a number, not a string carrying a float-formatted decimal.
+    expect(event.grossAmount).toBe(100_000);
+    expect(Number.isInteger(event.grossAmount)).toBe(true);
+  });
+
   it('maps capture to paid, expire to expired, and everything else to failed', async () => {
     const p = provider();
     const cases: Array<[string, string]> = [

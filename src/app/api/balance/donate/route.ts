@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { WALLET_ENABLED, WALLET_DISABLED_MESSAGE } from "@/lib/wallet";
 
 const balanceDonateSchema = z.object({
   campaignId: z.string().min(1, "Campaign ID harus diisi"),
@@ -11,6 +12,10 @@ const balanceDonateSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  if (!WALLET_ENABLED) {
+    return NextResponse.json({ error: WALLET_DISABLED_MESSAGE }, { status: 503 });
+  }
+
   try {
     // 1. Require authentication
     const session = await getServerSession();

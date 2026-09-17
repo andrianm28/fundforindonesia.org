@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
+import { WALLET_ENABLED, WALLET_DISABLED_MESSAGE } from "@/lib/wallet";
 
 const topUpSchema = z.object({
   amount: z
@@ -12,6 +13,10 @@ const topUpSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  if (!WALLET_ENABLED) {
+    return NextResponse.json({ error: WALLET_DISABLED_MESSAGE }, { status: 503 });
+  }
+
   try {
     const session = await getServerSession();
 

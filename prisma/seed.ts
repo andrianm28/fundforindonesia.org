@@ -1,7 +1,9 @@
 import 'dotenv/config';
-import { PrismaClient, Role } from '@/generated/prisma/client';
+import { randomUUID } from 'crypto';
+import { PrismaClient, Role, PaymentStatus, PayoutStatus } from '@/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
+import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -26,6 +28,26 @@ function daysFromNow(days: number): Date {
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d;
+}
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+const QRIS_METHODS = new Set(['gopay', 'ovo', 'dana', 'shopeepay']);
+
+/** Maps a donation's free-text paymentMethod to Payment.method's convention. */
+function providerMethodFor(paymentMethod: string): string {
+  return QRIS_METHODS.has(paymentMethod) ? 'qris' : `va_${paymentMethod}`;
+}
+
+/** A rough approximation of real provider pricing: flat fee for bank
+ * transfers, a percentage for e-wallets/QRIS. Good enough for seed data --
+ * the point is that a nonzero fee is visible, not that it is exact. */
+function computeProviderFee(amount: number, providerMethod: string): number {
+  return providerMethod === 'qris' ? Math.round(amount * 0.007) : 4000;
 }
 
 function slugify(text: string): string {
@@ -241,32 +263,73 @@ async function main() {
   }
   console.log(`   ✓ ${campaigns.length} campaigns created\n`);
 
-  // 4. Seed Donations (100+)
+  // 4. Seed Donations (100+), each confirmed donation paired with a Payment
+  // and its ledger entries so a freshly seeded database has a ledger that
+  // balances rather than a bunch of donation rows with no money behind them.
   console.log('💰 Creating donations...');
   const donations = [];
   const activeCampaigns = campaigns.filter(c => c.status === 'active' || c.status === 'completed');
+  let paymentCount = 0;
 
   for (let i = 0; i < 110; i++) {
     const campaign = randomElement(activeCampaigns);
     const donor = randomElement(users);
     const isAnonymous = Math.random() < 0.2;
     const paymentStatus = Math.random() < 0.85 ? 'confirmed' : (Math.random() < 0.5 ? 'pending' : 'failed');
+    const paymentMethod = randomElement(PAYMENT_METHODS);
+    const amount = randomElement(DONATION_AMOUNTS);
+    const createdAt = daysAgo(randomInt(0, 60));
 
     const donation = await prisma.donation.create({
       data: {
-        amount: randomElement(DONATION_AMOUNTS),
+        amount,
         isAnonymous,
-        paymentMethod: randomElement(PAYMENT_METHODS),
+        paymentMethod,
         paymentStatus,
         message: Math.random() < 0.6 ? randomElement(PRAYER_TEXTS) : null,
         campaignId: campaign.id,
         donorId: donor.id,
-        createdAt: daysAgo(randomInt(0, 60)),
+        createdAt,
       },
     });
     donations.push(donation);
+
+    if (paymentStatus === 'confirmed') {
+      const providerMethod = providerMethodFor(paymentMethod);
+      const providerFee = computeProviderFee(amount, providerMethod);
+
+      // Ledger entries are written in the same transaction as the Payment
+      // they describe -- posting them separately is how a ledger ends up
+      // describing money that was never actually settled.
+      await prisma.$transaction(async (tx) => {
+        const payment = await tx.payment.create({
+          data: {
+            donationId: donation.id,
+            provider: 'mock',
+            method: providerMethod,
+            providerRef: `mock-charge-${randomUUID()}`,
+            amount,
+            providerFee,
+            status: PaymentStatus.PAID,
+            paidAt: createdAt,
+            escrowReleaseAt: addDays(createdAt, 7),
+          },
+        });
+
+        await postTransaction(
+          tx,
+          paymentSettledLegs({
+            campaignId: campaign.id,
+            grossAmount: amount,
+            providerFee,
+          }),
+          { paymentId: payment.id },
+        );
+      });
+      paymentCount++;
+    }
   }
-  console.log(`   ✓ ${donations.length} donations created\n`);
+  console.log(`   ✓ ${donations.length} donations created (${paymentCount} with a settled payment)\n`);
 
   // 5. Seed Prayers (50+)
   console.log('🤲 Creating prayers...');
@@ -307,28 +370,68 @@ async function main() {
   }
   console.log(`   ✓ ${updateCount} campaign updates created\n`);
 
-  // 7. Seed Disbursements (6+)
-  console.log('💸 Creating disbursements...');
+  // 7. Seed Bank Accounts + Payouts (replaces Disbursement)
+  //
+  // Every campaign creator gets a verified bank account, and every completed
+  // campaign gets 1-2 COMPLETED payouts against it. COMPLETED is the only
+  // status seeded here because the public disbursements route filters to
+  // COMPLETED -- seeding anything else would make that page look empty for
+  // every campaign in a freshly seeded database.
+  console.log('🏦 Creating bank accounts...');
+  const BANK_CODES = ['bca', 'mandiri', 'bni', 'bri'];
+  const bankAccountByCreatorId = new Map<string, { id: string }>();
+  for (const creator of creators) {
+    const bankAccount = await prisma.bankAccount.create({
+      data: {
+        ownerId: creator.id,
+        bankCode: randomElement(BANK_CODES),
+        accountNumber: String(randomInt(1000000000, 9999999999)),
+        accountName: creator.name,
+        verifiedAt: daysAgo(randomInt(30, 90)),
+      },
+    });
+    bankAccountByCreatorId.set(creator.id, bankAccount);
+  }
+  console.log(`   ✓ ${bankAccountByCreatorId.size} bank accounts created\n`);
+
+  console.log('💸 Creating payouts...');
   const completedCampaigns = campaigns.filter(c => c.status === 'completed');
-  let disbursementCount = 0;
+  const approvers = [...admins, ...moderators];
+  let payoutCount = 0;
 
   for (const campaign of completedCampaigns) {
-    // Each completed campaign gets 1-2 disbursements
-    const numDisbursements = randomInt(1, 2);
-    for (let i = 0; i < numDisbursements; i++) {
-      await prisma.disbursement.create({
+    const bankAccount = bankAccountByCreatorId.get(campaign.creatorId);
+    // Every creator got a bank account above, so this only guards the lookup.
+    if (!bankAccount) continue;
+
+    // Each completed campaign gets 1-2 payouts
+    const numPayouts = randomInt(1, 2);
+    for (let i = 0; i < numPayouts; i++) {
+      const approver = randomElement(approvers);
+      const requestedAt = daysAgo(randomInt(20, 40));
+      const approvedAt = addDays(requestedAt, 2);
+      const completedAt = addDays(approvedAt, 1);
+
+      await prisma.payout.create({
         data: {
-          amount: Math.floor(campaign.collectedAmount / numDisbursements),
+          campaignId: campaign.id,
+          bankAccountId: bankAccount.id,
+          amount: Math.floor(campaign.collectedAmount / numPayouts),
           description: `Pencairan dana tahap ${i + 1} - ${campaign.title}`,
           proofImage: `/images/disbursements/proof-${randomInt(1, 5)}.jpg`,
-          campaignId: campaign.id,
-          createdAt: daysAgo(randomInt(5, 30)),
+          status: PayoutStatus.COMPLETED,
+          requestedById: campaign.creatorId,
+          approvedById: approver.id,
+          approvedAt,
+          providerRef: `mock-payout-${randomUUID()}`,
+          completedAt,
+          createdAt: requestedAt,
         },
       });
-      disbursementCount++;
+      payoutCount++;
     }
   }
-  console.log(`   ✓ ${disbursementCount} disbursements created\n`);
+  console.log(`   ✓ ${payoutCount} payouts created\n`);
 
   // 8. Seed Notifications (20+)
   console.log('🔔 Creating notifications...');
@@ -389,9 +492,11 @@ async function main() {
   console.log(`   Users:            ${users.length}`);
   console.log(`   Campaigns:        ${campaigns.length}`);
   console.log(`   Donations:        ${donations.length}`);
+  console.log(`   Payments:         ${paymentCount}`);
   console.log(`   Prayers:          ${prayerCount}`);
   console.log(`   Campaign Updates: ${updateCount}`);
-  console.log(`   Disbursements:    ${disbursementCount}`);
+  console.log(`   Bank Accounts:    ${bankAccountByCreatorId.size}`);
+  console.log(`   Payouts:          ${payoutCount}`);
   console.log(`   Notifications:    ${notifCount}`);
   console.log(`   Auto Donations:   ${autoDonationCount}`);
   console.log('\n🔑 Test Credentials:');
