@@ -22,27 +22,33 @@ enum Role {
 // ==================== User & Auth ====================
 
 model User {
-  id                String    @id @default(cuid())
-  email             String    @unique
-  name              String
-  password          String?
-  avatar            String?
-  phone             String?
-  isVerified        Boolean   @default(false)
-  verificationType  String?   // "ktp" | "organization"
-  role              Role      @default(DONOR)
-  donationBalance   Int       @default(0)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id               String   @id @default(cuid())
+  email            String   @unique
+  name             String
+  password         String?
+  avatar           String?
+  phone            String?
+  isVerified       Boolean  @default(false)
+  verificationType String? // "ktp" | "organization"
+  role             Role     @default(DONOR)
+  donationBalance  Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   // Relations
-  accounts          Account[]
-  campaigns         Campaign[]
-  donations         Donation[]
-  prayers           Prayer[]
-  notifications     Notification[]
-  autoDonations     AutoDonation[]
-  topUps            TopUp[]
+  accounts      Account[]
+  campaigns     Campaign[]
+  donations     Donation[]
+  prayers       Prayer[]
+  notifications Notification[]
+  autoDonations AutoDonation[]
+  topUps        TopUp[]
+
+  // Money layer
+  bankAccounts     BankAccount[]
+  payoutsRequested Payout[]      @relation("PayoutRequester")
+  payoutsApproved  Payout[]      @relation("PayoutApprover")
+  refundsApproved  Refund[]      @relation("RefundApprover")
 
   @@index([email])
 }
@@ -88,11 +94,14 @@ model Campaign {
   updatedAt       DateTime  @updatedAt
 
   // Relations
-  creator         User              @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  donations       Donation[]
-  updates         CampaignUpdate[]
-  disbursements   Disbursement[]
-  prayers         Prayer[]
+  creator       User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  donations     Donation[]
+  updates       CampaignUpdate[]
+  // Disbursement is replaced by Payout, which carries status, an approver and
+  // a destination account -- see the Money section.
+  payouts       Payout[]
+  ledgerEntries LedgerEntry[]
+  prayers       Prayer[]
 
   @@index([slug])
   @@index([category])
@@ -119,6 +128,8 @@ model Donation {
   donor    User?    @relation(fields: [donorId], references: [id], onDelete: SetNull)
   prayer   Prayer?
 
+  payment Payment?
+
   @@index([campaignId])
   @@index([donorId])
   @@index([paymentStatus])
@@ -128,13 +139,13 @@ model Donation {
 // ==================== Prayer ====================
 
 model Prayer {
-  id          String   @id @default(cuid())
-  text        String   @db.VarChar(500)
-  amiinCount  Int      @default(0)
-  donationId  String   @unique
-  campaignId  String
-  userId      String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  text       String   @db.VarChar(500)
+  amiinCount Int      @default(0)
+  donationId String   @unique
+  campaignId String
+  userId     String?
+  createdAt  DateTime @default(now())
 
   // Relations
   donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
@@ -163,27 +174,11 @@ model CampaignUpdate {
   @@index([createdAt])
 }
 
-// ==================== Disbursement ====================
-
-model Disbursement {
-  id          String   @id @default(cuid())
-  amount      Int
-  description String
-  proofImage  String?
-  campaignId  String
-  createdAt   DateTime @default(now())
-
-  // Relations
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-
-  @@index([campaignId])
-}
-
 // ==================== Notification ====================
 
 model Notification {
   id        String   @id @default(cuid())
-  type      String   // "donation_confirmed" | "campaign_update" | "disbursement"
+  type      String // "donation_confirmed" | "campaign_update" | "disbursement"
   title     String
   message   String
   isRead    Boolean  @default(false)
@@ -205,8 +200,8 @@ model AutoDonation {
   id        String   @id @default(cuid())
   amount    Int
   category  String
-  schedule  String   // "daily" | "weekly"
-  time      String   // "HH:mm" format
+  schedule  String // "daily" | "weekly"
+  time      String // "HH:mm" format
   isActive  Boolean  @default(true)
   userId    String
   createdAt DateTime @default(now())
@@ -246,4 +241,288 @@ model TopUp {
 
   @@index([userId])
   @@index([status])
+}
+
+// ==================== Money ====================
+//
+// Everything below is the money layer. It did not exist: donations carried a
+// free-text `paymentStatus` that an unauthenticated endpoint could set, there
+// was no record of a provider charge, no refunds, no bank accounts, no payout
+// approval, and no ledger. A platform in that state can display totals but
+// cannot answer "where is the money", which is the only question that matters
+// when someone asks.
+//
+// THREE RULES THIS SECTION IS BUILT ON
+//
+// 1. Amounts are Int rupiah, matching Donation.amount and Campaign.targetAmount
+//    already in this schema. IDR has no circulating minor unit, so there is no
+//    cents problem to solve, and Int avoids float entirely. Never introduce a
+//    Float for money here.
+//
+// 2. Status is an enum, never a String. The free-text paymentStatus is what let
+//    "confirmed", "pending" and anything else coexist with no constraint; the
+//    database should refuse an invalid state, not hope callers behave.
+//
+// 3. The ledger is double-entry and append-only. Balances are derived by
+//    summing entries, never stored as a mutable column. Campaign.collectedAmount
+//    stays as a denormalised display figure, but it stops being the source of
+//    truth -- LedgerEntry is.
+
+enum PaymentStatus {
+  PENDING // created at the provider, awaiting the payer
+  PAID // provider confirmed settlement
+  EXPIRED // payment window closed unpaid
+  FAILED // provider rejected it
+  REFUNDED // fully refunded; partial refunds stay PAID with Refund rows
+}
+
+enum RefundStatus {
+  REQUESTED
+  PROCESSING
+  COMPLETED
+  REJECTED
+}
+
+enum PayoutStatus {
+  // A payout is money leaving the platform, so it gets an explicit approval
+  // step that cannot be skipped by a status write.
+  DRAFT // campaigner is filling it in
+  SUBMITTED // awaiting review
+  APPROVED // reviewed, not yet sent
+  REJECTED
+  PROCESSING // instructed to the bank
+  COMPLETED // funds confirmed out
+  FAILED
+}
+
+enum LedgerAccount {
+  // Named accounts rather than free strings, so a typo cannot silently create
+  // a new account that never balances.
+  ESCROW_HOLD // settled at the provider, still inside the dispute window
+  CAMPAIGN_BALANCE // owed to a specific campaign, withdrawable now
+  PLATFORM_FEE // retained by the platform
+  PROVIDER_FEE // retained by the payment provider
+  GATEWAY_CLEARING // money at the provider, not yet settled to us
+  PAYOUT_CLEARING // money instructed out, not yet confirmed
+  REFUND_CLEARING
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+/// A charge attempt at a payment provider. One Donation has at most one
+/// Payment; a retry creates a NEW Payment rather than mutating the old one, so
+/// the history of attempts survives.
+model Payment {
+  id          String        @id @default(cuid())
+  donationId  String        @unique
+  donation    Donation      @relation(fields: [donationId], references: [id])
+  provider    String // "midtrans" | "xendit" | ... kept a String: providers are added without a migration
+  method      String // "qris" | "va_bca" | ...
+  /// The provider's own id for this charge. Unique so a webhook replay cannot
+  /// create a second Payment for the same upstream charge.
+  providerRef String        @unique
+  amount      Int
+  /// What the provider kept. Recorded separately so the campaign is credited
+  /// the net, and the fee is visible rather than silently missing.
+  providerFee Int           @default(0)
+  status      PaymentStatus @default(PENDING)
+  /// Provider payload, kept verbatim for dispute resolution. Never parsed for
+  /// business logic -- the typed columns above are what the app reads.
+  rawPayload  Json?
+  paidAt      DateTime?
+  expiresAt   DateTime?
+
+  /// When this payment's money stops being escrow and becomes withdrawable.
+  /// Set on settlement to paidAt + the hold period; null while unpaid.
+  ///
+  /// The hold exists so a refund or a dispute has somewhere to land. Without
+  /// it, a donation can be paid out to the campaigner before the donor's bank
+  /// has finished deciding whether the charge was theirs, and the platform is
+  /// then chasing money it has already sent away.
+  escrowReleaseAt   DateTime?
+  /// Stamped when the release entries are actually posted. Together with the
+  /// field above this is the sweep's whole state: due is `escrowReleaseAt <=
+  /// now AND escrowReleasedAt IS NULL`, which is also why they share an index.
+  escrowReleasedAt  DateTime?
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  refunds       Refund[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([status])
+  @@index([provider, status])
+  @@index([escrowReleaseAt, escrowReleasedAt])
+}
+
+/// Every webhook the platform has accepted, by provider event id.
+///
+/// Exists solely so a replayed or duplicated webhook is a no-op. Providers
+/// retry aggressively and do not promise exactly-once delivery; without this,
+/// a retry credits the campaign twice.
+model WebhookEvent {
+  id              String    @id @default(cuid())
+  provider        String
+  /// The provider's event id. The unique constraint IS the idempotency
+  /// mechanism -- the insert fails on a replay, and the handler returns 200
+  /// without touching anything else.
+  providerEventId String
+  payload         Json
+  receivedAt      DateTime  @default(now())
+  processedAt     DateTime?
+
+  @@unique([provider, providerEventId])
+  @@index([provider, receivedAt])
+}
+
+model Refund {
+  id           String       @id @default(cuid())
+  paymentId    String
+  payment      Payment      @relation(fields: [paymentId], references: [id])
+  /// Partial refunds are allowed, so this is not necessarily the full payment.
+  amount       Int
+  reason       String
+  status       RefundStatus @default(REQUESTED)
+  /// Who approved it. Refunds move money back out, so they are attributable.
+  approvedById String?
+  approvedBy   User?        @relation("RefundApprover", fields: [approvedById], references: [id])
+  providerRef  String?      @unique
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([status])
+  @@index([paymentId])
+}
+
+/// Where a campaign's money is sent. Separate from the campaign so the account
+/// can be verified once and reused, and so changing it is an auditable event
+/// rather than an edit to the campaign row.
+model BankAccount {
+  id            String    @id @default(cuid())
+  ownerId       String
+  owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  bankCode      String
+  /// Stored in full. This is a payout destination, not a card number -- it has
+  /// to be readable to instruct the transfer, and masking happens at the UI.
+  accountNumber String
+  accountName   String
+  /// Set only once the name has been checked against the bank's records.
+  /// Payouts must refuse an unverified destination.
+  verifiedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  payouts Payout[]
+
+  @@unique([ownerId, bankCode, accountNumber])
+  @@index([ownerId])
+}
+
+/// Money leaving the platform to a campaign's bank account.
+///
+/// Replaces the previous Disbursement model, which had no status, no approver,
+/// and no destination -- it recorded that a payout had supposedly happened
+/// without any of the facts that make it checkable.
+model Payout {
+  id            String       @id @default(cuid())
+  campaignId    String
+  campaign      Campaign     @relation(fields: [campaignId], references: [id])
+  bankAccountId String
+  bankAccount   BankAccount  @relation(fields: [bankAccountId], references: [id])
+  amount        Int
+  description   String
+  /// Evidence of the transfer. Required before COMPLETED, enforced in the
+  /// service layer rather than the schema because Prisma cannot express a
+  /// conditional NOT NULL.
+  proofImage    String?
+  status        PayoutStatus @default(DRAFT)
+
+  requestedById   String
+  requestedBy     User      @relation("PayoutRequester", fields: [requestedById], references: [id])
+  /// Two-person rule: the approver must not be the requester. Enforced in the
+  /// service layer, and the columns exist so it is auditable after the fact.
+  approvedById    String?
+  approvedBy      User?     @relation("PayoutApprover", fields: [approvedById], references: [id])
+  approvedAt      DateTime?
+  rejectionReason String?
+
+  providerRef String?   @unique
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([campaignId, status])
+  @@index([status])
+}
+
+/// Double-entry ledger. Append-only: rows are never updated or deleted, and a
+/// correction is a new pair of entries, not an edit.
+///
+/// Every movement writes at least two rows summing to zero across DEBIT and
+/// CREDIT. A campaign's withdrawable balance is
+///   sum(CREDIT) - sum(DEBIT) on CAMPAIGN_BALANCE for that campaign,
+/// computed on read. Campaign.collectedAmount remains as a display figure and
+/// is no longer authoritative.
+model LedgerEntry {
+  id        String          @id @default(cuid())
+  account   LedgerAccount
+  direction LedgerDirection
+  amount    Int
+
+  /// Which campaign this entry belongs to, where the account is
+  /// campaign-scoped. Null for platform-level accounts.
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+
+  /// Exactly one of these is set, naming what caused the movement.
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+  refundId  String?
+  refund    Refund?  @relation(fields: [refundId], references: [id])
+  payoutId  String?
+  payout    Payout?  @relation(fields: [payoutId], references: [id])
+
+  /// Groups the entries of one balanced transaction. Every entry sharing a
+  /// transactionId must sum to zero; that invariant is asserted in tests and
+  /// by a periodic check, since Prisma cannot express it as a constraint.
+  transactionId String
+  memo          String?
+  createdAt     DateTime @default(now())
+
+  @@index([transactionId])
+  @@index([account, campaignId])
+  @@index([campaignId, createdAt])
+}
+
+/// The old `Disbursement` table, renamed rather than dropped by the money-layer
+/// migration. Twelve real rows claiming money left the platform, with no status,
+/// no approver and no destination account -- they cannot be turned into Payouts
+/// without inventing the facts that make a Payout checkable.
+///
+/// Declared here for one reason: a table the schema does not know about is a
+/// table the next `prisma migrate dev` writes a DROP TABLE for. Mapping it keeps
+/// Prisma's drift detection from quietly proposing to delete the only copy.
+///
+/// Read-only. Nothing writes to this model. It should end as either a mapped set
+/// of Payout rows or an export plus a drop -- a decision for whoever can say what
+/// these twelve payouts actually were.
+model DisbursementLegacy {
+  /// The pk and index keep their pre-rename names. Mapping them is one line;
+  /// renaming them is DDL against a live table for no gain but tidiness.
+  id          String   @id(map: "Disbursement_pkey")
+  amount      Int
+  description String
+  proofImage  String?
+  campaignId  String
+  createdAt   DateTime @default(now())
+
+  @@index([campaignId], map: "Disbursement_campaignId_idx")
+  @@map("Disbursement_legacy")
 }
