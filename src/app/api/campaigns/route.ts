@@ -1,0 +1,161 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { prisma } from '@/lib/prisma';
+import { getServerSession } from '@/lib/auth';
+import { withRoleCheck } from '@/lib/withRoleCheck';
+
+const createCampaignSchema = z.object({
+  title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
+  description: z.string().min(1, "Deskripsi harus diisi"),
+  story: z.string().min(1, "Cerita campaign harus diisi"),
+  coverImage: z.string().url("URL gambar tidak valid"),
+  targetAmount: z.number().positive("Target donasi harus lebih dari 0"),
+  category: z.string().min(1, "Kategori harus dipilih"),
+  deadline: z.string().datetime().optional(),
+});
+
+function generateSlug(title: string): string {
+  const base = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .trim();
+
+  const suffix = Math.random().toString(36).substring(2, 8);
+  return `${base}-${suffix}`;
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+
+    const category = searchParams.get('category');
+    const search = searchParams.get('search');
+    const urgent = searchParams.get('urgent');
+    const status = searchParams.get('status') || 'active';
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+    const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '12', 10)));
+
+    const skip = (page - 1) * limit;
+
+    // Build where clause
+    const where: Record<string, unknown> = {
+      status,
+    };
+
+    if (category) {
+      where.category = category;
+    }
+
+    if (urgent === 'true') {
+      where.isUrgent = true;
+    }
+
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [campaigns, total] = await Promise.all([
+      prisma.campaign.findMany({
+        where,
+        include: {
+          creator: {
+            select: {
+              name: true,
+              isVerified: true,
+              verificationType: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.campaign.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    const response = NextResponse.json({
+      campaigns,
+      total,
+      page,
+      limit,
+      totalPages,
+    });
+
+    response.headers.set(
+      'Cache-Control',
+      'public, s-maxage=60, stale-while-revalidate=300'
+    );
+
+    return response;
+  } catch (error) {
+    console.error('Error fetching campaigns:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch campaigns' },
+      { status: 500 }
+    );
+  }
+}
+
+export const POST = withRoleCheck("CAMPAIGN_CREATOR", async (request: NextRequest) => {
+  try {
+    // 1. Get session (already authenticated and role-checked by withRoleCheck)
+    const session = await getServerSession();
+
+    // 2. Parse and validate request body
+    const body = await request.json();
+    const result = createCampaignSchema.safeParse(body);
+
+    if (!result.success) {
+      const fieldErrors = result.error.flatten().fieldErrors;
+      return NextResponse.json(
+        { error: 'Validasi gagal', fieldErrors },
+        { status: 400 }
+      );
+    }
+
+    const { title, description, story, coverImage, targetAmount, category, deadline } = result.data;
+
+    // 3. Generate unique slug
+    const slug = generateSlug(title);
+
+    // 4. Create campaign in database
+    const campaign = await prisma.campaign.create({
+      data: {
+        slug,
+        title,
+        description,
+        story,
+        coverImage,
+        targetAmount,
+        category,
+        deadline: deadline ? new Date(deadline) : null,
+        creatorId: session!.user.id,
+      },
+      include: {
+        creator: {
+          select: {
+            name: true,
+            isVerified: true,
+            verificationType: true,
+          },
+        },
+      },
+    });
+
+    // 5. Return 201 with created campaign
+    return NextResponse.json(campaign, { status: 201 });
+  } catch (error) {
+    console.error('Error creating campaign:', error);
+    return NextResponse.json(
+      { error: 'Gagal membuat campaign' },
+      { status: 500 }
+    );
+  }
+});

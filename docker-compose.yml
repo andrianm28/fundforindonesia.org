@@ -1,0 +1,95 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fundindo
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme123}
+      POSTGRES_DB: fund_indonesia
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:18093:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fundindo -d fund_indonesia"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8093:3000"
+    environment:
+      DATABASE_URL: "postgresql://fundindo:${DB_PASSWORD:-changeme123}@db:5432/fund_indonesia?schema=public"
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-please-change-this-secret}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/public/uploads
+      # Static images bind-mounted read-only instead of baked into the image.
+      #
+      # Two reasons, both discovered the hard way. First, COPY --from=builder
+      # preserves this repo's working-tree modes (drwxrwx--- / -rw-rw----, no
+      # other-read), and the container runs as nextjs (uid 1001, in group
+      # nogroup -- the Dockerfile's `adduser --uid 1001` has no --ingroup, so it
+      # never joined nodejs). Next scans public/ recursively at startup, so one
+      # unreadable subdirectory is fatal rather than degraded: the server exits
+      # with EACCES scandir '/app/public/images' and the container
+      # restart-loops. Second, rebuilding to fix that is not currently possible
+      # -- `npm run build` fails in the builder stage because next/font cannot
+      # reach fonts.googleapis.com from inside the build (ETIMEDOUT fetching
+      # Inter), which is unrelated to any of this.
+      #
+      # A bind mount sidesteps both: the host directory is a+rX, and no rebuild
+      # is needed. Read-only because nothing in the app writes here.
+      - ./public/images:/app/public/images:ro
+
+  # One-time migration runner
+  migrate:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./prisma:/app/prisma
+      - ./prisma.config.ts:/app/prisma.config.ts
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+    environment:
+      DATABASE_URL: "postgresql://fundindo:${DB_PASSWORD:-changeme123}@db:5432/fund_indonesia?schema=public"
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: sh -c "npm install prisma@7.8.0 dotenv --save && npx prisma migrate deploy --schema=prisma/schema.prisma"
+    profiles:
+      - setup
+
+  # One-time seed runner
+  seed:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./prisma:/app/prisma
+      - ./prisma.config.ts:/app/prisma.config.ts
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./src:/app/src
+    environment:
+      DATABASE_URL: "postgresql://fundindo:${DB_PASSWORD:-changeme123}@db:5432/fund_indonesia?schema=public"
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: sh -c "npm install prisma@7.8.0 @prisma/client@7.8.0 tsx dotenv --save && npx prisma generate && npx tsx prisma/seed.ts"
+    profiles:
+      - setup
+
+volumes:
+  postgres_data:
+  uploads:

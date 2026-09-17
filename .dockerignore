@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+.env
+.env.local
+.vscode
+.kiro
+tests
+test-results
+playwright-report
+coverage

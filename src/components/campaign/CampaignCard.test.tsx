@@ -1,0 +1,170 @@
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { CampaignCard } from './CampaignCard';
+
+// Mock next/navigation
+const mockPush = vi.fn();
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: mockPush,
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+
+// Mock framer-motion to render plain div
+vi.mock('framer-motion', () => ({
+  motion: {
+    div: ({
+      children,
+      whileHover,
+      transition,
+      ...props
+    }: React.HTMLAttributes<HTMLDivElement> & { whileHover?: unknown; transition?: unknown }) => (
+      <div {...props}>{children}</div>
+    ),
+  },
+}));
+
+const mockCampaign = {
+  id: '1',
+  slug: 'bantu-korban-bencana',
+  title: 'Bantu Korban Bencana Alam di Cianjur',
+  coverImage: '/images/campaign-1.jpg',
+  collectedAmount: 25841000,
+  targetAmount: 50000000,
+  category: 'bencana-alam',
+  deadline: new Date(Date.now() + 61 * 24 * 60 * 60 * 1000).toISOString(), // 61 days from now
+  isUrgent: false,
+  creator: {
+    name: 'Yayasan Peduli Bencana',
+    isVerified: true,
+    verificationType: 'organization',
+  },
+};
+
+describe('CampaignCard', () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it('renders campaign title with 2-line clamp', () => {
+    render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    const title = screen.getByText(mockCampaign.title);
+    expect(title).toBeDefined();
+    expect(title.className).toContain('line-clamp-2');
+  });
+
+  it('renders campaign cover image', () => {
+    render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    const img = screen.getByAltText(mockCampaign.title);
+    expect(img).toBeDefined();
+  });
+
+  it('renders creator name when showCreator is true (default)', () => {
+    render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    expect(screen.getByText(mockCampaign.creator.name)).toBeDefined();
+  });
+
+  it('does not render creator name when showCreator is false', () => {
+    render(<CampaignCard campaign={mockCampaign} variant="standard" showCreator={false} />);
+    expect(screen.queryByText(mockCampaign.creator.name)).toBeNull();
+  });
+
+  it('renders VerificationBadge for verified creators', () => {
+    const { container } = render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    const badge = container.querySelector('svg[aria-label="Organisasi terverifikasi"]');
+    expect(badge).not.toBeNull();
+  });
+
+  it('does not render VerificationBadge for unverified creators', () => {
+    const unverifiedCampaign = {
+      ...mockCampaign,
+      creator: { name: 'John', isVerified: false, verificationType: null },
+    };
+    const { container } = render(<CampaignCard campaign={unverifiedCampaign} variant="standard" />);
+    const badge = container.querySelector('svg[aria-label]');
+    expect(badge).toBeNull();
+  });
+
+  it('renders formatted Rupiah amount', () => {
+    render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    expect(screen.getByText('Rp25.841.000')).toBeDefined();
+  });
+
+  it('renders "Terkumpul" label', () => {
+    render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    expect(screen.getByText('Terkumpul')).toBeDefined();
+  });
+
+  it('renders days remaining when showDaysRemaining is true and deadline exists', () => {
+    render(<CampaignCard campaign={mockCampaign} variant="standard" showDaysRemaining={true} />);
+    // Should show days remaining (approximately 61)
+    const daysText = screen.getByText(/\d+ hari lagi/);
+    expect(daysText).toBeDefined();
+  });
+
+  it('does not render days remaining when showDaysRemaining is false', () => {
+    render(<CampaignCard campaign={mockCampaign} variant="standard" showDaysRemaining={false} />);
+    expect(screen.queryByText(/hari lagi/)).toBeNull();
+  });
+
+  it('does not render days remaining when deadline is null', () => {
+    const noDeadlineCampaign = { ...mockCampaign, deadline: null };
+    render(<CampaignCard campaign={noDeadlineCampaign} variant="standard" />);
+    expect(screen.queryByText(/hari lagi/)).toBeNull();
+  });
+
+  it('renders DARURAT badge for urgent campaigns', () => {
+    const urgentCampaign = { ...mockCampaign, isUrgent: true };
+    render(<CampaignCard campaign={urgentCampaign} variant="standard" />);
+    expect(screen.getByText('DARURAT')).toBeDefined();
+  });
+
+  it('navigates to /campaign/[slug] on click', () => {
+    const { container } = render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    const card = container.firstChild as HTMLElement;
+    fireEvent.click(card);
+    expect(mockPush).toHaveBeenCalledWith('/campaign/bantu-korban-bencana');
+  });
+
+  it('calls custom onClick when provided', () => {
+    const onClick = vi.fn();
+    const { container } = render(
+      <CampaignCard campaign={mockCampaign} variant="standard" onClick={onClick} />
+    );
+    const card = container.firstChild as HTMLElement;
+    fireEvent.click(card);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('renders compact variant with fixed 280px width', () => {
+    const { container } = render(<CampaignCard campaign={mockCampaign} variant="compact" />);
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).toContain('w-[280px]');
+    expect(card.className).toContain('flex-shrink-0');
+  });
+
+  it('renders standard variant with full width', () => {
+    const { container } = render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).toContain('w-full');
+  });
+
+  it('renders progress bar', () => {
+    const { container } = render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    const progressBar = container.querySelector('[role="progressbar"]');
+    expect(progressBar).not.toBeNull();
+  });
+
+  it('has proper article role and aria-label', () => {
+    render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    const article = screen.getByRole('article');
+    expect(article.getAttribute('aria-label')).toBe(`Campaign: ${mockCampaign.title}`);
+  });
+});

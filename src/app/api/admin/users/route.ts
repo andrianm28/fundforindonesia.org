@@ -1,0 +1,52 @@
+import { NextRequest, NextResponse } from "next/server";
+import { withRoleCheck } from "@/lib/withRoleCheck";
+import { prisma } from "@/lib/prisma";
+
+export const GET = withRoleCheck("ADMIN", async (req: NextRequest) => {
+  const { searchParams } = new URL(req.url);
+
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+  const limit = Math.max(1, Math.min(100, parseInt(searchParams.get("limit") || "10", 10)));
+  const search = searchParams.get("search") || undefined;
+
+  const skip = (page - 1) * limit;
+
+  const where = search
+    ? {
+        OR: [
+          { name: { contains: search, mode: "insensitive" as const } },
+          { email: { contains: search, mode: "insensitive" as const } },
+        ],
+      }
+    : undefined;
+
+  const [users, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isVerified: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.user.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(total / limit);
+
+  return NextResponse.json({
+    users,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+    },
+  });
+});

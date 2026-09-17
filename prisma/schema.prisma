@@ -1,0 +1,249 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==================== Enums ====================
+
+enum Role {
+  ADMIN
+  MODERATOR
+  CAMPAIGN_CREATOR
+  DONOR
+}
+
+// ==================== User & Auth ====================
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String
+  password          String?
+  avatar            String?
+  phone             String?
+  isVerified        Boolean   @default(false)
+  verificationType  String?   // "ktp" | "organization"
+  role              Role      @default(DONOR)
+  donationBalance   Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  accounts          Account[]
+  campaigns         Campaign[]
+  donations         Donation[]
+  prayers           Prayer[]
+  notifications     Notification[]
+  autoDonations     AutoDonation[]
+  topUps            TopUp[]
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+// ==================== Campaign ====================
+
+model Campaign {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  title           String
+  description     String    @db.Text
+  story           String    @db.Text
+  coverImage      String
+  targetAmount    Int
+  collectedAmount Int       @default(0)
+  category        String
+  status          String    @default("active") // "active" | "completed" | "expired"
+  isUrgent        Boolean   @default(false)
+  deadline        DateTime?
+  creatorId       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  creator         User              @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  donations       Donation[]
+  updates         CampaignUpdate[]
+  disbursements   Disbursement[]
+  prayers         Prayer[]
+
+  @@index([slug])
+  @@index([category])
+  @@index([status])
+  @@index([creatorId])
+  @@index([isUrgent, status])
+}
+
+// ==================== Donation ====================
+
+model Donation {
+  id            String   @id @default(cuid())
+  amount        Int
+  isAnonymous   Boolean  @default(false)
+  paymentMethod String
+  paymentStatus String   @default("pending") // "pending" | "confirmed" | "failed"
+  message       String?  @db.VarChar(500)
+  campaignId    String
+  donorId       String?
+  createdAt     DateTime @default(now())
+
+  // Relations
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  donor    User?    @relation(fields: [donorId], references: [id], onDelete: SetNull)
+  prayer   Prayer?
+
+  @@index([campaignId])
+  @@index([donorId])
+  @@index([paymentStatus])
+  @@index([createdAt])
+}
+
+// ==================== Prayer ====================
+
+model Prayer {
+  id          String   @id @default(cuid())
+  text        String   @db.VarChar(500)
+  amiinCount  Int      @default(0)
+  donationId  String   @unique
+  campaignId  String
+  userId      String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([createdAt])
+  @@index([userId])
+}
+
+// ==================== Campaign Update ====================
+
+model CampaignUpdate {
+  id         String   @id @default(cuid())
+  title      String
+  content    String   @db.Text
+  images     String[]
+  campaignId String
+  createdAt  DateTime @default(now())
+
+  // Relations
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([createdAt])
+}
+
+// ==================== Disbursement ====================
+
+model Disbursement {
+  id          String   @id @default(cuid())
+  amount      Int
+  description String
+  proofImage  String?
+  campaignId  String
+  createdAt   DateTime @default(now())
+
+  // Relations
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+}
+
+// ==================== Notification ====================
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // "donation_confirmed" | "campaign_update" | "disbursement"
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  userId    String
+  link      String?
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+// ==================== Auto Donation ====================
+
+model AutoDonation {
+  id        String   @id @default(cuid())
+  amount    Int
+  category  String
+  schedule  String   // "daily" | "weekly"
+  time      String   // "HH:mm" format
+  isActive  Boolean  @default(true)
+  userId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isActive])
+}
+
+// ==================== Category ====================
+
+model Category {
+  id    String @id @default(cuid())
+  name  String @unique
+  slug  String @unique
+  icon  String
+  order Int    @default(0)
+
+  @@index([slug])
+  @@index([order])
+}
+
+// ==================== Top Up ====================
+
+model TopUp {
+  id            String   @id @default(cuid())
+  amount        Int
+  paymentMethod String
+  status        String   @default("pending") // "pending" | "confirmed" | "failed"
+  userId        String
+  createdAt     DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
