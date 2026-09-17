@@ -1,13 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { withRoleCheck } from '@/lib/withRoleCheck';
 import { formatRupiah } from '@/lib/utils/currency';
 
-export async function PATCH(
+/**
+ * Marks a pending donation as confirmed and adds its amount to the campaign's
+ * collected total.
+ *
+ * ADMIN-only. This endpoint shipped with no authentication of any kind, and the
+ * middleware matcher covers only page routes -- no /api path at all -- so it was
+ * reachable by anyone who knew or guessed a donation id. Since it increments
+ * campaign.collectedAmount, that meant the headline figure on any campaign could
+ * be inflated without a single rupiah being paid.
+ *
+ * ADMIN rather than the campaign owner: confirming donations to your own
+ * campaign is self-dealing, and the owner is exactly the party with an incentive
+ * to inflate the number.
+ *
+ * This is a stopgap, not the destination. In a platform that actually takes
+ * money, a donation is confirmed by a signed webhook from the payment provider,
+ * not by a human clicking. There is no provider integration in this codebase
+ * yet -- no Payment model, no webhook route, no signature verification -- so
+ * until there is, a human with the highest role is the narrowest gate available.
+ */
+export const PATCH = withRoleCheck('ADMIN', async (
   request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+  context: { params: { id: string } }
+) => {
   try {
-    const { id } = params;
+    const { id } = await context.params;
 
     // 1. Find donation by ID with related campaign and prayer
     const donation = await prisma.donation.findUnique({
@@ -111,4 +132,4 @@ export async function PATCH(
       { status: 500 }
     );
   }
-}
+});

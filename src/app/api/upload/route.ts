@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
+import { withRoleCheck } from '@/lib/withRoleCheck';
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 export const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -12,12 +13,24 @@ const MIME_TO_EXT: Record<string, string> = {
   'image/webp': 'webp',
 };
 
-export function generateUniqueFilename(mimeType: string, originalName: string): string {
+/**
+ * The extension comes from the validated MIME type ONLY -- never from the
+ * uploader's filename.
+ *
+ * This previously preferred the original name's extension, which meant a file
+ * declared as image/png but named "evil.html" was written as "<id>.html" into
+ * public/uploads and then served from the same origin as the donation flow.
+ * The same path gave ".svg" (scriptable in a browser) and any other extension
+ * the uploader felt like. originalName is now ignored entirely: it is
+ * attacker-controlled and contributes nothing the MIME map cannot supply.
+ *
+ * The parameter is kept so existing callers and tests do not have to change
+ * shape, and so the signature still documents what is deliberately unused.
+ */
+export function generateUniqueFilename(mimeType: string, _originalName?: string): string {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).slice(2);
-  // Prefer extension from original filename, fallback to mime mapping
-  const nameExt = originalName.includes('.') ? originalName.split('.').pop() : null;
-  const ext = nameExt || MIME_TO_EXT[mimeType] || 'jpg';
+  const ext = MIME_TO_EXT[mimeType] ?? 'jpg';
   return `${timestamp}-${random}.${ext}`;
 }
 
@@ -29,7 +42,19 @@ export function validateFileSize(size: number): boolean {
   return size <= MAX_FILE_SIZE;
 }
 
-export async function POST(request: NextRequest) {
+/**
+ * Writes an uploaded image into public/uploads and returns its public URL.
+ *
+ * Requires a signed-in user. It shipped with no authentication at all, and the
+ * middleware matcher covers only page routes -- no /api path -- so anyone on
+ * the internet could write files into a publicly-served directory on the
+ * donation domain. That is free file hosting plus an unbounded disk-fill.
+ *
+ * DONOR is the floor rather than a higher role because uploading a cover image
+ * is part of ordinary campaign creation; the point is to have an account behind
+ * the write, not to restrict it to staff.
+ */
+export const POST = withRoleCheck('DONOR', async (request: NextRequest) => {
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
@@ -78,4 +103,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

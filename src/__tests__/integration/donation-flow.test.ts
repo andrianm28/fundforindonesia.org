@@ -31,6 +31,11 @@ vi.mock('@/lib/auth', () => ({
   getServerSession: vi.fn(),
 }));
 
+// Confirming a donation is ADMIN-only now (it increments collectedAmount and
+// shipped unauthenticated). Cases that reach the confirm endpoint need a
+// session with that role.
+const ADMIN_SESSION = { user: { id: 'admin1', role: 'ADMIN' } };
+
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 
@@ -249,6 +254,7 @@ describe('Donation Flow Integration Tests', () => {
       });
 
       const request = createPatchRequest('http://localhost:3000/api/donations/donation-1/confirm');
+      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
       const response = await confirmDonation(request, { params: { id: 'donation-1' } });
       const data = await response.json();
 
@@ -282,6 +288,7 @@ describe('Donation Flow Integration Tests', () => {
       });
 
       const request = createPatchRequest('http://localhost:3000/api/donations/donation-final/confirm');
+      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
       const response = await confirmDonation(request, { params: { id: 'donation-final' } });
       const data = await response.json();
 
@@ -315,6 +322,7 @@ describe('Donation Flow Integration Tests', () => {
       });
 
       const request = createPatchRequest('http://localhost:3000/api/donations/donation-notif/confirm');
+      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
       await confirmDonation(request, { params: { id: 'donation-notif' } });
 
       expect(mockNotificationCreateMany).toHaveBeenCalledWith({
@@ -361,6 +369,7 @@ describe('Donation Flow Integration Tests', () => {
       });
 
       const request = createPatchRequest('http://localhost:3000/api/donations/donation-anon/confirm');
+      vi.mocked(getServerSession).mockResolvedValue(ADMIN_SESSION as never);
       await confirmDonation(request, { params: { id: 'donation-anon' } });
 
       const notifications = mockNotificationCreateMany.mock.calls[0][0].data;

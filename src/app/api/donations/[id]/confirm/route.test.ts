@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
+// PATCH is now ADMIN-only. These tests cover the confirmation logic, so an
+// ADMIN session is mocked for the file; the gate itself is asserted at the end.
+vi.mock('@/lib/auth', () => ({
+  getServerSession: vi.fn(async () => mockSession),
+}));
+
+let mockSession: { user: { id: string; role: string } } | null = {
+  user: { id: 'admin1', role: 'ADMIN' },
+};
+
 import { PATCH } from './route';
 
 // Mock prisma
@@ -210,5 +220,42 @@ describe('PATCH /api/donations/[id]/confirm', () => {
     await PATCH(request, { params: { id: 'donation-1' } });
 
     expect(mockTransaction).toHaveBeenCalled();
+  });
+
+  describe('authorization gate', () => {
+    it('rejects an unauthenticated caller with 401 and touches nothing', async () => {
+      const previous = mockSession;
+      mockSession = null;
+      try {
+        const res = await PATCH(
+          new NextRequest('http://localhost/api/donations/d1/confirm', { method: 'PATCH' }),
+          { params: { id: 'd1' } } as never
+        );
+        // This endpoint increments campaign.collectedAmount. It shipped with no
+        // auth at all, so anyone who knew a donation id could inflate a
+        // campaign's headline total without paying.
+        expect(res.status).toBe(401);
+        expect(mockTransaction).not.toHaveBeenCalled();
+      } finally {
+        mockSession = previous;
+      }
+    });
+
+    it('rejects a non-admin caller with 403', async () => {
+      const previous = mockSession;
+      mockSession = { user: { id: 'u2', role: 'CAMPAIGN_CREATOR' } };
+      try {
+        const res = await PATCH(
+          new NextRequest('http://localhost/api/donations/d1/confirm', { method: 'PATCH' }),
+          { params: { id: 'd1' } } as never
+        );
+        // Campaign owners especially: confirming donations to your own campaign
+        // is self-dealing, and the owner has the incentive to inflate.
+        expect(res.status).toBe(403);
+        expect(mockTransaction).not.toHaveBeenCalled();
+      } finally {
+        mockSession = previous;
+      }
+    });
   });
 });

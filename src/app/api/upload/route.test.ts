@@ -22,6 +22,17 @@ vi.mock('fs/promises', async (importOriginal) => {
   };
 });
 
+// POST is now behind withRoleCheck('DONOR'). These tests exercise the upload
+// logic, not the gate, so a signed-in DONOR is mocked for the whole file; the
+// gate itself is asserted separately at the bottom.
+vi.mock('@/lib/auth', () => ({
+  getServerSession: vi.fn(async () => mockSession),
+}));
+
+let mockSession: { user: { id: string; role: string } } | null = {
+  user: { id: 'u1', role: 'DONOR' },
+};
+
 import { POST } from './route';
 
 function createUploadRequest(file: File | null): NextRequest {
@@ -91,14 +102,20 @@ describe('Upload validation utilities', () => {
   });
 
   describe('generateUniqueFilename', () => {
-    it('uses extension from original filename', () => {
-      const filename = generateUniqueFilename('image/jpeg', 'photo.jpg');
-      expect(filename).toMatch(/\.jpg$/);
+    it('takes the extension from the mime type, never the filename', () => {
+      // The old behaviour preferred the uploader's own extension, so an
+      // image/png named "evil.html" was written as .html into public/uploads
+      // and served from the same origin as the donation flow. The filename is
+      // attacker-controlled and is now ignored outright.
+      expect(generateUniqueFilename('image/jpeg', 'photo.jpg')).toMatch(/\.jpg$/);
+      expect(generateUniqueFilename('image/png', 'evil.html')).toMatch(/\.png$/);
+      expect(generateUniqueFilename('image/png', 'x.svg')).toMatch(/\.png$/);
+      expect(generateUniqueFilename('image/jpeg', 'a.PhP')).toMatch(/\.jpg$/);
     });
 
-    it('uses extension from mime type when filename has no extension', () => {
-      const filename = generateUniqueFilename('image/png', 'noext');
-      expect(filename).toMatch(/\.png$/);
+    it('uses the mime type when no filename is given at all', () => {
+      expect(generateUniqueFilename('image/png')).toMatch(/\.png$/);
+      expect(generateUniqueFilename('image/png', 'noext')).toMatch(/\.png$/);
     });
 
     it('generates unique filenames on consecutive calls', () => {
@@ -252,5 +269,22 @@ describe('POST /api/upload', () => {
 
     const data = await response.json();
     expect(data.error).toBe('Gagal mengunggah file');
+  });
+
+  describe('authentication gate', () => {
+    it('rejects an unauthenticated upload with 401', async () => {
+      const previous = mockSession;
+      mockSession = null;
+      try {
+        const file = new File(['x'], 'a.png', { type: 'image/png' });
+        const res = await POST(createUploadRequest(file));
+        // The endpoint shipped with no auth at all and wrote into a
+        // publicly-served directory on the donation domain.
+        expect(res.status).toBe(401);
+        expect(mockWriteFile).not.toHaveBeenCalled();
+      } finally {
+        mockSession = previous;
+      }
+    });
   });
 });
