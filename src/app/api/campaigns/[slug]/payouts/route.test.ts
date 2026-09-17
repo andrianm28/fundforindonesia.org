@@ -9,6 +9,7 @@ import { POST } from './route';
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     campaign: { findUnique: vi.fn() },
+    payment: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -21,6 +22,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 
 const mockCampaignFindUnique = prisma.campaign.findUnique as unknown as Mock;
+const mockPaymentFindMany = prisma.payment.findMany as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 
@@ -37,21 +39,38 @@ type LedgerRow = {
  * ledgerEntry.groupBy simulation as src/lib/money/ledger.test.ts so
  * campaignBalance computes a real number from real rows instead of a
  * hand-fed one.
+ *
+ * Also backs releaseMaturedEscrow's own transaction (payment.updateMany,
+ * $queryRaw) with the same `rows` array bankAccount/payout use -- both
+ * mockTransaction.mockImplementation((cb) => cb(tx)) calls in these tests
+ * share the one `tx`, so a release posted by the sweep is visible to the
+ * balance check requestPayout makes right after it.
  */
 function makeTx(options: {
   ledgerRows?: LedgerRow[];
   bankAccount?: Record<string, unknown> | null;
   payoutCreate?: (data: unknown) => Record<string, unknown>;
+  paymentState?: Map<string, { escrowReleasedAt: Date | null }>;
 } = {}) {
   const rows: LedgerRow[] = [...(options.ledgerRows ?? [])];
   const bankAccountFindUnique = vi.fn().mockResolvedValue(options.bankAccount ?? null);
   const payoutCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) =>
     options.payoutCreate ? options.payoutCreate(data) : { id: 'payout-1', createdAt: new Date(), ...data },
   );
+  const paymentState = options.paymentState ?? new Map<string, { escrowReleasedAt: Date | null }>();
   return {
     tx: {
       bankAccount: { findUnique: bankAccountFindUnique },
       payout: { create: payoutCreate },
+      payment: {
+        updateMany: vi.fn(async ({ where, data }: { where: { id: string; escrowReleasedAt: null }; data: Record<string, unknown> }) => {
+          const row = paymentState.get(where.id);
+          if (!row || row.escrowReleasedAt !== where.escrowReleasedAt) return { count: 0 };
+          Object.assign(row, data);
+          return { count: 1 };
+        }),
+      },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
       ledgerEntry: {
         count: vi.fn(async () => 0),
         createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {
@@ -79,6 +98,8 @@ function makeTx(options: {
     },
     bankAccountFindUnique,
     payoutCreate,
+    rows,
+    paymentState,
   };
 }
 
@@ -115,6 +136,11 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
       user: { id: 'creator-1', role: 'CAMPAIGN_CREATOR' },
     });
     mockCampaignFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-1' });
+    // No matured escrow holds by default -- releaseMaturedEscrow (called at
+    // the top of the handler, before requestPayout) finds nothing and
+    // prisma.$transaction is never reached on its account. Tests exercising
+    // the release itself override this.
+    mockPaymentFindMany.mockResolvedValue([]);
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -224,5 +250,49 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     );
     // Request posts nothing yet -- a DRAFT is a proposal, not a movement.
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
+  });
+
+  it('releases a matured escrow hold for this campaign before checking the withdrawable balance', async () => {
+    // There is no scheduler anywhere in this repo -- this is the test that
+    // proves releaseMaturedEscrow actually runs at the top of this handler.
+    // Without the call in route.ts, this payout would be refused: the
+    // campaign's only money is still sitting in ESCROW_HOLD, so
+    // campaignBalance (CAMPAIGN_BALANCE only) would read 0.
+    mockPaymentFindMany.mockResolvedValue([
+      {
+        id: 'payment-1',
+        amount: 100_000,
+        providerFee: 0,
+        donation: { campaignId: 'campaign-1' },
+      },
+    ]);
+    const paymentState = new Map([['payment-1', { escrowReleasedAt: null as Date | null }]]);
+    const { tx, payoutCreate, rows } = makeTx({
+      bankAccount: verifiedBankAccount(),
+      ledgerRows: [
+        { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1' },
+      ],
+      paymentState,
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest({ ...VALID_BODY, amount: 100_000 }), routeContext());
+
+    expect(response.status).toBe(201);
+    expect(payoutCreate).toHaveBeenCalled();
+    // The release itself happened: the payment is stamped and its net
+    // amount moved from ESCROW_HOLD to CAMPAIGN_BALANCE, which is what made
+    // the balance check above pass.
+    expect(paymentState.get('payment-1')!.escrowReleasedAt).not.toBeNull();
+    const releaseLegs = rows.filter((r: LedgerRow) => r.transactionId === 'escrow-release:payment-1');
+    expect(releaseLegs).toHaveLength(2);
+    expect(releaseLegs.find((r: LedgerRow) => r.direction === 'DEBIT')).toMatchObject({
+      account: 'ESCROW_HOLD',
+      amount: 100_000,
+    });
+    expect(releaseLegs.find((r: LedgerRow) => r.direction === 'CREDIT')).toMatchObject({
+      account: 'CAMPAIGN_BALANCE',
+      amount: 100_000,
+    });
   });
 });

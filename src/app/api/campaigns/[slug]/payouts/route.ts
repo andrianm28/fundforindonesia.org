@@ -8,6 +8,7 @@ import {
   BankAccountNotEligibleError,
   InsufficientBalanceError,
 } from '@/lib/money/payouts';
+import { releaseMaturedEscrow } from '@/lib/money/escrow';
 
 const requestPayoutSchema = z.object({
   bankAccountId: z.string().min(1, 'Rekening bank harus dipilih'),
@@ -52,6 +53,16 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
   }
 
   try {
+    // Release every matured escrow hold for this campaign before checking
+    // whether it has enough to pay out. There is no scheduler anywhere in
+    // this repo, so this call is what makes the 7-day hold actually let go
+    // of money -- without it, a settled donation would sit in ESCROW_HOLD
+    // forever and campaignBalance() would never see it, no matter how long
+    // ago it matured. It owns its own transactions (one per payment) and
+    // runs before -- not inside -- requestPayout's transaction, so a
+    // release that fails for one payment cannot roll back the request.
+    await releaseMaturedEscrow(campaign.id);
+
     const payout = await prisma.$transaction((tx) =>
       requestPayout(tx, {
         campaignId: campaign.id,
