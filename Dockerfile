@@ -61,6 +61,29 @@ RUN mkdir -p public/uploads && chown -R nextjs:nodejs public/uploads
 # the nextjs user (uid 1001, neither owner nor group) unless chowned here.
 RUN chown -R nextjs:nodejs public
 
+# sharp, and somewhere writable to keep what it produces.
+#
+# Both were found in production logs rather than in testing: 37 occurrences of
+#   'sharp' is required to be installed in standalone mode for the image
+#   optimization to function correctly
+# in forty minutes, alongside a steady trickle of
+#   EACCES: permission denied, mkdir '/app/.next/cache'
+#
+# Two separate faults wearing one symptom. Without sharp, next/image cannot
+# optimize at all in a standalone build, so every cover and avatar is served at
+# full weight -- on a donation site browsed mostly over Indonesian mobile data,
+# that cost lands hardest on the people least able to absorb it. And with an
+# unwritable .next/cache, whatever optimization does happen is recomputed on
+# every request, because the result can never be stored.
+#
+# The same unwritable .next is why ISR could never refresh the homepage, which
+# is now force-dynamic (see the comment in src/app/page.tsx). Fixing the cache
+# here does not undo that: a live campaign list should not be a build-time
+# snapshot whether or not the cache happens to work.
+RUN npm install --no-save sharp \
+    && mkdir -p .next/cache \
+    && chown -R nextjs:nodejs .next node_modules/sharp
+
 USER nextjs
 
 EXPOSE 3000
