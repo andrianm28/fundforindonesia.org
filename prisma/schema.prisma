@@ -105,6 +105,17 @@ model Campaign {
   /// anything, and GET /api/admin/reconcile excludes it from its comparison
   /// entirely, because its collectedAmount is fixture data with no ledger
   /// behind it by design.
+  ///
+  /// DO NOT REUSE THE M9 MIGRATION ON ANOTHER ENVIRONMENT. Its UPDATE is a
+  /// one-time, environment-specific statement written for THIS database's
+  /// state on 18 September 2026 -- it does not mean "created before task M9
+  /// shipped", it means "has no Payment behind any of its donations YET".
+  /// Applied anywhere that already holds real, unpaid-so-far campaigns (a
+  /// fresh environment stood up as part of the planned dev/stg/prod split,
+  /// for instance), it would mark every one of them isDemo and permanently
+  /// block their donations. If a future environment needs its own demo data
+  /// marked, write that environment a new migration with its own predicate
+  /// -- do not point it at this one.
   isDemo          Boolean   @default(false)
 
   // Relations

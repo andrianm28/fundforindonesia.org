@@ -61,6 +61,7 @@ export async function GET(
         category: campaign.category,
         status: campaign.status,
         isUrgent: campaign.isUrgent,
+        isDemo: campaign.isDemo,
         deadline: campaign.deadline,
         createdAt: campaign.createdAt,
         updatedAt: campaign.updatedAt,

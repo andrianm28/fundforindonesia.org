@@ -53,6 +53,7 @@ describe('GET /api/campaigns/[slug]', () => {
       category: 'bencana-alam',
       status: 'active',
       isUrgent: false,
+      isDemo: false,
       deadline: new Date('2026-06-06T00:00:00Z'),
       creatorId: 'user-1',
       createdAt: new Date('2024-01-01T00:00:00Z'),
@@ -91,6 +92,7 @@ describe('GET /api/campaigns/[slug]', () => {
     expect(body.campaign.category).toBe('bencana-alam');
     expect(body.campaign.status).toBe('active');
     expect(body.campaign.isUrgent).toBe(false);
+    expect(body.campaign.isDemo).toBe(false);
     expect(body.campaign.creator).toEqual({
       id: 'user-1',
       name: 'Yayasan Peduli',
@@ -99,6 +101,37 @@ describe('GET /api/campaigns/[slug]', () => {
       verificationType: 'organization',
     });
     expect(body.campaign.donationCount).toBe(342);
+  });
+
+  it('passes isDemo through for a demo campaign -- the donate page badge (task M9) depends on this field reaching the client', async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 'campaign-demo',
+      slug: 'campaign-contoh',
+      title: 'Campaign Contoh',
+      description: 'Contoh',
+      story: '<p>Contoh</p>',
+      coverImage: 'https://example.com/demo.jpg',
+      targetAmount: 10000000,
+      collectedAmount: 5000000,
+      category: 'bencana-alam',
+      status: 'active',
+      isUrgent: false,
+      isDemo: true,
+      deadline: null,
+      creatorId: 'user-1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      creator: { id: 'user-1', name: 'Creator', avatar: null, isVerified: false, verificationType: null },
+      _count: { donations: 0 },
+    } as any);
+
+    const request = createRequest('campaign-contoh');
+    const response = await GET(request, {
+      params: Promise.resolve({ slug: 'campaign-contoh' }),
+    });
+    const body = await response.json();
+
+    expect(body.campaign.isDemo).toBe(true);
   });
 
   it('returns 404 with proper error format when campaign not found', async () => {

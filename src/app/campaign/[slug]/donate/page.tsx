@@ -175,6 +175,16 @@ export default function DonatePage() {
       {currentStep < 4 && (
         <div className="bg-white px-4 py-3 border-b border-border">
           <div className="max-w-lg mx-auto">
+            {/* Demo campaign badge (task M9) -- this is the screen where the
+                badge matters most: someone can land here directly, before
+                ever seeing the card or detail page. Shown before the amount
+                selector below, not after the 403 that would follow a
+                submit. */}
+            {campaign.isDemo && (
+              <span className="inline-block bg-gray-800/90 text-white text-xs font-semibold px-2 py-0.5 rounded mb-1.5">
+                Kampanye contoh — tidak menerima donasi sungguhan
+              </span>
+            )}
             <p className="text-xs text-text-secondary">Donasi untuk:</p>
             <p className="text-sm font-medium text-text line-clamp-1">
               {campaign.title}
