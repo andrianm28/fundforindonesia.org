@@ -1,13 +1,22 @@
 import { render, screen, cleanup } from '@testing-library/react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import DonatePage from './page';
+import { DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 
-// This page is exactly where the M9 badge matters most: someone can land
-// here directly (a shared link, a bookmark) without ever seeing the
-// CampaignCard or the detail page first. These tests isolate the banner
-// that carries the badge -- the step components below it (amount selector,
-// payment method, confirmation) are stubbed out, since their own behaviour
-// is covered by their own test files.
+// Donations are disabled (DONATIONS_ENABLED = false, src/lib/donations.ts):
+// getPaymentProvider() only ever resolves to a mock that fabricates payment
+// instructions no bank issued and no donor can pay. This page must show
+// DONATIONS_DISABLED_MESSAGE the instant a donor lands here -- before the
+// amount selector, the payment method selector, or the confirmation step
+// ever render -- so nobody fills in an amount only to discover at submit
+// time that it can't go through.
+//
+// This file used to cover the M9 demo-campaign badge shown in the campaign
+// banner above the amount selector. That banner is dead code while this
+// gate is closed -- the disabled screen below preempts it entirely.
+// Restoring that coverage is a precondition of ever flipping
+// DONATIONS_ENABLED back to true, not something to test against unreachable
+// code today.
 vi.mock('next/navigation', () => ({
   useParams: () => ({ slug: 'campaign-contoh' }),
   useRouter: () => ({ back: vi.fn(), push: vi.fn() }),
@@ -45,7 +54,48 @@ describe('DonatePage', () => {
     vi.clearAllMocks();
   });
 
-  it('shows the demo badge in the campaign banner, above the amount selector, before a demo campaign donation is even started', () => {
+  it('shows the real disabled message instead of any donation step, for a loaded campaign', () => {
+    mockUseCampaignDetail.mockReturnValue({
+      campaign: baseCampaign(),
+      isLoading: false,
+      error: undefined,
+    });
+
+    render(<DonatePage />);
+
+    expect(screen.getByText(DONATIONS_DISABLED_MESSAGE)).toBeDefined();
+    expect(screen.queryByTestId('amount-selector')).toBeNull();
+    expect(screen.queryByTestId('payment-selector')).toBeNull();
+    expect(screen.queryByTestId('confirmation')).toBeNull();
+  });
+
+  it('shows the disabled message even while the campaign is still loading', () => {
+    mockUseCampaignDetail.mockReturnValue({
+      campaign: undefined,
+      isLoading: true,
+      error: undefined,
+    });
+
+    render(<DonatePage />);
+
+    expect(screen.getByText(DONATIONS_DISABLED_MESSAGE)).toBeDefined();
+    expect(screen.queryByText(/memuat/i)).toBeNull();
+  });
+
+  it('shows the disabled message even when the campaign failed to load', () => {
+    mockUseCampaignDetail.mockReturnValue({
+      campaign: undefined,
+      isLoading: false,
+      error: new Error('not found'),
+    });
+
+    render(<DonatePage />);
+
+    expect(screen.getByText(DONATIONS_DISABLED_MESSAGE)).toBeDefined();
+    expect(screen.queryByText(/tidak ditemukan/i)).toBeNull();
+  });
+
+  it('never renders a donation step, so there is no amount to fill in and no submit to reach', () => {
     mockUseCampaignDetail.mockReturnValue({
       campaign: baseCampaign({ isDemo: true }),
       isLoading: false,
@@ -54,18 +104,10 @@ describe('DonatePage', () => {
 
     render(<DonatePage />);
 
-    expect(screen.getByText(/kampanye contoh/i)).toBeDefined();
-  });
-
-  it('does not show the demo badge for a regular campaign', () => {
-    mockUseCampaignDetail.mockReturnValue({
-      campaign: baseCampaign({ isDemo: false }),
-      isLoading: false,
-      error: undefined,
-    });
-
-    render(<DonatePage />);
-
-    expect(screen.queryByText(/kampanye contoh/i)).toBeNull();
+    expect(screen.queryByTestId('amount-selector')).toBeNull();
+    expect(screen.queryByTestId('payment-selector')).toBeNull();
+    expect(screen.queryByTestId('confirmation')).toBeNull();
+    // The only interactive element on the disabled screen is the way back.
+    expect(screen.getByRole('button', { name: /kembali/i })).toBeDefined();
   });
 });

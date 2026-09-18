@@ -7,6 +7,7 @@ import { DonationAmountSelector } from '@/components/donation/DonationAmountSele
 import { PaymentMethodSelector } from '@/components/donation/PaymentMethodSelector';
 import { DonationConfirmation } from '@/components/donation/DonationConfirmation';
 import { formatRupiah } from '@/lib/utils/currency';
+import { DONATIONS_ENABLED, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 import type { PaymentMethod } from '@/types/donation';
 
 const PRESET_AMOUNTS = [10000, 25000, 50000, 100000, 500000];
@@ -56,8 +57,13 @@ export default function DonatePage() {
       });
 
       if (!res.ok) {
+        // POST /api/donations (and every other route in this app) returns
+        // its reason as `{ error }`, never `{ message }` -- reading the
+        // wrong key here meant the server's actual reason (e.g.
+        // DONATIONS_DISABLED_MESSAGE) never reached the donor, only the
+        // generic fallback below.
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || 'Gagal memproses donasi');
+        throw new Error(data.error || 'Gagal memproses donasi');
       }
 
       setCurrentStep(4);
@@ -67,6 +73,28 @@ export default function DonatePage() {
       setIsSubmitting(false);
     }
   };
+
+  // Donations are disabled (DONATIONS_ENABLED, src/lib/donations.ts):
+  // getPaymentProvider() only ever resolves to a mock that fabricates
+  // payment instructions no bank issued and no donor can pay. Shown the
+  // instant a donor lands on this page -- before the amount selector, the
+  // payment method selector, or the confirmation step ever render, and
+  // before the loading/error branches below, since this does not depend on
+  // the campaign having loaded at all. Nobody should be invited to fill in
+  // an amount only to discover at submit time that it can't go through.
+  if (!DONATIONS_ENABLED) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
+        <p className="text-text-secondary">{DONATIONS_DISABLED_MESSAGE}</p>
+        <button
+          onClick={() => router.back()}
+          className="text-primary font-medium hover:underline"
+        >
+          Kembali
+        </button>
+      </div>
+    );
+  }
 
   // Loading state
   if (isLoading) {
