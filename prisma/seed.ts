@@ -191,8 +191,40 @@ const UPDATE_CONTENTS = [
 
 // ==================== Main Seed Function ====================
 
+/**
+ * Refuses to run against a database that already has real data in it.
+ *
+ * The dev database IS the deployed database (see the repo's single-domain
+ * env strategy) -- there is no separate throwaway environment this script
+ * only ever touches. Every seed call below is an unconditional `create`, not
+ * an upsert keyed on anything stable for campaigns/donations, so one
+ * accidental re-run against a live database doesn't fail loudly, it silently
+ * doubles 110 donations and every ledger entry behind them. This is not a
+ * fix for that -- making the seed idempotent is a separate, larger change --
+ * it only makes the accident impossible by refusing outright.
+ */
+async function assertDatabaseIsEmpty(): Promise<void> {
+  const [campaignCount, donationCount] = await Promise.all([
+    prisma.campaign.count(),
+    prisma.donation.count(),
+  ]);
+
+  if (campaignCount > 0 || donationCount > 0) {
+    throw new Error(
+      `Refusing to seed: the database already has ${campaignCount} campaign(s) and ` +
+        `${donationCount} donation(s). This script only ever creates new rows -- it never ` +
+        'upserts campaigns or donations -- so running it again would duplicate every one of ' +
+        'them, plus the ledger entries behind each confirmed donation. If this is genuinely a ' +
+        'fresh database you intend to seed, that count should be 0; if it is not, this is the ' +
+        'production/dev database and this script must not touch it.',
+    );
+  }
+}
+
 async function main() {
   console.log('🌱 Seeding database...\n');
+
+  await assertDatabaseIsEmpty();
 
   // 1. Seed Categories
   console.log('📂 Creating categories...');

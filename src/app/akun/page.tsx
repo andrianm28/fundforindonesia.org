@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { formatRupiah } from '@/lib/utils/currency';
 import { VerificationDialog } from '@/components/dialogs/VerificationDialog';
+import { WALLET_DISABLED_MESSAGE } from '@/lib/wallet';
 
 export default function AkunPage() {
   const { data: session, status, update } = useSession();
@@ -100,16 +101,24 @@ export default function AkunPage() {
 
       {/* Balance Card. Kantong Donasi top-up is disabled (WALLET_ENABLED,
           src/lib/wallet.ts) so there is no action here — just the existing
-          balance, which is a liability to honour later, not data to hide. */}
+          balance, which is a liability to honour later, not data to hide.
+          WALLET_DISABLED_MESSAGE is surfaced below the figure so a user
+          holding a balance understands it is temporarily unspendable rather
+          than concluding it is gone. */}
       <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm p-4">
         <div>
           <p className="text-[#757575] text-xs">Saldo Kantong Donasi</p>
           {balanceLoading ? (
             <div className="h-6 w-28 bg-[#E0E0E0] rounded animate-pulse mt-1" />
           ) : (
-            <p className="text-[#212121] text-lg font-bold mt-0.5">
-              {formatRupiah(balance ?? 0)}
-            </p>
+            <>
+              <p className="text-[#212121] text-lg font-bold mt-0.5">
+                {formatRupiah(balance ?? 0)}
+              </p>
+              {(balance ?? 0) > 0 && (
+                <p className="text-[#757575] text-xs mt-1">{WALLET_DISABLED_MESSAGE}</p>
+              )}
+            </>
           )}
         </div>
       </div>

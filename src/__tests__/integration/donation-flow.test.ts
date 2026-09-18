@@ -79,18 +79,6 @@ function createPostRequest(url: string, body: unknown): NextRequest {
   });
 }
 
-/**
- * Fake tx client backing POST /api/donations' donation + payment
- * transaction. Mirrors what src/app/api/donations/route.ts actually calls:
- * tx.donation.create then tx.payment.create.
- */
-function makeDonationTx(donation: Record<string, unknown>) {
-  return {
-    donation: { create: vi.fn().mockResolvedValue(donation) },
-    payment: { create: vi.fn().mockResolvedValue({ id: 'payment-1' }) },
-  };
-}
-
 const VA_EXPIRY = new Date('2099-01-02T00:00:00.000Z');
 
 /** Builds a webhook POST request for src/app/api/webhooks/[provider]/route.ts. */
@@ -181,15 +169,18 @@ describe('Donation Flow Integration Tests', () => {
     });
   });
 
-  describe('1. Donation creation validates campaign is active', () => {
-    it('should reject donation when campaign is completed', async () => {
+  // Sections 1-2 used to cover the campaign-active guard and prayer creation
+  // inside POST /api/donations end to end. Donations are now disabled
+  // (DONATIONS_ENABLED = false, src/lib/donations.ts): getPaymentProvider()
+  // resolves to MockPaymentProvider, which fabricates a VA number no bank
+  // issued and no donor could ever pay -- see that constant's doc comment.
+  // The route now refuses every request before the campaign is ever looked
+  // up, so every scenario below is unreachable; these tests now assert the
+  // 503 gate instead.
+  describe('1. Donations are disabled', () => {
+    it('returns 503 regardless of campaign status, before looking up the campaign', async () => {
       mockGetServerSession.mockResolvedValue({
         user: { id: 'user-1', name: 'Donor', email: 'donor@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-1',
-        status: 'completed',
-        title: 'Completed Campaign',
       });
 
       const request = createPostRequest('http://localhost:3000/api/donations', {
@@ -201,96 +192,19 @@ describe('Donation Flow Integration Tests', () => {
       const response = await createDonation(request);
       const data = await response.json();
 
-      expect(response.status).toBe(400);
-      expect(data.error).toContain('tidak aktif');
-    });
-
-    it('should reject donation when campaign is expired', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-1', name: 'Donor', email: 'donor@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-2',
-        status: 'expired',
-        title: 'Expired Campaign',
-      });
-
-      // bank_transfer, not ewallet: this test is about campaign state, not
-      // payment method availability -- ewallet would now be rejected earlier
-      // with 503 regardless of campaign status.
-      const request = createPostRequest('http://localhost:3000/api/donations', {
-        campaignId: 'campaign-2',
-        amount: 25000,
-        paymentMethod: 'bank_transfer',
-      });
-
-      const response = await createDonation(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
-      expect(data.error).toContain('tidak aktif');
-    });
-
-    it('should allow donation when campaign is active', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-1', name: 'Donor', email: 'donor@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-3',
-        status: 'active',
-        title: 'Active Campaign',
-      });
-      const tx = makeDonationTx({
-        id: 'donation-new',
-        amount: 50000,
-        paymentMethod: 'bank_transfer',
-        paymentStatus: 'pending',
-        campaignId: 'campaign-3',
-        donorId: 'user-1',
-      });
-      mockTransaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(tx));
-
-      const request = createPostRequest('http://localhost:3000/api/donations', {
-        campaignId: 'campaign-3',
-        amount: 50000,
-        paymentMethod: 'bank_transfer',
-      });
-
-      const response = await createDonation(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(201);
-      expect(data.donationId).toBe('donation-new');
-      expect(data.paymentStatus).toBe('pending');
+      expect(response.status).toBe(503);
+      expect(typeof data.error).toBe('string');
+      expect(mockCampaignFindUnique).not.toHaveBeenCalled();
+      expect(mockTransaction).not.toHaveBeenCalled();
     });
   });
 
-  describe('2. Donation creation creates prayer when message is included', () => {
-    it('should create prayer record when message is provided in donation', async () => {
+  describe('2. Donation creation never reaches the prayer step while disabled', () => {
+    it('does not create a prayer even when a message is provided', async () => {
       mockGetServerSession.mockResolvedValue({
         user: { id: 'user-1', name: 'Donor', email: 'donor@test.com' },
       });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-1',
-        status: 'active',
-        title: 'Campaign With Prayer',
-      });
-      const tx = makeDonationTx({
-        id: 'donation-prayer',
-        amount: 100000,
-        paymentMethod: 'bank_transfer',
-        paymentStatus: 'pending',
-        campaignId: 'campaign-1',
-        donorId: 'user-1',
-        message: 'Semoga cepat sembuh ya',
-      });
-      mockTransaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(tx));
       const mockPrayerCreate = prisma.prayer.create as unknown as Mock;
-      mockPrayerCreate.mockResolvedValue({
-        id: 'prayer-1',
-        text: 'Semoga cepat sembuh ya',
-        donationId: 'donation-prayer',
-      });
 
       const request = createPostRequest('http://localhost:3000/api/donations', {
         campaignId: 'campaign-1',
@@ -301,46 +215,7 @@ describe('Donation Flow Integration Tests', () => {
 
       const response = await createDonation(request);
 
-      expect(response.status).toBe(201);
-      expect(mockPrayerCreate).toHaveBeenCalledWith({
-        data: {
-          text: 'Semoga cepat sembuh ya',
-          donationId: 'donation-prayer',
-          campaignId: 'campaign-1',
-          userId: 'user-1',
-        },
-      });
-    });
-
-    it('should NOT create prayer when no message is provided', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-1', name: 'Donor', email: 'donor@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-1',
-        status: 'active',
-        title: 'Campaign No Prayer',
-      });
-      const tx = makeDonationTx({
-        id: 'donation-no-prayer',
-        amount: 25000,
-        paymentMethod: 'bank_transfer',
-        paymentStatus: 'pending',
-        campaignId: 'campaign-1',
-        donorId: 'user-1',
-        message: null,
-      });
-      mockTransaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(tx));
-      const mockPrayerCreate = prisma.prayer.create as unknown as Mock;
-
-      const request = createPostRequest('http://localhost:3000/api/donations', {
-        campaignId: 'campaign-1',
-        amount: 25000,
-        paymentMethod: 'bank_transfer',
-      });
-
-      await createDonation(request);
-
+      expect(response.status).toBe(503);
       expect(mockPrayerCreate).not.toHaveBeenCalled();
     });
   });

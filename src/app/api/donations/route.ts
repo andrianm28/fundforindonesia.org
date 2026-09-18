@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { PaymentStatus } from '@/generated/prisma/client';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
+import { DONATIONS_ENABLED, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'ewallet', 'credit_card'] as const;
 
@@ -18,6 +19,15 @@ const createDonationSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Gated shut until a real payment provider exists behind
+  // getPaymentProvider() -- see DONATIONS_ENABLED's doc comment
+  // (src/lib/donations.ts) for why. Checked before the body is parsed,
+  // before the session is read, before anything is written: nothing below
+  // this line may run while the only provider available is the mock.
+  if (!DONATIONS_ENABLED) {
+    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+  }
+
   try {
     // 1. Parse and validate request body
     const body = await request.json();

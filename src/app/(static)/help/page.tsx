@@ -74,9 +74,8 @@ export default function HelpPage() {
             <div className="p-4 bg-bg-secondary rounded-md">
               <h3 className="font-medium text-text">Bagaimana cara top up saldo?</h3>
               <p className="text-sm text-text-secondary mt-1">
-                Klik tombol &quot;Top Up&quot; di halaman akun Anda, pilih nominal yang diinginkan,
-                lalu pilih metode pembayaran. Saldo akan otomatis bertambah setelah pembayaran
-                berhasil.
+                Fitur top up Kantong Donasi sedang tidak tersedia. Anda tetap bisa berdonasi
+                langsung ke campaign pilihan Anda tanpa perlu top up saldo terlebih dahulu.
               </p>
             </div>
           </div>

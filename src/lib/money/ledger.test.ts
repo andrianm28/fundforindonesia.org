@@ -212,7 +212,10 @@ describe('refundLegs', () => {
   it('debits escrow when refunding inside the hold window', async () => {
     const tx = makeTx();
     await postTransaction(tx as never, paymentSettledLegs({ campaignId: 'c1', grossAmount: 100_000, providerFee: 0 }));
-    await postTransaction(tx as never, refundLegs({ campaignId: 'c1', amount: 30_000, source: 'ESCROW_HOLD' }));
+    await postTransaction(
+      tx as never,
+      refundLegs({ campaignId: 'c1', amount: 30_000, source: 'ESCROW_HOLD', creditedAmount: 100_000 }),
+    );
 
     expect(await escrowBalance(tx as never, 'c1')).toBe(70_000);
     // Never negative: the money came out of the pot it was actually sitting in.
@@ -223,10 +226,28 @@ describe('refundLegs', () => {
     const tx = makeTx();
     await postTransaction(tx as never, paymentSettledLegs({ campaignId: 'c1', grossAmount: 100_000, providerFee: 0 }));
     await postTransaction(tx as never, escrowReleaseLegs({ campaignId: 'c1', amount: 100_000 }));
-    await postTransaction(tx as never, refundLegs({ campaignId: 'c1', amount: 30_000, source: 'CAMPAIGN_BALANCE' }));
+    await postTransaction(
+      tx as never,
+      refundLegs({ campaignId: 'c1', amount: 30_000, source: 'CAMPAIGN_BALANCE', creditedAmount: 100_000 }),
+    );
 
     expect(await escrowBalance(tx as never, 'c1')).toBe(0);
     expect(await campaignBalance(tx as never, 'c1')).toBe(70_000);
+  });
+
+  it('rejects a refund larger than what the payment actually credited', () => {
+    // A payment of gross 100_000 with a 15_000 provider fee only ever credited
+    // 85_000 (the NET) to ESCROW_HOLD. Refunding the gross would debit
+    // ESCROW_HOLD by 100_000 -- 15_000 more than it was ever credited.
+    expect(() =>
+      refundLegs({ campaignId: 'c1', amount: 100_000, source: 'ESCROW_HOLD', creditedAmount: 85_000 }),
+    ).toThrow(InvalidLedgerLegError);
+  });
+
+  it('allows a refund of exactly what was credited', () => {
+    expect(() =>
+      refundLegs({ campaignId: 'c1', amount: 85_000, source: 'ESCROW_HOLD', creditedAmount: 85_000 }),
+    ).not.toThrow();
   });
 });
 
@@ -241,8 +262,8 @@ describe('ledger invariants (property-based)', () => {
           for (const legs of [
             paymentSettledLegs({ campaignId: 'c1', grossAmount: gross, providerFee: fee }),
             escrowReleaseLegs({ campaignId: 'c1', amount: gross }),
-            refundLegs({ campaignId: 'c1', amount: gross, source: 'ESCROW_HOLD' }),
-            refundLegs({ campaignId: 'c1', amount: gross, source: 'CAMPAIGN_BALANCE' }),
+            refundLegs({ campaignId: 'c1', amount: gross, source: 'ESCROW_HOLD', creditedAmount: gross }),
+            refundLegs({ campaignId: 'c1', amount: gross, source: 'CAMPAIGN_BALANCE', creditedAmount: gross }),
             payoutInstructedLegs({ campaignId: 'c1', amount: gross }),
           ]) {
             const d = legs.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + l.amount, 0);
@@ -274,8 +295,11 @@ describe('ledger invariants (property-based)', () => {
     const tx = makeTx();
     // Rp 500.000 donated, Rp 15.000 kept by the provider.
     await postTransaction(tx as never, paymentSettledLegs({ campaignId: 'c1', grossAmount: 500_000, providerFee: 15_000 }));
-    // Rp 100.000 refunded while still held.
-    await postTransaction(tx as never, refundLegs({ campaignId: 'c1', amount: 100_000, source: 'ESCROW_HOLD' }));
+    // Rp 100.000 refunded while still held (well within the 485.000 net credited).
+    await postTransaction(
+      tx as never,
+      refundLegs({ campaignId: 'c1', amount: 100_000, source: 'ESCROW_HOLD', creditedAmount: 485_000 }),
+    );
     // The rest matures.
     await postTransaction(tx as never, escrowReleaseLegs({ campaignId: 'c1', amount: 385_000 }));
     // Rp 200.000 paid out.

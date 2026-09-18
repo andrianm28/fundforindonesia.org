@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { withRoleCheck } from '@/lib/withRoleCheck';
 import { findUnbalancedTransactions } from '@/lib/money/ledger';
+import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/lib/money/escrow';
 
 /**
  * GET /api/admin/reconcile -- ADMIN-only reconciliation report.
@@ -18,9 +19,15 @@ import { findUnbalancedTransactions } from '@/lib/money/ledger';
  *    legs -- so a non-empty result means some write bypassed it entirely.
  *  - negativeBalances: a campaign-scoped account (ESCROW_HOLD or
  *    CAMPAIGN_BALANCE) whose credits-minus-debits has gone below zero.
- *    Should be impossible given the caps in releaseMaturedEscrow
- *    (./escrow.ts) and the balance checks in ./payouts.ts; this is what
- *    would catch it if one of those was ever wrong.
+ *    releaseMaturedEscrow (./escrow.ts) deliberately does NOT cap a
+ *    release against the campaign's shared ESCROW_HOLD balance -- see that
+ *    function's own comment for why a cap there would be wrong, not merely
+ *    absent. What is supposed to keep this account non-negative is that
+ *    every release and every refund is bounded by what its own payment
+ *    actually credited (refundLegs, ./ledger.ts, refuses an amount larger
+ *    than that), and the balance checks in ./payouts.ts for
+ *    CAMPAIGN_BALANCE; this is what would catch it if one of those was ever
+ *    wrong.
  *  - preLedger / mismatches: both compare Campaign.collectedAmount against
  *    what the ledger says this campaign has ever been credited, but they are
  *    reported separately because they mean different things. A campaign with
@@ -47,6 +54,17 @@ import { findUnbalancedTransactions } from '@/lib/money/ledger';
  *    against it was still in flight, then that refund resolving in a way the
  *    stamp never gets to react to) recurring by some other route -- a human
  *    sees it here instead of the money simply going quiet.
+ *  - deferredEscrowWatchdog: a Payment still PAID, with `escrowReleasedAt`
+ *    still null, whose `escrowReleaseAt` matured more than
+ *    DEFERRED_ESCROW_WATCHDOG_DAYS (./escrow.ts) days ago. releaseMaturedEscrow
+ *    defers a payment entirely, correctly, while a refund against it is
+ *    REQUESTED or PROCESSING -- but a refund left stuck open in that state
+ *    defers the payment's escrow indefinitely, and strandedEscrow above
+ *    cannot see it: that check only ever looks at payments where
+ *    escrowReleasedAt is already set, which a deferred payment's never is.
+ *    Reported, not corrected, like everything else in this file -- a human
+ *    resolves the stuck refund, which lets a later sweep release the payment
+ *    on its own.
  *  - stuckPayouts: two payout states nothing in this codebase currently
  *    drains. Surfaced, not fixed -- see the comments below for why.
  */
@@ -256,6 +274,33 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
       }
     }
 
+    // Payments whose escrow hold matured long enough ago that "still
+    // deferred by an in-flight refund" stops being the likely explanation --
+    // see the module doc comment above and DEFERRED_ESCROW_WATCHDOG_DAYS
+    // (./escrow.ts) for why this window, not zero, is the trigger. Refund
+    // status is included so a human can immediately see whether this is a
+    // refund stuck in REQUESTED/PROCESSING (the expected cause) or something
+    // else entirely (no in-flight refund at all, which would be new).
+    const deferredEscrowCandidates = await tx.payment.findMany({
+      where: {
+        status: 'PAID',
+        escrowReleasedAt: null,
+        escrowReleaseAt: { lte: deferredEscrowWatchdogCutoff() },
+      },
+      select: {
+        id: true,
+        escrowReleaseAt: true,
+        donation: { select: { campaignId: true } },
+        refunds: { select: { id: true, status: true } },
+      },
+    });
+    const deferredEscrowWatchdog = deferredEscrowCandidates.map((payment) => ({
+      paymentId: payment.id,
+      campaignId: payment.donation.campaignId,
+      escrowReleaseAt: payment.escrowReleaseAt,
+      refunds: payment.refunds.map((r) => ({ refundId: r.id, status: r.status })),
+    }));
+
     // Two payout states nothing in this codebase currently drains -- see the
     // module doc comment above for why fixing either is out of scope here.
     const processingPayouts = await tx.payout.findMany({
@@ -280,6 +325,7 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
         'campaigns that DO have ledger activity and still disagree with collectedAmount -- those are the real findings.',
       mismatches,
       strandedEscrow,
+      deferredEscrowWatchdog,
       stuckPayouts: {
         // Instructed to the bank (CAMPAIGN_BALANCE debited, PAYOUT_CLEARING
         // credited, payoutInstructedLegs in ./ledger.ts) but nothing in this

@@ -37,6 +37,39 @@ export function escrowReleaseAt(settledAt: Date): Date {
  */
 export const ESCROW_RELEASE_SWEEP_LIMIT = 200;
 
+/**
+ * How long a payment's escrow hold can sit matured but unreleased before the
+ * reconciliation report (GET /api/admin/reconcile) flags it as quiet rather
+ * than merely deferred.
+ *
+ * releaseMaturedEscrow defers a payment entirely, correctly, while any
+ * refund against it is REQUESTED or PROCESSING -- see that function's own
+ * comment. That deferral is meant to last as long as a refund normally
+ * takes to resolve, not forever: a refund left stuck open in REQUESTED
+ * defers its payment's escrow indefinitely, and strandedEscrow (the
+ * reconcile report's other escrow check) cannot see it, because that check
+ * only ever looks at payments where escrowReleasedAt is already set -- a
+ * deferred payment's is null by construction. Nothing else reports this, so
+ * money can go quiet with no visibility at all.
+ *
+ * Set to double ESCROW_HOLD_DAYS: a full extra hold period of grace for a
+ * refund to resolve normally, on top of the wait a payment already went
+ * through to mature in the first place, before this treats "still open" as
+ * worth a human's attention instead of business as usual.
+ */
+export const DEFERRED_ESCROW_WATCHDOG_DAYS = ESCROW_HOLD_DAYS * 2;
+
+/**
+ * The cutoff for DEFERRED_ESCROW_WATCHDOG_DAYS above: a payment whose
+ * escrowReleaseAt is at or before this instant, and which is still
+ * unreleased, has been overdue long enough to report. Computed here, next
+ * to the constant it derives from, for the same reason escrowReleaseAt
+ * itself is -- one place does the day arithmetic, not each caller by hand.
+ */
+export function deferredEscrowWatchdogCutoff(now: Date = new Date()): Date {
+  return new Date(now.getTime() - DEFERRED_ESCROW_WATCHDOG_DAYS * MS_PER_DAY);
+}
+
 export interface ReleaseSweepResult {
   /** Matured holds this call actually posted a release for. */
   releasedCount: number;
@@ -122,6 +155,25 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
         // anything this lock would need to protect -- it stays as the standing
         // guard for any future write in this function that does touch a shared
         // campaign aggregate.
+        //
+        // LOCK ORDERING, AND WHY IT DOESN'T DEADLOCK TODAY. This sweep, and
+        // payout approval (approveAndReleasePayout, ./payouts.ts), both lock
+        // Campaign before ever touching Payment/Payout -- Campaign -> Payment
+        // order. The settlement webhook (src/app/api/webhooks/[provider]/
+        // route.ts) does the opposite: it reads/writes Payment, then Donation,
+        // then Campaign -- Payment -> Campaign order -- with no explicit row
+        // lock of its own. Two transactions acquiring the same two resources in
+        // opposite orders is the textbook shape of a deadlock. Nothing here
+        // actually deadlocks only because these two paths never contend for the
+        // same Payment row: the webhook only ever writes a Payment while it is
+        // still PENDING, and this sweep's candidate set is `status: 'PAID'`
+        // (the query above) -- by the time a payment is eligible here, the
+        // webhook is done writing it. That is a load-bearing accident of the
+        // current status values, not a rule enforced anywhere in code. Any new
+        // write path that touches a PAID payment's Campaign in Campaign ->
+        // Payment order is safe; one that touches it in Payment -> Campaign
+        // order, the way the webhook does, reintroduces the deadlock this
+        // comment currently rules out only by observation.
         await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${paymentCampaignId} FOR UPDATE`;
 
         // Every refund against THIS payment, whatever its status. Refund.paymentId

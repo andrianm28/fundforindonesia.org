@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 import { GET } from './route';
+import { DEFERRED_ESCROW_WATCHDOG_DAYS } from '@/lib/money/escrow';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // Mock prisma wholesale, matching the rest of the money layer's route tests.
 // The fake tx below implements ledgerEntry.groupBy/findMany for real, so
@@ -46,10 +49,12 @@ type PaymentRow = {
   campaignId: string;
   amount?: number;
   providerFee?: number;
+  status?: string;
+  escrowReleaseAt?: Date | null;
   escrowReleasedAt?: Date | null;
 };
 
-type RefundRow = { id: string; paymentId: string };
+type RefundRow = { id: string; paymentId: string; status?: string };
 
 type CampaignRow = { id: string; title: string; collectedAmount: number; isDemo?: boolean };
 
@@ -59,6 +64,10 @@ function matchesWhere(row: Record<string, unknown>, where: Record<string, unknow
     if (v && typeof v === 'object') {
       if ('not' in (v as Record<string, unknown>)) return row[k] !== (v as { not: unknown }).not;
       if ('in' in (v as Record<string, unknown>)) return (v as { in: unknown[] }).in.includes(row[k]);
+      if ('lte' in (v as Record<string, unknown>)) {
+        const rowValue = row[k];
+        return rowValue != null && (rowValue as Date) <= (v as { lte: Date }).lte;
+      }
     }
     return row[k] === v;
   });
@@ -119,7 +128,14 @@ function makeTx(options: {
             id: p.id,
             amount: p.amount ?? 0,
             providerFee: p.providerFee ?? 0,
+            escrowReleaseAt: p.escrowReleaseAt ?? null,
             donation: { campaignId: p.campaignId },
+            // Nested relation select, backing the deferredEscrowWatchdog
+            // query -- reads off the same `refunds` fixture array
+            // refund.findMany below reads, joined by paymentId.
+            refunds: refunds
+              .filter((r) => r.paymentId === p.id)
+              .map((r) => ({ id: r.id, status: r.status ?? 'REQUESTED' })),
           }));
       }),
     },
@@ -420,6 +436,80 @@ describe('GET /api/admin/reconcile', () => {
         residual: 100_000,
       },
     ]);
+  });
+
+  it('flags a payment whose escrow matured well past the watchdog window and is still unreleased, naming its stuck refund', async () => {
+    const longOverdue = new Date(Date.now() - (DEFERRED_ESCROW_WATCHDOG_DAYS + 1) * MS_PER_DAY);
+    const tx = makeTx({
+      payments: [
+        {
+          id: 'payment-1',
+          campaignId: 'campaign-1',
+          amount: 100_000,
+          status: 'PAID',
+          escrowReleaseAt: longOverdue,
+          escrowReleasedAt: null,
+        },
+      ],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1', status: 'REQUESTED' }],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.deferredEscrowWatchdog).toEqual([
+      {
+        paymentId: 'payment-1',
+        campaignId: 'campaign-1',
+        escrowReleaseAt: longOverdue.toISOString(),
+        refunds: [{ refundId: 'refund-1', status: 'REQUESTED' }],
+      },
+    ]);
+  });
+
+  it('does not flag a payment still well inside the watchdog grace window', async () => {
+    const recentlyMatured = new Date(Date.now() - 1 * MS_PER_DAY);
+    const tx = makeTx({
+      payments: [
+        {
+          id: 'payment-1',
+          campaignId: 'campaign-1',
+          amount: 100_000,
+          status: 'PAID',
+          escrowReleaseAt: recentlyMatured,
+          escrowReleasedAt: null,
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.deferredEscrowWatchdog).toEqual([]);
+  });
+
+  it('does not flag a payment that already released cleanly, even long ago', async () => {
+    const longOverdue = new Date(Date.now() - (DEFERRED_ESCROW_WATCHDOG_DAYS + 1) * MS_PER_DAY);
+    const tx = makeTx({
+      payments: [
+        {
+          id: 'payment-1',
+          campaignId: 'campaign-1',
+          amount: 100_000,
+          status: 'PAID',
+          escrowReleaseAt: longOverdue,
+          escrowReleasedAt: longOverdue,
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.deferredEscrowWatchdog).toEqual([]);
   });
 
   it('lists a stuck PROCESSING payout', async () => {

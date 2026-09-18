@@ -192,9 +192,19 @@ export async function campaignBalance(
 /**
  * Settled money still inside the dispute window, in rupiah.
  *
- * Shown to campaigners as "masuk, belum bisa dicairkan". Without surfacing it,
- * a donation that has genuinely arrived looks to the campaigner like it was
- * lost.
+ * NOT YET SURFACED ANYWHERE. This function has no callers in src/ today --
+ * there is no campaigner-facing balance UI at all yet. It exists so that
+ * whoever builds that screen has the read already written; it is not itself
+ * evidence that the figure is shown to anyone.
+ *
+ * Surfacing it -- as "masuk, belum bisa dicairkan" or equivalent -- is
+ * required before the seven-day escrow hold (ESCROW_HOLD_DAYS, ./escrow.ts)
+ * reaches real campaigners. Without it, a campaigner who watches a donation
+ * arrive and then sees nothing withdrawable for a week has no way to tell
+ * "held, on schedule" from "lost" -- and will reasonably conclude the money
+ * is gone. This is an obligation on whoever builds that screen, not a
+ * nice-to-have: ship the hold without this and campaigners will file support
+ * tickets for money that was never missing.
  */
 export async function escrowBalance(
   tx: Prisma.TransactionClient,
@@ -314,15 +324,35 @@ export function escrowReleaseLegs(params: {
  * Always debiting CAMPAIGN_BALANCE would drive it negative while the escrow
  * account stayed full, and the campaign would appear to owe money it has not
  * been given yet.
+ *
+ * `amount` is a refund of the NET this payment actually credited -- the same
+ * figure paymentSettledLegs credited to ESCROW_HOLD (grossAmount minus
+ * providerFee), never the gross the donor paid. `creditedAmount` is that
+ * figure, passed in by the caller (the payment's own `amount - providerFee`)
+ * so this function can refuse a refund it did not actually receive: a full
+ * refund posted at gross would debit `source` by exactly the provider fee
+ * more than this payment ever credited it, driving the account negative by
+ * that fee. Matches the same shape as paymentSettledLegs rejecting a
+ * providerFee larger than the gross above -- an impossible amount is refused
+ * here, not merely produced and left for a later reconciliation to notice.
  */
 export function refundLegs(params: {
   campaignId: string;
   amount: number;
   source: 'ESCROW_HOLD' | 'CAMPAIGN_BALANCE';
+  creditedAmount: number;
 }): LedgerLeg[] {
+  const { campaignId, amount, source, creditedAmount } = params;
+  if (amount > creditedAmount) {
+    throw new InvalidLedgerLegError(
+      `Refund amount ${amount} exceeds the ${creditedAmount} this payment actually credited ` +
+        `(the NET it credited, not the gross the donor paid) -- refusing to post a refund that ` +
+        `would drive ${source} negative by the difference.`,
+    );
+  }
   return [
-    { account: params.source, direction: 'DEBIT', amount: params.amount, campaignId: params.campaignId },
-    { account: 'REFUND_CLEARING', direction: 'CREDIT', amount: params.amount },
+    { account: source, direction: 'DEBIT', amount, campaignId },
+    { account: 'REFUND_CLEARING', direction: 'CREDIT', amount },
   ];
 }
 
