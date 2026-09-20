@@ -119,7 +119,12 @@ describe("Feature: platform-polish, Property 3: Password Security", () => {
       ),
       { numRuns: 50 }
     );
-  });
+    // 50 runs x one real bcryptjs compare. bcryptjs is the pure-JS
+    // implementation, so a cost-10 compare is ~130ms here: the property is
+    // genuinely ~7s of key-derivation work, not a hang. Real hashing is the
+    // point -- it is what proves a wrong password is actually rejected -- so
+    // the timeout is raised rather than numRuns cut or bcrypt mocked.
+  }, 30_000);
 
   test("correct current password with valid new password succeeds and updates hash", async () => {
     const { PATCH } = await import("@/app/api/user/password/route");
@@ -164,7 +169,9 @@ describe("Feature: platform-polish, Property 3: Password Security", () => {
       }),
       { numRuns: 20 }
     );
-  });
+    // 20 runs x (compare + hash) at ~270ms per run: ~5.4s, just over the 5s
+    // default. Same reasoning as the property above.
+  }, 30_000);
 });
 
 // ============================================================
