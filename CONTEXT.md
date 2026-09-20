@@ -1,0 +1,210 @@
+# Fund for Indonesia
+
+Platform social impact yang dioperasikan PT Jaya Korpora Prima, menyatukan donasi, galang dana, zakat, wakaf, kolaborasi CSR, dan volunteer dalam satu akun dan satu riwayat dampak. Yayasan Indonesia Emas Merdeka (YIEM) adalah organisasi program pertama di atasnya, bukan pemilik platform. Konteks ini mencakup seluruh produk; istilah di bawah berlaku di PRD, kode, dan percakapan tim.
+
+## Language
+
+### Jalur kontribusi
+
+**Campaign**:
+Satu ajakan mengumpulkan dana daring dengan target, satu Fundraiser, dan tenggat yang wajib kecuali pada Kind `wakaf`. Semua uang daring masuk lewat Campaign, apa pun Kind-nya.
+_Avoid_: Kampanye, program, project, penggalangan (untuk entitasnya)
+
+**Campaign Status**:
+Tahap hidup Campaign: Draft, Submitted, Rejected, Active, Suspended, Cancelled, Completed, Expired. Hanya Active yang menerima Donation. Expired terjadi otomatis saat tenggat lewat; Completed ditetapkan Fundraiser atau Admin.
+_Avoid_: State, pending, published
+
+**Kind**:
+Jenis Campaign yang menentukan aturan uangnya: `donation`, `zakat`, atau `wakaf`. Kind menentukan Platform Fee default dan dokumen yang wajib ada.
+_Avoid_: Type, jenis campaign, kategori (Category adalah hal lain)
+
+**Kind Authorisation**:
+Izin bertanggal hasil verifikasi yang diberikan Verifier kepada sebuah Partner Organisation untuk membuat Campaign ber-Kind `zakat` atau `wakaf`, berdasarkan dokumen lembaga yang ketentuannya ditetapkan Platform Operator. Saat tanggalnya lewat, Campaign ber-Kind itu berhenti menerima Donation sampai izinnya diperpanjang. Fundraiser perorangan hanya boleh `donation`.
+_Avoid_: Amil flag, nazhir flag, permission
+
+**Category**:
+Tema Campaign untuk penjelajahan, misalnya kesehatan, pendidikan, kemanusiaan. Tidak mengubah aturan uang.
+_Avoid_: Sektor (dipakai untuk CSR), tag
+
+**Program**:
+Item katalog kolaborasi CSR per Sektor yang dibaca tim CSR perusahaan. Program tidak menerima uang daring; kolaborasinya berjalan lewat Partnership Inquiry.
+_Avoid_: Campaign CSR, proposal
+
+**Sector**:
+Pengelompokan Program CSR: Health, Education, Environment, Disability Inclusion.
+_Avoid_: Category
+
+**Partnership Inquiry**:
+Pengajuan diskusi dari sebuah perusahaan atas satu Program, dengan status tindak lanjut oleh tim kemitraan.
+_Avoid_: Lead, contact form, discuss with team (nama CTA, bukan entitas)
+
+**Asset Waqf Inquiry**:
+Pengajuan wakaf non-tunai (tanah, bangunan, barang) yang ditindaklanjuti nazhir terkait di luar payment gateway, dengan status tindak lanjut.
+_Avoid_: Wakaf aset (di kode), donasi barang
+
+**Volunteer Event**:
+Kegiatan lapangan dengan jadwal dan kuota yang bisa didaftari Volunteer. Tidak ada uang yang bergerak.
+_Avoid_: Kegiatan, activity, event
+
+**Registration**:
+Pendaftaran satu Volunteer pada satu jadwal Volunteer Event.
+_Avoid_: Booking, sign-up
+
+### Orang dan peran
+
+**Donor**:
+Orang yang membayar Donation. Tidak wajib punya akun.
+_Avoid_: Donatur (di kode), user, contributor
+
+**Guest Donor**:
+Donor tanpa akun; hanya meninggalkan data minimal yang dibutuhkan untuk Receipt.
+
+**Fundraiser**:
+Pengguna terdaftar yang memiliki sebuah Campaign dan menerima Payout-nya. Organisasi program seperti YIEM adalah Fundraiser untuk Campaign yang dijalankannya sendiri; Platform Operator bukan Fundraiser.
+_Avoid_: Penggalang dana (di kode), creator, campaigner, owner
+
+**Wakif**:
+Donor pada Campaign ber-Kind `wakaf`. Dipakai di UI dan dokumen akad, bukan sebagai peran terpisah.
+
+**Volunteer**:
+Pengguna terdaftar yang mendaftar Volunteer Event.
+_Avoid_: Relawan (di kode)
+
+**Platform Operator**:
+PT Jaya Korpora Prima, pemilik dan pengelola platform. Memegang akun merchant penyedia pembayaran, mempekerjakan Verifier dan Admin, dan menerima Platform Fee. Bukan pemilik dana Campaign.
+_Avoid_: YIEM, penyelenggara, pemilik platform
+
+**Partner Organisation**:
+Organisasi yang menjalankan program di atas platform dan menjadi Fundraiser, seperti YIEM. Kind Authorisation melekat padanya, bukan pada Platform Operator.
+_Avoid_: Mitra, lembaga, yayasan
+
+**Collecting Entity**:
+Badan hukum yang menghimpun dana sebuah Campaign atas izinnya sendiri, dicatat pada setiap Campaign. Selalu sebuah Partner Organisation; Platform Operator tidak pernah menjadi Collecting Entity. Fundraiser perorangan menghimpun di bawah Collecting Entity yang menaunginya.
+_Avoid_: Penghimpun, lembaga penerima, pemilik dana
+
+**Fundraising Permit**:
+Izin penghimpunan dana sosial bertanggal yang dipegang sebuah Collecting Entity. Campaign hanya bisa dibuka bila Collecting Entity-nya memegang izin yang masih berlaku untuk Kind itu; saat izinnya lewat, Campaign berhenti menerima Donation sampai diperpanjang.
+_Avoid_: Izin PUB (di kode), lisensi, legalitas
+
+**Verifier**:
+Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memverifikasi identitas Fundraiser, dan memeriksa rekening tujuan baik untuk Payout maupun untuk Refund. Di kode peran ini bernama MODERATOR.
+_Avoid_: Verifikator, moderator (di percakapan)
+
+**Cancellation**:
+Penarikan diri Fundraiser atas Campaign-nya sendiri, diajukan Fundraiser dan disetujui Admin, hanya selama belum ada Payout Completed. Berbeda dari Suspension, yang merupakan pembekuan karena masalah.
+_Avoid_: Pembatalan, close, withdraw
+
+**Suspension**:
+Pembekuan Campaign oleh Admin atas laporan Verifier: Donation berhenti, Escrow Hold dan Campaign Balance dibekukan, Payout ditolak, dan Refund bisa dimulai.
+_Avoid_: Ban, takedown, blokir
+
+**Verification Request**:
+Satu pengajuan Campaign untuk diperiksa Verifier, dengan checklist dokumen dan hasil lolos atau ditolak beserta alasan. Setiap submit ulang membuat Verification Request baru, sehingga riwayat penolakan tersimpan.
+_Avoid_: Moderasi, review, approval
+
+**Admin**:
+Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, dan mengelola peran pengguna. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
+
+### Uang
+
+**Donation**:
+Niat memberi dari satu Donor ke satu Campaign dengan nominal tertentu. Donation belum memindahkan uang sampai Payment-nya settle.
+_Avoid_: Donasi (di kode), transaction, contribution
+
+**Payment**:
+Tagihan di penyedia pembayaran untuk satu Donation. Satu Donation boleh punya beberapa Payment bila Donor mencoba lagi setelah gagal atau kedaluwarsa, tetapi paling banyak satu yang Settlement.
+_Avoid_: Transaction, charge, invoice
+
+**Settlement**:
+Saat penyedia pembayaran mengonfirmasi Payment dibayar. Hanya setelah ini uang dicatat. Berbeda dari saat dana benar-benar masuk saldo penyedia, yang datang belakangan.
+_Avoid_: Confirmed, paid (sebagai kata benda)
+
+**Platform Fee**:
+Potongan persentase dari Donation yang diambil platform, diatur Admin per Kind dengan override per Category dan per Campaign, dibebaskan di bawah ambang nominal yang juga diatur Admin, dan ditampilkan terbuka di halaman Campaign. Setiap Payment menyimpan fee yang berlaku saat dibuat.
+_Avoid_: Biaya admin, potongan, cut
+
+**Payment Provider**:
+Pihak ketiga yang menagih Payment atau mengirim Payout: Sumopod sebelum launching, lalu Midtrans, Xendit, DOKU, Stripe, dan lainnya yang diaktifkan Admin. Setiap Payment mencatat penyedianya.
+_Avoid_: Gateway, PG, merchant
+
+**Merchant Account**:
+Akun di Payment Provider tempat Payment masuk, dipegang Platform Operator dan tidak pernah dipakai bersama platform lain dalam grup. Berbeda dari rekening penghimpunan, yang dimiliki Collecting Entity.
+_Avoid_: Akun gateway, rekening merchant, akun PG
+
+**Provider Fee**:
+Biaya yang dipotong penyedia pembayaran atas satu Payment, dibaca dari payload penyedia dan ditanggung Campaign. Bukan pendapatan platform.
+_Avoid_: Biaya admin, gateway fee
+
+**Gross**:
+Nominal yang dibayar Donor untuk satu Payment, sebelum Provider Fee dan Platform Fee. Sama dengan nominal Donation, karena tidak ada tambahan apa pun di atasnya.
+
+**Net**:
+Gross dikurangi Provider Fee dan Platform Fee; nominal yang benar-benar dikreditkan ke Campaign.
+
+**Provider Balance**:
+Dana yang sudah dibayar Donor tetapi masih berada di saldo penyedia pembayaran atas nama Platform Operator dan belum ditarik ke rekening penghimpunan. Tercatat sebagai akun buku besar tersendiri per penyedia.
+_Avoid_: Saldo gateway, dana mengendap
+
+**Frozen Balance**:
+Dana sebuah Payment yang dipindahkan keluar dari Escrow Hold atau Campaign Balance lewat jurnal begitu Refund dibuat, sehingga tidak lagi terlihat tersedia maupun bisa ikut Payout. Tetap menjadi hak Donor tanpa batas waktu.
+_Avoid_: Dana beku, hold, freeze
+
+**Program Balance**:
+Dana CSR yang tercatat pada sebuah Program, bukan Campaign. Tidak pernah bisa dicairkan lewat Payout karena Program tidak menerima uang daring.
+_Avoid_: Saldo CSR, dana program
+
+**Escrow Hold**:
+Masa tunggu sejak perkiraan settlement penyedia selama dana belum bisa diminta sebagai Payout, untuk memberi ruang Refund dan margin atas keterlambatan settlement. Default tujuh hari, diatur Admin dan boleh dipendekkan untuk Campaign bencana; lamanya dibekukan pada setiap Payment saat dibuat dan ditampilkan di halaman Campaign.
+_Avoid_: Holding period, pending balance
+
+**Campaign Balance**:
+Dana Net yang sudah lewat Escrow Hold dan belum dibayarkan lewat Payout. Selalu dihitung dari buku besar, bukan dari angka tampilan.
+_Avoid_: Collected amount, saldo, dana terkumpul (angka tampilan Gross)
+
+**Payout**:
+Permintaan Fundraiser untuk mengirim sebagian Campaign Balance ke Bank Account terverifikasinya, disetujui satu Admin, lalu ditarik dari dashboard penyedia dan ditandai selesai dengan bukti transfer oleh Admin yang berbeda.
+_Avoid_: Pencairan (di kode), disbursement, withdrawal
+
+**Usage Report**:
+Laporan Fundraiser tentang pemakaian dana sebuah Payout, tampil publik di halaman Campaign. Syarat sebelum Payout berikutnya boleh diajukan.
+_Avoid_: Laporan penggunaan dana (di kode), impact report (itu untuk Program CSR)
+
+**Manual Contribution**:
+Dana yang masuk di luar payment gateway, seperti transfer langsung atau tunai, dicatat Admin dengan bukti dan aturan dua orang, lalu langsung menjadi Campaign Balance atau Program Balance tanpa Escrow Hold dan tanpa kedua fee. Bisa dibalikkan lewat jurnal lawan, tidak pernah dihapus.
+_Avoid_: Offline donation, donasi manual, top-up
+
+**Refund**:
+Pengembalian uang satu Payment ke Donor, penuh sebesar Gross atau sebagian darinya, tidak pernah dikurangi biaya apa pun. Dibuat satu Admin, disetujui Admin lain, dan diselesaikan Admin yang berbeda dari penyetujunya; Provider Fee yang tidak kembali ditanggung platform.
+
+**Dormant Balance**:
+Campaign Balance pada Campaign yang sudah Expired atau Completed dan tidak dicairkan lebih dari 180 hari meski Fundraiser sudah tiga kali diingatkan. Muncul di laporan Admin sejak 60 hari, dan baru disebut Dormant Balance setelah 180 hari. Pengalihannya ke Campaign ber-Kind sama milik Partner Organisation yang sama ada di roadmap; sampai itu ada, ditangani Admin kasus per kasus.
+_Avoid_: Saldo menganggur, dana nganggur, unclaimed
+
+**Bank Account**:
+Rekening tujuan uang keluar yang sudah diperiksa Verifier: milik Fundraiser untuk Payout, atau milik Donor untuk Refund.
+
+### Kepercayaan
+
+**Campaign Update**:
+Kabar perkembangan yang ditulis Fundraiser pada Campaign-nya dan dikirim ke semua Donor-nya. Minimal satu sebelum Campaign boleh ditandai selesai.
+_Avoid_: Impact update, kabar terbaru, news
+
+**Traffic Source**:
+Asal kunjungan yang tercatat pada sebuah Donation dari parameter tautan yang dibagikan, untuk menghitung sumber trafik per tautan.
+_Avoid_: UTM, referrer, analytics
+
+**Receipt**:
+Bukti Donation yang dikirim ke email Donor setelah Settlement, dengan halaman cetak yang bisa dibuka ulang dari email atau dashboard.
+_Avoid_: Invoice, tanda terima (di kode), kwitansi
+
+**Akad Wakaf**:
+Dokumen ikrar per Donation pada Campaign `wakaf`, memuat nama Wakif, nominal, peruntukan, dan nazhir, dikirim bersama Receipt.
+_Avoid_: Sertifikat wakaf, deed
+
+**Demo Campaign**:
+Campaign yang boleh dilihat tetapi ditolak menerima Donation dan Payout karena datanya fiktif.
+_Avoid_: Sample, test campaign, contoh (di kode)
+
+**Prayer**:
+Pesan dukungan singkat dari Donor yang tampil di halaman Campaign. Bukan jalur kontribusi.
+_Avoid_: Doa (di kode), comment
