@@ -3,11 +3,12 @@ import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 /**
- * Reading a balance stays available while the wallet is disabled.
+ * Reading a balance stays available while the wallet existed.
  *
  * The hole that closed the wallet was minting (`POST /api/user/topup` credited
  * a balance with no payment) and spending (`POST /api/balance/donate` moved it
- * into a campaign's total). Both of those refuse. This endpoint only reads: it
+ * into a campaign's total). Both refused. They have been removed; see src/lib/wallet.ts.
+ * This endpoint only reads: it
  * cannot create a rupiah or move one.
  *
  * Gating it too would have bought no safety and cost something real. Five users

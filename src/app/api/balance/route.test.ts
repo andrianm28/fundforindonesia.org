@@ -25,7 +25,7 @@ describe("GET /api/balance", () => {
     vi.clearAllMocks();
   });
 
-  // The wallet is disabled (WALLET_ENABLED = false, src/lib/wallet.ts) because
+  // The wallet is removed (see src/lib/wallet.ts) because
   // top-ups minted balance with no payment behind them. Reading a balance is
   // deliberately NOT gated: it cannot create a rupiah or move one, and the
   // people holding a balance should be able to see that it still exists.

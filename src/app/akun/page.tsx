@@ -99,8 +99,8 @@ export default function AkunPage() {
         </div>
       </div>
 
-      {/* Balance Card. Kantong Donasi top-up is disabled (WALLET_ENABLED,
-          src/lib/wallet.ts) so there is no action here — just the existing
+      {/* Balance Card. Kantong Donasi top-up is removed (see src/lib/wallet.ts)
+          so there is no action here — just the existing
           balance, which is a liability to honour later, not data to hide.
           WALLET_DISABLED_MESSAGE is surfaced below the figure so a user
           holding a balance understands it is temporarily unspendable rather
