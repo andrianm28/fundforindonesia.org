@@ -30,4 +30,9 @@ describe("roles backfill migration", () => {
     expect(sql).not.toMatch(/UPDATE\s+"User"/);
     expect(sql).not.toMatch(/DELETE\s+FROM/);
   });
+
+  it("is re-runnable via ON CONFLICT DO NOTHING", () => {
+    const sql = backfillSql();
+    expect(sql.match(/ON CONFLICT DO NOTHING/g)).toHaveLength(3);
+  });
 });
