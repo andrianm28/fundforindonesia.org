@@ -275,6 +275,7 @@ async function main() {
     const slug = slugify(campaignData.title);
     const campaign = await prisma.campaign.upsert({
       where: { slug },
+      // update is empty: re-seeds never heal divergence; the migration backfill is the single source of truth for existing rows.
       update: {},
       create: {
         slug,

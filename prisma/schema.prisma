@@ -96,7 +96,7 @@ model Campaign {
   targetAmount    Int
   collectedAmount Int       @default(0)
   category        String
-  status          String    @default("active") // "active" | "completed" | "expired"
+  status          String    @default("active") // legacy values: "pending" | "active" | "rejected" | "suspended" | "completed" | "expired"
   lifecycleStatus CampaignStatus @default(SUBMITTED)
   isUrgent        Boolean   @default(false)
   deadline        DateTime?

@@ -379,6 +379,28 @@ describe('PATCH /api/campaigns/[slug]', () => {
     );
   });
 
+  it('ignores a client-supplied lifecycleStatus without a status', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null },
+      expires: '2099-01-01',
+    });
+    mockFindUnique.mockResolvedValue({
+      id: 'campaign-1',
+      creatorId: 'other-user',
+    } as any);
+    mockUpdate.mockResolvedValue({
+      id: 'campaign-1',
+      creator: { id: 'other-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
+    } as any);
+
+    const request = createRequest('bantu-korban-banjir', 'PATCH', { lifecycleStatus: 'DRAFT' });
+    await PATCH(request, {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.not.objectContaining({ lifecycleStatus: expect.anything() }) }));
+  });
+
   it('returns 403 for DONOR user', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { id: 'donor-user', role: 'DONOR', name: 'Donor', email: 'donor@test.com', isVerified: false, verificationType: null },

@@ -134,12 +134,14 @@ export async function PATCH(
 
     const body = await request.json();
 
+    const { lifecycleStatus: _ignored, ...rest } = body;
+
     const updatedCampaign = await prisma.campaign.update({
       where: { id: campaign.id },
       data: {
-        ...body,
-        ...(typeof body.status === "string"
-          ? { lifecycleStatus: toLifecycleStatus(body.status) }
+        ...rest,
+        ...(typeof rest.status === "string"
+          ? { lifecycleStatus: toLifecycleStatus(rest.status) }
           : {}),
       },
       include: {

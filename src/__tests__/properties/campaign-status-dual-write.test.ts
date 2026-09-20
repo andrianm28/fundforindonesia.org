@@ -11,7 +11,7 @@ import { join } from "node:path";
  * columns. If a future write legitimately cannot (it must not), add it
  * here as a named literal that a reviewer sees in the diff.
  */
-const WRITE = /(prisma|tx)\.campaign\.(create|update)\b/;
+const WRITE = /(prisma|tx)\.campaign\.(create|update|upsert|createMany|updateMany)\b/;
 
 function walk(dir: string): string[] {
   const out: string[] = [];
