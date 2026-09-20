@@ -75,6 +75,17 @@ model Account {
 
 // ==================== Campaign ====================
 
+enum CampaignStatus {
+  DRAFT
+  SUBMITTED
+  REJECTED
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+  COMPLETED
+  EXPIRED
+}
+
 model Campaign {
   id              String    @id @default(cuid())
   slug            String    @unique
@@ -86,6 +97,7 @@ model Campaign {
   collectedAmount Int       @default(0)
   category        String
   status          String    @default("active") // "active" | "completed" | "expired"
+  lifecycleStatus CampaignStatus @default(SUBMITTED)
   isUrgent        Boolean   @default(false)
   deadline        DateTime?
   creatorId       String
@@ -130,6 +142,7 @@ model Campaign {
   @@index([slug])
   @@index([category])
   @@index([status])
+  @@index([lifecycleStatus])
   @@index([creatorId])
   @@index([isUrgent, status])
 }
