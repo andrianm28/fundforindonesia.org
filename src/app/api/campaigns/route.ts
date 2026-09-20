@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
 import { withRoleCheck } from '@/lib/withRoleCheck';
 
 const createCampaignSchema = z.object({
@@ -143,6 +144,7 @@ export const POST = withRoleCheck("CAMPAIGN_CREATOR", async (request: NextReques
         // has to be set explicitly -- omitting it publishes an unverified
         // appeal for money.
         status: 'pending',
+        lifecycleStatus: toLifecycleStatus('pending'),
       },
       include: {
         creator: {

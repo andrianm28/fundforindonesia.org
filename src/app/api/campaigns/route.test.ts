@@ -397,6 +397,24 @@ describe('POST /api/campaigns', () => {
     );
   });
 
+  it('sets lifecycleStatus SUBMITTED next to status pending on create', async () => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+    mockCreate.mockResolvedValue({ id: 'campaign-1' } as never);
+
+    const request = createPostRequest(validBody);
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'pending',
+          lifecycleStatus: 'SUBMITTED',
+        }),
+      })
+    );
+  });
+
   it('passes correct data to prisma.campaign.create', async () => {
     mockGetServerSession.mockResolvedValue(verifiedSession as never);
     mockCreate.mockResolvedValue({ id: 'c1' } as never);

@@ -4,6 +4,7 @@ import { PrismaClient, Role, PaymentStatus, PayoutStatus } from '@/generated/pri
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
+import { toLifecycleStatus } from '@/lib/campaign-lifecycle';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -285,6 +286,7 @@ async function main() {
         collectedAmount: campaignData.collected,
         category: campaignData.category,
         status: campaignData.status,
+        lifecycleStatus: toLifecycleStatus(campaignData.status),
         isUrgent: campaignData.isUrgent,
         deadline: campaignData.deadlineDays > 0 ? daysFromNow(campaignData.deadlineDays) : daysAgo(Math.abs(campaignData.deadlineDays)),
         creatorId: creator.id,
