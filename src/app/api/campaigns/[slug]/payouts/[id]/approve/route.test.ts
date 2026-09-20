@@ -9,7 +9,7 @@ import { POST } from './route';
 // that some function was called.
 //
 // payout.updateMany/findUniqueOrThrow at the TOP level (not tx) exist because
-// approveAndReleasePayout runs two separate transactions around the provider
+// approvePayout runs two separate transactions around the provider
 // call: phase 1 is `prisma.$transaction(...)` (the `tx` fake below), phase 2
 // is a second, plain `prisma.payout.updateMany` + `findUniqueOrThrow`.
 vi.mock('@/lib/prisma', () => ({
@@ -77,7 +77,7 @@ function makePayoutRow(overrides: Record<string, unknown> = {}) {
 
 /**
  * A fake tx client backing PHASE 1 (the transaction inside
- * approveAndReleasePayout): a mutable `state` row, a `$queryRaw` stand-in for
+ * approvePayout): a mutable `state` row, a `$queryRaw` stand-in for
  * the campaign row lock, and the real ledger's groupBy/count/createMany (same
  * simulation as src/lib/money/ledger.test.ts), so the transition, the
  * destination re-check, the balance recheck and the posted legs are all
@@ -177,11 +177,12 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     mockGetPaymentProvider.mockReturnValue({
       createPayout: vi.fn().mockResolvedValue({ payoutId: 'provider-payout-1', status: 'completed' }),
     });
-    // Phase 2 defaults: succeeds and returns the payout in its final shape.
-    // Individual tests override when they need to inspect the response body.
+    // Approval's final shape: APPROVED, with no providerRef, because no
+    // provider is ever instructed here. Individual tests override when they
+    // need to inspect the response body.
     mockPayoutUpdateManyTop.mockResolvedValue({ count: 1 });
     mockPayoutFindUniqueOrThrow.mockResolvedValue(
-      makePayoutRow({ status: 'PROCESSING', approvedById: 'admin-1', providerRef: 'provider-payout-1' }),
+      makePayoutRow({ status: 'APPROVED', approvedById: 'admin-1' }),
     );
   });
 
@@ -213,13 +214,24 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('returns 503 and touches nothing when the payment provider is not configured', async () => {
+  it('approves without resolving a payment provider at all', async () => {
+    // Regression test. Approval used to call provider.createPayout after
+    // committing the instructed legs. With Sumopod -- the only provider
+    // before launch, and one with no disbursement API -- that threw
+    // SumopodNotSupportedError on every approval in production, stranding
+    // the payout APPROVED with no way forward. No test caught it because
+    // none approved with the real adapter. Approval must not touch a
+    // provider: the second admin withdraws by hand (ADR 0006, FFI-07).
     mockGetPaymentProvider.mockImplementation(() => {
       throw new PaymentProviderNotConfiguredError('MOCK_MIDTRANS_SERVER_KEY');
     });
+    const { tx } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
     const response = await POST(createRequest(), routeContext());
-    expect(response.status).toBe(503);
-    expect(mockTransaction).not.toHaveBeenCalled();
+
+    expect(response.status).toBe(200);
+    expect(mockGetPaymentProvider).not.toHaveBeenCalled();
   });
 
   it('refuses self-approval with 403 and leaves the payout completely untouched', async () => {
@@ -310,7 +322,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
   });
 
-  it('approves and releases: PROCESSING, balanced entries, and the balance drops by exactly the payout', async () => {
+  it('approves: APPROVED, balanced entries, and the balance drops by exactly the payout', async () => {
     const { tx, ledgerRows, queryRaw } = makeTx({ payout: makePayoutRow({ amount: 100_000 }), ledgerRows: FULL_BALANCE_ROWS });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -318,15 +330,13 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(data.status).toBe('PROCESSING');
-    expect(data.providerRef).toBe('provider-payout-1');
+    expect(data.status).toBe('APPROVED');
 
     // The campaign row lock is taken before the balance is trusted.
     expect(queryRaw).toHaveBeenCalled();
 
     // The legs themselves: debit withdrawable, credit clearing, exactly the
-    // payout amount, and debits equal credits. Committed in phase 1, before
-    // the provider is ever called.
+    // payout amount, and debits equal credits.
     const posted = ledgerRows.filter((r) => r.transactionId !== 't1');
     expect(posted).toEqual([
       expect.objectContaining({ account: 'CAMPAIGN_BALANCE', direction: 'DEBIT', amount: 100_000, campaignId: 'campaign-1' }),
@@ -340,11 +350,9 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     // Balance drops by exactly the payout: was 100_000, now 0.
     expect(await import('@/lib/money/ledger').then((m) => m.campaignBalance(tx as never, 'campaign-1'))).toBe(0);
 
-    // Phase 2 ran, and only after phase 1 (and the provider) resolved.
-    expect(mockPayoutUpdateManyTop).toHaveBeenCalledWith({
-      where: { id: 'payout-1', status: 'APPROVED' },
-      data: { status: 'PROCESSING', providerRef: 'provider-payout-1' },
-    });
+    // Nothing moves the payout past APPROVED. Draining PAYOUT_CLEARING is
+    // the completion step's job, and that endpoint does not exist yet.
+    expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
   });
 
   it('a second approval that loses the race changes nothing: no provider call, no ledger post, no final update', async () => {
@@ -363,36 +371,6 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     expect(providerCreatePayout).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
     expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
-  });
-
-  it('leaves the payout APPROVED with its legs posted and no providerRef when the provider call fails between phases', async () => {
-    // Models a crash or an error between phase 1 (committed) and phase 2: the
-    // provider call throws. Phase 1's transaction has already committed by
-    // this point in the real code (the fake tx below mutates `state`
-    // synchronously the same way a commit would durably persist it), so the
-    // payout must be left APPROVED with its legs intact -- not rolled back,
-    // not silently marked FAILED. See the reasoning in payouts.ts's doc
-    // comment.
-    mockGetPaymentProvider.mockReturnValue({
-      createPayout: vi.fn().mockRejectedValue(new Error('provider timeout')),
-    });
-    const { tx, state, ledgerRows } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
-    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    const response = await POST(createRequest(), routeContext());
-
-    expect(response.status).toBe(500);
-    // Phase 1's effects are durable and visible: APPROVED, legs posted.
-    expect(state?.status).toBe('APPROVED');
-    expect(ledgerRows.filter((r) => r.transactionId !== 't1')).toHaveLength(2);
-    // Phase 2 never ran -- no providerRef was ever recorded.
-    expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
-    expect(mockPayoutFindUniqueOrThrow).not.toHaveBeenCalled();
-    expect(state?.providerRef).toBeNull();
-    // The failure was logged, not swallowed.
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
   });
 
   it('does not let two different DRAFT payouts on one campaign both spend the same balance when approved concurrently', async () => {

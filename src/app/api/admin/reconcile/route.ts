@@ -327,12 +327,15 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
       strandedEscrow,
       deferredEscrowWatchdog,
       stuckPayouts: {
-        // Instructed to the bank (CAMPAIGN_BALANCE debited, PAYOUT_CLEARING
-        // credited, payoutInstructedLegs in ./ledger.ts) but nothing in this
-        // codebase ever moves PROCESSING to COMPLETED or drains
-        // PAYOUT_CLEARING -- that needs a provider callback nobody has
-        // scoped yet. Money instructed out sits here until a human, or a
-        // future task, resolves it.
+        // Nothing in this codebase writes PROCESSING today -- approval stops
+        // at APPROVED, and only a provider with a disbursement API plus its
+        // webhook would ever set it. Kept because that provider is planned
+        // (FFI-18) and because any row appearing here now would mean
+        // something wrote a status no code path should be writing.
+        //
+        // Either way, nothing drains PAYOUT_CLEARING: that leg belongs to the
+        // completion step, which needs a LedgerAccount for money that has
+        // physically left and the enum has none.
         processing: processingPayouts.map((p) => ({
           payoutId: p.id,
           campaignId: p.campaignId,
@@ -340,12 +343,17 @@ export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
           providerRef: p.providerRef,
           approvedAt: p.approvedAt,
         })),
-        // approveAndReleasePayout (./payouts.ts) leaves a payout exactly in
-        // this state when its provider call throws after the instructed
-        // legs already committed: APPROVED, ledger legs posted, no
-        // providerRef. Visible and reconcilable by a human; deliberately not
-        // auto-reverted, because an error from the provider does not prove
-        // the transfer never reached the bank.
+        // This is the NORMAL resting state of an approved payout today, not
+        // an incident: approvePayout (./payouts.ts) posts the instructed legs
+        // and stops at APPROVED without ever instructing a provider, because
+        // the withdrawal is performed by hand by a second admin (ADR 0006,
+        // FFI-07). So this list is the work queue for that second admin --
+        // "approved, money already committed out of CAMPAIGN_BALANCE, waiting
+        // for someone to actually transfer it and record proof".
+        //
+        // It only becomes an anomaly list once a mark-completed-with-proof
+        // endpoint exists and a row still lingers here afterwards. Until
+        // then, expect every approved payout to appear.
         approvedWithoutProviderRef: approvedWithoutProviderRef.map((p) => ({
           payoutId: p.id,
           campaignId: p.campaignId,

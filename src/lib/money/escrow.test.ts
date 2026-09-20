@@ -298,7 +298,7 @@ describe('releaseMaturedEscrow', () => {
     // the Campaign row: whichever concurrent call reaches $queryRaw first
     // finishes its whole transaction (claim + post) before the other is
     // allowed to proceed, exactly mirroring how the two-transaction race
-    // test for approveAndReleasePayout is built
+    // test for approvePayout is built
     // (src/app/api/campaigns/[slug]/payouts/[id]/approve/route.test.ts).
     let tail: Promise<void> = Promise.resolve();
     function enterLock(): Promise<() => void> {

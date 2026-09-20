@@ -99,7 +99,7 @@ export interface ReleaseSweepResult {
  * than a read-then-write: the database arbitrates which of two concurrent
  * callers gets to release a given payment, and the loser sees `count === 0`
  * and does nothing further. A read-then-write here was Critical twice
- * already on this branch (see approveAndReleasePayout in ./payouts.ts for
+ * already on this branch (see approvePayout in ./payouts.ts for
  * the same pattern applied to payout approval).
  */
 export async function releaseMaturedEscrow(campaignId?: string): Promise<ReleaseSweepResult> {
@@ -147,7 +147,7 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
     try {
       const released = await prisma.$transaction(async (tx) => {
         // Lock the campaign row before touching its ESCROW_HOLD /
-        // CAMPAIGN_BALANCE accounts, the same precaution approveAndReleasePayout
+        // CAMPAIGN_BALANCE accounts, the same precaution approvePayout
         // takes before spending CAMPAIGN_BALANCE (./payouts.ts). amountToRelease
         // below is computed entirely from this payment's own fields and its own
         // Refund rows, never from a campaign-wide aggregate, so two sibling
@@ -157,7 +157,7 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
         // campaign aggregate.
         //
         // LOCK ORDERING, AND WHY IT DOESN'T DEADLOCK TODAY. This sweep, and
-        // payout approval (approveAndReleasePayout, ./payouts.ts), both lock
+        // payout approval (approvePayout, ./payouts.ts), both lock
         // Campaign before ever touching Payment/Payout -- Campaign -> Payment
         // order. The settlement webhook (src/app/api/webhooks/[provider]/
         // route.ts) does the opposite: it reads/writes Payment, then Donation,
