@@ -5,6 +5,7 @@ import { getServerSession } from '@/lib/auth';
 import { PaymentStatus } from '@/generated/prisma/client';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { DONATIONS_ENABLED, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
+import { campaignAcceptsDonations } from "@/lib/campaign-lifecycle";
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'ewallet', 'credit_card'] as const;
 
@@ -58,7 +59,13 @@ export async function POST(request: NextRequest) {
     // 3. Verify campaign exists and is active
     const campaign = await prisma.campaign.findUnique({
       where: { id: campaignId },
-      select: { id: true, status: true, title: true, isDemo: true },
+      select: {
+        id: true,
+        status: true,
+        lifecycleStatus: true,
+        title: true,
+        isDemo: true,
+      },
     });
 
     if (!campaign) {
@@ -79,7 +86,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (campaign.status !== 'active') {
+    if (!campaignAcceptsDonations(campaign)) {
       return NextResponse.json(
         { error: 'Campaign tidak aktif. Hanya campaign aktif yang dapat menerima donasi.' },
         { status: 400 }
