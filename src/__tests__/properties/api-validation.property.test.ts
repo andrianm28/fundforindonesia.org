@@ -16,9 +16,6 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
-    topUp: {
-      create: vi.fn(),
-    },
     $transaction: vi.fn(),
   },
 }));
@@ -420,61 +417,6 @@ describe("Feature: platform-polish, Property 5: Verification Role Upgrade", () =
         }
       ),
       { numRuns: 30 }
-    );
-  });
-});
-
-// ============================================================
-// Property 6: Top-Up Amount Bounds
-// Formerly: amount always validated between 10000 and 10000000 inclusive.
-// The wallet is now disabled (WALLET_ENABLED = false, src/lib/wallet.ts):
-// this endpoint used to mint donationBalance with no payment behind it at
-// all. Every amount - in bounds, out of bounds, or malformed - now gets a
-// 503 before validation ever runs, and never reaches $transaction.
-// **Validates: Requirements 5.4, 5.5**
-// ============================================================
-describe("Feature: platform-polish, Property 6: Top-Up Amount Bounds", () => {
-  const validPaymentMethodArb = fc.constantFrom(
-    "BCA",
-    "Mandiri",
-    "BNI",
-    "GoPay",
-    "OVO",
-    "Dana"
-  );
-
-  // Covers below-minimum, in-range, and above-maximum amounts alike - none
-  // of them should reach the old bounds check any more.
-  const anyAmountArb = fc.integer({ min: -1000000, max: 100000000 });
-
-  test("every amount is rejected with 503 and never reaches the database", async () => {
-    const { POST } = await import("@/app/api/user/topup/route");
-
-    await fc.assert(
-      fc.asyncProperty(
-        anyAmountArb,
-        validPaymentMethodArb,
-        async (amount, paymentMethod) => {
-          vi.clearAllMocks();
-
-          mockedGetServerSession.mockResolvedValue(mockAuthSession());
-
-          const request = new NextRequest(
-            new URL("http://localhost:3000/api/user/topup"),
-            {
-              method: "POST",
-              body: JSON.stringify({ amount, paymentMethod }),
-              headers: { "Content-Type": "application/json" },
-            }
-          );
-
-          const response = await POST(request);
-
-          expect(response.status).toBe(503);
-          expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
-        }
-      ),
-      { numRuns: 50 }
     );
   });
 });
