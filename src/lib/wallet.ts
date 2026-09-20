@@ -1,29 +1,23 @@
 /**
- * The "Kantong Donasi" wallet is disabled.
+ * The "Kantong Donasi" wallet has been removed.
  *
- * `POST /api/user/topup` used to create a `TopUp` row and credit
- * `User.donationBalance` with no payment behind it whatsoever — any
- * authenticated user could mint balance and spend it via
- * `POST /api/balance/donate`, which writes straight to
- * `Campaign.collectedAmount`. That made the wallet a second, uncontrolled
- * writer of a field the settled-payment webhook is supposed to own alone
- * (see `src/app/api/webhooks/[provider]/route.ts`).
+ * Both of its endpoints are gone: `POST /api/user/topup`, which credited
+ * `User.donationBalance` with no payment behind it, and
+ * `POST /api/balance/donate`, which spent that balance by writing
+ * `Campaign.collectedAmount` directly with no Payment and no ledger entry.
+ * The guard test at
+ * `src/__tests__/properties/collected-amount-single-writer.test.ts` keeps
+ * them gone.
  *
- * Do not flip this back to `true` until a top-up itself requires a settled
- * `Payment` (see `src/lib/payments/`). Re-enabling the wallet before that
- * restores the second writer, and the headline collected-amount will drift
- * silently from the ledger, which is the one thing that must never happen.
+ * What survives is `User.donationBalance` and the read-only
+ * `GET /api/balance`, because five users hold balances totalling
+ * Rp 1.371.884. That money is owed to them. It cannot be refunded through
+ * the system yet -- refunds do not exist -- so the balance stays visible and
+ * unspendable until it is settled, which is tracked separately from this
+ * work.
  *
- * `User.donationBalance` and the `TopUp` model are left in place on
- * purpose: existing balances are a liability to honour later, not rows to
- * drop.
- */
-export const WALLET_ENABLED = false;
-
-/**
- * Standard response body for a wallet endpoint while WALLET_ENABLED is
- * false. Donating directly to a campaign still works — this only closes
- * the balance top-up/spend path.
+ * This message is what the account page shows those users so they understand
+ * the balance is temporarily unspendable rather than gone.
  */
 export const WALLET_DISABLED_MESSAGE =
   "Fitur Kantong Donasi sedang tidak tersedia. Anda tetap bisa berdonasi langsung ke campaign pilihan Anda.";

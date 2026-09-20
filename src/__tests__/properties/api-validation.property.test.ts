@@ -2,8 +2,8 @@ import { describe, test, expect, vi, beforeEach } from "vitest";
 import * as fc from "fast-check";
 import { NextRequest } from "next/server";
 
-// Feature: platform-polish, Properties 3-6: API Validation
-// **Validates: Requirements 2.7, 2.5, 6.5, 5.4, 5.5**
+// Feature: platform-polish, Properties 3-5: API Validation
+// **Validates: Requirements 2.7, 2.5, 6.5**
 
 // Mock dependencies
 vi.mock("@/lib/auth", () => ({
