@@ -42,7 +42,6 @@ model User {
   prayers       Prayer[]
   notifications Notification[]
   autoDonations AutoDonation[]
-  topUps        TopUp[]
 
   // Money layer
   bankAccounts     BankAccount[]
@@ -249,23 +248,6 @@ model Category {
 
   @@index([slug])
   @@index([order])
-}
-
-// ==================== Top Up ====================
-
-model TopUp {
-  id            String   @id @default(cuid())
-  amount        Int
-  paymentMethod String
-  status        String   @default("pending") // "pending" | "confirmed" | "failed"
-  userId        String
-  createdAt     DateTime @default(now())
-
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([status])
 }
 
 // ==================== Money ====================
