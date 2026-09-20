@@ -240,7 +240,11 @@ describe('POST /api/webhooks/[provider]', () => {
 
     expect(tx.campaign.update).toHaveBeenCalledWith({
       where: { id: 'campaign-1' },
-      data: { collectedAmount: { increment: 100_000 }, status: 'completed' },
+      data: {
+        collectedAmount: { increment: 100_000 },
+        status: 'completed',
+        lifecycleStatus: 'COMPLETED',
+      },
     });
   });
 

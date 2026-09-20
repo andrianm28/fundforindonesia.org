@@ -286,7 +286,7 @@ describe('Donation Flow Integration Tests', () => {
 
       expect(tx.campaign.update).toHaveBeenCalledWith({
         where: { id: 'campaign-webhook-1' },
-        data: { collectedAmount: { increment: 75_000 }, status: 'completed' },
+        data: { collectedAmount: { increment: 75_000 }, status: 'completed', lifecycleStatus: 'COMPLETED' },
       });
     });
   });

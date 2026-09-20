@@ -349,6 +349,36 @@ describe('PATCH /api/campaigns/[slug]', () => {
     expect(body.error).toBe('Forbidden');
   });
 
+  it('maps a status in the body to lifecycleStatus next to it', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null },
+      expires: '2099-01-01',
+    });
+    mockFindUnique.mockResolvedValue({
+      id: 'campaign-1',
+      creatorId: 'other-user',
+    } as any);
+    mockUpdate.mockResolvedValue({
+      id: 'campaign-1',
+      status: 'suspended',
+      creator: { id: 'other-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
+    } as any);
+
+    const request = createRequest('bantu-korban-banjir', 'PATCH', { status: 'suspended' });
+    await PATCH(request, {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'suspended',
+          lifecycleStatus: 'SUSPENDED',
+        }),
+      })
+    );
+  });
+
   it('returns 403 for DONOR user', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { id: 'donor-user', role: 'DONOR', name: 'Donor', email: 'donor@test.com', isVerified: false, verificationType: null },

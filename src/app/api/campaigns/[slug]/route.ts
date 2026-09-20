@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { isAtLeast } from '@/lib/roles';
+import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
 import { Role } from '@/generated/prisma/client';
 
 export const revalidate = 60;
@@ -135,7 +136,12 @@ export async function PATCH(
 
     const updatedCampaign = await prisma.campaign.update({
       where: { id: campaign.id },
-      data: body,
+      data: {
+        ...body,
+        ...(typeof body.status === "string"
+          ? { lifecycleStatus: toLifecycleStatus(body.status) }
+          : {}),
+      },
       include: {
         creator: {
           select: {

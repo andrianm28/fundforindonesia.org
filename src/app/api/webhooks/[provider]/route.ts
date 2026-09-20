@@ -9,6 +9,7 @@ import {
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { escrowReleaseAt } from '@/lib/money/escrow';
 import { notifyDonationConfirmed } from '@/lib/notifications';
+import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
 
 /**
  * The single place where money becomes real.
@@ -241,7 +242,12 @@ export async function POST(
           where: { id: campaign.id },
           data: {
             collectedAmount: { increment: payment.amount },
-            ...(targetMet ? { status: 'completed' } : {}),
+            ...(targetMet
+              ? {
+                  status: 'completed',
+                  lifecycleStatus: toLifecycleStatus('completed'),
+                }
+              : {}),
           },
         });
 
