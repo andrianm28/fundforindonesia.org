@@ -1,5 +1,6 @@
 import { withRoleCheck } from "@/lib/withRoleCheck";
 import { prisma } from "@/lib/prisma";
+import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
 import { NextRequest, NextResponse } from "next/server";
 
 const VALID_ACTIONS = ["approve", "reject", "suspend"] as const;
@@ -49,7 +50,7 @@ export const PATCH = withRoleCheck("MODERATOR", async (req: NextRequest, context
   // Update campaign status
   const updatedCampaign = await prisma.campaign.update({
     where: { id },
-    data: { status: newStatus },
+    data: { status: newStatus, lifecycleStatus: toLifecycleStatus(newStatus) },
   });
 
   // Create notification for the campaign creator
