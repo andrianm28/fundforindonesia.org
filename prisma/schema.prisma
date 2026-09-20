@@ -12,6 +12,11 @@ datasource db {
 
 // ==================== Enums ====================
 
+enum Assignment {
+  VERIFIER
+  ADMIN
+}
+
 enum Role {
   ADMIN
   MODERATOR
@@ -42,6 +47,7 @@ model User {
   prayers       Prayer[]
   notifications Notification[]
   autoDonations AutoDonation[]
+  assignments   UserAssignment[]
 
   // Money layer
   bankAccounts     BankAccount[]
@@ -50,6 +56,23 @@ model User {
   refundsApproved  Refund[]      @relation("RefundApprover")
 
   @@index([email])
+}
+
+/// Verifier and Admin are assignments a person holds, not ranks.
+/// One person may hold both; holding both is two rows, never a special
+/// case. See ADR 0005. The `Role` hierarchy still governs access until
+/// tickets 07-08 migrate the guards; this model only records who holds
+/// what in the meantime.
+model UserAssignment {
+  userId     String
+  assignment Assignment
+  assignedAt DateTime   @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, assignment])
+  @@index([assignment])
 }
 
 model Account {
