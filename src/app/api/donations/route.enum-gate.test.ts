@@ -126,4 +126,47 @@ describe('POST /api/donations lifecycle gate', () => {
 
     expect(mockGetPaymentProvider).toHaveBeenCalled();
   });
+
+  describe.each([
+    ['SUBMITTED', 'pending'],
+    ['REJECTED', 'rejected'],
+    ['SUSPENDED', 'suspended'],
+    ['CANCELLED', 'active'],
+    ['COMPLETED', 'completed'],
+    ['EXPIRED', 'expired'],
+    ['DRAFT', 'pending'],
+  ] as const)('lifecycleStatus %s refuses donations', (lifecycleStatus, status) => {
+    it('returns 400 with the unchanged message and never reaches the provider', async () => {
+      mockCampaignFindUnique.mockResolvedValue({
+        id: 'campaign-1',
+        status,
+        lifecycleStatus,
+        title: 'Bantu Korban Banjir',
+        isDemo: false,
+      });
+
+      const response = await POST(donateRequest(VALID_BODY));
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toBe(
+        'Campaign tidak aktif. Hanya campaign aktif yang dapat menerima donasi.'
+      );
+      expect(mockGetPaymentProvider).not.toHaveBeenCalled();
+    });
+  });
+
+  it('the enum governs in reverse: suspended string with ACTIVE enum passes the gate', async () => {
+    mockCampaignFindUnique.mockResolvedValue({
+      id: 'campaign-1',
+      status: 'suspended',
+      lifecycleStatus: 'ACTIVE',
+      title: 'Bantu Korban Banjir',
+      isDemo: false,
+    });
+
+    await POST(donateRequest(VALID_BODY));
+
+    expect(mockGetPaymentProvider).toHaveBeenCalled();
+  });
 });
