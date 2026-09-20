@@ -51,7 +51,6 @@ const quickActionTiles = [
   { icon: '💰', label: 'Donasi', href: '/explore/all', color: '#E3F2FD' },
   { icon: '🕌', label: 'Zakat', href: '/zakat', color: '#E8F5E9' },
   { icon: '📢', label: 'Galang Dana', href: '/campaign/create', color: '#FFF3E0' },
-  { icon: '🔄', label: 'Donasi Otomatis', href: '/donasi-otomatis', color: '#F3E5F5' },
   { icon: '✨', label: 'Experience', href: '/explore/all', color: '#E0F7FA' },
   { icon: '🤝', label: 'Kolaborasi CSR', href: '/explore/all', color: '#FCE4EC' },
   { icon: '🛡️', label: 'Asuransi', href: '/explore/all', color: '#E8EAF6' },

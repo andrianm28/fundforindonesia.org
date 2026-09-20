@@ -172,7 +172,6 @@ export default function AkunPage() {
       <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm overflow-hidden">
         <SettingsLink label="Donasi Saya" href="/donasi-saya" />
         <SettingsLink label="Galang Dana Saya" href="/akun/kampanye-saya" />
-        <SettingsLink label="Donasi Otomatis" href="/donasi-otomatis" />
         <SettingsLink label="Pengaturan" href="/akun/pengaturan" isLast />
       </div>
 
