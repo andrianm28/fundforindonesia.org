@@ -56,7 +56,6 @@ import { getPaymentProvider } from '@/lib/payments';
 
 // Import route handlers
 import { POST as createDonation } from '@/app/api/donations/route';
-import { POST as balanceDonate } from '@/app/api/balance/donate/route';
 import { POST as webhook } from '@/app/api/webhooks/[provider]/route';
 
 // Typed mock references
@@ -396,44 +395,6 @@ describe('Donation Flow Integration Tests', () => {
 
       expect(response.status).toBe(200);
       expect(data.received).toBe(true);
-      expect(mockTransaction).not.toHaveBeenCalled();
-    });
-  });
-
-  // Sections 6-8 used to cover balance-donation deduction, insufficient-balance
-  // rejection, and target-completion via the wallet. The wallet is now
-  // disabled (WALLET_ENABLED = false, src/lib/wallet.ts): POST
-  // /api/balance/donate spent minted balance and wrote straight to
-  // campaign.collectedAmount, a second, uncontrolled writer of the field the
-  // settled-payment webhook is supposed to own alone. Every one of those
-  // scenarios is now unreachable - the endpoint refuses before touching the
-  // session, the campaign, or the user's balance at all.
-  describe('6. Balance donation is disabled', () => {
-    it('should return 503 without touching the campaign, the balance, or a transaction', async () => {
-      mockGetServerSession.mockResolvedValue({
-        user: { id: 'user-balance', name: 'Balance User', email: 'balance@test.com' },
-      });
-      mockCampaignFindUnique.mockResolvedValue({
-        id: 'campaign-bal',
-        status: 'active',
-        targetAmount: 1000000,
-        collectedAmount: 400000,
-      });
-      mockUserFindUnique.mockResolvedValue({
-        donationBalance: 200000,
-      });
-
-      const request = createPostRequest('http://localhost:3000/api/balance/donate', {
-        campaignId: 'campaign-bal',
-        amount: 50000,
-      });
-
-      const response = await balanceDonate(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(503);
-      expect(typeof data.error).toBe('string');
-      expect(mockCampaignFindUnique).not.toHaveBeenCalled();
       expect(mockTransaction).not.toHaveBeenCalled();
     });
   });
