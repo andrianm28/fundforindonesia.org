@@ -48,3 +48,6 @@ next-env.d.ts
 
 # Superpowers SDD scratch: ledger, briefs, review packages. Never committed.
 .superpowers/
+
+# specflow issue tracker: specs and tickets are local scratch. Never committed.
+.scratch/
