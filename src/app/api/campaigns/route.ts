@@ -137,6 +137,12 @@ export const POST = withRoleCheck("CAMPAIGN_CREATOR", async (request: NextReques
         category,
         deadline: deadline ? new Date(deadline) : null,
         creatorId: session!.user.id,
+        // A new campaign is never published by its author. It waits in the
+        // Verifier queue at /moderasi until a moderator approves it, which is
+        // what flips it to "active". The schema default is "active", so this
+        // has to be set explicitly -- omitting it publishes an unverified
+        // appeal for money.
+        status: 'pending',
       },
       include: {
         creator: {

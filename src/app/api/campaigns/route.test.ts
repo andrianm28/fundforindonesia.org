@@ -379,6 +379,24 @@ describe('POST /api/campaigns', () => {
     expect(data.creatorId).toBe('user-1');
   });
 
+  it('creates the campaign as pending so it cannot publish itself', async () => {
+    // A campaign must pass a Verifier before it is visible. Creating it as
+    // "active" would publish an unverified appeal for money under the
+    // platform's name, and would also leave the /moderasi queue -- which
+    // filters on "pending" -- permanently empty.
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+    mockCreate.mockResolvedValue({ id: 'c1' } as never);
+
+    const request = createPostRequest(validBody);
+    await POST(request);
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'pending' }),
+      })
+    );
+  });
+
   it('passes correct data to prisma.campaign.create', async () => {
     mockGetServerSession.mockResolvedValue(verifiedSession as never);
     mockCreate.mockResolvedValue({ id: 'c1' } as never);
