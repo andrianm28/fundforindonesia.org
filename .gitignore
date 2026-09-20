@@ -51,3 +51,6 @@ next-env.d.ts
 
 # specflow issue tracker: specs and tickets are local scratch. Never committed.
 .scratch/
+
+# Harness-managed git worktrees. Never committed.
+.claude/worktrees/
