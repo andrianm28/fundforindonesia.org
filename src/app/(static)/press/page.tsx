@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Media - Fund for Indonesia',
-  description: 'Pusat media Fund for Indonesia. Temukan siaran pers, kit media, dan informasi kontak untuk liputan media.',
+  description: 'Pusat media Fund for Indonesia. Informasi kontak untuk keperluan liputan media.',
 };
 
 export default function PressPage() {
@@ -11,27 +11,17 @@ export default function PressPage() {
       <h1 className="text-2xl font-bold text-text mb-6">Media</h1>
       <div className="space-y-6 text-text-secondary leading-relaxed">
         <p>
-          Selamat datang di pusat media Fund for Indonesia. Di sini Anda dapat menemukan
-          informasi terkini tentang platform kami, siaran pers, dan materi media untuk
-          keperluan liputan.
+          Fund for Indonesia adalah platform social impact yang dioperasikan PT Jaya Korpora
+          Prima. Halaman ini menjadi titik kontak bagi rekan media yang ingin meliput
+          platform dan program yang berjalan di atasnya.
         </p>
 
         <section>
           <h2 className="text-lg font-semibold text-text mb-3">Siaran Pers</h2>
-          <div className="space-y-3">
-            <div className="p-4 border border-border rounded-md">
-              <p className="text-sm text-text-secondary">15 Januari 2024</p>
-              <h3 className="font-medium text-text mt-1">
-                Fund for Indonesia Mencapai 1 Juta Donatur Terdaftar
-              </h3>
-            </div>
-            <div className="p-4 border border-border rounded-md">
-              <p className="text-sm text-text-secondary">3 Desember 2023</p>
-              <h3 className="font-medium text-text mt-1">
-                Peluncuran Fitur Verifikasi Kampanye Baru
-              </h3>
-            </div>
-          </div>
+          <p>
+            Belum ada siaran pers yang diterbitkan. Halaman ini akan diperbarui saat siaran
+            pers pertama tersedia.
+          </p>
         </section>
 
         <section>
