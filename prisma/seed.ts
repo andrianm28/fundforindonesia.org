@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { randomUUID } from 'crypto';
-import { PrismaClient, Role, PaymentStatus, PayoutStatus } from '@/generated/prisma/client';
+import { PrismaClient, Role, Assignment, PaymentStatus, PayoutStatus } from '@/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
@@ -266,6 +266,22 @@ async function main() {
   const creators = users.filter(u => u.role === Role.CAMPAIGN_CREATOR);
   const donors = users.filter(u => u.role === Role.DONOR);
   console.log(`   ✓ ${users.length} users created (${admins.length} admin, ${moderators.length} moderator, ${creators.length} creators, ${donors.length} donors)\n`);
+
+  // Backfill UserAssignment rows so a fresh-seeded DB matches a migrated
+  // one. This mirrors prisma/migrations/20260920160016_backfill_user_assignments/
+  // migration.sql exactly: ADMIN gains both assignments, MODERATOR gains
+  // Verifier only. Nothing reads assignments yet (ticket 06), but ticket 07
+  // starts reading them, and a fresh environment must not diverge from a
+  // migrated one the moment it does. skipDuplicates mirrors the migration's
+  // ON CONFLICT DO NOTHING, so re-running the seed is safe.
+  await prisma.userAssignment.createMany({
+    data: [
+      ...admins.map(u => ({ userId: u.id, assignment: Assignment.VERIFIER })),
+      ...admins.map(u => ({ userId: u.id, assignment: Assignment.ADMIN })),
+      ...moderators.map(u => ({ userId: u.id, assignment: Assignment.VERIFIER })),
+    ],
+    skipDuplicates: true,
+  });
 
   // 3. Seed Campaigns
   console.log('📢 Creating campaigns...');
