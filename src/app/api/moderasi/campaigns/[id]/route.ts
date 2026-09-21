@@ -1,4 +1,5 @@
-import { withRoleCheck } from "@/lib/withRoleCheck";
+import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { Assignment } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
 import { NextRequest, NextResponse } from "next/server";
@@ -18,7 +19,7 @@ const ACTION_MESSAGE_MAP: Record<ModerationAction, string> = {
   suspend: "Your campaign has been suspended by a moderator",
 };
 
-export const PATCH = withRoleCheck("MODERATOR", async (req: NextRequest, context: any) => {
+export const PATCH = withAssignmentCheck(Assignment.VERIFIER, async (req: NextRequest, context: any) => {
   const { id } = await context.params;
   const body = await req.json();
   const { action } = body;
