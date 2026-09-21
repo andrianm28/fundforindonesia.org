@@ -4,7 +4,7 @@ import GoogleProvider from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { Role } from "@/generated/prisma/client";
+import { Role, Assignment } from "@/generated/prisma/client";
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
@@ -63,13 +63,19 @@ export const authOptions: NextAuthOptions = {
       if (token.id) {
         const dbUser = await prisma.user.findUnique({
           where: { id: token.id as string },
-          select: { isVerified: true, verificationType: true, role: true },
+          select: {
+            isVerified: true,
+            verificationType: true,
+            role: true,
+            assignments: { select: { assignment: true } },
+          },
         });
 
         if (dbUser) {
           token.isVerified = dbUser.isVerified;
           token.verificationType = dbUser.verificationType;
           token.role = dbUser.role;
+          token.assignments = dbUser.assignments.map((a) => a.assignment);
         }
       }
 
@@ -81,6 +87,7 @@ export const authOptions: NextAuthOptions = {
         session.user.role = (token.role as Role) ?? "DONOR";
         session.user.isVerified = token.isVerified as boolean;
         session.user.verificationType = token.verificationType as string | null;
+        session.user.assignments = (token.assignments as Assignment[]) ?? [];
       }
       return session;
     },

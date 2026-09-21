@@ -1,4 +1,4 @@
-import { Role } from "@/generated/prisma/client";
+import { Role, Assignment } from "@/generated/prisma/client";
 import { DefaultSession, DefaultUser } from "next-auth";
 import { DefaultJWT } from "next-auth/jwt";
 
@@ -9,6 +9,7 @@ declare module "next-auth" {
       role: Role;
       isVerified: boolean;
       verificationType: string | null;
+      assignments: Assignment[];
     } & DefaultSession["user"];
   }
 
@@ -25,5 +26,6 @@ declare module "next-auth/jwt" {
     role?: Role;
     isVerified?: boolean;
     verificationType?: string | null;
+    assignments?: Assignment[];
   }
 }
