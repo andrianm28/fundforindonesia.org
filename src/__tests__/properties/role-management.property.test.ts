@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import * as fc from "fast-check";
-import { Role } from "@/generated/prisma/client";
+import { Role, Assignment } from "@/generated/prisma/client";
 import { NextRequest } from "next/server";
 
 // Valid roles as defined in the system
@@ -43,6 +43,7 @@ function mockAdminSession(userId: string) {
       role: "ADMIN" as Role,
       isVerified: true,
       verificationType: null,
+      assignments: ["ADMIN"] as Assignment[],
     },
     expires: new Date(Date.now() + 86400000).toISOString(),
   };

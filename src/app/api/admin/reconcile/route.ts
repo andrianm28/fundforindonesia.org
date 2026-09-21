@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { withRoleCheck } from '@/lib/withRoleCheck';
+import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { Assignment } from '@/generated/prisma/client';
 import { findUnbalancedTransactions } from '@/lib/money/ledger';
 import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/lib/money/escrow';
 
@@ -68,7 +69,7 @@ import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/l
  *  - stuckPayouts: two payout states nothing in this codebase currently
  *    drains. Surfaced, not fixed -- see the comments below for why.
  */
-export const GET = withRoleCheck('ADMIN', async (_req: NextRequest) => {
+export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest) => {
   const report = await prisma.$transaction(async (tx) => {
     const unbalancedTransactions = await findUnbalancedTransactions(tx);
 

@@ -1,12 +1,12 @@
-import { withRoleCheck } from "@/lib/withRoleCheck";
+import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@/generated/prisma/client";
+import { Role, Assignment } from "@/generated/prisma/client";
 import { getServerSession } from "@/lib/auth";
 
 const VALID_ROLES: Role[] = ["ADMIN", "MODERATOR", "CAMPAIGN_CREATOR", "DONOR"];
 
-export const PATCH = withRoleCheck("ADMIN", async (req: NextRequest, context: any) => {
+export const PATCH = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest, context: any) => {
   const { id } = await context.params;
   const body = await req.json();
   const { role } = body;
