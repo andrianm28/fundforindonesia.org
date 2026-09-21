@@ -41,7 +41,8 @@ describe("Campaign status dual-write", () => {
     expect(readFileSync("prisma/seed.ts", "utf8")).toContain("lifecycleStatus");
   });
 
-  it("no reader has moved to the enum yet", () => {
+  // The known readers of the enum. Ticket 03 moved POST /api/donations, the first reader; tickets 04-05 extend this literal further.
+  it("only the donations gate has moved to the enum so far", () => {
     const readers = walk("src")
       .filter((file) => !file.startsWith("src/generated/"))
       .filter((file) => !file.endsWith(".test.ts") && !file.endsWith(".test.tsx"))
@@ -51,6 +52,7 @@ describe("Campaign status dual-write", () => {
       [
         "src/app/api/campaigns/[slug]/route.ts",
         "src/app/api/campaigns/route.ts",
+        "src/app/api/donations/route.ts",
         "src/app/api/moderasi/campaigns/[id]/route.ts",
         "src/app/api/webhooks/[provider]/route.ts",
         "src/lib/campaign-lifecycle.ts",
