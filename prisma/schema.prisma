@@ -371,6 +371,7 @@ enum LedgerAccount {
   // a new account that never balances.
   ESCROW_HOLD // settled at the provider, still inside the dispute window
   CAMPAIGN_BALANCE // owed to a specific campaign, withdrawable now
+  TRIP_BALANCE
   PLATFORM_FEE // retained by the platform
   PROVIDER_FEE // retained by the payment provider
   GATEWAY_CLEARING // money at the provider, not yet settled to us
@@ -388,8 +389,14 @@ enum LedgerDirection {
 /// the history of attempts survives.
 model Payment {
   id          String        @id @default(cuid())
-  donationId  String        @unique
-  donation    Donation      @relation(fields: [donationId], references: [id])
+  donationId  String?       @unique
+  donation    Donation?     @relation(fields: [donationId], references: [id])
+  /// Set instead of donationId for a Trip Fee payment -- exactly one of the
+  /// two is ever set, enforced by assertExactlyOnePaymentSubject
+  /// (./src/lib/money/payment-subject.ts), not by a schema constraint
+  /// Prisma cannot express. Plain scalar, no @relation: Registration
+  /// doesn't exist yet -- Ticket 03 adds the relation once it does.
+  registrationId String?    @unique
   provider    String // "midtrans" | "xendit" | ... kept a String: providers are added without a migration
   method      String // "qris" | "va_bca" | ...
   /// The provider's own id for this charge. Unique so a webhook replay cannot
@@ -501,8 +508,12 @@ model BankAccount {
 /// without any of the facts that make it checkable.
 model Payout {
   id            String       @id @default(cuid())
-  campaignId    String
-  campaign      Campaign     @relation(fields: [campaignId], references: [id])
+  campaignId    String?
+  campaign      Campaign?    @relation(fields: [campaignId], references: [id])
+  /// Set instead of campaignId for a Volunteer Trip payout. Plain scalar,
+  /// no @relation: VolunteerTrip doesn't exist yet -- Ticket 02 adds the
+  /// relation once it does.
+  volunteerTripId String?
   bankAccountId String
   bankAccount   BankAccount  @relation(fields: [bankAccountId], references: [id])
   amount        Int
@@ -551,6 +562,10 @@ model LedgerEntry {
   /// campaign-scoped. Null for platform-level accounts.
   campaignId String?
   campaign   Campaign? @relation(fields: [campaignId], references: [id])
+  /// Trip-scoped sibling of campaignId, same optionality shape. Plain
+  /// scalar, no @relation: VolunteerTrip doesn't exist yet -- Ticket 02
+  /// adds the relation once it does.
+  volunteerTripId String?
 
   /// Exactly one of these is set, naming what caused the movement.
   paymentId String?
