@@ -281,7 +281,7 @@ export async function POST(
         await postTransaction(
           tx,
           paymentSettledLegs({
-            campaignId: campaign.id,
+            subject: { type: 'campaign', campaignId: campaign.id },
             grossAmount: payment.amount,
             providerFee,
           }),

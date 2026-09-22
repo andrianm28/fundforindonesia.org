@@ -370,7 +370,7 @@ async function main() {
         await postTransaction(
           tx,
           paymentSettledLegs({
-            campaignId: campaign.id,
+            subject: { type: 'campaign', campaignId: campaign.id },
             grossAmount: amount,
             providerFee,
           }),

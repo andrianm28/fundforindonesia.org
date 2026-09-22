@@ -271,7 +271,7 @@ export async function approvePayout(
     // updateMany guard above.
     await postTransaction(
       tx,
-      payoutInstructedLegs({ campaignId: payout.campaignId, amount: payout.amount }),
+      payoutInstructedLegs({ subject: { type: 'campaign', campaignId: payout.campaignId }, amount: payout.amount }),
       { payoutId: payout.id, transactionId: `payout-instructed-${payout.id}` },
     );
 

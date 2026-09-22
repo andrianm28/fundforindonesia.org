@@ -4,6 +4,8 @@ import {
   postTransaction,
   campaignBalance,
   escrowBalance,
+  tripBalance,
+  tripEscrowBalance,
   findUnbalancedTransactions,
   paymentSettledLegs,
   escrowReleaseLegs,
@@ -26,6 +28,7 @@ type Row = {
   amount: number;
   account: string;
   campaignId: string | null;
+  volunteerTripId: string | null;
 };
 
 /** Minimal in-memory stand-in for the Prisma transaction client. */
@@ -154,18 +157,18 @@ describe('postTransaction', () => {
 describe('balances', () => {
   it('separates held money from withdrawable money, per campaign', async () => {
     const tx = makeTx();
-    await postTransaction(tx as never, paymentSettledLegs({ campaignId: 'c1', grossAmount: 100_000, providerFee: 3_000 }));
-    await postTransaction(tx as never, paymentSettledLegs({ campaignId: 'c2', grossAmount: 50_000, providerFee: 0 }));
+    await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 3_000 }));
+    await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c2' }, grossAmount: 50_000, providerFee: 0 }));
 
     // Settled, but inside the window: visible as escrow, withdrawable as zero.
     expect(await escrowBalance(tx as never, 'c1')).toBe(97_000);
     expect(await campaignBalance(tx as never, 'c1')).toBe(0);
 
-    await postTransaction(tx as never, escrowReleaseLegs({ campaignId: 'c1', amount: 97_000 }));
+    await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 97_000 }));
     expect(await escrowBalance(tx as never, 'c1')).toBe(0);
     expect(await campaignBalance(tx as never, 'c1')).toBe(97_000);
 
-    await postTransaction(tx as never, payoutInstructedLegs({ campaignId: 'c1', amount: 40_000 }));
+    await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 40_000 }));
     expect(await campaignBalance(tx as never, 'c1')).toBe(57_000);
 
     // c2 is untouched throughout.
@@ -181,7 +184,7 @@ describe('balances', () => {
 
 describe('paymentSettledLegs', () => {
   it('credits the campaign the NET, not the gross', () => {
-    const legs = paymentSettledLegs({ campaignId: 'c1', grossAmount: 100_000, providerFee: 2_500 });
+    const legs = paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 2_500 });
     // Crediting gross is how a campaign becomes able to withdraw money that
     // never arrived.
     expect(legs.find((l) => l.account === 'ESCROW_HOLD')?.amount).toBe(97_500);
@@ -191,30 +194,30 @@ describe('paymentSettledLegs', () => {
   it('settles into escrow, never straight into the withdrawable balance', () => {
     // The whole point of the hold. If this ever regresses, money becomes
     // payable the instant it settles and the dispute window is gone.
-    const legs = paymentSettledLegs({ campaignId: 'c1', grossAmount: 100_000, providerFee: 0 });
+    const legs = paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 0 });
     expect(legs.some((l) => l.account === 'CAMPAIGN_BALANCE')).toBe(false);
     expect(legs.some((l) => l.account === 'ESCROW_HOLD')).toBe(true);
   });
 
   it('omits the fee leg entirely when the fee is zero', () => {
-    const legs = paymentSettledLegs({ campaignId: 'c1', grossAmount: 100_000, providerFee: 0 });
+    const legs = paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 0 });
     expect(legs.some((l) => l.account === 'PROVIDER_FEE')).toBe(false);
     expect(legs).toHaveLength(2);
   });
 
   it('rejects a fee larger than the payment, or negative', () => {
-    expect(() => paymentSettledLegs({ campaignId: 'c1', grossAmount: 1_000, providerFee: 1_001 })).toThrow();
-    expect(() => paymentSettledLegs({ campaignId: 'c1', grossAmount: 1_000, providerFee: -1 })).toThrow();
+    expect(() => paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 1_000, providerFee: 1_001 })).toThrow();
+    expect(() => paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 1_000, providerFee: -1 })).toThrow();
   });
 });
 
 describe('refundLegs', () => {
   it('debits escrow when refunding inside the hold window', async () => {
     const tx = makeTx();
-    await postTransaction(tx as never, paymentSettledLegs({ campaignId: 'c1', grossAmount: 100_000, providerFee: 0 }));
+    await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 0 }));
     await postTransaction(
       tx as never,
-      refundLegs({ campaignId: 'c1', amount: 30_000, source: 'ESCROW_HOLD', creditedAmount: 100_000 }),
+      refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 30_000, source: 'ESCROW_HOLD', creditedAmount: 100_000 }),
     );
 
     expect(await escrowBalance(tx as never, 'c1')).toBe(70_000);
@@ -224,11 +227,11 @@ describe('refundLegs', () => {
 
   it('debits the withdrawable balance when refunding after release', async () => {
     const tx = makeTx();
-    await postTransaction(tx as never, paymentSettledLegs({ campaignId: 'c1', grossAmount: 100_000, providerFee: 0 }));
-    await postTransaction(tx as never, escrowReleaseLegs({ campaignId: 'c1', amount: 100_000 }));
+    await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 0 }));
+    await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000 }));
     await postTransaction(
       tx as never,
-      refundLegs({ campaignId: 'c1', amount: 30_000, source: 'CAMPAIGN_BALANCE', creditedAmount: 100_000 }),
+      refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 30_000, source: 'CAMPAIGN_BALANCE', creditedAmount: 100_000 }),
     );
 
     expect(await escrowBalance(tx as never, 'c1')).toBe(0);
@@ -240,13 +243,13 @@ describe('refundLegs', () => {
     // 85_000 (the NET) to ESCROW_HOLD. Refunding the gross would debit
     // ESCROW_HOLD by 100_000 -- 15_000 more than it was ever credited.
     expect(() =>
-      refundLegs({ campaignId: 'c1', amount: 100_000, source: 'ESCROW_HOLD', creditedAmount: 85_000 }),
+      refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', creditedAmount: 85_000 }),
     ).toThrow(InvalidLedgerLegError);
   });
 
   it('allows a refund of exactly what was credited', () => {
     expect(() =>
-      refundLegs({ campaignId: 'c1', amount: 85_000, source: 'ESCROW_HOLD', creditedAmount: 85_000 }),
+      refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 85_000, source: 'ESCROW_HOLD', creditedAmount: 85_000 }),
     ).not.toThrow();
   });
 });
@@ -260,11 +263,11 @@ describe('ledger invariants (property-based)', () => {
         (gross, feeRaw) => {
           const fee = Math.min(feeRaw, gross);
           for (const legs of [
-            paymentSettledLegs({ campaignId: 'c1', grossAmount: gross, providerFee: fee }),
-            escrowReleaseLegs({ campaignId: 'c1', amount: gross }),
-            refundLegs({ campaignId: 'c1', amount: gross, source: 'ESCROW_HOLD', creditedAmount: gross }),
-            refundLegs({ campaignId: 'c1', amount: gross, source: 'CAMPAIGN_BALANCE', creditedAmount: gross }),
-            payoutInstructedLegs({ campaignId: 'c1', amount: gross }),
+            paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: gross, providerFee: fee }),
+            escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: gross }),
+            refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: gross, source: 'ESCROW_HOLD', creditedAmount: gross }),
+            refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: gross, source: 'CAMPAIGN_BALANCE', creditedAmount: gross }),
+            payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: gross }),
           ]) {
             const d = legs.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + l.amount, 0);
             const c = legs.filter((l) => l.direction === 'CREDIT').reduce((s, l) => s + l.amount, 0);
@@ -281,11 +284,11 @@ describe('ledger invariants (property-based)', () => {
     for (let i = 0; i < 25; i++) {
       await postTransaction(
         tx as never,
-        paymentSettledLegs({ campaignId: 'c1', grossAmount: 10_000 + i, providerFee: i }),
+        paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 10_000 + i, providerFee: i }),
       );
-      await postTransaction(tx as never, escrowReleaseLegs({ campaignId: 'c1', amount: 10_000 }));
+      await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 10_000 }));
       if (i % 3 === 0) {
-        await postTransaction(tx as never, payoutInstructedLegs({ campaignId: 'c1', amount: 1_000 }));
+        await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 1_000 }));
       }
     }
     expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
@@ -294,19 +297,151 @@ describe('ledger invariants (property-based)', () => {
   it('the full lifecycle lands on the arithmetic everyone expects', async () => {
     const tx = makeTx();
     // Rp 500.000 donated, Rp 15.000 kept by the provider.
-    await postTransaction(tx as never, paymentSettledLegs({ campaignId: 'c1', grossAmount: 500_000, providerFee: 15_000 }));
+    await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000 }));
     // Rp 100.000 refunded while still held (well within the 485.000 net credited).
     await postTransaction(
       tx as never,
-      refundLegs({ campaignId: 'c1', amount: 100_000, source: 'ESCROW_HOLD', creditedAmount: 485_000 }),
+      refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', creditedAmount: 485_000 }),
     );
     // The rest matures.
-    await postTransaction(tx as never, escrowReleaseLegs({ campaignId: 'c1', amount: 385_000 }));
+    await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 385_000 }));
     // Rp 200.000 paid out.
-    await postTransaction(tx as never, payoutInstructedLegs({ campaignId: 'c1', amount: 200_000 }));
+    await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 200_000 }));
 
     expect(await escrowBalance(tx as never, 'c1')).toBe(0);
     expect(await campaignBalance(tx as never, 'c1')).toBe(485_000 - 100_000 - 200_000);
     expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+});
+
+describe('paymentSettledLegs with a trip subject', () => {
+  it('credits ESCROW_HOLD with volunteerTripId, not campaignId', () => {
+    const legs = paymentSettledLegs({
+      subject: { type: 'trip', tripId: 'trip-1' },
+      grossAmount: 100_000,
+      providerFee: 2_000,
+    });
+    expect(legs).toEqual([
+      { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 100_000 },
+      { account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 98_000, volunteerTripId: 'trip-1' },
+      { account: 'PROVIDER_FEE', direction: 'CREDIT', amount: 2_000 },
+    ]);
+  });
+
+  it('still credits ESCROW_HOLD with campaignId for a campaign subject, unchanged', () => {
+    const legs = paymentSettledLegs({
+      subject: { type: 'campaign', campaignId: 'camp-1' },
+      grossAmount: 100_000,
+      providerFee: 0,
+    });
+    expect(legs).toEqual([
+      { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 100_000 },
+      { account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 100_000, campaignId: 'camp-1' },
+    ]);
+  });
+});
+
+describe('escrowReleaseLegs with a trip subject', () => {
+  it('credits TRIP_BALANCE, not CAMPAIGN_BALANCE', () => {
+    const legs = escrowReleaseLegs({ subject: { type: 'trip', tripId: 'trip-1' }, amount: 50_000 });
+    expect(legs).toEqual([
+      { account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 50_000, volunteerTripId: 'trip-1' },
+      { account: 'TRIP_BALANCE', direction: 'CREDIT', amount: 50_000, volunteerTripId: 'trip-1' },
+    ]);
+  });
+});
+
+describe('refundLegs with a trip subject', () => {
+  it('accepts TRIP_BALANCE as a source', () => {
+    const legs = refundLegs({
+      subject: { type: 'trip', tripId: 'trip-1' },
+      amount: 10_000,
+      source: 'TRIP_BALANCE',
+      creditedAmount: 10_000,
+    });
+    expect(legs).toEqual([
+      { account: 'TRIP_BALANCE', direction: 'DEBIT', amount: 10_000, volunteerTripId: 'trip-1' },
+      { account: 'REFUND_CLEARING', direction: 'CREDIT', amount: 10_000 },
+    ]);
+  });
+
+  it('still refuses an amount exceeding creditedAmount for a trip subject', () => {
+    expect(() =>
+      refundLegs({
+        subject: { type: 'trip', tripId: 'trip-1' },
+        amount: 20_000,
+        source: 'TRIP_BALANCE',
+        creditedAmount: 10_000,
+      }),
+    ).toThrow(InvalidLedgerLegError);
+  });
+});
+
+describe('payoutInstructedLegs with a trip subject', () => {
+  it('debits TRIP_BALANCE, not CAMPAIGN_BALANCE', () => {
+    const legs = payoutInstructedLegs({ subject: { type: 'trip', tripId: 'trip-1' }, amount: 30_000 });
+    expect(legs).toEqual([
+      { account: 'TRIP_BALANCE', direction: 'DEBIT', amount: 30_000, volunteerTripId: 'trip-1' },
+      { account: 'PAYOUT_CLEARING', direction: 'CREDIT', amount: 30_000 },
+    ]);
+  });
+});
+
+describe('tripBalance / tripEscrowBalance', () => {
+  it('separates held money from withdrawable money, per trip, mirroring the campaign case above', async () => {
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'trip', tripId: 't1' }, grossAmount: 100_000, providerFee: 3_000 }),
+    );
+
+    expect(await tripEscrowBalance(tx as never, 't1')).toBe(97_000);
+    expect(await tripBalance(tx as never, 't1')).toBe(0);
+
+    await postTransaction(
+      tx as never,
+      escrowReleaseLegs({ subject: { type: 'trip', tripId: 't1' }, amount: 97_000 }),
+    );
+    expect(await tripEscrowBalance(tx as never, 't1')).toBe(0);
+    expect(await tripBalance(tx as never, 't1')).toBe(97_000);
+
+    await postTransaction(
+      tx as never,
+      payoutInstructedLegs({ subject: { type: 'trip', tripId: 't1' }, amount: 40_000 }),
+    );
+    expect(await tripBalance(tx as never, 't1')).toBe(57_000);
+  });
+
+  it('is zero for a trip with no movements', async () => {
+    expect(await tripBalance(makeTx() as never, 'nobody')).toBe(0);
+    expect(await tripEscrowBalance(makeTx() as never, 'nobody')).toBe(0);
+  });
+
+  it('CROSS-SUBJECT LEAKAGE: does not sum a CAMPAIGN_BALANCE entry into tripBalance for the same raw id value', async () => {
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'shared-id' }, grossAmount: 100_000, providerFee: 0 }),
+    );
+    await postTransaction(
+      tx as never,
+      escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'shared-id' }, amount: 100_000 }),
+    );
+    expect(await tripBalance(tx as never, 'shared-id')).toBe(0);
+    expect(await campaignBalance(tx as never, 'shared-id')).toBe(100_000);
+  });
+
+  it('CROSS-SUBJECT LEAKAGE: does not sum a TRIP_BALANCE entry into campaignBalance for the same raw id value', async () => {
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'trip', tripId: 'shared-id' }, grossAmount: 50_000, providerFee: 0 }),
+    );
+    await postTransaction(
+      tx as never,
+      escrowReleaseLegs({ subject: { type: 'trip', tripId: 'shared-id' }, amount: 50_000 }),
+    );
+    expect(await campaignBalance(tx as never, 'shared-id')).toBe(0);
+    expect(await tripBalance(tx as never, 'shared-id')).toBe(50_000);
   });
 });

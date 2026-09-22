@@ -233,7 +233,7 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
         if (amountToRelease > 0) {
           await postTransaction(
             tx,
-            escrowReleaseLegs({ campaignId: paymentCampaignId, amount: amountToRelease }),
+            escrowReleaseLegs({ subject: { type: 'campaign', campaignId: paymentCampaignId }, amount: amountToRelease }),
             { paymentId: payment.id, transactionId: `escrow-release:${payment.id}` },
           );
         }

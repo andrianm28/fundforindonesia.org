@@ -18,8 +18,10 @@ export interface LedgerLeg {
   account: LedgerAccount;
   direction: LedgerDirection;
   amount: number;
-  /** Required for campaign-scoped accounts, omitted for platform-level ones. */
+  /** Required for campaign-scoped accounts, omitted otherwise. */
   campaignId?: string;
+  /** Required for trip-scoped accounts, omitted otherwise. */
+  volunteerTripId?: string;
   memo?: string;
 }
 
@@ -32,6 +34,28 @@ export interface PostOptions {
    * one set of entries, not two. Generated when omitted.
    */
   transactionId?: string;
+}
+
+/**
+ * Which Campaign-or-Trip a leg-builder call is about.
+ *
+ * Explicit rather than a bare campaignId, so a Trip Fee settlement can credit
+ * TRIP_BALANCE/ESCROW_HOLD scoped by volunteerTripId the same way a donation
+ * credits CAMPAIGN_BALANCE/ESCROW_HOLD scoped by campaignId, without either
+ * subject's id being mistaken for the other's.
+ */
+export type LedgerSubject =
+  | { type: 'campaign'; campaignId: string }
+  | { type: 'trip'; tripId: string };
+
+function subjectFk(subject: LedgerSubject): { campaignId?: string; volunteerTripId?: string } {
+  return subject.type === 'campaign'
+    ? { campaignId: subject.campaignId }
+    : { volunteerTripId: subject.tripId };
+}
+
+function balanceAccount(subject: LedgerSubject): 'CAMPAIGN_BALANCE' | 'TRIP_BALANCE' {
+  return subject.type === 'campaign' ? 'CAMPAIGN_BALANCE' : 'TRIP_BALANCE';
 }
 
 export class UnbalancedTransactionError extends Error {
@@ -55,16 +79,18 @@ export class InvalidLedgerLegError extends Error {
 }
 
 /**
- * Accounts that only make sense against a specific campaign.
+ * Accounts that only make sense against a specific subject (a campaign or a
+ * trip).
  *
- * ESCROW_HOLD belongs here as much as CAMPAIGN_BALANCE does: it is one
- * campaign's money, merely not yet withdrawable. Leaving it out would let an
- * escrow leg be written with no campaign attached, and the held amount would
- * then belong to nobody.
+ * ESCROW_HOLD belongs here as much as CAMPAIGN_BALANCE/TRIP_BALANCE do: it is
+ * one subject's money, merely not yet withdrawable. Leaving it out would let
+ * an escrow leg be written with no subject attached, and the held amount
+ * would then belong to nobody.
  */
-const CAMPAIGN_SCOPED: ReadonlySet<string> = new Set<string>([
+const SUBJECT_SCOPED: ReadonlySet<string> = new Set<string>([
   'ESCROW_HOLD',
   'CAMPAIGN_BALANCE',
+  'TRIP_BALANCE',
 ]);
 
 function assertLegsValid(legs: LedgerLeg[]): void {
@@ -89,12 +115,13 @@ function assertLegsValid(legs: LedgerLeg[]): void {
         `Amount must be positive; use direction to express sign. Got ${leg.amount}.`,
       );
     }
-    if (CAMPAIGN_SCOPED.has(leg.account) && !leg.campaignId) {
-      throw new InvalidLedgerLegError(`${leg.account} requires a campaignId.`);
+    const hasSubjectId = Boolean(leg.campaignId) || Boolean(leg.volunteerTripId);
+    if (SUBJECT_SCOPED.has(leg.account) && !hasSubjectId) {
+      throw new InvalidLedgerLegError(`${leg.account} requires a campaignId or volunteerTripId.`);
     }
-    if (!CAMPAIGN_SCOPED.has(leg.account) && leg.campaignId) {
+    if (!SUBJECT_SCOPED.has(leg.account) && hasSubjectId) {
       throw new InvalidLedgerLegError(
-        `${leg.account} is a platform-level account and must not carry a campaignId.`,
+        `${leg.account} is a platform-level account and must not carry a campaignId or volunteerTripId.`,
       );
     }
   }
@@ -142,6 +169,7 @@ export async function postTransaction(
       direction: leg.direction,
       amount: leg.amount,
       campaignId: leg.campaignId ?? null,
+      volunteerTripId: leg.volunteerTripId ?? null,
       memo: leg.memo ?? null,
       paymentId: options.paymentId ?? null,
       refundId: options.refundId ?? null,
@@ -156,11 +184,16 @@ export async function postTransaction(
 async function accountBalance(
   tx: Prisma.TransactionClient,
   account: LedgerAccount,
-  campaignId: string,
+  subject: LedgerSubject,
 ): Promise<number> {
+  const where =
+    subject.type === 'campaign'
+      ? { account, campaignId: subject.campaignId }
+      : { account, volunteerTripId: subject.tripId };
+
   const rows = await tx.ledgerEntry.groupBy({
     by: ['direction'],
-    where: { account, campaignId },
+    where,
     _sum: { amount: true },
   });
 
@@ -186,7 +219,7 @@ export async function campaignBalance(
   tx: Prisma.TransactionClient,
   campaignId: string,
 ): Promise<number> {
-  return accountBalance(tx, 'CAMPAIGN_BALANCE', campaignId);
+  return accountBalance(tx, 'CAMPAIGN_BALANCE', { type: 'campaign', campaignId });
 }
 
 /**
@@ -210,7 +243,17 @@ export async function escrowBalance(
   tx: Prisma.TransactionClient,
   campaignId: string,
 ): Promise<number> {
-  return accountBalance(tx, 'ESCROW_HOLD', campaignId);
+  return accountBalance(tx, 'ESCROW_HOLD', { type: 'campaign', campaignId });
+}
+
+/** Trip-scoped sibling of campaignBalance -- what a Volunteer Trip may actually withdraw. */
+export async function tripBalance(tx: Prisma.TransactionClient, tripId: string): Promise<number> {
+  return accountBalance(tx, 'TRIP_BALANCE', { type: 'trip', tripId });
+}
+
+/** Trip-scoped sibling of escrowBalance. */
+export async function tripEscrowBalance(tx: Prisma.TransactionClient, tripId: string): Promise<number> {
+  return accountBalance(tx, 'ESCROW_HOLD', { type: 'trip', tripId });
 }
 
 /**
@@ -270,11 +313,11 @@ export async function findUnbalancedTransactions(
  * escrowReleaseLegs moves it across when the hold matures.
  */
 export function paymentSettledLegs(params: {
-  campaignId: string;
+  subject: LedgerSubject;
   grossAmount: number;
   providerFee: number;
 }): LedgerLeg[] {
-  const { campaignId, grossAmount, providerFee } = params;
+  const { subject, grossAmount, providerFee } = params;
   if (providerFee < 0 || providerFee > grossAmount) {
     throw new InvalidLedgerLegError(
       `providerFee ${providerFee} must be between 0 and the gross amount ${grossAmount}.`,
@@ -284,7 +327,7 @@ export function paymentSettledLegs(params: {
 
   const legs: LedgerLeg[] = [
     { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: grossAmount },
-    { account: 'ESCROW_HOLD', direction: 'CREDIT', amount: net, campaignId },
+    { account: 'ESCROW_HOLD', direction: 'CREDIT', amount: net, ...subjectFk(subject) },
   ];
   // Omitted entirely when zero: a zero-amount leg is rejected by
   // assertLegsValid, and a fee-free provider is a legitimate case.
@@ -303,13 +346,11 @@ export function paymentSettledLegs(params: {
  * The only way money becomes withdrawable. Nothing else credits
  * CAMPAIGN_BALANCE.
  */
-export function escrowReleaseLegs(params: {
-  campaignId: string;
-  amount: number;
-}): LedgerLeg[] {
+export function escrowReleaseLegs(params: { subject: LedgerSubject; amount: number }): LedgerLeg[] {
+  const { subject, amount } = params;
   return [
-    { account: 'ESCROW_HOLD', direction: 'DEBIT', amount: params.amount, campaignId: params.campaignId },
-    { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: params.amount, campaignId: params.campaignId },
+    { account: 'ESCROW_HOLD', direction: 'DEBIT', amount, ...subjectFk(subject) },
+    { account: balanceAccount(subject), direction: 'CREDIT', amount, ...subjectFk(subject) },
   ];
 }
 
@@ -337,12 +378,12 @@ export function escrowReleaseLegs(params: {
  * here, not merely produced and left for a later reconciliation to notice.
  */
 export function refundLegs(params: {
-  campaignId: string;
+  subject: LedgerSubject;
   amount: number;
-  source: 'ESCROW_HOLD' | 'CAMPAIGN_BALANCE';
+  source: 'ESCROW_HOLD' | 'CAMPAIGN_BALANCE' | 'TRIP_BALANCE';
   creditedAmount: number;
 }): LedgerLeg[] {
-  const { campaignId, amount, source, creditedAmount } = params;
+  const { subject, amount, source, creditedAmount } = params;
   if (amount > creditedAmount) {
     throw new InvalidLedgerLegError(
       `Refund amount ${amount} exceeds the ${creditedAmount} this payment actually credited ` +
@@ -351,7 +392,7 @@ export function refundLegs(params: {
     );
   }
   return [
-    { account: source, direction: 'DEBIT', amount, campaignId },
+    { account: source, direction: 'DEBIT', amount, ...subjectFk(subject) },
     { account: 'REFUND_CLEARING', direction: 'CREDIT', amount },
   ];
 }
@@ -366,12 +407,10 @@ export function refundLegs(params: {
  * flight must stop being withdrawable immediately, or the same balance can be
  * paid out twice.
  */
-export function payoutInstructedLegs(params: {
-  campaignId: string;
-  amount: number;
-}): LedgerLeg[] {
+export function payoutInstructedLegs(params: { subject: LedgerSubject; amount: number }): LedgerLeg[] {
+  const { subject, amount } = params;
   return [
-    { account: 'CAMPAIGN_BALANCE', direction: 'DEBIT', amount: params.amount, campaignId: params.campaignId },
-    { account: 'PAYOUT_CLEARING', direction: 'CREDIT', amount: params.amount },
+    { account: balanceAccount(subject), direction: 'DEBIT', amount, ...subjectFk(subject) },
+    { account: 'PAYOUT_CLEARING', direction: 'CREDIT', amount },
   ];
 }
