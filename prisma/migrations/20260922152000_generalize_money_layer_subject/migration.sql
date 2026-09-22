@@ -12,3 +12,9 @@ ALTER TABLE "Payout" ADD COLUMN "volunteerTripId" TEXT;
 
 -- AlterTable
 ALTER TABLE "LedgerEntry" ADD COLUMN "volunteerTripId" TEXT;
+
+-- CreateIndex
+CREATE INDEX "Payout_volunteerTripId_status_idx" ON "Payout"("volunteerTripId", "status");
+
+-- CreateIndex
+CREATE INDEX "LedgerEntry_account_volunteerTripId_idx" ON "LedgerEntry"("account", "volunteerTripId");

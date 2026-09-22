@@ -243,6 +243,9 @@ export async function approvePayout(
     // approved first -- and, now that this transaction holds the campaign's
     // row lock, this read is guaranteed current for as long as the lock is
     // held.
+    // Assumes a Campaign-linked Payout (payout.campaignId non-null). Needs a
+    // Trip-branch guard once a Volunteer Trip payout route exists (Ticket 02
+    // in the parent Volunteer Trip ticket set).
     const balance = await campaignBalance(tx, payout.campaignId);
     if (payout.amount > balance) {
       throw new InsufficientBalanceError(payout.amount, balance);
@@ -269,6 +272,9 @@ export async function approvePayout(
     // approved for payout twice. transactionId is keyed on the payout id so
     // this post can never happen twice, on top of (not instead of) the
     // updateMany guard above.
+    // Assumes a Campaign-linked Payout (payout.campaignId non-null). Needs a
+    // Trip-branch guard once a Volunteer Trip payout route exists (Ticket 02
+    // in the parent Volunteer Trip ticket set).
     await postTransaction(
       tx,
       payoutInstructedLegs({ subject: { type: 'campaign', campaignId: payout.campaignId }, amount: payout.amount }),

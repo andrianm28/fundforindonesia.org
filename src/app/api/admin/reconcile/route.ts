@@ -159,6 +159,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
           select: { id: true, donation: { select: { campaignId: true } } },
         })
       : [];
+    // Assumes a Campaign-linked Payment (p.donation non-null). Needs a
+    // Trip-branch guard once Registration-linked Payments can reach this
+    // code (Ticket 03 in the parent Volunteer Trip ticket set).
     const campaignIdByPaymentId = new Map(feePayments.map((p) => [p.id, p.donation.campaignId]));
     const feeByCampaign = new Map<string, number>();
     for (const entry of providerFeeEntries) {
@@ -291,6 +294,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       const refundedAmount = refundedAmountByPayment.get(payment.id) ?? 0;
       const residual = creditedNet - releasedAmount - refundedAmount;
       if (residual !== 0) {
+        // Assumes a Campaign-linked Payment (payment.donation non-null).
+        // Needs a Trip-branch guard once Registration-linked Payments can
+        // reach this code (Ticket 03 in the parent Volunteer Trip ticket set).
         strandedEscrow.push({
           paymentId: payment.id,
           campaignId: payment.donation.campaignId,
@@ -322,6 +328,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         refunds: { select: { id: true, status: true } },
       },
     });
+    // Assumes a Campaign-linked Payment (payment.donation non-null). Needs a
+    // Trip-branch guard once Registration-linked Payments can reach this
+    // code (Ticket 03 in the parent Volunteer Trip ticket set).
     const deferredEscrowWatchdog = deferredEscrowCandidates.map((payment) => ({
       paymentId: payment.id,
       campaignId: payment.donation.campaignId,

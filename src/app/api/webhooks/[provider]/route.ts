@@ -188,6 +188,12 @@ export async function POST(
     }
 
     const { donation } = payment;
+    // Assumes a Campaign-linked Payment: this destructure THROWS (does not
+    // silently return undefined) if `donation` is null, which happens for a
+    // Registration-linked (Trip Fee) Payment. A future Trip-branch fix must
+    // handle that case before this route is reachable with one (Ticket 03
+    // in the parent Volunteer Trip ticket set) -- the three `donation.*`
+    // reads further down this handler share the same assumption.
     const { campaign } = donation;
 
     // event.status is taken on trust here: the signature check above proved
@@ -257,6 +263,7 @@ export async function POST(
           return false;
         }
 
+        // Campaign-linked-Payment assumption, see the destructure note above.
         await tx.donation.update({
           where: { id: donation.id },
           data: { paymentStatus: 'confirmed' },
@@ -308,6 +315,7 @@ export async function POST(
         // Notifications outside the transaction, same as every other write
         // path in this codebase: a failed notification must not roll back
         // money that has genuinely settled.
+        // Campaign-linked-Payment assumption, see the destructure note above.
         await notifyDonationConfirmed({
           donorId: donation.donorId,
           creatorId: campaign.creatorId,
@@ -346,6 +354,7 @@ export async function POST(
           return;
         }
 
+        // Campaign-linked-Payment assumption, see the destructure note above.
         await tx.donation.update({
           where: { id: donation.id },
           data: { paymentStatus: 'failed' },

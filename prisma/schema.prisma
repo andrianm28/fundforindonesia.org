@@ -390,7 +390,7 @@ enum LedgerDirection {
 model Payment {
   id          String        @id @default(cuid())
   donationId  String?       @unique
-  donation    Donation?     @relation(fields: [donationId], references: [id])
+  donation    Donation?     @relation(fields: [donationId], references: [id], onDelete: Restrict)
   /// Set instead of donationId for a Trip Fee payment -- exactly one of the
   /// two is ever set, enforced by assertExactlyOnePaymentSubject
   /// (./src/lib/money/payment-subject.ts), not by a schema constraint
@@ -509,7 +509,7 @@ model BankAccount {
 model Payout {
   id            String       @id @default(cuid())
   campaignId    String?
-  campaign      Campaign?    @relation(fields: [campaignId], references: [id])
+  campaign      Campaign?    @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   /// Set instead of campaignId for a Volunteer Trip payout. Plain scalar,
   /// no @relation: VolunteerTrip doesn't exist yet -- Ticket 02 adds the
   /// relation once it does.
@@ -541,6 +541,7 @@ model Payout {
   ledgerEntries LedgerEntry[]
 
   @@index([campaignId, status])
+  @@index([volunteerTripId, status])
   @@index([status])
 }
 
@@ -584,6 +585,7 @@ model LedgerEntry {
 
   @@index([transactionId])
   @@index([account, campaignId])
+  @@index([account, volunteerTripId])
   @@index([campaignId, createdAt])
 }
 

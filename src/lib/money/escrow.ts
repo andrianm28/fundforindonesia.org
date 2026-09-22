@@ -143,6 +143,9 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
 
   let releasedCount = 0;
   for (const payment of matured) {
+    // Assumes a Campaign-linked Payment (payment.donation non-null). Needs a
+    // Trip-branch guard once Registration-linked Payments can reach this
+    // code (Ticket 03 in the parent Volunteer Trip ticket set).
     const paymentCampaignId = payment.donation.campaignId;
     try {
       const released = await prisma.$transaction(async (tx) => {

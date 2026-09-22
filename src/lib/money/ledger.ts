@@ -124,6 +124,20 @@ function assertLegsValid(legs: LedgerLeg[]): void {
         `${leg.account} is a platform-level account and must not carry a campaignId or volunteerTripId.`,
       );
     }
+    // ESCROW_HOLD is shared by both subjects, so only CAMPAIGN_BALANCE and
+    // TRIP_BALANCE are pinned to their own FK below -- otherwise a leg built
+    // with a campaign subject but a TRIP_BALANCE (or vice versa) account,
+    // e.g. a mismatched refundLegs({ subject, source }) call, would carry
+    // the wrong subject's FK and post invisibly to every balance query.
+    if (leg.account === 'CAMPAIGN_BALANCE' && !leg.campaignId) {
+      throw new InvalidLedgerLegError(`${leg.account} requires a campaignId.`);
+    }
+    if (leg.account === 'TRIP_BALANCE' && !leg.volunteerTripId) {
+      throw new InvalidLedgerLegError(`${leg.account} requires a volunteerTripId.`);
+    }
+    if (leg.campaignId && leg.volunteerTripId) {
+      throw new InvalidLedgerLegError('A leg cannot carry both campaignId and volunteerTripId.');
+    }
   }
 }
 

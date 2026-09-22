@@ -14,6 +14,7 @@ import {
   UnbalancedTransactionError,
   InvalidLedgerLegError,
   type LedgerLeg,
+  type LedgerSubject,
 } from './ledger';
 
 /**
@@ -147,6 +148,57 @@ describe('postTransaction', () => {
     ).rejects.toThrow(/platform-level/);
   });
 
+  it('requires a volunteerTripId on trip-scoped accounts', async () => {
+    await expect(
+      postTransaction(tx as never, [
+        { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 1000 },
+        { account: 'TRIP_BALANCE', direction: 'CREDIT', amount: 1000 },
+      ]),
+    ).rejects.toThrow(/requires a campaignId or volunteerTripId/);
+  });
+
+  it('rejects a volunteerTripId on a platform-level account', async () => {
+    await expect(
+      postTransaction(tx as never, [
+        { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 1000, volunteerTripId: 'trip-1' },
+        { account: 'TRIP_BALANCE', direction: 'CREDIT', amount: 1000, volunteerTripId: 'trip-1' },
+      ]),
+    ).rejects.toThrow(/platform-level/);
+  });
+
+  it('rejects a CAMPAIGN_BALANCE leg carrying a volunteerTripId instead of a campaignId', async () => {
+    await expect(
+      postTransaction(tx as never, [
+        { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 1000 },
+        { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 1000, volunteerTripId: 'trip-1' },
+      ]),
+    ).rejects.toThrow(/CAMPAIGN_BALANCE requires a campaignId/);
+  });
+
+  it('rejects a TRIP_BALANCE leg carrying a campaignId instead of a volunteerTripId', async () => {
+    await expect(
+      postTransaction(tx as never, [
+        { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 1000 },
+        { account: 'TRIP_BALANCE', direction: 'CREDIT', amount: 1000, campaignId: 'c1' },
+      ]),
+    ).rejects.toThrow(/TRIP_BALANCE requires a volunteerTripId/);
+  });
+
+  it('rejects a leg carrying both campaignId and volunteerTripId', async () => {
+    await expect(
+      postTransaction(tx as never, [
+        { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 1000 },
+        {
+          account: 'ESCROW_HOLD',
+          direction: 'CREDIT',
+          amount: 1000,
+          campaignId: 'c1',
+          volunteerTripId: 'trip-1',
+        },
+      ]),
+    ).rejects.toThrow(/cannot carry both campaignId and volunteerTripId/);
+  });
+
   it('is idempotent on transactionId, so a webhook retry posts once', async () => {
     await postTransaction(tx as never, BALANCED, { transactionId: 'evt-1' });
     await postTransaction(tx as never, BALANCED, { transactionId: 'evt-1' });
@@ -255,19 +307,25 @@ describe('refundLegs', () => {
 });
 
 describe('ledger invariants (property-based)', () => {
-  it('every builder produces a transaction that balances, for any amount', () => {
+  it('every builder produces a transaction that balances, for any amount, for both subject types', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 1, max: 1_000_000_000 }),
         fc.integer({ min: 0, max: 1_000_000_000 }),
-        (gross, feeRaw) => {
+        fc.constantFrom<'campaign' | 'trip'>('campaign', 'trip'),
+        (gross, feeRaw, subjectType) => {
           const fee = Math.min(feeRaw, gross);
+          const subject: LedgerSubject =
+            subjectType === 'campaign'
+              ? { type: 'campaign', campaignId: 'c1' }
+              : { type: 'trip', tripId: 't1' };
+          const balanceAccount = subjectType === 'campaign' ? 'CAMPAIGN_BALANCE' : 'TRIP_BALANCE';
           for (const legs of [
-            paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: gross, providerFee: fee }),
-            escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: gross }),
-            refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: gross, source: 'ESCROW_HOLD', creditedAmount: gross }),
-            refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: gross, source: 'CAMPAIGN_BALANCE', creditedAmount: gross }),
-            payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: gross }),
+            paymentSettledLegs({ subject, grossAmount: gross, providerFee: fee }),
+            escrowReleaseLegs({ subject, amount: gross }),
+            refundLegs({ subject, amount: gross, source: 'ESCROW_HOLD', creditedAmount: gross }),
+            refundLegs({ subject, amount: gross, source: balanceAccount, creditedAmount: gross }),
+            payoutInstructedLegs({ subject, amount: gross }),
           ]) {
             const d = legs.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + l.amount, 0);
             const c = legs.filter((l) => l.direction === 'CREDIT').reduce((s, l) => s + l.amount, 0);
@@ -391,6 +449,32 @@ describe('refundLegs with a trip subject', () => {
         creditedAmount: 10_000,
       }),
     ).toThrow(InvalidLedgerLegError);
+  });
+});
+
+describe('refundLegs subject/source mismatch', () => {
+  it('rejects a campaign subject refunded from a TRIP_BALANCE source', async () => {
+    // subjectFk always stamps the leg with the SUBJECT's FK, not the
+    // source account's -- so a caller mixing them up (subject: campaign,
+    // source: TRIP_BALANCE) would otherwise produce a TRIP_BALANCE leg
+    // carrying campaignId, invisible to every trip balance/reconcile check.
+    const legs = refundLegs({
+      subject: { type: 'campaign', campaignId: 'c1' },
+      amount: 1000,
+      source: 'TRIP_BALANCE',
+      creditedAmount: 1000,
+    });
+    await expect(postTransaction(makeTx() as never, legs)).rejects.toThrow(InvalidLedgerLegError);
+  });
+
+  it('rejects a trip subject refunded from a CAMPAIGN_BALANCE source', async () => {
+    const legs = refundLegs({
+      subject: { type: 'trip', tripId: 't1' },
+      amount: 1000,
+      source: 'CAMPAIGN_BALANCE',
+      creditedAmount: 1000,
+    });
+    await expect(postTransaction(makeTx() as never, legs)).rejects.toThrow(InvalidLedgerLegError);
   });
 });
 
