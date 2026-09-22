@@ -1,8 +1,15 @@
 import { MockPaymentProvider } from './mock-provider';
+import { SumopodProvider } from './sumopod-provider';
 import type { PaymentProvider } from './types';
 
 export { computeMidtransSignature, verifyMidtransSignature } from './signature';
+export {
+  computeSumopodSignature,
+  verifySumopodSignature,
+  SUMOPOD_REPLAY_TOLERANCE_SECONDS,
+} from './sumopod-signature';
 export { MockPaymentProvider, InvalidWebhookSignatureError } from './mock-provider';
+export { SumopodProvider, SumopodNotSupportedError } from './sumopod-provider';
 export type {
   ChargeInput,
   ChargeResult,
@@ -32,16 +39,59 @@ export class PaymentProviderNotConfiguredError extends Error {
 }
 
 /**
- * The provider this deployment uses.
+ * Raised when something asks for a provider this build does not have.
  *
- * One place to change when a real merchant account exists. Everything else --
- * the webhook route, the donation flow, the payout flow -- depends on the
- * PaymentProvider interface and not on which provider answers.
+ * Kept apart from PaymentProviderNotConfiguredError because the two deserve
+ * different answers: an unconfigured provider is an outage worth retrying, an
+ * unknown one never becomes valid no matter how often it is retried. The
+ * distinction also stops the old behaviour, where the webhook route ignored
+ * the provider in its URL and verified every delivery as if it were Midtrans
+ * -- so any path under /api/webhooks/ reached a verifier that was never meant
+ * to see it.
  */
-export function getPaymentProvider(): PaymentProvider {
-  const serverKey = process.env.MOCK_MIDTRANS_SERVER_KEY;
-  if (!serverKey) {
-    throw new PaymentProviderNotConfiguredError('MOCK_MIDTRANS_SERVER_KEY');
+export class UnknownPaymentProviderError extends Error {
+  constructor(name: string) {
+    super(`No payment provider named ${JSON.stringify(name)} is registered.`);
+    this.name = 'UnknownPaymentProviderError';
   }
-  return new MockPaymentProvider({ serverKey });
+}
+
+function requireEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) throw new PaymentProviderNotConfiguredError(key);
+  return value;
+}
+
+/**
+ * Every provider this build can speak to, keyed by the name that appears in
+ * its webhook URL. Adding one is a new entry here plus an adapter; nothing
+ * else in the app names a provider.
+ */
+const BUILDERS: Record<string, () => PaymentProvider> = {
+  mock: () => new MockPaymentProvider({ serverKey: requireEnv('MOCK_MIDTRANS_SERVER_KEY') }),
+  sumopod: () =>
+    new SumopodProvider({
+      apiKey: requireEnv('SUMOPOD_API_KEY'),
+      webhookSecret: requireEnv('SUMOPOD_WEBHOOK_SECRET'),
+      baseUrl: requireEnv('SUMOPOD_BASE_URL'),
+    }),
+};
+
+/**
+ * The provider a given call should use.
+ *
+ * With no argument this is the provider currently taking money, named by
+ * PAYMENT_PROVIDER and defaulting to the mock: that is what the donation and
+ * payout routes want, since they act as the platform.
+ *
+ * With a name it is that specific provider, which is what the webhook route
+ * wants: a notification arrives addressed to whoever sent it, and that may
+ * not be the provider currently taking new charges -- a payment made before
+ * a provider switch still settles afterwards.
+ */
+export function getPaymentProvider(name?: string): PaymentProvider {
+  const requested = name === undefined ? (process.env.PAYMENT_PROVIDER ?? 'mock') : name;
+  const build = BUILDERS[requested.toLowerCase()];
+  if (!build) throw new UnknownPaymentProviderError(requested);
+  return build();
 }

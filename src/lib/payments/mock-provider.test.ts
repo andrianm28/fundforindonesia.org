@@ -15,6 +15,16 @@ function webhookRequest(payload: Record<string, unknown>): Request {
   });
 }
 
+describe('MockPaymentProvider identity', () => {
+  it('names itself mock', () => {
+    expect(new MockPaymentProvider({ serverKey: 'k' }).name).toBe('mock');
+  });
+
+  it('declares bank_transfer_va as the method it charges', () => {
+    expect(new MockPaymentProvider({ serverKey: 'k' }).method).toBe('bank_transfer_va');
+  });
+});
+
 describe('construction', () => {
   it('refuses an empty server key', () => {
     // An empty key verifies every signature against a secret anyone can

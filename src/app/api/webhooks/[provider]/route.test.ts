@@ -31,6 +31,7 @@ import { prisma } from '@/lib/prisma';
 import {
   getPaymentProvider,
   PaymentProviderNotConfiguredError,
+  UnknownPaymentProviderError,
   InvalidWebhookSignatureError,
 } from '@/lib/payments';
 
@@ -150,6 +151,111 @@ describe('POST /api/webhooks/[provider]', () => {
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(401);
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+    expect(mockPaymentFindUnique).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+
+  it('asks the registry for the provider named in the URL, not a fixed one', async () => {
+    // The route used to ignore its own path parameter and verify every
+    // delivery as Midtrans, so /api/webhooks/sumopod was checked with the
+    // wrong scheme and could never pass.
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, provider: 'sumopod' }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(
+      new NextRequest('http://localhost:3000/api/webhooks/sumopod', { method: 'POST', body: '{}' }),
+      { params: Promise.resolve({ provider: 'sumopod' }) },
+    );
+
+    expect(mockGetPaymentProvider).toHaveBeenCalledWith('sumopod');
+  });
+
+  it('answers 404 and writes nothing for a provider name it does not know', async () => {
+    // Distinct from the 503 above: an unconfigured provider is an outage
+    // worth retrying, an unknown one never becomes valid.
+    mockGetPaymentProvider.mockImplementation(() => {
+      throw new UnknownPaymentProviderError('stripe');
+    });
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(404);
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('credits the campaign net of the provider fee the event reports', async () => {
+    // The fee used to be hardcoded to 0, which credits the campaign money
+    // the provider actually kept. Sumopod charges 0.7% + Rp300, so a
+    // Rp100.000 donation arrives with Rp1.000 already gone.
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, providerFee: 1_000 }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    const { tx, ledgerRows } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(ledgerRows).toContainEqual(
+      expect.objectContaining({ account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 100_000 }),
+    );
+    expect(ledgerRows).toContainEqual(
+      expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 99_000 }),
+    );
+    expect(ledgerRows).toContainEqual(
+      expect.objectContaining({ account: 'PROVIDER_FEE', direction: 'CREDIT', amount: 1_000 }),
+    );
+    const debits = ledgerRows.filter((r) => r.direction === 'DEBIT').reduce((sum, r) => sum + r.amount, 0);
+    const credits = ledgerRows.filter((r) => r.direction === 'CREDIT').reduce((sum, r) => sum + r.amount, 0);
+    expect(debits).toBe(credits);
+
+    expect(tx.payment.updateMany).toHaveBeenCalledWith({
+      where: { id: 'payment-1', status: 'PENDING' },
+      data: expect.objectContaining({ providerFee: 1_000 }),
+    });
+  });
+
+  it('still treats an absent provider fee as zero', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(tx.payment.updateMany).toHaveBeenCalledWith({
+      where: { id: 'payment-1', status: 'PENDING' },
+      data: expect.objectContaining({ providerFee: 0 }),
+    });
+  });
+
+  it('answers 200 to an ignored event without recording it or touching a Payment', async () => {
+    // Sumopod's dashboard "Save & Test" button sends payment.test. It is
+    // genuinely signed and about nothing, so it must not be recorded, must
+    // not be looked up, and above all must not fall into the failed branch
+    // and mark a live donation failed.
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({
+        provider: 'sumopod',
+        providerEventId: 'msg_test',
+        providerOrderId: '',
+        status: 'ignored',
+        grossAmount: NaN,
+        rawPayload: { event_type: 'payment.test' },
+      }),
+    });
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
     expect(mockWebhookEventCreate).not.toHaveBeenCalled();
     expect(mockPaymentFindUnique).not.toHaveBeenCalled();
     expect(mockTransaction).not.toHaveBeenCalled();

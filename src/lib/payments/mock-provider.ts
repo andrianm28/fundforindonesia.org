@@ -35,6 +35,9 @@ function parseGrossAmount(raw: string): number {
  * adapter changes the provider class and nothing else.
  */
 export class MockPaymentProvider implements PaymentProvider {
+  readonly name = 'mock';
+  readonly method = 'bank_transfer_va' as const;
+
   private readonly serverKey: string;
 
   /**

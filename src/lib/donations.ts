@@ -1,35 +1,81 @@
 /**
- * POST /api/donations is gated shut.
+ * Whether POST /api/donations will take money, and the interlock behind it.
  *
- * getPaymentProvider() (src/lib/payments/index.ts) resolves to
- * MockPaymentProvider today, and MockPaymentProvider fabricates a 14-digit
- * "VA number" derived from a SHA-256 hash of the donation id. No bank issued
- * it, nobody can pay it, and no webhook will ever arrive to settle it -- the
- * donation sits PENDING forever while the donor believes they have real
- * payment instructions. Inventing payment instructions for a method nobody
- * can pay through is exactly the habit this money layer exists to end (see
- * the paymentMethod check in src/app/api/donations/route.ts); a mock
- * provider standing in for a real one is that same habit wearing a
- * different hat.
+ * This used to be a hardcoded `false`, because the only provider available
+ * was a mock that fabricated a VA number no bank issued. That is no longer
+ * true: SumopodProvider issues a QRIS link a real person can pay and
+ * verifies the signed webhook that settles it.
  *
- * The only thing stopping this in production today is that every existing
- * campaign is flagged isDemo and refuses donations outright. isDemo
- * defaults to false, so the first campaign a real campaigner publishes
- * opens this path. This constant is what actually closes it.
- *
- * Do not flip this to true until getPaymentProvider() returns an adapter --
- * the Sumopod QRIS integration -- that issues payment instructions a real
- * person can actually pay, and that delivers a signed webhook back to
- * POST /api/webhooks/[provider] so a payment can actually settle. Until
- * then, this is the only thing standing between a live donate button and a
- * donor paying into a void.
+ * It is a switch rather than a constant now because development needs the
+ * whole flow running against the Sumopod sandbox while production stays
+ * shut. One constant cannot be both.
  */
-export const DONATIONS_ENABLED = false;
 
 /**
- * Returned as the body of a 503 while DONATIONS_ENABLED is false. Plain
- * Indonesian, no apology, no promised date -- this is what a real donor
- * sees on a live donation site.
+ * The deliberate switch, off unless explicitly turned on.
+ *
+ * NEXT_PUBLIC_ because the donate page reads it too, to show the disabled
+ * message before a donor fills in an amount rather than after they submit.
+ * That also means it is inlined into the client bundle at build time: a
+ * Docker deployment changes it by rebuilding, not by restarting.
+ *
+ * Only the exact string `true` counts. "1", "yes", "TRUE" and a trailing
+ * space are all somebody almost turning it on, and guessing in the
+ * permissive direction turns a typo into live money collection.
+ */
+export function donationsEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_DONATIONS_ENABLED === 'true';
+}
+
+/**
+ * Why donations must not run in this environment despite the switch, or null
+ * if they may.
+ *
+ * Server-side only: it reads variables that are not NEXT_PUBLIC_, so on the
+ * client every check would see undefined. The donate page does not call it;
+ * the API route does, and the API route is the authoritative gate.
+ *
+ * The case it exists for is not hypothetical. Sandbox credentials left in
+ * production take real rupiah into an account that settles nowhere: the
+ * donor pays, the webhook never comes, the ledger never moves, and the money
+ * is simply gone as far as this platform can tell. There is no recovery
+ * path, so it is refused here rather than remembered in a deploy checklist.
+ */
+export function sandboxInProductionReason(): string | null {
+  if (process.env.NODE_ENV !== 'production') return null;
+
+  const provider = (process.env.PAYMENT_PROVIDER ?? 'mock').toLowerCase();
+
+  if (provider === 'mock') {
+    return (
+      'PAYMENT_PROVIDER is the mock adapter in production. It fabricates a virtual ' +
+      'account number no bank issued, so every donation would be unpayable.'
+    );
+  }
+
+  if (provider === 'sumopod') {
+    const baseUrl = process.env.SUMOPOD_BASE_URL;
+    // Missing is refused rather than assumed live: an unset url is a
+    // misconfiguration, and the safe reading of a misconfiguration on the
+    // money path is "do not take money".
+    if (!baseUrl) {
+      return 'SUMOPOD_BASE_URL is not set in production, so there is no way to tell sandbox from live.';
+    }
+    if (baseUrl.includes('sandbox')) {
+      return (
+        'SUMOPOD_BASE_URL points at the Sumopod sandbox in production. Donations would be ' +
+        'charged for real and settle nowhere.'
+      );
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Returned as the body of a 503 while donations are off. Plain Indonesian,
+ * no apology, no promised date -- this is what a real donor sees on a live
+ * donation site.
  */
 export const DONATIONS_DISABLED_MESSAGE =
   'Donasi sedang tidak tersedia karena sistem pembayaran sedang disiapkan.';

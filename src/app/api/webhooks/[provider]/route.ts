@@ -4,6 +4,7 @@ import { PaymentStatus, type Prisma } from '@/generated/prisma/client';
 import {
   getPaymentProvider,
   PaymentProviderNotConfiguredError,
+  UnknownPaymentProviderError,
   InvalidWebhookSignatureError,
 } from '@/lib/payments';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
@@ -45,15 +46,24 @@ export async function POST(
 ) {
   const { provider: providerParam } = await params;
 
-  // 1. Resolve the provider before touching the request body. A missing
-  // secret is an outage ("we cannot verify anything"), not a rejection -- a
-  // 500 here would tell the real provider to retry forever against a box
-  // that will never be able to check a signature, so this answers 503
-  // instead of accepting an event nobody can verify.
+  // 1. Resolve the provider named in the URL, before touching the request
+  // body. The name matters: each provider signs differently, and resolving
+  // every path to one fixed adapter means a delivery is checked against a
+  // scheme its sender never used -- which either rejects everything genuine
+  // or, worse, hands an attacker a verifier that was not meant to see them.
+  //
+  // The two failure modes answer differently on purpose. A missing secret is
+  // an outage ("we cannot verify anything"), so 503 invites a retry. An
+  // unknown name never becomes valid however often it is retried, so 404
+  // says so instead of pretending to be temporarily broken.
   let provider;
   try {
-    provider = getPaymentProvider();
+    provider = getPaymentProvider(providerParam);
   } catch (err) {
+    if (err instanceof UnknownPaymentProviderError) {
+      console.error(`[webhooks/${providerParam}] rejected: no such payment provider`);
+      return NextResponse.json({ error: 'Payment provider tidak dikenal' }, { status: 404 });
+    }
     if (err instanceof PaymentProviderNotConfiguredError) {
       console.error(`[webhooks/${providerParam}] rejected: payment provider not configured`);
       return NextResponse.json(
@@ -84,8 +94,21 @@ export async function POST(
     throw err;
   }
 
+  // 3. An authentic event about nothing this platform tracks -- a dashboard
+  // test ping, or an event type the provider added after this code shipped.
+  // Answered 200 and dropped: not recorded, no Payment looked up, nothing
+  // written. Letting it fall through would take it into the failed/expired
+  // branch below and mark a live donation failed on the strength of a word
+  // this code does not recognise.
+  if (event.status === 'ignored') {
+    console.info(
+      `[webhooks/${providerParam}] ignored event ${event.providerEventId}: nothing to act on`,
+    );
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
+
   try {
-    // 3. Record the event first. Its @@unique([provider, providerEventId])
+    // 4. Record the event first. Its @@unique([provider, providerEventId])
     // is the idempotency mechanism, but a row existing is not by itself
     // proof this event was ever finished being handled -- see the
     // processedAt note above the function. A create that hits the
@@ -123,7 +146,7 @@ export async function POST(
       webhookEventId = existing.id;
     }
 
-    // 4. Find the Payment this event is about. Payment.providerRef is the
+    // 5. Find the Payment this event is about. Payment.providerRef is the
     // donation id that M4 passed as the provider's order id -- nothing else
     // links a webhook event back to a Payment.
     const payment = await prisma.payment.findUnique({
@@ -192,13 +215,14 @@ export async function POST(
         return NextResponse.json({ received: true }, { status: 200 });
       }
 
-      // MockPaymentProvider reports no fee today, so this is 0 rather than
-      // derived from anything. A real adapter's webhook payload is where a
-      // genuine fee must come from -- paymentSettledLegs credits the campaign
-      // the NET, so a fee silently left at zero credits the campaign money
-      // the provider actually kept. That is invisible until the
-      // reconciliation report disagrees with the bank.
-      const providerFee = 0;
+      // Taken from the signed payload when the provider reports one --
+      // Sumopod does, on every event. Zero only when the provider genuinely
+      // reports nothing, as MockPaymentProvider does. This matters because
+      // paymentSettledLegs credits the campaign the NET: a fee silently left
+      // at zero credits the campaign money the provider actually kept, and
+      // that stays invisible until the reconciliation report disagrees with
+      // the bank.
+      const providerFee = event.providerFee ?? 0;
       const paidAt = new Date();
       const releaseAt = escrowReleaseAt(paidAt);
       const newCollectedAmount = campaign.collectedAmount + payment.amount;

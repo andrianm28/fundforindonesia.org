@@ -47,7 +47,15 @@ export interface WebhookEvent {
    */
   providerEventId: string;
   providerOrderId: string;
-  status: 'paid' | 'failed' | 'expired';
+  /**
+   * `ignored` is not an outcome for a payment -- it is this adapter saying
+   * "authentic, but about nothing this platform tracks": a dashboard test
+   * ping, or an event type added by the provider after this code shipped.
+   * The route answers 200 and writes nothing. It exists because the
+   * alternative, folding an unknown event into `failed`, would mark a live
+   * donation failed on the strength of a word this code does not recognise.
+   */
+  status: 'paid' | 'failed' | 'expired' | 'ignored';
   /**
    * The settled amount the provider is vouching for, in whole rupiah, read
    * from the same signed fields the signature covers. Not what the webhook
@@ -58,6 +66,15 @@ export interface WebhookEvent {
    * credited as if the full charge arrived.
    */
   grossAmount: number;
+  /**
+   * What the provider kept, in whole rupiah, when its payload says so.
+   * Left undefined by providers that do not report a fee; the route treats
+   * that as zero. Getting this wrong is not cosmetic: paymentSettledLegs
+   * credits the campaign the NET, so a fee silently read as zero credits the
+   * campaign money the provider actually kept, and the gap only surfaces when
+   * the reconciliation report disagrees with the bank.
+   */
+  providerFee?: number;
   rawPayload: unknown;
 }
 
@@ -87,6 +104,20 @@ export interface PayoutResult {
 }
 
 export interface PaymentProvider {
+  /**
+   * How this provider is named in its webhook path, on every Payment row it
+   * creates, and on every WebhookEvent recorded for it. One string, used
+   * everywhere, so per-provider reconciliation cannot quietly compare rows
+   * labelled two different ways.
+   */
+  readonly name: string;
+  /**
+   * The one method this provider charges through. Declared rather than
+   * discovered, so the donation route can tell a donor their chosen method
+   * is unavailable *before* a charge exists at the provider, instead of
+   * creating one and abandoning it.
+   */
+  readonly method: PaymentMethod;
   createCharge(input: ChargeInput): Promise<ChargeResult>;
   /**
    * Verifies the signature and returns the event, or throws. It must never

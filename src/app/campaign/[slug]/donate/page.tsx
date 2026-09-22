@@ -7,19 +7,29 @@ import { DonationAmountSelector } from '@/components/donation/DonationAmountSele
 import { PaymentMethodSelector } from '@/components/donation/PaymentMethodSelector';
 import { DonationConfirmation } from '@/components/donation/DonationConfirmation';
 import { formatRupiah } from '@/lib/utils/currency';
-import { DONATIONS_ENABLED, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
+import { donationsEnabled, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 import type { PaymentMethod } from '@/types/donation';
 
-const PRESET_AMOUNTS = [10000, 25000, 50000, 100000, 500000];
-const MIN_AMOUNT = 1000;
+const PRESET_AMOUNTS = [20000, 50000, 100000, 250000, 500000];
+const MIN_AMOUNT = 20000;
 const MAX_AMOUNT = 1000000000;
 
+/**
+ * Only what the payment provider can actually charge.
+ *
+ * This list used to offer virtual accounts, e-wallets and cards. None of
+ * them had an integration behind them, so choosing one led to a 503 after
+ * the donor had already picked an amount. Sumopod is QRIS only, and every
+ * Indonesian mobile banking and e-wallet app pays a QRIS code, so this is
+ * one entry rather than five dead ones.
+ *
+ * `fee` is 0 because nothing here ever reached the provider: the old numbers
+ * (Rp2.500, Rp1.000, Rp5.000) were displayed to the donor and added to the
+ * total on screen, while the API was sent the amount alone and charged
+ * exactly that. A fee shown but never charged is worse than no fee shown.
+ */
 const paymentMethods: PaymentMethod[] = [
-  { id: 'bca', name: 'BCA Virtual Account', type: 'bank_transfer', icon: '🏦', fee: 2500 },
-  { id: 'bni', name: 'BNI Virtual Account', type: 'bank_transfer', icon: '🏦', fee: 2500 },
-  { id: 'gopay', name: 'GoPay', type: 'ewallet', icon: '📱', fee: 1000 },
-  { id: 'ovo', name: 'OVO', type: 'ewallet', icon: '📱', fee: 1000 },
-  { id: 'visa', name: 'Visa/Mastercard', type: 'credit_card', icon: '💳', fee: 5000 },
+  { id: 'qris', name: 'QRIS', type: 'qris', icon: '📷', fee: 0 },
 ];
 
 export default function DonatePage() {
@@ -50,7 +60,10 @@ export default function DonatePage() {
         body: JSON.stringify({
           campaignId: campaign.id,
           amount: selectedAmount,
-          paymentMethod: selectedPaymentMethod.id,
+          // The API validates the method TYPE ("qris"), not the display id.
+          // Sending the id meant every submission was rejected as an invalid
+          // payment method -- invisible while the endpoint was gated shut.
+          paymentMethod: selectedPaymentMethod.type,
           message: prayer || undefined,
           isAnonymous,
         }),
@@ -66,6 +79,17 @@ export default function DonatePage() {
         throw new Error(data.error || 'Gagal memproses donasi');
       }
 
+      const data = await res.json();
+      const redirectUrl: string | undefined = data?.paymentInstructions?.redirectUrl;
+
+      if (redirectUrl) {
+        // Hand the donor to the provider's payment page. Nothing has been
+        // paid yet -- showing a success screen here and leaving them on it
+        // would both lie and stop them completing the payment.
+        window.location.assign(redirectUrl);
+        return;
+      }
+
       setCurrentStep(4);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Gagal memproses donasi');
@@ -74,7 +98,7 @@ export default function DonatePage() {
     }
   };
 
-  // Donations are disabled (DONATIONS_ENABLED, src/lib/donations.ts):
+  // Donations are off (donationsEnabled(), src/lib/donations.ts):
   // getPaymentProvider() only ever resolves to a mock that fabricates
   // payment instructions no bank issued and no donor can pay. Shown the
   // instant a donor lands on this page -- before the amount selector, the
@@ -82,7 +106,7 @@ export default function DonatePage() {
   // before the loading/error branches below, since this does not depend on
   // the campaign having loaded at all. Nobody should be invited to fill in
   // an amount only to discover at submit time that it can't go through.
-  if (!DONATIONS_ENABLED) {
+  if (!donationsEnabled()) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
         <p className="text-text-secondary">{DONATIONS_DISABLED_MESSAGE}</p>
@@ -289,9 +313,9 @@ export default function DonatePage() {
 
             {/* Success Message */}
             <div className="space-y-2">
-              <h2 className="text-xl font-bold text-text">Donasi Berhasil!</h2>
+              <h2 className="text-xl font-bold text-text">Donasi Dibuat</h2>
               <p className="text-text-secondary text-sm">
-                Terima kasih atas kebaikanmu
+                Selesaikan pembayaran agar donasimu tersalurkan
               </p>
             </div>
 

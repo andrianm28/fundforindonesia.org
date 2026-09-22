@@ -35,6 +35,20 @@ services:
       # provider knows it. Unset means the container refuses to start, which
       # beats a running site that accepts forged payment notifications.
       MOCK_MIDTRANS_SERVER_KEY: ${MOCK_MIDTRANS_SERVER_KEY:?set MOCK_MIDTRANS_SERVER_KEY in .env}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      # Baked into the client bundle at build time, so changing it needs a
+      # rebuild, not a restart. Defaults to off.
+      NEXT_PUBLIC_DONATIONS_ENABLED: ${NEXT_PUBLIC_DONATIONS_ENABLED:-false}
+      # These three do fall back to empty, unlike the key above, and that is
+      # safe for the same reason the rule above exists: empty is not a
+      # guessable default here, it is no provider at all. SumopodProvider
+      # refuses to construct without them, so getPaymentProvider('sumopod')
+      # raises PaymentProviderNotConfiguredError and the webhook route answers
+      # 503. A deployment not using Sumopod boots; one that is misconfigured
+      # rejects events rather than accepting unverifiable ones.
+      SUMOPOD_API_KEY: ${SUMOPOD_API_KEY:-}
+      SUMOPOD_WEBHOOK_SECRET: ${SUMOPOD_WEBHOOK_SECRET:-}
+      SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-}
     depends_on:
       db:
         condition: service_healthy

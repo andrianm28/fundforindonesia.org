@@ -4,27 +4,57 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { PaymentStatus } from '@/generated/prisma/client';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
-import { DONATIONS_ENABLED, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
+import type { PaymentMethod } from '@/lib/payments';
+import {
+  donationsEnabled,
+  sandboxInProductionReason,
+  DONATIONS_DISABLED_MESSAGE,
+} from '@/lib/donations';
 
-const VALID_PAYMENT_METHODS = ['bank_transfer', 'ewallet', 'credit_card'] as const;
+const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris', 'ewallet', 'credit_card'] as const;
+
+/**
+ * What each donor-facing choice means to a provider.
+ *
+ * `ewallet` and `credit_card` stay in the enum because the frontend contract
+ * depends on them, and map to nothing: no adapter implements either, and
+ * inventing payment instructions for a method nobody can pay through is the
+ * habit this money layer exists to end.
+ */
+const PROVIDER_METHOD_FOR: Record<
+  (typeof VALID_PAYMENT_METHODS)[number],
+  PaymentMethod | null
+> = {
+  bank_transfer: 'bank_transfer_va',
+  qris: 'qris_redirect',
+  ewallet: null,
+  credit_card: null,
+};
 
 const createDonationSchema = z.object({
   campaignId: z.string().min(1, "Campaign ID harus diisi"),
   amount: z.number().int().min(1000, "Minimum donasi Rp1.000"),
   paymentMethod: z.enum(VALID_PAYMENT_METHODS, {
-    error: "Metode pembayaran tidak valid. Pilih: bank_transfer, ewallet, atau credit_card",
+    error: "Metode pembayaran tidak valid. Pilih: bank_transfer, qris, ewallet, atau credit_card",
   }),
   message: z.string().max(500, "Pesan maksimal 500 karakter").optional(),
   isAnonymous: z.boolean().optional().default(false),
 });
 
 export async function POST(request: NextRequest) {
-  // Gated shut until a real payment provider exists behind
-  // getPaymentProvider() -- see DONATIONS_ENABLED's doc comment
-  // (src/lib/donations.ts) for why. Checked before the body is parsed,
-  // before the session is read, before anything is written: nothing below
-  // this line may run while the only provider available is the mock.
-  if (!DONATIONS_ENABLED) {
+  // The switch, checked before the body is parsed, before the session is
+  // read, before anything is written.
+  if (!donationsEnabled()) {
+    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+  }
+
+  // The interlock behind the switch. Sandbox credentials in production take
+  // real rupiah into an account that settles nowhere, and no deploy
+  // checklist survives contact with a rushed release, so the refusal lives
+  // in code. See sandboxInProductionReason (src/lib/donations.ts).
+  const blocked = sandboxInProductionReason();
+  if (blocked) {
+    console.error(`[donations] refusing every donation: ${blocked}`);
     return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
   }
 
@@ -43,19 +73,7 @@ export async function POST(request: NextRequest) {
 
     const { campaignId, amount, paymentMethod, message, isAnonymous } = result.data;
 
-    // 2. Only bank_transfer actually charges anything. The enum still accepts
-    // ewallet and credit_card -- the frontend contract depends on it -- but
-    // there is no provider integration behind them, and inventing payment
-    // instructions for a method nobody can pay through is exactly the habit
-    // this money layer exists to end.
-    if (paymentMethod !== 'bank_transfer') {
-      return NextResponse.json(
-        { error: 'Metode pembayaran ini belum tersedia. Silakan gunakan transfer bank.' },
-        { status: 503 }
-      );
-    }
-
-    // 3. Verify campaign exists and is active
+    // 2. Verify campaign exists and is active
     const campaign = await prisma.campaign.findUnique({
       where: { id: campaignId },
       select: { id: true, status: true, title: true, isDemo: true },
@@ -86,11 +104,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 4. Get session (optional — donorId can be null for anonymous guests)
+    // 3. Get session (optional -- donorId can be null for anonymous guests)
     const session = await getServerSession();
     const donorId = session?.user?.id || null;
 
-    // 5. Build the provider before touching the database. If it is not
+    // 4. Build the provider before touching the database. If it is not
     // configured, nothing has been written yet -- there is no half-created
     // donation to clean up.
     let provider;
@@ -106,73 +124,103 @@ export async function POST(request: NextRequest) {
       throw err;
     }
 
-    // 6. Create the Donation and its Payment in one transaction, and charge
-    // the provider inside it: if the charge fails, the transaction rolls back
-    // and there is no Donation left with no Payment behind it. The Prayer
-    // creation stays outside (as it did before) -- a lost prayer costs a
-    // visitor a retype, but a Payment written without its Donation is money
-    // with no owner, which is the one thing this transaction exists to
-    // prevent.
-    //
-    // No ledger entries here: a pending payment has moved no money, and
-    // posting on creation is how a campaign would show funds for a donation
-    // that was never paid.
-    const { donation, charge } = await prisma.$transaction(async (tx) => {
-      const donation = await tx.donation.create({
-        data: {
-          amount,
-          isAnonymous,
-          paymentMethod,
-          paymentStatus: 'pending',
-          message: message || null,
-          campaignId,
-          donorId,
-        },
-      });
+    // 5. Ask the provider whether it can serve what the donor picked, BEFORE
+    // anything is written and before a charge exists anywhere. Checking
+    // afterwards would leave an abandoned charge at the provider -- a live
+    // payment link a donor could still find and pay into, with nothing on
+    // this side expecting the money.
+    const wantedMethod = PROVIDER_METHOD_FOR[paymentMethod];
+    if (wantedMethod === null || wantedMethod !== provider.method) {
+      return NextResponse.json(
+        { error: 'Metode pembayaran ini belum tersedia. Silakan pilih metode lain.' },
+        { status: 503 }
+      );
+    }
 
-      // The donation id IS the provider's order id -- the webhook (task M5)
-      // gets only an order_id back from the provider and finds this Payment
-      // by providerRef, so the two must be the same value from the start.
-      //
-      // CONSTRAINT FOR THE NEXT PROVIDER: this call runs inside an open
-      // database transaction, holding a pooled connection and row locks for
-      // its duration. That is safe ONLY because MockPaymentProvider does no
-      // I/O -- it is a synchronous, in-memory computation. A real Midtrans/
-      // Xendit adapter makes this an actual HTTP round-trip, and holding a
-      // transaction open across one is how provider latency (or an outage)
-      // exhausts the connection pool and takes the whole site down. When a
-      // real adapter lands, move createCharge outside this transaction:
-      // create the Donation, commit, call the provider, then write the
-      // Payment (reconciling any charge failure through the webhook/a status
-      // check rather than a rollback).
-      const charge = await provider.createCharge({
+    // 6. Create the Donation, commit, and only then call the provider.
+    //
+    // The charge used to run inside this transaction so a failed charge
+    // rolled the Donation back. That was safe only while the provider did no
+    // I/O: a real adapter makes this an HTTP round trip, and holding a
+    // pooled connection and row locks across one is how provider latency
+    // exhausts the pool and takes the whole site down.
+    //
+    // What the transaction actually protected is still protected. A Payment
+    // without its Donation is money with no owner; that cannot happen now,
+    // because the Donation is committed first. The case this opens instead
+    // is a Donation with no Payment, which is a donation nobody can pay --
+    // recoverable, visible, and explicitly marked failed below.
+    //
+    // No ledger entries here either: a pending payment has moved no money,
+    // and posting on creation is how a campaign would show funds for a
+    // donation that was never paid.
+    const donation = await prisma.donation.create({
+      data: {
+        amount,
+        isAnonymous,
+        paymentMethod,
+        paymentStatus: 'pending',
+        message: message || null,
+        campaignId,
+        donorId,
+      },
+    });
+
+    // The donation id IS the provider's order id -- the webhook gets only an
+    // order id back and finds this Payment by providerRef, so the two must be
+    // the same value from the start.
+    let charge;
+    try {
+      charge = await provider.createCharge({
         orderId: donation.id,
         grossAmount: amount,
         currency: 'IDR',
       });
-
-      // bank_transfer only ever asks for a VA charge, so this is the one
-      // branch a real Midtrans adapter can answer with today. Narrowed
-      // explicitly rather than cast, so a future provider answering with
-      // qris_redirect here fails loudly instead of writing a Payment with no
-      // VA number.
-      if (charge.method !== 'bank_transfer_va') {
-        throw new Error(`Unexpected charge method for bank_transfer: ${charge.method}`);
-      }
-
-      await tx.payment.create({
-        data: {
-          donationId: donation.id,
-          provider: 'mock',
-          method: charge.method,
-          providerRef: donation.id,
-          amount,
-          status: PaymentStatus.PENDING,
-          expiresAt: charge.expiresAt,
-        },
+    } catch (err) {
+      // The Donation is already committed. Left at 'pending' it would sit in
+      // the donor's history as an unfinished payment they can neither
+      // complete nor understand, so it is closed out here.
+      console.error(`[donations] charge failed for donation ${donation.id}:`, err);
+      await prisma.donation.update({
+        where: { id: donation.id },
+        data: { paymentStatus: 'failed' },
       });
+      return NextResponse.json(
+        { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
+        { status: 503 }
+      );
+    }
 
-      return { donation, charge };
+    // Narrowed against what the provider declared, not cast. A provider
+    // answering with a shape this route did not prepare for must fail loudly
+    // rather than write a Payment with no way to pay it.
+    if (charge.method !== provider.method) {
+      console.error(
+        `[donations] provider ${provider.name} declared ${provider.method} but charged ${charge.method} for donation ${donation.id}`,
+      );
+      await prisma.donation.update({
+        where: { id: donation.id },
+        data: { paymentStatus: 'failed' },
+      });
+      return NextResponse.json(
+        { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
+        { status: 503 }
+      );
+    }
+
+    await prisma.payment.create({
+      data: {
+        donationId: donation.id,
+        // The provider that actually issued this charge. Hardcoding one name
+        // made every Payment claim the same origin, which makes per-provider
+        // reconciliation compare the wrong rows.
+        provider: provider.name,
+        method: charge.method,
+        providerRef: donation.id,
+        amount,
+        status: PaymentStatus.PENDING,
+        expiresAt: charge.expiresAt,
+      },
     });
 
     // 7. If message is provided, create a Prayer record linked to the donation
@@ -187,8 +235,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 8. Return 201 with the donation and the real VA number the provider
-    // issued -- not one invented locally.
+    // 8. Return 201 with the instructions the provider actually issued --
+    // never ones invented locally.
+    const paymentInstructions =
+      charge.method === 'qris_redirect'
+        ? { type: 'qris' as const, redirectUrl: charge.redirectUrl, expiresAt: charge.expiresAt }
+        : { type: 'bank_transfer' as const, vaNumber: charge.vaNumber, expiresAt: charge.expiresAt };
+
     return NextResponse.json(
       {
         donationId: donation.id,
@@ -196,11 +249,7 @@ export async function POST(request: NextRequest) {
         paymentMethod: donation.paymentMethod,
         paymentStatus: donation.paymentStatus,
         campaignTitle: campaign.title,
-        paymentInstructions: {
-          type: 'bank_transfer',
-          vaNumber: charge.vaNumber,
-          expiresAt: charge.expiresAt,
-        },
+        paymentInstructions,
       },
       { status: 201 }
     );

@@ -2,7 +2,7 @@
 
 export type PaymentStatus = "pending" | "confirmed" | "failed";
 
-export type PaymentMethodType = "bank_transfer" | "ewallet" | "credit_card";
+export type PaymentMethodType = "bank_transfer" | "qris" | "ewallet" | "credit_card";
 
 export interface Donation {
   id: string;

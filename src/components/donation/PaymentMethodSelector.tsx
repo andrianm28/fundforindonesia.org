@@ -2,10 +2,12 @@
 
 import { formatRupiah } from '@/lib/utils/currency';
 
+import type { PaymentMethodType } from '@/types/donation';
+
 export interface PaymentMethod {
   id: string;
   name: string;
-  type: 'bank_transfer' | 'ewallet' | 'credit_card';
+  type: PaymentMethodType;
   icon: string;
   fee: number;
   instructions?: string;
@@ -18,13 +20,14 @@ export interface PaymentMethodSelectorProps {
   onNext: () => void;
 }
 
-const TYPE_LABELS: Record<PaymentMethod['type'], string> = {
+const TYPE_LABELS: Record<PaymentMethodType, string> = {
+  qris: 'QRIS',
   bank_transfer: 'Transfer Bank',
   ewallet: 'E-Wallet',
   credit_card: 'Kartu Kredit',
 };
 
-const TYPE_ORDER: PaymentMethod['type'][] = ['bank_transfer', 'ewallet', 'credit_card'];
+const TYPE_ORDER: PaymentMethodType[] = ['qris', 'bank_transfer', 'ewallet', 'credit_card'];
 
 function groupMethodsByType(methods: PaymentMethod[]): Map<PaymentMethod['type'], PaymentMethod[]> {
   const grouped = new Map<PaymentMethod['type'], PaymentMethod[]>();
