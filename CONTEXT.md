@@ -1,6 +1,6 @@
 # Fund for Indonesia
 
-Platform social impact yang dioperasikan PT Jaya Korpora Prima, menyatukan donasi, galang dana, zakat, wakaf, hibah, dan kolaborasi CSR dalam satu akun dan satu riwayat dampak. Volunteer tetap ada di produk sebagai jalur non-uang tanpa slot menu utama; lihat Volunteer Event di bawah. Yayasan Indonesia Emas Merdeka (YIEM) adalah organisasi program pertama di atasnya, bukan pemilik platform. Konteks ini mencakup seluruh produk; istilah di bawah berlaku di PRD, kode, dan percakapan tim.
+Platform social impact yang dioperasikan PT Jaya Korpora Prima, menyatukan donasi, galang dana, zakat, wakaf, hibah, dan kolaborasi CSR dalam satu akun dan satu riwayat dampak. Volunteer tetap ada di produk tanpa slot menu utama, membayar Trip Fee untuk menutup biaya partisipasinya sendiri; jalur uangnya terpisah dari Campaign meski memakai infrastruktur Payment yang sama, lihat Volunteer Trip di bawah dan [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md). Yayasan Indonesia Emas Merdeka (YIEM) adalah organisasi program pertama di atasnya, bukan pemilik platform. Konteks ini mencakup seluruh produk; istilah di bawah berlaku di PRD, kode, dan percakapan tim.
 
 ## Language
 
@@ -46,12 +46,16 @@ _Avoid_: Lead, contact form, discuss with team (nama CTA, bukan entitas)
 Pengajuan wakaf non-tunai (tanah, bangunan, barang) yang ditindaklanjuti nazhir terkait di luar payment gateway, dengan status tindak lanjut.
 _Avoid_: Wakaf aset (di kode), donasi barang
 
-**Volunteer Event**:
-Kegiatan lapangan dengan jadwal dan kuota yang bisa didaftari Volunteer. Tidak ada uang yang bergerak.
-_Avoid_: Kegiatan, activity, event
+**Volunteer Trip**:
+Item katalog milik satu Fundraiser yang mengumpulkan Volunteer untuk ikut satu atau beberapa Volunteer Batch, dengan destinasi, itinerary, dan Trip Fee yang sama di semua Batch-nya. Bukan Campaign dan bukan Kind: uangnya bergerak sebagai Trip Fee, bukan Donation (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Dinamai "Trip", bukan "Program", supaya tidak tertukar dengan Program CSR di atas.
+_Avoid_: Volunteer Event, Volunteer Program, Kegiatan, activity, trip package
+
+**Volunteer Batch**:
+Satu jadwal bertanggal dari sebuah Volunteer Trip, dengan kuota maksimum sendiri dan kuota minimum sendiri yang diisi Fundraiser. Bila kuota minimumnya tidak tercapai sampai tenggat pendaftaran, Fundraiser membatalkan Batch itu dan setiap Registration yang sudah membayar Trip Fee mendapat Refund penuh.
+_Avoid_: Jadwal, schedule, departure, cohort
 
 **Registration**:
-Pendaftaran satu Volunteer pada satu jadwal Volunteer Event.
+Pendaftaran satu Volunteer pada satu Volunteer Batch. Belum mengunci kuota sampai Trip Fee-nya Settlement; sebelum itu Registration hanya menahan kursi sementara dalam jendela waktu terbatas.
 _Avoid_: Booking, sign-up
 
 ### Orang dan peran
@@ -71,8 +75,8 @@ _Avoid_: Penggalang dana (di kode), creator, campaigner, owner
 Donor pada Campaign ber-Kind `wakaf`. Dipakai di UI dan dokumen akad, bukan sebagai peran terpisah.
 
 **Volunteer**:
-Pengguna terdaftar yang mendaftar Volunteer Event.
-_Avoid_: Relawan (di kode)
+Pengguna terdaftar yang mendaftar Volunteer Batch dan membayar Trip Fee-nya. Berbeda dari Donor: uangnya menutup partisipasinya sendiri, bukan disumbangkan untuk tujuan orang lain.
+_Avoid_: Relawan (di kode), Donor
 
 **Platform Operator**:
 PT Jaya Korpora Prima, pemilik dan pengelola platform. Memegang akun merchant penyedia pembayaran, mempekerjakan Verifier dan Admin, dan menerima Platform Fee. Bukan pemilik dana Campaign.
@@ -114,6 +118,10 @@ Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, da
 **Donation**:
 Niat memberi dari satu Donor ke satu Campaign dengan nominal tertentu. Donation belum memindahkan uang sampai Payment-nya settle.
 _Avoid_: Donasi (di kode), transaction, contribution
+
+**Trip Fee**:
+Nominal yang dibayar Volunteer untuk satu Registration pada Volunteer Batch, menutup biaya partisipasinya sendiri (transport, akomodasi, konsumsi). Bukan Donation dan bukan kontribusi untuk komunitas tujuan; memakai jalur Payment, Escrow Hold, dan Payout yang sama dengan Campaign tanpa menjadi Kind (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Tidak dipotong Platform Fee. Refund-nya bertingkat menurut jarak waktu ke keberangkatan saat Volunteer membatalkan, dan penuh tanpa syarat waktu saat Fundraiser membatalkan Batch — berbeda dari Refund Gross Campaign (ADR 0007), yang tidak berlaku untuk Trip Fee.
+_Avoid_: Donation, Program Fee, biaya trip (di kode), tiket
 
 **Payment**:
 Tagihan di penyedia pembayaran untuk satu Donation. Satu Donation boleh punya beberapa Payment bila Donor mencoba lagi setelah gagal atau kedaluwarsa, tetapi paling banyak satu yang Settlement.

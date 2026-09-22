@@ -15,7 +15,7 @@ Pesan utama homepage: "Connecting Generosity with Real Impact in Indonesia." CTA
 
 ## 2. Konteks dan latar belakang
 
-Kontribusi sosial berupa donasi, zakat, wakaf, hibah, dan CSR saat ini tersebar di banyak kanal, dan penyumbang sulit melihat bukti penyaluran serta dampaknya. Perusahaan yang mencari mitra CSR juga butuh portofolio program siap implementasi, bukan proposal yang disusun dari nol setiap kali. Volunteer tetap dilayani sebagai jalur non-uang, tanpa slot menu utama.
+Kontribusi sosial berupa donasi, zakat, wakaf, hibah, dan CSR saat ini tersebar di banyak kanal, dan penyumbang sulit melihat bukti penyaluran serta dampaknya. Perusahaan yang mencari mitra CSR juga butuh portofolio program siap implementasi, bukan proposal yang disusun dari nol setiap kali. Volunteer tetap dilayani di luar slot menu utama; pesertanya membayar Trip Fee untuk menutup biaya partisipasinya sendiri, bukan berdonasi (lihat pasal 14).
 
 Prinsip UX yang berlaku, sesuai deck: menu utama singkat, CTA jelas, proses transparan, status kontribusi mudah dilacak, dan trust serta accountability ditampilkan sejak awal.
 
@@ -33,7 +33,7 @@ Deck memberi dua versi menu, bahasa Indonesia pada slide 6 untuk pengunjung loka
 | Wakaf | Wakaf masjid, sekolah, fasilitas kesehatan, fasilitas umum | Waqf | Support waqf for mosques, schools, healthcare, and public facilities |
 | Hibah | Hibah untuk lembaga atau tujuan tertentu, Kind Campaign tersendiri | Hibah | Directed grants for institutions or specific purposes |
 
-Menu pendukung versi Indonesia: Tentang Kami, Impact & Transparency, Stories, Mitra, Volunteer, FAQ, Hubungi Kami, dan Masuk atau Dashboard. Versi Inggris: About Us, Impact & Transparency, Stories, Partners, Volunteer, FAQ, Contact, dan Sign In atau Dashboard. Volunteer pindah ke menu pendukung sejak revisi ini; cakupannya (FFI-11, FFI-12) tidak berubah.
+Menu pendukung versi Indonesia: Tentang Kami, Impact & Transparency, Stories, Mitra, Volunteer, FAQ, Hubungi Kami, dan Masuk atau Dashboard. Versi Inggris: About Us, Impact & Transparency, Stories, Partners, Volunteer, FAQ, Contact, dan Sign In atau Dashboard. Volunteer pindah ke menu pendukung sejak revisi 19 September 2026; cakupannya (FFI-11, FFI-12) diperluas pada revisi 22 September 2026 menjadi jalur berbayar, lihat pasal 14.
 
 Keputusan penulisan: "Wakaf" pada versi Indonesia, "Waqf" pada versi Inggris untuk menu dan CTA. Slug URL tetap /wakaf pada kedua bahasa. Zakat tidak menjadi menu tersendiri agar menu utama tetap ringkas; zakat adalah halaman di bawah Donasi. "Hibah" dipertahankan sebagai transliterasi pada kedua versi bahasa, mengikuti pola Wakaf/Waqf, karena istilah ini tidak punya padanan Inggris yang presisi. Slug URL /hibah pada kedua bahasa.
 
@@ -46,7 +46,7 @@ Keputusan penulisan: "Wakaf" pada versi Indonesia, "Waqf" pada versi Inggris unt
 | Perusahaan atau tim CSR | Mencari program siap implementasi dan bukti dampak | Portofolio Program per Sector, anggaran dan KPI, Partnership Inquiry |
 | Wakif | Berwakaf tunai untuk masjid, sekolah, fasilitas kesehatan, atau fasilitas umum | Kategori wakaf, pilihan Campaign wakaf, Akad Wakaf, pembaruan implementasi |
 | Donor Hibah | Memberi hibah untuk lembaga atau tujuan tertentu | Campaign Kind `hibah`, kejelasan tujuan dan penerima, pembaruan implementasi |
-| Volunteer | Ingin ikut kegiatan lapangan | Volunteer Event, jadwal, Registration, konfirmasi, sertifikat |
+| Volunteer | Ingin ikut Volunteer Trip sesuai jadwal dan anggaran | Katalog Volunteer Trip dan Batch, Trip Fee, Registration terkonfirmasi setelah pembayaran, sertifikat |
 | Verifier | Menjaga kredibilitas platform | Antrean Verification Request, checklist dokumen, verifikasi identitas dan Bank Account, jejak audit |
 | Admin | Menjaga uang | Persetujuan Payout, Suspension, Refund, Manual Contribution, rekonsiliasi harian, rekap keuangan |
 
@@ -94,7 +94,7 @@ Rilis pertama mencakup Fase 0 sampai 2 pada pasal 11. Fase 3 menyusul. Satu enti
 ### Dikecualikan dari rilis pertama, masuk Fase 3 atau setelahnya
 
 - Versi bahasa Inggris. Pendekatan i18n dipilih di Fase 1 agar halaman baru ditulis dengan kunci terjemahan sejak awal.
-- Volunteer Event, Registration, sertifikat volunteer. Portofolio CSR dan Partnership Inquiry dipindah ke rilis pertama; lihat bagian Masuk di atas.
+- Volunteer Trip, Batch, Registration berbayar, sertifikat volunteer. Portofolio CSR dan Partnership Inquiry dipindah ke rilis pertama; lihat bagian Masuk di atas.
 - Notifikasi WhatsApp.
 - Tautan pendek untuk berbagi.
 - Impor otomatis laporan settlement penyedia untuk rekonsiliasi.
@@ -131,7 +131,7 @@ Rilis pertama mencakup Fase 0 sampai 2 pada pasal 11. Fase 3 menyusul. Satu enti
 | FFI-08b | Hibah | Sebagai Donor Hibah saya memberi hibah untuk lembaga atau tujuan tertentu | Kind `hibah` hanya oleh organisasi yang memegang Kind Authorisation `hibah` dari Verifier; target wajib, tenggat mengikuti aturan umum Campaign; Platform Fee default nol; sementara mengikuti batas Refund dan dokumen wajib `wakaf` sampai ditinjau ulang terhadap ketentuan syariah (lihat pasal 14 dan [ADR 0013](./adr/0013-hibah-as-fourth-kind.md)); pembaruan implementasi lewat Campaign Update | M | 1 |
 | FFI-09 | Portofolio CSR | Sebagai tim CSR saya menelusuri Program per Sector | Kartu Sector Health, Education, Environment, Disability Inclusion; halaman Program memuat Problem, Target beneficiaries, Location, Activities, Budget, Timeline, KPI, Documentation, Impact Report, lalu CTA Discuss with Our Team; Program tidak menerima uang daring; dana CSR yang melewati rekening platform dicatat sebagai Manual Contribution yang menunjuk ke Program dan dikreditkan ke Program Balance, akun buku besar tersendiri yang tidak pernah bisa dicairkan lewat Payout karena Program bukan Campaign, dengan aturan dua orang yang sama; dana CSR yang tidak pernah melewati rekening platform hanya ditampilkan sebagai angka laporan dan ditandai jelas sebagai di luar pembukuan platform | M | 1 |
 | FFI-10 | Diskusi kemitraan | Sebagai tim CSR saya menghubungi tim untuk membahas Program | Formulir Discuss with Our Team membuat Partnership Inquiry dengan data perusahaan dan kebutuhan; notifikasi email ke tim kemitraan; status tindak lanjut | M | 1 |
-| FFI-11 | Volunteer | Sebagai Volunteer saya mendaftar Volunteer Event sesuai jadwal | Daftar Volunteer Event, detail, pilihan jadwal, kuota, Registration dengan konfirmasi email | M | 3 |
+| FFI-11 | Volunteer | Sebagai Volunteer saya mendaftar satu Volunteer Batch dan membayar Trip Fee-nya | Katalog Volunteer Trip dengan destinasi, itinerary, dan Trip Fee; pilihan Batch dengan tanggal, kuota maksimum, dan kuota minimum; Registration terkonfirmasi hanya setelah Trip Fee Settlement, kuota tidak berkurang sebelum itu; bila kuota minimum Batch tidak tercapai sampai tenggat pendaftaran, Fundraiser membatalkan Batch dan setiap Registration yang sudah bayar menerima Refund penuh; pembatalan oleh Volunteer sendiri mengikuti Refund bertingkat menurut jarak waktu ke keberangkatan, bukan Refund Gross Campaign (ADR 0007); tidak ada Platform Fee atas Trip Fee | M | 3 |
 | FFI-12 | Rekam jejak relawan | Sebagai Volunteer saya menerima sertifikat dan catatan kontribusi | Sertifikat digital dan rekam Registration pada dashboard | S | 3 |
 | FFI-13 | Dashboard kontributor | Sebagai pengguna saya melihat seluruh kontribusi saya | Riwayat Donation termasuk zakat dan wakaf serta Campaign milik saya dalam satu halaman, dengan Registration menyusul di Fase 3; kirim ulang Receipt ke email dan buka halaman cetak Receipt; Guest Donor yang mendaftar dengan email yang sama melihat riwayatnya hanya setelah email akun itu diverifikasi lewat tautan konfirmasi, sehingga tidak ada yang bisa mengklaim riwayat orang lain; Fundraiser melihat Escrow Hold, Campaign Balance, dan daftar Donation tanpa identitas Donor anonim; bagian Payout menyusul di Fase 2 | M | 1 |
 | FFI-14 | Impact & Transparency | Sebagai pengunjung saya melihat penyaluran dana secara agregat | Terkumpul = Gross semua Payment dengan Settlement ditambah Manual Contribution, tidak termasuk Campaign yang sedang disembunyikan sebagai Demo Campaign dan tidak termasuk Manual Contribution yang sudah dibalikkan; Donation yang direfund tetap dihitung di terkumpul dan muncul sebagai baris pengembalian, karena uangnya memang pernah masuk; terkumpul diurai menjadi enam baris yang jumlahnya persis sama dengannya: tersalurkan lewat Payout Completed, dikembalikan ke Donor dari dana Campaign sebesar Gross dikurangi Provider Fee-nya, ditahan di Escrow Hold termasuk yang dibekukan menunggu Refund, tersedia di Campaign Balance, Platform Fee yang tidak dikembalikan, dan Provider Fee seluruh Payment; Refund yang tidak tertutup dana Campaign karena uangnya sudah keluar lewat Payout tidak mengurangi baris tersalurkan dan hanya muncul pada angka biaya platform, bersama Provider Fee yang tidak kembali, keduanya ditampilkan terpisah karena itu uang platform dan bukan bagian dari terkumpul; penerima manfaat = jumlah dari Usage Report; tersalurkan dan penerima manfaat nol sampai Fase 2; Manual Contribution masuk tanpa kedua fee dan ditandai tersendiri; daftar Usage Report per Campaign; dana CSR sebagai baris terpisah menyusul begitu Portofolio CSR aktif di Fase 1, dipisah antara yang masuk pembukuan dan yang di luar pembukuan; filter lokasi | M | 1 |
@@ -266,7 +266,7 @@ Wakaf: pilih kategori, pilih Campaign wakaf, tentukan nominal, ikrar lewat centa
 
 Hibah: pilih Campaign Kind `hibah`, tentukan nominal, bayar, Receipt terkirim, lalu Campaign Update sebagai pembaruan implementasi. Tidak ada Akad Wakaf maupun ikrar; dokumen dan alur akad khusus untuk hibah menyusul bila ditinjau ulang membutuhkannya (pasal 14).
 
-Volunteer, jalur non-uang di luar menu utama: telusuri Volunteer Event, buka detail, pilih jadwal, Registration, konfirmasi, ikut kegiatan, lalu sertifikat atau rekam dampak.
+Volunteer, di luar menu utama: telusuri Volunteer Trip, buka detail destinasi dan itinerary, pilih Batch, Registration, bayar Trip Fee, konfirmasi setelah Settlement, ikut Batch, lalu sertifikat atau rekam dampak.
 
 ### Portofolio sektor CSR
 
@@ -308,7 +308,7 @@ Sector tetap empat dan diubah lewat kode. Category Campaign dikelola Admin dari 
 | Wakaf | Platform Fee default nol, bisa diubah Admin | Mengikuti ketentuan nazhir |
 | Hibah | Platform Fee default nol, bisa diubah Admin | Asumsi sementara mengikuti pola Wakaf; ditinjau ulang (pasal 14) |
 | Kolaborasi CSR | Biaya pengelolaan program per kerja sama, masuk dalam anggaran Program | Sumber pendapatan paling besar per transaksi |
-| Volunteer | Tidak dimonetisasi | Berfungsi sebagai kanal akuisisi Donor |
+| Volunteer | Trip Fee menutup biaya partisipasi Volunteer sendiri; bukan pendapatan platform, tidak dipotong Platform Fee, mengikuti preseden seluruh jalur lain yang juga belum mengambil Platform Fee | Trip Fee terpisah dari Donation dan bukan Kind Campaign; lihat [ADR 0014](./adr/0014-volunteer-trip-stays-separate-entity.md) |
 
 Provider Fee dipotong dari Gross sebelum dana dikreditkan ke Campaign dan bukan pendapatan platform. Net = Gross dikurangi Provider Fee dan Platform Fee.
 
@@ -321,7 +321,7 @@ Urutan disusun ulang mengikuti kondisi kode.
 | Fase 0, fondasi | Siklus hidup Campaign, Verification Request dengan checklist dan alasan penolakan, email transaksional untuk hasil verifikasi, Kind dan Kind Authorisation (termasuk `hibah`), penugasan Verifier dan Admin terpisah, penghapusan dompet, pemarkiran AutoDonation | Satu Campaign lolos Verification Request dan tampil tanpa intervensi basis data |
 | Fase 1, MVP | Adapter Sumopod QRIS dengan webhook dan Provider Fee nyata dari payload, tanpa metode lain; Platform Fee di buku besar dengan pengaturan Admin (FFI-17); Receipt dan Campaign Update lewat email yang sudah berdiri sejak Fase 0; Guest Donor; Traffic Source; lokasi dan penerima manfaat; zakat, wakaf tunai dengan Akad Wakaf, dan hibah (FFI-08b); dashboard kontributor; halaman Impact & Transparency; Demo Campaign disembunyikan dari katalog dan Impact saat Campaign nyata pertama Active; Portofolio CSR dan Partnership Inquiry (FFI-09, FFI-10), dipindah dari Fase 3 pada revisi ini — berjalan pada rentang waktu yang sama tetapi tidak menjadi syarat lolos fase karena jalur uangnya terpisah (Manual Contribution ke Program Balance, bukan gateway) | Donasi QRIS nyata pertama berhasil end to end dan Receipt diterima |
 | Fase 2, pendalaman | UI Payout untuk Fundraiser, Payout Completed manual oleh Admin dengan bukti, Usage Report dan gating-nya, Suspension, Cancelled, Refund oleh Admin dengan batas per Kind, laporan Campaign yang belum mencairkan saldo selama 60 hari, Manual Contribution, anonimisasi Donor, verifikasi tambahan di atas ambang, penanda audit, pengaturan penyedia ganda (FFI-18) dengan penyedia kedua yang membawa VA, e-wallet, dan disbursement | Alur Payout dan Usage Report berjalan tanpa intervensi basis data; Payment dari dua penyedia terekonsiliasi |
-| Fase 3, perluasan | Volunteer Event dan Registration, sertifikat volunteer, versi bahasa Inggris, WhatsApp, tautan pendek, impor settlement otomatis, pengalihan Dormant Balance, Refund yang diminta sendiri oleh Donor, anggota tim untuk Fundraiser organisasi | Volunteer Event pertama berjalan end to end sampai sertifikat terbit |
+| Fase 3, perluasan | Volunteer Trip, Batch, Registration berbayar, sertifikat volunteer, versi bahasa Inggris, WhatsApp, tautan pendek, impor settlement otomatis, pengalihan Dormant Balance, Refund yang diminta sendiri oleh Donor, anggota tim untuk Fundraiser organisasi | Volunteer Trip pertama berjalan end to end sampai sertifikat terbit, termasuk satu Batch yang menerima Trip Fee nyata dan satu Refund Trip Fee |
 
 Tanggal per fase belum ditetapkan karena bergantung pada kapasitas tim dan keputusan Platform Operator.
 
@@ -355,14 +355,25 @@ Diputuskan 19 September 2026:
 
 Diputuskan 22 September 2026:
 
-- [x] Hibah menjadi Kind Campaign keempat (`hibah`), menggantikan slot menu utama Volunteer; Volunteer tetap ada di produk lewat menu pendukung, cakupannya tidak berubah.
+- [x] Hibah menjadi Kind Campaign keempat (`hibah`), menggantikan slot menu utama Volunteer; Volunteer tetap ada di produk lewat menu pendukung, cakupannya tidak berubah pada keputusan ini secara spesifik (lihat butir Trip Fee di bawah untuk perluasan cakupan yang menyusul pada revisi yang sama).
 - [x] Portofolio CSR dan Partnership Inquiry (FFI-09, FFI-10) dipindah dari Fase 3 ke Fase 1, berjalan paralel dengan jalur uang tanpa menjadi syarat lolos fase, karena Program tetap tidak menerima uang daring ([ADR 0002](./adr/0002-one-campaign-entity-for-all-money.md)).
 - [x] Sebagai langkah sementara sampai ditinjau ulang, Kind `hibah` mengikuti pola `wakaf`: Kind Authorisation wajib, Platform Fee default nol, dan Refund hanya sah pada kegagalan teknis. Lihat [ADR 0013](./adr/0013-hibah-as-fourth-kind.md).
+- [x] Volunteer menjadi jalur berbayar: Volunteer membayar Trip Fee untuk menutup biaya partisipasinya sendiri, bukan berdonasi. Trip Fee tetap terpisah dari Campaign, Kind, dan Donation, memakai infrastruktur Payment, Escrow Hold, dan Payout yang sama. Lihat [ADR 0014](./adr/0014-volunteer-trip-stays-separate-entity.md).
+- [x] Volunteer Event diperluas menjadi Volunteer Trip (katalog milik satu Fundraiser, dipakai ulang lintas jadwal) dan Volunteer Batch (satu jadwal bertanggal dengan kuota maksimum dan kuota minimum sendiri).
+- [x] Registration terkonfirmasi hanya setelah Trip Fee Settlement; kuota Batch tidak berkurang sebelum itu.
+- [x] Refund Trip Fee mengikuti kebijakan bertingkat menurut jarak waktu ke keberangkatan saat Volunteer membatalkan, dan penuh tanpa syarat waktu saat Fundraiser membatalkan Batch karena kuota minimum tidak tercapai — berbeda dari Refund Gross Campaign (ADR 0007), yang tidak berlaku untuk Trip Fee.
+- [x] Volunteer Trip dibuat oleh Fundraiser mana pun, sama seperti Campaign, bukan hanya Platform Operator.
+- [x] Tidak ada Platform Fee atas Trip Fee, mengikuti preseden seluruh jalur lain yang belum mengambil Platform Fee.
 
 Masih terbuka, perlu ditinjau sebelum Kind `hibah` menerima donasi nyata:
 
 - [ ] Apakah batas Refund, kebutuhan Kind Authorisation, dan dokumen wajib untuk `hibah` seharusnya mengikuti pola `wakaf`, atau punya aturan sendiri berdasarkan ketentuan syariah untuk hibah yang berbeda dari wakaf. Lihat ADR 0013.
 - [ ] Istilah dan syarat kelembagaan yang setara amil/nazhir untuk penerima Kind `hibah`, bila diperlukan.
+
+Masih terbuka, perlu ditinjau sebelum Volunteer Trip pertama menerima Trip Fee nyata:
+
+- [ ] Ambang hari tepat untuk setiap tingkat Refund Trip Fee menurut jarak waktu ke keberangkatan, dan nilai default kuota minimum Batch. Didorong ke penulisan spec (lihat ADR 0014); pasal ini hanya mengunci kebijakannya (bertingkat, bukan flat Gross), bukan angkanya.
+- [ ] Lama jendela penahanan kursi (Registration yang belum bayar) sebelum kembali terbuka untuk Volunteer lain.
 
 Di luar dokumen ini: izin penghimpunan, lembaga amil untuk Kind `zakat`, nazhir untuk Kind `wakaf`, lembaga penerima untuk Kind `hibah`, dan pemilik rekening penghimpunan per Kind. Satu hal yang perlu diperiksa penasihat hukum sebelum rilis: ketentuan izin penghimpunan dana sosial mensyaratkan pemegang izin berbentuk yayasan atau perkumpulan, sedangkan Platform Operator berbentuk PT, sehingga dana kemungkinan harus dihimpun atas nama Partner Organisation meski akun merchant dipegang Platform Operator. Sistem sudah menyiapkan pemisahan itu lewat rekening penghimpunan yang dikonfigurasi terpisah dari akun merchant.
 
@@ -407,7 +418,9 @@ Yang diubah dari versi 18 September:
 Perubahan pada revisi ini, disetujui pemilik produk, di luar isi deck asli:
 
 - Hibah ditambahkan sebagai Kind Campaign keempat (FFI-08b), menggantikan slot menu utama kelima yang sebelumnya dipegang Volunteer. Ini satu-satunya perubahan pada struktur lima menu deck sejak revisi 19 September.
-- Volunteer tidak dihapus: cakupannya (FFI-11, FFI-12) tidak berubah, hanya pindah dari menu utama ke menu pendukung dan tetap di Fase 3.
+- Volunteer tidak dihapus, hanya pindah dari menu utama ke menu pendukung dan tetap di Fase 3. Cakupannya (FFI-11, FFI-12) diperluas menjadi jalur berbayar oleh keputusan berikutnya pada revisi yang sama; lihat butir Trip Fee di bawah.
 - Portofolio CSR dan Partnership Inquiry (FFI-09, FFI-10) dipindah dari Fase 3 ke Fase 1, karena kedua modul ini dianggap bagian inti produk. Tidak menjadi syarat lolos Fase 1 karena jalur uangnya (Manual Contribution ke Program Balance) terpisah dari jalur donasi.
 - Perlakuan Kind `hibah` — Kind Authorisation, batas Refund, dokumen wajib, Platform Fee default nol — dibuat mengikuti pola `wakaf` sebagai **asumsi sementara**, bukan keputusan final: tidak ada rujukan syariah yang diperiksa untuk hibah secara spesifik pada revisi ini. Dicatat di [ADR 0013](./adr/0013-hibah-as-fourth-kind.md) dan sebagai risiko terbuka di pasal 12.
 - Metrik "enam jalur kontribusi" pada pasal 5 menjadi tujuh, mengikutkan hibah.
+- Volunteer diperluas dari jalur non-uang menjadi jalur berbayar (Trip Fee), berdasarkan referensi program Traveling & Teaching (1000 GURU Foundation): Volunteer Event menjadi Volunteer Trip (katalog milik satu Fundraiser, dipakai ulang lintas jadwal) dan Volunteer Batch (satu jadwal bertanggal dengan kuota maksimum dan kuota minimum). Keputusan ini di luar isi deck asli, seperti halnya Hibah. Lihat [ADR 0014](./adr/0014-volunteer-trip-stays-separate-entity.md).
+- Trip Fee sengaja tidak menjadi Kind Campaign kelima meski sekarang memindahkan uang, karena sifatnya menutup biaya partisipasi Volunteer sendiri, bukan kontribusi untuk tujuan sosial pihak lain — berbeda dari alasan yang membuat Hibah masuk sebagai Kind. FFI-11 diperbarui untuk mencerminkan model berbayar; tetap di Fase 3, prioritas tidak berubah.
