@@ -41,6 +41,7 @@ import { POST } from './route';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider } from '@/lib/payments';
+import { CampaignStatus } from '@/generated/prisma/client';
 
 const mockCampaignFindUnique = prisma.campaign.findUnique as unknown as Mock;
 const mockDonationCreate = prisma.donation.create as unknown as Mock;
@@ -93,6 +94,7 @@ beforeEach(() => {
   mockCampaignFindUnique.mockResolvedValue({
     id: 'campaign-1',
     status: 'active',
+    lifecycleStatus: CampaignStatus.ACTIVE,
     title: 'Bantu Korban Banjir',
     isDemo: false,
   });
@@ -231,6 +233,7 @@ describe('POST /api/donations guards that must survive the gate opening', () => 
     mockCampaignFindUnique.mockResolvedValue({
       id: 'campaign-1',
       status: 'active',
+      lifecycleStatus: CampaignStatus.ACTIVE,
       title: 'Contoh',
       isDemo: true,
     });
@@ -245,6 +248,7 @@ describe('POST /api/donations guards that must survive the gate opening', () => 
     mockCampaignFindUnique.mockResolvedValue({
       id: 'campaign-1',
       status: 'completed',
+      lifecycleStatus: CampaignStatus.COMPLETED,
       title: 'Selesai',
       isDemo: false,
     });

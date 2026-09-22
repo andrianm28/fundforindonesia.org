@@ -43,15 +43,18 @@ vi.mock('@/lib/payments', async () => {
   };
 });
 
-// The route is gated shut in production (DONATIONS_ENABLED = false) and
-// these tests must reach past that flag WITHOUT flipping it: mock the
-// module as an importActual spread with only the flag overridden, so the
-// real disabled message and every other export stay exactly as shipped.
+// The route is gated shut in production (donationsEnabled() reads
+// NEXT_PUBLIC_DONATIONS_ENABLED, unset in test) and these tests must reach
+// past that flag WITHOUT flipping the real switch: mock the module as an
+// importActual spread with only donationsEnabled overridden, so the real
+// disabled message and every other export -- including
+// sandboxInProductionReason, whose real implementation already returns null
+// outside NODE_ENV=production -- stay exactly as shipped.
 vi.mock('@/lib/donations', async () => {
   const actual = await vi.importActual<typeof import('@/lib/donations')>('@/lib/donations');
   return {
     ...actual,
-    DONATIONS_ENABLED: true,
+    donationsEnabled: () => true,
   };
 });
 
