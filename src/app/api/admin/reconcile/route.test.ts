@@ -31,13 +31,15 @@ type LedgerRow = {
   amount: number;
   account: string;
   campaignId: string | null;
+  volunteerTripId?: string | null;
   paymentId?: string | null;
   refundId?: string | null;
 };
 
 type PayoutRow = {
   id: string;
-  campaignId: string;
+  campaignId: string | null;
+  volunteerTripId?: string | null;
   amount: number;
   status: string;
   providerRef: string | null;
@@ -61,15 +63,15 @@ type CampaignRow = { id: string; title: string; collectedAmount: number; isDemo?
 /** Handles the `{ not }` and `{ in }` Prisma filter shapes this route's queries use. */
 function matchesWhere(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([k, v]) => {
+    const rowValue = row[k] ?? null;
     if (v && typeof v === 'object') {
-      if ('not' in (v as Record<string, unknown>)) return row[k] !== (v as { not: unknown }).not;
-      if ('in' in (v as Record<string, unknown>)) return (v as { in: unknown[] }).in.includes(row[k]);
+      if ('not' in (v as Record<string, unknown>)) return rowValue !== (v as { not: unknown }).not;
+      if ('in' in (v as Record<string, unknown>)) return (v as { in: unknown[] }).in.includes(rowValue);
       if ('lte' in (v as Record<string, unknown>)) {
-        const rowValue = row[k];
         return rowValue != null && (rowValue as Date) <= (v as { lte: Date }).lte;
       }
     }
-    return row[k] === v;
+    return rowValue === v;
   });
 }
 
@@ -156,6 +158,7 @@ function makeTx(options: {
           .map((p) => ({
             id: p.id,
             campaignId: p.campaignId,
+            volunteerTripId: p.volunteerTripId ?? null,
             amount: p.amount,
             providerRef: p.providerRef,
             approvedAt: p.approvedAt,
@@ -543,6 +546,7 @@ describe('GET /api/admin/reconcile', () => {
       {
         payoutId: 'payout-1',
         campaignId: 'campaign-1',
+        volunteerTripId: null,
         amount: 200_000,
         providerRef: 'provider-ref-1',
         approvedAt: '2026-08-01T00:00:00.000Z',
@@ -573,10 +577,136 @@ describe('GET /api/admin/reconcile', () => {
       {
         payoutId: 'payout-2',
         campaignId: 'campaign-1',
+        volunteerTripId: null,
         amount: 75_000,
         approvedAt: '2026-08-05T00:00:00.000Z',
       },
     ]);
     expect(data.stuckPayouts.processing).toEqual([]);
+  });
+});
+
+describe('GET /api/admin/reconcile -- trip-scoped checks', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+  });
+
+  it('reports an empty tripNegativeBalances when there are no trip-scoped ledger entries at all', async () => {
+    const tx = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.tripNegativeBalances).toEqual([]);
+  });
+
+  it('flags a trip whose ESCROW_HOLD balance is negative', async () => {
+    const tx = makeTx({
+      ledgerRows: [
+        { transactionId: 't1', direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-1' },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.tripNegativeBalances).toEqual([
+      { volunteerTripId: 'trip-1', account: 'ESCROW_HOLD', balance: -10_000 },
+    ]);
+  });
+
+  it('does not flag a trip whose balance is positive', async () => {
+    const tx = makeTx({
+      ledgerRows: [
+        { transactionId: 't1', direction: 'CREDIT', amount: 10_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-2' },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.tripNegativeBalances).toEqual([]);
+  });
+
+  it('does not let a campaign-scoped negative balance leak into tripNegativeBalances', async () => {
+    const tx = makeTx({
+      ledgerRows: [
+        { transactionId: 't1', direction: 'DEBIT', amount: 10_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1' },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.tripNegativeBalances).toEqual([]);
+    expect(data.negativeBalances).toEqual([
+      { campaignId: 'campaign-1', account: 'CAMPAIGN_BALANCE', balance: -10_000 },
+    ]);
+  });
+
+  it('includes volunteerTripId on a stuck PROCESSING payout that belongs to a trip', async () => {
+    const tx = makeTx({
+      payouts: [
+        {
+          id: 'payout-3',
+          campaignId: null,
+          volunteerTripId: 'trip-3',
+          amount: 60_000,
+          status: 'PROCESSING',
+          providerRef: 'provider-ref-3',
+          approvedAt: new Date('2026-09-01'),
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.stuckPayouts.processing).toEqual([
+      {
+        payoutId: 'payout-3',
+        campaignId: null,
+        volunteerTripId: 'trip-3',
+        amount: 60_000,
+        providerRef: 'provider-ref-3',
+        approvedAt: '2026-09-01T00:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('includes volunteerTripId on an approved-without-providerRef payout that belongs to a trip', async () => {
+    const tx = makeTx({
+      payouts: [
+        {
+          id: 'payout-4',
+          campaignId: null,
+          volunteerTripId: 'trip-4',
+          amount: 25_000,
+          status: 'APPROVED',
+          providerRef: null,
+          approvedAt: new Date('2026-09-02'),
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.stuckPayouts.approvedWithoutProviderRef).toEqual([
+      {
+        payoutId: 'payout-4',
+        campaignId: null,
+        volunteerTripId: 'trip-4',
+        amount: 25_000,
+        approvedAt: '2026-09-02T00:00:00.000Z',
+      },
+    ]);
   });
 });

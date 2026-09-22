@@ -103,6 +103,33 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       }
     }
 
+    // Trip-scoped sibling of the negativeBalances check above -- same
+    // shape, same reasoning, grouped by volunteerTripId instead of
+    // campaignId, checking ESCROW_HOLD/TRIP_BALANCE instead of
+    // ESCROW_HOLD/CAMPAIGN_BALANCE.
+    const tripBalanceRows = await tx.ledgerEntry.groupBy({
+      by: ['volunteerTripId', 'account', 'direction'],
+      where: { volunteerTripId: { not: null } },
+      _sum: { amount: true },
+    });
+
+    const tripBalances = new Map<string, Map<string, number>>();
+    for (const row of tripBalanceRows) {
+      const volunteerTripId = row.volunteerTripId as string;
+      const perTrip = tripBalances.get(volunteerTripId) ?? new Map<string, number>();
+      const signed = row.direction === 'CREDIT' ? (row._sum.amount ?? 0) : -(row._sum.amount ?? 0);
+      perTrip.set(row.account, (perTrip.get(row.account) ?? 0) + signed);
+      tripBalances.set(volunteerTripId, perTrip);
+    }
+
+    const tripNegativeBalances: Array<{ volunteerTripId: string; account: string; balance: number }> = [];
+    for (const [volunteerTripId, perTrip] of Array.from(tripBalances.entries())) {
+      for (const account of ['ESCROW_HOLD', 'TRIP_BALANCE'] as const) {
+        const balance = perTrip.get(account) ?? 0;
+        if (balance < 0) tripNegativeBalances.push({ volunteerTripId, account, balance });
+      }
+    }
+
     // Campaign.collectedAmount is written, in the same transaction as the
     // ledger, as the payment's GROSS amount (see the webhook route). The
     // ledger instead credits ESCROW_HOLD the NET and PROVIDER_FEE the fee
@@ -306,17 +333,18 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // module doc comment above for why fixing either is out of scope here.
     const processingPayouts = await tx.payout.findMany({
       where: { status: 'PROCESSING' },
-      select: { id: true, campaignId: true, amount: true, providerRef: true, approvedAt: true },
+      select: { id: true, campaignId: true, volunteerTripId: true, amount: true, providerRef: true, approvedAt: true },
     });
     const approvedWithoutProviderRef = await tx.payout.findMany({
       where: { status: 'APPROVED', providerRef: null },
-      select: { id: true, campaignId: true, amount: true, approvedAt: true },
+      select: { id: true, campaignId: true, volunteerTripId: true, amount: true, approvedAt: true },
     });
 
     return {
       generatedAt: new Date().toISOString(),
       unbalancedTransactions,
       negativeBalances,
+      tripNegativeBalances,
       preLedger,
       caveat:
         'preLedger campaigns have collectedAmount > 0 but no ledger entries at all -- they ' +
@@ -340,6 +368,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         processing: processingPayouts.map((p) => ({
           payoutId: p.id,
           campaignId: p.campaignId,
+          volunteerTripId: p.volunteerTripId,
           amount: p.amount,
           providerRef: p.providerRef,
           approvedAt: p.approvedAt,
@@ -358,6 +387,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         approvedWithoutProviderRef: approvedWithoutProviderRef.map((p) => ({
           payoutId: p.id,
           campaignId: p.campaignId,
+          volunteerTripId: p.volunteerTripId,
           amount: p.amount,
           approvedAt: p.approvedAt,
         })),

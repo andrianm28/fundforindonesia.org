@@ -314,6 +314,23 @@ describe('ledger invariants (property-based)', () => {
   });
 });
 
+describe('findUnbalancedTransactions already covers trip-scoped entries', () => {
+  it('flags a trip-scoped transaction whose legs do not sum to zero', async () => {
+    const tx = makeTx();
+    // Deliberately bypass postTransaction's own balance guard, writing
+    // directly the way a real bug (not this plan's own code) would have
+    // to reach the database to produce this state.
+    tx.rows.push(
+      { transactionId: 'trip-tx-1', direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9' },
+      { transactionId: 'trip-tx-1', direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9' },
+    );
+
+    const result = await findUnbalancedTransactions(tx as never);
+
+    expect(result).toEqual([{ transactionId: 'trip-tx-1', debits: 10_000, credits: 9_000 }]);
+  });
+});
+
 describe('paymentSettledLegs with a trip subject', () => {
   it('credits ESCROW_HOLD with volunteerTripId, not campaignId', () => {
     const legs = paymentSettledLegs({
