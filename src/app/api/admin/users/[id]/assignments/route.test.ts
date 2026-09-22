@@ -20,6 +20,7 @@ vi.mock("@/lib/prisma", () => ({
       create: vi.fn(),
     },
     $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
   },
 }));
 
@@ -33,6 +34,7 @@ const mockAuditCreate = prisma.assignmentAuditEntry.create as unknown as Mock;
 const mockNotificationCreate = prisma.notification.create as unknown as Mock;
 const mockCount = prisma.userAssignment.count as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
+const mockQueryRaw = prisma.$queryRaw as unknown as Mock;
 
 function createRequest(body: unknown): NextRequest {
   return new NextRequest("http://localhost:3000/api/admin/users/user-2/assignments", {
@@ -150,6 +152,7 @@ describe("DELETE /api/admin/users/[id]/assignments", () => {
     mockAuditCreate.mockResolvedValue({});
     mockNotificationCreate.mockResolvedValue({});
     mockCount.mockResolvedValue(2);
+    mockQueryRaw.mockResolvedValue([]);
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(prisma));
   });
 
@@ -239,6 +242,19 @@ describe("DELETE /api/admin/users/[id]/assignments", () => {
 
     expect(response.status).toBe(200);
     expect(mockCount).not.toHaveBeenCalled();
+    expect(mockQueryRaw).not.toHaveBeenCalled();
+  });
+
+  it("locks the ADMIN rowset before counting, only on the ADMIN branch", async () => {
+    mockFindUnique.mockResolvedValue({ userId: "user-2", assignment: "ADMIN" });
+    mockDelete.mockResolvedValue({ userId: "user-2", assignment: "ADMIN" });
+    mockCount.mockResolvedValue(2);
+
+    const response = await DELETE(deleteRequest({ assignment: "ADMIN" }), routeContext("user-2"));
+
+    expect(response.status).toBe(200);
+    expect(mockQueryRaw).toHaveBeenCalledOnce();
+    expect(mockQueryRaw.mock.invocationCallOrder[0]).toBeLessThan(mockCount.mock.invocationCallOrder[0]);
   });
 
   it("allows revoking an ADMIN assignment when more than one ADMIN holder remains", async () => {

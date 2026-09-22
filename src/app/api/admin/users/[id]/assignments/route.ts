@@ -88,6 +88,20 @@ export const DELETE = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequ
   try {
     await prisma.$transaction(async (tx) => {
       if (assignment === "ADMIN") {
+        // The contended resource is ADMIN headcount, not this row -- a second,
+        // different admin's ADMIN assignment is a different row entirely and
+        // would sail straight past a lock on this one. Locking the whole
+        // ADMIN rowset is what serialises two admins concurrently revoking
+        // two DIFFERENT admins' ADMIN assignment at once. Without it: the
+        // count below is a plain SELECT with no row to lock, these
+        // transactions run at Postgres's default READ COMMITTED (no
+        // isolationLevel set anywhere in this repo), and each transaction
+        // only locks its own UserAssignment row via the delete further down
+        // -- so two concurrent revokes of two different admins would each
+        // read the same pre-revoke count, each pass the check below, and
+        // both commit, leaving zero ADMINs.
+        await tx.$queryRaw`SELECT "userId" FROM "UserAssignment" WHERE assignment = 'ADMIN' FOR UPDATE`;
+
         const adminCount = await tx.userAssignment.count({ where: { assignment: "ADMIN" } });
         if (adminCount <= 1) {
           throw new LastAdminAssignmentError();
