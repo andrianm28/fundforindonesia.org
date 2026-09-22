@@ -27,3 +27,15 @@ export function toLifecycleStatus(status: string): CampaignStatus {
   }
   return mapped;
 }
+
+/**
+ * Single enforcement point for "only ACTIVE accepts a Donation".
+ * POST /api/donations is the only caller. The argument is the whole
+ * campaign row as selected, so the gate reads the enum that writers
+ * maintain, never the legacy string.
+ */
+export function campaignAcceptsDonations(campaign: {
+  lifecycleStatus: CampaignStatus;
+}): boolean {
+  return campaign.lifecycleStatus === CampaignStatus.ACTIVE;
+}
