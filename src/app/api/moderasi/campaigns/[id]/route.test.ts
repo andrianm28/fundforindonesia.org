@@ -13,8 +13,8 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-vi.mock('@/lib/withRoleCheck', () => ({
-  withRoleCheck: (_role: string, handler: unknown) => handler,
+vi.mock('@/lib/withAssignmentCheck', () => ({
+  withAssignmentCheck: (_assignment: string, handler: unknown) => handler,
 }));
 
 import { PATCH } from './route';

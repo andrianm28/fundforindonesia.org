@@ -171,7 +171,7 @@ const FULL_BALANCE_ROWS: LedgerRow[] = [
 describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
     mockCampaignFindUnique.mockResolvedValue({ id: 'campaign-1' });
     mockPayoutFindUnique.mockResolvedValue({ campaignId: 'campaign-1' });
     mockGetPaymentProvider.mockReturnValue({
@@ -193,8 +193,15 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('returns 403 for MODERATOR, which sits below ADMIN', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', role: 'MODERATOR' } });
+  it('returns 403 for a Verifier who does not hold the Admin assignment', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', role: 'MODERATOR', assignments: ['VERIFIER'] } });
+    const response = await POST(createRequest(), routeContext());
+    expect(response.status).toBe(403);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for an ADMIN-ranked user who does not hold the ADMIN assignment', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-1', role: 'ADMIN', assignments: [] } });
     const response = await POST(createRequest(), routeContext());
     expect(response.status).toBe(403);
     expect(mockTransaction).not.toHaveBeenCalled();
@@ -236,7 +243,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
 
   it('refuses self-approval with 403 and leaves the payout completely untouched', async () => {
     // The requester and the approver are the same person.
-    mockGetServerSession.mockResolvedValue({ user: { id: 'creator-1', role: 'ADMIN' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'creator-1', role: 'ADMIN', assignments: ['ADMIN'] } });
     const { tx, updateMany, queryRaw } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 

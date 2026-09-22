@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { withRoleCheck } from '@/lib/withRoleCheck';
+import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { Assignment } from '@/generated/prisma/client';
 import {
   approvePayout,
   BankAccountNotEligibleError,
@@ -12,15 +13,15 @@ import {
 } from '@/lib/money/payouts';
 
 /**
- * POST /api/campaigns/[slug]/payouts/[id]/approve -- ADMIN approves a DRAFT
- * payout and releases it in the same action.
+ * POST /api/campaigns/[slug]/payouts/[id]/approve -- an Admin approves a
+ * DRAFT payout and releases it in the same action.
  *
- * withRoleCheck('ADMIN') gates on role only and does not pass the session to
- * the handler, so getServerSession is called again here to learn who is
- * approving -- that identity is what the two-person check in
- * approvePayout compares against requestedById.
+ * withAssignmentCheck(Assignment.ADMIN) gates on the assignment only and
+ * does not pass the session to the handler, so getServerSession is called
+ * again here to learn who is approving -- that identity is what the
+ * two-person check in approvePayout compares against requestedById.
  */
-export const POST = withRoleCheck('ADMIN', async (_request: NextRequest, context: any) => {
+export const POST = withAssignmentCheck(Assignment.ADMIN, async (_request: NextRequest, context: any) => {
   const { slug, id } = await context.params;
   const session = await getServerSession();
   const approvedById = session!.user!.id as string;

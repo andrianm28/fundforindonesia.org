@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
-import { isAtLeast } from "@/lib/roles";
+import { hasAssignment } from "@/lib/withAssignmentCheck";
+import { Assignment } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export default async function ModerasiPage() {
   const session = await getServerSession();
 
-  if (!session?.user || !isAtLeast(session.user.role, "MODERATOR")) {
+  if (!session?.user || !hasAssignment(session.user.assignments, Assignment.VERIFIER)) {
     redirect("/");
   }
 

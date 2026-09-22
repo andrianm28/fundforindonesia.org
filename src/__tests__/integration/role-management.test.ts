@@ -43,10 +43,10 @@ describe('Role Management Integration Tests', () => {
       // First call from withRoleCheck, second call from inside the handler
       mockGetServerSession
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         })
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         });
 
       mockUserUpdate.mockResolvedValue({
@@ -92,10 +92,10 @@ describe('Role Management Integration Tests', () => {
     it('should persist CAMPAIGN_CREATOR role correctly', async () => {
       mockGetServerSession
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         })
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         });
 
       mockUserUpdate.mockResolvedValue({
@@ -138,10 +138,10 @@ describe('Role Management Integration Tests', () => {
     it('should create a notification for the affected user when role changes', async () => {
       mockGetServerSession
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         })
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         });
 
       mockUserUpdate.mockResolvedValue({
@@ -183,10 +183,10 @@ describe('Role Management Integration Tests', () => {
     it('should create notification with correct role name for ADMIN upgrade', async () => {
       mockGetServerSession
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         })
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         });
 
       mockUserUpdate.mockResolvedValue({
@@ -292,10 +292,10 @@ describe('Role Management Integration Tests', () => {
     it('should return 400 for invalid role string', async () => {
       mockGetServerSession
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         })
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         });
 
       const req = createRequest('/api/admin/users/user-1/role', {
@@ -317,10 +317,10 @@ describe('Role Management Integration Tests', () => {
     it('should return 400 when role is missing from body', async () => {
       mockGetServerSession
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         })
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         });
 
       const req = createRequest('/api/admin/users/user-1/role', {
@@ -342,10 +342,10 @@ describe('Role Management Integration Tests', () => {
     it('should return 400 for empty string role', async () => {
       mockGetServerSession
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         })
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         });
 
       const req = createRequest('/api/admin/users/user-1/role', {
@@ -370,10 +370,10 @@ describe('Role Management Integration Tests', () => {
     it('should return 400 when admin tries to demote themselves', async () => {
       mockGetServerSession
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         })
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         });
 
       const req = createRequest('/api/admin/users/admin-1/role', {
@@ -395,10 +395,10 @@ describe('Role Management Integration Tests', () => {
     it('should allow admin to keep their own ADMIN role', async () => {
       mockGetServerSession
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         })
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         });
 
       mockUserUpdate.mockResolvedValue({
@@ -426,10 +426,10 @@ describe('Role Management Integration Tests', () => {
     it('should return 400 when admin tries to set own role to DONOR', async () => {
       mockGetServerSession
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         })
         .mockResolvedValueOnce({
-          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN' },
+          user: { id: 'admin-1', email: 'admin@kitabisa.com', name: 'Admin', role: 'ADMIN', assignments: ['ADMIN'] },
         });
 
       const req = createRequest('/api/admin/users/admin-1/role', {
