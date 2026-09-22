@@ -1,6 +1,6 @@
 # Fund for Indonesia
 
-Platform social impact yang dioperasikan PT Jaya Korpora Prima, menyatukan donasi, galang dana, zakat, wakaf, kolaborasi CSR, dan volunteer dalam satu akun dan satu riwayat dampak. Yayasan Indonesia Emas Merdeka (YIEM) adalah organisasi program pertama di atasnya, bukan pemilik platform. Konteks ini mencakup seluruh produk; istilah di bawah berlaku di PRD, kode, dan percakapan tim.
+Platform social impact yang dioperasikan PT Jaya Korpora Prima, menyatukan donasi, galang dana, zakat, wakaf, hibah, dan kolaborasi CSR dalam satu akun dan satu riwayat dampak. Volunteer tetap ada di produk sebagai jalur non-uang tanpa slot menu utama; lihat Volunteer Event di bawah. Yayasan Indonesia Emas Merdeka (YIEM) adalah organisasi program pertama di atasnya, bukan pemilik platform. Konteks ini mencakup seluruh produk; istilah di bawah berlaku di PRD, kode, dan percakapan tim.
 
 ## Language
 
@@ -15,11 +15,15 @@ Tahap hidup Campaign: Draft, Submitted, Rejected, Active, Suspended, Cancelled, 
 _Avoid_: State, pending, published
 
 **Kind**:
-Jenis Campaign yang menentukan aturan uangnya: `donation`, `zakat`, atau `wakaf`. Kind menentukan Platform Fee default dan dokumen yang wajib ada.
+Jenis Campaign yang menentukan aturan uangnya: `donation`, `zakat`, `wakaf`, atau `hibah`. Kind menentukan Platform Fee default dan dokumen yang wajib ada.
 _Avoid_: Type, jenis campaign, kategori (Category adalah hal lain)
 
+**Hibah**:
+Kind Campaign untuk pemberian atau hibah institusional yang bukan zakat maupun wakaf: dananya ditransfer untuk tujuan tertentu, berbeda dari Wakaf yang mengikat aset itu selamanya. Perlakuan uangnya — kebutuhan Kind Authorisation, batas Refund, Platform Fee default — sementara mengikuti pola `wakaf` sampai ditinjau ulang terhadap ketentuan syariah yang berlaku; ini asumsi sementara, bukan keputusan final.
+_Avoid_: Grant (di kode), donasi terarah, sumbangan
+
 **Kind Authorisation**:
-Izin bertanggal hasil verifikasi yang diberikan Verifier kepada sebuah Partner Organisation untuk membuat Campaign ber-Kind `zakat` atau `wakaf`, berdasarkan dokumen lembaga yang ketentuannya ditetapkan Platform Operator. Saat tanggalnya lewat, Campaign ber-Kind itu berhenti menerima Donation sampai izinnya diperpanjang. Fundraiser perorangan hanya boleh `donation`.
+Izin bertanggal hasil verifikasi yang diberikan Verifier kepada sebuah Partner Organisation untuk membuat Campaign ber-Kind `zakat`, `wakaf`, atau `hibah`, berdasarkan dokumen lembaga yang ketentuannya ditetapkan Platform Operator. Saat tanggalnya lewat, Campaign ber-Kind itu berhenti menerima Donation sampai izinnya diperpanjang. Fundraiser perorangan hanya boleh `donation`.
 _Avoid_: Amil flag, nazhir flag, permission
 
 **Category**:
