@@ -6,6 +6,13 @@ import { getServerSession } from "@/lib/auth";
 
 const VALID_ASSIGNMENTS: Assignment[] = ["VERIFIER", "ADMIN"];
 
+class LastAdminAssignmentError extends Error {
+  constructor() {
+    super("Cannot revoke the last ADMIN assignment.");
+    this.name = "LastAdminAssignmentError";
+  }
+}
+
 export const POST = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest, context: any) => {
   const { id } = await context.params;
   const body = await req.json();
@@ -18,19 +25,21 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (req: NextReques
   const session = await getServerSession();
   const actedById = session!.user.id as string;
 
-  await prisma.userAssignment.upsert({
-    where: { userId_assignment: { userId: id, assignment: assignment as Assignment } },
-    create: { userId: id, assignment: assignment as Assignment },
-    update: {},
-  });
+  await prisma.$transaction(async (tx) => {
+    await tx.userAssignment.upsert({
+      where: { userId_assignment: { userId: id, assignment: assignment as Assignment } },
+      create: { userId: id, assignment: assignment as Assignment },
+      update: {},
+    });
 
-  await prisma.assignmentAuditEntry.create({
-    data: {
-      userId: id,
-      assignment: assignment as Assignment,
-      action: "GRANTED",
-      actedById,
-    },
+    await tx.assignmentAuditEntry.create({
+      data: {
+        userId: id,
+        assignment: assignment as Assignment,
+        action: "GRANTED",
+        actedById,
+      },
+    });
   });
 
   await prisma.notification.create({
@@ -76,18 +85,34 @@ export const DELETE = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequ
     );
   }
 
-  await prisma.userAssignment.delete({
-    where: { userId_assignment: { userId: id, assignment: assignment as Assignment } },
-  });
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (assignment === "ADMIN") {
+        const adminCount = await tx.userAssignment.count({ where: { assignment: "ADMIN" } });
+        if (adminCount <= 1) {
+          throw new LastAdminAssignmentError();
+        }
+      }
 
-  await prisma.assignmentAuditEntry.create({
-    data: {
-      userId: id,
-      assignment: assignment as Assignment,
-      action: "REVOKED",
-      actedById,
-    },
-  });
+      await tx.userAssignment.delete({
+        where: { userId_assignment: { userId: id, assignment: assignment as Assignment } },
+      });
+
+      await tx.assignmentAuditEntry.create({
+        data: {
+          userId: id,
+          assignment: assignment as Assignment,
+          action: "REVOKED",
+          actedById,
+        },
+      });
+    });
+  } catch (error) {
+    if (error instanceof LastAdminAssignmentError) {
+      return NextResponse.json({ error: "Cannot revoke the last ADMIN assignment" }, { status: 400 });
+    }
+    throw error;
+  }
 
   await prisma.notification.create({
     data: {
