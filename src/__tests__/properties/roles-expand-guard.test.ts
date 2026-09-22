@@ -30,6 +30,7 @@ const HIERARCHY_GUARDED_ROUTES = [
 
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/reconcile/route.ts",
+  "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/[id]/role/route.ts",
   "src/app/api/admin/users/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",

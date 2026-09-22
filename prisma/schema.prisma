@@ -48,6 +48,8 @@ model User {
   notifications Notification[]
   autoDonations AutoDonation[]
   assignments   UserAssignment[]
+  assignmentAuditsAsSubject AssignmentAuditEntry[] @relation("AssignmentAuditSubject")
+  assignmentAuditsAsActor   AssignmentAuditEntry[] @relation("AssignmentAuditActor")
 
   // Money layer
   bankAccounts     BankAccount[]
@@ -72,6 +74,32 @@ model UserAssignment {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, assignment])
+  @@index([assignment])
+}
+
+enum AssignmentAuditAction {
+  GRANTED
+  REVOKED
+}
+
+/// One row per grant or revoke event, kept even after the UserAssignment
+/// row itself is deleted on revoke. This is what lets granting, revoking,
+/// and regranting the same assignment keep its full history -- a
+/// soft-delete on UserAssignment itself would not, since that model's
+/// composite primary key assumes one row per currently-held assignment.
+model AssignmentAuditEntry {
+  id         String                @id @default(cuid())
+  userId     String
+  assignment Assignment
+  action     AssignmentAuditAction
+  actedById  String
+  actedAt    DateTime              @default(now())
+
+  // Relations
+  user    User @relation("AssignmentAuditSubject", fields: [userId], references: [id], onDelete: Cascade)
+  actedBy User @relation("AssignmentAuditActor", fields: [actedById], references: [id])
+
+  @@index([userId])
   @@index([assignment])
 }
 
