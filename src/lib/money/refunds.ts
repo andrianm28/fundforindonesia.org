@@ -86,9 +86,19 @@ export class InvalidRefundStatusError extends Error {
   }
 }
 
-/** Integer-safe ceiling division -- every proportional fee split rounds up, never down. */
-function ceilDiv(numerator: number, denominator: number): number {
-  return Math.ceil(numerator / denominator);
+/**
+ * Integer-safe ceiling division of `a * b / c`, entirely in BigInt space --
+ * every proportional fee split rounds up, never down. `a * b` is computed
+ * here, inside BigInt, rather than by the caller in plain JS number space:
+ * a providerFee * refund.amount product routinely exceeds 2^53 for
+ * realistic Rupiah amounts (e.g. a Rp 1 billion payment), and once that
+ * multiplication has already happened as a JS float, converting the
+ * (already-imprecise) result via BigInt(...) cannot recover what was lost.
+ */
+function ceilMulDiv(a: number, b: number, c: number): number {
+  const numerator = BigInt(a) * BigInt(b);
+  const denominator = BigInt(c);
+  return Number((numerator + denominator - BigInt(1)) / denominator);
 }
 
 type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'escrowReleasedAt'> & {
@@ -208,7 +218,7 @@ export async function createRefund(
   await postTransaction(
     tx,
     refundRequestedLegs({ subject, amount, source }),
-    { refundId: refund.id, paymentId, transactionId: `refund-requested-${refund.id}` },
+    { refundId: refund.id, transactionId: `refund-requested-${refund.id}` },
   );
 
   return refund;
@@ -217,9 +227,9 @@ export async function createRefund(
 /**
  * A different Admin approves a REQUESTED Refund: posts the gross-
  * recognition settlement and lands on APPROVED. See refundApprovedLegs
- * (./ledger.ts) for the exact debit math and why "the three debits sum to
- * exactly amount" is the authoritative constraint over the spec's own
- * looser prose.
+ * (./ledger.ts) for the exact debit/credit math -- it closes FROZEN_BALANCE
+ * in full and tops the source pool back up for whatever the platform
+ * absorbs (the fee portion, always, plus any genuine shortfall).
  */
 export async function approveRefund(
   prisma: PrismaClient,
@@ -268,10 +278,17 @@ export async function approveRefund(
     // amount / payment.amount. Hardcoded, not derived, until such a field
     // exists; see the doc comment on refundApprovedLegs.
     const platformFeePortion = 0;
-    const rawProviderFeePortion = ceilDiv(payment.providerFee * refund.amount, payment.amount);
+    const rawProviderFeePortion = ceilMulDiv(payment.providerFee, refund.amount, payment.amount);
     const providerFeePortion = Math.min(rawProviderFeePortion, refund.amount - platformFeePortion);
-    const recoverableFromFrozen = refund.amount - platformFeePortion - providerFeePortion;
-    const shortfall = poolBalance < 0 ? Math.min(-poolBalance, recoverableFromFrozen) : 0;
+    const combinedFeePortion = platformFeePortion + providerFeePortion;
+    const netPortion = refund.amount - combinedFeePortion;
+    // The freeze always over-draws the pool by combinedFeePortion, because
+    // paymentSettledLegs never credited the fee portion to it -- a pool
+    // reading of exactly -combinedFeePortion right now is the expected,
+    // healthy outcome, not insolvency. Only a MORE negative reading means
+    // the pool genuinely couldn't cover its fair net share either (e.g. a
+    // Payout already drained it).
+    const shortfall = Math.min(Math.max(0, -poolBalance - combinedFeePortion), netPortion);
 
     const claimed = await tx.refund.updateMany({
       where: { id: refundId, status: 'REQUESTED' },
@@ -286,11 +303,12 @@ export async function approveRefund(
       refundApprovedLegs({
         subject,
         amount: refund.amount,
+        source,
         platformFeePortion,
         providerFeePortion,
         shortfall,
       }),
-      { refundId: refund.id, paymentId: refund.paymentId, transactionId: `refund-approved-${refund.id}` },
+      { refundId: refund.id, transactionId: `refund-approved-${refund.id}` },
     );
   });
 

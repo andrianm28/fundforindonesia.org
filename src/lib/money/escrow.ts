@@ -207,9 +207,9 @@ export async function releaseMaturedEscrow(subject?: ReleaseSweepSubject): Promi
 
         // Every refund against THIS payment, whatever its status. Refund.paymentId
         // is what ties a refund back to the specific payment it came out of
-        // (refundLegs, ./ledger.ts, posts against a refundId, not a paymentId, so
-        // the ledger itself cannot answer this -- the Refund row is what's
-        // joined here).
+        // (refundRequestedLegs/refundApprovedLegs, ./ledger.ts, post against a
+        // refundId, never a paymentId, so the ledger itself cannot answer this --
+        // the Refund row is what's joined here).
         const refunds = await tx.refund.findMany({
           where: { paymentId: payment.id },
           select: { amount: true, status: true },

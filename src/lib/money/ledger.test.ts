@@ -285,7 +285,7 @@ describe('ledger invariants (property-based)', () => {
             escrowReleaseLegs({ subject, amount: gross }),
             refundRequestedLegs({ subject, amount: gross, source: 'ESCROW_HOLD' }),
             refundRequestedLegs({ subject, amount: gross, source: balanceAccount }),
-            refundApprovedLegs({ subject, amount: gross, platformFeePortion: 0, providerFeePortion: fee, shortfall }),
+            refundApprovedLegs({ subject, amount: gross, source: balanceAccount, platformFeePortion: 0, providerFeePortion: fee, shortfall }),
             payoutInstructedLegs({ subject, amount: gross }),
           ]) {
             const d = legs.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + l.amount, 0);
@@ -325,15 +325,16 @@ describe('ledger invariants (property-based)', () => {
     );
     await postTransaction(
       tx as never,
-      refundApprovedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, platformFeePortion: 0, providerFeePortion: 3_000, shortfall: 0 }),
+      refundApprovedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', platformFeePortion: 0, providerFeePortion: 3_000, shortfall: 0 }),
     );
-    // The rest matures.
-    await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 385_000 }));
+    // The settlement's fee-share correction credits 3_000 back into
+    // ESCROW_HOLD (385_000 + 3_000 = 388_000), so that is what matures.
+    await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 388_000 }));
     // Rp 200.000 paid out.
     await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 200_000 }));
 
     expect(await escrowBalance(tx as never, 'c1')).toBe(0);
-    expect(await campaignBalance(tx as never, 'c1')).toBe(385_000 - 200_000);
+    expect(await campaignBalance(tx as never, 'c1')).toBe(188_000);
     expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
   });
 });

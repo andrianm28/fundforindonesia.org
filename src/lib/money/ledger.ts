@@ -128,8 +128,8 @@ function assertLegsValid(legs: LedgerLeg[]): void {
     // ESCROW_HOLD is shared by both subjects, so only CAMPAIGN_BALANCE and
     // TRIP_BALANCE are pinned to their own FK below -- otherwise a leg built
     // with a campaign subject but a TRIP_BALANCE (or vice versa) account,
-    // e.g. a mismatched refundLegs({ subject, source }) call, would carry
-    // the wrong subject's FK and post invisibly to every balance query.
+    // e.g. a mismatched refundRequestedLegs({ subject, source }) call, would
+    // carry the wrong subject's FK and post invisibly to every balance query.
     if (leg.account === 'CAMPAIGN_BALANCE' && !leg.campaignId) {
       throw new InvalidLedgerLegError(`${leg.account} requires a campaignId.`);
     }
@@ -403,42 +403,47 @@ export function refundRequestedLegs(params: {
 
 /**
  * The PRD's gross-recognition posting when a Refund is approved. Closes out
- * FROZEN_BALANCE (opened by refundRequestedLegs above) and recognizes, as
- * separate lines, exactly how the refunded Gross splits between what the
- * subject's own frozen funds cover and what the platform absorbs.
+ * FROZEN_BALANCE (opened by refundRequestedLegs above) in full, and
+ * recognizes the platform's absorption as a top-up back into the source
+ * pool -- not as a bare expense recognition -- because the freeze already
+ * over-drew that pool by exactly the fee portion (paymentSettledLegs never
+ * credited the fee to it in the first place) plus any genuine shortfall.
  *
- *   DEBIT  FROZEN_BALANCE  amount - platformFeePortion - providerFeePortion - shortfall
- *   DEBIT  PLATFORM_FEE    platformFeePortion   (omitted when zero)
+ *   DEBIT  FROZEN_BALANCE  amount              (always the full amount -- this
+ *                                                fully closes what the freeze opened)
+ *   DEBIT  PLATFORM_FEE    platformFeePortion  (omitted when zero)
  *   DEBIT  REFUND_COST     providerFeePortion + shortfall   (omitted when zero)
  *   CREDIT REFUND_CLEARING amount
+ *   CREDIT <source>        platformFeePortion + providerFeePortion + shortfall
+ *                                               (omitted when zero -- tops the
+ *                                                source pool back up for what
+ *                                                the platform is absorbing)
  *
- * The three debits sum to exactly `amount` -- this is the literal, load-
- * bearing constraint the spec states explicitly, and it is what makes
- * "debits FROZEN_BALANCE for the refunded amount" in the spec's own prose
- * necessarily a loose paraphrase rather than a literal `amount`: three
- * legs that were each independently `amount`-sized could never also sum to
- * `amount` once a fee portion is nonzero.
+ * Debits and credits both sum to `amount + platformFeePortion +
+ * providerFeePortion + shortfall`. This is NOT "three debits summing to
+ * exactly amount" (an earlier, arithmetically-inconsistent draft of this
+ * function tried that, and it silently double-counted the Provider Fee and
+ * left the source pool permanently negative -- see the fix that replaced
+ * it). ADR 0007's actual requirement -- donor gets the full Gross, platform
+ * absorbs what it must, books stay balanced -- is what this satisfies;
+ * "which specific legs sum to which number" is downstream of that, not the
+ * other way around.
  *
- * `platformFeePortion` and `providerFeePortion` are the proportional shares
- * of Gross being refunded (amount / payment.amount), rounded up, computed
- * by the caller (./refunds.ts) -- never here, since this function only
- * assembles legs from numbers it's given, matching every other builder in
- * this file. `shortfall` is additional platform absorption for the case
- * where the subject's pool, recomputed under lock at settlement, has gone
- * negative from the freeze debit (a Campaign that already spent most of its
- * balance via Payout before this Refund's freeze landed) -- it is added
- * onto REFUND_COST's debit, and subtracted from FROZEN_BALANCE's, so the
- * three-debits-sum-to-amount invariant holds regardless of whether a
- * shortfall exists.
+ * `source` must be the SAME account refundRequestedLegs debited for this
+ * Refund (ESCROW_HOLD if the Payment's escrow hadn't matured at freeze
+ * time, else the withdrawable balance) -- re-derived fresh by the caller
+ * (./refunds.ts), since escrow can mature between request and approval and
+ * this function only cares about where the pool sits at settlement.
  */
 export function refundApprovedLegs(params: {
   subject: LedgerSubject;
   amount: number;
+  source: 'ESCROW_HOLD' | 'CAMPAIGN_BALANCE' | 'TRIP_BALANCE';
   platformFeePortion: number;
   providerFeePortion: number;
   shortfall: number;
 }): LedgerLeg[] {
-  const { subject, amount, platformFeePortion, providerFeePortion, shortfall } = params;
+  const { subject, amount, source, platformFeePortion, providerFeePortion, shortfall } = params;
   const combinedFeePortion = platformFeePortion + providerFeePortion;
   if (combinedFeePortion > amount) {
     throw new InvalidLedgerLegError(
@@ -446,18 +451,21 @@ export function refundApprovedLegs(params: {
         `exceed the refunded amount ${amount} -- refusing to post a settlement that would debit FROZEN_BALANCE negative.`,
     );
   }
-  const frozenBalanceDebit = amount - combinedFeePortion - shortfall;
-  const refundCostDebit = providerFeePortion + shortfall;
 
-  const legs: LedgerLeg[] = [{ account: 'REFUND_CLEARING', direction: 'CREDIT', amount }];
-  if (frozenBalanceDebit > 0) {
-    legs.push({ account: 'FROZEN_BALANCE', direction: 'DEBIT', amount: frozenBalanceDebit, ...subjectFk(subject) });
-  }
+  const legs: LedgerLeg[] = [
+    { account: 'REFUND_CLEARING', direction: 'CREDIT', amount },
+    { account: 'FROZEN_BALANCE', direction: 'DEBIT', amount, ...subjectFk(subject) },
+  ];
   if (platformFeePortion > 0) {
     legs.push({ account: 'PLATFORM_FEE', direction: 'DEBIT', amount: platformFeePortion });
   }
-  if (refundCostDebit > 0) {
-    legs.push({ account: 'REFUND_COST', direction: 'DEBIT', amount: refundCostDebit });
+  const refundCostPortion = providerFeePortion + shortfall;
+  if (refundCostPortion > 0) {
+    legs.push({ account: 'REFUND_COST', direction: 'DEBIT', amount: refundCostPortion });
+  }
+  const platformCorrection = combinedFeePortion + shortfall;
+  if (platformCorrection > 0) {
+    legs.push({ account: source, direction: 'CREDIT', amount: platformCorrection, ...subjectFk(subject) });
   }
   return legs;
 }

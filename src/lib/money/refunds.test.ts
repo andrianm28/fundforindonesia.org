@@ -214,11 +214,19 @@ describe('createRefund', () => {
     ).rejects.toThrow(PaymentNotFoundError);
   });
 
-  it('throws PaymentSubjectMismatchError when the Payment is Campaign-linked but a Trip subject is given', async () => {
+  it('throws PaymentSubjectMismatchError when the Payment belongs to a different Campaign than the subject given', async () => {
     const { tx } = makeTx({ payment: makePayment({ donation: { campaignId: 'a-different-campaign' } }) });
 
     await expect(
       createRefund(tx as never, { subject: { type: 'campaign', campaignId: 'campaign-1' }, paymentId: 'payment-1', amount: 1, reason: 'x', requestedById: 'admin-1' }),
+    ).rejects.toThrow(PaymentSubjectMismatchError);
+  });
+
+  it('throws PaymentSubjectMismatchError when the Payment is Campaign-linked but a Trip subject is given', async () => {
+    const { tx } = makeTx({ payment: makePayment() });
+
+    await expect(
+      createRefund(tx as never, { subject: { type: 'trip', tripId: 'trip-1' }, paymentId: 'payment-1', amount: 1, reason: 'x', requestedById: 'admin-1' }),
     ).rejects.toThrow(PaymentSubjectMismatchError);
   });
 
@@ -299,11 +307,16 @@ describe('approveRefund', () => {
     expect(posted.some((r) => r.account === 'REFUND_COST')).toBe(false);
   });
 
-  it('splits a full refund with a nonzero Provider Fee: FROZEN_BALANCE gets the net, REFUND_COST gets the fee', async () => {
-    // Gross 100_000, Provider Fee 5_000 -- refundApprovedLegs must debit
-    // FROZEN_BALANCE 95_000 and REFUND_COST 5_000, summing to exactly 100_000.
+  it('splits a full refund with a nonzero Provider Fee: FROZEN_BALANCE closes in full, REFUND_COST gets the fee, and the source pool is topped back up', async () => {
+    // Gross 100_000, Provider Fee 5_000. The freeze debited ESCROW_HOLD the
+    // full 100_000, but paymentSettledLegs only ever credited it the NET
+    // 95_000 -- so settle-1 here is 95_000, the real NET credited, not the
+    // Gross. refundApprovedLegs debits FROZEN_BALANCE 100_000 (closing the
+    // freeze in full), debits REFUND_COST exactly 5_000 (the fee, not
+    // double-counted), and credits ESCROW_HOLD back 5_000 so the pool ends
+    // up exactly where it started (95_000 credited, 95_000 debited net).
     const ledgerRows: LedgerRow[] = [
-      { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      { transactionId: 'settle-1', direction: 'CREDIT', amount: 95_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
       { transactionId: 'freeze-1', direction: 'DEBIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
     ];
     const refundRow = baseRefundRow({ amount: 100_000, payment: makePayment({ amount: 100_000, providerFee: 5_000 }) });
@@ -313,19 +326,26 @@ describe('approveRefund', () => {
     await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
 
     const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
-    expect(posted.find((r) => r.account === 'FROZEN_BALANCE')).toMatchObject({ direction: 'DEBIT', amount: 95_000 });
+    expect(posted.find((r) => r.account === 'FROZEN_BALANCE')).toMatchObject({ direction: 'DEBIT', amount: 100_000 });
     expect(posted.find((r) => r.account === 'REFUND_COST')).toMatchObject({ direction: 'DEBIT', amount: 5_000 });
     expect(posted.find((r) => r.account === 'REFUND_CLEARING')).toMatchObject({ direction: 'CREDIT', amount: 100_000 });
+    expect(posted.find((r) => r.account === 'ESCROW_HOLD' && r.direction === 'CREDIT')).toMatchObject({ amount: 5_000 });
     const debitTotal = posted.filter((r) => r.direction === 'DEBIT').reduce((s, r) => s + r.amount, 0);
-    expect(debitTotal).toBe(100_000);
+    const creditTotal = posted.filter((r) => r.direction === 'CREDIT').reduce((s, r) => s + r.amount, 0);
+    expect(debitTotal).toBe(creditTotal);
+    expect(debitTotal).toBe(105_000);
+    const escrowRows = rows.filter((r) => r.account === 'ESCROW_HOLD' && r.campaignId === 'campaign-1');
+    const escrowNet = escrowRows.reduce((s, r) => s + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+    expect(escrowNet).toBe(0); // FROZEN_BALANCE's fee-share correction returns the source pool to exactly where it started
   });
 
   it('rounds the proportional Provider Fee UP on a partial refund', async () => {
     // Gross 100_000, Provider Fee 3_333, refunding half (50_000): the
     // proportional share is 3_333 * 50_000 / 100_000 = 1_666.5, rounded up
     // to 1_667 -- a known literal, not recomputed the same way as the code.
+    // settle-1 credits the real NET (100_000 - 3_333 = 96_667), not the Gross.
     const ledgerRows: LedgerRow[] = [
-      { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      { transactionId: 'settle-1', direction: 'CREDIT', amount: 96_667, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
       { transactionId: 'freeze-1', direction: 'DEBIT', amount: 50_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
     ];
     const refundRow = baseRefundRow({ amount: 50_000, payment: makePayment({ amount: 100_000, providerFee: 3_333 }) });
@@ -336,16 +356,21 @@ describe('approveRefund', () => {
 
     const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
     expect(posted.find((r) => r.account === 'REFUND_COST')).toMatchObject({ amount: 1_667 });
-    expect(posted.find((r) => r.account === 'FROZEN_BALANCE')).toMatchObject({ amount: 48_333 });
+    expect(posted.find((r) => r.account === 'FROZEN_BALANCE')).toMatchObject({ amount: 50_000 });
+    expect(posted.find((r) => r.account === 'ESCROW_HOLD' && r.direction === 'CREDIT')).toMatchObject({ amount: 1_667 });
   });
 
   it('folds a shortfall into REFUND_COST when the subject pool has gone negative from the freeze, never driving FROZEN_BALANCE debit below zero', async () => {
-    // CAMPAIGN_BALANCE holds only 10_000 after the freeze already debited it
-    // by the full 100_000 Gross (net credited was 95_000, an 85_000 Payout
-    // already went out). recoverableFromFrozen = 100_000 - 5_000 = 95_000;
-    // poolBalance = -90_000; shortfall = min(90_000, 95_000) = 90_000.
-    // FROZEN_BALANCE debit = 95_000 - 90_000 = 5_000. REFUND_COST debit =
-    // 5_000 (provider fee) + 90_000 (shortfall) = 95_000. Sum = 100_000.
+    // CAMPAIGN_BALANCE holds 10_000 after the freeze already debited it by
+    // the full 100_000 Gross (net credited was 95_000, an 85_000 Payout
+    // already went out): poolBalance = 95_000 - 85_000 - 100_000 = -90_000.
+    // combinedFeePortion = 5_000 (provider fee only, platform fee is 0).
+    // shortfall = min(max(0, 90_000 - 5_000), netPortion=95_000) = 85_000.
+    // FROZEN_BALANCE debits the full 100_000 (closing it out). REFUND_COST =
+    // 5_000 (fee) + 85_000 (real shortfall) = 90_000. The matching CREDIT
+    // CAMPAIGN_BALANCE 90_000 brings the campaign's own balance from 10_000
+    // (before this refund) down to exactly 0 -- its true 10_000 economic
+    // stake in this refund, with the platform absorbing the other 90_000.
     const ledgerRows: LedgerRow[] = [
       { transactionId: 'settle-1', direction: 'CREDIT', amount: 95_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
       { transactionId: 'payout-1', direction: 'DEBIT', amount: 85_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
@@ -361,9 +386,10 @@ describe('approveRefund', () => {
     await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
 
     const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
-    expect(posted.find((r) => r.account === 'FROZEN_BALANCE')).toMatchObject({ amount: 5_000 });
-    expect(posted.find((r) => r.account === 'REFUND_COST')).toMatchObject({ amount: 95_000 });
+    expect(posted.find((r) => r.account === 'FROZEN_BALANCE')).toMatchObject({ amount: 100_000 });
+    expect(posted.find((r) => r.account === 'REFUND_COST')).toMatchObject({ amount: 90_000 });
     expect(posted.find((r) => r.account === 'REFUND_CLEARING')).toMatchObject({ amount: 100_000 });
+    expect(posted.find((r) => r.account === 'CAMPAIGN_BALANCE' && r.direction === 'CREDIT')).toMatchObject({ amount: 90_000 });
   });
 
   it('settles a Trip-linked refund debiting FROZEN_BALANCE with volunteerTripId, never touching a Campaign row', async () => {
@@ -382,6 +408,24 @@ describe('approveRefund', () => {
     expect(posted.find((r) => r.account === 'FROZEN_BALANCE')).toMatchObject({ volunteerTripId: 'trip-1' });
     expect(queryRawCalls.some((q) => q.includes('VolunteerTrip'))).toBe(true);
     expect(queryRawCalls.some((q) => q.includes('"Campaign"'))).toBe(false);
+  });
+
+  it('rounds up correctly even for amounts where naive float division would lose precision', async () => {
+    // providerFee * refund.amount = 30_000_001 * 970_000_001 = 29_100_001_000_000_001,
+    // not representable as a double -- Math.ceil(n/d) on floats silently
+    // returns 29_100_001 instead of the correct 29_100_002.
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 'settle-1', direction: 'CREDIT', amount: 969_999_999, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      { transactionId: 'freeze-1', direction: 'DEBIT', amount: 970_000_001, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+    ];
+    const refundRow = baseRefundRow({ amount: 970_000_001, payment: makePayment({ amount: 1_000_000_000, providerFee: 30_000_001 }) });
+    const { tx, rows } = makeTx({ ledgerRows, refundRow });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED' });
+
+    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+
+    const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
+    expect(posted.find((r) => r.account === 'REFUND_COST')).toMatchObject({ amount: 29_100_002 });
   });
 
   it('refuses self-approval', async () => {

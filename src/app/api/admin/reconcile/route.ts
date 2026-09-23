@@ -24,11 +24,12 @@ import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/l
  *    release against the campaign's shared ESCROW_HOLD balance -- see that
  *    function's own comment for why a cap there would be wrong, not merely
  *    absent. What is supposed to keep this account non-negative is that
- *    every release and every refund is bounded by what its own payment
- *    actually credited (refundLegs, ./ledger.ts, refuses an amount larger
- *    than that), and the balance checks in ./payouts.ts for
- *    CAMPAIGN_BALANCE; this is what would catch it if one of those was ever
- *    wrong.
+ *    every refund's approval (refundApprovedLegs, ./ledger.ts) tops the
+ *    source account back up for whatever the platform absorbs -- the
+ *    fee-driven over-draw the freeze always creates, plus any genuine
+ *    shortfall found under lock at settlement -- and the balance checks in
+ *    ./payouts.ts for CAMPAIGN_BALANCE; this is what would catch it if one
+ *    of those was ever wrong.
  *  - preLedger / mismatches: both compare Campaign.collectedAmount against
  *    what the ledger says this campaign has ever been credited, but they are
  *    reported separately because they mean different things. A campaign with
@@ -259,8 +260,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     );
 
     // (b) What a refund against each payment has actually debited. A
-    // refund's ESCROW_HOLD debit carries refundId, not paymentId (refundLegs,
-    // ./ledger.ts, is posted with PostOptions.refundId) -- so, the same way
+    // refund's ESCROW_HOLD debit carries refundId, not paymentId
+    // (refundRequestedLegs/refundApprovedLegs, ./ledger.ts, are posted with
+    // PostOptions.refundId, never paymentId) -- so, the same way
     // PROVIDER_FEE was attributed to a campaign above, this is joined
     // through Refund.paymentId rather than read off the ledger entry itself.
     const refundsOnReleasedPayments = releasedPaymentIds.length
