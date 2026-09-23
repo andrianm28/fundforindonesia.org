@@ -91,6 +91,7 @@ const SUBJECT_SCOPED: ReadonlySet<string> = new Set<string>([
   'ESCROW_HOLD',
   'CAMPAIGN_BALANCE',
   'TRIP_BALANCE',
+  'FROZEN_BALANCE',
 ]);
 
 function assertLegsValid(legs: LedgerLeg[]): void {
@@ -369,46 +370,96 @@ export function escrowReleaseLegs(params: { subject: LedgerSubject; amount: numb
 }
 
 /**
- * A refund going back to the donor.
+ * The immediate "seketika" freeze a Refund creates, moving money out of
+ * general circulation the moment an Admin creates it -- not later at
+ * approval -- so a Campaign or Trip cannot spend money that is already
+ * earmarked for return (e.g. by requesting a Payout against it) while the
+ * Refund is still pending.
  *
- *   DEBIT  <source>         amount   taken back off the campaign
- *   CREDIT REFUND_CLEARING  amount   on its way to the donor
+ *   DEBIT  <source>        amount   out of general circulation
+ *   CREDIT FROZEN_BALANCE  amount   earmarked, not withdrawable, not payable out
  *
- * The source is explicit because it changes which pot shrinks. A refund inside
- * the hold window must debit ESCROW_HOLD -- the money is still sitting there.
- * Always debiting CAMPAIGN_BALANCE would drive it negative while the escrow
- * account stayed full, and the campaign would appear to owe money it has not
- * been given yet.
- *
- * `amount` is a refund of the NET this payment actually credited -- the same
- * figure paymentSettledLegs credited to ESCROW_HOLD (grossAmount minus
- * providerFee), never the gross the donor paid. `creditedAmount` is that
- * figure, passed in by the caller (the payment's own `amount - providerFee`)
- * so this function can refuse a refund it did not actually receive: a full
- * refund posted at gross would debit `source` by exactly the provider fee
- * more than this payment ever credited it, driving the account negative by
- * that fee. Matches the same shape as paymentSettledLegs rejecting a
- * providerFee larger than the gross above -- an impossible amount is refused
- * here, not merely produced and left for a later reconciliation to notice.
+ * `source` is ESCROW_HOLD when the Payment's escrow hasn't matured yet, or
+ * the subject's withdrawable balance account when it has -- the same
+ * either/or `createRefund` (./refunds.ts) uses to pick it, read directly off
+ * Payment.escrowReleasedAt. This does NOT check whether `source` actually
+ * holds `amount`: both accounts are pooled across every Payment the subject
+ * has ever received, and a single Payment's own Gross can be larger than
+ * what it alone contributed net -- the pool, not this one Payment, is what
+ * has to cover it. approveRefund is what actually verifies the pool can,
+ * under a lock, at settlement (refundApprovedLegs below).
  */
-export function refundLegs(params: {
+export function refundRequestedLegs(params: {
   subject: LedgerSubject;
   amount: number;
   source: 'ESCROW_HOLD' | 'CAMPAIGN_BALANCE' | 'TRIP_BALANCE';
-  creditedAmount: number;
 }): LedgerLeg[] {
-  const { subject, amount, source, creditedAmount } = params;
-  if (amount > creditedAmount) {
-    throw new InvalidLedgerLegError(
-      `Refund amount ${amount} exceeds the ${creditedAmount} this payment actually credited ` +
-        `(the NET it credited, not the gross the donor paid) -- refusing to post a refund that ` +
-        `would drive ${source} negative by the difference.`,
-    );
-  }
+  const { subject, amount, source } = params;
   return [
     { account: source, direction: 'DEBIT', amount, ...subjectFk(subject) },
-    { account: 'REFUND_CLEARING', direction: 'CREDIT', amount },
+    { account: 'FROZEN_BALANCE', direction: 'CREDIT', amount, ...subjectFk(subject) },
   ];
+}
+
+/**
+ * The PRD's gross-recognition posting when a Refund is approved. Closes out
+ * FROZEN_BALANCE (opened by refundRequestedLegs above) and recognizes, as
+ * separate lines, exactly how the refunded Gross splits between what the
+ * subject's own frozen funds cover and what the platform absorbs.
+ *
+ *   DEBIT  FROZEN_BALANCE  amount - platformFeePortion - providerFeePortion - shortfall
+ *   DEBIT  PLATFORM_FEE    platformFeePortion   (omitted when zero)
+ *   DEBIT  REFUND_COST     providerFeePortion + shortfall   (omitted when zero)
+ *   CREDIT REFUND_CLEARING amount
+ *
+ * The three debits sum to exactly `amount` -- this is the literal, load-
+ * bearing constraint the spec states explicitly, and it is what makes
+ * "debits FROZEN_BALANCE for the refunded amount" in the spec's own prose
+ * necessarily a loose paraphrase rather than a literal `amount`: three
+ * legs that were each independently `amount`-sized could never also sum to
+ * `amount` once a fee portion is nonzero.
+ *
+ * `platformFeePortion` and `providerFeePortion` are the proportional shares
+ * of Gross being refunded (amount / payment.amount), rounded up, computed
+ * by the caller (./refunds.ts) -- never here, since this function only
+ * assembles legs from numbers it's given, matching every other builder in
+ * this file. `shortfall` is additional platform absorption for the case
+ * where the subject's pool, recomputed under lock at settlement, has gone
+ * negative from the freeze debit (a Campaign that already spent most of its
+ * balance via Payout before this Refund's freeze landed) -- it is added
+ * onto REFUND_COST's debit, and subtracted from FROZEN_BALANCE's, so the
+ * three-debits-sum-to-amount invariant holds regardless of whether a
+ * shortfall exists.
+ */
+export function refundApprovedLegs(params: {
+  subject: LedgerSubject;
+  amount: number;
+  platformFeePortion: number;
+  providerFeePortion: number;
+  shortfall: number;
+}): LedgerLeg[] {
+  const { subject, amount, platformFeePortion, providerFeePortion, shortfall } = params;
+  const combinedFeePortion = platformFeePortion + providerFeePortion;
+  if (combinedFeePortion > amount) {
+    throw new InvalidLedgerLegError(
+      `Combined Platform Fee (${platformFeePortion}) and Provider Fee (${providerFeePortion}) portions ` +
+        `exceed the refunded amount ${amount} -- refusing to post a settlement that would debit FROZEN_BALANCE negative.`,
+    );
+  }
+  const frozenBalanceDebit = amount - combinedFeePortion - shortfall;
+  const refundCostDebit = providerFeePortion + shortfall;
+
+  const legs: LedgerLeg[] = [{ account: 'REFUND_CLEARING', direction: 'CREDIT', amount }];
+  if (frozenBalanceDebit > 0) {
+    legs.push({ account: 'FROZEN_BALANCE', direction: 'DEBIT', amount: frozenBalanceDebit, ...subjectFk(subject) });
+  }
+  if (platformFeePortion > 0) {
+    legs.push({ account: 'PLATFORM_FEE', direction: 'DEBIT', amount: platformFeePortion });
+  }
+  if (refundCostDebit > 0) {
+    legs.push({ account: 'REFUND_COST', direction: 'DEBIT', amount: refundCostDebit });
+  }
+  return legs;
 }
 
 /**

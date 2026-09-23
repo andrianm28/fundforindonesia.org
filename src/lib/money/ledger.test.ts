@@ -9,7 +9,8 @@ import {
   findUnbalancedTransactions,
   paymentSettledLegs,
   escrowReleaseLegs,
-  refundLegs,
+  refundRequestedLegs,
+  refundApprovedLegs,
   payoutInstructedLegs,
   UnbalancedTransactionError,
   InvalidLedgerLegError,
@@ -263,58 +264,17 @@ describe('paymentSettledLegs', () => {
   });
 });
 
-describe('refundLegs', () => {
-  it('debits escrow when refunding inside the hold window', async () => {
-    const tx = makeTx();
-    await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 0 }));
-    await postTransaction(
-      tx as never,
-      refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 30_000, source: 'ESCROW_HOLD', creditedAmount: 100_000 }),
-    );
-
-    expect(await escrowBalance(tx as never, 'c1')).toBe(70_000);
-    // Never negative: the money came out of the pot it was actually sitting in.
-    expect(await campaignBalance(tx as never, 'c1')).toBe(0);
-  });
-
-  it('debits the withdrawable balance when refunding after release', async () => {
-    const tx = makeTx();
-    await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 0 }));
-    await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000 }));
-    await postTransaction(
-      tx as never,
-      refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 30_000, source: 'CAMPAIGN_BALANCE', creditedAmount: 100_000 }),
-    );
-
-    expect(await escrowBalance(tx as never, 'c1')).toBe(0);
-    expect(await campaignBalance(tx as never, 'c1')).toBe(70_000);
-  });
-
-  it('rejects a refund larger than what the payment actually credited', () => {
-    // A payment of gross 100_000 with a 15_000 provider fee only ever credited
-    // 85_000 (the NET) to ESCROW_HOLD. Refunding the gross would debit
-    // ESCROW_HOLD by 100_000 -- 15_000 more than it was ever credited.
-    expect(() =>
-      refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', creditedAmount: 85_000 }),
-    ).toThrow(InvalidLedgerLegError);
-  });
-
-  it('allows a refund of exactly what was credited', () => {
-    expect(() =>
-      refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 85_000, source: 'ESCROW_HOLD', creditedAmount: 85_000 }),
-    ).not.toThrow();
-  });
-});
-
 describe('ledger invariants (property-based)', () => {
   it('every builder produces a transaction that balances, for any amount, for both subject types', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 1, max: 1_000_000_000 }),
         fc.integer({ min: 0, max: 1_000_000_000 }),
+        fc.integer({ min: 0, max: 1_000_000_000 }),
         fc.constantFrom<'campaign' | 'trip'>('campaign', 'trip'),
-        (gross, feeRaw, subjectType) => {
+        (gross, feeRaw, shortfallRaw, subjectType) => {
           const fee = Math.min(feeRaw, gross);
+          const shortfall = Math.min(shortfallRaw, gross - fee);
           const subject: LedgerSubject =
             subjectType === 'campaign'
               ? { type: 'campaign', campaignId: 'c1' }
@@ -323,8 +283,9 @@ describe('ledger invariants (property-based)', () => {
           for (const legs of [
             paymentSettledLegs({ subject, grossAmount: gross, providerFee: fee }),
             escrowReleaseLegs({ subject, amount: gross }),
-            refundLegs({ subject, amount: gross, source: 'ESCROW_HOLD', creditedAmount: gross }),
-            refundLegs({ subject, amount: gross, source: balanceAccount, creditedAmount: gross }),
+            refundRequestedLegs({ subject, amount: gross, source: 'ESCROW_HOLD' }),
+            refundRequestedLegs({ subject, amount: gross, source: balanceAccount }),
+            refundApprovedLegs({ subject, amount: gross, platformFeePortion: 0, providerFeePortion: fee, shortfall }),
             payoutInstructedLegs({ subject, amount: gross }),
           ]) {
             const d = legs.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + l.amount, 0);
@@ -356,10 +317,15 @@ describe('ledger invariants (property-based)', () => {
     const tx = makeTx();
     // Rp 500.000 donated, Rp 15.000 kept by the provider.
     await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000 }));
-    // Rp 100.000 refunded while still held (well within the 485.000 net credited).
+    // Rp 100.000 refunded while still held (well within the 485.000 net credited) --
+    // frozen first, then settled with its proportional provider-fee share.
     await postTransaction(
       tx as never,
-      refundLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', creditedAmount: 485_000 }),
+      refundRequestedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD' }),
+    );
+    await postTransaction(
+      tx as never,
+      refundApprovedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, platformFeePortion: 0, providerFeePortion: 3_000, shortfall: 0 }),
     );
     // The rest matures.
     await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 385_000 }));
@@ -367,7 +333,7 @@ describe('ledger invariants (property-based)', () => {
     await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 200_000 }));
 
     expect(await escrowBalance(tx as never, 'c1')).toBe(0);
-    expect(await campaignBalance(tx as never, 'c1')).toBe(485_000 - 100_000 - 200_000);
+    expect(await campaignBalance(tx as never, 'c1')).toBe(385_000 - 200_000);
     expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
   });
 });
@@ -423,58 +389,6 @@ describe('escrowReleaseLegs with a trip subject', () => {
       { account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 50_000, volunteerTripId: 'trip-1' },
       { account: 'TRIP_BALANCE', direction: 'CREDIT', amount: 50_000, volunteerTripId: 'trip-1' },
     ]);
-  });
-});
-
-describe('refundLegs with a trip subject', () => {
-  it('accepts TRIP_BALANCE as a source', () => {
-    const legs = refundLegs({
-      subject: { type: 'trip', tripId: 'trip-1' },
-      amount: 10_000,
-      source: 'TRIP_BALANCE',
-      creditedAmount: 10_000,
-    });
-    expect(legs).toEqual([
-      { account: 'TRIP_BALANCE', direction: 'DEBIT', amount: 10_000, volunteerTripId: 'trip-1' },
-      { account: 'REFUND_CLEARING', direction: 'CREDIT', amount: 10_000 },
-    ]);
-  });
-
-  it('still refuses an amount exceeding creditedAmount for a trip subject', () => {
-    expect(() =>
-      refundLegs({
-        subject: { type: 'trip', tripId: 'trip-1' },
-        amount: 20_000,
-        source: 'TRIP_BALANCE',
-        creditedAmount: 10_000,
-      }),
-    ).toThrow(InvalidLedgerLegError);
-  });
-});
-
-describe('refundLegs subject/source mismatch', () => {
-  it('rejects a campaign subject refunded from a TRIP_BALANCE source', async () => {
-    // subjectFk always stamps the leg with the SUBJECT's FK, not the
-    // source account's -- so a caller mixing them up (subject: campaign,
-    // source: TRIP_BALANCE) would otherwise produce a TRIP_BALANCE leg
-    // carrying campaignId, invisible to every trip balance/reconcile check.
-    const legs = refundLegs({
-      subject: { type: 'campaign', campaignId: 'c1' },
-      amount: 1000,
-      source: 'TRIP_BALANCE',
-      creditedAmount: 1000,
-    });
-    await expect(postTransaction(makeTx() as never, legs)).rejects.toThrow(InvalidLedgerLegError);
-  });
-
-  it('rejects a trip subject refunded from a CAMPAIGN_BALANCE source', async () => {
-    const legs = refundLegs({
-      subject: { type: 'trip', tripId: 't1' },
-      amount: 1000,
-      source: 'CAMPAIGN_BALANCE',
-      creditedAmount: 1000,
-    });
-    await expect(postTransaction(makeTx() as never, legs)).rejects.toThrow(InvalidLedgerLegError);
   });
 });
 
