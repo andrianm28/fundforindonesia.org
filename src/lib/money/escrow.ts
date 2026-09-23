@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
-import { escrowReleaseLegs, postTransaction } from './ledger';
+import { escrowReleaseLegs, postTransaction, type LedgerSubject } from './ledger';
+import { assertExactlyOnePaymentSubject } from './payment-subject';
 
 /**
  * The escrow hold: how long settled money sits in ESCROW_HOLD before it
@@ -77,12 +78,19 @@ export interface ReleaseSweepResult {
   consideredCount: number;
 }
 
+/** Which Campaign-or-Trip to scope a release sweep to. Omit to sweep across all subjects. */
+export interface ReleaseSweepSubject {
+  type: 'campaign' | 'trip';
+  id: string;
+}
+
 /**
  * Finds every Payment whose escrow hold has matured -- `escrowReleaseAt <=
  * now` and `escrowReleasedAt IS NULL` -- and moves its money out of
- * ESCROW_HOLD into the campaign's withdrawable CAMPAIGN_BALANCE. Pass a
- * campaignId to scope the sweep to one campaign (this is how the payout
- * request handler calls it); omit it to sweep across all campaigns.
+ * ESCROW_HOLD into its subject's withdrawable CAMPAIGN_BALANCE or
+ * TRIP_BALANCE. Pass a subject to scope the sweep to one campaign or trip
+ * (this is how the payout request handler calls it); omit it to sweep
+ * across every subject.
  *
  * There is no scheduler anywhere in this repo, so this is what makes the
  * 7-day hold actually let go of money: it runs at the top of the payout
@@ -102,7 +110,7 @@ export interface ReleaseSweepResult {
  * already on this branch (see approvePayout in ./payouts.ts for
  * the same pattern applied to payout approval).
  */
-export async function releaseMaturedEscrow(campaignId?: string): Promise<ReleaseSweepResult> {
+export async function releaseMaturedEscrow(subject?: ReleaseSweepSubject): Promise<ReleaseSweepResult> {
   const now = new Date();
 
   const matured = await prisma.payment.findMany({
@@ -114,13 +122,17 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
       status: 'PAID',
       escrowReleaseAt: { lte: now },
       escrowReleasedAt: null,
-      ...(campaignId ? { donation: { campaignId } } : {}),
+      ...(subject?.type === 'campaign' ? { donation: { campaignId: subject.id } } : {}),
+      ...(subject?.type === 'trip' ? { registration: { batch: { tripId: subject.id } } } : {}),
     },
     select: {
       id: true,
       amount: true,
       providerFee: true,
+      donationId: true,
+      registrationId: true,
       donation: { select: { campaignId: true } },
+      registration: { select: { batch: { select: { tripId: true } } } },
     },
     // Oldest hold first, so that if the sweep limit below truncates the
     // list, which holds get left for the next call is deterministic rather
@@ -136,18 +148,26 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
     // payout more than once before every matured hold has actually released.
     console.warn(
       `releaseMaturedEscrow: hit the sweep limit of ${ESCROW_RELEASE_SWEEP_LIMIT}` +
-        `${campaignId ? ` for campaign ${campaignId}` : ''} -- more matured holds remain ` +
+        `${subject ? ` for ${subject.type} ${subject.id}` : ''} -- more matured holds remain ` +
         'and will be picked up by a later call.',
     );
   }
 
   let releasedCount = 0;
   for (const payment of matured) {
-    // Assumes a Campaign-linked Payment (payment.donation non-null). Needs a
-    // Trip-branch guard once Registration-linked Payments can reach this
-    // code (Ticket 03 in the parent Volunteer Trip ticket set).
-    const paymentCampaignId = payment.donation.campaignId;
     try {
+      // A malformed Payment (both or neither of donationId/registrationId
+      // set) must fail only this one row -- caught below and logged, same
+      // as any other per-payment failure -- not throw before the loop even
+      // starts and abort every other campaign/trip's release in this sweep.
+      assertExactlyOnePaymentSubject({
+        donationId: payment.donationId,
+        registrationId: payment.registrationId,
+      });
+      const paymentSubject: LedgerSubject = payment.donationId != null
+        ? { type: 'campaign', campaignId: payment.donation!.campaignId }
+        : { type: 'trip', tripId: payment.registration!.batch.tripId };
+
       const released = await prisma.$transaction(async (tx) => {
         // Lock the campaign row before touching its ESCROW_HOLD /
         // CAMPAIGN_BALANCE accounts, the same precaution approvePayout
@@ -176,8 +196,14 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
         // write path that touches a PAID payment's Campaign in Campaign ->
         // Payment order is safe; one that touches it in Payment -> Campaign
         // order, the way the webhook does, reintroduces the deadlock this
-        // comment currently rules out only by observation.
-        await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${paymentCampaignId} FOR UPDATE`;
+        // comment currently rules out only by observation. The Trip branch
+        // preserves the exact same invariant -- the webhook's Trip-settlement
+        // branch also only ever writes a Payment while it is still PENDING.
+        if (paymentSubject.type === 'campaign') {
+          await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${paymentSubject.campaignId} FOR UPDATE`;
+        } else {
+          await tx.$queryRaw`SELECT id FROM "VolunteerTrip" WHERE id = ${paymentSubject.tripId} FOR UPDATE`;
+        }
 
         // Every refund against THIS payment, whatever its status. Refund.paymentId
         // is what ties a refund back to the specific payment it came out of
@@ -236,7 +262,7 @@ export async function releaseMaturedEscrow(campaignId?: string): Promise<Release
         if (amountToRelease > 0) {
           await postTransaction(
             tx,
-            escrowReleaseLegs({ subject: { type: 'campaign', campaignId: paymentCampaignId }, amount: amountToRelease }),
+            escrowReleaseLegs({ subject: paymentSubject, amount: amountToRelease }),
             { paymentId: payment.id, transactionId: `escrow-release:${payment.id}` },
           );
         }

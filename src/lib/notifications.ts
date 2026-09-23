@@ -43,6 +43,32 @@ export async function notifyDonationConfirmed(params: {
 }
 
 /**
+ * Create a notification for a confirmed Trip Fee registration. Sibling of
+ * notifyDonationConfirmed -- only the Volunteer is notified (unlike a
+ * Donation, there is no second party to notify on every single
+ * registration; the Fundraiser is not notified per-registration in this
+ * ticket's scope).
+ */
+export async function notifyRegistrationConfirmed(params: {
+  volunteerId: string;
+  tripSlug: string;
+  tripTitle: string;
+  amount: number;
+}) {
+  const { volunteerId, tripSlug, tripTitle, amount } = params;
+
+  await prisma.notification.create({
+    data: {
+      type: 'registration_confirmed',
+      title: 'Registrasi Berhasil',
+      message: `Registrasi Anda untuk "${tripTitle}" sebesar ${formatRupiah(amount)} telah berhasil dikonfirmasi`,
+      userId: volunteerId,
+      link: `/volunteer-trip/${tripSlug}`,
+    },
+  });
+}
+
+/**
  * Create notification for campaign update posted.
  * Notifies all donors who donated to this campaign.
  *

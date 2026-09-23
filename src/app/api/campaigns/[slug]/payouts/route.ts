@@ -62,7 +62,7 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
     // ago it matured. It owns its own transactions (one per payment) and
     // runs before -- not inside -- requestPayout's transaction, so a
     // release that fails for one payment cannot roll back the request.
-    await releaseMaturedEscrow(campaign.id);
+    await releaseMaturedEscrow({ type: 'campaign', id: campaign.id });
 
     const payout = await prisma.$transaction((tx) =>
       requestPayout(tx, {

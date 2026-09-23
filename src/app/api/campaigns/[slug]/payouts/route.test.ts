@@ -292,7 +292,10 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
         id: 'payment-1',
         amount: 100_000,
         providerFee: 0,
+        donationId: 'donation-1',
+        registrationId: null,
         donation: { campaignId: 'campaign-1' },
+        registration: null,
       },
     ]);
     const paymentState = new Map([['payment-1', { escrowReleasedAt: null as Date | null }]]);
