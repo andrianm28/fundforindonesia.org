@@ -81,18 +81,37 @@ export async function PATCH(
       const requestedById = session.user.id as string;
 
       try {
-        // Locking the Batch row (via the CONFIRMED count read, serialized
-        // through the transaction) before both checking minQuota and
-        // creating every Refund means a Registration confirming
-        // concurrently -- right as the Fundraiser cancels -- can't push
-        // the count past minQuota while this cancel is mid-flight, and two
-        // concurrent cancel attempts on the same Batch can't both pass the
-        // guard and both bulk-refund.
+        // Locks the Batch row, then locks every HOLD/CONFIRMED Registration
+        // on it, in one FOR UPDATE read -- so a Registration confirming
+        // concurrently (the settlement webhook, racing this cancel) either
+        // commits before this lock is taken (and is then locked and
+        // cancelled/refunded like any other CONFIRMED row) or blocks until
+        // this transaction commits (and is cancelled by whatever handles it
+        // next against an already-CANCELLED Batch). Two concurrent cancel
+        // attempts on the same Batch serialize on the same lock: the loser's
+        // own locked read comes back empty (every Registration already
+        // CANCELLED), so it returns a clean 200 with no refunds rather than
+        // racing a partial refund.
+        //
+        // HOLD Registrations are cancelled alongside CONFIRMED ones -- a
+        // Batch cancellation must stop anyone from still paying into a trip
+        // that won't run -- but only CONFIRMED Registrations get a Refund: a
+        // HOLD Registration's Payment hasn't settled, so there's nothing to
+        // refund yet, mirroring the Volunteer self-cancel route's identical
+        // HOLD rule (src/app/api/registrations/[id]/route.ts).
         const result = await prisma.$transaction(async (tx) => {
-          const confirmedCount = await tx.registration.count({
-            where: { batchId: batch.id, status: 'CONFIRMED' },
-          });
-          if (confirmedCount >= batch.minQuota) {
+          await tx.$queryRaw`SELECT id FROM "VolunteerBatch" WHERE id = ${batch.id} FOR UPDATE`;
+
+          const lockedRegistrations = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+            SELECT id, status FROM "Registration"
+            WHERE "batchId" = ${batch.id} AND status IN ('HOLD', 'CONFIRMED')
+            FOR UPDATE
+          `;
+
+          const confirmedIds = lockedRegistrations.filter((r) => r.status === 'CONFIRMED').map((r) => r.id);
+          const holdIds = lockedRegistrations.filter((r) => r.status === 'HOLD').map((r) => r.id);
+
+          if (confirmedIds.length >= batch.minQuota) {
             throw new MinQuotaMetError();
           }
 
@@ -102,12 +121,12 @@ export async function PATCH(
           });
 
           const confirmedRegistrations = await tx.registration.findMany({
-            where: { batchId: batch.id, status: 'CONFIRMED' },
+            where: { id: { in: confirmedIds } },
             select: { id: true, payment: { select: { id: true, amount: true } } },
           });
 
           await tx.registration.updateMany({
-            where: { batchId: batch.id, status: 'CONFIRMED' },
+            where: { id: { in: [...confirmedIds, ...holdIds] } },
             data: { status: 'CANCELLED' },
           });
 

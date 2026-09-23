@@ -43,20 +43,32 @@ function routeContext(slug = 'some-slug', id = 'batch-1') {
 
 function makeCancelTx(
   options: {
-    confirmedCount?: number;
-    confirmedRegistrations?: Array<{ id: string; payment: { id: string; amount: number } }>;
+    lockedRegistrations?: Array<{ id: string; status: 'HOLD' | 'CONFIRMED' }>;
+    confirmedPayments?: Record<string, { id: string; amount: number }>;
   } = {},
 ) {
-  const registrationCount = vi.fn().mockResolvedValue(options.confirmedCount ?? 0);
-  const registrationFindMany = vi.fn().mockResolvedValue(options.confirmedRegistrations ?? []);
-  const registrationUpdateMany = vi.fn().mockResolvedValue({ count: options.confirmedRegistrations?.length ?? 0 });
+  const lockedRegistrations = options.lockedRegistrations ?? [];
+  const confirmedPayments = options.confirmedPayments ?? {};
+  const queryRaw = vi
+    .fn()
+    .mockResolvedValueOnce([{ id: 'batch-1' }]) // Batch row lock
+    .mockResolvedValueOnce(lockedRegistrations); // Registration rows lock
+  const registrationFindMany = vi.fn().mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+    Promise.resolve(
+      where.id.in
+        .filter((id) => confirmedPayments[id])
+        .map((id) => ({ id, payment: confirmedPayments[id] })),
+    ),
+  );
+  const registrationUpdateMany = vi.fn().mockResolvedValue({ count: lockedRegistrations.length });
   const volunteerBatchUpdate = vi.fn().mockResolvedValue({ id: 'batch-1', status: 'CANCELLED' });
   return {
     tx: {
-      registration: { count: registrationCount, findMany: registrationFindMany, updateMany: registrationUpdateMany },
+      $queryRaw: queryRaw,
+      registration: { findMany: registrationFindMany, updateMany: registrationUpdateMany },
       volunteerBatch: { update: volunteerBatchUpdate },
     },
-    registrationCount,
+    queryRaw,
     registrationFindMany,
     registrationUpdateMany,
     volunteerBatchUpdate,
@@ -178,7 +190,8 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
     });
 
     it('returns 400 when the Batch already met its minQuota', async () => {
-      const { tx } = makeCancelTx({ confirmedCount: 8 });
+      const lockedRegistrations = Array.from({ length: 8 }, (_, i) => ({ id: `reg-${i}`, status: 'CONFIRMED' as const }));
+      const { tx } = makeCancelTx({ lockedRegistrations });
       mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
       const response = await PATCH(patchRequest({ action: 'cancel' }), routeContext());
       expect(response.status).toBe(400);
@@ -186,14 +199,15 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
     });
 
     it('cancels an under-quota Batch, cancels every CONFIRMED Registration, and refunds each in full', async () => {
-      const confirmedRegistrations = [
-        { id: 'reg-a', payment: { id: 'payment-a', amount: 100_000 } },
-        { id: 'reg-b', payment: { id: 'payment-b', amount: 250_000 } },
+      const lockedRegistrations = [
+        { id: 'reg-a', status: 'CONFIRMED' as const },
+        { id: 'reg-b', status: 'CONFIRMED' as const },
       ];
-      const { tx, volunteerBatchUpdate, registrationUpdateMany } = makeCancelTx({
-        confirmedCount: 2,
-        confirmedRegistrations,
-      });
+      const confirmedPayments = {
+        'reg-a': { id: 'payment-a', amount: 100_000 },
+        'reg-b': { id: 'payment-b', amount: 250_000 },
+      };
+      const { tx, volunteerBatchUpdate, registrationUpdateMany } = makeCancelTx({ lockedRegistrations, confirmedPayments });
       mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
       mockCreateRefund
         .mockResolvedValueOnce({ id: 'refund-a', amount: 100_000, status: 'REQUESTED' })
@@ -205,7 +219,7 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       expect(response.status).toBe(200);
       expect(volunteerBatchUpdate).toHaveBeenCalledWith({ where: { id: 'batch-1' }, data: { status: 'CANCELLED' } });
       expect(registrationUpdateMany).toHaveBeenCalledWith({
-        where: { batchId: 'batch-1', status: 'CONFIRMED' },
+        where: { id: { in: ['reg-a', 'reg-b'] } },
         data: { status: 'CANCELLED' },
       });
       expect(mockCreateRefund).toHaveBeenCalledTimes(2);
@@ -227,6 +241,29 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       ]);
     });
 
+    it('cancels every HOLD Registration on the Batch too, creating no Refund for them', async () => {
+      const lockedRegistrations = [
+        { id: 'reg-hold', status: 'HOLD' as const },
+        { id: 'reg-confirmed', status: 'CONFIRMED' as const },
+      ];
+      const confirmedPayments = { 'reg-confirmed': { id: 'payment-a', amount: 100_000 } };
+      const { tx, registrationUpdateMany } = makeCancelTx({ lockedRegistrations, confirmedPayments });
+      mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+      mockCreateRefund.mockResolvedValueOnce({ id: 'refund-a', amount: 100_000, status: 'REQUESTED' });
+
+      const response = await PATCH(patchRequest({ action: 'cancel' }), routeContext());
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(registrationUpdateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['reg-confirmed', 'reg-hold'] } },
+        data: { status: 'CANCELLED' },
+      });
+      expect(mockCreateRefund).toHaveBeenCalledTimes(1);
+      expect(mockCreateRefund).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ paymentId: 'payment-a' }));
+      expect(data.refundedRegistrations).toEqual([{ registrationId: 'reg-confirmed', refundId: 'refund-a', amount: 100_000 }]);
+    });
+
     it('refunds the full Trip Fee even when the Batch departs imminently -- never the tiered Volunteer-cancel rule', async () => {
       mockBatchFindUnique.mockResolvedValue({
         id: 'batch-1',
@@ -238,8 +275,9 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
         endDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
         registrationDeadline: new Date(Date.now() - 24 * 60 * 60 * 1000),
       });
-      const confirmedRegistrations = [{ id: 'reg-a', payment: { id: 'payment-a', amount: 100_000 } }];
-      const { tx } = makeCancelTx({ confirmedCount: 1, confirmedRegistrations });
+      const lockedRegistrations = [{ id: 'reg-a', status: 'CONFIRMED' as const }];
+      const confirmedPayments = { 'reg-a': { id: 'payment-a', amount: 100_000 } };
+      const { tx } = makeCancelTx({ lockedRegistrations, confirmedPayments });
       mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
       mockCreateRefund.mockResolvedValueOnce({ id: 'refund-a', amount: 100_000, status: 'REQUESTED' });
 
@@ -248,8 +286,8 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       expect(mockCreateRefund).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ amount: 100_000 }));
     });
 
-    it('cancels a Batch with zero CONFIRMED Registrations, creating no Refund', async () => {
-      const { tx, volunteerBatchUpdate } = makeCancelTx({ confirmedCount: 0, confirmedRegistrations: [] });
+    it('cancels a Batch with zero HOLD/CONFIRMED Registrations, creating no Refund', async () => {
+      const { tx, volunteerBatchUpdate } = makeCancelTx({ lockedRegistrations: [] });
       mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
       const response = await PATCH(patchRequest({ action: 'cancel' }), routeContext());
