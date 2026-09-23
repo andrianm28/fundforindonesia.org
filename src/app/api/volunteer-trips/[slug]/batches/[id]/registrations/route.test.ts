@@ -62,7 +62,8 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
       id: 'batch-1',
       status: 'OPEN',
       maxQuota: 20,
-      trip: { id: 'trip-1', tripFeeAmount: 1_500_000 },
+      registrationDeadline: new Date('2026-12-31'),
+      trip: { id: 'trip-1', slug: 'some-slug', status: 'ACTIVE', tripFeeAmount: 1_500_000 },
     });
     mockGetPaymentProvider.mockReturnValue({
       name: 'sumopod',
@@ -113,10 +114,43 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
       id: 'batch-1',
       status: 'CLOSED',
       maxQuota: 20,
-      trip: { id: 'trip-1', tripFeeAmount: 1_500_000 },
+      registrationDeadline: new Date('2026-12-31'),
+      trip: { id: 'trip-1', slug: 'some-slug', status: 'ACTIVE', tripFeeAmount: 1_500_000 },
     });
     const response = await POST(createRequest(), routeContext());
     expect(response.status).toBe(400);
+  });
+
+  it('returns 400 when the trip is not ACTIVE', async () => {
+    mockBatchFindUnique.mockResolvedValue({
+      id: 'batch-1',
+      status: 'OPEN',
+      maxQuota: 20,
+      registrationDeadline: new Date('2026-12-31'),
+      trip: { id: 'trip-1', slug: 'some-slug', status: 'SUSPENDED', tripFeeAmount: 1_500_000 },
+    });
+    const response = await POST(createRequest(), routeContext());
+    expect(response.status).toBe(400);
+    expect(mockRegistrationCreate).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when the batch registrationDeadline has passed', async () => {
+    mockBatchFindUnique.mockResolvedValue({
+      id: 'batch-1',
+      status: 'OPEN',
+      maxQuota: 20,
+      registrationDeadline: new Date('2020-01-01'),
+      trip: { id: 'trip-1', slug: 'some-slug', status: 'ACTIVE', tripFeeAmount: 1_500_000 },
+    });
+    const response = await POST(createRequest(), routeContext());
+    expect(response.status).toBe(400);
+    expect(mockRegistrationCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when the URL slug does not match the batch's trip", async () => {
+    const response = await POST(createRequest(), routeContext('wrong-slug', 'batch-1'));
+    expect(response.status).toBe(404);
+    expect(mockRegistrationCreate).not.toHaveBeenCalled();
   });
 
   it('returns 400 (Batch full) when HOLD+CONFIRMED count is at maxQuota', async () => {

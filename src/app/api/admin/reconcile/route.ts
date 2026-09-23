@@ -159,10 +159,12 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
           select: { id: true, donation: { select: { campaignId: true } } },
         })
       : [];
-    // Assumes a Campaign-linked Payment (p.donation non-null). Needs a
-    // Trip-branch guard once Registration-linked Payments can reach this
-    // code (Ticket 03 in the parent Volunteer Trip ticket set).
-    const campaignIdByPaymentId = new Map(feePayments.map((p) => [p.id, p.donation.campaignId]));
+    // A Registration-linked Payment's PROVIDER_FEE leg has no campaign to
+    // attribute to -- filtered out here rather than crashing on p.donation
+    // being null; feeByCampaign is campaign-only by construction.
+    const campaignIdByPaymentId = new Map(
+      feePayments.filter((p) => p.donation != null).map((p) => [p.id, p.donation!.campaignId]),
+    );
     const feeByCampaign = new Map<string, number>();
     for (const entry of providerFeeEntries) {
       const campaignId = campaignIdByPaymentId.get(entry.paymentId as string);
@@ -283,6 +285,12 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       refundedAmountByPayment.set(paymentId, (refundedAmountByPayment.get(paymentId) ?? 0) + (row._sum.amount ?? 0));
     }
 
+    // No production path creates a Payment with neither donationId nor
+    // registrationId set (assertExactlyOnePaymentSubject guards both create
+    // sites) -- but reconcile is exactly the tool an admin would reach for
+    // to find such an anomalous row, so it must not throw on one either.
+    const subjectlessPayments: Array<{ paymentId: string; context: 'strandedEscrow' | 'deferredEscrowWatchdog' }> = [];
+
     const strandedEscrow: Array<{
       paymentId: string;
       campaignId: string;
@@ -315,7 +323,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
           refundedAmount,
           residual,
         });
-      } else {
+      } else if (payment.registrationId != null) {
         tripStrandedEscrow.push({
           paymentId: payment.id,
           volunteerTripId: payment.registration!.batch.tripId,
@@ -324,6 +332,8 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
           refundedAmount,
           residual,
         });
+      } else {
+        subjectlessPayments.push({ paymentId: payment.id, context: 'strandedEscrow' });
       }
     }
 
@@ -371,8 +381,10 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       };
       if (payment.donationId != null) {
         deferredEscrowWatchdog.push({ ...row, campaignId: payment.donation!.campaignId });
-      } else {
+      } else if (payment.registrationId != null) {
         tripDeferredEscrowWatchdog.push({ ...row, volunteerTripId: payment.registration!.batch.tripId });
+      } else {
+        subjectlessPayments.push({ paymentId: payment.id, context: 'deferredEscrowWatchdog' });
       }
     }
 
@@ -398,12 +410,19 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         'predate the money layer (e.g. funded via /api/balance/donate, which never posts to ' +
         'the ledger). They are expected, not incidents. Campaigns with isDemo=true are excluded ' +
         'from both preLedger and mismatches entirely, above, for the same reason. mismatches are ' +
-        'campaigns that DO have ledger activity and still disagree with collectedAmount -- those are the real findings.',
+        'campaigns that DO have ledger activity and still disagree with collectedAmount -- those are the real findings.' +
+        ' tripDeferredEscrowWatchdog is expected to list every matured Trip Fee payment until a Trip payout flow exists ' +
+        'to release Trip escrow at all -- it is not yet an incident list.',
       mismatches,
       strandedEscrow,
       tripStrandedEscrow,
       deferredEscrowWatchdog,
       tripDeferredEscrowWatchdog,
+      // Should always be empty; anything here means a Payment reached
+      // settlement/release code with neither donationId nor registrationId
+      // set, which assertExactlyOnePaymentSubject should have prevented at
+      // creation -- treat a non-empty result as a data-integrity incident.
+      subjectlessPayments,
       stuckPayouts: {
         // Nothing in this codebase writes PROCESSING today -- approval stops
         // at APPROVED, and only a provider with a disbursement API plus its

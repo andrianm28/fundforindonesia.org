@@ -130,16 +130,20 @@ function makeTx(options: {
           .map((p) => {
             // A payment fixture is registration-linked (Trip Fee) when it
             // sets volunteerTripId instead of campaignId -- mirrors the
-            // real schema's exactly-one-of donationId/registrationId.
+            // real schema's exactly-one-of donationId/registrationId. A
+            // fixture with neither set simulates the anomalous, no-subject
+            // row assertExactlyOnePaymentSubject should have prevented at
+            // creation (reconcile's subjectlessPayments safety net).
             const isTrip = p.volunteerTripId != null;
+            const isCampaign = p.campaignId != null;
             return {
               id: p.id,
               amount: p.amount ?? 0,
               providerFee: p.providerFee ?? 0,
               escrowReleaseAt: p.escrowReleaseAt ?? null,
-              donationId: isTrip ? null : `donation-for-${p.id}`,
+              donationId: isCampaign ? `donation-for-${p.id}` : null,
               registrationId: isTrip ? `registration-for-${p.id}` : null,
-              donation: isTrip ? null : { campaignId: p.campaignId },
+              donation: isCampaign ? { campaignId: p.campaignId } : null,
               registration: isTrip ? { batch: { tripId: p.volunteerTripId } } : null,
               // Nested relation select, backing the deferredEscrowWatchdog
               // query -- reads off the same `refunds` fixture array
@@ -298,6 +302,27 @@ describe('GET /api/admin/reconcile', () => {
         difference: 30_000,
       },
     ]);
+    expect(data.preLedger).toEqual([]);
+  });
+
+  it('excludes a Registration-linked payment\'s PROVIDER_FEE leg from feeByCampaign instead of crashing', async () => {
+    // A real Trip Fee payment's PROVIDER_FEE ledger leg is posted whenever
+    // providerFee > 0 -- this payment has no donation, only a registration,
+    // so p.donation is null and the old unconditional p.donation.campaignId
+    // read would throw a TypeError here.
+    const tx = makeTx({
+      ledgerRows: [
+        { transactionId: 't1', direction: 'CREDIT', amount: 5_000, account: 'PROVIDER_FEE', campaignId: null, paymentId: 'payment-1' },
+      ],
+      payments: [{ id: 'payment-1', volunteerTripId: 'trip-1' }],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    expect(response.status).toBe(200);
+    const data = await response.json();
+
+    expect(data.mismatches).toEqual([]);
     expect(data.preLedger).toEqual([]);
   });
 
@@ -856,5 +881,64 @@ describe('GET /api/admin/reconcile -- registration-linked (trip) payments', () =
       },
     ]);
     expect(data.tripStrandedEscrow).toEqual([]);
+  });
+});
+
+describe('GET /api/admin/reconcile -- subjectless payments (data-integrity safety net)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+  });
+
+  it('reports a released payment with neither donationId nor registrationId in subjectlessPayments, not either Trip/Campaign array, and does not crash', async () => {
+    const tx = makeTx({
+      ledgerRows: [],
+      payments: [
+        { id: 'payment-1', amount: 100_000, providerFee: 0, escrowReleasedAt: new Date('2026-08-10') },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    expect(response.status).toBe(200);
+    const data = await response.json();
+
+    expect(data.subjectlessPayments).toEqual([{ paymentId: 'payment-1', context: 'strandedEscrow' }]);
+    expect(data.strandedEscrow).toEqual([]);
+    expect(data.tripStrandedEscrow).toEqual([]);
+  });
+
+  it('reports a deferred-candidate payment with neither donationId nor registrationId in subjectlessPayments, not either Trip/Campaign watchdog array, and does not crash', async () => {
+    const longOverdue = new Date(Date.now() - (DEFERRED_ESCROW_WATCHDOG_DAYS + 1) * MS_PER_DAY);
+    const tx = makeTx({
+      payments: [
+        {
+          id: 'payment-1',
+          amount: 100_000,
+          status: 'PAID',
+          escrowReleaseAt: longOverdue,
+          escrowReleasedAt: null,
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    expect(response.status).toBe(200);
+    const data = await response.json();
+
+    expect(data.subjectlessPayments).toEqual([{ paymentId: 'payment-1', context: 'deferredEscrowWatchdog' }]);
+    expect(data.deferredEscrowWatchdog).toEqual([]);
+    expect(data.tripDeferredEscrowWatchdog).toEqual([]);
+  });
+
+  it('reports an empty subjectlessPayments on a clean ledger', async () => {
+    const tx = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.subjectlessPayments).toEqual([]);
   });
 });

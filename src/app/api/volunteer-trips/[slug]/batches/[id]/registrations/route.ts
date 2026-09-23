@@ -33,11 +33,17 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { id: batchId } = await params;
+    const { slug, id: batchId } = await params;
 
     const batch = await prisma.volunteerBatch.findUnique({
       where: { id: batchId },
-      select: { id: true, status: true, maxQuota: true, trip: { select: { id: true, tripFeeAmount: true } } },
+      select: {
+        id: true,
+        status: true,
+        maxQuota: true,
+        registrationDeadline: true,
+        trip: { select: { id: true, slug: true, status: true, tripFeeAmount: true } },
+      },
     });
 
     if (!batch) {
@@ -46,6 +52,18 @@ export async function POST(
 
     if (batch.status !== 'OPEN') {
       return NextResponse.json({ error: 'Batch ini tidak menerima registrasi' }, { status: 400 });
+    }
+
+    if (batch.trip.status !== 'ACTIVE') {
+      return NextResponse.json({ error: 'Trip ini tidak menerima registrasi' }, { status: 400 });
+    }
+
+    if (batch.registrationDeadline <= new Date()) {
+      return NextResponse.json({ error: 'Pendaftaran batch ini sudah ditutup' }, { status: 400 });
+    }
+
+    if (batch.trip.slug !== slug) {
+      return NextResponse.json({ error: 'Volunteer batch tidak ditemukan' }, { status: 404 });
     }
 
     const body = await request.json();
