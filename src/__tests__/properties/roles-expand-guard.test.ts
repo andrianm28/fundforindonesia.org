@@ -30,6 +30,11 @@ import { join } from "node:path";
  * `POST /api/volunteer-trips/[slug]/payouts/[id]/approve`, mirroring the
  * existing Campaign payout approve route above -- growing this list from
  * nine to ten.
+ *
+ * NOTE (Refund API plan, Task 3): adds
+ * `POST /api/campaigns/[slug]/refunds` and
+ * `PATCH /api/campaigns/[slug]/refunds/[id]/approve`, both Admin-only on
+ * both ends -- growing this list from ten to twelve.
  */
 const HIERARCHY_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/payouts/route.ts",
@@ -44,6 +49,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/users/[id]/role/route.ts",
   "src/app/api/admin/users/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",
+  "src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts",
+  "src/app/api/campaigns/[slug]/refunds/route.ts",
   "src/app/api/moderasi/campaigns/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/route.ts",
