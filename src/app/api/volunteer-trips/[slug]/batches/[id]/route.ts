@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { isAtLeast } from '@/lib/roles';
 import { Role } from '@/generated/prisma/client';
+import { createRefund } from '@/lib/money/refunds';
 
 const editBatchSchema = z.object({
   startDate: z.string().datetime().optional(),
@@ -12,6 +13,12 @@ const editBatchSchema = z.object({
   maxQuota: z.number().int().positive().optional(),
   minQuota: z.number().int().positive().optional(),
 });
+
+const cancelActionSchema = z.object({
+  action: z.literal('cancel'),
+});
+
+class MinQuotaMetError extends Error {}
 
 export async function PATCH(
   request: NextRequest,
@@ -68,6 +75,75 @@ export async function PATCH(
     }
 
     const body = await request.json();
+
+    const cancelParsed = cancelActionSchema.safeParse(body);
+    if (cancelParsed.success) {
+      const requestedById = session.user.id as string;
+
+      try {
+        // Locking the Batch row (via the CONFIRMED count read, serialized
+        // through the transaction) before both checking minQuota and
+        // creating every Refund means a Registration confirming
+        // concurrently -- right as the Fundraiser cancels -- can't push
+        // the count past minQuota while this cancel is mid-flight, and two
+        // concurrent cancel attempts on the same Batch can't both pass the
+        // guard and both bulk-refund.
+        const result = await prisma.$transaction(async (tx) => {
+          const confirmedCount = await tx.registration.count({
+            where: { batchId: batch.id, status: 'CONFIRMED' },
+          });
+          if (confirmedCount >= batch.minQuota) {
+            throw new MinQuotaMetError();
+          }
+
+          const cancelledBatch = await tx.volunteerBatch.update({
+            where: { id: batch.id },
+            data: { status: 'CANCELLED' },
+          });
+
+          const confirmedRegistrations = await tx.registration.findMany({
+            where: { batchId: batch.id, status: 'CONFIRMED' },
+            select: { id: true, payment: { select: { id: true, amount: true } } },
+          });
+
+          await tx.registration.updateMany({
+            where: { batchId: batch.id, status: 'CONFIRMED' },
+            data: { status: 'CANCELLED' },
+          });
+
+          const refunds: Array<{ registrationId: string; refundId: string; amount: number }> = [];
+          for (const registration of confirmedRegistrations) {
+            // A CONFIRMED Registration always has a settled Payment (see
+            // prisma/schema.prisma's own comment on Registration.status).
+            const payment = registration.payment!;
+            const refund = await createRefund(tx, {
+              subject: { type: 'trip', tripId: batch.tripId },
+              paymentId: payment.id,
+              amount: payment.amount,
+              reason: 'Batch dibatalkan karena tidak mencapai kuota minimum',
+              requestedById,
+            });
+            refunds.push({ registrationId: registration.id, refundId: refund.id, amount: refund.amount });
+          }
+
+          return { batch: cancelledBatch, refunds };
+        });
+
+        return NextResponse.json({
+          batch: { id: result.batch.id, status: result.batch.status },
+          refundedRegistrations: result.refunds,
+        });
+      } catch (error) {
+        if (error instanceof MinQuotaMetError) {
+          return NextResponse.json(
+            { error: 'Batch sudah mencapai kuota minimum, tidak bisa dibatalkan' },
+            { status: 400 },
+          );
+        }
+        throw error;
+      }
+    }
+
     const result = editBatchSchema.safeParse(body);
     if (!result.success) {
       const fieldErrors = result.error.flatten().fieldErrors;
