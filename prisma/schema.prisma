@@ -41,9 +41,10 @@ model User {
   updatedAt        DateTime @updatedAt
 
   // Relations
-  accounts      Account[]
-  campaigns     Campaign[]
-  donations     Donation[]
+  accounts        Account[]
+  campaigns       Campaign[]
+  volunteerTrips  VolunteerTrip[]
+  donations       Donation[]
   prayers       Prayer[]
   notifications Notification[]
   autoDonations AutoDonation[]
@@ -613,4 +614,74 @@ model DisbursementLegacy {
 
   @@index([campaignId], map: "Disbursement_campaignId_idx")
   @@map("Disbursement_legacy")
+}
+
+// ==================== Volunteer Trip ====================
+
+enum VolunteerTripStatus {
+  DRAFT
+  SUBMITTED
+  REJECTED
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+  COMPLETED
+}
+
+/// A Fundraiser-owned catalog item: destination, itinerary, and a Trip Fee
+/// shared across every Batch of this Trip. Deliberately not a Campaign and
+/// not a Kind -- see ADR 0014. Shaped like Campaign minus targetAmount/
+/// deadline/isUrgent/isDemo, plus destination/itinerary/tripFeeAmount.
+model VolunteerTrip {
+  id            String              @id @default(cuid())
+  slug          String              @unique
+  title         String
+  description   String              @db.Text
+  story         String              @db.Text
+  coverImage    String
+  destination   String
+  itinerary     String              @db.Text
+  tripFeeAmount Int
+  status        VolunteerTripStatus @default(DRAFT)
+  fundraiserId  String
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  // Relations
+  fundraiser User             @relation(fields: [fundraiserId], references: [id], onDelete: Cascade)
+  batches    VolunteerBatch[]
+
+  @@index([slug])
+  @@index([status])
+  @@index([fundraiserId])
+}
+
+enum VolunteerBatchStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+  COMPLETED
+}
+
+/// One dated instance of a Volunteer Trip. maxQuota/minQuota are Fundraiser-
+/// set per Batch, never a platform-wide constant (ADR 0014). This ticket
+/// only ever produces OPEN; the rest of the enum exists so a later ticket
+/// (Registration, Batch cancellation) needs no schema change to use it.
+model VolunteerBatch {
+  id                   String               @id @default(cuid())
+  tripId               String
+  startDate            DateTime
+  endDate              DateTime
+  registrationDeadline DateTime
+  maxQuota             Int
+  minQuota             Int
+  status               VolunteerBatchStatus @default(OPEN)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  // Relations
+  trip VolunteerTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
+  @@index([status])
 }
