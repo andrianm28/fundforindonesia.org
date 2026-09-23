@@ -57,6 +57,7 @@ model User {
   bankAccounts     BankAccount[]
   payoutsRequested Payout[]      @relation("PayoutRequester")
   payoutsApproved  Payout[]      @relation("PayoutApprover")
+  refundsRequested Refund[]      @relation("RefundRequester")
   refundsApproved  Refund[]      @relation("RefundApprover")
 
   @@index([email])
@@ -351,9 +352,12 @@ enum PaymentStatus {
 
 enum RefundStatus {
   REQUESTED
+  AWAITING_DONOR_DETAILS
+  APPROVED
   PROCESSING
   COMPLETED
   REJECTED
+  FAILED
 }
 
 enum PayoutStatus {
@@ -374,11 +378,20 @@ enum LedgerAccount {
   ESCROW_HOLD // settled at the provider, still inside the dispute window
   CAMPAIGN_BALANCE // owed to a specific campaign, withdrawable now
   TRIP_BALANCE
+  /// Money moved out of ESCROW_HOLD or the withdrawable balance the moment a
+  /// Refund is created -- no longer visible as available, no longer eligible
+  /// for a Payout, remaining the Donor's right until the (out-of-scope for
+  /// this ticket) COMPLETED transition. See CONTEXT.md's "Frozen Balance".
+  FROZEN_BALANCE
   PLATFORM_FEE // retained by the platform
   PROVIDER_FEE // retained by the payment provider
   GATEWAY_CLEARING // money at the provider, not yet settled to us
   PAYOUT_CLEARING // money instructed out, not yet confirmed
   REFUND_CLEARING
+  /// The platform's absorption of whatever a Refund's source didn't cover --
+  /// the unrecoverable Provider Fee on every Gross refund (ADR 0007), and,
+  /// when the subject's pool has gone negative, the uncovered shortfall too.
+  REFUND_COST
 }
 
 enum LedgerDirection {
@@ -464,19 +477,21 @@ model WebhookEvent {
 }
 
 model Refund {
-  id           String       @id @default(cuid())
-  paymentId    String
-  payment      Payment      @relation(fields: [paymentId], references: [id])
+  id            String       @id @default(cuid())
+  paymentId     String
+  payment       Payment      @relation(fields: [paymentId], references: [id])
   /// Partial refunds are allowed, so this is not necessarily the full payment.
-  amount       Int
-  reason       String
-  status       RefundStatus @default(REQUESTED)
+  amount        Int
+  reason        String
+  status        RefundStatus @default(REQUESTED)
+  requestedById String
+  requestedBy   User         @relation("RefundRequester", fields: [requestedById], references: [id])
   /// Who approved it. Refunds move money back out, so they are attributable.
-  approvedById String?
-  approvedBy   User?        @relation("RefundApprover", fields: [approvedById], references: [id])
-  providerRef  String?      @unique
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  approvedById  String?
+  approvedBy    User?        @relation("RefundApprover", fields: [approvedById], references: [id])
+  providerRef   String?      @unique
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   ledgerEntries LedgerEntry[]
 
