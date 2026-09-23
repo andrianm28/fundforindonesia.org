@@ -55,3 +55,38 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
     return NextResponse.json({ error: 'Gagal membuat volunteer trip' }, { status: 500 });
   }
 });
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+    const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '12', 10)));
+    const skip = (page - 1) * limit;
+
+    // Always ACTIVE, never a client-controllable status filter -- this route
+    // is public and unauthenticated. A SUBMITTED or DRAFT Trip is only ever
+    // visible through the Verifier-gated /api/moderasi/volunteer-trips queue.
+    const where = { status: 'ACTIVE' as const };
+
+    const [trips, total] = await Promise.all([
+      prisma.volunteerTrip.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.volunteerTrip.count({ where }),
+    ]);
+
+    return NextResponse.json({
+      trips,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    console.error('Error fetching volunteer trips:', error);
+    return NextResponse.json({ error: 'Failed to fetch volunteer trips' }, { status: 500 });
+  }
+}

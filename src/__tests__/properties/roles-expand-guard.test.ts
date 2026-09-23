@@ -3,12 +3,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Ticket 06 only recorded assignments; ticket 07 makes seven of them
+ * Ticket 06 only recorded assignments; ticket 07 makes several of them
  * decide access. This test pins the boundary three ways: the four files
  * that still legitimately gate on account type (CAMPAIGN_CREATOR/DONOR,
  * which have no Assignment equivalent) still enforce the Role hierarchy;
- * the seven Admin/Verifier files no longer decide access by hierarchy at
- * all; and exactly those seven, and no others, decide access by
+ * the Admin/Verifier files no longer decide access by hierarchy at
+ * all; and exactly those files, and no others, decide access by
  * assignment. Ticket 08 removes the hierarchy entirely -- these literals
  * will shrink to nothing then, not grow.
  *
@@ -20,6 +20,11 @@ import { join } from "node:path";
  * `src/app/campaign/[slug]/donate/page.tsx`,
  * `src/app/moderasi/campaigns/[id]/page.tsx`) contain no hierarchy check
  * at all (public pages).
+ *
+ * NOTE (Volunteer Trip plan, Task 3): adds the Verifier moderation queue
+ * for Volunteer Trips (`GET`/`PATCH /api/moderasi/volunteer-trips[/[id]]`),
+ * mirroring the existing Campaign moderation routes above -- growing this
+ * list from seven to nine, same as Campaign's own moderation routes did.
  */
 const HIERARCHY_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/payouts/route.ts",
@@ -35,6 +40,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/users/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/moderasi/campaigns/[id]/route.ts",
+  "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
+  "src/app/api/moderasi/volunteer-trips/route.ts",
   "src/app/moderasi/layout.tsx",
   "src/app/moderasi/page.tsx",
 ];
@@ -78,7 +85,7 @@ describe("roles expand scope", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("the seven Admin/Verifier files no longer decide access by hierarchy", () => {
+  it("the nine Admin/Verifier files no longer decide access by hierarchy", () => {
     const offenders = ASSIGNMENT_GUARDED_ROUTES.filter(
       (file) => usesHierarchy(readFileSync(file, "utf8"))
     );
@@ -86,7 +93,7 @@ describe("roles expand scope", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("exactly the seven Admin/Verifier files decide access by assignment", () => {
+  it("exactly the nine Admin/Verifier files decide access by assignment", () => {
     const readers = walk("src")
       .filter((file) => !file.endsWith(".test.ts") && !file.endsWith(".test.tsx"))
       .filter((file) => !file.startsWith("src/generated/"))

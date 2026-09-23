@@ -5,6 +5,8 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     volunteerTrip: {
       create: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
     },
   },
 }));
@@ -15,10 +17,12 @@ vi.mock('@/lib/auth', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { POST } from './route';
+import { POST, GET } from './route';
 
 const mockCreate = prisma.volunteerTrip.create as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
+const mockFindMany = prisma.volunteerTrip.findMany as unknown as Mock;
+const mockCount = prisma.volunteerTrip.count as unknown as Mock;
 
 const VALID_BODY = {
   title: 'Mengajar di Pulau Terpencil',
@@ -96,5 +100,42 @@ describe('POST /api/volunteer-trips', () => {
     const response = await POST(createRequest({ ...VALID_BODY, coverImage: 'not-a-url' }));
     expect(response.status).toBe(400);
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+function listRequest(query = ''): NextRequest {
+  return new NextRequest(`http://localhost:3000/api/volunteer-trips${query}`);
+}
+
+describe('GET /api/volunteer-trips', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindMany.mockResolvedValue([{ id: 'trip-1', slug: 'trip-1', status: 'ACTIVE' }]);
+    mockCount.mockResolvedValue(1);
+  });
+
+  it('only ever queries status ACTIVE, regardless of any query param', async () => {
+    await GET(listRequest('?status=SUBMITTED'));
+    expect(mockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ status: 'ACTIVE' }) }),
+    );
+  });
+
+  it('returns paginated results with defaults', async () => {
+    const response = await GET(listRequest());
+    const data = await response.json();
+    expect(response.status).toBe(200);
+    expect(data).toEqual(expect.objectContaining({ trips: expect.any(Array), total: 1, page: 1 }));
+    expect(mockFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 12 }));
+  });
+
+  it('clamps an out-of-range limit to the maximum', async () => {
+    await GET(listRequest('?limit=500'));
+    expect(mockFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 50 }));
+  });
+
+  it('does not require authentication', async () => {
+    const response = await GET(listRequest());
+    expect(response.status).toBe(200);
   });
 });

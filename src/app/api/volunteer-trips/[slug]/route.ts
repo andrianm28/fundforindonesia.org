@@ -77,3 +77,35 @@ export async function PATCH(
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
   }
 }
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ slug: string }> },
+) {
+  try {
+    const { slug } = await params;
+
+    const trip = await prisma.volunteerTrip.findUnique({ where: { slug } });
+
+    if (!trip) {
+      return NextResponse.json({ error: 'Volunteer trip tidak ditemukan' }, { status: 404 });
+    }
+
+    const batches = await prisma.volunteerBatch.findMany({
+      where: { tripId: trip.id, status: 'OPEN' },
+      orderBy: { startDate: 'asc' },
+    });
+
+    // remainingQuota is always maxQuota here -- no Registration exists yet,
+    // so HOLD+CONFIRMED is always 0. A later ticket subtracts the real count.
+    const batchesWithRemaining = batches.map((batch) => ({
+      ...batch,
+      remainingQuota: batch.maxQuota,
+    }));
+
+    return NextResponse.json({ trip: { ...trip, batches: batchesWithRemaining } });
+  } catch (error) {
+    console.error('Error fetching volunteer trip:', error);
+    return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
+  }
+}

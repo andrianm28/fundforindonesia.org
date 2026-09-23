@@ -7,6 +7,9 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    volunteerBatch: {
+      findMany: vi.fn(),
+    },
   },
 }));
 
@@ -16,11 +19,12 @@ vi.mock('@/lib/auth', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { PATCH } from './route';
+import { PATCH, GET } from './route';
 
 const mockFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
 const mockUpdate = prisma.volunteerTrip.update as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
+const mockBatchFindMany = prisma.volunteerBatch.findMany as unknown as Mock;
 
 function patchRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/volunteer-trips/some-slug', {
@@ -109,5 +113,48 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
     const response = await PATCH(patchRequest({ action: 'publish' }), routeContext());
     expect(response.status).toBe(400);
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
+
+function getRequest(slug = 'some-slug'): NextRequest {
+  return new NextRequest(`http://localhost:3000/api/volunteer-trips/${slug}`);
+}
+
+describe('GET /api/volunteer-trips/[slug]', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindUnique.mockResolvedValue({
+      id: 'trip-1',
+      slug: 'some-slug',
+      status: 'ACTIVE',
+      title: 'Mengajar di Pulau Terpencil',
+    });
+    mockBatchFindMany.mockResolvedValue([
+      { id: 'batch-1', tripId: 'trip-1', status: 'OPEN', maxQuota: 20 },
+    ]);
+  });
+
+  it('returns 404 for a nonexistent slug', async () => {
+    mockFindUnique.mockResolvedValue(null);
+    const response = await GET(getRequest(), routeContext());
+    expect(response.status).toBe(404);
+  });
+
+  it('returns the trip with its OPEN batches, each carrying a remainingQuota field', async () => {
+    const response = await GET(getRequest(), routeContext());
+    const data = await response.json();
+    expect(response.status).toBe(200);
+    expect(data.trip.slug).toBe('some-slug');
+    expect(data.trip.batches).toEqual([
+      expect.objectContaining({ id: 'batch-1', maxQuota: 20, remainingQuota: 20 }),
+    ]);
+    expect(mockBatchFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ tripId: 'trip-1', status: 'OPEN' }) }),
+    );
+  });
+
+  it('does not require authentication', async () => {
+    const response = await GET(getRequest(), routeContext());
+    expect(response.status).toBe(200);
   });
 });
