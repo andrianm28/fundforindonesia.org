@@ -140,6 +140,25 @@ describe('GET /api/volunteer-trips/[slug]', () => {
     expect(response.status).toBe(404);
   });
 
+  it('returns 404 for a non-ACTIVE trip, with the same error body as a nonexistent slug', async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 'trip-1',
+      slug: 'some-slug',
+      status: 'DRAFT',
+      title: 'Mengajar di Pulau Terpencil',
+    });
+    const response = await GET(getRequest(), routeContext());
+    const data = await response.json();
+    expect(response.status).toBe(404);
+    expect(data).toEqual({ error: 'Volunteer trip tidak ditemukan' });
+
+    mockFindUnique.mockResolvedValue(null);
+    const notFoundResponse = await GET(getRequest(), routeContext());
+    const notFoundData = await notFoundResponse.json();
+    expect(notFoundResponse.status).toBe(404);
+    expect(notFoundData).toEqual(data);
+  });
+
   it('returns the trip with its OPEN batches, each carrying a remainingQuota field', async () => {
     const response = await GET(getRequest(), routeContext());
     const data = await response.json();

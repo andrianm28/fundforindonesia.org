@@ -87,7 +87,7 @@ export async function GET(
 
     const trip = await prisma.volunteerTrip.findUnique({ where: { slug } });
 
-    if (!trip) {
+    if (!trip || trip.status !== 'ACTIVE') {
       return NextResponse.json({ error: 'Volunteer trip tidak ditemukan' }, { status: 404 });
     }
 

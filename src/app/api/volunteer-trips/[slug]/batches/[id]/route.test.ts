@@ -38,7 +38,16 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
     vi.clearAllMocks();
     mockGetServerSession.mockResolvedValue({ user: { id: 'owner-1', role: 'CAMPAIGN_CREATOR' } });
     mockTripFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1' });
-    mockBatchFindUnique.mockResolvedValue({ id: 'batch-1', tripId: 'trip-1', status: 'OPEN', maxQuota: 20, minQuota: 8 });
+    mockBatchFindUnique.mockResolvedValue({
+      id: 'batch-1',
+      tripId: 'trip-1',
+      status: 'OPEN',
+      maxQuota: 20,
+      minQuota: 8,
+      startDate: new Date('2026-12-01T00:00:00.000Z'),
+      endDate: new Date('2026-12-05T00:00:00.000Z'),
+      registrationDeadline: new Date('2026-11-20T00:00:00.000Z'),
+    });
     mockBatchUpdate.mockResolvedValue({ id: 'batch-1', maxQuota: 25 });
   });
 
@@ -101,6 +110,24 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
 
   it('returns 400 when the edited minQuota would exceed the batch\'s own maxQuota', async () => {
     const response = await PATCH(patchRequest({ minQuota: 30 }), routeContext());
+    expect(response.status).toBe(400);
+    expect(mockBatchUpdate).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when the edited endDate is before the stored startDate', async () => {
+    const response = await PATCH(
+      patchRequest({ endDate: '2026-11-25T00:00:00.000Z' }),
+      routeContext(),
+    );
+    expect(response.status).toBe(400);
+    expect(mockBatchUpdate).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when the edited registrationDeadline is after the stored startDate', async () => {
+    const response = await PATCH(
+      patchRequest({ registrationDeadline: '2026-12-02T00:00:00.000Z' }),
+      routeContext(),
+    );
     expect(response.status).toBe(400);
     expect(mockBatchUpdate).not.toHaveBeenCalled();
   });

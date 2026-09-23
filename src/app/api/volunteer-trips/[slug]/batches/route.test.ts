@@ -79,6 +79,12 @@ describe('POST /api/volunteer-trips/[slug]/batches', () => {
     );
   });
 
+  it('ignores a client-supplied status on create -- always OPEN', async () => {
+    const response = await POST(createRequest({ ...VALID_BATCH, status: 'CLOSED' }), routeContext());
+    expect(response.status).toBe(201);
+    expect(mockBatchCreate.mock.calls[0][0].data.status).toBe('OPEN');
+  });
+
   it('returns 400 when minQuota exceeds maxQuota', async () => {
     const response = await POST(createRequest({ ...VALID_BATCH, minQuota: 25 }), routeContext());
     expect(response.status).toBe(400);

@@ -83,6 +83,12 @@ describe('POST /api/volunteer-trips', () => {
     );
   });
 
+  it('ignores a client-supplied status on create -- always DRAFT', async () => {
+    const response = await POST(createRequest({ ...VALID_BODY, status: 'ACTIVE' }));
+    expect(response.status).toBe(201);
+    expect(mockCreate.mock.calls[0][0].data.status).toBe('DRAFT');
+  });
+
   it('returns 400 for a missing required field', async () => {
     const { title: _title, ...withoutTitle } = VALID_BODY;
     const response = await POST(createRequest(withoutTitle));

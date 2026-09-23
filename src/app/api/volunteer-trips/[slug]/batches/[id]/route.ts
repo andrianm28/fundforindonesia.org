@@ -36,7 +36,16 @@ export async function PATCH(
 
     const batch = await prisma.volunteerBatch.findUnique({
       where: { id },
-      select: { id: true, tripId: true, status: true, maxQuota: true, minQuota: true },
+      select: {
+        id: true,
+        tripId: true,
+        status: true,
+        maxQuota: true,
+        minQuota: true,
+        startDate: true,
+        endDate: true,
+        registrationDeadline: true,
+      },
     });
 
     if (!batch || batch.tripId !== trip.id) {
@@ -70,6 +79,29 @@ export async function PATCH(
     if (nextMinQuota > nextMaxQuota) {
       return NextResponse.json(
         { error: 'minQuota tidak boleh melebihi maxQuota', fieldErrors: { minQuota: ['minQuota tidak boleh melebihi maxQuota'] } },
+        { status: 400 },
+      );
+    }
+
+    const nextStartDate = result.data.startDate ? new Date(result.data.startDate) : batch.startDate;
+    const nextEndDate = result.data.endDate ? new Date(result.data.endDate) : batch.endDate;
+    const nextRegistrationDeadline = result.data.registrationDeadline
+      ? new Date(result.data.registrationDeadline)
+      : batch.registrationDeadline;
+
+    if (nextEndDate < nextStartDate) {
+      return NextResponse.json(
+        { error: 'endDate tidak boleh sebelum startDate', fieldErrors: { endDate: ['endDate tidak boleh sebelum startDate'] } },
+        { status: 400 },
+      );
+    }
+
+    if (nextRegistrationDeadline > nextStartDate) {
+      return NextResponse.json(
+        {
+          error: 'registrationDeadline tidak boleh setelah startDate',
+          fieldErrors: { registrationDeadline: ['registrationDeadline tidak boleh setelah startDate'] },
+        },
         { status: 400 },
       );
     }
