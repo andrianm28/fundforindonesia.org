@@ -44,6 +44,7 @@ model User {
   accounts        Account[]
   campaigns       Campaign[]
   volunteerTrips  VolunteerTrip[]
+  registrations   Registration[]
   donations       Donation[]
   prayers       Prayer[]
   notifications Notification[]
@@ -395,9 +396,13 @@ model Payment {
   /// Set instead of donationId for a Trip Fee payment -- exactly one of the
   /// two is ever set, enforced by assertExactlyOnePaymentSubject
   /// (./src/lib/money/payment-subject.ts), not by a schema constraint
-  /// Prisma cannot express. Plain scalar, no @relation: Registration
-  /// doesn't exist yet -- Ticket 03 adds the relation once it does.
-  registrationId String?    @unique
+  /// Prisma cannot express. onDelete: Restrict, matching donationId's own
+  /// pinning -- a fresh optional relation defaults to Prisma's implicit
+  /// SetNull otherwise, the exact class of bug a whole-branch review on an
+  /// earlier ticket caught for donationId/campaignId. Applied here
+  /// proactively.
+  registrationId String?       @unique
+  registration   Registration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
   provider    String // "midtrans" | "xendit" | ... kept a String: providers are added without a migration
   method      String // "qris" | "va_bca" | ...
   /// The provider's own id for this charge. Unique so a webhook replay cannot
@@ -680,8 +685,43 @@ model VolunteerBatch {
   updatedAt            DateTime             @updatedAt
 
   // Relations
-  trip VolunteerTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  trip           VolunteerTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  registrations  Registration[]
 
   @@index([tripId])
   @@index([status])
+}
+
+enum RegistrationStatus {
+  HOLD
+  CONFIRMED
+  EXPIRED
+  CANCELLED
+}
+
+/// A Volunteer's registration on one Volunteer Batch. HOLD and CONFIRMED
+/// together count toward the Batch's maxQuota; only CONFIRMED counts toward
+/// minQuota. status is denormalized from this Registration's Payment.status
+/// -- the same dual-write shape Campaign.status/lifecycleStatus already
+/// uses, kept in sync by the settlement webhook (Task 3) and the
+/// hold-expiry sweep (Task 2), never by this Registration being written
+/// directly outside those two paths.
+model Registration {
+  id            String             @id @default(cuid())
+  volunteerId   String
+  batchId       String
+  status        RegistrationStatus @default(HOLD)
+  holdExpiresAt DateTime
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  // Relations
+  volunteer User           @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  batch     VolunteerBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  payment   Payment?
+
+  @@index([volunteerId])
+  @@index([batchId])
+  @@index([status])
+  @@index([holdExpiresAt])
 }
