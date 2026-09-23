@@ -66,7 +66,7 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
 
     const payout = await prisma.$transaction((tx) =>
       requestPayout(tx, {
-        campaignId: campaign.id,
+        subject: { type: 'campaign', campaignId: campaign.id },
         requestedById: userId,
         bankAccountId,
         amount,

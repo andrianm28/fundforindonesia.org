@@ -1,5 +1,6 @@
 import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
-import { campaignBalance, payoutInstructedLegs, postTransaction } from './ledger';
+import { campaignBalance, tripBalance, payoutInstructedLegs, postTransaction, type LedgerSubject } from './ledger';
+import { assertExactlyOnePayoutSubject } from './payout-subject';
 
 /**
  * Payout: request, approve, release.
@@ -79,51 +80,60 @@ export class PayoutNotFoundError extends Error {
 }
 
 /**
- * Campaign-owner requests a payout. Creates a DRAFT and posts nothing to the
- * ledger -- a request is not yet a movement of money, only a proposal to make
- * one. This function takes a `Prisma.TransactionClient` because its caller
- * (the route) wraps it in a single `prisma.$transaction`; nothing here does
- * external I/O, so there is no reason to split it the way approval is split
- * below.
+ * The owning Fundraiser or Campaign creator requests a payout. Creates a
+ * DRAFT and posts nothing to the ledger -- a request is not yet a movement
+ * of money, only a proposal to make one. This function takes a
+ * `Prisma.TransactionClient` because its caller (the route) wraps it in a
+ * single `prisma.$transaction`; nothing here does external I/O, so there is
+ * no reason to split it the way approval is split below.
  *
- * Ownership of the campaign itself (campaign.creatorId === requestedById) is
- * the caller's responsibility: withRoleCheck only proves "a campaign
- * creator", not "this campaign's creator", so the route checks that before
- * ever reaching here. What this function owns is the destination account:
- * `bankAccount.ownerId` must equal `requestedById` too. A verified account
- * that belongs to someone else satisfies "has a verifiedAt" on its own, and
- * would send this campaign's money to a stranger.
+ * Generalized over `subject: LedgerSubject` rather than forked into a
+ * Trip-scoped sibling: the isDemo check only applies to `subject.type ===
+ * 'campaign'` (VolunteerTrip has no isDemo field and no equivalent), and the
+ * balance read/subject FK branch on subject.type everywhere else. Every
+ * other check -- bank account ownership and verification, the balance cap --
+ * applies identically to both subjects.
+ *
+ * Ownership of the subject itself (campaign.creatorId === requestedById, or
+ * trip.fundraiserId === requestedById) is the caller's responsibility:
+ * withRoleCheck only proves "a CAMPAIGN_CREATOR-ranked user", not "this
+ * subject's owner", so the route checks that before ever reaching here. What
+ * this function owns is the destination account: `bankAccount.ownerId` must
+ * equal `requestedById` too.
  *
  * Nothing is reserved against the balance here -- two DRAFT requests can be
- * created for more than the campaign has. That is deliberate: the balance is
- * only ever spent at approval, and approvePayout is what actually
- * closes the "satisfiable twice" gap, under a lock, at the moment money
- * would really move.
+ * created for more than the subject has. That is deliberate: the balance is
+ * only ever spent at approval, and approvePayout is what actually closes the
+ * "satisfiable twice" gap, under a lock, at the moment money would really
+ * move.
  */
 export async function requestPayout(
   tx: Prisma.TransactionClient,
   params: {
-    campaignId: string;
+    subject: LedgerSubject;
     requestedById: string;
     bankAccountId: string;
     amount: number;
     description: string;
   },
 ): Promise<Payout> {
-  const { campaignId, requestedById, bankAccountId, amount, description } = params;
+  const { subject, requestedById, bankAccountId, amount, description } = params;
 
-  // Checked before the bank account and the balance: a demo campaign has no
-  // ledger balance either, so InsufficientBalanceError would already stop
-  // this -- but that message reads as "the money isn't here yet", which
-  // sends whoever sees it looking for a shortfall that does not exist. This
-  // is the one door money leaves the platform through (see the module doc
-  // comment above), so it is also the one place this needs to be checked.
-  const campaign = await tx.campaign.findUnique({
-    where: { id: campaignId },
-    select: { isDemo: true },
-  });
-  if (campaign?.isDemo) {
-    throw new DemoCampaignError();
+  // Checked before the bank account and the balance, and only for a
+  // Campaign subject -- a demo campaign has no ledger balance either, so
+  // InsufficientBalanceError would already stop this -- but that message
+  // reads as "the money isn't here yet", which sends whoever sees it
+  // looking for a shortfall that does not exist. VolunteerTrip has no
+  // isDemo field and no equivalent concept, so this check simply does not
+  // run for a trip subject.
+  if (subject.type === 'campaign') {
+    const campaign = await tx.campaign.findUnique({
+      where: { id: subject.campaignId },
+      select: { isDemo: true },
+    });
+    if (campaign?.isDemo) {
+      throw new DemoCampaignError();
+    }
   }
 
   const bankAccount = await tx.bankAccount.findUnique({ where: { id: bankAccountId } });
@@ -131,17 +141,30 @@ export async function requestPayout(
     throw new BankAccountNotEligibleError();
   }
 
-  // Never against Campaign.collectedAmount: that figure counts lifetime
-  // donations and knows nothing about escrow, refunds, or money already
-  // instructed out. Paying against it is how the same money leaves twice.
-  const balance = await campaignBalance(tx, campaignId);
+  // Never against Campaign.collectedAmount or any denormalized figure: this
+  // figure counts lifetime donations and knows nothing about escrow,
+  // refunds, or money already instructed out. Paying against it is how the
+  // same money leaves twice. campaignBalance/tripBalance both derive strictly
+  // from the ledger, scoped to this subject's own account -- a Trip subject
+  // can never read a Campaign's balance or vice versa, because each function
+  // filters on its own FK column.
+  const balance =
+    subject.type === 'campaign'
+      ? await campaignBalance(tx, subject.campaignId)
+      : await tripBalance(tx, subject.tripId);
   if (amount > balance) {
     throw new InsufficientBalanceError(amount, balance);
   }
 
+  const subjectFk =
+    subject.type === 'campaign'
+      ? { campaignId: subject.campaignId, volunteerTripId: null }
+      : { campaignId: null, volunteerTripId: subject.tripId };
+  assertExactlyOnePayoutSubject(subjectFk);
+
   return tx.payout.create({
     data: {
-      campaignId,
+      ...subjectFk,
       bankAccountId,
       amount,
       description,
@@ -215,38 +238,50 @@ export async function approvePayout(
     // Re-checked here, not trusted from request time. Nothing in this repo
     // writes a BankAccount after creation except (by hand, outside the app)
     // clearing verifiedAt when one turns out to be fraudulent -- exactly the
-    // scenario this exists to catch, in the window between a campaigner's
-    // request and an admin's approval. Ownership is re-checked for the same
-    // reason it was checked at all: ownerId is the only thing tying this
-    // destination to the campaign's creator.
+    // scenario this exists to catch, in the window between a requester's
+    // request and an admin's approval.
     const { bankAccount } = payout;
     if (!bankAccount || bankAccount.ownerId !== payout.requestedById || !bankAccount.verifiedAt) {
       throw new BankAccountNotEligibleError();
     }
 
-    // The contended resource is the campaign's withdrawable BALANCE, not
+    // Which subject this Payout actually belongs to -- exactly one of
+    // campaignId/volunteerTripId is set (assertExactlyOnePayoutSubject
+    // guards this at creation, in requestPayout above). This branch never
+    // hardcodes 'campaign': it is what makes a Trip-linked Payout unable to
+    // ever touch CAMPAIGN_BALANCE, and a Campaign-linked one unable to ever
+    // touch TRIP_BALANCE, no matter how either was requested.
+    const subject: LedgerSubject = payout.campaignId
+      ? { type: 'campaign', campaignId: payout.campaignId }
+      : { type: 'trip', tripId: payout.volunteerTripId! };
+
+    // The contended resource is the subject's withdrawable BALANCE, not
     // this payout row -- a second, different DRAFT payout against the same
-    // campaign is a different row entirely and would sail straight past a
-    // lock on this one. Locking the Campaign row is what serialises two
-    // admins approving two different payouts against the same balance at
-    // once. Without it: campaignBalance below is a plain SELECT ... GROUP BY
-    // with no row to lock, these transactions run at Postgres's default READ
-    // COMMITTED (there is no isolationLevel set anywhere in this repo), and
-    // each transaction only locks its own Payout row via the updateMany
-    // further down -- so two concurrent approvals of two DIFFERENT payouts
-    // would each read the same pre-spend balance, each pass the check below,
-    // and both commit. CAMPAIGN_BALANCE would go negative with nothing to
-    // stop it, since balances are derived by summing entries, never stored.
-    await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${payout.campaignId} FOR UPDATE`;
+    // subject is a different row entirely and would sail straight past a
+    // lock on this one. Locking the Campaign or VolunteerTrip row is what
+    // serialises two admins approving two different payouts against the
+    // same balance at once. Without it: campaignBalance/tripBalance below
+    // is a plain SELECT ... GROUP BY with no row to lock, these
+    // transactions run at Postgres's default READ COMMITTED, and two
+    // concurrent approvals of two DIFFERENT payouts on the same subject
+    // would each read the same pre-spend balance, each pass the check
+    // below, and both commit -- the balance would go negative with nothing
+    // to stop it, since balances are derived by summing entries, never
+    // stored.
+    if (subject.type === 'campaign') {
+      await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${subject.campaignId} FOR UPDATE`;
+    } else {
+      await tx.$queryRaw`SELECT id FROM "VolunteerTrip" WHERE id = ${subject.tripId} FOR UPDATE`;
+    }
 
     // Balance can have moved since the request -- a refund, another payout
-    // approved first -- and, now that this transaction holds the campaign's
+    // approved first -- and, now that this transaction holds the subject's
     // row lock, this read is guaranteed current for as long as the lock is
     // held.
-    // Assumes a Campaign-linked Payout (payout.campaignId non-null). Needs a
-    // Trip-branch guard once a Volunteer Trip payout route exists (Ticket 02
-    // in the parent Volunteer Trip ticket set).
-    const balance = await campaignBalance(tx, payout.campaignId);
+    const balance =
+      subject.type === 'campaign'
+        ? await campaignBalance(tx, subject.campaignId)
+        : await tripBalance(tx, subject.tripId);
     if (payout.amount > balance) {
       throw new InsufficientBalanceError(payout.amount, balance);
     }
@@ -272,15 +307,11 @@ export async function approvePayout(
     // approved for payout twice. transactionId is keyed on the payout id so
     // this post can never happen twice, on top of (not instead of) the
     // updateMany guard above.
-    // Assumes a Campaign-linked Payout (payout.campaignId non-null). Needs a
-    // Trip-branch guard once a Volunteer Trip payout route exists (Ticket 02
-    // in the parent Volunteer Trip ticket set).
     await postTransaction(
       tx,
-      payoutInstructedLegs({ subject: { type: 'campaign', campaignId: payout.campaignId }, amount: payout.amount }),
+      payoutInstructedLegs({ subject, amount: payout.amount }),
       { payoutId: payout.id, transactionId: `payout-instructed-${payout.id}` },
     );
-
   });
 
   return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
