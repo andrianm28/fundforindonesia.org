@@ -274,7 +274,7 @@ describe('ledger invariants (property-based)', () => {
         fc.constantFrom<'campaign' | 'trip'>('campaign', 'trip'),
         (gross, feeRaw, shortfallRaw, subjectType) => {
           const fee = Math.min(feeRaw, gross);
-          const shortfall = Math.min(shortfallRaw, gross - fee);
+          const shortfall = Math.min(shortfallRaw, gross);
           const subject: LedgerSubject =
             subjectType === 'campaign'
               ? { type: 'campaign', campaignId: 'c1' }
@@ -283,9 +283,9 @@ describe('ledger invariants (property-based)', () => {
           for (const legs of [
             paymentSettledLegs({ subject, grossAmount: gross, providerFee: fee }),
             escrowReleaseLegs({ subject, amount: gross }),
-            refundRequestedLegs({ subject, amount: gross, source: 'ESCROW_HOLD' }),
-            refundRequestedLegs({ subject, amount: gross, source: balanceAccount }),
-            refundApprovedLegs({ subject, amount: gross, source: balanceAccount, platformFeePortion: 0, providerFeePortion: fee, shortfall }),
+            refundRequestedLegs({ subject, amount: gross, source: 'ESCROW_HOLD', platformFeePortion: 0, providerFeePortion: fee }),
+            refundRequestedLegs({ subject, amount: gross, source: balanceAccount, platformFeePortion: 0, providerFeePortion: fee }),
+            refundApprovedLegs({ subject, amount: gross, source: balanceAccount, shortfall }),
             payoutInstructedLegs({ subject, amount: gross }),
           ]) {
             const d = legs.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + l.amount, 0);
@@ -318,17 +318,18 @@ describe('ledger invariants (property-based)', () => {
     // Rp 500.000 donated, Rp 15.000 kept by the provider.
     await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000 }));
     // Rp 100.000 refunded while still held (well within the 485.000 net credited) --
-    // frozen first, then settled with its proportional provider-fee share.
+    // frozen first (splitting out its proportional 3_000 provider-fee share
+    // right there), then settled with no shortfall.
     await postTransaction(
       tx as never,
-      refundRequestedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD' }),
+      refundRequestedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', platformFeePortion: 0, providerFeePortion: 3_000 }),
     );
     await postTransaction(
       tx as never,
-      refundApprovedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', platformFeePortion: 0, providerFeePortion: 3_000, shortfall: 0 }),
+      refundApprovedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', shortfall: 0 }),
     );
-    // The settlement's fee-share correction credits 3_000 back into
-    // ESCROW_HOLD (385_000 + 3_000 = 388_000), so that is what matures.
+    // The freeze already debited ESCROW_HOLD only its 97_000 NET share
+    // (485_000 - 97_000 = 388_000), so that is what matures.
     await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 388_000 }));
     // Rp 200.000 paid out.
     await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 200_000 }));

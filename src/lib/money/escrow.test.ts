@@ -291,6 +291,46 @@ describe('releaseMaturedEscrow', () => {
   });
 
   it(
+    "releases exactly the Payment's own remaining NET after a partial refund made while escrow was still " +
+      'held, per the freeze-splits-the-fee design (regression for the fee-stranding bug the prior, ' +
+      'settlement-time fee-split design had)',
+    async () => {
+      // Gross 100_000, Provider Fee 5_000, settled to ESCROW_HOLD net 95_000.
+      // A 40_000 partial refund's freeze (refundRequestedLegs, ./ledger.ts)
+      // debits ESCROW_HOLD only its own NET share -- 40_000 minus its
+      // proportional fee share (providerFeePortionFor(payment, 40_000, []) =
+      // ceilMulDiv(5_000, 40_000, 100_000) = 2_000), i.e. 38_000 -- never the
+      // full 40_000 Gross. If releaseMaturedEscrow instead subtracted the
+      // refund's GROSS amount (the bug this regression test catches), it
+      // would try to release 95_000 - 40_000 = 55_000, 2_000 short of the
+      // 57_000 actually sitting in ESCROW_HOLD, permanently stranding that
+      // 2_000 with no future sweep ever able to reach it (escrowReleasedAt
+      // is stamped for good the moment this release posts).
+      const { rows } = makeDb(
+        [makePayment({ id: 'payment-1', amount: 100_000, providerFee: 5_000, campaignId: 'campaign-1' })],
+        [
+          { transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 95_000, campaignId: 'campaign-1' },
+          { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 38_000, campaignId: 'campaign-1' },
+        ],
+        [{ paymentId: 'payment-1', amount: 40_000, status: 'COMPLETED' }],
+      );
+
+      const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+      expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+      const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
+      expect(releaseLegs.find((r) => r.direction === 'DEBIT')).toMatchObject({ account: 'ESCROW_HOLD', amount: 57_000 });
+      expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({ account: 'CAMPAIGN_BALANCE', amount: 57_000 });
+      // Nothing left stranded: settled 95_000, minus the freeze's 38_000
+      // net-share debit, minus this release's 57_000 -- exactly 0.
+      const escrowNet = rows
+        .filter((r) => r.account === 'ESCROW_HOLD' && r.campaignId === 'campaign-1')
+        .reduce((s, r) => s + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+      expect(escrowNet).toBe(0);
+    },
+  );
+
+  it(
     "caps a release at this payment's own net minus its own refunds, never at a sibling payment's " +
       'still-held money in the same campaign-level ESCROW_HOLD account',
     async () => {

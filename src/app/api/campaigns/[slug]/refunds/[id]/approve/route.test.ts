@@ -30,6 +30,7 @@ function makeTx(options: { refundRow?: Record<string, unknown> | null } = {}) {
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
       refund: {
         findUnique: vi.fn().mockResolvedValue(state),
+        findMany: vi.fn().mockResolvedValue([]),
         updateMany: vi.fn(async ({ where, data }: { where: { status: string }; data: Record<string, unknown> }) => {
           if (!state || state.status !== where.status) return { count: 0 };
           Object.assign(state, data);

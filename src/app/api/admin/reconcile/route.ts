@@ -23,11 +23,14 @@ import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/l
  *    releaseMaturedEscrow (./escrow.ts) deliberately does NOT cap a
  *    release against the campaign's shared ESCROW_HOLD balance -- see that
  *    function's own comment for why a cap there would be wrong, not merely
- *    absent. What is supposed to keep this account non-negative is that
- *    every refund's approval (refundApprovedLegs, ./ledger.ts) tops the
- *    source account back up for whatever the platform absorbs -- the
- *    fee-driven over-draw the freeze always creates, plus any genuine
- *    shortfall found under lock at settlement -- and the balance checks in
+ *    absent. What is supposed to keep this account non-negative is that a
+ *    refund's freeze (refundRequestedLegs, ./ledger.ts) only ever debits the
+ *    source account the refund's own NET share -- the Provider/Platform Fee
+ *    portion is split out at freeze time and never touches this account at
+ *    all -- so there is no routine over-draw here to correct; only a
+ *    genuine settlement-time shortfall (refundApprovedLegs, real pool
+ *    insolvency, e.g. a Payout already spent past this refund's share)
+ *    ever credits this account back, and the balance checks in
  *    ./payouts.ts for CAMPAIGN_BALANCE; this is what would catch it if one
  *    of those was ever wrong.
  *  - preLedger / mismatches: both compare Campaign.collectedAmount against

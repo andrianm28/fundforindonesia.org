@@ -7,6 +7,7 @@ import {
   postTransaction,
   refundRequestedLegs,
   refundApprovedLegs,
+  providerFeePortionFor,
   type LedgerSubject,
 } from './ledger';
 import { DemoCampaignError } from './payouts';
@@ -86,21 +87,6 @@ export class InvalidRefundStatusError extends Error {
   }
 }
 
-/**
- * Integer-safe ceiling division of `a * b / c`, entirely in BigInt space --
- * every proportional fee split rounds up, never down. `a * b` is computed
- * here, inside BigInt, rather than by the caller in plain JS number space:
- * a providerFee * refund.amount product routinely exceeds 2^53 for
- * realistic Rupiah amounts (e.g. a Rp 1 billion payment), and once that
- * multiplication has already happened as a JS float, converting the
- * (already-imprecise) result via BigInt(...) cannot recover what was lost.
- */
-function ceilMulDiv(a: number, b: number, c: number): number {
-  const numerator = BigInt(a) * BigInt(b);
-  const denominator = BigInt(c);
-  return Number((numerator + denominator - BigInt(1)) / denominator);
-}
-
 type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'escrowReleasedAt'> & {
   donation: { campaignId: string } | null;
   registration: { batch: { tripId: string } } | null;
@@ -151,18 +137,25 @@ async function poolBalanceFor(
 }
 
 /**
- * An Admin creates a Refund for a Payment. Locks the Payment row first --
- * the contended resource for the cumulative-refund-cap check below is this
- * Payment's own remaining refundable amount, not the subject's aggregate
- * balance, so two concurrent createRefund calls against two DIFFERENT
- * Payments on the same Campaign do not contend here at all, but two against
- * the SAME Payment must not both read the same prior-refunds sum and both
- * pass the cap before either commits.
+ * An Admin creates a Refund for a Payment. Locks the subject (Campaign or
+ * VolunteerTrip) BEFORE the Payment row, matching the Campaign/VolunteerTrip
+ * -> Payment order this codebase's other money-moving transactions already
+ * use (releaseMaturedEscrow, approvePayout) -- locking Payment first here
+ * would reintroduce the deadlock class that ordering exists to prevent, if
+ * this ever races the escrow sweep on the same matured-but-not-yet-released
+ * Payment. The Payment lock itself is still what makes the cumulative-
+ * refund-cap check below safe: two concurrent createRefund calls against
+ * two DIFFERENT Payments on the same Campaign do not contend on it at all,
+ * but two against the SAME Payment must not both read the same
+ * prior-refunds sum and both pass the cap before either commits.
  *
  * Unlike requestPayout (which posts nothing at request time), this
- * immediately posts a two-leg freeze in the same transaction -- the PRD's
+ * immediately posts the freeze in the same transaction -- the PRD's
  * "seketika" requirement: a Campaign or Trip must not be able to spend
- * money that is already earmarked for return.
+ * money that is already earmarked for return. The Provider Fee (and
+ * Platform Fee) portion is split out right here, at freeze time -- see
+ * refundRequestedLegs (./ledger.ts) for why deferring it to settlement was
+ * wrong.
  */
 export async function createRefund(
   tx: Prisma.TransactionClient,
@@ -175,6 +168,12 @@ export async function createRefund(
   },
 ): Promise<Refund> {
   const { subject, paymentId, amount, reason, requestedById } = params;
+
+  if (subject.type === 'campaign') {
+    await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${subject.campaignId} FOR UPDATE`;
+  } else {
+    await tx.$queryRaw`SELECT id FROM "VolunteerTrip" WHERE id = ${subject.tripId} FOR UPDATE`;
+  }
 
   const lockedRows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Payment" WHERE id = ${paymentId} FOR UPDATE`;
   if (lockedRows.length === 0) {
@@ -200,11 +199,13 @@ export async function createRefund(
 
   const priorRefunds = await tx.refund.findMany({
     where: { paymentId, status: { notIn: ['REJECTED', 'FAILED'] } },
+    orderBy: { createdAt: 'asc' },
     select: { amount: true, status: true },
   });
-  const alreadyCommitted = priorRefunds
+  const priorAmounts = priorRefunds
     .filter((r: { status: string }) => r.status !== 'REJECTED' && r.status !== 'FAILED')
-    .reduce((sum: number, r: { amount: number }) => sum + r.amount, 0);
+    .map((r: { amount: number }) => r.amount);
+  const alreadyCommitted = priorAmounts.reduce((sum: number, a: number) => sum + a, 0);
   const remaining = payment.amount - alreadyCommitted;
   if (amount > remaining) {
     throw new RefundExceedsRemainingError(amount, remaining);
@@ -215,9 +216,11 @@ export async function createRefund(
   });
 
   const source = sourceFor(payment, subject);
+  const platformFeePortion = 0; // no field to derive from -- see the comment on this in approveRefund
+  const providerFeePortion = providerFeePortionFor(payment, amount, priorAmounts);
   await postTransaction(
     tx,
-    refundRequestedLegs({ subject, amount, source }),
+    refundRequestedLegs({ subject, amount, source, platformFeePortion, providerFeePortion }),
     { refundId: refund.id, transactionId: `refund-requested-${refund.id}` },
   );
 
@@ -228,8 +231,8 @@ export async function createRefund(
  * A different Admin approves a REQUESTED Refund: posts the gross-
  * recognition settlement and lands on APPROVED. See refundApprovedLegs
  * (./ledger.ts) for the exact debit/credit math -- it closes FROZEN_BALANCE
- * in full and tops the source pool back up for whatever the platform
- * absorbs (the fee portion, always, plus any genuine shortfall).
+ * in full and, only for a genuine shortfall (the fee was already handled
+ * at freeze time, never here), tops the pool back up.
  */
 export async function approveRefund(
   prisma: PrismaClient,
@@ -273,22 +276,32 @@ export async function approveRefund(
     const source = sourceFor(payment, subject);
     const poolBalance = await poolBalanceFor(tx, subject, source);
 
+    // Recompute this refund's own fee portion exactly the way createRefund
+    // did at freeze time -- deterministic from stable inputs (Payment
+    // fields never change; every OTHER non-REJECTED/FAILED refund on this
+    // Payment created before this one is a fixed, immutable fact), so it
+    // reproduces the exact number already posted at freeze time.
+    const priorRefunds = await tx.refund.findMany({
+      where: { paymentId: refund.paymentId, status: { notIn: ['REJECTED', 'FAILED'] }, createdAt: { lt: refund.createdAt } },
+      orderBy: { createdAt: 'asc' },
+      select: { amount: true },
+    });
     // Platform Fee is never charged anywhere in this codebase today -- no
     // Payment/Campaign field stores one, so there is nothing to multiply by
     // amount / payment.amount. Hardcoded, not derived, until such a field
-    // exists; see the doc comment on refundApprovedLegs.
+    // exists.
     const platformFeePortion = 0;
-    const rawProviderFeePortion = ceilMulDiv(payment.providerFee, refund.amount, payment.amount);
-    const providerFeePortion = Math.min(rawProviderFeePortion, refund.amount - platformFeePortion);
-    const combinedFeePortion = platformFeePortion + providerFeePortion;
-    const netPortion = refund.amount - combinedFeePortion;
-    // The freeze always over-draws the pool by combinedFeePortion, because
-    // paymentSettledLegs never credited the fee portion to it -- a pool
-    // reading of exactly -combinedFeePortion right now is the expected,
-    // healthy outcome, not insolvency. Only a MORE negative reading means
-    // the pool genuinely couldn't cover its fair net share either (e.g. a
-    // Payout already drained it).
-    const shortfall = Math.min(Math.max(0, -poolBalance - combinedFeePortion), netPortion);
+    const providerFeePortion = providerFeePortionFor(
+      payment,
+      refund.amount,
+      priorRefunds.map((r: { amount: number }) => r.amount),
+    );
+    const netPortion = refund.amount - platformFeePortion - providerFeePortion;
+    // The pool was never over-drawn by this refund's own fee (that was
+    // already removed correctly at freeze time) -- a negative reading here
+    // is genuine insolvency (e.g. a Payout already spent the pool below
+    // this refund's net share), never a fee artifact.
+    const shortfall = Math.min(Math.max(0, -poolBalance), netPortion);
 
     const claimed = await tx.refund.updateMany({
       where: { id: refundId, status: 'REQUESTED' },
@@ -300,14 +313,7 @@ export async function approveRefund(
 
     await postTransaction(
       tx,
-      refundApprovedLegs({
-        subject,
-        amount: refund.amount,
-        source,
-        platformFeePortion,
-        providerFeePortion,
-        shortfall,
-      }),
+      refundApprovedLegs({ subject, amount: refund.amount, source, shortfall }),
       { refundId: refund.id, transactionId: `refund-approved-${refund.id}` },
     );
   });

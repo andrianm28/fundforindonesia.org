@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { escrowReleaseLegs, postTransaction, type LedgerSubject } from './ledger';
+import { escrowReleaseLegs, postTransaction, providerFeePortionFor, type LedgerSubject } from './ledger';
 import { assertExactlyOnePaymentSubject } from './payment-subject';
 
 /**
@@ -212,6 +212,7 @@ export async function releaseMaturedEscrow(subject?: ReleaseSweepSubject): Promi
         // the Refund row is what's joined here).
         const refunds = await tx.refund.findMany({
           where: { paymentId: payment.id },
+          orderBy: { createdAt: 'asc' },
           select: { amount: true, status: true },
         });
 
@@ -245,19 +246,33 @@ export async function releaseMaturedEscrow(subject?: ReleaseSweepSubject): Promi
         // Every refund above is now final (COMPLETED or REJECTED), so the
         // amount to release is knowable for good: the NET this payment
         // originally credited to ESCROW_HOLD (paymentSettledLegs credits
-        // amount - providerFee, never the gross), minus whatever COMPLETED
-        // refunds actually took back. REJECTED refunds never moved money and
-        // are excluded. Deliberately not capped against the campaign's
-        // overall ESCROW_HOLD balance: that account is shared by every
-        // payment still inside its own hold window, so a cap measured
-        // against the shared pot would let this payment's release "borrow"
-        // headroom that in fact belongs to a sibling payment which has not
-        // matured yet.
+        // amount - providerFee, never the gross), minus the NET share each
+        // non-REJECTED/FAILED refund actually removed from this same
+        // account at freeze time. Each such refund's freeze
+        // (refundRequestedLegs, ./ledger.ts) debits ESCROW_HOLD only its own
+        // net portion -- the fee portion went straight to REFUND_COST/
+        // PLATFORM_FEE at freeze time, never out of this account -- so what
+        // is left to release is netAmount minus the SUM of those net
+        // shares, not minus their gross amounts. Recomputed here in
+        // creation order via the same cumulative-fee-cap helper
+        // createRefund/approveRefund use, so it reproduces exactly what was
+        // posted. REJECTED/FAILED refunds never moved money and are
+        // excluded. Deliberately not capped against the campaign's overall
+        // ESCROW_HOLD balance: that account is shared by every payment
+        // still inside its own hold window, so a cap measured against the
+        // shared pot would let this payment's release "borrow" headroom
+        // that in fact belongs to a sibling payment which has not matured
+        // yet.
         const netAmount = payment.amount - payment.providerFee;
-        const refundedAmount = refunds
-          .filter((r) => r.status !== 'REJECTED')
-          .reduce((sum, r) => sum + r.amount, 0);
-        const amountToRelease = Math.max(0, netAmount - refundedAmount);
+        const nonRejectedAmounts = refunds
+          .filter((r) => r.status !== 'REJECTED' && r.status !== 'FAILED')
+          .map((r) => r.amount);
+        let refundedNetAmount = 0;
+        for (let i = 0; i < nonRejectedAmounts.length; i++) {
+          const feePortion = providerFeePortionFor(payment, nonRejectedAmounts[i], nonRejectedAmounts.slice(0, i));
+          refundedNetAmount += nonRejectedAmounts[i] - feePortion;
+        }
+        const amountToRelease = Math.max(0, netAmount - refundedNetAmount);
 
         if (amountToRelease > 0) {
           await postTransaction(
