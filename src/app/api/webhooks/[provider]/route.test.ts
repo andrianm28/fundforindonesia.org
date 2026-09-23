@@ -74,14 +74,14 @@ type LedgerRow = {
  * the normal "this delivery won" case, 0 simulates a concurrent, distinct
  * event having already flipped the Payment out of PENDING first.
  */
-function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
-  const { paymentUpdateManyCount = 1 } = options;
+function makeTx(options: { paymentUpdateManyCount?: number; registrationUpdateManyCount?: number } = {}) {
+  const { paymentUpdateManyCount = 1, registrationUpdateManyCount = 1 } = options;
   const ledgerRows: LedgerRow[] = [];
   const tx = {
     payment: { updateMany: vi.fn().mockResolvedValue({ count: paymentUpdateManyCount }) },
     donation: { update: vi.fn().mockResolvedValue({}) },
     campaign: { update: vi.fn().mockResolvedValue({}) },
-    registration: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    registration: { updateMany: vi.fn().mockResolvedValue({ count: registrationUpdateManyCount }) },
     webhookEvent: { update: vi.fn().mockResolvedValue({}) },
     ledgerEntry: {
       count: vi.fn().mockResolvedValue(0),
@@ -622,6 +622,48 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
       where: { id: 'we-1' },
       data: { processedAt: expect.any(Date) },
     });
+  });
+
+  it('paid: still posts the ledger legs and settles the Payment when the Registration is no longer HOLD (hold already expired), but does not notify the Volunteer', async () => {
+    // releaseExpiredHolds can flip a Registration HOLD -> EXPIRED without
+    // ever touching its Payment, which can stay PENDING for up to
+    // VA_EXPIRY_MS after the 30-minute hold window closed. If the charge
+    // clears in that window, the money genuinely arrived at the provider --
+    // settlement must not be refused -- but there is no seat left to
+    // confirm, so the Volunteer must not be told registration succeeded.
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    const { tx, ledgerRows } = makeTx({ registrationUpdateManyCount: 0 });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(createRequest(), routeContext());
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.received).toBe(true);
+
+    // The charge genuinely settled -- Payment still goes PAID and the ledger
+    // legs still post.
+    expect(tx.payment.updateMany).toHaveBeenCalledWith({
+      where: { id: 'payment-1', status: 'PENDING' },
+      data: expect.objectContaining({ status: 'PAID' }),
+    });
+    expect(ledgerRows).toContainEqual(
+      expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 250_000, volunteerTripId: 'trip-1' }),
+    );
+
+    // But no seat was confirmed, so the Volunteer is not told it was.
+    expect(mockNotificationCreate).not.toHaveBeenCalled();
+
+    // Logged for manual review: money collected, no seat confirmed.
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('registration-1'),
+    );
+
+    consoleErrorSpy.mockRestore();
   });
 
   it('failed/expired: flips Registration.status to EXPIRED, posts nothing, does not touch Campaign/Donation tables', async () => {

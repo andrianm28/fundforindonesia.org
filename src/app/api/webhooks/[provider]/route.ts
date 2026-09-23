@@ -11,6 +11,7 @@ import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { escrowReleaseAt } from '@/lib/money/escrow';
 import { notifyDonationConfirmed, notifyRegistrationConfirmed } from '@/lib/notifications';
 import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
+import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
 
 /**
  * The single place where money becomes real.
@@ -190,6 +191,17 @@ export async function POST(
       return NextResponse.json({ received: true }, { status: 200 });
     }
 
+    // A Payment describes money for exactly one thing -- both or neither of
+    // donationId/registrationId set means the branches below would silently
+    // credit the wrong subject (or none). Throwing here is fail-closed: it
+    // lands in the outer catch (500), and WebhookEvent.processedAt stays
+    // null so a retry, after whatever created the malformed row is fixed,
+    // resumes rather than being told this event already happened.
+    assertExactlyOnePaymentSubject({
+      donationId: payment.donationId,
+      registrationId: payment.registrationId,
+    });
+
     // Whether this Payment settles a Trip Fee (Registration) or a Donation
     // (Campaign) -- decides which branch every block below takes.
     const isTripPayment = payment.registrationId != null;
@@ -256,15 +268,33 @@ export async function POST(
             where: { id: webhookEventId },
             data: { processedAt: new Date() },
           });
-          return false;
+          return { settled: false as const };
         }
+
+        let registrationConfirmed = true;
 
         if (isTripPayment) {
           const { registration } = payment;
-          await tx.registration.updateMany({
+          const registrationUpdate = await tx.registration.updateMany({
             where: { id: registration!.id, status: 'HOLD' },
             data: { status: 'CONFIRMED' },
           });
+          registrationConfirmed = registrationUpdate.count > 0;
+
+          if (!registrationConfirmed) {
+            // The hold-expiry sweep (releaseExpiredHolds,
+            // src/lib/volunteer/registration.ts) can flip a Registration
+            // HOLD -> EXPIRED without ever touching its Payment, which can
+            // stay PENDING for up to VA_EXPIRY_MS after the 30-minute hold
+            // window closed. If a charge clears in that window, the money
+            // genuinely arrived at the provider -- the ledger legs below
+            // still post, same as any other settlement -- but there is no
+            // longer a seat to confirm. Logged here for manual review: money
+            // collected, no seat held.
+            console.error(
+              `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was no longer HOLD (hold likely already expired) -- money collected, no seat confirmed, needs manual review`,
+            );
+          }
 
           // Deriving the ledger transactionId from the provider event id makes
           // the ledger idempotent on the same key the WebhookEvent table is --
@@ -332,21 +362,26 @@ export async function POST(
           data: { processedAt: new Date() },
         });
 
-        return true;
+        return { settled: true as const, registrationConfirmed };
       });
 
-      if (settled) {
+      if (settled.settled) {
         // Notifications outside the transaction, same as every other write
         // path in this codebase: a failed notification must not roll back
         // money that has genuinely settled.
         if (isTripPayment) {
-          const { registration } = payment;
-          await notifyRegistrationConfirmed({
-            volunteerId: registration!.volunteerId,
-            tripSlug: registration!.batch.trip.slug,
-            tripTitle: registration!.batch.trip.title,
-            amount: payment.amount,
-          });
+          // Only notify when the Registration was actually confirmed above --
+          // a Volunteer whose hold already expired has no seat, and telling
+          // them registration succeeded would be worse than saying nothing.
+          if (settled.registrationConfirmed) {
+            const { registration } = payment;
+            await notifyRegistrationConfirmed({
+              volunteerId: registration!.volunteerId,
+              tripSlug: registration!.batch.trip.slug,
+              tripTitle: registration!.batch.trip.title,
+              amount: payment.amount,
+            });
+          }
         } else {
           const { donation } = payment;
           const { campaign } = donation!;

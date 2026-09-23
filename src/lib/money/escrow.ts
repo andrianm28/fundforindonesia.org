@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { escrowReleaseLegs, postTransaction, type LedgerSubject } from './ledger';
+import { assertExactlyOnePaymentSubject } from './payment-subject';
 
 /**
  * The escrow hold: how long settled money sits in ESCROW_HOLD before it
@@ -154,10 +155,19 @@ export async function releaseMaturedEscrow(subject?: ReleaseSweepSubject): Promi
 
   let releasedCount = 0;
   for (const payment of matured) {
-    const paymentSubject: LedgerSubject = payment.donationId
-      ? { type: 'campaign', campaignId: payment.donation!.campaignId }
-      : { type: 'trip', tripId: payment.registration!.batch.tripId };
     try {
+      // A malformed Payment (both or neither of donationId/registrationId
+      // set) must fail only this one row -- caught below and logged, same
+      // as any other per-payment failure -- not throw before the loop even
+      // starts and abort every other campaign/trip's release in this sweep.
+      assertExactlyOnePaymentSubject({
+        donationId: payment.donationId,
+        registrationId: payment.registrationId,
+      });
+      const paymentSubject: LedgerSubject = payment.donationId != null
+        ? { type: 'campaign', campaignId: payment.donation!.campaignId }
+        : { type: 'trip', tripId: payment.registration!.batch.tripId };
+
       const released = await prisma.$transaction(async (tx) => {
         // Lock the campaign row before touching its ESCROW_HOLD /
         // CAMPAIGN_BALANCE accounts, the same precaution approvePayout

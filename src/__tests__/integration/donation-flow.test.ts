@@ -130,6 +130,8 @@ function makeWebhookPayment(overrides: Record<string, unknown> = {}) {
     id: 'payment-webhook-1',
     amount: 75_000,
     status: 'PENDING',
+    donationId: 'donation-webhook-1',
+    registrationId: null,
     donation: {
       id: 'donation-webhook-1',
       donorId: 'donor-webhook-1',
@@ -141,6 +143,7 @@ function makeWebhookPayment(overrides: Record<string, unknown> = {}) {
         targetAmount: 1_000_000,
       },
     },
+    registration: null,
     ...overrides,
   };
 }
