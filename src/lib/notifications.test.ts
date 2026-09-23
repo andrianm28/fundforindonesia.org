@@ -3,6 +3,7 @@ import {
   notifyDonationConfirmed,
   notifyCampaignUpdate,
   notifyPayout,
+  notifyRegistrationConfirmed,
 } from './notifications';
 
 // Mock prisma
@@ -10,6 +11,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     notification: {
       createMany: vi.fn(),
+      create: vi.fn(),
     },
     donation: {
       findMany: vi.fn(),
@@ -20,12 +22,14 @@ vi.mock('@/lib/prisma', () => ({
 import { prisma } from '@/lib/prisma';
 
 const mockNotificationCreateMany = prisma.notification.createMany as unknown as Mock;
+const mockNotificationCreate = prisma.notification.create as unknown as Mock;
 const mockDonationFindMany = prisma.donation.findMany as unknown as Mock;
 
 describe('notifications', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockNotificationCreateMany.mockResolvedValue({ count: 0 });
+    mockNotificationCreate.mockResolvedValue({});
   });
 
   describe('notifyDonationConfirmed', () => {
@@ -171,6 +175,27 @@ describe('notifications', () => {
       expect(callData).toHaveLength(2);
       expect(callData[0].userId).toBe('donor-1');
       expect(callData[1].userId).toBe('donor-2');
+    });
+  });
+
+  describe('notifyRegistrationConfirmed', () => {
+    it('should create a notification for the volunteer with the trip link', async () => {
+      await notifyRegistrationConfirmed({
+        volunteerId: 'volunteer-1',
+        tripSlug: 'bersih-pantai',
+        tripTitle: 'Bersih Pantai',
+        amount: 250000,
+      });
+
+      expect(mockNotificationCreate).toHaveBeenCalledWith({
+        data: {
+          type: 'registration_confirmed',
+          title: 'Registrasi Berhasil',
+          message: 'Registrasi Anda untuk "Bersih Pantai" sebesar Rp250.000 telah berhasil dikonfirmasi',
+          userId: 'volunteer-1',
+          link: '/volunteer-trip/bersih-pantai',
+        },
+      });
     });
   });
 

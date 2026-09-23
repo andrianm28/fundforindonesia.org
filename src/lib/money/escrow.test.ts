@@ -28,7 +28,10 @@ type PaymentRow = {
   status: string;
   escrowReleaseAt: Date | null;
   escrowReleasedAt: Date | null;
-  campaignId: string;
+  // Exactly one of these is ever set -- mirrors Payment.donationId/registrationId
+  // in the real schema, where the two are mutually exclusive.
+  campaignId: string | null;
+  tripId: string | null;
 };
 
 type LedgerRow = {
@@ -37,6 +40,7 @@ type LedgerRow = {
   amount: number;
   account: string;
   campaignId: string | null;
+  volunteerTripId?: string | null;
   paymentId?: string | null;
 };
 
@@ -51,6 +55,7 @@ function makePayment(overrides: Partial<PaymentRow> = {}): PaymentRow {
     escrowReleaseAt: new Date(Date.now() - MS_PER_DAY), // matured yesterday
     escrowReleasedAt: null,
     campaignId: 'campaign-1',
+    tripId: null,
     ...overrides,
   };
 }
@@ -66,31 +71,56 @@ function makePayment(overrides: Partial<PaymentRow> = {}): PaymentRow {
 function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = [], refunds: RefundRow[] = []) {
   const paymentState = new Map(payments.map((p) => [p.id, { ...p }]));
   const rows: LedgerRow[] = [...ledgerRows];
+  // Every $queryRaw call across every transaction this makeDb's mockTransaction
+  // hands out, in order -- so a test can assert which table a given release
+  // actually locked (the tagged-template strings array joins back into the
+  // literal SQL text).
+  const queryRawCalls: TemplateStringsArray[] = [];
 
   mockPaymentFindMany.mockImplementation(
     async ({ where, take }: { where: Record<string, unknown>; take?: number }) => {
       const now = (where.escrowReleaseAt as { lte: Date }).lte;
       const campaignFilter = (where.donation as { campaignId: string } | undefined)?.campaignId;
+      const tripFilter = (where.registration as { batch: { tripId: string } } | undefined)?.batch?.tripId;
       const matches = Array.from(paymentState.values()).filter(
         (p) =>
           p.status === where.status &&
           p.escrowReleaseAt !== null &&
           p.escrowReleaseAt.getTime() <= now.getTime() &&
           p.escrowReleasedAt === null &&
-          (!campaignFilter || p.campaignId === campaignFilter),
+          (!campaignFilter || p.campaignId === campaignFilter) &&
+          (!tripFilter || p.tripId === tripFilter),
       );
-      return matches.slice(0, take ?? matches.length).map((p) => ({
-        id: p.id,
-        amount: p.amount,
-        providerFee: p.providerFee,
-        donation: { campaignId: p.campaignId },
-      }));
+      return matches.slice(0, take ?? matches.length).map((p) =>
+        p.campaignId != null
+          ? {
+              id: p.id,
+              amount: p.amount,
+              providerFee: p.providerFee,
+              donationId: `donation-${p.id}`,
+              registrationId: null,
+              donation: { campaignId: p.campaignId },
+              registration: null,
+            }
+          : {
+              id: p.id,
+              amount: p.amount,
+              providerFee: p.providerFee,
+              donationId: null,
+              registrationId: `registration-${p.id}`,
+              donation: null,
+              registration: { batch: { tripId: p.tripId } },
+            },
+      );
     },
   );
 
   function makeTx() {
     return {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
+      $queryRaw: vi.fn((strings: TemplateStringsArray) => {
+        queryRawCalls.push(strings);
+        return Promise.resolve([{ id: 'locked' }]);
+      }),
       payment: {
         updateMany: vi.fn(async ({ where, data }: { where: { id: string; escrowReleasedAt: null }; data: Record<string, unknown> }) => {
           const row = paymentState.get(where.id);
@@ -118,7 +148,7 @@ function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = [], refunds: R
 
   mockTransaction.mockImplementation(async (cb: (tx: ReturnType<typeof makeTx>) => unknown) => cb(makeTx()));
 
-  return { paymentState, rows };
+  return { paymentState, rows, queryRawCalls };
 }
 
 describe('releaseMaturedEscrow', () => {
@@ -132,7 +162,7 @@ describe('releaseMaturedEscrow', () => {
       makePayment({ id: 'payment-1', amount: 100_000, escrowReleaseAt: eightDaysAgo, campaignId: 'campaign-1' }),
     ]);
 
-    const result = await releaseMaturedEscrow('campaign-1');
+    const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
 
     expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
 
@@ -153,7 +183,7 @@ describe('releaseMaturedEscrow', () => {
     const notYetMatured = new Date(sixDaysAgo.getTime() + ESCROW_HOLD_DAYS * MS_PER_DAY); // 1 day from now
     const { rows } = makeDb([makePayment({ id: 'payment-1', escrowReleaseAt: notYetMatured, campaignId: 'campaign-1' })]);
 
-    const result = await releaseMaturedEscrow('campaign-1');
+    const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
 
     expect(result).toEqual({ releasedCount: 0, consideredCount: 0 });
     expect(rows.filter((r) => r.transactionId === 'escrow-release:payment-1')).toHaveLength(0);
@@ -165,7 +195,7 @@ describe('releaseMaturedEscrow', () => {
       makePayment({ id: 'payment-1', status: 'PENDING', escrowReleaseAt: null, campaignId: 'campaign-1' }),
     ]);
 
-    const result = await releaseMaturedEscrow('campaign-1');
+    const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
 
     expect(result).toEqual({ releasedCount: 0, consideredCount: 0 });
     expect(rows).toHaveLength(0);
@@ -177,7 +207,7 @@ describe('releaseMaturedEscrow', () => {
     // query itself so this never even reaches the per-payment refund lookup.
     const { rows } = makeDb([makePayment({ id: 'payment-1', status: 'REFUNDED', campaignId: 'campaign-1' })]);
 
-    const result = await releaseMaturedEscrow('campaign-1');
+    const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
 
     expect(result).toEqual({ releasedCount: 0, consideredCount: 0 });
     expect(rows).toHaveLength(0);
@@ -191,7 +221,7 @@ describe('releaseMaturedEscrow', () => {
       [{ paymentId: 'payment-1', amount: 50_000, status: 'COMPLETED' }],
     );
 
-    const firstSweep = await releaseMaturedEscrow('campaign-1');
+    const firstSweep = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
 
     // Claimed and finished -- escrowReleasedAt is stamped so this payment is
     // not reconsidered by every future sweep -- but nothing was posted,
@@ -202,7 +232,7 @@ describe('releaseMaturedEscrow', () => {
 
     // A later sweep never reconsiders it: escrowReleasedAt is no longer
     // null, so it drops out of the query's own predicate.
-    const secondSweep = await releaseMaturedEscrow('campaign-1');
+    const secondSweep = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
     expect(secondSweep).toEqual({ releasedCount: 0, consideredCount: 0 });
   });
 
@@ -223,7 +253,7 @@ describe('releaseMaturedEscrow', () => {
         refunds,
       );
 
-      const firstSweep = await releaseMaturedEscrow('campaign-1');
+      const firstSweep = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
 
       // Deferred, not finished: no claim, no post. The payment is still
       // eligible for a later sweep.
@@ -235,7 +265,7 @@ describe('releaseMaturedEscrow', () => {
       // money is genuinely the campaign's.
       refunds[0].status = 'REJECTED';
 
-      const secondSweep = await releaseMaturedEscrow('campaign-1');
+      const secondSweep = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
 
       expect(secondSweep).toEqual({ releasedCount: 1, consideredCount: 1 });
       expect(paymentState.get('payment-1')!.escrowReleasedAt).not.toBeNull();
@@ -254,7 +284,7 @@ describe('releaseMaturedEscrow', () => {
       [{ paymentId: 'payment-1', amount: 50_000, status: 'REJECTED' }],
     );
 
-    await releaseMaturedEscrow('campaign-1');
+    await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
 
     const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
     expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({ amount: 50_000 });
@@ -280,7 +310,7 @@ describe('releaseMaturedEscrow', () => {
         [{ paymentId: 'payment-A', amount: 100_000, status: 'COMPLETED' }],
       );
 
-      const result = await releaseMaturedEscrow('campaign-1');
+      const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
 
       expect(result.consideredCount).toBe(1);
       const releaseLegsA = rows.filter((r) => r.transactionId === 'escrow-release:payment-A');
@@ -345,8 +375,8 @@ describe('releaseMaturedEscrow', () => {
     });
 
     const [resultA, resultB] = await Promise.all([
-      releaseMaturedEscrow('campaign-1'),
-      releaseMaturedEscrow('campaign-1'),
+      releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' }),
+      releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' }),
     ]);
 
     // Exactly one of the two sweeps actually released it -- the other found
@@ -359,5 +389,59 @@ describe('releaseMaturedEscrow', () => {
     const credits = releaseLegs.filter((r) => r.direction === 'CREDIT').reduce((s, r) => s + r.amount, 0);
     expect(debits).toBe(credits);
     expect(debits).toBe(100_000);
+  });
+});
+
+describe('releaseMaturedEscrow -- trip-linked payments', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('releases a matured Registration-linked payment into TRIP_BALANCE, locking VolunteerTrip not Campaign', async () => {
+    const { rows, queryRawCalls } = makeDb([
+      makePayment({ id: 'payment-1', amount: 100_000, campaignId: null, tripId: 'trip-1' }),
+    ]);
+
+    const result = await releaseMaturedEscrow({ type: 'trip', id: 'trip-1' });
+
+    expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+
+    expect(queryRawCalls).toHaveLength(1);
+    const lockQuery = queryRawCalls[0].join('');
+    expect(lockQuery).toContain('VolunteerTrip');
+    expect(lockQuery).not.toContain('Campaign');
+
+    const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
+    expect(releaseLegs).toHaveLength(2);
+    const debit = releaseLegs.find((r) => r.direction === 'DEBIT')!;
+    const credit = releaseLegs.find((r) => r.direction === 'CREDIT')!;
+    expect(debit).toMatchObject({ account: 'ESCROW_HOLD', amount: 100_000, volunteerTripId: 'trip-1' });
+    expect(credit).toMatchObject({ account: 'TRIP_BALANCE', amount: 100_000, volunteerTripId: 'trip-1' });
+    expect(debit.amount).toBe(credit.amount);
+  });
+
+  it('does not affect a Campaign-linked payment in the same sweep call -- both subjects processed correctly in one pass', async () => {
+    const { rows } = makeDb([
+      makePayment({ id: 'payment-campaign', amount: 100_000, campaignId: 'campaign-1', tripId: null }),
+      makePayment({ id: 'payment-trip', amount: 50_000, campaignId: null, tripId: 'trip-1' }),
+    ]);
+
+    const result = await releaseMaturedEscrow();
+
+    expect(result).toEqual({ releasedCount: 2, consideredCount: 2 });
+
+    const campaignLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-campaign');
+    expect(campaignLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({
+      account: 'CAMPAIGN_BALANCE',
+      amount: 100_000,
+      campaignId: 'campaign-1',
+    });
+
+    const tripLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-trip');
+    expect(tripLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({
+      account: 'TRIP_BALANCE',
+      amount: 50_000,
+      volunteerTripId: 'trip-1',
+    });
   });
 });

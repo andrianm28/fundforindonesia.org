@@ -9,7 +9,7 @@ import {
 } from '@/lib/payments';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { escrowReleaseAt } from '@/lib/money/escrow';
-import { notifyDonationConfirmed } from '@/lib/notifications';
+import { notifyDonationConfirmed, notifyRegistrationConfirmed } from '@/lib/notifications';
 import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
 
 /**
@@ -151,7 +151,10 @@ export async function POST(
     // links a webhook event back to a Payment.
     const payment = await prisma.payment.findUnique({
       where: { providerRef: event.providerOrderId },
-      include: { donation: { include: { campaign: true } } },
+      include: {
+        donation: { include: { campaign: true } },
+        registration: { include: { batch: { include: { trip: true } } } },
+      },
     });
 
     if (!payment) {
@@ -187,14 +190,9 @@ export async function POST(
       return NextResponse.json({ received: true }, { status: 200 });
     }
 
-    const { donation } = payment;
-    // Assumes a Campaign-linked Payment: this destructure THROWS (does not
-    // silently return undefined) if `donation` is null, which happens for a
-    // Registration-linked (Trip Fee) Payment. A future Trip-branch fix must
-    // handle that case before this route is reachable with one (Ticket 03
-    // in the parent Volunteer Trip ticket set) -- the three `donation.*`
-    // reads further down this handler share the same assumption.
-    const { campaign } = donation;
+    // Whether this Payment settles a Trip Fee (Registration) or a Donation
+    // (Campaign) -- decides which branch every block below takes.
+    const isTripPayment = payment.registrationId != null;
 
     // event.status is taken on trust here: the signature check above proved
     // this payload is genuine, not that this specific field is genuine --
@@ -231,8 +229,6 @@ export async function POST(
       const providerFee = event.providerFee ?? 0;
       const paidAt = new Date();
       const releaseAt = escrowReleaseAt(paidAt);
-      const newCollectedAmount = campaign.collectedAmount + payment.amount;
-      const targetMet = newCollectedAmount >= campaign.targetAmount;
 
       const settled = await prisma.$transaction(async (tx) => {
         // The database decides who wins, once: two DISTINCT events for the
@@ -263,46 +259,74 @@ export async function POST(
           return false;
         }
 
-        // Campaign-linked-Payment assumption, see the destructure note above.
-        await tx.donation.update({
-          where: { id: donation.id },
-          data: { paymentStatus: 'confirmed' },
-        });
+        if (isTripPayment) {
+          const { registration } = payment;
+          await tx.registration.updateMany({
+            where: { id: registration!.id, status: 'HOLD' },
+            data: { status: 'CONFIRMED' },
+          });
 
-        await tx.campaign.update({
-          where: { id: campaign.id },
-          data: {
-            collectedAmount: { increment: payment.amount },
-            ...(targetMet
-              ? {
-                  status: 'completed',
-                  lifecycleStatus: toLifecycleStatus('completed'),
-                }
-              : {}),
-          },
-        });
+          // Deriving the ledger transactionId from the provider event id makes
+          // the ledger idempotent on the same key the WebhookEvent table is --
+          // the two cannot disagree about whether this event was posted.
+          await postTransaction(
+            tx,
+            paymentSettledLegs({
+              subject: { type: 'trip', tripId: registration!.batch.tripId },
+              grossAmount: payment.amount,
+              providerFee,
+            }),
+            {
+              paymentId: payment.id,
+              transactionId: `webhook:${event.provider}:${event.providerEventId}`,
+            },
+          );
+        } else {
+          const { donation } = payment;
+          const { campaign } = donation!;
+          const newCollectedAmount = campaign.collectedAmount + payment.amount;
+          const targetMet = newCollectedAmount >= campaign.targetAmount;
 
-        // Deriving the ledger transactionId from the provider event id makes
-        // the ledger idempotent on the same key the WebhookEvent table is --
-        // the two cannot disagree about whether this event was posted.
-        await postTransaction(
-          tx,
-          paymentSettledLegs({
-            subject: { type: 'campaign', campaignId: campaign.id },
-            grossAmount: payment.amount,
-            providerFee,
-          }),
-          {
-            paymentId: payment.id,
-            transactionId: `webhook:${event.provider}:${event.providerEventId}`,
-          },
-        );
+          await tx.donation.update({
+            where: { id: donation!.id },
+            data: { paymentStatus: 'confirmed' },
+          });
+
+          await tx.campaign.update({
+            where: { id: campaign.id },
+            data: {
+              collectedAmount: { increment: payment.amount },
+              ...(targetMet
+                ? {
+                    status: 'completed',
+                    lifecycleStatus: toLifecycleStatus('completed'),
+                  }
+                : {}),
+            },
+          });
+
+          // Deriving the ledger transactionId from the provider event id makes
+          // the ledger idempotent on the same key the WebhookEvent table is --
+          // the two cannot disagree about whether this event was posted.
+          await postTransaction(
+            tx,
+            paymentSettledLegs({
+              subject: { type: 'campaign', campaignId: campaign.id },
+              grossAmount: payment.amount,
+              providerFee,
+            }),
+            {
+              paymentId: payment.id,
+              transactionId: `webhook:${event.provider}:${event.providerEventId}`,
+            },
+          );
+        }
 
         // Stamped last, and only here: a transaction that reaches this line
-        // has written Payment, Donation, Campaign and the ledger. If
-        // anything above throws, the transaction rolls back, this never
-        // runs, and the row keeps processedAt null -- so a retry resumes
-        // the settlement instead of being told it already happened.
+        // has written Payment, its Donation/Registration subject, and the
+        // ledger. If anything above throws, the transaction rolls back, this
+        // never runs, and the row keeps processedAt null -- so a retry
+        // resumes the settlement instead of being told it already happened.
         await tx.webhookEvent.update({
           where: { id: webhookEventId },
           data: { processedAt: new Date() },
@@ -315,14 +339,25 @@ export async function POST(
         // Notifications outside the transaction, same as every other write
         // path in this codebase: a failed notification must not roll back
         // money that has genuinely settled.
-        // Campaign-linked-Payment assumption, see the destructure note above.
-        await notifyDonationConfirmed({
-          donorId: donation.donorId,
-          creatorId: campaign.creatorId,
-          campaignId: campaign.id,
-          campaignTitle: campaign.title,
-          amount: payment.amount,
-        });
+        if (isTripPayment) {
+          const { registration } = payment;
+          await notifyRegistrationConfirmed({
+            volunteerId: registration!.volunteerId,
+            tripSlug: registration!.batch.trip.slug,
+            tripTitle: registration!.batch.trip.title,
+            amount: payment.amount,
+          });
+        } else {
+          const { donation } = payment;
+          const { campaign } = donation!;
+          await notifyDonationConfirmed({
+            donorId: donation!.donorId,
+            creatorId: campaign.creatorId,
+            campaignId: campaign.id,
+            campaignTitle: campaign.title,
+            amount: payment.amount,
+          });
+        }
       } else {
         console.error(
           `[webhooks/${providerParam}] event ${event.providerEventId} lost the settlement race for payment ${payment.id} -- another delivery settled it first`,
@@ -354,11 +389,17 @@ export async function POST(
           return;
         }
 
-        // Campaign-linked-Payment assumption, see the destructure note above.
-        await tx.donation.update({
-          where: { id: donation.id },
-          data: { paymentStatus: 'failed' },
-        });
+        if (isTripPayment) {
+          await tx.registration.updateMany({
+            where: { id: payment.registration!.id, status: 'HOLD' },
+            data: { status: 'EXPIRED' },
+          });
+        } else {
+          await tx.donation.update({
+            where: { id: payment.donation!.id },
+            data: { paymentStatus: 'failed' },
+          });
+        }
 
         await tx.webhookEvent.update({
           where: { id: webhookEventId },

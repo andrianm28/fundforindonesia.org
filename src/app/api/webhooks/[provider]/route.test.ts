@@ -10,7 +10,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     webhookEvent: { create: vi.fn(), update: vi.fn(), findUniqueOrThrow: vi.fn() },
     payment: { findUnique: vi.fn() },
-    notification: { createMany: vi.fn() },
+    notification: { createMany: vi.fn(), create: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -40,6 +40,7 @@ const mockWebhookEventUpdate = prisma.webhookEvent.update as unknown as Mock;
 const mockWebhookEventFindUniqueOrThrow = prisma.webhookEvent.findUniqueOrThrow as unknown as Mock;
 const mockPaymentFindUnique = prisma.payment.findUnique as unknown as Mock;
 const mockNotificationCreateMany = prisma.notification.createMany as unknown as Mock;
+const mockNotificationCreate = prisma.notification.create as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 
@@ -60,6 +61,7 @@ type LedgerRow = {
   direction: string;
   amount: number;
   campaignId: string | null;
+  volunteerTripId?: string | null;
   transactionId: string;
 };
 
@@ -79,6 +81,7 @@ function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
     payment: { updateMany: vi.fn().mockResolvedValue({ count: paymentUpdateManyCount }) },
     donation: { update: vi.fn().mockResolvedValue({}) },
     campaign: { update: vi.fn().mockResolvedValue({}) },
+    registration: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     webhookEvent: { update: vi.fn().mockResolvedValue({}) },
     ledgerEntry: {
       count: vi.fn().mockResolvedValue(0),
@@ -96,6 +99,8 @@ function makePayment(overrides: Record<string, unknown> = {}) {
     id: 'payment-1',
     amount: 100_000,
     status: 'PENDING',
+    donationId: 'donation-1',
+    registrationId: null,
     donation: {
       id: 'donation-1',
       donorId: 'donor-1',
@@ -105,6 +110,33 @@ function makePayment(overrides: Record<string, unknown> = {}) {
         creatorId: 'creator-1',
         collectedAmount: 0,
         targetAmount: 1_000_000,
+      },
+    },
+    registration: null,
+    ...overrides,
+  };
+}
+
+/** Registration-linked (Trip Fee) sibling of makePayment. */
+function makeRegistrationPayment(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'payment-1',
+    amount: 250_000,
+    status: 'PENDING',
+    donationId: null,
+    registrationId: 'registration-1',
+    donation: null,
+    registration: {
+      id: 'registration-1',
+      volunteerId: 'volunteer-1',
+      status: 'HOLD',
+      batch: {
+        tripId: 'trip-1',
+        trip: {
+          id: 'trip-1',
+          slug: 'bersih-pantai',
+          title: 'Bersih Pantai',
+        },
       },
     },
     ...overrides,
@@ -122,12 +154,23 @@ const PAID_EVENT = {
   rawPayload: { order_id: 'donation-1', transaction_status: 'settlement' },
 };
 
+const REGISTRATION_PAID_EVENT = {
+  provider: 'mock',
+  providerEventId: 'evt-reg-1',
+  providerOrderId: 'registration-1',
+  status: 'paid' as const,
+  // Matches makeRegistrationPayment()'s default amount.
+  grossAmount: 250_000,
+  rawPayload: { order_id: 'registration-1', transaction_status: 'settlement' },
+};
+
 describe('POST /api/webhooks/[provider]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
     mockWebhookEventUpdate.mockResolvedValue({});
     mockNotificationCreateMany.mockResolvedValue({ count: 0 });
+    mockNotificationCreate.mockResolvedValue({});
   });
 
   it('answers 503 and writes nothing when the provider is not configured', async () => {
@@ -517,5 +560,111 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(response.status).toBe(200);
     expect(data.received).toBe(true);
     expect(mockTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) payment', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
+    mockWebhookEventUpdate.mockResolvedValue({});
+    mockNotificationCreateMany.mockResolvedValue({ count: 0 });
+    mockNotificationCreate.mockResolvedValue({});
+  });
+
+  it('paid: confirms the Registration, posts TRIP_BALANCE-bound legs, notifies the Volunteer, does not touch Campaign/Donation tables', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    const { tx, ledgerRows } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.received).toBe(true);
+
+    expect(tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: 'registration-1', status: 'HOLD' },
+      data: { status: 'CONFIRMED' },
+    });
+
+    // Campaign/Donation tables are never written for a Trip Fee settlement.
+    expect(tx.donation.update).not.toHaveBeenCalled();
+    expect(tx.campaign.update).not.toHaveBeenCalled();
+
+    // Settlement lands in ESCROW_HOLD, scoped to the trip -- same as a
+    // Campaign-linked settlement, just with volunteerTripId instead of
+    // campaignId. TRIP_BALANCE is only credited later, when the hold matures
+    // (releaseMaturedEscrow).
+    expect(ledgerRows).toContainEqual(
+      expect.objectContaining({
+        account: 'ESCROW_HOLD',
+        direction: 'CREDIT',
+        amount: 250_000,
+        volunteerTripId: 'trip-1',
+      }),
+    );
+    expect(ledgerRows.some((r) => r.account === 'CAMPAIGN_BALANCE' || r.account === 'TRIP_BALANCE')).toBe(false);
+
+    expect(mockNotificationCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: 'registration_confirmed',
+        userId: 'volunteer-1',
+        link: '/volunteer-trip/bersih-pantai',
+      }),
+    });
+    expect(mockNotificationCreateMany).not.toHaveBeenCalled();
+
+    expect(tx.webhookEvent.update).toHaveBeenCalledWith({
+      where: { id: 'we-1' },
+      data: { processedAt: expect.any(Date) },
+    });
+  });
+
+  it('failed/expired: flips Registration.status to EXPIRED, posts nothing, does not touch Campaign/Donation tables', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({
+        ...REGISTRATION_PAID_EVENT,
+        status: 'expired',
+        providerEventId: 'evt-reg-2',
+      }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(tx.payment.updateMany).toHaveBeenCalledWith({
+      where: { id: 'payment-1', status: 'PENDING' },
+      data: expect.objectContaining({ status: 'EXPIRED' }),
+    });
+    expect(tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: 'registration-1', status: 'HOLD' },
+      data: { status: 'EXPIRED' },
+    });
+    expect(tx.donation.update).not.toHaveBeenCalled();
+    expect(tx.campaign.update).not.toHaveBeenCalled();
+    expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
+  });
+
+  it('no Platform Fee leg is ever posted against a Trip Fee settlement', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...REGISTRATION_PAID_EVENT, providerFee: 2_500 }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    const { tx, ledgerRows } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(ledgerRows.some((r) => r.account === 'PLATFORM_FEE')).toBe(false);
+    const debits = ledgerRows.filter((r) => r.direction === 'DEBIT').reduce((s, r) => s + r.amount, 0);
+    const credits = ledgerRows.filter((r) => r.direction === 'CREDIT').reduce((s, r) => s + r.amount, 0);
+    expect(debits).toBe(credits);
   });
 });
