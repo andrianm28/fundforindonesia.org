@@ -96,12 +96,14 @@ export async function GET(
       orderBy: { startDate: 'asc' },
     });
 
-    // remainingQuota is always maxQuota here -- no Registration exists yet,
-    // so HOLD+CONFIRMED is always 0. A later ticket subtracts the real count.
-    const batchesWithRemaining = batches.map((batch) => ({
-      ...batch,
-      remainingQuota: batch.maxQuota,
-    }));
+    const batchesWithRemaining = await Promise.all(
+      batches.map(async (batch) => {
+        const occupied = await prisma.registration.count({
+          where: { batchId: batch.id, status: { in: ['HOLD', 'CONFIRMED'] } },
+        });
+        return { ...batch, remainingQuota: Math.max(0, batch.maxQuota - occupied) };
+      }),
+    );
 
     return NextResponse.json({ trip: { ...trip, batches: batchesWithRemaining } });
   } catch (error) {

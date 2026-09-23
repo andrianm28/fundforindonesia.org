@@ -10,6 +10,9 @@ vi.mock('@/lib/prisma', () => ({
     volunteerBatch: {
       findMany: vi.fn(),
     },
+    registration: {
+      count: vi.fn(),
+    },
   },
 }));
 
@@ -25,6 +28,7 @@ const mockFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
 const mockUpdate = prisma.volunteerTrip.update as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockBatchFindMany = prisma.volunteerBatch.findMany as unknown as Mock;
+const mockRegistrationCount = prisma.registration.count as unknown as Mock;
 
 function patchRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/volunteer-trips/some-slug', {
@@ -132,6 +136,7 @@ describe('GET /api/volunteer-trips/[slug]', () => {
     mockBatchFindMany.mockResolvedValue([
       { id: 'batch-1', tripId: 'trip-1', status: 'OPEN', maxQuota: 20 },
     ]);
+    mockRegistrationCount.mockResolvedValue(0);
   });
 
   it('returns 404 for a nonexistent slug', async () => {
@@ -175,5 +180,20 @@ describe('GET /api/volunteer-trips/[slug]', () => {
   it('does not require authentication', async () => {
     const response = await GET(getRequest(), routeContext());
     expect(response.status).toBe(200);
+  });
+
+  it('remainingQuota reflects real HOLD+CONFIRMED counts, not just maxQuota', async () => {
+    mockBatchFindMany.mockResolvedValue([{ id: 'batch-1', tripId: 'trip-1', status: 'OPEN', maxQuota: 20 }]);
+    mockRegistrationCount.mockResolvedValue(5);
+
+    const response = await GET(getRequest(), routeContext());
+    const data = await response.json();
+
+    expect(data.trip.batches[0].remainingQuota).toBe(15);
+    expect(mockRegistrationCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ batchId: 'batch-1', status: { in: ['HOLD', 'CONFIRMED'] } }),
+      }),
+    );
   });
 });
