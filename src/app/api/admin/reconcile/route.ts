@@ -233,7 +233,10 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         id: true,
         amount: true,
         providerFee: true,
+        donationId: true,
+        registrationId: true,
         donation: { select: { campaignId: true } },
+        registration: { select: { batch: { select: { tripId: true } } } },
       },
     });
     const releasedPaymentIds = releasedPayments.map((p) => p.id);
@@ -288,18 +291,34 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       refundedAmount: number;
       residual: number;
     }> = [];
+    const tripStrandedEscrow: Array<{
+      paymentId: string;
+      volunteerTripId: string;
+      creditedNet: number;
+      releasedAmount: number;
+      refundedAmount: number;
+      residual: number;
+    }> = [];
     for (const payment of releasedPayments) {
       const creditedNet = payment.amount - payment.providerFee;
       const releasedAmount = releasedAmountByPayment.get(payment.id) ?? 0;
       const refundedAmount = refundedAmountByPayment.get(payment.id) ?? 0;
       const residual = creditedNet - releasedAmount - refundedAmount;
-      if (residual !== 0) {
-        // Assumes a Campaign-linked Payment (payment.donation non-null).
-        // Needs a Trip-branch guard once Registration-linked Payments can
-        // reach this code (Ticket 03 in the parent Volunteer Trip ticket set).
+      if (residual === 0) continue;
+
+      if (payment.donationId != null) {
         strandedEscrow.push({
           paymentId: payment.id,
-          campaignId: payment.donation.campaignId,
+          campaignId: payment.donation!.campaignId,
+          creditedNet,
+          releasedAmount,
+          refundedAmount,
+          residual,
+        });
+      } else {
+        tripStrandedEscrow.push({
+          paymentId: payment.id,
+          volunteerTripId: payment.registration!.batch.tripId,
           creditedNet,
           releasedAmount,
           refundedAmount,
@@ -324,19 +343,38 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       select: {
         id: true,
         escrowReleaseAt: true,
+        donationId: true,
+        registrationId: true,
         donation: { select: { campaignId: true } },
+        registration: { select: { batch: { select: { tripId: true } } } },
         refunds: { select: { id: true, status: true } },
       },
     });
-    // Assumes a Campaign-linked Payment (payment.donation non-null). Needs a
-    // Trip-branch guard once Registration-linked Payments can reach this
-    // code (Ticket 03 in the parent Volunteer Trip ticket set).
-    const deferredEscrowWatchdog = deferredEscrowCandidates.map((payment) => ({
-      paymentId: payment.id,
-      campaignId: payment.donation.campaignId,
-      escrowReleaseAt: payment.escrowReleaseAt,
-      refunds: payment.refunds.map((r) => ({ refundId: r.id, status: r.status })),
-    }));
+
+    const deferredEscrowWatchdog: Array<{
+      paymentId: string;
+      campaignId: string;
+      escrowReleaseAt: Date | null;
+      refunds: Array<{ refundId: string; status: string }>;
+    }> = [];
+    const tripDeferredEscrowWatchdog: Array<{
+      paymentId: string;
+      volunteerTripId: string;
+      escrowReleaseAt: Date | null;
+      refunds: Array<{ refundId: string; status: string }>;
+    }> = [];
+    for (const payment of deferredEscrowCandidates) {
+      const row = {
+        paymentId: payment.id,
+        escrowReleaseAt: payment.escrowReleaseAt,
+        refunds: payment.refunds.map((r) => ({ refundId: r.id, status: r.status })),
+      };
+      if (payment.donationId != null) {
+        deferredEscrowWatchdog.push({ ...row, campaignId: payment.donation!.campaignId });
+      } else {
+        tripDeferredEscrowWatchdog.push({ ...row, volunteerTripId: payment.registration!.batch.tripId });
+      }
+    }
 
     // Two payout states nothing in this codebase currently drains -- see the
     // module doc comment above for why fixing either is out of scope here.
@@ -363,7 +401,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         'campaigns that DO have ledger activity and still disagree with collectedAmount -- those are the real findings.',
       mismatches,
       strandedEscrow,
+      tripStrandedEscrow,
       deferredEscrowWatchdog,
+      tripDeferredEscrowWatchdog,
       stuckPayouts: {
         // Nothing in this codebase writes PROCESSING today -- approval stops
         // at APPROVED, and only a provider with a disbursement API plus its

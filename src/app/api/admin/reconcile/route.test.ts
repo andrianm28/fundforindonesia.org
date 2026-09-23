@@ -48,7 +48,8 @@ type PayoutRow = {
 
 type PaymentRow = {
   id: string;
-  campaignId: string;
+  campaignId?: string;
+  volunteerTripId?: string;
   amount?: number;
   providerFee?: number;
   status?: string;
@@ -126,19 +127,28 @@ function makeTx(options: {
         const normalized = payments.map((p) => ({ ...p, escrowReleasedAt: p.escrowReleasedAt ?? null }));
         return normalized
           .filter((p) => matchesWhere(p as never as Record<string, unknown>, where))
-          .map((p) => ({
-            id: p.id,
-            amount: p.amount ?? 0,
-            providerFee: p.providerFee ?? 0,
-            escrowReleaseAt: p.escrowReleaseAt ?? null,
-            donation: { campaignId: p.campaignId },
-            // Nested relation select, backing the deferredEscrowWatchdog
-            // query -- reads off the same `refunds` fixture array
-            // refund.findMany below reads, joined by paymentId.
-            refunds: refunds
-              .filter((r) => r.paymentId === p.id)
-              .map((r) => ({ id: r.id, status: r.status ?? 'REQUESTED' })),
-          }));
+          .map((p) => {
+            // A payment fixture is registration-linked (Trip Fee) when it
+            // sets volunteerTripId instead of campaignId -- mirrors the
+            // real schema's exactly-one-of donationId/registrationId.
+            const isTrip = p.volunteerTripId != null;
+            return {
+              id: p.id,
+              amount: p.amount ?? 0,
+              providerFee: p.providerFee ?? 0,
+              escrowReleaseAt: p.escrowReleaseAt ?? null,
+              donationId: isTrip ? null : `donation-for-${p.id}`,
+              registrationId: isTrip ? `registration-for-${p.id}` : null,
+              donation: isTrip ? null : { campaignId: p.campaignId },
+              registration: isTrip ? { batch: { tripId: p.volunteerTripId } } : null,
+              // Nested relation select, backing the deferredEscrowWatchdog
+              // query -- reads off the same `refunds` fixture array
+              // refund.findMany below reads, joined by paymentId.
+              refunds: refunds
+                .filter((r) => r.paymentId === p.id)
+                .map((r) => ({ id: r.id, status: r.status ?? 'REQUESTED' })),
+            };
+          });
       }),
     },
     refund: {
@@ -708,5 +718,143 @@ describe('GET /api/admin/reconcile -- trip-scoped checks', () => {
         approvedAt: '2026-09-02T00:00:00.000Z',
       },
     ]);
+  });
+});
+
+describe('GET /api/admin/reconcile -- registration-linked (trip) payments', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+  });
+
+  it('reports a stranded registration-linked payment in tripStrandedEscrow, not strandedEscrow', async () => {
+    const tx = makeTx({
+      ledgerRows: [],
+      payments: [
+        {
+          id: 'payment-1',
+          volunteerTripId: 'trip-1',
+          amount: 100_000,
+          providerFee: 0,
+          escrowReleasedAt: new Date('2026-08-10'),
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.tripStrandedEscrow).toEqual([
+      {
+        paymentId: 'payment-1',
+        volunteerTripId: 'trip-1',
+        creditedNet: 100_000,
+        releasedAmount: 0,
+        refundedAmount: 0,
+        residual: 100_000,
+      },
+    ]);
+    expect(data.strandedEscrow).toEqual([]);
+  });
+
+  it('does not report a stranded registration-linked payment when residual is zero', async () => {
+    const tx = makeTx({
+      ledgerRows: [
+        {
+          transactionId: 'escrow-release:payment-1',
+          direction: 'DEBIT',
+          amount: 100_000,
+          account: 'ESCROW_HOLD',
+          campaignId: null,
+          paymentId: 'payment-1',
+        },
+        {
+          transactionId: 'escrow-release:payment-1',
+          direction: 'CREDIT',
+          amount: 100_000,
+          account: 'TRIP_BALANCE',
+          campaignId: null,
+          volunteerTripId: 'trip-1',
+        },
+      ],
+      payments: [
+        {
+          id: 'payment-1',
+          volunteerTripId: 'trip-1',
+          amount: 100_000,
+          providerFee: 0,
+          escrowReleasedAt: new Date('2026-08-10'),
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.tripStrandedEscrow).toEqual([]);
+  });
+
+  it('reports a long-deferred registration-linked payment in tripDeferredEscrowWatchdog', async () => {
+    const longOverdue = new Date(Date.now() - (DEFERRED_ESCROW_WATCHDOG_DAYS + 1) * MS_PER_DAY);
+    const tx = makeTx({
+      payments: [
+        {
+          id: 'payment-1',
+          volunteerTripId: 'trip-1',
+          amount: 100_000,
+          status: 'PAID',
+          escrowReleaseAt: longOverdue,
+          escrowReleasedAt: null,
+        },
+      ],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1', status: 'REQUESTED' }],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.tripDeferredEscrowWatchdog).toEqual([
+      {
+        paymentId: 'payment-1',
+        volunteerTripId: 'trip-1',
+        escrowReleaseAt: longOverdue.toISOString(),
+        refunds: [{ refundId: 'refund-1', status: 'REQUESTED' }],
+      },
+    ]);
+    expect(data.deferredEscrowWatchdog).toEqual([]);
+  });
+
+  it('does not let a campaign-linked payment leak into either trip array', async () => {
+    const tx = makeTx({
+      ledgerRows: [],
+      payments: [
+        {
+          id: 'payment-1',
+          campaignId: 'campaign-1',
+          amount: 100_000,
+          providerFee: 0,
+          escrowReleasedAt: new Date('2026-08-10'),
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.strandedEscrow).toEqual([
+      {
+        paymentId: 'payment-1',
+        campaignId: 'campaign-1',
+        creditedNet: 100_000,
+        releasedAmount: 0,
+        refundedAmount: 0,
+        residual: 100_000,
+      },
+    ]);
+    expect(data.tripStrandedEscrow).toEqual([]);
   });
 });
