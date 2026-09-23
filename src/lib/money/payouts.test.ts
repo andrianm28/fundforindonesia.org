@@ -9,6 +9,7 @@ import {
   InvalidPayoutStatusError,
   PayoutNotFoundError,
 } from './payouts';
+import { InvalidPayoutSubjectError } from './payout-subject';
 
 type LedgerRow = {
   transactionId: string;
@@ -361,5 +362,14 @@ describe('approvePayout', () => {
     await expect(
       approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' }),
     ).rejects.toThrow(InsufficientBalanceError);
+  });
+
+  it('throws for a malformed Payout row with both campaignId and volunteerTripId set (or neither) -- defends against a future writer that bypasses requestPayout\'s own guard', async () => {
+    const { tx } = makeTx({ payoutRow: basePayoutRow({ campaignId: 'campaign-1', volunteerTripId: 'trip-1' }) });
+    const prisma = makePrisma(tx, basePayoutRow({ campaignId: 'campaign-1', volunteerTripId: 'trip-1' }));
+
+    await expect(
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
   });
 });

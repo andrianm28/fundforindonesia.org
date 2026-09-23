@@ -517,8 +517,10 @@ model Payout {
   campaignId    String?
   campaign      Campaign?    @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   /// Set instead of campaignId for a Volunteer Trip payout. Plain scalar,
-  /// no @relation: VolunteerTrip doesn't exist yet -- Ticket 02 adds the
-  /// relation once it does.
+  /// no @relation: neither this nor any other ticket has needed .include()
+  /// through it yet (routes compare it as a plain scalar, same as
+  /// campaignId's own comparisons). Add the relation whenever a caller
+  /// actually needs it.
   volunteerTripId String?
   bankAccountId String
   bankAccount   BankAccount  @relation(fields: [bankAccountId], references: [id])

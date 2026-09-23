@@ -411,8 +411,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         'the ledger). They are expected, not incidents. Campaigns with isDemo=true are excluded ' +
         'from both preLedger and mismatches entirely, above, for the same reason. mismatches are ' +
         'campaigns that DO have ledger activity and still disagree with collectedAmount -- those are the real findings.' +
-        ' tripDeferredEscrowWatchdog is expected to list every matured Trip Fee payment until a Trip payout flow exists ' +
-        'to release Trip escrow at all -- it is not yet an incident list.',
+        ' tripDeferredEscrowWatchdog now means the same as deferredEscrowWatchdog -- a Trip payout flow exists ' +
+        '(POST /api/volunteer-trips/[slug]/payouts releases matured Trip escrow the same way Campaign payout does), ' +
+        'so a non-empty result here is a real incident, not an expected gap.',
       mismatches,
       strandedEscrow,
       tripStrandedEscrow,

@@ -221,6 +221,13 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
+  it('returns 404 when the payout is actually Trip-linked (campaignId null) -- a Trip payout can never be approved through the Campaign route', async () => {
+    mockPayoutFindUnique.mockResolvedValue({ campaignId: null });
+    const response = await POST(createRequest(), routeContext());
+    expect(response.status).toBe(404);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
   it('approves without resolving a payment provider at all', async () => {
     // Regression test. Approval used to call provider.createPayout after
     // committing the instructed legs. With Sumopod -- the only provider

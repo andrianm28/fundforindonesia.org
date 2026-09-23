@@ -251,6 +251,8 @@ export async function approvePayout(
     // hardcodes 'campaign': it is what makes a Trip-linked Payout unable to
     // ever touch CAMPAIGN_BALANCE, and a Campaign-linked one unable to ever
     // touch TRIP_BALANCE, no matter how either was requested.
+    assertExactlyOnePayoutSubject({ campaignId: payout.campaignId, volunteerTripId: payout.volunteerTripId });
+
     const subject: LedgerSubject = payout.campaignId
       ? { type: 'campaign', campaignId: payout.campaignId }
       : { type: 'trip', tripId: payout.volunteerTripId! };
