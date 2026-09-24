@@ -17,6 +17,26 @@ const inter = localFont({
   weight: "100 900",
 });
 
+// Same self-hosting reasoning as Inter above: no reliable build-time route
+// to fonts.googleapis.com. These are the real variable-weight Latin-subset
+// files Google's own CSS serves for Newsreader:wght@200..800 and
+// JetBrains+Mono:wght@100..800 respectively -- vendored once, not fetched
+// per build. This is the Record register (src/lib -- see the Ledger Line
+// spec, .scratch/ledger-line-visual-refresh/spec.md): serif for prose that
+// is a claim of record, mono for numbers/IDs shown as stated fact. Not yet
+// applied to any page content -- that's later tickets' job.
+const newsreader = localFont({
+  src: "../fonts/Newsreader-Variable.woff2",
+  variable: "--font-newsreader",
+  weight: "200 800",
+});
+
+const jetbrainsMono = localFont({
+  src: "../fonts/JetBrainsMono-Variable.woff2",
+  variable: "--font-jetbrains-mono",
+  weight: "100 800",
+});
+
 export const metadata: Metadata = {
   title: "Fund for Indonesia - Platform Donasi dan Penggalangan Dana Online",
   description:
@@ -30,7 +50,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id">
-      <body className={`${inter.variable} font-sans antialiased`}>
+      <body className={`${inter.variable} ${newsreader.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
         <Providers>
           <AppShell>{children}</AppShell>
           <ConditionalFooter />
