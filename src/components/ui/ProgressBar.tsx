@@ -13,7 +13,19 @@ export interface ProgressBarProps {
   size?: 'sm' | 'md';
   /** Animate fill on mount */
   animated?: boolean;
+  /**
+   * Renders the Ledger Line motif on the track: a dashed gold
+   * repeating-linear-gradient background plus three fixed milestone
+   * ticks at 25/50/75%, independent of the real current/target values.
+   * This is a promise about the platform's staged-disbursement process,
+   * not a report on this specific campaign's real progress -- the real
+   * progress fill bar still renders on top, unchanged. Defaults to false
+   * so every existing call site renders exactly as it did before.
+   */
+  showLedgerLine?: boolean;
 }
+
+const LEDGER_MILESTONE_POSITIONS = [25, 50, 75] as const;
 
 /**
  * Calculates percentage from current and target values.
@@ -32,6 +44,7 @@ export function ProgressBar({
   showLabel = false,
   size = 'md',
   animated = false,
+  showLedgerLine = false,
 }: ProgressBarProps) {
   const percentage = calculatePercentage(current, target);
   const [width, setWidth] = useState(animated ? 0 : percentage);
@@ -53,14 +66,34 @@ export function ProgressBar({
   return (
     <div className="w-full">
       <div
-        className={`w-full ${heightClass} rounded-full bg-bg-secondary overflow-hidden`}
+        className={`w-full ${heightClass} rounded-full overflow-hidden relative ${
+          showLedgerLine ? '' : 'bg-bg-secondary'
+        }`}
+        style={
+          showLedgerLine
+            ? {
+                backgroundImage:
+                  'repeating-linear-gradient(90deg, #B8862E 0 4px, transparent 4px 8px)',
+              }
+            : undefined
+        }
         role="progressbar"
         aria-valuenow={Math.round(percentage)}
         aria-valuemin={0}
         aria-valuemax={100}
       >
+        {showLedgerLine &&
+          LEDGER_MILESTONE_POSITIONS.map((position) => (
+            <span
+              key={position}
+              data-testid="ledger-tick"
+              aria-hidden="true"
+              className="absolute top-0 bottom-0 w-px"
+              style={{ left: `${position}%`, backgroundColor: '#B8862E' }}
+            />
+          ))}
         <div
-          className={`${heightClass} rounded-full`}
+          className={`${heightClass} rounded-full relative z-10`}
           style={{
             width: `${width}%`,
             background: 'linear-gradient(90deg, #D97748, #D50000)',
