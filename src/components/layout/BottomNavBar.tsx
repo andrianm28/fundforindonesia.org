@@ -77,7 +77,7 @@ export default function BottomNavBar({ activeTab, unreadCount }: BottomNavBarPro
       <div className="relative flex items-center justify-around h-16">
         {/* Sliding active indicator */}
         <motion.div
-          className="absolute top-0 h-[3px] bg-[#0073E6] rounded-b-full"
+          className="absolute top-0 h-[3px] bg-[#2F7A5F] rounded-b-full"
           style={{ width: `${100 / tabs.length}%` }}
           animate={{ left: `${(activeIndex * 100) / tabs.length}%` }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
@@ -92,7 +92,7 @@ export default function BottomNavBar({ activeTab, unreadCount }: BottomNavBarPro
               key={tab.id}
               href={tab.href}
               className={`flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-colors duration-150 ${
-                isActive ? 'text-[#0073E6]' : 'text-[#757575]'
+                isActive ? 'text-[#2F7A5F]' : 'text-[#757575]'
               }`}
               aria-current={isActive ? 'page' : undefined}
             >

@@ -63,7 +63,7 @@ export function ProgressBar({
           className={`${heightClass} rounded-full`}
           style={{
             width: `${width}%`,
-            background: 'linear-gradient(90deg, #FF6B35, #D50000)',
+            background: 'linear-gradient(90deg, #D97748, #D50000)',
             transition: animated ? 'width 600ms ease-in-out' : 'none',
           }}
         />

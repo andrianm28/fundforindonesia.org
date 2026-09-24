@@ -29,7 +29,7 @@ export default function DesktopHeader({
       <div className="mx-auto max-w-[1200px] px-6 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="flex-shrink-0">
-          <span className="text-2xl font-bold text-[#0073E6]">Fund for Indonesia</span>
+          <span className="text-2xl font-bold text-[#2F7A5F]">Fund for Indonesia</span>
         </Link>
 
         {/* Search Bar */}

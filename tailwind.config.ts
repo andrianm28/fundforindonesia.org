@@ -17,10 +17,13 @@ const config: Config = {
     extend: {
       colors: {
         primary: {
-          DEFAULT: "#0073E6",
-          dark: "#005BB5",
+          DEFAULT: "#2F7A5F",
+          dark: "#255F4A",
         },
-        accent: "#FF6B35",
+        accent: "#D97748",
+        ink: "#1C1A15",
+        paper: "#FDFBF8",
+        ledger: "#B8862E",
         success: "#00C853",
         warning: "#FFB300",
         danger: "#D50000",

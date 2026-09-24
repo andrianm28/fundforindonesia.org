@@ -4,9 +4,12 @@
 
 :root {
   /* Colors */
-  --color-primary: #0073E6;
-  --color-primary-dark: #005BB5;
-  --color-accent: #FF6B35;
+  --color-primary: #2F7A5F;
+  --color-primary-dark: #255F4A;
+  --color-accent: #D97748;
+  --color-ink: #1C1A15;
+  --color-paper: #FDFBF8;
+  --color-ledger: #B8862E;
   --color-success: #00C853;
   --color-warning: #FFB300;
   --color-danger: #D50000;

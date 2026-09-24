@@ -156,7 +156,7 @@ export function HeroBanner({ slides, autoPlayInterval = 5000 }: HeroBannerProps)
             </h2>
             <Link
               href={currentSlide.cta.href}
-              className="inline-flex items-center justify-center bg-[var(--color-primary,#0073E6)] hover:bg-[var(--color-primary-dark,#005BB5)] text-white font-semibold text-sm md:text-base px-4 md:px-6 py-2 md:py-3 rounded-lg transition-colors duration-200 w-fit"
+              className="inline-flex items-center justify-center bg-[var(--color-primary,#2F7A5F)] hover:bg-[var(--color-primary-dark,#255F4A)] text-white font-semibold text-sm md:text-base px-4 md:px-6 py-2 md:py-3 rounded-lg transition-colors duration-200 w-fit"
             >
               {currentSlide.cta.label}
             </Link>

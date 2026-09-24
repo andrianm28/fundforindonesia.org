@@ -41,7 +41,7 @@ describe('BottomNavBar', () => {
     render(<BottomNavBar activeTab="home" />);
 
     const homeLink = screen.getByText('Home').closest('a');
-    expect(homeLink).toHaveClass('text-[#0073E6]');
+    expect(homeLink).toHaveClass('text-[#2F7A5F]');
 
     const inboxLink = screen.getByText('Inbox').closest('a');
     expect(inboxLink).toHaveClass('text-[#757575]');
@@ -112,6 +112,6 @@ describe('BottomNavBar', () => {
 
     const indicator = screen.getByTestId('active-indicator');
     expect(indicator).toBeInTheDocument();
-    expect(indicator).toHaveClass('bg-[#0073E6]');
+    expect(indicator).toHaveClass('bg-[#2F7A5F]');
   });
 });
