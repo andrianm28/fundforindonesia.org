@@ -17,6 +17,7 @@ committed (see below).
   spec, plans are tracked in git.
 - Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`, never a single combined tickets file
 - Triage state is recorded as a `Status:` line near the top of each issue file. specflow tidak mengirim skill `triage`, jadi `docs/agents/triage-labels.md` tidak dibuat; pakai string status apa pun yang repo ini sudah pakai.
+- This repo's status vocabulary, established during the Ledger Line ticket set: `ready-for-agent` (open, not yet started or in progress) and `done` (merged to `main`) -- update a ticket's `Status:` line to `done` once its branch merges, so the file doesn't go stale against the real git history. Do not invent a third status without a real need.
 - Comments and conversation history append to the bottom of the file under a `## Comments` heading
 
 ## When a skill says "publish to the issue tracker"
