@@ -159,7 +159,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
 
           {/* Amount collected */}
           <div className="space-y-2 mb-4">
-            <p className="text-xl font-bold text-primary">
+            <p className="text-xl font-bold text-primary font-mono">
               {formatRupiah(campaign.collectedAmount)}
             </p>
 

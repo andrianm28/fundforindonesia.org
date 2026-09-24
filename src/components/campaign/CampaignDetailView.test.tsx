@@ -110,4 +110,22 @@ describe('CampaignDetailView', () => {
     expect(fixedBar).not.toBeNull();
     expect(fixedBar.className).not.toContain('lg:hidden');
   });
+
+  it('renders the confirmed/collected amount in the Record register mono typeface', () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    const amount = screen.getByText('Rp25.841.000');
+    expect(amount.className).toContain('font-mono');
+  });
+
+  it('does not apply the mono typeface to the target amount, title, or donate CTA', () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    const targetAmount = screen.getByText('Rp50.000.000');
+    expect(targetAmount.className).not.toContain('font-mono');
+    const titles = screen.getAllByText(mockCampaign.title);
+    titles.forEach((title) => {
+      expect(title.className).not.toContain('font-mono');
+    });
+    const donateCta = screen.getByText('Donasi sekarang');
+    expect(donateCta.className).not.toContain('font-mono');
+  });
 });
