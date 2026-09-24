@@ -42,3 +42,13 @@ Read the file at the referenced path. The user will normally pass the path or th
   and point the plan at the mirror.
 - **`.superpowers/sdd/`** — gitignored SDD run ledger written during execution,
   not an intake surface.
+
+## Fresh-worktree setup gap
+
+`npm install` alone leaves a fresh worktree's test suite red: `src/generated/prisma`
+(the generated Prisma client, imported as `@/generated/prisma/client` across the
+codebase) is itself gitignored and worktree-local, and nothing runs `prisma
+generate` automatically after install. Symptom: ~29 test files fail with
+`Failed to resolve import "@/generated/prisma/client"`. Fix: run `npx prisma
+generate` once per fresh worktree, right after `npm install`, before trusting any
+red/green baseline result.
