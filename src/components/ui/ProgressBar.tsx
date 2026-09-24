@@ -66,14 +66,14 @@ export function ProgressBar({
   return (
     <div className="w-full">
       <div
-        className={`w-full ${heightClass} rounded-full overflow-hidden relative ${
-          showLedgerLine ? '' : 'bg-bg-secondary'
+        className={`w-full ${heightClass} rounded-full overflow-hidden ${
+          showLedgerLine ? 'relative' : 'bg-bg-secondary'
         }`}
         style={
           showLedgerLine
             ? {
                 backgroundImage:
-                  'repeating-linear-gradient(90deg, #B8862E 0 4px, transparent 4px 8px)',
+                  'repeating-linear-gradient(90deg, var(--color-ledger) 0 4px, transparent 4px 8px)',
               }
             : undefined
         }
@@ -88,12 +88,16 @@ export function ProgressBar({
               key={position}
               data-testid="ledger-tick"
               aria-hidden="true"
-              className="absolute top-0 bottom-0 w-px"
-              style={{ left: `${position}%`, backgroundColor: '#B8862E' }}
+              className="absolute top-0 bottom-0 w-0.5 z-20"
+              style={{
+                left: `${position}%`,
+                backgroundColor: 'var(--color-ledger)',
+                boxShadow: '0 0 0 1px #FDFBF8',
+              }}
             />
           ))}
         <div
-          className={`${heightClass} rounded-full relative z-10`}
+          className={`${heightClass} rounded-full ${showLedgerLine ? 'relative z-10' : ''}`}
           style={{
             width: `${width}%`,
             background: 'linear-gradient(90deg, #D97748, #D50000)',

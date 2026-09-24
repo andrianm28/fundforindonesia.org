@@ -137,6 +137,7 @@ describe('ProgressBar component', () => {
     render(<ProgressBar current={50} target={100} showLedgerLine />);
     const track = screen.getByRole('progressbar');
     expect(track.style.backgroundImage).toContain('repeating-linear-gradient');
+    expect(track.style.backgroundImage).toContain('var(--color-ledger)');
     expect(track.className).not.toContain('bg-bg-secondary');
   });
 
@@ -144,5 +145,34 @@ describe('ProgressBar component', () => {
     render(<ProgressBar current={75} target={100} showLedgerLine />);
     const track = screen.getByRole('progressbar');
     expect(track).toHaveAttribute('aria-valuenow', '75');
+  });
+
+  it('stacks Ledger Line ticks above the fill bar with a contrasting outline', () => {
+    const { container } = render(
+      <ProgressBar current={100} target={100} showLedgerLine />
+    );
+    const ticks = container.querySelectorAll('[data-testid="ledger-tick"]');
+    expect(ticks).toHaveLength(3);
+    ticks.forEach((tick) => {
+      const el = tick as HTMLElement;
+      expect(el.className).toContain('z-20');
+      expect(el.style.backgroundColor).toBe('var(--color-ledger)');
+      expect(el.style.boxShadow).toContain('#FDFBF8');
+    });
+    const track = screen.getByRole('progressbar');
+    const fillBar = track.lastElementChild as HTMLElement;
+    expect(fillBar.className).toContain('z-10');
+  });
+
+  it('keeps ticks present and stacked above the fill even when the campaign has fully met its target', () => {
+    const { container } = render(
+      <ProgressBar current={100} target={100} showLedgerLine />
+    );
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+    const ticks = container.querySelectorAll('[data-testid="ledger-tick"]');
+    expect(ticks).toHaveLength(3);
+    ticks.forEach((tick) => {
+      expect((tick as HTMLElement).className).toContain('z-20');
+    });
   });
 });
