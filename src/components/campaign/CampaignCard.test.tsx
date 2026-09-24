@@ -173,6 +173,28 @@ describe('CampaignCard', () => {
     expect(progressBar).not.toBeNull();
   });
 
+  it('renders the Ledger Line motif with three fixed milestone ticks under the progress bar', () => {
+    const { container } = render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    const ticks = container.querySelectorAll('[data-testid="ledger-tick"]');
+    expect(ticks).toHaveLength(3);
+    const positions = Array.from(ticks).map((tick) => (tick as HTMLElement).style.left);
+    expect(positions).toEqual(['25%', '50%', '75%']);
+  });
+
+  it('does not apply the ledger gold token to the urgent badge, demo badge, or collected amount', () => {
+    const urgentDemoCampaign = { ...mockCampaign, isUrgent: true, isDemo: true };
+    render(<CampaignCard campaign={urgentDemoCampaign} variant="standard" />);
+    const urgentBadge = screen.getByText('DARURAT');
+    const demoBadge = screen.getByText('Kampanye contoh');
+    const amount = screen.getByText('Rp25.841.000');
+    [urgentBadge, demoBadge, amount].forEach((el) => {
+      expect(el.className).not.toMatch(/ledger/i);
+      expect((el as HTMLElement).style.backgroundImage || '').not.toContain('B8862E');
+      expect((el as HTMLElement).style.backgroundColor || '').not.toContain('B8862E');
+      expect((el as HTMLElement).style.color || '').not.toContain('B8862E');
+    });
+  });
+
   it('has proper article role and aria-label', () => {
     render(<CampaignCard campaign={mockCampaign} variant="standard" />);
     const article = screen.getByRole('article');
