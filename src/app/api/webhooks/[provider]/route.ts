@@ -284,19 +284,6 @@ export async function POST(
           registrationConfirmed = registrationUpdate.count > 0;
 
           if (!registrationConfirmed) {
-            // The hold-expiry sweep (releaseExpiredHolds,
-            // src/lib/volunteer/registration.ts) can flip a Registration
-            // HOLD -> EXPIRED without ever touching its Payment, which can
-            // stay PENDING for up to VA_EXPIRY_MS after the 30-minute hold
-            // window closed. If a charge clears in that window, the money
-            // genuinely arrived at the provider -- the ledger legs below
-            // still post, same as any other settlement -- but there is no
-            // longer a seat to confirm. Logged here for manual review: money
-            // collected, no seat held.
-            console.error(
-              `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was no longer HOLD (hold likely already expired) -- money collected, no seat confirmed, needs manual review`,
-            );
-
             // The Registration's own volunteerId/tripId are already known
             // from the Payment fetched before this transaction opened --
             // they never change. Only its status can have moved concurrently,
@@ -308,6 +295,9 @@ export async function POST(
               select: { status: true },
             });
             if (current?.status === 'CANCELLED') {
+              console.error(
+                `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was already CANCELLED -- auto-refunding the full amount`,
+              );
               cancelledRegistration = {
                 id: registration!.id,
                 volunteerId: registration!.volunteerId,
@@ -315,6 +305,19 @@ export async function POST(
                 paymentId: payment.id,
                 amount: payment.amount,
               };
+            } else {
+              // The hold-expiry sweep (releaseExpiredHolds,
+              // src/lib/volunteer/registration.ts) can flip a Registration
+              // HOLD -> EXPIRED without ever touching its Payment, which can
+              // stay PENDING for up to VA_EXPIRY_MS after the 30-minute hold
+              // window closed. If a charge clears in that window, the money
+              // genuinely arrived at the provider -- the ledger legs below
+              // still post, same as any other settlement -- but there is no
+              // longer a seat to confirm. Logged here for manual review: money
+              // collected, no seat held.
+              console.error(
+                `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was no longer HOLD (hold likely already expired) -- money collected, no seat confirmed, needs manual review`,
+              );
             }
           }
 

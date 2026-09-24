@@ -55,6 +55,7 @@ type PaymentRow = {
   status?: string;
   escrowReleaseAt?: Date | null;
   escrowReleasedAt?: Date | null;
+  registrationStatus?: string;
 };
 
 type RefundRow = {
@@ -132,7 +133,21 @@ function makeTx(options: {
         // Default escrowReleasedAt to null (as a real, unreleased Payment
         // row would have) rather than leaving it undefined, so `{ not: null
         // }` correctly excludes a fixture that never mentioned the field.
-        const normalized = payments.map((p) => ({ ...p, escrowReleasedAt: p.escrowReleasedAt ?? null }));
+        // donationId/registrationId are also computed here, before
+        // filtering, so a `where` clause on either (e.g.
+        // `registrationId: { not: null }`, the orphanedCancelledRegistration
+        // Payments query) matches against them the same way Prisma would
+        // against real columns, not just the raw fixture's proxy fields.
+        const normalized = payments.map((p) => {
+          const isTrip = p.volunteerTripId != null;
+          const isCampaign = p.campaignId != null;
+          return {
+            ...p,
+            escrowReleasedAt: p.escrowReleasedAt ?? null,
+            donationId: isCampaign ? `donation-for-${p.id}` : null,
+            registrationId: isTrip ? `registration-for-${p.id}` : null,
+          };
+        });
         return normalized
           .filter((p) => matchesWhere(p as never as Record<string, unknown>, where))
           .map((p) => {
@@ -149,10 +164,10 @@ function makeTx(options: {
               amount: p.amount ?? 0,
               providerFee: p.providerFee ?? 0,
               escrowReleaseAt: p.escrowReleaseAt ?? null,
-              donationId: isCampaign ? `donation-for-${p.id}` : null,
-              registrationId: isTrip ? `registration-for-${p.id}` : null,
+              donationId: p.donationId,
+              registrationId: p.registrationId,
               donation: isCampaign ? { campaignId: p.campaignId } : null,
-              registration: isTrip ? { batch: { tripId: p.volunteerTripId } } : null,
+              registration: isTrip ? { status: p.registrationStatus ?? 'CONFIRMED', batch: { tripId: p.volunteerTripId } } : null,
               // Nested relation select, backing the deferredEscrowWatchdog
               // query -- reads off the same `refunds` fixture array
               // refund.findMany below reads, joined by paymentId.
@@ -717,6 +732,60 @@ describe('GET /api/admin/reconcile', () => {
     const body = await response.json();
 
     expect(body.pendingRefunds).toEqual([]);
+  });
+
+  it('lists a PAID Trip Payment whose Registration is CANCELLED and has no live Refund in orphanedCancelledRegistrationPayments', async () => {
+    const tx = makeTx({
+      payments: [{ id: 'payment-4', volunteerTripId: 'trip-1', status: 'PAID', registrationStatus: 'CANCELLED' }],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(body.orphanedCancelledRegistrationPayments).toEqual([
+      { paymentId: 'payment-4', registrationId: 'registration-for-payment-4', volunteerTripId: 'trip-1' },
+    ]);
+  });
+
+  it('excludes a CANCELLED Registration Payment from orphanedCancelledRegistrationPayments when a live Refund already covers it', async () => {
+    const tx = makeTx({
+      payments: [{ id: 'payment-5', volunteerTripId: 'trip-1', status: 'PAID', registrationStatus: 'CANCELLED' }],
+      refunds: [{ id: 'refund-5', paymentId: 'payment-5', status: 'REQUESTED' }],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(body.orphanedCancelledRegistrationPayments).toEqual([]);
+  });
+
+  it('still lists a CANCELLED Registration Payment when its only Refund is REJECTED', async () => {
+    const tx = makeTx({
+      payments: [{ id: 'payment-6', volunteerTripId: 'trip-1', status: 'PAID', registrationStatus: 'CANCELLED' }],
+      refunds: [{ id: 'refund-6', paymentId: 'payment-6', status: 'REJECTED' }],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(body.orphanedCancelledRegistrationPayments).toEqual([
+      { paymentId: 'payment-6', registrationId: 'registration-for-payment-6', volunteerTripId: 'trip-1' },
+    ]);
+  });
+
+  it('does not list a PAID Trip Payment whose Registration is normally CONFIRMED', async () => {
+    const tx = makeTx({
+      payments: [{ id: 'payment-7', volunteerTripId: 'trip-1', status: 'PAID' }],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(body.orphanedCancelledRegistrationPayments).toEqual([]);
   });
 });
 

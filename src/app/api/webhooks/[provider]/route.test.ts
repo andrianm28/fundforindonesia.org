@@ -682,7 +682,10 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     });
     mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
     const { tx, ledgerRows } = makeTx({ registrationUpdateManyCount: 0, registrationCurrentStatus: 'CANCELLED' });
-    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    const refundTx = {};
+    mockTransaction
+      .mockImplementationOnce(async (cb: (tx: unknown) => unknown) => cb(tx))
+      .mockImplementationOnce(async (cb: (tx: unknown) => unknown) => cb(refundTx));
 
     const response = await POST(createRequest(), routeContext());
 
@@ -692,11 +695,14 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     expect(ledgerRows.some((r) => r.account === 'TRIP_BALANCE' || r.account === 'ESCROW_HOLD')).toBe(true);
     // No false-success notification -- there is no seat.
     expect(mockNotificationCreate).not.toHaveBeenCalled();
+    // The auto-refund runs in its own, separate transaction -- not nested
+    // inside the settlement transaction, which would risk a deadlock.
+    expect(mockTransaction).toHaveBeenCalledTimes(2);
     // The auto-refund, called after the settlement transaction commits, for
     // the full Gross amount, attributed to the cancelling Volunteer.
     expect(mockCreateRefund).toHaveBeenCalledTimes(1);
     expect(mockCreateRefund).toHaveBeenCalledWith(
-      expect.anything(),
+      refundTx,
       {
         subject: { type: 'trip', tripId: 'trip-1' },
         paymentId: 'payment-1',
@@ -729,7 +735,10 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     });
     mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
     const { tx } = makeTx({ registrationUpdateManyCount: 0, registrationCurrentStatus: 'CANCELLED' });
-    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    const refundTx = {};
+    mockTransaction
+      .mockImplementationOnce(async (cb: (tx: unknown) => unknown) => cb(tx))
+      .mockImplementationOnce(async (cb: (tx: unknown) => unknown) => cb(refundTx));
     mockCreateRefund.mockRejectedValue(new Error('database exploded'));
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 

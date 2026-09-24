@@ -72,6 +72,12 @@ import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/l
  *    on its own.
  *  - stuckPayouts: two payout states nothing in this codebase currently
  *    drains. Surfaced, not fixed -- see the comments below for why.
+ *  - pendingRefunds: every Refund whose status is REQUESTED, Campaign-or-Trip
+ *    both in one combined list -- the only place in this codebase a REQUESTED
+ *    Refund becomes discoverable after it's created.
+ *  - orphanedCancelledRegistrationPayments: a PAID Trip Payment whose
+ *    Registration is CANCELLED with no live Refund against it -- the safety
+ *    net for the settlement webhook's own auto-refund failing silently.
  */
 export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest) => {
   const report = await prisma.$transaction(async (tx) => {
@@ -294,7 +300,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // registrationId set (assertExactlyOnePaymentSubject guards both create
     // sites) -- but reconcile is exactly the tool an admin would reach for
     // to find such an anomalous row, so it must not throw on one either.
-    const subjectlessPayments: Array<{ paymentId: string; context: 'strandedEscrow' | 'deferredEscrowWatchdog' }> = [];
+    const subjectlessPayments: Array<{ paymentId: string; context: 'strandedEscrow' | 'deferredEscrowWatchdog' | 'pendingRefunds' }> = [];
 
     const strandedEscrow: Array<{
       paymentId: string;
@@ -400,6 +406,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // place an Admin can find one to act on.
     const pendingRefundRows = await tx.refund.findMany({
       where: { status: 'REQUESTED' },
+      orderBy: { createdAt: 'asc' },
       select: {
         id: true,
         paymentId: true,
@@ -418,16 +425,62 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       },
     });
 
-    const pendingRefunds = pendingRefundRows.map((r) => ({
-      refundId: r.id,
-      paymentId: r.paymentId,
-      amount: r.amount,
-      reason: r.reason,
-      requestedById: r.requestedById,
-      createdAt: r.createdAt,
-      campaignId: r.payment?.donationId != null ? r.payment.donation!.campaignId : null,
-      volunteerTripId: r.payment?.registrationId != null ? r.payment.registration!.batch.tripId : null,
-    }));
+    const pendingRefunds: Array<{
+      refundId: string;
+      paymentId: string;
+      amount: number;
+      reason: string;
+      requestedById: string;
+      createdAt: Date;
+      campaignId: string | null;
+      volunteerTripId: string | null;
+    }> = [];
+    for (const r of pendingRefundRows) {
+      const base = { refundId: r.id, paymentId: r.paymentId, amount: r.amount, reason: r.reason, requestedById: r.requestedById, createdAt: r.createdAt };
+      if (r.payment?.donationId != null) {
+        pendingRefunds.push({ ...base, campaignId: r.payment.donation!.campaignId, volunteerTripId: null });
+      } else if (r.payment?.registrationId != null) {
+        pendingRefunds.push({ ...base, campaignId: null, volunteerTripId: r.payment.registration!.batch.tripId });
+      } else {
+        subjectlessPayments.push({ paymentId: r.paymentId, context: 'pendingRefunds' });
+      }
+    }
+
+    // Task-level safety net for the settlement webhook's auto-refund (see
+    // that route's own comment): if createRefund itself throws there, the
+    // webhook logs and moves on rather than failing the provider's request,
+    // which means the Payment stays PAID with no Refund ever created. Nothing
+    // else in this report can find that case -- strandedEscrow/
+    // deferredEscrowWatchdog both only look at Payments some in-flight Refund
+    // is deferring, and none exists here to defer anything. A PAID Trip
+    // Payment whose Registration is CANCELLED with no live Refund against it
+    // is exactly that failure, surfaced instead of silently releasing at
+    // maturity with no record anything went wrong.
+    const paidTripPayments = await tx.payment.findMany({
+      where: { status: 'PAID', registrationId: { not: null } },
+      select: {
+        id: true,
+        registrationId: true,
+        registration: { select: { status: true, batch: { select: { tripId: true } } } },
+        refunds: { select: { id: true, status: true } },
+      },
+    });
+
+    const orphanedCancelledRegistrationPayments: Array<{
+      paymentId: string;
+      registrationId: string;
+      volunteerTripId: string;
+    }> = [];
+    for (const payment of paidTripPayments) {
+      if (payment.registration?.status !== 'CANCELLED') continue;
+      const hasLiveRefund = payment.refunds.some((r) => r.status !== 'REJECTED' && r.status !== 'FAILED');
+      if (hasLiveRefund) continue;
+      orphanedCancelledRegistrationPayments.push({
+        paymentId: payment.id,
+        registrationId: payment.registrationId!,
+        volunteerTripId: payment.registration.batch.tripId,
+      });
+    }
 
     // Two payout states nothing in this codebase currently drains -- see the
     // module doc comment above for why fixing either is out of scope here.
@@ -466,6 +519,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       // creation -- treat a non-empty result as a data-integrity incident.
       subjectlessPayments,
       pendingRefunds,
+      orphanedCancelledRegistrationPayments,
       stuckPayouts: {
         // Nothing in this codebase writes PROCESSING today -- approval stops
         // at APPROVED, and only a provider with a disbursement API plus its
