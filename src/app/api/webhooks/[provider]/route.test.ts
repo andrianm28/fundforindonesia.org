@@ -27,6 +27,10 @@ vi.mock('@/lib/payments', async () => {
   };
 });
 
+vi.mock('@/lib/money/refunds', () => ({
+  createRefund: vi.fn(),
+}));
+
 import { prisma } from '@/lib/prisma';
 import {
   getPaymentProvider,
@@ -34,7 +38,9 @@ import {
   UnknownPaymentProviderError,
   InvalidWebhookSignatureError,
 } from '@/lib/payments';
+import { createRefund } from '@/lib/money/refunds';
 
+const mockCreateRefund = createRefund as unknown as Mock;
 const mockWebhookEventCreate = prisma.webhookEvent.create as unknown as Mock;
 const mockWebhookEventUpdate = prisma.webhookEvent.update as unknown as Mock;
 const mockWebhookEventFindUniqueOrThrow = prisma.webhookEvent.findUniqueOrThrow as unknown as Mock;
@@ -74,14 +80,17 @@ type LedgerRow = {
  * the normal "this delivery won" case, 0 simulates a concurrent, distinct
  * event having already flipped the Payment out of PENDING first.
  */
-function makeTx(options: { paymentUpdateManyCount?: number; registrationUpdateManyCount?: number } = {}) {
-  const { paymentUpdateManyCount = 1, registrationUpdateManyCount = 1 } = options;
+function makeTx(options: { paymentUpdateManyCount?: number; registrationUpdateManyCount?: number; registrationCurrentStatus?: string } = {}) {
+  const { paymentUpdateManyCount = 1, registrationUpdateManyCount = 1, registrationCurrentStatus = 'EXPIRED' } = options;
   const ledgerRows: LedgerRow[] = [];
   const tx = {
     payment: { updateMany: vi.fn().mockResolvedValue({ count: paymentUpdateManyCount }) },
     donation: { update: vi.fn().mockResolvedValue({}) },
     campaign: { update: vi.fn().mockResolvedValue({}) },
-    registration: { updateMany: vi.fn().mockResolvedValue({ count: registrationUpdateManyCount }) },
+    registration: {
+      updateMany: vi.fn().mockResolvedValue({ count: registrationUpdateManyCount }),
+      findUnique: vi.fn().mockResolvedValue({ status: registrationCurrentStatus }),
+    },
     webhookEvent: { update: vi.fn().mockResolvedValue({}) },
     ledgerEntry: {
       count: vi.fn().mockResolvedValue(0),
@@ -570,6 +579,7 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     mockWebhookEventUpdate.mockResolvedValue({});
     mockNotificationCreateMany.mockResolvedValue({ count: 0 });
     mockNotificationCreate.mockResolvedValue({});
+    mockCreateRefund.mockResolvedValue({ id: 'refund-1', status: 'REQUESTED' });
   });
 
   it('paid: confirms the Registration, posts TRIP_BALANCE-bound legs, notifies the Volunteer, does not touch Campaign/Donation tables', async () => {
@@ -663,6 +673,73 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
       expect.stringContaining('registration-1'),
     );
 
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('paid: automatically refunds the Payment when the Registration was cancelled before the charge cleared', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    const { tx, ledgerRows } = makeTx({ registrationUpdateManyCount: 0, registrationCurrentStatus: 'CANCELLED' });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    // The money genuinely arrived -- settlement and the ledger legs still
+    // post, exactly as the "hold already expired" case already proves.
+    expect(ledgerRows.some((r) => r.account === 'TRIP_BALANCE' || r.account === 'ESCROW_HOLD')).toBe(true);
+    // No false-success notification -- there is no seat.
+    expect(mockNotificationCreate).not.toHaveBeenCalled();
+    // The auto-refund, called after the settlement transaction commits, for
+    // the full Gross amount, attributed to the cancelling Volunteer.
+    expect(mockCreateRefund).toHaveBeenCalledTimes(1);
+    expect(mockCreateRefund).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        subject: { type: 'trip', tripId: 'trip-1' },
+        paymentId: 'payment-1',
+        amount: 250_000,
+        reason: 'Trip Fee settlement arrived after the Registration was already cancelled -- refunded automatically',
+        requestedById: 'volunteer-1',
+      },
+    );
+  });
+
+  it('paid: does not attempt an auto-refund when the Registration is EXPIRED rather than CANCELLED', async () => {
+    // Regression guard: the naturally-expired case (ticket 03) must keep its
+    // existing log-only behavior, unchanged by this fix.
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    const { tx } = makeTx({ registrationUpdateManyCount: 0, registrationCurrentStatus: 'EXPIRED' });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(mockCreateRefund).not.toHaveBeenCalled();
+  });
+
+  it('paid: logs and still answers 200 when the automatic refund creation itself fails', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    const { tx } = makeTx({ registrationUpdateManyCount: 0, registrationCurrentStatus: 'CANCELLED' });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    mockCreateRefund.mockRejectedValue(new Error('database exploded'));
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('failed to auto-refund payment payment-1'),
+      expect.any(Error),
+    );
     consoleErrorSpy.mockRestore();
   });
 

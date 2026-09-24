@@ -12,6 +12,7 @@ import { escrowReleaseAt } from '@/lib/money/escrow';
 import { notifyDonationConfirmed, notifyRegistrationConfirmed } from '@/lib/notifications';
 import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
+import { createRefund } from '@/lib/money/refunds';
 
 /**
  * The single place where money becomes real.
@@ -272,6 +273,7 @@ export async function POST(
         }
 
         let registrationConfirmed = true;
+        let cancelledRegistration: { id: string; volunteerId: string; tripId: string; paymentId: string; amount: number } | null = null;
 
         if (isTripPayment) {
           const { registration } = payment;
@@ -294,6 +296,26 @@ export async function POST(
             console.error(
               `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was no longer HOLD (hold likely already expired) -- money collected, no seat confirmed, needs manual review`,
             );
+
+            // The Registration's own volunteerId/tripId are already known
+            // from the Payment fetched before this transaction opened --
+            // they never change. Only its status can have moved concurrently,
+            // which is exactly what we're re-checking here: distinguishing a
+            // deliberate cancellation (auto-refund it) from a naturally
+            // expired hold (still an open product question, left alone).
+            const current = await tx.registration.findUnique({
+              where: { id: registration!.id },
+              select: { status: true },
+            });
+            if (current?.status === 'CANCELLED') {
+              cancelledRegistration = {
+                id: registration!.id,
+                volunteerId: registration!.volunteerId,
+                tripId: registration!.batch.tripId,
+                paymentId: payment.id,
+                amount: payment.amount,
+              };
+            }
           }
 
           // Deriving the ledger transactionId from the provider event id makes
@@ -362,7 +384,7 @@ export async function POST(
           data: { processedAt: new Date() },
         });
 
-        return { settled: true as const, registrationConfirmed };
+        return { settled: true as const, registrationConfirmed, cancelledRegistration };
       });
 
       if (settled.settled) {
@@ -381,6 +403,33 @@ export async function POST(
               tripTitle: registration!.batch.trip.title,
               amount: payment.amount,
             });
+          } else if (settled.cancelledRegistration) {
+            // A fresh, separate transaction -- never the settlement's own
+            // `tx`. createRefund locks VolunteerTrip-then-Payment; the
+            // settlement transaction above has already written Payment, so
+            // calling createRefund from inside it would lock in the reverse
+            // of this codebase's established Campaign/VolunteerTrip-then-
+            // Payment order and reintroduce a real deadlock class (see
+            // src/lib/money/escrow.ts's own lock-ordering comment). Failure
+            // here is caught, not thrown: the settlement already committed
+            // and this webhook must still answer 200 to the provider.
+            try {
+              const cr = settled.cancelledRegistration;
+              await prisma.$transaction((tx2) =>
+                createRefund(tx2, {
+                  subject: { type: 'trip', tripId: cr.tripId },
+                  paymentId: cr.paymentId,
+                  amount: cr.amount,
+                  reason: 'Trip Fee settlement arrived after the Registration was already cancelled -- refunded automatically',
+                  requestedById: cr.volunteerId,
+                }),
+              );
+            } catch (err) {
+              console.error(
+                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${settled.cancelledRegistration.paymentId} for cancelled registration ${settled.cancelledRegistration.id}`,
+                err,
+              );
+            }
           }
         } else {
           const { donation } = payment;
