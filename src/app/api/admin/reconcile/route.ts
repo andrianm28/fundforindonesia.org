@@ -393,6 +393,42 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       }
     }
 
+    // Every REQUESTED Refund, Campaign-or-Trip both, in one combined list --
+    // an approval work queue has no reason to be split by subject the way a
+    // balance check does. Nothing else in this codebase currently makes a
+    // REQUESTED Refund discoverable after it's created; this is the only
+    // place an Admin can find one to act on.
+    const pendingRefundRows = await tx.refund.findMany({
+      where: { status: 'REQUESTED' },
+      select: {
+        id: true,
+        paymentId: true,
+        amount: true,
+        reason: true,
+        requestedById: true,
+        createdAt: true,
+        payment: {
+          select: {
+            donationId: true,
+            registrationId: true,
+            donation: { select: { campaignId: true } },
+            registration: { select: { batch: { select: { tripId: true } } } },
+          },
+        },
+      },
+    });
+
+    const pendingRefunds = pendingRefundRows.map((r) => ({
+      refundId: r.id,
+      paymentId: r.paymentId,
+      amount: r.amount,
+      reason: r.reason,
+      requestedById: r.requestedById,
+      createdAt: r.createdAt,
+      campaignId: r.payment?.donationId != null ? r.payment.donation!.campaignId : null,
+      volunteerTripId: r.payment?.registrationId != null ? r.payment.registration!.batch.tripId : null,
+    }));
+
     // Two payout states nothing in this codebase currently drains -- see the
     // module doc comment above for why fixing either is out of scope here.
     const processingPayouts = await tx.payout.findMany({
@@ -429,6 +465,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       // set, which assertExactlyOnePaymentSubject should have prevented at
       // creation -- treat a non-empty result as a data-integrity incident.
       subjectlessPayments,
+      pendingRefunds,
       stuckPayouts: {
         // Nothing in this codebase writes PROCESSING today -- approval stops
         // at APPROVED, and only a provider with a disbursement API plus its

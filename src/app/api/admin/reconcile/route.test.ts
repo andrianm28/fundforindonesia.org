@@ -57,7 +57,15 @@ type PaymentRow = {
   escrowReleasedAt?: Date | null;
 };
 
-type RefundRow = { id: string; paymentId: string; status?: string };
+type RefundRow = {
+  id: string;
+  paymentId: string;
+  status?: string;
+  amount?: number;
+  reason?: string;
+  requestedById?: string;
+  createdAt?: Date;
+};
 
 type CampaignRow = { id: string; title: string; collectedAmount: number; isDemo?: boolean };
 
@@ -159,7 +167,27 @@ function makeTx(options: {
       findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
         refunds
           .filter((r) => matchesWhere(r as never as Record<string, unknown>, where))
-          .map((r) => ({ id: r.id, paymentId: r.paymentId })),
+          .map((r) => {
+            const payment = payments.find((p) => p.id === r.paymentId);
+            const isTrip = payment?.volunteerTripId != null;
+            const isCampaign = payment?.campaignId != null;
+            return {
+              id: r.id,
+              paymentId: r.paymentId,
+              amount: r.amount ?? 0,
+              reason: r.reason ?? 'Test refund reason',
+              requestedById: r.requestedById ?? 'requester-1',
+              createdAt: r.createdAt ?? new Date('2026-01-01T00:00:00.000Z'),
+              payment: payment
+                ? {
+                    donationId: isCampaign ? `donation-for-${payment.id}` : null,
+                    registrationId: isTrip ? `registration-for-${payment.id}` : null,
+                    donation: isCampaign ? { campaignId: payment.campaignId } : null,
+                    registration: isTrip ? { batch: { tripId: payment.volunteerTripId } } : null,
+                  }
+                : null,
+            };
+          }),
       ),
     },
     campaign: {
@@ -618,6 +646,77 @@ describe('GET /api/admin/reconcile', () => {
       },
     ]);
     expect(data.stuckPayouts.processing).toEqual([]);
+  });
+
+  it('lists a Campaign-linked REQUESTED refund in pendingRefunds', async () => {
+    const tx = makeTx({
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1', status: 'REQUESTED', amount: 50_000, reason: 'Donor overpaid', requestedById: 'admin-1', createdAt: new Date('2026-02-01T00:00:00.000Z') }],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(body.pendingRefunds).toEqual([
+      {
+        refundId: 'refund-1',
+        paymentId: 'payment-1',
+        amount: 50_000,
+        reason: 'Donor overpaid',
+        requestedById: 'admin-1',
+        createdAt: '2026-02-01T00:00:00.000Z',
+        campaignId: 'campaign-1',
+        volunteerTripId: null,
+      },
+    ]);
+  });
+
+  it('lists a Trip-linked REQUESTED refund in pendingRefunds', async () => {
+    const tx = makeTx({
+      payments: [{ id: 'payment-2', volunteerTripId: 'trip-1' }],
+      refunds: [{ id: 'refund-2', paymentId: 'payment-2', status: 'REQUESTED', amount: 250_000, reason: 'Registration cancelled', requestedById: 'volunteer-1', createdAt: new Date('2026-02-02T00:00:00.000Z') }],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(body.pendingRefunds).toEqual([
+      {
+        refundId: 'refund-2',
+        paymentId: 'payment-2',
+        amount: 250_000,
+        reason: 'Registration cancelled',
+        requestedById: 'volunteer-1',
+        createdAt: '2026-02-02T00:00:00.000Z',
+        campaignId: null,
+        volunteerTripId: 'trip-1',
+      },
+    ]);
+  });
+
+  it('excludes a Refund that is not REQUESTED from pendingRefunds', async () => {
+    const tx = makeTx({
+      payments: [{ id: 'payment-3', campaignId: 'campaign-1' }],
+      refunds: [{ id: 'refund-3', paymentId: 'payment-3', status: 'APPROVED', amount: 10_000 }],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(body.pendingRefunds).toEqual([]);
+  });
+
+  it('returns an empty pendingRefunds array, not an absent field, when there are no pending refunds', async () => {
+    const tx = makeTx({});
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(body.pendingRefunds).toEqual([]);
   });
 });
 
