@@ -299,4 +299,95 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       expect(data.refundedRegistrations).toEqual([]);
     });
   });
+
+  describe('complete action', () => {
+    beforeEach(() => {
+      mockBatchFindUnique.mockResolvedValue({
+        id: 'batch-1',
+        tripId: 'trip-1',
+        status: 'OPEN',
+        maxQuota: 20,
+        minQuota: 8,
+        startDate: new Date('2026-12-01T00:00:00.000Z'),
+        endDate: new Date('2026-01-01T00:00:00.000Z'), // already in the past
+        registrationDeadline: new Date('2026-11-20T00:00:00.000Z'),
+      });
+    });
+
+    it('returns 403 for a non-owning Fundraiser attempting to complete', async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
+      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+      expect(response.status).toBe(403);
+      expect(mockBatchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('allows the owning Fundraiser to complete a Batch whose endDate has passed', async () => {
+      mockBatchUpdate.mockResolvedValue({ id: 'batch-1', status: 'COMPLETED' });
+      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(mockBatchUpdate).toHaveBeenCalledWith({
+        where: { id: 'batch-1' },
+        data: { status: 'COMPLETED' },
+      });
+      expect(data).toEqual({ batch: { id: 'batch-1', status: 'COMPLETED' } });
+    });
+
+    it('allows an Admin who does not own the Trip to complete a Batch', async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN' } });
+      mockBatchUpdate.mockResolvedValue({ id: 'batch-1', status: 'COMPLETED' });
+      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+      expect(response.status).toBe(200);
+      expect(mockBatchUpdate).toHaveBeenCalled();
+    });
+
+    it('returns 400 when the Batch endDate has not passed yet', async () => {
+      mockBatchFindUnique.mockResolvedValue({
+        id: 'batch-1',
+        tripId: 'trip-1',
+        status: 'OPEN',
+        maxQuota: 20,
+        minQuota: 8,
+        startDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        endDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // still in the future
+        registrationDeadline: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      });
+      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+      expect(response.status).toBe(400);
+      expect(mockBatchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when the Batch is already CANCELLED', async () => {
+      mockBatchFindUnique.mockResolvedValue({
+        id: 'batch-1',
+        tripId: 'trip-1',
+        status: 'CANCELLED',
+        maxQuota: 20,
+        minQuota: 8,
+        startDate: new Date('2026-12-01T00:00:00.000Z'),
+        endDate: new Date('2026-01-01T00:00:00.000Z'),
+        registrationDeadline: new Date('2026-11-20T00:00:00.000Z'),
+      });
+      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+      expect(response.status).toBe(400);
+      expect(mockBatchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when the Batch is CLOSED (not OPEN)', async () => {
+      mockBatchFindUnique.mockResolvedValue({
+        id: 'batch-1',
+        tripId: 'trip-1',
+        status: 'CLOSED',
+        maxQuota: 20,
+        minQuota: 8,
+        startDate: new Date('2026-12-01T00:00:00.000Z'),
+        endDate: new Date('2026-01-01T00:00:00.000Z'),
+        registrationDeadline: new Date('2026-11-20T00:00:00.000Z'),
+      });
+      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+      expect(response.status).toBe(400);
+      expect(mockBatchUpdate).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -18,6 +18,10 @@ const cancelActionSchema = z.object({
   action: z.literal('cancel'),
 });
 
+const completeActionSchema = z.object({
+  action: z.literal('complete'),
+});
+
 class MinQuotaMetError extends Error {}
 
 export async function PATCH(
@@ -161,6 +165,23 @@ export async function PATCH(
         }
         throw error;
       }
+    }
+
+    const completeParsed = completeActionSchema.safeParse(body);
+    if (completeParsed.success) {
+      if (batch.endDate > new Date()) {
+        return NextResponse.json(
+          { error: 'Batch belum bisa diselesaikan sebelum endDate' },
+          { status: 400 },
+        );
+      }
+
+      const updated = await prisma.volunteerBatch.update({
+        where: { id: batch.id },
+        data: { status: 'COMPLETED' },
+      });
+
+      return NextResponse.json({ batch: { id: updated.id, status: updated.status } });
     }
 
     const result = editBatchSchema.safeParse(body);
