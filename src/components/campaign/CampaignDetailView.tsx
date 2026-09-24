@@ -141,7 +141,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         {/* Quick info panel: demo badge, title, amount, progress, stats, donation count */}
         <div
           data-testid="campaign-quick-info"
-          className="px-4 py-4 lg:px-0 lg:py-0 lg:w-2/5 lg:flex-shrink-0"
+          className="max-w-3xl mx-auto px-4 py-4 lg:max-w-none lg:mx-0 lg:px-0 lg:py-0 lg:w-2/5 lg:flex-shrink-0"
         >
           {/* Demo campaign badge (task M9) -- plain Indonesian, above the
               title, so it is seen before "Donasi sekarang" at the bottom is

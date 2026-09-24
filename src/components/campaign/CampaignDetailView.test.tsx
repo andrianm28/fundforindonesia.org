@@ -86,6 +86,14 @@ describe('CampaignDetailView', () => {
     expect(infoPanel.className).toContain('lg:w-2/5');
   });
 
+  it('keeps the quick info panel capped and centered at max-w-3xl below the lg breakpoint, matching the pre-restructure content width', () => {
+    const { container } = render(<CampaignDetailView campaign={mockCampaign} />);
+    const infoPanel = container.querySelector('[data-testid="campaign-quick-info"]') as HTMLElement;
+    expect(infoPanel.className).toContain('max-w-3xl');
+    expect(infoPanel.className).toContain('mx-auto');
+    expect(infoPanel.className).toContain('lg:max-w-none');
+  });
+
   it('still renders creator info, tab labels, and the campaign story below the hero section', () => {
     render(<CampaignDetailView campaign={mockCampaign} />);
     expect(screen.getByText(mockCampaign.creator.name)).toBeDefined();
