@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     volunteerTrip: { findUnique: vi.fn() },
-    volunteerBatch: { findUnique: vi.fn(), update: vi.fn() },
+    volunteerBatch: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -25,6 +25,7 @@ import { PATCH } from './route';
 const mockTripFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
 const mockBatchFindUnique = prisma.volunteerBatch.findUnique as unknown as Mock;
 const mockBatchUpdate = prisma.volunteerBatch.update as unknown as Mock;
+const mockBatchUpdateMany = prisma.volunteerBatch.updateMany as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockCreateRefund = createRefund as unknown as Mock;
@@ -45,13 +46,14 @@ function makeCancelTx(
   options: {
     lockedRegistrations?: Array<{ id: string; status: 'HOLD' | 'CONFIRMED' }>;
     confirmedPayments?: Record<string, { id: string; amount: number }>;
+    lockedBatchStatus?: string;
   } = {},
 ) {
   const lockedRegistrations = options.lockedRegistrations ?? [];
   const confirmedPayments = options.confirmedPayments ?? {};
   const queryRaw = vi
     .fn()
-    .mockResolvedValueOnce([{ id: 'batch-1' }]) // Batch row lock
+    .mockResolvedValueOnce([{ id: 'batch-1', status: options.lockedBatchStatus ?? 'OPEN' }]) // Batch row lock
     .mockResolvedValueOnce(lockedRegistrations); // Registration rows lock
   const registrationFindMany = vi.fn().mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
     Promise.resolve(
@@ -91,6 +93,7 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       registrationDeadline: new Date('2026-11-20T00:00:00.000Z'),
     });
     mockBatchUpdate.mockResolvedValue({ id: 'batch-1', maxQuota: 25 });
+    mockBatchUpdateMany.mockResolvedValue({ count: 1 });
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -298,6 +301,14 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       expect(mockCreateRefund).not.toHaveBeenCalled();
       expect(data.refundedRegistrations).toEqual([]);
     });
+
+    it('returns 400 when the locked Batch is no longer OPEN (claimed concurrently, e.g. by complete)', async () => {
+      const { tx } = makeCancelTx({ lockedBatchStatus: 'COMPLETED' });
+      mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+      const response = await PATCH(patchRequest({ action: 'cancel' }), routeContext());
+      expect(response.status).toBe(400);
+      expect(mockCreateRefund).not.toHaveBeenCalled();
+    });
   });
 
   describe('complete action', () => {
@@ -318,17 +329,17 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
       const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
       expect(response.status).toBe(403);
-      expect(mockBatchUpdate).not.toHaveBeenCalled();
+      expect(mockBatchUpdateMany).not.toHaveBeenCalled();
     });
 
     it('allows the owning Fundraiser to complete a Batch whose endDate has passed', async () => {
-      mockBatchUpdate.mockResolvedValue({ id: 'batch-1', status: 'COMPLETED' });
+      mockBatchUpdateMany.mockResolvedValue({ count: 1 });
       const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(mockBatchUpdate).toHaveBeenCalledWith({
-        where: { id: 'batch-1' },
+      expect(mockBatchUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'batch-1', status: 'OPEN' },
         data: { status: 'COMPLETED' },
       });
       expect(data).toEqual({ batch: { id: 'batch-1', status: 'COMPLETED' } });
@@ -336,10 +347,10 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
 
     it('allows an Admin who does not own the Trip to complete a Batch', async () => {
       mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN' } });
-      mockBatchUpdate.mockResolvedValue({ id: 'batch-1', status: 'COMPLETED' });
+      mockBatchUpdateMany.mockResolvedValue({ count: 1 });
       const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
       expect(response.status).toBe(200);
-      expect(mockBatchUpdate).toHaveBeenCalled();
+      expect(mockBatchUpdateMany).toHaveBeenCalled();
     });
 
     it('returns 400 when the Batch endDate has not passed yet', async () => {
@@ -355,7 +366,7 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       });
       const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
       expect(response.status).toBe(400);
-      expect(mockBatchUpdate).not.toHaveBeenCalled();
+      expect(mockBatchUpdateMany).not.toHaveBeenCalled();
     });
 
     it('returns 400 when the Batch is already CANCELLED', async () => {
@@ -388,6 +399,14 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
       expect(response.status).toBe(400);
       expect(mockBatchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 when the Batch is no longer OPEN by the time complete claims it', async () => {
+      mockBatchUpdateMany.mockResolvedValue({ count: 0 });
+      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+      expect(response.status).toBe(409);
+      const data = await response.json();
+      expect(data.error).toBeTruthy();
     });
   });
 });

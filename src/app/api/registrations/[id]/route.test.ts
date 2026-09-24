@@ -45,7 +45,7 @@ function registrationFixture(overrides: Record<string, unknown> = {}) {
     id: 'reg-1',
     volunteerId: 'volunteer-1',
     status: 'CONFIRMED',
-    batch: { tripId: 'trip-1', startDate: new Date(Date.now() + 20 * DAY_MS) },
+    batch: { tripId: 'trip-1', startDate: new Date(Date.now() + 20 * DAY_MS), status: 'OPEN' },
     payment: { id: 'payment-1', amount: 100_000 },
     ...overrides,
   };
@@ -92,6 +92,15 @@ describe('PATCH /api/registrations/[id]', () => {
 
   it('returns 400 for a Registration that is EXPIRED', async () => {
     mockFindUnique.mockResolvedValue(registrationFixture({ status: 'EXPIRED' }));
+    const response = await PATCH(patchRequest(), routeContext());
+    expect(response.status).toBe(400);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when the Batch has already COMPLETED', async () => {
+    mockFindUnique.mockResolvedValue(
+      registrationFixture({ batch: { tripId: 'trip-1', startDate: new Date(Date.now() + 20 * DAY_MS), status: 'COMPLETED' } }),
+    );
     const response = await PATCH(patchRequest(), routeContext());
     expect(response.status).toBe(400);
     expect(mockTransaction).not.toHaveBeenCalled();

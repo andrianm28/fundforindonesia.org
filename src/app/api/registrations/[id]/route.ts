@@ -30,7 +30,7 @@ export async function PATCH(
         id: true,
         volunteerId: true,
         status: true,
-        batch: { select: { tripId: true, startDate: true } },
+        batch: { select: { tripId: true, startDate: true, status: true } },
         payment: { select: { id: true, amount: true } },
       },
     });
@@ -45,6 +45,13 @@ export async function PATCH(
 
     if (registration.status !== 'HOLD' && registration.status !== 'CONFIRMED') {
       return NextResponse.json({ error: 'Registrasi tidak bisa dibatalkan pada status ini' }, { status: 400 });
+    }
+
+    if (registration.batch.status === 'COMPLETED') {
+      return NextResponse.json(
+        { error: 'Registrasi tidak bisa dibatalkan karena Batch sudah selesai' },
+        { status: 400 },
+      );
     }
 
     try {

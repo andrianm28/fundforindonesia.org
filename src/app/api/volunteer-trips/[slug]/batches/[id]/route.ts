@@ -23,6 +23,7 @@ const completeActionSchema = z.object({
 });
 
 class MinQuotaMetError extends Error {}
+class BatchNotOpenError extends Error {}
 
 export async function PATCH(
   request: NextRequest,
@@ -104,7 +105,18 @@ export async function PATCH(
         // refund yet, mirroring the Volunteer self-cancel route's identical
         // HOLD rule (src/app/api/registrations/[id]/route.ts).
         const result = await prisma.$transaction(async (tx) => {
-          await tx.$queryRaw`SELECT id FROM "VolunteerBatch" WHERE id = ${batch.id} FOR UPDATE`;
+          const [lockedBatch] = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+            SELECT id, status FROM "VolunteerBatch" WHERE id = ${batch.id} FOR UPDATE
+          `;
+
+          // Re-checks status under the lock -- the read taken before this
+          // transaction opened can be stale if a concurrent `complete`
+          // action claimed this Batch in between. Without this check, an
+          // in-flight cancel could cancel-and-refund a Batch that already
+          // completed.
+          if (lockedBatch.status !== 'OPEN') {
+            throw new BatchNotOpenError();
+          }
 
           const lockedRegistrations = await tx.$queryRaw<Array<{ id: string; status: string }>>`
             SELECT id, status FROM "Registration"
@@ -163,6 +175,12 @@ export async function PATCH(
             { status: 400 },
           );
         }
+        if (error instanceof BatchNotOpenError) {
+          return NextResponse.json(
+            { error: 'Batch tidak bisa diedit pada status ini' },
+            { status: 400 },
+          );
+        }
         throw error;
       }
     }
@@ -176,12 +194,24 @@ export async function PATCH(
         );
       }
 
-      const updated = await prisma.volunteerBatch.update({
-        where: { id: batch.id },
+      // Claims the OPEN -> COMPLETED transition with a predicate-based
+      // update, not a plain one -- so a concurrent Batch cancellation
+      // (which locks the row and re-checks its own status, see below)
+      // can't be silently overwritten back to COMPLETED, and this route
+      // can't complete a Batch a concurrent cancel already claimed.
+      const claimed = await prisma.volunteerBatch.updateMany({
+        where: { id: batch.id, status: 'OPEN' },
         data: { status: 'COMPLETED' },
       });
 
-      return NextResponse.json({ batch: { id: updated.id, status: updated.status } });
+      if (claimed.count === 0) {
+        return NextResponse.json(
+          { error: 'Batch sudah tidak berstatus OPEN' },
+          { status: 409 },
+        );
+      }
+
+      return NextResponse.json({ batch: { id: batch.id, status: 'COMPLETED' } });
     }
 
     const result = editBatchSchema.safeParse(body);
