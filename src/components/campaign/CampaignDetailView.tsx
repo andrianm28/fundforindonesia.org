@@ -121,7 +121,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         {/* Cover Image */}
         <div
           data-testid="campaign-hero-image"
-          className="relative w-full aspect-video max-h-[300px] overflow-hidden lg:w-3/5 lg:flex-shrink-0 lg:max-h-none lg:aspect-[21/9] lg:rounded-lg"
+          className="relative w-full aspect-video max-h-[300px] overflow-hidden lg:w-3/5 lg:max-h-none lg:aspect-[21/9] lg:rounded-lg"
         >
           <Image
             src={campaign.coverImage}
@@ -129,7 +129,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
             fill
             className="object-cover"
             priority
-            sizes="(max-width: 768px) 100vw, (max-width: 1024px) 768px, 1024px"
+            sizes="(max-width: 768px) 100vw, (max-width: 1024px) 768px, 600px"
           />
           {campaign.isUrgent && (
             <span className="absolute top-3 left-3 bg-danger text-white text-xs font-semibold px-2.5 py-1 rounded">
@@ -141,7 +141,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         {/* Quick info panel: demo badge, title, amount, progress, stats, donation count */}
         <div
           data-testid="campaign-quick-info"
-          className="max-w-3xl mx-auto px-4 py-4 lg:max-w-none lg:mx-0 lg:px-0 lg:py-0 lg:w-2/5 lg:flex-shrink-0"
+          className="max-w-3xl mx-auto px-4 pt-4 lg:max-w-none lg:mx-0 lg:px-0 lg:py-0 lg:w-2/5"
         >
           {/* Demo campaign badge (task M9) -- plain Indonesian, above the
               title, so it is seen before "Donasi sekarang" at the bottom is
@@ -198,7 +198,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
 
       {/* Creator info, tabs, and campaign story -- full width, below the
           hero section on every viewport */}
-      <div className="max-w-3xl mx-auto px-4 py-4">
+      <div className="max-w-3xl mx-auto px-4 pb-4 lg:py-4">
         {/* Creator info */}
         <div className="flex items-center gap-3 py-3 border-t border-b border-border mb-4">
           {/* Avatar */}

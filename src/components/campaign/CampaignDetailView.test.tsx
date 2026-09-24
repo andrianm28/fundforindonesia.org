@@ -128,4 +128,19 @@ describe('CampaignDetailView', () => {
     const donateCta = screen.getByText('Donasi sekarang');
     expect(donateCta.className).not.toContain('font-mono');
   });
+
+  it('does not disable flex-shrink on the hero image or quick info panel, so the row can fit within its container at lg', () => {
+    const { container } = render(<CampaignDetailView campaign={mockCampaign} />);
+    const heroImage = container.querySelector('[data-testid="campaign-hero-image"]') as HTMLElement;
+    const quickInfo = container.querySelector('[data-testid="campaign-quick-info"]') as HTMLElement;
+    expect(heroImage.className).not.toContain('lg:flex-shrink-0');
+    expect(quickInfo.className).not.toContain('lg:flex-shrink-0');
+  });
+
+  it('does not duplicate vertical padding between the quick info panel and the section below it', () => {
+    const { container } = render(<CampaignDetailView campaign={mockCampaign} />);
+    const quickInfo = container.querySelector('[data-testid="campaign-quick-info"]') as HTMLElement;
+    expect(quickInfo.className).not.toContain('py-4');
+    expect(quickInfo.className).toContain('pt-4');
+  });
 });
