@@ -21,7 +21,7 @@ const inter = localFont({
 // to fonts.googleapis.com. These are the real variable-weight Latin-subset
 // files Google's own CSS serves for Newsreader:wght@200..800 and
 // JetBrains+Mono:wght@100..800 respectively -- vendored once, not fetched
-// per build. This is the Record register (src/lib -- see the Ledger Line
+// per build. This is the Record register (see the Ledger Line
 // spec, .scratch/ledger-line-visual-refresh/spec.md): serif for prose that
 // is a claim of record, mono for numbers/IDs shown as stated fact. Not yet
 // applied to any page content -- that's later tickets' job.
