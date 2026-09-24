@@ -110,76 +110,95 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         </div>
       </header>
 
-      {/* Cover Image - full width */}
-      <div className="relative w-full aspect-video max-h-[300px] overflow-hidden">
-        <Image
-          src={campaign.coverImage}
-          alt={campaign.title}
-          fill
-          className="object-cover"
-          priority
-          sizes="(max-width: 768px) 100vw, (max-width: 1024px) 768px, 1024px"
-        />
-        {campaign.isUrgent && (
-          <span className="absolute top-3 left-3 bg-danger text-white text-xs font-semibold px-2.5 py-1 rounded">
-            DARURAT
-          </span>
-        )}
-      </div>
-
-      {/* Content */}
-      <div className="max-w-3xl mx-auto px-4 py-4">
-        {/* Demo campaign badge (task M9) -- plain Indonesian, above the
-            title, so it is seen before "Donasi sekarang" at the bottom is
-            ever tapped, not discovered after the donation is refused. */}
-        {campaign.isDemo && (
-          <span className="inline-block bg-gray-800/90 text-white text-xs font-semibold px-2.5 py-1 rounded mb-2">
-            Kampanye contoh — tidak menerima donasi sungguhan
-          </span>
-        )}
-
-        {/* Title */}
-        <h2 className="text-lg font-bold text-text leading-tight mb-3">
-          {campaign.title}
-        </h2>
-
-        {/* Amount collected */}
-        <div className="space-y-2 mb-4">
-          <p className="text-xl font-bold text-primary">
-            {formatRupiah(campaign.collectedAmount)}
-          </p>
-
-          {/* Progress bar */}
-          <ProgressBar
-            current={campaign.collectedAmount}
-            target={campaign.targetAmount}
-            size="md"
-            animated
+      {/* Hero image + quick info panel -- stacked by default, side-by-side
+          from lg (1025px) up. The donate CTA is NOT duplicated here: it is
+          already a `fixed` bottom bar, already visible on every viewport
+          regardless of scroll, below. */}
+      <div
+        data-testid="campaign-hero-section"
+        className="lg:flex lg:flex-row lg:gap-8 lg:items-start lg:max-w-5xl lg:mx-auto lg:px-4 lg:pt-6"
+      >
+        {/* Cover Image */}
+        <div
+          data-testid="campaign-hero-image"
+          className="relative w-full aspect-video max-h-[300px] overflow-hidden lg:w-3/5 lg:flex-shrink-0 lg:max-h-none lg:aspect-[21/9] lg:rounded-lg"
+        >
+          <Image
+            src={campaign.coverImage}
+            alt={campaign.title}
+            fill
+            className="object-cover"
+            priority
+            sizes="(max-width: 768px) 100vw, (max-width: 1024px) 768px, 1024px"
           />
-
-          {/* Stats row */}
-          <div className="flex items-center justify-between text-xs text-text-secondary">
-            <span>
-              terkumpul dari{' '}
-              <span className="font-medium text-text">
-                {formatRupiah(campaign.targetAmount)}
-              </span>
+          {campaign.isUrgent && (
+            <span className="absolute top-3 left-3 bg-danger text-white text-xs font-semibold px-2.5 py-1 rounded">
+              DARURAT
             </span>
-            {remainingDays !== null && remainingDays > 0 && (
-              <span className="font-medium">{remainingDays} hari lagi</span>
-            )}
-            {remainingDays !== null && remainingDays === 0 && (
-              <span className="font-medium text-danger">Berakhir</span>
-            )}
-          </div>
-
-          {/* Donation count */}
-          <p className="text-xs text-text-secondary">
-            <span className="font-semibold text-text">{campaign.donationCount.toLocaleString('id-ID')}</span>{' '}
-            donatur
-          </p>
+          )}
         </div>
 
+        {/* Quick info panel: demo badge, title, amount, progress, stats, donation count */}
+        <div
+          data-testid="campaign-quick-info"
+          className="px-4 py-4 lg:px-0 lg:py-0 lg:w-2/5 lg:flex-shrink-0"
+        >
+          {/* Demo campaign badge (task M9) -- plain Indonesian, above the
+              title, so it is seen before "Donasi sekarang" at the bottom is
+              ever tapped, not discovered after the donation is refused. */}
+          {campaign.isDemo && (
+            <span className="inline-block bg-gray-800/90 text-white text-xs font-semibold px-2.5 py-1 rounded mb-2">
+              Kampanye contoh — tidak menerima donasi sungguhan
+            </span>
+          )}
+
+          {/* Title */}
+          <h2 className="text-lg font-bold text-text leading-tight mb-3">
+            {campaign.title}
+          </h2>
+
+          {/* Amount collected */}
+          <div className="space-y-2 mb-4">
+            <p className="text-xl font-bold text-primary">
+              {formatRupiah(campaign.collectedAmount)}
+            </p>
+
+            {/* Progress bar */}
+            <ProgressBar
+              current={campaign.collectedAmount}
+              target={campaign.targetAmount}
+              size="md"
+              animated
+            />
+
+            {/* Stats row */}
+            <div className="flex items-center justify-between text-xs text-text-secondary">
+              <span>
+                terkumpul dari{' '}
+                <span className="font-medium text-text">
+                  {formatRupiah(campaign.targetAmount)}
+                </span>
+              </span>
+              {remainingDays !== null && remainingDays > 0 && (
+                <span className="font-medium">{remainingDays} hari lagi</span>
+              )}
+              {remainingDays !== null && remainingDays === 0 && (
+                <span className="font-medium text-danger">Berakhir</span>
+              )}
+            </div>
+
+            {/* Donation count */}
+            <p className="text-xs text-text-secondary">
+              <span className="font-semibold text-text">{campaign.donationCount.toLocaleString('id-ID')}</span>{' '}
+              donatur
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Creator info, tabs, and campaign story -- full width, below the
+          hero section on every viewport */}
+      <div className="max-w-3xl mx-auto px-4 py-4">
         {/* Creator info */}
         <div className="flex items-center gap-3 py-3 border-t border-b border-border mb-4">
           {/* Avatar */}
@@ -244,7 +263,11 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         />
       </div>
 
-      {/* Fixed bottom CTA */}
+      {/* Fixed bottom CTA -- already visible on every viewport regardless of
+          scroll position (position: fixed), so this alone already satisfies
+          "donate button visible without scrolling" on desktop too; no
+          separate desktop-specific button is added (see this task's Design
+          decision above). */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-border p-4 z-10">
         <div className="max-w-3xl mx-auto">
           <Link

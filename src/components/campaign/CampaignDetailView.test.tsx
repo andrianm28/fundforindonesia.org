@@ -60,4 +60,46 @@ describe('CampaignDetailView', () => {
     render(<CampaignDetailView campaign={demoCampaign} />);
     expect(screen.getByText('Donasi sekarang')).toBeDefined();
   });
+
+  it('wraps the hero image and quick info panel in a container that stacks by default and goes side-by-side from the lg breakpoint (1025px)', () => {
+    const { container } = render(<CampaignDetailView campaign={mockCampaign} />);
+    const wrapper = container.querySelector('[data-testid="campaign-hero-section"]') as HTMLElement;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper.className).toContain('lg:flex');
+    expect(wrapper.className).toContain('lg:flex-row');
+  });
+
+  it('caps the hero image to a 21:9 aspect ratio from lg, while keeping the existing mobile aspect ratio and height cap', () => {
+    const { container } = render(<CampaignDetailView campaign={mockCampaign} />);
+    const imageBox = container.querySelector('[data-testid="campaign-hero-image"]') as HTMLElement;
+    expect(imageBox).not.toBeNull();
+    expect(imageBox.className).toContain('aspect-video');
+    expect(imageBox.className).toContain('max-h-[300px]');
+    expect(imageBox.className).toContain('lg:aspect-[21/9]');
+    expect(imageBox.className).toContain('lg:max-h-none');
+  });
+
+  it('sizes the quick info panel to 2/5 width from the lg breakpoint', () => {
+    const { container } = render(<CampaignDetailView campaign={mockCampaign} />);
+    const infoPanel = container.querySelector('[data-testid="campaign-quick-info"]') as HTMLElement;
+    expect(infoPanel).not.toBeNull();
+    expect(infoPanel.className).toContain('lg:w-2/5');
+  });
+
+  it('still renders creator info, tab labels, and the campaign story below the hero section', () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    expect(screen.getByText(mockCampaign.creator.name)).toBeDefined();
+    expect(screen.getByText('Cerita')).toBeDefined();
+    expect(screen.getByText('Kabar Terbaru')).toBeDefined();
+    expect(screen.getByText('Pencairan Dana')).toBeDefined();
+  });
+
+  it('keeps a single fixed-position donate CTA visible on every viewport, with no separate desktop-only duplicate', () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    const ctaLinks = screen.getAllByText('Donasi sekarang');
+    expect(ctaLinks).toHaveLength(1);
+    const fixedBar = ctaLinks[0].closest('.fixed') as HTMLElement;
+    expect(fixedBar).not.toBeNull();
+    expect(fixedBar.className).not.toContain('lg:hidden');
+  });
 });
