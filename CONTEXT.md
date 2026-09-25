@@ -7,7 +7,7 @@ Platform social impact yang dioperasikan PT Jaya Korpora Prima, menyatukan donas
 ### Jalur kontribusi
 
 **Campaign**:
-Satu ajakan mengumpulkan dana daring dengan target, satu Fundraiser, dan tenggat yang wajib kecuali pada Kind `wakaf`. Semua uang daring masuk lewat Campaign, apa pun Kind-nya.
+Satu ajakan mengumpulkan dana daring dengan target, satu Fundraiser, dan tenggat yang wajib kecuali pada Kind `wakaf`. Semua uang daring masuk lewat Campaign, apa pun Kind-nya. Campaign tidak pernah dihapus; berhentinya selalu tercatat sebagai status (lihat [ADR 0016](./docs/adr/0016-campaigns-are-never-deleted.md)).
 _Avoid_: Kampanye, program, project, penggalangan (untuk entitasnya)
 
 **Campaign Status**:
@@ -99,7 +99,7 @@ Izin penghimpunan dana sosial bertanggal yang dipegang sebuah Collecting Entity.
 _Avoid_: Izin PUB (di kode), lisensi, legalitas
 
 **Verifier**:
-Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memasang Flag, memverifikasi identitas Fundraiser, dan memeriksa rekening tujuan baik untuk Payout maupun untuk Refund. Tidak men-suspend; itu keputusan Admin. Seperti Admin, tidak pernah bertindak sebagai Verifier atas Campaign miliknya sendiri. Di kode peran ini bernama MODERATOR.
+Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memasang Flag, memverifikasi identitas Fundraiser, dan memeriksa rekening tujuan baik untuk Payout maupun untuk Refund. Tidak men-suspend; itu keputusan Admin. Seperti Admin, tidak pernah bertindak sebagai Verifier atas Campaign atau Volunteer Trip miliknya sendiri. Di kode peran ini bernama MODERATOR.
 _Avoid_: Verifikator, moderator (di percakapan)
 
 **Cancellation**:
