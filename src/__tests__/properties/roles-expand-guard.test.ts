@@ -35,6 +35,13 @@ import { join } from "node:path";
  * `POST /api/campaigns/[slug]/refunds` and
  * `PATCH /api/campaigns/[slug]/refunds/[id]/approve`, both Admin-only on
  * both ends -- growing this list from ten to twelve.
+ *
+ * NOTE (lifecycle HTTP adapter, ticket 02): the urgent, Cancellation
+ * decision and Submission decision routes no longer gate on an assignment
+ * themselves. Like every lifecycle route they go through `lifecycleRoute`,
+ * and the lifecycle module checks the assignment with the command's own
+ * Indonesian refusal -- shrinking this list by three. LIFECYCLE_ROUTES pins
+ * that no lifecycle route falls back to a route-level gate.
  */
 const HIERARCHY_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/payouts/route.ts",
@@ -48,13 +55,9 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/[id]/role/route.ts",
   "src/app/api/admin/users/route.ts",
-  // Shared body of the Cancellation approve and reject routes.
-  "src/app/api/campaigns/[slug]/cancellation-requests/[id]/decide.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/refunds/route.ts",
-  "src/app/api/campaigns/[slug]/urgent/route.ts",
-  "src/app/api/moderasi/campaigns/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/route.ts",
   "src/app/api/volunteer-trips/[slug]/payouts/[id]/approve/route.ts",
@@ -65,6 +68,18 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   // itself, because "owner or Admin" and "never Admin on your own Campaign"
   // are not single-assignment checks a route wrapper can express.
   "src/lib/campaign-lifecycle.ts",
+];
+
+/** Every route that changes a Campaign's lifecycle through the lifecycle module. */
+const LIFECYCLE_ROUTES = [
+  "src/app/api/campaigns/[slug]/cancellation-requests/[id]/decide.ts",
+  "src/app/api/campaigns/[slug]/cancellation-requests/route.ts",
+  "src/app/api/campaigns/[slug]/complete/route.ts",
+  "src/app/api/campaigns/[slug]/flags/[id]/dismiss/route.ts",
+  "src/app/api/campaigns/[slug]/flags/route.ts",
+  "src/app/api/campaigns/[slug]/suspension/route.ts",
+  "src/app/api/campaigns/[slug]/urgent/route.ts",
+  "src/app/api/moderasi/campaigns/[id]/route.ts",
 ];
 
 function walk(dir: string): string[] {
@@ -121,6 +136,15 @@ describe("roles expand scope", () => {
       .filter((file) => usesAssignment(readFileSync(file, "utf8")));
 
     expect(readers.sort()).toEqual([...ASSIGNMENT_GUARDED_ROUTES].sort());
+  });
+
+  it("every lifecycle route goes through the lifecycle adapter, never a route-level gate", () => {
+    const offenders = LIFECYCLE_ROUTES.filter((file) => {
+      const source = readFileSync(file, "utf8");
+      return !source.includes("lifecycleRoute(") || source.includes("withAssignmentCheck") || usesHierarchy(source);
+    });
+
+    expect(offenders).toEqual([]);
   });
 
   it("the assignment model references ADR 0005", () => {

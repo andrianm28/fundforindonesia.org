@@ -162,9 +162,13 @@ export class SameAdminLiftError extends CampaignLifecycleError {
   }
 }
 
+/**
+ * No Campaign matches `value`, looked up `by` its id (the commands) or its
+ * slug (the HTTP adapter, before any command runs).
+ */
 export class CampaignNotFoundError extends CampaignLifecycleError {
   readonly code = "CAMPAIGN_NOT_FOUND";
-  constructor(readonly campaignId: string) {
+  constructor(readonly value: string, readonly by: "id" | "slug" = "id") {
     super("Campaign tidak ditemukan.");
     this.name = "CampaignNotFoundError";
   }
