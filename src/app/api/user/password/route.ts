@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import { PASSWORD_CHANGE_HASH_COST } from "@/lib/password-hash-cost";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
 
@@ -76,7 +77,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // 6. Hash new password and update DB
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, PASSWORD_CHANGE_HASH_COST);
 
     await prisma.user.update({
       where: { id: session.user.id },

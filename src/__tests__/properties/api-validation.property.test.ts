@@ -20,6 +20,15 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+// The cost factors come from one module; the property tests set them low so
+// real bcryptjs still proves a wrong password is rejected, without the tests'
+// wall-clock time depending on production's cost or on machine load.
+const TEST_HASH_COST = 4;
+vi.mock("@/lib/password-hash-cost", () => ({
+  REGISTRATION_HASH_COST: 4,
+  PASSWORD_CHANGE_HASH_COST: 4,
+}));
+
 const fsMocks = vi.hoisted(() => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
   mkdir: vi.fn().mockResolvedValue(undefined),
@@ -73,7 +82,7 @@ describe("Feature: platform-polish, Property 3: Password Security", () => {
 
     // The actual stored hash for "correct-password-123"
     const bcrypt = await import("bcryptjs");
-    const storedHash = await bcrypt.hash("correct-password-123", 10);
+    const storedHash = await bcrypt.hash("correct-password-123", TEST_HASH_COST);
 
     await fc.assert(
       fc.asyncProperty(
@@ -116,18 +125,18 @@ describe("Feature: platform-polish, Property 3: Password Security", () => {
       ),
       { numRuns: 50 }
     );
-    // 50 runs x one real bcryptjs compare. bcryptjs is the pure-JS
-    // implementation, so a cost-10 compare is ~130ms here: the property is
-    // genuinely ~7s of key-derivation work, not a hang. Real hashing is the
-    // point -- it is what proves a wrong password is actually rejected -- so
-    // the timeout is raised rather than numRuns cut or bcrypt mocked.
-  }, 30_000);
+    // 50 runs x one real bcryptjs compare at TEST_HASH_COST. Real hashing is
+    // the point -- it proves a wrong password is actually rejected -- but at
+    // production cost the property was ~7s of pure-JS key derivation and
+    // timed out whenever the machine was busy.
+    expect(bcrypt.getRounds(storedHash)).toBe(TEST_HASH_COST);
+  });
 
   test("correct current password with valid new password succeeds and updates hash", async () => {
     const { PATCH } = await import("@/app/api/user/password/route");
 
     const bcrypt = await import("bcryptjs");
-    const storedHash = await bcrypt.hash("correct-password-123", 10);
+    const storedHash = await bcrypt.hash("correct-password-123", TEST_HASH_COST);
 
     await fc.assert(
       fc.asyncProperty(validNewPasswordArb, async (newPassword) => {
@@ -161,14 +170,17 @@ describe("Feature: platform-polish, Property 3: Password Security", () => {
         const body = await response.json();
         expect(body.message).toBe("Password berhasil diubah");
 
-        // Must call user.update with a hashed password
+        // Must call user.update with a hashed password, hashed at the
+        // configured cost factor rather than one hard-coded in the route
         expect(mockedPrisma.user.update).toHaveBeenCalledTimes(1);
+        const [updateArgs] = vi.mocked(mockedPrisma.user.update).mock.calls[0];
+        const { password: newHash } = updateArgs.data as { password: string };
+        expect(bcrypt.getRounds(newHash)).toBe(TEST_HASH_COST);
+        expect(await bcrypt.compare(newPassword, newHash)).toBe(true);
       }),
       { numRuns: 20 }
     );
-    // 20 runs x (compare + hash) at ~270ms per run: ~5.4s, just over the 5s
-    // default. Same reasoning as the property above.
-  }, 30_000);
+  });
 });
 
 // ============================================================
