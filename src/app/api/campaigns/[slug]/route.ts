@@ -18,6 +18,23 @@ const editCampaignSchema = z.object({
   coverImage: z.string().url("URL gambar tidak valid"),
 }).partial();
 
+// The status-change log is append-only and references its Campaign with
+// ON DELETE RESTRICT, so Postgres refuses to delete a Campaign that has any
+// history. Prisma 7 with @prisma/adapter-pg surfaces that as P2003 and names
+// the violated constraint under meta.driverAdapterError.cause.
+function isStatusHistoryRestrict(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const { code, meta } = error as {
+    code?: unknown;
+    meta?: { driverAdapterError?: { cause?: { constraint?: { index?: unknown } } } };
+  };
+  return (
+    code === 'P2003' &&
+    meta?.driverAdapterError?.cause?.constraint?.index ===
+      'CampaignStatusChange_campaignId_fkey'
+  );
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -227,6 +244,12 @@ export async function DELETE(
 
     return NextResponse.json({ message: "Campaign berhasil dihapus" });
   } catch (error) {
+    if (isStatusHistoryRestrict(error)) {
+      return NextResponse.json(
+        { error: "Campaign yang sudah memiliki riwayat status tidak dapat dihapus" },
+        { status: 409 }
+      );
+    }
     console.error('Error deleting campaign:', error);
     return NextResponse.json(
       { error: "Terjadi kesalahan server" },

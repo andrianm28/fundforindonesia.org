@@ -20,6 +20,7 @@ vi.mock('@/lib/auth', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { Prisma } from '@/generated/prisma/client';
 
 const mockFindUnique = vi.mocked(prisma.campaign.findUnique);
 const mockUpdate = vi.mocked(prisma.campaign.update);
@@ -33,6 +34,24 @@ function createRequest(slug: string, method = 'GET', body?: unknown) {
     init.headers = { 'Content-Type': 'application/json' };
   }
   return new NextRequest(`http://localhost:3000/api/campaigns/${slug}`, init);
+}
+
+// The shape Prisma 7 with @prisma/adapter-pg throws when Postgres refuses a
+// write with 23503: code P2003, the violated constraint under
+// meta.driverAdapterError.cause.
+function foreignKeyViolation(constraint: string) {
+  return new Prisma.PrismaClientKnownRequestError(
+    `Foreign key constraint violated on the constraint: \`${constraint}\``,
+    {
+      code: 'P2003',
+      clientVersion: '7.8.0',
+      meta: {
+        driverAdapterError: {
+          cause: { kind: 'ForeignKeyConstraintViolation', constraint: { index: constraint } },
+        },
+      },
+    }
+  );
 }
 
 describe('GET /api/campaigns/[slug]', () => {
@@ -596,5 +615,44 @@ describe('DELETE /api/campaigns/[slug]', () => {
     expect(response.status).toBe(403);
     const body = await response.json();
     expect(body.error).toBe('Forbidden');
+  });
+
+  it('returns 409 when the campaign has status history', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: [] },
+      expires: '2099-01-01',
+    });
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'other-user' } as any);
+    mockDelete.mockRejectedValue(foreignKeyViolation('CampaignStatusChange_campaignId_fkey'));
+
+    const request = createRequest('test-campaign', 'DELETE');
+    const response = await DELETE(request, {
+      params: Promise.resolve({ slug: 'test-campaign' }),
+    });
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error).toBe(
+      'Campaign yang sudah memiliki riwayat status tidak dapat dihapus'
+    );
+  });
+
+  it.each([
+    ['a foreign-key violation from another relation', foreignKeyViolation('Payout_campaignId_fkey')],
+    ['an unrelated database error', new Error('connection reset')],
+  ])('returns 500 for %s', async (_label, error) => {
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: [] },
+      expires: '2099-01-01',
+    });
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'other-user' } as any);
+    mockDelete.mockRejectedValue(error);
+
+    const request = createRequest('test-campaign', 'DELETE');
+    const response = await DELETE(request, {
+      params: Promise.resolve({ slug: 'test-campaign' }),
+    });
+
+    expect(response.status).toBe(500);
   });
 });
