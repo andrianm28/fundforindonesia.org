@@ -83,10 +83,12 @@ export function campaignRow(overrides: Partial<CampaignRow> = {}): CampaignRow {
   };
 }
 
-export function makeCampaignDb(seed: { campaigns?: CampaignRow[] } = {}) {
+export function makeCampaignDb(
+  seed: { campaigns?: CampaignRow[]; statusChanges?: StatusChangeRow[] } = {},
+) {
   let committed: Data = {
     campaigns: (seed.campaigns ?? []).map((c) => ({ ...c })),
-    statusChanges: [],
+    statusChanges: (seed.statusChanges ?? []).map((s) => ({ ...s })),
     notifications: [],
   };
   let nextId = 1;
@@ -138,6 +140,16 @@ export function makeCampaignDb(seed: { campaigns?: CampaignRow[] } = {}) {
           };
           getData().statusChanges.push(row);
           return { ...row };
+        },
+        // Newest first by createdAt; among equal timestamps the row written
+        // last wins, which is what a caller asking for "the latest" means.
+        findFirst: async ({ where, orderBy }: { where: Where; orderBy?: { createdAt: 'asc' | 'desc' } }) => {
+          const rows = getData().statusChanges.filter((s) => matches(s, where));
+          const direction = orderBy?.createdAt === 'asc' ? 1 : -1;
+          const sorted = rows
+            .map((row, index) => ({ row, index }))
+            .sort((a, b) => direction * (a.row.createdAt.getTime() - b.row.createdAt.getTime() || a.index - b.index));
+          return sorted.length > 0 ? { ...sorted[0].row } : null;
         },
       },
       notification: {
