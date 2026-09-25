@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 import {
+  campaignFlagRow,
   campaignRow,
   makeCampaignDb,
   type CampaignRow,
@@ -77,6 +78,39 @@ describe('POST /api/campaigns/[slug]/suspension', () => {
     vi.clearAllMocks();
     mockSession.mockResolvedValue(ADMIN_A);
     state.db = makeCampaignDb({ campaigns: [active({ isUrgent: true })] });
+  });
+
+  it('resolves every open Flag SUSPENDED with the suspending Admin, the reason and the time (ticket 06)', async () => {
+    state.db = makeCampaignDb({
+      campaigns: [active()],
+      campaignFlags: [
+        campaignFlagRow(),
+        campaignFlagRow({ id: 'flag-2', verifierId: 'verifier-2' }),
+        campaignFlagRow({ id: 'flag-3', resolution: 'DISMISSED', resolvedById: 'admin-b', resolutionReason: 'Klarifikasi' }),
+      ],
+    });
+
+    const response = await suspendReq({ reason: 'Penipuan terverifikasi' });
+
+    expect(response.status).toBe(200);
+    expect(state.db.campaignFlags.map((f) => [f.id, f.resolution, f.resolvedById, f.resolutionReason])).toEqual([
+      ['flag-1', 'SUSPENDED', 'admin-a', 'Penipuan terverifikasi'],
+      ['flag-2', 'SUSPENDED', 'admin-a', 'Penipuan terverifikasi'],
+      ['flag-3', 'DISMISSED', 'admin-b', 'Klarifikasi'],
+    ]);
+    expect(state.db.campaignFlags.slice(0, 2).every((f) => f.resolvedAt instanceof Date)).toBe(true);
+  });
+
+  it('leaves the Flags open when the Suspension is refused', async () => {
+    state.db = makeCampaignDb({
+      campaigns: [active({ creatorId: 'admin-a' })],
+      campaignFlags: [campaignFlagRow()],
+    });
+
+    const response = await suspendReq({ reason: 'Penipuan' });
+
+    expect(response.status).toBe(403);
+    expect(state.db.campaignFlag().resolution).toBeNull();
   });
 
   it('answers 401 without a session and changes nothing', async () => {

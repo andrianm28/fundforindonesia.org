@@ -66,6 +66,18 @@ export type CancellationRequestRow = {
   decidedAt: Date | null;
 };
 
+export type CampaignFlagRow = {
+  id: string;
+  campaignId: string;
+  verifierId: string;
+  reason: string;
+  createdAt: Date;
+  resolution: 'SUSPENDED' | 'DISMISSED' | null;
+  resolvedById: string | null;
+  resolutionReason: string | null;
+  resolvedAt: Date | null;
+};
+
 /** Only what the lifecycle module reads of a Payout: its Campaign and status. */
 export type PayoutRow = {
   id: string;
@@ -80,6 +92,7 @@ type Data = {
   campaignUpdates: CampaignUpdateRow[];
   cancellationRequests: CancellationRequestRow[];
   payouts: PayoutRow[];
+  campaignFlags: CampaignFlagRow[];
 };
 
 type Where = Record<string, unknown>;
@@ -96,6 +109,7 @@ function clone(data: Data): Data {
     campaignUpdates: data.campaignUpdates.map((u) => ({ ...u })),
     cancellationRequests: data.cancellationRequests.map((r) => ({ ...r })),
     payouts: data.payouts.map((p) => ({ ...p })),
+    campaignFlags: data.campaignFlags.map((f) => ({ ...f })),
   };
 }
 
@@ -112,6 +126,21 @@ export function cancellationRequestRow(
     decisionReason: null,
     createdAt: new Date('2026-09-24T08:00:00Z'),
     decidedAt: null,
+    ...overrides,
+  };
+}
+
+export function campaignFlagRow(overrides: Partial<CampaignFlagRow> = {}): CampaignFlagRow {
+  return {
+    id: 'flag-1',
+    campaignId: 'campaign-1',
+    verifierId: 'verifier-1',
+    reason: 'Foto pasien diambil dari berita lama.',
+    createdAt: new Date('2026-09-24T08:00:00Z'),
+    resolution: null,
+    resolvedById: null,
+    resolutionReason: null,
+    resolvedAt: null,
     ...overrides,
   };
 }
@@ -137,6 +166,7 @@ export function makeCampaignDb(
     campaignUpdates?: CampaignUpdateRow[];
     cancellationRequests?: CancellationRequestRow[];
     payouts?: PayoutRow[];
+    campaignFlags?: CampaignFlagRow[];
   } = {},
 ) {
   let committed: Data = {
@@ -146,6 +176,7 @@ export function makeCampaignDb(
     campaignUpdates: (seed.campaignUpdates ?? []).map((u) => ({ ...u })),
     cancellationRequests: (seed.cancellationRequests ?? []).map((r) => ({ ...r })),
     payouts: (seed.payouts ?? []).map((p) => ({ ...p })),
+    campaignFlags: (seed.campaignFlags ?? []).map((f) => ({ ...f })),
   };
   // Row locks taken with `SELECT ... FOR UPDATE`, in order, as
   // "<Table>:<id>". Observable because taking the lock IS the behaviour
@@ -253,6 +284,35 @@ export function makeCampaignDb(
           return { count: rows.length };
         },
       },
+      campaignFlag: {
+        findUnique: async ({ where }: { where: Where }) => {
+          const row = getData().campaignFlags.find((f) => matches(f, where));
+          return row ? { ...row } : null;
+        },
+        findUniqueOrThrow: async ({ where }: { where: Where }) => {
+          const row = getData().campaignFlags.find((f) => matches(f, where));
+          if (!row) throw new Error('No CampaignFlag found');
+          return { ...row };
+        },
+        create: async ({ data }: { data: Pick<CampaignFlagRow, 'campaignId' | 'verifierId' | 'reason'> }) => {
+          const row: CampaignFlagRow = {
+            id: `flag-${nextId++}`,
+            createdAt: new Date(),
+            resolution: null,
+            resolvedById: null,
+            resolutionReason: null,
+            resolvedAt: null,
+            ...data,
+          };
+          getData().campaignFlags.push(row);
+          return { ...row };
+        },
+        updateMany: async ({ where, data }: { where: Where; data: Partial<CampaignFlagRow> }) => {
+          const rows = getData().campaignFlags.filter((f) => matches(f, where));
+          for (const row of rows) Object.assign(row, data);
+          return { count: rows.length };
+        },
+      },
       payout: {
         count: async ({ where }: { where: Where }) =>
           getData().payouts.filter((p) => matches(p, where)).length,
@@ -274,6 +334,10 @@ export function makeCampaignDb(
           }
           for (const row of current.cancellationRequests) {
             const fresh = committed.cancellationRequests.find((r) => r.id === row.id);
+            if (fresh) Object.assign(row, fresh);
+          }
+          for (const row of current.campaignFlags) {
+            const fresh = committed.campaignFlags.find((f) => f.id === row.id);
             if (fresh) Object.assign(row, fresh);
           }
         }
@@ -314,6 +378,14 @@ export function makeCampaignDb(
     },
     get cancellationRequests() {
       return committed.cancellationRequests;
+    },
+    get campaignFlags() {
+      return committed.campaignFlags;
+    },
+    campaignFlag(id = 'flag-1') {
+      const row = committed.campaignFlags.find((f) => f.id === id);
+      if (!row) throw new Error(`no campaign flag ${id}`);
+      return row;
     },
     /** Every row lock taken, committed or not, as "<Table>:<id>". */
     get rowLocks() {
