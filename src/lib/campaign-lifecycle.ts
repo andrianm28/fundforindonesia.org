@@ -57,12 +57,15 @@ export function toLegacyStatus(status: CampaignStatus): string {
  * Single enforcement point for "only ACTIVE accepts a Donation".
  * POST /api/donations is the only caller. The argument is the whole
  * campaign row as selected, so the gate reads the enum that writers
- * maintain, never the legacy string.
+ * maintain, never the legacy string. It judges the effective status, so an
+ * Active Campaign past its deadline is refused before anyone has recorded
+ * it Expired; the caller runs `expireIfPastDeadline` to record it.
  */
-export function campaignAcceptsDonations(campaign: {
-  lifecycleStatus: CampaignStatus;
-}): boolean {
-  return campaign.lifecycleStatus === CampaignStatus.ACTIVE;
+export function campaignAcceptsDonations(
+  campaign: { lifecycleStatus: CampaignStatus; deadline: Date | null },
+  now: Date
+): boolean {
+  return effectiveStatus(campaign, now) === CampaignStatus.ACTIVE;
 }
 
 // ==================== Typed errors ====================
