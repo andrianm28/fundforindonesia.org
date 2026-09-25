@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Prisma } from '@/generated/prisma/client';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
+import { listableCampaignWhere } from '@/lib/subject-guard';
 import { withRoleCheck } from '@/lib/withRoleCheck';
 
 const createCampaignSchema = z.object({
@@ -39,10 +41,9 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    // The status filter is fixed; a `?status=` in the query is ignored.
-    const where: Record<string, unknown> = {
-      status: 'active',
-    };
+    // Only effectively Active Campaigns are listed (CONTEXT.md, Campaign
+    // Status); a `?status=` in the query is ignored.
+    const where: Prisma.CampaignWhereInput = listableCampaignWhere(new Date());
 
     if (category) {
       where.category = category;

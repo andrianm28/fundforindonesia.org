@@ -22,6 +22,10 @@ import type { LedgerSubject } from "./money/ledger";
  * and it only ever writes a Payment while it is still PENDING, which no
  * caller of this guard locks; see releaseMaturedEscrow (./money/escrow.ts).
  *
+ * It also owns which Campaigns public listings show
+ * (`listableCampaignWhere`, `sitemapCampaignWhere`), next to
+ * `effectiveStatus`, so the lists and the Campaign page cannot disagree.
+ *
  * Checks that need nothing from the subject (an assignment, a reason, the
  * Payout or Refund row's own status) may run before `lockAndLoad`. Nothing
  * reads the subject row before it: a read taken before the lock can be
@@ -75,6 +79,45 @@ export function effectiveStatus(
     return CampaignStatus.EXPIRED;
   }
   return campaign.lifecycleStatus;
+}
+
+/**
+ * The Campaigns a public list shows (CONTEXT.md, Campaign Status): exactly
+ * those `effectiveStatus` calls ACTIVE, i.e. stored ACTIVE with no deadline
+ * or one not yet passed.
+ *
+ * The rule sits inside an AND so callers can spread it next to their own
+ * filters, an OR of their own included, without overwriting it. Readers
+ * only filter; lazy expiry is for commands.
+ */
+export function listableCampaignWhere(now: Date): Prisma.CampaignWhereInput {
+  return {
+    AND: [
+      {
+        lifecycleStatus: CampaignStatus.ACTIVE,
+        OR: [{ deadline: null }, { deadline: { gte: now } }],
+      },
+    ],
+  };
+}
+
+/** The effective statuses whose Campaign pages the sitemap lists. */
+const SITEMAP_STATUSES: readonly CampaignStatus[] = [
+  CampaignStatus.ACTIVE,
+  CampaignStatus.EXPIRED,
+  CampaignStatus.COMPLETED,
+];
+
+/**
+ * The Campaigns the sitemap lists: effectively Active, Expired or Completed,
+ * so an ended Campaign's transparency page stays findable. Suspended,
+ * Cancelled, Submitted, Rejected and Draft are never listed.
+ *
+ * A stored ACTIVE Campaign is effectively ACTIVE or EXPIRED whatever its
+ * deadline, and both are listed, so the rule needs no `now`.
+ */
+export function sitemapCampaignWhere(): Prisma.CampaignWhereInput {
+  return { lifecycleStatus: { in: [...SITEMAP_STATUSES] } };
 }
 
 /**

@@ -1,6 +1,7 @@
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
+import { listableCampaignWhere } from '@/lib/subject-guard';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import type { CampaignCardData } from '@/types/campaign';
 
@@ -41,7 +42,7 @@ export default async function CategoryPage({ params }: Props) {
 
   // Fetch campaigns for this category
   const campaigns = await prisma.campaign.findMany({
-    where: { category, status: 'active' },
+    where: { ...listableCampaignWhere(new Date()), category },
     include: {
       creator: {
         select: { name: true, isVerified: true, verificationType: true },
