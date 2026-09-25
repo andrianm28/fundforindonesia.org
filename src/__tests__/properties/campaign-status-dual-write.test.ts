@@ -47,6 +47,19 @@ describe("Campaign status dual-write", () => {
     expect(offenders).toEqual([]);
   });
 
+  // Its WRITES_WITHOUT_STATUS entry is not a blanket pass: every Campaign
+  // write in the Settlement webhook must touch collectedAmount and nothing else.
+  it("the Settlement webhook's Campaign writes set only collectedAmount", () => {
+    const source = readFileSync("src/app/api/webhooks/[provider]/route.ts", "utf8");
+    const writes = source.match(new RegExp(`${WRITE.source}\\(\\{[\\s\\S]*?\\}\\);`, "g")) ?? [];
+
+    expect(writes.length).toBeGreaterThan(0);
+    for (const write of writes) {
+      expect(write).toMatch(/data:\s*\{\s*collectedAmount:\s*\{\s*increment:[^{}]*\}\s*\}/);
+      expect(write).not.toMatch(/\bstatus\b|lifecycleStatus/);
+    }
+  });
+
   it("the seed writes lifecycleStatus", () => {
     expect(readFileSync("prisma/seed.ts", "utf8")).toContain("lifecycleStatus");
   });
