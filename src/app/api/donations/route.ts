@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { CampaignStatus, PaymentStatus } from '@/generated/prisma/client';
+import { PaymentStatus } from '@/generated/prisma/client';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import type { PaymentMethod } from '@/lib/payments';
 import {
@@ -107,11 +107,16 @@ export async function POST(request: NextRequest) {
 
     const now = new Date();
     if (!campaignAcceptsDonations(campaign, now)) {
-      // Stored Active yet refused means the deadline has passed. Record the
-      // expiry the way every lifecycle command does (capacity SYSTEM, the
-      // Fundraiser told), committed on its own so it survives this refusal.
-      if (campaign.lifecycleStatus === CampaignStatus.ACTIVE) {
+      // If the refusal is a deadline that has passed, record the expiry the
+      // way every lifecycle command does (capacity SYSTEM, the Fundraiser
+      // told), committed on its own so it survives this refusal. It decides
+      // for itself whether there is anything to record. Failing to record it
+      // must not change the answer: the Donation is refused either way, and
+      // the next actor or the scheduled expiry job records it.
+      try {
         await expireIfPastDeadline(prisma, campaign.id, now);
+      } catch (err) {
+        console.error(`[donations] lazy expiry failed for campaign ${campaign.id}:`, err);
       }
       return NextResponse.json(
         { error: 'Campaign tidak aktif. Hanya campaign aktif yang dapat menerima donasi.' },

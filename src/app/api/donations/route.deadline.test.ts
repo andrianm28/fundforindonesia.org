@@ -132,12 +132,27 @@ describe('POST /api/donations on an Active Campaign past its deadline', () => {
       expect.objectContaining({ userId: 'creator-1', link: '/campaign/bantu-korban-banjir' }),
     ]);
   });
+
+  it('still answers with the Expired refusal when recording the expiry fails', async () => {
+    const db = makeCampaignDb({ campaigns: [activeCampaign({ deadline: PAST })] });
+    db.prisma.$transaction = async () => {
+      throw new Error('database unavailable');
+    };
+    holder.db = db;
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await donate();
+
+    expect(response.status).toBe(400);
+    expect(holder.donation.create).not.toHaveBeenCalled();
+    logged.mockRestore();
+  });
 });
 
 describe('POST /api/donations on an Active Campaign that has not expired', () => {
   it.each([
     ['a future deadline', FUTURE],
-    ['no deadline (as every wakaf Campaign has)', null],
+    ['no deadline (allowed only for wakaf)', null],
   ])('accepts the Donation for a Campaign with %s and records nothing', async (_label, deadline) => {
     holder.db = makeCampaignDb({ campaigns: [activeCampaign({ deadline })] });
 
