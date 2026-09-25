@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
+import { lifecycleErrorToHttp } from '@/lib/campaign-lifecycle';
 import {
   createRefund,
   DemoCampaignError,
@@ -71,6 +72,11 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRe
   } catch (error) {
     if (error instanceof DemoCampaignError) {
       return NextResponse.json({ error: 'Ini adalah campaign contoh dan tidak memiliki dana nyata untuk direfund' }, { status: 403 });
+    }
+    // OwnCampaignConflictError: the lifecycle module owns its status and body.
+    const refusal = lifecycleErrorToHttp(error);
+    if (refusal) {
+      return NextResponse.json(refusal.body, { status: refusal.status });
     }
     if (error instanceof PaymentSubjectMismatchError) {
       return NextResponse.json({ error: 'Payment tidak ditemukan untuk campaign ini' }, { status: 404 });

@@ -9,6 +9,8 @@ import {
   RefundNotFoundError,
   SelfApprovalError,
   InvalidRefundStatusError,
+  OwnCampaignConflictError,
+  OwnTripConflictError,
 } from './refunds';
 
 type LedgerRow = {
@@ -52,6 +54,7 @@ function makeTx(
     ledgerRows?: LedgerRow[];
     payment?: ReturnType<typeof makePayment> | null;
     isDemo?: boolean;
+    campaignCreatorId?: string;
     priorRefunds?: Array<{ amount: number; status: string }>;
     refundRow?: Record<string, unknown> | null;
   } = {},
@@ -119,7 +122,9 @@ function makeTx(
       payment: {
         findUniqueOrThrow: vi.fn(async () => payment),
       },
-      campaign: { findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false }) },
+      campaign: {
+        findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false, creatorId: options.campaignCreatorId ?? 'fundraiser-1' }),
+      },
       refund: {
         create: refundCreate,
         findUnique: refundFindUnique,
@@ -267,6 +272,38 @@ describe('createRefund', () => {
       createRefund(tx as never, { subject: { type: 'campaign', campaignId: 'campaign-1' }, paymentId: 'payment-1', amount: 1, reason: 'x', requestedById: 'admin-1' }),
     ).rejects.toThrow(DemoCampaignError);
     expect(refundCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses an Admin who is the Campaign\'s own Fundraiser: no Refund row, no freeze legs', async () => {
+    const { tx, refundCreate, rows } = makeTx({ campaignCreatorId: 'admin-1' });
+
+    const attempt = createRefund(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      paymentId: 'payment-1',
+      amount: 40_000,
+      reason: 'x',
+      requestedById: 'admin-1',
+    });
+
+    await expect(attempt).rejects.toThrow(OwnCampaignConflictError);
+    await expect(attempt).rejects.toMatchObject({ code: 'OWN_CAMPAIGN_CONFLICT', message: expect.stringContaining('harus dilakukan Admin lain') });
+    expect(refundCreate).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('lets the Trip\'s own Fundraiser create a Trip Refund -- Batch cancellation does exactly this, outside any Admin capacity', async () => {
+    const { tx, refundCreate } = makeTx({ payment: makeTripPayment() });
+
+    const refund = await createRefund(tx as never, {
+      subject: { type: 'trip', tripId: 'trip-1' },
+      paymentId: 'payment-1',
+      amount: 1,
+      reason: 'Batch dibatalkan',
+      requestedById: 'trip-fundraiser-1',
+    });
+
+    expect(refund.status).toBe('REQUESTED');
+    expect(refundCreate).toHaveBeenCalled();
   });
 
   it('never runs the isDemo check for a Trip subject -- VolunteerTrip has no isDemo field', async () => {
@@ -491,6 +528,36 @@ describe('approveRefund', () => {
     const prisma = makePrisma(tx, baseRefundRow());
 
     await expect(approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'same-person' })).rejects.toThrow(SelfApprovalError);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuses an Admin who is the Campaign\'s own Fundraiser, leaving the Refund REQUESTED and posting nothing', async () => {
+    const refundRow = baseRefundRow({
+      payment: makePayment({ donation: { campaignId: 'campaign-1', campaign: { creatorId: 'admin-1' } } }),
+    });
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+
+    await expect(attempt).rejects.toThrow(OwnCampaignConflictError);
+    await expect(attempt).rejects.toMatchObject({ code: 'OWN_CAMPAIGN_CONFLICT', message: expect.stringContaining('harus dilakukan Admin lain') });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuses an Admin who is the Volunteer Trip\'s own Fundraiser, leaving the Refund REQUESTED and posting nothing', async () => {
+    const refundRow = baseRefundRow({
+      payment: makeTripPayment({ registration: { batch: { tripId: 'trip-1', trip: { fundraiserId: 'admin-1' } } } }),
+    });
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+
+    await expect(attempt).rejects.toThrow(OwnTripConflictError);
+    await expect(attempt).rejects.toMatchObject({ code: 'OWN_TRIP_CONFLICT', message: expect.stringContaining('harus dilakukan Admin lain') });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
     expect(rows).toHaveLength(0);
   });
 

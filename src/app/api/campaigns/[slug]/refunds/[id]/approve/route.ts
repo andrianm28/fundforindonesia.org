@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
+import { lifecycleErrorToHttp } from '@/lib/campaign-lifecycle';
 import {
   approveRefund,
   RefundNotFoundError,
@@ -48,6 +49,11 @@ export const PATCH = withAssignmentCheck(Assignment.ADMIN, async (_request: Next
     }
     if (error instanceof SelfApprovalError) {
       return NextResponse.json({ error: 'Refund tidak dapat disetujui oleh orang yang mengajukannya' }, { status: 403 });
+    }
+    // OwnCampaignConflictError: the lifecycle module owns its status and body.
+    const refusal = lifecycleErrorToHttp(error);
+    if (refusal) {
+      return NextResponse.json(refusal.body, { status: refusal.status });
     }
     if (error instanceof InvalidRefundStatusError) {
       return NextResponse.json({ error: 'Refund tidak lagi menunggu persetujuan' }, { status: 409 });

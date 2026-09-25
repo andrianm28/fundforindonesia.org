@@ -136,6 +136,19 @@ describe('PATCH /api/campaigns/[slug]/refunds/[id]/approve', () => {
     expect(response.status).toBe(403);
   });
 
+  it("returns 403 OWN_CAMPAIGN_CONFLICT when the approving Admin is the Campaign's own Fundraiser, leaving the Refund REQUESTED", async () => {
+    const refundRow = makeRefundRow();
+    refundRow.payment.donation = { campaignId: 'campaign-1', campaign: { creatorId: 'admin-2' } } as never;
+    const { tx } = makeTx({ refundRow });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await PATCH(patchRequest(), routeContext());
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: 'OWN_CAMPAIGN_CONFLICT', error: expect.stringContaining('harus dilakukan Admin lain') });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+  });
+
   it('returns 409 when the refund is no longer REQUESTED', async () => {
     const { tx } = makeTx({ refundRow: makeRefundRow({ status: 'APPROVED' }) });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
