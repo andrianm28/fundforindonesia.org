@@ -306,9 +306,12 @@ const CAMPAIGN_STATE = {
 
 /**
  * The one status write. Writes both columns, predicated on the status the
- * command judged; records the change; runs the leave-Active side effects.
- * Returns the Campaign as re-read after all of that, so a caller never
- * reports an Urgent flag the side effects have just cleared.
+ * caller judged; records the change at `now`; runs the leave-Active side
+ * effects.
+ *
+ * The predicate matters for writers that hold no Campaign row lock: lazy
+ * expiry and the scheduled expiry job (ticket 20). Under the lock every
+ * command takes, it always matches.
  */
 async function transition(
   tx: Tx,
@@ -319,12 +322,10 @@ async function transition(
     actorId: string | null;
     capacity: StatusChangeCapacity;
     reason?: string | null;
-  }
-): Promise<CampaignState> {
+  },
+  now: Date
+): Promise<void> {
   const from = campaign.lifecycleStatus;
-  // Predicated on the status this command read and judged: if another
-  // request moved the Campaign in between, nothing matches and this
-  // command loses instead of overwriting a decision it never saw.
   const written = await tx.campaign.updateMany({
     where: { id: campaign.id, lifecycleStatus: from },
     data: { status: toLegacyStatus(change.to), lifecycleStatus: change.to },
@@ -339,15 +340,12 @@ async function transition(
       actorId: change.actorId,
       capacity: change.capacity,
       reason: change.reason ?? null,
+      createdAt: now,
     },
   });
   if (from === CampaignStatus.ACTIVE && change.to !== CampaignStatus.ACTIVE) {
-    await leaveActive(tx, campaign.id, change.to);
+    await leaveActive(tx, campaign.id, change.to, now);
   }
-  return tx.campaign.findUniqueOrThrow({
-    where: { id: campaign.id },
-    select: CAMPAIGN_STATE,
-  });
 }
 
 /**
@@ -360,7 +358,8 @@ async function transition(
 async function leaveActive(
   tx: Tx,
   campaignId: string,
-  to: CampaignStatus
+  to: CampaignStatus,
+  now: Date
 ): Promise<void> {
   const cleared = await tx.campaign.updateMany({
     where: { id: campaignId, isUrgent: true },
@@ -376,13 +375,14 @@ async function leaveActive(
         actorId: null,
         capacity: StatusChangeCapacity.SYSTEM,
         reason: `Urgent dilepas otomatis karena Campaign menjadi ${STATUS_LABEL[to]}.`,
+        createdAt: now,
       },
     });
   }
   // Nobody decided it, so decidedById stays null; decidedAt says when it lapsed.
   await tx.cancellationRequest.updateMany({
     where: { campaignId, status: CancellationRequestStatus.PENDING },
-    data: { status: CancellationRequestStatus.SUPERSEDED, decidedAt: new Date() },
+    data: { status: CancellationRequestStatus.SUPERSEDED, decidedAt: now },
   });
 }
 
@@ -413,12 +413,13 @@ async function notifyFundraiser(
  * ACTIVE whose deadline has passed, with the leave-Active side effects and a
  * notice to the Fundraiser. Returns whether it did so.
  *
- * Every command calls this BEFORE opening its own transaction, so the
- * expiry is committed on its own and survives the command being refused:
+ * The command runner calls this BEFORE opening a command's transaction, so
+ * the expiry is committed on its own and survives the command being refused:
  * the stored status catches up with reality the moment anyone acts. The
  * scheduled expiry job (ticket 20) calls this same function.
  *
- * If another request moves the Campaign first, this writes nothing and
+ * It takes no Campaign row lock. If another request moves the Campaign
+ * first, `transition`'s predicate matches nothing, this writes nothing and
  * returns false; the command then judges whatever that request left.
  */
 export async function expireIfPastDeadline(
@@ -436,12 +437,17 @@ export async function expireIfPastDeadline(
       return false;
     }
     try {
-      await transition(tx, campaign, {
-        to: CampaignStatus.EXPIRED,
-        action: CampaignStatusChangeAction.EXPIRED,
-        actorId: null,
-        capacity: StatusChangeCapacity.SYSTEM,
-      });
+      await transition(
+        tx,
+        campaign,
+        {
+          to: CampaignStatus.EXPIRED,
+          action: CampaignStatusChangeAction.EXPIRED,
+          actorId: null,
+          capacity: StatusChangeCapacity.SYSTEM,
+        },
+        now
+      );
     } catch (error) {
       // The predicated write matched nothing, so nothing was written.
       if (error instanceof ConcurrentTransitionError) return false;
@@ -452,6 +458,198 @@ export async function expireIfPastDeadline(
       message: `Tenggat Campaign "${campaign.title}" telah lewat. Campaign kini Expired dan tidak lagi menerima donasi.`,
     });
     return true;
+  });
+}
+
+// ==================== Reasons and authority ====================
+
+const REASON_MAX_LENGTH = 1000;
+
+/** A required reason: trimmed, non-empty, at most REASON_MAX_LENGTH characters. */
+function requireReason(raw: unknown): string {
+  const reason = typeof raw === "string" ? raw.trim() : "";
+  if (reason === "") {
+    throw new LifecycleValidationError("Alasan wajib diisi.", "reason");
+  }
+  if (reason.length > REASON_MAX_LENGTH) {
+    throw new LifecycleValidationError(
+      `Alasan maksimal ${REASON_MAX_LENGTH} karakter.`,
+      "reason"
+    );
+  }
+  return reason;
+}
+
+/** An optional reason: absent or blank is none; anything else must pass requireReason. */
+function optionalReason(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "string" && raw.trim() === "") return null;
+  return requireReason(raw);
+}
+
+const OPERATOR_ASSIGNMENT: Record<OperatorCapacity, Assignment> = {
+  ADMIN: Assignment.ADMIN,
+  VERIFIER: Assignment.VERIFIER,
+};
+
+/**
+ * Who may run a command, and the capacity it is recorded in.
+ * - `operator`: needs that assignment, checked before anything is read, and
+ *   never acts on a Campaign they own: there they are only its Fundraiser
+ *   (CONTEXT.md, Admin and Verifier; ADR 0005).
+ * - `fundraiser`: only the Campaign's Fundraiser, checked once it is read.
+ * - `fundraiserOrAdmin`: the owner acts as FUNDRAISER, even holding ADMIN;
+ *   anyone else needs ADMIN. Checked once the Campaign is read.
+ */
+type Authority =
+  | { kind: "operator"; capacity: OperatorCapacity; message: string }
+  | { kind: "fundraiser"; message: string }
+  | { kind: "fundraiserOrAdmin"; message: string };
+
+/** The capacity the actor acts in on this Campaign, or the refusal. */
+function authorize(
+  authority: Authority,
+  actor: LifecycleActor,
+  campaign: { creatorId: string }
+): StatusChangeCapacity {
+  const isOwner = campaign.creatorId === actor.userId;
+  switch (authority.kind) {
+    case "operator":
+      if (isOwner) throw new OwnCampaignConflictError(authority.capacity);
+      return authority.capacity;
+    case "fundraiser":
+      if (!isOwner) throw new NotAuthorizedError(authority.message);
+      return StatusChangeCapacity.FUNDRAISER;
+    case "fundraiserOrAdmin":
+      if (isOwner) return StatusChangeCapacity.FUNDRAISER;
+      if (!actor.assignments.includes(Assignment.ADMIN)) {
+        throw new NotAuthorizedError(authority.message);
+      }
+      return StatusChangeCapacity.ADMIN;
+  }
+}
+
+/**
+ * - `none`: the command takes no reason.
+ * - `required`: validated before anything is read.
+ * - `requiredUnlessFundraiser`: optional for the FUNDRAISER capacity,
+ *   required otherwise; validated as soon as the capacity is known.
+ */
+type ReasonPolicy = "none" | "required" | "requiredUnlessFundraiser";
+
+type ReasonFor<P extends ReasonPolicy> = P extends "required"
+  ? string
+  : P extends "none"
+    ? null
+    : string | null;
+
+// ==================== The command runner ====================
+
+/**
+ * Serialises every command on one Campaign. Every check a command makes is
+ * a read that only stays true while its transaction holds the Campaign row:
+ * the status, "at most one PENDING request", "no Payout COMPLETED", "Flag
+ * still open", Urgent. The same pattern the balance-touching Payout
+ * operations use (src/lib/money/payouts.ts).
+ *
+ * The Payout guarantee is only as strong as its writer: nothing marks a
+ * Payout COMPLETED yet, and the endpoint that will must take this same
+ * Campaign row lock, or a Payout could complete between check and write.
+ */
+async function lockAndRead(tx: Tx, campaignId: string) {
+  await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${campaignId} FOR UPDATE`;
+  return tx.campaign.findUnique({ where: { id: campaignId } });
+}
+
+type LockedCampaign = NonNullable<Awaited<ReturnType<typeof lockAndRead>>>;
+
+/** What a command's own step gets, once every shared check has passed. */
+type StepContext<R> = {
+  tx: Tx;
+  /** Read under the Campaign row lock, so it stays true until commit. */
+  campaign: LockedCampaign;
+  /** The Campaign's effective status at `now`. */
+  current: CampaignStatus;
+  now: Date;
+  actor: LifecycleActor;
+  capacity: StatusChangeCapacity;
+  reason: R;
+  /** The status write, recorded with this command's actor, capacity, reason and `now`. */
+  transition: (to: CampaignStatus, action: CampaignStatusChangeAction) => Promise<void>;
+  /** Tells the Fundraiser, unless they are the one acting. */
+  notify: (notification: { title: string; message: string }) => Promise<void>;
+};
+
+type CommandDeclaration<P extends ReasonPolicy, Extra> = {
+  campaignId: string;
+  actor: LifecycleActor;
+  now: Date;
+  authority: Authority;
+  reasonPolicy: P;
+  rawReason?: unknown;
+  /** Effective statuses the command runs from; left out when its step judges the status itself. */
+  allowedFrom?: readonly CampaignStatus[];
+  /** The command's own write. Returns what the command reports besides the Campaign. */
+  step: (context: StepContext<ReasonFor<P>>) => Promise<Extra>;
+};
+
+/**
+ * The sequence every lifecycle command shares, in the order a caller
+ * observes it:
+ *   1. the operator assignment, then the reason, before anything is read;
+ *   2. lazy expiry, committed in its own transaction;
+ *   3. in the command's transaction: lock the Campaign row, then read it;
+ *      not found; who is acting (the own-Campaign rule, Fundraiser-only,
+ *      Fundraiser-or-Admin, with a capacity-dependent reason); the allowed
+ *      effective statuses; the command's step;
+ *   4. the Campaign re-read, so a caller never reports an Urgent flag the
+ *      leave-Active side effects have just cleared.
+ */
+async function runCommand<P extends ReasonPolicy, Extra extends object>(
+  prisma: PrismaClient,
+  command: CommandDeclaration<P, Extra>
+): Promise<LifecycleResult & Extra> {
+  const { campaignId, actor, now, authority } = command;
+  if (
+    authority.kind === "operator" &&
+    !actor.assignments.includes(OPERATOR_ASSIGNMENT[authority.capacity])
+  ) {
+    throw new NotAuthorizedError(authority.message);
+  }
+  let reason: string | null =
+    command.reasonPolicy === "required" ? requireReason(command.rawReason) : null;
+  await expireIfPastDeadline(prisma, campaignId, now);
+  return prisma.$transaction(async (tx) => {
+    const campaign = await lockAndRead(tx, campaignId);
+    if (!campaign) throw new CampaignNotFoundError(campaignId);
+    const capacity = authorize(authority, actor, campaign);
+    if (command.reasonPolicy === "requiredUnlessFundraiser") {
+      reason =
+        capacity === StatusChangeCapacity.FUNDRAISER
+          ? optionalReason(command.rawReason)
+          : requireReason(command.rawReason);
+    }
+    const current = effectiveStatus(campaign, now);
+    if (command.allowedFrom && !command.allowedFrom.includes(current)) {
+      throw new InvalidTransitionError(current);
+    }
+    const extra = await command.step({
+      tx,
+      campaign,
+      current,
+      now,
+      actor,
+      capacity,
+      reason: reason as ReasonFor<P>,
+      transition: (to, action) =>
+        transition(tx, campaign, { to, action, actorId: actor.userId, capacity, reason }, now),
+      notify: (notification) => notifyFundraiser(tx, campaign, actor.userId, notification),
+    });
+    const state = await tx.campaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: CAMPAIGN_STATE,
+    });
+    return { campaign: state, ...extra };
   });
 }
 
@@ -496,60 +694,27 @@ export async function decideSubmission(
     now?: Date;
   }
 ): Promise<LifecycleResult> {
-  const { campaignId, actor, now = new Date() } = params;
   const decision = SUBMISSION_DECISIONS[params.decision];
-  requireVerifierAssignment(
-    actor,
-    "Hanya Verifier yang dapat menyetujui atau menolak Campaign."
-  );
-  await expireIfPastDeadline(prisma, campaignId, now);
-  return prisma.$transaction(async (tx) => {
-    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign, StatusChangeCapacity.VERIFIER);
-    const current = effectiveStatus(campaign, now);
-    if (current !== CampaignStatus.SUBMITTED) {
-      throw new InvalidTransitionError(current);
-    }
-    const updated = await transition(tx, campaign, {
-      to: decision.to,
-      action: decision.action,
-      actorId: actor.userId,
+  return runCommand(prisma, {
+    campaignId: params.campaignId,
+    actor: params.actor,
+    now: params.now ?? new Date(),
+    authority: {
+      kind: "operator",
       capacity: StatusChangeCapacity.VERIFIER,
-    });
-    await notifyFundraiser(tx, campaign, actor.userId, {
-      title: decision.title,
-      message: decision.message(campaign.title),
-    });
-    return { campaign: updated };
+      message: "Hanya Verifier yang dapat menyetujui atau menolak Campaign.",
+    },
+    reasonPolicy: "none",
+    allowedFrom: [CampaignStatus.SUBMITTED],
+    step: async ({ campaign, transition, notify }) => {
+      await transition(decision.to, decision.action);
+      await notify({ title: decision.title, message: decision.message(campaign.title) });
+      return {};
+    },
   });
 }
 
 // ==================== Completion (ticket 03) ====================
-
-const REASON_MAX_LENGTH = 1000;
-
-/** A required reason: trimmed, non-empty, at most REASON_MAX_LENGTH characters. */
-function requireReason(raw: unknown): string {
-  const reason = typeof raw === "string" ? raw.trim() : "";
-  if (reason === "") {
-    throw new LifecycleValidationError("Alasan wajib diisi.", "reason");
-  }
-  if (reason.length > REASON_MAX_LENGTH) {
-    throw new LifecycleValidationError(
-      `Alasan maksimal ${REASON_MAX_LENGTH} karakter.`,
-      "reason"
-    );
-  }
-  return reason;
-}
-
-/** An optional reason: absent or blank is none; anything else must pass requireReason. */
-function optionalReason(raw: unknown): string | null {
-  if (raw === undefined || raw === null) return null;
-  if (typeof raw === "string" && raw.trim() === "") return null;
-  return requireReason(raw);
-}
 
 /**
  * Marks an Active Campaign Completed (ADR 0004, FFI-03). Completed is final:
@@ -571,74 +736,34 @@ export async function completeCampaign(
     now?: Date;
   }
 ): Promise<LifecycleResult> {
-  const { campaignId, actor, now = new Date() } = params;
-  await expireIfPastDeadline(prisma, campaignId, now);
-  return prisma.$transaction(async (tx) => {
-    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) throw new CampaignNotFoundError(campaignId);
-
-    const asOwner = campaign.creatorId === actor.userId;
-    if (!asOwner && !actor.assignments.includes(Assignment.ADMIN)) {
-      throw new NotAuthorizedError(
-        "Hanya Fundraiser pemilik Campaign atau Admin yang dapat menandai Campaign Completed."
-      );
-    }
-    const reason = asOwner ? optionalReason(params.reason) : requireReason(params.reason);
-
-    const current = effectiveStatus(campaign, now);
-    if (current !== CampaignStatus.ACTIVE) {
-      throw new InvalidTransitionError(current);
-    }
-    const updates = await tx.campaignUpdate.count({ where: { campaignId } });
-    if (updates === 0) throw new MissingCampaignUpdateError();
-
-    const updated = await transition(tx, campaign, {
-      to: CampaignStatus.COMPLETED,
-      action: CampaignStatusChangeAction.COMPLETED,
-      actorId: actor.userId,
-      capacity: asOwner ? StatusChangeCapacity.FUNDRAISER : StatusChangeCapacity.ADMIN,
-      reason,
-    });
-    if (!asOwner) {
-      await notifyFundraiser(tx, campaign, actor.userId, {
-        title: "Campaign Ditandai Completed",
-        message: `Campaign "${campaign.title}" ditandai Completed oleh Admin dan tidak lagi menerima donasi. Alasan: ${reason}`,
-      });
-    }
-    return { campaign: updated };
+  return runCommand(prisma, {
+    campaignId: params.campaignId,
+    actor: params.actor,
+    now: params.now ?? new Date(),
+    authority: {
+      kind: "fundraiserOrAdmin",
+      message:
+        "Hanya Fundraiser pemilik Campaign atau Admin yang dapat menandai Campaign Completed.",
+    },
+    reasonPolicy: "requiredUnlessFundraiser",
+    rawReason: params.reason,
+    allowedFrom: [CampaignStatus.ACTIVE],
+    step: async ({ tx, campaign, capacity, reason, transition, notify }) => {
+      const updates = await tx.campaignUpdate.count({ where: { campaignId: campaign.id } });
+      if (updates === 0) throw new MissingCampaignUpdateError();
+      await transition(CampaignStatus.COMPLETED, CampaignStatusChangeAction.COMPLETED);
+      if (capacity === StatusChangeCapacity.ADMIN) {
+        await notify({
+          title: "Campaign Ditandai Completed",
+          message: `Campaign "${campaign.title}" ditandai Completed oleh Admin dan tidak lagi menerima donasi. Alasan: ${reason}`,
+        });
+      }
+      return {};
+    },
   });
 }
 
 // ==================== Cancellation (ticket 07) ====================
-
-/** The ADMIN assignment, checked before anything is read or written. */
-function requireAdminAssignment(actor: LifecycleActor, message: string): void {
-  if (!actor.assignments.includes(Assignment.ADMIN)) {
-    throw new NotAuthorizedError(message);
-  }
-}
-
-/** The VERIFIER assignment, checked before anything is read or written. */
-function requireVerifierAssignment(actor: LifecycleActor, message: string): void {
-  if (!actor.assignments.includes(Assignment.VERIFIER)) {
-    throw new NotAuthorizedError(message);
-  }
-}
-
-/**
- * No Admin ever acts as Admin, and no Verifier as Verifier, on a Campaign
- * they own (CONTEXT.md, Admin and Verifier). On it they are only its
- * Fundraiser.
- */
-function requireNotOwner(
-  actor: LifecycleActor,
-  campaign: { creatorId: string },
-  capacity: OperatorCapacity
-): void {
-  if (campaign.creatorId === actor.userId) {
-    throw new OwnCampaignConflictError(capacity);
-  }
-}
 
 /** No such request on this Campaign (a request is always addressed through its Campaign). */
 export class CancellationRequestNotFoundError extends CampaignLifecycleError {
@@ -679,22 +804,6 @@ export type CancellationResult = LifecycleResult & {
 };
 
 /**
- * Serialises every Cancellation and Flag write on one Campaign: the "at most
- * one PENDING request", "no Payout COMPLETED", "Campaign still flaggable" and
- * "Flag still open" checks are reads that only stay true while this
- * transaction holds the Campaign row, the same pattern the balance-touching
- * Payout operations use (src/lib/money/payouts.ts). A Suspension's status
- * write takes the same row, so it serialises with these too.
- *
- * The Payout guarantee is only as strong as its writer: nothing marks a
- * Payout COMPLETED yet, and the endpoint that will must take this same
- * Campaign row lock, or a Payout could complete between check and write.
- */
-async function lockCampaignRow(tx: Tx, campaignId: string): Promise<void> {
-  await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${campaignId} FOR UPDATE`;
-}
-
-/**
  * The Fundraiser of an Active Campaign asks for its Cancellation, with a reason. Nothing
  * about the Campaign changes: it stays Active and keeps taking Donations
  * until an Admin decides, so a Fundraiser can never freeze their own Campaign.
@@ -709,37 +818,27 @@ export async function requestCancellation(
     now?: Date;
   }
 ): Promise<CancellationResult> {
-  const { campaignId, actor, now = new Date() } = params;
-  const reason = requireReason(params.reason);
-  await expireIfPastDeadline(prisma, campaignId, now);
-  return prisma.$transaction(async (tx) => {
-    // Lock first, then read: a status judged from a copy read before the
-    // lock could let a request land on a Campaign that was just suspended,
-    // after the leave-Active sweep that would have lapsed it has already run.
-    await lockCampaignRow(tx, campaignId);
-    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) throw new CampaignNotFoundError(campaignId);
-    if (campaign.creatorId !== actor.userId) {
-      throw new NotAuthorizedError(
-        "Hanya Fundraiser pemilik Campaign yang dapat mengajukan Cancellation."
-      );
-    }
-    const current = effectiveStatus(campaign, now);
-    if (current !== CampaignStatus.ACTIVE) {
-      throw new InvalidTransitionError(current);
-    }
-    const pending = await tx.cancellationRequest.findFirst({
-      where: { campaignId, status: CancellationRequestStatus.PENDING },
-    });
-    if (pending) throw new CancellationAlreadyPendingError();
-    const cancellationRequest = await tx.cancellationRequest.create({
-      data: { campaignId, requestedById: actor.userId, reason },
-    });
-    const updated = await tx.campaign.findUniqueOrThrow({
-      where: { id: campaignId },
-      select: CAMPAIGN_STATE,
-    });
-    return { campaign: updated, cancellationRequest };
+  return runCommand(prisma, {
+    campaignId: params.campaignId,
+    actor: params.actor,
+    now: params.now ?? new Date(),
+    authority: {
+      kind: "fundraiser",
+      message: "Hanya Fundraiser pemilik Campaign yang dapat mengajukan Cancellation.",
+    },
+    reasonPolicy: "required",
+    rawReason: params.reason,
+    allowedFrom: [CampaignStatus.ACTIVE],
+    step: async ({ tx, campaign, actor, reason, now }) => {
+      const pending = await tx.cancellationRequest.findFirst({
+        where: { campaignId: campaign.id, status: CancellationRequestStatus.PENDING },
+      });
+      if (pending) throw new CancellationAlreadyPendingError();
+      const cancellationRequest = await tx.cancellationRequest.create({
+        data: { campaignId: campaign.id, requestedById: actor.userId, reason, createdAt: now },
+      });
+      return { cancellationRequest };
+    },
   });
 }
 
@@ -780,68 +879,54 @@ export async function decideCancellation(
     now?: Date;
   }
 ): Promise<CancellationResult> {
-  const { campaignId, requestId, actor, now = new Date() } = params;
+  const { requestId } = params;
   const decision = CANCELLATION_DECISIONS[params.decision];
-  requireAdminAssignment(actor, "Hanya Admin yang dapat memutuskan pengajuan Cancellation.");
-  const reason = requireReason(params.reason);
-  await expireIfPastDeadline(prisma, campaignId, now);
-  return prisma.$transaction(async (tx) => {
-    // Lock first, then read, so every check below sees the Campaign and the
-    // request as they stand while this transaction holds the row.
-    await lockCampaignRow(tx, campaignId);
-    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign, StatusChangeCapacity.ADMIN);
-    const request = await tx.cancellationRequest.findUnique({ where: { id: requestId } });
-    if (!request || request.campaignId !== campaignId) {
-      throw new CancellationRequestNotFoundError(requestId);
-    }
-    if (request.status !== CancellationRequestStatus.PENDING) {
-      throw new CancellationNotPendingError(request.status);
-    }
-    if (decision.status === CancellationRequestStatus.APPROVED) {
-      const current = effectiveStatus(campaign, now);
-      if (current !== CampaignStatus.ACTIVE) {
-        throw new InvalidTransitionError(current);
+  return runCommand(prisma, {
+    campaignId: params.campaignId,
+    actor: params.actor,
+    now: params.now ?? new Date(),
+    authority: {
+      kind: "operator",
+      capacity: StatusChangeCapacity.ADMIN,
+      message: "Hanya Admin yang dapat memutuskan pengajuan Cancellation.",
+    },
+    reasonPolicy: "required",
+    rawReason: params.reason,
+    // The request is judged before the status: a missing or decided request
+    // answers as such whatever the Campaign's status, and only approval
+    // needs an Active Campaign.
+    step: async ({ tx, campaign, current, actor, reason, now, transition, notify }) => {
+      const request = await tx.cancellationRequest.findUnique({ where: { id: requestId } });
+      if (!request || request.campaignId !== campaign.id) {
+        throw new CancellationRequestNotFoundError(requestId);
       }
-      const completedPayouts = await tx.payout.count({
-        where: { campaignId, status: PayoutStatus.COMPLETED },
+      if (request.status !== CancellationRequestStatus.PENDING) {
+        throw new CancellationNotPendingError(request.status);
+      }
+      if (decision.status === CancellationRequestStatus.APPROVED) {
+        if (current !== CampaignStatus.ACTIVE) throw new InvalidTransitionError(current);
+        const completedPayouts = await tx.payout.count({
+          where: { campaignId: campaign.id, status: PayoutStatus.COMPLETED },
+        });
+        if (completedPayouts > 0) throw new PayoutAlreadyCompletedError();
+      }
+      // Decided before the status write, so the leave-Active hook's sweep of
+      // PENDING requests does not mark this very request SUPERSEDED.
+      const cancellationRequest = await tx.cancellationRequest.update({
+        where: { id: requestId },
+        data: {
+          status: decision.status,
+          decidedById: actor.userId,
+          decisionReason: reason,
+          decidedAt: now,
+        },
       });
-      if (completedPayouts > 0) throw new PayoutAlreadyCompletedError();
-    }
-    // Claimed before the status write, so the leave-Active hook's sweep of
-    // PENDING requests does not mark this very request SUPERSEDED.
-    const claimed = await tx.cancellationRequest.updateMany({
-      where: { id: requestId, status: CancellationRequestStatus.PENDING },
-      data: {
-        status: decision.status,
-        decidedById: actor.userId,
-        decisionReason: reason,
-        decidedAt: now,
-      },
-    });
-    if (claimed.count === 0) throw new ConcurrentTransitionError();
-    const updated =
-      decision.status === CancellationRequestStatus.APPROVED
-        ? await transition(tx, campaign, {
-            to: CampaignStatus.CANCELLED,
-            action: CampaignStatusChangeAction.CANCELLED,
-            actorId: actor.userId,
-            capacity: StatusChangeCapacity.ADMIN,
-            reason,
-          })
-        : await tx.campaign.findUniqueOrThrow({
-            where: { id: campaignId },
-            select: CAMPAIGN_STATE,
-          });
-    await notifyFundraiser(tx, campaign, actor.userId, {
-      title: decision.title,
-      message: decision.message(campaign.title, reason),
-    });
-    const cancellationRequest = await tx.cancellationRequest.findUniqueOrThrow({
-      where: { id: requestId },
-    });
-    return { campaign: updated, cancellationRequest };
+      if (decision.status === CancellationRequestStatus.APPROVED) {
+        await transition(CampaignStatus.CANCELLED, CampaignStatusChangeAction.CANCELLED);
+      }
+      await notify({ title: decision.title, message: decision.message(campaign.title, reason) });
+      return { cancellationRequest };
+    },
   });
 }
 
@@ -886,42 +971,38 @@ export async function suspendCampaign(
     now?: Date;
   }
 ): Promise<LifecycleResult> {
-  const { campaignId, actor, now = new Date() } = params;
-  requireAdminAssignment(actor, "Hanya Admin yang dapat menjatuhkan Suspension.");
-  const reason = requireReason(params.reason);
-  await expireIfPastDeadline(prisma, campaignId, now);
-  return prisma.$transaction(async (tx) => {
-    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign, StatusChangeCapacity.ADMIN);
-    const current = effectiveStatus(campaign, now);
-    if (!SUSPENDABLE.includes(current)) {
-      throw new InvalidTransitionError(current);
-    }
-    const updated = await transition(tx, campaign, {
-      to: CampaignStatus.SUSPENDED,
-      action: CampaignStatusChangeAction.SUSPENDED,
-      actorId: actor.userId,
+  return runCommand(prisma, {
+    campaignId: params.campaignId,
+    actor: params.actor,
+    now: params.now ?? new Date(),
+    authority: {
+      kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
-      reason,
-    });
-    // The Suspension is the decision every open Flag was waiting for.
-    // After transition(), which holds the row lock a Flag also takes, so a
-    // Flag committed before this point is seen and resolved here.
-    await tx.campaignFlag.updateMany({
-      where: { campaignId, resolution: null },
-      data: {
-        resolution: FlagResolution.SUSPENDED,
-        resolvedById: actor.userId,
-        resolutionReason: reason,
-        resolvedAt: now,
-      },
-    });
-    await notifyFundraiser(tx, campaign, actor.userId, {
-      title: "Campaign Dibekukan",
-      message: `Campaign "${campaign.title}" dibekukan (Suspended) oleh Admin. Alasan: ${reason}`,
-    });
-    return { campaign: updated };
+      message: "Hanya Admin yang dapat menjatuhkan Suspension.",
+    },
+    reasonPolicy: "required",
+    rawReason: params.reason,
+    allowedFrom: SUSPENDABLE,
+    step: async ({ tx, campaign, actor, reason, now, transition, notify }) => {
+      await transition(CampaignStatus.SUSPENDED, CampaignStatusChangeAction.SUSPENDED);
+      // The Suspension is the decision every open Flag was waiting for. A
+      // Flag takes the same row lock, so one committed before this command
+      // got the lock is seen and resolved here, and none can land after.
+      await tx.campaignFlag.updateMany({
+        where: { campaignId: campaign.id, resolution: null },
+        data: {
+          resolution: FlagResolution.SUSPENDED,
+          resolvedById: actor.userId,
+          resolutionReason: reason,
+          resolvedAt: now,
+        },
+      });
+      await notify({
+        title: "Campaign Dibekukan",
+        message: `Campaign "${campaign.title}" dibekukan (Suspended) oleh Admin. Alasan: ${reason}`,
+      });
+      return {};
+    },
   });
 }
 
@@ -942,46 +1023,42 @@ export async function liftSuspension(
     now?: Date;
   }
 ): Promise<LifecycleResult> {
-  const { campaignId, actor, now = new Date() } = params;
-  requireAdminAssignment(actor, "Hanya Admin yang dapat mencabut Suspension.");
-  const reason = requireReason(params.reason);
-  await expireIfPastDeadline(prisma, campaignId, now);
-  return prisma.$transaction(async (tx) => {
-    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign, StatusChangeCapacity.ADMIN);
-    const current = effectiveStatus(campaign, now);
-    if (current !== CampaignStatus.SUSPENDED) {
-      throw new InvalidTransitionError(current);
-    }
-    // The status before the Suspension lives in the log, not in a column
-    // (ADR 0015). A Suspension imposed before the log existed has no row;
-    // its prior status is unknown (the old Verifier suspend also reached
-    // Submitted Campaigns), so it is refused rather than guessed.
-    const suspension = await tx.campaignStatusChange.findFirst({
-      where: { campaignId, action: CampaignStatusChangeAction.SUSPENDED },
-      orderBy: { createdAt: "desc" },
-    });
-    if (!suspension?.fromStatus) throw new UnrecordedSuspensionError();
-    if (suspension.actorId === actor.userId) throw new SameAdminLiftError();
-    // A Campaign that was Active comes back only if its deadline still lies
-    // ahead; otherwise it can never take a Donation again and is Expired.
-    const to = effectiveStatus(
-      { lifecycleStatus: suspension.fromStatus, deadline: campaign.deadline },
-      now
-    );
-    const updated = await transition(tx, campaign, {
-      to,
-      action: CampaignStatusChangeAction.SUSPENSION_LIFTED,
-      actorId: actor.userId,
+  return runCommand(prisma, {
+    campaignId: params.campaignId,
+    actor: params.actor,
+    now: params.now ?? new Date(),
+    authority: {
+      kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
-      reason,
-    });
-    await notifyFundraiser(tx, campaign, actor.userId, {
-      title: "Suspension Dicabut",
-      message: `Suspension atas Campaign "${campaign.title}" telah dicabut oleh Admin. Campaign kini ${STATUS_LABEL[to]}. Alasan: ${reason}`,
-    });
-    return { campaign: updated };
+      message: "Hanya Admin yang dapat mencabut Suspension.",
+    },
+    reasonPolicy: "required",
+    rawReason: params.reason,
+    allowedFrom: [CampaignStatus.SUSPENDED],
+    step: async ({ tx, campaign, actor, reason, now, transition, notify }) => {
+      // The status before the Suspension lives in the log, not in a column
+      // (ADR 0015). A Suspension imposed before the log existed has no row;
+      // its prior status is unknown (the old Verifier suspend also reached
+      // Submitted Campaigns), so it is refused rather than guessed.
+      const suspension = await tx.campaignStatusChange.findFirst({
+        where: { campaignId: campaign.id, action: CampaignStatusChangeAction.SUSPENDED },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!suspension?.fromStatus) throw new UnrecordedSuspensionError();
+      if (suspension.actorId === actor.userId) throw new SameAdminLiftError();
+      // A Campaign that was Active comes back only if its deadline still lies
+      // ahead; otherwise it can never take a Donation again and is Expired.
+      const to = effectiveStatus(
+        { lifecycleStatus: suspension.fromStatus, deadline: campaign.deadline },
+        now
+      );
+      await transition(to, CampaignStatusChangeAction.SUSPENSION_LIFTED);
+      await notify({
+        title: "Suspension Dicabut",
+        message: `Suspension atas Campaign "${campaign.title}" telah dicabut oleh Admin. Campaign kini ${STATUS_LABEL[to]}. Alasan: ${reason}`,
+      });
+      return {};
+    },
   });
 }
 
@@ -1008,45 +1085,44 @@ export async function setUrgent(
     now?: Date;
   }
 ): Promise<LifecycleResult> {
-  const { campaignId, actor, urgent, now = new Date() } = params;
-  requireAdminAssignment(actor, "Hanya Admin yang dapat memasang atau melepas Urgent.");
-  const reason = requireReason(params.reason);
-  await expireIfPastDeadline(prisma, campaignId, now);
-  return prisma.$transaction(async (tx) => {
-    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign, StatusChangeCapacity.ADMIN);
-    const current = effectiveStatus(campaign, now);
-    if (urgent && current !== CampaignStatus.ACTIVE) {
-      throw new InvalidTransitionError(current);
-    }
-    const state = () =>
-      tx.campaign.findUniqueOrThrow({ where: { id: campaign.id }, select: CAMPAIGN_STATE });
-    if (campaign.isUrgent === urgent) {
-      return { campaign: await state() };
-    }
-    // Predicated on both the status and the flag this command judged: if
-    // another request moved the Campaign out of Active, or flipped the flag,
-    // in between, nothing matches and this command loses.
-    const written = await tx.campaign.updateMany({
-      where: { id: campaign.id, lifecycleStatus: campaign.lifecycleStatus, isUrgent: !urgent },
-      data: { isUrgent: urgent },
-    });
-    if (written.count === 0) throw new ConcurrentTransitionError();
-    await tx.campaignStatusChange.create({
-      data: {
-        campaignId: campaign.id,
-        action: urgent
-          ? CampaignStatusChangeAction.URGENT_SET
-          : CampaignStatusChangeAction.URGENT_CLEARED,
-        fromStatus: null,
-        toStatus: null,
-        actorId: actor.userId,
-        capacity: StatusChangeCapacity.ADMIN,
-        reason,
-      },
-    });
-    return { campaign: await state() };
+  const { urgent } = params;
+  return runCommand(prisma, {
+    campaignId: params.campaignId,
+    actor: params.actor,
+    now: params.now ?? new Date(),
+    authority: {
+      kind: "operator",
+      capacity: StatusChangeCapacity.ADMIN,
+      message: "Hanya Admin yang dapat memasang atau melepas Urgent.",
+    },
+    reasonPolicy: "required",
+    rawReason: params.reason,
+    allowedFrom: urgent ? [CampaignStatus.ACTIVE] : undefined,
+    step: async ({ tx, campaign, actor, reason, now }) => {
+      if (campaign.isUrgent === urgent) return {};
+      // Predicated on the status and the flag this command judged, like
+      // transition's status write.
+      const written = await tx.campaign.updateMany({
+        where: { id: campaign.id, lifecycleStatus: campaign.lifecycleStatus, isUrgent: !urgent },
+        data: { isUrgent: urgent },
+      });
+      if (written.count === 0) throw new ConcurrentTransitionError();
+      await tx.campaignStatusChange.create({
+        data: {
+          campaignId: campaign.id,
+          action: urgent
+            ? CampaignStatusChangeAction.URGENT_SET
+            : CampaignStatusChangeAction.URGENT_CLEARED,
+          fromStatus: null,
+          toStatus: null,
+          actorId: actor.userId,
+          capacity: StatusChangeCapacity.ADMIN,
+          reason,
+          createdAt: now,
+        },
+      });
+      return {};
+    },
   });
 }
 
@@ -1112,32 +1188,27 @@ export async function flagCampaign(
     now?: Date;
   }
 ): Promise<FlagResult> {
-  const { campaignId, actor, now = new Date() } = params;
-  requireVerifierAssignment(actor, "Hanya Verifier yang dapat memasang Flag pada Campaign.");
-  const reason = requireReason(params.reason);
-  await expireIfPastDeadline(prisma, campaignId, now);
-  return prisma.$transaction(async (tx) => {
-    // Lock first, then read. A Suspension's status write takes this row, so
-    // the two serialise: either the Suspension commits first and this Flag
-    // is refused, or this Flag commits first and the Suspension resolves it.
-    // Without the lock a Flag could land open on a just-suspended Campaign,
-    // after the sweep that would have resolved it.
-    await lockCampaignRow(tx, campaignId);
-    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign, StatusChangeCapacity.VERIFIER);
-    const current = effectiveStatus(campaign, now);
-    if (!FLAGGABLE.includes(current)) {
-      throw new InvalidTransitionError(current);
-    }
-    const flag = await tx.campaignFlag.create({
-      data: { campaignId, verifierId: actor.userId, reason },
-    });
-    const updated = await tx.campaign.findUniqueOrThrow({
-      where: { id: campaignId },
-      select: CAMPAIGN_STATE,
-    });
-    return { campaign: updated, flag };
+  return runCommand(prisma, {
+    campaignId: params.campaignId,
+    actor: params.actor,
+    now: params.now ?? new Date(),
+    authority: {
+      kind: "operator",
+      capacity: StatusChangeCapacity.VERIFIER,
+      message: "Hanya Verifier yang dapat memasang Flag pada Campaign.",
+    },
+    reasonPolicy: "required",
+    rawReason: params.reason,
+    // Under the row lock a Suspension serialises with this Flag: either it
+    // committed first and this Flag is refused, or this Flag commits first
+    // and the Suspension resolves it.
+    allowedFrom: FLAGGABLE,
+    step: async ({ tx, campaign, actor, reason, now }) => {
+      const flag = await tx.campaignFlag.create({
+        data: { campaignId: campaign.id, verifierId: actor.userId, reason, createdAt: now },
+      });
+      return { flag };
+    },
   });
 }
 
@@ -1157,40 +1228,34 @@ export async function dismissFlag(
     now?: Date;
   }
 ): Promise<FlagResult> {
-  const { campaignId, flagId, actor, now = new Date() } = params;
-  requireAdminAssignment(actor, "Hanya Admin yang dapat menolak Flag.");
-  const reason = requireReason(params.reason);
-  await expireIfPastDeadline(prisma, campaignId, now);
-  return prisma.$transaction(async (tx) => {
-    // Lock first, then read: a Suspension resolving this Flag holds the same
-    // row from its status write to its commit, so the check below sees
-    // whatever that Suspension decided, and the two never both resolve it.
-    await lockCampaignRow(tx, campaignId);
-    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign, StatusChangeCapacity.ADMIN);
-    const existing = await tx.campaignFlag.findUnique({ where: { id: flagId } });
-    if (!existing || existing.campaignId !== campaignId) throw new FlagNotFoundError(flagId);
-    if (existing.resolution !== null) {
-      throw new FlagAlreadyResolvedError(existing.resolution);
-    }
-    // Predicated on the Flag still being open, like the Cancellation claim:
-    // a second guard should a writer ever resolve Flags without the lock.
-    const claimed = await tx.campaignFlag.updateMany({
-      where: { id: flagId, resolution: null },
-      data: {
-        resolution: FlagResolution.DISMISSED,
-        resolvedById: actor.userId,
-        resolutionReason: reason,
-        resolvedAt: now,
-      },
-    });
-    if (claimed.count === 0) throw new ConcurrentTransitionError();
-    const updated = await tx.campaign.findUniqueOrThrow({
-      where: { id: campaignId },
-      select: CAMPAIGN_STATE,
-    });
-    const flag = await tx.campaignFlag.findUniqueOrThrow({ where: { id: flagId } });
-    return { campaign: updated, flag };
+  const { flagId } = params;
+  return runCommand(prisma, {
+    campaignId: params.campaignId,
+    actor: params.actor,
+    now: params.now ?? new Date(),
+    authority: {
+      kind: "operator",
+      capacity: StatusChangeCapacity.ADMIN,
+      message: "Hanya Admin yang dapat menolak Flag.",
+    },
+    reasonPolicy: "required",
+    rawReason: params.reason,
+    step: async ({ tx, campaign, actor, reason, now }) => {
+      const existing = await tx.campaignFlag.findUnique({ where: { id: flagId } });
+      if (!existing || existing.campaignId !== campaign.id) throw new FlagNotFoundError(flagId);
+      if (existing.resolution !== null) {
+        throw new FlagAlreadyResolvedError(existing.resolution);
+      }
+      const flag = await tx.campaignFlag.update({
+        where: { id: flagId },
+        data: {
+          resolution: FlagResolution.DISMISSED,
+          resolvedById: actor.userId,
+          resolutionReason: reason,
+          resolvedAt: now,
+        },
+      });
+      return { flag };
+    },
   });
 }

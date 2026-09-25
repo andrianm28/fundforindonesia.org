@@ -265,7 +265,7 @@ export function makeCampaignDb(
           if (!row) throw new Error('No CancellationRequest found');
           return { ...row };
         },
-        create: async ({ data }: { data: Pick<CancellationRequestRow, 'campaignId' | 'requestedById' | 'reason'> }) => {
+        create: async ({ data }: { data: Pick<CancellationRequestRow, 'campaignId' | 'requestedById' | 'reason'> & { createdAt?: Date } }) => {
           const row: CancellationRequestRow = {
             id: `request-${nextId++}`,
             status: 'PENDING',
@@ -276,6 +276,12 @@ export function makeCampaignDb(
             ...data,
           };
           getData().cancellationRequests.push(row);
+          return { ...row };
+        },
+        update: async ({ where, data }: { where: Where; data: Partial<CancellationRequestRow> }) => {
+          const row = getData().cancellationRequests.find((r) => matches(r, where));
+          if (!row) throw new Error('No CancellationRequest found');
+          Object.assign(row, data);
           return { ...row };
         },
         updateMany: async ({ where, data }: { where: Where; data: Partial<CancellationRequestRow> }) => {
@@ -294,7 +300,7 @@ export function makeCampaignDb(
           if (!row) throw new Error('No CampaignFlag found');
           return { ...row };
         },
-        create: async ({ data }: { data: Pick<CampaignFlagRow, 'campaignId' | 'verifierId' | 'reason'> }) => {
+        create: async ({ data }: { data: Pick<CampaignFlagRow, 'campaignId' | 'verifierId' | 'reason'> & { createdAt?: Date } }) => {
           const row: CampaignFlagRow = {
             id: `flag-${nextId++}`,
             createdAt: new Date(),
@@ -305,6 +311,12 @@ export function makeCampaignDb(
             ...data,
           };
           getData().campaignFlags.push(row);
+          return { ...row };
+        },
+        update: async ({ where, data }: { where: Where; data: Partial<CampaignFlagRow> }) => {
+          const row = getData().campaignFlags.find((f) => matches(f, where));
+          if (!row) throw new Error('No CampaignFlag found');
+          Object.assign(row, data);
           return { ...row };
         },
         updateMany: async ({ where, data }: { where: Where; data: Partial<CampaignFlagRow> }) => {
@@ -326,20 +338,11 @@ export function makeCampaignDb(
           pendingLockInterleave = null;
           interleave(committed);
           // Waiting for the lock let the other writer commit; every read
-          // after the lock sees it, as READ COMMITTED does in Postgres.
-          const current = getData();
-          for (const row of current.campaigns) {
-            const fresh = committed.campaigns.find((c) => c.id === row.id);
-            if (fresh) Object.assign(row, fresh);
-          }
-          for (const row of current.cancellationRequests) {
-            const fresh = committed.cancellationRequests.find((r) => r.id === row.id);
-            if (fresh) Object.assign(row, fresh);
-          }
-          for (const row of current.campaignFlags) {
-            const fresh = committed.campaignFlags.find((f) => f.id === row.id);
-            if (fresh) Object.assign(row, fresh);
-          }
+          // after the lock sees it, rows it changed and rows it added, as
+          // READ COMMITTED does in Postgres. Every lifecycle command takes
+          // this lock before its first read or write, so there is nothing
+          // of our own in the working copy for this to overwrite.
+          Object.assign(getData(), clone(committed));
         }
         rowLocks.push(`${table}:${String(values[0])}`);
         return [{ id: values[0] }];
