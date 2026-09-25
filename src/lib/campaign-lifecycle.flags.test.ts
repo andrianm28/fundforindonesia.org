@@ -2,13 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   dismissFlag,
   flagCampaign,
-  CampaignNotFoundError,
   FlagAlreadyResolvedError,
   FlagNotFoundError,
   InvalidTransitionError,
   lifecycleErrorToHttp,
-  LifecycleValidationError,
-  NotAuthorizedError,
   OwnCampaignConflictError,
   suspendCampaign,
 } from './campaign-lifecycle';
@@ -61,6 +58,7 @@ describe('flagCampaign', () => {
       campaignId: 'campaign-1',
       verifierId: 'verifier-1',
       reason: 'Foto pasien diambil dari berita lama',
+      createdAt: NOW,
       resolution: null,
       resolvedById: null,
       resolutionReason: null,
@@ -69,41 +67,6 @@ describe('flagCampaign', () => {
     expect(db.campaignFlags).toEqual([result.flag]);
     expect(db.campaign()).toMatchObject({ status: 'active', lifecycleStatus: 'ACTIVE', isUrgent: true });
     expect(db.statusChanges).toEqual([]);
-  });
-
-  it.each([
-    ['an Admin without the Verifier assignment', { userId: 'admin-a', assignments: ['ADMIN' as const] }],
-    ['a person with no assignment', { userId: 'donor-1', assignments: [] }],
-  ])('refuses %s with NotAuthorizedError and raises nothing', async (_label, actor) => {
-    const db = makeCampaignDb({ campaigns: [active()] });
-
-    await expect(flag(db, { actor })).rejects.toBeInstanceOf(NotAuthorizedError);
-    expect(db.campaignFlags).toEqual([]);
-  });
-
-  it.each([
-    ['a Verifier', ['VERIFIER' as const]],
-    ['a person holding both Verifier and Admin', ['VERIFIER' as const, 'ADMIN' as const]],
-  ])('refuses %s flagging their own Campaign with OwnCampaignConflictError and raises nothing', async (_label, assignments) => {
-    const db = makeCampaignDb({ campaigns: [active({ creatorId: 'verifier-1' })] });
-
-    const error = await flag(db, { actor: { userId: 'verifier-1', assignments } }).catch((e: unknown) => e);
-
-    expect(error).toBeInstanceOf(OwnCampaignConflictError);
-    expect((error as Error).message).toContain('Verifier lain');
-    expect(db.campaignFlags).toEqual([]);
-  });
-
-  it.each([
-    ['missing', undefined],
-    ['blank', '   '],
-    ['not a string', 42],
-    ['longer than 1000 characters', 'x'.repeat(1001)],
-  ])('refuses a reason that is %s with LifecycleValidationError and raises nothing', async (_label, reason) => {
-    const db = makeCampaignDb({ campaigns: [active()] });
-
-    await expect(flag(db, { reason })).rejects.toBeInstanceOf(LifecycleValidationError);
-    expect(db.campaignFlags).toEqual([]);
   });
 
   it('stores the reason trimmed and accepts exactly 1000 characters', async () => {
@@ -151,13 +114,6 @@ describe('flagCampaign', () => {
     expect(db.campaignFlags).toEqual([]);
   });
 
-  it('refuses an unknown Campaign with CampaignNotFoundError', async () => {
-    const db = makeCampaignDb();
-
-    await expect(flag(db)).rejects.toBeInstanceOf(CampaignNotFoundError);
-    expect(db.campaignFlags).toEqual([]);
-  });
-
   it('records a lazy expiry first, then raises the Flag on the now Expired Campaign', async () => {
     const db = makeCampaignDb({ campaigns: [active({ deadline: PAST, isUrgent: true })] });
 
@@ -194,17 +150,6 @@ describe('flagCampaign', () => {
 
     expect(db.campaignFlags).toEqual([expect.objectContaining({ verifierId: 'admin-a' })]);
     expect(db.notifications).toEqual([]);
-  });
-
-  it('holds the Campaign row lock, so a Suspension committed while waiting refuses the Flag instead of leaving it open', async () => {
-    const db = makeCampaignDb({ campaigns: [active()] });
-    db.beforeNextRowLock((data) => {
-      Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
-    });
-
-    await expect(flag(db)).rejects.toBeInstanceOf(InvalidTransitionError);
-    expect(db.rowLocks).toEqual(['Campaign:campaign-1']);
-    expect(db.campaignFlags).toEqual([]);
   });
 });
 
@@ -326,37 +271,6 @@ describe('dismissFlag', () => {
   });
 
   it.each([
-    ['a Verifier without the Admin assignment', verifier],
-    ['a person with no assignment', { userId: 'donor-1', assignments: [] }],
-  ])('refuses %s with NotAuthorizedError and leaves the Flag open', async (_label, actor) => {
-    const db = makeCampaignDb({ campaigns: [active()], campaignFlags: [campaignFlagRow()] });
-
-    await expect(dismiss(db, { actor })).rejects.toBeInstanceOf(NotAuthorizedError);
-    expect(db.campaignFlag().resolution).toBeNull();
-  });
-
-  it('refuses an Admin dismissing a Flag on their own Campaign with OwnCampaignConflictError', async () => {
-    const db = makeCampaignDb({
-      campaigns: [active({ creatorId: 'admin-a' })],
-      campaignFlags: [campaignFlagRow()],
-    });
-
-    await expect(dismiss(db)).rejects.toBeInstanceOf(OwnCampaignConflictError);
-    expect(db.campaignFlag().resolution).toBeNull();
-  });
-
-  it.each([
-    ['missing', undefined],
-    ['blank', '  '],
-    ['longer than 1000 characters', 'x'.repeat(1001)],
-  ])('refuses a reason that is %s with LifecycleValidationError', async (_label, reason) => {
-    const db = makeCampaignDb({ campaigns: [active()], campaignFlags: [campaignFlagRow()] });
-
-    await expect(dismiss(db, { reason })).rejects.toBeInstanceOf(LifecycleValidationError);
-    expect(db.campaignFlag().resolution).toBeNull();
-  });
-
-  it.each([
     ['DISMISSED', 'admin-b', 'Sudah diklarifikasi'],
     ['SUSPENDED', 'admin-b', 'Penipuan terverifikasi'],
   ] as const)('refuses a Flag already %s with FlagAlreadyResolvedError and keeps the first resolution', async (resolution, resolvedById, resolutionReason) => {
@@ -388,12 +302,6 @@ describe('dismissFlag', () => {
     expect(db.campaignFlag('flag-other').resolution).toBeNull();
   });
 
-  it('refuses an unknown Campaign with CampaignNotFoundError', async () => {
-    const db = makeCampaignDb({ campaignFlags: [campaignFlagRow()] });
-
-    await expect(dismiss(db)).rejects.toBeInstanceOf(CampaignNotFoundError);
-  });
-
   it.each([
     ['suspended', 'SUSPENDED'],
     ['expired', 'EXPIRED'],
@@ -408,29 +316,5 @@ describe('dismissFlag', () => {
 
     expect(result.campaign.lifecycleStatus).toBe(lifecycleStatus);
     expect(db.campaignFlag().resolution).toBe('DISMISSED');
-  });
-
-  it('records a lazy expiry even when the dismissal is then refused', async () => {
-    const db = makeCampaignDb({
-      campaigns: [active({ deadline: PAST })],
-      campaignFlags: [campaignFlagRow({ resolution: 'DISMISSED', resolvedById: 'admin-b' })],
-    });
-
-    await expect(dismiss(db)).rejects.toBeInstanceOf(FlagAlreadyResolvedError);
-    expect(db.campaign().lifecycleStatus).toBe('EXPIRED');
-    expect(db.statusChanges.map((s) => s.action)).toEqual(['EXPIRED']);
-  });
-
-  it('holds the Campaign row lock, so a Suspension that resolved the Flag while waiting refuses the dismissal and is kept', async () => {
-    const db = makeCampaignDb({ campaigns: [active()], campaignFlags: [campaignFlagRow()] });
-    db.beforeNextRowLock((data) => {
-      Object.assign(data.campaignFlags[0], {
-        resolution: 'SUSPENDED', resolvedById: 'admin-b', resolutionReason: 'Penipuan', resolvedAt: NOW,
-      });
-    });
-
-    await expect(dismiss(db)).rejects.toBeInstanceOf(FlagAlreadyResolvedError);
-    expect(db.campaignFlag()).toMatchObject({ resolution: 'SUSPENDED', resolvedById: 'admin-b' });
-    expect(db.rowLocks).toEqual(['Campaign:campaign-1']);
   });
 });

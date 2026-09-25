@@ -43,7 +43,6 @@ const REASON = 'Alasan yang cukup jelas.';
 
 const verifier: LifecycleActor = { userId: 'verifier-1', assignments: ['VERIFIER'] };
 const admin: LifecycleActor = { userId: 'admin-1', assignments: ['ADMIN'] };
-const otherAdmin: LifecycleActor = { userId: 'admin-2', assignments: ['ADMIN'] };
 const nobody: LifecycleActor = { userId: 'someone-1', assignments: [] };
 const owner: LifecycleActor = { userId: 'creator-1', assignments: [] };
 /** The Campaign's own Fundraiser, holding every operator assignment. */

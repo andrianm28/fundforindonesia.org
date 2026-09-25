@@ -189,6 +189,9 @@ export function makeCampaignDb(
   // Runs once, immediately before the next Campaign write, against the
   // COMMITTED data: a concurrent request that committed between our read
   // and our write. Used to prove the status predicate, not to script calls.
+  // Only a writer without the Campaign row lock can meet this schedule in
+  // Postgres (lazy expiry); a lifecycle command holds the lock from before
+  // its read, so model its competitors with beforeNextRowLock instead.
   let pendingInterleave: ((data: Data) => void) | null = null;
 
   function client(getData: () => Data) {

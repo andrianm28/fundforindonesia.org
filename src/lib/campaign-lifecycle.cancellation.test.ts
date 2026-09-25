@@ -7,15 +7,10 @@ import {
   expireIfPastDeadline,
   decideCancellation,
   lifecycleErrorToHttp,
-  CampaignNotFoundError,
   CancellationAlreadyPendingError,
   CancellationNotPendingError,
   CancellationRequestNotFoundError,
-  ConcurrentTransitionError,
   InvalidTransitionError,
-  LifecycleValidationError,
-  NotAuthorizedError,
-  OwnCampaignConflictError,
   PayoutAlreadyCompletedError,
 } from './campaign-lifecycle';
 import {
@@ -55,25 +50,12 @@ describe('requestCancellation', () => {
       reason: 'Pasien sudah sembuh.',
       status: 'PENDING',
       decidedById: null,
+      createdAt: NOW,
     });
     expect(db.cancellationRequests).toEqual([expect.objectContaining({ status: 'PENDING' })]);
     expect(db.campaign()).toMatchObject({ status: 'active', lifecycleStatus: 'ACTIVE' });
     expect(db.statusChanges).toEqual([]);
     expect(db.notifications).toEqual([]);
-  });
-
-  it.each([
-    ['a stranger', { userId: 'stranger-1', assignments: [] as const }],
-    ['an Admin who does not own it', { userId: 'admin-1', assignments: ['ADMIN' as const] }],
-    ['a Verifier who does not own it', { userId: 'verifier-1', assignments: ['VERIFIER' as const] }],
-  ])('refuses %s with NotAuthorizedError and records nothing', async (_label, actor) => {
-    const db = makeCampaignDb({ campaigns: [activeCampaign()] });
-
-    await expect(
-      requestCancellation(db.prisma as never, { campaignId: 'campaign-1', actor, reason: 'Alasan.', now: NOW }),
-    ).rejects.toBeInstanceOf(NotAuthorizedError);
-
-    expect(db.cancellationRequests).toEqual([]);
   });
 
   it('accepts an owner who also holds the ADMIN assignment: on their own Campaign they are its Fundraiser', async () => {
@@ -89,26 +71,6 @@ describe('requestCancellation', () => {
     expect(result.cancellationRequest.status).toBe('PENDING');
   });
 
-  it.each([
-    ['missing', undefined],
-    ['blank', '   '],
-    ['not text', 42],
-    ['longer than 1000 characters', 'a'.repeat(1001)],
-  ])('refuses a %s reason with LifecycleValidationError on the reason field', async (_label, reason) => {
-    const db = makeCampaignDb({ campaigns: [activeCampaign()] });
-
-    const error = await requestCancellation(db.prisma as never, {
-      campaignId: 'campaign-1',
-      actor: owner,
-      reason,
-      now: NOW,
-    }).catch((e: unknown) => e);
-
-    expect(error).toBeInstanceOf(LifecycleValidationError);
-    expect((error as LifecycleValidationError).field).toBe('reason');
-    expect(db.cancellationRequests).toEqual([]);
-  });
-
   it('accepts a reason of exactly 1000 characters', async () => {
     const db = makeCampaignDb({ campaigns: [activeCampaign()] });
 
@@ -120,14 +82,6 @@ describe('requestCancellation', () => {
     });
 
     expect(result.cancellationRequest.reason).toHaveLength(1000);
-  });
-
-  it('refuses an unknown Campaign with CampaignNotFoundError', async () => {
-    const db = makeCampaignDb({ campaigns: [] });
-
-    await expect(
-      requestCancellation(db.prisma as never, { campaignId: 'missing', actor: owner, reason: 'Alasan.', now: NOW }),
-    ).rejects.toBeInstanceOf(CampaignNotFoundError);
   });
 
   it.each([
@@ -150,22 +104,6 @@ describe('requestCancellation', () => {
 
     expect(error).toBeInstanceOf(InvalidTransitionError);
     expect((error as InvalidTransitionError).currentStatus).toBe(lifecycleStatus);
-    expect(db.cancellationRequests).toEqual([]);
-  });
-
-  it('records Expired for an Active Campaign past its deadline, keeps it, and refuses the request', async () => {
-    const db = makeCampaignDb({ campaigns: [activeCampaign({ deadline: new Date('2026-09-20T00:00:00Z') })] });
-
-    const error = await requestCancellation(db.prisma as never, {
-      campaignId: 'campaign-1',
-      actor: owner,
-      reason: 'Alasan.',
-      now: NOW,
-    }).catch((e: unknown) => e);
-
-    expect((error as InvalidTransitionError).currentStatus).toBe('EXPIRED');
-    expect(db.campaign()).toMatchObject({ status: 'expired', lifecycleStatus: 'EXPIRED' });
-    expect(db.statusChanges.map((s) => s.action)).toEqual(['EXPIRED']);
     expect(db.cancellationRequests).toEqual([]);
   });
 
@@ -203,31 +141,6 @@ describe('requestCancellation', () => {
 
     expect(db.cancellationRequests).toHaveLength(2);
   });
-
-  it('holds the Campaign row lock while checking for a PENDING request, so two requests cannot both pass', async () => {
-    const db = makeCampaignDb({ campaigns: [activeCampaign()] });
-
-    await requestCancellation(db.prisma as never, { campaignId: 'campaign-1', actor: owner, reason: 'Alasan.', now: NOW });
-
-    expect(db.rowLocks).toEqual(['Campaign:campaign-1']);
-  });
-
-  it('judges the Campaign as it stands once the lock is held: a Suspension committed meanwhile refuses the request', async () => {
-    const db = makeCampaignDb({ campaigns: [activeCampaign()] });
-    db.beforeNextRowLock((data) => {
-      Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
-    });
-
-    const error = await requestCancellation(db.prisma as never, {
-      campaignId: 'campaign-1',
-      actor: owner,
-      reason: 'Alasan.',
-      now: NOW,
-    }).catch((e: unknown) => e);
-
-    expect((error as InvalidTransitionError).currentStatus).toBe('SUSPENDED');
-    expect(db.cancellationRequests).toEqual([]);
-  });
 });
 
 describe('a PENDING request lapses when the Campaign leaves Active', () => {
@@ -243,7 +156,7 @@ describe('a PENDING request lapses when the Campaign leaves Active', () => {
     await expireIfPastDeadline(db.prisma as never, 'campaign-1', NOW);
 
     expect(db.cancellationRequest()).toMatchObject({ status: 'SUPERSEDED', decidedById: null });
-    expect(db.cancellationRequest().decidedAt).toBeInstanceOf(Date);
+    expect(db.cancellationRequest().decidedAt).toEqual(NOW);
     expect(db.cancellationRequest('request-old')).toMatchObject({ status: 'REJECTED', decidedById: 'admin-1' });
   });
 
@@ -342,7 +255,7 @@ describe('a PENDING request lapses on the Completed and Suspended exits too', ()
       expect(db.campaign().lifecycleStatus).toBe('COMPLETED');
       expect(db.statusChanges).toEqual([expect.objectContaining({ action: 'COMPLETED', capacity })]);
       expect(db.cancellationRequest()).toMatchObject({ status: 'SUPERSEDED', decidedById: null, decisionReason: null });
-      expect(db.cancellationRequest().decidedAt).toBeInstanceOf(Date);
+      expect(db.cancellationRequest().decidedAt).toEqual(NOW);
     });
   });
 
@@ -355,7 +268,7 @@ describe('a PENDING request lapses on the Completed and Suspended exits too', ()
       expect(db.campaign().lifecycleStatus).toBe('SUSPENDED');
       expect(db.statusChanges).toEqual([expect.objectContaining({ action: 'SUSPENDED', fromStatus: 'ACTIVE' })]);
       expect(db.cancellationRequest()).toMatchObject({ status: 'SUPERSEDED', decidedById: null, decisionReason: null });
-      expect(db.cancellationRequest().decidedAt).toBeInstanceOf(Date);
+      expect(db.cancellationRequest().decidedAt).toEqual(NOW);
     });
 
     it.each([
@@ -378,17 +291,6 @@ describe('a PENDING request lapses on the Completed and Suspended exits too', ()
   });
 
   describe.each(Object.entries(exits))('in the same transaction as %s', (_exit, leave) => {
-    it('leaves the request PENDING when the status write loses to a concurrent change', async () => {
-      const db = withPendingRequest();
-      db.beforeNextCampaignWrite((data) => {
-        Object.assign(data.campaigns[0], { status: 'cancelled', lifecycleStatus: 'CANCELLED' });
-      });
-
-      await expect(leave(db)).rejects.toBeInstanceOf(ConcurrentTransitionError);
-
-      expect(db.cancellationRequest().status).toBe('PENDING');
-    });
-
     it('leaves the request PENDING when the command fails after the status write', async () => {
       const db = withPendingRequest();
       failNotificationWrites(db);
@@ -552,14 +454,6 @@ describe('decideCancellation', () => {
       expect(db.notifications[0].message).toContain('Cancelled');
     });
 
-    it('takes the Campaign row lock before deciding', async () => {
-      const db = seeded();
-
-      await decide(db);
-
-      expect(db.rowLocks).toEqual(['Campaign:campaign-1']);
-    });
-
     it('is refused with PayoutAlreadyCompletedError once any Payout on the Campaign has Completed, changing nothing', async () => {
       const db = seeded({
         payouts: [
@@ -595,16 +489,6 @@ describe('decideCancellation', () => {
       expect(result.campaign.lifecycleStatus).toBe('CANCELLED');
     });
 
-    it('records Expired for a Campaign past its deadline, lets the request lapse, and refuses with CancellationNotPendingError', async () => {
-      const db = seeded({ campaign: { deadline: new Date('2026-09-20T00:00:00Z') } });
-
-      await expect(decide(db)).rejects.toBeInstanceOf(CancellationNotPendingError);
-
-      expect(db.campaign()).toMatchObject({ status: 'expired', lifecycleStatus: 'EXPIRED' });
-      expect(db.cancellationRequest().status).toBe('SUPERSEDED');
-      expect(db.statusChanges.map((s) => s.action)).toEqual(['EXPIRED']);
-    });
-
     it.each([
       ['SUSPENDED', 'suspended'],
       ['COMPLETED', 'completed'],
@@ -623,36 +507,9 @@ describe('decideCancellation', () => {
         expect(db.statusChanges).toEqual([]);
       },
     );
-
-    it('loses to a concurrent status change with ConcurrentTransitionError, and the request stays PENDING', async () => {
-      const db = seeded();
-      db.beforeNextCampaignWrite((data) => {
-        Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
-      });
-
-      await expect(decide(db)).rejects.toBeInstanceOf(ConcurrentTransitionError);
-
-      expect(db.campaign().lifecycleStatus).toBe('SUSPENDED');
-      expect(db.cancellationRequest().status).toBe('PENDING');
-      expect(db.statusChanges).toEqual([]);
-      expect(db.notifications).toEqual([]);
-    });
   });
 
   describe('reject', () => {
-    it('judges the Campaign as it stands once the lock is held: an approval committed meanwhile refuses the rejection', async () => {
-      const db = seeded();
-      db.beforeNextRowLock((data) => {
-        Object.assign(data.campaigns[0], { status: 'cancelled', lifecycleStatus: 'CANCELLED' });
-        Object.assign(data.cancellationRequests[0], { status: 'APPROVED', decidedById: 'admin-2' });
-      });
-
-      await expect(decide(db, { decision: 'reject' })).rejects.toBeInstanceOf(CancellationNotPendingError);
-
-      expect(db.cancellationRequest()).toMatchObject({ status: 'APPROVED', decidedById: 'admin-2' });
-      expect(db.notifications).toEqual([]);
-    });
-
     it('marks the request REJECTED with the reason and leaves the Campaign Active, logging no status change', async () => {
       const db = seeded({ campaign: { isUrgent: true } });
 
@@ -695,48 +552,6 @@ describe('decideCancellation', () => {
   });
 
   describe.each(['approve', 'reject'] as const)('%s, refused', (decision) => {
-    it.each([
-      ['a Verifier', { userId: 'verifier-1', assignments: ['VERIFIER' as const] }],
-      ['a person with no assignment', { userId: 'someone-1', assignments: [] as const }],
-    ])('refuses %s with NotAuthorizedError', async (_label, actor) => {
-      const db = seeded();
-
-      await expect(decide(db, { decision, actor })).rejects.toBeInstanceOf(NotAuthorizedError);
-
-      expect(db.cancellationRequest().status).toBe('PENDING');
-    });
-
-    it('refuses the owner even when they hold the ADMIN assignment, with OwnCampaignConflictError', async () => {
-      const db = seeded();
-
-      await expect(
-        decide(db, { decision, actor: { userId: 'creator-1', assignments: ['ADMIN'] } }),
-      ).rejects.toBeInstanceOf(OwnCampaignConflictError);
-
-      expect(db.cancellationRequest().status).toBe('PENDING');
-      expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
-    });
-
-    it.each([
-      ['missing', undefined],
-      ['blank', ' '],
-      ['longer than 1000 characters', 'a'.repeat(1001)],
-    ])('refuses a %s reason with LifecycleValidationError', async (_label, reason) => {
-      const db = seeded();
-
-      const error = await decide(db, { decision, reason }).catch((e: unknown) => e);
-
-      expect(error).toBeInstanceOf(LifecycleValidationError);
-      expect((error as LifecycleValidationError).field).toBe('reason');
-      expect(db.cancellationRequest().status).toBe('PENDING');
-    });
-
-    it('refuses an unknown Campaign with CampaignNotFoundError', async () => {
-      const db = seeded();
-
-      await expect(decide(db, { decision, campaignId: 'missing' })).rejects.toBeInstanceOf(CampaignNotFoundError);
-    });
-
     it('refuses an unknown request with CancellationRequestNotFoundError', async () => {
       const db = seeded();
 

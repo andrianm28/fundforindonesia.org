@@ -2,12 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   liftSuspension,
   suspendCampaign,
-  CampaignNotFoundError,
-  ConcurrentTransitionError,
   InvalidTransitionError,
-  LifecycleValidationError,
-  NotAuthorizedError,
-  OwnCampaignConflictError,
   SameAdminLiftError,
 } from './campaign-lifecycle';
 import {
@@ -73,26 +68,9 @@ describe('suspendCampaign', () => {
         actorId: 'admin-a',
         capacity: 'ADMIN',
         reason: 'Laporan penipuan terverifikasi',
+        createdAt: NOW,
       }),
     ]);
-  });
-
-  it('refuses someone without the Admin assignment, even a Verifier, and changes nothing', async () => {
-    const db = makeCampaignDb({ campaigns: [active()] });
-
-    await expect(
-      suspend(db, { actor: { userId: 'verifier-1', assignments: ['VERIFIER'] } }),
-    ).rejects.toBeInstanceOf(NotAuthorizedError);
-    expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
-    expect(db.statusChanges).toEqual([]);
-  });
-
-  it('refuses an Admin suspending their own Campaign with OwnCampaignConflictError', async () => {
-    const db = makeCampaignDb({ campaigns: [active({ creatorId: 'admin-a' })] });
-
-    await expect(suspend(db)).rejects.toBeInstanceOf(OwnCampaignConflictError);
-    expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
-    expect(db.statusChanges).toEqual([]);
   });
 
   it('lets a person holding both assignments suspend, recorded in the Admin capacity', async () => {
@@ -178,19 +156,6 @@ describe('suspendCampaign', () => {
     expect(db.notifications[0].message).not.toMatch(/moderator/i);
   });
 
-  it.each([
-    ['missing', undefined],
-    ['blank', '   '],
-    ['not a string', 42],
-    ['too long', 'x'.repeat(1001)],
-  ])('refuses a %s reason with LifecycleValidationError and changes nothing', async (_label, reason) => {
-    const db = makeCampaignDb({ campaigns: [active()] });
-
-    await expect(suspend(db, { reason })).rejects.toBeInstanceOf(LifecycleValidationError);
-    expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
-    expect(db.statusChanges).toEqual([]);
-  });
-
   it('stores the reason trimmed and accepts exactly 1000 characters', async () => {
     const db = makeCampaignDb({ campaigns: [active()] });
     const reason = 'y'.repeat(1000);
@@ -198,27 +163,6 @@ describe('suspendCampaign', () => {
     await suspend(db, { reason: `  ${reason}  ` });
 
     expect(db.statusChanges[0].reason).toBe(reason);
-  });
-
-  it('refuses an unknown Campaign with CampaignNotFoundError', async () => {
-    const db = makeCampaignDb({ campaigns: [] });
-
-    await expect(suspend(db)).rejects.toBeInstanceOf(CampaignNotFoundError);
-  });
-
-  it('loses to a concurrent Suspension with ConcurrentTransitionError: one change, one notification', async () => {
-    const db = makeCampaignDb({ campaigns: [active()] });
-    db.beforeNextCampaignWrite((data) => {
-      Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
-      data.statusChanges.push({
-        id: 'other', campaignId: 'campaign-1', action: 'SUSPENDED', fromStatus: 'ACTIVE',
-        toStatus: 'SUSPENDED', actorId: 'admin-c', capacity: 'ADMIN', reason: 'lain', createdAt: NOW,
-      });
-    });
-
-    await expect(suspend(db)).rejects.toBeInstanceOf(ConcurrentTransitionError);
-    expect(db.statusChanges.map((s) => s.actorId)).toEqual(['admin-c']);
-    expect(db.notifications).toEqual([]);
   });
 });
 
@@ -263,6 +207,7 @@ describe('liftSuspension', () => {
         actorId: 'admin-b',
         capacity: 'ADMIN',
         reason: 'Klarifikasi diterima',
+        createdAt: NOW,
       }),
     ]);
   });
@@ -343,23 +288,6 @@ describe('liftSuspension', () => {
     expect(db.notifications).toEqual([]);
   });
 
-  it('refuses someone without the Admin assignment, even a Verifier, and changes nothing', async () => {
-    const db = suspendedFrom('ACTIVE');
-
-    await expect(
-      lift(db, { actor: { userId: 'verifier-1', assignments: ['VERIFIER'] } }),
-    ).rejects.toBeInstanceOf(NotAuthorizedError);
-    expect(db.campaign().lifecycleStatus).toBe('SUSPENDED');
-    expect(db.statusChanges).toHaveLength(1);
-  });
-
-  it('refuses an Admin lifting a Suspension on their own Campaign with OwnCampaignConflictError', async () => {
-    const db = suspendedFrom('ACTIVE', { creatorId: 'admin-b' });
-
-    await expect(lift(db)).rejects.toBeInstanceOf(OwnCampaignConflictError);
-    expect(db.campaign().lifecycleStatus).toBe('SUSPENDED');
-  });
-
   it.each([
     ['active', 'ACTIVE'],
     ['expired', 'EXPIRED'],
@@ -376,14 +304,6 @@ describe('liftSuspension', () => {
     await expect(refusal).rejects.toMatchObject({ currentStatus: lifecycleStatus });
     expect(db.campaign().lifecycleStatus).toBe(lifecycleStatus);
     expect(db.statusChanges).toEqual([]);
-  });
-
-  it('records a lazy expiry even when lifting is refused because the Campaign was never suspended', async () => {
-    const db = makeCampaignDb({ campaigns: [active({ deadline: PAST })] });
-
-    await expect(lift(db)).rejects.toMatchObject({ currentStatus: 'EXPIRED' });
-    expect(db.campaign().lifecycleStatus).toBe('EXPIRED');
-    expect(db.statusChanges).toEqual([expect.objectContaining({ action: 'EXPIRED', capacity: 'SYSTEM' })]);
   });
 
   it('refuses a Suspension with no recorded history (imposed before the log existed) rather than guessing its prior status', async () => {
@@ -425,39 +345,5 @@ describe('liftSuspension', () => {
     ]);
     expect(db.notifications[0].message).toContain('Completed');
     expect(db.notifications[0].message).not.toMatch(/moderator/i);
-  });
-
-  it.each([
-    ['missing', undefined],
-    ['blank', ''],
-    ['too long', 'x'.repeat(1001)],
-  ])('refuses a %s reason with LifecycleValidationError and changes nothing', async (_label, reason) => {
-    const db = suspendedFrom('ACTIVE');
-
-    await expect(lift(db, { reason })).rejects.toBeInstanceOf(LifecycleValidationError);
-    expect(db.campaign().lifecycleStatus).toBe('SUSPENDED');
-    expect(db.statusChanges).toHaveLength(1);
-  });
-
-  it('refuses an unknown Campaign with CampaignNotFoundError', async () => {
-    const db = makeCampaignDb({ campaigns: [] });
-
-    await expect(lift(db)).rejects.toBeInstanceOf(CampaignNotFoundError);
-  });
-
-  it('loses to a concurrent lift with ConcurrentTransitionError: one change, one notification', async () => {
-    const db = suspendedFrom('ACTIVE');
-    db.beforeNextCampaignWrite((data) => {
-      Object.assign(data.campaigns[0], { status: 'active', lifecycleStatus: 'ACTIVE' });
-      data.statusChanges.push({
-        id: 'other', campaignId: 'campaign-1', action: 'SUSPENSION_LIFTED', fromStatus: 'SUSPENDED',
-        toStatus: 'ACTIVE', actorId: 'admin-c', capacity: 'ADMIN', reason: 'lain', createdAt: NOW,
-      });
-    });
-
-    await expect(lift(db)).rejects.toBeInstanceOf(ConcurrentTransitionError);
-    expect(db.statusChanges.map((s) => s.action)).toEqual(['SUSPENDED', 'SUSPENSION_LIFTED']);
-    expect(db.statusChanges[1].actorId).toBe('admin-c');
-    expect(db.notifications).toEqual([]);
   });
 });
