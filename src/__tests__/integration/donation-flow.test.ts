@@ -266,7 +266,9 @@ describe('Donation Flow Integration Tests', () => {
       });
     });
 
-    it('[M5 webhook] should mark campaign as completed when collectedAmount meets targetAmount', async () => {
+    // ADR 0004: reaching the target does not close a Campaign; only the
+    // Fundraiser or an Admin marks it COMPLETED.
+    it('[M5 webhook] should leave the campaign status alone when collectedAmount passes targetAmount', async () => {
       mockPaymentFindUnique.mockResolvedValue(
         makeWebhookPayment({
           donation: {
@@ -289,8 +291,9 @@ describe('Donation Flow Integration Tests', () => {
 
       expect(tx.campaign.update).toHaveBeenCalledWith({
         where: { id: 'campaign-webhook-1' },
-        data: { collectedAmount: { increment: 75_000 }, status: 'completed', lifecycleStatus: 'COMPLETED' },
+        data: { collectedAmount: { increment: 75_000 } },
       });
+      expect(tx.campaign.update).toHaveBeenCalledTimes(1);
     });
   });
 

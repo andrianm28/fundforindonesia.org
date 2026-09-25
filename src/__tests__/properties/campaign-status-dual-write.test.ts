@@ -14,7 +14,13 @@ const WRITE = /(prisma|tx)\.campaign\.(create|update|upsert|createMany|updateMan
 
 // The Fundraiser content edit: its zod schema admits no status field, so it
 // writes neither column (status moves through /api/moderasi).
-const WRITES_WITHOUT_STATUS = ["src/app/api/campaigns/[slug]/route.ts"];
+// The Settlement webhook: it only increments collectedAmount, because reaching
+// the target does not close a Campaign (ADR 0004) and a late Settlement must
+// not overwrite a Suspension or a Cancellation.
+const WRITES_WITHOUT_STATUS = [
+  "src/app/api/campaigns/[slug]/route.ts",
+  "src/app/api/webhooks/[provider]/route.ts",
+];
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -57,7 +63,6 @@ describe("Campaign status dual-write", () => {
         "src/app/api/campaigns/route.ts",
         "src/app/api/donations/route.ts",
         "src/app/api/moderasi/campaigns/[id]/route.ts",
-        "src/app/api/webhooks/[provider]/route.ts",
         "src/lib/campaign-lifecycle.ts",
       ].sort()
     );

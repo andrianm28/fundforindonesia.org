@@ -374,37 +374,52 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(mockNotificationCreateMany).toHaveBeenCalled();
   });
 
-  it('marks the campaign completed when settlement meets the target', async () => {
-    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
-    mockPaymentFindUnique.mockResolvedValue(
-      makePayment({
-        donation: {
-          id: 'donation-1',
-          donorId: 'donor-1',
-          campaign: {
-            id: 'campaign-1',
-            title: 'Test Campaign',
-            creatorId: 'creator-1',
-            collectedAmount: 900_000,
-            targetAmount: 1_000_000,
+  // ADR 0004: reaching the target does not close a Campaign; only the
+  // Fundraiser or an Admin marks it COMPLETED. And because a Settlement is
+  // accepted whatever the Campaign's status (PRD §7.2), a late one must not
+  // overwrite a Suspension, a Cancellation, a Completion or an expiry either.
+  it.each([
+    ['active', 'ACTIVE'],
+    ['suspended', 'SUSPENDED'],
+    ['cancelled', 'CANCELLED'],
+    ['completed', 'COMPLETED'],
+    ['expired', 'EXPIRED'],
+  ] as const)(
+    'records a settlement that overshoots the target without changing the campaign status (%s)',
+    async (status, lifecycleStatus) => {
+      mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+      mockPaymentFindUnique.mockResolvedValue(
+        makePayment({
+          donation: {
+            id: 'donation-1',
+            donorId: 'donor-1',
+            campaign: {
+              id: 'campaign-1',
+              title: 'Test Campaign',
+              creatorId: 'creator-1',
+              status,
+              lifecycleStatus,
+              collectedAmount: 950_000,
+              targetAmount: 1_000_000,
+            },
           },
-        },
-      }),
-    );
-    const { tx } = makeTx();
-    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+        }),
+      );
+      const { tx, ledgerRows } = makeTx();
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 
-    await POST(createRequest(), routeContext());
+      const response = await POST(createRequest(), routeContext());
 
-    expect(tx.campaign.update).toHaveBeenCalledWith({
-      where: { id: 'campaign-1' },
-      data: {
-        collectedAmount: { increment: 100_000 },
-        status: 'completed',
-        lifecycleStatus: 'COMPLETED',
-      },
-    });
-  });
+      expect(response.status).toBe(200);
+      expect(tx.campaign.update).toHaveBeenCalledTimes(1);
+      expect(tx.campaign.update).toHaveBeenCalledWith({
+        where: { id: 'campaign-1' },
+        data: { collectedAmount: { increment: 100_000 } },
+      });
+      // The money is still recorded in full.
+      expect(ledgerRows.filter((r) => r.campaignId === 'campaign-1').length).toBeGreaterThan(0);
+    },
+  );
 
   it('refuses to settle when the signed gross amount disagrees with the Payment, and does not open a transaction', async () => {
     mockGetPaymentProvider.mockReturnValue({
