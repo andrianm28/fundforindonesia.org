@@ -119,7 +119,7 @@ describe('decideSubmission', () => {
         decision: 'approve',
         now: NOW,
       }),
-    ).rejects.toBeInstanceOf(OwnCampaignConflictError);
+    ).rejects.toThrow('Verifier lain');
     expect(db.statusChanges).toEqual([]);
   });
 
@@ -221,7 +221,8 @@ describe('lifecycleErrorToHttp', () => {
   it.each([
     [new LifecycleValidationError('Alasan wajib diisi.', 'reason'), 400, 'VALIDATION'],
     [new NotAuthorizedError(), 403, 'NOT_AUTHORIZED'],
-    [new OwnCampaignConflictError(), 403, 'OWN_CAMPAIGN_CONFLICT'],
+    [new OwnCampaignConflictError('ADMIN'), 403, 'OWN_CAMPAIGN_CONFLICT'],
+    [new OwnCampaignConflictError('VERIFIER'), 403, 'OWN_CAMPAIGN_CONFLICT'],
     [new SameAdminLiftError(), 403, 'SAME_ADMIN_LIFT'],
     [new CampaignNotFoundError('campaign-1'), 404, 'CAMPAIGN_NOT_FOUND'],
     [new InvalidTransitionError('SUSPENDED'), 409, 'INVALID_TRANSITION'],
@@ -240,6 +241,11 @@ describe('lifecycleErrorToHttp', () => {
     expect(new InvalidTransitionError('SUSPENDED').message).toBe(
       'Tindakan ini tidak dapat dilakukan pada Campaign berstatus Suspended.',
     );
+  });
+
+  it('tells an Admin or Verifier on their own Campaign that another of the same role must act', () => {
+    expect(new OwnCampaignConflictError('ADMIN').message).toContain('Admin lain');
+    expect(new OwnCampaignConflictError('VERIFIER').message).toContain('Verifier lain');
   });
 
   it('tells the Admin another Admin must lift their Suspension', () => {

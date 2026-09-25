@@ -123,8 +123,15 @@ export class NotAuthorizedError extends CampaignLifecycleError {
   }
 }
 
-/** The operator role a person was trying to act in on a Campaign they own. */
-export type OperatorCapacity = "Admin" | "Verifier";
+/** The operator capacities that are barred on a Campaign the person owns. */
+export type OperatorCapacity =
+  | typeof StatusChangeCapacity.ADMIN
+  | typeof StatusChangeCapacity.VERIFIER;
+
+const OPERATOR_LABELS: Record<OperatorCapacity, string> = {
+  ADMIN: "Admin",
+  VERIFIER: "Verifier",
+};
 
 /**
  * An Admin or Verifier tried to act in that role on a Campaign they own
@@ -132,9 +139,10 @@ export type OperatorCapacity = "Admin" | "Verifier";
  */
 export class OwnCampaignConflictError extends CampaignLifecycleError {
   readonly code = "OWN_CAMPAIGN_CONFLICT";
-  constructor(readonly capacity: OperatorCapacity = "Admin") {
+  constructor(capacity: OperatorCapacity) {
+    const role = OPERATOR_LABELS[capacity];
     super(
-      `Anda tidak dapat bertindak sebagai ${capacity} atas Campaign milik Anda sendiri. Tindakan ini harus dilakukan ${capacity} lain.`
+      `Anda tidak dapat bertindak sebagai ${role} atas Campaign milik Anda sendiri. Tindakan ini harus dilakukan ${role} lain.`
     );
     this.name = "OwnCampaignConflictError";
   }
@@ -495,7 +503,7 @@ export async function decideSubmission(
   return prisma.$transaction(async (tx) => {
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign, "Verifier");
+    requireNotOwner(actor, campaign, StatusChangeCapacity.VERIFIER);
     const current = effectiveStatus(campaign, now);
     if (current !== CampaignStatus.SUBMITTED) {
       throw new InvalidTransitionError(current);
@@ -622,7 +630,7 @@ function requireVerifierAssignment(actor: LifecycleActor, message: string): void
 function requireNotOwner(
   actor: LifecycleActor,
   campaign: { creatorId: string },
-  capacity: OperatorCapacity = "Admin"
+  capacity: OperatorCapacity
 ): void {
   if (campaign.creatorId === actor.userId) {
     throw new OwnCampaignConflictError(capacity);
@@ -780,7 +788,7 @@ export async function decideCancellation(
     await lockCampaignRow(tx, campaignId);
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign);
+    requireNotOwner(actor, campaign, StatusChangeCapacity.ADMIN);
     const request = await tx.cancellationRequest.findUnique({ where: { id: requestId } });
     if (!request || request.campaignId !== campaignId) {
       throw new CancellationRequestNotFoundError(requestId);
@@ -882,7 +890,7 @@ export async function suspendCampaign(
   return prisma.$transaction(async (tx) => {
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign);
+    requireNotOwner(actor, campaign, StatusChangeCapacity.ADMIN);
     const current = effectiveStatus(campaign, now);
     if (!SUSPENDABLE.includes(current)) {
       throw new InvalidTransitionError(current);
@@ -938,7 +946,7 @@ export async function liftSuspension(
   return prisma.$transaction(async (tx) => {
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign);
+    requireNotOwner(actor, campaign, StatusChangeCapacity.ADMIN);
     const current = effectiveStatus(campaign, now);
     if (current !== CampaignStatus.SUSPENDED) {
       throw new InvalidTransitionError(current);
@@ -1004,7 +1012,7 @@ export async function setUrgent(
   return prisma.$transaction(async (tx) => {
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign);
+    requireNotOwner(actor, campaign, StatusChangeCapacity.ADMIN);
     const current = effectiveStatus(campaign, now);
     if (urgent && current !== CampaignStatus.ACTIVE) {
       throw new InvalidTransitionError(current);
@@ -1114,7 +1122,7 @@ export async function flagCampaign(
     await lockCampaignRow(tx, campaignId);
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign, "Verifier");
+    requireNotOwner(actor, campaign, StatusChangeCapacity.VERIFIER);
     const current = effectiveStatus(campaign, now);
     if (!FLAGGABLE.includes(current)) {
       throw new InvalidTransitionError(current);
@@ -1157,7 +1165,7 @@ export async function dismissFlag(
     await lockCampaignRow(tx, campaignId);
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
-    requireNotOwner(actor, campaign);
+    requireNotOwner(actor, campaign, StatusChangeCapacity.ADMIN);
     const existing = await tx.campaignFlag.findUnique({ where: { id: flagId } });
     if (!existing || existing.campaignId !== campaignId) throw new FlagNotFoundError(flagId);
     if (existing.resolution !== null) {
