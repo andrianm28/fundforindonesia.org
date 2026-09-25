@@ -808,3 +808,130 @@ export async function decideCancellation(
     return { campaign: updated, cancellationRequest };
   });
 }
+
+// ==================== Suspension (ticket 05) ====================
+
+/**
+ * A Suspension with no SUSPENDED log row: imposed before the log existed,
+ * so the status to return to is unknown. Still an invalid transition (409),
+ * but it says why, since lifting is otherwise exactly what a Suspended
+ * Campaign expects.
+ */
+export class UnrecordedSuspensionError extends InvalidTransitionError {
+  constructor() {
+    super(CampaignStatus.SUSPENDED);
+    this.message =
+      "Suspension ini dijatuhkan sebelum riwayat status dicatat, sehingga status Campaign sebelum Suspension tidak diketahui. Hubungi tim teknis untuk mencabutnya.";
+    this.name = "UnrecordedSuspensionError";
+  }
+}
+
+/** The statuses an Admin may suspend from (ADR 0015). */
+const SUSPENDABLE: readonly CampaignStatus[] = [
+  CampaignStatus.ACTIVE,
+  CampaignStatus.EXPIRED,
+  CampaignStatus.COMPLETED,
+];
+
+/**
+ * An Admin suspends a Campaign that is Active, Expired or Completed, with a
+ * reason (ADR 0015, FFI-07b), never one they own. Suspending an Active
+ * Campaign clears Urgent through the leave-Active side effects. The
+ * Fundraiser is told why. Open Flags will be resolved here, in the same
+ * transaction, once Flags exist (ticket 06).
+ */
+export async function suspendCampaign(
+  prisma: PrismaClient,
+  params: {
+    campaignId: string;
+    actor: LifecycleActor;
+    reason: unknown;
+    now?: Date;
+  }
+): Promise<LifecycleResult> {
+  const { campaignId, actor, now = new Date() } = params;
+  requireAdminAssignment(actor, "Hanya Admin yang dapat menjatuhkan Suspension.");
+  const reason = requireReason(params.reason);
+  await expireIfPastDeadline(prisma, campaignId, now);
+  return prisma.$transaction(async (tx) => {
+    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) throw new CampaignNotFoundError(campaignId);
+    requireNotOwner(actor, campaign);
+    const current = effectiveStatus(campaign, now);
+    if (!SUSPENDABLE.includes(current)) {
+      throw new InvalidTransitionError(current);
+    }
+    const updated = await transition(tx, campaign, {
+      to: CampaignStatus.SUSPENDED,
+      action: CampaignStatusChangeAction.SUSPENDED,
+      actorId: actor.userId,
+      capacity: StatusChangeCapacity.ADMIN,
+      reason,
+    });
+    await notifyFundraiser(tx, campaign, actor.userId, {
+      title: "Campaign Dibekukan",
+      message: `Campaign "${campaign.title}" dibekukan (Suspended) oleh Admin. Alasan: ${reason}`,
+    });
+    return { campaign: updated };
+  });
+}
+
+/**
+ * An Admin lifts a Suspension, with a reason: never on a Campaign they own,
+ * and never the Admin who imposed the latest Suspension, so every
+ * Suspension passes two pairs of hands before it ends (FFI-07b). The
+ * Campaign returns to the status it had before, except that one which was
+ * Active and whose deadline has since passed lands on Expired. Urgent is
+ * never restored. The Fundraiser is told why.
+ */
+export async function liftSuspension(
+  prisma: PrismaClient,
+  params: {
+    campaignId: string;
+    actor: LifecycleActor;
+    reason: unknown;
+    now?: Date;
+  }
+): Promise<LifecycleResult> {
+  const { campaignId, actor, now = new Date() } = params;
+  requireAdminAssignment(actor, "Hanya Admin yang dapat mencabut Suspension.");
+  const reason = requireReason(params.reason);
+  await expireIfPastDeadline(prisma, campaignId, now);
+  return prisma.$transaction(async (tx) => {
+    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) throw new CampaignNotFoundError(campaignId);
+    requireNotOwner(actor, campaign);
+    const current = effectiveStatus(campaign, now);
+    if (current !== CampaignStatus.SUSPENDED) {
+      throw new InvalidTransitionError(current);
+    }
+    // The status before the Suspension lives in the log, not in a column
+    // (ADR 0015). A Suspension imposed before the log existed has no row;
+    // its prior status is unknown (the old Verifier suspend also reached
+    // Submitted Campaigns), so it is refused rather than guessed.
+    const suspension = await tx.campaignStatusChange.findFirst({
+      where: { campaignId, action: CampaignStatusChangeAction.SUSPENDED },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!suspension?.fromStatus) throw new UnrecordedSuspensionError();
+    if (suspension.actorId === actor.userId) throw new SameAdminLiftError();
+    // A Campaign that was Active comes back only if its deadline still lies
+    // ahead; otherwise it can never take a Donation again and is Expired.
+    const to = effectiveStatus(
+      { lifecycleStatus: suspension.fromStatus, deadline: campaign.deadline },
+      now
+    );
+    const updated = await transition(tx, campaign, {
+      to,
+      action: CampaignStatusChangeAction.SUSPENSION_LIFTED,
+      actorId: actor.userId,
+      capacity: StatusChangeCapacity.ADMIN,
+      reason,
+    });
+    await notifyFundraiser(tx, campaign, actor.userId, {
+      title: "Suspension Dicabut",
+      message: `Suspension atas Campaign "${campaign.title}" telah dicabut oleh Admin. Campaign kini ${STATUS_LABEL[to]}. Alasan: ${reason}`,
+    });
+    return { campaign: updated };
+  });
+}
