@@ -55,6 +55,7 @@ function makeTx(
     payment?: ReturnType<typeof makePayment> | null;
     isDemo?: boolean;
     campaignCreatorId?: string;
+    tripFundraiserId?: string;
     priorRefunds?: Array<{ amount: number; status: string }>;
     refundRow?: Record<string, unknown> | null;
   } = {},
@@ -124,6 +125,10 @@ function makeTx(
       },
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false, creatorId: options.campaignCreatorId ?? 'fundraiser-1' }),
+      },
+      // The Trip row the subject guard reads under its lock.
+      volunteerTrip: {
+        findUnique: vi.fn().mockResolvedValue({ fundraiserId: options.tripFundraiserId ?? 'trip-fundraiser-1', status: 'ACTIVE' }),
       },
       refund: {
         create: refundCreate,
@@ -532,10 +537,8 @@ describe('approveRefund', () => {
   });
 
   it('refuses an Admin who is the Campaign\'s own Fundraiser, leaving the Refund REQUESTED and posting nothing', async () => {
-    const refundRow = baseRefundRow({
-      payment: makePayment({ donation: { campaignId: 'campaign-1', campaign: { creatorId: 'admin-1' } } }),
-    });
-    const { tx, rows } = makeTx({ refundRow });
+    const refundRow = baseRefundRow({ payment: makePayment() });
+    const { tx, rows } = makeTx({ refundRow, campaignCreatorId: 'admin-1' });
     const prisma = makePrisma(tx, refundRow);
 
     const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
@@ -547,10 +550,8 @@ describe('approveRefund', () => {
   });
 
   it('refuses an Admin who is the Volunteer Trip\'s own Fundraiser, leaving the Refund REQUESTED and posting nothing', async () => {
-    const refundRow = baseRefundRow({
-      payment: makeTripPayment({ registration: { batch: { tripId: 'trip-1', trip: { fundraiserId: 'admin-1' } } } }),
-    });
-    const { tx, rows } = makeTx({ refundRow });
+    const refundRow = baseRefundRow({ payment: makeTripPayment() });
+    const { tx, rows } = makeTx({ refundRow, tripFundraiserId: 'admin-1' });
     const prisma = makePrisma(tx, refundRow);
 
     const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });

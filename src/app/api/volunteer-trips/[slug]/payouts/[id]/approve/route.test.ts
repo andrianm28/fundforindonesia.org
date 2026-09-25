@@ -33,6 +33,9 @@ type LedgerRow = {
   volunteerTripId: string | null;
 };
 
+/** What the subject guard reads under the Trip row lock (src/lib/subject-guard.ts). */
+const ACTIVE_TRIP = { fundraiserId: 'fundraiser-1', status: 'ACTIVE' };
+
 function makePayoutRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'payout-1',
@@ -80,6 +83,8 @@ function makeTx(options: { payout: ReturnType<typeof makePayoutRow> | null; ledg
     tx: {
       payout: { findUnique, updateMany },
       $queryRaw: queryRaw,
+      // The Trip row the subject guard reads under that lock.
+      volunteerTrip: { findUnique: vi.fn().mockResolvedValue(ACTIVE_TRIP) },
       ledgerEntry: {
         count: vi.fn(async () => 0),
         createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {
@@ -307,6 +312,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
         lockBox.release = await mutex.enter();
         return [{ id: 'trip-1' }];
       }),
+      volunteerTrip: { findUnique: vi.fn().mockResolvedValue(ACTIVE_TRIP) },
       ledgerEntry: {
         count: vi.fn(async () => 0),
         createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {

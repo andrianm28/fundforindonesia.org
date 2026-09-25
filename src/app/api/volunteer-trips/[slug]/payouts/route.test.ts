@@ -46,6 +46,8 @@ function makeTx(options: { ledgerRows?: LedgerRow[]; bankAccount?: Record<string
       payment: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       refund: { findMany: vi.fn().mockResolvedValue([]) },
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
+      // The Trip row the subject guard reads under that lock.
+      volunteerTrip: { findUnique: vi.fn().mockResolvedValue({ fundraiserId: 'fundraiser-1', status: 'ACTIVE' }) },
       ledgerEntry: {
         count: vi.fn(async () => 0),
         createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {

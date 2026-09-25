@@ -85,7 +85,9 @@ describe("Campaign status dual-write", () => {
 
   // The known readers of the enum. Moderation no longer names the column: it
   // reads and writes status only through the lifecycle module (C20 ticket 02).
-  // The Settlement webhook writes no status at all (C20 ticket 01).
+  // The Settlement webhook writes no status at all (C20 ticket 01). The
+  // subject guard reads it under the row lock, for the lifecycle commands and
+  // the money paths alike.
   it("the enum is read only by the known files", () => {
     const readers = walk("src")
       .filter((file) => !file.startsWith("src/generated/"))
@@ -107,6 +109,9 @@ describe("Campaign status dual-write", () => {
         "src/components/campaign/CampaignDetail.tsx",
         "src/components/campaign/CampaignDetailView.tsx",
         "src/types/campaign.ts",
+        // The subject guard reads the column to compute the effective status
+        // (subject-guard-and-suspension-money ticket 01).
+        "src/lib/subject-guard.ts",
       ].sort()
     );
   });

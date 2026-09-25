@@ -1,5 +1,6 @@
-import { StatusChangeCapacity, type Payment, type Prisma, type PrismaClient, type Refund } from '@/generated/prisma/client';
+import type { Payment, Prisma, PrismaClient, Refund } from '@/generated/prisma/client';
 import { OwnCampaignConflictError } from '@/lib/campaign-lifecycle';
+import { lockAndLoad, OwnTripConflictError, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
 import {
   campaignBalance,
   tripBalance,
@@ -27,7 +28,7 @@ import { DemoCampaignError } from './payouts';
  * neither of which this ticket builds a route for.
  */
 
-export { DemoCampaignError, OwnCampaignConflictError };
+export { DemoCampaignError, OwnCampaignConflictError, OwnTripConflictError };
 
 export class PaymentNotFoundError extends Error {
   constructor(readonly paymentId: string) {
@@ -75,21 +76,6 @@ export class SelfApprovalError extends Error {
         'nothing else -- refused before any write, not recorded as a decision.',
     );
     this.name = 'SelfApprovalError';
-  }
-}
-
-/**
- * The Trip-side mirror of OwnCampaignConflictError: an Admin tried to approve
- * a Refund on a Volunteer Trip they run as its Fundraiser. Same shape as the
- * lifecycle error (stable `code`, Indonesian `message`), worded for a Trip.
- */
-export class OwnTripConflictError extends Error {
-  readonly code = 'OWN_TRIP_CONFLICT';
-  constructor() {
-    super(
-      'Anda tidak dapat bertindak sebagai Admin atas Volunteer Trip milik Anda sendiri. Tindakan ini harus dilakukan Admin lain.',
-    );
-    this.name = 'OwnTripConflictError';
   }
 }
 
@@ -185,11 +171,7 @@ export async function createRefund(
 ): Promise<Refund> {
   const { subject, paymentId, amount, reason, requestedById } = params;
 
-  if (subject.type === 'campaign') {
-    await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${subject.campaignId} FOR UPDATE`;
-  } else {
-    await tx.$queryRaw`SELECT id FROM "VolunteerTrip" WHERE id = ${subject.tripId} FOR UPDATE`;
-  }
+  const subjectState = await lockAndLoad(tx, subject, new Date());
 
   const lockedRows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Payment" WHERE id = ${paymentId} FOR UPDATE`;
   if (lockedRows.length === 0) {
@@ -206,21 +188,14 @@ export async function createRefund(
     throw new PaymentSubjectMismatchError(paymentId);
   }
 
-  if (subject.type === 'campaign') {
-    const campaign = await tx.campaign.findUnique({
-      where: { id: subject.campaignId },
-      select: { isDemo: true, creatorId: true },
-    });
-    if (campaign?.isDemo) {
+  if (subjectState?.kind === 'campaign') {
+    if (subjectState.isDemo) {
       throw new DemoCampaignError();
     }
-    // An Admin never acts as Admin on a Campaign they own (CONTEXT.md,
-    // Admin). Only Campaign subjects: every Trip-subject caller creates
-    // the Refund as the Trip's Fundraiser (Batch cancellation), the Volunteer,
-    // or the settlement webhook -- never in an Admin capacity.
-    if (campaign?.creatorId === requestedById) {
-      throw new OwnCampaignConflictError(StatusChangeCapacity.ADMIN);
-    }
+    // Only Campaign subjects: every Trip-subject caller creates the Refund
+    // as the Trip's Fundraiser (Batch cancellation), the Volunteer, or the
+    // settlement webhook -- never in an Admin capacity.
+    requireNotOwnerAsAdmin(subjectState, requestedById);
   }
 
   const priorRefunds = await tx.refund.findMany({
@@ -270,12 +245,7 @@ export async function approveRefund(
     const refund = await tx.refund.findUnique({
       where: { id: refundId },
       include: {
-        payment: {
-          include: {
-            donation: { include: { campaign: { select: { creatorId: true } } } },
-            registration: { include: { batch: { include: { trip: { select: { fundraiserId: true } } } } } },
-          },
-        },
+        payment: { include: { donation: true, registration: { include: { batch: true } } } },
       },
     });
     if (!refund) {
@@ -286,20 +256,6 @@ export async function approveRefund(
       throw new SelfApprovalError();
     }
 
-    // An Admin never acts as Admin on a Campaign they own (CONTEXT.md,
-    // Admin): on their own Campaign they are only its Fundraiser. Approval is
-    // always an Admin act, so it is refused to a Trip's own Fundraiser too.
-    if (refund.payment.donation?.campaign?.creatorId === approvedById) {
-      throw new OwnCampaignConflictError(StatusChangeCapacity.ADMIN);
-    }
-    if (refund.payment.registration?.batch.trip?.fundraiserId === approvedById) {
-      throw new OwnTripConflictError();
-    }
-
-    if (refund.status !== 'REQUESTED') {
-      throw new InvalidRefundStatusError(refund.status);
-    }
-
     const payment = refund.payment as unknown as PaymentWithSubjectLinks;
     const subject = paymentSubjectOf(payment);
 
@@ -307,11 +263,15 @@ export async function approveRefund(
     // shortfall computation below is the subject's pool, and a second,
     // different Refund against the same subject approved concurrently must
     // be serialised here, exactly mirroring approvePayout's own Campaign/
-    // VolunteerTrip lock.
-    if (subject.type === 'campaign') {
-      await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${subject.campaignId} FOR UPDATE`;
-    } else {
-      await tx.$queryRaw`SELECT id FROM "VolunteerTrip" WHERE id = ${subject.tripId} FOR UPDATE`;
+    // VolunteerTrip lock. Its owner is read under that lock, not before it.
+    const subjectState = await lockAndLoad(tx, subject, new Date());
+
+    // Approval is always an Admin act, so it is refused to the Campaign's
+    // or the Trip's own Fundraiser.
+    if (subjectState) requireNotOwnerAsAdmin(subjectState, approvedById);
+
+    if (refund.status !== 'REQUESTED') {
+      throw new InvalidRefundStatusError(refund.status);
     }
 
     const source = sourceFor(payment, subject);

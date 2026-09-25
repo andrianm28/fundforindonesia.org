@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { escrowReleaseLegs, postTransaction, providerFeePortionFor, type LedgerSubject } from './ledger';
 import { assertExactlyOnePaymentSubject } from './payment-subject';
+import { lockAndLoad } from '@/lib/subject-guard';
 
 /**
  * The escrow hold: how long settled money sits in ESCROW_HOLD before it
@@ -169,41 +170,28 @@ export async function releaseMaturedEscrow(subject?: ReleaseSweepSubject): Promi
         : { type: 'trip', tripId: payment.registration!.batch.tripId };
 
       const released = await prisma.$transaction(async (tx) => {
-        // Lock the campaign row before touching its ESCROW_HOLD /
-        // CAMPAIGN_BALANCE accounts, the same precaution approvePayout
-        // takes before spending CAMPAIGN_BALANCE (./payouts.ts). amountToRelease
-        // below is computed entirely from this payment's own fields and its own
-        // Refund rows, never from a campaign-wide aggregate, so two sibling
-        // payments of the same campaign releasing concurrently no longer share
-        // anything this lock would need to protect -- it stays as the standing
-        // guard for any future write in this function that does touch a shared
+        // Lock the subject row before touching its ESCROW_HOLD / balance
+        // accounts, through the subject guard, which fixes the lock order
+        // (subject, then Payment) for every money path
+        // (src/lib/subject-guard.ts). amountToRelease below is computed
+        // entirely from this payment's own fields and its own Refund rows,
+        // never from a campaign-wide aggregate, so two sibling payments of
+        // the same campaign releasing concurrently no longer share anything
+        // this lock would need to protect -- it stays as the standing guard
+        // for any future write in this function that does touch a shared
         // campaign aggregate.
         //
-        // LOCK ORDERING, AND WHY IT DOESN'T DEADLOCK TODAY. This sweep, and
-        // payout approval (approvePayout, ./payouts.ts), both lock
-        // Campaign before ever touching Payment/Payout -- Campaign -> Payment
-        // order. The settlement webhook (src/app/api/webhooks/[provider]/
-        // route.ts) does the opposite: it reads/writes Payment, then Donation,
-        // then Campaign -- Payment -> Campaign order -- with no explicit row
-        // lock of its own. Two transactions acquiring the same two resources in
-        // opposite orders is the textbook shape of a deadlock. Nothing here
-        // actually deadlocks only because these two paths never contend for the
-        // same Payment row: the webhook only ever writes a Payment while it is
-        // still PENDING, and this sweep's candidate set is `status: 'PAID'`
-        // (the query above) -- by the time a payment is eligible here, the
-        // webhook is done writing it. That is a load-bearing accident of the
-        // current status values, not a rule enforced anywhere in code. Any new
-        // write path that touches a PAID payment's Campaign in Campaign ->
-        // Payment order is safe; one that touches it in Payment -> Campaign
-        // order, the way the webhook does, reintroduces the deadlock this
-        // comment currently rules out only by observation. The Trip branch
-        // preserves the exact same invariant -- the webhook's Trip-settlement
-        // branch also only ever writes a Payment while it is still PENDING.
-        if (paymentSubject.type === 'campaign') {
-          await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${paymentSubject.campaignId} FOR UPDATE`;
-        } else {
-          await tx.$queryRaw`SELECT id FROM "VolunteerTrip" WHERE id = ${paymentSubject.tripId} FOR UPDATE`;
-        }
+        // WHY THE WEBHOOK DOESN'T DEADLOCK WITH THIS. The settlement webhook
+        // (src/app/api/webhooks/[provider]/route.ts) stays outside the guard
+        // and goes the other way: Payment, then Donation, then Campaign, with
+        // no explicit row lock. The two never contend for the same Payment
+        // row only because the webhook writes a Payment while it is still
+        // PENDING, and this sweep's candidate set is `status: 'PAID'` (the
+        // query above). That is a load-bearing accident of the current status
+        // values, not a rule enforced in code: a new path that touches a
+        // PAID payment in Payment -> subject order reintroduces the deadlock.
+        // The Trip branch of the webhook holds the same invariant.
+        await lockAndLoad(tx, paymentSubject, now);
 
         // Every refund against THIS payment, whatever its status. Refund.paymentId
         // is what ties a refund back to the specific payment it came out of
