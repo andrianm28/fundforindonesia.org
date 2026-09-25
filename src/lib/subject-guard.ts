@@ -147,8 +147,16 @@ export function requirePayoutAllowed(state: SubjectState): void {
  * (CONTEXT.md, Escrow Hold; Suspension). The release resumes on its own once
  * the Suspension is lifted. A Volunteer Trip keeps its rule of today (ADR
  * 0014), which never holds matured money back.
+ *
+ * It needs only the subject's kind and effective status, so a read-only
+ * reader (the Admin reconcile report) can ask the same question without
+ * taking the row lock; the Escrow release itself asks it of `lockAndLoad`'s
+ * result.
  */
-export function isEscrowReleaseFrozen(state: SubjectState): boolean {
+export function isEscrowReleaseFrozen(
+  state: Pick<Extract<SubjectState, { kind: "campaign" }>, "kind" | "effectiveStatus">
+    | Pick<Extract<SubjectState, { kind: "trip" }>, "kind" | "effectiveStatus">
+): boolean {
   return state.kind === "campaign" && state.effectiveStatus === CampaignStatus.SUSPENDED;
 }
 
