@@ -14,7 +14,6 @@ import {
   ConcurrentTransitionError,
   InvalidTransitionError,
   LifecycleValidationError,
-  MissingCampaignUpdateError,
   NotAuthorizedError,
   OwnCampaignConflictError,
   PayoutAlreadyCompletedError,
@@ -260,9 +259,10 @@ describe('a PENDING request lapses when the Campaign leaves Active', () => {
   });
 });
 
-describe('a PENDING request lapses on every exit from Active (ticket 10)', () => {
+describe('a PENDING request lapses on the Completed and Suspended exits too', () => {
   const admin = { userId: 'admin-1', assignments: ['ADMIN' as const] };
   const otherAdmin = { userId: 'admin-2', assignments: ['ADMIN' as const] };
+  type Db = ReturnType<typeof makeCampaignDb>;
 
   function withPendingRequest(campaign: Partial<CampaignRow> = {}) {
     return makeCampaignDb({
@@ -272,6 +272,64 @@ describe('a PENDING request lapses on every exit from Active (ticket 10)', () =>
     });
   }
 
+  function complete(db: Db, actor: typeof owner | typeof admin = owner, reason?: string) {
+    return completeCampaign(db.prisma as never, { campaignId: 'campaign-1', actor, reason, now: NOW });
+  }
+
+  function suspend(db: Db) {
+    return suspendCampaign(db.prisma as never, {
+      campaignId: 'campaign-1',
+      actor: admin,
+      reason: 'Laporan penipuan terverifikasi.',
+      now: NOW,
+    });
+  }
+
+  function lift(db: Db) {
+    return liftSuspension(db.prisma as never, {
+      campaignId: 'campaign-1',
+      actor: otherAdmin,
+      reason: 'Klarifikasi diterima.',
+      now: NOW,
+    });
+  }
+
+  function decide(db: Db, decision: 'approve' | 'reject') {
+    return decideCancellation(db.prisma as never, {
+      campaignId: 'campaign-1',
+      requestId: 'request-1',
+      actor: otherAdmin,
+      decision,
+      reason: 'Diputuskan terlambat.',
+      now: NOW,
+    }).catch((e: unknown) => e);
+  }
+
+  /**
+   * Makes every Notification write inside a transaction fail, so a command
+   * that tells the Fundraiser dies after its status write and leave-Active
+   * side effects: whatever the hook did must roll back with it.
+   */
+  function failNotificationWrites(db: Db) {
+    const original = db.prisma.$transaction;
+    db.prisma.$transaction = (async (callback: (tx: unknown) => Promise<unknown>) =>
+      original((tx) =>
+        callback({
+          ...(tx as object),
+          notification: {
+            create: async () => {
+              throw new Error('notification write failed');
+            },
+          },
+        }),
+      )) as typeof original;
+  }
+
+  const exits = {
+    'Completed by an Admin': (db: Db) => complete(db, admin, 'Program selesai.'),
+    Suspended: suspend,
+  };
+
   describe('Completed', () => {
     it.each([
       ['the owner, as FUNDRAISER', owner, undefined, 'FUNDRAISER'],
@@ -279,36 +337,16 @@ describe('a PENDING request lapses on every exit from Active (ticket 10)', () =>
     ] as const)('marked by %s supersedes the request alongside the status change', async (_label, actor, reason, capacity) => {
       const db = withPendingRequest();
 
-      await completeCampaign(db.prisma as never, { campaignId: 'campaign-1', actor, reason, now: NOW });
+      await complete(db, actor, reason);
 
       expect(db.campaign().lifecycleStatus).toBe('COMPLETED');
       expect(db.statusChanges).toEqual([expect.objectContaining({ action: 'COMPLETED', capacity })]);
       expect(db.cancellationRequest()).toMatchObject({ status: 'SUPERSEDED', decidedById: null, decisionReason: null });
       expect(db.cancellationRequest().decidedAt).toBeInstanceOf(Date);
     });
-
-    it('refused for want of a Campaign Update, leaves the request PENDING', async () => {
-      const db = makeCampaignDb({ campaigns: [activeCampaign()], cancellationRequests: [cancellationRequestRow()] });
-
-      await expect(
-        completeCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: owner, now: NOW }),
-      ).rejects.toBeInstanceOf(MissingCampaignUpdateError);
-
-      expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
-      expect(db.cancellationRequest().status).toBe('PENDING');
-    });
   });
 
   describe('Suspended', () => {
-    function suspend(db: ReturnType<typeof makeCampaignDb>) {
-      return suspendCampaign(db.prisma as never, {
-        campaignId: 'campaign-1',
-        actor: admin,
-        reason: 'Laporan penipuan terverifikasi.',
-        now: NOW,
-      });
-    }
-
     it('from Active supersedes the request alongside the status change', async () => {
       const db = withPendingRequest();
 
@@ -317,6 +355,7 @@ describe('a PENDING request lapses on every exit from Active (ticket 10)', () =>
       expect(db.campaign().lifecycleStatus).toBe('SUSPENDED');
       expect(db.statusChanges).toEqual([expect.objectContaining({ action: 'SUSPENDED', fromStatus: 'ACTIVE' })]);
       expect(db.cancellationRequest()).toMatchObject({ status: 'SUPERSEDED', decidedById: null, decisionReason: null });
+      expect(db.cancellationRequest().decidedAt).toBeInstanceOf(Date);
     });
 
     it.each([
@@ -338,29 +377,41 @@ describe('a PENDING request lapses on every exit from Active (ticket 10)', () =>
     });
   });
 
-  describe('once lapsed', () => {
-    const leave = {
-      Completed: (db: ReturnType<typeof makeCampaignDb>) =>
-        completeCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: owner, now: NOW }),
-      Suspended: (db: ReturnType<typeof makeCampaignDb>) =>
-        suspendCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: admin, reason: 'Laporan.', now: NOW }),
-    };
-
-    it.each(
-      (['Completed', 'Suspended'] as const).flatMap((exit) => (['approve', 'reject'] as const).map((d) => [exit, d] as const)),
-    )('after %s, %s answers 409 "sudah gugur" and changes nothing', async (exit, decision) => {
+  describe.each(Object.entries(exits))('in the same transaction as %s', (_exit, leave) => {
+    it('leaves the request PENDING when the status write loses to a concurrent change', async () => {
       const db = withPendingRequest();
-      await leave[exit](db);
-      const statusBefore = db.campaign().lifecycleStatus;
+      db.beforeNextCampaignWrite((data) => {
+        Object.assign(data.campaigns[0], { status: 'cancelled', lifecycleStatus: 'CANCELLED' });
+      });
 
-      const error = await decideCancellation(db.prisma as never, {
-        campaignId: 'campaign-1',
-        requestId: 'request-1',
-        actor: otherAdmin,
-        decision,
-        reason: 'Diputuskan terlambat.',
-        now: NOW,
-      }).catch((e: unknown) => e);
+      await expect(leave(db)).rejects.toBeInstanceOf(ConcurrentTransitionError);
+
+      expect(db.cancellationRequest().status).toBe('PENDING');
+    });
+
+    it('leaves the request PENDING when the command fails after the status write', async () => {
+      const db = withPendingRequest();
+      failNotificationWrites(db);
+
+      await expect(leave(db)).rejects.toThrow('notification write failed');
+
+      expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
+      expect(db.statusChanges).toEqual([]);
+      expect(db.cancellationRequest().status).toBe('PENDING');
+    });
+  });
+
+  describe('once lapsed', () => {
+    it.each([
+      ['Completed', 'approve', 'COMPLETED'],
+      ['Completed', 'reject', 'COMPLETED'],
+      ['Suspended', 'approve', 'SUSPENDED'],
+      ['Suspended', 'reject', 'SUSPENDED'],
+    ] as const)('after %s, %s answers 409 "sudah gugur" and changes nothing', async (exit, decision, lifecycleStatus) => {
+      const db = withPendingRequest();
+      await (exit === 'Completed' ? complete(db) : suspend(db));
+
+      const error = await decide(db, decision);
 
       expect(error).toBeInstanceOf(CancellationNotPendingError);
       expect(lifecycleErrorToHttp(error)).toEqual({
@@ -368,43 +419,25 @@ describe('a PENDING request lapses on every exit from Active (ticket 10)', () =>
         body: { error: expect.stringContaining('sudah gugur'), code: 'CANCELLATION_NOT_PENDING' },
       });
       expect(db.cancellationRequest()).toMatchObject({ status: 'SUPERSEDED', decidedById: null });
-      expect(db.campaign().lifecycleStatus).toBe(statusBefore);
+      expect(db.campaign().lifecycleStatus).toBe(lifecycleStatus);
     });
 
     it('stays lapsed when the Suspension is lifted and the Campaign is Active again', async () => {
       const db = withPendingRequest();
-      await leave.Suspended(db);
+      await suspend(db);
 
-      await liftSuspension(db.prisma as never, {
-        campaignId: 'campaign-1',
-        actor: otherAdmin,
-        reason: 'Klarifikasi diterima.',
-        now: NOW,
-      });
+      await lift(db);
 
       expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
       expect(db.cancellationRequests).toEqual([expect.objectContaining({ id: 'request-1', status: 'SUPERSEDED' })]);
-      const error = await decideCancellation(db.prisma as never, {
-        campaignId: 'campaign-1',
-        requestId: 'request-1',
-        actor: otherAdmin,
-        decision: 'approve',
-        reason: 'Masih ingin ditarik.',
-        now: NOW,
-      }).catch((e: unknown) => e);
-      expect(error).toBeInstanceOf(CancellationNotPendingError);
+      expect(await decide(db, 'approve')).toBeInstanceOf(CancellationNotPendingError);
       expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
     });
 
-    it('lets the Fundraiser make a fresh request after the lift', async () => {
+    it('must be filed again after the lift, as a new request', async () => {
       const db = withPendingRequest();
-      await leave.Suspended(db);
-      await liftSuspension(db.prisma as never, {
-        campaignId: 'campaign-1',
-        actor: otherAdmin,
-        reason: 'Klarifikasi diterima.',
-        now: NOW,
-      });
+      await suspend(db);
+      await lift(db);
 
       await requestCancellation(db.prisma as never, { campaignId: 'campaign-1', actor: owner, reason: 'Ajukan ulang.', now: NOW });
 
