@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import DeleteCampaignButton from "./DeleteCampaignButton";
 
 export default async function AdminCampaignsPage() {
   const campaigns = await prisma.campaign.findMany({
@@ -109,10 +108,6 @@ export default async function AdminCampaignsPage() {
                         >
                           Edit
                         </Link>
-                        <DeleteCampaignButton
-                          campaignId={campaign.id}
-                          campaignTitle={campaign.title}
-                        />
                       </div>
                     </td>
                   </tr>

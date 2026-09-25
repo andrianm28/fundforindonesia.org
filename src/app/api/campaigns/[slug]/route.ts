@@ -23,28 +23,6 @@ const editCampaignSchema = z.object({
   coverImage: z.string().url("URL gambar tidak valid"),
 }).partial();
 
-// The status-change log is append-only and references its Campaign with
-// ON DELETE RESTRICT, so Postgres refuses to delete a Campaign that has any
-// history. Prisma 7 with @prisma/adapter-pg surfaces that as P2003 and names
-// the violated constraint under meta.driverAdapterError.cause.
-function isLifecycleRecordRestrict(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const { code, meta } = error as {
-    code?: unknown;
-    meta?: { driverAdapterError?: { cause?: { constraint?: { index?: unknown } } } };
-  };
-  // CancellationRequest (ticket 07) and CampaignFlag (ticket 06) are part of
-  // the same record: a request or a Flag, open or resolved, is never deleted
-  // with its Campaign either.
-  const index = meta?.driverAdapterError?.cause?.constraint?.index;
-  return (
-    code === 'P2003' &&
-    (index === 'CampaignStatusChange_campaignId_fkey' ||
-      index === 'CancellationRequest_campaignId_fkey' ||
-      index === 'CampaignFlag_campaignId_fkey')
-  );
-}
-
 /**
  * The reason recorded on the Campaign's latest SUSPENDED status change,
  * returned only to its owning Fundraiser (FFI-07b). Anyone else, an Admin
@@ -234,67 +212,6 @@ export async function PATCH(
     return NextResponse.json({ campaign: updatedCampaign });
   } catch (error) {
     console.error('Error updating campaign:', error);
-    return NextResponse.json(
-      { error: "Terjadi kesalahan server" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-) {
-  try {
-    const session = await getServerSession();
-
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    const { slug } = await params;
-
-    const campaign = await prisma.campaign.findUnique({
-      where: { slug },
-      select: { id: true, creatorId: true },
-    });
-
-    if (!campaign) {
-      return NextResponse.json(
-        { error: "Campaign tidak ditemukan" },
-        { status: 404 }
-      );
-    }
-
-    const userRole = (session.user.role as Role) ?? "DONOR";
-    const isAdmin = userRole === "ADMIN";
-    const isOwnerWithRole =
-      isAtLeast(userRole, "CAMPAIGN_CREATOR") &&
-      campaign.creatorId === session.user.id;
-
-    if (!isAdmin && !isOwnerWithRole) {
-      return NextResponse.json(
-        { error: "Forbidden" },
-        { status: 403 }
-      );
-    }
-
-    await prisma.campaign.delete({
-      where: { id: campaign.id },
-    });
-
-    return NextResponse.json({ message: "Campaign berhasil dihapus" });
-  } catch (error) {
-    if (isLifecycleRecordRestrict(error)) {
-      return NextResponse.json(
-        { error: "Campaign yang sudah memiliki riwayat status tidak dapat dihapus" },
-        { status: 409 }
-      );
-    }
-    console.error('Error deleting campaign:', error);
     return NextResponse.json(
       { error: "Terjadi kesalahan server" },
       { status: 500 }

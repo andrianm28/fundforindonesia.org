@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { GET, PATCH, DELETE } from './route';
+import * as route from './route';
+import { GET, PATCH } from './route';
 
 // Mock prisma
 vi.mock('@/lib/prisma', () => ({
@@ -8,7 +9,6 @@ vi.mock('@/lib/prisma', () => ({
     campaign: {
       findUnique: vi.fn(),
       update: vi.fn(),
-      delete: vi.fn(),
     },
     campaignStatusChange: {
       findFirst: vi.fn(),
@@ -23,11 +23,9 @@ vi.mock('@/lib/auth', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { Prisma } from '@/generated/prisma/client';
 
 const mockFindUnique = vi.mocked(prisma.campaign.findUnique);
 const mockUpdate = vi.mocked(prisma.campaign.update);
-const mockDelete = vi.mocked(prisma.campaign.delete);
 const mockGetServerSession = vi.mocked(getServerSession);
 const mockStatusChangeFindFirst = vi.mocked(prisma.campaignStatusChange.findFirst);
 
@@ -38,24 +36,6 @@ function createRequest(slug: string, method = 'GET', body?: unknown) {
     init.headers = { 'Content-Type': 'application/json' };
   }
   return new NextRequest(`http://localhost:3000/api/campaigns/${slug}`, init);
-}
-
-// The shape Prisma 7 with @prisma/adapter-pg throws when Postgres refuses a
-// write with 23503: code P2003, the violated constraint under
-// meta.driverAdapterError.cause.
-function foreignKeyViolation(constraint: string) {
-  return new Prisma.PrismaClientKnownRequestError(
-    `Foreign key constraint violated on the constraint: \`${constraint}\``,
-    {
-      code: 'P2003',
-      clientVersion: '7.8.0',
-      meta: {
-        driverAdapterError: {
-          cause: { kind: 'ForeignKeyConstraintViolation', constraint: { index: constraint } },
-        },
-      },
-    }
-  );
 }
 
 describe('GET /api/campaigns/[slug]', () => {
@@ -669,188 +649,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 });
 
 describe('DELETE /api/campaigns/[slug]', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('returns 401 if user is not authenticated', async () => {
-    mockGetServerSession.mockResolvedValue(null);
-
-    const request = createRequest('test-campaign', 'DELETE');
-    const response = await DELETE(request, {
-      params: Promise.resolve({ slug: 'test-campaign' }),
-    });
-
-    expect(response.status).toBe(401);
-    const body = await response.json();
-    expect(body.error).toBe('Unauthorized');
-  });
-
-  it('returns 404 if campaign does not exist', async () => {
-    mockGetServerSession.mockResolvedValue({
-      user: { id: 'user-1', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null },
-      expires: '2099-01-01',
-    });
-    mockFindUnique.mockResolvedValue(null);
-
-    const request = createRequest('nonexistent', 'DELETE');
-    const response = await DELETE(request, {
-      params: Promise.resolve({ slug: 'nonexistent' }),
-    });
-
-    expect(response.status).toBe(404);
-  });
-
-  it('allows ADMIN to delete any campaign', async () => {
-    mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null },
-      expires: '2099-01-01',
-    });
-    mockFindUnique.mockResolvedValue({
-      id: 'campaign-1',
-      creatorId: 'other-user',
-    } as any);
-    mockDelete.mockResolvedValue({} as any);
-
-    const request = createRequest('test-campaign', 'DELETE');
-    const response = await DELETE(request, {
-      params: Promise.resolve({ slug: 'test-campaign' }),
-    });
-
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.message).toBe('Campaign berhasil dihapus');
-  });
-
-  it('allows CAMPAIGN_CREATOR who is the owner to delete their campaign', async () => {
-    mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', role: 'CAMPAIGN_CREATOR', name: 'Creator', email: 'creator@test.com', isVerified: true, verificationType: null },
-      expires: '2099-01-01',
-    });
-    mockFindUnique.mockResolvedValue({
-      id: 'campaign-1',
-      creatorId: 'creator-user',
-    } as any);
-    mockDelete.mockResolvedValue({} as any);
-
-    const request = createRequest('my-campaign', 'DELETE');
-    const response = await DELETE(request, {
-      params: Promise.resolve({ slug: 'my-campaign' }),
-    });
-
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.message).toBe('Campaign berhasil dihapus');
-  });
-
-  it('returns 403 for CAMPAIGN_CREATOR who is NOT the owner', async () => {
-    mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', role: 'CAMPAIGN_CREATOR', name: 'Creator', email: 'creator@test.com', isVerified: true, verificationType: null },
-      expires: '2099-01-01',
-    });
-    mockFindUnique.mockResolvedValue({
-      id: 'campaign-1',
-      creatorId: 'different-user',
-    } as any);
-
-    const request = createRequest('other-campaign', 'DELETE');
-    const response = await DELETE(request, {
-      params: Promise.resolve({ slug: 'other-campaign' }),
-    });
-
-    expect(response.status).toBe(403);
-    const body = await response.json();
-    expect(body.error).toBe('Forbidden');
-  });
-
-  it('returns 403 for DONOR user even if they own the campaign', async () => {
-    mockGetServerSession.mockResolvedValue({
-      user: { id: 'donor-user', role: 'DONOR', name: 'Donor', email: 'donor@test.com', isVerified: false, verificationType: null },
-      expires: '2099-01-01',
-    });
-    mockFindUnique.mockResolvedValue({
-      id: 'campaign-1',
-      creatorId: 'donor-user',
-    } as any);
-
-    const request = createRequest('some-campaign', 'DELETE');
-    const response = await DELETE(request, {
-      params: Promise.resolve({ slug: 'some-campaign' }),
-    });
-
-    expect(response.status).toBe(403);
-    const body = await response.json();
-    expect(body.error).toBe('Forbidden');
-  });
-
-  it('returns 409 when the campaign has status history', async () => {
-    mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: [] },
-      expires: '2099-01-01',
-    });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'other-user' } as any);
-    mockDelete.mockRejectedValue(foreignKeyViolation('CampaignStatusChange_campaignId_fkey'));
-
-    const request = createRequest('test-campaign', 'DELETE');
-    const response = await DELETE(request, {
-      params: Promise.resolve({ slug: 'test-campaign' }),
-    });
-
-    expect(response.status).toBe(409);
-    const body = await response.json();
-    expect(body.error).toBe(
-      'Campaign yang sudah memiliki riwayat status tidak dapat dihapus'
-    );
-  });
-
-  it('returns 409 when the campaign has a Cancellation request on record', async () => {
-    mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: [] },
-      expires: '2099-01-01',
-    });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'other-user' } as any);
-    mockDelete.mockRejectedValue(foreignKeyViolation('CancellationRequest_campaignId_fkey'));
-
-    const request = createRequest('test-campaign', 'DELETE');
-    const response = await DELETE(request, {
-      params: Promise.resolve({ slug: 'test-campaign' }),
-    });
-
-    expect(response.status).toBe(409);
-  });
-
-  it('returns 409 when the campaign has a Flag on record', async () => {
-    mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: [] },
-      expires: '2099-01-01',
-    });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'other-user' } as any);
-    mockDelete.mockRejectedValue(foreignKeyViolation('CampaignFlag_campaignId_fkey'));
-
-    const request = createRequest('test-campaign', 'DELETE');
-    const response = await DELETE(request, {
-      params: Promise.resolve({ slug: 'test-campaign' }),
-    });
-
-    expect(response.status).toBe(409);
-  });
-
-  it.each([
-    ['a foreign-key violation from another relation', foreignKeyViolation('Payout_campaignId_fkey')],
-    ['an unrelated database error', new Error('connection reset')],
-  ])('returns 500 for %s', async (_label, error) => {
-    mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: [] },
-      expires: '2099-01-01',
-    });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'other-user' } as any);
-    mockDelete.mockRejectedValue(error);
-
-    const request = createRequest('test-campaign', 'DELETE');
-    const response = await DELETE(request, {
-      params: Promise.resolve({ slug: 'test-campaign' }),
-    });
-
-    expect(response.status).toBe(500);
+  it('does not exist: a Campaign stops only through its lifecycle, never by deletion (ADR 0016)', () => {
+    expect(route).not.toHaveProperty('DELETE');
   });
 });
