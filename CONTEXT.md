@@ -11,7 +11,7 @@ Satu ajakan mengumpulkan dana daring dengan target, satu Fundraiser, dan tenggat
 _Avoid_: Kampanye, program, project, penggalangan (untuk entitasnya)
 
 **Campaign Status**:
-Tahap hidup Campaign: Draft, Submitted, Rejected, Active, Suspended, Cancelled, Completed, Expired. Hanya Active yang menerima Donation. Expired terjadi otomatis saat tenggat lewat; Completed hanya bisa dicapai dari Active, ditetapkan Fundraiser atau Admin, dan butuh minimal satu Campaign Update siapa pun yang menetapkannya; setelah itu final, satu-satunya jalan keluar adalah Suspension. Tercapainya target tidak mengubah status. Campaign Active yang tenggatnya sudah lewat diperlakukan sebagai Expired walau belum dicatat demikian.
+Tahap hidup Campaign: Draft, Submitted, Rejected, Active, Suspended, Cancelled, Completed, Expired. Hanya Active yang menerima Donation. Expired terjadi otomatis saat tenggat lewat; Completed hanya bisa dicapai dari Active, ditetapkan Fundraiser atau Admin, dan butuh minimal satu Campaign Update siapa pun yang menetapkannya; setelah itu final, satu-satunya jalan keluar adalah Suspension. Tercapainya target tidak mengubah status. Campaign Active yang tenggatnya sudah lewat diperlakukan sebagai Expired walau belum dicatat demikian. Daftar publik (beranda, Urgent, jelajah, pencarian) hanya mencantumkan Campaign yang efektif Active; Campaign yang berakhir tetap bisa dibuka lewat tautannya dan tetap tercantum di sitemap, sedangkan yang Suspended, Cancelled, atau belum diloloskan tidak dicantumkan di mana pun.
 _Avoid_: State, pending, published
 
 **Kind**:
