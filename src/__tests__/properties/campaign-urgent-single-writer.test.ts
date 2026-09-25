@@ -10,7 +10,10 @@ import { join } from "node:path";
  * directly would skip the Admin rule, the audit log, or both.
  *
  * Checked per Campaign write call, not per file: several files both write a
- * Campaign and merely READ isUrgent (for example to answer a GET).
+ * Campaign and merely READ isUrgent (for example to answer a GET). Like the
+ * dual-write guard, it recognises writes through `prisma.` or `tx.` only;
+ * a client under another name, or a nested write from another model, is
+ * outside what it can see.
  *
  * The allowlist is a literal. Adding a file to it is a deliberate decision
  * that a reviewer sees in the diff.
@@ -35,7 +38,7 @@ function walk(dir: string): string[] {
 /** The full argument text of every Campaign write call, parentheses balanced. */
 function campaignWriteCalls(source: string): string[] {
   const calls: string[] = [];
-  for (const match of source.matchAll(WRITE)) {
+  for (const match of Array.from(source.matchAll(WRITE))) {
     const open = match.index! + match[0].length - 1;
     let depth = 0;
     let end = open;

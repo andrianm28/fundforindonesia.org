@@ -218,6 +218,7 @@ describe('PUT /api/campaigns/[slug]/urgent', () => {
       const response = await put(body);
 
       expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'VALIDATION' });
       expect(state.db.statusChanges).toEqual([]);
     });
 

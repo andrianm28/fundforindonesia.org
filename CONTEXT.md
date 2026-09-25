@@ -119,7 +119,7 @@ Satu pengajuan Campaign untuk diperiksa Verifier, dengan checklist dokumen dan h
 _Avoid_: Moderasi, review, approval
 
 **Admin**:
-Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, mengelola peran pengguna, memutuskan dan mencabut Suspension, menyetujui Cancellation, menandai Campaign Completed, dan memasang Urgent. Tidak pernah bertindak sebagai Admin atas Campaign miliknya sendiri; di sana ia hanya Fundraiser. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
+Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, mengelola peran pengguna, memutuskan dan mencabut Suspension, menyetujui Cancellation, menandai Campaign Completed, serta memasang dan melepas Urgent. Tidak pernah bertindak sebagai Admin atas Campaign miliknya sendiri; di sana ia hanya Fundraiser. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
 
 ### Uang
 

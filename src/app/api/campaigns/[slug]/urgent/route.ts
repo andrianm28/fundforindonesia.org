@@ -4,6 +4,7 @@ import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
   CampaignNotFoundError,
+  LifecycleValidationError,
   lifecycleErrorToHttp,
   setUrgent,
 } from "@/lib/campaign-lifecycle";
@@ -19,13 +20,6 @@ export const PUT = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest
   const { slug } = await context.params;
   const body = await req.json().catch(() => null);
 
-  if (typeof body?.urgent !== "boolean") {
-    return NextResponse.json(
-      { error: "Kolom urgent wajib diisi true atau false." },
-      { status: 400 }
-    );
-  }
-
   // withAssignmentCheck has already turned a missing session into 401.
   const session = await getServerSession();
   const actor = {
@@ -34,6 +28,9 @@ export const PUT = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest
   };
 
   try {
+    if (typeof body?.urgent !== "boolean") {
+      throw new LifecycleValidationError("Kolom urgent wajib diisi true atau false.", "urgent");
+    }
     const campaign = await prisma.campaign.findUnique({ where: { slug }, select: { id: true } });
     if (!campaign) throw new CampaignNotFoundError(slug);
     const result = await setUrgent(prisma, {
