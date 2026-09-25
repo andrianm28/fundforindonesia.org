@@ -1,5 +1,5 @@
-import { render, screen, cleanup } from '@testing-library/react';
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { CampaignDetailView, type CampaignDetailData } from './CampaignDetailView';
 
 // Mock next/navigation
@@ -21,6 +21,7 @@ const mockCampaign: CampaignDetailData = {
   collectedAmount: 25841000,
   category: 'bencana-alam',
   status: 'active',
+  lifecycleStatus: 'ACTIVE',
   isUrgent: false,
   isDemo: false,
   deadline: null,
@@ -147,5 +148,84 @@ describe('CampaignDetailView', () => {
     const quickInfo = container.querySelector('[data-testid="campaign-quick-info"]') as HTMLElement;
     expect(quickInfo.className).not.toContain('py-4');
     expect(quickInfo.className).toContain('pt-4');
+  });
+});
+
+describe('CampaignDetailView -- where the Campaign stands', () => {
+  const SUSPENDED_COPY = 'Campaign ini sedang ditinjau dan tidak menerima donasi.';
+  const CANCELLED_COPY = 'Fundraiser telah menarik Campaign ini.';
+  const ENDED_COPY = 'Campaign ini telah berakhir.';
+
+  // The payload GET /api/campaigns/[slug] returns to whoever asks; the
+  // owner's carries suspensionReason, anyone else's leaves it out.
+  let apiCampaign: Record<string, unknown>;
+
+  beforeEach(() => {
+    apiCampaign = { ...mockCampaign, lifecycleStatus: 'SUSPENDED' };
+    global.fetch = vi.fn(async () =>
+      ({ ok: true, json: async () => ({ campaign: apiCampaign }) }) as Response
+    ) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function renderAs(lifecycleStatus: CampaignDetailData['lifecycleStatus']) {
+    return render(<CampaignDetailView campaign={{ ...mockCampaign, lifecycleStatus }} />);
+  }
+
+  it('shows no banner and offers donating while Active', () => {
+    renderAs('ACTIVE');
+    expect(screen.queryByRole('status', { name: 'Status Campaign' })).toBeNull();
+    expect(screen.getByText('Donasi sekarang')).toBeDefined();
+  });
+
+  it('says a Suspended Campaign is under review, and offers no donating', async () => {
+    renderAs('SUSPENDED');
+    expect(screen.getByRole('status', { name: 'Status Campaign' }).textContent).toContain(SUSPENDED_COPY);
+    expect(screen.queryByText('Donasi sekarang')).toBeNull();
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+  });
+
+  it('says the Fundraiser withdrew a Cancelled Campaign, which does not read as Suspended (PRD §8)', () => {
+    renderAs('CANCELLED');
+    const banner = screen.getByRole('status', { name: 'Status Campaign' });
+    expect(banner.textContent).toContain(CANCELLED_COPY);
+    expect(banner.textContent).not.toContain(SUSPENDED_COPY);
+    expect(screen.queryByText('Donasi sekarang')).toBeNull();
+  });
+
+  it.each(['EXPIRED', 'COMPLETED'] as const)('says a %s Campaign has ended, and offers no donating', (status) => {
+    renderAs(status);
+    expect(screen.getByRole('status', { name: 'Status Campaign' }).textContent).toContain(ENDED_COPY);
+    expect(screen.queryByText('Donasi sekarang')).toBeNull();
+  });
+
+  it.each(['DRAFT', 'SUBMITTED', 'REJECTED'] as const)('offers no donating for a %s Campaign', (status) => {
+    renderAs(status);
+    expect(screen.queryByText('Donasi sekarang')).toBeNull();
+  });
+
+  it('shows the owning Fundraiser the Suspension reason under the banner', async () => {
+    apiCampaign = { ...apiCampaign, suspensionReason: 'Dokumen penerima manfaat belum lengkap' };
+    renderAs('SUSPENDED');
+    expect(await screen.findByText(/Dokumen penerima manfaat belum lengkap/)).toBeDefined();
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/campaigns/bantu-korban-bencana',
+      expect.objectContaining({ cache: 'no-store' })
+    );
+  });
+
+  it('shows no reason to anyone the API withholds it from', async () => {
+    renderAs('SUSPENDED');
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(screen.queryByText(/Alasan/)).toBeNull();
+  });
+
+  it('does not ask for a reason when the Campaign is not Suspended', () => {
+    renderAs('CANCELLED');
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

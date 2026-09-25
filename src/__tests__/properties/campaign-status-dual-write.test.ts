@@ -97,6 +97,16 @@ describe("Campaign status dual-write", () => {
         "src/app/api/campaigns/route.ts",
         "src/app/api/donations/route.ts",
         "src/lib/campaign-lifecycle.ts",
+        // The Campaign page and its API read the column only through
+        // effectiveStatus, and send the result as the payload field of the
+        // same name (subject-guard-and-suspension-money ticket 04).
+        "src/app/api/campaigns/[slug]/route.ts",
+        "src/app/campaign/[slug]/page.tsx",
+        // These name that payload field, never the column.
+        "src/app/campaign/[slug]/donate/page.tsx",
+        "src/components/campaign/CampaignDetail.tsx",
+        "src/components/campaign/CampaignDetailView.tsx",
+        "src/types/campaign.ts",
       ].sort()
     );
   });

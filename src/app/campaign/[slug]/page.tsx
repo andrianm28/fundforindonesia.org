@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 import { CampaignDetailView } from '@/components/campaign/CampaignDetailView';
 import { StructuredData } from '@/components/shared/SEOHead';
+import { effectiveStatus } from '@/lib/campaign-lifecycle';
 
 export const revalidate = 60; // ISR: revalidate every 60 seconds
 
@@ -83,6 +84,11 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     collectedAmount: campaign.collectedAmount,
     category: campaign.category,
     status: campaign.status,
+    // Effective, so an Active Campaign past its deadline shows as ended.
+    // The Suspension reason is not rendered here: this page is cached for
+    // every visitor alike, so the view asks the API for it, which answers
+    // only the owning Fundraiser.
+    lifecycleStatus: effectiveStatus(campaign, new Date()),
     isUrgent: campaign.isUrgent,
     isDemo: campaign.isDemo,
     deadline: campaign.deadline ? campaign.deadline.toISOString() : null,

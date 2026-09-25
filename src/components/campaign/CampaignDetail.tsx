@@ -5,6 +5,11 @@ import { LazyImage } from '@/components/ui/LazyImage';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
+import {
+  CampaignStatusBanner,
+  offersDonating,
+  type CampaignLifecycleStatus,
+} from './CampaignStatusBanner';
 
 export interface CampaignDetailProps {
   campaign: {
@@ -18,6 +23,10 @@ export interface CampaignDetailProps {
     collectedAmount: number;
     category: string;
     status: string;
+    /** Effective status, as GET /api/campaigns/[slug] returns it. */
+    lifecycleStatus: CampaignLifecycleStatus;
+    /** Present only in the owning Fundraiser's payload. */
+    suspensionReason?: string | null;
     isUrgent: boolean;
     deadline: string | null;
     createdAt: string;
@@ -136,6 +145,10 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
 
       {/* Campaign Info Header */}
       <div className="px-4 py-4">
+        <CampaignStatusBanner
+          status={campaign.lifecycleStatus}
+          suspensionReason={campaign.suspensionReason}
+        />
         <h1 className="text-lg font-bold text-text leading-snug mb-2">
           {campaign.title}
         </h1>
@@ -317,12 +330,14 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
             <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
           </svg>
         </button>
-        <button
-          onClick={onDonate}
-          className="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-lg transition-colors text-sm"
-        >
-          Donasi sekarang
-        </button>
+        {offersDonating(campaign.lifecycleStatus) && (
+          <button
+            onClick={onDonate}
+            className="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-lg transition-colors text-sm"
+          >
+            Donasi sekarang
+          </button>
+        )}
       </div>
     </div>
   );
