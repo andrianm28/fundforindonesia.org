@@ -481,11 +481,10 @@ export async function decideSubmission(
 ): Promise<LifecycleResult> {
   const { campaignId, actor, now = new Date() } = params;
   const decision = SUBMISSION_DECISIONS[params.decision];
-  if (!actor.assignments.includes(Assignment.VERIFIER)) {
-    throw new NotAuthorizedError(
-      "Hanya Verifier yang dapat menyetujui atau menolak Campaign."
-    );
-  }
+  requireVerifierAssignment(
+    actor,
+    "Hanya Verifier yang dapat menyetujui atau menolak Campaign."
+  );
   await expireIfPastDeadline(prisma, campaignId, now);
   return prisma.$transaction(async (tx) => {
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
@@ -597,6 +596,13 @@ export async function completeCampaign(
 /** The ADMIN assignment, checked before anything is read or written. */
 function requireAdminAssignment(actor: LifecycleActor, message: string): void {
   if (!actor.assignments.includes(Assignment.ADMIN)) {
+    throw new NotAuthorizedError(message);
+  }
+}
+
+/** The VERIFIER assignment, checked before anything is read or written. */
+function requireVerifierAssignment(actor: LifecycleActor, message: string): void {
+  if (!actor.assignments.includes(Assignment.VERIFIER)) {
     throw new NotAuthorizedError(message);
   }
 }
@@ -1060,6 +1066,12 @@ export type CampaignFlagState = {
 export type FlagResult = LifecycleResult & { flag: CampaignFlagState };
 
 /**
+ * A Flag asks an Admin to consider Suspension, so it can be raised exactly
+ * where Suspension is possible (ADR 0015).
+ */
+const FLAGGABLE = SUSPENDABLE;
+
+/**
  * A Verifier raises a Flag on a Campaign, with a reason, so an Admin can
  * decide on Suspension (FFI-07b, ADR 0005). Nothing about the Campaign
  * changes. Allowed on an effectively Active, Expired or Completed Campaign
@@ -1077,9 +1089,7 @@ export async function flagCampaign(
   }
 ): Promise<FlagResult> {
   const { campaignId, actor, now = new Date() } = params;
-  if (!actor.assignments.includes(Assignment.VERIFIER)) {
-    throw new NotAuthorizedError("Hanya Verifier yang dapat memasang Flag pada Campaign.");
-  }
+  requireVerifierAssignment(actor, "Hanya Verifier yang dapat memasang Flag pada Campaign.");
   const reason = requireReason(params.reason);
   await expireIfPastDeadline(prisma, campaignId, now);
   return prisma.$transaction(async (tx) => {
@@ -1092,7 +1102,7 @@ export async function flagCampaign(
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
     const current = effectiveStatus(campaign, now);
-    if (!SUSPENDABLE.includes(current)) {
+    if (!FLAGGABLE.includes(current)) {
       throw new InvalidTransitionError(current);
     }
     const flag = await tx.campaignFlag.create({
@@ -1134,11 +1144,15 @@ export async function dismissFlag(
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
     requireNotOwner(actor, campaign);
-    const open = await tx.campaignFlag.findUnique({ where: { id: flagId } });
-    if (!open || open.campaignId !== campaignId) throw new FlagNotFoundError(flagId);
-    if (open.resolution !== null) throw new FlagAlreadyResolvedError(open.resolution);
-    await tx.campaignFlag.updateMany({
-      where: { id: flagId },
+    const existing = await tx.campaignFlag.findUnique({ where: { id: flagId } });
+    if (!existing || existing.campaignId !== campaignId) throw new FlagNotFoundError(flagId);
+    if (existing.resolution !== null) {
+      throw new FlagAlreadyResolvedError(existing.resolution);
+    }
+    // Predicated on the Flag still being open, like the Cancellation claim:
+    // a second guard should a writer ever resolve Flags without the lock.
+    const claimed = await tx.campaignFlag.updateMany({
+      where: { id: flagId, resolution: null },
       data: {
         resolution: FlagResolution.DISMISSED,
         resolvedById: actor.userId,
@@ -1146,6 +1160,7 @@ export async function dismissFlag(
         resolvedAt: now,
       },
     });
+    if (claimed.count === 0) throw new ConcurrentTransitionError();
     const updated = await tx.campaign.findUniqueOrThrow({
       where: { id: campaignId },
       select: CAMPAIGN_STATE,

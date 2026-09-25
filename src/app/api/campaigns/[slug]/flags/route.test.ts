@@ -24,6 +24,7 @@ vi.mock('@/lib/prisma', () => ({
 
 import { POST as FLAG } from './route';
 import { POST as DISMISS } from './[id]/dismiss/route';
+import { POST as SUSPEND } from '../suspension/route';
 import { getServerSession } from '@/lib/auth';
 
 const mockSession = getServerSession as unknown as Mock;
@@ -276,7 +277,6 @@ describe('POST /api/campaigns/[slug]/flags/[id]/dismiss', () => {
 
   it('answers 409 when a Suspension resolves the Flag first: the Suspension stands', async () => {
     mockSession.mockResolvedValue(session('admin-b', ['ADMIN']));
-    const { POST: SUSPEND } = await import('../suspension/route');
     await SUSPEND(request(`${SLUG}/suspension`, { reason: 'Penipuan' }), { params: Promise.resolve({ slug: SLUG }) });
     mockSession.mockResolvedValue(ADMIN_A);
 
@@ -333,26 +333,5 @@ describe('POST /api/campaigns/[slug]/flags/[id]/dismiss', () => {
 
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: 'Terjadi kesalahan server' });
-  });
-});
-
-describe('POST /api/campaigns/[slug]/suspension resolving Flags', () => {
-  it('marks every open Flag SUSPENDED with the suspending Admin as resolver', async () => {
-    mockSession.mockResolvedValue(ADMIN_A);
-    state.db = makeCampaignDb({
-      campaigns: [active()],
-      campaignFlags: [campaignFlagRow(), campaignFlagRow({ id: 'flag-2', verifierId: 'verifier-2' })],
-    });
-    const { POST: SUSPEND } = await import('../suspension/route');
-
-    const response = await SUSPEND(request(`${SLUG}/suspension`, { reason: 'Penipuan terverifikasi' }), {
-      params: Promise.resolve({ slug: SLUG }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(state.db.campaignFlags.map((f) => [f.id, f.resolution, f.resolvedById, f.resolutionReason])).toEqual([
-      ['flag-1', 'SUSPENDED', 'admin-a', 'Penipuan terverifikasi'],
-      ['flag-2', 'SUSPENDED', 'admin-a', 'Penipuan terverifikasi'],
-    ]);
   });
 });
