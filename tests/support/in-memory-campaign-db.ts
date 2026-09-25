@@ -102,6 +102,14 @@ export function makeCampaignDb(seed: { campaigns?: CampaignRow[] } = {}) {
           const row = getData().campaigns.find((c) => matches(c, where));
           return row ? { ...row } : null;
         },
+        findUniqueOrThrow: async ({ where, select }: { where: Where; select?: Record<string, boolean> }) => {
+          const row = getData().campaigns.find((c) => matches(c, where));
+          if (!row) throw new Error('No Campaign found');
+          if (!select) return { ...row };
+          return Object.fromEntries(
+            Object.keys(select).filter((key) => select[key]).map((key) => [key, row[key as keyof CampaignRow]]),
+          );
+        },
         updateMany: async ({ where, data }: { where: Where; data: Partial<CampaignRow> }) => {
           if (pendingInterleave) {
             const interleave = pendingInterleave;

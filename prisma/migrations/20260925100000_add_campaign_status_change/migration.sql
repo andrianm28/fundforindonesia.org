@@ -23,7 +23,7 @@ CREATE TABLE "CampaignStatusChange" (
 CREATE INDEX "CampaignStatusChange_campaignId_createdAt_idx" ON "CampaignStatusChange"("campaignId", "createdAt");
 
 -- AddForeignKey
-ALTER TABLE "CampaignStatusChange" ADD CONSTRAINT "CampaignStatusChange_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "Campaign"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "CampaignStatusChange" ADD CONSTRAINT "CampaignStatusChange_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "Campaign"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "CampaignStatusChange" ADD CONSTRAINT "CampaignStatusChange_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

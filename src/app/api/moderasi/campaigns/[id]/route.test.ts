@@ -135,7 +135,7 @@ describe('PATCH /api/moderasi/campaigns/[id]', () => {
       ['SUSPENDED', 'suspended'],
       ['COMPLETED', 'completed'],
       ['EXPIRED', 'expired'],
-      ['CANCELLED', 'active'],
+      ['CANCELLED', 'cancelled'],
     ] as const)('refuses approve and reject on a %s Campaign with 409, leaving it as it was', async (lifecycleStatus, status) => {
       for (const action of ['approve', 'reject']) {
         seed({ lifecycleStatus, status });
@@ -210,6 +210,7 @@ describe('PATCH /api/moderasi/campaigns/[id]', () => {
     it.each([
       ['a missing action', {}],
       ['an unknown action', { action: 'delete' }],
+      ['an inherited object key', { action: 'constructor' }],
       ['a body that is not JSON', 'not json'],
     ])('answers 400 to %s', async (_label, body) => {
       const response = await patch(body);

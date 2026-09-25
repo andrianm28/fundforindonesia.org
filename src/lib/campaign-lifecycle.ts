@@ -13,7 +13,7 @@ import {
  * through this function, so the two columns cannot diverge.
  *
  * Unknown strings throw rather than map to a default: writing a
- * lifecycle state that is not one of the six known legacy values
+ * lifecycle state that is not one of the known legacy values
  * must fail loudly, never silently land somewhere plausible.
  */
 const STRING_TO_LIFECYCLE: Record<string, CampaignStatus> = {
@@ -23,8 +23,11 @@ const STRING_TO_LIFECYCLE: Record<string, CampaignStatus> = {
   suspended: CampaignStatus.SUSPENDED,
   completed: CampaignStatus.COMPLETED,
   expired: CampaignStatus.EXPIRED,
+  cancelled: CampaignStatus.CANCELLED,
 };
 
+// Derived from the table above, so adding a legacy value adds both
+// directions at once. DRAFT has no legacy string and stays unmapped.
 const LIFECYCLE_TO_STRING = Object.fromEntries(
   Object.entries(STRING_TO_LIFECYCLE).map(([legacy, lifecycle]) => [lifecycle, legacy])
 ) as Partial<Record<CampaignStatus, string>>;
@@ -71,7 +74,7 @@ export abstract class CampaignLifecycleError extends Error {
   abstract readonly code: LifecycleErrorCode;
 }
 
-type LifecycleErrorCode =
+export type LifecycleErrorCode =
   | "VALIDATION"
   | "NOT_AUTHORIZED"
   | "OWN_CAMPAIGN_CONFLICT"
@@ -244,32 +247,44 @@ export function effectiveStatus(
 
 // ==================== Transitions ====================
 
+/**
+ * Who is acting. Every command takes this and decides authorization
+ * itself: "owner or Admin" and "never Admin on your own Campaign" are not
+ * single-assignment checks a route wrapper can express.
+ */
 export type LifecycleActor = {
   userId: string;
   assignments: readonly Assignment[];
 };
 
-export type LifecycleResult = {
-  campaign: {
-    id: string;
-    slug: string;
-    lifecycleStatus: CampaignStatus;
-    isUrgent: boolean;
-  };
-};
-
-type Tx = Prisma.TransactionClient;
-
-type CampaignForTransition = {
+/** The Campaign as a command leaves it; what every lifecycle route returns. */
+export type CampaignState = {
   id: string;
   slug: string;
   lifecycleStatus: CampaignStatus;
   isUrgent: boolean;
 };
 
+export type LifecycleResult = { campaign: CampaignState };
+
+type Tx = Prisma.TransactionClient;
+
+const CAMPAIGN_STATE = {
+  id: true,
+  slug: true,
+  lifecycleStatus: true,
+  isUrgent: true,
+} as const;
+
+/**
+ * The one status write. Writes both columns, predicated on the status the
+ * command judged; records the change; runs the leave-Active side effects.
+ * Returns the Campaign as re-read after all of that, so a caller never
+ * reports an Urgent flag the side effects have just cleared.
+ */
 async function transition(
   tx: Tx,
-  campaign: CampaignForTransition,
+  campaign: { id: string; lifecycleStatus: CampaignStatus },
   change: {
     to: CampaignStatus;
     action: CampaignStatusChangeAction;
@@ -277,7 +292,7 @@ async function transition(
     capacity: StatusChangeCapacity;
     reason?: string | null;
   }
-): Promise<void> {
+): Promise<CampaignState> {
   const from = campaign.lifecycleStatus;
   // Predicated on the status this command read and judged: if another
   // request moved the Campaign in between, nothing matches and this
@@ -301,6 +316,10 @@ async function transition(
   if (from === CampaignStatus.ACTIVE && change.to !== CampaignStatus.ACTIVE) {
     await leaveActive(tx, campaign.id, change.to);
   }
+  return tx.campaign.findUniqueOrThrow({
+    where: { id: campaign.id },
+    select: CAMPAIGN_STATE,
+  });
 }
 
 /**
@@ -308,7 +327,7 @@ async function transition(
  * Campaign stops being Active, whatever the exit. Urgent only means
  * something for a Campaign that can still take a Donation, so it drops
  * here and never comes back on its own (a lifted Suspension does not
- * restore it). Cancellation requests (ticket 07) lapse here too.
+ * restore it). Pending Cancellation requests lapse here too (ticket 07).
  */
 async function leaveActive(
   tx: Tx,
@@ -335,19 +354,21 @@ async function leaveActive(
 }
 
 /**
- * The in-app Notification to the Campaign's creator, sent only when someone
- * else made the change: a Fundraiser is never told about their own action.
+ * The in-app Notification to the Campaign's Fundraiser (its creator), sent
+ * only when someone else made the change: a Fundraiser is never told about
+ * their own action. One Notification type for every lifecycle change.
  */
-async function notifyCreator(
+async function notifyFundraiser(
   tx: Tx,
   campaign: { creatorId: string; slug: string },
   actorId: string | null,
-  notification: { type: string; title: string; message: string }
+  notification: { title: string; message: string }
 ): Promise<void> {
   if (actorId === campaign.creatorId) return;
   await tx.notification.create({
     data: {
       ...notification,
+      type: "campaign_status",
       userId: campaign.creatorId,
       link: `/campaign/${campaign.slug}`,
     },
@@ -393,14 +414,15 @@ export async function expireIfPastDeadline(
       if (error instanceof ConcurrentTransitionError) return false;
       throw error;
     }
-    await notifyCreator(tx, campaign, null, {
-      type: "campaign_status",
+    await notifyFundraiser(tx, campaign, null, {
       title: "Campaign Berakhir",
       message: `Tenggat Campaign "${campaign.title}" telah lewat. Campaign kini Expired dan tidak lagi menerima donasi.`,
     });
     return true;
   });
 }
+
+// ==================== Commands ====================
 
 const SUBMISSION_DECISIONS = {
   approve: {
@@ -419,12 +441,25 @@ const SUBMISSION_DECISIONS = {
   },
 } as const;
 
+export type SubmissionDecision = keyof typeof SUBMISSION_DECISIONS;
+
+export function isSubmissionDecision(value: unknown): value is SubmissionDecision {
+  return typeof value === "string" && Object.hasOwn(SUBMISSION_DECISIONS, value);
+}
+
+/**
+ * A Verifier approves (ACTIVE) or rejects (REJECTED) a Submitted Campaign.
+ * Any other effective status is refused, so moderation can never reopen a
+ * Suspended, Completed or Cancelled Campaign. Recorded in the VERIFIER
+ * capacity, without a reason: rejection reasons belong to Verification
+ * Request (ticket 12).
+ */
 export async function decideSubmission(
   prisma: PrismaClient,
   params: {
     campaignId: string;
     actor: LifecycleActor;
-    decision: "approve" | "reject";
+    decision: SubmissionDecision;
     now?: Date;
   }
 ): Promise<LifecycleResult> {
@@ -443,25 +478,16 @@ export async function decideSubmission(
     if (current !== CampaignStatus.SUBMITTED) {
       throw new InvalidTransitionError(current);
     }
-    const to = decision.to;
-    await transition(tx, campaign, {
-      to,
+    const updated = await transition(tx, campaign, {
+      to: decision.to,
       action: decision.action,
       actorId: actor.userId,
       capacity: StatusChangeCapacity.VERIFIER,
     });
-    await notifyCreator(tx, campaign, actor.userId, {
-      type: "campaign_moderation",
+    await notifyFundraiser(tx, campaign, actor.userId, {
       title: decision.title,
       message: decision.message(campaign.title),
     });
-    return {
-      campaign: {
-        id: campaign.id,
-        slug: campaign.slug,
-        lifecycleStatus: to,
-        isUrgent: campaign.isUrgent,
-      },
-    };
+    return { campaign: updated };
   });
 }

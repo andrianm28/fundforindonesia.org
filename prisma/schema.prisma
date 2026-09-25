@@ -41,15 +41,15 @@ model User {
   updatedAt        DateTime @updatedAt
 
   // Relations
-  accounts                  Account[]
-  campaigns                 Campaign[]
-  volunteerTrips            VolunteerTrip[]
-  registrations             Registration[]
-  donations                 Donation[]
-  prayers                   Prayer[]
-  notifications             Notification[]
-  autoDonations             AutoDonation[]
-  assignments               UserAssignment[]
+  accounts        Account[]
+  campaigns       Campaign[]
+  volunteerTrips  VolunteerTrip[]
+  registrations   Registration[]
+  donations       Donation[]
+  prayers       Prayer[]
+  notifications Notification[]
+  autoDonations AutoDonation[]
+  assignments   UserAssignment[]
   assignmentAuditsAsSubject AssignmentAuditEntry[] @relation("AssignmentAuditSubject")
   assignmentAuditsAsActor   AssignmentAuditEntry[] @relation("AssignmentAuditActor")
   campaignStatusChanges     CampaignStatusChange[]
@@ -142,22 +142,22 @@ enum CampaignStatus {
 }
 
 model Campaign {
-  id              String         @id @default(cuid())
-  slug            String         @unique
+  id              String    @id @default(cuid())
+  slug            String    @unique
   title           String
-  description     String         @db.Text
-  story           String         @db.Text
+  description     String    @db.Text
+  story           String    @db.Text
   coverImage      String
   targetAmount    Int
-  collectedAmount Int            @default(0)
+  collectedAmount Int       @default(0)
   category        String
-  status          String         @default("active") // legacy values: "pending" | "active" | "rejected" | "suspended" | "completed" | "expired"
+  status          String    @default("active") // legacy values: "pending" | "active" | "rejected" | "suspended" | "completed" | "expired" | "cancelled"
   lifecycleStatus CampaignStatus @default(SUBMITTED)
-  isUrgent        Boolean        @default(false)
+  isUrgent        Boolean   @default(false)
   deadline        DateTime?
   creatorId       String
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   /// Sample/demo content, not a real appeal. Set by a one-time migration for
   /// the 30 campaigns that existed before the money layer (task M9) -- every
@@ -182,10 +182,10 @@ model Campaign {
   /// block their donations. If a future environment needs its own demo data
   /// marked, write that environment a new migration with its own predicate
   /// -- do not point it at this one.
-  isDemo Boolean @default(false)
+  isDemo          Boolean   @default(false)
 
   // Relations
-  creator       User                   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  creator       User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   donations     Donation[]
   updates       CampaignUpdate[]
   // Disbursement is replaced by Payout, which carries status, an approver and
@@ -231,6 +231,10 @@ enum StatusChangeCapacity {
 /// same transaction as the change itself; never updated or deleted. Lifting
 /// a Suspension reads the latest SUSPENDED row for the status to restore
 /// (ADR 0015), so this is load-bearing, not just an audit trail.
+///
+/// onDelete: Restrict on both relations, like Payout: deleting a Campaign
+/// or a person must never erase who changed what. A Campaign with history
+/// can therefore no longer be hard-deleted, which is the point.
 model CampaignStatusChange {
   id         String                     @id @default(cuid())
   campaignId String
@@ -245,7 +249,7 @@ model CampaignStatusChange {
   createdAt  DateTime                   @default(now())
 
   // Relations
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   actor    User?    @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([campaignId, createdAt])
@@ -453,9 +457,9 @@ enum LedgerDirection {
 /// Payment; a retry creates a NEW Payment rather than mutating the old one, so
 /// the history of attempts survives.
 model Payment {
-  id             String        @id @default(cuid())
-  donationId     String?       @unique
-  donation       Donation?     @relation(fields: [donationId], references: [id], onDelete: Restrict)
+  id          String        @id @default(cuid())
+  donationId  String?       @unique
+  donation    Donation?     @relation(fields: [donationId], references: [id], onDelete: Restrict)
   /// Set instead of donationId for a Trip Fee payment -- exactly one of the
   /// two is ever set, enforced by assertExactlyOnePaymentSubject
   /// (./src/lib/money/payment-subject.ts), not by a schema constraint
@@ -466,21 +470,21 @@ model Payment {
   /// proactively.
   registrationId String?       @unique
   registration   Registration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
-  provider       String // "midtrans" | "xendit" | ... kept a String: providers are added without a migration
-  method         String // "qris" | "va_bca" | ...
+  provider    String // "midtrans" | "xendit" | ... kept a String: providers are added without a migration
+  method      String // "qris" | "va_bca" | ...
   /// The provider's own id for this charge. Unique so a webhook replay cannot
   /// create a second Payment for the same upstream charge.
-  providerRef    String        @unique
-  amount         Int
+  providerRef String        @unique
+  amount      Int
   /// What the provider kept. Recorded separately so the campaign is credited
   /// the net, and the fee is visible rather than silently missing.
-  providerFee    Int           @default(0)
-  status         PaymentStatus @default(PENDING)
+  providerFee Int           @default(0)
+  status      PaymentStatus @default(PENDING)
   /// Provider payload, kept verbatim for dispute resolution. Never parsed for
   /// business logic -- the typed columns above are what the app reads.
-  rawPayload     Json?
-  paidAt         DateTime?
-  expiresAt      DateTime?
+  rawPayload  Json?
+  paidAt      DateTime?
+  expiresAt   DateTime?
 
   /// When this payment's money stops being escrow and becomes withdrawable.
   /// Set on settlement to paidAt + the hold period; null while unpaid.
@@ -489,14 +493,14 @@ model Payment {
   /// it, a donation can be paid out to the campaigner before the donor's bank
   /// has finished deciding whether the charge was theirs, and the platform is
   /// then chasing money it has already sent away.
-  escrowReleaseAt  DateTime?
+  escrowReleaseAt   DateTime?
   /// Stamped when the release entries are actually posted. Together with the
   /// field above this is the sweep's whole state: due is `escrowReleaseAt <=
   /// now AND escrowReleasedAt IS NULL`, which is also why they share an index.
-  escrowReleasedAt DateTime?
+  escrowReleasedAt  DateTime?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   refunds       Refund[]
   ledgerEntries LedgerEntry[]
@@ -578,24 +582,24 @@ model BankAccount {
 /// and no destination -- it recorded that a payout had supposedly happened
 /// without any of the facts that make it checkable.
 model Payout {
-  id              String       @id @default(cuid())
-  campaignId      String?
-  campaign        Campaign?    @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  id            String       @id @default(cuid())
+  campaignId    String?
+  campaign      Campaign?    @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   /// Set instead of campaignId for a Volunteer Trip payout. Plain scalar,
   /// no @relation: neither this nor any other ticket has needed .include()
   /// through it yet (routes compare it as a plain scalar, same as
   /// campaignId's own comparisons). Add the relation whenever a caller
   /// actually needs it.
   volunteerTripId String?
-  bankAccountId   String
-  bankAccount     BankAccount  @relation(fields: [bankAccountId], references: [id])
-  amount          Int
-  description     String
+  bankAccountId String
+  bankAccount   BankAccount  @relation(fields: [bankAccountId], references: [id])
+  amount        Int
+  description   String
   /// Evidence of the transfer. Required before COMPLETED, enforced in the
   /// service layer rather than the schema because Prisma cannot express a
   /// conditional NOT NULL.
-  proofImage      String?
-  status          PayoutStatus @default(DRAFT)
+  proofImage    String?
+  status        PayoutStatus @default(DRAFT)
 
   requestedById   String
   requestedBy     User      @relation("PayoutRequester", fields: [requestedById], references: [id])
@@ -634,8 +638,8 @@ model LedgerEntry {
 
   /// Which campaign this entry belongs to, where the account is
   /// campaign-scoped. Null for platform-level accounts.
-  campaignId      String?
-  campaign        Campaign? @relation(fields: [campaignId], references: [id])
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
   /// Trip-scoped sibling of campaignId, same optionality shape. Plain
   /// scalar, no @relation: VolunteerTrip doesn't exist yet -- Ticket 02
   /// adds the relation once it does.
@@ -752,8 +756,8 @@ model VolunteerBatch {
   updatedAt            DateTime             @updatedAt
 
   // Relations
-  trip          VolunteerTrip  @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  registrations Registration[]
+  trip           VolunteerTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  registrations  Registration[]
 
   @@index([tripId])
   @@index([status])

@@ -149,7 +149,7 @@ describe('decideSubmission', () => {
       ['SUSPENDED', 'suspended'],
       ['COMPLETED', 'completed'],
       ['EXPIRED', 'expired'],
-      ['CANCELLED', 'active'],
+      ['CANCELLED', 'cancelled'],
     ] as const)(
       'is refused from %s with InvalidTransitionError, leaving the Campaign, log and inbox untouched',
       async (lifecycleStatus, status) => {
@@ -180,13 +180,14 @@ describe('legacy status string', () => {
     ['SUSPENDED', 'suspended'],
     ['COMPLETED', 'completed'],
     ['EXPIRED', 'expired'],
+    ['CANCELLED', 'cancelled'],
   ] as const)('maps %s to "%s" and back', (lifecycle, legacy) => {
     expect(toLegacyStatus(lifecycle)).toBe(legacy);
     expect(toLifecycleStatus(legacy)).toBe(lifecycle);
   });
 
-  it.each(['DRAFT', 'CANCELLED'] as const)('refuses to invent a legacy string for %s', (lifecycle) => {
-    expect(() => toLegacyStatus(lifecycle)).toThrow();
+  it('refuses to invent a legacy string for DRAFT, which the legacy column never had', () => {
+    expect(() => toLegacyStatus('DRAFT')).toThrow();
   });
 });
 
