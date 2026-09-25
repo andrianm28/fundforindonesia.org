@@ -349,7 +349,7 @@ export async function POST(
           // Fundraiser or an Admin does (ADR 0004). This Settlement is
           // accepted whatever the Campaign's status (PRD §7.2), so writing a
           // status here would also let a late payment overwrite a Suspension
-          // or a cancellation.
+          // or a Cancellation.
           await tx.campaign.update({
             where: { id: campaign.id },
             data: { collectedAmount: { increment: payment.amount } },

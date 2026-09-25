@@ -377,16 +377,17 @@ describe('POST /api/webhooks/[provider]', () => {
   // ADR 0004: reaching the target does not close a Campaign; only the
   // Fundraiser or an Admin marks it COMPLETED. And because a Settlement is
   // accepted whatever the Campaign's status (PRD §7.2), a late one must not
-  // overwrite a Suspension, a Cancellation, a Completion or an expiry either.
+  // overwrite a Suspended, Cancelled, Completed or Expired status either.
   it.each([
-    ['active', 'ACTIVE'],
-    ['suspended', 'SUSPENDED'],
-    ['cancelled', 'CANCELLED'],
-    ['completed', 'COMPLETED'],
-    ['expired', 'EXPIRED'],
+    ['active', 'ACTIVE', 900_000],
+    ['active', 'ACTIVE', 950_000],
+    ['suspended', 'SUSPENDED', 950_000],
+    ['cancelled', 'CANCELLED', 950_000],
+    ['completed', 'COMPLETED', 950_000],
+    ['expired', 'EXPIRED', 950_000],
   ] as const)(
-    'records a settlement that overshoots the target without changing the campaign status (%s)',
-    async (status, lifecycleStatus) => {
+    'records a settlement that reaches the target without changing the campaign status (%s / %s, %s collected before)',
+    async (status, lifecycleStatus, collectedAmount) => {
       mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
       mockPaymentFindUnique.mockResolvedValue(
         makePayment({
@@ -399,7 +400,7 @@ describe('POST /api/webhooks/[provider]', () => {
               creatorId: 'creator-1',
               status,
               lifecycleStatus,
-              collectedAmount: 950_000,
+              collectedAmount,
               targetAmount: 1_000_000,
             },
           },
@@ -417,7 +418,9 @@ describe('POST /api/webhooks/[provider]', () => {
         data: { collectedAmount: { increment: 100_000 } },
       });
       // The money is still recorded in full.
-      expect(ledgerRows.filter((r) => r.campaignId === 'campaign-1').length).toBeGreaterThan(0);
+      expect(ledgerRows).toContainEqual(
+        expect.objectContaining({ account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 100_000 }),
+      );
     },
   );
 
