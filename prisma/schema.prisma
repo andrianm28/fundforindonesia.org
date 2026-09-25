@@ -53,6 +53,8 @@ model User {
   assignmentAuditsAsSubject AssignmentAuditEntry[] @relation("AssignmentAuditSubject")
   assignmentAuditsAsActor   AssignmentAuditEntry[] @relation("AssignmentAuditActor")
   campaignStatusChanges     CampaignStatusChange[]
+  cancellationRequestsMade    CancellationRequest[] @relation("CancellationRequester")
+  cancellationRequestsDecided CancellationRequest[] @relation("CancellationDecider")
 
   // Money layer
   bankAccounts     BankAccount[]
@@ -194,6 +196,7 @@ model Campaign {
   ledgerEntries LedgerEntry[]
   prayers       Prayer[]
   statusChanges CampaignStatusChange[]
+  cancellationRequests CancellationRequest[]
 
   @@index([slug])
   @@index([category])
@@ -253,6 +256,45 @@ model CampaignStatusChange {
   actor    User?    @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([campaignId, createdAt])
+}
+
+/// PENDING until an Admin decides. SUPERSEDED: the Campaign left Active
+/// before a decision, so the request lapsed and must be made again.
+enum CancellationRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+/// A Fundraiser's request for Cancellation of their Active Campaign (see
+/// CONTEXT.md). The Campaign stays Active, and keeps taking Donations, until
+/// an Admin who is not its Fundraiser approves (Campaign becomes CANCELLED) or
+/// rejects it. Written only by src/lib/campaign-lifecycle.ts, which keeps at
+/// most one PENDING request per Campaign inside a transaction that holds the
+/// Campaign row lock.
+///
+/// decidedById is null for a SUPERSEDED request, which nobody decided;
+/// decidedAt is then the moment it lapsed. onDelete: Restrict on every
+/// relation, like CampaignStatusChange: deleting a Campaign or a person must
+/// never erase who asked for a Cancellation and who decided it.
+model CancellationRequest {
+  id             String                    @id @default(cuid())
+  campaignId     String
+  requestedById  String
+  reason         String
+  status         CancellationRequestStatus @default(PENDING)
+  decidedById    String?
+  decisionReason String?
+  createdAt      DateTime                  @default(now())
+  decidedAt      DateTime?
+
+  // Relations
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  requestedBy User     @relation("CancellationRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy   User?    @relation("CancellationDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@index([campaignId, status])
 }
 
 // ==================== Donation ====================

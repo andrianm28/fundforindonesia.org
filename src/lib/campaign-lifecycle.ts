@@ -2,6 +2,8 @@ import {
   Assignment,
   CampaignStatus,
   CampaignStatusChangeAction,
+  CancellationRequestStatus,
+  PayoutStatus,
   StatusChangeCapacity,
   type Prisma,
   type PrismaClient,
@@ -84,7 +86,9 @@ export type LifecycleErrorCode =
   | "CONCURRENT_TRANSITION"
   | "PAYOUT_ALREADY_COMPLETED"
   | "CANCELLATION_ALREADY_PENDING"
-  | "MISSING_CAMPAIGN_UPDATE";
+  | "MISSING_CAMPAIGN_UPDATE"
+  | "CANCELLATION_REQUEST_NOT_FOUND"
+  | "CANCELLATION_NOT_PENDING";
 
 /** Glossary names (CONTEXT.md), used as-is inside Indonesian sentences. */
 const STATUS_LABEL: Record<CampaignStatus, string> = {
@@ -207,6 +211,8 @@ const HTTP_STATUS: Record<LifecycleErrorCode, number> = {
   PAYOUT_ALREADY_COMPLETED: 409,
   CANCELLATION_ALREADY_PENDING: 409,
   MISSING_CAMPAIGN_UPDATE: 422,
+  CANCELLATION_REQUEST_NOT_FOUND: 404,
+  CANCELLATION_NOT_PENDING: 409,
 };
 
 /**
@@ -351,6 +357,11 @@ async function leaveActive(
       },
     });
   }
+  // Nobody decided it, so decidedById stays null; decidedAt says when it lapsed.
+  await tx.cancellationRequest.updateMany({
+    where: { campaignId, status: CancellationRequestStatus.PENDING },
+    data: { status: CancellationRequestStatus.SUPERSEDED, decidedAt: new Date() },
+  });
 }
 
 /**
@@ -573,5 +584,227 @@ export async function completeCampaign(
       });
     }
     return { campaign: updated };
+  });
+}
+
+// ==================== Cancellation (ticket 07) ====================
+
+/** The ADMIN assignment, checked before anything is read or written. */
+function requireAdminAssignment(actor: LifecycleActor, message: string): void {
+  if (!actor.assignments.includes(Assignment.ADMIN)) {
+    throw new NotAuthorizedError(message);
+  }
+}
+
+/** No Admin ever acts as Admin on a Campaign they own (CONTEXT.md, Admin). */
+function requireNotOwner(
+  actor: LifecycleActor,
+  campaign: { creatorId: string }
+): void {
+  if (campaign.creatorId === actor.userId) {
+    throw new OwnCampaignConflictError();
+  }
+}
+
+/** No such request on this Campaign (a request is always addressed through its Campaign). */
+export class CancellationRequestNotFoundError extends CampaignLifecycleError {
+  readonly code = "CANCELLATION_REQUEST_NOT_FOUND";
+  constructor(readonly requestId: string) {
+    super("Pengajuan Cancellation tidak ditemukan.");
+    this.name = "CancellationRequestNotFoundError";
+  }
+}
+
+/** The request was already decided, or lapsed when the Campaign left Active. */
+export class CancellationNotPendingError extends CampaignLifecycleError {
+  readonly code = "CANCELLATION_NOT_PENDING";
+  constructor(readonly status: CancellationRequestStatus) {
+    super(
+      status === CancellationRequestStatus.SUPERSEDED
+        ? "Pengajuan Cancellation ini sudah gugur karena Campaign tidak lagi Active."
+        : "Pengajuan Cancellation ini sudah diputuskan."
+    );
+    this.name = "CancellationNotPendingError";
+  }
+}
+
+export type CancellationRequestState = {
+  id: string;
+  campaignId: string;
+  requestedById: string;
+  reason: string;
+  status: CancellationRequestStatus;
+  decidedById: string | null;
+  decisionReason: string | null;
+  createdAt: Date;
+  decidedAt: Date | null;
+};
+
+export type CancellationResult = LifecycleResult & {
+  cancellationRequest: CancellationRequestState;
+};
+
+/**
+ * Serialises every Cancellation write on one Campaign: the "at most one
+ * PENDING request" check and the "no Payout COMPLETED" check are reads that
+ * only stay true while this transaction holds the Campaign row, the same
+ * pattern the balance-touching Payout operations use (src/lib/money/payouts.ts).
+ *
+ * The Payout guarantee is only as strong as its writer: nothing marks a
+ * Payout COMPLETED yet, and the endpoint that will must take this same
+ * Campaign row lock, or a Payout could complete between check and write.
+ */
+async function lockCampaignRow(tx: Tx, campaignId: string): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${campaignId} FOR UPDATE`;
+}
+
+/**
+ * The Fundraiser of an Active Campaign asks for its Cancellation, with a reason. Nothing
+ * about the Campaign changes: it stays Active and keeps taking Donations
+ * until an Admin decides, so a Fundraiser can never freeze their own Campaign.
+ * Refused while another request on the Campaign is still PENDING.
+ */
+export async function requestCancellation(
+  prisma: PrismaClient,
+  params: {
+    campaignId: string;
+    actor: LifecycleActor;
+    reason: unknown;
+    now?: Date;
+  }
+): Promise<CancellationResult> {
+  const { campaignId, actor, now = new Date() } = params;
+  const reason = requireReason(params.reason);
+  await expireIfPastDeadline(prisma, campaignId, now);
+  return prisma.$transaction(async (tx) => {
+    // Lock first, then read: a status judged from a copy read before the
+    // lock could let a request land on a Campaign that was just suspended,
+    // after the leave-Active sweep that would have lapsed it has already run.
+    await lockCampaignRow(tx, campaignId);
+    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) throw new CampaignNotFoundError(campaignId);
+    if (campaign.creatorId !== actor.userId) {
+      throw new NotAuthorizedError(
+        "Hanya Fundraiser pemilik Campaign yang dapat mengajukan Cancellation."
+      );
+    }
+    const current = effectiveStatus(campaign, now);
+    if (current !== CampaignStatus.ACTIVE) {
+      throw new InvalidTransitionError(current);
+    }
+    const pending = await tx.cancellationRequest.findFirst({
+      where: { campaignId, status: CancellationRequestStatus.PENDING },
+    });
+    if (pending) throw new CancellationAlreadyPendingError();
+    const cancellationRequest = await tx.cancellationRequest.create({
+      data: { campaignId, requestedById: actor.userId, reason },
+    });
+    const updated = await tx.campaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: CAMPAIGN_STATE,
+    });
+    return { campaign: updated, cancellationRequest };
+  });
+}
+
+const CANCELLATION_DECISIONS = {
+  approve: {
+    status: CancellationRequestStatus.APPROVED,
+    title: "Cancellation Disetujui",
+    message: (title: string, reason: string) =>
+      `Pengajuan Cancellation untuk Campaign "${title}" disetujui Admin. Campaign kini Cancelled dan tidak lagi menerima donasi. Alasan: ${reason}`,
+  },
+  reject: {
+    status: CancellationRequestStatus.REJECTED,
+    title: "Cancellation Ditolak",
+    message: (title: string, reason: string) =>
+      `Pengajuan Cancellation untuk Campaign "${title}" ditolak Admin. Campaign tetap Active dan tetap menerima donasi. Alasan: ${reason}`,
+  },
+} as const;
+
+export type CancellationDecision = keyof typeof CANCELLATION_DECISIONS;
+
+/**
+ * An Admin who is not the Campaign's Fundraiser approves or rejects its PENDING
+ * Cancellation request, with a reason. Approval makes the Campaign CANCELLED,
+ * but only from effective ACTIVE and only while no Payout on it has
+ * COMPLETED, checked under the Campaign row lock so a Payout cannot complete
+ * between the check and the write. Rejection changes only the request. A
+ * Campaign found past its deadline is first recorded Expired, which lapses
+ * the request, so the decision is then refused as no longer pending.
+ */
+export async function decideCancellation(
+  prisma: PrismaClient,
+  params: {
+    campaignId: string;
+    requestId: string;
+    actor: LifecycleActor;
+    decision: CancellationDecision;
+    reason: unknown;
+    now?: Date;
+  }
+): Promise<CancellationResult> {
+  const { campaignId, requestId, actor, now = new Date() } = params;
+  const decision = CANCELLATION_DECISIONS[params.decision];
+  requireAdminAssignment(actor, "Hanya Admin yang dapat memutuskan pengajuan Cancellation.");
+  const reason = requireReason(params.reason);
+  await expireIfPastDeadline(prisma, campaignId, now);
+  return prisma.$transaction(async (tx) => {
+    // Lock first, then read, so every check below sees the Campaign and the
+    // request as they stand while this transaction holds the row.
+    await lockCampaignRow(tx, campaignId);
+    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) throw new CampaignNotFoundError(campaignId);
+    requireNotOwner(actor, campaign);
+    const request = await tx.cancellationRequest.findUnique({ where: { id: requestId } });
+    if (!request || request.campaignId !== campaignId) {
+      throw new CancellationRequestNotFoundError(requestId);
+    }
+    if (request.status !== CancellationRequestStatus.PENDING) {
+      throw new CancellationNotPendingError(request.status);
+    }
+    if (decision.status === CancellationRequestStatus.APPROVED) {
+      const current = effectiveStatus(campaign, now);
+      if (current !== CampaignStatus.ACTIVE) {
+        throw new InvalidTransitionError(current);
+      }
+      const completedPayouts = await tx.payout.count({
+        where: { campaignId, status: PayoutStatus.COMPLETED },
+      });
+      if (completedPayouts > 0) throw new PayoutAlreadyCompletedError();
+    }
+    // Claimed before the status write, so the leave-Active hook's sweep of
+    // PENDING requests does not mark this very request SUPERSEDED.
+    const claimed = await tx.cancellationRequest.updateMany({
+      where: { id: requestId, status: CancellationRequestStatus.PENDING },
+      data: {
+        status: decision.status,
+        decidedById: actor.userId,
+        decisionReason: reason,
+        decidedAt: now,
+      },
+    });
+    if (claimed.count === 0) throw new ConcurrentTransitionError();
+    const updated =
+      decision.status === CancellationRequestStatus.APPROVED
+        ? await transition(tx, campaign, {
+            to: CampaignStatus.CANCELLED,
+            action: CampaignStatusChangeAction.CANCELLED,
+            actorId: actor.userId,
+            capacity: StatusChangeCapacity.ADMIN,
+            reason,
+          })
+        : await tx.campaign.findUniqueOrThrow({
+            where: { id: campaignId },
+            select: CAMPAIGN_STATE,
+          });
+    await notifyFundraiser(tx, campaign, actor.userId, {
+      title: decision.title,
+      message: decision.message(campaign.title, reason),
+    });
+    const cancellationRequest = await tx.cancellationRequest.findUniqueOrThrow({
+      where: { id: requestId },
+    });
+    return { campaign: updated, cancellationRequest };
   });
 }
