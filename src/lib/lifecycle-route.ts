@@ -10,6 +10,9 @@ import {
 
 type RouteParams = Record<string, string>;
 
+/** How a route addresses its Campaign: by the `slug` or the `id` route param. */
+type CampaignKey = CampaignNotFoundError["by"];
+
 /** What the adapter supplies to every command; the route builds the rest. */
 type CommandTarget = { campaignId: string; actor: LifecycleActor };
 
@@ -23,7 +26,7 @@ async function readBody(req: NextRequest): Promise<JsonBody> {
     : {};
 }
 
-async function resolveCampaignId(by: "slug" | "id", params: RouteParams): Promise<string> {
+async function resolveCampaignId(by: CampaignKey, params: RouteParams): Promise<string> {
   if (by === "id") return params.id;
   const campaign = await prisma.campaign.findUnique({
     where: { slug: params.slug },
@@ -52,7 +55,7 @@ export function lifecycleRoute<
   Input extends CommandTarget,
   Result,
 >(route: {
-  campaign: "slug" | "id";
+  campaign: CampaignKey;
   command: (db: PrismaClient, input: Input) => Promise<Result>;
   input: (request: { body: JsonBody; params: RouteParams }) => Omit<Input, keyof CommandTarget | "now">;
   status?: 200 | 201;

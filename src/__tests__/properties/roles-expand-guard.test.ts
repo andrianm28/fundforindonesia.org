@@ -37,7 +37,7 @@ import { join } from "node:path";
  * both ends -- growing this list from ten to twelve.
  *
  * NOTE (lifecycle HTTP adapter, ticket 02): the urgent, Cancellation
- * decision and Verifier moderation routes no longer gate on an assignment
+ * decision and Submission decision routes no longer gate on an assignment
  * themselves. Like every lifecycle route they go through `lifecycleRoute`,
  * and the lifecycle module checks the assignment with the command's own
  * Indonesian refusal -- shrinking this list by three. LIFECYCLE_ROUTES pins
