@@ -46,6 +46,10 @@ type LedgerRow = {
 
 type RefundRow = { paymentId: string; amount: number; status: string };
 
+/** What the subject guard reads under its row lock (src/lib/subject-guard.ts). */
+const ACTIVE_CAMPAIGN = { creatorId: 'fundraiser-1', isDemo: false, lifecycleStatus: 'ACTIVE', deadline: null };
+const ACTIVE_TRIP = { fundraiserId: 'trip-fundraiser-1', status: 'ACTIVE' };
+
 function makePayment(overrides: Partial<PaymentRow> = {}): PaymentRow {
   return {
     id: 'payment-1',
@@ -121,6 +125,9 @@ function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = [], refunds: R
         queryRawCalls.push(strings);
         return Promise.resolve([{ id: 'locked' }]);
       }),
+      // The subject row the guard reads under that lock.
+      campaign: { findUnique: vi.fn(async () => ACTIVE_CAMPAIGN) },
+      volunteerTrip: { findUnique: vi.fn(async () => ACTIVE_TRIP) },
       payment: {
         updateMany: vi.fn(async ({ where, data }: { where: { id: string; escrowReleasedAt: null }; data: Record<string, unknown> }) => {
           const row = paymentState.get(where.id);
@@ -388,6 +395,7 @@ describe('releaseMaturedEscrow', () => {
           releaseLock = await enterLock();
           return [{ id: 'campaign-1' }];
         }),
+        campaign: { findUnique: vi.fn(async () => ACTIVE_CAMPAIGN) },
         payment: {
           updateMany: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
             const row = paymentState.get(where.id);

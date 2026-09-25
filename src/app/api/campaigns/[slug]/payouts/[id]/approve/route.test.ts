@@ -52,6 +52,9 @@ type LedgerRow = {
   campaignId: string | null;
 };
 
+/** What the subject guard reads under the Campaign row lock (src/lib/subject-guard.ts). */
+const ACTIVE_CAMPAIGN = { creatorId: 'creator-1', isDemo: false, lifecycleStatus: 'ACTIVE', deadline: null };
+
 function makePayoutRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'payout-1',
@@ -106,6 +109,8 @@ function makeTx(options: {
     tx: {
       payout: { findUnique, updateMany },
       $queryRaw: queryRaw,
+      // The Campaign row the subject guard reads under that lock.
+      campaign: { findUnique: vi.fn().mockResolvedValue(ACTIVE_CAMPAIGN) },
       ledgerEntry: {
         count: vi.fn(async () => 0),
         createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {
@@ -426,6 +431,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
         lockBox.release = await mutex.enter();
         return [{ id: 'campaign-1' }];
       }),
+      campaign: { findUnique: vi.fn().mockResolvedValue(ACTIVE_CAMPAIGN) },
       ledgerEntry: {
         count: vi.fn(async () => 0),
         createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {

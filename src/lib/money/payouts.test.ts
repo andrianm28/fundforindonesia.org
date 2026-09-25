@@ -68,6 +68,8 @@ function makeTx(
   return {
     tx: {
       campaign: { findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false }) },
+      // The Trip row the subject guard reads under its lock.
+      volunteerTrip: { findUnique: vi.fn().mockResolvedValue({ fundraiserId: 'requester-1', status: 'ACTIVE' }) },
       bankAccount: { findUnique: bankAccountFindUnique },
       payout: { create: payoutCreate, findUnique: payoutFindUnique, updateMany: payoutUpdateMany },
       $queryRaw: vi.fn((strings: TemplateStringsArray) => {

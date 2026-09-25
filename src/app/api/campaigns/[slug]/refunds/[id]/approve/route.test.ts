@@ -23,11 +23,20 @@ const mockRefundFindUniqueOrThrow = prisma.refund.findUniqueOrThrow as unknown a
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 
-function makeTx(options: { refundRow?: Record<string, unknown> | null } = {}) {
+function makeTx(options: { refundRow?: Record<string, unknown> | null; campaignCreatorId?: string } = {}) {
   const state = options.refundRow ? { ...options.refundRow } : null;
   return {
     tx: {
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
+      // The Campaign row the subject guard reads under that lock.
+      campaign: {
+        findUnique: vi.fn().mockResolvedValue({
+          creatorId: options.campaignCreatorId ?? 'fundraiser-1',
+          isDemo: false,
+          lifecycleStatus: 'ACTIVE',
+          deadline: null,
+        }),
+      },
       refund: {
         findUnique: vi.fn().mockResolvedValue(state),
         findMany: vi.fn().mockResolvedValue([]),
@@ -137,9 +146,7 @@ describe('PATCH /api/campaigns/[slug]/refunds/[id]/approve', () => {
   });
 
   it("returns 403 OWN_CAMPAIGN_CONFLICT when the approving Admin is the Campaign's own Fundraiser, leaving the Refund REQUESTED", async () => {
-    const refundRow = makeRefundRow();
-    refundRow.payment.donation = { campaignId: 'campaign-1', campaign: { creatorId: 'admin-2' } } as never;
-    const { tx } = makeTx({ refundRow });
+    const { tx } = makeTx({ refundRow: makeRefundRow(), campaignCreatorId: 'admin-2' });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
     const response = await PATCH(patchRequest(), routeContext());

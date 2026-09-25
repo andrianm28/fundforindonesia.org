@@ -1,6 +1,7 @@
 import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, payoutInstructedLegs, postTransaction, type LedgerSubject } from './ledger';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
+import { lockAndLoad } from '@/lib/subject-guard';
 
 /**
  * Payout: request, approve, release.
@@ -119,21 +120,18 @@ export async function requestPayout(
 ): Promise<Payout> {
   const { subject, requestedById, bankAccountId, amount, description } = params;
 
-  // Checked before the bank account and the balance, and only for a
-  // Campaign subject -- a demo campaign has no ledger balance either, so
-  // InsufficientBalanceError would already stop this -- but that message
-  // reads as "the money isn't here yet", which sends whoever sees it
-  // looking for a shortfall that does not exist. VolunteerTrip has no
-  // isDemo field and no equivalent concept, so this check simply does not
-  // run for a trip subject.
-  if (subject.type === 'campaign') {
-    const campaign = await tx.campaign.findUnique({
-      where: { id: subject.campaignId },
-      select: { isDemo: true },
-    });
-    if (campaign?.isDemo) {
-      throw new DemoCampaignError();
-    }
+  // The subject is locked, then read, before anything else: its state is
+  // what the checks below judge (src/lib/subject-guard.ts).
+  const subjectState = await lockAndLoad(tx, subject, new Date());
+
+  // Checked before the bank account and the balance -- a demo campaign has
+  // no ledger balance either, so InsufficientBalanceError would already stop
+  // this -- but that message reads as "the money isn't here yet", which
+  // sends whoever sees it looking for a shortfall that does not exist. A
+  // VolunteerTrip has no isDemo field and no equivalent concept, so for a
+  // trip subject isDemo is always false.
+  if (subjectState?.isDemo) {
+    throw new DemoCampaignError();
   }
 
   const bankAccount = await tx.bankAccount.findUnique({ where: { id: bankAccountId } });
@@ -270,11 +268,10 @@ export async function approvePayout(
     // below, and both commit -- the balance would go negative with nothing
     // to stop it, since balances are derived by summing entries, never
     // stored.
-    if (subject.type === 'campaign') {
-      await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${subject.campaignId} FOR UPDATE`;
-    } else {
-      await tx.$queryRaw`SELECT id FROM "VolunteerTrip" WHERE id = ${subject.tripId} FOR UPDATE`;
-    }
+    //
+    // The checks above read only this Payout's own row. The subject itself
+    // is read nowhere before this lock; lockAndLoad reads it under it.
+    await lockAndLoad(tx, subject, new Date());
 
     // Balance can have moved since the request -- a refund, another payout
     // approved first -- and, now that this transaction holds the subject's
