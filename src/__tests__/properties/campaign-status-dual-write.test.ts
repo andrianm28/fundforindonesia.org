@@ -13,13 +13,23 @@ import { join } from "node:path";
 const WRITE = /(prisma|tx)\.campaign\.(create|update|upsert|createMany|updateMany)\b/;
 
 // The Fundraiser content edit: its zod schema admits no status field, so it
-// writes neither column (status moves through /api/moderasi).
+// writes neither column (status moves through src/lib/campaign-lifecycle.ts).
 // The Settlement webhook: it only increments collectedAmount, because reaching
 // the target does not close a Campaign (ADR 0004) and a late Settlement must
 // not overwrite a Suspension or a Cancellation.
 const WRITES_WITHOUT_STATUS = [
   "src/app/api/campaigns/[slug]/route.ts",
   "src/app/api/webhooks/[provider]/route.ts",
+];
+
+// Every src file that writes a Campaign row at all. Status transitions live
+// in the lifecycle module; the others are creation, the content edit and the
+// Settlement webhook. A new writer has to be added here, visibly, in the diff.
+const CAMPAIGN_WRITERS = [
+  "src/app/api/campaigns/route.ts",
+  "src/app/api/campaigns/[slug]/route.ts",
+  "src/app/api/webhooks/[provider]/route.ts",
+  "src/lib/campaign-lifecycle.ts",
 ];
 
 function walk(dir: string): string[] {
@@ -60,12 +70,23 @@ describe("Campaign status dual-write", () => {
     }
   });
 
+  it("the Campaign writers are exactly the known ones", () => {
+    const writers = walk("src")
+      .filter((file) => !file.startsWith("src/generated/"))
+      .filter((file) => !file.endsWith(".test.ts") && !file.endsWith(".test.tsx"))
+      .filter((file) => WRITE.test(readFileSync(file, "utf8")));
+
+    expect(writers.sort()).toEqual([...CAMPAIGN_WRITERS].sort());
+  });
+
   it("the seed writes lifecycleStatus", () => {
     expect(readFileSync("prisma/seed.ts", "utf8")).toContain("lifecycleStatus");
   });
 
-  // The known readers of the enum. Ticket 03 moved POST /api/donations, the first reader; tickets 04-05 extend this literal further.
-  it("only the donations gate has moved to the enum so far", () => {
+  // The known readers of the enum. Moderation no longer names the column: it
+  // reads and writes status only through the lifecycle module (C20 ticket 02).
+  // The Settlement webhook writes no status at all (C20 ticket 01).
+  it("the enum is read only by the known files", () => {
     const readers = walk("src")
       .filter((file) => !file.startsWith("src/generated/"))
       .filter((file) => !file.endsWith(".test.ts") && !file.endsWith(".test.tsx"))
@@ -75,7 +96,6 @@ describe("Campaign status dual-write", () => {
       [
         "src/app/api/campaigns/route.ts",
         "src/app/api/donations/route.ts",
-        "src/app/api/moderasi/campaigns/[id]/route.ts",
         "src/lib/campaign-lifecycle.ts",
       ].sort()
     );

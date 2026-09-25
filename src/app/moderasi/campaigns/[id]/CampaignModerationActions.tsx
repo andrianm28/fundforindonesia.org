@@ -19,7 +19,9 @@ export function CampaignModerationActions({
     text: string;
   } | null>(null);
 
-  const handleAction = async (action: "approve" | "reject" | "suspend") => {
+  // A Verifier only approves or rejects a Submitted Campaign. Suspension is
+  // an Admin decision (ADR 0005), so this panel no longer offers it.
+  const handleAction = async (action: "approve" | "reject") => {
     setLoading(action);
     setMessage(null);
 
@@ -38,7 +40,6 @@ export function CampaignModerationActions({
       const actionLabels: Record<string, string> = {
         approve: "disetujui",
         reject: "ditolak",
-        suspend: "ditangguhkan",
       };
 
       setMessage({
@@ -65,7 +66,6 @@ export function CampaignModerationActions({
   };
 
   const isPending = currentStatus === "pending";
-  const isActive = currentStatus === "active";
 
   return (
     <div className="bg-white rounded-xl border border-[#E0E0E0] p-6">
@@ -85,7 +85,7 @@ export function CampaignModerationActions({
         </div>
       )}
 
-      {!isPending && !isActive && (
+      {!isPending && (
         <p className="text-sm text-[#757575]">
           Kampanye ini sudah dimoderasi dengan status saat ini.
         </p>
@@ -120,21 +120,6 @@ export function CampaignModerationActions({
               Tolak
             </button>
           </>
-        )}
-
-        {(isPending || isActive) && (
-          <button
-            onClick={() => handleAction("suspend")}
-            disabled={loading !== null}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-[#E65100] text-white text-sm font-medium rounded-lg hover:bg-[#BF360C] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading === "suspend" ? (
-              <LoadingSpinner />
-            ) : (
-              <PauseIcon />
-            )}
-            Tangguhkan
-          </button>
         )}
       </div>
     </div>
@@ -196,24 +181,6 @@ function XIcon() {
         strokeLinejoin="round"
         strokeWidth={2}
         d="M6 18L18 6M6 6l12 12"
-      />
-    </svg>
-  );
-}
-
-function PauseIcon() {
-  return (
-    <svg
-      className="w-4 h-4"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
       />
     </svg>
   );

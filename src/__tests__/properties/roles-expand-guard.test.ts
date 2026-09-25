@@ -58,6 +58,10 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/volunteer-trips/[slug]/refunds/[id]/approve/route.ts",
   "src/app/moderasi/layout.tsx",
   "src/app/moderasi/page.tsx",
+  // Not a route: the Campaign lifecycle module authorizes each transition
+  // itself, because "owner or Admin" and "never Admin on your own Campaign"
+  // are not single-assignment checks a route wrapper can express.
+  "src/lib/campaign-lifecycle.ts",
 ];
 
 function walk(dir: string): string[] {
@@ -99,7 +103,7 @@ describe("roles expand scope", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("the eleven Admin/Verifier files no longer decide access by hierarchy", () => {
+  it("the Admin/Verifier files no longer decide access by hierarchy", () => {
     const offenders = ASSIGNMENT_GUARDED_ROUTES.filter(
       (file) => usesHierarchy(readFileSync(file, "utf8"))
     );
@@ -107,7 +111,7 @@ describe("roles expand scope", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("exactly the eleven Admin/Verifier files decide access by assignment", () => {
+  it("exactly the Admin/Verifier files decide access by assignment", () => {
     const readers = walk("src")
       .filter((file) => !file.endsWith(".test.ts") && !file.endsWith(".test.tsx"))
       .filter((file) => !file.startsWith("src/generated/"))
