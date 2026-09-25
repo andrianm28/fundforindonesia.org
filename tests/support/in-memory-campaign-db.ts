@@ -49,10 +49,16 @@ export type NotificationRow = {
   link: string | null;
 };
 
+export type CampaignUpdateRow = {
+  id: string;
+  campaignId: string;
+};
+
 type Data = {
   campaigns: CampaignRow[];
   statusChanges: StatusChangeRow[];
   notifications: NotificationRow[];
+  campaignUpdates: CampaignUpdateRow[];
 };
 
 type Where = Record<string, unknown>;
@@ -66,6 +72,7 @@ function clone(data: Data): Data {
     campaigns: data.campaigns.map((c) => ({ ...c })),
     statusChanges: data.statusChanges.map((s) => ({ ...s })),
     notifications: data.notifications.map((n) => ({ ...n })),
+    campaignUpdates: data.campaignUpdates.map((u) => ({ ...u })),
   };
 }
 
@@ -83,11 +90,14 @@ export function campaignRow(overrides: Partial<CampaignRow> = {}): CampaignRow {
   };
 }
 
-export function makeCampaignDb(seed: { campaigns?: CampaignRow[] } = {}) {
+export function makeCampaignDb(
+  seed: { campaigns?: CampaignRow[]; campaignUpdates?: CampaignUpdateRow[] } = {},
+) {
   let committed: Data = {
     campaigns: (seed.campaigns ?? []).map((c) => ({ ...c })),
     statusChanges: [],
     notifications: [],
+    campaignUpdates: (seed.campaignUpdates ?? []).map((u) => ({ ...u })),
   };
   let nextId = 1;
   // Runs once, immediately before the next Campaign write, against the
@@ -139,6 +149,10 @@ export function makeCampaignDb(seed: { campaigns?: CampaignRow[] } = {}) {
           getData().statusChanges.push(row);
           return { ...row };
         },
+      },
+      campaignUpdate: {
+        count: async ({ where }: { where: Where }) =>
+          getData().campaignUpdates.filter((u) => matches(u, where)).length,
       },
       notification: {
         create: async ({ data }: { data: Omit<NotificationRow, 'id' | 'link'> & { link?: string | null } }) => {
