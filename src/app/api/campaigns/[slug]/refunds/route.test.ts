@@ -31,7 +31,7 @@ type LedgerRow = {
   volunteerTripId: string | null;
 };
 
-function makeTx(options: { ledgerRows?: LedgerRow[]; isDemo?: boolean; priorRefunds?: Array<{ amount: number; status: string }> } = {}) {
+function makeTx(options: { ledgerRows?: LedgerRow[]; isDemo?: boolean; campaignCreatorId?: string; priorRefunds?: Array<{ amount: number; status: string }> } = {}) {
   const rows: LedgerRow[] = [...(options.ledgerRows ?? [])];
   const refundCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'refund-1', createdAt: new Date(), ...data }));
   return {
@@ -47,7 +47,9 @@ function makeTx(options: { ledgerRows?: LedgerRow[]; isDemo?: boolean; priorRefu
           registration: null,
         }),
       },
-      campaign: { findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false }) },
+      campaign: {
+        findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false, creatorId: options.campaignCreatorId ?? 'fundraiser-1' }),
+      },
       refund: { create: refundCreate, findMany: vi.fn().mockResolvedValue(options.priorRefunds ?? []) },
       ledgerEntry: {
         count: vi.fn(async () => 0),
@@ -147,6 +149,18 @@ describe('POST /api/campaigns/[slug]/refunds', () => {
 
     expect(response.status).toBe(403);
     expect(refundCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 OWN_CAMPAIGN_CONFLICT when the Admin is the Campaign's own Fundraiser, creating nothing", async () => {
+    const { tx, refundCreate, rows } = makeTx({ campaignCreatorId: 'admin-1' });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(postRequest(VALID_BODY), routeContext());
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: 'OWN_CAMPAIGN_CONFLICT', error: expect.stringContaining('harus dilakukan Admin lain') });
+    expect(refundCreate).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
   });
 
   it('returns 400 when the requested amount exceeds what is still refundable', async () => {

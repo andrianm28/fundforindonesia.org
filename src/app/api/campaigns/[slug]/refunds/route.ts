@@ -7,6 +7,7 @@ import { Assignment } from '@/generated/prisma/client';
 import {
   createRefund,
   DemoCampaignError,
+  OwnCampaignConflictError,
   PaymentSubjectMismatchError,
   RefundExceedsRemainingError,
 } from '@/lib/money/refunds';
@@ -71,6 +72,9 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRe
   } catch (error) {
     if (error instanceof DemoCampaignError) {
       return NextResponse.json({ error: 'Ini adalah campaign contoh dan tidak memiliki dana nyata untuk direfund' }, { status: 403 });
+    }
+    if (error instanceof OwnCampaignConflictError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     }
     if (error instanceof PaymentSubjectMismatchError) {
       return NextResponse.json({ error: 'Payment tidak ditemukan untuk campaign ini' }, { status: 404 });

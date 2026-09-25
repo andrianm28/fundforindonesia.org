@@ -5,6 +5,7 @@ import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
 import {
   approveRefund,
+  OwnCampaignConflictError,
   RefundNotFoundError,
   SelfApprovalError,
   InvalidRefundStatusError,
@@ -48,6 +49,9 @@ export const PATCH = withAssignmentCheck(Assignment.ADMIN, async (_request: Next
     }
     if (error instanceof SelfApprovalError) {
       return NextResponse.json({ error: 'Refund tidak dapat disetujui oleh orang yang mengajukannya' }, { status: 403 });
+    }
+    if (error instanceof OwnCampaignConflictError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     }
     if (error instanceof InvalidRefundStatusError) {
       return NextResponse.json({ error: 'Refund tidak lagi menunggu persetujuan' }, { status: 409 });

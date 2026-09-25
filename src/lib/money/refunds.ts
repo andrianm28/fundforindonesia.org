@@ -1,4 +1,5 @@
-import type { Payment, Prisma, PrismaClient, Refund } from '@/generated/prisma/client';
+import { StatusChangeCapacity, type Payment, type Prisma, type PrismaClient, type Refund } from '@/generated/prisma/client';
+import { OwnCampaignConflictError } from '@/lib/campaign-lifecycle';
 import {
   campaignBalance,
   tripBalance,
@@ -26,7 +27,7 @@ import { DemoCampaignError } from './payouts';
  * neither of which this ticket builds a route for.
  */
 
-export { DemoCampaignError };
+export { DemoCampaignError, OwnCampaignConflictError };
 
 export class PaymentNotFoundError extends Error {
   constructor(readonly paymentId: string) {
@@ -74,6 +75,21 @@ export class SelfApprovalError extends Error {
         'nothing else -- refused before any write, not recorded as a decision.',
     );
     this.name = 'SelfApprovalError';
+  }
+}
+
+/**
+ * The Trip-side mirror of OwnCampaignConflictError: an Admin tried to approve
+ * a Refund on a Volunteer Trip they run as its Fundraiser. Same shape as the
+ * lifecycle error (stable `code`, Indonesian `message`), worded for a Trip.
+ */
+export class OwnTripConflictError extends Error {
+  readonly code = 'OWN_TRIP_CONFLICT';
+  constructor() {
+    super(
+      'Anda tidak dapat bertindak sebagai Admin atas Volunteer Trip milik Anda sendiri. Tindakan ini harus dilakukan Admin lain.',
+    );
+    this.name = 'OwnTripConflictError';
   }
 }
 
@@ -191,9 +207,19 @@ export async function createRefund(
   }
 
   if (subject.type === 'campaign') {
-    const campaign = await tx.campaign.findUnique({ where: { id: subject.campaignId }, select: { isDemo: true } });
+    const campaign = await tx.campaign.findUnique({
+      where: { id: subject.campaignId },
+      select: { isDemo: true, creatorId: true },
+    });
     if (campaign?.isDemo) {
       throw new DemoCampaignError();
+    }
+    // An Admin never acts as Admin on a Campaign they own (CONTEXT.md, Admin;
+    // ADR 0005). Only Campaign subjects: every Trip-subject caller creates
+    // the Refund as the Trip's Fundraiser (Batch cancellation), the Volunteer,
+    // or the settlement webhook -- never in an Admin capacity.
+    if (campaign?.creatorId === requestedById) {
+      throw new OwnCampaignConflictError(StatusChangeCapacity.ADMIN);
     }
   }
 
@@ -244,7 +270,12 @@ export async function approveRefund(
     const refund = await tx.refund.findUnique({
       where: { id: refundId },
       include: {
-        payment: { include: { donation: true, registration: { include: { batch: true } } } },
+        payment: {
+          include: {
+            donation: { include: { campaign: { select: { creatorId: true } } } },
+            registration: { include: { batch: { include: { trip: { select: { fundraiserId: true } } } } } },
+          },
+        },
       },
     });
     if (!refund) {
@@ -253,6 +284,16 @@ export async function approveRefund(
 
     if (refund.requestedById === approvedById) {
       throw new SelfApprovalError();
+    }
+
+    // An Admin never acts as Admin on a Campaign they own (CONTEXT.md, Admin;
+    // ADR 0005): on their own Campaign they are only its Fundraiser. Approval
+    // is always an Admin act, so the same holds for a Trip's Fundraiser.
+    if (refund.payment.donation?.campaign?.creatorId === approvedById) {
+      throw new OwnCampaignConflictError(StatusChangeCapacity.ADMIN);
+    }
+    if (refund.payment.registration?.batch.trip?.fundraiserId === approvedById) {
+      throw new OwnTripConflictError();
     }
 
     if (refund.status !== 'REQUESTED') {
