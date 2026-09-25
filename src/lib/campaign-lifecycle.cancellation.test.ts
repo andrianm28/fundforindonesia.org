@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  completeCampaign,
   requestCancellation,
+  suspendCampaign,
+  liftSuspension,
   expireIfPastDeadline,
   decideCancellation,
   lifecycleErrorToHttp,
@@ -11,6 +14,7 @@ import {
   ConcurrentTransitionError,
   InvalidTransitionError,
   LifecycleValidationError,
+  MissingCampaignUpdateError,
   NotAuthorizedError,
   OwnCampaignConflictError,
   PayoutAlreadyCompletedError,
@@ -253,6 +257,159 @@ describe('a PENDING request lapses when the Campaign leaves Active', () => {
     await expireIfPastDeadline(db.prisma as never, 'campaign-1', NOW);
 
     expect(db.cancellationRequest().status).toBe('PENDING');
+  });
+});
+
+describe('a PENDING request lapses on every exit from Active (ticket 10)', () => {
+  const admin = { userId: 'admin-1', assignments: ['ADMIN' as const] };
+  const otherAdmin = { userId: 'admin-2', assignments: ['ADMIN' as const] };
+
+  function withPendingRequest(campaign: Partial<CampaignRow> = {}) {
+    return makeCampaignDb({
+      campaigns: [activeCampaign(campaign)],
+      cancellationRequests: [cancellationRequestRow()],
+      campaignUpdates: [{ id: 'update-1', campaignId: 'campaign-1' }],
+    });
+  }
+
+  describe('Completed', () => {
+    it.each([
+      ['the owner, as FUNDRAISER', owner, undefined, 'FUNDRAISER'],
+      ['an Admin, as ADMIN', admin, 'Program selesai.', 'ADMIN'],
+    ] as const)('marked by %s supersedes the request alongside the status change', async (_label, actor, reason, capacity) => {
+      const db = withPendingRequest();
+
+      await completeCampaign(db.prisma as never, { campaignId: 'campaign-1', actor, reason, now: NOW });
+
+      expect(db.campaign().lifecycleStatus).toBe('COMPLETED');
+      expect(db.statusChanges).toEqual([expect.objectContaining({ action: 'COMPLETED', capacity })]);
+      expect(db.cancellationRequest()).toMatchObject({ status: 'SUPERSEDED', decidedById: null, decisionReason: null });
+      expect(db.cancellationRequest().decidedAt).toBeInstanceOf(Date);
+    });
+
+    it('refused for want of a Campaign Update, leaves the request PENDING', async () => {
+      const db = makeCampaignDb({ campaigns: [activeCampaign()], cancellationRequests: [cancellationRequestRow()] });
+
+      await expect(
+        completeCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: owner, now: NOW }),
+      ).rejects.toBeInstanceOf(MissingCampaignUpdateError);
+
+      expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
+      expect(db.cancellationRequest().status).toBe('PENDING');
+    });
+  });
+
+  describe('Suspended', () => {
+    function suspend(db: ReturnType<typeof makeCampaignDb>) {
+      return suspendCampaign(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: admin,
+        reason: 'Laporan penipuan terverifikasi.',
+        now: NOW,
+      });
+    }
+
+    it('from Active supersedes the request alongside the status change', async () => {
+      const db = withPendingRequest();
+
+      await suspend(db);
+
+      expect(db.campaign().lifecycleStatus).toBe('SUSPENDED');
+      expect(db.statusChanges).toEqual([expect.objectContaining({ action: 'SUSPENDED', fromStatus: 'ACTIVE' })]);
+      expect(db.cancellationRequest()).toMatchObject({ status: 'SUPERSEDED', decidedById: null, decisionReason: null });
+    });
+
+    it.each([
+      ['EXPIRED', 'expired'],
+      ['COMPLETED', 'completed'],
+    ] as const)('from %s finds no PENDING request, leaves the lapsed one as it was and creates none', async (lifecycleStatus, status) => {
+      const lapsedAt = new Date('2026-09-01T00:00:00Z');
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus, status })],
+        cancellationRequests: [cancellationRequestRow({ status: 'SUPERSEDED', decidedAt: lapsedAt })],
+      });
+
+      await suspend(db);
+
+      expect(db.campaign().lifecycleStatus).toBe('SUSPENDED');
+      expect(db.cancellationRequests).toEqual([
+        expect.objectContaining({ id: 'request-1', status: 'SUPERSEDED', decidedAt: lapsedAt }),
+      ]);
+    });
+  });
+
+  describe('once lapsed', () => {
+    const leave = {
+      Completed: (db: ReturnType<typeof makeCampaignDb>) =>
+        completeCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: owner, now: NOW }),
+      Suspended: (db: ReturnType<typeof makeCampaignDb>) =>
+        suspendCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: admin, reason: 'Laporan.', now: NOW }),
+    };
+
+    it.each(
+      (['Completed', 'Suspended'] as const).flatMap((exit) => (['approve', 'reject'] as const).map((d) => [exit, d] as const)),
+    )('after %s, %s answers 409 "sudah gugur" and changes nothing', async (exit, decision) => {
+      const db = withPendingRequest();
+      await leave[exit](db);
+      const statusBefore = db.campaign().lifecycleStatus;
+
+      const error = await decideCancellation(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'request-1',
+        actor: otherAdmin,
+        decision,
+        reason: 'Diputuskan terlambat.',
+        now: NOW,
+      }).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(CancellationNotPendingError);
+      expect(lifecycleErrorToHttp(error)).toEqual({
+        status: 409,
+        body: { error: expect.stringContaining('sudah gugur'), code: 'CANCELLATION_NOT_PENDING' },
+      });
+      expect(db.cancellationRequest()).toMatchObject({ status: 'SUPERSEDED', decidedById: null });
+      expect(db.campaign().lifecycleStatus).toBe(statusBefore);
+    });
+
+    it('stays lapsed when the Suspension is lifted and the Campaign is Active again', async () => {
+      const db = withPendingRequest();
+      await leave.Suspended(db);
+
+      await liftSuspension(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: otherAdmin,
+        reason: 'Klarifikasi diterima.',
+        now: NOW,
+      });
+
+      expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
+      expect(db.cancellationRequests).toEqual([expect.objectContaining({ id: 'request-1', status: 'SUPERSEDED' })]);
+      const error = await decideCancellation(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'request-1',
+        actor: otherAdmin,
+        decision: 'approve',
+        reason: 'Masih ingin ditarik.',
+        now: NOW,
+      }).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(CancellationNotPendingError);
+      expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
+    });
+
+    it('lets the Fundraiser make a fresh request after the lift', async () => {
+      const db = withPendingRequest();
+      await leave.Suspended(db);
+      await liftSuspension(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: otherAdmin,
+        reason: 'Klarifikasi diterima.',
+        now: NOW,
+      });
+
+      await requestCancellation(db.prisma as never, { campaignId: 'campaign-1', actor: owner, reason: 'Ajukan ulang.', now: NOW });
+
+      expect(db.cancellationRequests.map((r) => r.status)).toEqual(['SUPERSEDED', 'PENDING']);
+    });
   });
 });
 
