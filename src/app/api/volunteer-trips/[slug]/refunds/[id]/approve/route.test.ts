@@ -159,6 +159,16 @@ describe('PATCH /api/volunteer-trips/[slug]/refunds/[id]/approve', () => {
     expect(tx.refund.updateMany).not.toHaveBeenCalled();
   });
 
+  it('answers 404 REFUND_NOT_FOUND when the Refund is gone by the time approval reads it', async () => {
+    const { tx } = makeTx({ refundRow: null });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await PATCH(patchRequest(), routeContext());
+
+    expect(response.status).toBe(404);
+    expect((await response.json()).code).toBe('REFUND_NOT_FOUND');
+  });
+
   it('returns 409 when the refund is no longer REQUESTED', async () => {
     const { tx } = makeTx({ refundRow: makeRefundRow({ status: 'APPROVED' }) });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));

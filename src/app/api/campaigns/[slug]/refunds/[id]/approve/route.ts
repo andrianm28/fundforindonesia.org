@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
-import { domainErrorToHttp } from '@/lib/domain-errors';
+import { refusalResponse } from '@/lib/refusal-response';
 import { approveRefund } from '@/lib/money/refunds';
 
 /**
@@ -39,12 +39,9 @@ export const PATCH = withAssignmentCheck(Assignment.ADMIN, async (_request: Next
       approvedById: updated.approvedById,
     });
   } catch (error) {
-    // Every refusal carries its own code; domainErrorToHttp owns the status
-    // and body.
-    const refusal = domainErrorToHttp(error);
-    if (refusal) {
-      return NextResponse.json(refusal.body, { status: refusal.status });
-    }
+    // Every refusal carries its own code and answers its own status.
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error approving refund:', error);
     return NextResponse.json({ error: 'Gagal menyetujui refund' }, { status: 500 });
   }

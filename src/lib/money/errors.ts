@@ -8,8 +8,8 @@ import { DomainError, type MoneyErrorCode } from '@/lib/domain-errors';
  * lifecycle routes use. ./payouts.ts and ./refunds.ts re-export the ones
  * they raise, so `catch` sites that import from there keep working.
  *
- * The own-Trip conflict is raised by the subject guard and lives there
- * (src/lib/subject-guard.ts, OwnTripConflictError).
+ * OwnTripConflictError extends MoneyError too, but lives with the subject
+ * guard that raises it (src/lib/subject-guard.ts).
  */
 export abstract class MoneyError extends DomainError {
   abstract override readonly code: MoneyErrorCode;
@@ -53,7 +53,7 @@ export class InsufficientBalanceError extends MoneyError {
     readonly requested: number,
     readonly available: number,
   ) {
-    super('Jumlah Payout melebihi dana yang saat ini bisa dicairkan.');
+    super('Jumlah Payout melebihi Campaign Balance atau saldo Volunteer Trip yang tersedia.');
     this.name = 'InsufficientBalanceError';
   }
 }
@@ -121,8 +121,8 @@ export class PaymentNotFoundError extends MoneyError {
 /**
  * The Payment belongs to another subject: a Campaign-linked Payment refunded
  * against a Trip, a Trip-linked one against a Campaign, or the wrong
- * Campaign or Trip entirely. Answers as not found, the same as a Payment
- * that does not exist.
+ * Campaign or Trip entirely. Answers 404 like a Payment that does not
+ * exist, with its own code.
  */
 export class PaymentSubjectMismatchError extends MoneyError {
   readonly code = 'PAYMENT_SUBJECT_MISMATCH';

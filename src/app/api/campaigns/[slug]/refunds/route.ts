@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
-import { domainErrorToHttp } from '@/lib/domain-errors';
+import { refusalResponse } from '@/lib/refusal-response';
 import { createRefund } from '@/lib/money/refunds';
 
 const createRefundSchema = z.object({
@@ -65,12 +65,9 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRe
       { status: 201 },
     );
   } catch (error) {
-    // Every refusal carries its own code; domainErrorToHttp owns the status
-    // and body.
-    const refusal = domainErrorToHttp(error);
-    if (refusal) {
-      return NextResponse.json(refusal.body, { status: refusal.status });
-    }
+    // Every refusal carries its own code and answers its own status.
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error creating refund:', error);
     return NextResponse.json({ error: 'Gagal membuat refund' }, { status: 500 });
   }

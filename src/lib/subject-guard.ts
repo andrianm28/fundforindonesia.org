@@ -5,7 +5,7 @@ import {
   type Prisma,
 } from "@/generated/prisma/client";
 import { CampaignLifecycleError, OwnCampaignConflictError } from "./campaign-lifecycle-errors";
-import { DomainError } from "./domain-errors";
+import { MoneyError } from "./money/errors";
 import type { LedgerSubject } from "./money/ledger";
 
 /**
@@ -159,7 +159,7 @@ export function isEscrowReleaseFrozen(state: SubjectState): boolean {
  * like the lifecycle one (stable `code`, Indonesian `message`, 403 through
  * `domainErrorToHttp`), worded for a Trip.
  */
-export class OwnTripConflictError extends DomainError {
+export class OwnTripConflictError extends MoneyError {
   readonly code = "OWN_TRIP_CONFLICT";
   constructor() {
     super(

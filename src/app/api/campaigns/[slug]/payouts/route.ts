@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withRoleCheck } from '@/lib/withRoleCheck';
-import { domainErrorToHttp } from '@/lib/domain-errors';
+import { refusalResponse } from '@/lib/refusal-response';
 import { requestPayout } from '@/lib/money/payouts';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 
@@ -84,11 +84,9 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
     );
   } catch (error) {
     // Every refusal (Demo Campaign, Bank Account, balance, Campaign status)
-    // carries its own code; domainErrorToHttp owns the status and body.
-    const refusal = domainErrorToHttp(error);
-    if (refusal) {
-      return NextResponse.json(refusal.body, { status: refusal.status });
-    }
+    // carries its own code and answers its own status.
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error requesting payout:', error);
     return NextResponse.json({ error: 'Gagal mengajukan pencairan' }, { status: 500 });
   }
