@@ -9,9 +9,9 @@ import {
   RefundNotFoundError,
   SelfApprovalError,
   InvalidRefundStatusError,
+  OwnCampaignConflictError,
   OwnTripConflictError,
 } from './refunds';
-import { OwnCampaignConflictError } from '@/lib/campaign-lifecycle';
 
 type LedgerRow = {
   transactionId: string;
@@ -289,6 +289,21 @@ describe('createRefund', () => {
     await expect(attempt).rejects.toMatchObject({ code: 'OWN_CAMPAIGN_CONFLICT', message: expect.stringContaining('harus dilakukan Admin lain') });
     expect(refundCreate).not.toHaveBeenCalled();
     expect(rows).toHaveLength(0);
+  });
+
+  it('lets the Trip\'s own Fundraiser create a Trip Refund -- Batch cancellation does exactly this, outside any Admin capacity', async () => {
+    const { tx, refundCreate } = makeTx({ payment: makeTripPayment() });
+
+    const refund = await createRefund(tx as never, {
+      subject: { type: 'trip', tripId: 'trip-1' },
+      paymentId: 'payment-1',
+      amount: 1,
+      reason: 'Batch dibatalkan',
+      requestedById: 'trip-fundraiser-1',
+    });
+
+    expect(refund.status).toBe('REQUESTED');
+    expect(refundCreate).toHaveBeenCalled();
   });
 
   it('never runs the isDemo check for a Trip subject -- VolunteerTrip has no isDemo field', async () => {

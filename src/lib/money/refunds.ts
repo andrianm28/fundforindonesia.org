@@ -214,8 +214,8 @@ export async function createRefund(
     if (campaign?.isDemo) {
       throw new DemoCampaignError();
     }
-    // An Admin never acts as Admin on a Campaign they own (CONTEXT.md, Admin;
-    // ADR 0005). Only Campaign subjects: every Trip-subject caller creates
+    // An Admin never acts as Admin on a Campaign they own (CONTEXT.md,
+    // Admin). Only Campaign subjects: every Trip-subject caller creates
     // the Refund as the Trip's Fundraiser (Batch cancellation), the Volunteer,
     // or the settlement webhook -- never in an Admin capacity.
     if (campaign?.creatorId === requestedById) {
@@ -286,9 +286,9 @@ export async function approveRefund(
       throw new SelfApprovalError();
     }
 
-    // An Admin never acts as Admin on a Campaign they own (CONTEXT.md, Admin;
-    // ADR 0005): on their own Campaign they are only its Fundraiser. Approval
-    // is always an Admin act, so the same holds for a Trip's Fundraiser.
+    // An Admin never acts as Admin on a Campaign they own (CONTEXT.md,
+    // Admin): on their own Campaign they are only its Fundraiser. Approval is
+    // always an Admin act, so it is refused to a Trip's own Fundraiser too.
     if (refund.payment.donation?.campaign?.creatorId === approvedById) {
       throw new OwnCampaignConflictError(StatusChangeCapacity.ADMIN);
     }
