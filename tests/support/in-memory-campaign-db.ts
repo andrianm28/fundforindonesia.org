@@ -418,7 +418,11 @@ export function makeCampaignDb(
       if (!row) throw new Error(`no campaign ${id}`);
       return row;
     },
-    /** Simulate another request committing a change just before our next Campaign write. */
+    /**
+     * Simulate another request committing a change just before our next
+     * predicated Campaign write (`updateMany`). A plain `update` of a locked
+     * row does not consult it, since no competitor can commit inside the lock.
+     */
     beforeNextCampaignWrite(interleave: (data: Data) => void) {
       pendingInterleave = interleave;
     },
