@@ -229,6 +229,14 @@ export function makeCampaignDb(
           for (const row of rows) Object.assign(row, data);
           return { count: rows.length };
         },
+        // A write to the row the caller holds locked. No competitor can
+        // commit in between, so it does not consult beforeNextCampaignWrite.
+        update: async ({ where, data }: { where: { id: string }; data: Partial<CampaignRow> }) => {
+          const row = getData().campaigns.find((c) => c.id === where.id);
+          if (!row) throw new Error('No Campaign found');
+          Object.assign(row, data);
+          return { ...row };
+        },
       },
       campaignStatusChange: {
         create: async ({ data }: { data: Omit<StatusChangeRow, 'id' | 'createdAt' | 'reason'> & { reason?: string | null; createdAt?: Date } }) => {
@@ -410,7 +418,11 @@ export function makeCampaignDb(
       if (!row) throw new Error(`no campaign ${id}`);
       return row;
     },
-    /** Simulate another request committing a change just before our next Campaign write. */
+    /**
+     * Simulate another request committing a change just before our next
+     * predicated Campaign write (`updateMany`). A plain `update` of a locked
+     * row does not consult it, since no competitor can commit inside the lock.
+     */
     beforeNextCampaignWrite(interleave: (data: Data) => void) {
       pendingInterleave = interleave;
     },

@@ -1085,13 +1085,9 @@ export async function setUrgent(
     allowedFrom: urgent ? [CampaignStatus.ACTIVE] : undefined,
     step: async ({ tx, campaign, actor, capacity, reason, now }) => {
       if (campaign.isUrgent === urgent) return {};
-      // Predicated on the status and the flag this command judged, like
-      // transition's status write.
-      const written = await tx.campaign.updateMany({
-        where: { id: campaign.id, lifecycleStatus: campaign.lifecycleStatus, isUrgent: !urgent },
-        data: { isUrgent: urgent },
-      });
-      if (written.count === 0) throw new ConcurrentTransitionError();
+      // The runner holds the Campaign row lock from before its read, so
+      // the status and flag judged above are still current: no predicate.
+      await tx.campaign.update({ where: { id: campaign.id }, data: { isUrgent: urgent } });
       await tx.campaignStatusChange.create({
         data: {
           campaignId: campaign.id,
