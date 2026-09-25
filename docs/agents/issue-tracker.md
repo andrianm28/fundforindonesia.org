@@ -44,6 +44,24 @@ Read the file at the referenced path. The user will normally pass the path or th
 - **`.superpowers/sdd/`** — gitignored SDD run ledger written during execution,
   not an intake surface.
 
+## `/specflow:*` tooling removed (as of 2026-09-25)
+
+The `specflow` plugin (which this file's own text above still references --
+`/specflow:spec-to-plan`, `/specflow:to-spec`, etc., per `CLAUDE.md`'s
+documented alur) is no longer installed: `~/.claude/skills/specflow` and its
+plugin cache entry are both gone, replaced by the unwrapped `mattpocock-skills`
+plugin (bare `grilling`, `domain-modeling`, `code-review`, `tdd`, etc. skills,
+with no repo-specific issue-tracker mapping and no `check-plan-headings.sh`/
+`check-seam-constraints.sh` guard scripts). Until `CLAUDE.md` and this file are
+updated to reflect a real replacement workflow, treat the spec/plan process as:
+`superpowers:writing-plans` directly (map a ticket's "What to build"/acceptance
+criteria into the plan's Goal/Architecture/Global Constraints by hand, insert a
+"Seam constraint (MENGIKAT task ini, dari spec)" block into every `### Task N`
+block yourself), then verify heading structure manually by running
+`task-brief <plan> <N>` for every task number and confirming a clean,
+single-task extraction (this is what `check-plan-headings.sh` used to
+automate) -- there is no automated guard to run instead.
+
 ## Fresh-worktree setup gap
 
 `npm install` alone leaves a fresh worktree's test suite red: `src/generated/prisma`
