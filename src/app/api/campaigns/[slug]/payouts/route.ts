@@ -3,13 +3,8 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withRoleCheck } from '@/lib/withRoleCheck';
-import { lifecycleErrorToHttp } from '@/lib/campaign-lifecycle';
-import {
-  requestPayout,
-  BankAccountNotEligibleError,
-  InsufficientBalanceError,
-  DemoCampaignError,
-} from '@/lib/money/payouts';
+import { domainErrorToHttp } from '@/lib/domain-errors';
+import { requestPayout } from '@/lib/money/payouts';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 
 const requestPayoutSchema = z.object({
@@ -88,27 +83,9 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
       { status: 201 },
     );
   } catch (error) {
-    if (error instanceof DemoCampaignError) {
-      return NextResponse.json(
-        { error: 'Ini adalah campaign contoh dan tidak memiliki dana nyata untuk dicairkan' },
-        { status: 403 },
-      );
-    }
-    if (error instanceof BankAccountNotEligibleError) {
-      return NextResponse.json(
-        { error: 'Rekening bank tidak valid, bukan milik Anda, atau belum terverifikasi' },
-        { status: 403 },
-      );
-    }
-    if (error instanceof InsufficientBalanceError) {
-      return NextResponse.json(
-        { error: 'Saldo campaign tidak mencukupi untuk jumlah pencairan ini' },
-        { status: 400 },
-      );
-    }
-    // PayoutNotAllowedForStatusError (a Suspended or Cancelled Campaign):
-    // the lifecycle module owns its status (409), code and body.
-    const refusal = lifecycleErrorToHttp(error);
+    // Every refusal (Demo Campaign, Bank Account, balance, Campaign status)
+    // carries its own code; domainErrorToHttp owns the status and body.
+    const refusal = domainErrorToHttp(error);
     if (refusal) {
       return NextResponse.json(refusal.body, { status: refusal.status });
     }

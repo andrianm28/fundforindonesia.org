@@ -3,15 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
-import { lifecycleErrorToHttp } from '@/lib/campaign-lifecycle';
-import {
-  approvePayout,
-  BankAccountNotEligibleError,
-  InsufficientBalanceError,
-  InvalidPayoutStatusError,
-  PayoutNotFoundError,
-  SelfApprovalError,
-} from '@/lib/money/payouts';
+import { domainErrorToHttp } from '@/lib/domain-errors';
+import { approvePayout } from '@/lib/money/payouts';
 
 /**
  * POST /api/campaigns/[slug]/payouts/[id]/approve -- an Admin approves a
@@ -57,40 +50,11 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (_request: NextR
       providerRef: updated.providerRef,
     });
   } catch (error) {
-    if (error instanceof PayoutNotFoundError) {
-      return NextResponse.json({ error: 'Payout tidak ditemukan' }, { status: 404 });
-    }
-    if (error instanceof SelfApprovalError) {
-      return NextResponse.json(
-        { error: 'Payout tidak dapat disetujui oleh orang yang mengajukannya' },
-        { status: 403 },
-      );
-    }
-    if (error instanceof InvalidPayoutStatusError) {
-      return NextResponse.json(
-        { error: 'Payout tidak lagi menunggu persetujuan' },
-        { status: 409 },
-      );
-    }
-    if (error instanceof InsufficientBalanceError) {
-      return NextResponse.json(
-        { error: 'Saldo campaign tidak lagi mencukupi untuk pencairan ini' },
-        { status: 400 },
-      );
-    }
-    if (error instanceof BankAccountNotEligibleError) {
-      // Genuinely reachable: approvePayout re-checks ownership and
-      // verifiedAt at approval time, not just at request time, because an
-      // operator can revoke verification on a bank account discovered to be
-      // fraudulent in the window between the two.
-      return NextResponse.json(
-        { error: 'Rekening tujuan tidak lagi memenuhi syarat' },
-        { status: 403 },
-      );
-    }
-    // PayoutNotAllowedForStatusError (a Suspended or Cancelled Campaign):
-    // the lifecycle module owns its status (409), code and body.
-    const refusal = lifecycleErrorToHttp(error);
+    // Every refusal carries its own code; domainErrorToHttp owns the status
+    // and body. The Bank Account refusal is genuinely reachable here:
+    // approvePayout re-checks ownership and verifiedAt at approval time,
+    // since verification can be revoked between request and approval.
+    const refusal = domainErrorToHttp(error);
     if (refusal) {
       return NextResponse.json(refusal.body, { status: refusal.status });
     }

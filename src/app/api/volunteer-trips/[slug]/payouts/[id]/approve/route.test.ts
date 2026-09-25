@@ -200,7 +200,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
     const data = await response.json();
 
     expect(response.status).toBe(403);
-    expect(data.error).toMatch(/mengajukan/i);
+    expect(data.code).toBe('SELF_APPROVAL');
     expect(queryRaw).not.toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
     expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
@@ -213,6 +213,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('INVALID_PAYOUT_STATUS');
     expect(queryRaw).not.toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
   });
@@ -228,7 +229,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
     const data = await response.json();
 
     expect(response.status).toBe(403);
-    expect(data.error).toMatch(/rekening/i);
+    expect(data.code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
     expect(updateMany).not.toHaveBeenCalled();
   });
 
@@ -243,7 +244,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toMatch(/saldo/i);
+    expect(data.code).toBe('INSUFFICIENT_BALANCE');
     expect(queryRaw).toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
   });
@@ -280,6 +281,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('INVALID_PAYOUT_STATUS');
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
     expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
   });

@@ -5,6 +5,7 @@ import {
   type Prisma,
 } from "@/generated/prisma/client";
 import { CampaignLifecycleError, OwnCampaignConflictError } from "./campaign-lifecycle-errors";
+import { DomainError } from "./domain-errors";
 import type { LedgerSubject } from "./money/ledger";
 
 /**
@@ -154,10 +155,11 @@ export function isEscrowReleaseFrozen(state: SubjectState): boolean {
 
 /**
  * The Trip-side mirror of OwnCampaignConflictError: an Admin tried to act as
- * Admin on a Volunteer Trip they run as its Fundraiser. Same shape as the
- * lifecycle error (stable `code`, Indonesian `message`), worded for a Trip.
+ * Admin on a Volunteer Trip they run as its Fundraiser. A typed refusal
+ * like the lifecycle one (stable `code`, Indonesian `message`, 403 through
+ * `domainErrorToHttp`), worded for a Trip.
  */
-export class OwnTripConflictError extends Error {
+export class OwnTripConflictError extends DomainError {
   readonly code = "OWN_TRIP_CONFLICT";
   constructor() {
     super(

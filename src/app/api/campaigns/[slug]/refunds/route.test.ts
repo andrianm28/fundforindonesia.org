@@ -148,6 +148,7 @@ describe('POST /api/campaigns/[slug]/refunds', () => {
     const response = await POST(postRequest(VALID_BODY), routeContext());
 
     expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('DEMO_CAMPAIGN');
     expect(refundCreate).not.toHaveBeenCalled();
   });
 
@@ -171,7 +172,7 @@ describe('POST /api/campaigns/[slug]/refunds', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toMatch(/refund/i);
+    expect(data.code).toBe('REFUND_EXCEEDS_REMAINING');
     expect(refundCreate).not.toHaveBeenCalled();
   });
 });

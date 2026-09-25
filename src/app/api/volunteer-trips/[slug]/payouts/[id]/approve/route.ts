@@ -3,14 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
-import {
-  approvePayout,
-  BankAccountNotEligibleError,
-  InsufficientBalanceError,
-  InvalidPayoutStatusError,
-  PayoutNotFoundError,
-  SelfApprovalError,
-} from '@/lib/money/payouts';
+import { domainErrorToHttp } from '@/lib/domain-errors';
+import { approvePayout } from '@/lib/money/payouts';
 
 /**
  * POST /api/volunteer-trips/[slug]/payouts/[id]/approve -- an Admin approves
@@ -57,23 +51,11 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (_request: NextR
       providerRef: updated.providerRef,
     });
   } catch (error) {
-    if (error instanceof PayoutNotFoundError) {
-      return NextResponse.json({ error: 'Payout tidak ditemukan' }, { status: 404 });
-    }
-    if (error instanceof SelfApprovalError) {
-      return NextResponse.json(
-        { error: 'Payout tidak dapat disetujui oleh orang yang mengajukannya' },
-        { status: 403 },
-      );
-    }
-    if (error instanceof InvalidPayoutStatusError) {
-      return NextResponse.json({ error: 'Payout tidak lagi menunggu persetujuan' }, { status: 409 });
-    }
-    if (error instanceof InsufficientBalanceError) {
-      return NextResponse.json({ error: 'Saldo trip tidak lagi mencukupi untuk pencairan ini' }, { status: 400 });
-    }
-    if (error instanceof BankAccountNotEligibleError) {
-      return NextResponse.json({ error: 'Rekening tujuan tidak lagi memenuhi syarat' }, { status: 403 });
+    // Every refusal carries its own code; domainErrorToHttp owns the status
+    // and body.
+    const refusal = domainErrorToHttp(error);
+    if (refusal) {
+      return NextResponse.json(refusal.body, { status: refusal.status });
     }
     console.error('Error approving trip payout:', error);
     return NextResponse.json({ error: 'Gagal menyetujui pencairan' }, { status: 500 });

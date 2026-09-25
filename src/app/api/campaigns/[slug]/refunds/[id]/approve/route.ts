@@ -3,13 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
-import { lifecycleErrorToHttp } from '@/lib/campaign-lifecycle';
-import {
-  approveRefund,
-  RefundNotFoundError,
-  SelfApprovalError,
-  InvalidRefundStatusError,
-} from '@/lib/money/refunds';
+import { domainErrorToHttp } from '@/lib/domain-errors';
+import { approveRefund } from '@/lib/money/refunds';
 
 /**
  * PATCH /api/campaigns/[slug]/refunds/[id]/approve -- a different Admin
@@ -44,19 +39,11 @@ export const PATCH = withAssignmentCheck(Assignment.ADMIN, async (_request: Next
       approvedById: updated.approvedById,
     });
   } catch (error) {
-    if (error instanceof RefundNotFoundError) {
-      return NextResponse.json({ error: 'Refund tidak ditemukan' }, { status: 404 });
-    }
-    if (error instanceof SelfApprovalError) {
-      return NextResponse.json({ error: 'Refund tidak dapat disetujui oleh orang yang mengajukannya' }, { status: 403 });
-    }
-    // OwnCampaignConflictError: the lifecycle module owns its status and body.
-    const refusal = lifecycleErrorToHttp(error);
+    // Every refusal carries its own code; domainErrorToHttp owns the status
+    // and body.
+    const refusal = domainErrorToHttp(error);
     if (refusal) {
       return NextResponse.json(refusal.body, { status: refusal.status });
-    }
-    if (error instanceof InvalidRefundStatusError) {
-      return NextResponse.json({ error: 'Refund tidak lagi menunggu persetujuan' }, { status: 409 });
     }
     console.error('Error approving refund:', error);
     return NextResponse.json({ error: 'Gagal menyetujui refund' }, { status: 500 });

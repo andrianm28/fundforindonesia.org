@@ -281,7 +281,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const data = await response.json();
 
     expect(response.status).toBe(403);
-    expect(data.error).toMatch(/mengajukan|approv/i);
+    expect(data.code).toBe('SELF_APPROVAL');
     // Not REJECTED, not annotated -- no write of any kind, not even the
     // campaign row lock.
     expect(queryRaw).not.toHaveBeenCalled();
@@ -297,6 +297,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('INVALID_PAYOUT_STATUS');
     expect(queryRaw).not.toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
@@ -316,7 +317,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const data = await response.json();
 
     expect(response.status).toBe(403);
-    expect(data.error).toMatch(/rekening/i);
+    expect(data.code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
     expect(updateMany).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
     expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
@@ -332,6 +333,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
     expect(updateMany).not.toHaveBeenCalled();
   });
 
@@ -351,7 +353,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toMatch(/saldo/i);
+    expect(data.code).toBe('INSUFFICIENT_BALANCE');
     // The lock IS taken here -- the balance check happens after it -- but
     // the transition never does.
     expect(queryRaw).toHaveBeenCalled();
@@ -405,6 +407,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('INVALID_PAYOUT_STATUS');
     expect(providerCreatePayout).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
     expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();

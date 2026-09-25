@@ -157,6 +157,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts', () => {
     const response = await POST(postRequest(VALID_BODY), routeContext());
 
     expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
     expect(payoutCreate).not.toHaveBeenCalled();
   });
 
@@ -168,7 +169,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toMatch(/saldo/i);
+    expect(data.code).toBe('INSUFFICIENT_BALANCE');
     expect(payoutCreate).not.toHaveBeenCalled();
   });
 
@@ -182,6 +183,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts', () => {
     const response = await POST(postRequest({ ...VALID_BODY, amount: 1 }), routeContext());
 
     expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe('INSUFFICIENT_BALANCE');
     expect(payoutCreate).not.toHaveBeenCalled();
   });
 

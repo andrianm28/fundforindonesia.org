@@ -2,6 +2,14 @@ import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, payoutInstructedLegs, postTransaction, type LedgerSubject } from './ledger';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
 import { lockAndLoad, requirePayoutAllowed } from '@/lib/subject-guard';
+import {
+  DemoCampaignError,
+  BankAccountNotEligibleError,
+  InsufficientBalanceError,
+  SelfApprovalError,
+  InvalidPayoutStatusError,
+  PayoutNotFoundError,
+} from './errors';
 
 /**
  * Payout: request, approve, release.
@@ -17,68 +25,14 @@ import { lockAndLoad, requirePayoutAllowed } from '@/lib/subject-guard';
  * it, and approvePayout does not accept it.
  */
 
-export class DemoCampaignError extends Error {
-  constructor() {
-    super(
-      'Campaign is marked isDemo -- sample content from before the money layer existed, with no ' +
-        'real ledger balance behind it. Refused by name so the reason is "this is a demo ' +
-        'campaign", not "insufficient balance", which would send an operator hunting for money ' +
-        'that was never there.',
-    );
-    this.name = 'DemoCampaignError';
-  }
-}
-
-export class BankAccountNotEligibleError extends Error {
-  constructor() {
-    super(
-      'BankAccount does not exist, is not owned by the requester, or has no verifiedAt. ' +
-        'A payout destination must be both owned by the requester and verified -- either ' +
-        'gap alone would let money be sent to a stranger.',
-    );
-    this.name = 'BankAccountNotEligibleError';
-  }
-}
-
-export class InsufficientBalanceError extends Error {
-  constructor(
-    readonly requested: number,
-    readonly available: number,
-  ) {
-    super(
-      `Requested payout of ${requested} exceeds the withdrawable balance of ${available}. ` +
-        'Balances are derived from the ledger, never from Campaign.collectedAmount.',
-    );
-    this.name = 'InsufficientBalanceError';
-  }
-}
-
-export class SelfApprovalError extends Error {
-  constructor() {
-    super(
-      'approvedById equals requestedById. The two-person rule is this equality check and ' +
-        'nothing else -- refused before any write, not recorded as a decision.',
-    );
-    this.name = 'SelfApprovalError';
-  }
-}
-
-export class InvalidPayoutStatusError extends Error {
-  constructor(
-    readonly currentStatus: string,
-    detail?: string,
-  ) {
-    super(`Payout status is ${currentStatus}; this transition is not allowed.${detail ? ` (${detail})` : ''}`);
-    this.name = 'InvalidPayoutStatusError';
-  }
-}
-
-export class PayoutNotFoundError extends Error {
-  constructor(readonly payoutId: string) {
-    super(`Payout ${payoutId} not found.`);
-    this.name = 'PayoutNotFoundError';
-  }
-}
+export {
+  DemoCampaignError,
+  BankAccountNotEligibleError,
+  InsufficientBalanceError,
+  SelfApprovalError,
+  InvalidPayoutStatusError,
+  PayoutNotFoundError,
+};
 
 /**
  * The owning Fundraiser or Campaign creator requests a payout. Creates a
@@ -235,7 +189,7 @@ export async function approvePayout(
     // attempt leaves the payout completely untouched, because it is an
     // error, not a decision this payout has been through.
     if (payout.requestedById === approvedById) {
-      throw new SelfApprovalError();
+      throw new SelfApprovalError('Payout');
     }
 
     if (payout.status !== 'DRAFT') {

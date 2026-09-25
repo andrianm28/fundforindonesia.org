@@ -145,6 +145,7 @@ describe('PATCH /api/volunteer-trips/[slug]/refunds/[id]/approve', () => {
 
     const response = await PATCH(patchRequest(), routeContext());
     expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('SELF_APPROVAL');
   });
 
   it("returns 403 OWN_TRIP_CONFLICT when the approving Admin is the Trip's own Fundraiser, leaving the Refund REQUESTED", async () => {
@@ -164,5 +165,6 @@ describe('PATCH /api/volunteer-trips/[slug]/refunds/[id]/approve', () => {
 
     const response = await PATCH(patchRequest(), routeContext());
     expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('INVALID_REFUND_STATUS');
   });
 });

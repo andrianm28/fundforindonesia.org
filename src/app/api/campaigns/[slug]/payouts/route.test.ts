@@ -211,8 +211,7 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     // Not "saldo tidak mencukupi" -- a demo campaign has no balance either,
     // but that message sends an operator hunting for money that was never
     // there. This must say what is actually true.
-    expect(data.error).toMatch(/contoh/i);
-    expect(data.error).not.toMatch(/saldo/i);
+    expect(data.code).toBe('DEMO_CAMPAIGN');
     expect(bankAccountFindUnique).not.toHaveBeenCalled();
     expect(payoutCreate).not.toHaveBeenCalled();
   });
@@ -243,7 +242,7 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     const data = await response.json();
 
     expect(response.status).toBe(403);
-    expect(data.error).toMatch(/terverifikasi|rekening/i);
+    expect(data.code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
     expect(payoutCreate).not.toHaveBeenCalled();
   });
 
@@ -254,6 +253,7 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     const response = await POST(createRequest(VALID_BODY), routeContext());
 
     expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
     expect(payoutCreate).not.toHaveBeenCalled();
   });
 
@@ -264,6 +264,7 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     const response = await POST(createRequest(VALID_BODY), routeContext());
 
     expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
     expect(payoutCreate).not.toHaveBeenCalled();
   });
 
@@ -277,7 +278,7 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toMatch(/saldo/i);
+    expect(data.code).toBe('INSUFFICIENT_BALANCE');
     expect(payoutCreate).not.toHaveBeenCalled();
   });
 

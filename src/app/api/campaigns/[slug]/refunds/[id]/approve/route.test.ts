@@ -143,6 +143,7 @@ describe('PATCH /api/campaigns/[slug]/refunds/[id]/approve', () => {
 
     const response = await PATCH(patchRequest(), routeContext());
     expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('SELF_APPROVAL');
   });
 
   it("returns 403 OWN_CAMPAIGN_CONFLICT when the approving Admin is the Campaign's own Fundraiser, leaving the Refund REQUESTED", async () => {
@@ -162,5 +163,6 @@ describe('PATCH /api/campaigns/[slug]/refunds/[id]/approve', () => {
 
     const response = await PATCH(patchRequest(), routeContext());
     expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('INVALID_REFUND_STATUS');
   });
 });
