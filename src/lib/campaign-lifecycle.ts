@@ -580,10 +580,10 @@ type StepContext<R> = {
   notify: (notification: { title: string; message: string }) => Promise<void>;
 };
 
+/** What every command's params carry. */
+type CommandTarget = { campaignId: string; actor: LifecycleActor; now?: Date };
+
 type CommandDeclaration<P extends ReasonPolicy, Extra> = {
-  campaignId: string;
-  actor: LifecycleActor;
-  now: Date;
   authority: Authority;
   reasonPolicy: P;
   rawReason?: unknown;
@@ -607,9 +607,11 @@ type CommandDeclaration<P extends ReasonPolicy, Extra> = {
  */
 async function runCommand<P extends ReasonPolicy, Extra extends object>(
   prisma: PrismaClient,
+  target: CommandTarget,
   command: CommandDeclaration<P, Extra>
 ): Promise<LifecycleResult & Extra> {
-  const { campaignId, actor, now, authority } = command;
+  const { campaignId, actor, now = new Date() } = target;
+  const { authority } = command;
   if (
     authority.kind === "operator" &&
     !actor.assignments.includes(OPERATOR_ASSIGNMENT[authority.capacity])
@@ -695,10 +697,7 @@ export async function decideSubmission(
   }
 ): Promise<LifecycleResult> {
   const decision = SUBMISSION_DECISIONS[params.decision];
-  return runCommand(prisma, {
-    campaignId: params.campaignId,
-    actor: params.actor,
-    now: params.now ?? new Date(),
+  return runCommand(prisma, params, {
     authority: {
       kind: "operator",
       capacity: StatusChangeCapacity.VERIFIER,
@@ -736,10 +735,7 @@ export async function completeCampaign(
     now?: Date;
   }
 ): Promise<LifecycleResult> {
-  return runCommand(prisma, {
-    campaignId: params.campaignId,
-    actor: params.actor,
-    now: params.now ?? new Date(),
+  return runCommand(prisma, params, {
     authority: {
       kind: "fundraiserOrAdmin",
       message:
@@ -818,10 +814,7 @@ export async function requestCancellation(
     now?: Date;
   }
 ): Promise<CancellationResult> {
-  return runCommand(prisma, {
-    campaignId: params.campaignId,
-    actor: params.actor,
-    now: params.now ?? new Date(),
+  return runCommand(prisma, params, {
     authority: {
       kind: "fundraiser",
       message: "Hanya Fundraiser pemilik Campaign yang dapat mengajukan Cancellation.",
@@ -881,10 +874,7 @@ export async function decideCancellation(
 ): Promise<CancellationResult> {
   const { requestId } = params;
   const decision = CANCELLATION_DECISIONS[params.decision];
-  return runCommand(prisma, {
-    campaignId: params.campaignId,
-    actor: params.actor,
-    now: params.now ?? new Date(),
+  return runCommand(prisma, params, {
     authority: {
       kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
@@ -971,10 +961,7 @@ export async function suspendCampaign(
     now?: Date;
   }
 ): Promise<LifecycleResult> {
-  return runCommand(prisma, {
-    campaignId: params.campaignId,
-    actor: params.actor,
-    now: params.now ?? new Date(),
+  return runCommand(prisma, params, {
     authority: {
       kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
@@ -1023,10 +1010,7 @@ export async function liftSuspension(
     now?: Date;
   }
 ): Promise<LifecycleResult> {
-  return runCommand(prisma, {
-    campaignId: params.campaignId,
-    actor: params.actor,
-    now: params.now ?? new Date(),
+  return runCommand(prisma, params, {
     authority: {
       kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
@@ -1086,10 +1070,7 @@ export async function setUrgent(
   }
 ): Promise<LifecycleResult> {
   const { urgent } = params;
-  return runCommand(prisma, {
-    campaignId: params.campaignId,
-    actor: params.actor,
-    now: params.now ?? new Date(),
+  return runCommand(prisma, params, {
     authority: {
       kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
@@ -1098,7 +1079,7 @@ export async function setUrgent(
     reasonPolicy: "required",
     rawReason: params.reason,
     allowedFrom: urgent ? [CampaignStatus.ACTIVE] : undefined,
-    step: async ({ tx, campaign, actor, reason, now }) => {
+    step: async ({ tx, campaign, actor, capacity, reason, now }) => {
       if (campaign.isUrgent === urgent) return {};
       // Predicated on the status and the flag this command judged, like
       // transition's status write.
@@ -1116,7 +1097,7 @@ export async function setUrgent(
           fromStatus: null,
           toStatus: null,
           actorId: actor.userId,
-          capacity: StatusChangeCapacity.ADMIN,
+          capacity,
           reason,
           createdAt: now,
         },
@@ -1188,10 +1169,7 @@ export async function flagCampaign(
     now?: Date;
   }
 ): Promise<FlagResult> {
-  return runCommand(prisma, {
-    campaignId: params.campaignId,
-    actor: params.actor,
-    now: params.now ?? new Date(),
+  return runCommand(prisma, params, {
     authority: {
       kind: "operator",
       capacity: StatusChangeCapacity.VERIFIER,
@@ -1229,10 +1207,7 @@ export async function dismissFlag(
   }
 ): Promise<FlagResult> {
   const { flagId } = params;
-  return runCommand(prisma, {
-    campaignId: params.campaignId,
-    actor: params.actor,
-    now: params.now ?? new Date(),
+  return runCommand(prisma, params, {
     authority: {
       kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,

@@ -181,6 +181,25 @@ describe('setUrgent', () => {
       expect(db.statusChanges).toEqual([]);
     });
 
+    it.each([true, false])(
+      'finds another Admin already set Urgent to %s, committed while it waited for the lock: one log row, not two',
+      async (urgent) => {
+        const db = activeCampaign({ isUrgent: !urgent });
+        db.beforeNextRowLock((data) => {
+          data.campaigns[0].isUrgent = urgent;
+          data.statusChanges.push({
+            id: 'change-other', campaignId: 'campaign-1', action: urgent ? 'URGENT_SET' : 'URGENT_CLEARED',
+            fromStatus: null, toStatus: null, actorId: 'admin-2', capacity: 'ADMIN', reason: 'Admin lain', createdAt: NOW,
+          });
+        });
+
+        const result = await setUrgent(db.prisma as never, { campaignId: 'campaign-1', actor: admin, urgent, reason: REASON, now: NOW });
+
+        expect(result.campaign.isUrgent).toBe(urgent);
+        expect(db.statusChanges).toEqual([expect.objectContaining({ id: 'change-other', actorId: 'admin-2' })]);
+      },
+    );
+
     it('clearing Urgent on an Active Campaign past its deadline finds the expiry already cleared it (capacity SYSTEM)', async () => {
       const db = activeCampaign({ isUrgent: true, deadline: new Date('2026-09-01T00:00:00Z') });
 

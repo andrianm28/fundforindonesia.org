@@ -85,6 +85,9 @@ export type PayoutRow = {
   status: string;
 };
 
+/** Every table the stand-in holds; what the interleave hooks receive. */
+export type CampaignDbData = Data;
+
 type Data = {
   campaigns: CampaignRow[];
   statusChanges: StatusChangeRow[];

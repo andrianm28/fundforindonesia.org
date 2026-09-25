@@ -24,10 +24,8 @@ import {
   campaignRow,
   cancellationRequestRow,
   makeCampaignDb,
-  type CampaignFlagRow,
+  type CampaignDbData,
   type CampaignRow,
-  type CancellationRequestRow,
-  type StatusChangeRow,
 } from '../../tests/support/in-memory-campaign-db';
 
 /**
@@ -43,7 +41,7 @@ const REASON = 'Alasan yang cukup jelas.';
 
 const verifier: LifecycleActor = { userId: 'verifier-1', assignments: ['VERIFIER'] };
 const admin: LifecycleActor = { userId: 'admin-1', assignments: ['ADMIN'] };
-const nobody: LifecycleActor = { userId: 'someone-1', assignments: [] };
+const noAssignment: LifecycleActor = { userId: 'someone-1', assignments: [] };
 const owner: LifecycleActor = { userId: 'creator-1', assignments: [] };
 /** The Campaign's own Fundraiser, holding every operator assignment. */
 const ownerOperator: LifecycleActor = { userId: 'creator-1', assignments: ['VERIFIER', 'ADMIN'] };
@@ -52,13 +50,8 @@ type Db = ReturnType<typeof makeCampaignDb>;
 type Seed = NonNullable<Parameters<typeof makeCampaignDb>[0]>;
 type Params = { campaignId?: string; actor?: LifecycleActor; reason?: unknown };
 type ErrorClass = abstract new (...args: never[]) => Error;
-/** What a competing request may change before our lock is granted. */
-type Committed = {
-  campaigns: CampaignRow[];
-  statusChanges: StatusChangeRow[];
-  cancellationRequests: CancellationRequestRow[];
-  campaignFlags: CampaignFlagRow[];
-};
+/** The rows a competing request writes here. */
+type CompetingRows = Pick<CampaignDbData, 'campaigns' | 'statusChanges' | 'cancellationRequests' | 'campaignFlags'>;
 
 type CommandCase = {
   /** Builds the rows on which `actor` succeeds; `campaign` overrides the Campaign. */
@@ -72,9 +65,8 @@ type CommandCase = {
   ownCampaignRole?: 'Admin' | 'Verifier';
   /** Once lazy expiry has run, the command is refused like this (run as `actor` unless given). */
   refusedOnceExpired: { actor?: LifecycleActor; error: ErrorClass };
-  /** Another request that commits while this one waits for the lock, and how this one loses. */
-  competitor: (data: Committed) => void;
-  losesWith: ErrorClass;
+  /** Another request that commits while this one waits for the lock, and how this one then loses. */
+  competing?: { write: (data: CompetingRows) => void; losesWith: ErrorClass };
 };
 
 function reasonOf(params: Params) {
@@ -96,16 +88,18 @@ const COMMANDS: Record<string, CommandCase> = {
         now: NOW,
       }),
     actor: verifier,
-    unauthorized: [admin, nobody],
+    unauthorized: [admin, noAssignment],
     takesReason: false,
     ownCampaignRole: 'Verifier',
     refusedOnceExpired: { error: InvalidTransitionError },
-    competitor: (data) => {
-      Object.assign(data.campaigns[0], { status: 'rejected', lifecycleStatus: 'REJECTED' });
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { status: 'rejected', lifecycleStatus: 'REJECTED' });
+      },
+      losesWith: InvalidTransitionError,
     },
-    losesWith: InvalidTransitionError,
   },
-  completeCampaign: {
+  'completeCampaign by an Admin': {
     seed: (campaign) => ({
       campaigns: [active(campaign)],
       campaignUpdates: [{ id: 'update-1', campaignId: 'campaign-1' }],
@@ -118,13 +112,38 @@ const COMMANDS: Record<string, CommandCase> = {
         now: NOW,
       }),
     actor: admin,
-    unauthorized: [verifier, nobody],
+    unauthorized: [verifier, noAssignment],
     takesReason: true,
     refusedOnceExpired: { error: InvalidTransitionError },
-    competitor: (data) => {
-      Object.assign(data.campaigns[0], { status: 'completed', lifecycleStatus: 'COMPLETED' });
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { status: 'completed', lifecycleStatus: 'COMPLETED' });
+      },
+      losesWith: InvalidTransitionError,
     },
-    losesWith: InvalidTransitionError,
+  },
+  'completeCampaign by its Fundraiser': {
+    seed: (campaign) => ({
+      campaigns: [active(campaign)],
+      campaignUpdates: [{ id: 'update-1', campaignId: 'campaign-1' }],
+    }),
+    run: (db, p) =>
+      completeCampaign(db.prisma as never, {
+        campaignId: p.campaignId ?? 'campaign-1',
+        actor: p.actor ?? owner,
+        now: NOW,
+      }),
+    actor: owner,
+    unauthorized: [noAssignment],
+    // Optional for the Fundraiser; completion's own tests cover it.
+    takesReason: false,
+    refusedOnceExpired: { error: InvalidTransitionError },
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { status: 'completed', lifecycleStatus: 'COMPLETED' });
+      },
+      losesWith: InvalidTransitionError,
+    },
   },
   requestCancellation: {
     seed: (campaign) => ({ campaigns: [active(campaign)] }),
@@ -136,15 +155,17 @@ const COMMANDS: Record<string, CommandCase> = {
         now: NOW,
       }),
     actor: owner,
-    unauthorized: [admin, verifier, nobody],
+    unauthorized: [admin, verifier, noAssignment],
     takesReason: true,
     refusedOnceExpired: { error: InvalidTransitionError },
-    competitor: (data) => {
-      data.cancellationRequests.push(cancellationRequestRow({ id: 'request-other' }));
+    competing: {
+      write: (data) => {
+        data.cancellationRequests.push(cancellationRequestRow({ id: 'request-other' }));
+      },
+      losesWith: CancellationAlreadyPendingError,
     },
-    losesWith: CancellationAlreadyPendingError,
   },
-  decideCancellation: {
+  'decideCancellation approving': {
     seed: (campaign) => ({ campaigns: [active(campaign)], cancellationRequests: [cancellationRequestRow()] }),
     run: (db, p) =>
       decideCancellation(db.prisma as never, {
@@ -156,15 +177,41 @@ const COMMANDS: Record<string, CommandCase> = {
         now: NOW,
       }),
     actor: admin,
-    unauthorized: [verifier, nobody],
+    unauthorized: [verifier, noAssignment],
     takesReason: true,
     ownCampaignRole: 'Admin',
     refusedOnceExpired: { error: CancellationNotPendingError },
-    competitor: (data) => {
-      Object.assign(data.campaigns[0], { status: 'cancelled', lifecycleStatus: 'CANCELLED' });
-      Object.assign(data.cancellationRequests[0], { status: 'APPROVED', decidedById: 'admin-2' });
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { status: 'cancelled', lifecycleStatus: 'CANCELLED' });
+        Object.assign(data.cancellationRequests[0], { status: 'APPROVED', decidedById: 'admin-2' });
+      },
+      losesWith: CancellationNotPendingError,
     },
-    losesWith: CancellationNotPendingError,
+  },
+  'decideCancellation rejecting': {
+    seed: (campaign) => ({ campaigns: [active(campaign)], cancellationRequests: [cancellationRequestRow()] }),
+    run: (db, p) =>
+      decideCancellation(db.prisma as never, {
+        campaignId: p.campaignId ?? 'campaign-1',
+        requestId: 'request-1',
+        actor: p.actor ?? admin,
+        decision: 'reject',
+        reason: reasonOf(p),
+        now: NOW,
+      }),
+    actor: admin,
+    unauthorized: [verifier, noAssignment],
+    takesReason: true,
+    ownCampaignRole: 'Admin',
+    refusedOnceExpired: { error: CancellationNotPendingError },
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { status: 'cancelled', lifecycleStatus: 'CANCELLED' });
+        Object.assign(data.cancellationRequests[0], { status: 'APPROVED', decidedById: 'admin-2' });
+      },
+      losesWith: CancellationNotPendingError,
+    },
   },
   suspendCampaign: {
     seed: (campaign) => ({ campaigns: [active(campaign)] }),
@@ -176,15 +223,17 @@ const COMMANDS: Record<string, CommandCase> = {
         now: NOW,
       }),
     actor: admin,
-    unauthorized: [verifier, nobody],
+    unauthorized: [verifier, noAssignment],
     takesReason: true,
     ownCampaignRole: 'Admin',
     // An Expired Campaign can be suspended, so the refusal comes from the owner.
     refusedOnceExpired: { actor: ownerOperator, error: OwnCampaignConflictError },
-    competitor: (data) => {
-      Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+      },
+      losesWith: InvalidTransitionError,
     },
-    losesWith: InvalidTransitionError,
   },
   liftSuspension: {
     seed: (campaign) => ({
@@ -205,16 +254,18 @@ const COMMANDS: Record<string, CommandCase> = {
         now: NOW,
       }),
     actor: admin,
-    unauthorized: [verifier, nobody],
+    unauthorized: [verifier, noAssignment],
     takesReason: true,
     ownCampaignRole: 'Admin',
     refusedOnceExpired: { error: InvalidTransitionError },
-    competitor: (data) => {
-      Object.assign(data.campaigns[0], { status: 'active', lifecycleStatus: 'ACTIVE' });
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { status: 'active', lifecycleStatus: 'ACTIVE' });
+      },
+      losesWith: InvalidTransitionError,
     },
-    losesWith: InvalidTransitionError,
   },
-  setUrgent: {
+  'setUrgent setting': {
     seed: (campaign) => ({ campaigns: [active(campaign)] }),
     run: (db, p) =>
       setUrgent(db.prisma as never, {
@@ -225,14 +276,34 @@ const COMMANDS: Record<string, CommandCase> = {
         now: NOW,
       }),
     actor: admin,
-    unauthorized: [verifier, nobody, owner],
+    unauthorized: [verifier, noAssignment, owner],
     takesReason: true,
     ownCampaignRole: 'Admin',
     refusedOnceExpired: { error: InvalidTransitionError },
-    competitor: (data) => {
-      Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+      },
+      losesWith: InvalidTransitionError,
     },
-    losesWith: InvalidTransitionError,
+  },
+  'setUrgent clearing': {
+    seed: (campaign) => ({ campaigns: [active({ isUrgent: true, ...campaign })] }),
+    run: (db, p) =>
+      setUrgent(db.prisma as never, {
+        campaignId: p.campaignId ?? 'campaign-1',
+        actor: p.actor ?? admin,
+        urgent: false,
+        reason: reasonOf(p),
+        now: NOW,
+      }),
+    actor: admin,
+    unauthorized: [verifier, noAssignment, owner],
+    takesReason: true,
+    ownCampaignRole: 'Admin',
+    // Expiry clears Urgent and clearing is allowed from Expired, so the refusal comes from the owner.
+    refusedOnceExpired: { actor: ownerOperator, error: OwnCampaignConflictError },
+    // A competitor that clears Urgent first leaves nothing to refuse; see setUrgent's own tests.
   },
   flagCampaign: {
     seed: (campaign) => ({ campaigns: [active(campaign)] }),
@@ -244,15 +315,17 @@ const COMMANDS: Record<string, CommandCase> = {
         now: NOW,
       }),
     actor: verifier,
-    unauthorized: [admin, nobody],
+    unauthorized: [admin, noAssignment],
     takesReason: true,
     ownCampaignRole: 'Verifier',
     // An Expired Campaign can be flagged, so the refusal comes from the owner.
     refusedOnceExpired: { actor: ownerOperator, error: OwnCampaignConflictError },
-    competitor: (data) => {
-      Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+      },
+      losesWith: InvalidTransitionError,
     },
-    losesWith: InvalidTransitionError,
   },
   dismissFlag: {
     seed: (campaign) => ({ campaigns: [active(campaign)], campaignFlags: [campaignFlagRow()] }),
@@ -265,18 +338,20 @@ const COMMANDS: Record<string, CommandCase> = {
         now: NOW,
       }),
     actor: admin,
-    unauthorized: [verifier, nobody],
+    unauthorized: [verifier, noAssignment],
     takesReason: true,
     ownCampaignRole: 'Admin',
     // Dismissal ignores the status, so the refusal comes from the owner.
     refusedOnceExpired: { actor: ownerOperator, error: OwnCampaignConflictError },
-    competitor: (data) => {
-      Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
-      Object.assign(data.campaignFlags[0], {
-        resolution: 'SUSPENDED', resolvedById: 'admin-2', resolutionReason: 'Penipuan', resolvedAt: NOW,
-      });
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+        Object.assign(data.campaignFlags[0], {
+          resolution: 'SUSPENDED', resolvedById: 'admin-2', resolutionReason: 'Penipuan', resolvedAt: NOW,
+        });
+      },
+      losesWith: FlagAlreadyResolvedError,
     },
-    losesWith: FlagAlreadyResolvedError,
   },
 };
 
@@ -343,7 +418,8 @@ describe.each(Object.entries(COMMANDS))('%s', (_name, command) => {
 
     expect(error).toBeInstanceOf(command.refusedOnceExpired.error);
     expect(db.campaign()).toMatchObject({ status: 'expired', lifecycleStatus: 'EXPIRED' });
-    expect(db.statusChanges.filter((c) => c.id !== 'suspension-1')).toEqual([
+    const written = db.statusChanges.filter((c) => c.id !== 'suspension-1');
+    expect(written).toContainEqual(
       expect.objectContaining({
         action: 'EXPIRED',
         fromStatus: 'ACTIVE',
@@ -352,18 +428,26 @@ describe.each(Object.entries(COMMANDS))('%s', (_name, command) => {
         capacity: 'SYSTEM',
         createdAt: NOW,
       }),
-    ]);
+    );
+    // Only the expiry's own rows (an Urgent Campaign also logs Urgent dropping), none from the command.
+    expect(written.every((c) => c.capacity === 'SYSTEM' && c.createdAt.getTime() === NOW.getTime())).toBe(true);
   });
+});
 
-  it('judges what a competing request committed before the lock was granted, and writes nothing of its own', async () => {
+const COMPETED_FOR = Object.entries(COMMANDS).flatMap(([name, command]) =>
+  command.competing ? [[name, command, command.competing] as const] : [],
+);
+
+describe.each(COMPETED_FOR)('%s against a competing request', (_name, command, competing) => {
+  it('judges what that request committed before the lock was granted, and writes nothing of its own', async () => {
     const db = makeCampaignDb(command.seed());
     const expected = makeCampaignDb(command.seed());
-    command.competitor(expected);
-    db.beforeNextRowLock((data) => command.competitor(data));
+    competing.write(expected);
+    db.beforeNextRowLock((data) => competing.write(data));
 
     const error = await refusal(command.run(db, {}));
 
-    expect(error).toBeInstanceOf(command.losesWith);
+    expect(error).toBeInstanceOf(competing.losesWith);
     expect(db.rowLocks).toEqual(['Campaign:campaign-1']);
     expect(snapshot(db)).toEqual(snapshot(expected));
   });
@@ -406,7 +490,7 @@ describe.each(WITH_OWN_CAMPAIGN_RULE)('%s on its own Campaign', (_name, command)
 describe.each(WITH_OWN_CAMPAIGN_RULE.filter(([, command]) => command.takesReason))(
   '%s on its own Campaign with a blank reason',
   (_name, command) => {
-    it('is refused for the reason before the owner: 400, not 403', async () => {
+    it('is refused for its reason before its owner is judged', async () => {
       const db = makeCampaignDb(command.seed());
 
       const error = await refusal(command.run(db, { actor: ownerOperator, reason: ' ' }));
