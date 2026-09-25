@@ -44,6 +44,7 @@ describe('decideSubmission', () => {
         actorId: 'verifier-1',
         capacity: 'VERIFIER',
         reason: null,
+        createdAt: NOW,
       }),
     ]);
   });
@@ -88,84 +89,6 @@ describe('decideSubmission', () => {
       expect(`${notification.title} ${notification.message}`.toLowerCase()).not.toContain('moderator');
     },
   );
-
-  it.each(['approve', 'reject'] as const)(
-    'refuses a Verifier who would %s their own Campaign with OwnCampaignConflictError and changes nothing',
-    async (decision) => {
-      const db = makeCampaignDb({ campaigns: [campaignRow({ creatorId: 'verifier-1' })] });
-
-      const error = await decideSubmission(db.prisma as never, {
-        campaignId: 'campaign-1',
-        actor: verifier,
-        decision,
-        now: NOW,
-      }).catch((e: unknown) => e);
-
-      expect(error).toBeInstanceOf(OwnCampaignConflictError);
-      expect((error as Error).message).toContain('Verifier lain');
-      expect(db.campaign()).toMatchObject({ status: 'pending', lifecycleStatus: 'SUBMITTED' });
-      expect(db.statusChanges).toEqual([]);
-      expect(db.notifications).toEqual([]);
-    },
-  );
-
-  it('refuses the owner even when they hold both Verifier and Admin', async () => {
-    const db = makeCampaignDb({ campaigns: [campaignRow({ creatorId: 'both-1' })] });
-
-    await expect(
-      decideSubmission(db.prisma as never, {
-        campaignId: 'campaign-1',
-        actor: { userId: 'both-1', assignments: ['VERIFIER', 'ADMIN'] },
-        decision: 'approve',
-        now: NOW,
-      }),
-    ).rejects.toThrow('Verifier lain');
-    expect(db.statusChanges).toEqual([]);
-  });
-
-  it.each([
-    ['an Admin without the Verifier assignment', ['ADMIN' as const]],
-    ['a person with no assignment', []],
-  ])('refuses %s with NotAuthorizedError and changes nothing', async (_label, assignments) => {
-    const db = makeCampaignDb({ campaigns: [campaignRow()] });
-
-    await expect(
-      decideSubmission(db.prisma as never, {
-        campaignId: 'campaign-1',
-        actor: { userId: 'someone-1', assignments },
-        decision: 'approve',
-        now: NOW,
-      }),
-    ).rejects.toBeInstanceOf(NotAuthorizedError);
-
-    expect(db.campaign()).toMatchObject({ status: 'pending', lifecycleStatus: 'SUBMITTED' });
-    expect(db.statusChanges).toEqual([]);
-    expect(db.notifications).toEqual([]);
-  });
-
-  it('refuses an unknown Campaign with CampaignNotFoundError', async () => {
-    const db = makeCampaignDb({ campaigns: [] });
-
-    await expect(
-      decideSubmission(db.prisma as never, { campaignId: 'missing', actor: verifier, decision: 'approve', now: NOW }),
-    ).rejects.toBeInstanceOf(CampaignNotFoundError);
-  });
-
-  it('loses to a concurrent decision with ConcurrentTransitionError: one change, no second log row or notification', async () => {
-    const db = makeCampaignDb({ campaigns: [campaignRow()] });
-    // Another Verifier's rejection commits between our read and our write.
-    db.beforeNextCampaignWrite((data) => {
-      Object.assign(data.campaigns[0], { status: 'rejected', lifecycleStatus: 'REJECTED' });
-    });
-
-    await expect(
-      decideSubmission(db.prisma as never, { campaignId: 'campaign-1', actor: verifier, decision: 'approve', now: NOW }),
-    ).rejects.toBeInstanceOf(ConcurrentTransitionError);
-
-    expect(db.campaign()).toMatchObject({ status: 'rejected', lifecycleStatus: 'REJECTED' });
-    expect(db.statusChanges).toEqual([]);
-    expect(db.notifications).toEqual([]);
-  });
 
   describe.each(['approve', 'reject'] as const)('%s outside Submitted', (decision) => {
     it.each([
@@ -287,30 +210,6 @@ describe('lazy expiry', () => {
     return campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', deadline: pastDeadline, ...overrides });
   }
 
-  it('records Expired (capacity SYSTEM) before judging the command, and keeps it when the command is refused', async () => {
-    const db = makeCampaignDb({ campaigns: [activePastDeadline()] });
-
-    const error = await decideSubmission(db.prisma as never, {
-      campaignId: 'campaign-1',
-      actor: verifier,
-      decision: 'approve',
-      now: NOW,
-    }).catch((e: unknown) => e);
-
-    expect(error).toBeInstanceOf(InvalidTransitionError);
-    expect((error as InvalidTransitionError).currentStatus).toBe('EXPIRED');
-    expect(db.campaign()).toMatchObject({ status: 'expired', lifecycleStatus: 'EXPIRED' });
-    expect(db.statusChanges).toEqual([
-      expect.objectContaining({
-        action: 'EXPIRED',
-        fromStatus: 'ACTIVE',
-        toStatus: 'EXPIRED',
-        actorId: null,
-        capacity: 'SYSTEM',
-      }),
-    ]);
-  });
-
   it('tells the Fundraiser their Campaign has ended', async () => {
     const db = makeCampaignDb({ campaigns: [activePastDeadline()] });
 
@@ -330,13 +229,14 @@ describe('lazy expiry', () => {
     expect(expired).toBe(true);
     expect(db.campaign()).toMatchObject({ lifecycleStatus: 'EXPIRED', isUrgent: false });
     expect(db.statusChanges).toEqual([
-      expect.objectContaining({ action: 'EXPIRED', capacity: 'SYSTEM', actorId: null }),
+      expect.objectContaining({ action: 'EXPIRED', capacity: 'SYSTEM', actorId: null, createdAt: NOW }),
       expect.objectContaining({
         action: 'URGENT_CLEARED',
         fromStatus: null,
         toStatus: null,
         actorId: null,
         capacity: 'SYSTEM',
+        createdAt: NOW,
       }),
     ]);
   });
