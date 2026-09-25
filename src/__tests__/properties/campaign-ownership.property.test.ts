@@ -12,7 +12,6 @@ vi.mock("@/lib/prisma", () => ({
     campaign: {
       findUnique: vi.fn(),
       update: vi.fn(),
-      delete: vi.fn(),
     },
   },
 }));
@@ -24,11 +23,10 @@ vi.mock("@/lib/auth", () => ({
 
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
-import { PATCH, DELETE } from "@/app/api/campaigns/[slug]/route";
+import { PATCH } from "@/app/api/campaigns/[slug]/route";
 
 const mockFindUnique = vi.mocked(prisma.campaign.findUnique);
 const mockUpdate = vi.mocked(prisma.campaign.update);
-const mockDelete = vi.mocked(prisma.campaign.delete);
 const mockGetServerSession = vi.mocked(getServerSession);
 
 // Valid roles
@@ -82,14 +80,6 @@ function createPatchRequest(slug: string) {
   );
 }
 
-// Helper to create a DELETE request
-function createDeleteRequest(slug: string) {
-  return new NextRequest(
-    `http://localhost:3000/api/campaigns/${slug}`,
-    { method: "DELETE" }
-  );
-}
-
 // Helper to create params context (matching Next.js App Router pattern)
 function createParams(slug: string) {
   return { params: Promise.resolve({ slug }) };
@@ -97,18 +87,17 @@ function createParams(slug: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: update and delete succeed
+  // Default: update succeeds
   mockUpdate.mockResolvedValue({
     id: "campaign-id-123",
     slug: "test-campaign",
     title: "Updated Title",
     creator: { id: "creator-id", name: "Creator", avatar: null, isVerified: true, verificationType: null },
   } as any);
-  mockDelete.mockResolvedValue({ id: "campaign-id-123" } as any);
 });
 
 describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforcement", () => {
-  describe("ADMIN always allowed to edit/delete regardless of ownership", () => {
+  describe("ADMIN always allowed to edit regardless of ownership", () => {
     test("ADMIN can always PATCH any campaign, even when not the owner", async () => {
       await fc.assert(
         fc.asyncProperty(
@@ -131,31 +120,9 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
         { numRuns: 100 }
       );
     });
-
-    test("ADMIN can always DELETE any campaign, even when not the owner", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          userIdArb,
-          userIdArb,
-          slugArb,
-          async (adminId, creatorId, slug) => {
-            fc.pre(adminId !== creatorId);
-
-            mockGetServerSession.mockResolvedValue(mockSession(adminId, "ADMIN"));
-            mockFindUnique.mockResolvedValue(mockCampaign(creatorId) as any);
-
-            const req = createDeleteRequest(slug);
-            const response = await DELETE(req, createParams(slug) as any);
-
-            expect(response.status).toBe(200);
-          }
-        ),
-        { numRuns: 100 }
-      );
-    });
   });
 
-  describe("CAMPAIGN_CREATOR who IS the owner can edit/delete", () => {
+  describe("CAMPAIGN_CREATOR who IS the owner can edit", () => {
     test("Owner CAMPAIGN_CREATOR can PATCH their own campaign", async () => {
       await fc.assert(
         fc.asyncProperty(
@@ -170,27 +137,6 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
 
             const req = createPatchRequest(slug);
             const response = await PATCH(req, createParams(slug) as any);
-
-            expect(response.status).toBe(200);
-          }
-        ),
-        { numRuns: 100 }
-      );
-    });
-
-    test("Owner CAMPAIGN_CREATOR can DELETE their own campaign", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          userIdArb,
-          slugArb,
-          async (userId, slug) => {
-            mockGetServerSession.mockResolvedValue(
-              mockSession(userId, "CAMPAIGN_CREATOR")
-            );
-            mockFindUnique.mockResolvedValue(mockCampaign(userId) as any);
-
-            const req = createDeleteRequest(slug);
-            const response = await DELETE(req, createParams(slug) as any);
 
             expect(response.status).toBe(200);
           }
@@ -227,32 +173,6 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
         { numRuns: 100 }
       );
     });
-
-    test("Non-owner CAMPAIGN_CREATOR is denied DELETE", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          userIdArb,
-          userIdArb,
-          slugArb,
-          async (userId, creatorId, slug) => {
-            fc.pre(userId !== creatorId);
-
-            mockGetServerSession.mockResolvedValue(
-              mockSession(userId, "CAMPAIGN_CREATOR")
-            );
-            mockFindUnique.mockResolvedValue(mockCampaign(creatorId) as any);
-
-            const req = createDeleteRequest(slug);
-            const response = await DELETE(req, createParams(slug) as any);
-
-            expect(response.status).toBe(403);
-            const body = await response.json();
-            expect(body.error).toBe("Forbidden");
-          }
-        ),
-        { numRuns: 100 }
-      );
-    });
   });
 
   describe("DONOR always gets 403 regardless of ownership", () => {
@@ -270,29 +190,6 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
 
             const req = createPatchRequest(slug);
             const response = await PATCH(req, createParams(slug) as any);
-
-            expect(response.status).toBe(403);
-            const body = await response.json();
-            expect(body.error).toBe("Forbidden");
-          }
-        ),
-        { numRuns: 100 }
-      );
-    });
-
-    test("DONOR is denied DELETE even if they are the creator (edge case)", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          userIdArb,
-          slugArb,
-          async (userId, slug) => {
-            mockGetServerSession.mockResolvedValue(
-              mockSession(userId, "DONOR")
-            );
-            mockFindUnique.mockResolvedValue(mockCampaign(userId) as any);
-
-            const req = createDeleteRequest(slug);
-            const response = await DELETE(req, createParams(slug) as any);
 
             expect(response.status).toBe(403);
             const body = await response.json();
@@ -338,18 +235,12 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
           userIdArb,
           roleArb,
           slugArb,
-          fc.constantFrom("PATCH", "DELETE"),
-          async (userId, creatorId, role, slug, method) => {
+          async (userId, creatorId, role, slug) => {
             mockGetServerSession.mockResolvedValue(mockSession(userId, role));
             mockFindUnique.mockResolvedValue(mockCampaign(creatorId) as any);
 
-            const req =
-              method === "PATCH"
-                ? createPatchRequest(slug)
-                : createDeleteRequest(slug);
-
-            const handler = method === "PATCH" ? PATCH : DELETE;
-            const response = await handler(req, createParams(slug) as any);
+            const req = createPatchRequest(slug);
+            const response = await PATCH(req, createParams(slug) as any);
 
             const isAdmin = role === "ADMIN";
             const isOwnerWithSufficientRole =
