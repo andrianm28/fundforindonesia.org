@@ -5,7 +5,6 @@ export interface UseCampaignsOptions {
   category?: string;
   search?: string;
   urgent?: boolean;
-  status?: string;
   page?: number;
   limit?: number;
 }
@@ -30,7 +29,6 @@ function buildQueryString(options: UseCampaignsOptions): string {
   if (options.category) params.set('category', options.category);
   if (options.search) params.set('search', options.search);
   if (options.urgent !== undefined) params.set('urgent', String(options.urgent));
-  if (options.status) params.set('status', options.status);
   if (options.page !== undefined) params.set('page', String(options.page));
   if (options.limit !== undefined) params.set('limit', String(options.limit));
 

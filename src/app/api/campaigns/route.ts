@@ -34,15 +34,14 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get('category');
     const search = searchParams.get('search');
     const urgent = searchParams.get('urgent');
-    const status = searchParams.get('status') || 'active';
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '12', 10)));
 
     const skip = (page - 1) * limit;
 
-    // Build where clause
+    // The status filter is fixed; a `?status=` in the query is ignored.
     const where: Record<string, unknown> = {
-      status,
+      status: 'active',
     };
 
     if (category) {

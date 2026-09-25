@@ -113,19 +113,27 @@ describe('GET /api/campaigns', () => {
     );
   });
 
-  it('filters by status', async () => {
-    mockFindMany.mockResolvedValue([]);
-    mockCount.mockResolvedValue(0);
+  // Regression: `?status=` used to flow straight into the filter, so anyone
+  // could list Submitted, Rejected or Suspended Campaigns. The values are the
+  // legacy stored strings an attacker would send.
+  it.each(['pending', 'suspended', 'rejected', 'completed'])(
+    'ignores a ?status=%s query and keeps the default filter',
+    async (status) => {
+      mockFindMany.mockResolvedValue([]);
+      mockCount.mockResolvedValue(0);
 
-    const request = createRequest('http://localhost:3000/api/campaigns?status=completed');
-    await GET(request);
+      const request = createRequest(`http://localhost:3000/api/campaigns?status=${status}`);
+      await GET(request);
 
-    expect(mockFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ status: 'completed' }),
-      })
-    );
-  });
+      for (const query of [mockFindMany, mockCount]) {
+        expect(query).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ status: 'active' }),
+          })
+        );
+      }
+    }
+  );
 
   it('performs case-insensitive search on title and description', async () => {
     mockFindMany.mockResolvedValue([]);

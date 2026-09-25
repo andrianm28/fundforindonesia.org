@@ -138,7 +138,7 @@ describe('useCampaigns', () => {
       json: async () => responseWith25Items,
     });
 
-    const { result } = renderHook(() => useCampaigns({ status: 'active' }), {
+    const { result } = renderHook(() => useCampaigns(), {
       wrapper: createWrapper(),
     });
 
@@ -147,6 +147,23 @@ describe('useCampaigns', () => {
     });
 
     expect(result.current.totalPages).toBe(3); // Math.ceil(25/10)
+  });
+
+  it('offers no status option, so it never asks the list for a status', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockCampaignsResponse,
+    });
+
+    // @ts-expect-error -- `status` is not an option: the public list ignores it.
+    renderHook(() => useCampaigns({ status: 'pending' }), { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled();
+    });
+
+    const calledUrl: string = mockFetch.mock.calls[0][0];
+    expect(calledUrl).not.toContain('status=');
   });
 
   it('includes search parameter in query string', async () => {

@@ -190,19 +190,17 @@ describe('Campaign API Integration Tests', () => {
       );
     });
 
-    it('filters by status (completed, expired)', async () => {
+    it('ignores a ?status= query, so Submitted Campaigns cannot be listed', async () => {
       mockFindMany.mockResolvedValue([]);
       mockCount.mockResolvedValue(0);
 
-      const request = createGetRequest('/api/campaigns?status=completed');
+      const request = createGetRequest('/api/campaigns?status=pending');
       const response = await getCampaigns(request);
-      const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(data.campaigns).toHaveLength(0);
       expect(mockFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ status: 'completed' }),
+          where: expect.objectContaining({ status: 'active' }),
         })
       );
     });
