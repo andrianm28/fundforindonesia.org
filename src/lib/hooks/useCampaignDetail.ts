@@ -1,10 +1,14 @@
 import useSWR from 'swr';
 import type { CampaignWithRelations } from '@/types/campaign';
 
+// GET /api/campaigns/[slug] wraps the Campaign as { campaign: {...} }.
+// Returning the wrapper left the donate page reading campaign.id as
+// undefined, so a donation could never name its Campaign.
 const fetcher = async (url: string): Promise<CampaignWithRelations> => {
   const res = await fetch(url);
   if (!res.ok) throw new Error('Gagal memuat data');
-  return res.json();
+  const body = await res.json();
+  return body.campaign;
 };
 
 function showErrorToast(message: string) {
@@ -47,7 +51,7 @@ export function useCampaignDetail(slug: string | null) {
         // After optimistic update, revalidate from server
         const res = await fetch(key!);
         if (!res.ok) return currentData;
-        return res.json();
+        return (await res.json()).campaign;
       },
       {
         optimisticData: {
