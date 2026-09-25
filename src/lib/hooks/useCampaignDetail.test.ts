@@ -75,10 +75,12 @@ describe('useCampaignDetail', () => {
     vi.restoreAllMocks();
   });
 
+  // GET /api/campaigns/[slug] answers { campaign: {...} }; the hook hands
+  // back the Campaign itself, which is what the donate page reads.
   it('fetches campaign detail by slug', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => mockCampaign,
+      json: async () => ({ campaign: mockCampaign }),
     });
 
     const { result } = renderHook(() => useCampaignDetail('bantu-korban-bencana'), {
@@ -142,7 +144,7 @@ describe('useCampaignDetail', () => {
   it('provides optimisticDonate function', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => mockCampaign,
+      json: async () => ({ campaign: mockCampaign }),
     });
 
     const { result } = renderHook(() => useCampaignDetail('bantu-korban-bencana-fn'), {
@@ -159,7 +161,7 @@ describe('useCampaignDetail', () => {
   it('fetches from correct URL path', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => mockCampaign,
+      json: async () => ({ campaign: mockCampaign }),
     });
 
     renderHook(() => useCampaignDetail('my-campaign-slug'), {

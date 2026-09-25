@@ -2,6 +2,22 @@
 
 export type CampaignStatus = "active" | "completed" | "expired";
 
+/**
+ * The Campaign's effective lifecycle status as GET /api/campaigns/[slug]
+ * and the Campaign page send it: an Active Campaign past its deadline
+ * already arrives as EXPIRED. Spelled out rather than imported from the
+ * generated Prisma client, which does not belong in a browser bundle.
+ */
+export type CampaignLifecycleStatus =
+  | "DRAFT"
+  | "SUBMITTED"
+  | "REJECTED"
+  | "ACTIVE"
+  | "SUSPENDED"
+  | "CANCELLED"
+  | "COMPLETED"
+  | "EXPIRED";
+
 export interface Campaign {
   id: string;
   slug: string;
@@ -13,6 +29,8 @@ export interface Campaign {
   collectedAmount: number;
   category: string;
   status: CampaignStatus;
+  /** Sent by GET /api/campaigns/[slug]; a reader that needs it treats absence as not Active. */
+  lifecycleStatus?: CampaignLifecycleStatus;
   isUrgent: boolean;
   /** Sample content marked by the task M9 migration -- see schema.prisma. Never take money from a campaign where this is true. */
   isDemo: boolean;

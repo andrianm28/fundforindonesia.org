@@ -8,6 +8,7 @@ import { PaymentMethodSelector } from '@/components/donation/PaymentMethodSelect
 import { DonationConfirmation } from '@/components/donation/DonationConfirmation';
 import { formatRupiah } from '@/lib/utils/currency';
 import { donationsEnabled, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
+import { offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
 import type { PaymentMethod } from '@/types/donation';
 
 const PRESET_AMOUNTS = [20000, 50000, 100000, 250000, 500000];
@@ -141,6 +142,26 @@ export default function DonatePage() {
           className="text-primary font-medium hover:underline"
         >
           Kembali
+        </button>
+      </div>
+    );
+  }
+
+  // Only an effectively Active Campaign takes a Donation (POST
+  // /api/donations refuses the rest). Someone who lands here by link on a
+  // Suspended, Cancelled or ended Campaign is told why before any amount is
+  // asked of them. A missing status counts as not Active.
+  if (!offersDonating(campaign.lifecycleStatus)) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
+        <p className="text-text-secondary">
+          {statusBannerCopy(campaign.lifecycleStatus) ?? 'Campaign ini tidak menerima donasi.'}
+        </p>
+        <button
+          onClick={() => router.push(`/campaign/${slug}`)}
+          className="text-primary font-medium hover:underline"
+        >
+          Kembali ke Campaign
         </button>
       </div>
     );

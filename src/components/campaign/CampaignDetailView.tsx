@@ -7,6 +7,10 @@ import { useRouter } from 'next/navigation';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
+import { offersDonating } from '@/lib/campaign-page-status';
+import { useSuspensionReason } from '@/lib/hooks/useSuspensionReason';
+import type { CampaignLifecycleStatus } from '@/types/campaign';
+import { CampaignStatusBanner } from './CampaignStatusBanner';
 
 export interface CampaignDetailData {
   id: string;
@@ -19,6 +23,8 @@ export interface CampaignDetailData {
   collectedAmount: number;
   category: string;
   status: string;
+  /** Effective status: an Active Campaign past its deadline arrives as EXPIRED. */
+  lifecycleStatus: CampaignLifecycleStatus;
   isUrgent: boolean;
   /** Sample content (task M9) -- the badge below is additional, not the refusal mechanism; POST /api/donations refuses it regardless. */
   isDemo: boolean;
@@ -51,6 +57,7 @@ interface CampaignDetailViewProps {
  */
 export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   const router = useRouter();
+  const suspensionReason = useSuspensionReason(campaign.slug, campaign.lifecycleStatus);
 
   const remainingDays = campaign.deadline
     ? getRemainingDays(new Date(campaign.deadline))
@@ -150,6 +157,11 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
               Kampanye contoh — tidak menerima donasi sungguhan
             </span>
           )}
+
+          <CampaignStatusBanner
+            status={campaign.lifecycleStatus}
+            suspensionReason={suspensionReason}
+          />
 
           {/* Title */}
           <h2 className="text-lg font-bold text-text leading-tight mb-3">
@@ -255,17 +267,20 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           scroll position (position: fixed), so this alone already satisfies
           "donate button visible without scrolling" on desktop too; no
           separate desktop-specific button is added (see this task's Design
-          decision above). */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-border p-4 z-10">
-        <div className="max-w-3xl mx-auto">
-          <Link
-            href={`/campaign/${campaign.slug}/donate`}
-            className="block w-full py-3 rounded-lg font-semibold text-base text-center bg-primary text-white hover:bg-primary-dark transition-colors"
-          >
-            Donasi sekarang
-          </Link>
+          decision above). Offered only while the Campaign is effectively
+          Active; any other status has its banner above instead. */}
+      {offersDonating(campaign.lifecycleStatus) && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-border p-4 z-10">
+          <div className="max-w-3xl mx-auto">
+            <Link
+              href={`/campaign/${campaign.slug}/donate`}
+              className="block w-full py-3 rounded-lg font-semibold text-base text-center bg-primary text-white hover:bg-primary-dark transition-colors"
+            >
+              Donasi sekarang
+            </Link>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { GET, PATCH, DELETE } from './route';
 
@@ -9,6 +9,9 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
+    },
+    campaignStatusChange: {
+      findFirst: vi.fn(),
     },
   },
 }));
@@ -26,6 +29,7 @@ const mockFindUnique = vi.mocked(prisma.campaign.findUnique);
 const mockUpdate = vi.mocked(prisma.campaign.update);
 const mockDelete = vi.mocked(prisma.campaign.delete);
 const mockGetServerSession = vi.mocked(getServerSession);
+const mockStatusChangeFindFirst = vi.mocked(prisma.campaignStatusChange.findFirst);
 
 function createRequest(slug: string, method = 'GET', body?: unknown) {
   const init: RequestInit = { method };
@@ -264,6 +268,168 @@ describe('GET /api/campaigns/[slug]', () => {
   });
 });
 
+
+describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-25T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function campaignRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'campaign-1',
+      slug: 'bantu-korban-bencana',
+      title: 'Bantu Korban Bencana',
+      description: 'Deskripsi',
+      story: '<p>Cerita</p>',
+      coverImage: 'https://example.com/image.jpg',
+      targetAmount: 50000000,
+      collectedAmount: 1000000,
+      category: 'bencana-alam',
+      status: 'active',
+      lifecycleStatus: 'ACTIVE',
+      isUrgent: false,
+      isDemo: false,
+      deadline: null,
+      creatorId: 'owner-1',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+      creator: { id: 'owner-1', name: 'Pemilik', avatar: null, isVerified: true, verificationType: null },
+      _count: { donations: 3 },
+      ...overrides,
+    };
+  }
+
+  async function getAs(row: Record<string, unknown>) {
+    mockFindUnique.mockResolvedValue(row as any);
+    const response = await GET(createRequest('bantu-korban-bencana'), {
+      params: Promise.resolve({ slug: 'bantu-korban-bencana' }),
+    });
+    return { response, body: await response.json() };
+  }
+
+  it('exposes lifecycleStatus next to the existing fields', async () => {
+    const { body } = await getAs(campaignRow({ lifecycleStatus: 'CANCELLED', status: 'cancelled' }));
+    expect(body.campaign.lifecycleStatus).toBe('CANCELLED');
+    expect(body.campaign.status).toBe('cancelled');
+  });
+
+  it('reports a Campaign stored Active whose deadline has passed as EXPIRED', async () => {
+    const { body } = await getAs(
+      campaignRow({ lifecycleStatus: 'ACTIVE', deadline: new Date('2026-09-24T00:00:00Z') })
+    );
+    expect(body.campaign.lifecycleStatus).toBe('EXPIRED');
+  });
+
+  it('keeps a Campaign Active while its deadline is still ahead', async () => {
+    const { body } = await getAs(
+      campaignRow({ lifecycleStatus: 'ACTIVE', deadline: new Date('2026-09-26T00:00:00Z') })
+    );
+    expect(body.campaign.lifecycleStatus).toBe('ACTIVE');
+  });
+
+  describe('the Suspension reason', () => {
+    // The status-change log of campaign-1, oldest first: an earlier
+    // Suspension that was lifted, then the current one. A second Campaign's
+    // row proves the lookup stays on its own Campaign.
+    const log = [
+      { campaignId: 'campaign-1', action: 'SUSPENDED', toStatus: 'SUSPENDED', reason: 'Alasan lama yang sudah dicabut', createdAt: new Date('2026-08-01T00:00:00Z') },
+      { campaignId: 'campaign-1', action: 'SUSPENSION_LIFTED', toStatus: 'ACTIVE', reason: 'Sudah diperbaiki', createdAt: new Date('2026-08-05T00:00:00Z') },
+      { campaignId: 'campaign-1', action: 'SUSPENDED', toStatus: 'SUSPENDED', reason: 'Dokumen penerima manfaat belum lengkap', createdAt: new Date('2026-09-20T00:00:00Z') },
+      { campaignId: 'campaign-2', action: 'SUSPENDED', toStatus: 'SUSPENDED', reason: 'Campaign lain', createdAt: new Date('2026-09-21T00:00:00Z') },
+      { campaignId: 'campaign-1', action: 'URGENT_CLEARED', toStatus: null, reason: null, createdAt: new Date('2026-09-22T00:00:00Z') },
+    ];
+
+    // An in-memory stand-in for findFirst that honours where and orderBy,
+    // so the test pins "latest SUSPENDED row of this Campaign" by result,
+    // not by the query's shape.
+    beforeEach(() => {
+      mockStatusChangeFindFirst.mockImplementation((async (args: any) => {
+        const where = args?.where ?? {};
+        const rows = log
+          .filter((row) => Object.entries(where).every(([key, value]) => (row as any)[key] === value))
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        const row = rows[0];
+        if (!row) return null;
+        if (!args?.select) return row;
+        return Object.fromEntries(Object.keys(args.select).map((key) => [key, (row as any)[key]]));
+      }) as any);
+    });
+
+    const suspended = () => campaignRow({ lifecycleStatus: 'SUSPENDED', status: 'suspended' });
+
+    function sessionOf(id: string, role = 'CAMPAIGN_CREATOR') {
+      mockGetServerSession.mockResolvedValue({ user: { id, role } } as any);
+    }
+
+    it('is returned to the owning Fundraiser, from the latest SUSPENDED row', async () => {
+      sessionOf('owner-1');
+      const { body } = await getAs(suspended());
+      expect(body.campaign.lifecycleStatus).toBe('SUSPENDED');
+      expect(body.campaign.suspensionReason).toBe('Dokumen penerima manfaat belum lengkap');
+    });
+
+    it('is withheld from an anonymous visitor', async () => {
+      mockGetServerSession.mockResolvedValue(null);
+      const { response, body } = await getAs(suspended());
+      expect(body.campaign).not.toHaveProperty('suspensionReason');
+      expect(JSON.stringify(body)).not.toContain('Dokumen penerima manfaat');
+      expect(response.status).toBe(200);
+    });
+
+    it('is withheld from a signed-in user who does not own the Campaign', async () => {
+      sessionOf('donor-9', 'DONOR');
+      const { body } = await getAs(suspended());
+      expect(body.campaign).not.toHaveProperty('suspensionReason');
+    });
+
+    it('is withheld from an Admin who does not own the Campaign', async () => {
+      sessionOf('admin-1', 'ADMIN');
+      const { body } = await getAs(suspended());
+      expect(body.campaign).not.toHaveProperty('suspensionReason');
+    });
+
+    it('is not returned once the Suspension is lifted, even to the owner', async () => {
+      sessionOf('owner-1');
+      const { body } = await getAs(campaignRow({ lifecycleStatus: 'ACTIVE' }));
+      expect(body.campaign).not.toHaveProperty('suspensionReason');
+    });
+
+    it('comes back null for the owner when the latest SUSPENDED row carries no reason', async () => {
+      sessionOf('owner-1');
+      mockStatusChangeFindFirst.mockResolvedValue({ reason: null } as any);
+      const { body } = await getAs(suspended());
+      expect(body.campaign.suspensionReason).toBeNull();
+    });
+
+    it('comes back null for the owner when no SUSPENDED row is found', async () => {
+      sessionOf('owner-1');
+      mockStatusChangeFindFirst.mockResolvedValue(null);
+      const { body } = await getAs(suspended());
+      expect(body.campaign.suspensionReason).toBeNull();
+    });
+
+    it('never lets a shared cache hold a Suspended Campaign, for the owner or anyone else', async () => {
+      sessionOf('owner-1');
+      const owner = await getAs(suspended());
+      expect(owner.response.headers.get('Cache-Control')).toBe('private, no-store');
+
+      mockGetServerSession.mockResolvedValue(null);
+      const visitor = await getAs(suspended());
+      expect(visitor.response.headers.get('Cache-Control')).toBe('private, no-store');
+    });
+
+    it('does not read the session for a Campaign that is not Suspended', async () => {
+      await getAs(campaignRow({ lifecycleStatus: 'ACTIVE' }));
+      expect(mockGetServerSession).not.toHaveBeenCalled();
+    });
+  });
+});
 
 describe('PATCH /api/campaigns/[slug]', () => {
   beforeEach(() => {

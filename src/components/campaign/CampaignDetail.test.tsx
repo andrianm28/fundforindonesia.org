@@ -1,6 +1,6 @@
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
-import { CampaignDetail } from './CampaignDetail';
+import { CampaignDetail, type CampaignDetailProps } from './CampaignDetail';
 
 // Mock next/image
 vi.mock('next/image', () => ({
@@ -11,7 +11,7 @@ vi.mock('next/image', () => ({
   },
 }));
 
-const mockCampaign = {
+const mockCampaign: CampaignDetailProps['campaign'] = {
   id: '1',
   slug: 'bantu-korban-bencana',
   title: 'Bantu Korban Bencana Alam di Cianjur',
@@ -22,6 +22,7 @@ const mockCampaign = {
   collectedAmount: 25841000,
   category: 'bencana-alam',
   status: 'active',
+  lifecycleStatus: 'ACTIVE',
   isUrgent: true,
   deadline: new Date(Date.now() + 61 * 24 * 60 * 60 * 1000).toISOString(),
   createdAt: new Date().toISOString(),
@@ -247,5 +248,51 @@ describe('CampaignDetail', () => {
     );
     // Should not find an img with the creator name (since we use SVG placeholder)
     expect(screen.queryByAltText(mockCampaign.creator.name)).toBeNull();
+  });
+});
+
+describe('CampaignDetail -- where the Campaign stands', () => {
+  const noop = () => {};
+
+  beforeEach(() => {
+    global.fetch = vi.fn().mockResolvedValue({ json: () => Promise.resolve([]) });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  function renderWith(overrides: Partial<CampaignDetailProps['campaign']>) {
+    return render(
+      <CampaignDetail campaign={{ ...mockCampaign, ...overrides }} onDonate={noop} onShare={noop} />
+    );
+  }
+
+  it('keeps the donate button and shows no banner while Active', () => {
+    renderWith({ lifecycleStatus: 'ACTIVE' });
+    expect(screen.getByText('Donasi sekarang')).toBeDefined();
+    expect(screen.queryByRole('status', { name: 'Status Campaign' })).toBeNull();
+  });
+
+  it.each([
+    ['SUSPENDED', 'Campaign ini sedang ditinjau dan tidak menerima donasi.'],
+    ['CANCELLED', 'Fundraiser telah menarik Campaign ini.'],
+    ['EXPIRED', 'Campaign ini telah berakhir.'],
+    ['COMPLETED', 'Campaign ini telah berakhir.'],
+  ] as const)('shows the %s banner and hides the donate button', (lifecycleStatus, copy) => {
+    renderWith({ lifecycleStatus });
+    expect(screen.getByRole('status', { name: 'Status Campaign' }).textContent).toContain(copy);
+    expect(screen.queryByText('Donasi sekarang')).toBeNull();
+  });
+
+  it('shows the Suspension reason when the payload carries one (the owner\'s)', () => {
+    renderWith({ lifecycleStatus: 'SUSPENDED', suspensionReason: 'Dokumen penerima manfaat belum lengkap' });
+    expect(screen.getByRole('status', { name: 'Status Campaign' }).textContent).toContain('Dokumen penerima manfaat belum lengkap');
+  });
+
+  it('shows no reason when the payload leaves it out', () => {
+    renderWith({ lifecycleStatus: 'SUSPENDED' });
+    expect(screen.queryByText(/Alasan/)).toBeNull();
   });
 });

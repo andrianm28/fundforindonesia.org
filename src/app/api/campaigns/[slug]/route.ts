@@ -3,9 +3,14 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { isAtLeast } from '@/lib/roles';
-import { Role } from '@/generated/prisma/client';
+import { CampaignStatus, CampaignStatusChangeAction, Role } from '@/generated/prisma/client';
+import { effectiveStatus } from '@/lib/campaign-lifecycle';
 
-export const revalidate = 60;
+// Rendered per request: a Suspended Campaign's answer depends on who asks
+// (see suspensionReasonFor), and reading the session inside a route Next
+// had cached as static fails at runtime. Shared caching of everything else
+// is left to the Cache-Control header set in GET.
+export const dynamic = 'force-dynamic';
 
 // The only columns a direct edit may write; zod strips every other key.
 // Status moves through src/lib/campaign-lifecycle.ts; target, deadline, and
@@ -38,6 +43,28 @@ function isLifecycleRecordRestrict(error: unknown): boolean {
       index === 'CancellationRequest_campaignId_fkey' ||
       index === 'CampaignFlag_campaignId_fkey')
   );
+}
+
+/**
+ * The reason recorded on the Campaign's latest SUSPENDED status change,
+ * returned only to its owning Fundraiser (FFI-07b). Anyone else, an Admin
+ * included, gets `undefined`, so the field is left out of the payload: an
+ * unproven report is never published with the Campaign.
+ */
+async function suspensionReasonFor(campaign: {
+  id: string;
+  creatorId: string;
+}): Promise<string | null | undefined> {
+  const session = await getServerSession();
+  if (!session?.user?.id || session.user.id !== campaign.creatorId) {
+    return undefined;
+  }
+  const latest = await prisma.campaignStatusChange.findFirst({
+    where: { campaignId: campaign.id, action: CampaignStatusChangeAction.SUSPENDED },
+    orderBy: { createdAt: 'desc' },
+    select: { reason: true },
+  });
+  return latest?.reason ?? null;
 }
 
 export async function GET(
@@ -82,6 +109,12 @@ export async function GET(
       );
     }
 
+    const lifecycleStatus = effectiveStatus(campaign, new Date());
+    const isSuspended = lifecycleStatus === CampaignStatus.SUSPENDED;
+    const suspensionReason = isSuspended
+      ? await suspensionReasonFor(campaign)
+      : undefined;
+
     const response = NextResponse.json({
       campaign: {
         id: campaign.id,
@@ -94,6 +127,7 @@ export async function GET(
         collectedAmount: campaign.collectedAmount,
         category: campaign.category,
         status: campaign.status,
+        lifecycleStatus,
         isUrgent: campaign.isUrgent,
         isDemo: campaign.isDemo,
         deadline: campaign.deadline,
@@ -101,12 +135,17 @@ export async function GET(
         updatedAt: campaign.updatedAt,
         creator: campaign.creator,
         donationCount: campaign._count.donations,
+        ...(suspensionReason !== undefined && { suspensionReason }),
       },
     });
 
+    // A Suspended Campaign's answer differs between its owner and everyone
+    // else, so no shared cache may keep either version.
     response.headers.set(
       'Cache-Control',
-      'public, s-maxage=60, stale-while-revalidate=300'
+      isSuspended
+        ? 'private, no-store'
+        : 'public, s-maxage=60, stale-while-revalidate=300'
     );
 
     return response;

@@ -117,6 +117,7 @@ beforeEach(() => {
       title: 'Bantu Korban Bencana',
       collectedAmount: 1_000_000,
       isDemo: false,
+      lifecycleStatus: 'ACTIVE',
     },
     isLoading: false,
     error: null,
@@ -225,5 +226,48 @@ describe('DonatePage after the donation is created', () => {
       await screen.findByText('Ini adalah campaign contoh dan tidak dapat menerima donasi.'),
     ).toBeInTheDocument();
     expect(assignedUrl).toBeNull();
+  });
+});
+
+describe('DonatePage for a Campaign that is not Active', () => {
+  function campaignIn(lifecycleStatus: string | undefined) {
+    mockUseCampaignDetail.mockReturnValue({
+      campaign: {
+        id: 'campaign-1',
+        slug: 'campaign-contoh',
+        title: 'Bantu Korban Bencana',
+        collectedAmount: 1_000_000,
+        isDemo: false,
+        lifecycleStatus,
+      },
+      isLoading: false,
+      error: null,
+    });
+  }
+
+  it.each([
+    ['SUSPENDED', 'Campaign ini sedang ditinjau dan tidak menerima donasi.'],
+    ['CANCELLED', 'Fundraiser telah menarik Campaign ini.'],
+    ['EXPIRED', 'Campaign ini telah berakhir.'],
+    ['COMPLETED', 'Campaign ini telah berakhir.'],
+  ])('says why a %s Campaign takes no donation, and offers no donation step', (status, copy) => {
+    campaignIn(status);
+    render(<DonatePage />);
+    expect(screen.getByText(copy)).toBeDefined();
+    expect(screen.queryByText('pick amount')).toBeNull();
+  });
+
+  it.each(['SUBMITTED', undefined])('offers no donation step when the status is %s', (status) => {
+    campaignIn(status);
+    render(<DonatePage />);
+    expect(screen.getByText('Campaign ini tidak menerima donasi.')).toBeDefined();
+    expect(screen.queryByText('pick amount')).toBeNull();
+  });
+
+  it('leads back to the Campaign page', () => {
+    campaignIn('CANCELLED');
+    render(<DonatePage />);
+    fireEvent.click(screen.getByText('Kembali ke Campaign'));
+    expect(mockPush).toHaveBeenCalledWith('/campaign/campaign-contoh');
   });
 });
