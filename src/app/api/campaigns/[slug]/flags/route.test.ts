@@ -161,6 +161,16 @@ describe('POST /api/campaigns/[slug]/flags', () => {
     expect(state.db.campaignFlags).toEqual([]);
   });
 
+  it('answers 403 to a Verifier who owns the Campaign and raises nothing', async () => {
+    state.db = makeCampaignDb({ campaigns: [active({ creatorId: 'verifier-1' })] });
+
+    const response = await flagReq({ reason: 'Foto palsu' });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: 'OWN_CAMPAIGN_CONFLICT', error: expect.stringContaining('Verifier lain') });
+    expect(state.db.campaignFlags).toEqual([]);
+  });
+
   it.each([
     ['no reason', {}],
     ['a blank reason', { reason: '   ' }],

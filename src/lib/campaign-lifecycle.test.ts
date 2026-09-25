@@ -89,12 +89,38 @@ describe('decideSubmission', () => {
     },
   );
 
-  it('does not notify a Verifier who decides on their own Campaign', async () => {
-    const db = makeCampaignDb({ campaigns: [campaignRow({ creatorId: 'verifier-1' })] });
+  it.each(['approve', 'reject'] as const)(
+    'refuses a Verifier who would %s their own Campaign with OwnCampaignConflictError and changes nothing',
+    async (decision) => {
+      const db = makeCampaignDb({ campaigns: [campaignRow({ creatorId: 'verifier-1' })] });
 
-    await decideSubmission(db.prisma as never, { campaignId: 'campaign-1', actor: verifier, decision: 'approve', now: NOW });
+      const error = await decideSubmission(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: verifier,
+        decision,
+        now: NOW,
+      }).catch((e: unknown) => e);
 
-    expect(db.notifications).toEqual([]);
+      expect(error).toBeInstanceOf(OwnCampaignConflictError);
+      expect((error as Error).message).toContain('Verifier lain');
+      expect(db.campaign()).toMatchObject({ status: 'pending', lifecycleStatus: 'SUBMITTED' });
+      expect(db.statusChanges).toEqual([]);
+      expect(db.notifications).toEqual([]);
+    },
+  );
+
+  it('refuses the owner even when they hold both Verifier and Admin', async () => {
+    const db = makeCampaignDb({ campaigns: [campaignRow({ creatorId: 'both-1' })] });
+
+    await expect(
+      decideSubmission(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: { userId: 'both-1', assignments: ['VERIFIER', 'ADMIN'] },
+        decision: 'approve',
+        now: NOW,
+      }),
+    ).rejects.toThrow('Verifier lain');
+    expect(db.statusChanges).toEqual([]);
   });
 
   it.each([
@@ -195,7 +221,8 @@ describe('lifecycleErrorToHttp', () => {
   it.each([
     [new LifecycleValidationError('Alasan wajib diisi.', 'reason'), 400, 'VALIDATION'],
     [new NotAuthorizedError(), 403, 'NOT_AUTHORIZED'],
-    [new OwnCampaignConflictError(), 403, 'OWN_CAMPAIGN_CONFLICT'],
+    [new OwnCampaignConflictError('ADMIN'), 403, 'OWN_CAMPAIGN_CONFLICT'],
+    [new OwnCampaignConflictError('VERIFIER'), 403, 'OWN_CAMPAIGN_CONFLICT'],
     [new SameAdminLiftError(), 403, 'SAME_ADMIN_LIFT'],
     [new CampaignNotFoundError('campaign-1'), 404, 'CAMPAIGN_NOT_FOUND'],
     [new InvalidTransitionError('SUSPENDED'), 409, 'INVALID_TRANSITION'],
@@ -214,6 +241,11 @@ describe('lifecycleErrorToHttp', () => {
     expect(new InvalidTransitionError('SUSPENDED').message).toBe(
       'Tindakan ini tidak dapat dilakukan pada Campaign berstatus Suspended.',
     );
+  });
+
+  it('tells an Admin or Verifier on their own Campaign that another of the same role must act', () => {
+    expect(new OwnCampaignConflictError('ADMIN').message).toContain('Admin lain');
+    expect(new OwnCampaignConflictError('VERIFIER').message).toContain('Verifier lain');
   });
 
   it('tells the Admin another Admin must lift their Suspension', () => {
