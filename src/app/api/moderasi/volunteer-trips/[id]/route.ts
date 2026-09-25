@@ -1,6 +1,9 @@
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
-import { Assignment } from '@/generated/prisma/client';
+import { Assignment, StatusChangeCapacity } from '@/generated/prisma/client';
+import { getServerSession } from '@/lib/auth';
+import { domainErrorToHttp } from '@/lib/domain-errors';
 import { prisma } from '@/lib/prisma';
+import { OwnTripConflictError } from '@/lib/subject-guard';
 import { NextRequest, NextResponse } from 'next/server';
 
 const VALID_ACTIONS = ['approve', 'reject'] as const;
@@ -35,6 +38,14 @@ export const PATCH = withAssignmentCheck(Assignment.VERIFIER, async (req: NextRe
 
   if (!trip) {
     return NextResponse.json({ error: 'Volunteer trip tidak ditemukan' }, { status: 404 });
+  }
+
+  // A Verifier never acts as Verifier on a Trip they own (CONTEXT.md,
+  // Verifier; ADR 0005): another Verifier must judge it.
+  const session = await getServerSession();
+  if (trip.fundraiserId === session?.user?.id) {
+    const refusal = domainErrorToHttp(new OwnTripConflictError(StatusChangeCapacity.VERIFIER))!;
+    return NextResponse.json(refusal.body, { status: refusal.status });
   }
 
   const validAction = action as ModerationAction;
