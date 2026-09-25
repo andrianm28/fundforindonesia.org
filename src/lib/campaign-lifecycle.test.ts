@@ -89,12 +89,38 @@ describe('decideSubmission', () => {
     },
   );
 
-  it('does not notify a Verifier who decides on their own Campaign', async () => {
-    const db = makeCampaignDb({ campaigns: [campaignRow({ creatorId: 'verifier-1' })] });
+  it.each(['approve', 'reject'] as const)(
+    'refuses a Verifier who would %s their own Campaign with OwnCampaignConflictError and changes nothing',
+    async (decision) => {
+      const db = makeCampaignDb({ campaigns: [campaignRow({ creatorId: 'verifier-1' })] });
 
-    await decideSubmission(db.prisma as never, { campaignId: 'campaign-1', actor: verifier, decision: 'approve', now: NOW });
+      const error = await decideSubmission(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: verifier,
+        decision,
+        now: NOW,
+      }).catch((e: unknown) => e);
 
-    expect(db.notifications).toEqual([]);
+      expect(error).toBeInstanceOf(OwnCampaignConflictError);
+      expect((error as Error).message).toContain('Verifier lain');
+      expect(db.campaign()).toMatchObject({ status: 'pending', lifecycleStatus: 'SUBMITTED' });
+      expect(db.statusChanges).toEqual([]);
+      expect(db.notifications).toEqual([]);
+    },
+  );
+
+  it('refuses the owner even when they hold both Verifier and Admin', async () => {
+    const db = makeCampaignDb({ campaigns: [campaignRow({ creatorId: 'both-1' })] });
+
+    await expect(
+      decideSubmission(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: { userId: 'both-1', assignments: ['VERIFIER', 'ADMIN'] },
+        decision: 'approve',
+        now: NOW,
+      }),
+    ).rejects.toBeInstanceOf(OwnCampaignConflictError);
+    expect(db.statusChanges).toEqual([]);
   });
 
   it.each([

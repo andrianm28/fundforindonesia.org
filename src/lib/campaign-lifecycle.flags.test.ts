@@ -82,6 +82,19 @@ describe('flagCampaign', () => {
   });
 
   it.each([
+    ['a Verifier', ['VERIFIER' as const]],
+    ['a person holding both Verifier and Admin', ['VERIFIER' as const, 'ADMIN' as const]],
+  ])('refuses %s flagging their own Campaign with OwnCampaignConflictError and raises nothing', async (_label, assignments) => {
+    const db = makeCampaignDb({ campaigns: [active({ creatorId: 'verifier-1' })] });
+
+    const error = await flag(db, { actor: { userId: 'verifier-1', assignments } }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(OwnCampaignConflictError);
+    expect((error as Error).message).toContain('Verifier lain');
+    expect(db.campaignFlags).toEqual([]);
+  });
+
+  it.each([
     ['missing', undefined],
     ['blank', '   '],
     ['not a string', 42],

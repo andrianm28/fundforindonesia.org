@@ -80,6 +80,24 @@ describe('PATCH /api/moderasi/campaigns/[id]', () => {
         expect.objectContaining({ actorId: 'admin-1', capacity: 'VERIFIER' }),
       ]);
     });
+
+    it.each(['approve', 'reject'])(
+      'answers 403 to a Verifier who would %s their own Campaign: no status change, log row or notification',
+      async (action) => {
+        seed({ creatorId: 'verifier-1' });
+
+        const response = await patch({ action });
+
+        expect(response.status).toBe(403);
+        expect(await response.json()).toMatchObject({
+          code: 'OWN_CAMPAIGN_CONFLICT',
+          error: expect.stringContaining('Verifier lain'),
+        });
+        expect(state.db.campaign()).toMatchObject({ status: 'pending', lifecycleStatus: 'SUBMITTED' });
+        expect(state.db.statusChanges).toEqual([]);
+        expect(state.db.notifications).toEqual([]);
+      },
+    );
   });
 
   describe('approve and reject', () => {

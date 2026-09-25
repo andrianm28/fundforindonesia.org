@@ -123,12 +123,18 @@ export class NotAuthorizedError extends CampaignLifecycleError {
   }
 }
 
-/** An Admin tried to act as Admin on a Campaign they own. */
+/** The operator role a person was trying to act in on a Campaign they own. */
+export type OperatorCapacity = "Admin" | "Verifier";
+
+/**
+ * An Admin or Verifier tried to act in that role on a Campaign they own
+ * (CONTEXT.md, Admin and Verifier; ADR 0005).
+ */
 export class OwnCampaignConflictError extends CampaignLifecycleError {
   readonly code = "OWN_CAMPAIGN_CONFLICT";
-  constructor() {
+  constructor(readonly capacity: OperatorCapacity = "Admin") {
     super(
-      "Anda tidak dapat bertindak sebagai Admin atas Campaign milik Anda sendiri. Tindakan ini harus dilakukan Admin lain."
+      `Anda tidak dapat bertindak sebagai ${capacity} atas Campaign milik Anda sendiri. Tindakan ini harus dilakukan ${capacity} lain.`
     );
     this.name = "OwnCampaignConflictError";
   }
@@ -468,7 +474,7 @@ export function isSubmissionDecision(value: unknown): value is SubmissionDecisio
  * Any other effective status is refused, so moderation can never reopen a
  * Suspended, Completed or Cancelled Campaign. Recorded in the VERIFIER
  * capacity, without a reason: rejection reasons belong to Verification
- * Request (ticket 12).
+ * Request (ticket 12). A Verifier never decides on a Campaign they own.
  */
 export async function decideSubmission(
   prisma: PrismaClient,
@@ -489,6 +495,7 @@ export async function decideSubmission(
   return prisma.$transaction(async (tx) => {
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
+    requireNotOwner(actor, campaign, "Verifier");
     const current = effectiveStatus(campaign, now);
     if (current !== CampaignStatus.SUBMITTED) {
       throw new InvalidTransitionError(current);
@@ -607,13 +614,18 @@ function requireVerifierAssignment(actor: LifecycleActor, message: string): void
   }
 }
 
-/** No Admin ever acts as Admin on a Campaign they own (CONTEXT.md, Admin). */
+/**
+ * No Admin ever acts as Admin, and no Verifier as Verifier, on a Campaign
+ * they own (CONTEXT.md, Admin and Verifier). On it they are only its
+ * Fundraiser.
+ */
 function requireNotOwner(
   actor: LifecycleActor,
-  campaign: { creatorId: string }
+  campaign: { creatorId: string },
+  capacity: OperatorCapacity = "Admin"
 ): void {
   if (campaign.creatorId === actor.userId) {
-    throw new OwnCampaignConflictError();
+    throw new OwnCampaignConflictError(capacity);
   }
 }
 
@@ -1077,7 +1089,8 @@ const FLAGGABLE = SUSPENDABLE;
  * changes. Allowed on an effectively Active, Expired or Completed Campaign
  * (the statuses an Admin can suspend from, ADR 0015), so fraud found after a
  * Campaign closed still reaches an Admin. Several open Flags are kept
- * separately, each with its author. The Fundraiser is not told.
+ * separately, each with its author. The Fundraiser is not told. A Verifier
+ * never flags a Campaign they own.
  */
 export async function flagCampaign(
   prisma: PrismaClient,
@@ -1101,6 +1114,7 @@ export async function flagCampaign(
     await lockCampaignRow(tx, campaignId);
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
+    requireNotOwner(actor, campaign, "Verifier");
     const current = effectiveStatus(campaign, now);
     if (!FLAGGABLE.includes(current)) {
       throw new InvalidTransitionError(current);
