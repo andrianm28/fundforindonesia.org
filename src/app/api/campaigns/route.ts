@@ -42,12 +42,8 @@ export async function GET(request: NextRequest) {
     const skip = (page - 1) * limit;
 
     // Only effectively Active Campaigns are listed (CONTEXT.md, Campaign
-    // Status); a `?status=` in the query is ignored. The rule sits in AND
-    // because it carries its own OR, which the search OR below would
-    // otherwise replace.
-    const where: Prisma.CampaignWhereInput = {
-      AND: [listableCampaignWhere(new Date())],
-    };
+    // Status); a `?status=` in the query is ignored.
+    const where: Prisma.CampaignWhereInput = listableCampaignWhere(new Date());
 
     if (category) {
       where.category = category;

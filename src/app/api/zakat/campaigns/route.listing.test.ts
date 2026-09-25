@@ -7,9 +7,9 @@ import {
 } from '../../../../../tests/support/in-memory-campaign-db';
 
 /**
- * The zakat list shows zakat-eligible Campaigns that are still open: the
- * same effectively-Active rule as every public list (CONTEXT.md, Campaign
- * Status), on top of its category filter.
+ * The zakat list shows Campaigns in the Category zakat or kemanusiaan, under
+ * the same effectively-Active rule as every public list (CONTEXT.md,
+ * Campaign Status).
  */
 
 const holder = vi.hoisted(() => ({
@@ -50,14 +50,14 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   holder.db = makeCampaignDb({
     campaigns: [
-      campaign('zakat-open'),
-      campaign('kemanusiaan-open', { category: 'kemanusiaan', deadline: TOMORROW }),
-      campaign('zakat-ended-yesterday', { deadline: YESTERDAY }),
+      campaign('zakat-active'),
+      campaign('kemanusiaan-active', { category: 'kemanusiaan', deadline: TOMORROW }),
+      campaign('zakat-expired-unrecorded', { deadline: YESTERDAY }),
       campaign('zakat-suspended', { status: 'suspended', lifecycleStatus: 'SUSPENDED' }),
       campaign('zakat-cancelled', { status: 'cancelled', lifecycleStatus: 'CANCELLED' }),
       campaign('zakat-submitted', { status: 'pending', lifecycleStatus: 'SUBMITTED' }),
       campaign('zakat-completed', { status: 'completed', lifecycleStatus: 'COMPLETED' }),
-      campaign('health-open', { category: 'kesehatan' }),
+      campaign('kesehatan-active', { category: 'kesehatan' }),
     ],
   });
 });
@@ -66,9 +66,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('GET /api/zakat/campaigns lists only open zakat-eligible Campaigns', () => {
-  it('hides past-deadline, Suspended, Cancelled, Submitted and Completed Campaigns', async () => {
-    expect(await listSlugs()).toEqual(['kemanusiaan-open', 'zakat-open']);
+describe('GET /api/zakat/campaigns lists only effectively Active Campaigns in its Categories', () => {
+  it('hides effectively Expired, Suspended, Cancelled, Submitted and Completed Campaigns', async () => {
+    expect(await listSlugs()).toEqual(['kemanusiaan-active', 'zakat-active']);
   });
 
   it('counts only what it lists', async () => {

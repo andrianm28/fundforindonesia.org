@@ -55,12 +55,12 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   holder.db = makeCampaignDb({
     campaigns: [
-      campaign('urgent-open', { isUrgent: true, deadline: TOMORROW }),
+      campaign('urgent-active', { isUrgent: true, deadline: TOMORROW }),
       // Stored ACTIVE and urgent, but its deadline passed yesterday.
-      campaign('urgent-ended-yesterday', { isUrgent: true, deadline: YESTERDAY }),
+      campaign('urgent-expired-unrecorded', { isUrgent: true, deadline: YESTERDAY }),
       campaign('urgent-suspended', { isUrgent: true, status: 'suspended', lifecycleStatus: 'SUSPENDED' }),
       campaign('urgent-cancelled', { isUrgent: true, status: 'cancelled', lifecycleStatus: 'CANCELLED' }),
-      campaign('open'),
+      campaign('active'),
       campaign('submitted', { status: 'pending', lifecycleStatus: 'SUBMITTED' }),
     ],
   });
@@ -71,16 +71,16 @@ afterEach(() => {
 });
 
 describe('home page Campaign lists', () => {
-  it('the Urgent rail drops a Campaign once its deadline passes, and never shows Suspended or Cancelled ones', async () => {
+  it('the Urgent rail drops a Campaign once it is effectively Expired, and never shows Suspended or Cancelled ones', async () => {
     const page = await HomePage();
-    expect(campaignsPassedTo(page, UrgentCampaigns)).toEqual([['urgent-open']]);
+    expect(campaignsPassedTo(page, UrgentCampaigns)).toEqual([['urgent-active']]);
   });
 
   it('"Yang Baru" and "Pilihan Kami" show only effectively Active Campaigns', async () => {
     const page = await HomePage();
     expect(campaignsPassedTo(page, CampaignGrid)).toEqual([
-      ['open', 'urgent-open'],
-      ['open', 'urgent-open'],
+      ['active', 'urgent-active'],
+      ['active', 'urgent-active'],
     ]);
   });
 

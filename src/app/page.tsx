@@ -126,7 +126,7 @@ export default async function HomePage() {
   const listable = listableCampaignWhere(new Date());
   const [urgentCampaigns, newCampaigns, featuredCampaigns, recentPrayers] = await Promise.all([
     prisma.campaign.findMany({
-      where: { AND: [listable], isUrgent: true },
+      where: { ...listable, isUrgent: true },
       include: {
         creator: {
           select: { name: true, isVerified: true, verificationType: true },

@@ -52,7 +52,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Campaign pages: Active ones, and ended (Expired, Completed) ones whose
   // transparency pages stay findable (CONTEXT.md, Campaign Status).
   const campaigns = await prisma.campaign.findMany({
-    where: sitemapCampaignWhere(new Date()),
+    where: sitemapCampaignWhere(),
     select: { slug: true, updatedAt: true },
     orderBy: { updatedAt: 'desc' },
   });

@@ -42,7 +42,7 @@ export default async function CategoryPage({ params }: Props) {
 
   // Fetch campaigns for this category
   const campaigns = await prisma.campaign.findMany({
-    where: { AND: [listableCampaignWhere(new Date())], category },
+    where: { ...listableCampaignWhere(new Date()), category },
     include: {
       creator: {
         select: { name: true, isVerified: true, verificationType: true },

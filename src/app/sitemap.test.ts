@@ -50,9 +50,9 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   holder.db = makeCampaignDb({
     campaigns: [
-      campaign('open'),
+      campaign('active'),
       // Stored ACTIVE with a past deadline: effectively Expired.
-      campaign('ended-yesterday', { deadline: YESTERDAY }),
+      campaign('expired-unrecorded', { deadline: YESTERDAY }),
       campaign('expired', { lifecycleStatus: 'EXPIRED', deadline: YESTERDAY }),
       campaign('completed', { status: 'completed', lifecycleStatus: 'COMPLETED' }),
       campaign('suspended', { status: 'suspended', lifecycleStatus: 'SUSPENDED' }),
@@ -69,7 +69,7 @@ afterEach(() => {
 });
 
 describe('sitemap Campaign pages', () => {
-  it('includes Active and ended Campaigns and excludes Suspended, Cancelled and unapproved ones', async () => {
-    expect(await campaignSlugsInSitemap()).toEqual(['completed', 'ended-yesterday', 'expired', 'open']);
+  it('includes Active, Expired and Completed Campaigns and excludes Suspended, Cancelled and unapproved ones', async () => {
+    expect(await campaignSlugsInSitemap()).toEqual(['active', 'completed', 'expired', 'expired-unrecorded']);
   });
 });

@@ -12,16 +12,18 @@ import { effectiveStatus, listableCampaignWhere, sitemapCampaignWhere } from './
 
 const NOW = new Date('2026-09-25T12:00:00Z');
 
-const DEADLINES: Array<[string, Date | null]> = [
-  ['no deadline', null],
-  ['a past deadline', new Date('2026-09-24T12:00:00Z')],
-  ['a deadline of exactly now', new Date(NOW)],
-  ['a future deadline', new Date('2026-09-26T12:00:00Z')],
-];
+type DeadlineCase = 'no deadline' | 'a past deadline' | 'a deadline of exactly now' | 'a future deadline';
+
+const DEADLINES: Record<DeadlineCase, Date | null> = {
+  'no deadline': null,
+  'a past deadline': new Date('2026-09-24T12:00:00Z'),
+  'a deadline of exactly now': new Date(NOW),
+  'a future deadline': new Date('2026-09-26T12:00:00Z'),
+};
 
 // Written out rather than derived from effectiveStatus, so the table checks
 // the helpers against the glossary, not against the code they mirror.
-const LISTABLE: Record<CampaignStatus, Record<string, boolean>> = {
+const LISTABLE: Record<CampaignStatus, Record<DeadlineCase, boolean>> = {
   DRAFT: { 'no deadline': false, 'a past deadline': false, 'a deadline of exactly now': false, 'a future deadline': false },
   SUBMITTED: { 'no deadline': false, 'a past deadline': false, 'a deadline of exactly now': false, 'a future deadline': false },
   REJECTED: { 'no deadline': false, 'a past deadline': false, 'a deadline of exactly now': false, 'a future deadline': false },
@@ -44,7 +46,7 @@ const IN_SITEMAP: Record<CampaignStatus, boolean> = {
 };
 
 const cases = Object.values(CampaignStatus).flatMap((status) =>
-  DEADLINES.map(([label, deadline]) => ({ status, label, deadline }))
+  (Object.keys(DEADLINES) as DeadlineCase[]).map((label) => ({ status, label, deadline: DEADLINES[label] }))
 );
 
 describe('which Campaigns public listings show', () => {
@@ -57,7 +59,7 @@ describe('which Campaigns public listings show', () => {
     const effective = effectiveStatus(row, NOW);
 
     const listable = campaignMatches(row, listableCampaignWhere(NOW));
-    const inSitemap = campaignMatches(row, sitemapCampaignWhere(NOW));
+    const inSitemap = campaignMatches(row, sitemapCampaignWhere());
 
     expect(listable).toBe(LISTABLE[status][label]);
     expect(listable).toBe(effective === CampaignStatus.ACTIVE);

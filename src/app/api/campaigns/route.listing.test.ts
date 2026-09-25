@@ -7,7 +7,7 @@ import {
 } from '../../../../tests/support/in-memory-campaign-db';
 
 /**
- * The public Campaign list (home via explore/all, search) shows only
+ * The public Campaign list (explore/all and search) shows only
  * effectively Active Campaigns (CONTEXT.md, Campaign Status). Run against
  * the in-memory Campaign db, so the test asserts which Campaigns come back,
  * not how the query is built.
@@ -45,10 +45,10 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   holder.db = makeCampaignDb({
     campaigns: [
-      campaign('open-no-deadline'),
-      campaign('open-until-tomorrow', { deadline: TOMORROW, isUrgent: true }),
+      campaign('active-no-deadline'),
+      campaign('active-until-tomorrow', { deadline: TOMORROW, isUrgent: true }),
       // Stored ACTIVE, but its deadline passed and nobody recorded it yet.
-      campaign('ended-yesterday', { deadline: YESTERDAY, isUrgent: true }),
+      campaign('expired-unrecorded', { deadline: YESTERDAY, isUrgent: true }),
       campaign('suspended', { status: 'suspended', lifecycleStatus: 'SUSPENDED' }),
       campaign('cancelled', { status: 'cancelled', lifecycleStatus: 'CANCELLED' }),
       campaign('submitted', { status: 'pending', lifecycleStatus: 'SUBMITTED' }),
@@ -63,8 +63,8 @@ afterEach(() => {
 });
 
 describe('GET /api/campaigns lists only effectively Active Campaigns', () => {
-  it('shows open Campaigns and hides past-deadline, Suspended, Cancelled, Submitted and ended ones', async () => {
-    expect(await listSlugs()).toEqual(['open-no-deadline', 'open-until-tomorrow']);
+  it('shows effectively Active Campaigns and hides effectively Expired, Suspended, Cancelled, Submitted and Completed ones', async () => {
+    expect(await listSlugs()).toEqual(['active-no-deadline', 'active-until-tomorrow']);
   });
 
   it('counts only what it lists', async () => {
@@ -73,19 +73,19 @@ describe('GET /api/campaigns lists only effectively Active Campaigns', () => {
   });
 
   it('drops a Campaign from the urgent list once its deadline passes', async () => {
-    expect(await listSlugs('?urgent=true')).toEqual(['open-until-tomorrow']);
+    expect(await listSlugs('?urgent=true')).toEqual(['active-until-tomorrow']);
   });
 
   it('keeps the rule when searching, even though search adds its own OR', async () => {
-    expect(await listSlugs('?search=open')).toEqual(['open-no-deadline', 'open-until-tomorrow']);
-    expect(await listSlugs('?search=ended')).toEqual([]);
+    expect(await listSlugs('?search=active')).toEqual(['active-no-deadline', 'active-until-tomorrow']);
+    expect(await listSlugs('?search=expired')).toEqual([]);
   });
 
   // Regression for the ?status= leak (effective-status-listings ticket 01).
   it.each(['pending', 'suspended', 'cancelled', 'completed'])(
     'returns no hidden Campaign for ?status=%s',
     async (status) => {
-      expect(await listSlugs(`?status=${status}`)).toEqual(['open-no-deadline', 'open-until-tomorrow']);
+      expect(await listSlugs(`?status=${status}`)).toEqual(['active-no-deadline', 'active-until-tomorrow']);
     }
   );
 

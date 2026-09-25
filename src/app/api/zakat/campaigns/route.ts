@@ -11,10 +11,9 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '12', 10)));
     const skip = (page - 1) * limit;
 
-    // Only effectively Active Campaigns (CONTEXT.md, Campaign Status), in AND
-    // because the rule carries its own OR next to the category OR.
+    // Only effectively Active Campaigns (CONTEXT.md, Campaign Status).
     const where: Prisma.CampaignWhereInput = {
-      AND: [listableCampaignWhere(new Date())],
+      ...listableCampaignWhere(new Date()),
       OR: [
         { category: 'zakat' },
         { category: 'kemanusiaan' },
