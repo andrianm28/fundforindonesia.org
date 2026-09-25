@@ -4,6 +4,7 @@ import {
   lockAndLoad,
   requireNotOwnerAsAdmin,
   requirePayoutAllowed,
+  isEscrowReleaseFrozen,
   OwnTripConflictError,
   PayoutNotAllowedForStatusError,
   type SubjectState,
@@ -168,6 +169,23 @@ describe('requirePayoutAllowed', () => {
 
   it.each(Object.values(VolunteerTripStatus))('leaves a %s Volunteer Trip to the rule it has today: no status check', (status) => {
     expect(() => requirePayoutAllowed(tripState(status))).not.toThrow();
+  });
+});
+
+describe('isEscrowReleaseFrozen', () => {
+  it('holds a Suspended Campaign\'s matured money in Escrow Hold', () => {
+    expect(isEscrowReleaseFrozen(campaignState(CampaignStatus.SUSPENDED))).toBe(true);
+  });
+
+  it.each(Object.values(CampaignStatus).filter((s) => s !== CampaignStatus.SUSPENDED))(
+    'releases as today for a %s Campaign',
+    (status) => {
+      expect(isEscrowReleaseFrozen(campaignState(status))).toBe(false);
+    },
+  );
+
+  it.each(Object.values(VolunteerTripStatus))('releases as today for a %s Volunteer Trip', (status) => {
+    expect(isEscrowReleaseFrozen(tripState(status))).toBe(false);
   });
 });
 

@@ -1,8 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { escrowReleaseLegs, postTransaction, providerFeePortionFor, type LedgerSubject } from './ledger';
 import { assertExactlyOnePaymentSubject } from './payment-subject';
-import { CampaignStatus } from '@/generated/prisma/client';
-import { lockAndLoad } from '@/lib/subject-guard';
+import { isEscrowReleaseFrozen, lockAndLoad } from '@/lib/subject-guard';
 
 /**
  * The escrow hold: how long settled money sits in ESCROW_HOLD before it
@@ -195,17 +194,13 @@ export async function releaseMaturedEscrow(subject?: ReleaseSweepSubject): Promi
         // The Trip branch of the webhook holds the same invariant.
         const subjectState = await lockAndLoad(tx, paymentSubject, now);
 
-        // A Suspension freezes Escrow Hold (CONTEXT.md, Escrow Hold;
-        // Suspension): a Suspended Campaign's matured money stays where it
-        // is. Nothing is claimed or posted, so escrowReleasedAt stays null
-        // and the first sweep after the Suspension is lifted picks this
-        // payment up again, with no manual step. Judged under the lock, so a
-        // Suspension committed before it is seen. Only SUSPENDED holds the
-        // money: a Volunteer Trip keeps today's rule (ADR 0014), and a
-        // missing subject is left to the release below, as before.
-        if (subjectState?.kind === 'campaign' && subjectState.effectiveStatus === CampaignStatus.SUSPENDED) {
-          return false;
-        }
+        // A Suspended Campaign's matured money stays in Escrow Hold. Nothing
+        // is claimed or posted, so escrowReleasedAt stays null and the first
+        // sweep after the Suspension is lifted picks this payment up again,
+        // with no manual step. Judged under the lock, so a Suspension
+        // committed before it is seen. A missing subject is left to the
+        // release below, as before.
+        if (subjectState && isEscrowReleaseFrozen(subjectState)) return false;
 
         // Every refund against THIS payment, whatever its status. Refund.paymentId
         // is what ties a refund back to the specific payment it came out of
