@@ -4,11 +4,11 @@ import {
   lockAndLoad,
   requireNotOwnerAsAdmin,
   requirePayoutAllowed,
+  OwnTripConflictError,
   PayoutNotAllowedForStatusError,
   type SubjectState,
 } from './subject-guard';
 import { OwnCampaignConflictError, lifecycleErrorToHttp } from './campaign-lifecycle';
-import { OwnTripConflictError } from './money/refunds';
 
 const NOW = new Date('2026-09-25T10:00:00Z');
 const PAST = new Date('2026-09-20T00:00:00Z');
