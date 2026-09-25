@@ -1093,6 +1093,7 @@ describe('GET /api/admin/reconcile -- registration-linked (trip) payments', () =
       },
     ]);
     expect(data.deferredEscrowWatchdog).toEqual([]);
+    expect(data.tripDeferredEscrowWatchdog[0]).not.toHaveProperty('cause');
   });
 
   it('does not let a campaign-linked payment leak into either trip array', async () => {

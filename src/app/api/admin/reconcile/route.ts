@@ -74,7 +74,7 @@ import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
  *    The other known cause is a Suspension: releaseMaturedEscrow leaves a
  *    Suspended Campaign's matured money in Escrow Hold on purpose (CONTEXT.md,
  *    Escrow Hold) until the Suspension is lifted. Those payments are still
- *    listed, because an Admin wants to see frozen money, but each carries
+ *    listed, because an Admin wants to see money a Suspension holds, but each carries
  *    `cause: 'SUSPENDED'` so it does not read as a stuck sweep. The rule is
  *    the subject guard's own isEscrowReleaseFrozen, asked without a row lock
  *    since this report only reads. An entry with no `cause` is unexplained
@@ -517,7 +517,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     });
 
     return {
-      generatedAt: new Date().toISOString(),
+      generatedAt: reportNow.toISOString(),
       unbalancedTransactions,
       negativeBalances,
       tripNegativeBalances,
@@ -532,7 +532,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         '(POST /api/volunteer-trips/[slug]/payouts releases matured Trip escrow the same way Campaign payout does), ' +
         'so a non-empty result here is a real incident, not an expected gap.' +
         " deferredEscrowWatchdog entries with cause 'SUSPENDED' belong to a Suspended Campaign, whose matured " +
-        'escrow is held on purpose until the Suspension is lifted -- frozen money, not a stuck sweep.',
+        'money is kept in Escrow Hold on purpose until the Suspension is lifted -- not a stuck sweep.',
       mismatches,
       strandedEscrow,
       tripStrandedEscrow,

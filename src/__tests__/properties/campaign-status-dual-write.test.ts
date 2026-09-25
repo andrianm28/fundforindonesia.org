@@ -113,8 +113,8 @@ describe("Campaign status dual-write", () => {
         // (subject-guard-and-suspension-money ticket 01).
         "src/lib/subject-guard.ts",
         // The Admin reconcile report reads it, without a lock, only to ask
-        // the guard's effectiveStatus/isEscrowReleaseFrozen whether a held
-        // payment is frozen by a Suspension
+        // the guard's effectiveStatus/isEscrowReleaseFrozen whether a
+        // Suspension keeps a payment in Escrow Hold
         // (subject-guard-and-suspension-money ticket 05).
         "src/app/api/admin/reconcile/route.ts",
       ].sort()
