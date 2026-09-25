@@ -391,7 +391,10 @@ describe('liftSuspension', () => {
       campaigns: [campaignRow({ status: 'suspended', lifecycleStatus: 'SUSPENDED' })],
     });
 
-    await expect(lift(db)).rejects.toBeInstanceOf(InvalidTransitionError);
+    const refusal = lift(db);
+
+    await expect(refusal).rejects.toBeInstanceOf(InvalidTransitionError);
+    await expect(refusal).rejects.toThrow(/sebelum riwayat status dicatat/);
     expect(db.campaign().lifecycleStatus).toBe('SUSPENDED');
     expect(db.statusChanges).toEqual([]);
   });

@@ -528,6 +528,21 @@ function requireNotOwner(
   }
 }
 
+/**
+ * A Suspension with no SUSPENDED log row: imposed before the log existed,
+ * so the status to return to is unknown. Still an invalid transition (409),
+ * but it says why, since lifting is otherwise exactly what a Suspended
+ * Campaign expects.
+ */
+export class UnrecordedSuspensionError extends InvalidTransitionError {
+  constructor() {
+    super(CampaignStatus.SUSPENDED);
+    this.message =
+      "Suspension ini dijatuhkan sebelum riwayat status dicatat, sehingga status Campaign sebelum Suspension tidak diketahui. Hubungi tim teknis untuk mencabutnya.";
+    this.name = "UnrecordedSuspensionError";
+  }
+}
+
 /** The statuses an Admin may suspend from (ADR 0015). */
 const SUSPENDABLE: readonly CampaignStatus[] = [
   CampaignStatus.ACTIVE,
@@ -615,7 +630,7 @@ export async function liftSuspension(
       where: { campaignId, action: CampaignStatusChangeAction.SUSPENDED },
       orderBy: { createdAt: "desc" },
     });
-    if (!suspension?.fromStatus) throw new InvalidTransitionError(current);
+    if (!suspension?.fromStatus) throw new UnrecordedSuspensionError();
     if (suspension.actorId === actor.userId) throw new SameAdminLiftError();
     // A Campaign that was Active comes back only if its deadline still lies
     // ahead; otherwise it can never take a Donation again and is Expired.

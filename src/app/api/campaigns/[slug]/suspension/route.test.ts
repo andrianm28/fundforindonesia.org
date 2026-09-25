@@ -277,6 +277,21 @@ describe('DELETE /api/campaigns/[slug]/suspension', () => {
     expect(state.db.statusChanges).toHaveLength(1);
   });
 
+  it('answers 409 saying why for a Suspension imposed before the status log existed', async () => {
+    state.db = makeCampaignDb({
+      campaigns: [campaignRow({ status: 'suspended', lifecycleStatus: 'SUSPENDED' })],
+    });
+
+    const response = await liftReq({ reason: 'Klarifikasi' });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: 'INVALID_TRANSITION',
+      error: expect.stringContaining('sebelum riwayat status dicatat'),
+    });
+    expect(state.db.campaign().lifecycleStatus).toBe('SUSPENDED');
+  });
+
   it('answers 403 to an Admin who owns the Campaign', async () => {
     suspended('ACTIVE', { creatorId: 'admin-b' });
 
@@ -298,8 +313,11 @@ describe('DELETE /api/campaigns/[slug]/suspension', () => {
 
   it.each([
     ['active', 'ACTIVE'],
+    ['expired', 'EXPIRED'],
     ['completed', 'COMPLETED'],
     ['cancelled', 'CANCELLED'],
+    ['rejected', 'REJECTED'],
+    ['pending', 'SUBMITTED'],
   ] as const)('answers 409 for a Campaign that is %s', async (status, lifecycleStatus) => {
     state.db = makeCampaignDb({ campaigns: [campaignRow({ status, lifecycleStatus, deadline: FUTURE })] });
 
@@ -313,6 +331,7 @@ describe('DELETE /api/campaigns/[slug]/suspension', () => {
   it.each([
     ['no reason', {}],
     ['a blank reason', { reason: '' }],
+    ['a reason over 1000 characters', { reason: 'x'.repeat(1001) }],
     ['a body that is not JSON', 'not json'],
   ])('answers 400 for %s and changes nothing', async (_label, body) => {
     const response = await liftReq(body);

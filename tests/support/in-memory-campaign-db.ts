@@ -141,8 +141,9 @@ export function makeCampaignDb(
           getData().statusChanges.push(row);
           return { ...row };
         },
-        // Newest first by createdAt; among equal timestamps the row written
-        // last wins, which is what a caller asking for "the latest" means.
+        // Ordered by createdAt only. Equal timestamps fall back to insertion
+        // order, which Postgres does not promise: tests that depend on "the
+        // latest" row seed distinct timestamps rather than rely on this.
         findFirst: async ({ where, orderBy }: { where: Where; orderBy?: { createdAt: 'asc' | 'desc' } }) => {
           const rows = getData().statusChanges.filter((s) => matches(s, where));
           const direction = orderBy?.createdAt === 'asc' ? 1 : -1;
