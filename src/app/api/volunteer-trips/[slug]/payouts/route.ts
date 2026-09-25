@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withRoleCheck } from '@/lib/withRoleCheck';
-import { requestPayout, BankAccountNotEligibleError, InsufficientBalanceError } from '@/lib/money/payouts';
+import { refusalResponse } from '@/lib/refusal-response';
+import { requestPayout } from '@/lib/money/payouts';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 import { tripBalance, tripEscrowBalance } from '@/lib/money/ledger';
 
@@ -76,15 +77,9 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
       { status: 201 },
     );
   } catch (error) {
-    if (error instanceof BankAccountNotEligibleError) {
-      return NextResponse.json(
-        { error: 'Rekening bank tidak valid, bukan milik Anda, atau belum terverifikasi' },
-        { status: 403 },
-      );
-    }
-    if (error instanceof InsufficientBalanceError) {
-      return NextResponse.json({ error: 'Saldo trip tidak mencukupi untuk jumlah pencairan ini' }, { status: 400 });
-    }
+    // Every refusal carries its own code and answers its own status.
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error requesting trip payout:', error);
     return NextResponse.json({ error: 'Gagal mengajukan pencairan' }, { status: 500 });
   }

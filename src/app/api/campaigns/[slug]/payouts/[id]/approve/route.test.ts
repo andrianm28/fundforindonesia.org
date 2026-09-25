@@ -271,6 +271,16 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     expect(mockGetPaymentProvider).not.toHaveBeenCalled();
   });
 
+  it('answers 404 PAYOUT_NOT_FOUND when the Payout is gone by the time approval reads it', async () => {
+    const { tx } = makeTx({ payout: null });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(404);
+    expect((await response.json()).code).toBe('PAYOUT_NOT_FOUND');
+  });
+
   it('refuses self-approval with 403 and leaves the payout completely untouched', async () => {
     // The requester and the approver are the same person.
     mockGetServerSession.mockResolvedValue({ user: { id: 'creator-1', role: 'ADMIN', assignments: ['ADMIN'] } });
@@ -281,7 +291,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const data = await response.json();
 
     expect(response.status).toBe(403);
-    expect(data.error).toMatch(/mengajukan|approv/i);
+    expect(data.code).toBe('SELF_APPROVAL');
     // Not REJECTED, not annotated -- no write of any kind, not even the
     // campaign row lock.
     expect(queryRaw).not.toHaveBeenCalled();
@@ -297,6 +307,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('INVALID_PAYOUT_STATUS');
     expect(queryRaw).not.toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
@@ -316,7 +327,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const data = await response.json();
 
     expect(response.status).toBe(403);
-    expect(data.error).toMatch(/rekening/i);
+    expect(data.code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
     expect(updateMany).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
     expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();
@@ -332,6 +343,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
     expect(updateMany).not.toHaveBeenCalled();
   });
 
@@ -351,7 +363,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toMatch(/saldo/i);
+    expect(data.code).toBe('INSUFFICIENT_BALANCE');
     // The lock IS taken here -- the balance check happens after it -- but
     // the transition never does.
     expect(queryRaw).toHaveBeenCalled();
@@ -405,6 +417,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('INVALID_PAYOUT_STATUS');
     expect(providerCreatePayout).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
     expect(mockPayoutUpdateManyTop).not.toHaveBeenCalled();

@@ -1,38 +1,22 @@
 import { CampaignStatus, StatusChangeCapacity } from "@/generated/prisma/client";
+import { DomainError, type LifecycleErrorCode } from "./domain-errors";
 
 /**
- * The lifecycle module's typed refusals and their one HTTP mapping. Kept
- * apart from the command module so that the subject guard
- * (./subject-guard.ts), which the commands themselves call, can raise them
- * without an import cycle. Import them from ./campaign-lifecycle, which
- * re-exports everything here.
- */
-/**
+ * The lifecycle module's typed refusals. Kept apart from the command module
+ * so that the subject guard (./subject-guard.ts), which the commands
+ * themselves call, can raise them without an import cycle. Import them from
+ * ./campaign-lifecycle, which re-exports everything here.
+ *
  * Every refusal the lifecycle module can produce. `message` is the
  * Indonesian sentence shown to the person who acted; `code` is stable for
- * clients. `lifecycleErrorToHttp` is the one place a refusal becomes an HTTP
- * status, so every lifecycle route answers the same refusal the same way.
+ * clients. They answer HTTP through `domainErrorToHttp` (./domain-errors.ts),
+ * the one mapping the lifecycle and money routes share.
  */
-export abstract class CampaignLifecycleError extends Error {
-  abstract readonly code: LifecycleErrorCode;
+export abstract class CampaignLifecycleError extends DomainError {
+  abstract override readonly code: LifecycleErrorCode;
 }
 
-export type LifecycleErrorCode =
-  | "VALIDATION"
-  | "NOT_AUTHORIZED"
-  | "OWN_CAMPAIGN_CONFLICT"
-  | "SAME_ADMIN_LIFT"
-  | "CAMPAIGN_NOT_FOUND"
-  | "INVALID_TRANSITION"
-  | "CONCURRENT_TRANSITION"
-  | "PAYOUT_ALREADY_COMPLETED"
-  | "CANCELLATION_ALREADY_PENDING"
-  | "MISSING_CAMPAIGN_UPDATE"
-  | "CANCELLATION_REQUEST_NOT_FOUND"
-  | "CANCELLATION_NOT_PENDING"
-  | "FLAG_NOT_FOUND"
-  | "FLAG_ALREADY_RESOLVED"
-  | "PAYOUT_NOT_ALLOWED_FOR_STATUS";
+export { domainErrorToHttp, type LifecycleErrorCode } from "./domain-errors";
 
 /** Glossary names (CONTEXT.md), used as-is inside Indonesian sentences. */
 export const STATUS_LABEL: Record<CampaignStatus, string> = {
@@ -160,37 +144,4 @@ export class CancellationAlreadyPendingError extends CampaignLifecycleError {
     super("Masih ada pengajuan Cancellation yang menunggu keputusan Admin.");
     this.name = "CancellationAlreadyPendingError";
   }
-}
-
-const HTTP_STATUS: Record<LifecycleErrorCode, number> = {
-  VALIDATION: 400,
-  NOT_AUTHORIZED: 403,
-  OWN_CAMPAIGN_CONFLICT: 403,
-  SAME_ADMIN_LIFT: 403,
-  CAMPAIGN_NOT_FOUND: 404,
-  INVALID_TRANSITION: 409,
-  CONCURRENT_TRANSITION: 409,
-  PAYOUT_ALREADY_COMPLETED: 409,
-  CANCELLATION_ALREADY_PENDING: 409,
-  MISSING_CAMPAIGN_UPDATE: 422,
-  CANCELLATION_REQUEST_NOT_FOUND: 404,
-  CANCELLATION_NOT_PENDING: 409,
-  FLAG_NOT_FOUND: 404,
-  FLAG_ALREADY_RESOLVED: 409,
-  PAYOUT_NOT_ALLOWED_FOR_STATUS: 409,
-};
-
-/**
- * The single mapping from a lifecycle refusal to an HTTP answer, shared by
- * every lifecycle route. Returns null for anything that is not a lifecycle
- * refusal, so the route treats it as the unexpected failure it is.
- */
-export function lifecycleErrorToHttp(
-  error: unknown
-): { status: number; body: { error: string; code: LifecycleErrorCode } } | null {
-  if (!(error instanceof CampaignLifecycleError)) return null;
-  return {
-    status: HTTP_STATUS[error.code],
-    body: { error: error.message, code: error.code },
-  };
 }

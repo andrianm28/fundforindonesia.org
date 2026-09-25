@@ -3,7 +3,7 @@ import {
   decideSubmission,
   effectiveStatus,
   expireIfPastDeadline,
-  lifecycleErrorToHttp,
+  domainErrorToHttp,
   toLegacyStatus,
   toLifecycleStatus,
   CampaignNotFoundError,
@@ -140,7 +140,7 @@ describe('legacy status string', () => {
   });
 });
 
-describe('lifecycleErrorToHttp', () => {
+describe('domainErrorToHttp', () => {
   it.each([
     [new LifecycleValidationError('Alasan wajib diisi.', 'reason'), 400, 'VALIDATION'],
     [new NotAuthorizedError(), 403, 'NOT_AUTHORIZED'],
@@ -154,7 +154,7 @@ describe('lifecycleErrorToHttp', () => {
     [new CancellationAlreadyPendingError(), 409, 'CANCELLATION_ALREADY_PENDING'],
     [new MissingCampaignUpdateError(), 422, 'MISSING_CAMPAIGN_UPDATE'],
   ])('maps %s to HTTP %i with its Indonesian message', (error, status, code) => {
-    expect(lifecycleErrorToHttp(error)).toEqual({
+    expect(domainErrorToHttp(error)).toEqual({
       status,
       body: { error: error.message, code },
     });
@@ -176,8 +176,8 @@ describe('lifecycleErrorToHttp', () => {
   });
 
   it('returns null for anything that is not a lifecycle refusal', () => {
-    expect(lifecycleErrorToHttp(new Error('database down'))).toBeNull();
-    expect(lifecycleErrorToHttp('boom')).toBeNull();
+    expect(domainErrorToHttp(new Error('database down'))).toBeNull();
+    expect(domainErrorToHttp('boom')).toBeNull();
   });
 });
 

@@ -4,13 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
-import { lifecycleErrorToHttp } from '@/lib/campaign-lifecycle';
-import {
-  createRefund,
-  DemoCampaignError,
-  PaymentSubjectMismatchError,
-  RefundExceedsRemainingError,
-} from '@/lib/money/refunds';
+import { refusalResponse } from '@/lib/refusal-response';
+import { createRefund } from '@/lib/money/refunds';
 
 const createRefundSchema = z.object({
   paymentId: z.string().min(1, 'Payment harus dipilih'),
@@ -70,20 +65,9 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRe
       { status: 201 },
     );
   } catch (error) {
-    if (error instanceof DemoCampaignError) {
-      return NextResponse.json({ error: 'Ini adalah campaign contoh dan tidak memiliki dana nyata untuk direfund' }, { status: 403 });
-    }
-    // OwnCampaignConflictError: the lifecycle module owns its status and body.
-    const refusal = lifecycleErrorToHttp(error);
-    if (refusal) {
-      return NextResponse.json(refusal.body, { status: refusal.status });
-    }
-    if (error instanceof PaymentSubjectMismatchError) {
-      return NextResponse.json({ error: 'Payment tidak ditemukan untuk campaign ini' }, { status: 404 });
-    }
-    if (error instanceof RefundExceedsRemainingError) {
-      return NextResponse.json({ error: 'Jumlah refund melebihi sisa yang bisa direfund dari Payment ini' }, { status: 400 });
-    }
+    // Every refusal carries its own code and answers its own status.
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error creating refund:', error);
     return NextResponse.json({ error: 'Gagal membuat refund' }, { status: 500 });
   }

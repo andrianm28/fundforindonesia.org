@@ -5,7 +5,7 @@ import {
   FlagAlreadyResolvedError,
   FlagNotFoundError,
   InvalidTransitionError,
-  lifecycleErrorToHttp,
+  domainErrorToHttp,
   OwnCampaignConflictError,
   suspendCampaign,
 } from './campaign-lifecycle';
@@ -283,7 +283,7 @@ describe('dismissFlag', () => {
     const error = await dismiss(db).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(FlagAlreadyResolvedError);
-    expect(lifecycleErrorToHttp(error)?.status).toBe(409);
+    expect(domainErrorToHttp(error)?.status).toBe(409);
     expect(db.campaignFlag()).toMatchObject({ resolution, resolvedById, resolutionReason, resolvedAt });
   });
 
@@ -298,7 +298,7 @@ describe('dismissFlag', () => {
 
     expect(unknown).toBeInstanceOf(FlagNotFoundError);
     expect(elsewhere).toBeInstanceOf(FlagNotFoundError);
-    expect(lifecycleErrorToHttp(unknown)?.status).toBe(404);
+    expect(domainErrorToHttp(unknown)?.status).toBe(404);
     expect(db.campaignFlag('flag-other').resolution).toBeNull();
   });
 

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { PrismaClient } from "@/generated/prisma/client";
 import {
   CampaignNotFoundError,
-  lifecycleErrorToHttp,
+  domainErrorToHttp,
   type LifecycleActor,
 } from "@/lib/campaign-lifecycle";
 
@@ -47,7 +47,7 @@ async function resolveCampaignId(by: CampaignKey, params: RouteParams): Promise<
  * but a JSON object reading as `{}`; the input builder runs, and may refuse
  * with `LifecycleValidationError` (400) before anything is looked up; an
  * unknown slug → 404 `CAMPAIGN_NOT_FOUND` with `by: "slug"`; then the
- * command. Every lifecycle refusal answers through `lifecycleErrorToHttp`;
+ * command. Every lifecycle refusal answers through `domainErrorToHttp`;
  * anything else is logged and answered with one Indonesian 500
  * `INTERNAL_ERROR`. Assignment checks are the command's, not the route's.
  */
@@ -89,7 +89,7 @@ export function lifecycleRoute<
  * with one Indonesian 500 that leaks nothing.
  */
 function errorResponse(req: NextRequest, error: unknown): NextResponse {
-  const refusal = lifecycleErrorToHttp(error);
+  const refusal = domainErrorToHttp(error);
   if (refusal) {
     const body =
       error instanceof CampaignNotFoundError ? { ...refusal.body, by: error.by } : refusal.body;

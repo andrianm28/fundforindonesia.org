@@ -6,7 +6,7 @@ import {
   liftSuspension,
   expireIfPastDeadline,
   decideCancellation,
-  lifecycleErrorToHttp,
+  domainErrorToHttp,
   CancellationAlreadyPendingError,
   CancellationNotPendingError,
   CancellationRequestNotFoundError,
@@ -316,7 +316,7 @@ describe('a PENDING request lapses on the Completed and Suspended exits too', ()
       const error = await decide(db, decision);
 
       expect(error).toBeInstanceOf(CancellationNotPendingError);
-      expect(lifecycleErrorToHttp(error)).toEqual({
+      expect(domainErrorToHttp(error)).toEqual({
         status: 409,
         body: { error: expect.stringContaining('sudah gugur'), code: 'CANCELLATION_NOT_PENDING' },
       });
@@ -353,7 +353,7 @@ describe('Cancellation refusals over HTTP', () => {
     [new CancellationRequestNotFoundError('request-1'), 404, 'CANCELLATION_REQUEST_NOT_FOUND'],
     [new CancellationNotPendingError('APPROVED'), 409, 'CANCELLATION_NOT_PENDING'],
   ])('maps %s to HTTP %i', (error, status, code) => {
-    expect(lifecycleErrorToHttp(error)).toEqual({ status, body: { error: error.message, code } });
+    expect(domainErrorToHttp(error)).toEqual({ status, body: { error: error.message, code } });
   });
 
   it('tells the person a lapsed request must be made again rather than calling it decided', () => {

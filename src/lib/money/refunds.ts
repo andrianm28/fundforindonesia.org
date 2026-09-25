@@ -12,7 +12,15 @@ import {
   providerFeePortionFor,
   type LedgerSubject,
 } from './ledger';
-import { DemoCampaignError } from './payouts';
+import {
+  DemoCampaignError,
+  PaymentNotFoundError,
+  PaymentSubjectMismatchError,
+  RefundExceedsRemainingError,
+  RefundNotFoundError,
+  SelfApprovalError,
+  InvalidRefundStatusError,
+} from './errors';
 
 /**
  * Refund: request, approve.
@@ -28,66 +36,17 @@ import { DemoCampaignError } from './payouts';
  * neither of which this ticket builds a route for.
  */
 
-export { DemoCampaignError, OwnCampaignConflictError, OwnTripConflictError };
-
-export class PaymentNotFoundError extends Error {
-  constructor(readonly paymentId: string) {
-    super(`Payment ${paymentId} not found.`);
-    this.name = 'PaymentNotFoundError';
-  }
-}
-
-export class PaymentSubjectMismatchError extends Error {
-  constructor(readonly paymentId: string) {
-    super(
-      `Payment ${paymentId} does not belong to the given subject -- a Campaign-linked Payment ` +
-        'was refunded against a Trip subject, a Trip-linked one against a Campaign subject, or ' +
-        'against the wrong Campaign/Trip entirely.',
-    );
-    this.name = 'PaymentSubjectMismatchError';
-  }
-}
-
-export class RefundExceedsRemainingError extends Error {
-  constructor(
-    readonly requested: number,
-    readonly remaining: number,
-  ) {
-    super(
-      `Requested refund of ${requested} exceeds the ${remaining} still refundable on this Payment ` +
-        '(its Gross minus every prior Refund that is not REJECTED or FAILED -- REQUESTED refunds ' +
-        'count too, since their funds are already frozen).',
-    );
-    this.name = 'RefundExceedsRemainingError';
-  }
-}
-
-export class RefundNotFoundError extends Error {
-  constructor(readonly refundId: string) {
-    super(`Refund ${refundId} not found.`);
-    this.name = 'RefundNotFoundError';
-  }
-}
-
-export class SelfApprovalError extends Error {
-  constructor() {
-    super(
-      'approvedById equals requestedById. The two-person rule is this equality check and ' +
-        'nothing else -- refused before any write, not recorded as a decision.',
-    );
-    this.name = 'SelfApprovalError';
-  }
-}
-
-export class InvalidRefundStatusError extends Error {
-  constructor(
-    readonly currentStatus: string,
-    detail?: string,
-  ) {
-    super(`Refund status is ${currentStatus}; this transition is not allowed.${detail ? ` (${detail})` : ''}`);
-    this.name = 'InvalidRefundStatusError';
-  }
-}
+export {
+  DemoCampaignError,
+  OwnCampaignConflictError,
+  OwnTripConflictError,
+  PaymentNotFoundError,
+  PaymentSubjectMismatchError,
+  RefundExceedsRemainingError,
+  RefundNotFoundError,
+  SelfApprovalError,
+  InvalidRefundStatusError,
+};
 
 type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'escrowReleasedAt'> & {
   donation: { campaignId: string } | null;
@@ -253,7 +212,7 @@ export async function approveRefund(
     }
 
     if (refund.requestedById === approvedById) {
-      throw new SelfApprovalError();
+      throw new SelfApprovalError('Refund');
     }
 
     const payment = refund.payment as unknown as PaymentWithSubjectLinks;

@@ -9,7 +9,7 @@ import {
   PayoutNotAllowedForStatusError,
   type SubjectState,
 } from './subject-guard';
-import { OwnCampaignConflictError, lifecycleErrorToHttp } from './campaign-lifecycle';
+import { OwnCampaignConflictError, domainErrorToHttp } from './campaign-lifecycle';
 
 const NOW = new Date('2026-09-25T10:00:00Z');
 const PAST = new Date('2026-09-20T00:00:00Z');
@@ -161,7 +161,7 @@ describe('requirePayoutAllowed', () => {
       caught = error;
     }
     expect(caught).toBeInstanceOf(PayoutNotAllowedForStatusError);
-    expect(lifecycleErrorToHttp(caught)).toEqual({
+    expect(domainErrorToHttp(caught)).toEqual({
       status: 409,
       body: { code: 'PAYOUT_NOT_ALLOWED_FOR_STATUS', error: expect.stringMatching(/Payout tidak dapat/) },
     });
