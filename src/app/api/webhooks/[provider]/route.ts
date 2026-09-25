@@ -10,7 +10,6 @@ import {
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { escrowReleaseAt } from '@/lib/money/escrow';
 import { notifyDonationConfirmed, notifyRegistrationConfirmed } from '@/lib/notifications';
-import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
 import { createRefund } from '@/lib/money/refunds';
 
@@ -339,25 +338,21 @@ export async function POST(
         } else {
           const { donation } = payment;
           const { campaign } = donation!;
-          const newCollectedAmount = campaign.collectedAmount + payment.amount;
-          const targetMet = newCollectedAmount >= campaign.targetAmount;
 
           await tx.donation.update({
             where: { id: donation!.id },
             data: { paymentStatus: 'confirmed' },
           });
 
+          // Never touches the Campaign's status, however much is collected:
+          // reaching the target does not close a Campaign, only the
+          // Fundraiser or an Admin does (ADR 0004). This Settlement is
+          // accepted whatever the Campaign's status (PRD §7.2), so writing a
+          // status here would also let a late payment overwrite a Suspension
+          // or a Cancellation.
           await tx.campaign.update({
             where: { id: campaign.id },
-            data: {
-              collectedAmount: { increment: payment.amount },
-              ...(targetMet
-                ? {
-                    status: 'completed',
-                    lifecycleStatus: toLifecycleStatus('completed'),
-                  }
-                : {}),
-            },
+            data: { collectedAmount: { increment: payment.amount } },
           });
 
           // Deriving the ledger transactionId from the provider event id makes
