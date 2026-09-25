@@ -48,7 +48,10 @@ export class NotAuthorizedError extends CampaignLifecycleError {
   }
 }
 
-/** The operator capacities that are barred on a Campaign the person owns. */
+/**
+ * The operator capacities that are barred on a Campaign or Volunteer Trip
+ * the person owns (OwnTripConflictError reuses the labels).
+ */
 export type OperatorCapacity =
   | typeof StatusChangeCapacity.ADMIN
   | typeof StatusChangeCapacity.VERIFIER;
