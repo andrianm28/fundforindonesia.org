@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { PaymentStatus } from '@/generated/prisma/client';
+import { CampaignStatus, PaymentStatus } from '@/generated/prisma/client';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import type { PaymentMethod } from '@/lib/payments';
 import {
@@ -10,7 +10,7 @@ import {
   sandboxInProductionReason,
   DONATIONS_DISABLED_MESSAGE,
 } from '@/lib/donations';
-import { campaignAcceptsDonations } from "@/lib/campaign-lifecycle";
+import { campaignAcceptsDonations, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris', 'ewallet', 'credit_card'] as const;
 
@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
         id: true,
         status: true,
         lifecycleStatus: true,
+        deadline: true,
         title: true,
         isDemo: true,
       },
@@ -104,7 +105,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!campaignAcceptsDonations(campaign)) {
+    const now = new Date();
+    if (!campaignAcceptsDonations(campaign, now)) {
+      // Stored Active yet refused means the deadline has passed. Record the
+      // expiry the way every lifecycle command does (capacity SYSTEM, the
+      // Fundraiser told), committed on its own so it survives this refusal.
+      if (campaign.lifecycleStatus === CampaignStatus.ACTIVE) {
+        await expireIfPastDeadline(prisma, campaign.id, now);
+      }
       return NextResponse.json(
         { error: 'Campaign tidak aktif. Hanya campaign aktif yang dapat menerima donasi.' },
         { status: 400 }
