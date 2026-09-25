@@ -174,7 +174,7 @@ Dana CSR yang tercatat pada sebuah Program, bukan Campaign. Tidak pernah bisa di
 _Avoid_: Saldo CSR, dana program
 
 **Escrow Hold**:
-Masa tunggu sejak perkiraan settlement penyedia selama dana belum bisa diminta sebagai Payout, untuk memberi ruang Refund dan margin atas keterlambatan settlement. Default tujuh hari, diatur Admin dan boleh dipendekkan untuk Campaign bencana; lamanya dibekukan pada setiap Payment saat dibuat dan ditampilkan di halaman Campaign.
+Masa tunggu sejak perkiraan settlement penyedia selama dana belum bisa diminta sebagai Payout, untuk memberi ruang Refund dan margin atas keterlambatan settlement. Default tujuh hari, diatur Admin dan boleh dipendekkan untuk Campaign bencana; lamanya dibekukan pada setiap Payment saat dibuat dan ditampilkan di halaman Campaign. Selama Campaign Suspended, dana yang lewat masa tunggu tidak dilepas ke Campaign Balance; pelepasan berlanjut begitu Suspension dicabut.
 _Avoid_: Holding period, pending balance
 
 **Campaign Balance**:
@@ -182,7 +182,7 @@ Dana Net yang sudah lewat Escrow Hold dan belum dibayarkan lewat Payout. Selalu 
 _Avoid_: Collected amount, saldo, dana terkumpul (angka tampilan Gross)
 
 **Payout**:
-Permintaan Fundraiser untuk mengirim sebagian Campaign Balance ke Bank Account terverifikasinya, disetujui satu Admin, lalu ditarik dari dashboard penyedia dan ditandai selesai dengan bukti transfer oleh Admin yang berbeda.
+Permintaan Fundraiser untuk mengirim sebagian Campaign Balance ke Bank Account terverifikasinya, disetujui satu Admin, lalu ditarik dari dashboard penyedia dan ditandai selesai dengan bukti transfer oleh Admin yang berbeda. Hanya bisa diajukan dan disetujui selama Campaign Active, Expired, atau Completed; Suspended dan Cancelled menolaknya, termasuk bila Suspension jatuh di antara pengajuan dan persetujuan.
 _Avoid_: Pencairan (di kode), disbursement, withdrawal
 
 **Usage Report**:
