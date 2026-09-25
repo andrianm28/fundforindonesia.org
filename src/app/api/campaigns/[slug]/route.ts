@@ -8,7 +8,7 @@ import { Role } from '@/generated/prisma/client';
 export const revalidate = 60;
 
 // The only columns a direct edit may write; zod strips every other key.
-// Status moves through /api/moderasi/campaigns/[id]; target, deadline, and
+// Status moves through src/lib/campaign-lifecycle.ts; target, deadline, and
 // category through a Verification Request or an Admin; money, ownership, and
 // isDemo are never client-writable.
 const editCampaignSchema = z.object({
