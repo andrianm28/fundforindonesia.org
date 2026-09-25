@@ -4,6 +4,7 @@ import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
 import { findUnbalancedTransactions } from '@/lib/money/ledger';
 import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/lib/money/escrow';
+import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
 
 /**
  * GET /api/admin/reconcile -- ADMIN-only reconciliation report.
@@ -70,6 +71,14 @@ import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/l
  *    Reported, not corrected, like everything else in this file -- a human
  *    resolves the stuck refund, which lets a later sweep release the payment
  *    on its own.
+ *    The other known cause is a Suspension: releaseMaturedEscrow leaves a
+ *    Suspended Campaign's matured money in Escrow Hold on purpose (CONTEXT.md,
+ *    Escrow Hold) until the Suspension is lifted. Those payments are still
+ *    listed, because an Admin wants to see money a Suspension holds, but each carries
+ *    `cause: 'SUSPENDED'` so it does not read as a stuck sweep. The rule is
+ *    the subject guard's own isEscrowReleaseFrozen, asked without a row lock
+ *    since this report only reads. An entry with no `cause` is unexplained
+ *    exactly as before; Trip entries never carry one (ADR 0014).
  *  - stuckPayouts: two payout states nothing in this codebase currently
  *    drains. Surfaced, not fixed -- see the comments below for why.
  *  - pendingRefunds: every Refund whose status is REQUESTED, Campaign-or-Trip
@@ -81,6 +90,7 @@ import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/l
  */
 export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest) => {
   const report = await prisma.$transaction(async (tx) => {
+    const reportNow = new Date();
     const unbalancedTransactions = await findUnbalancedTransactions(tx);
 
     // One pass over every campaign-scoped ledger entry, bucketed by
@@ -354,7 +364,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // (./escrow.ts) for why this window, not zero, is the trigger. Refund
     // status is included so a human can immediately see whether this is a
     // refund stuck in REQUESTED/PROCESSING (the expected cause) or something
-    // else entirely (no in-flight refund at all, which would be new).
+    // else entirely (no in-flight refund at all, which would be new) -- unless
+    // the Campaign is Suspended, the one case where money is held with no
+    // refund at all by design; that entry is labelled `cause: 'SUSPENDED'`.
     const deferredEscrowCandidates = await tx.payment.findMany({
       where: {
         status: 'PAID',
@@ -366,7 +378,12 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         escrowReleaseAt: true,
         donationId: true,
         registrationId: true,
-        donation: { select: { campaignId: true } },
+        donation: {
+          select: {
+            campaignId: true,
+            campaign: { select: { lifecycleStatus: true, deadline: true } },
+          },
+        },
         registration: { select: { batch: { select: { tripId: true } } } },
         refunds: { select: { id: true, status: true } },
       },
@@ -377,6 +394,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       campaignId: string;
       escrowReleaseAt: Date | null;
       refunds: Array<{ refundId: string; status: string }>;
+      cause?: 'SUSPENDED';
     }> = [];
     const tripDeferredEscrowWatchdog: Array<{
       paymentId: string;
@@ -391,7 +409,12 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         refunds: payment.refunds.map((r) => ({ refundId: r.id, status: r.status })),
       };
       if (payment.donationId != null) {
-        deferredEscrowWatchdog.push({ ...row, campaignId: payment.donation!.campaignId });
+        const { campaignId, campaign } = payment.donation!;
+        const frozen = isEscrowReleaseFrozen({
+          kind: 'campaign',
+          effectiveStatus: effectiveStatus(campaign, reportNow),
+        });
+        deferredEscrowWatchdog.push({ ...row, campaignId, ...(frozen ? { cause: 'SUSPENDED' as const } : {}) });
       } else if (payment.registrationId != null) {
         tripDeferredEscrowWatchdog.push({ ...row, volunteerTripId: payment.registration!.batch.tripId });
       } else {
@@ -494,7 +517,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     });
 
     return {
-      generatedAt: new Date().toISOString(),
+      generatedAt: reportNow.toISOString(),
       unbalancedTransactions,
       negativeBalances,
       tripNegativeBalances,
@@ -507,7 +530,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         'campaigns that DO have ledger activity and still disagree with collectedAmount -- those are the real findings.' +
         ' tripDeferredEscrowWatchdog now means the same as deferredEscrowWatchdog -- a Trip payout flow exists ' +
         '(POST /api/volunteer-trips/[slug]/payouts releases matured Trip escrow the same way Campaign payout does), ' +
-        'so a non-empty result here is a real incident, not an expected gap.',
+        'so a non-empty result here is a real incident, not an expected gap.' +
+        " deferredEscrowWatchdog entries with cause 'SUSPENDED' belong to a Suspended Campaign, whose matured " +
+        'money is kept in Escrow Hold on purpose until the Suspension is lifted -- not a stuck sweep.',
       mismatches,
       strandedEscrow,
       tripStrandedEscrow,

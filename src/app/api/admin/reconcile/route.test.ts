@@ -56,6 +56,10 @@ type PaymentRow = {
   escrowReleaseAt?: Date | null;
   escrowReleasedAt?: Date | null;
   registrationStatus?: string;
+  /** The donation's Campaign's stored lifecycle status; ACTIVE when omitted. */
+  campaignLifecycleStatus?: string;
+  /** The donation's Campaign's deadline; none when omitted. */
+  campaignDeadline?: Date | null;
 };
 
 type RefundRow = {
@@ -166,7 +170,15 @@ function makeTx(options: {
               escrowReleaseAt: p.escrowReleaseAt ?? null,
               donationId: p.donationId,
               registrationId: p.registrationId,
-              donation: isCampaign ? { campaignId: p.campaignId } : null,
+              donation: isCampaign
+                ? {
+                    campaignId: p.campaignId,
+                    campaign: {
+                      lifecycleStatus: p.campaignLifecycleStatus ?? 'ACTIVE',
+                      deadline: p.campaignDeadline ?? null,
+                    },
+                  }
+                : null,
               registration: isTrip ? { status: p.registrationStatus ?? 'CONFIRMED', batch: { tripId: p.volunteerTripId } } : null,
               // Nested relation select, backing the deferredEscrowWatchdog
               // query -- reads off the same `refunds` fixture array
@@ -556,6 +568,69 @@ describe('GET /api/admin/reconcile', () => {
         refunds: [{ refundId: 'refund-1', status: 'REQUESTED' }],
       },
     ]);
+  });
+
+  it('keeps reporting a Suspended Campaign\'s held payment, labelled with the Suspension as its cause', async () => {
+    const longOverdue = new Date(Date.now() - (DEFERRED_ESCROW_WATCHDOG_DAYS + 1) * MS_PER_DAY);
+    const tx = makeTx({
+      payments: [
+        {
+          id: 'payment-1',
+          campaignId: 'campaign-1',
+          campaignLifecycleStatus: 'SUSPENDED',
+          amount: 100_000,
+          status: 'PAID',
+          escrowReleaseAt: longOverdue,
+          escrowReleasedAt: null,
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.deferredEscrowWatchdog).toEqual([
+      {
+        paymentId: 'payment-1',
+        campaignId: 'campaign-1',
+        escrowReleaseAt: longOverdue.toISOString(),
+        refunds: [],
+        cause: 'SUSPENDED',
+      },
+    ]);
+  });
+
+  it('leaves an unexplained held payment (no in-flight refund, Campaign not Suspended) without a cause, even when the Campaign is effectively Expired', async () => {
+    const longOverdue = new Date(Date.now() - (DEFERRED_ESCROW_WATCHDOG_DAYS + 1) * MS_PER_DAY);
+    const tx = makeTx({
+      payments: [
+        {
+          id: 'payment-1',
+          campaignId: 'campaign-1',
+          campaignLifecycleStatus: 'ACTIVE',
+          campaignDeadline: longOverdue,
+          amount: 100_000,
+          status: 'PAID',
+          escrowReleaseAt: longOverdue,
+          escrowReleasedAt: null,
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.deferredEscrowWatchdog).toEqual([
+      {
+        paymentId: 'payment-1',
+        campaignId: 'campaign-1',
+        escrowReleaseAt: longOverdue.toISOString(),
+        refunds: [],
+      },
+    ]);
+    expect(data.deferredEscrowWatchdog[0]).not.toHaveProperty('cause');
   });
 
   it('does not flag a payment still well inside the watchdog grace window', async () => {
@@ -1018,6 +1093,7 @@ describe('GET /api/admin/reconcile -- registration-linked (trip) payments', () =
       },
     ]);
     expect(data.deferredEscrowWatchdog).toEqual([]);
+    expect(data.tripDeferredEscrowWatchdog[0]).not.toHaveProperty('cause');
   });
 
   it('does not let a campaign-linked payment leak into either trip array', async () => {

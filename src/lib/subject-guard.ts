@@ -49,6 +49,15 @@ export type SubjectState =
     };
 
 /**
+ * Just a subject's kind and effective status: what a status rule needs,
+ * without the rest of what `lockAndLoad` reads. Kept per kind so the
+ * discriminant still narrows the status.
+ */
+export type SubjectStatus =
+  | Pick<Extract<SubjectState, { kind: "campaign" }>, "kind" | "effectiveStatus">
+  | Pick<Extract<SubjectState, { kind: "trip" }>, "kind" | "effectiveStatus">;
+
+/**
  * The status a command is judged against. An ACTIVE Campaign whose deadline
  * has passed is EXPIRED whether or not anyone has recorded that yet; every
  * other status, and a Campaign without a deadline, is taken as stored.
@@ -147,9 +156,13 @@ export function requirePayoutAllowed(state: SubjectState): void {
  * (CONTEXT.md, Escrow Hold; Suspension). The release resumes on its own once
  * the Suspension is lifted. A Volunteer Trip keeps its rule of today (ADR
  * 0014), which never holds matured money back.
+ *
+ * It needs only the subject's kind and effective status, so a read-only
+ * report can ask the same question without taking the row lock; the Escrow
+ * release asks it of `lockAndLoad`'s result.
  */
-export function isEscrowReleaseFrozen(state: SubjectState): boolean {
-  return state.kind === "campaign" && state.effectiveStatus === CampaignStatus.SUSPENDED;
+export function isEscrowReleaseFrozen(subject: SubjectStatus): boolean {
+  return subject.kind === "campaign" && subject.effectiveStatus === CampaignStatus.SUSPENDED;
 }
 
 /**
