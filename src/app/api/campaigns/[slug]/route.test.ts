@@ -637,6 +637,22 @@ describe('DELETE /api/campaigns/[slug]', () => {
     );
   });
 
+  it('returns 409 when the campaign has a Cancellation request on record', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: [] },
+      expires: '2099-01-01',
+    });
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'other-user' } as any);
+    mockDelete.mockRejectedValue(foreignKeyViolation('CancellationRequest_campaignId_fkey'));
+
+    const request = createRequest('test-campaign', 'DELETE');
+    const response = await DELETE(request, {
+      params: Promise.resolve({ slug: 'test-campaign' }),
+    });
+
+    expect(response.status).toBe(409);
+  });
+
   it.each([
     ['a foreign-key violation from another relation', foreignKeyViolation('Payout_campaignId_fkey')],
     ['an unrelated database error', new Error('connection reset')],

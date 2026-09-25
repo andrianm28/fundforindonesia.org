@@ -28,10 +28,13 @@ function isStatusHistoryRestrict(error: unknown): boolean {
     code?: unknown;
     meta?: { driverAdapterError?: { cause?: { constraint?: { index?: unknown } } } };
   };
+  // CancellationRequest is part of the same record (ticket 07): a request,
+  // decided or lapsed, is never deleted with its Campaign either.
+  const index = meta?.driverAdapterError?.cause?.constraint?.index;
   return (
     code === 'P2003' &&
-    meta?.driverAdapterError?.cause?.constraint?.index ===
-      'CampaignStatusChange_campaignId_fkey'
+    (index === 'CampaignStatusChange_campaignId_fkey' ||
+      index === 'CancellationRequest_campaignId_fkey')
   );
 }
 

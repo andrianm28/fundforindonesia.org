@@ -48,6 +48,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/[id]/role/route.ts",
   "src/app/api/admin/users/route.ts",
+  // Shared body of the Cancellation approve and reject routes.
+  "src/app/api/campaigns/[slug]/cancellation-requests/[id]/decide.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/refunds/route.ts",
