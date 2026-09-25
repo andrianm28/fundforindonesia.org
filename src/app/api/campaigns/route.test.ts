@@ -114,9 +114,10 @@ describe('GET /api/campaigns', () => {
   });
 
   // Regression: `?status=` used to flow straight into the filter, so anyone
-  // could list unapproved, rejected or Suspended Campaigns.
+  // could list Submitted, Rejected or Suspended Campaigns. The values are the
+  // legacy stored strings an attacker would send.
   it.each(['pending', 'suspended', 'rejected', 'completed'])(
-    'ignores ?status=%s and lists only what the default list shows',
+    'ignores a ?status=%s query and keeps the default filter',
     async (status) => {
       mockFindMany.mockResolvedValue([]);
       mockCount.mockResolvedValue(0);

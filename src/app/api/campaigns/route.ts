@@ -39,9 +39,7 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    // The public list never takes its status from the caller: a `?status=`
-    // in the query is ignored, so unapproved, rejected or Suspended Campaigns
-    // cannot be listed through it.
+    // The status filter is fixed; a `?status=` in the query is ignored.
     const where: Record<string, unknown> = {
       status: 'active',
     };

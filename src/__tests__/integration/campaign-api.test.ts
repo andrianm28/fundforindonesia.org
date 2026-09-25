@@ -190,7 +190,7 @@ describe('Campaign API Integration Tests', () => {
       );
     });
 
-    it('ignores a ?status= parameter (no listing of unapproved Campaigns)', async () => {
+    it('ignores a ?status= query, so Submitted Campaigns cannot be listed', async () => {
       mockFindMany.mockResolvedValue([]);
       mockCount.mockResolvedValue(0);
 
