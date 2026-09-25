@@ -9,10 +9,6 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn() }),
-}));
-
 import { prisma } from '@/lib/prisma';
 import AdminCampaignsPage from './page';
 
@@ -39,7 +35,6 @@ describe('AdminCampaignsPage actions', () => {
 
     const row = screen.getByText('Sumur untuk Desa').closest('tr')!;
     expect(within(row).getByText('Lihat')).toBeDefined();
-    expect(within(row).queryByRole('button', { name: /hapus/i })).toBeNull();
     expect(within(row).queryByText(/hapus/i)).toBeNull();
   });
 });

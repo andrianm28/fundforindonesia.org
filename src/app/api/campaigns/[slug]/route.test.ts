@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import * as route from './route';
 import { GET, PATCH } from './route';
 
 // Mock prisma
@@ -648,9 +649,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 });
 
 describe('DELETE /api/campaigns/[slug]', () => {
-  it('does not exist: a Campaign stops only through its lifecycle, never by deletion (ADR 0016)', async () => {
-    const route = await import('./route');
-
+  it('does not exist: a Campaign stops only through its lifecycle, never by deletion (ADR 0016)', () => {
     expect(route).not.toHaveProperty('DELETE');
   });
 });
