@@ -1,5 +1,6 @@
 import { MetadataRoute } from 'next';
 import { prisma } from '@/lib/prisma';
+import { sitemapCampaignWhere } from '@/lib/subject-guard';
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://fundforindonesia.com';
 
@@ -48,9 +49,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.7,
   }));
 
-  // Active campaign pages
+  // Campaign pages: Active ones, and ended (Expired, Completed) ones whose
+  // transparency pages stay findable (CONTEXT.md, Campaign Status).
   const campaigns = await prisma.campaign.findMany({
-    where: { status: 'active' },
+    where: sitemapCampaignWhere(new Date()),
     select: { slug: true, updatedAt: true },
     orderBy: { updatedAt: 'desc' },
   });

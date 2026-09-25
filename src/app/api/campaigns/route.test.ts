@@ -115,9 +115,10 @@ describe('GET /api/campaigns', () => {
 
   // Regression: `?status=` used to flow straight into the filter, so anyone
   // could list Submitted, Rejected or Suspended Campaigns. The values are the
-  // legacy stored strings an attacker would send.
+  // legacy stored strings an attacker would send. Which Campaigns the list
+  // returns is pinned against rows in route.listing.test.ts.
   it.each(['pending', 'suspended', 'rejected', 'completed'])(
-    'ignores a ?status=%s query and keeps the default filter',
+    'never lets a ?status=%s query reach the filter',
     async (status) => {
       mockFindMany.mockResolvedValue([]);
       mockCount.mockResolvedValue(0);
@@ -126,11 +127,9 @@ describe('GET /api/campaigns', () => {
       await GET(request);
 
       for (const query of [mockFindMany, mockCount]) {
-        expect(query).toHaveBeenCalledWith(
-          expect.objectContaining({
-            where: expect.objectContaining({ status: 'active' }),
-          })
-        );
+        const where = query.mock.calls[0][0]?.where;
+        expect(where).not.toHaveProperty('status');
+        expect(JSON.stringify(where)).not.toContain(status);
       }
     }
   );
@@ -191,20 +190,6 @@ describe('GET /api/campaigns', () => {
             },
           },
         },
-      })
-    );
-  });
-
-  it('defaults status to active', async () => {
-    mockFindMany.mockResolvedValue([]);
-    mockCount.mockResolvedValue(0);
-
-    const request = createRequest('http://localhost:3000/api/campaigns');
-    await GET(request);
-
-    expect(mockFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ status: 'active' }),
       })
     );
   });

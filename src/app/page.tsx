@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { listableCampaignWhere } from '@/lib/subject-guard';
 import { HeroBanner } from '@/components/home/HeroBanner';
 import QuickActionTiles from '@/components/home/QuickActionTiles';
 import { UrgentCampaigns } from '@/components/home/UrgentCampaigns';
@@ -119,10 +120,13 @@ function toPrayerStreamItem(prayer: {
 }
 
 export default async function HomePage() {
-  // Fetch data from Prisma directly (server component)
+  // Fetch data from Prisma directly (server component). Every Campaign list
+  // here shows only effectively Active Campaigns (CONTEXT.md, Campaign
+  // Status), so the Urgent rail drops a Campaign once its deadline passes.
+  const listable = listableCampaignWhere(new Date());
   const [urgentCampaigns, newCampaigns, featuredCampaigns, recentPrayers] = await Promise.all([
     prisma.campaign.findMany({
-      where: { isUrgent: true, status: 'active' },
+      where: { AND: [listable], isUrgent: true },
       include: {
         creator: {
           select: { name: true, isVerified: true, verificationType: true },
@@ -131,7 +135,7 @@ export default async function HomePage() {
       take: 10,
     }),
     prisma.campaign.findMany({
-      where: { status: 'active' },
+      where: listable,
       orderBy: { createdAt: 'desc' },
       include: {
         creator: {
@@ -141,7 +145,7 @@ export default async function HomePage() {
       take: 10,
     }),
     prisma.campaign.findMany({
-      where: { status: 'active' },
+      where: listable,
       orderBy: { collectedAmount: 'desc' },
       include: {
         creator: {

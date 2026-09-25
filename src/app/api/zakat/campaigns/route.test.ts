@@ -61,13 +61,12 @@ describe('GET /api/zakat/campaigns', () => {
 
     expect(mockFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: {
-          status: 'active',
+        where: expect.objectContaining({
           OR: [
             { category: 'zakat' },
             { category: 'kemanusiaan' },
           ],
-        },
+        }),
       })
     );
   });

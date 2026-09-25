@@ -78,6 +78,44 @@ export function effectiveStatus(
 }
 
 /**
+ * The Campaigns a public list shows (CONTEXT.md, Campaign Status): exactly
+ * those `effectiveStatus` calls ACTIVE, i.e. stored ACTIVE with no deadline
+ * or one not yet passed. Used by the home page (Urgent rail included),
+ * explore, search and the zakat list.
+ *
+ * A `where` fragment that carries its own OR: callers put it in an AND
+ * next to their own filters, never spread it, or a search OR would
+ * overwrite it. Readers only filter; lazy expiry is for commands.
+ */
+export function listableCampaignWhere(now: Date): Prisma.CampaignWhereInput {
+  return {
+    lifecycleStatus: CampaignStatus.ACTIVE,
+    OR: [{ deadline: null }, { deadline: { gte: now } }],
+  };
+}
+
+/** The effective statuses whose Campaign pages the sitemap lists. */
+const SITEMAP_STATUSES: readonly CampaignStatus[] = [
+  CampaignStatus.ACTIVE,
+  CampaignStatus.EXPIRED,
+  CampaignStatus.COMPLETED,
+];
+
+/**
+ * The Campaigns the sitemap lists: effectively Active, Expired or Completed,
+ * so an ended Campaign's transparency page stays findable. Suspended,
+ * Cancelled, Submitted, Rejected and Draft are never listed.
+ *
+ * A stored ACTIVE Campaign is effectively ACTIVE or EXPIRED whatever its
+ * deadline, and both are listed, so the rule does not depend on `now`
+ * today. It takes `now` anyway so that callers read like the listable rule
+ * and cannot miss it if that changes.
+ */
+export function sitemapCampaignWhere(_now: Date): Prisma.CampaignWhereInput {
+  return { lifecycleStatus: { in: [...SITEMAP_STATUSES] } };
+}
+
+/**
  * Takes the row lock on the subject, then reads it, in the caller's
  * transaction. The lock is held until that transaction ends, so the state
  * returned, and every other read the caller makes of this subject's money

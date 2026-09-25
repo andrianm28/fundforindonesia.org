@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
+import { listableCampaignWhere } from '@/lib/subject-guard';
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,8 +11,10 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '12', 10)));
     const skip = (page - 1) * limit;
 
-    const where = {
-      status: 'active',
+    // Only effectively Active Campaigns (CONTEXT.md, Campaign Status), in AND
+    // because the rule carries its own OR next to the category OR.
+    const where: Prisma.CampaignWhereInput = {
+      AND: [listableCampaignWhere(new Date())],
       OR: [
         { category: 'zakat' },
         { category: 'kemanusiaan' },

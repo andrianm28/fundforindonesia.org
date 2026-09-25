@@ -26,6 +26,8 @@ export type CampaignRow = {
   lifecycleStatus: CampaignStatus;
   isUrgent: boolean;
   deadline: Date | null;
+  /** Optional so the lifecycle tests need not name it; the list readers filter on it. */
+  category?: string;
 };
 
 export type StatusChangeRow = {
@@ -100,8 +102,65 @@ type Data = {
 
 type Where = Record<string, unknown>;
 
+/**
+ * Evaluates the slice of a Prisma `where` the Campaign readers use: plain
+ * equality (null included), AND / OR / NOT, and the `in`, `gt`, `gte`, `lt`,
+ * `lte` and `contains` (with `mode: 'insensitive'`) filters. Anything else
+ * throws, so a reader never silently matches more than Postgres would.
+ */
 function matches(row: Record<string, unknown>, where: Where): boolean {
-  return Object.entries(where).every(([key, value]) => row[key] === value);
+  return Object.entries(where).every(([key, value]) => {
+    if (value === undefined) return true;
+    if (key === 'AND') return asList(value).every((w) => matches(row, w));
+    if (key === 'OR') return asList(value).some((w) => matches(row, w));
+    if (key === 'NOT') return !asList(value).some((w) => matches(row, w));
+    return matchesField(row[key], value);
+  });
+}
+
+function asList(value: unknown): Where[] {
+  return (Array.isArray(value) ? value : [value]) as Where[];
+}
+
+function comparable(value: unknown): number | string {
+  return value instanceof Date ? value.getTime() : (value as number | string);
+}
+
+function matchesField(actual: unknown, filter: unknown): boolean {
+  if (filter === null || typeof filter !== 'object' || filter instanceof Date) {
+    return comparable(actual) === comparable(filter) || actual === filter;
+  }
+  const { mode, ...ops } = filter as Record<string, unknown>;
+  return Object.entries(ops).every(([op, operand]) => {
+    if (operand === undefined) return true;
+    switch (op) {
+      case 'equals':
+        return matchesField(actual, operand);
+      case 'in':
+        return (operand as unknown[]).includes(actual);
+      case 'gt':
+        return actual !== null && actual !== undefined && comparable(actual) > comparable(operand);
+      case 'gte':
+        return actual !== null && actual !== undefined && comparable(actual) >= comparable(operand);
+      case 'lt':
+        return actual !== null && actual !== undefined && comparable(actual) < comparable(operand);
+      case 'lte':
+        return actual !== null && actual !== undefined && comparable(actual) <= comparable(operand);
+      case 'contains': {
+        if (typeof actual !== 'string') return false;
+        return mode === 'insensitive'
+          ? actual.toLowerCase().includes(String(operand).toLowerCase())
+          : actual.includes(String(operand));
+      }
+      default:
+        throw new Error(`in-memory db does not understand the filter ${op}`);
+    }
+  });
+}
+
+/** Evaluates a Campaign `where` against one row, as the list readers' tests need. */
+export function campaignMatches(row: CampaignRow, where: Where): boolean {
+  return matches(row, where);
 }
 
 function clone(data: Data): Data {
@@ -204,6 +263,20 @@ export function makeCampaignDb(
           const row = getData().campaigns.find((c) => matches(c, where));
           return row ? { ...row } : null;
         },
+        // What the public list readers call. Order is insertion order; the
+        // readers' tests assert on which Campaigns come back, not the order.
+        findMany: async ({ where = {}, skip = 0, take, select }: { where?: Where; skip?: number; take?: number; select?: Record<string, boolean> }) => {
+          const rows = getData().campaigns.filter((c) => matches(c, where));
+          const page = rows.slice(skip, take === undefined ? undefined : skip + take);
+          if (!select) return page.map((row) => ({ ...row }));
+          return page.map((row) =>
+            Object.fromEntries(
+              Object.keys(select).filter((key) => select[key]).map((key) => [key, row[key as keyof CampaignRow]]),
+            ),
+          );
+        },
+        count: async ({ where = {} }: { where?: Where } = {}) =>
+          getData().campaigns.filter((c) => matches(c, where)).length,
         findUniqueOrThrow: async ({ where, select }: { where: Where; select?: Record<string, boolean> }) => {
           const row = getData().campaigns.find((c) => matches(c, where));
           if (!row) throw new Error('No Campaign found');

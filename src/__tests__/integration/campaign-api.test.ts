@@ -138,7 +138,7 @@ describe('Campaign API Integration Tests', () => {
       expect(data.campaigns).toHaveLength(2);
       expect(mockFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ category: 'kesehatan', status: 'active' }),
+          where: expect.objectContaining({ category: 'kesehatan' }),
         })
       );
     });
@@ -198,11 +198,12 @@ describe('Campaign API Integration Tests', () => {
       const response = await getCampaigns(request);
 
       expect(response.status).toBe(200);
-      expect(mockFindMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ status: 'active' }),
-        })
-      );
+      // Which Campaigns come back is pinned against rows in
+      // src/app/api/campaigns/route.listing.test.ts; here, only that the
+      // query string never reaches the filter.
+      const where = mockFindMany.mock.calls[0][0]?.where;
+      expect(JSON.stringify(where)).not.toContain('pending');
+      expect(where).not.toHaveProperty('status');
     });
 
     it('combines multiple filters (category + urgent + search)', async () => {
@@ -217,7 +218,6 @@ describe('Campaign API Integration Tests', () => {
           where: expect.objectContaining({
             category: 'kesehatan',
             isUrgent: true,
-            status: 'active',
             OR: [
               { title: { contains: 'anak', mode: 'insensitive' } },
               { description: { contains: 'anak', mode: 'insensitive' } },
