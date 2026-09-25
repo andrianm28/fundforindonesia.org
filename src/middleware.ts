@@ -28,9 +28,10 @@ export default withAuth(
     for (const route of ROLE_ROUTES) {
       if (pathname.startsWith(route.pattern)) {
         if (ROLE_LEVELS[userRole] < ROLE_LEVELS[route.minimumRole]) {
-          // Special case: DONOR on /campaign/create redirects to verification page
+          // Special case: DONOR on /campaign/create goes to /akun, which
+          // explains that an Admin registers Fundraisers
           if (route.pattern === "/campaign/create" && userRole === "DONOR") {
-            return NextResponse.redirect(new URL("/akun/verifikasi", req.url));
+            return NextResponse.redirect(new URL("/akun", req.url));
           }
           // All other insufficient role cases redirect to home
           return NextResponse.redirect(new URL("/", req.url));

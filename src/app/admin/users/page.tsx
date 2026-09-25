@@ -330,18 +330,14 @@ function RoleBadge({ role }: { role: UserRole }) {
   );
 }
 
+// isVerified was only ever self-declared through /api/user/verify, with no
+// Verifier behind it (gap C2), so it is shown as a claim to check, never as
+// verified.
 function VerificationStatus({ isVerified }: { isVerified: boolean }) {
   if (isVerified) {
     return (
-      <span className="inline-flex items-center gap-1 text-green-700">
-        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-            clipRule="evenodd"
-          />
-        </svg>
-        <span className="text-xs font-medium">Terverifikasi</span>
+      <span className="inline-flex items-center gap-1 text-gray-600">
+        <span className="text-xs font-medium">Klaim sendiri</span>
       </span>
     );
   }

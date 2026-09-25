@@ -5,7 +5,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ProgressBar } from '@/components/ui/ProgressBar';
-import { VerificationBadge } from '@/components/shared/VerificationBadge';
 import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
 
@@ -224,18 +223,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
               <span className="text-sm font-medium text-text truncate">
                 {campaign.creator.name}
               </span>
-              {campaign.creator.isVerified && (
-                <VerificationBadge
-                  verificationType={campaign.creator.verificationType}
-                  size="sm"
-                />
-              )}
             </div>
-            {campaign.creator.isVerified && (
-              <p className="text-xs text-text-secondary">
-                Identitas terverifikasi
-              </p>
-            )}
           </div>
         </div>
 

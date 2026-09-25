@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { LazyImage } from '@/components/ui/LazyImage';
 import { ProgressBar } from '@/components/ui/ProgressBar';
-import { VerificationBadge } from '@/components/shared/VerificationBadge';
 import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
 
@@ -141,15 +140,9 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
           {campaign.title}
         </h1>
 
-        {/* Creator name with verification badge */}
+        {/* Creator name */}
         <div className="flex items-center gap-1.5 mb-3">
           <span className="text-sm text-text-secondary">{campaign.creator.name}</span>
-          {campaign.creator.isVerified && (
-            <VerificationBadge
-              verificationType={campaign.creator.verificationType}
-              size="sm"
-            />
-          )}
         </div>
 
         {/* Progress Bar */}
@@ -295,16 +288,7 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
               <span className="text-sm font-medium text-text">
                 {campaign.creator.name}
               </span>
-              {campaign.creator.isVerified && (
-                <VerificationBadge
-                  verificationType={campaign.creator.verificationType}
-                  size="sm"
-                />
-              )}
             </div>
-            {campaign.creator.isVerified && (
-              <p className="text-xs text-text-secondary">Identitas terverifikasi</p>
-            )}
           </div>
         </div>
       </div>

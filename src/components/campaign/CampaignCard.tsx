@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { LazyImage } from '@/components/ui/LazyImage';
 import { ProgressBar } from '@/components/ui/ProgressBar';
-import { VerificationBadge } from '@/components/shared/VerificationBadge';
 import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
 
@@ -115,12 +114,6 @@ export function CampaignCard({
             <span className="text-xs text-text-secondary truncate">
               {campaign.creator.name}
             </span>
-            {campaign.creator.isVerified && (
-              <VerificationBadge
-                verificationType={campaign.creator.verificationType}
-                size="sm"
-              />
-            )}
           </div>
         )}
 

@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaignStepIndicator';
+import { isAtLeast } from '@/lib/roles';
 
 const categories = [
   { value: 'bencana-alam', label: 'Bencana Alam' },
@@ -72,8 +73,9 @@ export default function CampaignCreatePage() {
     return null;
   }
 
-  // KYC verification gate
-  if (session && !session.user.isVerified) {
+  // Fundraiser gate: the same role POST /api/campaigns requires. Identity is
+  // not self-declared any more (gap C2); an Admin assigns this role by hand.
+  if (session && !isAtLeast(session.user.role, 'CAMPAIGN_CREATOR')) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="max-w-md w-full text-center space-y-6 p-8 bg-white rounded-lg shadow-card">
@@ -92,17 +94,17 @@ export default function CampaignCreatePage() {
               />
             </svg>
           </div>
-          <h1 className="text-xl font-bold text-text">Verifikasi Identitas Diperlukan</h1>
+          <h1 className="text-xl font-bold text-text">Belum Terdaftar sebagai Fundraiser</h1>
           <p className="text-text-secondary">
-            Anda harus verifikasi identitas terlebih dahulu sebelum dapat membuat campaign penggalangan dana.
+            Untuk sementara, Admin memverifikasi identitas dan mendaftarkan Fundraiser secara langsung. Hubungi Admin untuk mulai menggalang dana.
           </p>
           <div className="space-y-3">
             <Button
               variant="primary"
               size="full"
-              onClick={() => router.push('/akun')}
+              onClick={() => router.push('/contact')}
             >
-              Verifikasi Sekarang
+              Hubungi Admin
             </Button>
             <Button
               variant="ghost"

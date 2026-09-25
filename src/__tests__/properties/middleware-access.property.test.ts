@@ -19,20 +19,20 @@ const ROLE_ROUTES: { pattern: string; minimumRole: Role }[] = [
 
 /**
  * Simulates the middleware's access decision logic.
- * Returns: "allow" | "redirect:/" | "redirect:/akun/verifikasi"
+ * Returns: "allow" | "redirect:/" | "redirect:/akun"
  */
 function checkRouteAccess(
   pathname: string,
   userRole: Role | null | undefined
-): "allow" | "redirect:/" | "redirect:/akun/verifikasi" {
+): "allow" | "redirect:/" | "redirect:/akun" {
   const effectiveRole: Role = (userRole as Role) ?? "DONOR";
 
   for (const route of ROLE_ROUTES) {
     if (pathname.startsWith(route.pattern)) {
       if (ROLE_LEVELS[effectiveRole] < ROLE_LEVELS[route.minimumRole]) {
-        // Special case: DONOR on /campaign/create redirects to verification page
+        // Special case: DONOR on /campaign/create redirects to /akun
         if (route.pattern === "/campaign/create" && effectiveRole === "DONOR") {
-          return "redirect:/akun/verifikasi";
+          return "redirect:/akun";
         }
         return "redirect:/";
       }
@@ -209,7 +209,7 @@ describe("Feature: user-roles, Property 4: Moderation Route Access Control", () 
     );
   });
 
-  test("DONOR on /campaign/create is redirected to /akun/verifikasi (not /)", () => {
+  test("DONOR on /campaign/create is redirected to /akun (not /)", () => {
     const campaignCreatePathArb = subPathArb.map((segments) => {
       if (segments.length === 0) return "/campaign/create";
       return "/campaign/create/" + segments.join("/");
@@ -218,7 +218,7 @@ describe("Feature: user-roles, Property 4: Moderation Route Access Control", () 
     fc.assert(
       fc.property(campaignCreatePathArb, (createPath) => {
         const result = checkRouteAccess(createPath, "DONOR");
-        expect(result).toBe("redirect:/akun/verifikasi");
+        expect(result).toBe("redirect:/akun");
       }),
       { numRuns: 100 }
     );

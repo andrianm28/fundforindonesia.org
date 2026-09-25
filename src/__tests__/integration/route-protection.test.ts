@@ -31,20 +31,20 @@ const ROLE_ROUTES: { pattern: string; minimumRole: MiddlewareRole }[] = [
 
 /**
  * Simulates the middleware's access decision logic.
- * Returns: "allow" | "redirect:/" | "redirect:/akun/verifikasi"
+ * Returns: "allow" | "redirect:/" | "redirect:/akun"
  */
 function checkRouteAccess(
   pathname: string,
   userRole: MiddlewareRole | null | undefined
-): "allow" | "redirect:/" | "redirect:/akun/verifikasi" {
+): "allow" | "redirect:/" | "redirect:/akun" {
   const effectiveRole: MiddlewareRole = (userRole as MiddlewareRole) ?? "DONOR";
 
   for (const route of ROLE_ROUTES) {
     if (pathname.startsWith(route.pattern)) {
       if (ROLE_LEVELS[effectiveRole] < ROLE_LEVELS[route.minimumRole]) {
-        // Special case: DONOR on /campaign/create redirects to verification page
+        // Special case: DONOR on /campaign/create redirects to /akun
         if (route.pattern === "/campaign/create" && effectiveRole === "DONOR") {
-          return "redirect:/akun/verifikasi";
+          return "redirect:/akun";
         }
         return "redirect:/";
       }
@@ -118,14 +118,14 @@ describe("Route Protection Integration Tests", () => {
       expect(result).toBe("redirect:/");
     });
 
-    it("DONOR on /campaign/create redirects to /akun/verifikasi (not /)", () => {
+    it("DONOR on /campaign/create redirects to /akun (not /)", () => {
       const result = checkRouteAccess("/campaign/create", "DONOR");
-      expect(result).toBe("redirect:/akun/verifikasi");
+      expect(result).toBe("redirect:/akun");
     });
 
-    it("DONOR on /campaign/create/step-2 also redirects to /akun/verifikasi", () => {
+    it("DONOR on /campaign/create/step-2 also redirects to /akun", () => {
       const result = checkRouteAccess("/campaign/create/step-2", "DONOR");
-      expect(result).toBe("redirect:/akun/verifikasi");
+      expect(result).toBe("redirect:/akun");
     });
   });
 
@@ -417,9 +417,9 @@ describe("Route Protection Integration Tests", () => {
       expect(result).toBe("redirect:/");
     });
 
-    it("null role on /campaign/create redirects to /akun/verifikasi", () => {
+    it("null role on /campaign/create redirects to /akun", () => {
       const result = checkRouteAccess("/campaign/create", null);
-      expect(result).toBe("redirect:/akun/verifikasi");
+      expect(result).toBe("redirect:/akun");
     });
   });
 });

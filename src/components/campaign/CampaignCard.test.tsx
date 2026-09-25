@@ -75,13 +75,13 @@ describe('CampaignCard', () => {
     expect(screen.queryByText(mockCampaign.creator.name)).toBeNull();
   });
 
-  it('renders VerificationBadge for verified creators', () => {
+  it('shows no verified mark even for a creator stored as verified -- that flag is self-declared (gap C2)', () => {
     const { container } = render(<CampaignCard campaign={mockCampaign} variant="standard" />);
     const badge = container.querySelector('svg[aria-label="Organisasi terverifikasi"]');
-    expect(badge).not.toBeNull();
+    expect(badge).toBeNull();
   });
 
-  it('does not render VerificationBadge for unverified creators', () => {
+  it('shows no verified mark for an unverified creator', () => {
     const unverifiedCampaign = {
       ...mockCampaign,
       creator: { name: 'John', isVerified: false, verificationType: null },

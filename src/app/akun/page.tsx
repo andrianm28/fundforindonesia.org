@@ -5,15 +5,15 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { formatRupiah } from '@/lib/utils/currency';
-import { VerificationDialog } from '@/components/dialogs/VerificationDialog';
+import Link from 'next/link';
 import { WALLET_DISABLED_MESSAGE } from '@/lib/wallet';
+import { isAtLeast } from '@/lib/roles';
 
 export default function AkunPage() {
-  const { data: session, status, update } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const [balance, setBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(true);
-  const [verifyOpen, setVerifyOpen] = useState(false);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -84,18 +84,6 @@ export default function AkunPage() {
             {user?.name || 'Pengguna'}
           </p>
           <p className="text-[#757575] text-sm truncate">{user?.email}</p>
-          {user?.isVerified && (
-            <span className="inline-flex items-center gap-1 text-xs text-[#00C853] mt-1">
-              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              Identitas terverifikasi
-            </span>
-          )}
         </div>
       </div>
 
@@ -123,47 +111,23 @@ export default function AkunPage() {
         </div>
       </div>
 
-      {/* Verification CTA */}
-      {user?.isVerified ? (
+      {/* Becoming a Fundraiser. Identity is no longer self-declared (gap C2):
+          an Admin checks it and assigns the role, so there is no form here. */}
+      {!isAtLeast(user?.role, 'CAMPAIGN_CREATOR') && (
         <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[#212121] text-sm font-medium">Verifikasi Identitas</p>
+              <p className="text-[#212121] text-sm font-medium">Menjadi Fundraiser</p>
               <p className="text-[#757575] text-xs mt-0.5">
-                Identitas Anda telah diverifikasi
+                Admin memverifikasi identitas dan mendaftarkan Fundraiser
               </p>
             </div>
-            <span className="inline-flex items-center gap-1 text-xs text-[#00C853] bg-[#E8F5E9] px-3 py-1.5 rounded-lg font-medium">
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              {user.verificationType === 'ktp'
-                ? 'Terverifikasi via KTP'
-                : user.verificationType === 'organization'
-                ? 'Terverifikasi via Organisasi'
-                : 'Terverifikasi'}
-            </span>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[#212121] text-sm font-medium">Verifikasi Identitas</p>
-              <p className="text-[#757575] text-xs mt-0.5">
-                Verifikasi untuk membuat galang dana
-              </p>
-            </div>
-            <button
-              onClick={() => setVerifyOpen(true)}
+            <Link
+              href="/contact"
               className="border border-[#0073E6] text-[#0073E6] text-sm px-4 py-2 rounded-lg font-medium hover:bg-blue-50 transition-colors"
             >
-              Verifikasi
-            </button>
+              Hubungi Admin
+            </Link>
           </div>
         </div>
       )}
@@ -184,13 +148,6 @@ export default function AkunPage() {
           Keluar
         </button>
       </div>
-
-      {/* Verification Dialog */}
-      <VerificationDialog
-        isOpen={verifyOpen}
-        onClose={() => setVerifyOpen(false)}
-        onSuccess={() => update()}
-      />
     </div>
   );
 }

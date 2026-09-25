@@ -220,7 +220,13 @@ describe('CampaignDetail', () => {
       <CampaignDetail campaign={mockCampaign} onDonate={mockOnDonate} onShare={mockOnShare} />
     );
     expect(screen.getByText('Penggalang Dana')).toBeDefined();
-    expect(screen.getByText('Identitas terverifikasi')).toBeDefined();
+  });
+
+  it('makes no identity claim for a creator stored as verified -- that flag is self-declared (gap C2)', () => {
+    render(
+      <CampaignDetail campaign={mockCampaign} onDonate={mockOnDonate} onShare={mockOnShare} />
+    );
+    expect(screen.queryByText(/terverifikasi/i)).toBeNull();
   });
 
   it('renders creator avatar when available', () => {

@@ -102,6 +102,11 @@ describe('CampaignDetailView', () => {
     expect(screen.getByText('Pencairan Dana')).toBeDefined();
   });
 
+  it('makes no identity claim for a creator stored as verified -- that flag is self-declared (gap C2)', () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    expect(screen.queryByText(/terverifikasi/i)).toBeNull();
+  });
+
   it('keeps a single fixed-position donate CTA visible on every viewport, with no separate desktop-only duplicate', () => {
     render(<CampaignDetailView campaign={mockCampaign} />);
     const ctaLinks = screen.getAllByText('Donasi sekarang');
