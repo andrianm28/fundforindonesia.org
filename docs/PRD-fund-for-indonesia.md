@@ -48,7 +48,7 @@ Keputusan penulisan: "Wakaf" pada versi Indonesia, "Waqf" pada versi Inggris unt
 | Donor Hibah | Memberi hibah untuk lembaga atau tujuan tertentu | Campaign Kind `hibah`, kejelasan tujuan dan penerima, pembaruan implementasi |
 | Volunteer | Ingin ikut Volunteer Trip sesuai jadwal dan anggaran | Katalog Volunteer Trip dan Batch, Trip Fee, Registration terkonfirmasi setelah pembayaran, sertifikat |
 | Verifier | Menjaga kredibilitas platform | Antrean Verification Request, checklist dokumen, verifikasi identitas dan Bank Account, jejak audit |
-| Admin | Menjaga uang | Persetujuan Payout, Suspension, Refund, Manual Contribution, rekonsiliasi harian, rekap keuangan |
+| Admin | Menjaga uang | Persetujuan Payout, Suspension, Refund, Manual Contribution, rekonsiliasi harian, rekap keuangan, memasang Urgent pada Campaign Active dan melepasnya, dengan alasan (tidak pada Campaign miliknya sendiri) |
 
 Verifier dan Admin adalah penugasan terpisah; satu orang boleh memegang keduanya (ADR 0005).
 

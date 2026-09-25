@@ -935,3 +935,68 @@ export async function liftSuspension(
     return { campaign: updated };
   });
 }
+
+// ==================== Urgent (ticket 04) ====================
+
+/**
+ * An Admin sets or clears Urgent on a Campaign they do not own, with a
+ * reason, so the homepage rail and the `?urgent` filter show an operator's
+ * judgement. Urgent is not a status: nothing moves, but each change is
+ * recorded (URGENT_SET / URGENT_CLEARED, capacity ADMIN) in the same log.
+ *
+ * Setting needs an effectively Active Campaign; clearing is allowed
+ * whenever the flag is set, whatever the status. Asking for the state the
+ * Campaign is already in changes and records nothing (this backs a PUT),
+ * so a double click never produces two log rows.
+ */
+export async function setUrgent(
+  prisma: PrismaClient,
+  params: {
+    campaignId: string;
+    actor: LifecycleActor;
+    urgent: boolean;
+    reason: unknown;
+    now?: Date;
+  }
+): Promise<LifecycleResult> {
+  const { campaignId, actor, urgent, now = new Date() } = params;
+  requireAdminAssignment(actor, "Hanya Admin yang dapat memasang atau melepas Urgent.");
+  const reason = requireReason(params.reason);
+  await expireIfPastDeadline(prisma, campaignId, now);
+  return prisma.$transaction(async (tx) => {
+    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) throw new CampaignNotFoundError(campaignId);
+    requireNotOwner(actor, campaign);
+    const current = effectiveStatus(campaign, now);
+    if (urgent && current !== CampaignStatus.ACTIVE) {
+      throw new InvalidTransitionError(current);
+    }
+    const state = () =>
+      tx.campaign.findUniqueOrThrow({ where: { id: campaign.id }, select: CAMPAIGN_STATE });
+    if (campaign.isUrgent === urgent) {
+      return { campaign: await state() };
+    }
+    // Predicated on both the status and the flag this command judged: if
+    // another request moved the Campaign out of Active, or flipped the flag,
+    // in between, nothing matches and this command loses.
+    const written = await tx.campaign.updateMany({
+      where: { id: campaign.id, lifecycleStatus: campaign.lifecycleStatus, isUrgent: !urgent },
+      data: { isUrgent: urgent },
+    });
+    if (written.count === 0) throw new ConcurrentTransitionError();
+    await tx.campaignStatusChange.create({
+      data: {
+        campaignId: campaign.id,
+        action: urgent
+          ? CampaignStatusChangeAction.URGENT_SET
+          : CampaignStatusChangeAction.URGENT_CLEARED,
+        fromStatus: null,
+        toStatus: null,
+        actorId: actor.userId,
+        capacity: StatusChangeCapacity.ADMIN,
+        reason,
+      },
+    });
+    return { campaign: await state() };
+  });
+}

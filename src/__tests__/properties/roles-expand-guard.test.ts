@@ -53,6 +53,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/refunds/route.ts",
+  "src/app/api/campaigns/[slug]/urgent/route.ts",
   "src/app/api/moderasi/campaigns/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/route.ts",
