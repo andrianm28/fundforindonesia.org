@@ -52,6 +52,8 @@ function makeTx(options: {
   payoutCreate?: (data: unknown) => Record<string, unknown>;
   paymentState?: Map<string, { escrowReleasedAt: Date | null }>;
   isDemo?: boolean;
+  /** The Campaign's stored status, read by the subject guard under its lock. */
+  lifecycleStatus?: string;
 } = {}) {
   const rows: LedgerRow[] = [...(options.ledgerRows ?? [])];
   const bankAccountFindUnique = vi.fn().mockResolvedValue(options.bankAccount ?? null);
@@ -64,7 +66,14 @@ function makeTx(options: {
       // requestPayout's very first check, ahead of the bank account lookup
       // -- not demo by default, so every existing test in this file exercises
       // the checks it actually targets rather than tripping this one.
-      campaign: { findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false }) },
+      campaign: {
+        findUnique: vi.fn().mockResolvedValue({
+          creatorId: 'creator-1',
+          isDemo: options.isDemo ?? false,
+          lifecycleStatus: options.lifecycleStatus ?? 'ACTIVE',
+          deadline: null,
+        }),
+      },
       bankAccount: { findUnique: bankAccountFindUnique },
       payout: { create: payoutCreate },
       payment: {
@@ -207,6 +216,24 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     expect(bankAccountFindUnique).not.toHaveBeenCalled();
     expect(payoutCreate).not.toHaveBeenCalled();
   });
+
+  it.each(['SUSPENDED', 'CANCELLED'])(
+    'answers 409 PAYOUT_NOT_ALLOWED_FOR_STATUS for a %s Campaign and creates nothing',
+    async (lifecycleStatus) => {
+      const ledgerRows: LedgerRow[] = [
+        { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1' },
+      ];
+      const { tx, payoutCreate } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows, lifecycleStatus });
+      mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+      const response = await POST(createRequest(VALID_BODY), routeContext());
+      const data = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(data.code).toBe('PAYOUT_NOT_ALLOWED_FOR_STATUS');
+      expect(payoutCreate).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects an unverified bank account with 403 and creates nothing', async () => {
     const { tx, payoutCreate } = makeTx({ bankAccount: verifiedBankAccount({ verifiedAt: null }) });

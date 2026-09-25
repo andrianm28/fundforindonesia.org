@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { escrowReleaseLegs, postTransaction, providerFeePortionFor, type LedgerSubject } from './ledger';
 import { assertExactlyOnePaymentSubject } from './payment-subject';
+import { CampaignStatus } from '@/generated/prisma/client';
 import { lockAndLoad } from '@/lib/subject-guard';
 
 /**
@@ -91,7 +92,8 @@ export interface ReleaseSweepSubject {
  * ESCROW_HOLD into its subject's withdrawable CAMPAIGN_BALANCE or
  * TRIP_BALANCE. Pass a subject to scope the sweep to one campaign or trip
  * (this is how the payout request handler calls it); omit it to sweep
- * across every subject.
+ * across every subject. A Suspended Campaign's payments are skipped and
+ * stay in ESCROW_HOLD until the Suspension is lifted (see the loop below).
  *
  * There is no scheduler anywhere in this repo, so this is what makes the
  * 7-day hold actually let go of money: it runs at the top of the payout
@@ -191,7 +193,19 @@ export async function releaseMaturedEscrow(subject?: ReleaseSweepSubject): Promi
         // values, not a rule enforced in code: a new path that touches a
         // PAID payment in Payment -> subject order reintroduces the deadlock.
         // The Trip branch of the webhook holds the same invariant.
-        await lockAndLoad(tx, paymentSubject, now);
+        const subjectState = await lockAndLoad(tx, paymentSubject, now);
+
+        // A Suspension freezes Escrow Hold (CONTEXT.md, Escrow Hold;
+        // Suspension): a Suspended Campaign's matured money stays where it
+        // is. Nothing is claimed or posted, so escrowReleasedAt stays null
+        // and the first sweep after the Suspension is lifted picks this
+        // payment up again, with no manual step. Judged under the lock, so a
+        // Suspension committed before it is seen. Only SUSPENDED holds the
+        // money: a Volunteer Trip keeps today's rule (ADR 0014), and a
+        // missing subject is left to the release below, as before.
+        if (subjectState?.kind === 'campaign' && subjectState.effectiveStatus === CampaignStatus.SUSPENDED) {
+          return false;
+        }
 
         // Every refund against THIS payment, whatever its status. Refund.paymentId
         // is what ties a refund back to the specific payment it came out of

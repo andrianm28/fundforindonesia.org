@@ -10,6 +10,27 @@ import {
   PayoutNotFoundError,
 } from './payouts';
 import { InvalidPayoutSubjectError } from './payout-subject';
+import { PayoutNotAllowedForStatusError } from '@/lib/subject-guard';
+
+const PAST = new Date('2020-01-01');
+
+/**
+ * Every Campaign effective status and whether a Payout may be requested or
+ * approved in it (CONTEXT.md, Payout). EXPIRED appears twice: recorded, and
+ * an ACTIVE Campaign whose deadline has passed, which is Expired whether or
+ * not anyone has recorded it yet.
+ */
+const PAYOUT_BY_EFFECTIVE_STATUS: Array<{ label: string; lifecycleStatus: string; deadline: Date | null; allowed: boolean }> = [
+  { label: 'ACTIVE', lifecycleStatus: 'ACTIVE', deadline: null, allowed: true },
+  { label: 'EXPIRED (recorded)', lifecycleStatus: 'EXPIRED', deadline: PAST, allowed: true },
+  { label: 'EXPIRED (ACTIVE past its deadline)', lifecycleStatus: 'ACTIVE', deadline: PAST, allowed: true },
+  { label: 'COMPLETED', lifecycleStatus: 'COMPLETED', deadline: null, allowed: true },
+  { label: 'SUSPENDED', lifecycleStatus: 'SUSPENDED', deadline: null, allowed: false },
+  { label: 'CANCELLED', lifecycleStatus: 'CANCELLED', deadline: null, allowed: false },
+  { label: 'DRAFT', lifecycleStatus: 'DRAFT', deadline: null, allowed: false },
+  { label: 'SUBMITTED', lifecycleStatus: 'SUBMITTED', deadline: null, allowed: false },
+  { label: 'REJECTED', lifecycleStatus: 'REJECTED', deadline: null, allowed: false },
+];
 
 type LedgerRow = {
   transactionId: string;
@@ -44,6 +65,9 @@ function makeTx(
     ledgerRows?: LedgerRow[];
     bankAccount?: Record<string, unknown> | null;
     isDemo?: boolean;
+    /** The Campaign's stored status and deadline, which the subject guard turns into its effective status. */
+    lifecycleStatus?: string;
+    deadline?: Date | null;
     payoutRow?: Record<string, unknown> | null;
   } = {},
 ) {
@@ -67,7 +91,15 @@ function makeTx(
 
   return {
     tx: {
-      campaign: { findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false }) },
+      // The Campaign row the subject guard reads under its lock.
+      campaign: {
+        findUnique: vi.fn().mockResolvedValue({
+          creatorId: 'requester-1',
+          isDemo: options.isDemo ?? false,
+          lifecycleStatus: options.lifecycleStatus ?? 'ACTIVE',
+          deadline: options.deadline ?? null,
+        }),
+      },
       // The Trip row the subject guard reads under its lock.
       volunteerTrip: { findUnique: vi.fn().mockResolvedValue({ fundraiserId: 'requester-1', status: 'ACTIVE' }) },
       bankAccount: { findUnique: bankAccountFindUnique },
@@ -105,6 +137,8 @@ function makeTx(
     payoutCreate,
     rows,
     queryRawCalls,
+    /** The Payout row as approvePayout left it. */
+    payoutState: state,
   };
 }
 
@@ -157,6 +191,32 @@ describe('requestPayout', () => {
       expect.objectContaining({ data: expect.objectContaining({ campaignId: 'campaign-1', volunteerTripId: null }) }),
     );
   });
+
+  it.each(PAYOUT_BY_EFFECTIVE_STATUS)(
+    'on a Campaign that is effectively $label: allowed=$allowed',
+    async ({ lifecycleStatus, deadline, allowed }) => {
+      const ledgerRows: LedgerRow[] = [
+        { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+      ];
+      const { tx, payoutCreate } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows, lifecycleStatus, deadline });
+
+      const request = requestPayout(tx as never, {
+        subject: { type: 'campaign', campaignId: 'campaign-1' },
+        requestedById: 'requester-1',
+        bankAccountId: 'bank-1',
+        amount: 500_000,
+        description: 'Pencairan dana',
+      });
+
+      if (allowed) {
+        await expect(request).resolves.toMatchObject({ status: 'DRAFT' });
+      } else {
+        await expect(request).rejects.toMatchObject({ code: 'PAYOUT_NOT_ALLOWED_FOR_STATUS' });
+        await expect(request).rejects.toBeInstanceOf(PayoutNotAllowedForStatusError);
+        expect(payoutCreate).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it('rejects a demo campaign subject with DemoCampaignError, without ever looking up a bank account', async () => {
     const { tx, bankAccountFindUnique } = makeTx({ bankAccount: verifiedBankAccount(), isDemo: true });
@@ -249,6 +309,60 @@ describe('approvePayout', () => {
     approvedById: null,
     bankAccount: verifiedBankAccount(),
     ...overrides,
+  });
+
+  it.each(PAYOUT_BY_EFFECTIVE_STATUS)(
+    'on a Campaign that is effectively $label: allowed=$allowed',
+    async ({ lifecycleStatus, deadline, allowed }) => {
+      const payoutRow = basePayoutRow({ campaignId: 'campaign-1', volunteerTripId: null });
+      const ledgerRows: LedgerRow[] = [
+        { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+      ];
+      const { tx, rows, payoutState } = makeTx({ ledgerRows, payoutRow, lifecycleStatus, deadline });
+      const prisma = makePrisma(tx, { ...payoutRow, status: 'APPROVED', approvedById: 'admin-1' });
+
+      const approval = approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' });
+
+      if (allowed) {
+        await expect(approval).resolves.toMatchObject({ status: 'APPROVED' });
+      } else {
+        await expect(approval).rejects.toMatchObject({ code: 'PAYOUT_NOT_ALLOWED_FOR_STATUS' });
+        expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+        expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
+      }
+    },
+  );
+
+  it('refuses approval when a Suspension was committed after the request and before the approval took its lock, leaving the Payout as it was', async () => {
+    const payoutRow = basePayoutRow({ campaignId: 'campaign-1', volunteerTripId: null });
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+    ];
+    const { tx, rows, payoutState } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows, payoutRow });
+
+    // Requested while the Campaign is Active.
+    await requestPayout(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      requestedById: 'requester-1',
+      bankAccountId: 'bank-1',
+      amount: 500_000,
+      description: 'Pencairan dana',
+    });
+
+    // The Suspension commits; the next read of the Campaign row sees it.
+    tx.campaign.findUnique.mockResolvedValue({
+      creatorId: 'requester-1',
+      isDemo: false,
+      lifecycleStatus: 'SUSPENDED',
+      deadline: null,
+    });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' }),
+    ).rejects.toMatchObject({ code: 'PAYOUT_NOT_ALLOWED_FOR_STATUS' });
+    expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+    expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
   });
 
   it('approves a Trip-linked DRAFT payout: locks VolunteerTrip (not Campaign), debits TRIP_BALANCE, credits PAYOUT_CLEARING', async () => {
