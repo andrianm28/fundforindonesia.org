@@ -6,6 +6,7 @@ import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import { PrayerWall } from '@/components/home/PrayerWall';
 import type { CampaignCardData } from '@/types/campaign';
 import type { PrayerStreamItem } from '@/lib/hooks/usePrayerStream';
+import { quickActionTiles } from '@/lib/home/quickActionTiles';
 
 /**
  * Rendered per request, not prerendered.
@@ -44,16 +45,6 @@ const heroBannerSlides = [
     headline: 'Galang dana untuk kebaikan bersama Fund for Indonesia',
     cta: { label: 'Galang Dana', href: '/campaign/create' },
   },
-];
-
-// Quick action tiles
-const quickActionTiles = [
-  { icon: '💰', label: 'Donasi', href: '/explore/all', color: '#E3F2FD' },
-  { icon: '🕌', label: 'Zakat', href: '/zakat', color: '#E8F5E9' },
-  { icon: '📢', label: 'Galang Dana', href: '/campaign/create', color: '#FFF3E0' },
-  { icon: '✨', label: 'Experience', href: '/explore/all', color: '#E0F7FA' },
-  { icon: '🤝', label: 'Kolaborasi CSR', href: '/explore/all', color: '#FCE4EC' },
-  { icon: '🛡️', label: 'Asuransi', href: '/explore/all', color: '#E8EAF6' },
 ];
 
 /**

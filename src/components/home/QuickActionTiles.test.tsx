@@ -81,11 +81,11 @@ describe("QuickActionTiles", () => {
     expect(zakatIcon).toHaveStyle({ backgroundColor: "#E8F5E9" });
   });
 
-  it("renders a 4-column grid layout", () => {
+  it("renders a 5-column grid layout", () => {
     const { container } = render(<QuickActionTiles tiles={mockTiles} />);
     const grid = container.querySelector(".grid");
 
-    expect(grid).toHaveClass("grid-cols-4");
+    expect(grid).toHaveClass("grid-cols-5");
   });
 
   it("renders empty grid when no tiles provided", () => {
@@ -93,5 +93,31 @@ describe("QuickActionTiles", () => {
     const links = container.querySelectorAll("a");
 
     expect(links).toHaveLength(0);
+  });
+
+  it("renders a coming-soon tile as a non-link, muted, honestly-labeled tile", () => {
+    const tilesWithComingSoon = [
+      { icon: "💰", label: "Donasi", href: "/donasi", color: "#E3F2FD" },
+      { icon: "✨", label: "Volunteer", comingSoon: true as const },
+    ];
+    const { container } = render(<QuickActionTiles tiles={tilesWithComingSoon} />);
+    const section = container.querySelector("section")!;
+    const scope = within(section);
+
+    expect(scope.getByText("Volunteer")).toBeInTheDocument();
+    expect(scope.getByText("Segera hadir")).toBeInTheDocument();
+
+    const links = section.querySelectorAll("a");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute("href", "/donasi");
+  });
+
+  it("does not render an href anywhere for a coming-soon tile", () => {
+    const tilesWithComingSoon = [
+      { icon: "🤝", label: "Kolaborasi CSR", comingSoon: true as const },
+    ];
+    const { container } = render(<QuickActionTiles tiles={tilesWithComingSoon} />);
+    const anchors = container.querySelectorAll("a[href]");
+    expect(anchors).toHaveLength(0);
   });
 });
