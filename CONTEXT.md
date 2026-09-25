@@ -11,7 +11,7 @@ Satu ajakan mengumpulkan dana daring dengan target, satu Fundraiser, dan tenggat
 _Avoid_: Kampanye, program, project, penggalangan (untuk entitasnya)
 
 **Campaign Status**:
-Tahap hidup Campaign: Draft, Submitted, Rejected, Active, Suspended, Cancelled, Completed, Expired. Hanya Active yang menerima Donation. Expired terjadi otomatis saat tenggat lewat; Completed ditetapkan Fundraiser atau Admin.
+Tahap hidup Campaign: Draft, Submitted, Rejected, Active, Suspended, Cancelled, Completed, Expired. Hanya Active yang menerima Donation. Expired terjadi otomatis saat tenggat lewat; Completed hanya bisa dicapai dari Active, ditetapkan Fundraiser atau Admin, dan butuh minimal satu Campaign Update siapa pun yang menetapkannya; setelah itu final, satu-satunya jalan keluar adalah Suspension. Tercapainya target tidak mengubah status. Campaign Active yang tenggatnya sudah lewat diperlakukan sebagai Expired walau belum dicatat demikian.
 _Avoid_: State, pending, published
 
 **Kind**:
@@ -29,6 +29,10 @@ _Avoid_: Amil flag, nazhir flag, permission
 **Category**:
 Tema Campaign untuk penjelajahan, misalnya kesehatan, pendidikan, kemanusiaan. Tidak mengubah aturan uang.
 _Avoid_: Sektor (dipakai untuk CSR), tag
+
+**Urgent**:
+Tanda kurasi yang dipasang Admin pada Campaign Active agar ditonjolkan sebagai mendesak di beranda dan penjelajahan. Klaim publik yang menggeser perhatian Donor, karena itu tidak dipasang Fundraiser sendiri. Lepas dengan sendirinya begitu Campaign keluar dari Active dan tidak kembali tanpa keputusan Admin baru. Tidak mengubah aturan uang.
+_Avoid_: Prioritas, featured, darurat
 
 **Program**:
 Item katalog kolaborasi CSR per Sektor yang dibaca tim CSR perusahaan. Program tidak menerima uang daring; kolaborasinya berjalan lewat Partnership Inquiry.
@@ -95,23 +99,27 @@ Izin penghimpunan dana sosial bertanggal yang dipegang sebuah Collecting Entity.
 _Avoid_: Izin PUB (di kode), lisensi, legalitas
 
 **Verifier**:
-Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memverifikasi identitas Fundraiser, dan memeriksa rekening tujuan baik untuk Payout maupun untuk Refund. Di kode peran ini bernama MODERATOR.
+Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memasang Flag, memverifikasi identitas Fundraiser, dan memeriksa rekening tujuan baik untuk Payout maupun untuk Refund. Tidak men-suspend; itu keputusan Admin. Di kode peran ini bernama MODERATOR.
 _Avoid_: Verifikator, moderator (di percakapan)
 
 **Cancellation**:
-Penarikan diri Fundraiser atas Campaign-nya sendiri, diajukan Fundraiser dan disetujui Admin, hanya selama belum ada Payout Completed. Berbeda dari Suspension, yang merupakan pembekuan karena masalah.
+Penarikan diri Fundraiser atas Campaign Active-nya sendiri, diajukan Fundraiser dan disetujui Admin yang bukan orang yang mengajukan, hanya selama belum ada Payout Completed. Selama pengajuan menunggu, Campaign tetap Active dan tetap menerima Donation; bila Campaign keluar dari Active sebelum diputuskan, pengajuan itu gugur dan harus diajukan ulang. Berbeda dari Suspension, yang merupakan pembekuan karena masalah.
 _Avoid_: Pembatalan, close, withdraw
 
 **Suspension**:
-Pembekuan Campaign oleh Admin atas laporan Verifier: Donation berhenti, Escrow Hold dan Campaign Balance dibekukan, Payout ditolak, dan Refund bisa dimulai.
+Pembekuan Campaign yang Active, Expired, atau Completed oleh Admin, lazimnya atas Flag dari Verifier; tanpa Flag pun boleh selama alasannya tercatat (lihat [ADR 0015](./docs/adr/0015-suspension-reaches-closed-campaigns.md)). Donation berhenti, Escrow Hold dan Campaign Balance dibekukan, Payout ditolak, dan Refund bisa dimulai. Hanya Admin yang bukan pelaku Suspension itu yang boleh mencabutnya; saat dicabut Campaign kembali ke status sebelum Suspension, kecuali Campaign yang tadinya Active dan tenggatnya sudah lewat, yang langsung menjadi Expired.
 _Avoid_: Ban, takedown, blokir
+
+**Flag**:
+Penanda dari Verifier bahwa sebuah Campaign perlu dipertimbangkan untuk Suspension, dengan alasan. Satu Campaign bisa punya beberapa Flag; masing-masing berakhir karena Suspension atau ditolak Admin beserta alasannya.
+_Avoid_: Laporan (bentrok dengan Usage Report), report, aduan, dilaporkan
 
 **Verification Request**:
 Satu pengajuan Campaign untuk diperiksa Verifier, dengan checklist dokumen dan hasil lolos atau ditolak beserta alasan. Setiap submit ulang membuat Verification Request baru, sehingga riwayat penolakan tersimpan.
 _Avoid_: Moderasi, review, approval
 
 **Admin**:
-Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, dan mengelola peran pengguna. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
+Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, mengelola peran pengguna, memutuskan dan mencabut Suspension, menyetujui Cancellation, menandai Campaign Completed, dan memasang Urgent. Tidak pernah bertindak sebagai Admin atas Campaign miliknya sendiri; di sana ia hanya Fundraiser. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
 
 ### Uang
 
