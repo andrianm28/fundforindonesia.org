@@ -55,6 +55,8 @@ model User {
   campaignStatusChanges     CampaignStatusChange[]
   cancellationRequestsMade    CancellationRequest[] @relation("CancellationRequester")
   cancellationRequestsDecided CancellationRequest[] @relation("CancellationDecider")
+  campaignFlagsRaised         CampaignFlag[]        @relation("FlagVerifier")
+  campaignFlagsResolved       CampaignFlag[]        @relation("FlagResolver")
 
   // Money layer
   bankAccounts     BankAccount[]
@@ -197,6 +199,7 @@ model Campaign {
   prayers       Prayer[]
   statusChanges CampaignStatusChange[]
   cancellationRequests CancellationRequest[]
+  flags                CampaignFlag[]
 
   @@index([slug])
   @@index([category])
@@ -295,6 +298,43 @@ model CancellationRequest {
   decidedBy   User?    @relation("CancellationDecider", fields: [decidedById], references: [id], onDelete: Restrict)
 
   @@index([campaignId, status])
+}
+
+/// How a Flag ended: the Campaign was suspended, or an Admin dismissed it.
+enum FlagResolution {
+  SUSPENDED
+  DISMISSED
+}
+
+/// A Verifier's report that a Campaign needs to be considered for Suspension,
+/// with a reason (see CONTEXT.md, Flag). A Campaign can carry several Flags,
+/// each kept separately with its author. Open while resolution is null; it
+/// ends when an Admin suspends the Campaign (every open Flag becomes
+/// SUSPENDED, resolved by that Admin, in the same transaction) or when an
+/// Admin who is not the Campaign's Fundraiser dismisses it with a reason.
+/// Written only by src/lib/campaign-lifecycle.ts.
+///
+/// resolutionReason carries the Suspension's reason for a SUSPENDED Flag and
+/// the dismissal reason for a DISMISSED one. onDelete: Restrict on every
+/// relation, like the other lifecycle records: deleting a Campaign or a person
+/// must never erase who reported it and who decided.
+model CampaignFlag {
+  id               String          @id @default(cuid())
+  campaignId       String
+  verifierId       String
+  reason           String
+  createdAt        DateTime        @default(now())
+  resolution       FlagResolution?
+  resolvedById     String?
+  resolutionReason String?
+  resolvedAt       DateTime?
+
+  // Relations
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  verifier   User     @relation("FlagVerifier", fields: [verifierId], references: [id], onDelete: Restrict)
+  resolvedBy User?    @relation("FlagResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+
+  @@index([campaignId, resolution])
 }
 
 // ==================== Donation ====================

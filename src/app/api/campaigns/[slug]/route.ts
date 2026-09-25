@@ -28,13 +28,15 @@ function isLifecycleRecordRestrict(error: unknown): boolean {
     code?: unknown;
     meta?: { driverAdapterError?: { cause?: { constraint?: { index?: unknown } } } };
   };
-  // CancellationRequest is part of the same record (ticket 07): a request,
-  // decided or lapsed, is never deleted with its Campaign either.
+  // CancellationRequest (ticket 07) and CampaignFlag (ticket 06) are part of
+  // the same record: a request or a Flag, open or resolved, is never deleted
+  // with its Campaign either.
   const index = meta?.driverAdapterError?.cause?.constraint?.index;
   return (
     code === 'P2003' &&
     (index === 'CampaignStatusChange_campaignId_fkey' ||
-      index === 'CancellationRequest_campaignId_fkey')
+      index === 'CancellationRequest_campaignId_fkey' ||
+      index === 'CampaignFlag_campaignId_fkey')
   );
 }
 

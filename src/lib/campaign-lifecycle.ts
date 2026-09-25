@@ -3,6 +3,7 @@ import {
   CampaignStatus,
   CampaignStatusChangeAction,
   CancellationRequestStatus,
+  FlagResolution,
   PayoutStatus,
   StatusChangeCapacity,
   type Prisma,
@@ -88,7 +89,9 @@ export type LifecycleErrorCode =
   | "CANCELLATION_ALREADY_PENDING"
   | "MISSING_CAMPAIGN_UPDATE"
   | "CANCELLATION_REQUEST_NOT_FOUND"
-  | "CANCELLATION_NOT_PENDING";
+  | "CANCELLATION_NOT_PENDING"
+  | "FLAG_NOT_FOUND"
+  | "FLAG_ALREADY_RESOLVED";
 
 /** Glossary names (CONTEXT.md), used as-is inside Indonesian sentences. */
 const STATUS_LABEL: Record<CampaignStatus, string> = {
@@ -213,6 +216,8 @@ const HTTP_STATUS: Record<LifecycleErrorCode, number> = {
   MISSING_CAMPAIGN_UPDATE: 422,
   CANCELLATION_REQUEST_NOT_FOUND: 404,
   CANCELLATION_NOT_PENDING: 409,
+  FLAG_NOT_FOUND: 404,
+  FLAG_ALREADY_RESOLVED: 409,
 };
 
 /**
@@ -645,10 +650,12 @@ export type CancellationResult = LifecycleResult & {
 };
 
 /**
- * Serialises every Cancellation write on one Campaign: the "at most one
- * PENDING request" check and the "no Payout COMPLETED" check are reads that
- * only stay true while this transaction holds the Campaign row, the same
- * pattern the balance-touching Payout operations use (src/lib/money/payouts.ts).
+ * Serialises every Cancellation and Flag write on one Campaign: the "at most
+ * one PENDING request", "no Payout COMPLETED", "Campaign still flaggable" and
+ * "Flag still open" checks are reads that only stay true while this
+ * transaction holds the Campaign row, the same pattern the balance-touching
+ * Payout operations use (src/lib/money/payouts.ts). A Suspension's status
+ * write takes the same row, so it serialises with these too.
  *
  * The Payout guarantee is only as strong as its writer: nothing marks a
  * Payout COMPLETED yet, and the endpoint that will must take this same
@@ -836,9 +843,10 @@ const SUSPENDABLE: readonly CampaignStatus[] = [
 /**
  * An Admin suspends a Campaign that is Active, Expired or Completed, with a
  * reason (ADR 0015, FFI-07b), never one they own. Suspending an Active
- * Campaign clears Urgent through the leave-Active side effects. The
- * Fundraiser is told why. Open Flags will be resolved here, in the same
- * transaction, once Flags exist (ticket 06).
+ * Campaign clears Urgent through the leave-Active side effects. Every open
+ * Flag on the Campaign is resolved SUSPENDED, with this Admin as resolver
+ * and the Suspension's reason, in the same transaction. The Fundraiser is
+ * told why.
  */
 export async function suspendCampaign(
   prisma: PrismaClient,
@@ -867,6 +875,18 @@ export async function suspendCampaign(
       actorId: actor.userId,
       capacity: StatusChangeCapacity.ADMIN,
       reason,
+    });
+    // The Suspension is the decision every open Flag was waiting for.
+    // After transition(), which holds the row lock a Flag also takes, so a
+    // Flag committed before this point is seen and resolved here.
+    await tx.campaignFlag.updateMany({
+      where: { campaignId, resolution: null },
+      data: {
+        resolution: FlagResolution.SUSPENDED,
+        resolvedById: actor.userId,
+        resolutionReason: reason,
+        resolvedAt: now,
+      },
     });
     await notifyFundraiser(tx, campaign, actor.userId, {
       title: "Campaign Dibekukan",
@@ -998,5 +1018,139 @@ export async function setUrgent(
       },
     });
     return { campaign: await state() };
+  });
+}
+
+// ==================== Flags (ticket 06) ====================
+
+/** No such Flag on this Campaign (a Flag is always addressed through its Campaign). */
+export class FlagNotFoundError extends CampaignLifecycleError {
+  readonly code = "FLAG_NOT_FOUND";
+  constructor(readonly flagId: string) {
+    super("Flag tidak ditemukan.");
+    this.name = "FlagNotFoundError";
+  }
+}
+
+/** The Flag was already dismissed, or resolved by a Suspension. */
+export class FlagAlreadyResolvedError extends CampaignLifecycleError {
+  readonly code = "FLAG_ALREADY_RESOLVED";
+  constructor(readonly resolution: FlagResolution) {
+    super(
+      resolution === FlagResolution.SUSPENDED
+        ? "Flag ini sudah selesai karena Campaign telah dibekukan (Suspended)."
+        : "Flag ini sudah ditolak oleh Admin."
+    );
+    this.name = "FlagAlreadyResolvedError";
+  }
+}
+
+export type CampaignFlagState = {
+  id: string;
+  campaignId: string;
+  verifierId: string;
+  reason: string;
+  createdAt: Date;
+  resolution: FlagResolution | null;
+  resolvedById: string | null;
+  resolutionReason: string | null;
+  resolvedAt: Date | null;
+};
+
+export type FlagResult = LifecycleResult & { flag: CampaignFlagState };
+
+/**
+ * A Verifier raises a Flag on a Campaign, with a reason, so an Admin can
+ * decide on Suspension (FFI-07b, ADR 0005). Nothing about the Campaign
+ * changes. Allowed on an effectively Active, Expired or Completed Campaign
+ * (the statuses an Admin can suspend from, ADR 0015), so fraud found after a
+ * Campaign closed still reaches an Admin. Several open Flags are kept
+ * separately, each with its author. The Fundraiser is not told.
+ */
+export async function flagCampaign(
+  prisma: PrismaClient,
+  params: {
+    campaignId: string;
+    actor: LifecycleActor;
+    reason: unknown;
+    now?: Date;
+  }
+): Promise<FlagResult> {
+  const { campaignId, actor, now = new Date() } = params;
+  if (!actor.assignments.includes(Assignment.VERIFIER)) {
+    throw new NotAuthorizedError("Hanya Verifier yang dapat memasang Flag pada Campaign.");
+  }
+  const reason = requireReason(params.reason);
+  await expireIfPastDeadline(prisma, campaignId, now);
+  return prisma.$transaction(async (tx) => {
+    // Lock first, then read. A Suspension's status write takes this row, so
+    // the two serialise: either the Suspension commits first and this Flag
+    // is refused, or this Flag commits first and the Suspension resolves it.
+    // Without the lock a Flag could land open on a just-suspended Campaign,
+    // after the sweep that would have resolved it.
+    await lockCampaignRow(tx, campaignId);
+    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) throw new CampaignNotFoundError(campaignId);
+    const current = effectiveStatus(campaign, now);
+    if (!SUSPENDABLE.includes(current)) {
+      throw new InvalidTransitionError(current);
+    }
+    const flag = await tx.campaignFlag.create({
+      data: { campaignId, verifierId: actor.userId, reason },
+    });
+    const updated = await tx.campaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: CAMPAIGN_STATE,
+    });
+    return { campaign: updated, flag };
+  });
+}
+
+/**
+ * An Admin who is not the Campaign's Fundraiser dismisses an open Flag, with
+ * a reason, closing on the record a report that does not justify Suspension.
+ * Nothing about the Campaign changes, whatever its status. The Fundraiser
+ * is not told, just as they were not told of the Flag.
+ */
+export async function dismissFlag(
+  prisma: PrismaClient,
+  params: {
+    campaignId: string;
+    flagId: string;
+    actor: LifecycleActor;
+    reason: unknown;
+    now?: Date;
+  }
+): Promise<FlagResult> {
+  const { campaignId, flagId, actor, now = new Date() } = params;
+  requireAdminAssignment(actor, "Hanya Admin yang dapat menolak Flag.");
+  const reason = requireReason(params.reason);
+  await expireIfPastDeadline(prisma, campaignId, now);
+  return prisma.$transaction(async (tx) => {
+    // Lock first, then read: a Suspension resolving this Flag holds the same
+    // row from its status write to its commit, so the check below sees
+    // whatever that Suspension decided, and the two never both resolve it.
+    await lockCampaignRow(tx, campaignId);
+    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) throw new CampaignNotFoundError(campaignId);
+    requireNotOwner(actor, campaign);
+    const open = await tx.campaignFlag.findUnique({ where: { id: flagId } });
+    if (!open || open.campaignId !== campaignId) throw new FlagNotFoundError(flagId);
+    if (open.resolution !== null) throw new FlagAlreadyResolvedError(open.resolution);
+    await tx.campaignFlag.updateMany({
+      where: { id: flagId },
+      data: {
+        resolution: FlagResolution.DISMISSED,
+        resolvedById: actor.userId,
+        resolutionReason: reason,
+        resolvedAt: now,
+      },
+    });
+    const updated = await tx.campaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: CAMPAIGN_STATE,
+    });
+    const flag = await tx.campaignFlag.findUniqueOrThrow({ where: { id: flagId } });
+    return { campaign: updated, flag };
   });
 }
