@@ -11,21 +11,17 @@ export default function QuickActionTiles({ tiles }: QuickActionTilesProps) {
       <div className="grid grid-cols-5 gap-3 sm:gap-4">
         {tiles.map((tile) =>
           tile.comingSoon ? (
-            <div
-              key={tile.label}
-              className="flex flex-col items-center gap-2"
-              aria-disabled="true"
-            >
+            <div key={tile.label} className="flex flex-col items-center gap-2">
               <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center text-xl sm:text-2xl bg-bg-secondary grayscale opacity-60">
                 <span role="img" aria-label={tile.label}>
                   {tile.icon}
                 </span>
               </div>
               <div className="flex flex-col items-center gap-0.5">
-                <span className="text-[11px] sm:text-xs text-text-secondary text-center leading-tight font-medium line-clamp-2">
+                <span className="text-[11px] sm:text-xs text-text-secondary text-center leading-tight font-medium line-clamp-2 break-words">
                   {tile.label}
                 </span>
-                <span className="text-[9px] text-text-secondary/70">Segera hadir</span>
+                <span className="text-[10px] text-text-secondary">Segera hadir</span>
               </div>
             </div>
           ) : (
@@ -42,7 +38,7 @@ export default function QuickActionTiles({ tiles }: QuickActionTilesProps) {
                   {tile.icon}
                 </span>
               </div>
-              <span className="text-[11px] sm:text-xs text-text text-center leading-tight font-medium line-clamp-2">
+              <span className="text-[11px] sm:text-xs text-text text-center leading-tight font-medium line-clamp-2 break-words">
                 {tile.label}
               </span>
             </Link>

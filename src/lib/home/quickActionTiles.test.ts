@@ -11,30 +11,34 @@ describe('quickActionTiles', () => {
     expect(labels).not.toContain('Asuransi');
   });
 
-  it('does not include an Experience tile -- it is relabeled Volunteer', () => {
+  it('does not include a Zakat or Volunteer tile -- Zakat is folded under Donasi, Volunteer moved to a secondary menu', () => {
     const labels = quickActionTiles.map((tile) => tile.label);
+    expect(labels).not.toContain('Zakat');
+    expect(labels).not.toContain('Volunteer');
     expect(labels).not.toContain('Experience');
-    expect(labels).toContain('Volunteer');
   });
 
-  it('keeps Donasi, Zakat, and Galang Dana as real, working links', () => {
+  it('keeps Donasi and Galang Dana as real, working links', () => {
     const donasi = quickActionTiles.find((tile) => tile.label === 'Donasi');
-    const zakat = quickActionTiles.find((tile) => tile.label === 'Zakat');
     const galangDana = quickActionTiles.find((tile) => tile.label === 'Galang Dana');
 
-    expect(donasi).toMatchObject({ href: '/explore/all', comingSoon: undefined });
-    expect(zakat).toMatchObject({ href: '/zakat', comingSoon: undefined });
-    expect(galangDana).toMatchObject({ href: '/campaign/create', comingSoon: undefined });
+    expect(donasi).toMatchObject({ href: '/explore/all' });
+    expect(donasi?.comingSoon).toBeFalsy();
+    expect(galangDana).toMatchObject({ href: '/campaign/create' });
+    expect(galangDana?.comingSoon).toBeFalsy();
   });
 
-  it('marks Volunteer and Kolaborasi CSR as coming soon, with no href', () => {
-    const volunteer = quickActionTiles.find((tile) => tile.label === 'Volunteer');
+  it('marks Kolaborasi CSR, Wakaf, and Hibah as coming soon, with no href', () => {
     const csr = quickActionTiles.find((tile) => tile.label === 'Kolaborasi CSR');
+    const wakaf = quickActionTiles.find((tile) => tile.label === 'Wakaf');
+    const hibah = quickActionTiles.find((tile) => tile.label === 'Hibah');
 
-    expect(volunteer).toMatchObject({ comingSoon: true });
     expect(csr).toMatchObject({ comingSoon: true });
-    expect(volunteer).not.toHaveProperty('href');
+    expect(wakaf).toMatchObject({ comingSoon: true });
+    expect(hibah).toMatchObject({ comingSoon: true });
     expect(csr).not.toHaveProperty('href');
+    expect(wakaf).not.toHaveProperty('href');
+    expect(hibah).not.toHaveProperty('href');
   });
 
   it('gives every real tile a Ledger Line brand color, not the old generic pastels', () => {
