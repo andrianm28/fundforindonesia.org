@@ -511,6 +511,13 @@ function requireReason(raw: unknown): string {
   return reason;
 }
 
+/** An optional reason: absent or blank is none; anything else must pass requireReason. */
+function optionalReason(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "string" && raw.trim() === "") return null;
+  return requireReason(raw);
+}
+
 /**
  * Marks an Active Campaign Completed (ADR 0004, FFI-03). Completed is final:
  * its only exit is Suspension (ADR 0015). Reaching the target never gets
@@ -543,13 +550,7 @@ export async function completeCampaign(
         "Hanya Fundraiser pemilik Campaign atau Admin yang dapat menandai Campaign Completed."
       );
     }
-    // The owner's reason is optional (a blank form field counts as none);
-    // when given, it obeys the same rules as an Admin's.
-    const ownerGaveNoReason =
-      params.reason === undefined ||
-      params.reason === null ||
-      (typeof params.reason === "string" && params.reason.trim() === "");
-    const reason = asOwner && ownerGaveNoReason ? null : requireReason(params.reason);
+    const reason = asOwner ? optionalReason(params.reason) : requireReason(params.reason);
 
     const current = effectiveStatus(campaign, now);
     if (current !== CampaignStatus.ACTIVE) {
@@ -565,10 +566,12 @@ export async function completeCampaign(
       capacity: asOwner ? StatusChangeCapacity.FUNDRAISER : StatusChangeCapacity.ADMIN,
       reason,
     });
-    await notifyFundraiser(tx, campaign, actor.userId, {
-      title: "Campaign Ditandai Completed",
-      message: `Campaign "${campaign.title}" ditandai Completed oleh Admin dan tidak lagi menerima donasi. Alasan: ${reason}`,
-    });
+    if (!asOwner) {
+      await notifyFundraiser(tx, campaign, actor.userId, {
+        title: "Campaign Ditandai Completed",
+        message: `Campaign "${campaign.title}" ditandai Completed oleh Admin dan tidak lagi menerima donasi. Alasan: ${reason}`,
+      });
+    }
     return { campaign: updated };
   });
 }
