@@ -23,10 +23,10 @@ vi.mock("@/lib/prisma", () => ({
 // The cost factors come from one module; the property tests set them low so
 // real bcryptjs still proves a wrong password is rejected, without the tests'
 // wall-clock time depending on production's cost or on machine load.
-const TEST_HASH_COST = 4;
+const { TEST_HASH_COST } = vi.hoisted(() => ({ TEST_HASH_COST: 4 }));
 vi.mock("@/lib/password-hash-cost", () => ({
-  REGISTRATION_HASH_COST: 4,
-  PASSWORD_CHANGE_HASH_COST: 4,
+  REGISTRATION_HASH_COST: TEST_HASH_COST,
+  PASSWORD_CHANGE_HASH_COST: TEST_HASH_COST,
 }));
 
 const fsMocks = vi.hoisted(() => ({
@@ -125,12 +125,10 @@ describe("Feature: platform-polish, Property 3: Password Security", () => {
       ),
       { numRuns: 50 }
     );
-    // 50 runs x one real bcryptjs compare at TEST_HASH_COST. Real hashing is
-    // the point -- it proves a wrong password is actually rejected -- but at
-    // production cost the property was ~7s of pure-JS key derivation and
-    // timed out whenever the machine was busy.
+    // Real bcryptjs at TEST_HASH_COST: still proves a wrong password is
+    // rejected, without the runtime depending on production's cost factor.
     expect(bcrypt.getRounds(storedHash)).toBe(TEST_HASH_COST);
-  });
+  }, 15_000);
 
   test("correct current password with valid new password succeeds and updates hash", async () => {
     const { PATCH } = await import("@/app/api/user/password/route");
@@ -180,7 +178,7 @@ describe("Feature: platform-polish, Property 3: Password Security", () => {
       }),
       { numRuns: 20 }
     );
-  });
+  }, 15_000);
 });
 
 // ============================================================

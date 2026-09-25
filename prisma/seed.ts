@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { PrismaClient, Role, Assignment, PaymentStatus, PayoutStatus } from '@/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
+import { REGISTRATION_HASH_COST } from '@/lib/password-hash-cost';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { toLifecycleStatus } from '@/lib/campaign-lifecycle';
 
@@ -242,7 +243,7 @@ async function main() {
 
   // 2. Seed Users
   console.log('👤 Creating users...');
-  const password = await bcrypt.hash('password123', 12);
+  const password = await bcrypt.hash('password123', REGISTRATION_HASH_COST);
   const users = [];
   for (const userData of USERS_DATA) {
     const user = await prisma.user.upsert({
