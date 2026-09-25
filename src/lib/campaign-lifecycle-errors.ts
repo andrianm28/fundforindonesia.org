@@ -53,7 +53,7 @@ export type OperatorCapacity =
   | typeof StatusChangeCapacity.ADMIN
   | typeof StatusChangeCapacity.VERIFIER;
 
-const OPERATOR_LABELS: Record<OperatorCapacity, string> = {
+export const OPERATOR_LABELS: Record<OperatorCapacity, string> = {
   ADMIN: "Admin",
   VERIFIER: "Verifier",
 };

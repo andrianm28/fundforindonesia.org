@@ -89,4 +89,22 @@ describe('PATCH /api/moderasi/volunteer-trips/[id]', () => {
     );
     expect(mockNotificationCreate).toHaveBeenCalled();
   });
+
+  describe("a Verifier who is the Trip's Fundraiser", () => {
+    beforeEach(() => {
+      mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'verifier-1', title: 'Trip title', slug: 'trip-slug' });
+    });
+
+    it.each(['approve', 'reject'])('is refused on %s with the Verifier-worded own-Trip conflict', async (action) => {
+      const response = await PATCH(actionRequest(action), routeContext());
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        error:
+          'Anda tidak dapat bertindak sebagai Verifier atas Volunteer Trip milik Anda sendiri. Tindakan ini harus dilakukan Verifier lain.',
+        code: 'OWN_TRIP_CONFLICT',
+      });
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
+    });
+  });
 });

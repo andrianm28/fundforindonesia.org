@@ -38,6 +38,15 @@ describe('domainErrorToHttp for the money refusals', () => {
     expect(domainErrorToHttp(error)).toEqual({ status, body: { error: error.message, code } });
   });
 
+  it('words the own-Trip conflict for the capacity, Admin by default', () => {
+    expect(new OwnTripConflictError().message).toBe(
+      'Anda tidak dapat bertindak sebagai Admin atas Volunteer Trip milik Anda sendiri. Tindakan ini harus dilakukan Admin lain.',
+    );
+    expect(new OwnTripConflictError('VERIFIER').message).toBe(
+      'Anda tidak dapat bertindak sebagai Verifier atas Volunteer Trip milik Anda sendiri. Tindakan ini harus dilakukan Verifier lain.',
+    );
+  });
+
   it('names who may not approve in the self-approval message', () => {
     expect(new SelfApprovalError('Payout').message).toBe(
       'Payout tidak dapat disetujui oleh orang yang mengajukannya.',

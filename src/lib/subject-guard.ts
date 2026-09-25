@@ -4,7 +4,7 @@ import {
   VolunteerTripStatus,
   type Prisma,
 } from "@/generated/prisma/client";
-import { CampaignLifecycleError, OwnCampaignConflictError } from "./campaign-lifecycle-errors";
+import { CampaignLifecycleError, OPERATOR_LABELS, OwnCampaignConflictError, type OperatorCapacity } from "./campaign-lifecycle-errors";
 import { MoneyError } from "./money/errors";
 import type { LedgerSubject } from "./money/ledger";
 
@@ -167,16 +167,19 @@ export function isEscrowReleaseFrozen(subject: SubjectStatus): boolean {
 }
 
 /**
- * The Trip-side mirror of OwnCampaignConflictError: an Admin tried to act as
- * Admin on a Volunteer Trip they run as its Fundraiser. A typed refusal
- * like the lifecycle one (stable `code`, Indonesian `message`, 403 through
- * `domainErrorToHttp`), worded for a Trip.
+ * The Trip-side mirror of OwnCampaignConflictError: an Admin or Verifier
+ * tried to act in that role on a Volunteer Trip they run as its Fundraiser
+ * (CONTEXT.md, Admin and Verifier; ADR 0005). A typed refusal like the
+ * lifecycle one (stable `code`, Indonesian `message`, 403 through
+ * `domainErrorToHttp`), worded for a Trip and for the capacity. The capacity
+ * defaults to Admin, the Trip-side money operations' only capacity.
  */
 export class OwnTripConflictError extends MoneyError {
   readonly code = "OWN_TRIP_CONFLICT";
-  constructor() {
+  constructor(capacity: OperatorCapacity = StatusChangeCapacity.ADMIN) {
+    const role = OPERATOR_LABELS[capacity];
     super(
-      "Anda tidak dapat bertindak sebagai Admin atas Volunteer Trip milik Anda sendiri. Tindakan ini harus dilakukan Admin lain."
+      `Anda tidak dapat bertindak sebagai ${role} atas Volunteer Trip milik Anda sendiri. Tindakan ini harus dilakukan ${role} lain.`
     );
     this.name = "OwnTripConflictError";
   }
