@@ -400,7 +400,14 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
       expect(body.campaign).not.toHaveProperty('suspensionReason');
     });
 
-    it('comes back null for the owner when the row carries no reason', async () => {
+    it('comes back null for the owner when the latest SUSPENDED row carries no reason', async () => {
+      sessionOf('owner-1');
+      mockStatusChangeFindFirst.mockResolvedValue({ reason: null } as any);
+      const { body } = await getAs(suspended());
+      expect(body.campaign.suspensionReason).toBeNull();
+    });
+
+    it('comes back null for the owner when no SUSPENDED row is found', async () => {
       sessionOf('owner-1');
       mockStatusChangeFindFirst.mockResolvedValue(null);
       const { body } = await getAs(suspended());

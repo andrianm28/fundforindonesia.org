@@ -7,12 +7,10 @@ import { useRouter } from 'next/navigation';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
-import {
-  CampaignStatusBanner,
-  offersDonating,
-  useSuspensionReason,
-  type CampaignLifecycleStatus,
-} from './CampaignStatusBanner';
+import { offersDonating } from '@/lib/campaign-page-status';
+import { useSuspensionReason } from '@/lib/hooks/useSuspensionReason';
+import type { CampaignLifecycleStatus } from '@/types/campaign';
+import { CampaignStatusBanner } from './CampaignStatusBanner';
 
 export interface CampaignDetailData {
   id: string;

@@ -5,11 +5,9 @@ import { LazyImage } from '@/components/ui/LazyImage';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
-import {
-  CampaignStatusBanner,
-  offersDonating,
-  type CampaignLifecycleStatus,
-} from './CampaignStatusBanner';
+import { offersDonating } from '@/lib/campaign-page-status';
+import type { CampaignLifecycleStatus } from '@/types/campaign';
+import { CampaignStatusBanner } from './CampaignStatusBanner';
 
 export interface CampaignDetailProps {
   campaign: {

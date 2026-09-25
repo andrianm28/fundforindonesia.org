@@ -8,7 +8,7 @@ import { PaymentMethodSelector } from '@/components/donation/PaymentMethodSelect
 import { DonationConfirmation } from '@/components/donation/DonationConfirmation';
 import { formatRupiah } from '@/lib/utils/currency';
 import { donationsEnabled, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
-import { offersDonating, statusBannerCopy } from '@/components/campaign/CampaignStatusBanner';
+import { offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
 import type { PaymentMethod } from '@/types/donation';
 
 const PRESET_AMOUNTS = [20000, 50000, 100000, 250000, 500000];
