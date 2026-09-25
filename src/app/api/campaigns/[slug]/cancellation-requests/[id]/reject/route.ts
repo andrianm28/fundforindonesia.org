@@ -1,4 +1,4 @@
 import { cancellationDecisionRoute } from "../decide";
 
-/** An Admin who does not own the Campaign rejects its Cancellation request. */
+/** An Admin who is not the Campaign's Fundraiser rejects its Cancellation request. */
 export const POST = cancellationDecisionRoute("reject");

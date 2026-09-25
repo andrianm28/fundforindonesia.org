@@ -22,7 +22,7 @@ const editCampaignSchema = z.object({
 // ON DELETE RESTRICT, so Postgres refuses to delete a Campaign that has any
 // history. Prisma 7 with @prisma/adapter-pg surfaces that as P2003 and names
 // the violated constraint under meta.driverAdapterError.cause.
-function isStatusHistoryRestrict(error: unknown): boolean {
+function isLifecycleRecordRestrict(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const { code, meta } = error as {
     code?: unknown;
@@ -247,7 +247,7 @@ export async function DELETE(
 
     return NextResponse.json({ message: "Campaign berhasil dihapus" });
   } catch (error) {
-    if (isStatusHistoryRestrict(error)) {
+    if (isLifecycleRecordRestrict(error)) {
       return NextResponse.json(
         { error: "Campaign yang sudah memiliki riwayat status tidak dapat dihapus" },
         { status: 409 }

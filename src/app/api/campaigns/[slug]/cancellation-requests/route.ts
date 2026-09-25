@@ -4,11 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { lifecycleErrorToHttp, requestCancellation } from "@/lib/campaign-lifecycle";
 
 /**
- * POST /api/campaigns/[slug]/cancellation-requests `{ reason }`: the owner of
- * an Active Campaign asks to withdraw it. A thin adapter over the lifecycle
- * module, which owns the owner check, the status rule, the one-pending rule
- * and the reason validation. No assignment gate: the right to ask comes from
- * owning the Campaign, not from a role.
+ * POST /api/campaigns/[slug]/cancellation-requests `{ reason }`: the
+ * Fundraiser of an Active Campaign asks for its Cancellation. A thin adapter
+ * over the lifecycle module, which owns the Fundraiser check, the status
+ * rule, the one-pending rule and the reason validation. No assignment gate:
+ * the right to ask comes from being the Campaign's Fundraiser, not from a role.
  */
 export async function POST(
   req: NextRequest,

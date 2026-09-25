@@ -582,13 +582,17 @@ export type CancellationResult = LifecycleResult & {
  * PENDING request" check and the "no Payout COMPLETED" check are reads that
  * only stay true while this transaction holds the Campaign row, the same
  * pattern the balance-touching Payout operations use (src/lib/money/payouts.ts).
+ *
+ * The Payout guarantee is only as strong as its writer: nothing marks a
+ * Payout COMPLETED yet, and the endpoint that will must take this same
+ * Campaign row lock, or a Payout could complete between check and write.
  */
 async function lockCampaignRow(tx: Tx, campaignId: string): Promise<void> {
   await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${campaignId} FOR UPDATE`;
 }
 
 /**
- * The owner of an Active Campaign asks to withdraw it, with a reason. Nothing
+ * The Fundraiser of an Active Campaign asks for its Cancellation, with a reason. Nothing
  * about the Campaign changes: it stays Active and keeps taking Donations
  * until an Admin decides, so a Fundraiser can never freeze their own Campaign.
  * Refused while another request on the Campaign is still PENDING.
@@ -606,6 +610,10 @@ export async function requestCancellation(
   const reason = requireReason(params.reason);
   await expireIfPastDeadline(prisma, campaignId, now);
   return prisma.$transaction(async (tx) => {
+    // Lock first, then read: a status judged from a copy read before the
+    // lock could let a request land on a Campaign that was just suspended,
+    // after the leave-Active sweep that would have lapsed it has already run.
+    await lockCampaignRow(tx, campaignId);
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
     if (campaign.creatorId !== actor.userId) {
@@ -613,7 +621,6 @@ export async function requestCancellation(
         "Hanya Fundraiser pemilik Campaign yang dapat mengajukan Cancellation."
       );
     }
-    await lockCampaignRow(tx, campaignId);
     const current = effectiveStatus(campaign, now);
     if (current !== CampaignStatus.ACTIVE) {
       throw new InvalidTransitionError(current);
@@ -651,7 +658,7 @@ const CANCELLATION_DECISIONS = {
 export type CancellationDecision = keyof typeof CANCELLATION_DECISIONS;
 
 /**
- * An Admin who does not own the Campaign approves or rejects its PENDING
+ * An Admin who is not the Campaign's Fundraiser approves or rejects its PENDING
  * Cancellation request, with a reason. Approval makes the Campaign CANCELLED,
  * but only from effective ACTIVE and only while no Payout on it has
  * COMPLETED, checked under the Campaign row lock so a Payout cannot complete
@@ -676,10 +683,12 @@ export async function decideCancellation(
   const reason = requireReason(params.reason);
   await expireIfPastDeadline(prisma, campaignId, now);
   return prisma.$transaction(async (tx) => {
+    // Lock first, then read, so every check below sees the Campaign and the
+    // request as they stand while this transaction holds the row.
+    await lockCampaignRow(tx, campaignId);
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new CampaignNotFoundError(campaignId);
     requireNotOwner(actor, campaign);
-    await lockCampaignRow(tx, campaignId);
     const request = await tx.cancellationRequest.findUnique({ where: { id: requestId } });
     if (!request || request.campaignId !== campaignId) {
       throw new CancellationRequestNotFoundError(requestId);

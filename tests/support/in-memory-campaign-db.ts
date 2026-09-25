@@ -141,6 +141,9 @@ export function makeCampaignDb(
   // "<Table>:<id>". Observable because taking the lock IS the behaviour
   // that serialises two Admins deciding against the same Campaign.
   const rowLocks: string[] = [];
+  // Runs once, just before the next row lock is granted, against the
+  // COMMITTED data: a writer that held the lock and committed first.
+  let pendingLockInterleave: ((data: Data) => void) | null = null;
   let nextId = 1;
   // Runs once, immediately before the next Campaign write, against the
   // COMMITTED data: a concurrent request that committed between our read
@@ -233,6 +236,22 @@ export function makeCampaignDb(
         const sql = strings.join('?');
         const table = /FROM "(\w+)" WHERE id = \? FOR UPDATE/.exec(sql)?.[1];
         if (!table) throw new Error(`in-memory db does not understand: ${sql}`);
+        if (pendingLockInterleave) {
+          const interleave = pendingLockInterleave;
+          pendingLockInterleave = null;
+          interleave(committed);
+          // Waiting for the lock let the other writer commit; every read
+          // after the lock sees it, as READ COMMITTED does in Postgres.
+          const current = getData();
+          for (const row of current.campaigns) {
+            const fresh = committed.campaigns.find((c) => c.id === row.id);
+            if (fresh) Object.assign(row, fresh);
+          }
+          for (const row of current.cancellationRequests) {
+            const fresh = committed.cancellationRequests.find((r) => r.id === row.id);
+            if (fresh) Object.assign(row, fresh);
+          }
+        }
         rowLocks.push(`${table}:${String(values[0])}`);
         return [{ id: values[0] }];
       },
@@ -288,6 +307,10 @@ export function makeCampaignDb(
     /** Simulate another request committing a change just before our next Campaign write. */
     beforeNextCampaignWrite(interleave: (data: Data) => void) {
       pendingInterleave = interleave;
+    },
+    /** Simulate another request committing while we wait for the next row lock. */
+    beforeNextRowLock(interleave: (data: Data) => void) {
+      pendingLockInterleave = interleave;
     },
   };
 }

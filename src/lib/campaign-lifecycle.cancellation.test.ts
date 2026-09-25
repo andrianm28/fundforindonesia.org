@@ -208,6 +208,23 @@ describe('requestCancellation', () => {
 
     expect(db.rowLocks).toEqual(['Campaign:campaign-1']);
   });
+
+  it('judges the Campaign as it stands once the lock is held: a Suspension committed meanwhile refuses the request', async () => {
+    const db = makeCampaignDb({ campaigns: [activeCampaign()] });
+    db.beforeNextRowLock((data) => {
+      Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+    });
+
+    const error = await requestCancellation(db.prisma as never, {
+      campaignId: 'campaign-1',
+      actor: owner,
+      reason: 'Alasan.',
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect((error as InvalidTransitionError).currentStatus).toBe('SUSPENDED');
+    expect(db.cancellationRequests).toEqual([]);
+  });
 });
 
 describe('a PENDING request lapses when the Campaign leaves Active', () => {
@@ -433,6 +450,19 @@ describe('decideCancellation', () => {
   });
 
   describe('reject', () => {
+    it('judges the Campaign as it stands once the lock is held: an approval committed meanwhile refuses the rejection', async () => {
+      const db = seeded();
+      db.beforeNextRowLock((data) => {
+        Object.assign(data.campaigns[0], { status: 'cancelled', lifecycleStatus: 'CANCELLED' });
+        Object.assign(data.cancellationRequests[0], { status: 'APPROVED', decidedById: 'admin-2' });
+      });
+
+      await expect(decide(db, { decision: 'reject' })).rejects.toBeInstanceOf(CancellationNotPendingError);
+
+      expect(db.cancellationRequest()).toMatchObject({ status: 'APPROVED', decidedById: 'admin-2' });
+      expect(db.notifications).toEqual([]);
+    });
+
     it('marks the request REJECTED with the reason and leaves the Campaign Active, logging no status change', async () => {
       const db = seeded({ campaign: { isUrgent: true } });
 

@@ -267,9 +267,9 @@ enum CancellationRequestStatus {
   SUPERSEDED
 }
 
-/// A Fundraiser's request to withdraw their Active Campaign (Cancellation in
+/// A Fundraiser's request for Cancellation of their Active Campaign (see
 /// CONTEXT.md). The Campaign stays Active, and keeps taking Donations, until
-/// an Admin who is not the owner approves (Campaign becomes CANCELLED) or
+/// an Admin who is not its Fundraiser approves (Campaign becomes CANCELLED) or
 /// rejects it. Written only by src/lib/campaign-lifecycle.ts, which keeps at
 /// most one PENDING request per Campaign inside a transaction that holds the
 /// Campaign row lock.
