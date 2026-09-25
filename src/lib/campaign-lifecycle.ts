@@ -491,3 +491,84 @@ export async function decideSubmission(
     return { campaign: updated };
   });
 }
+
+// ==================== Completion (ticket 03) ====================
+
+const REASON_MAX_LENGTH = 1000;
+
+/** A required reason: trimmed, non-empty, at most REASON_MAX_LENGTH characters. */
+function requireReason(raw: unknown): string {
+  const reason = typeof raw === "string" ? raw.trim() : "";
+  if (reason === "") {
+    throw new LifecycleValidationError("Alasan wajib diisi.", "reason");
+  }
+  if (reason.length > REASON_MAX_LENGTH) {
+    throw new LifecycleValidationError(
+      `Alasan maksimal ${REASON_MAX_LENGTH} karakter.`,
+      "reason"
+    );
+  }
+  return reason;
+}
+
+/**
+ * Marks an Active Campaign Completed (ADR 0004, FFI-03). Completed is final:
+ * its only exit is Suspension (ADR 0015). Reaching the target never gets
+ * here on its own; a person always decides.
+ *
+ * The owner acts as FUNDRAISER, even when they also hold ADMIN, and needs no
+ * reason: their Campaign Update is the explanation. Anyone else needs the
+ * ADMIN assignment and a reason, and the Fundraiser is told why. Either way
+ * the Campaign must have at least one Campaign Update, so no Campaign closes
+ * without its Donors having heard from the Fundraiser.
+ */
+export async function completeCampaign(
+  prisma: PrismaClient,
+  params: {
+    campaignId: string;
+    actor: LifecycleActor;
+    reason?: unknown;
+    now?: Date;
+  }
+): Promise<LifecycleResult> {
+  const { campaignId, actor, now = new Date() } = params;
+  await expireIfPastDeadline(prisma, campaignId, now);
+  return prisma.$transaction(async (tx) => {
+    const campaign = await tx.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) throw new CampaignNotFoundError(campaignId);
+
+    const asOwner = campaign.creatorId === actor.userId;
+    if (!asOwner && !actor.assignments.includes(Assignment.ADMIN)) {
+      throw new NotAuthorizedError(
+        "Hanya Fundraiser pemilik Campaign atau Admin yang dapat menandai Campaign Completed."
+      );
+    }
+    // The owner's reason is optional (a blank form field counts as none);
+    // when given, it obeys the same rules as an Admin's.
+    const ownerGaveNoReason =
+      params.reason === undefined ||
+      params.reason === null ||
+      (typeof params.reason === "string" && params.reason.trim() === "");
+    const reason = asOwner && ownerGaveNoReason ? null : requireReason(params.reason);
+
+    const current = effectiveStatus(campaign, now);
+    if (current !== CampaignStatus.ACTIVE) {
+      throw new InvalidTransitionError(current);
+    }
+    const updates = await tx.campaignUpdate.count({ where: { campaignId } });
+    if (updates === 0) throw new MissingCampaignUpdateError();
+
+    const updated = await transition(tx, campaign, {
+      to: CampaignStatus.COMPLETED,
+      action: CampaignStatusChangeAction.COMPLETED,
+      actorId: actor.userId,
+      capacity: asOwner ? StatusChangeCapacity.FUNDRAISER : StatusChangeCapacity.ADMIN,
+      reason,
+    });
+    await notifyFundraiser(tx, campaign, actor.userId, {
+      title: "Campaign Ditandai Completed",
+      message: `Campaign "${campaign.title}" ditandai Completed oleh Admin dan tidak lagi menerima donasi. Alasan: ${reason}`,
+    });
+    return { campaign: updated };
+  });
+}
