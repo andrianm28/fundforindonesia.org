@@ -90,8 +90,10 @@ function makeTx(options: {
   payout: ReturnType<typeof makePayoutRow> | null;
   ledgerRows?: LedgerRow[];
   updateManyCount?: number;
+  /** The Campaign's stored status, read by the subject guard under its lock. */
+  lifecycleStatus?: string;
 }) {
-  const { payout, ledgerRows = [], updateManyCount = 1 } = options;
+  const { payout, ledgerRows = [], updateManyCount = 1, lifecycleStatus = 'ACTIVE' } = options;
   const rows: LedgerRow[] = [...ledgerRows];
   const state = payout ? { ...payout } : null;
 
@@ -110,7 +112,7 @@ function makeTx(options: {
       payout: { findUnique, updateMany },
       $queryRaw: queryRaw,
       // The Campaign row the subject guard reads under that lock.
-      campaign: { findUnique: vi.fn().mockResolvedValue(ACTIVE_CAMPAIGN) },
+      campaign: { findUnique: vi.fn().mockResolvedValue({ ...ACTIVE_CAMPAIGN, lifecycleStatus }) },
       ledgerEntry: {
         count: vi.fn(async () => 0),
         createMany: vi.fn(async ({ data }: { data: LedgerRow[] }) => {
@@ -218,6 +220,22 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     expect(response.status).toBe(404);
     expect(mockTransaction).not.toHaveBeenCalled();
   });
+
+  it.each(['SUSPENDED', 'CANCELLED'])(
+    'answers 409 PAYOUT_NOT_ALLOWED_FOR_STATUS when the Campaign is %s by approval time, leaving the Payout DRAFT and posting nothing',
+    async (lifecycleStatus) => {
+      const { tx, state, ledgerRows } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS, lifecycleStatus });
+      mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+      const response = await POST(createRequest(), routeContext());
+      const data = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(data.code).toBe('PAYOUT_NOT_ALLOWED_FOR_STATUS');
+      expect(state).toMatchObject({ status: 'DRAFT', approvedById: null });
+      expect(ledgerRows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
+    },
+  );
 
   it('returns 404 when the payout does not belong to this campaign', async () => {
     mockPayoutFindUnique.mockResolvedValue({ campaignId: 'a-different-campaign' });

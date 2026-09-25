@@ -142,6 +142,17 @@ export function requirePayoutAllowed(state: SubjectState): void {
 }
 
 /**
+ * Whether the Escrow release must leave this subject's matured money in
+ * Escrow Hold: true only for a Campaign that is effectively Suspended
+ * (CONTEXT.md, Escrow Hold; Suspension). The release resumes on its own once
+ * the Suspension is lifted. A Volunteer Trip keeps its rule of today (ADR
+ * 0014), which never holds matured money back.
+ */
+export function isEscrowReleaseFrozen(state: SubjectState): boolean {
+  return state.kind === "campaign" && state.effectiveStatus === CampaignStatus.SUSPENDED;
+}
+
+/**
  * The Trip-side mirror of OwnCampaignConflictError: an Admin tried to act as
  * Admin on a Volunteer Trip they run as its Fundraiser. Same shape as the
  * lifecycle error (stable `code`, Indonesian `message`), worded for a Trip.

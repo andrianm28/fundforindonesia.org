@@ -1,7 +1,7 @@
 import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, payoutInstructedLegs, postTransaction, type LedgerSubject } from './ledger';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
-import { lockAndLoad } from '@/lib/subject-guard';
+import { lockAndLoad, requirePayoutAllowed } from '@/lib/subject-guard';
 
 /**
  * Payout: request, approve, release.
@@ -133,6 +133,15 @@ export async function requestPayout(
   if (subjectState?.isDemo) {
     throw new DemoCampaignError();
   }
+
+  // Only a Campaign that is effectively Active, Expired or Completed may pay
+  // out (CONTEXT.md, Payout); a Trip keeps its rule of today. Judged on the
+  // state read under the lock, so a Suspension committed before this
+  // transaction took it is seen. A missing subject (null) is left to the
+  // checks below, as before: the route answers 404 before reaching here,
+  // and Payout.campaignId's foreign key refuses a Payout for a Campaign
+  // that does not exist.
+  if (subjectState) requirePayoutAllowed(subjectState);
 
   const bankAccount = await tx.bankAccount.findUnique({ where: { id: bankAccountId } });
   if (!bankAccount || bankAccount.ownerId !== requestedById || !bankAccount.verifiedAt) {
@@ -271,7 +280,15 @@ export async function approvePayout(
     //
     // The checks above read only this Payout's own row. The subject itself
     // is read nowhere before this lock; lockAndLoad reads it under it.
-    await lockAndLoad(tx, subject, new Date());
+    const subjectState = await lockAndLoad(tx, subject, new Date());
+
+    // Re-judged here, not trusted from request time: a Suspension or
+    // Cancellation committed between the request and this lock refuses the
+    // approval, and the Payout stays DRAFT with nothing posted (CONTEXT.md,
+    // Payout). A null state cannot happen for a Campaign, whose row
+    // Payout.campaignId's foreign key keeps alive, and a Trip has no status
+    // rule; either way it is left to the checks below, as before.
+    if (subjectState) requirePayoutAllowed(subjectState);
 
     // Balance can have moved since the request -- a refund, another payout
     // approved first -- and, now that this transaction holds the subject's

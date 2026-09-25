@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withRoleCheck } from '@/lib/withRoleCheck';
+import { lifecycleErrorToHttp } from '@/lib/campaign-lifecycle';
 import {
   requestPayout,
   BankAccountNotEligibleError,
@@ -104,6 +105,12 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
         { error: 'Saldo campaign tidak mencukupi untuk jumlah pencairan ini' },
         { status: 400 },
       );
+    }
+    // PayoutNotAllowedForStatusError (a Suspended or Cancelled Campaign):
+    // the lifecycle module owns its status (409), code and body.
+    const refusal = lifecycleErrorToHttp(error);
+    if (refusal) {
+      return NextResponse.json(refusal.body, { status: refusal.status });
     }
     console.error('Error requesting payout:', error);
     return NextResponse.json({ error: 'Gagal mengajukan pencairan' }, { status: 500 });

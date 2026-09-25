@@ -72,8 +72,23 @@ function makePayment(overrides: Partial<PaymentRow> = {}): PaymentRow {
  * $queryRaw/payment.updateMany/refund.findMany/ledgerEntry.* are real enough
  * for postTransaction to run unmocked.
  */
-function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = [], refunds: RefundRow[] = []) {
+type SubjectRows = {
+  /** Campaign rows by id; any Campaign not listed reads as ACTIVE_CAMPAIGN. */
+  campaigns?: Record<string, typeof ACTIVE_CAMPAIGN | { creatorId: string; isDemo: boolean; lifecycleStatus: string; deadline: Date | null }>;
+  /** Trip rows by id; any Trip not listed reads as ACTIVE_TRIP. */
+  trips?: Record<string, { fundraiserId: string; status: string }>;
+};
+
+function makeDb(
+  payments: PaymentRow[],
+  ledgerRows: LedgerRow[] = [],
+  refunds: RefundRow[] = [],
+  subjectRows: SubjectRows = {},
+) {
   const paymentState = new Map(payments.map((p) => [p.id, { ...p }]));
+  // Mutable, so a test can commit a Suspension or its lift between sweeps.
+  const campaigns = { ...(subjectRows.campaigns ?? {}) };
+  const trips = { ...(subjectRows.trips ?? {}) };
   const rows: LedgerRow[] = [...ledgerRows];
   // Every $queryRaw call across every transaction this makeDb's mockTransaction
   // hands out, in order -- so a test can assert which table a given release
@@ -126,8 +141,12 @@ function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = [], refunds: R
         return Promise.resolve([{ id: 'locked' }]);
       }),
       // The subject row the guard reads under that lock.
-      campaign: { findUnique: vi.fn(async () => ACTIVE_CAMPAIGN) },
-      volunteerTrip: { findUnique: vi.fn(async () => ACTIVE_TRIP) },
+      campaign: {
+        findUnique: vi.fn(async ({ where }: { where: { id: string } }) => campaigns[where.id] ?? ACTIVE_CAMPAIGN),
+      },
+      volunteerTrip: {
+        findUnique: vi.fn(async ({ where }: { where: { id: string } }) => trips[where.id] ?? ACTIVE_TRIP),
+      },
       payment: {
         updateMany: vi.fn(async ({ where, data }: { where: { id: string; escrowReleasedAt: null }; data: Record<string, unknown> }) => {
           const row = paymentState.get(where.id);
@@ -155,8 +174,10 @@ function makeDb(payments: PaymentRow[], ledgerRows: LedgerRow[] = [], refunds: R
 
   mockTransaction.mockImplementation(async (cb: (tx: ReturnType<typeof makeTx>) => unknown) => cb(makeTx()));
 
-  return { paymentState, rows, queryRawCalls };
+  return { paymentState, rows, queryRawCalls, campaigns };
 }
+
+const SUSPENDED_CAMPAIGN = { ...ACTIVE_CAMPAIGN, lifecycleStatus: 'SUSPENDED' };
 
 describe('releaseMaturedEscrow', () => {
   beforeEach(() => {
@@ -487,6 +508,80 @@ describe('releaseMaturedEscrow -- trip-linked payments', () => {
 
     const tripLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-trip');
     expect(tripLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({
+      account: 'TRIP_BALANCE',
+      amount: 50_000,
+      volunteerTripId: 'trip-1',
+    });
+  });
+});
+
+describe('releaseMaturedEscrow -- a Suspended Campaign', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('leaves a Suspended Campaign\'s matured money in Escrow Hold: no ledger legs, not stamped released', async () => {
+    const { rows, paymentState } = makeDb(
+      [makePayment({ id: 'payment-1', amount: 100_000, campaignId: 'campaign-1' })],
+      [],
+      [],
+      { campaigns: { 'campaign-1': SUSPENDED_CAMPAIGN } },
+    );
+
+    const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+    expect(result).toEqual({ releasedCount: 0, consideredCount: 1 });
+    expect(rows).toEqual([]);
+    expect(paymentState.get('payment-1')!.escrowReleasedAt).toBeNull();
+  });
+
+  it('releases the held money on the first sweep after the Suspension is lifted', async () => {
+    const { rows, campaigns } = makeDb(
+      [makePayment({ id: 'payment-1', amount: 100_000, campaignId: 'campaign-1' })],
+      [],
+      [],
+      { campaigns: { 'campaign-1': SUSPENDED_CAMPAIGN } },
+    );
+    await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+    // The lift commits: the Campaign is back to its prior status.
+    campaigns['campaign-1'] = { ...ACTIVE_CAMPAIGN, lifecycleStatus: 'COMPLETED' };
+    const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+    expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+    const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
+    expect(releaseLegs).toEqual([
+      expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 100_000, campaignId: 'campaign-1' }),
+      expect.objectContaining({ account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 100_000, campaignId: 'campaign-1' }),
+    ]);
+  });
+
+  it('still releases every other subject in the same sweep, including a Trip that is itself SUSPENDED', async () => {
+    const { rows } = makeDb(
+      [
+        makePayment({ id: 'payment-suspended', amount: 100_000, campaignId: 'campaign-1' }),
+        makePayment({ id: 'payment-other', amount: 70_000, campaignId: 'campaign-2' }),
+        makePayment({ id: 'payment-trip', amount: 50_000, campaignId: null, tripId: 'trip-1' }),
+      ],
+      [],
+      [],
+      {
+        campaigns: { 'campaign-1': SUSPENDED_CAMPAIGN },
+        // A Trip keeps today's rule (ADR 0014): its own status does not hold its escrow.
+        trips: { 'trip-1': { ...ACTIVE_TRIP, status: 'SUSPENDED' } },
+      },
+    );
+
+    const result = await releaseMaturedEscrow();
+
+    expect(result).toEqual({ releasedCount: 2, consideredCount: 3 });
+    expect(rows.filter((r) => r.transactionId === 'escrow-release:payment-suspended')).toEqual([]);
+    expect(rows.find((r) => r.transactionId === 'escrow-release:payment-other' && r.direction === 'CREDIT')).toMatchObject({
+      account: 'CAMPAIGN_BALANCE',
+      amount: 70_000,
+      campaignId: 'campaign-2',
+    });
+    expect(rows.find((r) => r.transactionId === 'escrow-release:payment-trip' && r.direction === 'CREDIT')).toMatchObject({
       account: 'TRIP_BALANCE',
       amount: 50_000,
       volunteerTripId: 'trip-1',

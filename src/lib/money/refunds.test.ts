@@ -54,6 +54,8 @@ function makeTx(
     ledgerRows?: LedgerRow[];
     payment?: ReturnType<typeof makePayment> | null;
     isDemo?: boolean;
+    /** The Campaign's stored status, which the subject guard turns into its effective status. */
+    lifecycleStatus?: string;
     campaignCreatorId?: string;
     tripFundraiserId?: string;
     priorRefunds?: Array<{ amount: number; status: string }>;
@@ -124,7 +126,12 @@ function makeTx(
         findUniqueOrThrow: vi.fn(async () => payment),
       },
       campaign: {
-        findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false, creatorId: options.campaignCreatorId ?? 'fundraiser-1' }),
+        findUnique: vi.fn().mockResolvedValue({
+          isDemo: options.isDemo ?? false,
+          creatorId: options.campaignCreatorId ?? 'fundraiser-1',
+          lifecycleStatus: options.lifecycleStatus ?? 'ACTIVE',
+          deadline: null,
+        }),
       },
       // The Trip row the subject guard reads under its lock.
       volunteerTrip: {
@@ -199,6 +206,23 @@ describe('createRefund', () => {
       expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 38_000, campaignId: 'campaign-1' }),
       expect.objectContaining({ account: 'REFUND_COST', direction: 'DEBIT', amount: 2_000 }),
     ]);
+  });
+
+  it('still freezes a Refund on a Suspended Campaign: a Suspension freezes Payouts, not Refunds (PRD section 7.2)', async () => {
+    const { tx, rows } = makeTx({ lifecycleStatus: 'SUSPENDED', payment: makePayment({ escrowReleasedAt: null }) });
+
+    const refund = await createRefund(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      paymentId: 'payment-1',
+      amount: 40_000,
+      reason: 'Campaign dibekukan',
+      requestedById: 'admin-1',
+    });
+
+    expect(refund.status).toBe('REQUESTED');
+    expect(rows.filter((r) => r.transactionId === 'refund-requested-refund-1')).toContainEqual(
+      expect.objectContaining({ account: 'FROZEN_BALANCE', direction: 'CREDIT', amount: 40_000, campaignId: 'campaign-1' }),
+    );
   });
 
   it('freezes funds from CAMPAIGN_BALANCE once the Payment has matured', async () => {
@@ -420,6 +444,23 @@ describe('approveRefund', () => {
     expect(posted.some((r) => r.account === 'REFUND_COST')).toBe(false);
   });
 
+  it('still approves a Refund on a Suspended Campaign (PRD section 7.2)', async () => {
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      { transactionId: 'freeze-1', direction: 'DEBIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+    ];
+    const refundRow = baseRefundRow({ amount: 100_000, payment: makePayment({ amount: 100_000, providerFee: 0 }) });
+    const { tx, rows } = makeTx({ ledgerRows, refundRow, lifecycleStatus: 'SUSPENDED' });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED', approvedById: 'admin-1' });
+
+    const result = await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+
+    expect(result.status).toBe('APPROVED');
+    expect(rows.filter((r) => r.transactionId === 'refund-approved-refund-1')).toContainEqual(
+      expect.objectContaining({ account: 'FROZEN_BALANCE', direction: 'DEBIT', amount: 100_000, campaignId: 'campaign-1' }),
+    );
+  });
+
   it('settles a full refund with a nonzero Provider Fee cleanly at approval, since the fee was already split out at freeze time', async () => {
     // Gross 100_000, Provider Fee 5_000. The freeze (createRefund, tested
     // separately above) already debited ESCROW_HOLD only the refund's own
@@ -624,7 +665,9 @@ function makeMultiPaymentTx(initialLedgerRows: LedgerRow[] = []) {
     payment: {
       findUniqueOrThrow: vi.fn(async ({ where }: { where: { id: string } }) => payments.get(where.id)),
     },
-    campaign: { findUnique: vi.fn().mockResolvedValue({ isDemo: false }) },
+    campaign: {
+      findUnique: vi.fn().mockResolvedValue({ isDemo: false, creatorId: 'fundraiser-1', lifecycleStatus: 'ACTIVE', deadline: null }),
+    },
     refund: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         refundCounter += 1;

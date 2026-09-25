@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
+import { lifecycleErrorToHttp } from '@/lib/campaign-lifecycle';
 import {
   approvePayout,
   BankAccountNotEligibleError,
@@ -86,6 +87,12 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (_request: NextR
         { error: 'Rekening tujuan tidak lagi memenuhi syarat' },
         { status: 403 },
       );
+    }
+    // PayoutNotAllowedForStatusError (a Suspended or Cancelled Campaign):
+    // the lifecycle module owns its status (409), code and body.
+    const refusal = lifecycleErrorToHttp(error);
+    if (refusal) {
+      return NextResponse.json(refusal.body, { status: refusal.status });
     }
     console.error('Error approving payout:', error);
     return NextResponse.json({ error: 'Gagal menyetujui pencairan' }, { status: 500 });
