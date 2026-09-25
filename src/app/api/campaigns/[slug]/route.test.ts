@@ -349,7 +349,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     expect(body.error).toBe('Forbidden');
   });
 
-  it('maps a status in the body to lifecycleStatus next to it', async () => {
+  it('ignores a status in the body even from an ADMIN -- status moves only through moderation', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null },
       expires: '2099-01-01',
@@ -360,23 +360,15 @@ describe('PATCH /api/campaigns/[slug]', () => {
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
-      status: 'suspended',
       creator: { id: 'other-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
     } as any);
 
-    const request = createRequest('bantu-korban-banjir', 'PATCH', { status: 'suspended' });
+    const request = createRequest('bantu-korban-banjir', 'PATCH', { status: 'active' });
     await PATCH(request, {
       params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
     });
 
-    expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: 'suspended',
-          lifecycleStatus: 'SUSPENDED',
-        }),
-      })
-    );
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: {} }));
   });
 
   it('ignores a client-supplied lifecycleStatus without a status', async () => {
@@ -399,6 +391,75 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
 
     expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.not.objectContaining({ lifecycleStatus: expect.anything() }) }));
+  });
+
+  it('writes only the fields a Fundraiser may edit, dropping money, status, and ownership fields', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'creator-user', role: 'CAMPAIGN_CREATOR', name: 'Creator', email: 'creator@test.com', isVerified: true, verificationType: null },
+      expires: '2099-01-01',
+    });
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user' } as any);
+    mockUpdate.mockResolvedValue({
+      id: 'campaign-1',
+      creator: { id: 'creator-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
+    } as any);
+
+    const request = createRequest('bantu-korban-banjir', 'PATCH', {
+      title: 'Judul Baru',
+      status: 'active',
+      collectedAmount: 999999999,
+      targetAmount: 1,
+      isDemo: true,
+      creatorId: 'attacker',
+      slug: 'slug-lain',
+    });
+    await PATCH(request, {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { title: 'Judul Baru' } }));
+  });
+
+  it('drops deadline, category, and isUrgent -- those change through a Verification Request or an Admin, not a direct edit', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'creator-user', role: 'CAMPAIGN_CREATOR', name: 'Creator', email: 'creator@test.com', isVerified: true, verificationType: null },
+      expires: '2099-01-01',
+    });
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user' } as any);
+    mockUpdate.mockResolvedValue({
+      id: 'campaign-1',
+      creator: { id: 'creator-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
+    } as any);
+
+    const request = createRequest('bantu-korban-banjir', 'PATCH', {
+      story: '<p>Cerita baru</p>',
+      deadline: '2030-01-01T00:00:00.000Z',
+      category: 'kesehatan',
+      isUrgent: true,
+    });
+    await PATCH(request, {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { story: '<p>Cerita baru</p>' } }));
+  });
+
+  it('returns 400 and writes nothing when an editable field is invalid', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'creator-user', role: 'CAMPAIGN_CREATOR', name: 'Creator', email: 'creator@test.com', isVerified: true, verificationType: null },
+      expires: '2099-01-01',
+    });
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user' } as any);
+
+    const request = createRequest('bantu-korban-banjir', 'PATCH', { title: '', coverImage: 'bukan-url' });
+    const response = await PATCH(request, {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(Object.keys(body.fieldErrors).sort()).toEqual(['coverImage', 'title']);
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it('returns 403 for DONOR user', async () => {

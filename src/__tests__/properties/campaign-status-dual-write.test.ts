@@ -7,11 +7,14 @@ import { join } from "node:path";
  * every write that sets one sets the other through `toLifecycleStatus`.
  * This test exists so a new writer cannot reintroduce a silent split.
  *
- * There is no allowlist: today every Campaign write in src/ sets both
- * columns. If a future write legitimately cannot (it must not), add it
- * here as a named literal that a reviewer sees in the diff.
+ * If a write legitimately sets neither column, add it to
+ * WRITES_WITHOUT_STATUS as a named literal that a reviewer sees in the diff.
  */
 const WRITE = /(prisma|tx)\.campaign\.(create|update|upsert|createMany|updateMany)\b/;
+
+// The Fundraiser content edit: its zod schema admits no status field, so it
+// writes neither column (status moves through /api/moderasi).
+const WRITES_WITHOUT_STATUS = ["src/app/api/campaigns/[slug]/route.ts"];
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -31,6 +34,7 @@ describe("Campaign status dual-write", () => {
     const offenders = walk("src")
       .filter((file) => !file.startsWith("src/generated/"))
       .filter((file) => !file.endsWith(".test.ts") && !file.endsWith(".test.tsx"))
+      .filter((file) => !WRITES_WITHOUT_STATUS.includes(file))
       .filter((file) => WRITE.test(readFileSync(file, "utf8")))
       .filter((file) => !readFileSync(file, "utf8").includes("lifecycleStatus"));
 
@@ -50,7 +54,6 @@ describe("Campaign status dual-write", () => {
 
     expect(readers.sort()).toEqual(
       [
-        "src/app/api/campaigns/[slug]/route.ts",
         "src/app/api/campaigns/route.ts",
         "src/app/api/donations/route.ts",
         "src/app/api/moderasi/campaigns/[id]/route.ts",

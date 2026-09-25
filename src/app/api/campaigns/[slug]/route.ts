@@ -1,11 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { isAtLeast } from '@/lib/roles';
-import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
 import { Role } from '@/generated/prisma/client';
 
 export const revalidate = 60;
+
+// The only columns a direct edit may write; zod strips every other key.
+// Status moves through /api/moderasi/campaigns/[id]; target, deadline, and
+// category through a Verification Request or an Admin; money, ownership, and
+// isDemo are never client-writable.
+const editCampaignSchema = z.object({
+  title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
+  description: z.string().min(1, "Deskripsi harus diisi"),
+  story: z.string().min(1, "Cerita campaign harus diisi"),
+  coverImage: z.string().url("URL gambar tidak valid"),
+}).partial();
 
 export async function GET(
   request: NextRequest,
@@ -133,17 +144,19 @@ export async function PATCH(
     }
 
     const body = await request.json();
+    const result = editCampaignSchema.safeParse(body);
 
-    const { lifecycleStatus: _ignored, ...rest } = body;
+    if (!result.success) {
+      const fieldErrors = result.error.flatten().fieldErrors;
+      return NextResponse.json(
+        { error: 'Validasi gagal', fieldErrors },
+        { status: 400 }
+      );
+    }
 
     const updatedCampaign = await prisma.campaign.update({
       where: { id: campaign.id },
-      data: {
-        ...rest,
-        ...(typeof rest.status === "string"
-          ? { lifecycleStatus: toLifecycleStatus(rest.status) }
-          : {}),
-      },
+      data: result.data,
       include: {
         creator: {
           select: {
