@@ -47,7 +47,7 @@ describe('the moderation page of one Campaign', () => {
   it('offers approve and reject for a Submitted Campaign', async () => {
     await renderFor(campaign('SUBMITTED'));
 
-    expect(screen.getByText('Submitted')).toBeDefined();
+    expect(screen.getByText('Diajukan')).toBeDefined();
     expect(screen.getByRole('button', { name: /Setujui/ })).toBeDefined();
     expect(screen.getByRole('button', { name: /Tolak/ })).toBeDefined();
   });
@@ -68,6 +68,6 @@ describe('the moderation page of one Campaign', () => {
 
     await renderFor(campaign('ACTIVE', { deadline: new Date('2026-09-24T12:00:00Z') }));
 
-    expect(screen.getByText('Expired')).toBeDefined();
+    expect(screen.getByText('Berakhir')).toBeDefined();
   });
 });
