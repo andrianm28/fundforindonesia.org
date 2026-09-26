@@ -444,9 +444,9 @@ describe('PATCH /api/campaigns/[slug]', () => {
     expect(response.status).toBe(404);
   });
 
-  it('allows ADMIN to edit any campaign', async () => {
+  it('allows an Admin (the ADMIN assignment) to edit any campaign', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null },
+      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: ['ADMIN'] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({
@@ -519,7 +519,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('ignores a status in the body even from an ADMIN -- status moves only through moderation', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null },
+      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: ['ADMIN'] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({
@@ -541,7 +541,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('ignores a client-supplied lifecycleStatus without a status', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null },
+      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: ['ADMIN'] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({
@@ -628,6 +628,68 @@ describe('PATCH /api/campaigns/[slug]', () => {
     const body = await response.json();
     expect(Object.keys(body.fieldErrors).sort()).toEqual(['coverImage', 'title']);
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  describe('Admin power comes from the ADMIN assignment, not the Role (ADR 0005)', () => {
+    function sessionAs(user: { id: string; role: string; assignments: string[] }) {
+      mockGetServerSession.mockResolvedValue({ user, expires: '2099-01-01' } as any);
+    }
+    function patchCampaignOwnedBy(creatorId: string) {
+      mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId } as any);
+      mockUpdate.mockResolvedValue({ id: 'campaign-1', title: 'Baru' } as any);
+      return PATCH(createRequest('test-campaign', 'PATCH', { title: 'Baru' }), {
+        params: Promise.resolve({ slug: 'test-campaign' }),
+      });
+    }
+
+    it('lets someone holding the ADMIN assignment without the Role edit a Campaign they do not own', async () => {
+      sessionAs({ id: 'ops-1', role: 'DONOR', assignments: ['ADMIN'] });
+
+      const response = await patchCampaignOwnedBy('other-user');
+
+      expect(response.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalled();
+    });
+
+    it('refuses someone with the ADMIN Role but no ADMIN assignment on a Campaign they do not own', async () => {
+      sessionAs({ id: 'legacy-admin', role: 'ADMIN', assignments: [] });
+
+      const response = await patchCampaignOwnedBy('other-user');
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        error: 'Hanya Fundraiser Campaign ini yang dapat melakukan tindakan ini.',
+        code: 'NOT_AUTHORIZED',
+      });
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('lets an Admin edit their own Campaign, as its Fundraiser', async () => {
+      sessionAs({ id: 'owner-admin', role: 'CAMPAIGN_CREATOR', assignments: ['ADMIN'] });
+
+      const response = await patchCampaignOwnedBy('owner-admin');
+
+      expect(response.status).toBe(200);
+    });
+
+    it('still gates an Admin on their own Campaign by the legacy CAMPAIGN_CREATOR Role, as its Fundraiser (tickets 06-08)', async () => {
+      sessionAs({ id: 'owner-admin', role: 'DONOR', assignments: ['ADMIN'] });
+
+      const response = await patchCampaignOwnedBy('owner-admin');
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: 'Forbidden' });
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('does not let the VERIFIER assignment stand in for ADMIN', async () => {
+      sessionAs({ id: 'verifier-1', role: 'CAMPAIGN_CREATOR', assignments: ['VERIFIER'] });
+
+      const response = await patchCampaignOwnedBy('other-user');
+
+      expect(response.status).toBe(403);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
   });
 
   it('returns 403 for DONOR user', async () => {

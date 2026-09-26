@@ -1,11 +1,14 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { hasAssignment } from "@/lib/withAssignmentCheck";
+import { Assignment } from "@/generated/prisma/client";
 
 export default async function AdminDashboardPage() {
   const session = await getServerSession();
 
-  if (!session?.user || session.user.role !== "ADMIN") {
+  // Admin power comes only from the ADMIN assignment, never the Role (ADR 0005).
+  if (!session?.user || !hasAssignment(session.user.assignments, Assignment.ADMIN)) {
     redirect("/");
   }
 

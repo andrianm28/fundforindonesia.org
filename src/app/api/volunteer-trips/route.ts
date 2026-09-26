@@ -26,6 +26,8 @@ function generateSlug(title: string): string {
   return `${base}-${suffix}`;
 }
 
+// Legacy CAMPAIGN_CREATOR Role gate, kept until who may create a Campaign or
+// Volunteer Trip is decided (prd-compliance tickets 06-08).
 export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextRequest) => {
   try {
     const session = await getServerSession();

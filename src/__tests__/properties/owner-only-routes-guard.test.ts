@@ -4,7 +4,9 @@ import { join } from "node:path";
 
 /**
  * Every "only the owner may…" route asks the Capacity judgement for the
- * FUNDRAISER Capacity (src/lib/capacity.ts, through `refuseUnlessFundraiser`)
+ * FUNDRAISER Capacity (src/lib/capacity.ts, through `refuseUnlessFundraiser`),
+ * or, where an Admin may also act (the Campaign, Trip and Batch edits,
+ * ticket 03), for FUNDRAISER_OR_ADMIN through `refuseUnlessFundraiserOrAdmin`,
  * instead of comparing the owner by hand, so every such refusal is the same
  * 403 NOT_AUTHORIZED (capacity-judgement ticket 02). This pins it per
  * handler: a hand-written `creatorId === …` / `fundraiserId !== …` in any of
@@ -47,7 +49,7 @@ describe("owner-only routes ask the Capacity judgement", () => {
     expect(handlerSource(file, handler)).not.toMatch(OWNER_COMPARISON);
   });
 
-  it.each(OWNER_ONLY_HANDLERS)("%s %s asks refuseUnlessFundraiser", (file, handler) => {
-    expect(handlerSource(file, handler)).toContain("refuseUnlessFundraiser(");
+  it.each(OWNER_ONLY_HANDLERS)("%s %s asks refuseUnlessFundraiser[OrAdmin]", (file, handler) => {
+    expect(handlerSource(file, handler)).toMatch(/\brefuseUnlessFundraiser(OrAdmin)?\(/);
   });
 });

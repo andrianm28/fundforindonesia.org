@@ -1,45 +1,38 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
+import { NextRequest } from "next/server";
 import * as fc from "fast-check";
 
-// Replicate the middleware's local types and logic (can't import from lib due to edge runtime)
 type Role = "ADMIN" | "MODERATOR" | "CAMPAIGN_CREATOR" | "DONOR";
 
-const ROLE_LEVELS: Record<Role, number> = {
-  DONOR: 0,
-  CAMPAIGN_CREATOR: 1,
-  MODERATOR: 2,
-  ADMIN: 3,
-};
+// Drive the real middleware: withAuth only decodes the session cookie into
+// req.nextauth.token before calling our function, so stand in for that.
+// (These tests used to replicate the middleware's logic, and kept passing
+// on the copy when the real gate changed.)
+vi.mock("next-auth/middleware", () => ({
+  withAuth: (middleware: unknown) => middleware,
+}));
 
-const ROLE_ROUTES: { pattern: string; minimumRole: Role }[] = [
-  { pattern: "/admin", minimumRole: "ADMIN" },
-  { pattern: "/moderasi", minimumRole: "MODERATOR" },
-  { pattern: "/campaign/create", minimumRole: "CAMPAIGN_CREATOR" },
-];
+import middleware from "@/middleware";
+
+type MiddlewareAssignment = "ADMIN" | "VERIFIER";
 
 /**
- * Simulates the middleware's access decision logic.
+ * Runs the middleware for a signed-in user with this Role and these
+ * assignments (the session token carries both; see src/lib/auth.ts).
  * Returns: "allow" | "redirect:/" | "redirect:/akun"
  */
 function checkRouteAccess(
   pathname: string,
-  userRole: Role | null | undefined
-): "allow" | "redirect:/" | "redirect:/akun" {
-  const effectiveRole: Role = (userRole as Role) ?? "DONOR";
-
-  for (const route of ROLE_ROUTES) {
-    if (pathname.startsWith(route.pattern)) {
-      if (ROLE_LEVELS[effectiveRole] < ROLE_LEVELS[route.minimumRole]) {
-        // Special case: DONOR on /campaign/create redirects to /akun
-        if (route.pattern === "/campaign/create" && effectiveRole === "DONOR") {
-          return "redirect:/akun";
-        }
-        return "redirect:/";
-      }
-    }
-  }
-
-  return "allow";
+  userRole: Role | null | undefined,
+  assignments: MiddlewareAssignment[] = []
+): string {
+  const req = new NextRequest(`http://localhost:3000${pathname}`) as NextRequest & {
+    nextauth: { token: { role?: Role; assignments: MiddlewareAssignment[] } };
+  };
+  req.nextauth = { token: { role: userRole ?? undefined, assignments } };
+  const response = (middleware as unknown as (r: NextRequest) => Response)(req);
+  const location = response.headers.get("location");
+  return location ? `redirect:${new URL(location).pathname}` : "allow";
 }
 
 // Valid roles as defined in the system
@@ -69,13 +62,17 @@ const moderasiPathArb = subPathArb.map((segments) => {
 describe("Feature: user-roles, Property 3: Admin Route Access Control", () => {
   // Feature: user-roles, Property 3: Admin route access control
   // **Validates: Requirements 3.1, 3.2**
+  // Capacity-judgement ticket 03: Admin power comes only from the ADMIN
+  // assignment (ADR 0005), never from the Role.
 
-  test("only ADMIN role grants access to /admin routes — all other roles are redirected", () => {
+  const assignmentsArb = fc.subarray<MiddlewareAssignment>(["ADMIN", "VERIFIER"]);
+
+  test("only the ADMIN assignment grants access to /admin routes, whatever the Role", () => {
     fc.assert(
-      fc.property(roleArb, adminPathArb, (role, adminPath) => {
-        const result = checkRouteAccess(adminPath, role);
+      fc.property(roleArb, assignmentsArb, adminPathArb, (role, assignments, adminPath) => {
+        const result = checkRouteAccess(adminPath, role, assignments);
 
-        if (role === "ADMIN") {
+        if (assignments.includes("ADMIN")) {
           expect(result).toBe("allow");
         } else {
           expect(result).toBe("redirect:/");
@@ -85,47 +82,25 @@ describe("Feature: user-roles, Property 3: Admin Route Access Control", () => {
     );
   });
 
-  test("ADMIN can access any admin sub-route", () => {
+  test("the ADMIN Role without the ADMIN assignment is always redirected from admin routes", () => {
     fc.assert(
       fc.property(adminPathArb, (adminPath) => {
-        const result = checkRouteAccess(adminPath, "ADMIN");
-        expect(result).toBe("allow");
+        expect(checkRouteAccess(adminPath, "ADMIN", [])).toBe("redirect:/");
       }),
       { numRuns: 100 }
     );
   });
 
-  test("MODERATOR is always denied access to admin routes", () => {
+  test("the ADMIN assignment without the ADMIN Role can access any admin sub-route", () => {
     fc.assert(
       fc.property(adminPathArb, (adminPath) => {
-        const result = checkRouteAccess(adminPath, "MODERATOR");
-        expect(result).toBe("redirect:/");
+        expect(checkRouteAccess(adminPath, "DONOR", ["ADMIN"])).toBe("allow");
       }),
       { numRuns: 100 }
     );
   });
 
-  test("CAMPAIGN_CREATOR is always denied access to admin routes", () => {
-    fc.assert(
-      fc.property(adminPathArb, (adminPath) => {
-        const result = checkRouteAccess(adminPath, "CAMPAIGN_CREATOR");
-        expect(result).toBe("redirect:/");
-      }),
-      { numRuns: 100 }
-    );
-  });
-
-  test("DONOR is always denied access to admin routes", () => {
-    fc.assert(
-      fc.property(adminPathArb, (adminPath) => {
-        const result = checkRouteAccess(adminPath, "DONOR");
-        expect(result).toBe("redirect:/");
-      }),
-      { numRuns: 100 }
-    );
-  });
-
-  test("null/undefined role (defaults to DONOR) is denied access to admin routes", () => {
+  test("null/undefined role with no assignments is denied access to admin routes", () => {
     const missingRoleArb = fc.constantFrom<null | undefined>(null, undefined);
 
     fc.assert(
@@ -141,6 +116,8 @@ describe("Feature: user-roles, Property 3: Admin Route Access Control", () => {
 describe("Feature: user-roles, Property 4: Moderation Route Access Control", () => {
   // Feature: user-roles, Property 4: Moderation route access control
   // **Validates: Requirements 4.1, 4.2, 6.5**
+  // Still the legacy Role gate in the middleware (prd-compliance tickets
+  // 06-08); /moderasi/layout.tsx requires the VERIFIER assignment behind it.
 
   test("only MODERATOR or ADMIN grants access to /moderasi routes — lower roles are redirected", () => {
     fc.assert(

@@ -21,6 +21,9 @@ const requestPayoutSchema = z.object({
  * pass the session to the handler, so getServerSession is called again here
  * and the Capacity judgement below (only this Campaign's Fundraiser) is what
  * actually stops one creator from draining another's campaign.
+ *
+ * The CAMPAIGN_CREATOR Role gate is legacy, kept until who may create a
+ * Campaign or Volunteer Trip is decided (prd-compliance tickets 06-08).
  */
 export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextRequest, context: any) => {
   const { slug } = await context.params;

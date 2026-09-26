@@ -113,6 +113,7 @@ export default function AkunPage() {
 
       {/* Becoming a Fundraiser. Identity is no longer self-declared (gap C2):
           an Admin checks it and assigns the role, so there is no form here. */}
+      {/* Legacy CAMPAIGN_CREATOR Role check (prd-compliance tickets 06-08). */}
       {!isAtLeast(user?.role, 'CAMPAIGN_CREATOR') && (
         <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm p-4">
           <div className="flex items-center justify-between">

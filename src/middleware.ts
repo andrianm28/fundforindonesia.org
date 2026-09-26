@@ -1,10 +1,12 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
-// Local role type to avoid importing from @prisma/client (edge-runtime compatibility)
+// Local types to avoid importing from @prisma/client (edge-runtime compatibility)
 type Role = "ADMIN" | "MODERATOR" | "CAMPAIGN_CREATOR" | "DONOR";
+type Assignment = "ADMIN" | "VERIFIER";
 
-// Role hierarchy: higher number = more privilege
+// Role hierarchy: higher number = more privilege. Only the /moderasi and
+// /campaign/create gates below still read it (prd-compliance tickets 06-08).
 const ROLE_LEVELS: Record<Role, number> = {
   DONOR: 0,
   CAMPAIGN_CREATOR: 1,
@@ -12,9 +14,19 @@ const ROLE_LEVELS: Record<Role, number> = {
   ADMIN: 3,
 };
 
-// Route-to-minimum-role mapping
+// Routes gated by an assignment (ADR 0005): Admin power comes only from the
+// ADMIN assignment, never from the Role. The session token carries the
+// assignments (see the jwt callback in src/lib/auth.ts), the same list
+// admin/layout.tsx and moderasi/layout.tsx read from the session.
+const ASSIGNMENT_ROUTES: { pattern: string; assignment: Assignment }[] = [
+  { pattern: "/admin", assignment: "ADMIN" },
+];
+
+// Route-to-minimum-role mapping. Legacy Role gates, left until who may create
+// a Campaign and who verifies are decided (prd-compliance tickets 06-08).
+// /moderasi/layout.tsx already requires the VERIFIER assignment behind this
+// gate.
 const ROLE_ROUTES: { pattern: string; minimumRole: Role }[] = [
-  { pattern: "/admin", minimumRole: "ADMIN" },
   { pattern: "/moderasi", minimumRole: "MODERATOR" },
   { pattern: "/campaign/create", minimumRole: "CAMPAIGN_CREATOR" },
 ];
@@ -24,6 +36,13 @@ export default withAuth(
     const token = req.nextauth.token;
     const pathname = req.nextUrl.pathname;
     const userRole = (token?.role as Role) ?? "DONOR";
+    const assignments = (token?.assignments as Assignment[] | undefined) ?? [];
+
+    for (const route of ASSIGNMENT_ROUTES) {
+      if (pathname.startsWith(route.pattern) && !assignments.includes(route.assignment)) {
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+    }
 
     for (const route of ROLE_ROUTES) {
       if (pathname.startsWith(route.pattern)) {

@@ -146,9 +146,16 @@ export function judgeCapacity(
   throw new NotAuthorizedError(refusal);
 }
 
+/**
+ * "Only this subject's Fundraiser may": the NotAuthorizedError message every
+ * owner-only route answers with, and the one a Fundraiser-or-Admin edit
+ * route gives someone who is neither.
+ */
+export function fundraiserOnlyRefusal(kind: CapacitySubject["kind"]): string {
+  return `Hanya Fundraiser ${SUBJECT_LABELS[kind]} ini yang dapat melakukan tindakan ini.`;
+}
+
 function defaultRefusal(kind: CapacitySubject["kind"], requested: RequestedCapacity): string {
-  if (requested === StatusChangeCapacity.FUNDRAISER) {
-    return `Hanya Fundraiser ${SUBJECT_LABELS[kind]} ini yang dapat melakukan tindakan ini.`;
-  }
+  if (requested === StatusChangeCapacity.FUNDRAISER) return fundraiserOnlyRefusal(kind);
   return `Anda tidak berwenang melakukan tindakan ini pada ${SUBJECT_LABELS[kind]} ini.`;
 }
