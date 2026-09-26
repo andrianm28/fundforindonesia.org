@@ -12,6 +12,8 @@ type Role = "ADMIN" | "MODERATOR" | "CAMPAIGN_CREATOR" | "DONOR";
 // Mock prisma
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
     campaign: {
       findUnique: vi.fn(),
       update: vi.fn(),
@@ -71,6 +73,9 @@ function mockCampaign(creatorId: string) {
   return {
     id: "campaign-id-123",
     creatorId,
+    // A status whose content may be edited (verification-request 05).
+    lifecycleStatus: "ACTIVE",
+    deadline: null,
   };
 }
 
@@ -93,6 +98,8 @@ function createParams(slug: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // An interactive transaction runs its callback on the same client.
+  vi.mocked(prisma.$transaction).mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as any);
   // Default: update succeeds
   mockUpdate.mockResolvedValue({
     id: "campaign-id-123",

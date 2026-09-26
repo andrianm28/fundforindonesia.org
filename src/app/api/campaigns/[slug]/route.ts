@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
+import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
 import { CampaignStatus, CampaignStatusChangeAction } from '@/generated/prisma/client';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
+import { CampaignNotFoundError } from '@/lib/campaign-lifecycle-errors';
+import { lockAndLoad, requireContentEditable } from '@/lib/subject-guard';
 
 // Rendered per request: a Suspended Campaign's answer depends on who asks
 // (see suspensionReasonFor), and reading the session inside a route Next
@@ -180,24 +182,35 @@ export async function PATCH(
       );
     }
 
-    const updatedCampaign = await prisma.campaign.update({
-      where: { id: campaign.id },
-      data: result.data,
-      // The legacy status string is never sent back (ticket 03 drops it).
-      omit: { status: true },
-      include: {
-        creator: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
+    // Whether the content may change is judged under the Campaign's row
+    // lock, never on the read above: a submit committed in the meantime is
+    // seen here, and one that comes after waits for this edit to commit.
+    const updatedCampaign = await prisma.$transaction(async (tx) => {
+      const state = await lockAndLoad(tx, { type: 'campaign', campaignId: campaign.id }, new Date());
+      if (!state) throw new CampaignNotFoundError(slug, 'slug');
+      requireContentEditable(state);
+
+      return tx.campaign.update({
+        where: { id: campaign.id },
+        data: result.data,
+        // The legacy status string is never sent back (ticket 03 drops it).
+        omit: { status: true },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              name: true,
+              avatar: true,
+            },
           },
         },
-      },
+      });
     });
 
     return NextResponse.json({ campaign: updatedCampaign });
   } catch (error) {
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error updating campaign:', error);
     return NextResponse.json(
       { error: "Terjadi kesalahan server" },

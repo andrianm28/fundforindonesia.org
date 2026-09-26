@@ -5,7 +5,7 @@ import {
   VolunteerTripStatus,
   type Prisma,
 } from "@/generated/prisma/client";
-import { CampaignLifecycleError } from "./campaign-lifecycle-errors";
+import { CampaignLifecycleError, STATUS_LABEL } from "./campaign-lifecycle-errors";
 import { judgeCapacity } from "./capacity";
 import type { LedgerSubject } from "./money/ledger";
 
@@ -194,6 +194,41 @@ export function requirePayoutAllowed(state: SubjectState): void {
   if (state.kind === "trip") return;
   if (!PAYOUT_ALLOWED_FROM.includes(state.effectiveStatus)) {
     throw new PayoutNotAllowedForStatusError(state.effectiveStatus);
+  }
+}
+
+/**
+ * The Campaign effective statuses whose content (title, description, story,
+ * cover image) its Fundraiser or an Admin may edit directly (CONTEXT.md,
+ * Verification Request). Submitted is frozen so the Verifier checks a fixed
+ * version; the final statuses are closed.
+ */
+const CONTENT_EDITABLE_STATUSES: readonly CampaignStatus[] = [
+  CampaignStatus.DRAFT,
+  CampaignStatus.REJECTED,
+  CampaignStatus.ACTIVE,
+];
+
+/** A content edit refused because of the Campaign's effective status. */
+export class CampaignNotEditableError extends CampaignLifecycleError {
+  readonly code = "CAMPAIGN_NOT_EDITABLE";
+  constructor(readonly currentStatus: CampaignStatus) {
+    super(`Konten Campaign tidak dapat diubah saat berstatus ${STATUS_LABEL[currentStatus]}.`);
+    this.name = "CampaignNotEditableError";
+  }
+}
+
+/**
+ * Passes only for a Campaign that is effectively Draft, Rejected or Active,
+ * so an Active Campaign past its deadline refuses as Expired. Judge it on
+ * `lockAndLoad`'s result, so a submit that committed first is seen. A
+ * Volunteer Trip has its own edit rule (TRIP_EDITABLE_STATUSES) and is not
+ * judged here.
+ */
+export function requireContentEditable(state: SubjectState): void {
+  if (state.kind !== "campaign") return;
+  if (!CONTENT_EDITABLE_STATUSES.includes(state.effectiveStatus)) {
+    throw new CampaignNotEditableError(state.effectiveStatus);
   }
 }
 
