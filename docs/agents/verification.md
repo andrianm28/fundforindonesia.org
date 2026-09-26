@@ -76,9 +76,9 @@ green. Agents never dispatch it. That job is still being built: the host side,
 `ops/deploy.sh`, exists, and the deploy job that calls it is a later ticket of
 `.scratch/ci-cd-github-actions/`. Until it lands, deploying is the owner's
 call, not an agent's. Never run `ops/deploy.sh` on the host yourself: it
-switches production. Its tests stub `docker` and `curl`. Leave the running production stack alone: no
-`docker compose` against it, no manual deploy scripts from the host, and
-nothing inside `/home/ubuntu/kibi-clone`, which is the live production checkout.
+switches production. Its tests stub `docker` and `curl`. Leave the running
+production stack alone: no `docker compose` against it, no manual deploy
+scripts from the host, and nothing inside `/home/ubuntu/kibi-clone`, which is the live production checkout.
 
 ## Worktree hygiene
 

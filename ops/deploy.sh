@@ -10,14 +10,16 @@
 # key is locked to this script by a forced command in authorized_keys (ticket
 # 08). With a forced command the client's words arrive in SSH_ORIGINAL_COMMAND
 # instead of as arguments, so when there are no arguments the script reads the
-# same three words from there. Either way anything but a 40-hex commit SHA and
-# two sha256 digests is refused before anything runs: a leaked key can deploy
-# an image that is already in GHCR, and nothing else.
+# same three words from there (its first line only). The client must send just
+# those three words, not the script's name. Anything but a 40-hex commit SHA
+# and two sha256 digests is refused, and logged, before anything runs: a
+# leaked key can deploy an image that is already in GHCR, and nothing else.
 #
 # The digests are the ones cd.yml's image job pushed for that commit (its
 # outputs and run summary). Compose runs the images by digest, so what runs is
-# exactly what CI built and scanned. The SHA only names the release: in the
-# local tags, the backups, the state files and the log.
+# exactly what CI built and scanned. The SHA names the release: in the local
+# tags, the backups, the state files and the log. A release is the three
+# together; a rebuild of the same commit is a different release.
 #
 # Steps, each logged:
 #   1. validate the arguments; take a lock, so two deploys never overlap
@@ -26,18 +28,20 @@
 #   4. run `prisma migrate deploy` from the migrate image; if it fails, stop:
 #      the running app was never touched
 #   5. recreate the app on the new image
-#   6. poll /api/health for up to 60 s; if it never answers 200, recreate the
-#      app on the previous release and exit non-zero. Migrations are not
+#   6. poll /api/health for about 60 s; if it never answers 200, recreate the
+#      app on the release that was running (or, when that is this very
+#      release, on the previous one) and exit non-zero. Migrations are not
 #      reverted: they are forward-only, and step 3's dump is the way back.
 #   7. record the release in state/current, and the one it replaced in
 #      state/previous
-#   8. remove the images of releases older than the last 3, always keeping the
-#      previous release (the rollback target)
+#   8. remove this repository's images of releases older than the last 3,
+#      always keeping the previous release (the rollback target)
 #
-# Exit codes: 0 deployed; 1 a step failed before the app was switched (the old
-# app still runs); 2 bad arguments; 3 the new app was unhealthy and the
-# previous release is back and healthy; 4 the new app was unhealthy and there
-# was no healthy previous release to go back to (production needs a human).
+# Exit codes: 0 deployed; 1 a step failed (the log says which, and whether the
+# app had been switched; before step 5 the old app still runs); 2 bad
+# arguments; 3 the new app was unhealthy and the release before it is back and
+# healthy; 4 the new app was unhealthy and there was no healthy release to go
+# back to (production needs a human).
 #
 # Layout of the deploy directory (DEPLOY_DIR, by default the parent of this
 # script's directory):
@@ -60,54 +64,70 @@ export LC_ALL=C
 umask 077 # backups hold personal data
 
 IMAGE=ghcr.io/andrianm28/fundforindonesia.org
-DEPLOY_DIR="${DEPLOY_DIR:-$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)}"
+self="${BASH_SOURCE[0]}"
+[[ $self == */* ]] || self="./$self"
+DEPLOY_DIR="${DEPLOY_DIR:-$(cd "${self%/*}/.." && pwd)}"
 STATE_DIR="$DEPLOY_DIR/state"
 BACKUP_DIR="$DEPLOY_DIR/backups"
-LOG_DIR="$DEPLOY_DIR/logs"
+LOG_FILE="$DEPLOY_DIR/logs/deploy.log"
 HEALTH_URL=http://127.0.0.1:8093/api/health
-HEALTH_POLLS=30 # 2 s apart: 60 s
+HEALTH_SECONDS=60 # polled every 2 s
 KEEP_BACKUPS=7
 KEEP_RELEASES=3
 
-usage() {
+mkdir -p "$STATE_DIR" "$BACKUP_DIR" "${LOG_FILE%/*}"
+
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*"; }
+
+# --- 1. Arguments, .env, lock, log -------------------------------------------
+
+words=("$@")
+if [ $# -eq 0 ] && [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
+  # `read -a` splits on whitespace and expands nothing (no globs, no $).
+  read -r -a words <<< "$SSH_ORIGINAL_COMMAND"
+fi
+
+refuse() {
+  # %q, so whatever was sent is logged as one inert line.
+  if [ $# -eq 0 ] && [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
+    log "Refused SSH_ORIGINAL_COMMAND: $(printf '%q' "$SSH_ORIGINAL_COMMAND")" >> "$LOG_FILE"
+  else
+    log "Refused arguments:$(printf ' %q' "$@")" >> "$LOG_FILE"
+  fi
   echo "usage: ops/deploy.sh <commit-sha> <app-digest> <migrate-digest>" >&2
   echo "       a 40-hex commit SHA and two sha256:<64 hex> image digests" >&2
   exit 2
 }
-
-# --- 1. Arguments, .env, lock, log -------------------------------------------
-
-args=("$@")
-if [ $# -eq 0 ] && [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
-  # `read -a` splits on whitespace and expands nothing (no globs, no $).
-  read -r -a args <<< "$SSH_ORIGINAL_COMMAND"
+if [ "${#words[@]}" -ne 3 ] ||
+  ! [[ ${words[0]} =~ ^[0-9a-f]{40}$ ]] ||
+  ! [[ ${words[1]} =~ ^sha256:[0-9a-f]{64}$ ]] ||
+  ! [[ ${words[2]} =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  refuse "$@"
 fi
-[ "${#args[@]}" -eq 3 ] || usage
-[[ ${args[0]} =~ ^[0-9a-f]{40}$ ]] || usage
-[[ ${args[1]} =~ ^sha256:[0-9a-f]{64}$ ]] || usage
-[[ ${args[2]} =~ ^sha256:[0-9a-f]{64}$ ]] || usage
-sha="${args[0]}"
+sha="${words[0]}"
 # Compose interpolates the whole file for every command, so both must be set
 # even for commands that use neither image.
-export APP_DIGEST="${args[1]}" MIGRATE_DIGEST="${args[2]}"
+export APP_DIGEST="${words[1]}" MIGRATE_DIGEST="${words[2]}"
+release="$sha $APP_DIGEST $MIGRATE_DIGEST"
 
 if [ ! -f "$DEPLOY_DIR/.env" ]; then
-  echo "error: no production .env in $DEPLOY_DIR" >&2
+  log "Refused $sha: no production .env in $DEPLOY_DIR" | tee -a "$LOG_FILE" >&2
   exit 1
 fi
-
-mkdir -p "$STATE_DIR" "$BACKUP_DIR" "$LOG_DIR"
 
 exec 9> "$STATE_DIR/deploy.lock"
 if ! flock -n 9; then
-  echo "error: another deploy is running (lock: $STATE_DIR/deploy.lock)" >&2
+  log "Refused $sha: another deploy is running (lock: $STATE_DIR/deploy.lock)" | tee -a "$LOG_FILE" >&2
   exit 1
 fi
 
-# Everything from here on goes to the caller and to the log.
-exec > >(tee -a "$LOG_DIR/deploy.log") 2>&1
-
-log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*"; }
+# Everything from here on goes to the caller and to the log. If the caller
+# goes away (the SSH session drops), tee keeps writing the log, and the
+# script ignores SIGPIPE rather than dying half-way through a deploy. tee
+# does not inherit the lock.
+trap '' PIPE
+exec > >(exec 9>&-; exec tee -a --output-error=warn-nopipe "$LOG_FILE") 2>&1
+tee_pid=$!
 
 step="starting"
 dump=""
@@ -115,11 +135,20 @@ switched=""
 finish() {
   local rc=$?
   [ -n "$dump" ] && rm -f -- "$dump.partial"
-  if [ "$rc" -eq 1 ] && [ -z "$switched" ]; then
-    log "FAILED during: $step. The running app was not changed."
-  elif [ "$rc" -eq 1 ]; then
-    log "FAILED during: $step, after the app was switched to $sha and passed its health check."
-  fi
+  case "$rc" in
+    0 | 3 | 4) ;;
+    *)
+      if [ -z "$switched" ]; then
+        log "FAILED during: $step (exit $rc). The running app was not changed."
+      else
+        log "FAILED during: $step (exit $rc), after the app was switched to $sha and passed its health check."
+      fi
+      rc=1
+      ;;
+  esac
+  exec >&- 2>&-
+  wait "$tee_pid" 2> /dev/null || true
+  exit "$rc"
 }
 trap finish EXIT
 
@@ -128,21 +157,29 @@ compose() {
     --env-file "$DEPLOY_DIR/.env" "$@"
 }
 
+# A release is one "<sha> <app-digest> <migrate-digest>" line.
+sha_of() { echo "${1%% *}"; }
 read_state() { if [ -f "$STATE_DIR/$1" ]; then echo "$(< "$STATE_DIR/$1")"; fi; }
 write_state() { printf '%s\n' "${@:2}" > "$STATE_DIR/$1.new" && mv "$STATE_DIR/$1.new" "$STATE_DIR/$1"; }
 
 healthy() {
-  local i
-  for ((i = 1; i <= HEALTH_POLLS; i++)); do
+  local deadline=$((SECONDS + HEALTH_SECONDS)) polls
+  for ((polls = 0; polls < HEALTH_SECONDS / 2 && SECONDS < deadline; polls++)); do
     curl -fsS --max-time 5 -o /dev/null "$HEALTH_URL" 2> /dev/null && return 0
     sleep 2
   done
   return 1
 }
 
+# Recreate the app on a release, and wait for it to answer /api/health.
+switch_to() {
+  read -r _ APP_DIGEST MIGRATE_DIGEST <<< "$1"
+  compose up -d app && healthy
+}
+
 current="$(read_state current)"
 previous="$(read_state previous)"
-log "Deploying $sha (app $APP_DIGEST, migrate $MIGRATE_DIGEST); running now: ${current%% *}"
+log "Deploying $sha (app $APP_DIGEST, migrate $MIGRATE_DIGEST); running now: ${current:-nothing recorded}"
 
 # --- 2. Pull ------------------------------------------------------------------
 
@@ -156,9 +193,9 @@ docker tag "$IMAGE@$MIGRATE_DIGEST" "$IMAGE:$sha-migrate"
 # Put this release last in the ledger of pulled releases, which pruning reads.
 pulled=()
 while read -r line; do
-  [ "${line%% *}" = "$sha" ] || pulled+=("$line")
+  [ "$line" = "$release" ] || pulled+=("$line")
 done < <(read_state images)
-write_state images "${pulled[@]}" "$sha $APP_DIGEST $MIGRATE_DIGEST"
+write_state images "${pulled[@]}" "$release"
 
 # --- 3. Backup ----------------------------------------------------------------
 
@@ -185,33 +222,35 @@ compose --profile migrate run --rm -T migrate
 
 step="switching the app"
 log "Switching the app to $sha"
-if compose up -d app && healthy; then
-  log "Healthy: $HEALTH_URL answers 200"
+if switch_to "$release"; then
   switched=1
+  log "Healthy: $HEALTH_URL answers 200"
 else
-  log "The new app did not answer 200 on $HEALTH_URL within $((HEALTH_POLLS * 2)) s"
-  if [ -z "$current" ] || [ "${current%% *}" = "$sha" ]; then
-    log "No previous release is recorded to roll back to. Production needs a human."
+  log "The new app did not answer 200 on $HEALTH_URL within $HEALTH_SECONDS s"
+  # Back to what was running, unless that was this very release.
+  target="$current"
+  [ "$target" = "$release" ] && target="$previous"
+  if [ -z "$target" ]; then
+    log "No earlier release is recorded to roll back to. Production needs a human."
     exit 4
   fi
-  read -r _ APP_DIGEST MIGRATE_DIGEST <<< "$current"
-  log "Rolling back to ${current%% *}"
-  if compose up -d app && healthy; then
-    log "Rolled back to ${current%% *}, which is healthy. $sha was not deployed."
+  log "Rolling back to $(sha_of "$target")"
+  if switch_to "$target"; then
+    log "Rolled back to $(sha_of "$target"), which is healthy. $sha was not deployed."
     exit 3
   fi
-  log "Rolled back to ${current%% *}, but it is not healthy either. Production needs a human."
+  log "Rolled back to $(sha_of "$target"), but it is not healthy either. Production needs a human."
   exit 4
 fi
 
 # --- 7. Record ----------------------------------------------------------------
 
 step="recording the release"
-if [ -n "$current" ] && [ "${current%% *}" != "$sha" ]; then
+if [ -n "$current" ] && [ "$current" != "$release" ]; then
   previous="$current"
   write_state previous "$previous"
 fi
-write_state current "$sha $APP_DIGEST $MIGRATE_DIGEST"
+write_state current "$release"
 log "Deployed $sha"
 
 # --- 8. Prune -----------------------------------------------------------------
@@ -223,15 +262,23 @@ step="pruning old images"
 mapfile -t pulled < <(read_state images)
 keep=()
 for i in "${!pulled[@]}"; do
-  read -r s a m <<< "${pulled[$i]}"
-  if [ "$i" -ge $((${#pulled[@]} - KEEP_RELEASES)) ] || [ "$s" = "$sha" ] || [ "$s" = "${previous%% *}" ]; then
+  if [ "$i" -ge $((${#pulled[@]} - KEEP_RELEASES)) ] ||
+    [ "${pulled[$i]}" = "$release" ] || [ "${pulled[$i]}" = "$previous" ]; then
     keep+=("${pulled[$i]}")
-    continue
   fi
-  log "Pruning the images of $s"
-  # Removing the last tags deletes the image with its digest references; the
-  # digest pass only catches an image whose tags were already gone.
-  docker image rm "$IMAGE:$s" "$IMAGE:$s-migrate" || log "warning: could not remove the images of $s"
+done
+kept_shas=" "
+for line in "${keep[@]}"; do kept_shas+="$(sha_of "$line") "; done
+for line in "${pulled[@]}"; do
+  [[ " ${keep[*]} " == *" $line "* ]] && continue
+  read -r s a m <<< "$line"
+  log "Pruning the images of $s ($a)"
+  # A rebuild of a kept commit owns the :<sha> tags now; leave them.
+  if [[ $kept_shas != *" $s "* ]]; then
+    docker image rm "$IMAGE:$s" "$IMAGE:$s-migrate" || log "warning: could not remove the images of $s"
+  fi
+  # Removing the last tags deletes the image with its digest references; this
+  # catches an untagged image (an older build of a kept commit, say).
   docker image rm "$IMAGE@$a" "$IMAGE@$m" > /dev/null 2>&1 || true
 done
 write_state images "${keep[@]}"

@@ -97,8 +97,10 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function deploy(args: string[], env: Record<string, string> = {}) {
-  const result = spawnSync("/bin/bash", [SCRIPT, ...args], {
+/** `via` runs the script under another command, e.g. one that holds the lock. */
+function deploy(args: string[], env: Record<string, string> = {}, via: string[] = []) {
+  const [cmd, ...pre] = [...via, "/bin/bash"];
+  const result = spawnSync(cmd, [...pre, SCRIPT, ...args], {
     env: {
       PATH: stubDir,
       DEPLOY_DIR: deployDir,
@@ -231,6 +233,23 @@ describe("ops/deploy.sh", () => {
       expect(log()).toMatch(/fail/i);
     });
 
+    it("records refused calls too, quoted", () => {
+      const { status } = deploy([], { SSH_ORIGINAL_COMMAND: "rm -rf / ; $(id)" });
+      expect(status).toBe(2);
+      expect(log()).toMatch(/refused/i);
+      expect(log()).toContain("rm -rf / ; $(id)".replace(/[ ;$()]/g, (c) => `\\${c}`));
+    });
+
+    it("says a step failed whatever its exit code", () => {
+      writeStub(
+        "docker",
+        `case "$*" in *"migrate run"*) exit 125 ;; *pg_dump*) echo PGDMP ;; esac; exit 0`,
+      );
+      const { status } = deployRelease(release(1));
+      expect(status).toBe(1);
+      expect(log()).toMatch(/FAILED during: migrating the database/);
+    });
+
     it("never contains the production .env's values", () => {
       const { stdout, stderr } = deployRelease(release(1));
       deployRelease(release(2), { DOCKER_FAIL_ON: "*migrate run*" });
@@ -242,12 +261,12 @@ describe("ops/deploy.sh", () => {
   it("refuses to start while another deploy holds the lock", () => {
     mkdirSync(join(deployDir, "state"));
     const lock = join(deployDir, "state", "deploy.lock");
-    const holder = spawnSync("flock", [lock, "/bin/bash", "-c", `PATH=${stubDir} DEPLOY_DIR=${deployDir} DOCKER_CALL_LOG=${callLog} STUB_STATE=${root} /bin/bash ${SCRIPT} ${release(1).sha} ${release(1).app} ${release(1).migrate}`], {
-      encoding: "utf8",
-    });
-    expect(holder.status).not.toBe(0);
-    expect(dockerCalls()).toEqual([]);
-    expect(holder.stderr).toMatch(/another deploy/i);
+    const flock = join(stubDir, "flock");
+    const r = release(1);
+    const { status, calls, stderr } = deploy([r.sha, r.app, r.migrate], {}, [flock, lock]);
+    expect(status).not.toBe(0);
+    expect(calls).toEqual([]);
+    expect(stderr).toMatch(/another deploy/i);
   });
 
   describe("pruning images", () => {
@@ -291,6 +310,23 @@ describe("ops/deploy.sh", () => {
       const calls = dockerCalls();
       expect(removed(calls, r1)).toBe(true);
       expect(removed(calls, r2)).toBe(false);
+    });
+
+    it("a rebuild of a SHA replaces its older digests without untagging the new ones", () => {
+      const r1 = release(1);
+      const rebuilt = { ...r1, app: digest(0x41, "a"), migrate: digest(0x41, "m") };
+      deployRelease(r1);
+      for (const n of [2, 3]) deployRelease(release(n));
+      writeFileSync(callLog, "");
+      expect(deployRelease(rebuilt).status).toBe(0);
+      for (const n of [4, 5, 6]) deployRelease(release(n));
+
+      const rms = removals(dockerCalls());
+      // The first build's digests go; the :<sha> tags, now on the rebuild, go only with it.
+      expect(rms.some((c) => c.includes(`${IMAGE}@${r1.app}`))).toBe(true);
+      const firstRm = rms.findIndex((c) => c.includes(`${IMAGE}@${r1.app}`));
+      const tagRm = rms.findIndex((c) => c.includes(`${IMAGE}:${r1.sha} `) || c.endsWith(`${IMAGE}:${r1.sha}`));
+      expect(tagRm === -1 || tagRm > firstRm).toBe(true);
     });
 
     it("a failed deploy prunes nothing", () => {
@@ -341,13 +377,34 @@ describe("ops/deploy.sh", () => {
       expect(calls.filter((c) => c.endsWith("compose up -d app"))).toHaveLength(2);
     });
 
+    it("a failed redeploy of the running SHA goes back to the previous release", () => {
+      const [r1, r2] = [release(1), release(2)];
+      deployRelease(r1);
+      deployRelease(r2);
+      writeFileSync(callLog, "");
+      const { status, calls } = deployRelease(r2, { UNHEALTHY_DIGEST: r2.app });
+      expect(status).toBe(3);
+      expect(calls.at(-1)).toBe(`[app=${r1.app}] compose up -d app`);
+    });
+
+    it("a failed rebuild of the running SHA goes back to the build that was running", () => {
+      const r1 = release(1);
+      const rebuilt = { ...r1, app: digest(0x41, "a"), migrate: digest(0x41, "m") };
+      deployRelease(r1);
+      writeFileSync(callLog, "");
+      const { status, calls } = deployRelease(rebuilt, { UNHEALTHY_DIGEST: rebuilt.app });
+      expect(status).toBe(3);
+      expect(calls.at(-1)).toBe(`[app=${r1.app}] compose up -d app`);
+      expect(stateFile("current")).toBe(`${r1.sha} ${r1.app} ${r1.migrate}`);
+    });
+
     it("on the first deploy, with nothing to roll back to, fails without a rollback", () => {
       const r1 = release(1);
       const { status, calls, stdout } = deployRelease(r1, { UNHEALTHY_DIGEST: r1.app });
 
       expect(status).toBe(4);
       expect(calls.filter((c) => c.endsWith("compose up -d app"))).toHaveLength(1);
-      expect(stdout).toMatch(/no previous release/i);
+      expect(stdout).toMatch(/no earlier release/i);
       expect(stateFile("current")).toBe("");
     });
   });
