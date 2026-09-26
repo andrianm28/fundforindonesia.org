@@ -56,7 +56,7 @@ env:
 jobs:
   image:
     name: image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # A workflow_run fires for every completed CI run on a branch named main,
     # including failed runs and a fork's PR from its own "main". Only a green
