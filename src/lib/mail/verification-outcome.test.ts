@@ -8,7 +8,7 @@ const BASE = {
   campaignUrl: 'https://fundforindonesia.org/campaign/bantu-korban-banjir',
 };
 
-describe('verificationOutcomeEmail on approval', () => {
+describe('verificationOutcomeEmail for a Campaign diloloskan', () => {
   const email = verificationOutcomeEmail({ ...BASE, outcome: 'approved' });
 
   it('is addressed to the Fundraiser', () => {
@@ -33,7 +33,7 @@ describe('verificationOutcomeEmail on approval', () => {
   });
 });
 
-describe('verificationOutcomeEmail on rejection', () => {
+describe('verificationOutcomeEmail for a Campaign ditolak', () => {
   const email = verificationOutcomeEmail({
     ...BASE,
     outcome: 'rejected',

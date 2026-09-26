@@ -332,7 +332,7 @@ export function makeCampaignDb(
     checklistItems?: ChecklistItemRow[];
     verificationRequests?: VerificationRequestRow[];
     identityVerifications?: IdentityVerificationRow[];
-    /** Read-only, so kept outside the transactional copy; defaults to the Campaign's creator. */
+    /** Read-only, so kept outside the transactional copy; defaults to the Fundraiser of campaignRow(). */
     users?: UserRow[];
   } = {},
 ) {

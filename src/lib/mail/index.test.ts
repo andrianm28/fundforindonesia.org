@@ -25,11 +25,8 @@ const ENV_KEYS = [
   'MAIL_FROM',
 ] as const;
 
-/** An empty value reads as unset, as it does in a .env file with no value. */
-function setEnv(key: (typeof ENV_KEYS)[number], value: string) {
-  vi.stubEnv(key, value);
-}
-
+// Every key starts empty, which the registry reads as unset, as it does a
+// .env key with no value.
 beforeEach(() => {
   for (const k of ENV_KEYS) vi.stubEnv(k, '');
   vi.stubEnv('NODE_ENV', 'test');
@@ -40,11 +37,11 @@ afterEach(() => {
 });
 
 function configureSmtp() {
-  setEnv('SMTP_HOST', 'smtp.example.test');
-  setEnv('SMTP_PORT', '465');
-  setEnv('SMTP_USER', 'relay-user');
-  setEnv('SMTP_PASSWORD', 'relay-password');
-  setEnv('MAIL_FROM', 'no-reply@example.test');
+  vi.stubEnv('SMTP_HOST', 'smtp.example.test');
+  vi.stubEnv('SMTP_PORT', '465');
+  vi.stubEnv('SMTP_USER', 'relay-user');
+  vi.stubEnv('SMTP_PASSWORD', 'relay-password');
+  vi.stubEnv('MAIL_FROM', 'no-reply@example.test');
 }
 
 describe('getMailer outside production', () => {
@@ -53,14 +50,14 @@ describe('getMailer outside production', () => {
   });
 
   it('resolves SMTP when MAIL_PROVIDER says so', () => {
-    setEnv('MAIL_PROVIDER', 'smtp');
+    vi.stubEnv('MAIL_PROVIDER', 'smtp');
     configureSmtp();
 
     expect(getMailer()).toBeInstanceOf(SmtpMailer);
   });
 
   it('refuses an unknown provider instead of falling back to the mock', () => {
-    setEnv('MAIL_PROVIDER', 'sendgrid');
+    vi.stubEnv('MAIL_PROVIDER', 'sendgrid');
 
     expect(() => getMailer()).toThrow(UnknownMailerError);
   });
@@ -68,7 +65,7 @@ describe('getMailer outside production', () => {
 
 describe('getMailer in production', () => {
   beforeEach(() => {
-    setEnv('NODE_ENV', 'production');
+    vi.stubEnv('NODE_ENV', 'production');
   });
 
   it('resolves SMTP by default, so production never falls back to the mock', () => {
@@ -82,7 +79,7 @@ describe('getMailer in production', () => {
   });
 
   it('refuses the mock even when asked for it, because it delivers nothing', () => {
-    setEnv('MAIL_PROVIDER', 'mock');
+    vi.stubEnv('MAIL_PROVIDER', 'mock');
 
     expect(() => getMailer()).toThrow(MailerNotConfiguredError);
   });
@@ -90,27 +87,27 @@ describe('getMailer in production', () => {
 
 describe('getMailer when SMTP is half configured', () => {
   beforeEach(() => {
-    setEnv('MAIL_PROVIDER', 'smtp');
+    vi.stubEnv('MAIL_PROVIDER', 'smtp');
     configureSmtp();
   });
 
   it.each(['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'MAIL_FROM'] as const)(
     'reports %s missing',
     (key) => {
-      setEnv(key, '');
+      vi.stubEnv(key, '');
 
       expect(() => getMailer()).toThrow(new RegExp(key));
     },
   );
 
   it('refuses a port that is not a number', () => {
-    setEnv('SMTP_PORT', 'smtps');
+    vi.stubEnv('SMTP_PORT', 'smtps');
 
     expect(() => getMailer()).toThrow(MailerNotConfiguredError);
   });
 
   it('refuses an SMTP_SECURE that is neither true nor false', () => {
-    setEnv('SMTP_SECURE', 'yes');
+    vi.stubEnv('SMTP_SECURE', 'yes');
 
     expect(() => getMailer()).toThrow(MailerNotConfiguredError);
   });

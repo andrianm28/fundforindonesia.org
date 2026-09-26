@@ -650,6 +650,8 @@ export async function decideVerificationRequest(
   const identityNote = optionalReason(params.identityNote, IDENTITY_NOTE);
   const mailer = params.mailer ?? getMailer();
   // Composed under the lock from what was decided; sent only after commit.
+  // Kept out of the command's result, which the route returns as JSON: the
+  // Fundraiser's address has no business in the Verifier's response.
   const outcome: { email?: MailMessage; fundraiserId?: string } = {};
   const result = await runCommand(prisma, params, {
     authority: {
@@ -712,7 +714,7 @@ export async function decideVerificationRequest(
         campaignUrl: `${siteUrl()}/campaign/${campaign.slug}`,
         ...(decision.outcome === VerificationOutcome.APPROVED
           ? { outcome: "approved" as const }
-          : { outcome: "rejected" as const, reason: reason ?? "" }),
+          : { outcome: "rejected" as const, reason: requireReason(reason) }),
       });
       return { verificationRequest: { ...request, ...decided }, identityVerificationRecorded };
     },
@@ -728,7 +730,10 @@ export async function decideVerificationRequest(
   return result;
 }
 
-/** The absolute site address links in an email start with. */
+/**
+ * The absolute site address links in an email start with. NEXTAUTH_URL is
+ * the address the deployment actually answers on (docker-compose sets it).
+ */
 function siteUrl(): string {
   const base =
     process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXTAUTH_URL || "https://fundforindonesia.org";

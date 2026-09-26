@@ -28,7 +28,9 @@ export type CreateTransport = (options: {
 
 /**
  * A slow relay holds the request that sends, which the Verifier is waiting
- * on; past this the send fails and is reported like any other failure.
+ * on. Each phase (connecting, the greeting, any quiet socket) is cut off
+ * after this, so a stalled relay fails within a few multiples of it and is
+ * reported like any other failure.
  */
 const TIMEOUT_MS = 10_000;
 

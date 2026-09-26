@@ -57,7 +57,7 @@ afterEach(() => {
 });
 
 describe('decideVerificationRequest emails the Fundraiser', () => {
-  it('on approval, tells them their Campaign was diloloskan, with its link', async () => {
+  it('when the Campaign is diloloskan, tells them so, with its link', async () => {
     const mailer = new MockMailer();
 
     await approve(seeded(), mailer);
@@ -70,7 +70,7 @@ describe('decideVerificationRequest emails the Fundraiser', () => {
     expect(email.text).toMatch(/\/campaign\/bantu-korban-banjir/);
   });
 
-  it('on rejection, tells them it was ditolak and why', async () => {
+  it('when the Campaign is ditolak, tells them so and why', async () => {
     const mailer = new MockMailer();
 
     await reject(seeded(), mailer);
