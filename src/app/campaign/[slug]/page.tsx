@@ -4,8 +4,15 @@ import { Metadata } from 'next';
 import { CampaignDetailView } from '@/components/campaign/CampaignDetailView';
 import { StructuredData } from '@/components/shared/SEOHead';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
+import { isPubliclyViewable } from '@/lib/campaign-visibility';
 
-export const revalidate = 60; // ISR: revalidate every 60 seconds
+// ISR: one render per Campaign, cached for every visitor alike and
+// revalidated every 60 seconds. So this page never reads the session, and an
+// unapproved Campaign (Draft, Submitted, Rejected) renders the 404 here for
+// everyone: whatever is cached is safe to serve to anyone. Its Fundraiser,
+// Verifiers and Admins see it through ./not-found.tsx, which asks the
+// session-aware, never shared-cached GET /api/campaigns/[slug].
+export const revalidate = 60;
 
 interface CampaignDetailPageProps {
   params: Promise<{ slug: string }>;
@@ -16,10 +23,16 @@ export async function generateMetadata({ params }: CampaignDetailPageProps): Pro
 
   const campaign = await prisma.campaign.findUnique({
     where: { slug },
-    select: { title: true, description: true, coverImage: true },
+    select: {
+      title: true,
+      description: true,
+      coverImage: true,
+      lifecycleStatus: true,
+      deadline: true,
+    },
   });
 
-  if (!campaign) {
+  if (!campaign || !isPubliclyViewable(effectiveStatus(campaign, new Date()))) {
     return { title: 'Campaign Tidak Ditemukan' };
   }
 
@@ -70,6 +83,9 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
 
   if (!campaign) notFound();
 
+  const lifecycleStatus = effectiveStatus(campaign, new Date());
+  if (!isPubliclyViewable(lifecycleStatus)) notFound();
+
   // Transform the data for the client component
   const campaignData = {
     id: campaign.id,
@@ -85,7 +101,7 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     // The Suspension reason is not rendered here: this page is cached for
     // every visitor alike, so the view asks the API for it, which answers
     // only the owning Fundraiser.
-    lifecycleStatus: effectiveStatus(campaign, new Date()),
+    lifecycleStatus,
     isUrgent: campaign.isUrgent,
     isDemo: campaign.isDemo,
     deadline: campaign.deadline ? campaign.deadline.toISOString() : null,
