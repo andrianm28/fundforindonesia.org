@@ -101,6 +101,51 @@ describe('Kampanye Saya', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/campaigns/draft/verification-requests', { method: 'POST' });
   });
 
+  it('offers "Tarik pengajuan" only while a request is pending, and withdraws that request', async () => {
+    swr.data = {
+      campaigns: [
+        { ...campaign('waiting', 'SUBMITTED'), pendingVerificationRequestId: 'verification-open' },
+        { ...campaign('draft', 'DRAFT'), pendingVerificationRequestId: null },
+        { ...campaign('running', 'ACTIVE'), pendingVerificationRequestId: null },
+      ],
+      total: 3,
+      page: 1,
+      totalPages: 1,
+    };
+    const fetchMock = vi.fn(async () => Response.json({}, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MyCampaignsPage />);
+
+    expect(screen.getAllByRole('button', { name: 'Tarik pengajuan' })).toHaveLength(1);
+    fireEvent.click(within(screen.getByTestId('campaign-waiting')).getByRole('button', { name: 'Tarik pengajuan' }));
+
+    await waitFor(() => expect(swr.mutate).toHaveBeenCalled());
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/campaigns/waiting/verification-requests/verification-open/withdraw',
+      { method: 'POST' },
+    );
+  });
+
+  it('shows why a withdrawal was refused', async () => {
+    swr.data = {
+      campaigns: [{ ...campaign('waiting', 'SUBMITTED'), pendingVerificationRequestId: 'verification-open' }],
+      total: 1,
+      page: 1,
+      totalPages: 1,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'Verification Request ini sudah diputuskan.' }, { status: 409 })),
+    );
+
+    render(<MyCampaignsPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tarik pengajuan' }));
+
+    expect(await screen.findByText('Verification Request ini sudah diputuskan.')).toBeDefined();
+    expect(swr.mutate).not.toHaveBeenCalled();
+  });
+
   it('shows why a submission was refused', async () => {
     swr.data = { campaigns: [campaign('draft', 'DRAFT')], total: 1, page: 1, totalPages: 1 };
     vi.stubGlobal(

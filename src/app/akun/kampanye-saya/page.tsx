@@ -9,7 +9,7 @@ import useSWR from 'swr';
 import { formatRupiah } from '@/lib/utils/currency';
 import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
-import { SUBMITTABLE_STATUSES, submitToVerifier } from '@/lib/verification-submission';
+import { SUBMITTABLE_STATUSES, submitToVerifier, withdrawFromVerifier } from '@/lib/verification-submission';
 
 interface Campaign {
   id: string;
@@ -20,6 +20,8 @@ interface Campaign {
   targetAmount: number;
   /** Effective: an Active Campaign past its deadline arrives as EXPIRED. */
   lifecycleStatus: CampaignLifecycleStatus;
+  /** The Verification Request a Submitted Campaign waits on, which its Fundraiser may withdraw. */
+  pendingVerificationRequestId: string | null;
   createdAt: string;
 }
 
@@ -125,6 +127,7 @@ export default function MyCampaignsPage() {
       {/* Campaign List */}
       <div className="px-4 mt-4 space-y-3">
         {campaigns.map((campaign) => {
+          const pendingRequestId = campaign.pendingVerificationRequestId;
           const progress = campaign.targetAmount > 0
             ? Math.min(100, Math.round((campaign.collectedAmount / campaign.targetAmount) * 100))
             : 0;
@@ -195,7 +198,20 @@ export default function MyCampaignsPage() {
                 </div>
               </Link>
               {SUBMITTABLE_STATUSES.includes(campaign.lifecycleStatus) && (
-                <SubmitToVerifier slug={campaign.slug} onSubmitted={() => mutate()} />
+                <VerificationAction
+                  label="Ajukan ke Verifier"
+                  variant="primary"
+                  run={() => submitToVerifier(campaign.slug)}
+                  onDone={() => mutate()}
+                />
+              )}
+              {pendingRequestId && (
+                <VerificationAction
+                  label="Tarik pengajuan"
+                  variant="secondary"
+                  run={() => withdrawFromVerifier(campaign.slug, pendingRequestId)}
+                  onDone={() => mutate()}
+                />
               )}
             </div>
           );
@@ -281,32 +297,49 @@ export default function MyCampaignsPage() {
 }
 
 /**
- * Submits a Draft or Rejected Campaign to a Verifier, opening its
- * Verification Request, then refreshes the list so the badge reads Diajukan.
+ * One Verification Request action on a Campaign card: submitting a Draft or
+ * Rejected Campaign to a Verifier, or withdrawing the request it waits on.
+ * `run` resolves to null on success, then the list refreshes so the badge
+ * shows the new status; otherwise to the refusal shown beside the button.
  */
-function SubmitToVerifier({ slug, onSubmitted }: { slug: string; onSubmitted: () => void }) {
+function VerificationAction({
+  label,
+  run,
+  onDone,
+  variant,
+}: {
+  label: string;
+  run: () => Promise<string | null>;
+  onDone: () => void;
+  variant: 'primary' | 'secondary';
+}) {
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState('');
 
-  async function submit() {
+  async function act() {
     setPending(true);
     setRefusal('');
-    const refused = await submitToVerifier(slug);
+    const refused = await run();
     setPending(false);
     if (refused) setRefusal(refused);
-    else onSubmitted();
+    else onDone();
   }
+
+  const look =
+    variant === 'primary'
+      ? 'text-white bg-[#0073E6] hover:bg-[#005BB5]'
+      : 'text-[#0073E6] bg-white border border-[#0073E6] hover:bg-[#F5F5F5]';
 
   return (
     <div className="border-t border-[#E0E0E0] px-3 py-2 flex items-center justify-between gap-2">
       <p className="text-xs text-danger">{refusal}</p>
       <button
         type="button"
-        onClick={submit}
+        onClick={act}
         disabled={pending}
-        className="text-xs font-medium text-white bg-[#0073E6] px-3 py-1.5 rounded-lg hover:bg-[#005BB5] disabled:opacity-50 transition-colors"
+        className={`text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors ${look}`}
       >
-        Ajukan ke Verifier
+        {label}
       </button>
     </div>
   );

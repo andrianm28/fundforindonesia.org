@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { campaignRow, makeCampaignDb } from '../../../../../tests/support/in-memory-campaign-db';
+import { campaignRow, makeCampaignDb, verificationRequestRow } from '../../../../../tests/support/in-memory-campaign-db';
 
 /**
  * GET /api/user/campaigns feeds "Kampanye Saya". It sends one status field,
@@ -52,6 +52,24 @@ describe('GET /api/user/campaigns', () => {
     const statuses = Object.fromEntries((await fetchMine()).map((c) => [c.slug, c.lifecycleStatus]));
 
     expect(statuses).toEqual({ running: 'ACTIVE', lapsed: 'EXPIRED', waiting: 'SUBMITTED' });
+  });
+
+  it('sends the id of the PENDING Verification Request a Submitted Campaign waits on, and null otherwise', async () => {
+    holder.db = makeCampaignDb({
+      campaigns: [
+        campaignRow({ id: 'waiting', slug: 'waiting', lifecycleStatus: 'SUBMITTED' }),
+        campaignRow({ id: 'refused', slug: 'refused', lifecycleStatus: 'REJECTED' }),
+      ],
+      verificationRequests: [
+        verificationRequestRow({ id: 'old-refusal', campaignId: 'waiting', outcome: 'REJECTED' }),
+        verificationRequestRow({ id: 'open', campaignId: 'waiting', outcome: 'PENDING', isFirst: false }),
+        verificationRequestRow({ id: 'refusal', campaignId: 'refused', outcome: 'REJECTED' }),
+      ],
+    });
+
+    const pending = Object.fromEntries((await fetchMine()).map((c) => [c.slug, c.pendingVerificationRequestId]));
+
+    expect(pending).toEqual({ waiting: 'open', refused: null });
   });
 
   it('sends no legacy status field', async () => {

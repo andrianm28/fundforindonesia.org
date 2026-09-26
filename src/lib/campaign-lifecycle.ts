@@ -508,6 +508,40 @@ export class VerificationRequestNotPendingError extends CampaignLifecycleError {
   }
 }
 
+/**
+ * The PENDING request `requestId` of this Campaign, read under its row lock.
+ * The request is judged before the Campaign's status, so a missing, decided
+ * or withdrawn request answers as such whatever the Campaign's status; a
+ * pending one is only acted on while the Campaign is Submitted.
+ */
+async function readPendingRequest(tx: Tx, campaignId: string, requestId: string, current: CampaignStatus) {
+  const request = await tx.verificationRequest.findUnique({ where: { id: requestId } });
+  if (!request || request.campaignId !== campaignId) {
+    throw new VerificationRequestNotFoundError(requestId);
+  }
+  if (request.outcome !== VerificationOutcome.PENDING) {
+    throw new VerificationRequestNotPendingError(request.outcome);
+  }
+  if (current !== CampaignStatus.SUBMITTED) throw new InvalidTransitionError(current);
+  return request;
+}
+
+/**
+ * Closes a request, by a decision or a withdrawal. The write matches PENDING
+ * rows only, so a closed request is never written again.
+ */
+async function closeRequest(
+  tx: Tx,
+  requestId: string,
+  closed: Prisma.VerificationRequestUpdateManyMutationInput
+): Promise<void> {
+  const written = await tx.verificationRequest.updateMany({
+    where: { id: requestId, outcome: VerificationOutcome.PENDING },
+    data: closed,
+  });
+  if (written.count === 0) throw new ConcurrentTransitionError();
+}
+
 const VERIFICATION_DECISIONS = {
   approve: {
     to: CampaignStatus.ACTIVE,
@@ -592,17 +626,8 @@ export async function decideVerificationRequest(
     },
     reasonPolicy: decision.reasonPolicy,
     rawReason: params.reason,
-    // The request is judged before the status: a missing, decided or
-    // withdrawn request answers as such whatever the Campaign's status.
     step: async ({ tx, campaign, current, actor, reason, now, transition, notify }) => {
-      const request = await tx.verificationRequest.findUnique({ where: { id: requestId } });
-      if (!request || request.campaignId !== campaign.id) {
-        throw new VerificationRequestNotFoundError(requestId);
-      }
-      if (request.outcome !== VerificationOutcome.PENDING) {
-        throw new VerificationRequestNotPendingError(request.outcome);
-      }
-      if (current !== CampaignStatus.SUBMITTED) throw new InvalidTransitionError(current);
+      const request = await readPendingRequest(tx, campaign.id, requestId, current);
       const snapshot = request.checklist as ChecklistEntry[];
       const known = new Set(snapshot.map((entry) => entry.id));
       if (Array.from(ticked).some((id) => !known.has(id))) {
@@ -622,11 +647,7 @@ export async function decideVerificationRequest(
         decidedById: actor.userId,
         decidedAt: now,
       };
-      const written = await tx.verificationRequest.updateMany({
-        where: { id: requestId, outcome: VerificationOutcome.PENDING },
-        data: decided,
-      });
-      if (written.count === 0) throw new ConcurrentTransitionError();
+      await closeRequest(tx, requestId, decided);
       await transition(decision.to, decision.action);
       let identityVerificationRecorded = false;
       if (decision.outcome === VerificationOutcome.APPROVED) {
@@ -642,6 +663,47 @@ export async function decideVerificationRequest(
       }
       await notify({ title: decision.title, message: decision.message(campaign.title, reason) });
       return { verificationRequest: { ...request, ...decided }, identityVerificationRecorded };
+    },
+  });
+}
+
+export type WithdrawalResult = LifecycleResult & { verificationRequest: VerificationRequestState };
+
+/**
+ * The Fundraiser withdraws their undecided Verification Request (CONTEXT.md,
+ * Verification Request). The request becomes WITHDRAWN, recording the
+ * Fundraiser and `now` as who closed it and when, and the Campaign leaves
+ * Submitted: back to Draft if this was its first request, back to Rejected
+ * if it was a resubmission. Only its Fundraiser may withdraw, always in that
+ * Capacity; nobody is notified, since the Fundraiser is the one acting.
+ *
+ * It races a Verifier's decision for the same Campaign row lock, so exactly
+ * one of the two closes the request; the other finds it no longer pending.
+ */
+export async function withdrawVerificationRequest(
+  prisma: PrismaClient,
+  params: { campaignId: string; requestId: string; actor: LifecycleActor; now?: Date }
+): Promise<WithdrawalResult> {
+  const { requestId } = params;
+  return runCommand(prisma, params, {
+    authority: {
+      capacity: StatusChangeCapacity.FUNDRAISER,
+      message: "Hanya Fundraiser pemilik Campaign yang dapat menarik pengajuannya.",
+    },
+    reasonPolicy: "none",
+    step: async ({ tx, campaign, current, actor, now, transition }) => {
+      const request = await readPendingRequest(tx, campaign.id, requestId, current);
+      const withdrawn = {
+        outcome: VerificationOutcome.WITHDRAWN,
+        decidedById: actor.userId,
+        decidedAt: now,
+      };
+      await closeRequest(tx, requestId, withdrawn);
+      await transition(
+        request.isFirst ? CampaignStatus.DRAFT : CampaignStatus.REJECTED,
+        CampaignStatusChangeAction.SUBMISSION_WITHDRAWN
+      );
+      return { verificationRequest: { ...request, ...withdrawn } };
     },
   });
 }
