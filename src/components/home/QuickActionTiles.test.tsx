@@ -14,7 +14,7 @@ const mockTiles = [
   },
   {
     icon: "✨",
-    label: "Kitabisa Experience",
+    label: "Fund for Indonesia Experience",
     href: "/experience",
     color: "#E0F7FA",
   },
@@ -42,7 +42,7 @@ describe("QuickActionTiles", () => {
     expect(scope.getByText("Zakat")).toBeInTheDocument();
     expect(scope.getByText("Galang Dana")).toBeInTheDocument();
     expect(scope.getByText("Donasi Otomatis")).toBeInTheDocument();
-    expect(scope.getByText("Kitabisa Experience")).toBeInTheDocument();
+    expect(scope.getByText("Fund for Indonesia Experience")).toBeInTheDocument();
     expect(scope.getByText("Kolaborasi CSR")).toBeInTheDocument();
     expect(scope.getByText("Asuransi SalingJaga")).toBeInTheDocument();
   });

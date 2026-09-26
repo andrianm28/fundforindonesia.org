@@ -8,7 +8,7 @@ later is its own deliberate PR.
 
 **Blocked by:** none. Must merge before 2026-10-19.
 
-**Status:** ready-for-agent
+**Status:** done (PR #38, 42c1759)
 
 - [ ] No workflow uses `ubuntu-latest`; every `runs-on` is `ubuntu-24.04`
 - [ ] CI (test, build, migrations, ratchet) and `image` are green on the PR
