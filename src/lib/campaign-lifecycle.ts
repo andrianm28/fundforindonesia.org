@@ -667,7 +667,8 @@ export async function decideVerificationRequest(
   });
 }
 
-export type WithdrawalResult = LifecycleResult & { verificationRequest: VerificationRequestState };
+/** The Campaign and the request as a withdrawal leaves them; the same shape a submission returns. */
+export type WithdrawalResult = SubmissionResult;
 
 /**
  * The Fundraiser withdraws their undecided Verification Request (CONTEXT.md,
@@ -699,10 +700,19 @@ export async function withdrawVerificationRequest(
         decidedAt: now,
       };
       await closeRequest(tx, requestId, withdrawn);
-      await transition(
-        request.isFirst ? CampaignStatus.DRAFT : CampaignStatus.REJECTED,
-        CampaignStatusChangeAction.SUBMISSION_WITHDRAWN
-      );
+      const to = request.isFirst ? CampaignStatus.DRAFT : CampaignStatus.REJECTED;
+      await transition(to, CampaignStatusChangeAction.SUBMISSION_WITHDRAWN);
+      // The spec's withdraw confirmation: the one lifecycle notice a
+      // Fundraiser gets for their own action, so it bypasses `notify`.
+      await tx.notification.create({
+        data: {
+          type: "campaign_status",
+          userId: campaign.creatorId,
+          link: `/campaign/${campaign.slug}`,
+          title: "Pengajuan Ditarik",
+          message: `Pengajuan Campaign "${campaign.title}" ke Verifier telah ditarik. Campaign kini ${STATUS_LABEL[to]} dan dapat diedit lalu diajukan kembali.`,
+        },
+      });
       return { verificationRequest: { ...request, ...withdrawn } };
     },
   });

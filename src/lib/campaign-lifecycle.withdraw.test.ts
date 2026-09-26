@@ -75,7 +75,7 @@ describe('withdrawVerificationRequest', () => {
     ]);
   });
 
-  it('the owner acts as Fundraiser even while holding ADMIN and VERIFIER, and nobody is notified', async () => {
+  it('the owner acts as Fundraiser even while holding ADMIN and VERIFIER', async () => {
     const db = seeded();
 
     await withdrawVerificationRequest(db.prisma as never, {
@@ -86,7 +86,30 @@ describe('withdrawVerificationRequest', () => {
     });
 
     expect(db.statusChanges[0].capacity).toBe('FUNDRAISER');
-    expect(db.notifications).toEqual([]);
+  });
+
+  it.each([
+    [true, 'Draft'],
+    [false, 'Rejected'],
+  ])('confirms the withdrawal to the Fundraiser in-app (first request: %s, back to %s)', async (isFirst, status) => {
+    const db = seeded({ isFirst });
+
+    await withdrawVerificationRequest(db.prisma as never, {
+      campaignId: 'campaign-1',
+      requestId: 'verification-open',
+      actor: fundraiser,
+      now: NOW,
+    });
+
+    expect(db.notifications).toEqual([
+      expect.objectContaining({
+        userId: 'creator-1',
+        type: 'campaign_status',
+        title: 'Pengajuan Ditarik',
+        link: '/campaign/bantu-korban-banjir',
+      }),
+    ]);
+    expect(db.notifications[0].message).toContain(status);
   });
 
   it.each(['APPROVED', 'REJECTED', 'WITHDRAWN'] as const)(
@@ -175,11 +198,9 @@ describe('withdrawVerificationRequest', () => {
 
     it("a withdrawal committed before the Verifier's lock makes the decision 409", async () => {
       const db = seeded();
-      await withdrawVerificationRequest(db.prisma as never, {
-        campaignId: 'campaign-1',
-        requestId: 'verification-open',
-        actor: fundraiser,
-        now: NOW,
+      db.beforeNextRowLock((data) => {
+        Object.assign(data.verificationRequests[0], { outcome: 'WITHDRAWN', decidedById: 'creator-1', decidedAt: NOW });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'DRAFT' });
       });
 
       const error = await decideVerificationRequest(db.prisma as never, {
