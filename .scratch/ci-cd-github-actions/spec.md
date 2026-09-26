@@ -1,7 +1,7 @@
 # Spec: CI/CD on GitHub Actions, deploying production to this host
 
 Status: ready-for-agent
-Source: the user's requests of 2026-09-26 ("pindahkan CI build/test ke GitHub Actions hosted runner", then "setup complete CI/CD pipeline … target prod ke host ini"), and the `yiem-main-agent` report about load and Docker cache on the shared host (103.92.214.243). Decided in the grilling of 2026-09-26: CI Q1–Q6 and CD Q1–Q9. This spec supersedes `.scratch/ci-github-actions/`.
+Source: the user's requests of 2026-09-26 ("pindahkan CI build/test ke GitHub Actions hosted runner", then "setup complete CI/CD pipeline … target prod ke host ini"), and the `yiem-main-agent` report about load and Docker cache on the shared host. Decided in the grilling of 2026-09-26: CI Q1–Q6 and CD Q1–Q9. This spec supersedes `.scratch/ci-github-actions/`.
 
 ## Problem Statement
 

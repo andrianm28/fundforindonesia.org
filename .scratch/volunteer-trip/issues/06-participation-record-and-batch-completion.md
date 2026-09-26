@@ -4,7 +4,7 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** done (on main via volunteer-trip-operations 01-03; triage 2026-09-26)
 
 - [ ] `GET /api/registrations/mine` — the authenticated Volunteer's own Registration history (all statuses, not just `CONFIRMED`), mirroring the shape and auth pattern of the existing `GET /api/donations/mine`.
 - [ ] `PATCH /api/volunteer-trips/[slug]/batches/[id]` (extended from Ticket 02) gains a completion transition: the owning Fundraiser or an Admin can mark an `OPEN` Batch `COMPLETED` once its `endDate` has passed, mirroring how a Campaign's `Completed` status is set by "Fundraiser atau Admin" per this project's existing convention.
