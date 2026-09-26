@@ -34,7 +34,7 @@ describe('POST /api/user/verify', () => {
 
   it('never grants the verified flag or the Fundraiser role', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'donor-user', role: 'DONOR', name: 'Budi', email: 'budi@test.com', isVerified: false, verificationType: null },
+      user: { id: 'donor-user', name: 'Budi', email: 'budi@test.com' },
       expires: '2099-01-01',
     } as any);
 

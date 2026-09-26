@@ -51,7 +51,7 @@ function makeRow(overrides: Partial<{
 describe('GET /api/registrations/mine', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'volunteer-1', role: 'DONOR' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'volunteer-1' } });
     mockFindMany.mockResolvedValue([]);
     mockCount.mockResolvedValue(0);
   });

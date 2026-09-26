@@ -33,7 +33,7 @@ describe('GET /api/zakat/campaigns', () => {
         id: '1',
         title: 'Zakat Mal Campaign',
         category: 'zakat',
-        creator: { name: 'User 1', isVerified: true, verificationType: 'organization' },
+        creator: { name: 'User 1' },
       },
     ];
 

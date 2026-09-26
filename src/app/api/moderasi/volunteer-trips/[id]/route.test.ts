@@ -42,7 +42,7 @@ const decidedTrip = { id: 'trip-1', slug: 'trip-slug', title: 'Trip title', fund
 describe('PATCH /api/moderasi/volunteer-trips/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'verifier-1', role: 'MODERATOR', assignments: ['VERIFIER'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
     mockDecide.mockResolvedValue({ trip: decidedTrip });
   });
 
@@ -54,7 +54,7 @@ describe('PATCH /api/moderasi/volunteer-trips/[id]', () => {
   });
 
   it('returns 403 for a user without the VERIFIER assignment', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'user-2', role: 'MODERATOR', assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'user-2', assignments: [] } });
     const response = await PATCH(actionRequest('approve'), routeContext());
     expect(response.status).toBe(403);
     expect(mockDecide).not.toHaveBeenCalled();

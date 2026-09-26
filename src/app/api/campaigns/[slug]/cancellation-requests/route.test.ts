@@ -29,7 +29,7 @@ const mockSession = getServerSession as unknown as Mock;
 describe('POST /api/campaigns/[slug]/cancellation-requests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSession.mockResolvedValue({ user: { id: 'creator-1', role: 'CAMPAIGN_CREATOR', assignments: [] } });
+    mockSession.mockResolvedValue({ user: { id: 'creator-1', assignments: [] } });
     state.db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus: 'ACTIVE' })] });
   });
 

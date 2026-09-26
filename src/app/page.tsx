@@ -64,8 +64,6 @@ function toCampaignCardData(campaign: {
   isDemo: boolean;
   creator: {
     name: string;
-    isVerified: boolean;
-    verificationType: string | null;
   };
 }): CampaignCardData {
   return {
@@ -129,7 +127,7 @@ export default async function HomePage() {
       where: { ...listable, isUrgent: true },
       include: {
         creator: {
-          select: { name: true, isVerified: true, verificationType: true },
+          select: { name: true },
         },
       },
       take: 10,
@@ -139,7 +137,7 @@ export default async function HomePage() {
       orderBy: { createdAt: 'desc' },
       include: {
         creator: {
-          select: { name: true, isVerified: true, verificationType: true },
+          select: { name: true },
         },
       },
       take: 10,
@@ -149,7 +147,7 @@ export default async function HomePage() {
       orderBy: { collectedAmount: 'desc' },
       include: {
         creator: {
-          select: { name: true, isVerified: true, verificationType: true },
+          select: { name: true },
         },
       },
       take: 12,

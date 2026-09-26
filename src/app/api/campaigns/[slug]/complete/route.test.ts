@@ -29,8 +29,8 @@ import { getServerSession } from '@/lib/auth';
 
 const mockSession = getServerSession as unknown as Mock;
 
-const OWNER = { user: { id: 'creator-1', role: 'USER', assignments: [] } };
-const ADMIN = { user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } };
+const OWNER = { user: { id: 'creator-1', assignments: [] } };
+const ADMIN = { user: { id: 'admin-1', assignments: ['ADMIN'] } };
 const REASON = 'Program selesai dan laporan akhir sudah terbit.';
 
 function post(body?: unknown): Promise<Response> {

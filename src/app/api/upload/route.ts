@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
-import { withRoleCheck } from '@/lib/withRoleCheck';
+import { getServerSession } from '@/lib/auth';
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 export const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -50,11 +50,16 @@ export function validateFileSize(size: number): boolean {
  * the internet could write files into a publicly-served directory on the
  * donation domain. That is free file hosting plus an unbounded disk-fill.
  *
- * DONOR is the floor rather than a higher role because uploading a cover image
- * is part of ordinary campaign creation; the point is to have an account behind
- * the write, not to restrict it to staff.
+ * Signing in is the only requirement: uploading a cover image is part of
+ * ordinary Campaign creation, which anyone registered may do (PRD FFI-04). The
+ * point is to have an account behind the write, not to restrict it to staff.
  */
-export const POST = withRoleCheck('DONOR', async (request: NextRequest) => {
+export async function POST(request: NextRequest) {
+  const session = await getServerSession();
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
@@ -103,4 +108,4 @@ export const POST = withRoleCheck('DONOR', async (request: NextRequest) => {
       { status: 500 }
     );
   }
-});
+}

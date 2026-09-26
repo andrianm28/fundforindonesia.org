@@ -46,7 +46,7 @@ function row(overrides: Record<string, unknown>) {
     isDemo: false,
     deadline: null,
     createdAt: new Date('2026-09-01T00:00:00Z'),
-    creator: { id: 'u1', name: 'Budi', avatar: null, isVerified: true, verificationType: null },
+    creator: { id: 'u1', name: 'Budi', avatar: null },
     _count: { donations: 0 },
     ...overrides,
   };

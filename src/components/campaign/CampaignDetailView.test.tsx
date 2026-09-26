@@ -29,8 +29,6 @@ const mockCampaign: CampaignDetailData = {
     id: 'user-1',
     name: 'Yayasan Peduli Bencana',
     avatar: null,
-    isVerified: true,
-    verificationType: 'organization',
   },
   donationCount: 12,
 };

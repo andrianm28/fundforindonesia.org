@@ -32,7 +32,7 @@ import { getServerSession } from '@/lib/auth';
 
 const mockSession = getServerSession as unknown as Mock;
 
-const ADMIN = { user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } };
+const ADMIN = { user: { id: 'admin-1', assignments: ['ADMIN'] } };
 const ROUTES = { approve, reject };
 const SLUG = 'bantu-korban-banjir';
 
@@ -83,7 +83,7 @@ describe('POST /api/campaigns/[slug]/cancellation-requests/[id]/approve and reje
   it.each(['approve', 'reject'] as const)(
     "%s answers a missing Admin assignment with the command's Indonesian refusal, not a bare Forbidden",
     async (decision) => {
-      mockSession.mockResolvedValue({ user: { id: 'admin-9', role: 'ADMIN', assignments: [] } });
+      mockSession.mockResolvedValue({ user: { id: 'admin-9', assignments: [] } });
 
       const response = await call(decision, { reason: 'Alasan.' });
 

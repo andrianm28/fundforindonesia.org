@@ -13,12 +13,14 @@ vi.mock('next/navigation', () => ({
 
 import AkunPage from './page';
 
-function sessionAs(role: string, isVerified: boolean, verificationType: string | null) {
+// A signed-in user holding no assignment: the session carries no Role and no
+// self-claimed verification (retire-role-hierarchy).
+function signedIn() {
   return {
     status: 'authenticated',
     update: vi.fn(),
     data: {
-      user: { id: 'user-1', name: 'Budi', email: 'budi@test.com', role, isVerified, verificationType, assignments: [] },
+      user: { id: 'user-1', name: 'Budi', email: 'budi@test.com', assignments: [] },
       expires: '2099-01-01',
     },
   };
@@ -35,7 +37,7 @@ describe('AkunPage', () => {
   });
 
   it('asks no one to contact an Admin to become a Fundraiser: anyone registered may submit (FFI-04)', () => {
-    mockUseSession.mockReturnValue(sessionAs('DONOR', false, null));
+    mockUseSession.mockReturnValue(signedIn());
 
     render(<AkunPage />);
 
@@ -44,8 +46,8 @@ describe('AkunPage', () => {
     expect(screen.queryByText('Menjadi Fundraiser')).toBeNull();
   });
 
-  it('makes no identity claim for a user whose verification was self-declared (gap C2)', () => {
-    mockUseSession.mockReturnValue(sessionAs('CAMPAIGN_CREATOR', true, 'ktp'));
+  it('makes no identity claim: nothing records a Verifier-checked identity yet (gap C2)', () => {
+    mockUseSession.mockReturnValue(signedIn());
 
     render(<AkunPage />);
 

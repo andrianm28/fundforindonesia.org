@@ -30,7 +30,7 @@ import { getServerSession } from '@/lib/auth';
 
 const mockSession = getServerSession as unknown as Mock;
 
-const ADMIN = { user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } };
+const ADMIN = { user: { id: 'admin-1', assignments: ['ADMIN'] } };
 const SLUG = 'bantu-korban-banjir';
 const REASON = 'Korban banjir bertambah, butuh bantuan segera';
 
@@ -80,7 +80,7 @@ describe('PUT /api/campaigns/[slug]/urgent', () => {
   });
 
   it("answers a missing Admin assignment with the command's Indonesian refusal, not a bare Forbidden", async () => {
-    mockSession.mockResolvedValue({ user: { id: 'verifier-1', role: 'MODERATOR', assignments: ['VERIFIER'] } });
+    mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
 
     const response = await put({ urgent: true, reason: REASON });
 

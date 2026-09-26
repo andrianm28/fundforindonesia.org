@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth';
 
-// Identity used to be self-declared here: any 16-digit NIK set isVerified and
-// granted CAMPAIGN_CREATOR, with nothing stored and no Verifier involved
+// Identity used to be self-declared here: any 16-digit NIK set the user's
+// verified flag and granted CAMPAIGN_CREATOR, with nothing stored and no Verifier involved
 // (gap C2). Until Verifier-reviewed identity checks exist (ticket 12), this
 // endpoint grants nothing. No Role is needed to submit (PRD FFI-04): the
 // Verifier checks identity off-platform before approving a person's first

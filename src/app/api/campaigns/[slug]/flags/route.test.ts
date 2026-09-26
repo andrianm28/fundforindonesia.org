@@ -49,7 +49,7 @@ function activeCampaign() {
 describe('POST /api/campaigns/[slug]/flags', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSession.mockResolvedValue({ user: { id: 'verifier-1', role: 'MODERATOR', assignments: ['VERIFIER'] } });
+    mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
     state.db = makeCampaignDb({ campaigns: [activeCampaign()] });
   });
 
@@ -69,7 +69,7 @@ describe('POST /api/campaigns/[slug]/flags', () => {
 describe('POST /api/campaigns/[slug]/flags/[id]/dismiss', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSession.mockResolvedValue({ user: { id: 'admin-a', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockSession.mockResolvedValue({ user: { id: 'admin-a', assignments: ['ADMIN'] } });
     state.db = makeCampaignDb({
       campaigns: [activeCampaign()],
       campaignFlags: [campaignFlagRow(), campaignFlagRow({ id: 'flag-2' })],

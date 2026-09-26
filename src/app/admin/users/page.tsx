@@ -4,15 +4,21 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
-type UserRole = "ADMIN" | "MODERATOR" | "CAMPAIGN_CREATOR" | "DONOR";
+// Assignments are the only thing that grants power (ADR 0005): this page
+// shows and edits them, and nothing else about a user's authority.
+type Assignment = "VERIFIER" | "ADMIN";
+
+const ASSIGNMENTS: { value: Assignment; label: string }[] = [
+  { value: "VERIFIER", label: "Verifier" },
+  { value: "ADMIN", label: "Admin" },
+];
 
 interface User {
   id: string;
   name: string | null;
   email: string;
-  role: UserRole;
-  isVerified: boolean;
   createdAt: string;
+  assignments: Assignment[];
 }
 
 interface Pagination {
@@ -21,20 +27,6 @@ interface Pagination {
   total: number;
   totalPages: number;
 }
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  ADMIN: "Admin",
-  MODERATOR: "Moderator",
-  CAMPAIGN_CREATOR: "Kreator Kampanye",
-  DONOR: "Donatur",
-};
-
-const ROLE_BADGE_CLASSES: Record<UserRole, string> = {
-  ADMIN: "bg-red-100 text-red-700",
-  MODERATOR: "bg-orange-100 text-orange-700",
-  CAMPAIGN_CREATOR: "bg-blue-100 text-blue-700",
-  DONOR: "bg-gray-100 text-gray-700",
-};
 
 export default function AdminUsersPage() {
   const { data: session, status } = useSession();
@@ -96,30 +88,39 @@ export default function AdminUsersPage() {
     setPagination((prev) => ({ ...prev, page: 1 }));
   };
 
-  const handleRoleChange = async (userId: string, newRole: UserRole) => {
+  // Grants or revokes one assignment. The assignments route records the
+  // change in the audit trail and refuses revoking your own ADMIN assignment
+  // or the last one anywhere; the box only changes once it has agreed.
+  const handleAssignmentChange = async (userId: string, assignment: Assignment, grant: boolean) => {
     setUpdatingUserId(userId);
     try {
-      const res = await fetch(`/api/admin/users/${userId}/role`, {
-        method: "PATCH",
+      const res = await fetch(`/api/admin/users/${userId}/assignments`, {
+        method: grant ? "POST" : "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole }),
+        body: JSON.stringify({ assignment }),
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        alert(data.error || "Gagal mengubah role");
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Gagal mengubah penugasan");
         return;
       }
 
-      // Update local state
       setUsers((prev) =>
         prev.map((user) =>
-          user.id === userId ? { ...user, role: newRole } : user
+          user.id !== userId
+            ? user
+            : {
+                ...user,
+                assignments: grant
+                  ? [...user.assignments.filter((a) => a !== assignment), assignment]
+                  : user.assignments.filter((a) => a !== assignment),
+              }
         )
       );
     } catch (error) {
-      console.error("Error updating role:", error);
-      alert("Gagal mengubah role pengguna");
+      console.error("Error updating assignment:", error);
+      alert("Gagal mengubah penugasan pengguna");
     } finally {
       setUpdatingUserId(null);
     }
@@ -142,7 +143,7 @@ export default function AdminUsersPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Manajemen Pengguna</h1>
         <p className="text-gray-600 mt-1">
-          Kelola pengguna dan role mereka di platform
+          Kelola penugasan Verifier dan Admin pengguna di platform
         </p>
       </div>
 
@@ -191,16 +192,10 @@ export default function AdminUsersPage() {
                   Email
                 </th>
                 <th className="text-left px-6 py-3 font-medium text-gray-600">
-                  Role
-                </th>
-                <th className="text-left px-6 py-3 font-medium text-gray-600">
-                  Verifikasi
-                </th>
-                <th className="text-left px-6 py-3 font-medium text-gray-600">
                   Tanggal Daftar
                 </th>
                 <th className="text-left px-6 py-3 font-medium text-gray-600">
-                  Ubah Role
+                  Penugasan
                 </th>
               </tr>
             </thead>
@@ -208,7 +203,7 @@ export default function AdminUsersPage() {
               {users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={4}
                     className="px-6 py-10 text-center text-gray-500"
                   >
                     {search
@@ -223,7 +218,7 @@ export default function AdminUsersPage() {
                     user={user}
                     currentUserId={session?.user?.id}
                     isUpdating={updatingUserId === user.id}
-                    onRoleChange={handleRoleChange}
+                    onAssignmentChange={handleAssignmentChange}
                   />
                 ))
               )}
@@ -269,12 +264,12 @@ function UserRow({
   user,
   currentUserId,
   isUpdating,
-  onRoleChange,
+  onAssignmentChange,
 }: {
   user: User;
   currentUserId: string | undefined;
   isUpdating: boolean;
-  onRoleChange: (userId: string, role: UserRole) => void;
+  onAssignmentChange: (userId: string, assignment: Assignment, grant: boolean) => void;
 }) {
   const isSelf = user.id === currentUserId;
 
@@ -284,12 +279,6 @@ function UserRow({
         {user.name || "—"}
       </td>
       <td className="px-6 py-4 text-gray-600">{user.email}</td>
-      <td className="px-6 py-4">
-        <RoleBadge role={user.role} />
-      </td>
-      <td className="px-6 py-4">
-        <VerificationStatus isVerified={user.isVerified} />
-      </td>
       <td className="px-6 py-4 text-gray-600">
         {new Date(user.createdAt).toLocaleDateString("id-ID", {
           day: "numeric",
@@ -298,60 +287,26 @@ function UserRow({
         })}
       </td>
       <td className="px-6 py-4">
-        {isSelf ? (
-          <span className="text-xs text-gray-400 italic">Anda sendiri</span>
-        ) : (
-          <select
-            value={user.role}
-            onChange={(e) =>
-              onRoleChange(user.id, e.target.value as UserRole)
-            }
-            disabled={isUpdating}
-            className="px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-wait"
-          >
-            <option value="ADMIN">Admin</option>
-            <option value="MODERATOR">Moderator</option>
-            <option value="CAMPAIGN_CREATOR">Kreator Kampanye</option>
-            <option value="DONOR">Donatur</option>
-          </select>
-        )}
+        <div className="flex gap-4">
+          {ASSIGNMENTS.map(({ value, label }) => {
+            const held = user.assignments.includes(value);
+            // The route refuses an Admin revoking their own ADMIN assignment.
+            const locked = isSelf && value === "ADMIN" && held;
+            return (
+              <label key={value} className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={held}
+                  disabled={isUpdating || locked}
+                  onChange={(e) => onAssignmentChange(user.id, value, e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+                />
+                {label}
+              </label>
+            );
+          })}
+        </div>
       </td>
     </tr>
-  );
-}
-
-function RoleBadge({ role }: { role: UserRole }) {
-  return (
-    <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${ROLE_BADGE_CLASSES[role]}`}
-    >
-      {ROLE_LABELS[role]}
-    </span>
-  );
-}
-
-// isVerified was only ever self-declared through /api/user/verify, with no
-// Verifier behind it (gap C2), so it is shown as a claim to check, never as
-// verified.
-function VerificationStatus({ isVerified }: { isVerified: boolean }) {
-  if (isVerified) {
-    return (
-      <span className="inline-flex items-center gap-1 text-gray-600">
-        <span className="text-xs font-medium">Klaim sendiri</span>
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex items-center gap-1 text-gray-400">
-      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-        <path
-          fillRule="evenodd"
-          d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-          clipRule="evenodd"
-        />
-      </svg>
-      <span className="text-xs font-medium">Belum</span>
-    </span>
   );
 }

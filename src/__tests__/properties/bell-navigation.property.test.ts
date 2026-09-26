@@ -22,8 +22,6 @@ const userArb: fc.Arbitrary<User> = fc.record({
   password: fc.option(fc.string({ minLength: 8 }), { nil: null }),
   avatar: fc.option(fc.webUrl(), { nil: null }),
   phone: fc.option(fc.string({ minLength: 10, maxLength: 15 }), { nil: null }),
-  isVerified: fc.boolean(),
-  verificationType: fc.option(fc.constantFrom("ktp" as const, "organization" as const), { nil: null }),
   donationBalance: fc.nat({ max: 100000000 }),
   createdAt: fc.date(),
   updatedAt: fc.date(),

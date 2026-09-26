@@ -34,12 +34,12 @@ describe("AdminDashboardPage", () => {
   });
 
   it("redirects home for someone with the ADMIN Role but not the ADMIN assignment", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", role: "ADMIN", assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: [] } });
     await expect(AdminDashboardPage()).rejects.toThrow("NEXT_REDIRECT:/");
   });
 
   it("renders for someone holding the ADMIN assignment without the ADMIN Role", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", role: "DONOR", assignments: ["ADMIN"] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
     const result = await AdminDashboardPage();
     expect(result).toBeDefined();
   });

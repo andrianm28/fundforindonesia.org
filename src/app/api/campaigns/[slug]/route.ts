@@ -60,8 +60,6 @@ export async function GET(
             id: true,
             name: true,
             avatar: true,
-            isVerified: true,
-            verificationType: true,
           },
         },
         _count: {
@@ -193,8 +191,6 @@ export async function PATCH(
             id: true,
             name: true,
             avatar: true,
-            isVerified: true,
-            verificationType: true,
           },
         },
       },

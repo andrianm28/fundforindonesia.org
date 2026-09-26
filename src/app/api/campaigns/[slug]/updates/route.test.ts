@@ -32,7 +32,7 @@ function post(body: unknown = validBody) {
 }
 
 function signedInAs(id: string) {
-  mockSession.mockResolvedValue({ user: { id, role: 'CAMPAIGN_CREATOR', assignments: [] }, expires: '2099-01-01' } as any);
+  mockSession.mockResolvedValue({ user: { id, assignments: [] }, expires: '2099-01-01' } as any);
 }
 
 describe('POST /api/campaigns/[slug]/updates', () => {

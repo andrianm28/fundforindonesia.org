@@ -40,20 +40,20 @@ describe("ModerasiPage", () => {
   });
 
   it("redirects home for an ADMIN-ranked user who does not hold the Verifier assignment", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", role: "ADMIN", assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: [] } });
     await expect(ModerasiPage()).rejects.toThrow("NEXT_REDIRECT:/");
     expect(mockCampaignCount).not.toHaveBeenCalled();
   });
 
   it("renders for a user who holds the Verifier assignment", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", role: "MODERATOR", assignments: ["VERIFIER"] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
     const result = await ModerasiPage();
     expect(result).toBeDefined();
     expect(mockCampaignCount).toHaveBeenCalledOnce();
   });
 
   it("counts only the Submitted Campaigns as awaiting review", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", role: "MODERATOR", assignments: ["VERIFIER"] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
     const db = makeCampaignDb({
       campaigns: [
         campaignRow({ id: "a", slug: "a", lifecycleStatus: "SUBMITTED" }),

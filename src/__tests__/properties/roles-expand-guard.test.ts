@@ -60,20 +60,20 @@ import { join } from "node:path";
  * not a Role. Every CAMPAIGN_CREATOR gate is gone -- the create, Trip
  * create and Payout routes, refusal-response.ts, the middleware and the
  * create, account and Kampanye Saya pages -- and CAMPAIGN_CREATOR_GATE
- * pins it. Only
- * the upload route's DONOR floor (a signed-in check in Role clothing)
- * still uses the hierarchy; ticket 02 removes it with withRoleCheck.
+ * pins it.
+ *
+ * NOTE (retire-role-hierarchy ticket 02): the hierarchy itself is gone:
+ * roles.ts, withRoleCheck and the Role route and editor are deleted, and
+ * the upload route asks only for a signed-in user. usesHierarchy below now
+ * matches nothing in src; src/__tests__/user-role-readers.test.ts pins
+ * that no code names the User role column either.
  */
-const HIERARCHY_GUARDED_ROUTES = [
-  "src/app/api/upload/route.ts",
-];
 
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
-  "src/app/api/admin/users/[id]/role/route.ts",
   "src/app/api/admin/users/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts",
@@ -154,14 +154,6 @@ function usesAssignment(source: string): boolean {
 }
 
 describe("roles expand scope", () => {
-  it("the one account-type route left still enforces the Role hierarchy (until ticket 02)", () => {
-    const offenders = HIERARCHY_GUARDED_ROUTES.filter(
-      (file) => !usesHierarchy(readFileSync(file, "utf8"))
-    );
-
-    expect(offenders).toEqual([]);
-  });
-
   it("the Admin/Verifier files no longer decide access by hierarchy", () => {
     const offenders = ASSIGNMENT_GUARDED_ROUTES.filter(
       (file) => usesHierarchy(readFileSync(file, "utf8"))

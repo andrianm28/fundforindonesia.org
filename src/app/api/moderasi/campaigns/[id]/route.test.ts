@@ -26,7 +26,7 @@ import { getServerSession } from '@/lib/auth';
 
 const mockSession = getServerSession as unknown as Mock;
 
-const VERIFIER = { user: { id: 'verifier-1', role: 'MODERATOR', assignments: ['VERIFIER'] } };
+const VERIFIER = { user: { id: 'verifier-1', assignments: ['VERIFIER'] } };
 
 function patch(body: unknown): Promise<Response> {
   const req = new NextRequest('http://localhost:3000/api/moderasi/campaigns/campaign-1', {
@@ -60,7 +60,7 @@ describe('PATCH /api/moderasi/campaigns/[id]', () => {
   });
 
   it("answers a missing Verifier assignment with the command's Indonesian refusal, not a bare Forbidden", async () => {
-    mockSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
 
     const response = await patch({ action: 'approve' });
 

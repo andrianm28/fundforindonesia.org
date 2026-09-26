@@ -82,7 +82,7 @@ const VALID_BODY = { paymentId: 'payment-1', amount: 40_000, reason: 'Dibayar du
 describe('POST /api/campaigns/[slug]/refunds', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
     mockCampaignFindUnique.mockResolvedValue({ id: 'campaign-1' });
     mockPaymentFindUnique.mockResolvedValue({ id: 'payment-1', donation: { campaignId: 'campaign-1' } });
   });
@@ -95,7 +95,7 @@ describe('POST /api/campaigns/[slug]/refunds', () => {
   });
 
   it('returns 403 for a Verifier who does not hold the Admin assignment', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', role: 'MODERATOR', assignments: ['VERIFIER'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', assignments: ['VERIFIER'] } });
     const response = await POST(postRequest(VALID_BODY), routeContext());
     expect(response.status).toBe(403);
     expect(mockTransaction).not.toHaveBeenCalled();

@@ -58,7 +58,7 @@ function routeContext(slug = 'some-slug') {
 describe('PATCH /api/volunteer-trips/[slug]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'owner-1', role: 'CAMPAIGN_CREATOR' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'owner-1' } });
     mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', status: 'DRAFT' });
     mockUpdate.mockResolvedValue({ count: 1 });
   });
@@ -78,7 +78,7 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
   });
 
   it('returns 403 for a non-owning Fundraiser', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else' } });
     const response = await PATCH(patchRequest({ title: 'x' }), routeContext());
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
@@ -89,13 +89,13 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
   });
 
   it('allows an Admin (the ADMIN assignment, without the Role) to edit a Trip they do not own', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'DONOR', assignments: ['ADMIN'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
     const response = await PATCH(patchRequest({ title: 'Updated title' }), routeContext());
     expect(response.status).toBe(200);
   });
 
   it('refuses someone with the ADMIN Role but no ADMIN assignment on a Trip they do not own', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'legacy-admin', role: 'ADMIN', assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'legacy-admin', assignments: [] } });
     const response = await PATCH(patchRequest({ title: 'Updated title' }), routeContext());
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
@@ -146,7 +146,7 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
     });
 
     it('calls submitTrip with the session as actor and the fields sent with it as edits', async () => {
-      mockGetServerSession.mockResolvedValue({ user: { id: 'owner-1', role: 'CAMPAIGN_CREATOR', assignments: [] } });
+      mockGetServerSession.mockResolvedValue({ user: { id: 'owner-1', assignments: [] } });
       const response = await PATCH(patchRequest({ action: 'submit', title: 'Updated title' }), routeContext());
       expect(response.status).toBe(200);
       expect(mockSubmitTrip).toHaveBeenCalledWith(prisma, {

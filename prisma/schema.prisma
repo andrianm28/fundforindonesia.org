@@ -33,9 +33,13 @@ model User {
   password         String?
   avatar           String?
   phone            String?
-  isVerified       Boolean  @default(false)
-  verificationType String? // "ktp" | "organization"
-  role             Role     @default(DONOR)
+  // Retired: the self-claimed verification and the Role hierarchy. No
+  // application code or seed reads or writes them (retire-role-hierarchy
+  // 02); authority comes only from assignments (ADR 0005). Nullable and
+  // ignored until ticket 03 drops them with the Role enum.
+  isVerified       Boolean?
+  verificationType String?
+  role             Role?
   donationBalance  Int      @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

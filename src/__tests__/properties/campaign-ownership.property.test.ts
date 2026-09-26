@@ -1,7 +1,10 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import * as fc from "fast-check";
-import { Role } from "@/generated/prisma/client";
 import { NextRequest } from "next/server";
+
+// The retired Role (retire-role-hierarchy). Sessions no longer carry it; one
+// that somehow did must still decide nothing.
+type Role = "ADMIN" | "MODERATOR" | "CAMPAIGN_CREATOR" | "DONOR";
 
 // Feature: user-roles, Property 12: Campaign Creator Ownership Enforcement
 // **Validates: Requirements 5.5, 10.4**
@@ -57,8 +60,6 @@ function mockSession(userId: string, role: Role, assignments: Assignment[] = [])
       name: "Test User",
       email: "test@example.com",
       role,
-      isVerified: true,
-      verificationType: null,
       assignments,
     },
     expires: new Date(Date.now() + 86400000).toISOString(),
@@ -97,7 +98,7 @@ beforeEach(() => {
     id: "campaign-id-123",
     slug: "test-campaign",
     title: "Updated Title",
-    creator: { id: "creator-id", name: "Creator", avatar: null, isVerified: true, verificationType: null },
+    creator: { id: "creator-id", name: "Creator", avatar: null },
   } as any);
 });
 

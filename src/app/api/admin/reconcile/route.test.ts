@@ -244,7 +244,7 @@ function createRequest(): NextRequest {
 describe('GET /api/admin/reconcile', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -255,7 +255,7 @@ describe('GET /api/admin/reconcile', () => {
   });
 
   it('returns 403 for a Verifier who does not hold the Admin assignment', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', role: 'MODERATOR', assignments: ['VERIFIER'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', assignments: ['VERIFIER'] } });
     const response = await GET(createRequest());
     expect(response.status).toBe(403);
     expect(mockTransaction).not.toHaveBeenCalled();
@@ -264,7 +264,7 @@ describe('GET /api/admin/reconcile', () => {
   it('returns 403 for an ADMIN-ranked user who does not hold the ADMIN assignment', async () => {
     // The exact scenario ADR 0005 exists to fix: rank alone must never
     // substitute for the assignment this route requires.
-    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-1', role: 'ADMIN', assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-1', assignments: [] } });
     const response = await GET(createRequest());
     expect(response.status).toBe(403);
     expect(mockTransaction).not.toHaveBeenCalled();
@@ -867,7 +867,7 @@ describe('GET /api/admin/reconcile', () => {
 describe('GET /api/admin/reconcile -- trip-scoped checks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
   });
 
   it('reports an empty tripNegativeBalances when there are no trip-scoped ledger entries at all', async () => {
@@ -992,7 +992,7 @@ describe('GET /api/admin/reconcile -- trip-scoped checks', () => {
 describe('GET /api/admin/reconcile -- registration-linked (trip) payments', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
   });
 
   it('reports a stranded registration-linked payment in tripStrandedEscrow, not strandedEscrow', async () => {
@@ -1131,7 +1131,7 @@ describe('GET /api/admin/reconcile -- registration-linked (trip) payments', () =
 describe('GET /api/admin/reconcile -- subjectless payments (data-integrity safety net)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
   });
 
   it('reports a released payment with neither donationId nor registrationId in subjectlessPayments, not either Trip/Campaign array, and does not crash', async () => {
