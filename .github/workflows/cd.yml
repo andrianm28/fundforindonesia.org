@@ -186,6 +186,28 @@ jobs:
           cache-from: type=gha,scope=migrate
           cache-to: type=gha,mode=max,scope=migrate
 
+      # Ticket 14 slimmed the app image from about 1 GB; keep the size visible
+      # so a regression shows up in the run summary, not on the host's disk.
+      - name: Report the image sizes
+        run: |
+          app="$(docker image inspect --format '{{.Size}}' local/app:candidate)"
+          migrate="$(docker image inspect --format '{{.Size}}' local/migrate:candidate)"
+          echo "app: $((app / 1048576)) MiB, migrate: $((migrate / 1048576)) MiB (uncompressed)"
+          {
+            echo "### Image sizes (uncompressed)"
+            echo "| image | MiB |"
+            echo "|---|---|"
+            echo "| app | $((app / 1048576)) |"
+            echo "| migrate | $((migrate / 1048576)) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The image optimizer is off (next.config.mjs), so /api/health passes
+      # even with sharp broken. This runs sharp itself, loaded the way Next
+      # loads it, and encodes a small image so libvips is exercised too.
+      - name: Smoke test, sharp loads and encodes in the app image
+        run: >-
+          docker run --rm local/app:candidate node -e 'require(process.env.NEXT_SHARP_PATH)({ create: { width: 8, height: 8, channels: 3, background: "#fff" } }).webp().toBuffer().then((b) => console.log("sharp ok, " + b.length + " bytes of webp"))'
+
       - name: Smoke test, migrate an empty database with the migrate image
         run: docker run --rm --network host -e DATABASE_URL="$SMOKE_DATABASE_URL" local/migrate:candidate
 

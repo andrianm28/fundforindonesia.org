@@ -58,8 +58,9 @@ done and CI is green.
 `.github/workflows/cd.yml` adds one more job on every PR:
 
 - **image**: the production Docker image builds (the `runner` and `migrate`
-  targets), the migrate image migrates an empty Postgres, the app image
-  answers 200 on `/api/health`, and Trivy finds no CRITICAL fixable
+  targets), the run summary reports both image sizes, sharp loads and encodes
+  an image inside the app image, the migrate image migrates an empty Postgres,
+  the app image answers 200 on `/api/health`, and Trivy finds no CRITICAL fixable
   vulnerability or secret in either image. On PRs nothing is pushed. After CI
   passes on `main`, the same job pushes the images to GHCR. A finding that
   cannot be fixed yet goes in `.trivyignore` with a reason and an expiry date.
