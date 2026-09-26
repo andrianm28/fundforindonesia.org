@@ -68,9 +68,9 @@ export class OwnSubjectConflictError extends DomainError {
     readonly subjectKind: CapacitySubject["kind"],
     readonly capacity: OperatorCapacity
   ) {
-    const role = OPERATOR_LABELS[capacity];
+    const label = OPERATOR_LABELS[capacity];
     super(
-      `Anda tidak dapat bertindak sebagai ${role} atas ${SUBJECT_LABELS[subjectKind]} milik Anda sendiri. Tindakan ini harus dilakukan ${role} lain.`
+      `Anda tidak dapat bertindak sebagai ${label} atas ${SUBJECT_LABELS[subjectKind]} milik Anda sendiri. Tindakan ini harus dilakukan ${label} lain.`
     );
     this.code = OWN_SUBJECT_CODES[subjectKind];
     this.name = "OwnSubjectConflictError";

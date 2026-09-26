@@ -71,7 +71,7 @@ export function campaignAcceptsDonations(
 // ==================== Typed errors ====================
 
 export * from "./campaign-lifecycle-errors";
-// Raised by every command through the Capacity judgement.
+// Raised by the Admin and Verifier commands through the Capacity judgement.
 export { OwnSubjectConflictError } from "./capacity";
 import {
   CampaignLifecycleError,
