@@ -6,8 +6,8 @@
 #   SEED=1 ./deploy.sh    First deploy onto a FRESH, EMPTY database only: also
 #                         loads the demo seed (prisma/seed.ts) after migrations.
 #
-# The seed is opt-in because it is demo data, not bootstrap data: it creates an
-# operator account with a known password and both the ADMIN and VERIFIER
+# The seed is opt-in because it is demo data, not bootstrap data: it creates a
+# demo account with a known password holding both the ADMIN and VERIFIER
 # assignments. It also refuses outright to run on a database that already has
 # Campaigns or Donations, so under `set -e` an unconditional seed step would
 # stop every deploy after the first before the app started.

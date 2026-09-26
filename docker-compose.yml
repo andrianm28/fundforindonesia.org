@@ -90,10 +90,9 @@ services:
     profiles:
       - setup
 
-  # Opt-in demo seed runner. Never started by a normal deploy or by
-  # `docker compose up` (it is behind the `setup` profile); only
-  # `SEED=1 ./deploy.sh` runs it, and only for a fresh, empty database --
-  # prisma/seed.ts refuses a database that already has Campaigns or Donations.
+  # Opt-in demo seed runner, for a fresh, empty database only. Behind the
+  # `setup` profile, so plain `docker compose up` never starts it, and a normal
+  # deploy never runs it; see `SEED=1` in deploy.sh.
   seed:
     image: node:20-alpine
     working_dir: /app
