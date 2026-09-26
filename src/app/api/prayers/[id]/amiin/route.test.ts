@@ -33,7 +33,7 @@ describe('POST /api/prayers/[id]/amiin', () => {
     mockPrayerUpdate.mockResolvedValue({ id: 'prayer-1', amiinCount: 6 });
 
     const request = createRequest('prayer-1');
-    const response = await POST(request, { params: { id: 'prayer-1' } });
+    const response = await POST(request, { params: Promise.resolve({ id: 'prayer-1' }) });
     const data = await response.json();
 
     expect(response.status).toBe(200);
@@ -45,7 +45,7 @@ describe('POST /api/prayers/[id]/amiin', () => {
     mockPrayerFindUnique.mockResolvedValue(null);
 
     const request = createRequest('nonexistent');
-    const response = await POST(request, { params: { id: 'nonexistent' } });
+    const response = await POST(request, { params: Promise.resolve({ id: 'nonexistent' }) });
     const data = await response.json();
 
     expect(response.status).toBe(404);
@@ -57,7 +57,7 @@ describe('POST /api/prayers/[id]/amiin', () => {
     mockPrayerUpdate.mockResolvedValue({ id: 'prayer-1', amiinCount: 1 });
 
     const request = createRequest('prayer-1');
-    await POST(request, { params: { id: 'prayer-1' } });
+    await POST(request, { params: Promise.resolve({ id: 'prayer-1' }) });
 
     expect(mockPrayerUpdate).toHaveBeenCalledWith({
       where: { id: 'prayer-1' },
@@ -70,7 +70,7 @@ describe('POST /api/prayers/[id]/amiin', () => {
     mockPrayerFindUnique.mockRejectedValue(new Error('DB error'));
 
     const request = createRequest('prayer-1');
-    const response = await POST(request, { params: { id: 'prayer-1' } });
+    const response = await POST(request, { params: Promise.resolve({ id: 'prayer-1' }) });
     const data = await response.json();
 
     expect(response.status).toBe(500);
@@ -81,7 +81,7 @@ describe('POST /api/prayers/[id]/amiin', () => {
     mockPrayerFindUnique.mockResolvedValue(null);
 
     const request = createRequest('nonexistent');
-    await POST(request, { params: { id: 'nonexistent' } });
+    await POST(request, { params: Promise.resolve({ id: 'nonexistent' }) });
 
     expect(mockPrayerUpdate).not.toHaveBeenCalled();
   });

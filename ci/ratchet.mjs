@@ -14,7 +14,7 @@ function run(command) {
 }
 
 const baselines = JSON.parse(readFileSync(new URL('./baselines.json', import.meta.url), 'utf8'));
-run('npx next lint --format json --output-file .ratchet-lint.json');
+run('npx eslint . --format json --output-file .ratchet-lint.json');
 const counts = {
   tsc: countTscErrors(run('npx tsc --noEmit')),
   lint: countLintErrors(readFileSync('.ratchet-lint.json', 'utf8')),
