@@ -1,0 +1,16 @@
+# 17: Run the image job only when it can change
+
+**What to build:** The `image` job in `cd.yml` builds and Trivy-scans the
+Docker image on every PR, about 5 minutes each, even for docs-only changes.
+Run it on `main`, and on PRs only when the Dockerfile, dependencies
+(`package.json`, `package-lock.json`), `prisma/`, `next.config.mjs`,
+`.trivyignore` or the workflows change. Priority: low (the repo is public, so
+minutes are free; this saves time, not money).
+
+**Blocked by:** 15 (avoid conflicting edits to `cd.yml` and `.trivyignore`)
+
+**Status:** ready-for-agent
+
+- [ ] A docs-only PR skips `image`; a PR touching any path above runs it; every push to `main` runs it
+- [ ] Skipping never blocks a merge: a skipped `image` still reports a passing (or neutral) status
+- [ ] The deploy path (CD on `main`) is unchanged

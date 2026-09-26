@@ -40,6 +40,14 @@ jangan memanggil skill mereka walau terpasang secara global. Urutannya:
    lebih dulu.
 4. **Eksekusi**: `/implement` per tiket (menjalankan `/tdd`, ditutup
    `/code-review`). `/clear` di antara tiket.
+
+Skill yang ber-`disable-model-invocation` (`implement`, `to-tickets`,
+`to-spec`, `grill-with-docs`, `triage`, `handoff`, `wayfinder`, `ask-matt`,
+dll.) hanya bisa diketik owner; agent tidak bisa memanggilnya. Keputusan owner
+2026-09-26: saat agent yang mengerjakan, builder memanggil `tdd` lalu
+`code-review` langsung (keduanya boleh dipanggil agent) dan menutup dengan full
+suite + ratchet; koordinator menulis file tiket langsung di `.scratch/` mengikuti
+`docs/agents/issue-tracker.md` alih-alih `/to-tickets`.
 5. **Debug**: `/diagnosing-bugs`. **Laporan masuk**: `/triage`.
    **Kesehatan kode**: `/improve-codebase-architecture`.
 
