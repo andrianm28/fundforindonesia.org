@@ -25,11 +25,13 @@ RUN npx prisma generate
 # defaults are production's values, so a plain `docker build` still matches
 # production. They are public by nature. Never pass a secret as a build arg:
 # build args are recorded in the image history and the provenance attestation.
-#   NEXT_PUBLIC_BASE_URL           canonical site URL (sitemap, SEO metadata)
+#   NEXT_PUBLIC_BASE_URL           canonical public site URL (sitemap, SEO
+#                                  metadata, Campaign page, email links); the
+#                                  same fallback as src/lib/public-url.ts
 #   NEXTAUTH_URL                   the URL next-auth sees during the build; the
 #                                  running app takes it from the runtime env
 #   NEXT_PUBLIC_DONATIONS_ENABLED  "true" to take real donations, else off
-ARG NEXT_PUBLIC_BASE_URL="https://galang.fundforindonesia.org"
+ARG NEXT_PUBLIC_BASE_URL="https://fundforindonesia.org"
 ARG NEXTAUTH_URL="https://galang.fundforindonesia.org"
 ARG NEXT_PUBLIC_DONATIONS_ENABLED="false"
 
