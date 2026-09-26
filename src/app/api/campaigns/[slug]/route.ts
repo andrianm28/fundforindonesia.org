@@ -224,7 +224,7 @@ export async function PATCH(
         ...(deadline !== undefined && { deadline: deadline === null ? null : new Date(deadline) }),
       };
       requireKindAndDeadlineEditable(state, data);
-      if (collectingEntityId !== undefined) {
+      if (collectingEntityId !== undefined && state.kind === 'campaign') {
         requireCollectingEntityEditable(state, { collectingEntityId });
         if (collectingEntityId !== state.collectingEntityId) {
           Object.assign(data, {

@@ -15,7 +15,7 @@ const NOW = new Date('2026-09-25T10:00:00Z');
 const PAST = new Date('2026-09-20T00:00:00Z');
 const FUTURE = new Date('2026-10-20T00:00:00Z');
 
-type CampaignRow = { id: string; creatorId: string; isDemo: boolean; lifecycleStatus: CampaignStatus; deadline: Date | null; kind: Kind };
+type CampaignRow = { id: string; creatorId: string; isDemo: boolean; lifecycleStatus: CampaignStatus; deadline: Date | null; kind: Kind; collectingEntityId: string | null };
 type TripRow = { id: string; fundraiserId: string; status: VolunteerTripStatus };
 
 /**
@@ -59,6 +59,7 @@ const campaign = (overrides: Partial<CampaignRow> = {}): CampaignRow => ({
   lifecycleStatus: CampaignStatus.ACTIVE,
   deadline: FUTURE,
   kind: 'ZAKAT',
+  collectingEntityId: 'partner-1',
   ...overrides,
 });
 
@@ -83,6 +84,7 @@ describe('lockAndLoad', () => {
       effectiveStatus: CampaignStatus.ACTIVE,
       campaignKind: 'ZAKAT',
       deadline: FUTURE,
+      collectingEntityId: 'partner-1',
     });
     expect(events).toEqual(['lock Campaign:campaign-1', 'read Campaign:campaign-1']);
   });
@@ -140,6 +142,7 @@ const campaignState = (effectiveStatus: CampaignStatus, ownerId = 'fundraiser-1'
   effectiveStatus,
   campaignKind: 'DONATION',
   deadline: null,
+  collectingEntityId: null,
 });
 
 const tripState = (effectiveStatus: VolunteerTripStatus, ownerId = 'trip-fundraiser-1'): SubjectState => ({
