@@ -29,6 +29,16 @@ function createRequest(body: unknown): NextRequest {
   });
 }
 
+// The ADR 0012 columns, NULL on rows written before the keys were set.
+const CONTACT_FIELDS_NOT_YET_PROTECTED = {
+  emailHmac: null,
+  emailHmacKeyId: null,
+  emailCiphertext: null,
+  emailKeyId: null,
+  phoneCiphertext: null,
+  phoneKeyId: null,
+};
+
 describe('POST /api/auth/register', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -76,6 +86,7 @@ describe('POST /api/auth/register', () => {
       donationBalance: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
+      ...CONTACT_FIELDS_NOT_YET_PROTECTED,
     });
 
     const req = createRequest({ name: 'Test', email: 'test@example.com', password: '12345678' });
@@ -102,6 +113,7 @@ describe('POST /api/auth/register', () => {
       donationBalance: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
+      ...CONTACT_FIELDS_NOT_YET_PROTECTED,
     });
 
     const req = createRequest({ name: 'New User', email: 'new@example.com', password: '12345678' });
@@ -130,6 +142,7 @@ describe('POST /api/auth/register', () => {
       donationBalance: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
+      ...CONTACT_FIELDS_NOT_YET_PROTECTED,
     });
 
     const req = createRequest({ name: 'New User', email: 'new@example.com', password: 'mypassword' });

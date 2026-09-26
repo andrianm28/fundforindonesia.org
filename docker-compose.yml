@@ -60,6 +60,13 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      # Field-level encryption keys (ADR 0012). No defaults: a default key is
+      # a published one. Empty means encryption is off and only plaintext is
+      # written; see .env.example.
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
+      FIELD_ENCRYPTION_KEY_ID: ${FIELD_ENCRYPTION_KEY_ID:-}
+      FIELD_HMAC_KEY: ${FIELD_HMAC_KEY:-}
+      FIELD_HMAC_KEY_ID: ${FIELD_HMAC_KEY_ID:-}
     depends_on:
       db:
         condition: service_healthy
