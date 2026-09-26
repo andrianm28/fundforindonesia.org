@@ -633,7 +633,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'other-user', lifecycleStatus: 'ACTIVE', deadline: null,
+      creatorId: 'other-user', lifecycleStatus: 'DRAFT', deadline: null,
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
@@ -658,7 +658,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null,
+      creatorId: 'creator-user', lifecycleStatus: 'DRAFT', deadline: null,
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
@@ -748,7 +748,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
       user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
       expires: '2099-01-01',
     });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null } as any);
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'DRAFT', deadline: null } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
       creator: { id: 'creator-user', name: 'Creator', avatar: null },
@@ -818,7 +818,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
       mockGetServerSession.mockResolvedValue({ user, expires: '2099-01-01' } as any);
     }
     function patchCampaignOwnedBy(creatorId: string) {
-      mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId, lifecycleStatus: 'ACTIVE', deadline: null } as any);
+      mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId, lifecycleStatus: 'DRAFT', deadline: null } as any);
       mockUpdate.mockResolvedValue({ id: 'campaign-1', title: 'Baru' } as any);
       return PATCH(createRequest('test-campaign', 'PATCH', { title: 'Baru' }), {
         params: Promise.resolve({ slug: 'test-campaign' }),
@@ -908,7 +908,13 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
     });
   }
 
-  it.each(['DRAFT', 'REJECTED', 'ACTIVE'])('lets the Fundraiser edit the content of a %s Campaign', async (status) => {
+  function editStory() {
+    return PATCH(createRequest('bantu-korban-banjir', 'PATCH', { story: '<p>Cerita baru</p>' }), {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+  }
+
+  it.each(['DRAFT', 'REJECTED'])('lets the Fundraiser edit the content of a %s Campaign', async (status) => {
     storedAs(status);
 
     const response = await editTitle();
@@ -917,10 +923,10 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
     expect((await response.json()).campaign.title).toBe('Judul Baru');
   });
 
-  it('lets the Fundraiser edit an Active Campaign whose deadline is still ahead', async () => {
+  it('lets the Fundraiser edit the story of an Active Campaign whose deadline is still ahead', async () => {
     storedAs('ACTIVE', new Date('2026-10-01T00:00:00Z'));
 
-    const response = await editTitle();
+    const response = await editStory();
 
     expect(response.status).toBe(200);
   });
@@ -1009,6 +1015,86 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
   });
 });
 
+describe('PATCH /api/campaigns/[slug] -- title and description are frozen once Active (verification-request 09)', () => {
+  const NOW = new Date('2026-09-26T12:00:00Z');
+  const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as any);
+    mockLockQuery.mockResolvedValue([] as any);
+    mockFindUnique.mockImplementation((async () => ({ ...row })) as any);
+    mockUpdate.mockImplementation((async (args: any) => ({ ...row, ...args.data })) as any);
+    mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as any);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function storedAs(lifecycleStatus: string) {
+    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline: null, kind: 'DONATION' };
+  }
+
+  const FIELD_VALUE: Record<string, unknown> = {
+    title: 'Judul Baru',
+    description: 'Deskripsi baru',
+    story: '<p>Cerita baru</p>',
+    coverImage: 'https://example.com/baru.jpg',
+  };
+
+  function editField(field: string) {
+    return PATCH(createRequest('bantu-korban-banjir', 'PATCH', { [field]: FIELD_VALUE[field] }), {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+  }
+
+  describe('while Active', () => {
+    beforeEach(() => storedAs('ACTIVE'));
+
+    it.each(['title', 'description'])('refuses a %s edit, typed 409, and writes nothing', async (field) => {
+      const response = await editField(field);
+
+      expect(response.status).toBe(409);
+      const body = await response.json();
+      expect(body.code).toBe('ACTIVE_CONTENT_FROZEN');
+      expect(typeof body.error).toBe('string');
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it.each(['story', 'coverImage'])('lets a %s edit succeed', async (field) => {
+      const response = await editField(field);
+
+      expect(response.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { [field]: FIELD_VALUE[field] } }));
+    });
+
+    it('refuses a title edit even when a story edit rides along in the same request', async () => {
+      const response = await PATCH(
+        createRequest('bantu-korban-banjir', 'PATCH', { title: 'Judul Baru', story: '<p>Cerita baru</p>' }),
+        { params: Promise.resolve({ slug: 'bantu-korban-banjir' }) },
+      );
+
+      expect(response.status).toBe(409);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe.each(['DRAFT', 'REJECTED'])('while %s', (status) => {
+    beforeEach(() => storedAs(status));
+
+    it.each(['title', 'description', 'story', 'coverImage'])('lets a %s edit succeed', async (field) => {
+      const response = await editField(field);
+
+      expect(response.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { [field]: FIELD_VALUE[field] } }));
+    });
+  });
+});
+
 describe('PATCH /api/campaigns/[slug] -- Kind is fixed once the Campaign leaves Draft', () => {
   const NOW = new Date('2026-09-26T12:00:00Z');
   const DEADLINE = new Date('2026-12-31T00:00:00Z');
@@ -1062,7 +1148,7 @@ describe('PATCH /api/campaigns/[slug] -- Kind is fixed once the Campaign leaves 
   it.each(['REJECTED', 'ACTIVE'])('refuses to change the Kind of a %s Campaign with 409 KIND_IMMUTABLE', async (status) => {
     storedAs(status, 'DONATION');
 
-    const response = await edit({ kind: 'ZAKAT', title: 'Judul Baru' });
+    const response = await edit({ kind: 'ZAKAT', story: '<p>Cerita baru</p>' });
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
@@ -1075,7 +1161,7 @@ describe('PATCH /api/campaigns/[slug] -- Kind is fixed once the Campaign leaves 
   it('accepts the Kind it already has on an Active Campaign, so a form resending every field still saves', async () => {
     storedAs('ACTIVE', 'ZAKAT');
 
-    const response = await edit({ kind: 'ZAKAT', title: 'Judul Baru' });
+    const response = await edit({ kind: 'ZAKAT', story: '<p>Cerita baru</p>' });
 
     expect(response.status).toBe(200);
   });
@@ -1235,7 +1321,7 @@ describe('PATCH /api/campaigns/[slug] -- the deadline is set before a Verifier s
   it('accepts the deadline an Active Campaign already has', async () => {
     storedAs('ACTIVE', 'DONATION', DEADLINE);
 
-    const response = await edit({ deadline: '2026-12-31T00:00:00.000Z', title: 'Judul Baru' });
+    const response = await edit({ deadline: '2026-12-31T00:00:00.000Z', story: '<p>Cerita baru</p>' });
 
     expect(response.status).toBe(200);
   });
@@ -1320,7 +1406,7 @@ describe('PATCH /api/campaigns/[slug] -- the Collecting Entity is chosen before 
   it('accepts the one it already has on an Active Campaign', async () => {
     storedAs('ACTIVE');
 
-    const response = await edit({ collectingEntityId: 'sponsor', title: 'Judul Baru' });
+    const response = await edit({ collectingEntityId: 'sponsor', story: '<p>Cerita baru</p>' });
 
     expect(response.status).toBe(200);
   });

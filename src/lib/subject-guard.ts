@@ -254,6 +254,43 @@ export function requireContentEditable(state: SubjectState): void {
   }
 }
 
+/**
+ * A title or description edit refused because the Campaign is effectively
+ * Active (verification-request ticket 09). Stricter than PRD FFI-05, on
+ * purpose (CONTEXT.md, Verification Request; PRD §13): a Donor should never
+ * give to one purpose and later find its title or description changed.
+ * Story and cover image stay editable, and this never fires outside Active
+ * (`requireContentEditable` already refuses every other closed status).
+ */
+export class ActiveContentFrozenError extends CampaignLifecycleError {
+  readonly code = "ACTIVE_CONTENT_FROZEN";
+  constructor() {
+    super("Judul dan deskripsi Campaign tidak dapat diubah lagi saat berstatus Aktif.");
+    this.name = "ActiveContentFrozenError";
+  }
+}
+
+/**
+ * Passes for every content edit except a title or description edit on an
+ * effectively Active Campaign. Judge it right after `requireContentEditable`,
+ * on the same `lockAndLoad` result, so a submit or a status change committed
+ * first is seen here too. `edit` is the parsed request body (or the fields
+ * about to be written): only whether title or description is present
+ * matters, not their values, so naming the value already stored still
+ * refuses -- unlike Kind, deadline and Collecting Entity, whose edits pass
+ * when they leave the field unchanged.
+ */
+export function requireActiveContentFieldsEditable(
+  state: SubjectState,
+  edit: { title?: unknown; description?: unknown }
+): void {
+  if (state.kind !== "campaign") return;
+  if (state.effectiveStatus !== CampaignStatus.ACTIVE) return;
+  if (edit.title !== undefined || edit.description !== undefined) {
+    throw new ActiveContentFrozenError();
+  }
+}
+
 /** A change of Kind refused because the Campaign has left Draft. */
 export class KindImmutableError extends CampaignLifecycleError {
   readonly code = "KIND_IMMUTABLE";

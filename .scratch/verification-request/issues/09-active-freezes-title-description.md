@@ -4,7 +4,7 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** in review (PR #43)
 
 - [ ] ACTIVE: a story or cover edit succeeds; a title or description edit is refused (typed 409), and nothing is written
 - [ ] DRAFT and REJECTED: all four fields editable. Other statuses unchanged

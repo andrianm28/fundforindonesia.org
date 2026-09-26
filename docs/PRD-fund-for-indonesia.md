@@ -365,6 +365,10 @@ Diputuskan 22 September 2026:
 - [x] Volunteer Trip dibuat oleh Fundraiser mana pun, sama seperti Campaign, bukan hanya Platform Operator.
 - [x] Tidak ada Platform Fee atas Trip Fee, mengikuti preseden seluruh jalur lain yang belum mengambil Platform Fee.
 
+Diputuskan 26 September 2026:
+
+- [x] Lebih ketat dari FFI-05: pada Campaign Active hanya cerita dan sampul yang bisa diubah langsung; judul dan deskripsi ikut dibekukan sejak Active, bukan hanya target, tenggat, dan Bank Account, agar Donor tidak menyumbang untuk satu tujuan lalu judulnya berganti. Perubahan judul atau deskripsi Campaign Active menunggu Verification Request baru untuk konten, di luar cakupan slice ini (`.scratch/verification-request/issues/09-active-freezes-title-description.md`).
+
 Masih terbuka, perlu ditinjau sebelum Kind `hibah` menerima donasi nyata:
 
 - [ ] Apakah batas Refund, kebutuhan Kind Authorisation, dan dokumen wajib untuk `hibah` seharusnya mengikuti pola `wakaf`, atau punya aturan sendiri berdasarkan ketentuan syariah untuk hibah yang berbeda dari wakaf. Lihat ADR 0013.
