@@ -21,6 +21,11 @@ vi.mock('@/lib/prisma', () => ({
     payout: {
       findMany: vi.fn(),
     },
+    // Creating a Campaign asks whether the creator's account acts for a
+    // Partner Organisation (prd-compliance 10); none here.
+    partnerOrganisation: {
+      findUnique: vi.fn(async () => null),
+    },
   },
 }));
 

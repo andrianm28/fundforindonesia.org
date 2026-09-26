@@ -103,6 +103,9 @@ describe('POST /api/donations lifecycle gate', () => {
       lifecycleStatus: 'ACTIVE',
       title: 'Bantu Korban Banjir',
       isDemo: false,
+      kind: 'DONATION',
+      // A Collecting Entity with a permit valid now (prd-compliance 10).
+      collectingEntity: { permits: [{ kinds: ['DONATION'], validFrom: new Date('2020-01-01T00:00:00Z'), validTo: new Date('2099-12-31T00:00:00Z') }] },
     });
 
     await POST(donateRequest(VALID_BODY));

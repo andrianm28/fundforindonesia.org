@@ -2,6 +2,7 @@
 
 import type { CampaignStatus } from "@/generated/prisma/client";
 import type { CampaignKind } from "@/lib/campaign-kind";
+import type { CollectingEntityBlock } from "@/lib/collecting-entity";
 
 /**
  * The Campaign Status as payloads and pages carry it, in `lifecycleStatus`
@@ -26,6 +27,10 @@ export interface Campaign {
   kind?: CampaignKind;
   /** Effective. A reader that needs it treats absence as not Active. */
   lifecycleStatus?: CampaignLifecycleStatus;
+  /** The Partner Organisation that collects its money (ADR 0010), as GET /api/campaigns/[slug] sends it. */
+  collectingEntity?: { id: string; name: string } | null;
+  /** Why an Active Campaign cannot take a Donation right now because of its Collecting Entity; null when it can. */
+  donationBlock?: CollectingEntityBlock | null;
   isUrgent: boolean;
   /** Sample content marked by the task M9 migration -- see schema.prisma. Never take money from a campaign where this is true. */
   isDemo: boolean;

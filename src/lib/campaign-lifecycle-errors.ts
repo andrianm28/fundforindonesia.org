@@ -1,7 +1,7 @@
 import type { CampaignStatus } from "@/generated/prisma/client";
 import { DomainError, type LifecycleErrorCode } from "./domain-errors";
 import { STATUS_LABEL } from "./campaign-status-label";
-import { deadlineRequiredMessage, type CampaignKind } from "./campaign-kind";
+import { deadlineRequiredMessage, KIND_LABEL, type CampaignKind } from "./campaign-kind";
 
 /**
  * The lifecycle module's typed refusals. Kept apart from the command module
@@ -122,5 +122,78 @@ export class DeadlineRequiredError extends CampaignLifecycleError {
   constructor(readonly kind: CampaignKind) {
     super(deadlineRequiredMessage(kind));
     this.name = "DeadlineRequiredError";
+  }
+}
+
+// ==================== Collecting Entity (prd-compliance 10) ====================
+
+/**
+ * The Campaign names no Collecting Entity (CONTEXT.md, Collecting Entity;
+ * ADR 0010): required before it may leave Draft, and before a Verifier may
+ * approve it. The Fundraiser can fix it by naming one, so 422.
+ */
+export class CollectingEntityRequiredError extends CampaignLifecycleError {
+  readonly code = "COLLECTING_ENTITY_REQUIRED";
+  constructor() {
+    super(
+      "Campaign ini belum menyebutkan Collecting Entity. Pilih Partner Organisation yang menaunginya sebelum mengajukan."
+    );
+    this.name = "CollectingEntityRequiredError";
+  }
+}
+
+/**
+ * The Collecting Entity holds no Fundraising Permit valid now for the
+ * Campaign's Kind, so the Campaign may not open (ADR 0010). Raised on
+ * submission and on approval.
+ */
+/** Which step the missing permit stops: the Fundraiser's submission or the Verifier's approval. */
+export type OpeningStep = "diajukan" | "diloloskan";
+
+export class FundraisingPermitRequiredError extends CampaignLifecycleError {
+  readonly code = "FUNDRAISING_PERMIT_REQUIRED";
+  constructor(
+    readonly entityName: string,
+    readonly kind: CampaignKind,
+    step: OpeningStep
+  ) {
+    super(
+      `${entityName} belum memegang Fundraising Permit yang berlaku untuk Kind ${KIND_LABEL[kind]}, sehingga Campaign ini belum dapat ${step}.`
+    );
+    this.name = "FundraisingPermitRequiredError";
+  }
+}
+
+/**
+ * The Partner Organisation named may not be this Campaign's Collecting
+ * Entity: a Campaign of an organisation's linked account always collects
+ * under that organisation, and an individual Fundraiser may only pick one
+ * that accepts individual Campaigns. Also raised for an id that names no
+ * Partner Organisation, so nothing else (the Platform Operator included)
+ * can ever be named.
+ */
+export class CollectingEntityNotEligibleError extends CampaignLifecycleError {
+  readonly code = "COLLECTING_ENTITY_NOT_ELIGIBLE";
+  constructor(message: string) {
+    super(message);
+    this.name = "CollectingEntityNotEligibleError";
+  }
+}
+
+/** An Active Campaign already names its Collecting Entity; assigning is for one that names none. */
+export class CollectingEntityAlreadySetError extends CampaignLifecycleError {
+  readonly code = "COLLECTING_ENTITY_ALREADY_SET";
+  constructor() {
+    super("Campaign ini sudah memiliki Collecting Entity.");
+    this.name = "CollectingEntityAlreadySetError";
+  }
+}
+
+/** A change of Collecting Entity refused because the Campaign is past Draft and Rejected. */
+export class CollectingEntityNotEditableError extends CampaignLifecycleError {
+  readonly code = "COLLECTING_ENTITY_NOT_EDITABLE";
+  constructor(readonly currentStatus: CampaignStatus) {
+    super("Collecting Entity hanya dapat diubah saat Campaign berstatus Draft atau Rejected.");
+    this.name = "CollectingEntityNotEditableError";
   }
 }

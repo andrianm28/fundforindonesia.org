@@ -1,6 +1,7 @@
 # CD: build the production image in Actions and push it to GHCR, so the shared
-# host never builds (.scratch/ci-cd-github-actions, ticket 05). The deploy job
-# (ticket 07) consumes this job's digest outputs.
+# host never builds (.scratch/ci-cd-github-actions, ticket 05). Deploying is a
+# separate, dispatch-only workflow, deploy.yml (ticket 07), which reads these
+# images' digests and provenance back from GHCR.
 #
 # Triggers:
 # - workflow_run: after CI passes on main. Builds exactly the commit CI tested
@@ -11,7 +12,7 @@
 #   images, and scans them. workflow_run only ever fires from the default
 #   branch's copy of this file, so without this a broken Dockerfile or
 #   workflow would first show up after merge. Jobs added here later that must
-#   not run on PRs (deploy) need their own `if`.
+#   not run on PRs need their own `if`.
 #
 # Build args: NEXT_PUBLIC_* and the site URLs are inlined by `next build`, so
 # they are fixed per image. They come from repository-level Actions variables
@@ -268,7 +269,8 @@ jobs:
           # Buildx's own SLSA provenance, stored with the image in GHCR. It
           # works on this private user-owned repository, unlike the GitHub
           # attestation below. It records the build args, which are public.
-          provenance: mode=max
+          # SLSA v1, pinned: deploy.yml's gate reads the v1 fields.
+          provenance: mode=max,version=v1
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: *build-args
@@ -282,7 +284,7 @@ jobs:
           context: .
           target: migrate
           push: true
-          provenance: mode=max
+          provenance: mode=max,version=v1
           tags: ${{ env.IMAGE }}:${{ env.SHA }}-migrate
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=migrate

@@ -69,15 +69,21 @@ done and CI is green.
 
 Merge to `main` only when every job is green.
 
-Production deploys only through the CD `deploy` job, which the owner starts
-by hand (`workflow_dispatch`): the repo stays on GitHub Free, where
-environment approvals and branch protection are unavailable, so dispatching it
-is the approval, and the job itself refuses any commit whose CI run is not
-green. Agents never dispatch it. That job is still being built: the host side,
-`ops/deploy.sh`, exists, and the deploy job that calls it is a later ticket of
-`.scratch/ci-cd-github-actions/`. Until it lands, deploying is the owner's
-call, not an agent's. Never run `ops/deploy.sh` on the host yourself: it
-switches production. Its tests stub `docker` and `curl`. Leave the running
+Production deploys only through `.github/workflows/deploy.yml`, which the
+owner starts by hand (`workflow_dispatch`, from main, with an optional commit
+SHA): the repo stays on GitHub Free, where environment approvals and branch
+protection are unavailable, so dispatching it is the approval. Before it
+touches the host, the job (`ci/deploy-gate.sh`) refuses any commit that is not
+on main, has no green CI push run with all four jobs, or lacks cd.yml's app
+and migrate images in GHCR with matching provenance. It then SSHes to the
+host's forced command with the SHA and the two image digests, and
+`ops/deploy.sh` does the rest. Rolling back is the same dispatch with an older
+SHA. When a release changes `ops/deploy.sh` or `docker-compose.prod.yml`, the
+owner copies them to the host first: the deploy key cannot write files.
+
+Agents never dispatch it, and never run `ops/deploy.sh` on the host
+themselves: it switches production. Its tests stub `docker` and `curl`, and
+the gate's tests stub `gh` and `curl`. Leave the running
 production stack alone: no `docker compose` against it, no manual deploy
 scripts from the host, and nothing inside `/home/ubuntu/kibi-clone`, which is the live production checkout.
 

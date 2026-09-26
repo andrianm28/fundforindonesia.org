@@ -6,10 +6,10 @@ import type { Kind } from "@/generated/prisma/client";
  * of the Prisma enum, so the generated client never reaches a browser
  * bundle.
  *
- * Only the deadline rule lives here so far. Kind Authorisation, the
- * Collecting Entity and its Fundraising Permit (prd-compliance 10, 11), the
- * per-Kind document checklist and Platform Fee (17) will key off the same
- * value.
+ * Only the deadline rule lives here. The Fundraising Permit rule keys off
+ * the same value (./collecting-entity.ts, prd-compliance 10); Kind
+ * Authorisation (11), the per-Kind document checklist and Platform Fee (17)
+ * will too.
  */
 export type CampaignKind = Kind;
 

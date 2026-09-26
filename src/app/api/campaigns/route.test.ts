@@ -10,6 +10,9 @@ vi.mock('@/lib/prisma', () => ({
       count: vi.fn(),
       create: vi.fn(),
     },
+    partnerOrganisation: {
+      findUnique: vi.fn(),
+    },
   },
 }));
 
@@ -26,6 +29,7 @@ const mockFindMany = vi.mocked(prisma.campaign.findMany);
 const mockCount = vi.mocked(prisma.campaign.count);
 const mockCreate = vi.mocked(prisma.campaign.create);
 const mockGetServerSession = vi.mocked(getServerSession);
+const mockOrganisationFindUnique = vi.mocked(prisma.partnerOrganisation.findUnique);
 
 function createRequest(url: string): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'));
@@ -483,6 +487,72 @@ describe('POST /api/campaigns', () => {
 
       expect(response.status).toBe(201);
       expect(mockCreate.mock.calls[0][0]).toMatchObject({ data: { kind: 'WAKAF', deadline: null } });
+    });
+  });
+
+  describe('Collecting Entity (prd-compliance 10, ADR 0010)', () => {
+    const YIEM = { id: 'yiem', name: 'YIEM', fundraiserId: 'user-1', acceptsIndividualCampaigns: false };
+    const SPONSOR = { id: 'sponsor', name: 'Yayasan Penaung', fundraiserId: 'other', acceptsIndividualCampaigns: true };
+    const CLOSED = { id: 'closed', name: 'Yayasan Tertutup', fundraiserId: 'third', acceptsIndividualCampaigns: false };
+    const ORGANISATIONS = [YIEM, SPONSOR, CLOSED];
+
+    beforeEach(() => {
+      mockGetServerSession.mockResolvedValue(verifiedSession as never);
+      mockCreate.mockResolvedValue({ id: 'c1' } as never);
+    });
+
+    function organisations(list: typeof ORGANISATIONS) {
+      mockOrganisationFindUnique.mockImplementation((async ({ where }: { where: { id?: string; fundraiserId?: string } }) =>
+        list.find((o) => (where.id !== undefined ? o.id === where.id : o.fundraiserId === where.fundraiserId)) ?? null) as never);
+    }
+
+    it('gives a Campaign of an organisation\'s linked account that organisation', async () => {
+      organisations(ORGANISATIONS);
+
+      const response = await POST(createPostRequest(validBody));
+
+      expect(response.status).toBe(201);
+      expect(mockCreate.mock.calls[0][0].data).toMatchObject({ collectingEntityId: 'yiem' });
+    });
+
+    it('refuses the linked account naming another organisation, writing nothing', async () => {
+      organisations(ORGANISATIONS);
+
+      const response = await POST(createPostRequest({ ...validBody, collectingEntityId: 'sponsor' }));
+
+      expect(response.status).toBe(422);
+      expect((await response.json()).code).toBe('COLLECTING_ENTITY_NOT_ELIGIBLE');
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    it('lets an individual Fundraiser name an organisation that accepts individual Campaigns', async () => {
+      organisations([SPONSOR, CLOSED]);
+
+      const response = await POST(createPostRequest({ ...validBody, collectingEntityId: 'sponsor' }));
+
+      expect(response.status).toBe(201);
+      expect(mockCreate.mock.calls[0][0].data).toMatchObject({ collectingEntityId: 'sponsor' });
+    });
+
+    it.each([
+      ['one that does not accept individual Campaigns', 'closed'],
+      ['an id that is no Partner Organisation', 'pt-jaya-korpora-prima'],
+    ])('refuses an individual Fundraiser naming %s, writing nothing', async (_what, collectingEntityId) => {
+      organisations([SPONSOR, CLOSED]);
+
+      const response = await POST(createPostRequest({ ...validBody, collectingEntityId }));
+
+      expect(response.status).toBe(422);
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    it('saves an individual Fundraiser\'s Draft that names none yet; submitting it is what requires one', async () => {
+      organisations([SPONSOR]);
+
+      const response = await POST(createPostRequest(validBody));
+
+      expect(response.status).toBe(201);
+      expect(mockCreate.mock.calls[0][0].data.collectingEntityId).toBeUndefined();
     });
   });
 
