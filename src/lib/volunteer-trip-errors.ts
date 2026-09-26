@@ -1,3 +1,4 @@
+import type { VolunteerTripStatus } from '@/generated/prisma/client';
 import { DomainError, type TripErrorCode } from '@/lib/domain-errors';
 
 /**
@@ -8,6 +9,29 @@ import { DomainError, type TripErrorCode } from '@/lib/domain-errors';
  */
 export abstract class TripError extends DomainError {
   abstract override readonly code: TripErrorCode;
+}
+
+/** No Volunteer Trip has this id. 404 through `domainErrorToHttp`. */
+export class TripNotFoundError extends TripError {
+  readonly code = 'TRIP_NOT_FOUND';
+  constructor(readonly tripId: string) {
+    super('Volunteer trip tidak ditemukan');
+    this.name = 'TripNotFoundError';
+  }
+}
+
+/**
+ * A Fundraiser submits only a Draft or Rejected Volunteer Trip. Raised when
+ * the Trip, read under its row lock, is in any other status: already
+ * Submitted (a second submit, or one that lost the race), or past review.
+ * 409 through `domainErrorToHttp`.
+ */
+export class TripNotEditableError extends TripError {
+  readonly code = 'TRIP_NOT_EDITABLE';
+  constructor(readonly currentStatus: VolunteerTripStatus) {
+    super('Volunteer Trip ini tidak bisa diubah atau diajukan pada status ini. Muat ulang halaman lalu periksa kembali.');
+    this.name = 'TripNotEditableError';
+  }
 }
 
 /**
