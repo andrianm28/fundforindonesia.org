@@ -325,6 +325,33 @@ describe('CampaignDetailView -- the Fundraiser withdraws a pending submission (v
     expect(posts).toEqual(['/api/campaigns/bantu-korban-bencana/verification-requests/request-9/withdraw']);
   });
 
+  it('withdraws a resubmission and shows the Campaign back at Rejected', async () => {
+    let gets = 0;
+    global.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        return { ok: true, json: async () => ({}) } as Response;
+      }
+      gets += 1;
+      return {
+        ok: true,
+        json: async () =>
+          gets === 1
+            ? { campaign: { ...submittedCampaign(), pendingVerificationRequestId: 'request-9' } }
+            : { campaign: { ...mockCampaign, lifecycleStatus: 'REJECTED' } },
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={submittedCampaign()} />);
+
+    const button = await screen.findByRole('button', { name: 'Tarik pengajuan' });
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: 'Status Campaign' }).textContent).toContain('Ditolak')
+    );
+    expect(screen.queryByRole('button', { name: 'Tarik pengajuan' })).toBeNull();
+  });
+
   it('shows the refusal and keeps the button when the withdraw is refused', async () => {
     global.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {
