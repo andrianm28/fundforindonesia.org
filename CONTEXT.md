@@ -87,15 +87,15 @@ PT Jaya Korpora Prima, pemilik dan pengelola platform. Memegang akun merchant pe
 _Avoid_: YIEM, penyelenggara, pemilik platform
 
 **Partner Organisation**:
-Organisasi yang menjalankan program di atas platform dan menjadi Fundraiser, seperti YIEM. Kind Authorisation melekat padanya, bukan pada Platform Operator.
+Organisasi yang menjalankan program di atas platform dan menjadi Fundraiser, seperti YIEM. Didaftarkan Verifier setelah memeriksa dokumen legalnya, bersama satu akun Fundraiser yang bertindak atas namanya (anggota tim menyusul). Boleh menyatakan bersedia menaungi Campaign Fundraiser perorangan. Kind Authorisation melekat padanya, bukan pada Platform Operator.
 _Avoid_: Mitra, lembaga, yayasan
 
 **Collecting Entity**:
-Badan hukum yang menghimpun dana sebuah Campaign atas izinnya sendiri, dicatat pada setiap Campaign. Selalu sebuah Partner Organisation; Platform Operator tidak pernah menjadi Collecting Entity. Fundraiser perorangan menghimpun di bawah Collecting Entity yang menaunginya.
+Badan hukum yang menghimpun dana sebuah Campaign atas izinnya sendiri, dicatat pada setiap Campaign. Selalu sebuah Partner Organisation; Platform Operator tidak pernah menjadi Collecting Entity. Fundraiser perorangan menghimpun di bawah Collecting Entity yang menaunginya, dipilihnya dari Partner Organisation yang bersedia menaungi dan dikonfirmasi Verifier saat meloloskan Verification Request. Campaign tanpa Collecting Entity tidak menerima Donation.
 _Avoid_: Penghimpun, lembaga penerima, pemilik dana
 
 **Fundraising Permit**:
-Izin penghimpunan dana sosial bertanggal yang dipegang sebuah Collecting Entity. Campaign hanya bisa dibuka bila Collecting Entity-nya memegang izin yang masih berlaku untuk Kind itu; saat izinnya lewat, Campaign berhenti menerima Donation sampai diperpanjang.
+Izin penghimpunan dana sosial bertanggal yang dipegang sebuah Collecting Entity, dicatat Verifier (nomor, penerbit, Kind yang dicakup, masa berlaku) setelah memeriksa dokumennya. Campaign hanya bisa dibuka bila Collecting Entity-nya memegang izin yang masih berlaku untuk Kind itu; saat izinnya lewat, Campaign berhenti menerima Donation sampai diperpanjang.
 _Avoid_: Izin PUB (di kode), lisensi, legalitas
 
 **Verifier**:
