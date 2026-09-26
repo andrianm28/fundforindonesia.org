@@ -30,6 +30,17 @@ export type CampaignRow = {
   kind: Kind;
 };
 
+/** The slice of a User the lifecycle reads: who a Fundraiser is, to write to them. */
+export type UserRow = {
+  id: string;
+  email: string;
+  name: string;
+};
+
+export function userRow(overrides: Partial<UserRow> = {}): UserRow {
+  return { id: 'creator-1', email: 'creator-1@example.test', name: 'Siti Fundraiser', ...overrides };
+}
+
 export type StatusChangeRow = {
   id: string;
   campaignId: string;
@@ -323,8 +334,11 @@ export function makeCampaignDb(
     checklistItems?: ChecklistItemRow[];
     verificationRequests?: VerificationRequestRow[];
     identityVerifications?: IdentityVerificationRow[];
+    /** Read-only, so kept outside the transactional copy; defaults to the Fundraiser of campaignRow(). */
+    users?: UserRow[];
   } = {},
 ) {
+  const users = (seed.users ?? [userRow()]).map((u) => ({ ...u }));
   let committed: Data = {
     campaigns: (seed.campaigns ?? []).map((c) => ({ ...c })),
     statusChanges: (seed.statusChanges ?? []).map((s) => ({ ...s })),
@@ -589,6 +603,13 @@ export function makeCampaignDb(
             count += 1;
           }
           return { count };
+        },
+      },
+      user: {
+        findUniqueOrThrow: async ({ where }: { where: Where }) => {
+          const row = users.find((u) => matches(u, where));
+          if (!row) throw new Error('No User found');
+          return { ...row };
         },
       },
       payout: {
