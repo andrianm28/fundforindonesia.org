@@ -18,6 +18,12 @@ vi.mock('@/lib/prisma', () => ({
     partnerOrganisation: {
       findUnique: vi.fn(),
     },
+    platformFeeRule: {
+      findFirst: vi.fn(),
+    },
+    platformFeeThreshold: {
+      findFirst: vi.fn(),
+    },
   },
 }));
 
@@ -35,6 +41,8 @@ const mockGetServerSession = vi.mocked(getServerSession);
 const mockStatusChangeFindFirst = vi.mocked(prisma.campaignStatusChange.findFirst);
 const mockTransaction = vi.mocked(prisma.$transaction);
 const mockLockQuery = vi.mocked(prisma.$queryRaw);
+const mockPlatformFeeRuleFindFirst = vi.mocked(prisma.platformFeeRule.findFirst);
+const mockPlatformFeeThresholdFindFirst = vi.mocked(prisma.platformFeeThreshold.findFirst);
 
 function createRequest(slug: string, method = 'GET', body?: unknown) {
   const init: RequestInit = { method };
@@ -48,6 +56,8 @@ function createRequest(slug: string, method = 'GET', body?: unknown) {
 describe('GET /api/campaigns/[slug]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPlatformFeeRuleFindFirst.mockResolvedValue(null);
+    mockPlatformFeeThresholdFindFirst.mockResolvedValue(null);
   });
 
   it('returns campaign detail with creator info and donation count', async () => {
@@ -109,6 +119,40 @@ describe('GET /api/campaigns/[slug]', () => {
       avatar: null,
     });
     expect(body.campaign.donationCount).toBe(342);
+  });
+
+  it('carries the Platform Fee rate in force, resolved server-side (prd-compliance 17)', async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 'campaign-1',
+      slug: 'bantu-korban-bencana',
+      title: 'Bantu Korban Bencana',
+      description: 'd',
+      story: '<p>s</p>',
+      coverImage: 'https://example.com/image.jpg',
+      targetAmount: 50000000,
+      collectedAmount: 0,
+      category: 'bencana-alam',
+      kind: 'DONATION',
+      lifecycleStatus: 'ACTIVE',
+      isUrgent: false,
+      isDemo: false,
+      deadline: null,
+      creatorId: 'user-1',
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+      updatedAt: new Date('2024-06-01T00:00:00Z'),
+      creator: { id: 'user-1', name: 'Yayasan Peduli', avatar: null },
+      _count: { donations: 0 },
+    } as any);
+    mockPlatformFeeRuleFindFirst.mockImplementation(async ({ where }: any) =>
+      where.scope === 'KIND' ? ({ percentBps: 250 } as any) : null,
+    );
+
+    const response = await GET(createRequest('bantu-korban-bencana'), {
+      params: Promise.resolve({ slug: 'bantu-korban-bencana' }),
+    });
+    const body = await response.json();
+
+    expect(body.campaign.platformFeePercentBps).toBe(250);
   });
 
   it('passes isDemo through for a demo campaign -- the donate page badge (task M9) depends on this field reaching the client', async () => {

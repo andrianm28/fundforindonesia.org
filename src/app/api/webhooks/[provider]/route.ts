@@ -326,6 +326,13 @@ export async function POST(
             data: { paymentStatus: 'confirmed' },
           });
 
+          // The Platform Fee this Payment already froze at creation time
+          // (resolvePlatformFeeBasis + computePlatformFee, POST
+          // /api/donations, prd-compliance 17) -- read, never recomputed,
+          // so a rate change since then cannot alter what this Donor was
+          // promised.
+          const platformFee = payment.platformFee;
+
           // Never touches the Campaign's status, however much is collected:
           // reaching the target does not close a Campaign, only the
           // Fundraiser or an Admin does (ADR 0004). This Settlement is
@@ -346,6 +353,7 @@ export async function POST(
               subject: { type: 'campaign', campaignId: campaign.id },
               grossAmount: payment.amount,
               providerFee,
+              platformFee,
             }),
             {
               paymentId: payment.id,

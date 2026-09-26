@@ -1,5 +1,5 @@
 import { render, cleanup } from '@testing-library/react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 /**
  * What the Campaign page hands its client view is serialized into the page
@@ -8,7 +8,11 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
  */
 
 vi.mock('@/lib/prisma', () => ({
-  prisma: { campaign: { findUnique: vi.fn() } },
+  prisma: {
+    campaign: { findUnique: vi.fn() },
+    platformFeeRule: { findFirst: vi.fn() },
+    platformFeeThreshold: { findFirst: vi.fn() },
+  },
 }));
 
 vi.mock('next/navigation', () => ({
@@ -47,6 +51,7 @@ function row(overrides: Record<string, unknown>) {
     targetAmount: 10_000_000,
     collectedAmount: 0,
     category: 'lingkungan',
+    kind: 'DONATION',
     lifecycleStatus: 'ACTIVE',
     isUrgent: false,
     isDemo: false,
@@ -68,6 +73,28 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllEnvs();
+});
+
+beforeEach(() => {
+  vi.mocked(prisma.platformFeeRule.findFirst).mockResolvedValue(null as never);
+  vi.mocked(prisma.platformFeeThreshold.findFirst).mockResolvedValue(null as never);
+});
+
+describe('the Platform Fee rate in force (prd-compliance 17)', () => {
+  it('carries 0 when no rule has been set', async () => {
+    const campaign = await campaignHandedToView();
+    expect(campaign.platformFeePercentBps).toBe(0);
+  });
+
+  it('carries the resolved Kind default rate', async () => {
+    vi.mocked(prisma.platformFeeRule.findFirst).mockImplementation(async ({ where }: any) =>
+      where.scope === 'KIND' ? ({ percentBps: 250 } as never) : null,
+    );
+
+    const campaign = await campaignHandedToView();
+
+    expect(campaign.platformFeePercentBps).toBe(250);
+  });
 });
 
 describe('the Campaign page payload', () => {

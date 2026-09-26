@@ -262,6 +262,35 @@ describe('paymentSettledLegs', () => {
     expect(() => paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 1_000, providerFee: 1_001 })).toThrow();
     expect(() => paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 1_000, providerFee: -1 })).toThrow();
   });
+
+  it('credits PLATFORM_FEE and reduces the net escrowed by both fees combined (prd-compliance 17)', () => {
+    const legs = paymentSettledLegs({
+      subject: { type: 'campaign', campaignId: 'c1' },
+      grossAmount: 100_000,
+      providerFee: 2_500,
+      platformFee: 3_000,
+    });
+    expect(legs.find((l) => l.account === 'ESCROW_HOLD')?.amount).toBe(94_500);
+    expect(legs.find((l) => l.account === 'PROVIDER_FEE')?.amount).toBe(2_500);
+    expect(legs.find((l) => l.account === 'PLATFORM_FEE')?.amount).toBe(3_000);
+  });
+
+  it('omits the PLATFORM_FEE leg when platformFee is zero or omitted -- e.g. a Trip Fee settlement', () => {
+    const withoutParam = paymentSettledLegs({ subject: { type: 'trip', tripId: 't1' }, grossAmount: 100_000, providerFee: 0 });
+    expect(withoutParam.some((l) => l.account === 'PLATFORM_FEE')).toBe(false);
+
+    const withZero = paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 0, platformFee: 0 });
+    expect(withZero.some((l) => l.account === 'PLATFORM_FEE')).toBe(false);
+  });
+
+  it('rejects a platformFee that, combined with providerFee, exceeds the gross amount, or a negative platformFee', () => {
+    expect(() =>
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 1_000, providerFee: 500, platformFee: 501 }),
+    ).toThrow();
+    expect(() =>
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 1_000, providerFee: 0, platformFee: -1 }),
+    ).toThrow();
+  });
 });
 
 describe('ledger invariants (property-based)', () => {

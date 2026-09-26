@@ -349,42 +349,63 @@ export function providerFeePortionFor(
 /**
  * A donation settled at the provider.
  *
- *   DEBIT  GATEWAY_CLEARING  gross   money arrived at the provider
- *   CREDIT ESCROW_HOLD       net     the campaign's, not yet withdrawable
- *   CREDIT PROVIDER_FEE      fee     what the provider kept
+ *   DEBIT  GATEWAY_CLEARING  gross                     money arrived at the provider
+ *   CREDIT ESCROW_HOLD       gross - providerFee -      the campaign's, not yet
+ *                              platformFee               withdrawable
+ *   CREDIT PROVIDER_FEE      providerFee               what the provider kept
+ *   CREDIT PLATFORM_FEE      platformFee               what the platform kept (prd-compliance 17)
  *
- * Two things this gets deliberately right.
+ * Three things this gets deliberately right.
  *
- * The campaign is credited the NET. Crediting gross and hoping the fee is
- * deducted later is how a campaign ends up able to withdraw money that never
- * arrived.
+ * The campaign is credited the NET of BOTH fees. Crediting gross and hoping
+ * either fee is deducted later is how a campaign ends up able to withdraw
+ * money that never arrived.
  *
  * And it lands in ESCROW_HOLD, not CAMPAIGN_BALANCE. Settlement means the
  * provider has the money, not that the dispute window has closed; paying it
  * straight out means chasing a campaigner for a chargeback later.
  * escrowReleaseLegs moves it across when the hold matures.
+ *
+ * `platformFee` is never computed here. It is resolved once, at Payment
+ * creation (resolvePlatformFeeBasis + computePlatformFee, ./platform-fee*.ts)
+ * and frozen on Payment.platformFee -- this function only posts the number
+ * it is given, so a later change to the rate can never alter what an
+ * already-created Payment promised the Donor. It defaults to 0 so a Trip Fee
+ * settlement, which never carries a Platform Fee (CONTEXT.md, Trip Fee), can
+ * call this without passing it at all.
  */
 export function paymentSettledLegs(params: {
   subject: LedgerSubject;
   grossAmount: number;
   providerFee: number;
+  platformFee?: number;
 }): LedgerLeg[] {
-  const { subject, grossAmount, providerFee } = params;
-  if (providerFee < 0 || providerFee > grossAmount) {
+  const { subject, grossAmount, providerFee, platformFee = 0 } = params;
+  if (providerFee < 0) {
+    throw new InvalidLedgerLegError(`providerFee ${providerFee} must not be negative.`);
+  }
+  if (platformFee < 0) {
+    throw new InvalidLedgerLegError(`platformFee ${platformFee} must not be negative.`);
+  }
+  if (providerFee + platformFee > grossAmount) {
     throw new InvalidLedgerLegError(
-      `providerFee ${providerFee} must be between 0 and the gross amount ${grossAmount}.`,
+      `providerFee ${providerFee} plus platformFee ${platformFee} must not exceed the gross amount ${grossAmount}.`,
     );
   }
-  const net = grossAmount - providerFee;
+  const net = grossAmount - providerFee - platformFee;
 
   const legs: LedgerLeg[] = [
     { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: grossAmount },
     { account: 'ESCROW_HOLD', direction: 'CREDIT', amount: net, ...subjectFk(subject) },
   ];
   // Omitted entirely when zero: a zero-amount leg is rejected by
-  // assertLegsValid, and a fee-free provider is a legitimate case.
+  // assertLegsValid, and a fee-free provider (or a Payment with no Platform
+  // Fee) is a legitimate case.
   if (providerFee > 0) {
     legs.push({ account: 'PROVIDER_FEE', direction: 'CREDIT', amount: providerFee });
+  }
+  if (platformFee > 0) {
+    legs.push({ account: 'PLATFORM_FEE', direction: 'CREDIT', amount: platformFee });
   }
   return legs;
 }

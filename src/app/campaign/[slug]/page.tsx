@@ -6,6 +6,7 @@ import { StructuredData } from '@/components/shared/SEOHead';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
 import { isPubliclyViewable } from '@/lib/campaign-visibility';
 import { publicUrl } from '@/lib/public-url';
+import { resolvePlatformFeeBasis } from '@/lib/money/platform-fee-config';
 
 // ISR: one render per Campaign, cached for every visitor alike and
 // revalidated every 60 seconds. So this page never reads the session, and an
@@ -87,6 +88,17 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
   const lifecycleStatus = effectiveStatus(campaign, new Date());
   if (!isPubliclyViewable(lifecycleStatus)) notFound();
 
+  // The rate in force right now (prd-compliance 17) -- resolved the same
+  // way POST /api/donations freezes it (Campaign, then Category, then Kind
+  // default), so what a Donor sees here is what the next Donation would
+  // actually pay. This page is revalidated every 60 seconds, so a rate
+  // change reaches it on the same cadence as everything else here.
+  const { percentBps: platformFeePercentBps } = await resolvePlatformFeeBasis(prisma, {
+    kind: campaign.kind,
+    category: campaign.category,
+    campaignId: campaign.id,
+  });
+
   // Transform the data for the client component
   const campaignData = {
     id: campaign.id,
@@ -109,6 +121,7 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     createdAt: campaign.createdAt.toISOString(),
     creator: campaign.creator,
     donationCount: campaign._count.donations,
+    platformFeePercentBps,
   };
 
   return (
