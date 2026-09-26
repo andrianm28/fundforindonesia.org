@@ -10,6 +10,7 @@ import {
   refundRequestedLegs,
   refundApprovedLegs,
   providerFeePortionFor,
+  platformFeePortionFor,
   type LedgerSubject,
 } from './ledger';
 import {
@@ -47,7 +48,7 @@ export {
   InvalidRefundStatusError,
 };
 
-type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'escrowReleasedAt'> & {
+type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt'> & {
   donation: { campaignId: string } | null;
   registration: { batch: { tripId: string } } | null;
 };
@@ -175,7 +176,12 @@ export async function createRefund(
   });
 
   const source = sourceFor(payment, subject);
-  const platformFeePortion = 0; // no field to derive from -- see the comment on this in approveRefund
+  // Split the same way providerFeePortionFor already does: proportional to
+  // amount / payment.amount, capped cumulatively across every prior Refund
+  // on this Payment (prd-compliance 17). The Payment's pool only ever held
+  // gross - providerFee - platformFee (paymentSettledLegs), so a Refund must
+  // return this share too, not just the Provider Fee's.
+  const platformFeePortion = platformFeePortionFor(payment, amount, priorAmounts);
   const providerFeePortion = providerFeePortionFor(payment, amount, priorAmounts);
   await postTransaction(
     tx,
@@ -245,11 +251,14 @@ export async function approveRefund(
       orderBy: { createdAt: 'asc' },
       select: { amount: true },
     });
-    // Platform Fee is never charged anywhere in this codebase today -- no
-    // Payment/Campaign field stores one, so there is nothing to multiply by
-    // amount / payment.amount. Hardcoded, not derived, until such a field
-    // exists.
-    const platformFeePortion = 0;
+    // Recomputed the same deterministic way createRefund derived it at
+    // freeze time (prd-compliance 17) -- reproduces the exact number
+    // already posted there, needed here only to work out netPortion below.
+    const platformFeePortion = platformFeePortionFor(
+      payment,
+      refund.amount,
+      priorRefunds.map((r: { amount: number }) => r.amount),
+    );
     const providerFeePortion = providerFeePortionFor(
       payment,
       refund.amount,

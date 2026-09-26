@@ -72,6 +72,7 @@ import { join } from "node:path";
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
+  "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/route.ts",

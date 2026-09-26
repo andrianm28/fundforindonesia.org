@@ -278,6 +278,45 @@ describe('POST /api/webhooks/[provider]', () => {
     });
   });
 
+  it('posts the Platform Fee the Payment already froze, never recomputing it (prd-compliance 17)', async () => {
+    // Platform Fee is resolved once, at POST /api/donations, and stored on
+    // Payment.platformFee. Settlement must post exactly that number -- this
+    // event reports no fee information of its own, so a webhook that
+    // recomputed the fee here (e.g. from a rate that changed since the
+    // Payment was created) would silently break the freeze.
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, providerFee: 1_000 }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ platformFee: 2_500 }));
+    const { tx, ledgerRows } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(ledgerRows).toContainEqual(
+      expect.objectContaining({ account: 'PLATFORM_FEE', direction: 'CREDIT', amount: 2_500 }),
+    );
+    expect(ledgerRows).toContainEqual(
+      // Net of BOTH fees: 100_000 - 1_000 (provider) - 2_500 (platform) = 96_500.
+      expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 96_500 }),
+    );
+    const debits = ledgerRows.filter((r) => r.direction === 'DEBIT').reduce((sum, r) => sum + r.amount, 0);
+    const credits = ledgerRows.filter((r) => r.direction === 'CREDIT').reduce((sum, r) => sum + r.amount, 0);
+    expect(debits).toBe(credits);
+  });
+
+  it('omits the Platform Fee leg when the Payment froze none (0)', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ platformFee: 0 }));
+    const { tx, ledgerRows } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(ledgerRows.some((r) => r.account === 'PLATFORM_FEE')).toBe(false);
+  });
+
   it('still treats an absent provider fee as zero', async () => {
     mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
     mockPaymentFindUnique.mockResolvedValue(makePayment());

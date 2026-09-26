@@ -10,6 +10,7 @@ import { getRemainingDays } from '@/lib/utils/date';
 import { offersDonating } from '@/lib/campaign-page-status';
 import { useSuspensionReason } from '@/lib/hooks/useSuspensionReason';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
+import { formatFeePercent } from '@/lib/money/platform-fee';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
 
 export interface CampaignDetailData {
@@ -35,6 +36,10 @@ export interface CampaignDetailData {
     avatar: string | null;
   };
   donationCount: number;
+  /** The Platform Fee rate in force for this Campaign right now, in basis
+   * points (CONTEXT.md, Platform Fee; prd-compliance 17) -- resolved
+   * server-side per Campaign, then per Category, then per Kind default. */
+  platformFeePercentBps: number;
 }
 
 interface CampaignDetailViewProps {
@@ -199,6 +204,12 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
             <p className="text-xs text-text-secondary">
               <span className="font-semibold text-text">{campaign.donationCount.toLocaleString('id-ID')}</span>{' '}
               donatur
+            </p>
+
+            {/* Platform Fee rate in force (prd-compliance 17, CONTEXT.md:
+                "ditampilkan terbuka di halaman Campaign") */}
+            <p className="text-xs text-text-secondary">
+              Platform Fee: <span className="font-medium text-text">{formatFeePercent(campaign.platformFeePercentBps)}</span>
             </p>
           </div>
         </div>

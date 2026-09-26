@@ -26,6 +26,8 @@ vi.mock('@/lib/prisma', () => ({
     donation: { create: vi.fn(), update: vi.fn() },
     payment: { create: vi.fn() },
     prayer: { create: vi.fn() },
+    platformFeeRule: { findFirst: vi.fn() },
+    platformFeeThreshold: { findFirst: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -48,6 +50,8 @@ const mockDonationCreate = prisma.donation.create as unknown as Mock;
 const mockDonationUpdate = prisma.donation.update as unknown as Mock;
 const mockPaymentCreate = prisma.payment.create as unknown as Mock;
 const mockPrayerCreate = prisma.prayer.create as unknown as Mock;
+const mockPlatformFeeRuleFindFirst = prisma.platformFeeRule.findFirst as unknown as Mock;
+const mockPlatformFeeThresholdFindFirst = prisma.platformFeeThreshold.findFirst as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 
@@ -97,6 +101,7 @@ beforeEach(() => {
     title: 'Bantu Korban Banjir',
     isDemo: false,
     kind: 'DONATION',
+    category: 'kesehatan',
     // A Collecting Entity with a permit valid now (prd-compliance 10).
     collectingEntity: { permits: [{ kinds: ['DONATION'], validFrom: new Date('2020-01-01T00:00:00Z'), validTo: new Date('2099-12-31T00:00:00Z') }] },
   });
@@ -111,6 +116,10 @@ beforeEach(() => {
   });
   mockPrayerCreate.mockResolvedValue({});
   mockGetPaymentProvider.mockReturnValue(sumopodLike());
+  // No Platform Fee rule or threshold configured by default -- resolves to
+  // 0 bps / 0 threshold (prd-compliance 17), never an invented rate.
+  mockPlatformFeeRuleFindFirst.mockResolvedValue(null);
+  mockPlatformFeeThresholdFindFirst.mockResolvedValue(null);
 });
 
 describe('POST /api/donations charging through QRIS', () => {
@@ -275,6 +284,87 @@ describe('POST /api/donations guards that must survive the gate opening', () => 
 
     expect(mockPrayerCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ text: 'Semoga lekas pulih', donationId: 'donation-1' }),
+    });
+  });
+});
+
+describe('POST /api/donations resolving and freezing the Platform Fee (prd-compliance 17)', () => {
+  it('freezes platformFee 0 on the Payment when no rule and no threshold are configured', async () => {
+    await POST(createRequest(QRIS_BODY));
+
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ platformFee: 0 }),
+    });
+  });
+
+  it('applies the Kind default rate, rounded down', async () => {
+    mockPlatformFeeRuleFindFirst.mockImplementation(async ({ where }: { where: { scope: string } }) =>
+      where.scope === 'KIND' ? { percentBps: 250, kind: 'DONATION', scope: 'KIND' } : null,
+    );
+
+    // 2.5% of 50_000 = 1_250 exactly.
+    await POST(createRequest(QRIS_BODY));
+
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ platformFee: 1_250 }),
+    });
+  });
+
+  it('prefers a Category override over the Kind default', async () => {
+    mockPlatformFeeRuleFindFirst.mockImplementation(async ({ where }: { where: { scope: string } }) => {
+      if (where.scope === 'KIND') return { percentBps: 250, scope: 'KIND' };
+      if (where.scope === 'CATEGORY') return { percentBps: 400, scope: 'CATEGORY' };
+      return null;
+    });
+
+    await POST(createRequest(QRIS_BODY));
+
+    // 4% of 50_000 = 2_000.
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ platformFee: 2_000 }),
+    });
+  });
+
+  it('prefers a Campaign override over both Category and Kind', async () => {
+    mockPlatformFeeRuleFindFirst.mockImplementation(async ({ where }: { where: { scope: string } }) => {
+      if (where.scope === 'KIND') return { percentBps: 250, scope: 'KIND' };
+      if (where.scope === 'CATEGORY') return { percentBps: 400, scope: 'CATEGORY' };
+      if (where.scope === 'CAMPAIGN') return { percentBps: 100, scope: 'CAMPAIGN' };
+      return null;
+    });
+
+    await POST(createRequest(QRIS_BODY));
+
+    // 1% of 50_000 = 500.
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ platformFee: 500 }),
+    });
+  });
+
+  it('waives the fee entirely below the Admin-set threshold', async () => {
+    mockPlatformFeeRuleFindFirst.mockImplementation(async ({ where }: { where: { scope: string } }) =>
+      where.scope === 'KIND' ? { percentBps: 250, scope: 'KIND' } : null,
+    );
+    mockPlatformFeeThresholdFindFirst.mockResolvedValue({ amount: 50_001 });
+
+    // amount (50_000) is below the threshold (50_001).
+    await POST(createRequest(QRIS_BODY));
+
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ platformFee: 0 }),
+    });
+  });
+
+  it('charges the fee once the amount reaches the threshold', async () => {
+    mockPlatformFeeRuleFindFirst.mockImplementation(async ({ where }: { where: { scope: string } }) =>
+      where.scope === 'KIND' ? { percentBps: 250, scope: 'KIND' } : null,
+    );
+    mockPlatformFeeThresholdFindFirst.mockResolvedValue({ amount: 50_000 });
+
+    await POST(createRequest(QRIS_BODY));
+
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ platformFee: 1_250 }),
     });
   });
 });
