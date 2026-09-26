@@ -81,7 +81,7 @@ describe('PATCH /api/moderasi/campaigns/[id]', () => {
     ]);
   });
 
-  it('answers 422 REQUIRED_CHECKLIST_ITEMS_UNTICKED to an approval missing a required tick, naming it, and changes nothing', async () => {
+  it('answers 422 REQUIRED_CHECKLIST_ITEMS_UNTICKED to loloskan with a required tick missing, naming it, and changes nothing', async () => {
     const response = await patch({ action: 'approve', requestId: 'verification-1', ticked: ['item-1'] });
 
     expect(response.status).toBe(422);

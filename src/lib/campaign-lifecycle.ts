@@ -496,9 +496,9 @@ export class VerificationRequestNotFoundError extends CampaignLifecycleError {
 }
 
 /**
- * An approval left required items of the request's own checklist snapshot
- * unticked (CONTEXT.md, Verification Request). `labels` lists them in
- * checklist order. A rejection never raises it.
+ * The Verifier tried to loloskan a request while required items of its own
+ * checklist snapshot were unticked (CONTEXT.md, Verification Request).
+ * `labels` lists them in checklist order. A rejection never raises it.
  */
 export class RequiredChecklistItemsUntickedError extends CampaignLifecycleError {
   readonly code = "REQUIRED_CHECKLIST_ITEMS_UNTICKED";
@@ -603,10 +603,10 @@ export type VerificationDecisionResult = LifecycleResult & {
  * A Verifier decides a PENDING Verification Request (FFI-05): approve makes
  * the Submitted Campaign Active; reject makes it Rejected, with a required
  * reason. The Verifier's ticks are recorded on the request's own checklist
- * snapshot, beside the outcome, reason, Verifier and time. An approval
- * needs every required item of that snapshot ticked; a rejection needs none.
- * Recorded in the
- * VERIFIER Capacity; a Verifier never decides on a Campaign they own.
+ * snapshot, beside the outcome, reason, Verifier and time. Only a request
+ * with every required item of that snapshot ticked may be diloloskan; a
+ * rejection needs none. Recorded in the VERIFIER Capacity; a Verifier never
+ * decides on a Campaign they own.
  *
  * The request is judged before the Campaign's status, so a decided or
  * withdrawn request answers as such. A decided request is never written

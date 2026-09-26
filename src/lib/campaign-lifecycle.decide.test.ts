@@ -22,7 +22,7 @@ const CHECKLIST = [
   { id: 'item-2', label: 'Rencana anggaran', required: true, position: 2, ticked: false },
   { id: 'item-3', label: 'Foto kondisi', required: false, position: 3, ticked: false },
 ];
-const REQUIRED = ['item-1', 'item-2'];
+const ALL_REQUIRED_TICKED = ['item-1', 'item-2'];
 
 function seeded(overrides: Parameters<typeof makeCampaignDb>[0] = {}) {
   return makeCampaignDb({
@@ -112,7 +112,7 @@ describe('decideVerificationRequest', () => {
   });
 
   describe('required checklist items', () => {
-    it('refuses an approval with a required item unticked, naming it, and changes nothing (422)', async () => {
+    it('refuses to loloskan with a required item unticked, naming it, and changes nothing (422)', async () => {
       const db = seeded();
 
       const error = await decideVerificationRequest(db.prisma as never, {
@@ -222,7 +222,7 @@ describe('decideVerificationRequest', () => {
       requestId: 'verification-open',
       actor: verifier,
       decision: 'approve',
-      ticked: REQUIRED,
+      ticked: ALL_REQUIRED_TICKED,
       now: NOW,
     });
 
@@ -319,7 +319,7 @@ describe('decideVerificationRequest', () => {
       requestId,
       actor: verifier,
       decision: 'approve',
-      ticked: REQUIRED,
+      ticked: ALL_REQUIRED_TICKED,
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -357,7 +357,7 @@ describe('decideVerificationRequest', () => {
       requestId: 'verification-open',
       actor: { userId: 'creator-1', assignments: ['VERIFIER'] },
       decision: 'approve',
-      ticked: REQUIRED,
+      ticked: ALL_REQUIRED_TICKED,
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -375,7 +375,7 @@ describe('decideVerificationRequest', () => {
         requestId: 'verification-open',
         actor: verifier,
         decision: 'approve',
-        ticked: REQUIRED,
+        ticked: ALL_REQUIRED_TICKED,
         identityNote: '  KTP dicocokkan lewat panggilan video.  ',
         now: NOW,
       });
@@ -400,7 +400,7 @@ describe('decideVerificationRequest', () => {
         requestId: 'verification-open',
         actor: verifier,
         decision: 'approve',
-        ticked: REQUIRED,
+        ticked: ALL_REQUIRED_TICKED,
         now: NOW,
       });
 
@@ -426,7 +426,7 @@ describe('decideVerificationRequest', () => {
         requestId: 'verification-open',
         actor: verifier,
         decision: 'approve',
-        ticked: REQUIRED,
+        ticked: ALL_REQUIRED_TICKED,
         identityNote: 'Catatan baru.',
         now: NOW,
       });
@@ -458,7 +458,7 @@ describe('decideVerificationRequest', () => {
         requestId: 'verification-open',
         actor: verifier,
         decision: 'approve',
-        ticked: REQUIRED,
+        ticked: ALL_REQUIRED_TICKED,
         identityNote: 'x'.repeat(1001),
         now: NOW,
       }).catch((e: unknown) => e);
