@@ -18,14 +18,10 @@ Written 2026-09-26 by the last coordinator session on the VPS. You are the first
    - the skills list under bare names;
    - `npx vitest run` is green;
    - `gh pr list` works.
-2. Take over the two open PRs, both started on the VPS:
-   - **#32, Kind Authorisation** (prd-compliance 11). CI was green except `image`, still pending. The VPS coordinator asked for fixes before merge:
-     - an individual Fundraiser must be refused a non-donation Kind at **create and PATCH**, not only at submit, through one shared helper;
-     - rename `ExpiringGrant`, `expiringGrants` and the `grant` variables to glossary-safe names such as `ExpiringWindow` and `authorisation`, because CONTEXT.md lists "Grant" under _Avoid_. `grantKindAuthorisation` stays.
-
-     Check the follow-up diff yourself (no new reviewers), then merge when green and set ticket 11 to done. Rules applied: ZAKAT, WAKAF and HIBAH all need a Kind Authorisation (ADR 0013 over the ticket's wording), and the check lives in `requireOpenable`.
+2. Open PRs from the VPS:
+   - **#32, Kind Authorisation**: merged by the VPS coordinator (5854d61). Ticket 11 is done. Nothing to take over.
    - **#33, Platform Fee** (prd-compliance 17): **ratchet failing** at hand-off, and the agent's report wasn't in yet. Read the PR body. Fix the new tsc or lint errors; never raise the baseline. This is money code: integer rupiah, the fee recorded rather than recomputed. Bring any fee-policy question to the owner. Use `opus` only if `sonnet` keeps failing review.
-3. The VPS agents behind #32 and #33 may still push to those branches. Check the last commit author and time before you edit them.
+3. The VPS agent behind #33 may still push to those branches. Check the last commit author and time before you edit them.
 
 ## Next work (frontier)
 

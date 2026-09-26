@@ -48,6 +48,7 @@ Compiled 2026-09-26 from the work merged on 25–26 September. This covers every
 | `20260926230000_add_campaign_kind` | `Kind` enum and `Campaign.kind` NOT NULL DEFAULT DONATION (existing Campaigns become Donation); prd-compliance 09, verified in CI |
 | `20260927010000_add_contact_field_encryption` | 8 nullable ciphertext/HMAC columns on User and BankAccount + index; prd-compliance 15, verified in CI |
 | `20260927010000_add_partner_organisation_collecting_entity` | PartnerOrganisation, FundraisingPermit, audit table; nullable `collectingEntityId` on Campaign and VerificationRequest; status action COLLECTING_ENTITY_ASSIGNED; prd-compliance 10, verified in CI |
+| `20260927020000_add_kind_authorisation` | KindAuthorisation table, 2 audit enum values, nullable `kindAuthorisationId` on the audit table; prd-compliance 11, verified in CI |
 
 - [ ] Take a database backup.
 - [ ] Run `prisma migrate deploy` on **staging** first, then production.
@@ -124,3 +125,4 @@ The 2026-09-20 backfill gave assignments to everyone who held those Roles then. 
 - **nginx (2026-09-26):** a stopgap blocks `/_next/image` on fundforindonesia.org and galang.fundforindonesia.org, and the main domain gets `client_max_body_size 8m`. Backups are in `/etc/nginx/backup-ffi-20260926/`. Remove the `/_next/image` block after the cutover.
 - **Permit gate** (prd-compliance 10, PR #26): after the deploy, **every existing Active Campaign refuses Donations** until an Admin or Verifier assigns a Collecting Entity with a permit valid for its Kind, at `/admin/collecting-entities` or `/moderasi/collecting-entities`. First register YIEM and its permit at `/moderasi/partner-organisations` (percepatan-produksi 02). No impact while `NEXT_PUBLIC_DONATIONS_ENABLED=false`.
 - **Deploy workflow** (ci-cd 07, PR #27): `.github/workflows/deploy.yml`, dispatched by the owner. The repo secrets `DEPLOY_HOST`, `DEPLOY_SSH_KEY` and `DEPLOY_KNOWN_HOSTS` are needed first (see ci-cd 08).
+- **Kind Authorisation** (prd-compliance 11, PR #32): zakat, wakaf and hibah Campaigns also need their Collecting Entity to hold a valid Kind Authorisation for that Kind. It is granted at `/moderasi/partner-organisations`. An individual Fundraiser may only run Donation Campaigns.
