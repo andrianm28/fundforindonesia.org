@@ -48,6 +48,8 @@ import { missingRequiredDeadline } from "./campaign-kind";
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
 import { SUBMITTABLE_STATUSES } from "./verification-submission";
+import { sendReportingFailure, type Mailer, type MailMessage } from "./mail";
+import { verificationOutcomeEmail } from "./mail/verification-outcome";
 
 // ==================== Effective status ====================
 
@@ -621,7 +623,17 @@ export type VerificationDecisionResult = LifecycleResult & {
  * Approving records the Fundraiser's Identity Verification when they have
  * none yet (CONTEXT.md, Identity Verification), with this Verifier, `now`
  * and the optional note; an existing one is left as it is. The Fundraiser is
- * told the outcome, and on rejection the reason.
+ * told the outcome, and on rejection the reason: in-app, in the same
+ * transaction, and by email once it has committed.
+ *
+ * The email is sent after commit and never inside the transaction: sent
+ * before commit, a rollback would leave the Fundraiser told of a decision
+ * that never happened, and a slow relay would hold the Campaign row lock.
+ * Neither a failed send nor a Mailer left unconfigured undoes or refuses
+ * the decision: each is logged for an operator (sendReportingFailure:
+ * `mail_send_failed`, `mail_not_configured`), and the in-app Notification,
+ * committed with the decision, still tells the Fundraiser. `mailer` is for
+ * tests; routes use the configured one.
  */
 export async function decideVerificationRequest(
   prisma: PrismaClient,
@@ -634,13 +646,18 @@ export async function decideVerificationRequest(
     reason?: unknown;
     identityNote?: unknown;
     now?: Date;
+    mailer?: Mailer;
   }
 ): Promise<VerificationDecisionResult> {
   const { requestId } = params;
   const decision = VERIFICATION_DECISIONS[params.decision];
   const ticked = parseTicked(params.ticked);
   const identityNote = optionalReason(params.identityNote, IDENTITY_NOTE);
-  return runCommand(prisma, params, {
+  // Composed under the lock from what was decided; sent only after commit.
+  // Kept out of the command's result, which the route returns as JSON: the
+  // Fundraiser's address has no business in the Verifier's response.
+  const outcome: { email?: MailMessage; fundraiserId?: string } = {};
+  const result = await runCommand(prisma, params, {
     authority: {
       capacity: StatusChangeCapacity.VERIFIER,
       message: "Hanya Verifier yang dapat menyetujui atau menolak Campaign.",
@@ -689,9 +706,46 @@ export async function decideVerificationRequest(
         identityVerificationRecorded = created.count > 0;
       }
       await notify({ title: decision.title, message: decision.message(campaign.title, reason) });
+      const fundraiser = await tx.user.findUniqueOrThrow({
+        where: { id: campaign.creatorId },
+        select: { email: true, name: true },
+      });
+      outcome.fundraiserId = campaign.creatorId;
+      outcome.email = verificationOutcomeEmail({
+        to: fundraiser.email,
+        fundraiserName: fundraiser.name,
+        campaignTitle: campaign.title,
+        campaignUrl: `${siteUrl()}/campaign/${campaign.slug}`,
+        ...(decision.outcome === VerificationOutcome.APPROVED
+          ? { outcome: "approved" as const }
+          : { outcome: "rejected" as const, reason: requireReason(reason) }),
+      });
       return { verificationRequest: { ...request, ...decided }, identityVerificationRecorded };
     },
   });
+  if (outcome.email && outcome.fundraiserId) {
+    await sendReportingFailure(
+      outcome.email,
+      {
+        mail: "verification_outcome",
+        campaignId: params.campaignId,
+        verificationRequestId: requestId,
+        userId: outcome.fundraiserId,
+      },
+      params.mailer
+    );
+  }
+  return result;
+}
+
+/**
+ * The public site address links in an email start with: the same address,
+ * and the same fallback, the SEO and sitemap links use (src/lib/seo.ts).
+ */
+function siteUrl(): string {
+  const base =
+    process.env.NEXT_PUBLIC_BASE_URL || "https://fundforindonesia.com";
+  return base.replace(/\/+$/, "");
 }
 
 /** The Campaign and the request as a withdrawal leaves them; the same shape a submission returns. */
