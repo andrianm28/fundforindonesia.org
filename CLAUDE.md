@@ -37,3 +37,6 @@ secara global. Urutannya:
    `/code-review`). `/clear` di antara tiket.
 5. **Debug**: `/diagnosing-bugs`. **Laporan masuk**: `/triage`.
    **Kesehatan kode**: `/improve-codebase-architecture`.
+
+**Verifikasi**: lewat CI, termasuk langkah full-suite `/implement`. Baca sebelum
+menjalankan tes, merge, deploy, atau menghapus worktree. See `docs/agents/verification.md`.
