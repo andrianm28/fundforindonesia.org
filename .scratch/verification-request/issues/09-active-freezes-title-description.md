@@ -4,7 +4,7 @@
 
 **Blocked by:** 05
 
-**Status:** in review (PR #43)
+**Status:** in review (PR #47)
 
 - [ ] ACTIVE: a story or cover edit succeeds; a title or description edit is refused (typed 409), and nothing is written
 - [ ] DRAFT and REJECTED: all four fields editable. Other statuses unchanged
