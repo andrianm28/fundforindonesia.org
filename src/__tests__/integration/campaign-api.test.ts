@@ -505,9 +505,18 @@ describe('Campaign API Integration Tests', () => {
   });
 
   describe('Campaign Sub-Resources', () => {
+    // An approved Campaign opens for anyone; the private, unapproved case is
+    // pinned in src/app/api/campaigns/[slug]/sub-resources-visibility.test.ts.
+    const approvedCampaign = {
+      id: 'campaign-1',
+      creatorId: 'owner-1',
+      lifecycleStatus: 'ACTIVE',
+      deadline: null,
+    };
+
     describe('GET /api/campaigns/[slug]/updates', () => {
       it('returns paginated campaign updates', async () => {
-        mockFindUnique.mockResolvedValue({ id: 'campaign-1' } as never);
+        mockFindUnique.mockResolvedValue(approvedCampaign as never);
 
         const updates = [
           { id: 'u1', title: 'Update 1', content: '<p>Content 1</p>', images: [], createdAt: new Date('2025-01-10') },
@@ -546,7 +555,7 @@ describe('Campaign API Integration Tests', () => {
 
     describe('GET /api/campaigns/[slug]/donations', () => {
       it('returns paginated confirmed donations with donor names', async () => {
-        mockFindUnique.mockResolvedValue({ id: 'campaign-1' } as never);
+        mockFindUnique.mockResolvedValue(approvedCampaign as never);
 
         const donations = [
           { id: 'd1', amount: 50000, isAnonymous: false, message: 'Semoga cepat sembuh', createdAt: new Date(), donor: { name: 'John' } },
@@ -585,7 +594,7 @@ describe('Campaign API Integration Tests', () => {
 
     describe('GET /api/campaigns/[slug]/disbursements', () => {
       it('returns all completed payout records for the campaign', async () => {
-        mockFindUnique.mockResolvedValue({ id: 'campaign-1' } as never);
+        mockFindUnique.mockResolvedValue(approvedCampaign as never);
 
         const payouts = [
           { id: 'payout1', amount: 10000000, description: 'Pembelian bahan bangunan', proofImage: 'https://proof.com/1.jpg', createdAt: new Date() },
@@ -607,7 +616,7 @@ describe('Campaign API Integration Tests', () => {
       });
 
       it('only queries payouts with status COMPLETED, never drafts or pending ones', async () => {
-        mockFindUnique.mockResolvedValue({ id: 'campaign-1' } as never);
+        mockFindUnique.mockResolvedValue(approvedCampaign as never);
         mockPayoutFindMany.mockResolvedValue([] as never);
 
         const request = createGetRequest('/api/campaigns/bantuan-banjir-abc123/disbursements');

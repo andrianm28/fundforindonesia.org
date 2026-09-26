@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { campaignNotFound, findViewableCampaign, withViewerCacheControl } from '@/lib/campaign-visibility-route';
+
+// Rendered per request: an unapproved Campaign's answer depends on who asks
+// (findViewableCampaign reads the session), which a statically cached route
+// cannot do.
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: NextRequest,
@@ -13,18 +19,10 @@ export async function GET(
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '10', 10)));
     const skip = (page - 1) * limit;
 
-    // Resolve campaign by slug
-    const campaign = await prisma.campaign.findUnique({
-      where: { slug },
-      select: { id: true },
-    });
-
-    if (!campaign) {
-      return NextResponse.json(
-        { code: 'NOT_FOUND', message: 'Campaign tidak ditemukan', status: 404 },
-        { status: 404 }
-      );
-    }
+    // An unapproved Campaign is private to its Fundraiser, Verifiers and
+    // Admins; anyone else gets the same 404 as a slug that never existed.
+    const campaign = await findViewableCampaign(slug);
+    if (!campaign) return campaignNotFound();
 
     const where = {
       campaignId: campaign.id,
@@ -62,13 +60,13 @@ export async function GET(
       createdAt: donation.createdAt,
     }));
 
-    return NextResponse.json({
+    return withViewerCacheControl(NextResponse.json({
       donations: mappedDonations,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    });
+    }), campaign);
   } catch (error) {
     console.error('Error fetching campaign donations:', error);
     return NextResponse.json(
