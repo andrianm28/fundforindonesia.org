@@ -373,6 +373,8 @@ describe('Campaign API Integration Tests', () => {
       coverImage: 'https://example.com/image.jpg',
       targetAmount: 50000000,
       category: 'bencana-alam',
+      kind: 'DONATION',
+      deadline: '2026-12-31T23:59:59.000Z',
     };
 
     it('requires authentication - returns 401 without session', async () => {
@@ -658,6 +660,8 @@ describe('Campaign API Integration Tests', () => {
         coverImage: 'https://example.com/gempa.jpg',
         targetAmount: 100000000,
         category: 'bencana-alam',
+        kind: 'DONATION',
+        deadline: '2026-12-31T23:59:59.000Z',
       };
 
       const createdCampaign = {

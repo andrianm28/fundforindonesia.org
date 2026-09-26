@@ -41,7 +41,7 @@ export function deadlineRequired(kind: CampaignKind): boolean {
 /** Whether a Campaign lacks the deadline its Kind requires. */
 export function missingRequiredDeadline(campaign: {
   kind: CampaignKind;
-  deadline: Date | string | null | undefined;
+  deadline?: Date | string | null;
 }): boolean {
   return (campaign.deadline === null || campaign.deadline === undefined) && deadlineRequired(campaign.kind);
 }
