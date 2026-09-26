@@ -25,7 +25,7 @@ const eslintConfig = [
       // rules, and a stricter default for no-html-link-for-pages). Left as
       // warnings rather than dropped, since they push the lint ratchet
       // above its 194 baseline; turning them into errors deliberately is
-      // ci-cd-github-actions ticket 16.
+      // ci-cd-github-actions ticket 18.
       'react-hooks/set-state-in-effect': 'warn',
       'react-hooks/immutability': 'warn',
       'react-hooks/purity': 'warn',
