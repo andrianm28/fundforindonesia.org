@@ -2,7 +2,11 @@
 
 Issues and specs for this repo live as markdown files in `.scratch/`.
 
-`.scratch/` is gitignored: specs and tickets are local scratch.
+`.scratch/` is **committed**, so cloud sessions can read and update it. A
+ticket's status change and its Comments ride in the same PR as the work they
+describe; planning-only changes (new specs, triage) go in their own small PR.
+Never put credentials in it: the repo is private, but `.scratch` is shared with
+every session and every collaborator.
 
 ## Conventions
 

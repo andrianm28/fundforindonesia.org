@@ -1,0 +1,19 @@
+# 05: Trip Fee refunds — Volunteer cancels, or Fundraiser cancels an under-quota Batch
+
+**What to build:** A Volunteer can cancel their own confirmed Registration and get back a portion of their Trip Fee that shrinks the closer the cancellation is to the Batch's departure date. Separately, a Fundraiser can cancel a Batch that didn't reach its minimum viable headcount by its registration deadline — and when they do, every Volunteer who already paid for that Batch gets a full refund automatically, regardless of timing. These are two different triggers with two different refund rules sharing the same underlying refund machinery, which is why they're one ticket.
+
+**Blocked by:** 03, and externally by Refund's own create/approve/complete API existing somewhere in this codebase. As of this spec, `Refund` exists only as a schema model — nothing anywhere creates, approves, or completes one, for Campaign or otherwise. This is not a ticket in this set; sequence this ticket's implementation after that API lands (whichever ticket builds it), or build both together. Do not invent a Volunteer-Trip-only refund path that diverges from whatever Refund API eventually ships for Campaign.
+
+**Status:** ready-for-agent
+
+- [ ] New pure function, e.g. `tripFeeRefundAmount({ departureDate, now, paidAmount })`, computing the tiered-by-time-to-departure refund amount for a Volunteer-initiated cancellation. The exact day-thresholds and percentages are **not** decided by the spec this ticket comes from — pick reasonable, clearly-documented defaults (e.g. full refund beyond some number of weeks out, a lower tier inside that window, none inside a final short window) and record them as this function's own contract, since no upstream document pins them down.
+- [ ] A Volunteer can trigger cancellation of their own `CONFIRMED` Registration, which creates a Refund for the Trip Fee Payment sized by `tripFeeRefundAmount`, sourced from `ESCROW_HOLD` or `TRIP_BALANCE` depending on whether this Payment's escrow has already matured — mirroring exactly how Campaign refunds already choose their source.
+- [ ] A Fundraiser can cancel a Batch whose `CONFIRMED` count is below its `minQuota` as of its registration deadline (or at any point before departure, if the Fundraiser wants to end it earlier — the deadline is not a lower bound on when this action is allowed, only the point after which it becomes a live possibility to check for). This is the cancel action `PATCH /api/volunteer-trips/[slug]/batches/[id]` intentionally left out of Ticket 02.
+- [ ] Fundraiser-cancelling a Batch: the Batch moves to `CANCELLED`, and every `CONFIRMED` Registration on it gets a Refund for the **full** Trip Fee paid, regardless of `tripFeeRefundAmount`'s tiered output — a different, simpler rule (100%, always), not `tripFeeRefundAmount` called with a departure date far in the future.
+- [ ] `refundLegs` (generalized in Ticket 01) is used for both paths, with `source` including the new `'TRIP_BALANCE'` option where applicable.
+- [ ] A Volunteer cancelling a Registration that is only `HOLD` (never paid) simply cancels it (→ `CANCELLED`) with no Refund created — there's nothing to refund.
+- [ ] Regression test: a Fundraiser cannot cancel a Batch that already met its `minQuota`.
+- [ ] Regression test: a Fundraiser-cancelled Batch's refunds are never reduced by `tripFeeRefundAmount`'s tiering, however close to departure the cancellation happens.
+- [ ] Regression test: a Volunteer cannot trigger the full-refund-regardless-of-timing path by cancelling their own Registration — only a genuine Fundraiser Batch cancellation gets it.
+
+**Context:** Ticket 5 of 6 from `.scratch/volunteer-trip/spec.md`. See its "Trip Fee refund rule" and "Further Notes" sections — both the exact refund thresholds and whether this needs the same multi-Admin approval cycle as an ordinary discretionary Campaign refund are explicitly left open there; use judgment and record what you decide.

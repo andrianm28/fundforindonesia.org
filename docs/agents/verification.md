@@ -1,24 +1,38 @@
-# Verification: CI proves the change, not the host
+# Verification: prove the change before and in CI
 
-This checkout lives on the shared production host (103.92.214.243). It serves
-production and other stacks, and several agents often work on it at once. Heavy
-checks from agents pushed its load to about 22 on 8 cores and filled its disk
-with Docker build cache. GitHub Actions runs the heavy checks instead.
+Agent sessions for this repo run in **Claude Code cloud sessions**, not on the
+VPS. The VPS (103.92.214.243) serves production and other stacks; heavy checks
+from agents once pushed its load to about 22 on 8 cores and filled its disk.
+CI on GitHub Actions stays the merge gate either way.
 
-## Locally: only the tests your change touches
+## In a cloud session (the default)
 
-Run the test files that cover your change, and nothing wider:
+The container (4 vCPU, 16 GB) is yours alone. The SessionStart hook
+(`.claude/hooks/session-start.sh`) runs `npm install` and `npx prisma
+generate`. Before pushing, run what CI will run:
+
+```sh
+npx vitest run                 # full suite
+npx tsc --noEmit | grep -c 'error TS'   # compare with ci/baselines.json
+npx next lint
+```
+
+`next build`, Docker, and a throwaway Postgres (pre-installed, start it with
+`service postgresql start`) are allowed when the change needs them, for
+example to try a migration. Cloud sessions never reach the production host:
+no SSH, and deploys stay the owner's dispatch (below).
+
+## On the VPS (emergencies and owner-run ops only)
+
+If you do run on the VPS, run only the test files that cover your change:
 
 ```sh
 npx vitest run src/__tests__/foo.test.ts src/lib/bar.test.ts
 ```
 
-That is enough for `/tdd`'s red-green loop. For the full suite, project-wide
-`tsc`, `next build`, `docker build` or a throwaway Docker Postgres, push and let
-CI run them. Keep them off the host even as a "quick check": each one costs
-minutes of CPU on a machine serving production.
-
-In a fresh worktree, run `npx prisma generate` once after `npm install` (see
+No full suite, project-wide `tsc`, `next build`, `docker build` or throwaway
+Docker Postgres there: push and let CI run them. In a fresh worktree, run
+`npx prisma generate` once after `npm install` (see
 [issue-tracker.md](issue-tracker.md#fresh-worktree-setup-gap)).
 
 ## Push, open a PR, watch CI
