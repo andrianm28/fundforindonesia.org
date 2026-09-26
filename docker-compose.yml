@@ -67,7 +67,7 @@ services:
 
   # One-time migration runner
   migrate:
-    image: node:20-alpine
+    image: node:24-alpine
     working_dir: /app
     volumes:
       - ./prisma:/app/prisma
@@ -87,7 +87,7 @@ services:
   # `setup` profile, so plain `docker compose up` never starts it, and a normal
   # deploy never runs it; see `SEED=1` in deploy.sh.
   seed:
-    image: node:20-alpine
+    image: node:24-alpine
     working_dir: /app
     volumes:
       - ./prisma:/app/prisma
