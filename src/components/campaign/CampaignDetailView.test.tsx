@@ -31,6 +31,7 @@ const mockCampaign: CampaignDetailData = {
     avatar: null,
   },
   donationCount: 12,
+  platformFeePercentBps: 250,
 };
 
 describe('CampaignDetailView', () => {
@@ -57,6 +58,16 @@ describe('CampaignDetailView', () => {
     const demoCampaign = { ...mockCampaign, isDemo: true };
     render(<CampaignDetailView campaign={demoCampaign} />);
     expect(screen.getByText('Donasi sekarang')).toBeDefined();
+  });
+
+  it('shows the Platform Fee rate in force (prd-compliance 17)', () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    expect(screen.getByText(/2,5%/)).toBeDefined();
+  });
+
+  it('shows 0% when no Platform Fee rate has been set', () => {
+    render(<CampaignDetailView campaign={{ ...mockCampaign, platformFeePercentBps: 0 }} />);
+    expect(screen.getByText(/0%/)).toBeDefined();
   });
 
   it('wraps the hero image and quick info panel in a container that stacks by default and goes side-by-side from the lg breakpoint (1025px)', () => {

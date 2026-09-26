@@ -92,6 +92,8 @@ model User {
   payoutsApproved  Payout[]      @relation("PayoutApprover")
   refundsRequested Refund[]      @relation("RefundRequester")
   refundsApproved  Refund[]      @relation("RefundApprover")
+  platformFeeRulesSet      PlatformFeeRule[]
+  platformFeeThresholdsSet PlatformFeeThreshold[]
 
   @@index([email])
   @@index([emailHmac])
@@ -255,6 +257,7 @@ model Campaign {
   cancellationRequests CancellationRequest[]
   flags                CampaignFlag[]
   verificationRequests VerificationRequest[]
+  platformFeeRules     PlatformFeeRule[]
 
   @@index([slug])
   @@index([category])
@@ -831,6 +834,14 @@ model Payment {
   /// What the provider kept. Recorded separately so the campaign is credited
   /// the net, and the fee is visible rather than silently missing.
   providerFee Int           @default(0)
+  /// What the platform kept (CONTEXT.md, Platform Fee; prd-compliance 17).
+  /// Resolved and frozen at POST /api/donations, per Campaign then per
+  /// Category then per Kind default, waived below the Admin-set threshold,
+  /// rounded down -- never recomputed at Settlement, so a later change to
+  /// the rate cannot alter what this Payment already promised the Donor.
+  /// Always 0 for a Trip Fee Payment (registrationId set): Trip Fee is not
+  /// subject to Platform Fee (CONTEXT.md, Trip Fee).
+  platformFee Int           @default(0)
   status      PaymentStatus @default(PENDING)
   /// Provider payload, kept verbatim for dispute resolution. Never parsed for
   /// business logic -- the typed columns above are what the app reads.
@@ -860,6 +871,59 @@ model Payment {
   @@index([status])
   @@index([provider, status])
   @@index([escrowReleaseAt, escrowReleasedAt])
+}
+
+enum PlatformFeeScope {
+  KIND
+  CATEGORY
+  CAMPAIGN
+}
+
+/// One Admin-set Platform Fee rate (CONTEXT.md, Platform Fee; prd-compliance
+/// 17). Append-only: setting a new rate for a scope+key inserts a row rather
+/// than mutating one, so "who and when" a rate changed is exactly
+/// setById/setAt on that row and no separate audit table is needed. The row
+/// with the latest setAt for a given scope+key is the one in force
+/// (resolvePlatformFeeBasis, src/lib/money/platform-fee-config.ts); earlier
+/// rows are left alone, both as history and because a Payment created under
+/// them already froze its own platformFee and never re-reads this table.
+model PlatformFeeRule {
+  id         String           @id @default(cuid())
+  scope      PlatformFeeScope
+  /// Set only when scope = KIND.
+  kind       Kind?
+  /// Set only when scope = CATEGORY -- Campaign.category's free-text value.
+  category   String?
+  /// Set only when scope = CAMPAIGN.
+  campaignId String?
+  /// Percent in basis points (1/100 of a percent), an integer so no rate
+  /// ever needs a float: 250 = 2.5%.
+  percentBps Int
+  setById    String
+  setAt      DateTime         @default(now())
+
+  // Relations
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  setBy    User      @relation(fields: [setById], references: [id], onDelete: Restrict)
+
+  @@index([scope, kind, setAt])
+  @@index([scope, category, setAt])
+  @@index([scope, campaignId, setAt])
+}
+
+/// The Admin-set nominal below which Platform Fee is waived entirely, so a
+/// small gift carries only the Provider Fee (CONTEXT.md, Platform Fee;
+/// prd-compliance 17). Same append-only pattern as PlatformFeeRule: the row
+/// with the latest setAt is in force.
+model PlatformFeeThreshold {
+  id      String   @id @default(cuid())
+  amount  Int
+  setById String
+  setAt   DateTime @default(now())
+
+  setBy User @relation(fields: [setById], references: [id], onDelete: Restrict)
+
+  @@index([setAt])
 }
 
 /// Every webhook the platform has accepted, by provider event id.

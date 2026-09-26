@@ -864,6 +864,18 @@ export function makeCampaignDb(
         count: async ({ where }: { where: Where }) =>
           getData().payouts.filter((p) => matches(p, where)).length,
       },
+      // No Platform Fee rule or threshold is ever seeded here (prd-compliance
+      // 17): resolvePlatformFeeBasis always reads null and falls back to
+      // 0 bps / 0 threshold, which is exactly right for tests that are not
+      // themselves about the Platform Fee -- see platform-fee-config.test.ts
+      // and route.test.ts under src/app/api/donations/ and src/app/api/
+      // admin/platform-fee/ for the module's own coverage.
+      platformFeeRule: {
+        findFirst: async () => null,
+      },
+      platformFeeThreshold: {
+        findFirst: async () => null,
+      },
       $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const sql = strings.join('?');
         const table = /FROM "(\w+)" WHERE id = \? FOR UPDATE/.exec(sql)?.[1];

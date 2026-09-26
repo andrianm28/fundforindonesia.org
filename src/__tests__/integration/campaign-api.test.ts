@@ -26,6 +26,13 @@ vi.mock('@/lib/prisma', () => ({
     partnerOrganisation: {
       findUnique: vi.fn(async () => null),
     },
+    // No Platform Fee rule configured (prd-compliance 17): resolves to 0.
+    platformFeeRule: {
+      findFirst: vi.fn(async () => null),
+    },
+    platformFeeThreshold: {
+      findFirst: vi.fn(async () => null),
+    },
   },
 }));
 

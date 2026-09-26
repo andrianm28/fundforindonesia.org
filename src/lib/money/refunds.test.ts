@@ -26,6 +26,10 @@ function makePayment(overrides: Record<string, unknown> = {}) {
     id: 'payment-1',
     amount: 100_000,
     providerFee: 5_000,
+    // 0 by default (prd-compliance 17): every existing test in this file
+    // predates the Platform Fee and asserts on Provider-Fee-only math: it
+    // must see the fee split unchanged.
+    platformFee: 0,
     escrowReleasedAt: null as Date | null,
     donation: { campaignId: 'campaign-1' },
     registration: null as { batch: { tripId: string } } | null,
@@ -205,6 +209,37 @@ describe('createRefund', () => {
       expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 38_000, campaignId: 'campaign-1' }),
       expect.objectContaining({ account: 'REFUND_COST', direction: 'DEBIT', amount: 2_000 }),
     ]);
+  });
+
+  it('splits out the Platform Fee share too, alongside the Provider Fee, at freeze time (prd-compliance 17)', async () => {
+    // Gross 100_000, Provider Fee 5_000, Platform Fee 2_500 -- both were
+    // removed from the pool at Settlement (paymentSettledLegs), so both
+    // must come back out of a Refund's net portion the same way.
+    const { tx, rows } = makeTx({
+      payment: makePayment({ escrowReleasedAt: null, amount: 100_000, providerFee: 5_000, platformFee: 2_500 }),
+    });
+
+    await createRefund(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      paymentId: 'payment-1',
+      amount: 40_000,
+      reason: 'Dibayar dua kali',
+      requestedById: 'admin-1',
+    });
+
+    // providerFeePortionFor = ceilMulDiv(5_000, 40_000, 100_000) = 2_000.
+    // platformFeePortionFor = ceilMulDiv(2_500, 40_000, 100_000) = 1_000.
+    // netPortion = 40_000 - 2_000 - 1_000 = 37_000.
+    const posted = rows.filter((r) => r.transactionId === 'refund-requested-refund-1');
+    expect(posted).toEqual([
+      expect.objectContaining({ account: 'FROZEN_BALANCE', direction: 'CREDIT', amount: 40_000, campaignId: 'campaign-1' }),
+      expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 37_000, campaignId: 'campaign-1' }),
+      expect.objectContaining({ account: 'PLATFORM_FEE', direction: 'DEBIT', amount: 1_000 }),
+      expect.objectContaining({ account: 'REFUND_COST', direction: 'DEBIT', amount: 2_000 }),
+    ]);
+    const debits = posted.filter((r) => r.direction === 'DEBIT').reduce((s, r) => s + r.amount, 0);
+    const credits = posted.filter((r) => r.direction === 'CREDIT').reduce((s, r) => s + r.amount, 0);
+    expect(debits).toBe(credits);
   });
 
   it('still freezes a Refund on a Suspended Campaign: a Suspension freezes Payouts, not Refunds (PRD section 7.2)', async () => {
@@ -488,6 +523,37 @@ describe('approveRefund', () => {
     const escrowRows = rows.filter((r) => r.account === 'ESCROW_HOLD' && r.campaignId === 'campaign-1');
     const escrowNet = escrowRows.reduce((s, r) => s + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
     expect(escrowNet).toBe(0); // the freeze's own net-share debit is all it took; nothing left stranded, nothing double-posted
+  });
+
+  it('settles a full refund with a nonzero Platform Fee cleanly at approval, alongside the Provider Fee (prd-compliance 17)', async () => {
+    // Gross 100_000, Provider Fee 5_000, Platform Fee 2_500. The freeze
+    // already debited ESCROW_HOLD only the refund's own 92_500 NET share
+    // (100_000 - 5_000 - 2_500) and posted REFUND_COST 5_000 and
+    // PLATFORM_FEE 2_500 in the "refund-requested-..." transaction -- so
+    // settle-1 (92_500) and freeze-1 (92_500) net the pool to exactly 0.
+    // Approval must not re-split or re-post either fee.
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 'settle-1', direction: 'CREDIT', amount: 92_500, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      { transactionId: 'freeze-1', direction: 'DEBIT', amount: 92_500, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+    ];
+    const refundRow = baseRefundRow({
+      amount: 100_000,
+      payment: makePayment({ amount: 100_000, providerFee: 5_000, platformFee: 2_500 }),
+    });
+    const { tx, rows } = makeTx({ ledgerRows, refundRow });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED' });
+
+    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+
+    const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
+    expect(posted).toEqual([
+      expect.objectContaining({ account: 'REFUND_CLEARING', direction: 'CREDIT', amount: 100_000 }),
+      expect.objectContaining({ account: 'FROZEN_BALANCE', direction: 'DEBIT', amount: 100_000, campaignId: 'campaign-1' }),
+    ]);
+    expect(posted.some((r) => r.account === 'REFUND_COST' || r.account === 'PLATFORM_FEE')).toBe(false);
+    const escrowRows = rows.filter((r) => r.account === 'ESCROW_HOLD' && r.campaignId === 'campaign-1');
+    const escrowNet = escrowRows.reduce((s, r) => s + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+    expect(escrowNet).toBe(0); // nothing stranded, nothing double-posted
   });
 
   it('settles a partial refund with a nonzero Provider Fee cleanly at approval, mirroring the full-refund case', async () => {

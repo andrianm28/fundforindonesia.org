@@ -13,6 +13,8 @@ import {
 import { campaignAcceptsDonations, donationBlock, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
+import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
+import { computePlatformFee } from '@/lib/money/platform-fee';
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris', 'ewallet', 'credit_card'] as const;
 
@@ -86,6 +88,7 @@ export async function POST(request: NextRequest) {
         title: true,
         isDemo: true,
         kind: true,
+        category: true,
         ...COLLECTING_ENTITY_SELECT,
       },
     });
@@ -237,6 +240,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Resolved and frozen here, at creation -- never recomputed at
+    // Settlement (prd-compliance 17). Per Campaign, then per Category, then
+    // per Kind default, first match wins; waived below the Admin-set
+    // threshold; rounded DOWN so the remainder falls to the Campaign, never
+    // the platform. A later change to the rate cannot alter what this
+    // Payment already promised the Donor (CONTEXT.md, Platform Fee).
+    const { percentBps, thresholdAmount } = await resolvePlatformFeeBasisForCampaign(prisma, campaign);
+    const platformFee = computePlatformFee({ grossAmount: amount, percentBps, thresholdAmount });
+
     await prisma.payment.create({
       data: {
         donationId: donation.id,
@@ -247,6 +259,7 @@ export async function POST(request: NextRequest) {
         method: charge.method,
         providerRef: donation.id,
         amount,
+        platformFee,
         status: PaymentStatus.PENDING,
         expiresAt: charge.expiresAt,
       },
