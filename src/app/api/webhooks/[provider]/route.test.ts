@@ -36,6 +36,21 @@ vi.mock('@/lib/volunteer/trip', () => ({
   refundLateSettlement: vi.fn(),
 }));
 
+// The Receipt token is generated here (not read back from the row), so the
+// email send after commit can use it without a second query. Fixed in tests
+// so assertions on the print link are exact.
+vi.mock('@/lib/receipt-token', () => ({
+  generateReceiptToken: vi.fn().mockReturnValue('tok-fixed'),
+}));
+
+// The Receipt email's own content (Collecting Entity naming, anonymous vs
+// named Donor, escaping) is covered independently in
+// src/lib/mail/receipt.test.ts; this route only needs to know sendReportingFailure
+// was reached with the right recipient.
+vi.mock('@/lib/mail', () => ({
+  sendReportingFailure: vi.fn().mockResolvedValue(true),
+}));
+
 import { prisma } from '@/lib/prisma';
 import {
   getPaymentProvider,
@@ -44,6 +59,7 @@ import {
   InvalidWebhookSignatureError,
 } from '@/lib/payments';
 import { confirmRegistration, expireRegistrationHold, refundLateSettlement } from '@/lib/volunteer/trip';
+import { sendReportingFailure } from '@/lib/mail';
 
 const mockConfirmRegistration = confirmRegistration as unknown as Mock;
 const mockExpireRegistrationHold = expireRegistrationHold as unknown as Mock;
@@ -56,6 +72,7 @@ const mockNotificationCreateMany = prisma.notification.createMany as unknown as 
 const mockNotificationCreate = prisma.notification.create as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
+const mockSendReportingFailure = sendReportingFailure as unknown as Mock;
 
 function createRequest(body: unknown = {}): NextRequest {
   return new NextRequest('http://localhost:3000/api/webhooks/mock', {
@@ -94,6 +111,7 @@ function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
     payment: { updateMany: vi.fn().mockResolvedValue({ count: paymentUpdateManyCount }) },
     donation: { update: vi.fn().mockResolvedValue({}) },
     campaign: { update: vi.fn().mockResolvedValue({}) },
+    receipt: { create: vi.fn().mockResolvedValue({}) },
     webhookEvent: { update: vi.fn().mockResolvedValue({}) },
     ledgerEntry: {
       count: vi.fn().mockResolvedValue(0),
@@ -117,12 +135,16 @@ function makePayment(overrides: Record<string, unknown> = {}) {
     donation: {
       id: 'donation-1',
       donorId: 'donor-1',
+      guestEmail: null,
+      guestName: null,
+      donor: { id: 'donor-1', email: 'donor@example.test', name: 'Donor Test' },
       campaign: {
         id: 'campaign-1',
         title: 'Test Campaign',
         creatorId: 'creator-1',
         collectedAmount: 0,
         targetAmount: 1_000_000,
+        collectingEntity: { id: 'org-1', name: 'Yayasan Contoh' },
       },
     },
     registration: null,
@@ -185,6 +207,7 @@ describe('POST /api/webhooks/[provider]', () => {
     mockWebhookEventUpdate.mockResolvedValue({});
     mockNotificationCreateMany.mockResolvedValue({ count: 0 });
     mockNotificationCreate.mockResolvedValue({});
+    mockSendReportingFailure.mockResolvedValue(true);
   });
 
   it('answers 503 and writes nothing when the provider is not configured', async () => {
@@ -416,6 +439,108 @@ describe('POST /api/webhooks/[provider]', () => {
     });
 
     expect(mockNotificationCreateMany).toHaveBeenCalled();
+  });
+
+  it('creates the Receipt inside the settlement transaction and emails it to a registered Donor, naming the Collecting Entity (prd-compliance 21)', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(tx.receipt.create).toHaveBeenCalledWith({
+      data: {
+        donationId: 'donation-1',
+        token: 'tok-fixed',
+        sentAt: expect.any(Date),
+        lastSentAt: expect.any(Date),
+      },
+    });
+    expect(mockSendReportingFailure).toHaveBeenCalledTimes(1);
+    const [message, report] = mockSendReportingFailure.mock.calls[0];
+    expect(message.to).toBe('donor@example.test');
+    expect(message.text).toContain('Yayasan Contoh');
+    expect(message.text).toContain('/receipt/tok-fixed');
+    expect(report).toMatchObject({ mail: 'receipt', donationId: 'donation-1', paymentId: 'payment-1' });
+  });
+
+  it('emails the Receipt to a Guest Donor at their plaintext guestEmail when there is no account', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(
+      makePayment({
+        donation: {
+          id: 'donation-1',
+          donorId: null,
+          donor: null,
+          guestEmail: 'guest@example.test',
+          guestName: 'Guest Test',
+          campaign: {
+            id: 'campaign-1',
+            title: 'Test Campaign',
+            creatorId: 'creator-1',
+            collectedAmount: 0,
+            targetAmount: 1_000_000,
+            collectingEntity: { id: 'org-1', name: 'Yayasan Contoh' },
+          },
+        },
+      }),
+    );
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(mockSendReportingFailure).toHaveBeenCalledTimes(1);
+    const [message] = mockSendReportingFailure.mock.calls[0];
+    expect(message.to).toBe('guest@example.test');
+    expect(message.text).toContain('Guest Test');
+  });
+
+  it('does not create a Receipt for a Trip Fee (Registration) settlement', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    mockConfirmRegistration.mockResolvedValue({ outcome: 'confirmed' });
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(tx.receipt.create).not.toHaveBeenCalled();
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
+  });
+
+  it('settles the Donation and logs instead of sending when the Campaign has no Collecting Entity, without failing the webhook', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(
+      makePayment({
+        donation: {
+          id: 'donation-1',
+          donorId: 'donor-1',
+          guestEmail: null,
+          guestName: null,
+          donor: { id: 'donor-1', email: 'donor@example.test', name: 'Donor Test' },
+          campaign: {
+            id: 'campaign-1',
+            title: 'Test Campaign',
+            creatorId: 'creator-1',
+            collectedAmount: 0,
+            targetAmount: 1_000_000,
+            collectingEntity: null,
+          },
+        },
+      }),
+    );
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(tx.receipt.create).toHaveBeenCalled();
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('no Collecting Entity'));
   });
 
   it('anchors the release to the hold length THIS Payment froze, not the live default (prd-compliance 18)', async () => {

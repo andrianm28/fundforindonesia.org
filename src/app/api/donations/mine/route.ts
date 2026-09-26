@@ -38,6 +38,11 @@ export async function GET(request: NextRequest) {
             coverImage: true,
           },
         },
+        // Only a settled Donation has one (CONTEXT.md, Receipt) -- null here
+        // is how the dashboard knows there is no print page to link to yet.
+        receipt: {
+          select: { token: true },
+        },
       },
     }),
     prisma.donation.count({
@@ -48,7 +53,10 @@ export async function GET(request: NextRequest) {
   const totalPages = Math.ceil(total / limit);
 
   return NextResponse.json({
-    donations,
+    donations: donations.map(({ receipt, ...donation }) => ({
+      ...donation,
+      receiptToken: receipt?.token ?? null,
+    })),
     total,
     page,
     limit,
