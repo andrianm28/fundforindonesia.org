@@ -3,7 +3,7 @@ import { Assignment, StatusChangeCapacity, VolunteerTripStatus } from '@/generat
 import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { refusalResponse } from '@/lib/refusal-response';
-import { OwnTripConflictError } from '@/lib/subject-guard';
+import { judgeCapacity } from '@/lib/capacity';
 import { TripNotSubmittedError } from '@/lib/volunteer-trip-errors';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -42,10 +42,18 @@ export const PATCH = withAssignmentCheck(Assignment.VERIFIER, async (req: NextRe
   }
 
   // A Verifier never acts as Verifier on a Trip they own (CONTEXT.md,
-  // Verifier; ADR 0005): another Verifier must judge it.
+  // Capacity; ADR 0005): another Verifier must judge it.
   const session = await getServerSession();
-  if (trip.fundraiserId === session?.user?.id) {
-    return refusalResponse(new OwnTripConflictError(StatusChangeCapacity.VERIFIER))!;
+  try {
+    judgeCapacity(
+      { kind: 'trip', ownerId: trip.fundraiserId },
+      { userId: session?.user?.id ?? '', assignments: session?.user?.assignments ?? [] },
+      StatusChangeCapacity.VERIFIER,
+    );
+  } catch (error) {
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
+    throw error;
   }
 
   // A Verifier decides only a Submitted Trip, as with a Campaign

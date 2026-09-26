@@ -5,11 +5,11 @@ import {
   requireNotOwnerAsAdmin,
   requirePayoutAllowed,
   isEscrowReleaseFrozen,
-  OwnTripConflictError,
   PayoutNotAllowedForStatusError,
   type SubjectState,
 } from './subject-guard';
-import { OwnCampaignConflictError, domainErrorToHttp } from './campaign-lifecycle';
+import { domainErrorToHttp } from './campaign-lifecycle';
+import { OwnSubjectConflictError } from './capacity';
 
 const NOW = new Date('2026-09-25T10:00:00Z');
 const PAST = new Date('2026-09-20T00:00:00Z');
@@ -192,16 +192,19 @@ describe('isEscrowReleaseFrozen', () => {
 describe('requireNotOwnerAsAdmin', () => {
   it('refuses an Admin on their own Campaign with the own-Campaign conflict', () => {
     expect(() => requireNotOwnerAsAdmin(campaignState(CampaignStatus.ACTIVE, 'admin-1'), 'admin-1')).toThrow(
-      new OwnCampaignConflictError(StatusChangeCapacity.ADMIN),
+      new OwnSubjectConflictError('campaign', StatusChangeCapacity.ADMIN),
     );
     expect(() => requireNotOwnerAsAdmin(campaignState(CampaignStatus.ACTIVE, 'admin-1'), 'admin-1')).toThrow(
-      OwnCampaignConflictError,
+      expect.objectContaining({ code: 'OWN_CAMPAIGN_CONFLICT' }),
     );
   });
 
   it('refuses an Admin on their own Volunteer Trip with the own-Trip conflict', () => {
     expect(() => requireNotOwnerAsAdmin(tripState(VolunteerTripStatus.ACTIVE, 'admin-1'), 'admin-1')).toThrow(
-      OwnTripConflictError,
+      new OwnSubjectConflictError('trip', StatusChangeCapacity.ADMIN),
+    );
+    expect(() => requireNotOwnerAsAdmin(tripState(VolunteerTripStatus.ACTIVE, 'admin-1'), 'admin-1')).toThrow(
+      expect.objectContaining({ code: 'OWN_TRIP_CONFLICT' }),
     );
   });
 

@@ -6,7 +6,7 @@ import {
   FlagNotFoundError,
   InvalidTransitionError,
   domainErrorToHttp,
-  OwnCampaignConflictError,
+  OwnSubjectConflictError,
   suspendCampaign,
 } from './campaign-lifecycle';
 import {
@@ -220,7 +220,7 @@ describe('suspendCampaign resolving Flags', () => {
       campaignFlags: [campaignFlagRow()],
     });
 
-    await expect(suspend(db)).rejects.toBeInstanceOf(OwnCampaignConflictError);
+    await expect(suspend(db)).rejects.toBeInstanceOf(OwnSubjectConflictError);
     expect(db.campaignFlag().resolution).toBeNull();
   });
 

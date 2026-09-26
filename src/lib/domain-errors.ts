@@ -7,8 +7,9 @@
  *
  * This file imports nothing, so the lifecycle errors
  * (./campaign-lifecycle-errors.ts), the subject guard (./subject-guard.ts),
- * the money errors (./money/errors.ts) and the Volunteer Trip errors
- * (./volunteer-trip-errors.ts) can all extend it without an import cycle.
+ * the money errors (./money/errors.ts), the Volunteer Trip errors
+ * (./volunteer-trip-errors.ts) and the Capacity judgement (./capacity.ts)
+ * can all extend it without an import cycle.
  */
 export abstract class DomainError extends Error {
   abstract readonly code: DomainErrorCode;
@@ -17,7 +18,6 @@ export abstract class DomainError extends Error {
 export type LifecycleErrorCode =
   | "VALIDATION"
   | "NOT_AUTHORIZED"
-  | "OWN_CAMPAIGN_CONFLICT"
   | "SAME_ADMIN_LIFT"
   | "CAMPAIGN_NOT_FOUND"
   | "INVALID_TRANSITION"
@@ -32,7 +32,6 @@ export type LifecycleErrorCode =
   | "PAYOUT_NOT_ALLOWED_FOR_STATUS";
 
 export type MoneyErrorCode =
-  | "OWN_TRIP_CONFLICT"
   | "DEMO_CAMPAIGN"
   | "BANK_ACCOUNT_NOT_ELIGIBLE"
   | "INSUFFICIENT_BALANCE"
@@ -51,7 +50,18 @@ export type MoneyErrorCode =
  */
 export type TripErrorCode = "TRIP_NOT_SUBMITTED";
 
-export type DomainErrorCode = LifecycleErrorCode | MoneyErrorCode | TripErrorCode;
+/**
+ * Acting in an operator Capacity on your own Campaign or Volunteer Trip
+ * (CONTEXT.md, Capacity). One family, one class (OwnSubjectConflictError,
+ * ./capacity.ts), two codes so API clients keep telling the subjects apart.
+ */
+export type CapacityErrorCode = "OWN_CAMPAIGN_CONFLICT" | "OWN_TRIP_CONFLICT";
+
+export type DomainErrorCode =
+  | LifecycleErrorCode
+  | MoneyErrorCode
+  | TripErrorCode
+  | CapacityErrorCode;
 
 const HTTP_STATUS: Record<DomainErrorCode, number> = {
   VALIDATION: 400,

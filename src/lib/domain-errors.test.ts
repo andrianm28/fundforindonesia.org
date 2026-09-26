@@ -15,7 +15,7 @@ import {
   RefundExceedsRemainingError,
   RefundNotFoundError,
 } from './money/refunds';
-import { OwnTripConflictError } from './subject-guard';
+import { OwnSubjectConflictError } from './capacity';
 
 describe('domainErrorToHttp for the money refusals', () => {
   // Statuses are the ones the Payout and Refund routes answered before the
@@ -33,16 +33,17 @@ describe('domainErrorToHttp for the money refusals', () => {
     [new PaymentNotFoundError('pay1'), 404, 'PAYMENT_NOT_FOUND'],
     [new PaymentSubjectMismatchError('pay1'), 404, 'PAYMENT_SUBJECT_MISMATCH'],
     [new RefundExceedsRemainingError(20_000, 10_000), 400, 'REFUND_EXCEEDS_REMAINING'],
-    [new OwnTripConflictError(), 403, 'OWN_TRIP_CONFLICT'],
+    [new OwnSubjectConflictError('trip', 'ADMIN'), 403, 'OWN_TRIP_CONFLICT'],
+    [new OwnSubjectConflictError('campaign', 'ADMIN'), 403, 'OWN_CAMPAIGN_CONFLICT'],
   ])('%s answers %i with code %s and its Indonesian message', (error, status, code) => {
     expect(domainErrorToHttp(error)).toEqual({ status, body: { error: error.message, code } });
   });
 
-  it('words the own-Trip conflict for the capacity, Admin by default', () => {
-    expect(new OwnTripConflictError().message).toBe(
+  it('words the own-Trip conflict for the capacity', () => {
+    expect(new OwnSubjectConflictError('trip', 'ADMIN').message).toBe(
       'Anda tidak dapat bertindak sebagai Admin atas Volunteer Trip milik Anda sendiri. Tindakan ini harus dilakukan Admin lain.',
     );
-    expect(new OwnTripConflictError('VERIFIER').message).toBe(
+    expect(new OwnSubjectConflictError('trip', 'VERIFIER').message).toBe(
       'Anda tidak dapat bertindak sebagai Verifier atas Volunteer Trip milik Anda sendiri. Tindakan ini harus dilakukan Verifier lain.',
     );
   });
