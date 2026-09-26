@@ -10,6 +10,8 @@ interface CampaignModerationActionsProps {
   request: { id: string; isFirst: boolean; checklist: ChecklistEntry[] } | null;
   /** When the Fundraiser's Identity Verification was recorded, or null if it never was. */
   identityVerifiedAt: Date | null;
+  /** The Collecting Entity approving confirms (prd-compliance 10), or null when it names none. */
+  collectingEntityName?: string | null;
 }
 
 /**
@@ -25,6 +27,7 @@ export function CampaignModerationActions({
   campaignId,
   request,
   identityVerifiedAt,
+  collectingEntityName = null,
 }: CampaignModerationActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = useState<VerificationDecision | null>(null);
@@ -210,6 +213,12 @@ export function CampaignModerationActions({
               className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
             />
           </div>
+
+          <p className="mb-4 text-sm text-[#424242]">
+            {collectingEntityName
+              ? `Meloloskan pengajuan ini mengonfirmasi ${collectingEntityName} sebagai Collecting Entity yang menghimpun dana Campaign ini.`
+              : "Campaign ini belum menyebutkan Collecting Entity, sehingga belum dapat diloloskan."}
+          </p>
 
           {untickedRequired.length > 0 && (
             <p id="approve-blocked" className="mb-3 text-sm text-[#757575]">

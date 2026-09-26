@@ -5,6 +5,8 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { listableCampaignWhere } from '@/lib/subject-guard';
 import { deadlineRequiredMessage, KINDS, missingRequiredDeadline, parseKind } from '@/lib/campaign-kind';
+import { resolveCollectingEntity } from '@/lib/collecting-entity-guard';
+import { refusalResponse } from '@/lib/refusal-response';
 
 const createCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
@@ -15,6 +17,9 @@ const createCampaignSchema = z.object({
   category: z.string().min(1, "Kategori harus dipilih"),
   kind: z.enum(KINDS, { message: "Kind harus dipilih" }),
   deadline: z.string().datetime().optional(),
+  // The sponsoring Partner Organisation an individual Fundraiser picks; an
+  // organisation's linked account always gets its own (ADR 0010).
+  collectingEntityId: z.string().min(1).optional(),
 }).superRefine((body, ctx) => {
   // Every Kind but wakaf needs a deadline (CONTEXT.md, Campaign).
   if (missingRequiredDeadline(body)) {
@@ -149,6 +154,16 @@ export async function POST(request: NextRequest) {
 
     const { title, description, story, coverImage, targetAmount, category, kind, deadline } = result.data;
 
+    // The Collecting Entity it collects under (ADR 0010): the creator's own
+    // organisation when their account acts for one, else the one they named,
+    // if it accepts individual Campaigns. A Draft may name none yet;
+    // submitting it to a Verifier requires one.
+    const collectingEntityId = await resolveCollectingEntity(
+      prisma,
+      session.user.id,
+      result.data.collectingEntityId
+    );
+
     // 3. Generate unique slug
     const slug = generateSlug(title);
 
@@ -165,6 +180,7 @@ export async function POST(request: NextRequest) {
         kind,
         deadline: deadline ? new Date(deadline) : null,
         creatorId: session.user.id,
+        collectingEntityId,
         // A new campaign is a Draft: visible only to its Fundraiser, and not
         // in the Verifier queue until they submit it, which opens its
         // Verification Request. Set explicitly rather than left to the schema
@@ -186,6 +202,8 @@ export async function POST(request: NextRequest) {
     // 5. Return 201 with created campaign
     return NextResponse.json(campaign, { status: 201 });
   } catch (error) {
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error creating campaign:', error);
     return NextResponse.json(
       { error: 'Gagal membuat campaign' },

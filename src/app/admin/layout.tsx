@@ -45,6 +45,9 @@ function AdminSidebar() {
         <SidebarLink href="/admin/verification-checklist" icon="checklist">
           Checklist Verifikasi
         </SidebarLink>
+        <SidebarLink href="/admin/collecting-entities" icon="campaigns">
+          Collecting Entity
+        </SidebarLink>
       </nav>
 
       <div className="p-4 border-t border-gray-200">

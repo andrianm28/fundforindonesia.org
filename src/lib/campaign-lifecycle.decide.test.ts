@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CollectingEntityNotEligibleError,
+  CollectingEntityRequiredError,
   decideVerificationRequest,
+  FundraisingPermitRequiredError,
   domainErrorToHttp,
   RequiredChecklistItemsUntickedError,
   LifecycleValidationError,
@@ -10,7 +13,9 @@ import {
 } from './campaign-lifecycle';
 import {
   campaignRow,
+  fundraisingPermitRow,
   makeCampaignDb,
+  partnerOrganisationRow,
   verificationRequestRow,
 } from '../../tests/support/in-memory-campaign-db';
 
@@ -486,5 +491,70 @@ describe('decideVerificationRequest', () => {
 
     expect(error).toBeInstanceOf(VerificationRequestNotPendingError);
     expect(db.verificationRequests[0]).toMatchObject({ outcome: 'APPROVED', decidedById: 'verifier-2', reason: null });
+  });
+
+  describe('confirming the Collecting Entity (prd-compliance 10, ADR 0010)', () => {
+    const approve = (db: ReturnType<typeof seeded>) =>
+      decideVerificationRequest(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'verification-open',
+        actor: verifier,
+        decision: 'approve',
+        ticked: ALL_REQUIRED_TICKED,
+        now: NOW,
+      }).catch((e: unknown) => e);
+
+    it.each([
+      [
+        'its Collecting Entity\'s permit lapsed while it waited',
+        { fundraisingPermits: [fundraisingPermitRow({ validTo: new Date('2026-09-25T09:00:00Z') })] },
+        FundraisingPermitRequiredError,
+      ],
+      [
+        'it names no Collecting Entity (submitted before there was one)',
+        { campaigns: [campaignRow({ collectingEntityId: null })] },
+        CollectingEntityRequiredError,
+      ],
+      [
+        'its sponsoring organisation stopped accepting individual Campaigns',
+        { partnerOrganisations: [partnerOrganisationRow({ acceptsIndividualCampaigns: false })] },
+        CollectingEntityNotEligibleError,
+      ],
+    ])('refuses to approve a Campaign when %s, leaving the request pending', async (_why, overrides, refusal) => {
+      const db = seeded(overrides);
+
+      const error = await approve(db);
+
+      expect(error).toBeInstanceOf(refusal);
+      expect(domainErrorToHttp(error)?.status).toBe(422);
+      expect(db.campaign().lifecycleStatus).toBe('SUBMITTED');
+      expect(db.verificationRequests[0]).toMatchObject({ outcome: 'PENDING' });
+      expect(db.statusChanges).toEqual([]);
+    });
+
+    it('words the permit refusal for the approval', async () => {
+      const db = seeded({ fundraisingPermits: [fundraisingPermitRow({ kinds: ['ZAKAT'] })] });
+
+      const error = await approve(db);
+
+      expect((error as Error).message).toBe(
+        'Yayasan Contoh Peduli belum memegang Fundraising Permit yang berlaku untuk Kind Donasi, sehingga Campaign ini belum dapat diloloskan.',
+      );
+    });
+
+    it('still lets a Verifier reject a Campaign whose Collecting Entity holds no valid permit', async () => {
+      const db = seeded({ fundraisingPermits: [] });
+
+      const result = await decideVerificationRequest(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'verification-open',
+        actor: verifier,
+        decision: 'reject',
+        reason: 'Lembaga penaung belum memegang izin.',
+        now: NOW,
+      });
+
+      expect(result.campaign.lifecycleStatus).toBe('REJECTED');
+    });
   });
 });

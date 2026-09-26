@@ -15,6 +15,9 @@ vi.mock('@/lib/prisma', () => ({
     campaignStatusChange: {
       findFirst: vi.fn(),
     },
+    partnerOrganisation: {
+      findUnique: vi.fn(),
+    },
   },
 }));
 
@@ -214,6 +217,13 @@ describe('GET /api/campaigns/[slug]', () => {
             avatar: true,
           },
         },
+        collectingEntity: {
+          select: {
+            id: true,
+            name: true,
+            permits: { select: { kinds: true, validFrom: true, validTo: true } },
+          },
+        },
         _count: {
           select: {
             donations: {
@@ -289,6 +299,42 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
     });
     return { response, body: await response.json() };
   }
+
+  describe('the Collecting Entity and whether it lets the Campaign collect (prd-compliance 10)', () => {
+    const permit = (validTo: string) => ({
+      kinds: ['DONATION'],
+      validFrom: new Date('2026-01-01T00:00:00Z'),
+      validTo: new Date(validTo),
+    });
+
+    it('names the Collecting Entity, without its permits, and no block while its permit is valid', async () => {
+      const { body } = await getAs(
+        campaignRow({
+          kind: 'DONATION',
+          collectingEntity: { id: 'yiem', name: 'YIEM', permits: [permit('2026-12-31T00:00:00Z')] },
+        })
+      );
+      expect(body.campaign.collectingEntity).toEqual({ id: 'yiem', name: 'YIEM' });
+      expect(body.campaign.donationBlock).toBeNull();
+    });
+
+    it('reports NO_VALID_PERMIT once the permit has lapsed, the status staying Active', async () => {
+      const { body } = await getAs(
+        campaignRow({
+          kind: 'DONATION',
+          collectingEntity: { id: 'yiem', name: 'YIEM', permits: [permit('2026-09-01T00:00:00Z')] },
+        })
+      );
+      expect(body.campaign.lifecycleStatus).toBe('ACTIVE');
+      expect(body.campaign.donationBlock).toBe('NO_VALID_PERMIT');
+    });
+
+    it('reports NO_COLLECTING_ENTITY for an Active Campaign that names none', async () => {
+      const { body } = await getAs(campaignRow({ kind: 'DONATION', collectingEntity: null }));
+      expect(body.campaign.collectingEntity).toBeNull();
+      expect(body.campaign.donationBlock).toBe('NO_COLLECTING_ENTITY');
+    });
+  });
 
   it('sends lifecycleStatus as its one status field, without the legacy status string', async () => {
     const { body } = await getAs(campaignRow({ lifecycleStatus: 'CANCELLED' }));
@@ -1095,6 +1141,82 @@ describe('PATCH /api/campaigns/[slug] -- the deadline is set before a Verifier s
 
     expect(response.status).toBe(200);
     expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { deadline: null } }));
+  });
+});
+
+describe('PATCH /api/campaigns/[slug] -- the Collecting Entity is chosen before a Verifier sees the Campaign', () => {
+  const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
+  const ORGANISATIONS = [
+    { id: 'sponsor', name: 'Yayasan Penaung', fundraiserId: 'x', acceptsIndividualCampaigns: true },
+    { id: 'other', name: 'Yayasan Lain', fundraiserId: 'y', acceptsIndividualCampaigns: true },
+    { id: 'closed', name: 'Yayasan Tertutup', fundraiserId: 'z', acceptsIndividualCampaigns: false },
+  ];
+  let row: Record<string, unknown>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as never);
+    mockLockQuery.mockResolvedValue([] as never);
+    mockFindUnique.mockImplementation((async () => ({ ...row })) as never);
+    mockUpdate.mockImplementation((async (args: { data: object }) => ({ ...row, ...args.data })) as never);
+    mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as never);
+    vi.mocked(prisma.partnerOrganisation.findUnique).mockImplementation((async ({ where }: { where: { id?: string; fundraiserId?: string } }) =>
+      ORGANISATIONS.find((o) => (where.id !== undefined ? o.id === where.id : o.fundraiserId === where.fundraiserId)) ?? null) as never);
+  });
+
+  function storedAs(lifecycleStatus: string, collectingEntityId: string | null = 'sponsor') {
+    row = {
+      id: 'campaign-1',
+      slug: 'bantu-korban-banjir',
+      creatorId: owner.id,
+      lifecycleStatus,
+      deadline: new Date('2099-12-31T00:00:00Z'),
+      kind: 'DONATION',
+      collectingEntityId,
+    };
+  }
+
+  function edit(body: Record<string, unknown>) {
+    return PATCH(createRequest('bantu-korban-banjir', 'PATCH', body), {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+  }
+
+  it.each(['DRAFT', 'REJECTED'])('changes the sponsoring organisation of a %s Campaign', async (status) => {
+    storedAs(status);
+
+    const response = await edit({ collectingEntityId: 'other' });
+
+    expect(response.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { collectingEntityId: 'other' } }));
+  });
+
+  it.each(['SUBMITTED', 'ACTIVE'])('refuses to change it on a %s Campaign', async (status) => {
+    storedAs(status);
+
+    const response = await edit({ collectingEntityId: 'other' });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe(status === 'SUBMITTED' ? 'CAMPAIGN_NOT_EDITABLE' : 'COLLECTING_ENTITY_NOT_EDITABLE');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('accepts the one it already has on an Active Campaign', async () => {
+    storedAs('ACTIVE');
+
+    const response = await edit({ collectingEntityId: 'sponsor', title: 'Judul Baru' });
+
+    expect(response.status).toBe(200);
+  });
+
+  it('refuses an organisation that does not accept individual Campaigns, with 422', async () => {
+    storedAs('DRAFT');
+
+    const response = await edit({ collectingEntityId: 'closed' });
+
+    expect(response.status).toBe(422);
+    expect((await response.json()).code).toBe('COLLECTING_ENTITY_NOT_ELIGIBLE');
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });
 

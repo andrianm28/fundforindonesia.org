@@ -10,7 +10,9 @@ import {
   sandboxInProductionReason,
   DONATIONS_DISABLED_MESSAGE,
 } from '@/lib/donations';
-import { campaignAcceptsDonations, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
+import { campaignAcceptsDonations, donationBlock, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
+import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
+import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris', 'ewallet', 'credit_card'] as const;
 
@@ -83,6 +85,8 @@ export async function POST(request: NextRequest) {
         deadline: true,
         title: true,
         isDemo: true,
+        kind: true,
+        ...COLLECTING_ENTITY_SELECT,
       },
     });
 
@@ -105,6 +109,12 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
+    // An Active Campaign whose Collecting Entity cannot collect for its Kind
+    // right now (none named, or no permit valid now) is refused as such,
+    // judged lazily: nothing is recorded when a permit lapses (ADR 0010).
+    if (donationBlock(campaign, now)) {
+      return NextResponse.json({ error: COLLECTING_ENTITY_REFUSAL }, { status: 403 });
+    }
     if (!campaignAcceptsDonations(campaign, now)) {
       // If the refusal is a deadline that has passed, record the expiry the
       // way every lifecycle command does (capacity SYSTEM, the Fundraiser

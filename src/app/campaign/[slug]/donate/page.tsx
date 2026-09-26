@@ -8,7 +8,7 @@ import { PaymentMethodSelector } from '@/components/donation/PaymentMethodSelect
 import { DonationConfirmation } from '@/components/donation/DonationConfirmation';
 import { formatRupiah } from '@/lib/utils/currency';
 import { donationsEnabled, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
-import { offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
+import { COLLECTING_ENTITY_REFUSAL, offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
 import type { PaymentMethod } from '@/types/donation';
 
 const PRESET_AMOUNTS = [20000, 50000, 100000, 250000, 500000];
@@ -155,11 +155,17 @@ export default function DonatePage() {
   // /api/donations refuses the rest). Someone who lands here by link on a
   // Suspended, Cancelled or ended Campaign is told why before any amount is
   // asked of them. A missing status counts as not Active.
-  if (!offersDonating(campaign.lifecycleStatus)) {
+  //
+  // An Active one whose Collecting Entity cannot collect for it right now (it
+  // names none, or holds no Fundraising Permit valid now for its Kind) is
+  // refused by POST /api/donations too; the donor is told before any amount.
+  if (!offersDonating(campaign.lifecycleStatus) || campaign.donationBlock) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
         <p className="text-text-secondary">
-          {statusBannerCopy(campaign.lifecycleStatus) ?? 'Campaign ini tidak menerima donasi.'}
+          {offersDonating(campaign.lifecycleStatus)
+            ? COLLECTING_ENTITY_REFUSAL
+            : (statusBannerCopy(campaign.lifecycleStatus) ?? 'Campaign ini tidak menerima donasi.')}
         </p>
         <button
           onClick={() => router.push(`/campaign/${slug}`)}
@@ -266,6 +272,12 @@ export default function DonatePage() {
             <p className="text-sm font-medium text-text line-clamp-1">
               {campaign.title}
             </p>
+            {/* The Donor's legal counterparty is the Collecting Entity, not the platform (ADR 0010). */}
+            {campaign.collectingEntity && (
+              <p className="text-xs text-text-secondary mt-0.5">
+                Dihimpun oleh {campaign.collectingEntity.name}
+              </p>
+            )}
           </div>
         </div>
       )}

@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { effectiveStatus, type ChecklistEntry } from "@/lib/campaign-lifecycle";
 import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
 import { CampaignModerationActions } from "./CampaignModerationActions";
+import { holdsValidPermit } from "@/lib/collecting-entity";
+import { KIND_LABEL } from "@/lib/campaign-kind";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -18,6 +20,14 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
       creator: {
         select: { name: true, email: true },
       },
+      collectingEntity: {
+        select: {
+          id: true,
+          name: true,
+          fundraiserId: true,
+          permits: { select: { kinds: true, validFrom: true, validTo: true } },
+        },
+      },
     },
   });
 
@@ -25,7 +35,14 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
     notFound();
   }
 
-  const status = effectiveStatus(campaign, new Date());
+  const now = new Date();
+  const status = effectiveStatus(campaign, now);
+  // Who collects its money (ADR 0010): the Verifier confirms it by approving.
+  const entity = campaign.collectingEntity ?? null;
+  const entityLabel = entity
+    ? `${entity.name} (${entity.fundraiserId === campaign.creatorId ? "akun organisasi ini" : "menaungi Fundraiser perorangan"})`
+    : "Belum ada";
+  const permitValid = entity ? holdsValidPermit(entity, campaign.kind, now) : false;
   // The one open request, if any: what the Verifier decides here. The
   // decision itself is judged on the request, never on this page's view.
   const [openRequest, identity] = await Promise.all([
@@ -90,6 +107,17 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
               value={`Rp ${campaign.targetAmount.toLocaleString("id-ID")}`}
             />
             <InfoItem label="Kategori" value={campaign.category} />
+            <InfoItem label="Kind" value={KIND_LABEL[campaign.kind] ?? campaign.kind} />
+            <div>
+              <InfoItem label="Collecting Entity" value={entityLabel} />
+              {entity && (
+                <p className={`text-xs mt-0.5 ${permitValid ? "text-[#2E7D32]" : "text-[#C62828]"}`}>
+                  {permitValid
+                    ? `Memegang Fundraising Permit yang berlaku untuk Kind ${KIND_LABEL[campaign.kind]}.`
+                    : `Belum memegang Fundraising Permit yang berlaku untuk Kind ${KIND_LABEL[campaign.kind]}: Campaign ini tidak dapat diloloskan.`}
+                </p>
+              )}
+            </div>
             <InfoItem
               label="Tanggal Dibuat"
               value={new Date(campaign.createdAt).toLocaleDateString("id-ID", {
@@ -145,6 +173,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
             }
           }
           identityVerifiedAt={identity?.verifiedAt ?? null}
+          collectingEntityName={entity?.name ?? null}
         />
       </div>
     </div>

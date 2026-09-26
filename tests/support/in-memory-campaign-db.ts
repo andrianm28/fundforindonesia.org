@@ -28,7 +28,42 @@ export type CampaignRow = {
   /** Optional so the lifecycle tests need not name it; the list readers filter on it. */
   category?: string;
   kind: Kind;
+  /** The Partner Organisation it collects under; `partner-1` unless a test says otherwise. */
+  collectingEntityId: string | null;
 };
+
+export type PartnerOrganisationRow = {
+  id: string;
+  name: string;
+  fundraiserId: string;
+  acceptsIndividualCampaigns: boolean;
+  registeredById: string;
+  registeredAt: Date;
+};
+
+export type FundraisingPermitRow = {
+  id: string;
+  partnerOrganisationId: string;
+  number: string;
+  issuer: string;
+  kinds: Kind[];
+  validFrom: Date;
+  validTo: Date;
+  recordedById: string;
+  recordedAt: Date;
+};
+
+export type PartnerOrganisationAuditRow = {
+  id: string;
+  partnerOrganisationId: string;
+  permitId: string | null;
+  action: 'REGISTERED' | 'UPDATED' | 'PERMIT_RECORDED' | 'PERMIT_UPDATED';
+  before: unknown;
+  after: unknown;
+  actedById: string;
+  actedAt: Date;
+};
+
 
 /** The slice of a User the lifecycle reads: who a Fundraiser is, to write to them. */
 export type UserRow = {
@@ -117,6 +152,7 @@ export type VerificationRequestRow = {
   decidedById: string | null;
   decidedAt: Date | null;
   isFirst: boolean;
+  collectingEntityId?: string | null;
 };
 
 export type ChecklistAuditRow = {
@@ -152,6 +188,9 @@ type Data = {
   checklistAudits: ChecklistAuditRow[];
   verificationRequests: VerificationRequestRow[];
   identityVerifications: IdentityVerificationRow[];
+  partnerOrganisations: PartnerOrganisationRow[];
+  fundraisingPermits: FundraisingPermitRow[];
+  partnerOrganisationAudits: PartnerOrganisationAuditRow[];
 };
 
 type Where = Record<string, unknown>;
@@ -230,7 +269,73 @@ function clone(data: Data): Data {
     checklistAudits: data.checklistAudits.map((a) => ({ ...a })),
     verificationRequests: data.verificationRequests.map((r) => ({ ...r })),
     identityVerifications: data.identityVerifications.map((v) => ({ ...v })),
+    partnerOrganisations: data.partnerOrganisations.map((o) => ({ ...o })),
+    fundraisingPermits: data.fundraisingPermits.map((p) => ({ ...p, kinds: [...p.kinds] })),
+    partnerOrganisationAudits: data.partnerOrganisationAudits.map((a) => ({ ...a })),
   };
+}
+
+/**
+ * The Partner Organisation every default Campaign collects under: linked to
+ * `partner-fundraiser-1`, accepting individual Campaigns.
+ */
+export function partnerOrganisationRow(overrides: Partial<PartnerOrganisationRow> = {}): PartnerOrganisationRow {
+  return {
+    id: 'partner-1',
+    name: 'Yayasan Contoh Peduli',
+    fundraiserId: 'partner-fundraiser-1',
+    acceptsIndividualCampaigns: true,
+    registeredById: 'verifier-1',
+    registeredAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  };
+}
+
+/** A permit of `partner-1` covering every Kind from 2020 through 2099. */
+export function fundraisingPermitRow(overrides: Partial<FundraisingPermitRow> = {}): FundraisingPermitRow {
+  return {
+    id: 'permit-1',
+    partnerOrganisationId: 'partner-1',
+    number: '001/PUB/2026',
+    issuer: 'Kementerian Sosial',
+    kinds: ['DONATION', 'ZAKAT', 'WAKAF', 'HIBAH'],
+    validFrom: new Date('2020-01-01T00:00:00Z'),
+    validTo: new Date('2099-12-31T23:59:59Z'),
+    recordedById: 'verifier-1',
+    recordedAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  };
+}
+
+/**
+ * Applies a Prisma `select` or `include` to a Campaign row, joining its
+ * Collecting Entity with its permits when asked for, as
+ * COLLECTING_ENTITY_SELECT reads it.
+ */
+function shapeCampaign(
+  data: Data,
+  row: CampaignRow,
+  shape: { select?: Record<string, unknown>; include?: Record<string, unknown> },
+): Record<string, unknown> {
+  const joined = (): Record<string, unknown> | null => {
+    const entity = data.partnerOrganisations.find((o) => o.id === row.collectingEntityId);
+    if (!entity) return null;
+    return {
+      ...entity,
+      permits: data.fundraisingPermits
+        .filter((p) => p.partnerOrganisationId === entity.id)
+        .map((p) => ({ ...p, kinds: [...p.kinds] })),
+    };
+  };
+  if (shape.select) {
+    return Object.fromEntries(
+      Object.keys(shape.select)
+        .filter((key) => shape.select![key])
+        .map((key) => [key, key === 'collectingEntity' ? joined() : row[key as keyof CampaignRow]]),
+    );
+  }
+  if (shape.include?.collectingEntity) return { ...row, collectingEntity: joined() };
+  return { ...row };
 }
 
 export function checklistItemRow(overrides: Partial<ChecklistItemRow> = {}): ChecklistItemRow {
@@ -319,6 +424,7 @@ export function campaignRow(overrides: Partial<CampaignRow> = {}): CampaignRow {
     isUrgent: false,
     deadline: null,
     kind: 'DONATION',
+    collectingEntityId: 'partner-1',
     ...overrides,
   };
 }
@@ -334,6 +440,10 @@ export function makeCampaignDb(
     checklistItems?: ChecklistItemRow[];
     verificationRequests?: VerificationRequestRow[];
     identityVerifications?: IdentityVerificationRow[];
+    /** Defaults to `partner-1` alone, so a default Campaign has a Collecting Entity. */
+    partnerOrganisations?: PartnerOrganisationRow[];
+    /** Defaults to `permit-1` alone, covering every Kind until 2099. */
+    fundraisingPermits?: FundraisingPermitRow[];
     /** Read-only, so kept outside the transactional copy; defaults to the Fundraiser of campaignRow(). */
     users?: UserRow[];
   } = {},
@@ -351,6 +461,9 @@ export function makeCampaignDb(
     checklistAudits: [],
     verificationRequests: (seed.verificationRequests ?? []).map((r) => ({ ...r })),
     identityVerifications: (seed.identityVerifications ?? []).map((v) => ({ ...v })),
+    partnerOrganisations: (seed.partnerOrganisations ?? [partnerOrganisationRow()]).map((o) => ({ ...o })),
+    fundraisingPermits: (seed.fundraisingPermits ?? [fundraisingPermitRow()]).map((p) => ({ ...p, kinds: [...p.kinds] })),
+    partnerOrganisationAudits: [],
   };
   // Row locks taken with `SELECT ... FOR UPDATE`, in order, as
   // "<Table>:<id>". Observable because taking the lock IS the behaviour
@@ -371,9 +484,9 @@ export function makeCampaignDb(
   function client(getData: () => Data) {
     return {
       campaign: {
-        findUnique: async ({ where }: { where: Where }) => {
+        findUnique: async ({ where, select, include }: { where: Where; select?: Record<string, unknown>; include?: Record<string, unknown> }) => {
           const row = getData().campaigns.find((c) => matches(c, where));
-          return row ? { ...row } : null;
+          return row ? shapeCampaign(getData(), row, { select, include }) : null;
         },
         // What the public list readers call. Order is insertion order; the
         // readers' tests assert on which Campaigns come back, not the order.
@@ -557,7 +670,7 @@ export function makeCampaignDb(
         },
       },
       verificationRequest: {
-        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'submittedById' | 'checklist' | 'isFirst'> & { submittedAt?: Date } }) => {
+        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'submittedById' | 'checklist' | 'isFirst' | 'collectingEntityId'> & { submittedAt?: Date } }) => {
           const row: VerificationRequestRow = {
             id: `verification-${nextId++}`,
             submittedAt: new Date(),
@@ -605,7 +718,70 @@ export function makeCampaignDb(
           return { count };
         },
       },
+      partnerOrganisation: {
+        findUnique: async ({ where, include }: { where: Where; include?: { permits?: unknown } }) => {
+          const row = getData().partnerOrganisations.find((o) => matches(o, where));
+          if (!row) return null;
+          if (!include?.permits) return { ...row };
+          return {
+            ...row,
+            permits: getData().fundraisingPermits
+              .filter((p) => p.partnerOrganisationId === row.id)
+              .map((p) => ({ ...p, kinds: [...p.kinds] })),
+          };
+        },
+        findMany: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'>; select?: unknown; include?: unknown } = {}) =>
+          ordered(getData().partnerOrganisations.filter((o) => matches(o, where)), orderBy).map((o) => ({ ...o })),
+        create: async ({ data }: { data: Omit<PartnerOrganisationRow, 'id' | 'registeredAt'> & { registeredAt?: Date } }) => {
+          if (getData().partnerOrganisations.some((o) => o.fundraiserId === data.fundraiserId)) {
+            throw new Error('Unique constraint failed on PartnerOrganisation.fundraiserId');
+          }
+          const row: PartnerOrganisationRow = { id: `partner-${nextId++}`, registeredAt: new Date(), ...data };
+          getData().partnerOrganisations.push(row);
+          return { ...row };
+        },
+        update: async ({ where, data }: { where: { id: string }; data: Partial<PartnerOrganisationRow> }) => {
+          const row = getData().partnerOrganisations.find((o) => o.id === where.id);
+          if (!row) throw new Error('No PartnerOrganisation found');
+          Object.assign(row, data);
+          return { ...row };
+        },
+      },
+      fundraisingPermit: {
+        findUnique: async ({ where }: { where: Where }) => {
+          const row = getData().fundraisingPermits.find((p) => matches(p, where));
+          return row ? { ...row, kinds: [...row.kinds] } : null;
+        },
+        create: async ({ data }: { data: Omit<FundraisingPermitRow, 'id' | 'recordedAt'> & { recordedAt?: Date } }) => {
+          const row: FundraisingPermitRow = { id: `permit-${nextId++}`, recordedAt: new Date(), ...data, kinds: [...data.kinds] };
+          getData().fundraisingPermits.push(row);
+          return { ...row, kinds: [...row.kinds] };
+        },
+        update: async ({ where, data }: { where: { id: string }; data: Partial<FundraisingPermitRow> }) => {
+          const row = getData().fundraisingPermits.find((p) => p.id === where.id);
+          if (!row) throw new Error('No FundraisingPermit found');
+          Object.assign(row, data);
+          return { ...row, kinds: [...row.kinds] };
+        },
+      },
+      partnerOrganisationAuditEntry: {
+        create: async ({ data }: { data: Omit<PartnerOrganisationAuditRow, 'id' | 'actedAt' | 'before' | 'permitId'> & { before?: unknown; permitId?: string | null; actedAt?: Date } }) => {
+          const row: PartnerOrganisationAuditRow = {
+            id: `partner-audit-${nextId++}`,
+            actedAt: new Date(),
+            ...data,
+            permitId: data.permitId ?? null,
+            before: data.before ?? null,
+          };
+          getData().partnerOrganisationAudits.push(row);
+          return { ...row };
+        },
+      },
       user: {
+        findUnique: async ({ where }: { where: Where }) => {
+          const row = users.find((u) => matches(u, where));
+          return row ? { ...row } : null;
+        },
         findUniqueOrThrow: async ({ where }: { where: Where }) => {
           const row = users.find((u) => matches(u, where));
           if (!row) throw new Error('No User found');
@@ -693,6 +869,15 @@ export function makeCampaignDb(
     },
     get identityVerifications() {
       return committed.identityVerifications;
+    },
+    get partnerOrganisations() {
+      return committed.partnerOrganisations;
+    },
+    get fundraisingPermits() {
+      return committed.fundraisingPermits;
+    },
+    get partnerOrganisationAudits() {
+      return committed.partnerOrganisationAudits;
     },
     campaignFlag(id = 'flag-1') {
       const row = committed.campaignFlags.find((f) => f.id === id);
