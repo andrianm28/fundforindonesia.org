@@ -228,6 +228,7 @@ enum CampaignStatusChangeAction {
   SUBMITTED
   SUBMISSION_APPROVED
   SUBMISSION_REJECTED
+  SUBMISSION_WITHDRAWN
   COMPLETED
   SUSPENDED
   SUSPENSION_LIFTED
@@ -377,6 +378,8 @@ model VerificationRequest {
   checklist     Json
   outcome       VerificationOutcome @default(PENDING)
   reason        String?
+  /// Who closed the request and when: the Verifier on APPROVED or REJECTED,
+  /// the Fundraiser on WITHDRAWN. Null while PENDING.
   decidedById   String?
   decidedAt     DateTime?
   /// Submitted from Draft (the Campaign's first request) rather than from
