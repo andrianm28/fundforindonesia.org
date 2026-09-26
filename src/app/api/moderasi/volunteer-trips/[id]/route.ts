@@ -1,9 +1,10 @@
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
-import { Assignment, StatusChangeCapacity } from '@/generated/prisma/client';
+import { Assignment, StatusChangeCapacity, VolunteerTripStatus } from '@/generated/prisma/client';
 import { getServerSession } from '@/lib/auth';
 import { domainErrorToHttp } from '@/lib/domain-errors';
 import { prisma } from '@/lib/prisma';
 import { OwnTripConflictError } from '@/lib/subject-guard';
+import { TripNotSubmittedError } from '@/lib/volunteer-trip-errors';
 import { NextRequest, NextResponse } from 'next/server';
 
 const VALID_ACTIONS = ['approve', 'reject'] as const;
@@ -16,8 +17,13 @@ const ACTION_STATUS_MAP: Record<ModerationAction, 'ACTIVE' | 'REJECTED'> = {
 
 const ACTION_MESSAGE_MAP: Record<ModerationAction, string> = {
   approve: 'Volunteer Trip Anda telah disetujui dan kini aktif',
-  reject: 'Volunteer Trip Anda ditolak oleh moderator',
+  reject: 'Volunteer Trip Anda ditolak',
 };
+
+function refuse(error: OwnTripConflictError | TripNotSubmittedError) {
+  const refusal = domainErrorToHttp(error)!;
+  return NextResponse.json(refusal.body, { status: refusal.status });
+}
 
 export const PATCH = withAssignmentCheck(Assignment.VERIFIER, async (req: NextRequest, context: any) => {
   const { id } = await context.params;
@@ -33,7 +39,7 @@ export const PATCH = withAssignmentCheck(Assignment.VERIFIER, async (req: NextRe
 
   const trip = await prisma.volunteerTrip.findUnique({
     where: { id },
-    select: { id: true, fundraiserId: true, title: true },
+    select: { id: true, fundraiserId: true, title: true, status: true },
   });
 
   if (!trip) {
@@ -44,17 +50,28 @@ export const PATCH = withAssignmentCheck(Assignment.VERIFIER, async (req: NextRe
   // Verifier; ADR 0005): another Verifier must judge it.
   const session = await getServerSession();
   if (trip.fundraiserId === session?.user?.id) {
-    const refusal = domainErrorToHttp(new OwnTripConflictError(StatusChangeCapacity.VERIFIER))!;
-    return NextResponse.json(refusal.body, { status: refusal.status });
+    return refuse(new OwnTripConflictError(StatusChangeCapacity.VERIFIER));
+  }
+
+  // A Verifier decides only a Submitted Trip (mirroring Campaign
+  // moderation, decideSubmission). The write is predicated on SUBMITTED too,
+  // so of two Verifiers deciding at once only the first changes it.
+  if (trip.status !== VolunteerTripStatus.SUBMITTED) {
+    return refuse(new TripNotSubmittedError(trip.status));
   }
 
   const validAction = action as ModerationAction;
   const newStatus = ACTION_STATUS_MAP[validAction];
 
-  const updatedTrip = await prisma.volunteerTrip.update({
-    where: { id },
+  const written = await prisma.volunteerTrip.updateMany({
+    where: { id, status: VolunteerTripStatus.SUBMITTED },
     data: { status: newStatus },
   });
+  if (written.count === 0) {
+    return refuse(new TripNotSubmittedError(trip.status));
+  }
+
+  const updatedTrip = (await prisma.volunteerTrip.findUnique({ where: { id } }))!;
 
   await prisma.notification.create({
     data: {

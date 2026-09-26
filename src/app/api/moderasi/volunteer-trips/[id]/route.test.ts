@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    volunteerTrip: { findUnique: vi.fn(), update: vi.fn() },
+    volunteerTrip: { findUnique: vi.fn(), updateMany: vi.fn() },
     notification: { create: vi.fn() },
   },
 }));
@@ -17,7 +17,7 @@ import { getServerSession } from '@/lib/auth';
 import { PATCH } from './route';
 
 const mockFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
-const mockUpdate = prisma.volunteerTrip.update as unknown as Mock;
+const mockUpdate = prisma.volunteerTrip.updateMany as unknown as Mock;
 const mockNotificationCreate = prisma.notification.create as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 
@@ -37,8 +37,8 @@ describe('PATCH /api/moderasi/volunteer-trips/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetServerSession.mockResolvedValue({ user: { id: 'verifier-1', role: 'MODERATOR', assignments: ['VERIFIER'] } });
-    mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', title: 'Trip title', slug: 'trip-slug' });
-    mockUpdate.mockResolvedValue({ id: 'trip-1', status: 'ACTIVE', slug: 'trip-slug' });
+    mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', title: 'Trip title', slug: 'trip-slug', status: 'SUBMITTED' });
+    mockUpdate.mockResolvedValue({ count: 1 });
     mockNotificationCreate.mockResolvedValue({});
   });
 
@@ -73,7 +73,7 @@ describe('PATCH /api/moderasi/volunteer-trips/[id]', () => {
     const response = await PATCH(actionRequest('approve'), routeContext());
     expect(response.status).toBe(200);
     expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'trip-1' }, data: { status: 'ACTIVE' } }),
+      expect.objectContaining({ where: { id: 'trip-1', status: 'SUBMITTED' }, data: { status: 'ACTIVE' } }),
     );
     expect(mockNotificationCreate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ userId: 'owner-1' }) }),
@@ -81,18 +81,17 @@ describe('PATCH /api/moderasi/volunteer-trips/[id]', () => {
   });
 
   it('reject sets status to REJECTED and notifies the Fundraiser', async () => {
-    mockUpdate.mockResolvedValue({ id: 'trip-1', status: 'REJECTED', slug: 'trip-slug' });
     const response = await PATCH(actionRequest('reject'), routeContext());
     expect(response.status).toBe(200);
     expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'trip-1' }, data: { status: 'REJECTED' } }),
+      expect.objectContaining({ where: { id: 'trip-1', status: 'SUBMITTED' }, data: { status: 'REJECTED' } }),
     );
     expect(mockNotificationCreate).toHaveBeenCalled();
   });
 
   describe("a Verifier who is the Trip's Fundraiser", () => {
     beforeEach(() => {
-      mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'verifier-1', title: 'Trip title', slug: 'trip-slug' });
+      mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'verifier-1', title: 'Trip title', slug: 'trip-slug', status: 'SUBMITTED' });
     });
 
     it.each(['approve', 'reject'])('is refused on %s with the Verifier-worded own-Trip conflict', async (action) => {
@@ -107,4 +106,60 @@ describe('PATCH /api/moderasi/volunteer-trips/[id]', () => {
       expect(mockNotificationCreate).not.toHaveBeenCalled();
     });
   });
+
+  describe('a Trip that is not Submitted', () => {
+    const NOT_SUBMITTED = ['DRAFT', 'REJECTED', 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'COMPLETED'];
+    const cases = NOT_SUBMITTED.flatMap((status) => ['approve', 'reject'].map((action) => [action, status]));
+
+    it.each(cases)('%s from %s is refused with 409 and nothing is written', async (action, status) => {
+      mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', title: 'Trip title', slug: 'trip-slug', status });
+      const response = await PATCH(actionRequest(action), routeContext());
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        error: 'Volunteer Trip ini tidak sedang menunggu keputusan Verifier. Muat ulang halaman lalu periksa kembali.',
+        code: 'TRIP_NOT_SUBMITTED',
+      });
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  it('reject tells the Fundraiser without calling the Verifier a moderator', async () => {
+    await PATCH(actionRequest('reject'), routeContext());
+    const { message } = mockNotificationCreate.mock.calls[0][0].data;
+    expect(message).toBe('Volunteer Trip Anda ditolak');
+  });
+
+  it('of two Verifiers deciding a Submitted Trip at once, one changes it and the other gets 409', async () => {
+    // One Trip row whose status write honours the predicate, and a gate that
+    // lets both requests read it (SUBMITTED) before either one writes.
+    let stored = 'SUBMITTED';
+    let arrived = 0;
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => (openGate = resolve));
+    mockFindUnique.mockImplementation(async () => {
+      const row = { id: 'trip-1', fundraiserId: 'owner-1', title: 'Trip title', slug: 'trip-slug', status: stored };
+      if (++arrived === 2) openGate();
+      await gate;
+      return row;
+    });
+    mockUpdate.mockImplementation(async ({ where, data }) => {
+      if (where.status !== stored) return { count: 0 };
+      stored = data.status;
+      return { count: 1 };
+    });
+
+    const responses = await Promise.all([
+      PATCH(actionRequest('approve'), routeContext()),
+      PATCH(actionRequest('reject'), routeContext()),
+    ]);
+
+    const statuses = responses.map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 409]);
+    const refused = responses.find((r) => r.status === 409)!;
+    expect((await refused.json()).code).toBe('TRIP_NOT_SUBMITTED');
+    expect(['ACTIVE', 'REJECTED']).toContain(stored);
+    expect(mockNotificationCreate).toHaveBeenCalledTimes(1);
+  });
 });
+
