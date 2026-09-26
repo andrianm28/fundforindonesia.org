@@ -5,8 +5,11 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 `.scratch/` is **committed**, so cloud sessions can read and update it. A
 ticket's status change and its Comments ride in the same PR as the work they
 describe; planning-only changes (new specs, triage) go in their own small PR.
-Never put credentials in it: the repo is private, but `.scratch` is shared with
-every session and every collaborator.
+The repo is **public**, so everything in `.scratch/` is world-readable. Never
+put in it credentials, IP addresses or internal hostnames of the production host,
+personal data (donor or user names with contact details, bank or NIK numbers),
+or details of unpatched security exposure. Refer to such things by role ("the
+VPS", "the production `.env`") and keep the values with the owner.
 
 ## Conventions
 
