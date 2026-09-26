@@ -44,7 +44,8 @@ afterEach(() => {
 
 function deploy(env: Record<string, string> = {}) {
   const result = spawnSync("/bin/bash", [DEPLOY_SH], {
-    env: { ...env, PATH: stubDir, DOCKER_CALL_LOG: callLog },
+    // Only these variables: the stub dir alone on PATH, so no real docker runs.
+    env: { ...env, PATH: stubDir, DOCKER_CALL_LOG: callLog } as NodeJS.ProcessEnv,
     encoding: "utf8",
   });
   return { ...result, calls: dockerCalls() };
