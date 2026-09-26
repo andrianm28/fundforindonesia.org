@@ -72,6 +72,41 @@ describe("Dockerfile", () => {
     expect(migrate).toContain('CMD ["node_modules/.bin/prisma", "migrate", "deploy"]');
   });
 
+  // Ticket 14: an `npm install` in the runner reifies the whole dependency
+  // tree (next's SWC compiler, prisma's CLI and studio, typescript, …), which
+  // made the image over a gigabyte. The standalone output already holds every
+  // runtime file the server needs, the Prisma client included (webpack
+  // bundles it), so the runner installs nothing and copies no node_modules.
+  it("runs the app from the standalone output alone, installing no packages in the runner", () => {
+    const runner = stage("runner");
+    expect(runner.filter((l) => /\bnpm\b/.test(l))).toEqual([]);
+    const copies = runner.filter((l) => l.startsWith("COPY "));
+    expect(copies.filter((l) => /node_modules|src\/generated|\/app\/prisma/.test(l) && !l.includes("--from=sharp"))).toEqual([]);
+    expect(copies).toContain("COPY --from=builder /app/.next/standalone ./");
+  });
+
+  // next/image needs sharp in a standalone build. It is installed on its own,
+  // at an exact version, for the image's own platform (alpine/musl), and Next
+  // loads it from there through NEXT_SHARP_PATH (next/dist/server/image-optimizer).
+  it("gives the runner sharp at a pinned version from its own stage, where Next looks for it", () => {
+    const sharp = stage("sharp");
+    expect(sharp).toContainEqual(expect.stringMatching(/^ARG SHARP_VERSION="\d+\.\d+\.\d+"$/));
+    expect(sharp).toContainEqual(expect.stringMatching(/npm install .*sharp@\$SHARP_VERSION/));
+    const runner = stage("runner");
+    expect(runner).toContain("COPY --from=sharp /opt/sharp/node_modules /opt/sharp/node_modules");
+    expect(runner).toContain("ENV NEXT_SHARP_PATH=/opt/sharp/node_modules/sharp");
+  });
+
+  it("is proven by cd.yml: sharp really loads in the built app image, and both image sizes are reported", () => {
+    const cd = readFileSync(resolve(".github/workflows/cd.yml"), "utf8");
+    // The optimizer is off, so /api/health would pass with sharp broken; this
+    // runs sharp itself, through the same path Next uses.
+    expect(cd).toMatch(/docker run --rm local\/app:candidate node -e '[^']*require\(process\.env\.NEXT_SHARP_PATH\)/);
+    // Ticket 14 asked for the size to be measured; keep it visible on every run.
+    expect(cd).toMatch(/docker image inspect --format '\{\{\.Size\}\}' local\/app:candidate/);
+    expect(cd).toMatch(/docker image inspect --format '\{\{\.Size\}\}' local\/migrate:candidate/);
+  });
+
   it("builds the app runtime by default, as the non-root nextjs user", () => {
     expect(Array.from(byStage.keys()).at(-1)).toBe("runner");
     expect(stage("runner")).toContain("USER nextjs");
