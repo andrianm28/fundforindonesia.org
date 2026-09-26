@@ -284,7 +284,7 @@ describe('POST /api/campaigns', () => {
     expect(data.error).toBe('Unauthorized');
   });
 
-  it('lets a registered user with no Role or assignment submit a Campaign (FFI-04)', async () => {
+  it('lets a registered user with no Role or assignment create a Draft (FFI-04)', async () => {
     mockGetServerSession.mockResolvedValue(noRoleSession as never);
     mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
 
@@ -294,7 +294,7 @@ describe('POST /api/campaigns', () => {
     expect(response.status).toBe(201);
     const { data } = mockCreate.mock.calls[0][0];
     expect(data.creatorId).toBe('user-2');
-    expect(data.lifecycleStatus).toBe('SUBMITTED');
+    expect(data.lifecycleStatus).toBe('DRAFT');
   });
 
   it('returns 400 with field errors for invalid body', async () => {
@@ -365,11 +365,11 @@ describe('POST /api/campaigns', () => {
     expect(data.creatorId).toBe('user-1');
   });
 
-  it('creates the campaign as Submitted so it cannot publish itself', async () => {
-    // A campaign must pass a Verifier before it is visible. Creating it as
-    // Active would publish an unverified appeal for money under the
-    // platform's name, and would also leave the /moderasi queue -- which
-    // lists Submitted Campaigns -- permanently empty.
+  it('creates the campaign as a Draft, which neither publishes it nor queues it for a Verifier', async () => {
+    // A campaign must pass a Verifier before it is visible, and reaches the
+    // Verifier only when its Fundraiser submits it (verification-request 01).
+    // Creating it Active would publish an unverified appeal for money;
+    // creating it Submitted would queue it with no Verification Request.
     mockGetServerSession.mockResolvedValue(verifiedSession as never);
     mockCreate.mockResolvedValue({ id: 'campaign-1' } as never);
 
@@ -378,7 +378,7 @@ describe('POST /api/campaigns', () => {
 
     expect(response.status).toBe(201);
     const { data } = mockCreate.mock.calls[0][0] as { data: Record<string, unknown> };
-    expect(data.lifecycleStatus).toBe('SUBMITTED');
+    expect(data.lifecycleStatus).toBe('DRAFT');
     // The legacy status string is neither written nor sent back
     // (legacy-status-contract 02).
     expect(data).not.toHaveProperty('status');

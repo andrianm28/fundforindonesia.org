@@ -12,47 +12,51 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    campaign: {
+    verificationRequest: {
       count: vi.fn(),
     },
   },
 }));
 
 import { render, screen, cleanup } from "@testing-library/react";
-import { campaignRow, makeCampaignDb } from "../../../tests/support/in-memory-campaign-db";
+import {
+  campaignRow,
+  makeCampaignDb,
+  verificationRequestRow,
+} from "../../../tests/support/in-memory-campaign-db";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import ModerasiPage from "./page";
 
 const mockGetServerSession = getServerSession as unknown as Mock;
-const mockCampaignCount = prisma.campaign.count as unknown as Mock;
+const mockRequestCount = prisma.verificationRequest.count as unknown as Mock;
 
 describe("ModerasiPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCampaignCount.mockResolvedValue(0);
+    mockRequestCount.mockResolvedValue(0);
   });
 
   it("redirects home when unauthenticated", async () => {
     mockGetServerSession.mockResolvedValue(null);
     await expect(ModerasiPage()).rejects.toThrow("NEXT_REDIRECT:/");
-    expect(mockCampaignCount).not.toHaveBeenCalled();
+    expect(mockRequestCount).not.toHaveBeenCalled();
   });
 
   it("redirects home for an ADMIN-ranked user who does not hold the Verifier assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: [] } });
     await expect(ModerasiPage()).rejects.toThrow("NEXT_REDIRECT:/");
-    expect(mockCampaignCount).not.toHaveBeenCalled();
+    expect(mockRequestCount).not.toHaveBeenCalled();
   });
 
   it("renders for a user who holds the Verifier assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
     const result = await ModerasiPage();
     expect(result).toBeDefined();
-    expect(mockCampaignCount).toHaveBeenCalledOnce();
+    expect(mockRequestCount).toHaveBeenCalledOnce();
   });
 
-  it("counts only the Submitted Campaigns as awaiting review", async () => {
+  it("counts only the PENDING Verification Requests as awaiting review", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
     const db = makeCampaignDb({
       campaigns: [
@@ -61,8 +65,15 @@ describe("ModerasiPage", () => {
         campaignRow({ id: "c", slug: "c", lifecycleStatus: "ACTIVE" }),
         campaignRow({ id: "d", slug: "d", lifecycleStatus: "DRAFT" }),
       ],
+      verificationRequests: [
+        verificationRequestRow({ id: "a1", campaignId: "a" }),
+        verificationRequestRow({ id: "b0", campaignId: "b", outcome: "REJECTED" }),
+        verificationRequestRow({ id: "b1", campaignId: "b" }),
+        verificationRequestRow({ id: "c1", campaignId: "c", outcome: "APPROVED" }),
+        verificationRequestRow({ id: "d1", campaignId: "d", outcome: "WITHDRAWN" }),
+      ],
     });
-    mockCampaignCount.mockImplementation((args) => db.prisma.campaign.count(args));
+    mockRequestCount.mockImplementation((args) => db.prisma.verificationRequest.count(args));
 
     render(await ModerasiPage());
 

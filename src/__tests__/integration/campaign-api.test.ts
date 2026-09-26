@@ -386,7 +386,7 @@ describe('Campaign API Integration Tests', () => {
       expect(data.error).toBe('Unauthorized');
     });
 
-    it('lets a registered user with no Role or assignment submit a Campaign, as SUBMITTED (FFI-04)', async () => {
+    it('lets a registered user with no Role or assignment create a Campaign, as a Draft (FFI-04)', async () => {
       mockGetServerSession.mockResolvedValue(makeUnverifiedSession() as never);
       mockCreate.mockResolvedValue(makeCampaign({ creatorId: 'user-2' }) as never);
 
@@ -396,7 +396,7 @@ describe('Campaign API Integration Tests', () => {
       expect(response.status).toBe(201);
       const { data } = mockCreate.mock.calls[0][0];
       expect(data.creatorId).toBe('user-2');
-      expect(data.lifecycleStatus).toBe('SUBMITTED');
+      expect(data.lifecycleStatus).toBe('DRAFT');
     });
 
     it('validates all required fields', async () => {

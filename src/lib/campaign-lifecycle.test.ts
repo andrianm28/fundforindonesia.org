@@ -15,7 +15,11 @@ import {
   PayoutAlreadyCompletedError,
   SameAdminLiftError,
 } from './campaign-lifecycle';
-import { campaignRow, makeCampaignDb } from '../../tests/support/in-memory-campaign-db';
+import {
+  campaignRow,
+  makeCampaignDb,
+  verificationRequestRow,
+} from '../../tests/support/in-memory-campaign-db';
 
 const NOW = new Date('2026-09-25T10:00:00Z');
 const verifier = { userId: 'verifier-1', assignments: ['VERIFIER' as const] };
@@ -87,6 +91,26 @@ describe('decideSubmission', () => {
       expect(`${notification.title} ${notification.message}`.toLowerCase()).not.toContain('moderator');
     },
   );
+
+  // Until ticket 02 replaces this command, a decision closes the open
+  // Verification Request, so the queue (which reads PENDING requests) empties.
+  it.each([
+    ['approve', 'APPROVED'],
+    ['reject', 'REJECTED'],
+  ] as const)('%s closes the PENDING Verification Request as %s with the Verifier and time', async (decision, outcome) => {
+    const decided = verificationRequestRow({ id: 'verification-old', outcome: 'REJECTED', decidedById: 'verifier-2' });
+    const db = makeCampaignDb({
+      campaigns: [campaignRow()],
+      verificationRequests: [decided, verificationRequestRow({ id: 'verification-open' })],
+    });
+
+    await decideSubmission(db.prisma as never, { campaignId: 'campaign-1', actor: verifier, decision, now: NOW });
+
+    expect(db.verificationRequests).toEqual([
+      decided,
+      expect.objectContaining({ id: 'verification-open', outcome, decidedById: 'verifier-1', decidedAt: NOW, reason: null }),
+    ]);
+  });
 
   describe.each(['approve', 'reject'] as const)('%s outside Submitted', (decision) => {
     it.each([

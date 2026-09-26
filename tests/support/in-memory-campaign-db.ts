@@ -86,6 +86,27 @@ export type PayoutRow = {
   status: string;
 };
 
+export type ChecklistItemRow = {
+  id: string;
+  label: string;
+  required: boolean;
+  position: number;
+  active: boolean;
+};
+
+export type VerificationRequestRow = {
+  id: string;
+  campaignId: string;
+  submittedById: string;
+  submittedAt: Date;
+  checklist: unknown;
+  outcome: 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN';
+  reason: string | null;
+  decidedById: string | null;
+  decidedAt: Date | null;
+  isFirst: boolean;
+};
+
 /** Every table the stand-in holds; what the interleave hooks receive. */
 export type CampaignDbData = Data;
 
@@ -97,6 +118,8 @@ type Data = {
   cancellationRequests: CancellationRequestRow[];
   payouts: PayoutRow[];
   campaignFlags: CampaignFlagRow[];
+  checklistItems: ChecklistItemRow[];
+  verificationRequests: VerificationRequestRow[];
 };
 
 type Where = Record<string, unknown>;
@@ -171,7 +194,53 @@ function clone(data: Data): Data {
     cancellationRequests: data.cancellationRequests.map((r) => ({ ...r })),
     payouts: data.payouts.map((p) => ({ ...p })),
     campaignFlags: data.campaignFlags.map((f) => ({ ...f })),
+    checklistItems: data.checklistItems.map((i) => ({ ...i })),
+    verificationRequests: data.verificationRequests.map((r) => ({ ...r })),
   };
+}
+
+export function checklistItemRow(overrides: Partial<ChecklistItemRow> = {}): ChecklistItemRow {
+  return {
+    id: 'item-1',
+    label: 'Rencana anggaran',
+    required: true,
+    position: 1,
+    active: true,
+    ...overrides,
+  };
+}
+
+export function verificationRequestRow(
+  overrides: Partial<VerificationRequestRow> = {},
+): VerificationRequestRow {
+  return {
+    id: 'verification-1',
+    campaignId: 'campaign-1',
+    submittedById: 'creator-1',
+    submittedAt: new Date('2026-09-24T08:00:00Z'),
+    checklist: [],
+    outcome: 'PENDING',
+    reason: null,
+    decidedById: null,
+    decidedAt: null,
+    isFirst: true,
+    ...overrides,
+  };
+}
+
+/** Sorts rows by a single-field Prisma `orderBy`, keeping insertion order for ties. */
+function ordered<T>(rows: T[], orderBy?: Record<string, 'asc' | 'desc'>): T[] {
+  if (!orderBy) return rows;
+  const [[field, direction]] = Object.entries(orderBy);
+  const sign = direction === 'desc' ? -1 : 1;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const x = comparable((a.row as Record<string, unknown>)[field]);
+      const y = comparable((b.row as Record<string, unknown>)[field]);
+      return (x < y ? -sign : x > y ? sign : 0) || a.index - b.index;
+    })
+    .map(({ row }) => row);
 }
 
 export function cancellationRequestRow(
@@ -227,6 +296,8 @@ export function makeCampaignDb(
     cancellationRequests?: CancellationRequestRow[];
     payouts?: PayoutRow[];
     campaignFlags?: CampaignFlagRow[];
+    checklistItems?: ChecklistItemRow[];
+    verificationRequests?: VerificationRequestRow[];
   } = {},
 ) {
   let committed: Data = {
@@ -237,6 +308,8 @@ export function makeCampaignDb(
     cancellationRequests: (seed.cancellationRequests ?? []).map((r) => ({ ...r })),
     payouts: (seed.payouts ?? []).map((p) => ({ ...p })),
     campaignFlags: (seed.campaignFlags ?? []).map((f) => ({ ...f })),
+    checklistItems: (seed.checklistItems ?? []).map((i) => ({ ...i })),
+    verificationRequests: (seed.verificationRequests ?? []).map((r) => ({ ...r })),
   };
   // Row locks taken with `SELECT ... FOR UPDATE`, in order, as
   // "<Table>:<id>". Observable because taking the lock IS the behaviour
@@ -415,6 +488,40 @@ export function makeCampaignDb(
           return { count: rows.length };
         },
       },
+      verificationChecklistItem: {
+        findMany: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'> } = {}) =>
+          ordered(getData().checklistItems.filter((i) => matches(i, where)), orderBy).map((i) => ({ ...i })),
+      },
+      verificationRequest: {
+        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'submittedById' | 'checklist' | 'isFirst'> & { submittedAt?: Date } }) => {
+          const row: VerificationRequestRow = {
+            id: `verification-${nextId++}`,
+            submittedAt: new Date(),
+            outcome: 'PENDING',
+            reason: null,
+            decidedById: null,
+            decidedAt: null,
+            ...data,
+          };
+          getData().verificationRequests.push(row);
+          return { ...row };
+        },
+        // `include: { campaign }` joins the request's Campaign row, as the
+        // Verifier queue reads it; any nested include is the caller's to fill.
+        findMany: async ({ where = {}, orderBy, include }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'>; include?: { campaign?: unknown } } = {}) =>
+          ordered(getData().verificationRequests.filter((r) => matches(r, where)), orderBy).map((r) => {
+            if (!include?.campaign) return { ...r };
+            const campaign = getData().campaigns.find((c) => c.id === r.campaignId);
+            return { ...r, campaign: campaign ? { ...campaign } : null };
+          }),
+        count: async ({ where = {} }: { where?: Where } = {}) =>
+          getData().verificationRequests.filter((r) => matches(r, where)).length,
+        updateMany: async ({ where, data }: { where: Where; data: Partial<VerificationRequestRow> }) => {
+          const rows = getData().verificationRequests.filter((r) => matches(r, where));
+          for (const row of rows) Object.assign(row, data);
+          return { count: rows.length };
+        },
+      },
       payout: {
         count: async ({ where }: { where: Where }) =>
           getData().payouts.filter((p) => matches(p, where)).length,
@@ -474,6 +581,9 @@ export function makeCampaignDb(
     },
     get campaignFlags() {
       return committed.campaignFlags;
+    },
+    get verificationRequests() {
+      return committed.verificationRequests;
     },
     campaignFlag(id = 'flag-1') {
       const row = committed.campaignFlags.find((f) => f.id === id);
