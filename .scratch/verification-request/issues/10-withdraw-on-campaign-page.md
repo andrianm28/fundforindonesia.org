@@ -4,8 +4,8 @@
 
 **Blocked by:** 03, 06
 
-**Status:** ready-for-agent
+**Status:** in review (PR #48)
 
-- [ ] The Fundraiser sees and can use the button on their Submitted Campaign's page; Verifiers, Admins and others do not see it
-- [ ] After a withdraw the view shows the new status (Draft or Rejected)
-- [ ] Full suite green, tsc adds no errors
+- [x] The Fundraiser sees and can use the button on their Submitted Campaign's page; Verifiers, Admins and others do not see it
+- [x] After a withdraw the view shows the new status (Draft or Rejected)
+- [x] Full suite green, tsc adds no errors
