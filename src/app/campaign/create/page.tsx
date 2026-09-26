@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaignStepIndicator';
 import { submitToVerifier } from '@/lib/verification-submission';
+import { deadlineRequired, KIND_LABEL, KINDS, type CampaignKind } from '@/lib/campaign-kind';
 
 const categories = [
   { value: 'bencana-alam', label: 'Bencana Alam' },
@@ -21,6 +22,7 @@ const categories = [
 ];
 
 interface FormData {
+  kind: CampaignKind | '';
   title: string;
   targetAmount: string;
   deadline: string;
@@ -31,6 +33,7 @@ interface FormData {
 }
 
 interface FormErrors {
+  kind?: string;
   title?: string;
   targetAmount?: string;
   deadline?: string;
@@ -52,6 +55,7 @@ export default function CampaignCreatePage() {
   const [submitError, setSubmitError] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   const [formData, setFormData] = useState<FormData>({
+    kind: '',
     title: '',
     targetAmount: '',
     deadline: '',
@@ -91,8 +95,15 @@ export default function CampaignCreatePage() {
       newErrors.targetAmount = 'Target donasi harus lebih dari 0';
     }
 
+    if (!formData.kind) {
+      newErrors.kind = 'Kind harus dipilih';
+    }
+
+    // Every Kind but wakaf needs a deadline (CONTEXT.md, Campaign).
     if (!formData.deadline) {
-      newErrors.deadline = 'Batas waktu harus dipilih';
+      if (!formData.kind || deadlineRequired(formData.kind)) {
+        newErrors.deadline = 'Batas waktu harus dipilih';
+      }
     } else {
       const deadlineDate = new Date(formData.deadline);
       if (deadlineDate <= new Date()) {
@@ -199,6 +210,7 @@ export default function CampaignCreatePage() {
       coverImage: coverImageUrl,
       targetAmount: amount,
       category: formData.category,
+      kind: formData.kind,
       deadline: formData.deadline
         ? new Date(formData.deadline).toISOString()
         : undefined,
@@ -274,6 +286,39 @@ export default function CampaignCreatePage() {
             <div className="space-y-5">
               <h2 className="text-lg font-semibold text-text mb-4">Informasi Dasar</h2>
 
+              <div className="w-full">
+                <label htmlFor="campaign-kind" className="block text-sm font-medium text-text mb-1.5">
+                  Kind <span className="text-danger ml-0.5">*</span>
+                </label>
+                <select
+                  id="campaign-kind"
+                  aria-label="Kind"
+                  value={formData.kind}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, kind: e.target.value as CampaignKind | '' }))
+                  }
+                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${
+                    errors.kind
+                      ? 'border-danger focus:ring-danger/20 focus:border-danger'
+                      : 'border-border hover:border-text-secondary/50'
+                  }`}
+                >
+                  <option value="">Pilih Kind</option>
+                  {KINDS.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {KIND_LABEL[kind]}
+                    </option>
+                  ))}
+                </select>
+                {errors.kind ? (
+                  <p className="mt-1 text-xs text-danger">{errors.kind}</p>
+                ) : (
+                  <p className="mt-1 text-xs text-text-secondary">
+                    Kind menentukan aturan dana Campaign dan tidak dapat diubah setelah diajukan.
+                  </p>
+                )}
+              </div>
+
               <Input
                 label="Judul Campaign"
                 placeholder="Contoh: Bantu Korban Banjir Jakarta"
@@ -301,7 +346,12 @@ export default function CampaignCreatePage() {
 
               <div className="w-full">
                 <label className="block text-sm font-medium text-text mb-1.5">
-                  Batas Waktu <span className="text-danger ml-0.5">*</span>
+                  Batas Waktu{' '}
+                  {formData.kind === 'WAKAF' ? (
+                    <span className="text-text-secondary font-normal">(opsional untuk Wakaf)</span>
+                  ) : (
+                    <span className="text-danger ml-0.5">*</span>
+                  )}
                 </label>
                 <input
                   type="date"
@@ -326,6 +376,7 @@ export default function CampaignCreatePage() {
                   Kategori <span className="text-danger ml-0.5">*</span>
                 </label>
                 <select
+                  aria-label="Kategori"
                   value={formData.category}
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, category: e.target.value }))
@@ -497,6 +548,12 @@ export default function CampaignCreatePage() {
 
                 <div className="divide-y divide-border">
                   <div className="py-3">
+                    <p className="text-xs text-text-secondary mb-0.5">Kind</p>
+                    <p className="text-sm font-medium text-text">
+                      {formData.kind ? KIND_LABEL[formData.kind] : '-'}
+                    </p>
+                  </div>
+                  <div className="py-3">
                     <p className="text-xs text-text-secondary mb-0.5">Judul</p>
                     <p className="text-sm font-medium text-text">{formData.title}</p>
                   </div>
@@ -515,7 +572,9 @@ export default function CampaignCreatePage() {
                             month: 'long',
                             year: 'numeric',
                           })
-                        : '-'}
+                        : formData.kind === 'WAKAF'
+                          ? 'Tanpa batas waktu'
+                          : '-'}
                     </p>
                   </div>
                   <div className="py-3">

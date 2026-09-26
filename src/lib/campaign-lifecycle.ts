@@ -40,9 +40,11 @@ import {
   MissingCampaignUpdateError,
   PayoutAlreadyCompletedError,
   CancellationAlreadyPendingError,
+  DeadlineRequiredError,
   SameAdminLiftError,
   STATUS_LABEL,
 } from "./campaign-lifecycle-errors";
+import { deadlineRequired } from "./campaign-kind";
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
 import { SUBMITTABLE_STATUSES } from "./verification-submission";
@@ -444,7 +446,8 @@ export type SubmissionResult = LifecycleResult & { verificationRequest: Verifica
  * Verification Request opens, holding a snapshot of the checklist items
  * active right now, none ticked, so a later edit of the checklist never
  * changes what this request is judged against. A Draft's submission is the
- * Campaign's first request; a Rejected one's is a resubmission. Only its
+ * Campaign's first request; a Rejected one's is a resubmission. A Campaign
+ * whose Kind needs a deadline and has none is refused. Only its
  * Fundraiser may submit, and always in that Capacity, even holding ADMIN or
  * VERIFIER; nobody is notified, since the Fundraiser is the one acting.
  */
@@ -460,6 +463,9 @@ export async function submitCampaign(
     reasonPolicy: "none",
     allowedFrom: SUBMITTABLE_STATUSES,
     step: async ({ tx, campaign, current, actor, now, transition }) => {
+      if (campaign.deadline === null && deadlineRequired(campaign.kind)) {
+        throw new DeadlineRequiredError(campaign.kind);
+      }
       const items = await tx.verificationChecklistItem.findMany({
         where: { active: true },
         orderBy: { position: "asc" },

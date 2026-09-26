@@ -1,6 +1,7 @@
 import type { CampaignStatus } from "@/generated/prisma/client";
 import { DomainError, type LifecycleErrorCode } from "./domain-errors";
 import { STATUS_LABEL } from "./campaign-status-label";
+import { KIND_LABEL, type CampaignKind } from "./campaign-kind";
 
 /**
  * The lifecycle module's typed refusals. Kept apart from the command module
@@ -108,5 +109,18 @@ export class CancellationAlreadyPendingError extends CampaignLifecycleError {
   constructor() {
     super("Masih ada pengajuan Cancellation yang menunggu keputusan Admin.");
     this.name = "CancellationAlreadyPendingError";
+  }
+}
+
+/**
+ * A Campaign whose Kind needs a deadline (every Kind but wakaf; CONTEXT.md,
+ * Campaign) has none. Raised on submission and on a Kind change, so no such
+ * Campaign reaches a Verifier.
+ */
+export class DeadlineRequiredError extends CampaignLifecycleError {
+  readonly code = "DEADLINE_REQUIRED";
+  constructor(readonly kind: CampaignKind) {
+    super(`Tenggat wajib diisi untuk Campaign ber-Kind ${KIND_LABEL[kind]}.`);
+    this.name = "DeadlineRequiredError";
   }
 }

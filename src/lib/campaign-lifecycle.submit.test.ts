@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  DeadlineRequiredError,
   domainErrorToHttp,
   InvalidTransitionError,
   NotAuthorizedError,
@@ -19,6 +20,7 @@ import {
  * in-memory Prisma stand-in: assertions are about the rows left behind.
  */
 const NOW = new Date('2026-09-26T10:00:00Z');
+const DEADLINE = new Date('2026-12-31T00:00:00Z');
 const fundraiser = { userId: 'creator-1', assignments: [] };
 
 const CHECKLIST = [
@@ -30,7 +32,7 @@ const CHECKLIST = [
 describe('submitCampaign', () => {
   it('moves a Draft to Submitted, opens one PENDING first request with the checklist snapshot, and logs it', async () => {
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ lifecycleStatus: 'DRAFT' })],
+      campaigns: [campaignRow({ deadline: DEADLINE, lifecycleStatus: 'DRAFT' })],
       checklistItems: CHECKLIST,
     });
 
@@ -82,7 +84,7 @@ describe('submitCampaign', () => {
       decidedAt: new Date('2026-09-25T08:00:00Z'),
     });
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ lifecycleStatus: 'REJECTED' })],
+      campaigns: [campaignRow({ deadline: DEADLINE, lifecycleStatus: 'REJECTED' })],
       checklistItems: CHECKLIST,
       verificationRequests: [rejected],
     });
@@ -100,7 +102,7 @@ describe('submitCampaign', () => {
 
   it('snapshots only the active checklist items, in position order', async () => {
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ lifecycleStatus: 'DRAFT' })],
+      campaigns: [campaignRow({ deadline: DEADLINE, lifecycleStatus: 'DRAFT' })],
       checklistItems: [
         checklistItemRow({ id: 'second', label: 'Kedua', position: 2 }),
         checklistItemRow({ id: 'retired', label: 'Tidak dipakai lagi', position: 0, active: false }),
@@ -120,7 +122,7 @@ describe('submitCampaign', () => {
     'is refused from %s with a 409, writing nothing',
     async (lifecycleStatus) => {
       const db = makeCampaignDb({
-        campaigns: [campaignRow({ lifecycleStatus })],
+        campaigns: [campaignRow({ deadline: DEADLINE, lifecycleStatus })],
         checklistItems: CHECKLIST,
       });
 
@@ -142,7 +144,7 @@ describe('submitCampaign', () => {
     ['a Verifier who is not its Fundraiser', { userId: 'verifier-1', assignments: ['VERIFIER' as const] }],
   ])('refuses %s with 403 NOT_AUTHORIZED, writing nothing', async (_who, actor) => {
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ lifecycleStatus: 'DRAFT' })],
+      campaigns: [campaignRow({ deadline: DEADLINE, lifecycleStatus: 'DRAFT' })],
       checklistItems: CHECKLIST,
     });
 
@@ -158,7 +160,7 @@ describe('submitCampaign', () => {
 
   it('lets its Fundraiser submit while also holding ADMIN and VERIFIER, recorded as Fundraiser', async () => {
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ lifecycleStatus: 'DRAFT' })],
+      campaigns: [campaignRow({ deadline: DEADLINE, lifecycleStatus: 'DRAFT' })],
       checklistItems: CHECKLIST,
     });
 
@@ -173,7 +175,7 @@ describe('submitCampaign', () => {
 
   it('refuses a second submission committed before ours took the lock, so only one request is PENDING', async () => {
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ lifecycleStatus: 'DRAFT' })],
+      campaigns: [campaignRow({ deadline: DEADLINE, lifecycleStatus: 'DRAFT' })],
       checklistItems: CHECKLIST,
     });
     db.beforeNextRowLock((data) => {
@@ -187,5 +189,42 @@ describe('submitCampaign', () => {
 
     expect(error).toBeInstanceOf(InvalidTransitionError);
     expect(db.verificationRequests.map((r) => r.id)).toEqual(['verification-first']);
+  });
+
+  describe('the deadline its Kind requires (CONTEXT.md, Campaign)', () => {
+    it.each([
+      ['DONATION', 'Donasi'],
+      ['ZAKAT', 'Zakat'],
+      ['HIBAH', 'Hibah'],
+    ] as const)('refuses a %s Campaign without a deadline with a 422, writing nothing', async (kind, label) => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', kind, deadline: null })],
+        checklistItems: CHECKLIST,
+      });
+
+      const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW }).catch(
+        (e: unknown) => e,
+      );
+
+      expect(error).toBeInstanceOf(DeadlineRequiredError);
+      expect(domainErrorToHttp(error)).toEqual({
+        status: 422,
+        body: { code: 'DEADLINE_REQUIRED', error: `Tenggat wajib diisi untuk Campaign ber-Kind ${label}.` },
+      });
+      expect(db.campaign().lifecycleStatus).toBe('DRAFT');
+      expect(db.verificationRequests).toEqual([]);
+      expect(db.statusChanges).toEqual([]);
+    });
+
+    it('submits a wakaf Campaign that has no deadline', async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', kind: 'WAKAF', deadline: null })],
+        checklistItems: CHECKLIST,
+      });
+
+      const result = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
+
+      expect(result.campaign.lifecycleStatus).toBe('SUBMITTED');
+    });
   });
 });

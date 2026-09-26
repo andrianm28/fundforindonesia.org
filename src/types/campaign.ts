@@ -1,6 +1,7 @@
 // Campaign entity types matching Prisma models
 
 import type { CampaignStatus } from "@/generated/prisma/client";
+import type { CampaignKind } from "@/lib/campaign-kind";
 
 /**
  * The Campaign Status as payloads and pages carry it, in `lifecycleStatus`
@@ -21,6 +22,8 @@ export interface Campaign {
   targetAmount: number;
   collectedAmount: number;
   category: string;
+  /** Which money rules it follows (CONTEXT.md, Kind). Optional so fixtures need not name it; every payload carries it. */
+  kind?: CampaignKind;
   /** Effective. A reader that needs it treats absence as not Active. */
   lifecycleStatus?: CampaignLifecycleStatus;
   isUrgent: boolean;

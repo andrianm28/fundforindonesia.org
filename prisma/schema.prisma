@@ -155,6 +155,16 @@ enum CampaignStatus {
   EXPIRED
 }
 
+/// Which money rules a Campaign follows (CONTEXT.md, Kind; ADR 0002, 0013).
+/// A deadline is mandatory on every Kind except WAKAF. Fixed once the
+/// Campaign leaves Draft (src/lib/subject-guard.ts, requireKindEditable).
+enum Kind {
+  DONATION
+  ZAKAT
+  WAKAF
+  HIBAH
+}
+
 model Campaign {
   id              String    @id @default(cuid())
   slug            String    @unique
@@ -165,6 +175,9 @@ model Campaign {
   targetAmount    Int
   collectedAmount Int       @default(0)
   category        String
+  /// Existing Campaigns were backfilled to DONATION by the migration that
+  /// added this column; POST /api/campaigns always writes it explicitly.
+  kind            Kind      @default(DONATION)
   // Legacy status string: no application code or seed reads or writes it
   // (legacy-status-contract 02). Nullable and ignored until ticket 03 drops
   // it with its index.
@@ -218,6 +231,7 @@ model Campaign {
 
   @@index([slug])
   @@index([category])
+  @@index([kind])
   @@index([status])
   @@index([lifecycleStatus])
   @@index([creatorId])

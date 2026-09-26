@@ -5,7 +5,8 @@ import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
 import { CampaignStatus, CampaignStatusChangeAction } from '@/generated/prisma/client';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
-import { lockAndLoad, requireContentEditable } from '@/lib/subject-guard';
+import { lockAndLoad, requireContentEditable, requireKindEditable } from '@/lib/subject-guard';
+import { KINDS, type CampaignKind } from '@/lib/campaign-kind';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibility-route';
 
@@ -16,14 +17,16 @@ import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibili
 export const dynamic = 'force-dynamic';
 
 // The only columns a direct edit may write; zod strips every other key.
-// Status moves through src/lib/campaign-lifecycle.ts; target, deadline, and
-// category through a Verification Request or an Admin; money, ownership, and
-// isDemo are never client-writable.
+// Kind only while Draft (requireKindEditable). Status moves through
+// src/lib/campaign-lifecycle.ts; target, deadline, and category through a
+// Verification Request or an Admin; money, ownership, and isDemo are never
+// client-writable.
 const editCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
   description: z.string().min(1, "Deskripsi harus diisi"),
   story: z.string().min(1, "Cerita campaign harus diisi"),
   coverImage: z.string().url("URL gambar tidak valid"),
+  kind: z.enum(KINDS as [CampaignKind, ...CampaignKind[]], { message: "Kind tidak dikenal" }),
 }).partial();
 
 /**
@@ -107,6 +110,7 @@ export async function GET(
         targetAmount: campaign.targetAmount,
         collectedAmount: campaign.collectedAmount,
         category: campaign.category,
+        kind: campaign.kind,
         lifecycleStatus,
         isUrgent: campaign.isUrgent,
         isDemo: campaign.isDemo,
@@ -193,6 +197,7 @@ export async function PATCH(
       const state = await lockAndLoad(tx, { type: 'campaign', campaignId: campaign.id }, new Date());
       if (!state) return null;
       requireContentEditable(state);
+      if (result.data.kind !== undefined) requireKindEditable(state, result.data.kind);
 
       return tx.campaign.update({
         where: { id: campaign.id },

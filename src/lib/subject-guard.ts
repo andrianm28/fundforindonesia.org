@@ -3,9 +3,15 @@ import {
   CampaignStatus,
   StatusChangeCapacity,
   VolunteerTripStatus,
+  type Kind,
   type Prisma,
 } from "@/generated/prisma/client";
-import { CampaignLifecycleError, STATUS_LABEL } from "./campaign-lifecycle-errors";
+import {
+  CampaignLifecycleError,
+  DeadlineRequiredError,
+  STATUS_LABEL,
+} from "./campaign-lifecycle-errors";
+import { deadlineRequired } from "./campaign-kind";
 import { judgeCapacity } from "./capacity";
 import type { LedgerSubject } from "./money/ledger";
 
@@ -44,6 +50,9 @@ export type SubjectState =
       ownerId: string;
       isDemo: boolean;
       effectiveStatus: CampaignStatus;
+      /** The Campaign's Kind (CONTEXT.md, Kind), named apart from the `kind` discriminant. */
+      campaignKind: Kind;
+      deadline: Date | null;
     }
   | {
       kind: "trip";
@@ -140,7 +149,7 @@ export async function lockAndLoad(
     await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${id} FOR UPDATE`;
     const campaign = await tx.campaign.findUnique({
       where: { id },
-      select: { creatorId: true, isDemo: true, lifecycleStatus: true, deadline: true },
+      select: { creatorId: true, isDemo: true, lifecycleStatus: true, deadline: true, kind: true },
     });
     if (!campaign) return null;
     return {
@@ -149,6 +158,8 @@ export async function lockAndLoad(
       ownerId: campaign.creatorId,
       isDemo: campaign.isDemo,
       effectiveStatus: effectiveStatus(campaign, now),
+      campaignKind: campaign.kind,
+      deadline: campaign.deadline,
     };
   }
   const id = subject.tripId;
@@ -229,6 +240,34 @@ export function requireContentEditable(state: SubjectState): void {
   if (state.kind !== "campaign") return;
   if (!CONTENT_EDITABLE_STATUSES.includes(state.effectiveStatus)) {
     throw new CampaignNotEditableError(state.effectiveStatus);
+  }
+}
+
+/** A change of Kind refused because the Campaign has left Draft. */
+export class KindImmutableError extends CampaignLifecycleError {
+  readonly code = "KIND_IMMUTABLE";
+  constructor(readonly currentStatus: CampaignStatus) {
+    super("Kind Campaign tidak dapat diubah setelah Campaign meninggalkan Draft.");
+    this.name = "KindImmutableError";
+  }
+}
+
+/**
+ * Judges an edit that names a Kind (prd-compliance 09). Naming the Kind the
+ * Campaign already has is no change and always passes. A real change passes
+ * only while the Campaign is effectively Draft: once submitted, the Verifier
+ * and then Donors rely on it, and a Rejected Campaign has been judged as
+ * that Kind. The new Kind must also be satisfied by the stored deadline, so
+ * a wakaf Draft with none cannot become a Kind that needs one. Judge it on
+ * `lockAndLoad`'s result, like `requireContentEditable`.
+ */
+export function requireKindEditable(state: SubjectState, requested: Kind): void {
+  if (state.kind !== "campaign" || requested === state.campaignKind) return;
+  if (state.effectiveStatus !== CampaignStatus.DRAFT) {
+    throw new KindImmutableError(state.effectiveStatus);
+  }
+  if (state.deadline === null && deadlineRequired(requested)) {
+    throw new DeadlineRequiredError(requested);
   }
 }
 

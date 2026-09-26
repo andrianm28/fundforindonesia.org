@@ -32,7 +32,9 @@ export type LifecycleErrorCode =
   | "CAMPAIGN_NOT_EDITABLE"
   | "VERIFICATION_REQUEST_NOT_FOUND"
   | "VERIFICATION_REQUEST_NOT_PENDING"
-  | "REQUIRED_CHECKLIST_ITEMS_UNTICKED";
+  | "REQUIRED_CHECKLIST_ITEMS_UNTICKED"
+  | "DEADLINE_REQUIRED"
+  | "KIND_IMMUTABLE";
 
 export type MoneyErrorCode =
   | "DEMO_CAMPAIGN"
@@ -109,6 +111,9 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // Like MISSING_CAMPAIGN_UPDATE: an unmet precondition the actor can fix
   // (tick the items), not a status conflict another actor caused.
   REQUIRED_CHECKLIST_ITEMS_UNTICKED: 422,
+  // The Fundraiser can fix it by setting a deadline, as above.
+  DEADLINE_REQUIRED: 422,
+  KIND_IMMUTABLE: 409,
   OWN_TRIP_CONFLICT: 403,
   DEMO_CAMPAIGN: 403,
   BANK_ACCOUNT_NOT_ELIGIBLE: 403,

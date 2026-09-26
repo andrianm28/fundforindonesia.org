@@ -47,7 +47,7 @@ describe('CampaignCreatePage access', () => {
  * what was asked of it.
  */
 describe('CampaignCreatePage review step', () => {
-  const calls: Array<{ url: string; method: string }> = [];
+  const calls: Array<{ url: string; method: string; body?: unknown }> = [];
   let submission: { status: number; body: unknown };
 
   beforeEach(() => {
@@ -58,7 +58,11 @@ describe('CampaignCreatePage review step', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
-        calls.push({ url, method: init?.method ?? 'GET' });
+        calls.push({
+          url,
+          method: init?.method ?? 'GET',
+          body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+        });
         if (url === '/api/upload') return Response.json({ url: 'https://cdn.test/cover.jpg' });
         if (url === '/api/campaigns') return Response.json({ slug: 'bantu-banjir-abc123' }, { status: 201 });
         return Response.json(submission.body, { status: submission.status });
@@ -73,14 +77,15 @@ describe('CampaignCreatePage review step', () => {
     mockPush.mockReset();
   });
 
-  function fillInToReview() {
+  function fillInToReview({ kind = 'DONATION', deadline = '2099-12-31' } = {}) {
     const { container } = render(<CampaignCreatePage />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), { target: { value: kind } });
     fireEvent.change(screen.getByPlaceholderText('Contoh: Bantu Korban Banjir Jakarta'), {
       target: { value: 'Bantu Banjir' },
     });
     fireEvent.change(screen.getByPlaceholderText('1.000.000'), { target: { value: '5000000' } });
-    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2099-12-31' } });
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'bencana-alam' } });
+    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: deadline } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Kategori' }), { target: { value: 'bencana-alam' } });
     fireEvent.click(screen.getByRole('button', { name: 'Lanjutkan' }));
 
     const cover = new File(['x'], 'cover.png', { type: 'image/png' });
@@ -134,5 +139,41 @@ describe('CampaignCreatePage review step', () => {
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/akun/kampanye-saya'));
     expect(calls.filter((c) => c.url === '/api/campaigns')).toHaveLength(1);
     expect(calls.filter((c) => c.url.endsWith('/verification-requests'))).toHaveLength(2);
+  });
+
+  it('sends the Kind the Fundraiser chose', async () => {
+    fillInToReview({ kind: 'ZAKAT' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalled());
+    expect(calls.find((c) => c.url === '/api/campaigns')?.body).toMatchObject({ kind: 'ZAKAT' });
+  });
+
+  it('lets a wakaf Campaign go without a deadline', async () => {
+    fillInToReview({ kind: 'WAKAF', deadline: '' });
+
+    expect(screen.getByText('Tanpa batas waktu')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalled());
+    const body = calls.find((c) => c.url === '/api/campaigns')?.body as Record<string, unknown>;
+    expect(body.kind).toBe('WAKAF');
+    expect(body).not.toHaveProperty('deadline');
+  });
+
+  it('holds any other Kind on the first step until a deadline is chosen', () => {
+    render(<CampaignCreatePage />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), { target: { value: 'HIBAH' } });
+    fireEvent.change(screen.getByPlaceholderText('Contoh: Bantu Korban Banjir Jakarta'), {
+      target: { value: 'Bantu Banjir' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('1.000.000'), { target: { value: '5000000' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Kategori' }), { target: { value: 'bencana-alam' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lanjutkan' }));
+
+    expect(screen.getByText('Batas waktu harus dipilih')).toBeDefined();
+    expect(screen.getByRole('combobox', { name: 'Kind' })).toBeDefined();
   });
 });

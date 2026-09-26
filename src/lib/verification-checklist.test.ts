@@ -209,8 +209,8 @@ describe('existing Verification Requests keep their snapshot', () => {
   it('survives rewording, reordering, making optional, deactivating and adding, whatever the outcome of the request; only the next request sees the edits', async () => {
     const db = makeCampaignDb({
       campaigns: [
-        campaignRow({ id: 'campaign-1', slug: 'satu', lifecycleStatus: 'DRAFT' }),
-        campaignRow({ id: 'campaign-2', slug: 'dua', lifecycleStatus: 'DRAFT' }),
+        campaignRow({ id: 'campaign-1', slug: 'satu', lifecycleStatus: 'DRAFT', deadline: new Date('2026-12-31T00:00:00Z') }),
+        campaignRow({ id: 'campaign-2', slug: 'dua', lifecycleStatus: 'DRAFT', deadline: new Date('2026-12-31T00:00:00Z') }),
       ],
       checklistItems: SEEDED,
     });

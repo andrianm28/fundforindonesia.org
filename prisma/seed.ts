@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { randomUUID } from 'crypto';
-import { PrismaClient, Assignment, CampaignStatus, PaymentStatus, PayoutStatus, type User } from '@/generated/prisma/client';
+import { PrismaClient, Assignment, CampaignStatus, Kind, PaymentStatus, PayoutStatus, type User } from '@/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import { REGISTRATION_HASH_COST } from '@/lib/password-hash-cost';
@@ -305,6 +305,8 @@ async function main() {
         targetAmount: campaignData.target,
         collectedAmount: campaignData.collected,
         category: campaignData.category,
+        // The zakat-themed samples are zakat Campaigns; the rest are donations.
+        kind: campaignData.category === 'zakat' ? Kind.ZAKAT : Kind.DONATION,
         lifecycleStatus: campaignData.lifecycleStatus,
         isUrgent: campaignData.isUrgent,
         deadline: campaignData.deadlineDays > 0 ? daysFromNow(campaignData.deadlineDays) : daysAgo(Math.abs(campaignData.deadlineDays)),

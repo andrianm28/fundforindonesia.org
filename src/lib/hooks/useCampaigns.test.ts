@@ -102,6 +102,15 @@ describe('useCampaigns', () => {
     expect(calledUrl).toContain('limit=5');
   });
 
+  it('asks for one Kind when given one', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => mockCampaignsResponse });
+
+    renderHook(() => useCampaigns({ kind: 'WAKAF' }), { wrapper: createWrapper() });
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/campaigns?kind=WAKAF');
+  });
+
   it('dispatches toast event on error', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
