@@ -22,6 +22,8 @@ import type { LedgerSubject } from "./money/ledger";
  * settlement webhook is the one path that touches Payment before Campaign,
  * and it only ever writes a Payment while it is still PENDING, which no
  * caller of this guard locks; see releaseMaturedEscrow (./money/escrow.ts).
+ * Volunteer Trip operations place a Batch and its Registrations between the
+ * Trip and the Payment; that full order lives in ./volunteer/trip.ts.
  *
  * It also owns which Campaigns public listings show
  * (`listableCampaignWhere`, `sitemapCampaignWhere`), next to

@@ -1,4 +1,4 @@
-import type { VolunteerTripStatus } from '@/generated/prisma/client';
+import type { VolunteerBatchStatus, VolunteerTripStatus } from '@/generated/prisma/client';
 import { DomainError, type TripErrorCode } from '@/lib/domain-errors';
 
 /**
@@ -47,5 +47,82 @@ export class TripNotSubmittedError extends TripError {
       'Volunteer Trip ini tidak sedang menunggu keputusan Verifier. Muat ulang halaman lalu periksa kembali.',
     );
     this.name = 'TripNotSubmittedError';
+  }
+}
+
+/**
+ * A Batch is added only to a Trip that can still run one: any status but
+ * Cancelled or Completed. 400 through `domainErrorToHttp`.
+ */
+export class TripNotAcceptingBatchesError extends TripError {
+  readonly code = 'TRIP_NOT_ACCEPTING_BATCHES';
+  constructor(readonly currentStatus: VolunteerTripStatus) {
+    super('Tidak bisa menambah batch pada trip dengan status ini');
+    this.name = 'TripNotAcceptingBatchesError';
+  }
+}
+
+/** The fields of a Volunteer Batch a refusal can name. */
+export type BatchField = 'endDate' | 'registrationDeadline' | 'minQuota';
+
+/**
+ * A Batch's dates or quotas contradict each other, as sent or combined with
+ * what is stored: endDate before startDate, registrationDeadline after
+ * startDate, or minQuota above maxQuota. Names the field, so a form can put
+ * the message beside it. 400 through `domainErrorToHttp`.
+ */
+export class BatchFieldsInvalidError extends TripError {
+  readonly code = 'BATCH_FIELDS_INVALID';
+  constructor(
+    readonly field: BatchField,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'BatchFieldsInvalidError';
+  }
+}
+
+/** No Volunteer Batch has this id on this Trip. 404 through `domainErrorToHttp`. */
+export class BatchNotFoundError extends TripError {
+  readonly code = 'BATCH_NOT_FOUND';
+  constructor(readonly batchId: string) {
+    super('Volunteer batch tidak ditemukan');
+    this.name = 'BatchNotFoundError';
+  }
+}
+
+/**
+ * A Batch is edited, cancelled or completed only while OPEN. Raised when
+ * the Batch, read under its row lock, is in any other status, including one
+ * a concurrent cancel or complete committed first. 409 through
+ * `domainErrorToHttp`.
+ */
+export class BatchNotOpenError extends TripError {
+  readonly code = 'BATCH_NOT_OPEN';
+  constructor(readonly currentStatus: VolunteerBatchStatus) {
+    super('Batch sudah tidak berstatus OPEN. Muat ulang halaman lalu periksa kembali.');
+    this.name = 'BatchNotOpenError';
+  }
+}
+
+/**
+ * A Fundraiser cancels only a Batch that has not reached its minimum quota
+ * of CONFIRMED Registrations (CONTEXT.md, Volunteer Batch). 400 through
+ * `domainErrorToHttp`.
+ */
+export class BatchMinQuotaMetError extends TripError {
+  readonly code = 'BATCH_MIN_QUOTA_MET';
+  constructor() {
+    super('Batch sudah mencapai kuota minimum, tidak bisa dibatalkan');
+    this.name = 'BatchMinQuotaMetError';
+  }
+}
+
+/** A Batch is completed only once its endDate has passed. 400 through `domainErrorToHttp`. */
+export class BatchNotEndedError extends TripError {
+  readonly code = 'BATCH_NOT_ENDED';
+  constructor() {
+    super('Batch belum bisa diselesaikan sebelum endDate');
+    this.name = 'BatchNotEndedError';
   }
 }
