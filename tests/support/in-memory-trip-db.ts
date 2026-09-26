@@ -348,7 +348,8 @@ export function makeTripDb(seed: Seed = {}) {
       },
       $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const sql = strings.join('?').replace(/\s+/g, ' ').trim();
-        const table = /FROM "(\w+)" WHERE id = \? FOR UPDATE$/.exec(sql)?.[1];
+        const scopedBatch = /^SELECT id FROM "VolunteerBatch" WHERE id = \? AND "tripId" = \? FOR UPDATE$/.test(sql);
+        const table = scopedBatch ? 'VolunteerBatch' : /FROM "(\w+)" WHERE id = \? FOR UPDATE$/.exec(sql)?.[1];
         const liveRegistrations = LIVE_REGISTRATIONS_LOCK.test(sql);
         if (!(table && LOCKABLE[table]) && !liveRegistrations) {
           throw new Error(`in-memory trip db does not understand: ${sql}`);
@@ -369,8 +370,9 @@ export function makeTripDb(seed: Seed = {}) {
           for (const r of locked) rowLocks.push(`Registration:${r.id}`);
           return locked.map((r) => ({ id: r.id, status: r.status }));
         }
-        const rows: Array<{ id: string }> = data[LOCKABLE[table!]];
-        if (!rows.some((row) => row.id === values[0])) return [];
+        const rows: Array<{ id: string; tripId?: string }> = data[LOCKABLE[table!]];
+        const found = rows.some((row) => row.id === values[0] && (!scopedBatch || row.tripId === values[1]));
+        if (!found) return [];
         rowLocks.push(`${table}:${String(values[0])}`);
         return [{ id: values[0] }];
       },

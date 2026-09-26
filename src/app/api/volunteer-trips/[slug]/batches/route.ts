@@ -55,7 +55,8 @@ export async function POST(
       tripId: trip.id,
       actor: { userId: session.user.id, assignments: session.user.assignments ?? [] },
       fields: {
-        ...result.data,
+        maxQuota: result.data.maxQuota,
+        minQuota: result.data.minQuota,
         startDate: new Date(result.data.startDate),
         endDate: new Date(result.data.endDate),
         registrationDeadline: new Date(result.data.registrationDeadline),

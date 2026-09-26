@@ -262,8 +262,9 @@ const BATCH_ADDABLE_STATUSES: readonly VolunteerTripStatus[] = [
  * Batch operations are the Trip's Fundraiser's, or an Admin's: the owner
  * acts as FUNDRAISER even holding ADMIN, anyone else only as ADMIN.
  */
-function judgeBatchAuthority(trip: LockedTrip, actor: TripActor): StatusChangeCapacity {
-  return judgeCapacity(trip, actor, 'FUNDRAISER_OR_ADMIN', fundraiserOnlyRefusal('trip'));
+function judgeBatchAuthority(trip: LockedTrip, actor: TripActor): void {
+  // The Capacity is not kept: Batch changes are not logged (see the header).
+  judgeCapacity(trip, actor, 'FUNDRAISER_OR_ADMIN', fundraiserOnlyRefusal('trip'));
 }
 
 /** A Batch's dates and quotas must agree with each other. */
@@ -281,22 +282,22 @@ function requireConsistentBatch(fields: BatchFields): void {
 
 /**
  * The Trip's Fundraiser, or an Admin, adds an OPEN Batch to it. Refusals:
- * BatchFieldsInvalidError (400), before anything is locked;
  * TripNotFoundError (404); NotAuthorizedError (403);
- * TripNotAcceptingBatchesError (400) for a Cancelled or Completed Trip.
+ * TripNotAcceptingBatchesError (400) for a Cancelled or Completed Trip;
+ * BatchFieldsInvalidError (400).
  */
 export async function createBatch(
   prisma: PrismaClient,
   params: { tripId: string; actor: TripActor; fields: BatchFields; now?: Date },
 ): Promise<BatchResult> {
   const { tripId, actor, fields, now = new Date() } = params;
-  requireConsistentBatch(fields);
   return prisma.$transaction(async (tx: Tx) => {
     const trip = await lockTrip(tx, tripId, now);
     judgeBatchAuthority(trip, actor);
     if (!BATCH_ADDABLE_STATUSES.includes(trip.effectiveStatus)) {
       throw new TripNotAcceptingBatchesError(trip.effectiveStatus);
     }
+    requireConsistentBatch(fields);
     const batch = await tx.volunteerBatch.create({
       data: { tripId: trip.id, ...fields, status: VolunteerBatchStatus.OPEN },
     });
@@ -312,9 +313,13 @@ type BatchOperation = { tripId: string; batchId: string; actor: TripActor; now?:
  * OPEN: no Batch operation acts on one that is closed, cancelled or done.
  */
 async function lockOpenBatch(tx: Tx, trip: LockedTrip, batchId: string): Promise<VolunteerBatch> {
-  await tx.$queryRaw`SELECT id FROM "VolunteerBatch" WHERE id = ${batchId} FOR UPDATE`;
-  const batch = await tx.volunteerBatch.findUnique({ where: { id: batchId } });
-  if (!batch || batch.tripId !== trip.id) throw new BatchNotFoundError(batchId);
+  // Scoped to the Trip in the lock itself, so an id from another Trip locks
+  // nothing: no Batch is ever locked without its own Trip's lock held.
+  const locked = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "VolunteerBatch" WHERE id = ${batchId} AND "tripId" = ${trip.id} FOR UPDATE
+  `;
+  if (locked.length === 0) throw new BatchNotFoundError(batchId);
+  const batch = await tx.volunteerBatch.findUniqueOrThrow({ where: { id: batchId } });
   if (batch.status !== VolunteerBatchStatus.OPEN) throw new BatchNotOpenError(batch.status);
   return batch;
 }

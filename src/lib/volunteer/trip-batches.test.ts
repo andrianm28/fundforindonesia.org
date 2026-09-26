@@ -97,7 +97,8 @@ describe('createBatch', () => {
     const error = await createBatch(db.prisma as never, {
       tripId: 'trip-1',
       actor: fundraiser,
-      fields: FIELDS,
+      // Inconsistent too: the Trip's status is judged first, as before.
+      fields: { ...FIELDS, minQuota: 25 },
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -183,6 +184,8 @@ describe('completeBatch', () => {
 
     expect(error).toBeInstanceOf(BatchNotFoundError);
     expect(domainErrorToHttp(error)).toMatchObject({ status: 404, body: { code: 'BATCH_NOT_FOUND' } });
+    // Another Trip's Batch is never locked without that Trip's lock.
+    expect(db.rowLocks).toEqual(['VolunteerTrip:trip-1']);
   });
 
   it.each(['CLOSED', 'CANCELLED', 'COMPLETED'] as const)('refuses a %s Batch with a 409', async (status) => {
@@ -319,11 +322,6 @@ describe('editBatch', () => {
   });
 });
 
-/** Each row's first lock, in order: re-entering a lock already held waits on nothing. */
-function firstAcquisitions(rowLocks: readonly string[]): string[] {
-  return rowLocks.filter((lock, i) => rowLocks.indexOf(lock) === i);
-}
-
 describe('cancelBatch', () => {
   const REASON = 'Batch dibatalkan karena tidak mencapai kuota minimum';
 
@@ -383,13 +381,18 @@ describe('cancelBatch', () => {
 
     await cancelBatch(db.prisma as never, { tripId: 'trip-1', batchId: 'batch-1', actor: fundraiser, now: NOW });
 
-    expect(firstAcquisitions(db.rowLocks)).toEqual([
+    // Every lock, as taken. createRefund re-enters the Trip lock this
+    // transaction already holds (waiting on nothing) before each Payment;
+    // no Batch or Registration is ever locked after a Payment.
+    expect(db.rowLocks).toEqual([
       'VolunteerTrip:trip-1',
       'VolunteerBatch:batch-1',
       'Registration:reg-a',
       'Registration:reg-b',
       'Registration:reg-hold',
+      'VolunteerTrip:trip-1',
       'Payment:payment-a',
+      'VolunteerTrip:trip-1',
       'Payment:payment-b',
     ]);
   });
