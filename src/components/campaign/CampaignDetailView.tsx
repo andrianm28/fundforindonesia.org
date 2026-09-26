@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -60,13 +60,13 @@ interface CampaignDetailViewProps {
  */
 export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   const router = useRouter();
-  // Its own state, not just the prop: a Fundraiser who withdraws their
-  // pending submission here (verification-request 10) must see the
-  // Campaign's new status (Draft or Rejected) without a page reload.
+  // Its own state, seeded from the prop, not just the prop itself: a
+  // Fundraiser who withdraws their pending submission here
+  // (verification-request 10) must see the Campaign's new status (Draft or
+  // Rejected) without a page reload. `campaign` never changes identity
+  // once this view is mounted (its caller renders it once per lookup), so
+  // this is initial state, not state to keep synced with the prop.
   const [lifecycleStatus, setLifecycleStatus] = useState(campaign.lifecycleStatus);
-  useEffect(() => {
-    setLifecycleStatus(campaign.lifecycleStatus);
-  }, [campaign.lifecycleStatus]);
 
   const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
   const withdrawal = useWithdrawableSubmission(campaign.slug, lifecycleStatus, setLifecycleStatus);

@@ -318,6 +318,10 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
     vi.useRealTimers();
   });
 
+  function sessionOf(id: string, assignments: string[] = []) {
+    mockGetServerSession.mockResolvedValue({ user: { id, assignments } } as any);
+  }
+
   function campaignRow(overrides: Record<string, unknown> = {}) {
     return {
       id: 'campaign-1',
@@ -436,10 +440,6 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
 
     const suspended = () => campaignRow({ lifecycleStatus: 'SUSPENDED' });
 
-    function sessionOf(id: string, assignments: string[] = []) {
-      mockGetServerSession.mockResolvedValue({ user: { id, assignments } } as any);
-    }
-
     it('is returned to the owning Fundraiser, from the latest SUSPENDED row', async () => {
       sessionOf('owner-1');
       const { body } = await getAs(suspended());
@@ -504,29 +504,29 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
   });
 
   describe('the pending Verification Request id (verification-request 10)', () => {
-    function sessionOf(id: string, assignments: string[] = []) {
-      mockGetServerSession.mockResolvedValue({ user: { id, assignments } } as any);
-    }
+    // The mock's own resolved-value type, so a stub result needs no `any`.
+    type PendingRequestRow = Awaited<ReturnType<typeof prisma.verificationRequest.findFirst>>;
+    const pendingRequest = (id: string): PendingRequestRow => ({ id }) as unknown as PendingRequestRow;
 
     const submitted = () => campaignRow({ lifecycleStatus: 'SUBMITTED' });
 
     it("is returned to the owning Fundraiser, so their Campaign page can offer to withdraw it", async () => {
       sessionOf('owner-1');
-      mockVerificationRequestFindFirst.mockResolvedValue({ id: 'request-9' } as any);
+      mockVerificationRequestFindFirst.mockResolvedValue(pendingRequest('request-9'));
       const { body } = await getAs(submitted());
       expect(body.campaign.pendingVerificationRequestId).toBe('request-9');
     });
 
     it('is withheld from a Verifier -- viewing is not acting, and the button is the Fundraiser\'s alone', async () => {
       sessionOf('verifier-1', ['VERIFIER']);
-      mockVerificationRequestFindFirst.mockResolvedValue({ id: 'request-9' } as any);
+      mockVerificationRequestFindFirst.mockResolvedValue(pendingRequest('request-9'));
       const { body } = await getAs(submitted());
       expect(body.campaign).not.toHaveProperty('pendingVerificationRequestId');
     });
 
     it('is withheld from an Admin', async () => {
       sessionOf('admin-1', ['ADMIN']);
-      mockVerificationRequestFindFirst.mockResolvedValue({ id: 'request-9' } as any);
+      mockVerificationRequestFindFirst.mockResolvedValue(pendingRequest('request-9'));
       const { body } = await getAs(submitted());
       expect(body.campaign).not.toHaveProperty('pendingVerificationRequestId');
     });
@@ -546,7 +546,7 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
 
     it('looks up the PENDING request for this Campaign, not any other', async () => {
       sessionOf('owner-1');
-      mockVerificationRequestFindFirst.mockResolvedValue({ id: 'request-9' } as any);
+      mockVerificationRequestFindFirst.mockResolvedValue(pendingRequest('request-9'));
       await getAs(submitted());
       expect(mockVerificationRequestFindFirst).toHaveBeenCalledWith(
         expect.objectContaining({
