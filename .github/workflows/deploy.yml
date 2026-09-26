@@ -71,6 +71,9 @@ jobs:
       actions: read # CI's result and the image's build run
       packages: read # the images and their provenance in GHCR
     steps:
+      # Against mistakes, not a control: anyone who can dispatch can also push
+      # a branch with an edited copy of this file, and on the Free plan
+      # repository secrets reach every branch. Write access is the boundary.
       - name: Refuse anything but main's copy of this workflow
         run: |
           if [ "$GITHUB_REF" != refs/heads/main ]; then
@@ -88,6 +91,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA_INPUT: ${{ inputs.sha }}
         run: ci/deploy-gate.sh "$SHA_INPUT"
+
+      - name: Say why the gate refused
+        if: failure() && steps.gate.outcome == 'failure'
+        run: |
+          {
+            echo "### Deploy refused before reaching the host"
+            echo
+            echo "The gate's error above says why. Nothing was sent to the host; production is unchanged."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: SSH key and the pinned host key
         env:

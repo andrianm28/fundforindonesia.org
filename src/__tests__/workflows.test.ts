@@ -89,7 +89,7 @@ describe("the deploy workflow", () => {
   });
 
   it("uses only the three deploy secrets, and no Environment", () => {
-    const secrets = [...new Set([...text.matchAll(/secrets\.(\w+)/g)].map((m) => m[1]))].sort();
+    const secrets = Array.from(new Set(Array.from(text.matchAll(/secrets\.(\w+)/g), (m) => m[1]))).sort();
     expect(secrets).toEqual(["DEPLOY_HOST", "DEPLOY_KNOWN_HOSTS", "DEPLOY_SSH_KEY"]);
     expect(text).not.toMatch(/^\s*environment:/m);
   });

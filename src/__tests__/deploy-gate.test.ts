@@ -332,12 +332,20 @@ describe("ci/deploy-gate.sh", () => {
       expectRefused(gate(), /does not describe/);
     });
 
-    it.each([
+    it.each<[string, ImageOptions]>([
       ["another commit", { revision: MAIN_HEAD }],
       ["another repository", { source: "https://github.com/someone/fork" }],
     ])("an image built from %s", (_, o) => {
       publish(SHA, "runner", o);
       expectRefused(gate(), /was built from/);
+    });
+
+    it("provenance that tries to smuggle in a workflow command, keeping it on the one error line", () => {
+      publish(SHA, "runner", { source: "https://x\n::add-mask::oops\r%0A::notice::pwned" });
+      const r = gate();
+      expectRefused(r, /was built from/);
+      expect(r.stdout.split("\n").filter((l) => l.startsWith("::"))).toHaveLength(1);
+      expect(r.stdout).toContain("%250A");
     });
 
     it("an app tag that holds the migrate build", () => {
@@ -350,7 +358,7 @@ describe("ci/deploy-gate.sh", () => {
       expectRefused(gate(), /not built by a cd.yml run on main/);
     });
 
-    it.each([
+    it.each<[string, { path: string; head_branch: string }]>([
       ["another workflow", { path: ".github/workflows/ci.yml", head_branch: "main" }],
       ["another branch", { path: ".github/workflows/cd.yml", head_branch: "feature" }],
     ])("an image built by a run of %s", (_, run) => {

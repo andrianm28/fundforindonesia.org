@@ -38,14 +38,21 @@ registry="https://ghcr.io/v2/$image"
 work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
 
+# The message can quote provenance, which whoever pushed the image wrote, so
+# it is escaped the way GitHub escapes workflow command data: it stays one
+# ::error:: line and cannot start a command of its own.
 refuse() {
-  echo "::error::Refusing to deploy: $*"
+  local msg="$*"
+  msg="${msg//'%'/'%25'}"
+  msg="${msg//$'\r'/'%0D'}"
+  msg="${msg//$'\n'/'%0A'}"
+  echo "::error::Refusing to deploy: $msg"
   exit 1
 }
 
 sha="${1:-}"
 if [ -z "$sha" ]; then
-  sha="$(gh api "repos/$repo/commits/main" | jq -r .sha)"
+  sha="$(gh api "repos/$repo/commits/main" | jq -r .sha)" || refuse "could not read main's head from GitHub"
 fi
 
 # --- 1. A commit on main ----------------------------------------------------------
@@ -63,10 +70,11 @@ esac
 # --- 2. CI ----------------------------------------------------------------------
 
 ci_run="$(gh api "repos/$repo/actions/workflows/ci.yml/runs?head_sha=$sha&branch=main&event=push&status=success" |
-  jq -r '.workflow_runs[0].id // empty')"
+  jq -r '.workflow_runs[0].id // empty')" || refuse "could not list CI runs for $sha"
 [ -n "$ci_run" ] || refuse "CI has not passed on $sha (no successful ci.yml run for a push to main)"
 # The run's latest attempt; every job ci.yml defines must be among its green ones.
-green="$(gh api "repos/$repo/actions/runs/$ci_run/jobs" | jq -r '.jobs[] | select(.conclusion == "success") | .name')"
+green="$(gh api "repos/$repo/actions/runs/$ci_run/jobs" | jq -r '.jobs[] | select(.conclusion == "success") | .name')" ||
+  refuse "could not read the jobs of CI run $ci_run"
 for job in test build migrations ratchet; do
   grep -qx "$job" <<< "$green" || refuse "CI run $ci_run on $sha has no green \`$job\` job"
 done
@@ -74,7 +82,8 @@ done
 # --- 3, 4. Images and provenance ------------------------------------------------
 
 token="$(printf 'user = "%s:%s"\n' "$GITHUB_ACTOR" "$GH_TOKEN" |
-  curl -fsS -K - "https://ghcr.io/token?service=ghcr.io&scope=repository:$image:pull" | jq -r .token)"
+  curl -fsS -K - "https://ghcr.io/token?service=ghcr.io&scope=repository:$image:pull" | jq -r .token)" ||
+  refuse "GHCR gave no pull token for $image (the job needs packages: read, and the package must grant this repository access)"
 
 # get <ref> <file> [blob]: a manifest by tag or digest, or a blob by digest.
 # Anything fetched by digest must hash to it.
@@ -101,8 +110,9 @@ verify() {
   # buildx's layout: the index lists the image manifest and an attestation
   # manifest that refers to it; the attestation's layer is the provenance.
   local att_digest manifest
-  att_digest="$(jq -r 'first(.manifests[]? | select(.annotations["vnd.docker.reference.type"] == "attestation-manifest") | .digest) // empty' "$index")"
-  manifest="$(jq -r 'first(.manifests[]? | select(.annotations["vnd.docker.reference.type"] == "attestation-manifest") | .annotations["vnd.docker.reference.digest"]) // empty' "$index")"
+  read -r att_digest manifest <<< "$(jq -r 'first(.manifests[]? |
+    select(.annotations["vnd.docker.reference.type"] == "attestation-manifest") |
+    "\(.digest) \(.annotations["vnd.docker.reference.digest"] // "")") // ""' "$index")"
   [ -n "$att_digest" ] && [ -n "$manifest" ] || refuse "$ref has no provenance attestation"
   get "$att_digest" "$att" || refuse "$ref has no provenance attestation (manifest $att_digest missing)"
   local prov_digest
