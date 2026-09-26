@@ -103,8 +103,10 @@ DATABASE_URL='postgresql://ffi:ffi@localhost:5432/ffi?schema=public' npx prisma 
 
 - `node -v` prints v24.
 - `npx vitest run` is green.
-- `/tdd` resolves to the vendored skill.
-- `gh pr list` works.
+- `58da2c13-5ed4-4485-9625-fb87b369e6b4:tdd` (Skills For Real Engineers plugin,
+  enabled on the owner's claude.ai account) is listed; the vendored `/tdd` is
+  only a fallback until that is proven.
+- GitHub MCP tools work (`gh` is not installed in the cloud image).
 
 If `node -v` still prints v22, the setup script didn't run or
 `$CLAUDE_ENV_FILE` didn't apply. Prefix commands with

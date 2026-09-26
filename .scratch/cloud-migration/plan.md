@@ -90,6 +90,10 @@ A cloud session has 4 vCPU, 16 GB RAM, Docker and Postgres 16, and runs isolated
 
 - Q1: commit `.scratch/` as it is. Done in PR #30.
 - Q2: vendor the skills into `.claude/skills/`. Done in PR #30.
+  Superseded 2026-09-26 (owner): use the official Skills For Real Engineers
+  plugin (ID `58da2c13-5ed4-4485-9625-fb87b369e6b4`), enabled on the claude.ai
+  account and synced into cloud sessions. The vendored copy stays as a
+  fallback until a fresh cloud session lists the plugin's skills, then goes.
 - Q3: **every** session goes to the cloud, including the coordinator. That overrides the recommendation to keep it on the VPS.
 - Q4: status changes ride in the implementing PR.
 
