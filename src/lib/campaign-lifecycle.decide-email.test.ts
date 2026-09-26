@@ -116,14 +116,14 @@ describe('decideVerificationRequest links the Campaign on the public site', () =
     expect(mailer.sent[0].text).toContain('https://staging.example.test/campaign/bantu-korban-banjir');
   });
 
-  it('falls back to the same public address as src/lib/seo.ts, never NEXTAUTH_URL', async () => {
+  it('falls back to the canonical https://fundforindonesia.org, never NEXTAUTH_URL', async () => {
     vi.stubEnv('NEXT_PUBLIC_BASE_URL', '');
     vi.stubEnv('NEXTAUTH_URL', 'http://localhost:3000');
     const mailer = new MockMailer();
 
     await approve(seeded(), mailer);
 
-    expect(mailer.sent[0].text).toContain('https://fundforindonesia.com/campaign/bantu-korban-banjir');
+    expect(mailer.sent[0].text).toContain('https://fundforindonesia.org/campaign/bantu-korban-banjir');
   });
 });
 

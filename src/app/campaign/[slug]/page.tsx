@@ -5,6 +5,7 @@ import { CampaignDetailView } from '@/components/campaign/CampaignDetailView';
 import { StructuredData } from '@/components/shared/SEOHead';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
 import { isPubliclyViewable } from '@/lib/campaign-visibility';
+import { publicUrl } from '@/lib/public-url';
 
 // ISR: one render per Campaign, cached for every visitor alike and
 // revalidated every 60 seconds. So this page never reads the session, and an
@@ -36,7 +37,7 @@ export async function generateMetadata({ params }: CampaignDetailPageProps): Pro
     return { title: 'Campaign Tidak Ditemukan' };
   }
 
-  const canonicalUrl = `https://fundforindonesia.com/campaign/${slug}`;
+  const canonicalUrl = publicUrl(`/campaign/${slug}`);
 
   return {
     title: `${campaign.title} - Fund for Indonesia`,
@@ -118,7 +119,7 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
           '@type': 'DonateAction',
           name: campaign.title,
           description: campaign.description,
-          url: `https://fundforindonesia.com/campaign/${campaign.slug}`,
+          url: publicUrl(`/campaign/${campaign.slug}`),
           recipient: {
             '@type': 'Organization',
             name: campaign.creator.name,

@@ -21,7 +21,8 @@
 # every image build and block PR builds entirely. They are public values, so
 # variables, never secrets. Unset, each falls back to today's production
 # value:
-#   NEXT_PUBLIC_BASE_URL           default https://galang.fundforindonesia.org
+#   NEXT_PUBLIC_BASE_URL           default https://fundforindonesia.org, the
+#                                  canonical public domain (src/lib/public-url.ts)
 #   NEXTAUTH_URL                   default https://galang.fundforindonesia.org
 #   NEXT_PUBLIC_DONATIONS_ENABLED  default false
 name: CD
@@ -167,7 +168,7 @@ jobs:
           tags: local/app:candidate
           labels: ${{ steps.meta.outputs.labels }}
           build-args: &build-args |
-            NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'https://galang.fundforindonesia.org' }}
+            NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'https://fundforindonesia.org' }}
             NEXTAUTH_URL=${{ vars.NEXTAUTH_URL || 'https://galang.fundforindonesia.org' }}
             NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.NEXT_PUBLIC_DONATIONS_ENABLED || 'false' }}
           cache-from: type=gha,scope=app

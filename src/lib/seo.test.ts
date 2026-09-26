@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { generateSEOMetadata, generateStructuredData, SEOProps } from './seo';
 
 describe('generateSEOMetadata', () => {
@@ -18,9 +18,23 @@ describe('generateSEOMetadata', () => {
     expect(metadata.description).toBe('Donasi untuk anak yatim di seluruh Indonesia');
   });
 
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('generates canonical URL from base URL and path', () => {
     const metadata = generateSEOMetadata(baseProps);
-    expect(metadata.alternates?.canonical).toBe('https://fundforindonesia.com/campaign/bantu-anak-yatim');
+    expect(metadata.alternates?.canonical).toBe('https://fundforindonesia.org/campaign/bantu-anak-yatim');
+  });
+
+  it('builds the canonical URL from NEXT_PUBLIC_BASE_URL when set', () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://staging.example.test/');
+    const metadata = generateSEOMetadata(baseProps);
+    expect(metadata.alternates?.canonical).toBe('https://staging.example.test/campaign/bantu-anak-yatim');
   });
 
   it('generates openGraph metadata with default type website', () => {
@@ -28,7 +42,7 @@ describe('generateSEOMetadata', () => {
     expect(metadata.openGraph).toEqual({
       title: 'Bantu Anak Yatim',
       description: 'Donasi untuk anak yatim di seluruh Indonesia',
-      url: 'https://fundforindonesia.com/campaign/bantu-anak-yatim',
+      url: 'https://fundforindonesia.org/campaign/bantu-anak-yatim',
       siteName: 'Fund for Indonesia',
       type: 'website',
     });
