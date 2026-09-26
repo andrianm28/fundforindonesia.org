@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { listableCampaignWhere } from '@/lib/subject-guard';
+import { deadlineRequiredMessage, KINDS, missingRequiredDeadline, parseKind } from '@/lib/campaign-kind';
 
 const createCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
@@ -12,7 +13,17 @@ const createCampaignSchema = z.object({
   coverImage: z.string().url("URL gambar tidak valid"),
   targetAmount: z.number().positive("Target donasi harus lebih dari 0"),
   category: z.string().min(1, "Kategori harus dipilih"),
+  kind: z.enum(KINDS, { message: "Kind harus dipilih" }),
   deadline: z.string().datetime().optional(),
+}).superRefine((body, ctx) => {
+  // Every Kind but wakaf needs a deadline (CONTEXT.md, Campaign).
+  if (missingRequiredDeadline(body)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: deadlineRequiredMessage(body.kind),
+      path: ['deadline'],
+    });
+  }
 });
 
 function generateSlug(title: string): string {
@@ -32,6 +43,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     const category = searchParams.get('category');
+    const kindParam = searchParams.get('kind');
     const search = searchParams.get('search');
     const urgent = searchParams.get('urgent');
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
@@ -45,6 +57,14 @@ export async function GET(request: NextRequest) {
 
     if (category) {
       where.category = category;
+    }
+
+    if (kindParam) {
+      const kind = parseKind(kindParam);
+      if (!kind) {
+        return NextResponse.json({ error: 'Kind tidak dikenal' }, { status: 400 });
+      }
+      where.kind = kind;
     }
 
     if (urgent === 'true') {
@@ -127,7 +147,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { title, description, story, coverImage, targetAmount, category, deadline } = result.data;
+    const { title, description, story, coverImage, targetAmount, category, kind, deadline } = result.data;
 
     // 3. Generate unique slug
     const slug = generateSlug(title);
@@ -142,6 +162,7 @@ export async function POST(request: NextRequest) {
         coverImage,
         targetAmount,
         category,
+        kind,
         deadline: deadline ? new Date(deadline) : null,
         creatorId: session.user.id,
         // A new campaign is a Draft: visible only to its Fundraiser, and not

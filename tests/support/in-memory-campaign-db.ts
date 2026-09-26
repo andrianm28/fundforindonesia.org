@@ -1,4 +1,4 @@
-import type { CampaignStatus } from '@/generated/prisma/client';
+import type { CampaignStatus, Kind } from '@/generated/prisma/client';
 
 /**
  * In-memory stand-in for the slice of PrismaClient that the Campaign
@@ -27,6 +27,7 @@ export type CampaignRow = {
   deadline: Date | null;
   /** Optional so the lifecycle tests need not name it; the list readers filter on it. */
   category?: string;
+  kind: Kind;
 };
 
 export type StatusChangeRow = {
@@ -306,6 +307,7 @@ export function campaignRow(overrides: Partial<CampaignRow> = {}): CampaignRow {
     lifecycleStatus: 'SUBMITTED',
     isUrgent: false,
     deadline: null,
+    kind: 'DONATION',
     ...overrides,
   };
 }

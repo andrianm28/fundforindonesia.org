@@ -4,12 +4,21 @@ import { useState, useEffect, useCallback } from 'react';
 import { useCampaigns } from '@/lib/hooks/useCampaigns';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import type { CampaignCardData } from '@/types/campaign';
+import { KIND_LABEL, KINDS, type CampaignKind } from '@/lib/campaign-kind';
 
 export default function ExploreAllPage() {
   const [page, setPage] = useState(1);
   const [allCampaigns, setAllCampaigns] = useState<CampaignCardData[]>([]);
+  // The catalogue's Kind filter; null lists every Kind.
+  const [kind, setKind] = useState<CampaignKind | null>(null);
 
-  const { campaigns, totalPages, isLoading } = useCampaigns({ page, limit: 12 });
+  const { campaigns, totalPages, isLoading } = useCampaigns({ page, limit: 12, kind: kind ?? undefined });
+
+  const chooseKind = useCallback((next: CampaignKind | null) => {
+    setKind(next);
+    setPage(1);
+    setAllCampaigns([]);
+  }, []);
 
   // Accumulate campaigns across pages
   useEffect(() => {
@@ -48,6 +57,26 @@ export default function ExploreAllPage() {
   return (
     <div className="px-4 py-6">
       <h1 className="text-xl font-bold text-text mb-4">Semua Campaign</h1>
+      <div className="flex gap-2 overflow-x-auto mb-4" role="group" aria-label="Filter Kind">
+        {[null, ...KINDS].map((option) => {
+          const selected = option === kind;
+          return (
+            <button
+              key={option ?? 'ALL'}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => chooseKind(option)}
+              className={`shrink-0 px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                selected
+                  ? 'bg-primary text-white border-primary'
+                  : 'bg-white text-text border-border hover:border-primary'
+              }`}
+            >
+              {option ? KIND_LABEL[option] : 'Semua'}
+            </button>
+          );
+        })}
+      </div>
       <CampaignGrid
         campaigns={allCampaigns}
         variant="standard"

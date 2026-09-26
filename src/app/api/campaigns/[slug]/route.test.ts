@@ -58,6 +58,7 @@ describe('GET /api/campaigns/[slug]', () => {
       targetAmount: 50000000,
       collectedAmount: 25841000,
       category: 'bencana-alam',
+      kind: 'WAKAF',
       lifecycleStatus: 'ACTIVE',
       isUrgent: false,
       isDemo: false,
@@ -95,6 +96,7 @@ describe('GET /api/campaigns/[slug]', () => {
     expect(body.campaign.targetAmount).toBe(50000000);
     expect(body.campaign.collectedAmount).toBe(25841000);
     expect(body.campaign.category).toBe('bencana-alam');
+    expect(body.campaign.kind).toBe('WAKAF');
     expect(body.campaign.lifecycleStatus).toBe('ACTIVE');
     expect(body.campaign.isUrgent).toBe(false);
     expect(body.campaign.isDemo).toBe(false);
@@ -678,7 +680,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ omit: { status: true } }));
   });
 
-  it('drops deadline, category, and isUrgent -- those change through a Verification Request or an Admin, not a direct edit', async () => {
+  it('drops category and isUrgent -- those change through a Verification Request or an Admin, not a direct edit', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
       expires: '2099-01-01',
@@ -691,7 +693,6 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
     const request = createRequest('bantu-korban-banjir', 'PATCH', {
       story: '<p>Cerita baru</p>',
-      deadline: '2030-01-01T00:00:00.000Z',
       category: 'kesehatan',
       isUrgent: true,
     });
@@ -788,7 +789,7 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
 
   // The one stored Campaign row; both the slug lookup and the read under
   // the lock see it as it stands at the time of the call.
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -805,8 +806,8 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
     vi.useRealTimers();
   });
 
-  function storedAs(lifecycleStatus: string, deadline: Date | null = null) {
-    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline };
+  function storedAs(lifecycleStatus: string, deadline: Date | null = null, kind = 'DONATION') {
+    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline, kind };
   }
 
   function editTitle() {
@@ -913,6 +914,187 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
     expect(response.status).toBe(409);
     expect((await response.json()).code).toBe('CAMPAIGN_NOT_EDITABLE');
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('PATCH /api/campaigns/[slug] -- Kind is fixed once the Campaign leaves Draft', () => {
+  const NOW = new Date('2026-09-26T12:00:00Z');
+  const DEADLINE = new Date('2026-12-31T00:00:00Z');
+  const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as never);
+    mockLockQuery.mockResolvedValue([] as never);
+    mockFindUnique.mockImplementation((async () => ({ ...row })) as never);
+    mockUpdate.mockImplementation((async (args: { data: object }) => ({ ...row, ...args.data })) as never);
+    mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function storedAs(lifecycleStatus: string, kind: string, deadline: Date | null = DEADLINE) {
+    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline, kind };
+  }
+
+  function edit(body: Record<string, unknown>) {
+    return PATCH(createRequest('bantu-korban-banjir', 'PATCH', body), {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+  }
+
+  it("changes a Draft's Kind", async () => {
+    storedAs('DRAFT', 'DONATION');
+
+    const response = await edit({ kind: 'ZAKAT' });
+
+    expect(response.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { kind: 'ZAKAT' } }));
+  });
+
+  it.each(['REJECTED', 'ACTIVE'])('refuses to change the Kind of a %s Campaign with 409 KIND_IMMUTABLE', async (status) => {
+    storedAs(status, 'DONATION');
+
+    const response = await edit({ kind: 'ZAKAT', title: 'Judul Baru' });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      code: 'KIND_IMMUTABLE',
+      error: 'Kind Campaign tidak dapat diubah setelah Campaign meninggalkan Draft.',
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('accepts the Kind it already has on an Active Campaign, so a form resending every field still saves', async () => {
+    storedAs('ACTIVE', 'ZAKAT');
+
+    const response = await edit({ kind: 'ZAKAT', title: 'Judul Baru' });
+
+    expect(response.status).toBe(200);
+  });
+
+  it('refuses to turn a wakaf Draft without a deadline into a Kind that needs one', async () => {
+    storedAs('DRAFT', 'WAKAF', null);
+
+    const response = await edit({ kind: 'DONATION' });
+
+    expect(response.status).toBe(422);
+    expect((await response.json()).code).toBe('DEADLINE_REQUIRED');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('turns a Draft into wakaf even without a deadline', async () => {
+    storedAs('DRAFT', 'DONATION', null);
+
+    const response = await edit({ kind: 'WAKAF' });
+
+    expect(response.status).toBe(200);
+  });
+
+  it('answers 400 to a Kind the platform does not know', async () => {
+    storedAs('DRAFT', 'DONATION');
+
+    const response = await edit({ kind: 'INFAQ' });
+
+    expect(response.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('turns a wakaf Draft without a deadline into a donation when the same edit sets one', async () => {
+    storedAs('DRAFT', 'WAKAF', null);
+
+    const response = await edit({ kind: 'DONATION', deadline: '2026-12-31T00:00:00.000Z' });
+
+    expect(response.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { kind: 'DONATION', deadline: DEADLINE } }),
+    );
+  });
+});
+
+describe('PATCH /api/campaigns/[slug] -- the deadline is set before a Verifier sees the Campaign', () => {
+  const NOW = new Date('2026-09-26T12:00:00Z');
+  const DEADLINE = new Date('2026-12-31T00:00:00Z');
+  const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as never);
+    mockLockQuery.mockResolvedValue([] as never);
+    mockFindUnique.mockImplementation((async () => ({ ...row })) as never);
+    mockUpdate.mockImplementation((async (args: { data: object }) => ({ ...row, ...args.data })) as never);
+    mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function storedAs(lifecycleStatus: string, kind: string, deadline: Date | null) {
+    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline, kind };
+  }
+
+  function edit(body: Record<string, unknown>) {
+    return PATCH(createRequest('bantu-korban-banjir', 'PATCH', body), {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+  }
+
+  it.each(['DRAFT', 'REJECTED'])('sets the deadline of a %s donation that has none, so it can be submitted', async (status) => {
+    storedAs(status, 'DONATION', null);
+
+    const response = await edit({ deadline: '2026-12-31T00:00:00.000Z' });
+
+    expect(response.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { deadline: DEADLINE } }));
+  });
+
+  it('refuses to move the deadline of an Active Campaign, which takes a new Verification Request', async () => {
+    storedAs('ACTIVE', 'DONATION', DEADLINE);
+
+    const response = await edit({ deadline: '2027-06-30T00:00:00.000Z' });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      code: 'DEADLINE_NOT_EDITABLE',
+      error: 'Tenggat Campaign hanya dapat diubah saat berstatus Draft atau Rejected.',
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('accepts the deadline an Active Campaign already has', async () => {
+    storedAs('ACTIVE', 'DONATION', DEADLINE);
+
+    const response = await edit({ deadline: '2026-12-31T00:00:00.000Z', title: 'Judul Baru' });
+
+    expect(response.status).toBe(200);
+  });
+
+  it("refuses to clear a donation Draft's deadline", async () => {
+    storedAs('DRAFT', 'DONATION', DEADLINE);
+
+    const response = await edit({ deadline: null });
+
+    expect(response.status).toBe(422);
+    expect((await response.json()).code).toBe('DEADLINE_REQUIRED');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("clears a wakaf Draft's deadline", async () => {
+    storedAs('DRAFT', 'WAKAF', DEADLINE);
+
+    const response = await edit({ deadline: null });
+
+    expect(response.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { deadline: null } }));
   });
 });
 

@@ -1,8 +1,10 @@
 import useSWR from 'swr';
 import type { CampaignWithCreator } from '@/types/campaign';
+import type { CampaignKind } from '@/lib/campaign-kind';
 
 export interface UseCampaignsOptions {
   category?: string;
+  kind?: CampaignKind;
   search?: string;
   urgent?: boolean;
   page?: number;
@@ -27,6 +29,7 @@ function buildQueryString(options: UseCampaignsOptions): string {
   const params = new URLSearchParams();
 
   if (options.category) params.set('category', options.category);
+  if (options.kind) params.set('kind', options.kind);
   if (options.search) params.set('search', options.search);
   if (options.urgent !== undefined) params.set('urgent', String(options.urgent));
   if (options.page !== undefined) params.set('page', String(options.page));

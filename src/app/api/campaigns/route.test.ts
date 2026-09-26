@@ -240,6 +240,8 @@ describe('POST /api/campaigns', () => {
     coverImage: 'https://example.com/image.jpg',
     targetAmount: 50000000,
     category: 'bencana-alam',
+    kind: 'DONATION',
+    deadline: '2026-12-31T23:59:59.000Z',
   };
 
   const verifiedSession = {
@@ -401,8 +403,9 @@ describe('POST /api/campaigns', () => {
           coverImage: validBody.coverImage,
           targetAmount: validBody.targetAmount,
           category: validBody.category,
+          kind: 'DONATION',
           creatorId: 'user-1',
-          deadline: null,
+          deadline: new Date('2026-12-31T23:59:59.000Z'),
         }),
         include: {
           creator: {
@@ -427,25 +430,60 @@ describe('POST /api/campaigns', () => {
     expect(slug).toMatch(/^bantuan-untuk-korban-banjir-[a-z0-9]+$/);
   });
 
-  it('handles optional deadline field', async () => {
-    mockGetServerSession.mockResolvedValue(verifiedSession as never);
-    mockCreate.mockResolvedValue({ id: 'c1' } as never);
+  describe('Kind (CONTEXT.md, Kind)', () => {
+    async function create(body: Record<string, unknown>) {
+      mockGetServerSession.mockResolvedValue(verifiedSession as never);
+      mockCreate.mockResolvedValue({ id: 'c1' } as never);
+      return POST(createPostRequest(body));
+    }
 
-    const bodyWithDeadline = {
-      ...validBody,
-      deadline: '2025-12-31T23:59:59.000Z',
-    };
+    it.each(['DONATION', 'ZAKAT', 'WAKAF', 'HIBAH'])('creates a %s Campaign carrying its Kind', async (kind) => {
+      const response = await create({ ...validBody, kind });
 
-    const request = createPostRequest(bodyWithDeadline);
-    await POST(request);
+      expect(response.status).toBe(201);
+      expect(mockCreate.mock.calls[0][0]).toMatchObject({ data: { kind } });
+    });
 
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          deadline: new Date('2025-12-31T23:59:59.000Z'),
-        }),
-      })
-    );
+    it('refuses a Campaign that declares no Kind, writing nothing', async () => {
+      const withoutKind: Record<string, unknown> = { ...validBody };
+      delete withoutKind.kind;
+
+      const response = await create(withoutKind);
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).fieldErrors.kind).toBeDefined();
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    it('refuses a Kind the platform does not know', async () => {
+      const response = await create({ ...validBody, kind: 'INFAQ' });
+
+      expect(response.status).toBe(400);
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    it.each(['DONATION', 'ZAKAT', 'HIBAH'])('refuses a %s Campaign without a deadline', async (kind) => {
+      const withoutDeadline: Record<string, unknown> = { ...validBody };
+      delete withoutDeadline.deadline;
+
+      const response = await create({ ...withoutDeadline, kind });
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).fieldErrors).toEqual({
+        deadline: ['Tenggat wajib diisi untuk Campaign ber-Kind ' + { DONATION: 'Donasi', ZAKAT: 'Zakat', HIBAH: 'Hibah' }[kind] + '.'],
+      });
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    it('creates a wakaf Campaign without a deadline, which stays open', async () => {
+      const withoutDeadline: Record<string, unknown> = { ...validBody };
+      delete withoutDeadline.deadline;
+
+      const response = await create({ ...withoutDeadline, kind: 'WAKAF' });
+
+      expect(response.status).toBe(201);
+      expect(mockCreate.mock.calls[0][0]).toMatchObject({ data: { kind: 'WAKAF', deadline: null } });
+    });
   });
 
   it('returns 500 on database error', async () => {

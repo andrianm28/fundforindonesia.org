@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CampaignStatus, StatusChangeCapacity, VolunteerTripStatus } from '@/generated/prisma/client';
+import { CampaignStatus, StatusChangeCapacity, VolunteerTripStatus, type Kind } from '@/generated/prisma/client';
 import {
   lockAndLoad,
   requireNotOwnerAsAdmin,
@@ -15,7 +15,7 @@ const NOW = new Date('2026-09-25T10:00:00Z');
 const PAST = new Date('2026-09-20T00:00:00Z');
 const FUTURE = new Date('2026-10-20T00:00:00Z');
 
-type CampaignRow = { id: string; creatorId: string; isDemo: boolean; lifecycleStatus: CampaignStatus; deadline: Date | null };
+type CampaignRow = { id: string; creatorId: string; isDemo: boolean; lifecycleStatus: CampaignStatus; deadline: Date | null; kind: Kind };
 type TripRow = { id: string; fundraiserId: string; status: VolunteerTripStatus };
 
 /**
@@ -58,6 +58,7 @@ const campaign = (overrides: Partial<CampaignRow> = {}): CampaignRow => ({
   isDemo: false,
   lifecycleStatus: CampaignStatus.ACTIVE,
   deadline: FUTURE,
+  kind: 'ZAKAT',
   ...overrides,
 });
 
@@ -69,7 +70,7 @@ const trip = (overrides: Partial<TripRow> = {}): TripRow => ({
 });
 
 describe('lockAndLoad', () => {
-  it('locks the Campaign row, then reads its owner, demo flag and effective status', async () => {
+  it('locks the Campaign row, then reads its owner, demo flag, effective status, Kind and deadline', async () => {
     const { tx, events } = makeTx({ campaigns: [campaign({ isDemo: true })] });
 
     const state = await lockAndLoad(tx as never, { type: 'campaign', campaignId: 'campaign-1' }, NOW);
@@ -80,6 +81,8 @@ describe('lockAndLoad', () => {
       ownerId: 'fundraiser-1',
       isDemo: true,
       effectiveStatus: CampaignStatus.ACTIVE,
+      campaignKind: 'ZAKAT',
+      deadline: FUTURE,
     });
     expect(events).toEqual(['lock Campaign:campaign-1', 'read Campaign:campaign-1']);
   });
@@ -135,6 +138,8 @@ const campaignState = (effectiveStatus: CampaignStatus, ownerId = 'fundraiser-1'
   ownerId,
   isDemo: false,
   effectiveStatus,
+  campaignKind: 'DONATION',
+  deadline: null,
 });
 
 const tripState = (effectiveStatus: VolunteerTripStatus, ownerId = 'trip-fundraiser-1'): SubjectState => ({

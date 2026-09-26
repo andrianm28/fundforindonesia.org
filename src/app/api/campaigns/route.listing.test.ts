@@ -110,3 +110,36 @@ describe('GET /api/campaigns lists only effectively Active Campaigns', () => {
     expect(holder.db.statusChanges).toEqual([]);
   });
 });
+
+describe('GET /api/campaigns filters by Kind', () => {
+  beforeEach(() => {
+    holder.db = makeCampaignDb({
+      campaigns: [
+        campaign('donasi', { kind: 'DONATION' }),
+        campaign('zakat', { kind: 'ZAKAT' }),
+        campaign('wakaf-no-deadline', { kind: 'WAKAF' }),
+        campaign('wakaf-expired-unrecorded', { kind: 'WAKAF', deadline: YESTERDAY }),
+        campaign('wakaf-suspended', { kind: 'WAKAF', lifecycleStatus: 'SUSPENDED' }),
+        campaign('hibah', { kind: 'HIBAH' }),
+      ],
+    });
+  });
+
+  it('lists only the effectively Active Campaigns of the Kind asked for', async () => {
+    expect(await listSlugs('?kind=WAKAF')).toEqual(['wakaf-no-deadline']);
+    expect(await listSlugs('?kind=HIBAH')).toEqual(['hibah']);
+  });
+
+  it('accepts the Kind in lower case, as links write it', async () => {
+    expect(await listSlugs('?kind=zakat')).toEqual(['zakat']);
+  });
+
+  it('lists every Kind when none is asked for', async () => {
+    expect(await listSlugs()).toEqual(['donasi', 'hibah', 'wakaf-no-deadline', 'zakat']);
+  });
+
+  it('answers 400 to a Kind the platform does not know, rather than an empty list', async () => {
+    const response = await GET(new NextRequest(new URL('http://localhost:3000/api/campaigns?kind=infaq')));
+    expect(response.status).toBe(400);
+  });
+});

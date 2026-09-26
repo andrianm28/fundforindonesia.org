@@ -40,7 +40,7 @@ describe('POST /api/campaigns/[slug]/verification-requests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.db = makeCampaignDb({
-      campaigns: [campaignRow({ lifecycleStatus: 'DRAFT' })],
+      campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', deadline: new Date('2026-12-31T00:00:00Z') })],
       checklistItems: [checklistItemRow({ id: 'rencana-anggaran', label: 'Rencana anggaran' })],
     });
   });
