@@ -20,9 +20,22 @@ vi.mock('@/lib/auth', () => ({
   getServerSession: vi.fn(),
 }));
 
+// Submitting is submitTrip's (src/lib/volunteer/trip.ts), tested there: the
+// status under the lock, the owner-only Capacity, the log. This route only
+// calls it and maps the result.
+vi.mock('@/lib/volunteer/trip', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/volunteer/trip')>();
+  return { ...actual, submitTrip: vi.fn() };
+});
+
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { submitTrip } from '@/lib/volunteer/trip';
+import { NotAuthorizedError } from '@/lib/capacity';
+import { TripNotEditableError, TripNotFoundError } from '@/lib/volunteer-trip-errors';
 import { PATCH, GET } from './route';
+
+const mockSubmitTrip = submitTrip as unknown as Mock;
 
 const mockFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
 const mockUpdate = prisma.volunteerTrip.update as unknown as Mock;
@@ -113,12 +126,52 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  it('submits a DRAFT Trip: action "submit" sets status to SUBMITTED', async () => {
-    const response = await PATCH(patchRequest({ action: 'submit' }), routeContext());
-    expect(response.status).toBe(200);
-    expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'SUBMITTED' }) }),
-    );
+  describe('action "submit"', () => {
+    const submitted = { id: 'trip-1', status: 'SUBMITTED', title: 'Updated title' };
+
+    beforeEach(() => {
+      mockSubmitTrip.mockResolvedValue({ trip: submitted });
+    });
+
+    it('calls submitTrip with the session as actor and the fields sent with it as edits', async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: 'owner-1', role: 'CAMPAIGN_CREATOR', assignments: [] } });
+      const response = await PATCH(patchRequest({ action: 'submit', title: 'Updated title' }), routeContext());
+      expect(response.status).toBe(200);
+      expect(mockSubmitTrip).toHaveBeenCalledWith(prisma, {
+        tripId: 'trip-1',
+        actor: { userId: 'owner-1', assignments: [] },
+        edits: { title: 'Updated title' },
+      });
+      expect(await response.json()).toEqual({ trip: submitted });
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('leaves the status judgement to submitTrip: no pre-read status check', async () => {
+      mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', status: 'ACTIVE' });
+      mockSubmitTrip.mockRejectedValue(new TripNotEditableError('ACTIVE'));
+      const response = await PATCH(patchRequest({ action: 'submit' }), routeContext());
+      expect(mockSubmitTrip).toHaveBeenCalled();
+      expect(response.status).toBe(409);
+    });
+
+    it.each([
+      [new TripNotEditableError('SUBMITTED'), 409, 'TRIP_NOT_EDITABLE'],
+      [new NotAuthorizedError('Hanya Fundraiser Volunteer Trip ini yang dapat melakukan tindakan ini.'), 403, 'NOT_AUTHORIZED'],
+      [new TripNotFoundError('trip-1'), 404, 'TRIP_NOT_FOUND'],
+    ])('answers the refusal %s through domainErrorToHttp', async (error, status, code) => {
+      mockSubmitTrip.mockRejectedValue(error);
+      const response = await PATCH(patchRequest({ action: 'submit' }), routeContext());
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual({ error: error.message, code });
+    });
+
+    it('answers an unexpected failure with a 500', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockSubmitTrip.mockRejectedValue(new Error('database down'));
+      const response = await PATCH(patchRequest({ action: 'submit' }), routeContext());
+      expect(response.status).toBe(500);
+      consoleError.mockRestore();
+    });
   });
 
   it('ignores a client-supplied status field entirely -- cannot be used to jump straight to ACTIVE', async () => {
@@ -132,6 +185,7 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
     const response = await PATCH(patchRequest({ action: 'publish' }), routeContext());
     expect(response.status).toBe(400);
     expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockSubmitTrip).not.toHaveBeenCalled();
   });
 });
 

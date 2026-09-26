@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
+import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
+import { submitTrip, TRIP_EDITABLE_STATUSES } from '@/lib/volunteer/trip';
 
 const editVolunteerTripSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -14,8 +15,6 @@ const editVolunteerTripSchema = z.object({
   tripFeeAmount: z.number().positive().optional(),
   action: z.enum(['submit']).optional(),
 });
-
-const EDITABLE_STATUSES = ['DRAFT', 'REJECTED'];
 
 export async function PATCH(
   request: NextRequest,
@@ -41,13 +40,6 @@ export async function PATCH(
     const refusal = refuseUnlessFundraiserOrAdmin({ kind: 'trip', ownerId: trip.fundraiserId }, session.user);
     if (refusal) return refusal;
 
-    if (!EDITABLE_STATUSES.includes(trip.status)) {
-      return NextResponse.json(
-        { error: 'Trip tidak bisa diedit pada status ini' },
-        { status: 400 },
-      );
-    }
-
     const body = await request.json();
     const result = editVolunteerTripSchema.safeParse(body);
     if (!result.success) {
@@ -57,16 +49,34 @@ export async function PATCH(
 
     const { action, ...fields } = result.data;
 
+    // Submitting is judged by submitTrip under the Trip's row lock: the
+    // status, the owner-only Capacity, the log. Fields sent with the submit
+    // are written with it.
+    if (action === 'submit') {
+      const { trip: submitted } = await submitTrip(prisma, {
+        tripId: trip.id,
+        actor: { userId: session.user.id, assignments: session.user.assignments ?? [] },
+        edits: fields,
+      });
+      return NextResponse.json({ trip: submitted });
+    }
+
+    if (!TRIP_EDITABLE_STATUSES.includes(trip.status)) {
+      return NextResponse.json(
+        { error: 'Trip tidak bisa diedit pada status ini' },
+        { status: 400 },
+      );
+    }
+
     const updated = await prisma.volunteerTrip.update({
       where: { id: trip.id },
-      data: {
-        ...fields,
-        ...(action === 'submit' ? { status: 'SUBMITTED' } : {}),
-      },
+      data: fields,
     });
 
     return NextResponse.json({ trip: updated });
   } catch (error) {
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error updating volunteer trip:', error);
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
   }

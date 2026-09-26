@@ -47,7 +47,7 @@ export type MoneyErrorCode =
  * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
  * Campaign lifecycle codes because a Trip is not a Campaign (ADR 0014).
  */
-export type TripErrorCode = "TRIP_NOT_SUBMITTED";
+export type TripErrorCode = "TRIP_NOT_FOUND" | "TRIP_NOT_EDITABLE" | "TRIP_NOT_SUBMITTED";
 
 /**
  * The Capacity judgement's refusals (./capacity.ts; CONTEXT.md, Capacity),
@@ -94,6 +94,8 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   PAYMENT_NOT_FOUND: 404,
   PAYMENT_SUBJECT_MISMATCH: 404,
   REFUND_EXCEEDS_REMAINING: 400,
+  TRIP_NOT_FOUND: 404,
+  TRIP_NOT_EDITABLE: 409,
   TRIP_NOT_SUBMITTED: 409,
 };
 
