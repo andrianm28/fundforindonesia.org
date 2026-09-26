@@ -1,3 +1,7 @@
+// @vitest-environment node
+// A server route test: jsdom replaces the global FormData/File/Blob, and
+// Node 24's built-in undici no longer serialises a jsdom File as multipart,
+// so request.formData() failed with an undici AssertionError (500s).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import {
