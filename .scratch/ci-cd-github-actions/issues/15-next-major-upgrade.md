@@ -27,7 +27,7 @@ proxying them.
 **Blocked by:** 13 (stopgap, PR #21). This must merge before 2026-10-10
 or the `.trivyignore` expiry turns the `image` job red.
 
-**Status:** in review (PR #41)
+**Status:** done (PR #41, 0e701d2)
 
 - [ ] `next` is at 15.5.24+ or 16.3.3+, and `npm ls next` shows no older copy
 - [ ] CI is green: test, build, migrations, ratchet, image (Trivy no longer reports GHSA-2xp9-vwfh-vxw4)
