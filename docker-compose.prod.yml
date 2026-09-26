@@ -63,6 +63,13 @@ services:
       SUMOPOD_API_KEY: ${SUMOPOD_API_KEY:-}
       SUMOPOD_WEBHOOK_SECRET: ${SUMOPOD_WEBHOOK_SECRET:-}
       SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-}
+      # Field-level encryption keys (ADR 0012). No defaults: a default key is
+      # a published one. Empty means encryption is off and only plaintext is
+      # written; see .env.example.
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
+      FIELD_ENCRYPTION_KEY_ID: ${FIELD_ENCRYPTION_KEY_ID:-}
+      FIELD_HMAC_KEY: ${FIELD_HMAC_KEY:-}
+      FIELD_HMAC_KEY_ID: ${FIELD_HMAC_KEY_ID:-}
       # NEXT_PUBLIC_DONATIONS_ENABLED and NEXT_PUBLIC_BASE_URL are deliberately
       # absent. Next inlines NEXT_PUBLIC_* into the server and client bundles at
       # build time, so a value here would be ignored while looking

@@ -5,9 +5,11 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import { REGISTRATION_HASH_COST } from '@/lib/password-hash-cost';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
+import { withContactFieldProtection } from '@/lib/field-protection';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
-const prisma = new PrismaClient({ adapter });
+// Seeded Users and BankAccounts get the ADR 0012 protected forms too.
+const prisma = withContactFieldProtection(new PrismaClient({ adapter }));
 
 // ==================== Helper Functions ====================
 
