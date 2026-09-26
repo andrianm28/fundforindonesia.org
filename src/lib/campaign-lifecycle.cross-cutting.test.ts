@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   completeCampaign,
   decideCancellation,
-  decideSubmission,
+  decideVerificationRequest,
   dismissFlag,
   flagCampaign,
   liftSuspension,
@@ -17,6 +17,7 @@ import {
   LifecycleValidationError,
   NotAuthorizedError,
   OwnSubjectConflictError,
+  VerificationRequestNotPendingError,
   type LifecycleActor,
 } from './campaign-lifecycle';
 import {
@@ -26,6 +27,7 @@ import {
   makeCampaignDb,
   type CampaignDbData,
   type CampaignRow,
+  verificationRequestRow,
 } from '../../tests/support/in-memory-campaign-db';
 
 /**
@@ -51,7 +53,10 @@ type Seed = NonNullable<Parameters<typeof makeCampaignDb>[0]>;
 type Params = { campaignId?: string; actor?: LifecycleActor; reason?: unknown };
 type ErrorClass = abstract new (...args: never[]) => Error;
 /** The rows a competing request writes here. */
-type CompetingRows = Pick<CampaignDbData, 'campaigns' | 'statusChanges' | 'cancellationRequests' | 'campaignFlags'>;
+type CompetingRows = Pick<
+  CampaignDbData,
+  'campaigns' | 'statusChanges' | 'cancellationRequests' | 'campaignFlags' | 'verificationRequests'
+>;
 
 type CommandCase = {
   /** Builds the rows on which `actor` succeeds; `campaign` overrides the Campaign. */
@@ -78,11 +83,15 @@ function active(overrides: Partial<CampaignRow> = {}) {
 }
 
 const COMMANDS: Record<string, CommandCase> = {
-  decideSubmission: {
-    seed: (campaign) => ({ campaigns: [campaignRow(campaign)] }),
+  'decideVerificationRequest (approve)': {
+    seed: (campaign) => ({
+      campaigns: [campaignRow(campaign)],
+      verificationRequests: [verificationRequestRow()],
+    }),
     run: (db, p) =>
-      decideSubmission(db.prisma as never, {
+      decideVerificationRequest(db.prisma as never, {
         campaignId: p.campaignId ?? 'campaign-1',
+        requestId: 'verification-1',
         actor: p.actor ?? verifier,
         decision: 'approve',
         now: NOW,
@@ -95,8 +104,36 @@ const COMMANDS: Record<string, CommandCase> = {
     competing: {
       write: (data) => {
         Object.assign(data.campaigns[0], { lifecycleStatus: 'REJECTED' });
+        Object.assign(data.verificationRequests[0], { outcome: 'REJECTED', reason: REASON, decidedById: 'verifier-2' });
       },
-      losesWith: InvalidTransitionError,
+      losesWith: VerificationRequestNotPendingError,
+    },
+  },
+  'decideVerificationRequest (reject)': {
+    seed: (campaign) => ({
+      campaigns: [campaignRow(campaign)],
+      verificationRequests: [verificationRequestRow()],
+    }),
+    run: (db, p) =>
+      decideVerificationRequest(db.prisma as never, {
+        campaignId: p.campaignId ?? 'campaign-1',
+        requestId: 'verification-1',
+        actor: p.actor ?? verifier,
+        decision: 'reject',
+        reason: reasonOf(p),
+        now: NOW,
+      }),
+    actor: verifier,
+    unauthorized: [admin, noAssignment],
+    takesReason: true,
+    ownCampaignRole: 'Verifier',
+    refusedOnceExpired: { error: InvalidTransitionError },
+    competing: {
+      write: (data) => {
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'ACTIVE' });
+        Object.assign(data.verificationRequests[0], { outcome: 'APPROVED', decidedById: 'verifier-2' });
+      },
+      losesWith: VerificationRequestNotPendingError,
     },
   },
   'completeCampaign by an Admin': {
@@ -363,6 +400,8 @@ function snapshot(db: Db) {
     notifications: db.notifications,
     cancellationRequests: db.cancellationRequests,
     campaignFlags: db.campaignFlags,
+    verificationRequests: db.verificationRequests,
+    identityVerifications: db.identityVerifications,
   });
 }
 

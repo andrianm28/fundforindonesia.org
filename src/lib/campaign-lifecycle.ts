@@ -481,68 +481,175 @@ export async function submitCampaign(
   });
 }
 
-const SUBMISSION_DECISIONS = {
+/** No such request on this Campaign (a request is always addressed through its Campaign). */
+export class VerificationRequestNotFoundError extends CampaignLifecycleError {
+  readonly code = "VERIFICATION_REQUEST_NOT_FOUND";
+  constructor(readonly requestId: string) {
+    super("Verification Request tidak ditemukan.");
+    this.name = "VerificationRequestNotFoundError";
+  }
+}
+
+/** The request was already decided or withdrawn; a closed request is never changed again. */
+export class VerificationRequestNotPendingError extends CampaignLifecycleError {
+  readonly code = "VERIFICATION_REQUEST_NOT_PENDING";
+  constructor(readonly outcome: VerificationOutcome) {
+    super(
+      outcome === VerificationOutcome.WITHDRAWN
+        ? "Verification Request ini sudah ditarik oleh Fundraiser."
+        : "Verification Request ini sudah diputuskan."
+    );
+    this.name = "VerificationRequestNotPendingError";
+  }
+}
+
+const VERIFICATION_DECISIONS = {
   approve: {
     to: CampaignStatus.ACTIVE,
     outcome: VerificationOutcome.APPROVED,
     action: CampaignStatusChangeAction.SUBMISSION_APPROVED,
+    reasonPolicy: "none",
     title: "Campaign Disetujui",
     message: (title: string) =>
-      `Campaign "${title}" telah disetujui dan kini aktif menerima donasi.`,
+      `Campaign "${title}" lolos verifikasi dan kini aktif menerima donasi.`,
   },
   reject: {
     to: CampaignStatus.REJECTED,
     outcome: VerificationOutcome.REJECTED,
     action: CampaignStatusChangeAction.SUBMISSION_REJECTED,
+    reasonPolicy: "required",
     title: "Campaign Ditolak",
-    message: (title: string) =>
-      `Campaign "${title}" ditolak setelah ditinjau oleh Verifier.`,
+    message: (title: string, reason: string | null) =>
+      `Campaign "${title}" ditolak oleh Verifier. Alasan: ${reason} Perbaiki Campaign Anda, lalu ajukan kembali.`,
   },
 } as const;
 
-export type SubmissionDecision = keyof typeof SUBMISSION_DECISIONS;
+export type VerificationDecision = keyof typeof VERIFICATION_DECISIONS;
 
-export function isSubmissionDecision(value: unknown): value is SubmissionDecision {
-  return typeof value === "string" && Object.hasOwn(SUBMISSION_DECISIONS, value);
+export function isVerificationDecision(value: unknown): value is VerificationDecision {
+  return typeof value === "string" && Object.hasOwn(VERIFICATION_DECISIONS, value);
 }
 
+/** The ticked checklist item ids: absent is none; otherwise an array of strings. */
+function parseTicked(raw: unknown): Set<string> {
+  if (raw === undefined || raw === null) return new Set();
+  if (!Array.isArray(raw) || !raw.every((id) => typeof id === "string")) {
+    throw new LifecycleValidationError("Checklist tidak valid.", "ticked");
+  }
+  return new Set(raw);
+}
+
+const NOTE_MAX_LENGTH = 1000;
+
+/** The optional Identity Verification note: absent or blank is none. */
+function optionalNote(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "string") {
+    throw new LifecycleValidationError("Catatan identitas tidak valid.", "identityNote");
+  }
+  const note = raw.trim();
+  if (note.length > NOTE_MAX_LENGTH) {
+    throw new LifecycleValidationError(
+      `Catatan identitas maksimal ${NOTE_MAX_LENGTH} karakter.`,
+      "identityNote"
+    );
+  }
+  return note === "" ? null : note;
+}
+
+export type DecisionResult = SubmissionResult & {
+  /** Whether this approval recorded the Fundraiser's Identity Verification. */
+  identityVerified: boolean;
+};
+
 /**
- * A Verifier approves (ACTIVE) or rejects (REJECTED) a Submitted Campaign.
- * Any other effective status is refused, so moderation can never reopen a
- * Suspended, Completed or Cancelled Campaign. Recorded in the VERIFIER
- * capacity, without a reason: rejection reasons belong to Verification
- * Request (ticket 12). A Verifier never decides on a Campaign they own.
+ * A Verifier decides a PENDING Verification Request (FFI-05): approve makes
+ * the Submitted Campaign Active; reject makes it Rejected, with a required
+ * reason. The Verifier's ticks are recorded on the request's own checklist
+ * snapshot, beside the outcome, reason, Verifier and time. Recorded in the
+ * VERIFIER Capacity; a Verifier never decides on a Campaign they own.
  *
- * It also closes the Campaign's PENDING Verification Request with the same
- * outcome, so the Verifier queue, which reads PENDING requests, stays true
- * until verification-request 02 replaces this command with
- * `decideVerificationRequest`.
+ * The request is judged before the Campaign's status, so a decided or
+ * withdrawn request answers as such. A decided request is never written
+ * again: the write is predicated on PENDING, under the Campaign row lock.
+ *
+ * Approving records the Fundraiser's Identity Verification when they have
+ * none yet (CONTEXT.md, Identity Verification), with this Verifier, `now`
+ * and the optional note; an existing one is left as it is. The Fundraiser is
+ * told the outcome, and on rejection the reason.
  */
-export async function decideSubmission(
+export async function decideVerificationRequest(
   prisma: PrismaClient,
   params: {
     campaignId: string;
+    requestId: string;
     actor: LifecycleActor;
-    decision: SubmissionDecision;
+    decision: VerificationDecision;
+    ticked?: unknown;
+    reason?: unknown;
+    identityNote?: unknown;
     now?: Date;
   }
-): Promise<LifecycleResult> {
-  const decision = SUBMISSION_DECISIONS[params.decision];
+): Promise<DecisionResult> {
+  const { requestId } = params;
+  const decision = VERIFICATION_DECISIONS[params.decision];
+  const ticked = parseTicked(params.ticked);
+  const identityNote = optionalNote(params.identityNote);
   return runCommand(prisma, params, {
     authority: {
       capacity: StatusChangeCapacity.VERIFIER,
       message: "Hanya Verifier yang dapat menyetujui atau menolak Campaign.",
     },
-    reasonPolicy: "none",
-    allowedFrom: [CampaignStatus.SUBMITTED],
-    step: async ({ tx, campaign, actor, now, transition, notify }) => {
-      await tx.verificationRequest.updateMany({
-        where: { campaignId: campaign.id, outcome: VerificationOutcome.PENDING },
-        data: { outcome: decision.outcome, decidedById: actor.userId, decidedAt: now },
+    reasonPolicy: decision.reasonPolicy,
+    rawReason: params.reason,
+    step: async ({ tx, campaign, current, actor, reason, now, transition, notify }) => {
+      const request = await tx.verificationRequest.findUnique({ where: { id: requestId } });
+      if (!request || request.campaignId !== campaign.id) {
+        throw new VerificationRequestNotFoundError(requestId);
+      }
+      if (request.outcome !== VerificationOutcome.PENDING) {
+        throw new VerificationRequestNotPendingError(request.outcome);
+      }
+      if (current !== CampaignStatus.SUBMITTED) throw new InvalidTransitionError(current);
+      const snapshot = request.checklist as ChecklistEntry[];
+      const known = new Set(snapshot.map((entry) => entry.id));
+      if (Array.from(ticked).some((id) => !known.has(id))) {
+        throw new LifecycleValidationError(
+          "Checklist memuat item yang tidak ada pada pengajuan ini.",
+          "ticked"
+        );
+      }
+      const checklist: ChecklistEntry[] = snapshot.map((entry) => ({
+        ...entry,
+        ticked: ticked.has(entry.id),
+      }));
+      const decided = {
+        checklist,
+        outcome: decision.outcome,
+        reason,
+        decidedById: actor.userId,
+        decidedAt: now,
+      };
+      const written = await tx.verificationRequest.updateMany({
+        where: { id: requestId, outcome: VerificationOutcome.PENDING },
+        data: decided,
       });
+      if (written.count === 0) throw new ConcurrentTransitionError();
       await transition(decision.to, decision.action);
-      await notify({ title: decision.title, message: decision.message(campaign.title) });
-      return {};
+      let identityVerified = false;
+      if (decision.outcome === VerificationOutcome.APPROVED) {
+        // Two Campaigns of one Fundraiser hold different row locks, so two
+        // approvals may race here; the unique userId keeps the first.
+        const created = await tx.identityVerification.createMany({
+          data: [
+            { userId: campaign.creatorId, verifierId: actor.userId, verifiedAt: now, note: identityNote },
+          ],
+          skipDuplicates: true,
+        });
+        identityVerified = created.count > 0;
+      }
+      await notify({ title: decision.title, message: decision.message(campaign.title, reason) });
+      return { verificationRequest: { ...request, ...decided }, identityVerified };
     },
   });
 }

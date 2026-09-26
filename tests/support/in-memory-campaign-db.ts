@@ -107,6 +107,14 @@ export type VerificationRequestRow = {
   isFirst: boolean;
 };
 
+export type IdentityVerificationRow = {
+  id: string;
+  userId: string;
+  verifierId: string;
+  verifiedAt: Date;
+  note: string | null;
+};
+
 /** Every table the stand-in holds; what the interleave hooks receive. */
 export type CampaignDbData = Data;
 
@@ -120,6 +128,7 @@ type Data = {
   campaignFlags: CampaignFlagRow[];
   checklistItems: ChecklistItemRow[];
   verificationRequests: VerificationRequestRow[];
+  identityVerifications: IdentityVerificationRow[];
 };
 
 type Where = Record<string, unknown>;
@@ -196,6 +205,7 @@ function clone(data: Data): Data {
     campaignFlags: data.campaignFlags.map((f) => ({ ...f })),
     checklistItems: data.checklistItems.map((i) => ({ ...i })),
     verificationRequests: data.verificationRequests.map((r) => ({ ...r })),
+    identityVerifications: data.identityVerifications.map((v) => ({ ...v })),
   };
 }
 
@@ -298,6 +308,7 @@ export function makeCampaignDb(
     campaignFlags?: CampaignFlagRow[];
     checklistItems?: ChecklistItemRow[];
     verificationRequests?: VerificationRequestRow[];
+    identityVerifications?: IdentityVerificationRow[];
   } = {},
 ) {
   let committed: Data = {
@@ -310,6 +321,7 @@ export function makeCampaignDb(
     campaignFlags: (seed.campaignFlags ?? []).map((f) => ({ ...f })),
     checklistItems: (seed.checklistItems ?? []).map((i) => ({ ...i })),
     verificationRequests: (seed.verificationRequests ?? []).map((r) => ({ ...r })),
+    identityVerifications: (seed.identityVerifications ?? []).map((v) => ({ ...v })),
   };
   // Row locks taken with `SELECT ... FOR UPDATE`, in order, as
   // "<Table>:<id>". Observable because taking the lock IS the behaviour
@@ -514,12 +526,31 @@ export function makeCampaignDb(
             const campaign = getData().campaigns.find((c) => c.id === r.campaignId);
             return { ...r, campaign: campaign ? { ...campaign } : null };
           }),
+        findUnique: async ({ where }: { where: Where }) => {
+          const row = getData().verificationRequests.find((r) => matches(r, where));
+          return row ? { ...row } : null;
+        },
         count: async ({ where = {} }: { where?: Where } = {}) =>
           getData().verificationRequests.filter((r) => matches(r, where)).length,
         updateMany: async ({ where, data }: { where: Where; data: Partial<VerificationRequestRow> }) => {
           const rows = getData().verificationRequests.filter((r) => matches(r, where));
           for (const row of rows) Object.assign(row, data);
           return { count: rows.length };
+        },
+      },
+      identityVerification: {
+        // `skipDuplicates` is ON CONFLICT DO NOTHING on the unique userId.
+        createMany: async ({ data, skipDuplicates }: { data: Omit<IdentityVerificationRow, 'id'>[]; skipDuplicates?: boolean }) => {
+          let count = 0;
+          for (const input of data) {
+            if (getData().identityVerifications.some((v) => v.userId === input.userId)) {
+              if (skipDuplicates) continue;
+              throw new Error('Unique constraint failed on IdentityVerification.userId');
+            }
+            getData().identityVerifications.push({ id: `identity-${nextId++}`, ...input });
+            count += 1;
+          }
+          return { count };
         },
       },
       payout: {
@@ -584,6 +615,9 @@ export function makeCampaignDb(
     },
     get verificationRequests() {
       return committed.verificationRequests;
+    },
+    get identityVerifications() {
+      return committed.identityVerifications;
     },
     campaignFlag(id = 'flag-1') {
       const row = committed.campaignFlags.find((f) => f.id === id);
