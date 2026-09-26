@@ -42,15 +42,27 @@ import { join } from "node:path";
  * and the lifecycle module checks the assignment with the command's own
  * Indonesian refusal -- shrinking this list by three. LIFECYCLE_ROUTES pins
  * that no lifecycle route falls back to a route-level gate.
+ *
+ * NOTE (capacity-judgement ticket 03): Admin power comes only from the
+ * ADMIN assignment. The Campaign, Trip and Batch edit routes ask
+ * `refuseUnlessFundraiserOrAdmin` (src/lib/refusal-response.ts), which
+ * holds their one remaining CAMPAIGN_CREATOR check for the Fundraiser
+ * path, so that file replaces the Campaign PATCH route below. The admin
+ * pages join the assignment readers, and NO_ADMIN_BY_ROLE pins that no
+ * file grants Admin from the Role any more.
  */
 const HIERARCHY_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/payouts/route.ts",
-  "src/app/api/campaigns/[slug]/route.ts",
   "src/app/api/campaigns/route.ts",
   "src/app/api/upload/route.ts",
+  // Not a route: the CAMPAIGN_CREATOR gate on the Fundraiser path of the
+  // Campaign, Trip and Batch edit routes (prd-compliance tickets 06-08).
+  "src/lib/refusal-response.ts",
 ];
 
 const ASSIGNMENT_GUARDED_ROUTES = [
+  "src/app/admin/layout.tsx",
+  "src/app/admin/page.tsx",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/[id]/role/route.ts",
@@ -85,6 +97,15 @@ const LIFECYCLE_ROUTES = [
   "src/app/api/campaigns/[slug]/urgent/route.ts",
   "src/app/api/moderasi/campaigns/[id]/route.ts",
 ];
+
+/**
+ * Granting Admin power from the legacy Role: comparing a session's or
+ * token's role to ADMIN, or asking the hierarchy for ADMIN. The role
+ * route's own `role !== "ADMIN"` compares the Role being SET, not the
+ * caller's, so it is not a grant and does not match.
+ */
+const ADMIN_BY_ROLE =
+  /(\.role|\buserRole)\s*[!=]==?\s*["']ADMIN["']|\b(isAtLeast|hasRole|requireRole)\([^)]*["']ADMIN["']|\bwithRoleCheck\(\s*["']ADMIN["']|minimumRole:\s*["']ADMIN["']/;
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -140,6 +161,31 @@ describe("roles expand scope", () => {
       .filter((file) => usesAssignment(readFileSync(file, "utf8")));
 
     expect(readers.sort()).toEqual([...ASSIGNMENT_GUARDED_ROUTES].sort());
+  });
+
+  it("catches a legacy Admin grant (the guard's own check)", () => {
+    expect('session.user.role !== "ADMIN"').toMatch(ADMIN_BY_ROLE);
+    expect("const isAdmin = userRole === 'ADMIN';").toMatch(ADMIN_BY_ROLE);
+    expect("isAtLeast(userRole, 'ADMIN')").toMatch(ADMIN_BY_ROLE);
+    expect('withRoleCheck("ADMIN", handler)').toMatch(ADMIN_BY_ROLE);
+    expect('{ pattern: "/admin", minimumRole: "ADMIN" }').toMatch(ADMIN_BY_ROLE);
+    expect('if (session!.user.id === id && role !== "ADMIN") {').not.toMatch(ADMIN_BY_ROLE);
+    expect("isAtLeast(userRole, 'CAMPAIGN_CREATOR')").not.toMatch(ADMIN_BY_ROLE);
+  });
+
+  it("no file grants Admin power from the legacy Role (ADR 0005)", () => {
+    const offenders = walk("src")
+      .filter((file) => !file.endsWith(".test.ts") && !file.endsWith(".test.tsx"))
+      .filter((file) => !file.startsWith("src/generated/"))
+      .filter((file) => ADMIN_BY_ROLE.test(readFileSync(file, "utf8")));
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("the middleware gates /admin on the ADMIN assignment the session token carries", () => {
+    const source = readFileSync("src/middleware.ts", "utf8");
+    expect(source).toMatch(/pattern:\s*"\/admin",\s*assignment:\s*"ADMIN"/);
+    expect(source).toContain("token?.assignments");
   });
 
   it("every lifecycle route goes through the lifecycle adapter, never a route-level gate", () => {

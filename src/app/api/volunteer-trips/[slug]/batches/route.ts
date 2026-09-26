@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { isAtLeast } from '@/lib/roles';
-import { refuseUnlessFundraiser } from '@/lib/refusal-response';
-import { Role } from '@/generated/prisma/client';
+import { refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
 
 const createBatchSchema = z
   .object({
@@ -57,18 +55,8 @@ export async function POST(
       return NextResponse.json({ error: 'Volunteer trip tidak ditemukan' }, { status: 404 });
     }
 
-    const userRole = (session.user.role as Role) ?? 'DONOR';
-    const isAdmin = userRole === 'ADMIN';
-
-    if (!isAdmin) {
-      // Still gated by the legacy CAMPAIGN_CREATOR Role until who may create
-      // a Campaign or Volunteer Trip is decided (prd-compliance tickets 06-08).
-      if (!isAtLeast(userRole, 'CAMPAIGN_CREATOR')) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
-      const refusal = refuseUnlessFundraiser({ kind: 'trip', ownerId: trip.fundraiserId }, session.user);
-      if (refusal) return refusal;
-    }
+    const refusal = refuseUnlessFundraiserOrAdmin({ kind: 'trip', ownerId: trip.fundraiserId }, session.user);
+    if (refusal) return refusal;
 
     if (!BATCH_ADDABLE_STATUSES.includes(trip.status)) {
       return NextResponse.json(

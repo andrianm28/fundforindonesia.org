@@ -12,46 +12,39 @@ import { withRoleCheck } from "@/lib/withRoleCheck";
 
 const mockedGetServerSession = vi.mocked(getServerSession);
 
-// ─── Middleware Route Access Logic (replicates edge-runtime middleware) ───
+// ─── Middleware Route Access (the real middleware) ───
 
 type MiddlewareRole = "ADMIN" | "MODERATOR" | "CAMPAIGN_CREATOR" | "DONOR";
 
-const ROLE_LEVELS: Record<MiddlewareRole, number> = {
-  DONOR: 0,
-  CAMPAIGN_CREATOR: 1,
-  MODERATOR: 2,
-  ADMIN: 3,
-};
+// Drive the real middleware: withAuth only decodes the session cookie into
+// req.nextauth.token before calling our function, so stand in for that.
+// (These tests used to replicate the middleware's logic, and kept passing
+// on the copy when the real gate changed.)
+vi.mock("next-auth/middleware", () => ({
+  withAuth: (middleware: unknown) => middleware,
+}));
 
-const ROLE_ROUTES: { pattern: string; minimumRole: MiddlewareRole }[] = [
-  { pattern: "/admin", minimumRole: "ADMIN" },
-  { pattern: "/moderasi", minimumRole: "MODERATOR" },
-  { pattern: "/campaign/create", minimumRole: "CAMPAIGN_CREATOR" },
-];
+import middleware from "@/middleware";
+
+type MiddlewareAssignment = "ADMIN" | "VERIFIER";
 
 /**
- * Simulates the middleware's access decision logic.
+ * Runs the middleware for a signed-in user with this Role and these
+ * assignments (the session token carries both; see src/lib/auth.ts).
  * Returns: "allow" | "redirect:/" | "redirect:/akun"
  */
 function checkRouteAccess(
   pathname: string,
-  userRole: MiddlewareRole | null | undefined
-): "allow" | "redirect:/" | "redirect:/akun" {
-  const effectiveRole: MiddlewareRole = (userRole as MiddlewareRole) ?? "DONOR";
-
-  for (const route of ROLE_ROUTES) {
-    if (pathname.startsWith(route.pattern)) {
-      if (ROLE_LEVELS[effectiveRole] < ROLE_LEVELS[route.minimumRole]) {
-        // Special case: DONOR on /campaign/create redirects to /akun
-        if (route.pattern === "/campaign/create" && effectiveRole === "DONOR") {
-          return "redirect:/akun";
-        }
-        return "redirect:/";
-      }
-    }
-  }
-
-  return "allow";
+  userRole: MiddlewareRole | null | undefined,
+  assignments: MiddlewareAssignment[] = []
+): string {
+  const req = new NextRequest(`http://localhost:3000${pathname}`) as NextRequest & {
+    nextauth: { token: { role?: MiddlewareRole; assignments: MiddlewareAssignment[] } };
+  };
+  req.nextauth = { token: { role: userRole ?? undefined, assignments } };
+  const response = (middleware as unknown as (r: NextRequest) => Response)(req);
+  const location = response.headers.get("location");
+  return location ? `redirect:${new URL(location).pathname}` : "allow";
 }
 
 // ─── Helper functions ───
@@ -166,18 +159,28 @@ describe("Route Protection Integration Tests", () => {
   describe("Middleware Route Access: ADMIN permissions", () => {
     // **Validates: Requirements 3.1, 4.1**
 
-    it("ADMIN can access /admin route — allowed", () => {
+    it("the ADMIN assignment can access /admin — allowed", () => {
+      const result = checkRouteAccess("/admin", "ADMIN", ["ADMIN"]);
+      expect(result).toBe("allow");
+    });
+
+    it("the ADMIN assignment can access /admin/users — allowed", () => {
+      const result = checkRouteAccess("/admin/users", "ADMIN", ["ADMIN"]);
+      expect(result).toBe("allow");
+    });
+
+    it("the ADMIN assignment can access /admin/campaigns — allowed", () => {
+      const result = checkRouteAccess("/admin/campaigns", "ADMIN", ["ADMIN"]);
+      expect(result).toBe("allow");
+    });
+
+    it("the ADMIN Role without the ADMIN assignment cannot access /admin — redirected to home", () => {
       const result = checkRouteAccess("/admin", "ADMIN");
-      expect(result).toBe("allow");
+      expect(result).toBe("redirect:/");
     });
 
-    it("ADMIN can access /admin/users — allowed", () => {
-      const result = checkRouteAccess("/admin/users", "ADMIN");
-      expect(result).toBe("allow");
-    });
-
-    it("ADMIN can access /admin/campaigns — allowed", () => {
-      const result = checkRouteAccess("/admin/campaigns", "ADMIN");
+    it("the ADMIN assignment without the ADMIN Role can access /admin — allowed", () => {
+      const result = checkRouteAccess("/admin", "DONOR", ["ADMIN"]);
       expect(result).toBe("allow");
     });
 

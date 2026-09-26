@@ -73,6 +73,20 @@ describe('POST /api/volunteer-trips/[slug]/batches', () => {
     expect(mockBatchCreate).not.toHaveBeenCalled();
   });
 
+  it('lets an Admin (the ADMIN assignment, without the Role) add a Batch to a Trip they do not own', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'ops-1', role: 'DONOR', assignments: ['ADMIN'] } });
+    const response = await POST(createRequest(VALID_BATCH), routeContext());
+    expect(response.status).toBe(201);
+  });
+
+  it('refuses someone with the ADMIN Role but no ADMIN assignment on a Trip they do not own', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'legacy-admin', role: 'ADMIN', assignments: [] } });
+    const response = await POST(createRequest(VALID_BATCH), routeContext());
+    expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('NOT_AUTHORIZED');
+    expect(mockBatchCreate).not.toHaveBeenCalled();
+  });
+
   it('creates an OPEN Batch for the owning Fundraiser', async () => {
     const response = await POST(createRequest(VALID_BATCH), routeContext());
     expect(response.status).toBe(201);

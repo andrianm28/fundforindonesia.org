@@ -75,10 +75,21 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  it('allows an ADMIN to edit a Trip they do not own', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN' } });
+  it('allows an Admin (the ADMIN assignment, without the Role) to edit a Trip they do not own', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'DONOR', assignments: ['ADMIN'] } });
     const response = await PATCH(patchRequest({ title: 'Updated title' }), routeContext());
     expect(response.status).toBe(200);
+  });
+
+  it('refuses someone with the ADMIN Role but no ADMIN assignment on a Trip they do not own', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'legacy-admin', role: 'ADMIN', assignments: [] } });
+    const response = await PATCH(patchRequest({ title: 'Updated title' }), routeContext());
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'Hanya Fundraiser Volunteer Trip ini yang dapat melakukan tindakan ini.',
+      code: 'NOT_AUTHORIZED',
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it('allows the owning Fundraiser to edit fields while DRAFT', async () => {

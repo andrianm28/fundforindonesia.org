@@ -358,11 +358,19 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
     });
 
     it('allows an Admin who does not own the Trip to complete a Batch', async () => {
-      mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN' } });
+      mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'DONOR', assignments: ['ADMIN'] } });
       mockBatchUpdateMany.mockResolvedValue({ count: 1 });
       const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
       expect(response.status).toBe(200);
       expect(mockBatchUpdateMany).toHaveBeenCalled();
+    });
+
+    it('refuses someone with the ADMIN Role but no ADMIN assignment who does not own the Trip', async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: 'legacy-admin', role: 'ADMIN', assignments: [] } });
+      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+      expect(response.status).toBe(403);
+      expect((await response.json()).code).toBe('NOT_AUTHORIZED');
+      expect(mockBatchUpdateMany).not.toHaveBeenCalled();
     });
 
     it('returns 400 when the Batch endDate has not passed yet', async () => {

@@ -45,8 +45,12 @@ const slugArb = fc.string({ minLength: 3, maxLength: 30 }).filter(
 // Arbitrary for roles
 const roleArb = fc.constantFrom<Role>(...VALID_ROLES);
 
+// Arbitrary for the assignments a person holds (ADR 0005)
+type Assignment = "ADMIN" | "VERIFIER";
+const assignmentsArb = fc.subarray<Assignment>(["ADMIN", "VERIFIER"]);
+
 // Helper to create a mock session
-function mockSession(userId: string, role: Role) {
+function mockSession(userId: string, role: Role, assignments: Assignment[] = []) {
   return {
     user: {
       id: userId,
@@ -55,6 +59,7 @@ function mockSession(userId: string, role: Role) {
       role,
       isVerified: true,
       verificationType: null,
+      assignments,
     },
     expires: new Date(Date.now() + 86400000).toISOString(),
   };
@@ -97,18 +102,19 @@ beforeEach(() => {
 });
 
 describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforcement", () => {
-  describe("ADMIN always allowed to edit regardless of ownership", () => {
-    test("ADMIN can always PATCH any campaign, even when not the owner", async () => {
+  describe("an Admin (the ADMIN assignment) is allowed to edit regardless of ownership", () => {
+    test("the ADMIN assignment can always PATCH a campaign it does not own, whatever the Role", async () => {
       await fc.assert(
         fc.asyncProperty(
           userIdArb,
           userIdArb,
+          roleArb,
           slugArb,
-          async (adminId, creatorId, slug) => {
+          async (adminId, creatorId, role, slug) => {
             // Ensure admin is NOT the creator to test non-owner admin access
             fc.pre(adminId !== creatorId);
 
-            mockGetServerSession.mockResolvedValue(mockSession(adminId, "ADMIN"));
+            mockGetServerSession.mockResolvedValue(mockSession(adminId, role, ["ADMIN"]));
             mockFindUnique.mockResolvedValue(mockCampaign(creatorId) as any);
 
             const req = createPatchRequest(slug);
@@ -231,28 +237,30 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
   });
 
   describe("Comprehensive ownership enforcement property", () => {
-    test("For any user/campaign combo: access is determined by (role >= CAMPAIGN_CREATOR AND is owner) OR role === ADMIN", async () => {
+    test("For any user/campaign combo: access is determined by (role >= CAMPAIGN_CREATOR AND is owner) OR (ADMIN assignment AND not owner)", async () => {
       await fc.assert(
         fc.asyncProperty(
           userIdArb,
-          userIdArb,
+          fc.oneof(userIdArb, fc.constant("same-user")),
           roleArb,
+          assignmentsArb,
           slugArb,
-          async (userId, creatorId, role, slug) => {
-            mockGetServerSession.mockResolvedValue(mockSession(userId, role));
+          async (rawUserId, creatorId, role, assignments, slug) => {
+            const userId = creatorId === "same-user" ? "same-user" : rawUserId;
+            mockGetServerSession.mockResolvedValue(mockSession(userId, role, assignments));
             mockFindUnique.mockResolvedValue(mockCampaign(creatorId) as any);
 
             const req = createPatchRequest(slug);
             const response = await PATCH(req, createParams(slug) as any);
 
-            const isAdmin = role === "ADMIN";
-            const isOwnerWithSufficientRole =
-              role === "CAMPAIGN_CREATOR" && userId === creatorId;
-            // MODERATOR who is owner also has isAtLeast("CAMPAIGN_CREATOR") = true
-            const isModeratorOwner =
-              role === "MODERATOR" && userId === creatorId;
+            const isOwner = userId === creatorId;
+            // Admin power comes only from the assignment; on their own
+            // Campaign an Admin is its Fundraiser (CONTEXT.md, Capacity).
+            const actsAsAdmin = !isOwner && assignments.includes("ADMIN");
+            // The Fundraiser path still needs the legacy Role (tickets 06-08).
+            const isOwnerWithSufficientRole = isOwner && role !== "DONOR";
 
-            const shouldAllow = isAdmin || isOwnerWithSufficientRole || isModeratorOwner;
+            const shouldAllow = actsAsAdmin || isOwnerWithSufficientRole;
 
             if (shouldAllow) {
               expect(response.status).toBe(200);
