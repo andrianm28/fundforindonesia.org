@@ -25,14 +25,9 @@ const SUBJECT_LOCK =
 /**
  * The Batch and Registration row locks belong to the Volunteer Trip module
  * (src/lib/volunteer/trip.ts), which documents the one lock order: Trip →
- * Batch → Registration → Payment. The Registration hold route still locks
- * its Batch itself (and nothing after it) until the Registration operations
- * move into the module; it leaves this list then.
+ * Batch → Registration → Payment.
  */
-const ALLOWED_BATCH_OR_REGISTRATION_LOCKERS = [
-  "src/app/api/volunteer-trips/[slug]/batches/[id]/registrations/route.ts",
-  "src/lib/volunteer/trip.ts",
-];
+const ALLOWED_BATCH_OR_REGISTRATION_LOCKERS = ["src/lib/volunteer/trip.ts"];
 
 const BATCH_OR_REGISTRATION_LOCK =
   /FROM\s+"(VolunteerBatch|Registration)"[^`;]*?\bFOR\s+(UPDATE|NO\s+KEY\s+UPDATE|SHARE|KEY\s+SHARE)\b/;
@@ -62,7 +57,7 @@ describe("Campaign and Volunteer Trip row locks have one owner", () => {
     expect(lockers).toEqual(ALLOWED_LOCKERS);
   });
 
-  it("only the Volunteer Trip module, and the Registration hold route until it moves there, lock a Batch or Registration row", () => {
+  it("only the Volunteer Trip module locks a Batch or Registration row", () => {
     const lockers = appFiles()
       .filter((file) => BATCH_OR_REGISTRATION_LOCK.test(readFileSync(file, "utf8")))
       .sort();

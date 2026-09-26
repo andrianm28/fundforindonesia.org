@@ -11,7 +11,12 @@ import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { escrowReleaseAt } from '@/lib/money/escrow';
 import { notifyDonationConfirmed, notifyRegistrationConfirmed } from '@/lib/notifications';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
-import { createRefund } from '@/lib/money/refunds';
+import {
+  confirmRegistration,
+  expireRegistrationHold,
+  refundLateSettlement,
+  type ConfirmRegistrationOutcome,
+} from '@/lib/volunteer/trip';
 
 /**
  * The single place where money becomes real.
@@ -271,53 +276,30 @@ export async function POST(
           return { settled: false as const };
         }
 
-        let registrationConfirmed = true;
-        let cancelledRegistration: { id: string; volunteerId: string; tripId: string; paymentId: string; amount: number } | null = null;
+        let registrationOutcome: ConfirmRegistrationOutcome | null = null;
 
         if (isTripPayment) {
           const { registration } = payment;
-          const registrationUpdate = await tx.registration.updateMany({
-            where: { id: registration!.id, status: 'HOLD' },
-            data: { status: 'CONFIRMED' },
-          });
-          registrationConfirmed = registrationUpdate.count > 0;
+          // The Volunteer Trip module confirms the seat, or reports why it
+          // could not: the Registration was cancelled first (refunded in
+          // full once this commits) or its hold lapsed.
+          ({ outcome: registrationOutcome } = await confirmRegistration(tx, { registrationId: registration!.id }));
 
-          if (!registrationConfirmed) {
-            // The Registration's own volunteerId/tripId are already known
-            // from the Payment fetched before this transaction opened --
-            // they never change. Only its status can have moved concurrently,
-            // which is exactly what we're re-checking here: distinguishing a
-            // deliberate cancellation (auto-refund it) from a naturally
-            // expired hold (still an open product question, left alone).
-            const current = await tx.registration.findUnique({
-              where: { id: registration!.id },
-              select: { status: true },
-            });
-            if (current?.status === 'CANCELLED') {
-              console.error(
-                `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was already CANCELLED -- auto-refunding the full amount`,
-              );
-              cancelledRegistration = {
-                id: registration!.id,
-                volunteerId: registration!.volunteerId,
-                tripId: registration!.batch.tripId,
-                paymentId: payment.id,
-                amount: payment.amount,
-              };
-            } else {
-              // The hold-expiry sweep (releaseExpiredHolds,
-              // src/lib/volunteer/registration.ts) can flip a Registration
-              // HOLD -> EXPIRED without ever touching its Payment, which can
-              // stay PENDING for up to VA_EXPIRY_MS after the 30-minute hold
-              // window closed. If a charge clears in that window, the money
-              // genuinely arrived at the provider -- the ledger legs below
-              // still post, same as any other settlement -- but there is no
-              // longer a seat to confirm. Logged here for manual review: money
-              // collected, no seat held.
-              console.error(
-                `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was no longer HOLD (hold likely already expired) -- money collected, no seat confirmed, needs manual review`,
-              );
-            }
+          if (registrationOutcome === 'cancelled') {
+            console.error(
+              `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was already CANCELLED -- auto-refunding the full amount`,
+            );
+          } else if (registrationOutcome === 'lapsed') {
+            // A hold expires (at the next hold on its Batch) without its
+            // Payment being touched, and the Payment can stay PENDING for up
+            // to VA_EXPIRY_MS after the 30-minute hold window closed. If a
+            // charge clears in that window, the money genuinely arrived at
+            // the provider -- the ledger legs below still post, same as any
+            // other settlement -- but there is no longer a seat to confirm.
+            // Logged here for manual review: money collected, no seat held.
+            console.error(
+              `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was no longer HOLD (hold likely already expired) -- money collected, no seat confirmed, needs manual review`,
+            );
           }
 
           // Deriving the ledger transactionId from the provider event id makes
@@ -382,7 +364,7 @@ export async function POST(
           data: { processedAt: new Date() },
         });
 
-        return { settled: true as const, registrationConfirmed, cancelledRegistration };
+        return { settled: true as const, registrationOutcome };
       });
 
       if (settled.settled) {
@@ -393,38 +375,28 @@ export async function POST(
           // Only notify when the Registration was actually confirmed above --
           // a Volunteer whose hold already expired has no seat, and telling
           // them registration succeeded would be worse than saying nothing.
-          if (settled.registrationConfirmed) {
-            const { registration } = payment;
+          const { registration } = payment;
+          if (settled.registrationOutcome === 'confirmed') {
             await notifyRegistrationConfirmed({
               volunteerId: registration!.volunteerId,
               tripSlug: registration!.batch.trip.slug,
               tripTitle: registration!.batch.trip.title,
               amount: payment.amount,
             });
-          } else if (settled.cancelledRegistration) {
-            // A fresh, separate transaction -- never the settlement's own
-            // `tx`. createRefund locks VolunteerTrip-then-Payment; the
-            // settlement transaction above has already written Payment, so
-            // calling createRefund from inside it would lock in the reverse
-            // of this codebase's established Campaign/VolunteerTrip-then-
-            // Payment order and reintroduce a real deadlock class (see
-            // src/lib/money/escrow.ts's own lock-ordering comment). Failure
-            // here is caught, not thrown: the settlement already committed
-            // and this webhook must still answer 200 to the provider.
+          } else if (settled.registrationOutcome === 'cancelled') {
+            // The Trip Fee Refund policy's late-settlement case, in the
+            // module's own transaction -- never the settlement's `tx`, which
+            // has already written the Payment: createRefund locks
+            // VolunteerTrip-then-Payment, and calling it from inside would
+            // lock in the reverse of that order (see the lock order in
+            // src/lib/volunteer/trip.ts). Failure here is caught, not
+            // thrown: the settlement already committed and this webhook
+            // must still answer 200 to the provider.
             try {
-              const cr = settled.cancelledRegistration;
-              await prisma.$transaction((tx2) =>
-                createRefund(tx2, {
-                  subject: { type: 'trip', tripId: cr.tripId },
-                  paymentId: cr.paymentId,
-                  amount: cr.amount,
-                  reason: 'Trip Fee settlement arrived after the Registration was already cancelled -- refunded automatically',
-                  requestedById: cr.volunteerId,
-                }),
-              );
+              await refundLateSettlement(prisma, { registrationId: registration!.id });
             } catch (err) {
               console.error(
-                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${settled.cancelledRegistration.paymentId} for cancelled registration ${settled.cancelledRegistration.id}`,
+                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${payment.id} for cancelled registration ${registration!.id}`,
                 err,
               );
             }
@@ -472,10 +444,7 @@ export async function POST(
         }
 
         if (isTripPayment) {
-          await tx.registration.updateMany({
-            where: { id: payment.registration!.id, status: 'HOLD' },
-            data: { status: 'EXPIRED' },
-          });
+          await expireRegistrationHold(tx, { registrationId: payment.registration!.id });
         } else {
           await tx.donation.update({
             where: { id: payment.donation!.id },
