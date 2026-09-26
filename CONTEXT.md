@@ -99,7 +99,7 @@ Izin penghimpunan dana sosial bertanggal yang dipegang sebuah Collecting Entity.
 _Avoid_: Izin PUB (di kode), lisensi, legalitas
 
 **Verifier**:
-Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memasang Flag, memverifikasi identitas Fundraiser, dan memeriksa rekening tujuan baik untuk Payout maupun untuk Refund. Tidak men-suspend; itu keputusan Admin. Seperti Admin, tidak pernah bertindak sebagai Verifier atas Campaign atau Volunteer Trip miliknya sendiri. Di kode peran ini bernama MODERATOR.
+Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memasang Flag, memverifikasi identitas Fundraiser, dan memeriksa rekening tujuan baik untuk Payout maupun untuk Refund. Tidak men-suspend; itu keputusan Admin. Seperti Admin, tidak pernah bertindak sebagai Verifier atas Campaign atau Volunteer Trip miliknya sendiri. Di kode ini penugasan VERIFIER; Role lama MODERATOR tidak lagi memberi wewenang apa pun.
 _Avoid_: Verifikator, moderator (di percakapan)
 
 **Cancellation**:
