@@ -16,7 +16,9 @@ import { resolve } from "node:path";
  * exactly this reason.
  *
  * A deliberately small reader instead of a YAML dependency: it takes the
- * `volumes:` list of one service by indentation, which is all this needs.
+ * `volumes:` list of one service by indentation, which is all this needs. It
+ * fails loudly, never silently, on a layout it does not understand: a
+ * reformatted list loses the uploads entry, and a long-form entry throws.
  */
 function serviceVolumes(compose: string, service: string): string[] {
   const lines = compose.split("\n");
@@ -31,7 +33,14 @@ function serviceVolumes(compose: string, service: string): string[] {
       continue;
     }
     const entry = line.match(/^ {6}- (\S+)/);
-    if (inVolumes && entry) volumes.push(entry[1]);
+    if (!inVolumes || !entry) continue;
+    // Only the short `source:target[:mode]` form is understood. A long-form
+    // entry (`- type: bind` / `source:` / `target:`) would otherwise read as
+    // "type:" and slip a host mount past the guard, so refuse it loudly.
+    if (!/^[^:]+:\/\S*$/.test(entry[1])) {
+      throw new Error(`unsupported volume entry in ${service}: ${line.trim()}`);
+    }
+    volumes.push(entry[1]);
   }
   return volumes;
 }
