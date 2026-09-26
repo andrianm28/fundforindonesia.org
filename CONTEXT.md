@@ -118,6 +118,10 @@ _Avoid_: Laporan (bentrok dengan Usage Report), report, aduan, dilaporkan
 Satu pengajuan Campaign untuk diperiksa Verifier, dengan checklist dokumen dan hasil lolos atau ditolak beserta alasan. Setiap submit ulang membuat Verification Request baru, sehingga riwayat penolakan tersimpan.
 _Avoid_: Moderasi, review, approval
 
+**Capacity**:
+Peran yang dipakai seseorang untuk satu tindakan: Fundraiser, Verifier, Admin, atau System (tindakan otomatis platform). Satu orang boleh memegang beberapa penugasan, tetapi setiap tindakan tercatat dalam tepat satu Capacity. Atas Campaign atau Volunteer Trip miliknya sendiri, seseorang hanya bisa bertindak sebagai Fundraiser.
+_Avoid_: Role (di kode itu hierarki lama), peran, jabatan
+
 **Admin**:
 Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, mengelola peran pengguna, memutuskan dan mencabut Suspension, menyetujui Cancellation, menandai Campaign Completed, serta memasang dan melepas Urgent. Tidak pernah bertindak sebagai Admin atas Campaign atau Volunteer Trip miliknya sendiri; di sana ia hanya Fundraiser. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
 
