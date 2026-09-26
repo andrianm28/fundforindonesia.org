@@ -54,3 +54,4 @@ next-env.d.ts
 
 # Harness-managed git worktrees. Never committed.
 .claude/worktrees/
+.ratchet-lint.json
