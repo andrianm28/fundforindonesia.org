@@ -15,7 +15,7 @@ Tahap hidup Campaign: Draft, Submitted, Rejected, Active, Suspended, Cancelled, 
 _Avoid_: State, pending, published
 
 **Kind**:
-Jenis Campaign yang menentukan aturan uangnya: `donation`, `zakat`, `wakaf`, atau `hibah`. Kind menentukan Platform Fee default dan dokumen yang wajib ada.
+Jenis Campaign yang menentukan aturan uangnya: `donation`, `zakat`, `wakaf`, atau `hibah`. Kind menentukan Platform Fee default dan dokumen yang wajib ada. Kind hanya bisa diubah selama Campaign masih Draft. Sejak diajukan, termasuk setelah Rejected, Kind terkunci; Campaign yang salah Kind dibuat ulang sebagai Campaign baru, supaya aturan izin per Kind tidak bisa dihindari lewat pengajuan ulang.
 _Avoid_: Type, jenis campaign, kategori (Category adalah hal lain)
 
 **Hibah**:
