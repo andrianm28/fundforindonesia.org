@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { refuseUnlessFundraiser } from '@/lib/refusal-response';
 
 const createUpdateSchema = z.object({
   title: z.string().min(1, 'Judul harus diisi').max(200, 'Judul maksimal 200 karakter'),
@@ -96,13 +97,9 @@ export async function POST(
       );
     }
 
-    // Check if user is the campaign creator
-    if (campaign.creatorId !== session.user.id) {
-      return NextResponse.json(
-        { error: 'Hanya pembuat campaign yang dapat menambah update' },
-        { status: 403 }
-      );
-    }
+    // Only the Campaign's Fundraiser posts its updates (CONTEXT.md, Capacity).
+    const refusal = refuseUnlessFundraiser({ kind: 'campaign', ownerId: campaign.creatorId }, session.user);
+    if (refusal) return refusal;
 
     // Validate request body
     const body = await request.json();

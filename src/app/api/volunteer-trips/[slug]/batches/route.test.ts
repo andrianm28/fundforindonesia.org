@@ -66,6 +66,10 @@ describe('POST /api/volunteer-trips/[slug]/batches', () => {
     mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
     const response = await POST(createRequest(VALID_BATCH), routeContext());
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'Hanya Fundraiser Volunteer Trip ini yang dapat melakukan tindakan ini.',
+      code: 'NOT_AUTHORIZED',
+    });
     expect(mockBatchCreate).not.toHaveBeenCalled();
   });
 

@@ -167,7 +167,10 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
 
             expect(response.status).toBe(403);
             const body = await response.json();
-            expect(body.error).toBe("Forbidden");
+            expect(body).toEqual({
+              error: "Hanya Fundraiser Campaign ini yang dapat melakukan tindakan ini.",
+              code: "NOT_AUTHORIZED",
+            });
           }
         ),
         { numRuns: 100 }

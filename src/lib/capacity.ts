@@ -1,5 +1,4 @@
 import { Assignment, StatusChangeCapacity } from "@/generated/prisma/client";
-import { NotAuthorizedError } from "./campaign-lifecycle-errors";
 import { DomainError, type CapacityErrorCode } from "./domain-errors";
 
 /**
@@ -51,10 +50,28 @@ const SUBJECT_LABELS: Record<CapacitySubject["kind"], string> = {
   trip: "Volunteer Trip",
 };
 
-const OWN_SUBJECT_CODES: Record<CapacitySubject["kind"], CapacityErrorCode> = {
+/** The two codes of acting on your own record, one per subject kind. */
+type OwnSubjectCode = Exclude<CapacityErrorCode, "NOT_AUTHORIZED">;
+
+const OWN_SUBJECT_CODES: Record<CapacitySubject["kind"], OwnSubjectCode> = {
   campaign: "OWN_CAMPAIGN_CONFLICT",
   trip: "OWN_TRIP_CONFLICT",
 };
+
+/**
+ * The actor may not act in the requested Capacity on this subject: they
+ * lack the ADMIN or VERIFIER assignment it needs, or they asked to act as
+ * the Fundraiser of a Campaign or Volunteer Trip they do not own. 403
+ * `NOT_AUTHORIZED` through `domainErrorToHttp`, for both subjects. Also
+ * re-exported from ./campaign-lifecycle-errors, where it used to live.
+ */
+export class NotAuthorizedError extends DomainError {
+  readonly code = "NOT_AUTHORIZED";
+  constructor(message = "Anda tidak berwenang melakukan tindakan ini.") {
+    super(message);
+    this.name = "NotAuthorizedError";
+  }
+}
 
 /**
  * An Admin or Verifier tried to act in that Capacity on a Campaign or
@@ -63,7 +80,7 @@ const OWN_SUBJECT_CODES: Record<CapacitySubject["kind"], CapacityErrorCode> = {
  * or `OWN_TRIP_CONFLICT`, as API clients have always seen it.
  */
 export class OwnSubjectConflictError extends DomainError {
-  readonly code: CapacityErrorCode;
+  readonly code: OwnSubjectCode;
   constructor(
     readonly subjectKind: CapacitySubject["kind"],
     readonly capacity: OperatorCapacity
@@ -105,14 +122,16 @@ export function requireAssignmentFor(
  * - FUNDRAISER_OR_ADMIN: the owner as FUNDRAISER; anyone else as ADMIN,
  *   needing that assignment, else NotAuthorizedError.
  *
- * `refusal` is the NotAuthorizedError message; left out, a generic one
- * naming the subject.
+ * `refusal` is the NotAuthorizedError message. Left out, a FUNDRAISER
+ * request is refused as "only this subject's Fundraiser may", the one
+ * message every owner-only route answers with; any other request with a
+ * generic one naming the subject.
  */
 export function judgeCapacity(
   subject: CapacitySubject,
   actor: CapacityActor,
   requested: RequestedCapacity,
-  refusal: string = defaultRefusal(subject.kind)
+  refusal: string = defaultRefusal(subject.kind, requested)
 ): StatusChangeCapacity {
   const isOwner = subject.ownerId === actor.userId;
   if (isOperator(requested)) {
@@ -127,6 +146,9 @@ export function judgeCapacity(
   throw new NotAuthorizedError(refusal);
 }
 
-function defaultRefusal(kind: CapacitySubject["kind"]): string {
+function defaultRefusal(kind: CapacitySubject["kind"], requested: RequestedCapacity): string {
+  if (requested === StatusChangeCapacity.FUNDRAISER) {
+    return `Hanya Fundraiser ${SUBJECT_LABELS[kind]} ini yang dapat melakukan tindakan ini.`;
+  }
   return `Anda tidak berwenang melakukan tindakan ini pada ${SUBJECT_LABELS[kind]} ini.`;
 }

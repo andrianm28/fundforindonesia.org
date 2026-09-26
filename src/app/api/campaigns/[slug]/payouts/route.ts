@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withRoleCheck } from '@/lib/withRoleCheck';
-import { refusalResponse } from '@/lib/refusal-response';
+import { refusalResponse, refuseUnlessFundraiser } from '@/lib/refusal-response';
 import { requestPayout } from '@/lib/money/payouts';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 
@@ -19,8 +19,8 @@ const requestPayoutSchema = z.object({
  * withRoleCheck('CAMPAIGN_CREATOR') only proves the caller is A campaign
  * creator, not the creator of THIS campaign -- it gates on role and does not
  * pass the session to the handler, so getServerSession is called again here
- * and the ownership check below is what actually stops one creator from
- * draining another's campaign.
+ * and the Capacity judgement below (only this Campaign's Fundraiser) is what
+ * actually stops one creator from draining another's campaign.
  */
 export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextRequest, context: any) => {
   const { slug } = await context.params;
@@ -42,12 +42,8 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
   if (!campaign) {
     return NextResponse.json({ error: 'Campaign tidak ditemukan' }, { status: 404 });
   }
-  if (campaign.creatorId !== userId) {
-    return NextResponse.json(
-      { error: 'Anda tidak berhak mengajukan pencairan untuk campaign ini' },
-      { status: 403 },
-    );
-  }
+  const refusal = refuseUnlessFundraiser({ kind: 'campaign', ownerId: campaign.creatorId }, session!.user!);
+  if (refusal) return refusal;
 
   try {
     // Release every matured escrow hold for this campaign before checking
