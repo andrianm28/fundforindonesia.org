@@ -32,6 +32,19 @@ export async function organisationOf(db: Db, userId: string): Promise<Organisati
   return db.partnerOrganisation.findUnique({ where: { fundraiserId: userId } });
 }
 
+/**
+ * An individual Fundraiser (`own` is null, from `organisationOf`) may only
+ * run Kind `donation` (CONTEXT.md, Kind Authorisation; ADR 0013): zakat,
+ * wakaf and hibah need an institution a Verifier has vetted. The one check
+ * shared by Campaign creation (POST /api/campaigns), an edit of Kind (PATCH
+ * /api/campaigns/[slug]), and requireOpenable below (submission and
+ * approval), so a Draft can never even be set to a Kind its Fundraiser may
+ * not run.
+ */
+export function requireDonationOnlyForIndividual(own: Organisation | null, kind: Kind): void {
+  if (!own && kind !== "DONATION") throw new IndividualFundraiserKindError(kind);
+}
+
 function notOwnOrganisation(own: Organisation): CollectingEntityNotEligibleError {
   return new CollectingEntityNotEligibleError(
     `Campaign dari akun ${own.name} selalu dihimpun atas nama ${own.name}.`
@@ -88,7 +101,7 @@ export async function requireOpenable(
 ): Promise<void> {
   if (!campaign.collectingEntityId) throw new CollectingEntityRequiredError();
   const own = await organisationOf(db, campaign.creatorId);
-  if (!own && campaign.kind !== "DONATION") throw new IndividualFundraiserKindError(campaign.kind);
+  requireDonationOnlyForIndividual(own, campaign.kind);
   const entity = await db.partnerOrganisation.findUnique({
     where: { id: campaign.collectingEntityId },
     include: { permits: true, kindAuthorisations: true },
