@@ -64,8 +64,17 @@ export type PartnerOrganisationAuditRow = {
   actedAt: Date;
 };
 
-/** Only what the Partner Organisation commands read of a User. */
-export type UserRow = { id: string; email: string; name: string };
+
+/** The slice of a User the lifecycle reads: who a Fundraiser is, to write to them. */
+export type UserRow = {
+  id: string;
+  email: string;
+  name: string;
+};
+
+export function userRow(overrides: Partial<UserRow> = {}): UserRow {
+  return { id: 'creator-1', email: 'creator-1@example.test', name: 'Siti Fundraiser', ...overrides };
+}
 
 export type StatusChangeRow = {
   id: string;
@@ -182,7 +191,6 @@ type Data = {
   partnerOrganisations: PartnerOrganisationRow[];
   fundraisingPermits: FundraisingPermitRow[];
   partnerOrganisationAudits: PartnerOrganisationAuditRow[];
-  users: UserRow[];
 };
 
 type Where = Record<string, unknown>;
@@ -264,7 +272,6 @@ function clone(data: Data): Data {
     partnerOrganisations: data.partnerOrganisations.map((o) => ({ ...o })),
     fundraisingPermits: data.fundraisingPermits.map((p) => ({ ...p, kinds: [...p.kinds] })),
     partnerOrganisationAudits: data.partnerOrganisationAudits.map((a) => ({ ...a })),
-    users: data.users.map((u) => ({ ...u })),
   };
 }
 
@@ -437,9 +444,11 @@ export function makeCampaignDb(
     partnerOrganisations?: PartnerOrganisationRow[];
     /** Defaults to `permit-1` alone, covering every Kind until 2099. */
     fundraisingPermits?: FundraisingPermitRow[];
+    /** Read-only, so kept outside the transactional copy; defaults to the Fundraiser of campaignRow(). */
     users?: UserRow[];
   } = {},
 ) {
+  const users = (seed.users ?? [userRow()]).map((u) => ({ ...u }));
   let committed: Data = {
     campaigns: (seed.campaigns ?? []).map((c) => ({ ...c })),
     statusChanges: (seed.statusChanges ?? []).map((s) => ({ ...s })),
@@ -455,7 +464,6 @@ export function makeCampaignDb(
     partnerOrganisations: (seed.partnerOrganisations ?? [partnerOrganisationRow()]).map((o) => ({ ...o })),
     fundraisingPermits: (seed.fundraisingPermits ?? [fundraisingPermitRow()]).map((p) => ({ ...p, kinds: [...p.kinds] })),
     partnerOrganisationAudits: [],
-    users: (seed.users ?? []).map((u) => ({ ...u })),
   };
   // Row locks taken with `SELECT ... FOR UPDATE`, in order, as
   // "<Table>:<id>". Observable because taking the lock IS the behaviour
@@ -771,8 +779,13 @@ export function makeCampaignDb(
       },
       user: {
         findUnique: async ({ where }: { where: Where }) => {
-          const row = getData().users.find((u) => matches(u, where));
+          const row = users.find((u) => matches(u, where));
           return row ? { ...row } : null;
+        },
+        findUniqueOrThrow: async ({ where }: { where: Where }) => {
+          const row = users.find((u) => matches(u, where));
+          if (!row) throw new Error('No User found');
+          return { ...row };
         },
       },
       payout: {
