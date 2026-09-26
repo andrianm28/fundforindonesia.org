@@ -107,6 +107,16 @@ export type VerificationRequestRow = {
   isFirst: boolean;
 };
 
+export type ChecklistAuditRow = {
+  id: string;
+  itemId: string;
+  action: 'CREATED' | 'UPDATED';
+  before: unknown;
+  after: unknown;
+  actedById: string;
+  actedAt: Date;
+};
+
 /** Every table the stand-in holds; what the interleave hooks receive. */
 export type CampaignDbData = Data;
 
@@ -119,6 +129,7 @@ type Data = {
   payouts: PayoutRow[];
   campaignFlags: CampaignFlagRow[];
   checklistItems: ChecklistItemRow[];
+  checklistAudits: ChecklistAuditRow[];
   verificationRequests: VerificationRequestRow[];
 };
 
@@ -195,6 +206,7 @@ function clone(data: Data): Data {
     payouts: data.payouts.map((p) => ({ ...p })),
     campaignFlags: data.campaignFlags.map((f) => ({ ...f })),
     checklistItems: data.checklistItems.map((i) => ({ ...i })),
+    checklistAudits: data.checklistAudits.map((a) => ({ ...a })),
     verificationRequests: data.verificationRequests.map((r) => ({ ...r })),
   };
 }
@@ -309,6 +321,7 @@ export function makeCampaignDb(
     payouts: (seed.payouts ?? []).map((p) => ({ ...p })),
     campaignFlags: (seed.campaignFlags ?? []).map((f) => ({ ...f })),
     checklistItems: (seed.checklistItems ?? []).map((i) => ({ ...i })),
+    checklistAudits: [],
     verificationRequests: (seed.verificationRequests ?? []).map((r) => ({ ...r })),
   };
   // Row locks taken with `SELECT ... FOR UPDATE`, in order, as
@@ -491,6 +504,29 @@ export function makeCampaignDb(
       verificationChecklistItem: {
         findMany: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'> } = {}) =>
           ordered(getData().checklistItems.filter((i) => matches(i, where)), orderBy).map((i) => ({ ...i })),
+        findUnique: async ({ where }: { where: Where }) => {
+          const row = getData().checklistItems.find((i) => matches(i, where));
+          return row ? { ...row } : null;
+        },
+        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active'> & { active?: boolean } }) => {
+          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, ...data };
+          getData().checklistItems.push(row);
+          return { ...row };
+        },
+        update: async ({ where, data }: { where: { id: string }; data: Partial<ChecklistItemRow> }) => {
+          const row = getData().checklistItems.find((i) => i.id === where.id);
+          if (!row) throw new Error('No VerificationChecklistItem found');
+          Object.assign(row, data);
+          return { ...row };
+        },
+      },
+      verificationChecklistAuditEntry: {
+        create: async ({ data }: { data: Omit<ChecklistAuditRow, 'id' | 'actedAt' | 'before'> & { before?: unknown; actedAt?: Date } }) => {
+          // An omitted (or undefined) `before` is SQL NULL, as Prisma writes it.
+          const row: ChecklistAuditRow = { id: `audit-${nextId++}`, actedAt: new Date(), ...data, before: data.before ?? null };
+          getData().checklistAudits.push(row);
+          return { ...row };
+        },
       },
       verificationRequest: {
         create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'submittedById' | 'checklist' | 'isFirst'> & { submittedAt?: Date } }) => {
@@ -544,6 +580,16 @@ export function makeCampaignDb(
         rowLocks.push(`${table}:${String(values[0])}`);
         return [{ id: values[0] }];
       },
+      // Only `LOCK TABLE "<Table>" IN SHARE ROW EXCLUSIVE MODE`, recorded as
+      // "<Table>:*". The stand-in runs one command at a time, so the lock
+      // itself has nothing to serialise; taking it is what is observable.
+      $executeRaw: async (strings: TemplateStringsArray) => {
+        const sql = strings.join('?');
+        const table = /^LOCK TABLE "(\w+)" IN SHARE ROW EXCLUSIVE MODE$/.exec(sql)?.[1];
+        if (!table) throw new Error(`in-memory db does not understand: ${sql}`);
+        rowLocks.push(`${table}:*`);
+        return 0;
+      },
       notification: {
         create: async ({ data }: { data: Omit<NotificationRow, 'id' | 'link'> & { link?: string | null } }) => {
           const row: NotificationRow = { id: `notification-${nextId++}`, link: null, ...data };
@@ -584,6 +630,12 @@ export function makeCampaignDb(
     },
     get verificationRequests() {
       return committed.verificationRequests;
+    },
+    get checklistItems() {
+      return committed.checklistItems;
+    },
+    get checklistAudits() {
+      return committed.checklistAudits;
     },
     campaignFlag(id = 'flag-1') {
       const row = committed.campaignFlags.find((f) => f.id === id);

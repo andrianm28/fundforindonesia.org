@@ -92,6 +92,10 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   // Not a route: requireNotOwnerAsAdmin asks the judgement for the money
   // operations, whose routes have already required ADMIN.
   "src/lib/subject-guard.ts",
+  // Not a route: checklistRoute wraps every Admin checklist-editor route
+  // (src/app/api/admin/verification-checklist/**) in the ADMIN assignment
+  // check (verification-request 04).
+  "src/lib/verification-checklist-route.ts",
 ];
 
 /** Every route that changes a Campaign's lifecycle through the lifecycle module. */

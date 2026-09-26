@@ -66,6 +66,7 @@ model User {
   verificationRequestsDecided   VerificationRequest[]  @relation("VerificationRequestDecider")
   identityVerification          IdentityVerification?  @relation("IdentityVerificationSubject")
   identityVerificationsMade     IdentityVerification[] @relation("IdentityVerificationVerifier")
+  checklistAuditEntries         VerificationChecklistAuditEntry[]
 
   // Money layer
   bankAccounts     BankAccount[]
@@ -417,7 +418,33 @@ model VerificationChecklistItem {
   position Int
   active   Boolean @default(true)
 
+  auditEntries VerificationChecklistAuditEntry[]
+
   @@index([active, position])
+}
+
+enum VerificationChecklistAuditAction {
+  CREATED
+  UPDATED
+}
+
+/// One Admin change to a checklist item: who, when, and the item as it stood
+/// before and after ({ label, required, position, active }). `before` is null
+/// for CREATED. Append-only; items themselves are never deleted.
+model VerificationChecklistAuditEntry {
+  id        String                           @id @default(cuid())
+  itemId    String
+  action    VerificationChecklistAuditAction
+  before    Json?
+  after     Json
+  actedById String
+  actedAt   DateTime                         @default(now())
+
+  // Relations
+  item    VerificationChecklistItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  actedBy User                      @relation(fields: [actedById], references: [id], onDelete: Restrict)
+
+  @@index([itemId, actedAt])
 }
 
 model Donation {
