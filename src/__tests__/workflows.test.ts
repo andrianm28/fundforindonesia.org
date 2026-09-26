@@ -40,10 +40,11 @@ describe("GitHub Actions workflows", () => {
 });
 
 /**
- * Guards the production deploy (ticket 07). The repo is on GitHub Free, so no
- * Environment approval and no branch protection stand in front of it: the
- * workflow's own shape is the whole safety story. The gate's logic is tested
- * in deploy-gate.test.ts; this checks the wiring around it.
+ * Guards the production deploy (ticket 07, split into gate/deploy by ticket
+ * 24). `gate` has no Environment; `deploy` runs in the `production`
+ * Environment, so it starts only once the owner approves it as the
+ * environment's required reviewer. The gate's logic is tested in
+ * deploy-gate.test.ts; this checks the wiring around it.
  */
 describe("the deploy workflow", () => {
   const text = workflows.find((w) => w.file === "deploy.yml")?.text ?? "";
@@ -67,31 +68,42 @@ describe("the deploy workflow", () => {
     const depth = b[0]?.match(/^ */)![0].length;
     return b.filter((l) => l.match(/^ */)![0].length === depth).map((l) => l.trim().replace(/:.*$/, ""));
   };
+  /** The lines belonging to job `name` (its own body, not a nested step). */
+  const job = (name: string) => block(`  ${name}:`);
 
   it("is started only by hand (dispatching is the owner's approval)", () => {
     expect(keys("on:")).toEqual(["workflow_dispatch"]);
   });
 
-  it("has exactly one job, deploy", () => {
-    expect(keys("jobs:")).toEqual(["deploy"]);
+  it("has gate then deploy, and deploy needs gate", () => {
+    expect(keys("jobs:")).toEqual(["gate", "deploy"]);
+    expect(job("deploy").map((l) => l.trim())).toContainEqual("needs: gate");
   });
 
   it("never overlaps or cancels another deploy", () => {
     expect(block("concurrency:").map((l) => l.trim())).toEqual(["group: production", "cancel-in-progress: false"]);
   });
 
-  it("reads what it checks and writes nothing", () => {
-    expect(block("    permissions:").map((l) => l.trim().replace(/ *#.*$/, ""))).toEqual([
-      "contents: read",
-      "actions: read",
-      "packages: read",
-    ]);
+  it("gate has no Environment; deploy runs only in production", () => {
+    expect(job("gate")).not.toEqual(expect.arrayContaining([expect.stringMatching(/^\s*environment:/)]));
+    expect(job("deploy").map((l) => l.trim())).toContainEqual("environment: production");
   });
 
-  it("uses only the three deploy secrets, and no Environment", () => {
+  it("gate reads what it checks and writes nothing", () => {
+    const start = lines.indexOf("  gate:");
+    const permIndex = lines.findIndex((l, i) => i > start && l === "    permissions:");
+    expect(
+      block(lines[permIndex])
+        .map((l) => l.trim().replace(/ *#.*$/, ""))
+        .filter((l) => l !== ""),
+    ).toEqual(["contents: read", "actions: read", "packages: read"]);
+  });
+
+  it("uses the three deploy secrets only in the deploy job, and gate has none", () => {
     const secrets = Array.from(new Set(Array.from(text.matchAll(/secrets\.(\w+)/g), (m) => m[1]))).sort();
     expect(secrets).toEqual(["DEPLOY_HOST", "DEPLOY_KNOWN_HOSTS", "DEPLOY_SSH_KEY"]);
-    expect(text).not.toMatch(/^\s*environment:/m);
+    expect(job("gate").some((l) => /secrets\./.test(l))).toBe(false);
+    expect(job("deploy").some((l) => /secrets\./.test(l))).toBe(true);
   });
 
   it("interpolates no dispatch input or secret straight into a script", () => {

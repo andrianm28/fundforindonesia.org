@@ -66,9 +66,12 @@ untuk produksi dan ops yang dijalankan owner (nginx, cutover, backup).
   menyentuh host produksi.
 - Jangan pernah mengubah, men-deploy, atau menjalankan apa pun di
   `/home/ubuntu/kibi-clone` (checkout produksi yang live) atau stack produksi.
-  Deploy hanya lewat `.github/workflows/deploy.yml`, di-dispatch owner.
-- Repo di GitHub Free: tidak ada branch protection atau environment reviewer.
-  Merge hanya setelah semua check CI hijau.
+- Agent, termasuk koordinator, boleh men-dispatch
+  `.github/workflows/deploy.yml` untuk commit `main` dengan CI hijau setelah
+  environment `production` (tiket 23) ada; persetujuan tetap di tangan owner
+  selaku environment reviewer, dan agent tidak pernah menyetujui deployment-nya
+  sendiri.
+- Merge hanya setelah semua check CI hijau.
 - Tidak ada kredensial asli di repo, termasuk `.scratch/`.
 
 ### Model subagent (anggaran token)
