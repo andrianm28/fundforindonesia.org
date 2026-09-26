@@ -13,7 +13,8 @@ Written 2026-09-26 by the last coordinator session on the VPS (via `/handoff`). 
 
 ## First steps (handover checklist)
 
-1. Check the session itself:
+1. Check the session itself (environment setup is in `docs/agents/cloud-environment.md`, PR #34):
+   - `node -v` prints v24;
    - the SessionStart hook ran (`npm install` and `prisma generate`);
    - the skills list under bare names;
    - `npx vitest run` is green;
