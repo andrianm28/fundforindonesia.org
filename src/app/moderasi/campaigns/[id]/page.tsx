@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Image from "next/image";
 import { prisma } from "@/lib/prisma";
-import { effectiveStatus } from "@/lib/campaign-lifecycle";
+import { effectiveStatus, type ChecklistEntry } from "@/lib/campaign-lifecycle";
 import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
 import { CampaignModerationActions } from "./CampaignModerationActions";
 
@@ -26,6 +26,15 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
   }
 
   const status = effectiveStatus(campaign, new Date());
+  // The one open request, if any: what the Verifier decides here. The
+  // decision itself is judged on the request, never on this page's view.
+  const [openRequest, identity] = await Promise.all([
+    prisma.verificationRequest.findFirst({
+      where: { campaignId: campaign.id, outcome: "PENDING" },
+      orderBy: { submittedAt: "desc" },
+    }),
+    prisma.identityVerification.findUnique({ where: { userId: campaign.creatorId } }),
+  ]);
 
   return (
     <div>
@@ -128,7 +137,14 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
       <div className="mt-6">
         <CampaignModerationActions
           campaignId={campaign.id}
-          currentStatus={status}
+          request={
+            openRequest && {
+              id: openRequest.id,
+              isFirst: openRequest.isFirst,
+              checklist: openRequest.checklist as ChecklistEntry[],
+            }
+          }
+          identityVerifiedAt={identity?.verifiedAt ?? null}
         />
       </div>
     </div>
