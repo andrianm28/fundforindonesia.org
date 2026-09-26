@@ -17,6 +17,8 @@ interface CampaignModerationActionsProps {
  * snapshot it was submitted with, then approve, or reject with a reason.
  * The first approval of a Fundraiser also records their Identity
  * Verification, so the note field shows only while they have none.
+ * Approve stays disabled until every required item is ticked, naming the
+ * ones still missing; the server refuses such an approval anyway.
  * Suspension is an Admin decision (ADR 0005), so this panel never offers it.
  */
 export function CampaignModerationActions({
@@ -43,8 +45,13 @@ export function CampaignModerationActions({
     });
   };
 
+  const untickedRequired = (request?.checklist ?? [])
+    .filter((entry) => entry.required && !ticked.has(entry.id))
+    .map((entry) => entry.label);
+
   const handleAction = async (decision: VerificationDecision) => {
     if (!request) return;
+    if (decision === "approve" && untickedRequired.length > 0) return;
     setMessage(null);
     if (decision === "reject" && reason.trim() === "") {
       setMessage({ type: "error", text: "Alasan penolakan wajib diisi." });
@@ -204,14 +211,21 @@ export function CampaignModerationActions({
             />
           </div>
 
+          {untickedRequired.length > 0 && (
+            <p id="approve-blocked" className="mb-3 text-sm text-[#757575]">
+              Centang semua butir wajib untuk meloloskan: {untickedRequired.join(", ")}.
+            </p>
+          )}
+
           <div className="flex flex-wrap gap-3">
             <button
               onClick={() => handleAction("approve")}
-              disabled={loading !== null}
+              disabled={loading !== null || untickedRequired.length > 0}
+              aria-describedby={untickedRequired.length > 0 ? "approve-blocked" : undefined}
               className="inline-flex items-center gap-2 px-4 py-2 bg-[#2E7D32] text-white text-sm font-medium rounded-lg hover:bg-[#1B5E20] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading === "approve" ? <LoadingSpinner /> : <CheckIcon />}
-              Setujui
+              Loloskan
             </button>
 
             <button

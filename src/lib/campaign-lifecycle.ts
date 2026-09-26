@@ -495,6 +495,19 @@ export class VerificationRequestNotFoundError extends CampaignLifecycleError {
   }
 }
 
+/**
+ * The Verifier tried to loloskan a request while required items of its own
+ * checklist snapshot were unticked (CONTEXT.md, Verification Request).
+ * `labels` lists them in checklist order. A rejection never raises it.
+ */
+export class RequiredChecklistItemsUntickedError extends CampaignLifecycleError {
+  readonly code = "REQUIRED_CHECKLIST_ITEMS_UNTICKED";
+  constructor(readonly labels: string[]) {
+    super(`Campaign belum dapat diloloskan. Butir wajib yang belum dicentang: ${labels.join(", ")}.`);
+    this.name = "RequiredChecklistItemsUntickedError";
+  }
+}
+
 /** The request was already decided or withdrawn; a closed request is never changed again. */
 export class VerificationRequestNotPendingError extends CampaignLifecycleError {
   readonly code = "VERIFICATION_REQUEST_NOT_PENDING";
@@ -590,8 +603,10 @@ export type VerificationDecisionResult = LifecycleResult & {
  * A Verifier decides a PENDING Verification Request (FFI-05): approve makes
  * the Submitted Campaign Active; reject makes it Rejected, with a required
  * reason. The Verifier's ticks are recorded on the request's own checklist
- * snapshot, beside the outcome, reason, Verifier and time. Recorded in the
- * VERIFIER Capacity; a Verifier never decides on a Campaign they own.
+ * snapshot, beside the outcome, reason, Verifier and time. Only a request
+ * with every required item of that snapshot ticked may be diloloskan; a
+ * rejection needs none. Recorded in the VERIFIER Capacity; a Verifier never
+ * decides on a Campaign they own.
  *
  * The request is judged before the Campaign's status, so a decided or
  * withdrawn request answers as such. A decided request is never written
@@ -640,6 +655,12 @@ export async function decideVerificationRequest(
         ...entry,
         ticked: ticked.has(entry.id),
       }));
+      if (decision.outcome === VerificationOutcome.APPROVED) {
+        const unticked = checklist.filter((entry) => entry.required && !entry.ticked);
+        if (unticked.length > 0) {
+          throw new RequiredChecklistItemsUntickedError(unticked.map((entry) => entry.label));
+        }
+      }
       const decided = {
         checklist,
         outcome: decision.outcome,
