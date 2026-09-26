@@ -111,6 +111,7 @@ function makePayment(overrides: Record<string, unknown> = {}) {
     id: 'payment-1',
     amount: 100_000,
     status: 'PENDING',
+    escrowHoldDays: 7,
     donationId: 'donation-1',
     registrationId: null,
     donation: {
@@ -135,6 +136,7 @@ function makeRegistrationPayment(overrides: Record<string, unknown> = {}) {
     id: 'payment-1',
     amount: 250_000,
     status: 'PENDING',
+    escrowHoldDays: 7,
     donationId: null,
     registrationId: 'registration-1',
     donation: null,
@@ -416,6 +418,23 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(mockNotificationCreateMany).toHaveBeenCalled();
   });
 
+  it('anchors the release to the hold length THIS Payment froze, not the live default (prd-compliance 18)', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    // A disaster Campaign whose Payment froze a shortened 2-day hold. Even
+    // though ESCROW_HOLD_DAYS (the live default) is still 7, this Payment's
+    // release must reflect the 2 days it actually promised.
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ escrowHoldDays: 2 }));
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    const paymentUpdateData = (tx.payment.updateMany as Mock).mock.calls[0][0].data;
+    expect(paymentUpdateData.escrowReleaseAt.getTime() - paymentUpdateData.paidAt.getTime()).toBe(
+      2 * 24 * 60 * 60 * 1000,
+    );
+  });
+
   // ADR 0004: reaching the target does not close a Campaign; only the
   // Fundraiser or an Admin marks it COMPLETED. And because a Settlement is
   // accepted whatever the Campaign's status (PRD §7.2), a late one must not
@@ -614,6 +633,50 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(mockNotificationCreateMany).not.toHaveBeenCalled();
     // The loser is still a finished event, not an unprocessed one.
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
+      where: { id: 'we-1' },
+      data: { processedAt: expect.any(Date) },
+    });
+  });
+
+  it('does not double-settle a Donation when a SIBLING Payment (a retry) wins the race first: the DB partial unique index refuses the second PAID (prd-compliance 18)', async () => {
+    // Two DIFFERENT Payment rows for the SAME Donation (a retry after the
+    // first attempt looked abandoned) both still PENDING when their events
+    // arrive. Each individually passes the id+PENDING guard -- the
+    // Payment_donationId_paid_key partial unique index is what actually
+    // stops both from reaching PAID, by rejecting the loser's UPDATE.
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    const tx = {
+      payment: {
+        updateMany: vi.fn().mockRejectedValue(
+          Object.assign(new Error('Unique constraint failed'), {
+            code: 'P2002',
+            meta: { target: ['Payment_donationId_paid_key'] },
+          }),
+        ),
+      },
+      donation: { update: vi.fn() },
+      campaign: { update: vi.fn() },
+      webhookEvent: { update: vi.fn() },
+      ledgerEntry: { count: vi.fn(), createMany: vi.fn() },
+    };
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    mockWebhookEventUpdate.mockResolvedValue({});
+
+    const response = await POST(createRequest(), routeContext());
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.received).toBe(true);
+    // Nothing inside the aborted transaction ran past the failed update --
+    // Postgres itself would refuse any further statement on that connection.
+    expect(tx.donation.update).not.toHaveBeenCalled();
+    expect(tx.campaign.update).not.toHaveBeenCalled();
+    expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
+    expect(tx.webhookEvent.update).not.toHaveBeenCalled();
+    // The bookkeeping happens on a fresh connection instead, outside the
+    // rolled-back transaction.
+    expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
       where: { id: 'we-1' },
       data: { processedAt: expect.any(Date) },
     });

@@ -46,6 +46,14 @@ function isUniqueConstraintViolation(error: unknown): boolean {
   );
 }
 
+/**
+ * Thrown from inside the settlement transaction to unwind it cleanly when
+ * `Payment_donationId_paid_key` (prd-compliance 18) refuses to let a second
+ * Payment for the same Donation reach PAID. Never crosses the route's own
+ * boundary -- caught right outside the `$transaction` call.
+ */
+class SiblingPaymentAlreadySettledError extends Error {}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ provider: string }> },
@@ -245,25 +253,53 @@ export async function POST(
       // the bank.
       const providerFee = event.providerFee ?? 0;
       const paidAt = new Date();
-      const releaseAt = escrowReleaseAt(paidAt);
+      // The hold length THIS Payment froze at creation (prd-compliance 18),
+      // never the live ESCROW_HOLD_DAYS constant -- an Admin shortening or
+      // lengthening the default after this Payment was created must not move
+      // when it releases.
+      const releaseAt = escrowReleaseAt(paidAt, payment.escrowHoldDays);
 
-      const settled = await prisma.$transaction(async (tx) => {
+      let settled: { settled: boolean; registrationOutcome?: ConfirmRegistrationOutcome | null };
+      try {
+        settled = await prisma.$transaction(async (tx) => {
         // The database decides who wins, once: two DISTINCT events for the
         // same Payment (different providerEventId, so both clear the
         // WebhookEvent constraint on their own) can both read PENDING
         // before either writes. Keying this update on status too, and
         // checking how many rows it actually touched, closes that window --
         // whichever commits first wins, and the loser sees count 0.
-        const updated = await tx.payment.updateMany({
-          where: { id: payment.id, status: PaymentStatus.PENDING },
-          data: {
-            status: PaymentStatus.PAID,
-            providerFee,
-            rawPayload: event.rawPayload as Prisma.InputJsonValue,
-            paidAt,
-            escrowReleaseAt: releaseAt,
-          },
-        });
+        //
+        // That guard alone only protects ONE Payment row. A retry
+        // (prd-compliance 18) can leave a Donation with two DIFFERENT
+        // Payment rows both still PENDING -- this guard would let both
+        // through, since each is independently PENDING when it runs. The
+        // partial unique index `Payment_donationId_paid_key` (WHERE status =
+        // 'PAID') is the database's own guarantee against that: whichever of
+        // two sibling Payments commits PAID first wins, and the loser's
+        // UPDATE raises a unique violation, caught below.
+        let updated: { count: number };
+        try {
+          updated = await tx.payment.updateMany({
+            where: { id: payment.id, status: PaymentStatus.PENDING },
+            data: {
+              status: PaymentStatus.PAID,
+              providerFee,
+              rawPayload: event.rawPayload as Prisma.InputJsonValue,
+              paidAt,
+              escrowReleaseAt: releaseAt,
+            },
+          });
+        } catch (err) {
+          if (isUniqueConstraintViolation(err)) {
+            // Postgres has already put this transaction into an aborted
+            // state -- no further statement on this connection can run, not
+            // even to stamp WebhookEvent.processedAt. Rethrow a distinct
+            // marker so Prisma rolls the whole transaction back cleanly, and
+            // finish the bookkeeping outside it, on a fresh connection.
+            throw new SiblingPaymentAlreadySettledError();
+          }
+          throw err;
+        }
 
         if (updated.count === 0) {
           // Lost the race: another delivery already settled this Payment.
@@ -373,7 +409,26 @@ export async function POST(
         });
 
         return { settled: true as const, registrationOutcome };
-      });
+        });
+      } catch (err) {
+        if (err instanceof SiblingPaymentAlreadySettledError) {
+          // A different Payment for the same Donation reached PAID first --
+          // this Payment's money, if it genuinely arrived at the provider,
+          // has nowhere recorded to land, same class of anomaly as the
+          // AMOUNT MISMATCH case above. Logged for manual review rather than
+          // guessed at; the event is still finished (its outcome is "do
+          // nothing"), so it is marked processed like any other no-op event.
+          console.error(
+            `[webhooks/${providerParam}] event ${event.providerEventId} tried to settle payment ${payment.id}, but a sibling Payment for donation ${payment.donationId} had already reached PAID first -- refusing to double-settle a Donation; needs manual review for where this money landed`,
+          );
+          await prisma.webhookEvent.update({
+            where: { id: webhookEventId },
+            data: { processedAt: new Date() },
+          });
+          return NextResponse.json({ received: true }, { status: 200 });
+        }
+        throw err;
+      }
 
       if (settled.settled) {
         // Notifications outside the transaction, same as every other write

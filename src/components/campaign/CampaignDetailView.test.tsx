@@ -32,6 +32,7 @@ const mockCampaign: CampaignDetailData = {
   },
   donationCount: 12,
   platformFeePercentBps: 250,
+  escrowHoldDays: 7,
 };
 
 describe('CampaignDetailView', () => {
@@ -68,6 +69,11 @@ describe('CampaignDetailView', () => {
   it('shows 0% when no Platform Fee rate has been set', () => {
     render(<CampaignDetailView campaign={{ ...mockCampaign, platformFeePercentBps: 0 }} />);
     expect(screen.getByText(/0%/)).toBeDefined();
+  });
+
+  it('shows the Escrow Hold length every new Payment freezes at creation (prd-compliance 18)', () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    expect(screen.getByText(/7 hari/)).toBeDefined();
   });
 
   it('wraps the hero image and quick info panel in a container that stacks by default and goes side-by-side from the lg breakpoint (1025px)', () => {

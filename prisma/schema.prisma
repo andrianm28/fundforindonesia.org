@@ -623,16 +623,42 @@ model Donation {
   donorId       String?
   createdAt     DateTime @default(now())
 
+  /// A Guest Donor's contact details (CONTEXT.md, Guest Donor): required at
+  /// the API when donorId is null, kept only for Receipt -- never shown
+  /// publicly or to the Fundraiser (guestName follows the same isAnonymous
+  /// rule as a registered donor's name, prd-compliance 18). Protected the
+  /// same way User.email/phone are (ADR 0012, src/lib/field-protection.ts):
+  /// guestEmail/guestPhone stay plaintext for now (expand step) alongside
+  /// the sealed forms; guestName is plaintext by decision, same as
+  /// User.name and BankAccount.accountName.
+  guestEmail           String?
+  guestName            String?
+  guestPhone           String?
+  /// Hex HMAC-SHA256 of the trimmed, lowercased guestEmail under FIELD_HMAC_KEY. Searchable.
+  guestEmailHmac       String?
+  guestEmailHmacKeyId  String?
+  /// base64(iv | AES-256-GCM ciphertext | tag) of guestEmail under FIELD_ENCRYPTION_KEY.
+  guestEmailCiphertext String?
+  guestEmailKeyId      String?
+  guestPhoneCiphertext String?
+  guestPhoneKeyId      String?
+
   // Relations
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  donor    User?    @relation(fields: [donorId], references: [id], onDelete: SetNull)
+  campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  donor    User?     @relation(fields: [donorId], references: [id], onDelete: SetNull)
   prayer   Prayer?
 
-  payment Payment?
+  /// A retry creates a NEW Payment on the SAME Donation rather than mutating
+  /// or replacing the old one (prd-compliance 18), so this is a list, not
+  /// Payment?: history of every attempt survives, and at most one may ever
+  /// reach PAID -- enforced by a partial unique index in the migration
+  /// (Payment_donationId_paid_key), not by this relation's shape.
+  payments Payment[]
 
   @@index([campaignId])
   @@index([donorId])
   @@index([paymentStatus])
+  @@index([guestEmailHmac])
   @@index([createdAt])
 }
 
@@ -813,7 +839,14 @@ enum LedgerDirection {
 /// the history of attempts survives.
 model Payment {
   id          String        @id @default(cuid())
-  donationId  String?       @unique
+  /// Not unique: a retry after FAILED/EXPIRED creates a new Payment on the
+  /// same Donation (prd-compliance 18). At most one Payment per Donation may
+  /// ever reach PAID -- enforced in the migration by a partial unique index
+  /// (`WHERE status = 'PAID'`), the database's own guarantee against two
+  /// distinct webhook deliveries settling two different Payments of the same
+  /// Donation, races the app-level `status: PENDING` guard alone cannot
+  /// close.
+  donationId  String?
   donation    Donation?     @relation(fields: [donationId], references: [id], onDelete: Restrict)
   /// Set instead of donationId for a Trip Fee payment -- exactly one of the
   /// two is ever set, enforced by assertExactlyOnePaymentSubject
@@ -849,6 +882,15 @@ model Payment {
   paidAt      DateTime?
   expiresAt   DateTime?
 
+  /// The Escrow Hold length (CONTEXT.md, Escrow Hold), frozen from
+  /// ESCROW_HOLD_DAYS (src/lib/money/escrow.ts) at Payment creation and shown
+  /// to the Donor before they pay (prd-compliance 18). Read at Settlement
+  /// instead of the live constant, so an Admin shortening or lengthening the
+  /// default afterwards cannot move a Payment already created under the old
+  /// one. Always the value in force when THIS Payment was created, never
+  /// recomputed.
+  escrowHoldDays Int @default(7)
+
   /// When this payment's money stops being escrow and becomes withdrawable.
   /// Set on settlement to paidAt + the hold period; null while unpaid.
   ///
@@ -870,6 +912,7 @@ model Payment {
 
   @@index([status])
   @@index([provider, status])
+  @@index([donationId, status])
   @@index([escrowReleaseAt, escrowReleasedAt])
 }
 
