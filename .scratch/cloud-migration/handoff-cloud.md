@@ -20,8 +20,15 @@ Written 2026-09-26 by the last coordinator session on the VPS. You are the first
    - `gh pr list` works.
 2. Open PRs from the VPS:
    - **#32, Kind Authorisation**: merged by the VPS coordinator (5854d61). Ticket 11 is done. Nothing to take over.
-   - **#33, Platform Fee** (prd-compliance 17): **ratchet failing** at hand-off, and the agent's report wasn't in yet. Read the PR body. Fix the new tsc or lint errors; never raise the baseline. This is money code: integer rupiah, the fee recorded rather than recomputed. Bring any fee-policy question to the owner. Use `opus` only if `sonnet` keeps failing review.
-3. The VPS agent behind #33 may still push to those branches. Check the last commit author and time before you edit them.
+   - **#33, Platform Fee** (prd-compliance 17): **CI all green**, draft, not merged. The builder agent finished. Before you merge:
+     - **How it works:** the rate resolves Campaign override → Category → Kind default, and falls back to 0 bps. Rounding is floor, in BigInt. Donations below the threshold pay no fee. The fee is frozen on `Payment.platformFee` at creation and posted unchanged to `PLATFORM_FEE` at settlement. Config lives in the append-only `PlatformFeeRule`/`PlatformFeeThreshold` tables via `POST /api/admin/platform-fee` (ADMIN).
+     - **A review found a real bug, and it is fixed:** Refunds had hard-coded the Platform Fee portion to 0. It is now `platformFeePortionFor`.
+     - **Owner decisions to get before merging:**
+       1. The default rate per Kind. No rate is seeded, so the fee is 0% until an Admin sets one.
+       2. Whether zakat and wakaf are fee-exempt. There is no hard-coded exemption; an Admin would set 0% for those Kinds.
+       3. Whether an Admin UI is needed, or the API alone is enough for now.
+     - The ticket's `**Status:**` line in `.scratch/` has not been set yet. Set it to done in a docs commit after the merge.
+3. No VPS agent is working any more. The branch is yours.
 
 ## Next work (frontier)
 
