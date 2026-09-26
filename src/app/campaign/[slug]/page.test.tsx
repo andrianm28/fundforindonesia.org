@@ -25,10 +25,10 @@ vi.mock('@/components/campaign/CampaignDetailView', () => ({
   },
 }));
 
-const structured = vi.hoisted(() => ({ data: null as null | Record<string, unknown> }));
+const capturedStructuredData = vi.hoisted(() => ({ data: null as null | Record<string, unknown> }));
 vi.mock('@/components/shared/SEOHead', () => ({
   StructuredData: (props: { data: Record<string, unknown> }) => {
-    structured.data = props.data;
+    capturedStructuredData.data = props.data;
     return null;
   },
 }));
@@ -142,7 +142,7 @@ describe('the Campaign page links the canonical public site', () => {
 
     expect(metadata.alternates?.canonical).toBe('https://fundforindonesia.org/campaign/sumur-desa');
     expect(metadata.openGraph).toMatchObject({ url: 'https://fundforindonesia.org/campaign/sumur-desa' });
-    expect(structured.data?.url).toBe('https://fundforindonesia.org/campaign/sumur-desa');
+    expect(capturedStructuredData.data?.url).toBe('https://fundforindonesia.org/campaign/sumur-desa');
   });
 
   it('uses NEXT_PUBLIC_BASE_URL when set', async () => {
@@ -153,6 +153,6 @@ describe('the Campaign page links the canonical public site', () => {
     render(await CampaignDetailPage({ params: Promise.resolve({ slug: 'sumur-desa' }) }));
 
     expect(metadata.alternates?.canonical).toBe('https://staging.example.test/campaign/sumur-desa');
-    expect(structured.data?.url).toBe('https://staging.example.test/campaign/sumur-desa');
+    expect(capturedStructuredData.data?.url).toBe('https://staging.example.test/campaign/sumur-desa');
   });
 });

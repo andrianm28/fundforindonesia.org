@@ -8,6 +8,14 @@ describe('generateSEOMetadata', () => {
     url: '/campaign/bantu-anak-yatim',
   };
 
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('generates full title with site name', () => {
     const metadata = generateSEOMetadata(baseProps);
     expect(metadata.title).toBe('Bantu Anak Yatim - Fund for Indonesia');
@@ -16,14 +24,6 @@ describe('generateSEOMetadata', () => {
   it('sets description', () => {
     const metadata = generateSEOMetadata(baseProps);
     expect(metadata.description).toBe('Donasi untuk anak yatim di seluruh Indonesia');
-  });
-
-  beforeEach(() => {
-    vi.stubEnv('NEXT_PUBLIC_BASE_URL', '');
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
   });
 
   it('generates canonical URL from base URL and path', () => {
