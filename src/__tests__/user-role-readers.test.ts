@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeAll, describe, it, expect } from 'vitest';
 import { findPrismaFieldReferences } from '../../tests/support/prisma-field-references';
@@ -63,6 +63,13 @@ describe('application code', () => {
 
   it('keeps no Role hierarchy helper', () => {
     expect(naming(/\b(withRoleCheck|isAtLeast|ROLE_LEVELS|hasRole|requireRole)\b|@\/lib\/roles/)).toEqual([]);
+  });
+
+  // With no route module, Next answers the old PATCH with 404: nothing can
+  // set a Role any more. Assignments are edited through ../assignments.
+  it('has no Role route under /api/admin/users/[id]', () => {
+    expect(existsSync('src/app/api/admin/users/[id]/role')).toBe(false);
+    expect(existsSync('src/app/api/admin/users/[id]/assignments/route.ts')).toBe(true);
   });
 
   it('puts no role in the session or the JWT', () => {

@@ -267,17 +267,16 @@ async function main() {
   const seededAs = (kind: SeededAs) => users.filter((_, i) => USERS_DATA[i].seededAs === kind);
   const admins = seededAs('admin');
   const verifiers = seededAs('verifier');
-  const creators = seededAs('fundraiser');
+  const fundraisers = seededAs('fundraiser');
   const donors = seededAs('donor');
-  console.log(`   ✓ ${users.length} users created (${admins.length} admin, ${verifiers.length} verifier, ${creators.length} fundraisers, ${donors.length} donors)\n`);
+  console.log(`   ✓ ${users.length} users created (${admins.length} admin, ${verifiers.length} verifier, ${fundraisers.length} fundraisers, ${donors.length} donors)\n`);
 
   // Grant the assignments, the only source of Admin and Verifier power. This
   // mirrors prisma/migrations/20260920160016_backfill_user_assignments/
   // migration.sql, so a fresh-seeded DB matches a migrated one: the Admin
-  // gains both assignments, the Verifier gains VERIFIER only. Nothing reads assignments yet (ticket 06), but ticket 07
-  // starts reading them, and a fresh environment must not diverge from a
-  // migrated one the moment it does. skipDuplicates mirrors the migration's
-  // ON CONFLICT DO NOTHING, so re-running the seed is safe.
+  // gains both assignments, the Verifier gains VERIFIER only. skipDuplicates
+  // mirrors the migration's ON CONFLICT DO NOTHING, so re-running the seed is
+  // safe.
   await prisma.userAssignment.createMany({
     data: [
       ...admins.map(u => ({ userId: u.id, assignment: Assignment.VERIFIER })),
@@ -291,7 +290,7 @@ async function main() {
   console.log('📢 Creating campaigns...');
   const campaigns = [];
   for (const campaignData of CAMPAIGNS_DATA) {
-    const creator = randomElement(creators);
+    const creator = randomElement(fundraisers);
     const slug = slugify(campaignData.title);
     const campaign = await prisma.campaign.upsert({
       where: { slug },
@@ -434,7 +433,7 @@ async function main() {
   console.log('🏦 Creating bank accounts...');
   const BANK_CODES = ['bca', 'mandiri', 'bni', 'bri'];
   const bankAccountByCreatorId = new Map<string, { id: string }>();
-  for (const creator of creators) {
+  for (const creator of fundraisers) {
     const bankAccount = await prisma.bankAccount.create({
       data: {
         ownerId: creator.id,

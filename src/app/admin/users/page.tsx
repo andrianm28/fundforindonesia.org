@@ -3,10 +3,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import type { Assignment } from "@/generated/prisma/client";
 
 // Assignments are the only thing that grants power (ADR 0005): this page
 // shows and edits them, and nothing else about a user's authority.
-type Assignment = "VERIFIER" | "ADMIN";
 
 const ASSIGNMENTS: { value: Assignment; label: string }[] = [
   { value: "VERIFIER", label: "Verifier" },
