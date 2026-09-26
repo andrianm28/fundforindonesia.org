@@ -4,6 +4,8 @@ import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
 import { Assignment, VerificationOutcome } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { expiringGrants } from "@/lib/collecting-entity";
+import { KIND_LABEL } from "@/lib/campaign-kind";
 
 export default async function ModerasiPage() {
   const session = await getServerSession();
@@ -16,6 +18,19 @@ export default async function ModerasiPage() {
   const pendingRequestsCount = await prisma.verificationRequest.count({
     where: { outcome: VerificationOutcome.PENDING },
   });
+
+  // The 30-day warning before a Fundraising Permit or Kind Authorisation
+  // lapses (prd-compliance 11), until scheduled email reminders exist.
+  const now = new Date();
+  const organisations = await prisma.partnerOrganisation.findMany({
+    select: {
+      id: true,
+      name: true,
+      permits: { select: { kinds: true, validFrom: true, validTo: true } },
+      kindAuthorisations: { select: { kind: true, validFrom: true, validTo: true } },
+    },
+  });
+  const expiring = expiringGrants(organisations, now);
 
   return (
     <div>
@@ -114,7 +129,76 @@ export default async function ModerasiPage() {
             </svg>
           </Link>
         </div>
+
+        {/* Expiring soon card: Fundraising Permits and Kind Authorisations lapsing within 30 days (prd-compliance 11) */}
+        <div className="bg-white rounded-xl border border-[#E0E0E0] p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-[#757575]">Izin Akan Berakhir</p>
+              <p className="text-2xl font-bold text-[#212121] mt-1">{expiring.length}</p>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-[#FFF3E0] flex items-center justify-center">
+              <svg
+                className="w-5 h-5 text-[#FF9800]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+          </div>
+          <Link
+            href="/moderasi/partner-organisations"
+            className="inline-flex items-center gap-1 text-sm text-[#0073E6] font-medium mt-4 hover:underline"
+          >
+            Lihat Partner Organisation
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </Link>
+        </div>
       </div>
+
+      {expiring.length > 0 && (
+        <div className="mt-6 bg-white rounded-xl border border-[#E0E0E0] p-5">
+          <h2 className="text-sm font-semibold text-[#212121] mb-3">
+            Fundraising Permit dan Kind Authorisation yang akan berakhir dalam 30 hari
+          </h2>
+          <ul className="space-y-2 text-sm text-[#424242]">
+            {expiring.map((item, index) => (
+              <li key={`${item.organisationId}-${item.type}-${index}`}>
+                {item.organisationName} ·{" "}
+                {item.type === "permit"
+                  ? `Fundraising Permit (${item.kinds.map((kind) => KIND_LABEL[kind]).join(", ")})`
+                  : `Kind Authorisation (${KIND_LABEL[item.kind]})`}{" "}
+                · berakhir{" "}
+                {new Date(item.validTo).toLocaleDateString("id-ID", {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                  timeZone: "Asia/Jakarta",
+                })}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

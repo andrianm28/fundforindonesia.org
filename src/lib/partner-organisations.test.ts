@@ -2,18 +2,22 @@ import { describe, it, expect } from 'vitest';
 import {
   FundraiserAlreadyLinkedError,
   FundraisingPermitNotFoundError,
+  grantKindAuthorisation,
   InvalidPartnerOrganisationError,
+  KindAuthorisationNotFoundError,
   OwnPartnerOrganisationError,
   PartnerOrganisationNotFoundError,
   recordFundraisingPermit,
   registerPartnerOrganisation,
   sponsorOptionsFor,
   updateFundraisingPermit,
+  updateKindAuthorisation,
   updatePartnerOrganisation,
 } from './partner-organisations';
 import { domainErrorToHttp } from './domain-errors';
 import {
   fundraisingPermitRow,
+  kindAuthorisationRow,
   makeCampaignDb,
   partnerOrganisationRow,
 } from '../../tests/support/in-memory-campaign-db';
@@ -319,6 +323,171 @@ describe('updateFundraisingPermit', () => {
     }).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(InvalidPartnerOrganisationError);
+  });
+});
+
+describe('grantKindAuthorisation', () => {
+  const GRANT = {
+    kind: 'ZAKAT',
+    documentReference: ' SK Pengukuhan Amil Zakat 001/2026 ',
+    validFrom: '2026-01-01T00:00:00.000Z',
+    validTo: '2026-12-31T16:59:59.999Z',
+  };
+
+  it('grants a dated Kind Authorisation for one non-donation Kind, and audits it', async () => {
+    const store = db({ partnerOrganisations: [partnerOrganisationRow()] });
+
+    const grant = await grantKindAuthorisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      ...GRANT,
+      now: NOW,
+    });
+
+    expect(store.kindAuthorisations).toEqual([
+      {
+        id: grant.id,
+        partnerOrganisationId: 'partner-1',
+        kind: 'ZAKAT',
+        documentReference: 'SK Pengukuhan Amil Zakat 001/2026',
+        validFrom: new Date('2026-01-01T00:00:00.000Z'),
+        validTo: new Date('2026-12-31T16:59:59.999Z'),
+        grantedById: 'verifier-2',
+        grantedAt: NOW,
+      },
+    ]);
+    expect(store.partnerOrganisationAudits).toEqual([
+      expect.objectContaining({
+        partnerOrganisationId: 'partner-1',
+        kindAuthorisationId: grant.id,
+        permitId: null,
+        action: 'KIND_AUTHORISATION_GRANTED',
+        before: null,
+        after: {
+          kind: 'ZAKAT',
+          documentReference: 'SK Pengukuhan Amil Zakat 001/2026',
+          validFrom: '2026-01-01T00:00:00.000Z',
+          validTo: '2026-12-31T16:59:59.999Z',
+        },
+        actedById: 'verifier-2',
+        actedAt: NOW,
+      }),
+    ]);
+  });
+
+  it.each([
+    ['a blank document reference', { documentReference: ' ' }],
+    ['an unknown Kind', { kind: 'SEDEKAH' }],
+    ['donation, which needs no Kind Authorisation', { kind: 'DONATION' }],
+    ['an invalid date', { validFrom: 'besok' }],
+    ['an end before its start', { validFrom: '2027-01-01T00:00:00.000Z' }],
+  ])('refuses %s with 400, writing nothing', async (_what, override) => {
+    const store = db({ partnerOrganisations: [partnerOrganisationRow()] });
+
+    const error = await grantKindAuthorisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      ...GRANT,
+      ...override,
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InvalidPartnerOrganisationError);
+    expect(store.kindAuthorisations).toEqual([]);
+    expect(store.partnerOrganisationAudits).toEqual([]);
+  });
+
+  it('refuses the organisation\'s own linked account acting as Verifier on it', async () => {
+    const store = db({ partnerOrganisations: [partnerOrganisationRow({ fundraiserId: 'verifier-2' })] });
+
+    const error = await grantKindAuthorisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      ...GRANT,
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(OwnPartnerOrganisationError);
+  });
+});
+
+describe('updateKindAuthorisation', () => {
+  it('extends a Kind Authorisation on renewal, auditing before and after', async () => {
+    const store = db({
+      partnerOrganisations: [partnerOrganisationRow()],
+      kindAuthorisations: [kindAuthorisationRow({ validTo: new Date('2026-12-31T00:00:00.000Z') })],
+    });
+
+    await updateKindAuthorisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      kindAuthorisationId: 'kind-authorisation-1',
+      changes: { validTo: '2027-12-31T00:00:00.000Z' },
+      now: NOW,
+    });
+
+    expect(store.kindAuthorisations[0].validTo).toEqual(new Date('2027-12-31T00:00:00.000Z'));
+    expect(store.partnerOrganisationAudits).toEqual([
+      expect.objectContaining({
+        kindAuthorisationId: 'kind-authorisation-1',
+        action: 'KIND_AUTHORISATION_UPDATED',
+        before: expect.objectContaining({ validTo: '2026-12-31T00:00:00.000Z' }),
+        after: expect.objectContaining({ validTo: '2027-12-31T00:00:00.000Z' }),
+        actedById: 'verifier-2',
+      }),
+    ]);
+  });
+
+  it('answers 404 for a Kind Authorisation of another organisation', async () => {
+    const store = db({
+      partnerOrganisations: [partnerOrganisationRow(), partnerOrganisationRow({ id: 'partner-2', fundraiserId: 'x' })],
+      kindAuthorisations: [kindAuthorisationRow()],
+    });
+
+    const error = await updateKindAuthorisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-2',
+      kindAuthorisationId: 'kind-authorisation-1',
+      changes: { documentReference: 'SK Baru' },
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(KindAuthorisationNotFoundError);
+    expect(domainErrorToHttp(error)?.status).toBe(404);
+  });
+
+  it('refuses a change that would end it before it starts', async () => {
+    const store = db({
+      partnerOrganisations: [partnerOrganisationRow()],
+      kindAuthorisations: [kindAuthorisationRow()],
+    });
+
+    const error = await updateKindAuthorisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      kindAuthorisationId: 'kind-authorisation-1',
+      changes: { validTo: '2019-01-01T00:00:00.000Z' },
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InvalidPartnerOrganisationError);
+  });
+
+  it('writes no audit entry for a change that leaves it as it was', async () => {
+    const store = db({
+      partnerOrganisations: [partnerOrganisationRow()],
+      kindAuthorisations: [kindAuthorisationRow()],
+    });
+
+    await updateKindAuthorisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      kindAuthorisationId: 'kind-authorisation-1',
+      changes: { kind: 'ZAKAT' },
+      now: NOW,
+    });
+
+    expect(store.partnerOrganisationAudits).toEqual([]);
   });
 });
 

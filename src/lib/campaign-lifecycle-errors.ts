@@ -164,6 +164,47 @@ export class FundraisingPermitRequiredError extends CampaignLifecycleError {
   }
 }
 
+// ==================== Kind Authorisation (prd-compliance 11) ====================
+
+/**
+ * An individual Fundraiser (one acting for no Partner Organisation) may only
+ * run a Kind `donation` Campaign (CONTEXT.md, Kind Authorisation): zakat,
+ * wakaf and hibah need an institution a Verifier has vetted. Raised on
+ * submission and on approval, alongside the Collecting Entity checks, so an
+ * individual Fundraiser learns this while the Campaign is still Draft and
+ * its Kind is still editable.
+ */
+export class IndividualFundraiserKindError extends CampaignLifecycleError {
+  readonly code = "INDIVIDUAL_FUNDRAISER_KIND_NOT_ALLOWED";
+  constructor(readonly kind: CampaignKind) {
+    super(
+      `Fundraiser perorangan hanya dapat menjalankan Campaign ber-Kind Donasi, bukan ${KIND_LABEL[kind]}. Kind ini hanya untuk Campaign yang dihimpun Partner Organisation.`
+    );
+    this.name = "IndividualFundraiserKindError";
+  }
+}
+
+/**
+ * The Collecting Entity holds no Kind Authorisation valid now for the
+ * Campaign's Kind, so the Campaign may not open (CONTEXT.md, Kind
+ * Authorisation; ADR 0013). Every Kind but donation needs one. Raised on
+ * submission and on approval, after the Fundraising Permit check passes: the
+ * two are separate grants and both must hold.
+ */
+export class KindAuthorisationRequiredError extends CampaignLifecycleError {
+  readonly code = "KIND_AUTHORISATION_REQUIRED";
+  constructor(
+    readonly entityName: string,
+    readonly kind: CampaignKind,
+    step: OpeningStep
+  ) {
+    super(
+      `${entityName} belum memegang Kind Authorisation yang berlaku untuk Kind ${KIND_LABEL[kind]}, sehingga Campaign ini belum dapat ${step}.`
+    );
+    this.name = "KindAuthorisationRequiredError";
+  }
+}
+
 /**
  * The Partner Organisation named may not be this Campaign's Collecting
  * Entity: a Campaign of an organisation's linked account always collects

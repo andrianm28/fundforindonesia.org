@@ -3,9 +3,11 @@ import {
   CollectingEntityNotEligibleError,
   CollectingEntityRequiredError,
   FundraisingPermitRequiredError,
+  IndividualFundraiserKindError,
+  KindAuthorisationRequiredError,
   type OpeningStep,
 } from "./campaign-lifecycle-errors";
-import { holdsValidPermit } from "./collecting-entity";
+import { holdsValidKindAuthorisation, holdsValidPermit, requiresKindAuthorisation } from "./collecting-entity";
 
 /**
  * Which Partner Organisation may be a Campaign's Collecting Entity, and
@@ -72,8 +74,11 @@ export async function resolveCollectingEntity(
 
 /**
  * Refuses a Campaign that may not open: no Collecting Entity, one it may not
- * have, or one holding no Fundraising Permit valid at `now` for its Kind.
- * `step` words the permit refusal for submission or approval.
+ * have, its Fundraiser is an individual running a Kind only a Partner
+ * Organisation may (CONTEXT.md, Kind Authorisation), or its Collecting
+ * Entity holds no Fundraising Permit or no Kind Authorisation valid at `now`
+ * for its Kind. `step` words the permit and Kind Authorisation refusals for
+ * submission or approval.
  */
 export async function requireOpenable(
   db: Db,
@@ -82,13 +87,18 @@ export async function requireOpenable(
   step: OpeningStep
 ): Promise<void> {
   if (!campaign.collectingEntityId) throw new CollectingEntityRequiredError();
+  const own = await organisationOf(db, campaign.creatorId);
+  if (!own && campaign.kind !== "DONATION") throw new IndividualFundraiserKindError(campaign.kind);
   const entity = await db.partnerOrganisation.findUnique({
     where: { id: campaign.collectingEntityId },
-    include: { permits: true },
+    include: { permits: true, kindAuthorisations: true },
   });
   if (!entity) throw new CollectingEntityRequiredError();
-  requireEligible(entity, await organisationOf(db, campaign.creatorId));
+  requireEligible(entity, own);
   if (!holdsValidPermit(entity, campaign.kind, now)) {
     throw new FundraisingPermitRequiredError(entity.name, campaign.kind, step);
+  }
+  if (requiresKindAuthorisation(campaign.kind) && !holdsValidKindAuthorisation(entity, campaign.kind, now)) {
+    throw new KindAuthorisationRequiredError(entity.name, campaign.kind, step);
   }
 }

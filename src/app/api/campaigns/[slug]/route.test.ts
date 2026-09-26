@@ -222,6 +222,7 @@ describe('GET /api/campaigns/[slug]', () => {
             id: true,
             name: true,
             permits: { select: { kinds: true, validFrom: true, validTo: true } },
+            kindAuthorisations: { select: { kind: true, validFrom: true, validTo: true } },
           },
         },
         _count: {

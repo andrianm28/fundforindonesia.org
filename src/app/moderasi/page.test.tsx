@@ -15,6 +15,9 @@ vi.mock("@/lib/prisma", () => ({
     verificationRequest: {
       count: vi.fn(),
     },
+    partnerOrganisation: {
+      findMany: vi.fn(),
+    },
   },
 }));
 
@@ -30,11 +33,13 @@ import ModerasiPage from "./page";
 
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockRequestCount = prisma.verificationRequest.count as unknown as Mock;
+const mockOrganisationFindMany = prisma.partnerOrganisation.findMany as unknown as Mock;
 
 describe("ModerasiPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequestCount.mockResolvedValue(0);
+    mockOrganisationFindMany.mockResolvedValue([]);
   });
 
   it("redirects home when unauthenticated", async () => {
@@ -79,6 +84,37 @@ describe("ModerasiPage", () => {
 
     const card = screen.getByText("Kampanye Menunggu Review").parentElement!;
     expect(card.textContent).toContain("2");
+    cleanup();
+  });
+
+  it("counts and names Fundraising Permits and Kind Authorisations expiring within 30 days (prd-compliance 11)", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
+    mockOrganisationFindMany.mockResolvedValue([
+      {
+        id: "partner-1",
+        name: "Yayasan Contoh Peduli",
+        permits: [
+          {
+            kinds: ["DONATION"],
+            validFrom: new Date("2026-01-01T00:00:00Z"),
+            validTo: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+          },
+        ],
+        kindAuthorisations: [
+          {
+            kind: "ZAKAT",
+            validFrom: new Date("2026-01-01T00:00:00Z"),
+            validTo: new Date(Date.now() + 400 * 24 * 60 * 60 * 1000),
+          },
+        ],
+      },
+    ]);
+
+    render(await ModerasiPage());
+
+    const card = screen.getByText("Izin Akan Berakhir").parentElement!;
+    expect(card.textContent).toContain("1");
+    expect(screen.getByText(/Yayasan Contoh Peduli.*Fundraising Permit \(Donasi\)/)).toBeDefined();
     cleanup();
   });
 });
