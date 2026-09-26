@@ -135,6 +135,10 @@ describe('POST /api/volunteer-trips/[slug]/payouts', () => {
     mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
     const response = await POST(postRequest(VALID_BODY), routeContext());
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'Hanya Fundraiser Volunteer Trip ini yang dapat melakukan tindakan ini.',
+      code: 'NOT_AUTHORIZED',
+    });
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
@@ -253,6 +257,10 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
     mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
     const response = await GET(getRequest(), routeContext());
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'Hanya Fundraiser Volunteer Trip ini yang dapat melakukan tindakan ini.',
+      code: 'NOT_AUTHORIZED',
+    });
   });
 
   it('returns 404 when the trip does not exist', async () => {

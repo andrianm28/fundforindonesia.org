@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { isAtLeast } from '@/lib/roles';
+import { refuseUnlessFundraiser } from '@/lib/refusal-response';
 import { CampaignStatus, CampaignStatusChangeAction, Role } from '@/generated/prisma/client';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
 
@@ -171,15 +172,15 @@ export async function PATCH(
 
     const userRole = (session.user.role as Role) ?? "DONOR";
     const isAdmin = userRole === "ADMIN";
-    const isOwnerWithRole =
-      isAtLeast(userRole, "CAMPAIGN_CREATOR") &&
-      campaign.creatorId === session.user.id;
 
-    if (!isAdmin && !isOwnerWithRole) {
-      return NextResponse.json(
-        { error: "Forbidden" },
-        { status: 403 }
-      );
+    if (!isAdmin) {
+      // Still gated by the legacy CAMPAIGN_CREATOR Role until who may create
+      // a Campaign is decided (prd-compliance tickets 06-08).
+      if (!isAtLeast(userRole, "CAMPAIGN_CREATOR")) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const refusal = refuseUnlessFundraiser({ kind: "campaign", ownerId: campaign.creatorId }, session.user);
+      if (refusal) return refusal;
     }
 
     const body = await request.json();

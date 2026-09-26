@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { withRoleCheck } from '@/lib/withRoleCheck';
-import { refusalResponse } from '@/lib/refusal-response';
+import { refusalResponse, refuseUnlessFundraiser } from '@/lib/refusal-response';
 import { requestPayout } from '@/lib/money/payouts';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 import { tripBalance, tripEscrowBalance } from '@/lib/money/ledger';
@@ -21,8 +21,9 @@ const requestPayoutSchema = z.object({
  * Mirrors POST /api/campaigns/[slug]/payouts exactly, including the
  * escrow-release-at-the-top-of-the-request pattern: withRoleCheck only
  * proves "a CAMPAIGN_CREATOR-ranked user", not "this Trip's Fundraiser", so
- * getServerSession is called again here and the ownership check below is
- * what actually stops one Fundraiser from draining another's Trip.
+ * getServerSession is called again here and the Capacity judgement below
+ * (only this Trip's Fundraiser) is what actually stops one Fundraiser from
+ * draining another's Trip.
  */
 export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextRequest, context: any) => {
   const { slug } = await context.params;
@@ -44,9 +45,8 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
   if (!trip) {
     return NextResponse.json({ error: 'Volunteer trip tidak ditemukan' }, { status: 404 });
   }
-  if (trip.fundraiserId !== userId) {
-    return NextResponse.json({ error: 'Anda tidak berhak mengajukan pencairan untuk trip ini' }, { status: 403 });
-  }
+  const refusal = refuseUnlessFundraiser({ kind: 'trip', ownerId: trip.fundraiserId }, session!.user!);
+  if (refusal) return refusal;
 
   try {
     // No scheduler exists in this repo -- this is what makes a Trip's
@@ -96,7 +96,6 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
 export const GET = withRoleCheck('CAMPAIGN_CREATOR', async (_request: NextRequest, context: any) => {
   const { slug } = await context.params;
   const session = await getServerSession();
-  const userId = session!.user!.id as string;
 
   const trip = await prisma.volunteerTrip.findUnique({
     where: { slug },
@@ -105,9 +104,8 @@ export const GET = withRoleCheck('CAMPAIGN_CREATOR', async (_request: NextReques
   if (!trip) {
     return NextResponse.json({ error: 'Volunteer trip tidak ditemukan' }, { status: 404 });
   }
-  if (trip.fundraiserId !== userId) {
-    return NextResponse.json({ error: 'Anda tidak berhak melihat saldo trip ini' }, { status: 403 });
-  }
+  const refusal = refuseUnlessFundraiser({ kind: 'trip', ownerId: trip.fundraiserId }, session!.user!);
+  if (refusal) return refusal;
 
   const [escrowHold, tripBalanceAmount] = await prisma.$transaction((tx) =>
     Promise.all([tripEscrowBalance(tx, trip.id), tripBalance(tx, trip.id)]),

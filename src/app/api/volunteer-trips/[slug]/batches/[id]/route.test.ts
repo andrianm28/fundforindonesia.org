@@ -128,6 +128,10 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
     mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
     const response = await PATCH(patchRequest({ maxQuota: 25 }), routeContext());
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'Hanya Fundraiser Volunteer Trip ini yang dapat melakukan tindakan ini.',
+      code: 'NOT_AUTHORIZED',
+    });
     expect(mockBatchUpdate).not.toHaveBeenCalled();
   });
 
@@ -182,6 +186,10 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
       const response = await PATCH(patchRequest({ action: 'cancel' }), routeContext());
       expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        error: 'Hanya Fundraiser Volunteer Trip ini yang dapat melakukan tindakan ini.',
+        code: 'NOT_AUTHORIZED',
+      });
       expect(mockTransaction).not.toHaveBeenCalled();
     });
 
@@ -329,6 +337,10 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
       const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
       expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        error: 'Hanya Fundraiser Volunteer Trip ini yang dapat melakukan tindakan ini.',
+        code: 'NOT_AUTHORIZED',
+      });
       expect(mockBatchUpdateMany).not.toHaveBeenCalled();
     });
 

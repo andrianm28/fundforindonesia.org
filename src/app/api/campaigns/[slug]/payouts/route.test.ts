@@ -182,6 +182,10 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
     const response = await POST(createRequest(VALID_BODY), routeContext());
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'Hanya Fundraiser Campaign ini yang dapat melakukan tindakan ini.',
+      code: 'NOT_AUTHORIZED',
+    });
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
