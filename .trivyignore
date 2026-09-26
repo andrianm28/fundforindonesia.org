@@ -7,12 +7,11 @@
 CVE-2026-75604
 
 # next 14.2.35: RCE through sharp/libheif when the Image Optimization API
-# optimizes an AVIF file. This one DOES apply: next.config.mjs allows remote
-# images from any host, so anyone can send an AVIF through /_next/image. The
-# only fixes are Next 15.5.24 or 16.3.3, a major upgrade that is its own
-# ticket, and production already runs this same Next version today, so
-# holding back the pipeline would not remove the exposure. Muted for two weeks
-# so that the pipeline and the cutover can land; after that the scan fails
-# again until Next is upgraded or image optimization is turned off
-# (images.unoptimized) as a stopgap.
+# optimizes an AVIF file. Trivy flags it by package version, so it keeps
+# reporting it until Next itself is upgraded (15.5.24+ or 16.3.3+, ticket 15),
+# but the vulnerable path is closed: next.config.mjs sets images.unoptimized,
+# so /_next/image answers 404 and nothing reaches the optimizer (ticket 13,
+# pinned by src/__tests__/next-config-images.test.ts). The expiry stays so the
+# upgrade cannot be forgotten: after it the scan fails again until ticket 15
+# lands.
 GHSA-2xp9-vwfh-vxw4 exp:2026-10-10
