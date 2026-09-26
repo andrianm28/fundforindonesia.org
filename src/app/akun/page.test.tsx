@@ -34,13 +34,14 @@ describe('AkunPage', () => {
     mockUseSession.mockReset();
   });
 
-  it('points a Donor to an Admin to become a Fundraiser instead of a self-verification form', () => {
+  it('asks no one to contact an Admin to become a Fundraiser: anyone registered may submit (FFI-04)', () => {
     mockUseSession.mockReturnValue(sessionAs('DONOR', false, null));
 
     render(<AkunPage />);
 
     expect(screen.queryByRole('button', { name: 'Verifikasi' })).toBeNull();
-    expect(screen.getByRole('link', { name: 'Hubungi Admin' }).getAttribute('href')).toBe('/contact');
+    expect(screen.queryByRole('link', { name: 'Hubungi Admin' })).toBeNull();
+    expect(screen.queryByText('Menjadi Fundraiser')).toBeNull();
   });
 
   it('makes no identity claim for a user whose verification was self-declared (gap C2)', () => {

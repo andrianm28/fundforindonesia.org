@@ -7,7 +7,6 @@ import Image from 'next/image';
 import { formatRupiah } from '@/lib/utils/currency';
 import Link from 'next/link';
 import { WALLET_DISABLED_MESSAGE } from '@/lib/wallet';
-import { isAtLeast } from '@/lib/roles';
 
 export default function AkunPage() {
   const { data: session, status } = useSession();
@@ -110,28 +109,6 @@ export default function AkunPage() {
           )}
         </div>
       </div>
-
-      {/* Becoming a Fundraiser. Identity is no longer self-declared (gap C2):
-          an Admin checks it and assigns the role, so there is no form here. */}
-      {/* Legacy CAMPAIGN_CREATOR Role check (prd-compliance tickets 06-08). */}
-      {!isAtLeast(user?.role, 'CAMPAIGN_CREATOR') && (
-        <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[#212121] text-sm font-medium">Menjadi Fundraiser</p>
-              <p className="text-[#757575] text-xs mt-0.5">
-                Admin memverifikasi identitas dan mendaftarkan Fundraiser
-              </p>
-            </div>
-            <Link
-              href="/contact"
-              className="border border-[#0073E6] text-[#0073E6] text-sm px-4 py-2 rounded-lg font-medium hover:bg-blue-50 transition-colors"
-            >
-              Hubungi Admin
-            </Link>
-          </div>
-        </div>
-      )}
 
       {/* Settings Links */}
       <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm overflow-hidden">

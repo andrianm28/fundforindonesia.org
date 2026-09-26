@@ -31,7 +31,7 @@ type MiddlewareAssignment = "ADMIN" | "VERIFIER";
 /**
  * Runs the middleware for a signed-in user with this Role and these
  * assignments (the session token carries both; see src/lib/auth.ts).
- * Returns: "allow" | "redirect:/" | "redirect:/akun"
+ * Returns: "allow" | "redirect:/"
  */
 function checkRouteAccess(
   pathname: string,
@@ -111,14 +111,14 @@ describe("Route Protection Integration Tests", () => {
       expect(result).toBe("redirect:/");
     });
 
-    it("DONOR on /campaign/create redirects to /akun (not /)", () => {
+    it("DONOR can access /campaign/create — anyone registered may submit (FFI-04)", () => {
       const result = checkRouteAccess("/campaign/create", "DONOR");
-      expect(result).toBe("redirect:/akun");
+      expect(result).toBe("allow");
     });
 
-    it("DONOR on /campaign/create/step-2 also redirects to /akun", () => {
+    it("DONOR can access /campaign/create/step-2 too", () => {
       const result = checkRouteAccess("/campaign/create/step-2", "DONOR");
-      expect(result).toBe("redirect:/akun");
+      expect(result).toBe("allow");
     });
   });
 
@@ -164,7 +164,7 @@ describe("Route Protection Integration Tests", () => {
       expect(result).toBe("redirect:/");
     });
 
-    it("MODERATOR can access /campaign/create — allowed (hierarchy)", () => {
+    it("MODERATOR can access /campaign/create — allowed", () => {
       const result = checkRouteAccess("/campaign/create", "MODERATOR");
       expect(result).toBe("allow");
     });
@@ -434,9 +434,9 @@ describe("Route Protection Integration Tests", () => {
       expect(result).toBe("redirect:/");
     });
 
-    it("null role on /campaign/create redirects to /akun", () => {
+    it("null role can access /campaign/create — no Role is asked for", () => {
       const result = checkRouteAccess("/campaign/create", null);
-      expect(result).toBe("redirect:/akun");
+      expect(result).toBe("allow");
     });
   });
 });

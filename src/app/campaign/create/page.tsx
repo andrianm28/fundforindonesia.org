@@ -7,7 +7,6 @@ import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaignStepIndicator';
-import { isAtLeast } from '@/lib/roles';
 
 const categories = [
   { value: 'bencana-alam', label: 'Bencana Alam' },
@@ -40,7 +39,7 @@ interface FormErrors {
 }
 
 export default function CampaignCreatePage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -71,53 +70,6 @@ export default function CampaignCreatePage() {
   if (status === 'unauthenticated') {
     router.push('/login?callbackUrl=/campaign/create');
     return null;
-  }
-
-  // Fundraiser gate: the same role POST /api/campaigns requires. Identity is
-  // not self-declared any more (gap C2); an Admin assigns this role by hand.
-  // Legacy CAMPAIGN_CREATOR Role gate (prd-compliance tickets 06-08).
-  if (session && !isAtLeast(session.user.role, 'CAMPAIGN_CREATOR')) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="max-w-md w-full text-center space-y-6 p-8 bg-white rounded-lg shadow-card">
-          <div className="w-16 h-16 mx-auto bg-warning/10 rounded-full flex items-center justify-center">
-            <svg
-              className="w-8 h-8 text-warning"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
-              />
-            </svg>
-          </div>
-          <h1 className="text-xl font-bold text-text">Belum Terdaftar sebagai Fundraiser</h1>
-          <p className="text-text-secondary">
-            Untuk sementara, Admin memverifikasi identitas dan mendaftarkan Fundraiser secara langsung. Hubungi Admin untuk mulai menggalang dana.
-          </p>
-          <div className="space-y-3">
-            <Button
-              variant="primary"
-              size="full"
-              onClick={() => router.push('/contact')}
-            >
-              Hubungi Admin
-            </Button>
-            <Button
-              variant="ghost"
-              size="full"
-              onClick={() => router.push('/')}
-            >
-              Kembali ke Beranda
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
   }
 
   // Validation functions

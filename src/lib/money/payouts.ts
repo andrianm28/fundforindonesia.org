@@ -50,9 +50,8 @@ export {
  * applies identically to both subjects.
  *
  * Ownership of the subject itself (campaign.creatorId === requestedById, or
- * trip.fundraiserId === requestedById) is the caller's responsibility:
- * withRoleCheck only proves "a CAMPAIGN_CREATOR-ranked user", not "this
- * subject's owner", so the route checks that before ever reaching here. What
+ * trip.fundraiserId === requestedById) is the caller's responsibility: the
+ * route asks the Capacity judgement before ever reaching here. What
  * this function owns is the destination account: `bankAccount.ownerId` must
  * equal `requestedById` too.
  *

@@ -151,7 +151,7 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-1', role: 'CAMPAIGN_CREATOR' },
+      user: { id: 'creator-1', role: 'DONOR', assignments: [] },
     });
     mockCampaignFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-1' });
     // No matured escrow holds by default -- releaseMaturedEscrow (called at
@@ -168,17 +168,9 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('returns 403 for a role below CAMPAIGN_CREATOR', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'donor-1', role: 'DONOR' } });
-    const response = await POST(createRequest(VALID_BODY), routeContext());
-    expect(response.status).toBe(403);
-    expect(mockTransaction).not.toHaveBeenCalled();
-  });
-
-  it('returns 403 when the caller is a CAMPAIGN_CREATOR but not this campaign\'s creator', async () => {
-    // withRoleCheck only proves "a campaign creator", not "this campaign's
-    // creator" -- it does not pass the session to the handler, so this must
-    // be enforced explicitly against the campaign actually resolved.
+  it('returns 403 NOT_AUTHORIZED when the caller is not this campaign\'s creator, whatever their Role', async () => {
+    // Ownership, asked of the Capacity judgement, is the only gate: a Role
+    // (even the legacy CAMPAIGN_CREATOR one) grants nothing here.
     mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
     const response = await POST(createRequest(VALID_BODY), routeContext());
     expect(response.status).toBe(403);
@@ -286,7 +278,7 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
     expect(payoutCreate).not.toHaveBeenCalled();
   });
 
-  it('creates a DRAFT payout and posts nothing to the ledger when the balance covers it', async () => {
+  it('lets the owner, with no Role or assignment, create a DRAFT payout and posts nothing to the ledger when the balance covers it', async () => {
     const ledgerRows: LedgerRow[] = [
       { transactionId: 't1', direction: 'CREDIT', amount: 100_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1' },
     ];

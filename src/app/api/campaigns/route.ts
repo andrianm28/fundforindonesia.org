@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { listableCampaignWhere } from '@/lib/subject-guard';
-import { withRoleCheck } from '@/lib/withRoleCheck';
 
 const createCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
@@ -106,12 +105,15 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Legacy CAMPAIGN_CREATOR Role gate, kept until who may create a Campaign or
-// Volunteer Trip is decided (prd-compliance tickets 06-08).
-export const POST = withRoleCheck("CAMPAIGN_CREATOR", async (request: NextRequest) => {
+// Anyone registered may submit a Campaign (PRD FFI-04): no Role is asked
+// for. It lands Submitted, and the Verifier's approval is the gate.
+export async function POST(request: NextRequest) {
   try {
-    // 1. Get session (already authenticated and role-checked by withRoleCheck)
+    // 1. Get session: signing in is the only requirement
     const session = await getServerSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     // 2. Parse and validate request body
     const body = await request.json();
@@ -141,7 +143,7 @@ export const POST = withRoleCheck("CAMPAIGN_CREATOR", async (request: NextReques
         targetAmount,
         category,
         deadline: deadline ? new Date(deadline) : null,
-        creatorId: session!.user.id,
+        creatorId: session.user.id,
         // A new campaign is never published by its author. It waits in the
         // Verifier queue at /moderasi until a Verifier approves it, which is
         // what makes it ACTIVE. Set explicitly rather than left to the schema
@@ -171,4 +173,4 @@ export const POST = withRoleCheck("CAMPAIGN_CREATOR", async (request: NextReques
       { status: 500 }
     );
   }
-});
+}

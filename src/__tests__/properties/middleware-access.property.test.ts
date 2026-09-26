@@ -19,7 +19,7 @@ type MiddlewareAssignment = "ADMIN" | "VERIFIER";
 /**
  * Runs the middleware for a signed-in user with this Role and these
  * assignments (the session token carries both; see src/lib/auth.ts).
- * Returns: "allow" | "redirect:/" | "redirect:/akun"
+ * Returns: "allow" | "redirect:/"
  */
 function checkRouteAccess(
   pathname: string,
@@ -167,16 +167,16 @@ describe("Feature: user-roles, Property 4: Moderation Route Access Control", () 
     );
   });
 
-  test("DONOR on /campaign/create is redirected to /akun (not /)", () => {
+  test("any signed-in user reaches /campaign/create, whatever the Role or assignments (FFI-04)", () => {
     const campaignCreatePathArb = subPathArb.map((segments) => {
       if (segments.length === 0) return "/campaign/create";
       return "/campaign/create/" + segments.join("/");
     });
+    const anyRoleArb = fc.constantFrom<Role | null | undefined>(...VALID_ROLES, null, undefined);
 
     fc.assert(
-      fc.property(campaignCreatePathArb, (createPath) => {
-        const result = checkRouteAccess(createPath, "DONOR");
-        expect(result).toBe("redirect:/akun");
+      fc.property(campaignCreatePathArb, anyRoleArb, assignmentsArb, (createPath, role, assignments) => {
+        expect(checkRouteAccess(createPath, role, assignments)).toBe("allow");
       }),
       { numRuns: 100 }
     );

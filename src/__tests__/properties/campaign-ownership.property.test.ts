@@ -128,17 +128,16 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
     });
   });
 
-  describe("CAMPAIGN_CREATOR who IS the owner can edit", () => {
-    test("Owner CAMPAIGN_CREATOR can PATCH their own campaign", async () => {
+  describe("the owner can edit, whatever their Role (FFI-04)", () => {
+    test("the owner can PATCH their own campaign with no assignment, whatever the Role", async () => {
       await fc.assert(
         fc.asyncProperty(
           userIdArb,
+          roleArb,
           slugArb,
-          async (userId, slug) => {
+          async (userId, role, slug) => {
             // User is both the session user AND the campaign creator
-            mockGetServerSession.mockResolvedValue(
-              mockSession(userId, "CAMPAIGN_CREATOR")
-            );
+            mockGetServerSession.mockResolvedValue(mockSession(userId, role));
             mockFindUnique.mockResolvedValue(mockCampaign(userId) as any);
 
             const req = createPatchRequest(slug);
@@ -152,20 +151,19 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
     });
   });
 
-  describe("CAMPAIGN_CREATOR who is NOT the owner gets 403", () => {
-    test("Non-owner CAMPAIGN_CREATOR is denied PATCH", async () => {
+  describe("a non-owner without the ADMIN assignment gets 403", () => {
+    test("a non-owner is denied PATCH with NOT_AUTHORIZED, whatever the Role", async () => {
       await fc.assert(
         fc.asyncProperty(
           userIdArb,
           userIdArb,
+          roleArb,
           slugArb,
-          async (userId, creatorId, slug) => {
+          async (userId, creatorId, role, slug) => {
             // Ensure the user is NOT the owner
             fc.pre(userId !== creatorId);
 
-            mockGetServerSession.mockResolvedValue(
-              mockSession(userId, "CAMPAIGN_CREATOR")
-            );
+            mockGetServerSession.mockResolvedValue(mockSession(userId, role));
             mockFindUnique.mockResolvedValue(mockCampaign(creatorId) as any);
 
             const req = createPatchRequest(slug);
@@ -184,60 +182,8 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
     });
   });
 
-  describe("DONOR always gets 403 regardless of ownership", () => {
-    test("DONOR is denied PATCH even if they are the creator (edge case)", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          userIdArb,
-          slugArb,
-          async (userId, slug) => {
-            // DONOR who happens to be campaign creator (shouldn't normally happen)
-            mockGetServerSession.mockResolvedValue(
-              mockSession(userId, "DONOR")
-            );
-            mockFindUnique.mockResolvedValue(mockCampaign(userId) as any);
-
-            const req = createPatchRequest(slug);
-            const response = await PATCH(req, createParams(slug) as any);
-
-            expect(response.status).toBe(403);
-            const body = await response.json();
-            expect(body.error).toBe("Forbidden");
-          }
-        ),
-        { numRuns: 100 }
-      );
-    });
-
-    test("DONOR is denied PATCH when not the owner", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          userIdArb,
-          userIdArb,
-          slugArb,
-          async (userId, creatorId, slug) => {
-            fc.pre(userId !== creatorId);
-
-            mockGetServerSession.mockResolvedValue(
-              mockSession(userId, "DONOR")
-            );
-            mockFindUnique.mockResolvedValue(mockCampaign(creatorId) as any);
-
-            const req = createPatchRequest(slug);
-            const response = await PATCH(req, createParams(slug) as any);
-
-            expect(response.status).toBe(403);
-            const body = await response.json();
-            expect(body.error).toBe("Forbidden");
-          }
-        ),
-        { numRuns: 100 }
-      );
-    });
-  });
-
   describe("Comprehensive ownership enforcement property", () => {
-    test("For any user/campaign combo: access is determined by (role >= CAMPAIGN_CREATOR AND is owner) OR (ADMIN assignment AND not owner)", async () => {
+    test("For any user/campaign combo: access is determined by ownership OR the ADMIN assignment, never the Role", async () => {
       await fc.assert(
         fc.asyncProperty(
           userIdArb,
@@ -257,10 +203,7 @@ describe("Feature: user-roles, Property 12: Campaign Creator Ownership Enforceme
             // Admin power comes only from the assignment; on their own
             // Campaign an Admin is its Fundraiser (CONTEXT.md, Capacity).
             const actsAsAdmin = !isOwner && assignments.includes("ADMIN");
-            // The Fundraiser path still needs the legacy Role (tickets 06-08).
-            const isOwnerWithSufficientRole = isOwner && role !== "DONOR";
-
-            const shouldAllow = actsAsAdmin || isOwnerWithSufficientRole;
+            const shouldAllow = isOwner || actsAsAdmin;
 
             if (shouldAllow) {
               expect(response.status).toBe(200);

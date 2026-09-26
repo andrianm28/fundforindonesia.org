@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { withRoleCheck } from '@/lib/withRoleCheck';
 
 const createVolunteerTripSchema = z.object({
   title: z.string().min(1, 'Judul harus diisi').max(200, 'Judul maksimal 200 karakter'),
@@ -26,11 +25,15 @@ function generateSlug(title: string): string {
   return `${base}-${suffix}`;
 }
 
-// Legacy CAMPAIGN_CREATOR Role gate, kept until who may create a Campaign or
-// Volunteer Trip is decided (prd-compliance tickets 06-08).
-export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextRequest) => {
+// Anyone registered may create a Volunteer Trip (PRD FFI-04): no Role is
+// asked for. The Verifier's approval, not who created it, decides whether it
+// is published.
+export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const body = await request.json();
     const result = createVolunteerTripSchema.safeParse(body);
@@ -46,7 +49,7 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
       data: {
         slug,
         ...result.data,
-        fundraiserId: session!.user.id,
+        fundraiserId: session.user.id,
         status: 'DRAFT',
       },
     });
@@ -56,7 +59,7 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
     console.error('Error creating volunteer trip:', error);
     return NextResponse.json({ error: 'Gagal membuat volunteer trip' }, { status: 500 });
   }
-});
+}
 
 export async function GET(request: NextRequest) {
   try {

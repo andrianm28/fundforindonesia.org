@@ -394,15 +394,17 @@ describe('Campaign API Integration Tests', () => {
       expect(data.error).toBe('Unauthorized');
     });
 
-    it('requires CAMPAIGN_CREATOR role - returns 403 for DONOR', async () => {
+    it('lets a registered user with no Role or assignment submit a Campaign, as SUBMITTED (FFI-04)', async () => {
       mockGetServerSession.mockResolvedValue(makeUnverifiedSession() as never);
+      mockCreate.mockResolvedValue(makeCampaign({ creatorId: 'user-2' }) as never);
 
       const request = createPostRequest('/api/campaigns', validBody);
       const response = await postCampaign(request);
-      const data = await response.json();
 
-      expect(response.status).toBe(403);
-      expect(data.error).toBe('Forbidden');
+      expect(response.status).toBe(201);
+      const { data } = mockCreate.mock.calls[0][0];
+      expect(data.creatorId).toBe('user-2');
+      expect(data.lifecycleStatus).toBe('SUBMITTED');
     });
 
     it('validates all required fields', async () => {

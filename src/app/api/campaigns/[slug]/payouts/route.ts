@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { withRoleCheck } from '@/lib/withRoleCheck';
 import { refusalResponse, refuseUnlessFundraiser } from '@/lib/refusal-response';
 import { requestPayout } from '@/lib/money/payouts';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
@@ -16,19 +15,18 @@ const requestPayoutSchema = z.object({
 /**
  * POST /api/campaigns/[slug]/payouts -- campaign owner requests a payout.
  *
- * withRoleCheck('CAMPAIGN_CREATOR') only proves the caller is A campaign
- * creator, not the creator of THIS campaign -- it gates on role and does not
- * pass the session to the handler, so getServerSession is called again here
- * and the Capacity judgement below (only this Campaign's Fundraiser) is what
- * actually stops one creator from draining another's campaign.
- *
- * The CAMPAIGN_CREATOR Role gate is legacy, kept until who may create a
- * Campaign or Volunteer Trip is decided (prd-compliance tickets 06-08).
+ * Any signed-in user may ask; no Role is needed. Ownership, asked of the
+ * Capacity judgement below (only this Campaign's Fundraiser), is what stops
+ * one person from draining another's Campaign, and requestPayout's own
+ * checks refuse a Campaign whose status does not allow a payout.
  */
-export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextRequest, context: any) => {
+export async function POST(request: NextRequest, context: any) {
   const { slug } = await context.params;
   const session = await getServerSession();
-  const userId = session!.user!.id as string;
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const userId = session.user.id as string;
 
   const body = await request.json().catch(() => null);
   const parsed = requestPayoutSchema.safeParse(body);
@@ -45,7 +43,7 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
   if (!campaign) {
     return NextResponse.json({ error: 'Campaign tidak ditemukan' }, { status: 404 });
   }
-  const refusal = refuseUnlessFundraiser({ kind: 'campaign', ownerId: campaign.creatorId }, session!.user!);
+  const refusal = refuseUnlessFundraiser({ kind: 'campaign', ownerId: campaign.creatorId }, session.user);
   if (refusal) return refusal;
 
   try {
@@ -89,4 +87,4 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
     console.error('Error requesting payout:', error);
     return NextResponse.json({ error: 'Gagal mengajukan pencairan' }, { status: 500 });
   }
-});
+}
