@@ -205,6 +205,19 @@ describe('CampaignDetailView -- where the Campaign stands', () => {
     expect(screen.queryByText('Donasi sekarang')).toBeNull();
   });
 
+  // Only its Fundraiser, Verifiers and Admins ever see an unapproved
+  // Campaign; the banner tells them where it stands and that it is not public.
+  it.each([
+    ['DRAFT', 'Draf'],
+    ['SUBMITTED', 'menunggu keputusan Verifier'],
+    ['REJECTED', 'ditolak'],
+  ] as const)('says where a %s Campaign stands, and that it is not public', (status, phrase) => {
+    renderAs(status);
+    const banner = screen.getByRole('status', { name: 'Status Campaign' });
+    expect(banner.textContent).toContain(phrase);
+    expect(banner.textContent).toContain('belum tampil untuk publik');
+  });
+
   it('shows the owning Fundraiser the Suspension reason under the banner', async () => {
     apiCampaign = { ...apiCampaign, suspensionReason: 'Dokumen penerima manfaat belum lengkap' };
     renderAs('SUSPENDED');

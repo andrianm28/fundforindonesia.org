@@ -6,9 +6,10 @@ import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-re
 import { CampaignStatus, CampaignStatusChangeAction } from '@/generated/prisma/client';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
 import { lockAndLoad, requireContentEditable } from '@/lib/subject-guard';
+import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 
-// Rendered per request: a Suspended Campaign's answer depends on who asks
-// (see suspensionReasonFor), and reading the session inside a route Next
+// Rendered per request: a Suspended or unapproved Campaign's answer depends
+// on who asks (see suspensionReasonFor and mayViewCampaign), and reading the session inside a route Next
 // had cached as static fails at runtime. Shared caching of everything else
 // is left to the Cache-Control header set in GET.
 export const dynamic = 'force-dynamic';
@@ -46,6 +47,26 @@ async function suspensionReasonFor(campaign: {
   return latest?.reason ?? null;
 }
 
+const PRIVATE_CACHE_CONTROL = 'private, no-store';
+
+/**
+ * The one 404 GET gives, for a missing slug and for an unapproved Campaign
+ * the viewer may not see alike, so the answer never tells them apart. Never
+ * shared-cached: the same URL may answer 200 to the Campaign's Fundraiser.
+ */
+function campaignNotFound() {
+  const response = NextResponse.json(
+    {
+      code: 'NOT_FOUND',
+      message: 'Campaign tidak ditemukan',
+      status: 404,
+    },
+    { status: 404 }
+  );
+  response.headers.set('Cache-Control', PRIVATE_CACHE_CONTROL);
+  return response;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -75,19 +96,21 @@ export async function GET(
       },
     });
 
-    if (!campaign) {
-      return NextResponse.json(
-        {
-          code: 'NOT_FOUND',
-          message: 'Campaign tidak ditemukan',
-          status: 404,
-        },
-        { status: 404 }
-      );
-    }
+    if (!campaign) return campaignNotFound();
 
     const lifecycleStatus = effectiveStatus(campaign, new Date());
     const isSuspended = lifecycleStatus === CampaignStatus.SUSPENDED;
+    const isPublic = isPubliclyViewable(lifecycleStatus);
+
+    // An unapproved Campaign is private to its Fundraiser, Verifiers and
+    // Admins; anyone else gets the same 404 as a slug that never existed.
+    if (!isPublic) {
+      const session = await getServerSession();
+      if (!mayViewCampaign({ status: lifecycleStatus, creatorId: campaign.creatorId }, session?.user)) {
+        return campaignNotFound();
+      }
+    }
+
     const suspensionReason = isSuspended
       ? await suspensionReasonFor(campaign)
       : undefined;
@@ -116,11 +139,12 @@ export async function GET(
     });
 
     // A Suspended Campaign's answer differs between its owner and everyone
-    // else, so no shared cache may keep either version.
+    // else, and an unapproved one between its privileged viewers and
+    // everyone else, so no shared cache may keep either version.
     response.headers.set(
       'Cache-Control',
-      isSuspended
-        ? 'private, no-store'
+      isSuspended || !isPublic
+        ? PRIVATE_CACHE_CONTROL
         : 'public, s-maxage=60, stale-while-revalidate=300'
     );
 

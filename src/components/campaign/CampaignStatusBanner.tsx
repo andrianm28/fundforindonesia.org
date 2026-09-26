@@ -10,7 +10,7 @@ interface CampaignStatusBannerProps {
   suspensionReason?: string | null;
 }
 
-/** A neutral banner for a closed Campaign; nothing for any other status. */
+/** A neutral banner for a closed or unapproved Campaign; nothing while Active. */
 export function CampaignStatusBanner({ status, suspensionReason }: CampaignStatusBannerProps) {
   const copy = statusBannerCopy(status);
   if (!copy) return null;

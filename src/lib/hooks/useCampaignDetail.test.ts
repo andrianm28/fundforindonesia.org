@@ -119,7 +119,7 @@ describe('useCampaignDetail', () => {
   it('dispatches toast event on fetch error', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
-      status: 404,
+      status: 500,
     });
 
     const toastHandler = vi.fn();
@@ -137,6 +137,38 @@ describe('useCampaignDetail', () => {
     expect(event.detail.message).toBe('Gagal memuat data. Coba lagi.');
 
     window.removeEventListener('toast', toastHandler as EventListener);
+  });
+
+  // A 404 is an answer, not a failure: the Campaign does not exist, or is
+  // unapproved and not the viewer's to see. Nothing to retry, nothing to toast.
+  it('reports a 404 as notFound, without a toast or a retry', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 404 });
+    const toastHandler = vi.fn();
+    window.addEventListener('toast', toastHandler as EventListener);
+
+    const { result } = renderHook(() => useCampaignDetail('draf-orang-lain'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.notFound).toBe(true));
+    // Longer than the first retry's 1s backoff.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    expect(result.current.campaign).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(toastHandler).not.toHaveBeenCalled();
+    window.removeEventListener('toast', toastHandler as EventListener);
+  });
+
+  it('does not report a server error as notFound', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 500 });
+
+    const { result } = renderHook(() => useCampaignDetail('bantu-korban-bencana'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.error).toBeDefined());
+    expect(result.current.notFound).toBe(false);
   });
 
   it('provides optimisticDonate function', async () => {

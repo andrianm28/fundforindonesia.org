@@ -11,15 +11,20 @@ export function offersDonating(status: CampaignLifecycleStatus | undefined): boo
 }
 
 // A Cancelled Campaign must never read as Suspended (PRD §8): one is a
-// Fundraiser's honest withdrawal, the other a freeze over a problem.
+// Fundraiser's honest withdrawal, the other a freeze over a problem. An
+// unapproved Campaign is only ever shown to its Fundraiser, Verifiers and
+// Admins (CONTEXT.md, Campaign Status), so its banner says it is not public.
 const BANNER_COPY: Partial<Record<CampaignLifecycleStatus, string>> = {
+  DRAFT: 'Campaign ini masih Draf: belum tampil untuk publik dan belum menerima donasi.',
+  SUBMITTED: 'Campaign ini sedang menunggu keputusan Verifier: belum tampil untuk publik dan belum menerima donasi.',
+  REJECTED: 'Campaign ini ditolak Verifier: belum tampil untuk publik dan tidak menerima donasi.',
   SUSPENDED: 'Campaign ini sedang ditinjau dan tidak menerima donasi.',
   CANCELLED: 'Fundraiser telah menarik Campaign ini.',
   EXPIRED: 'Campaign ini telah berakhir.',
   COMPLETED: 'Campaign ini telah berakhir.',
 };
 
-/** The banner sentence for a closed Campaign, or null for any other status. */
+/** The banner sentence for a closed or unapproved Campaign, or null while Active. */
 export function statusBannerCopy(status: CampaignLifecycleStatus | undefined): string | null {
   return (status && BANNER_COPY[status]) ?? null;
 }

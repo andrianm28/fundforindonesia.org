@@ -117,6 +117,7 @@ describe('GET /api/campaigns/[slug]', () => {
       targetAmount: 10000000,
       collectedAmount: 5000000,
       category: 'bencana-alam',
+      lifecycleStatus: 'ACTIVE',
       isUrgent: false,
       isDemo: true,
       deadline: null,
@@ -165,6 +166,7 @@ describe('GET /api/campaigns/[slug]', () => {
       targetAmount: 10000000,
       collectedAmount: 5000000,
       category: 'kesehatan',
+      lifecycleStatus: 'ACTIVE',
       isUrgent: false,
       deadline: null,
       creatorId: 'user-2',
@@ -401,6 +403,97 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
       await getAs(campaignRow({ lifecycleStatus: 'ACTIVE' }));
       expect(mockGetServerSession).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('GET /api/campaigns/[slug] -- an unapproved Campaign is private', () => {
+  // CONTEXT.md, Campaign Status: a Draft, Submitted or Rejected Campaign
+  // opens only for its Fundraiser, Verifiers and Admins. Everyone else is
+  // told it does not exist, in the same words as a slug that never did.
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function row(lifecycleStatus: string) {
+    return {
+      id: 'campaign-1',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+      description: 'Deskripsi',
+      story: '<p>Cerita</p>',
+      coverImage: 'https://example.com/a.jpg',
+      targetAmount: 10_000_000,
+      collectedAmount: 0,
+      category: 'lingkungan',
+      lifecycleStatus,
+      isUrgent: false,
+      isDemo: false,
+      deadline: null,
+      creatorId: 'owner-1',
+      createdAt: new Date('2026-09-01T00:00:00Z'),
+      updatedAt: new Date('2026-09-01T00:00:00Z'),
+      creator: { id: 'owner-1', name: 'Pemilik', avatar: null },
+      _count: { donations: 0 },
+    };
+  }
+
+  const viewers = {
+    anonymous: null,
+    'another signed-in user': { user: { id: 'donor-9', assignments: [] } },
+    'the Fundraiser': { user: { id: 'owner-1', assignments: [] } },
+    'a Verifier': { user: { id: 'verifier-1', assignments: ['VERIFIER'] } },
+    'an Admin': { user: { id: 'admin-1', assignments: ['ADMIN'] } },
+    // Viewing is not acting: owning the Campaign bars acting on it as its
+    // Verifier, not looking at it.
+    'a Verifier who owns it': { user: { id: 'owner-1', assignments: ['VERIFIER'] } },
+  } as const;
+
+  const privileged = ['the Fundraiser', 'a Verifier', 'an Admin', 'a Verifier who owns it'] as const;
+  const outsiders = ['anonymous', 'another signed-in user'] as const;
+
+  async function getAs(viewer: keyof typeof viewers, lifecycleStatus: string) {
+    mockGetServerSession.mockResolvedValue(viewers[viewer] as any);
+    mockFindUnique.mockResolvedValue(row(lifecycleStatus) as any);
+    const response = await GET(createRequest('sumur-desa'), {
+      params: Promise.resolve({ slug: 'sumur-desa' }),
+    });
+    return { response, body: await response.json() };
+  }
+
+  describe.each(['DRAFT', 'SUBMITTED', 'REJECTED'])('while %s', (status) => {
+    it.each(outsiders)('answers 404 to %s, exactly as for a missing slug', async (viewer) => {
+      const { response, body } = await getAs(viewer, status);
+
+      expect(response.status).toBe(404);
+      expect(body).toEqual({ code: 'NOT_FOUND', message: 'Campaign tidak ditemukan', status: 404 });
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    });
+
+    it.each(privileged)('opens for %s, with its status, never shared-cached', async (viewer) => {
+      const { response, body } = await getAs(viewer, status);
+
+      expect(response.status).toBe(200);
+      expect(body.campaign.lifecycleStatus).toBe(status);
+      expect(body.campaign.title).toBe('Sumur untuk Desa');
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    });
+  });
+
+  describe.each(['ACTIVE', 'CANCELLED', 'COMPLETED'])('once approved (%s)', (status) => {
+    it.each(outsiders)('opens for %s as today, publicly cached', async (viewer) => {
+      const { response, body } = await getAs(viewer, status);
+
+      expect(response.status).toBe(200);
+      expect(body.campaign.lifecycleStatus).toBe(status);
+      expect(response.headers.get('Cache-Control')).toBe(
+        'public, s-maxage=60, stale-while-revalidate=300'
+      );
+    });
+  });
+
+  it('answers 404 to an outsider for a status it does not know (deny by default)', async () => {
+    const { response } = await getAs('anonymous', 'SOMETHING_NEW');
+    expect(response.status).toBe(404);
   });
 });
 

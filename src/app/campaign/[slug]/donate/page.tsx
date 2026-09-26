@@ -38,7 +38,7 @@ export default function DonatePage() {
   const router = useRouter();
   const slug = typeof params.slug === 'string' ? params.slug : '';
 
-  const { campaign, isLoading, error } = useCampaignDetail(slug);
+  const { campaign, isLoading, error, notFound } = useCampaignDetail(slug);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
@@ -130,12 +130,16 @@ export default function DonatePage() {
     );
   }
 
-  // Error state
+  // Error state. A 404 covers a missing slug and an unapproved Campaign the
+  // viewer may not see (only its Fundraiser, Verifiers and Admins may), which
+  // the API answers alike; nothing of the Campaign ever reaches this page.
   if (error || !campaign) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4">
         <p className="text-text-secondary text-center">
-          Kampanye tidak ditemukan atau terjadi kesalahan.
+          {notFound
+            ? 'Campaign tidak ditemukan.'
+            : 'Kampanye tidak ditemukan atau terjadi kesalahan.'}
         </p>
         <button
           onClick={() => router.back()}
