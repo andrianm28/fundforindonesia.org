@@ -1,4 +1,9 @@
-import type { Prisma, PrismaClient, VerificationChecklistItem } from "@/generated/prisma/client";
+import type {
+  Prisma,
+  PrismaClient,
+  VerificationChecklistAuditAction,
+  VerificationChecklistItem,
+} from "@/generated/prisma/client";
 
 /**
  * The Admin-configured verification checklist (verification-request 04, PRD
@@ -72,7 +77,7 @@ type Tx = Prisma.TransactionClient;
 
 async function audit(
   tx: Tx,
-  entry: { itemId: string; action: "CREATED" | "UPDATED"; before: ItemState | null; after: ItemState; actorId: string; now: Date }
+  entry: { itemId: string; action: VerificationChecklistAuditAction; before: ItemState | null; after: ItemState; actorId: string; now: Date }
 ) {
   await tx.verificationChecklistAuditEntry.create({
     data: {
@@ -89,10 +94,13 @@ async function audit(
 /**
  * Serialises every command that computes positions from the whole list
  * (adding, reordering), so two Admins acting at once never hand out the same
- * position or swap against a stale neighbour.
+ * position or swap against a stale neighbour. A table lock, not
+ * `SELECT ... FOR UPDATE`, which locks nothing on an empty checklist. SHARE
+ * ROW EXCLUSIVE conflicts with itself and with writes, but not with plain
+ * reads, so `submitCampaign` snapshotting the checklist never waits on it.
  */
 async function lockChecklist(tx: Tx) {
-  await tx.$queryRaw`SELECT id FROM "VerificationChecklistItem" FOR UPDATE`;
+  await tx.$executeRaw`LOCK TABLE "VerificationChecklistItem" IN SHARE ROW EXCLUSIVE MODE`;
 }
 
 /** Adds an item, active, after the last one. */

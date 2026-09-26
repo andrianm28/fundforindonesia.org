@@ -127,7 +127,7 @@ Peran yang dipakai seseorang untuk satu tindakan: Fundraiser, Verifier, Admin, a
 _Avoid_: Role (di kode itu hierarki lama), peran, jabatan
 
 **Admin**:
-Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, mengelola peran pengguna, memutuskan dan mencabut Suspension, menyetujui Cancellation, menandai Campaign Completed, serta memasang dan melepas Urgent. Tidak pernah bertindak sebagai Admin atas Campaign atau Volunteer Trip miliknya sendiri; di sana ia hanya Fundraiser. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
+Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, mengelola peran pengguna, memutuskan dan mencabut Suspension, menyetujui Cancellation, menandai Campaign Completed, memasang dan melepas Urgent, serta menyusun checklist dokumen Verification Request (berlaku untuk pengajuan berikutnya saja). Tidak pernah bertindak sebagai Admin atas Campaign atau Volunteer Trip miliknya sendiri; di sana ia hanya Fundraiser. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
 
 ### Uang
 

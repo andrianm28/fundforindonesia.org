@@ -42,7 +42,7 @@ function AdminSidebar() {
         <SidebarLink href="/admin/campaigns" icon="campaigns">
           Kampanye
         </SidebarLink>
-        <SidebarLink href="/admin/checklist-verifikasi" icon="checklist">
+        <SidebarLink href="/admin/verification-checklist" icon="checklist">
           Checklist Verifikasi
         </SidebarLink>
       </nav>

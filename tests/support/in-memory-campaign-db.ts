@@ -564,10 +564,7 @@ export function makeCampaignDb(
       },
       $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const sql = strings.join('?');
-        // A lock on one row, or on every row of a table (recorded as "<Table>:*").
-        const rowLock = /FROM "(\w+)" WHERE id = \? FOR UPDATE/.exec(sql);
-        const tableLock = /FROM "(\w+)" FOR UPDATE/.exec(sql);
-        const table = rowLock?.[1] ?? tableLock?.[1];
+        const table = /FROM "(\w+)" WHERE id = \? FOR UPDATE/.exec(sql)?.[1];
         if (!table) throw new Error(`in-memory db does not understand: ${sql}`);
         if (pendingLockInterleave) {
           const interleave = pendingLockInterleave;
@@ -580,12 +577,18 @@ export function makeCampaignDb(
           // of our own in the working copy for this to overwrite.
           Object.assign(getData(), clone(committed));
         }
-        if (!rowLock) {
-          rowLocks.push(`${table}:*`);
-          return [];
-        }
         rowLocks.push(`${table}:${String(values[0])}`);
         return [{ id: values[0] }];
+      },
+      // Only `LOCK TABLE "<Table>" IN SHARE ROW EXCLUSIVE MODE`, recorded as
+      // "<Table>:*". The stand-in runs one command at a time, so the lock
+      // itself has nothing to serialise; taking it is what is observable.
+      $executeRaw: async (strings: TemplateStringsArray) => {
+        const sql = strings.join('?');
+        const table = /^LOCK TABLE "(\w+)" IN SHARE ROW EXCLUSIVE MODE$/.exec(sql)?.[1];
+        if (!table) throw new Error(`in-memory db does not understand: ${sql}`);
+        rowLocks.push(`${table}:*`);
+        return 0;
       },
       notification: {
         create: async ({ data }: { data: Omit<NotificationRow, 'id' | 'link'> & { link?: string | null } }) => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { MoveDirection } from "@/lib/verification-checklist";
 
 // The Admin edits the verification checklist here (verification-request 04,
 // PRD §7.1). Changes apply to Verification Requests submitted afterwards;
@@ -96,6 +97,8 @@ export default function AdminChecklistPage() {
         <ol className="mt-6 space-y-3">
           {items.map((item, index) => (
             <ChecklistRow
+              // The saved label is part of the key so a row's draft label
+              // resets to what the server holds after every reload.
               key={`${item.id}:${item.label}`}
               item={item}
               isFirst={index === 0}
@@ -147,7 +150,7 @@ function ChecklistRow({
   isLast: boolean;
   busy: boolean;
   onSave: (changes: Partial<Pick<ChecklistItem, "label" | "required" | "active">>) => Promise<boolean>;
-  onMove: (direction: "up" | "down") => Promise<boolean>;
+  onMove: (direction: MoveDirection) => Promise<boolean>;
 }) {
   const [label, setLabel] = useState(item.label);
 

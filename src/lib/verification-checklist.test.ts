@@ -8,7 +8,7 @@ import {
   moveChecklistItem,
 } from './verification-checklist';
 import { submitCampaign } from './campaign-lifecycle';
-import { campaignRow, checklistItemRow, makeCampaignDb } from '../../tests/support/in-memory-campaign-db';
+import { campaignRow, checklistItemRow, makeCampaignDb, verificationRequestRow } from '../../tests/support/in-memory-campaign-db';
 
 /**
  * The Admin's checklist editor (verification-request 04): items are added,
@@ -125,6 +125,22 @@ describe('editChecklistItem', () => {
   });
 });
 
+describe('adding and moving lock the whole checklist', () => {
+  // Both compute positions from every item. A row lock would lock nothing on
+  // an empty checklist, letting two Admins adding the first item both take
+  // position 1, so the lock is on the table.
+  it.each([
+    ['adding', (prisma: never) => addChecklistItem(prisma, { actorId: admin, label: 'Baru', required: true })],
+    ['moving', (prisma: never) => moveChecklistItem(prisma, { actorId: admin, itemId: 'bukti-masalah', direction: 'up' })],
+  ])('%s takes the table lock', async (_name, command) => {
+    const db = makeCampaignDb({ checklistItems: SEEDED });
+
+    await command(db.prisma as never);
+
+    expect(db.rowLocks).toEqual(['VerificationChecklistItem:*']);
+  });
+});
+
 describe('moveChecklistItem', () => {
   it('swaps an item with its neighbour, auditing both position changes', async () => {
     const db = makeCampaignDb({ checklistItems: SEEDED });
@@ -190,7 +206,7 @@ describe('moveChecklistItem', () => {
 });
 
 describe('existing Verification Requests keep their snapshot', () => {
-  it('survives rewording, reordering, making optional, deactivating and adding; only the next request sees the edits', async () => {
+  it('survives rewording, reordering, making optional, deactivating and adding, whatever the outcome of the request; only the next request sees the edits', async () => {
     const db = makeCampaignDb({
       campaigns: [
         campaignRow({ id: 'campaign-1', slug: 'satu', lifecycleStatus: 'DRAFT' }),
@@ -206,6 +222,16 @@ describe('existing Verification Requests keep their snapshot', () => {
       { id: 'bukti-masalah', label: 'Bukti masalah', required: true, position: 3, ticked: false },
     ];
     expect(db.verificationRequests[0].checklist).toEqual(snapshotAtSubmission);
+    // Requests in every other state, ticked by a Verifier, snapshotted from an older checklist.
+    const decidedChecklist = [
+      { id: 'rencana-anggaran', label: 'Rencana anggaran (lama)', required: true, position: 1, ticked: true },
+      { id: 'bukti-masalah', label: 'Bukti masalah', required: false, position: 2, ticked: false },
+    ];
+    db.verificationRequests.push(
+      verificationRequestRow({ id: 'rejected', campaignId: 'campaign-2', outcome: 'REJECTED', reason: 'Kurang RAB.', checklist: structuredClone(decidedChecklist) }),
+      verificationRequestRow({ id: 'withdrawn', campaignId: 'campaign-2', outcome: 'WITHDRAWN', checklist: structuredClone(decidedChecklist) }),
+    );
+    const before = structuredClone(db.verificationRequests);
 
     const prisma = db.prisma as never;
     await editChecklistItem(prisma, { actorId: admin, itemId: 'rencana-anggaran', changes: { label: 'RAB rinci', required: false } });
@@ -214,9 +240,10 @@ describe('existing Verification Requests keep their snapshot', () => {
     await addChecklistItem(prisma, { actorId: admin, label: 'Surat keterangan RT', required: true });
 
     expect(db.verificationRequests[0].checklist).toEqual(snapshotAtSubmission);
+    expect(db.verificationRequests).toEqual(before);
 
     await submitCampaign(db.prisma as never, { campaignId: 'campaign-2', actor: fundraiser, now: NOW });
-    expect(db.verificationRequests[1].checklist).toEqual([
+    expect(db.verificationRequests[3].checklist).toEqual([
       { id: 'bukti-masalah', label: 'Bukti masalah', required: true, position: 2, ticked: false },
       { id: 'rencana-anggaran', label: 'RAB rinci', required: false, position: 3, ticked: false },
       { id: expect.any(String), label: 'Surat keterangan RT', required: true, position: 4, ticked: false },
