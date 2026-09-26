@@ -71,8 +71,10 @@ if [ ! -x /opt/node24/bin/node ]; then
 fi
 echo 'export PATH=/opt/node24/bin:$PATH' > /etc/profile.d/node24.sh
 
-# Tools for ops/ and workflow tests
-apt-get update -qq && apt-get install -y -qq shellcheck || true
+# Tools for ops/ and workflow tests. gh is not pre-installed in practice
+# (checked 2026-09-26, despite the docs); it authenticates through the
+# GitHub proxy (GH_TOKEN=proxy-injected), no login needed.
+apt-get update -qq && apt-get install -y -qq shellcheck gh || true
 
 # Local Postgres role/db for trying migrations (throwaway, not a secret)
 service postgresql start
@@ -104,7 +106,7 @@ DATABASE_URL='postgresql://ffi:ffi@localhost:5432/ffi?schema=public' npx prisma 
 - `node -v` prints v24.
 - `npx vitest run` is green.
 - `/tdd` resolves to the vendored skill.
-- `gh pr list` works.
+- `gh pr list` works (else the built-in GitHub tools cover PRs, checks and merges).
 
 If `node -v` still prints v22, the setup script didn't run or
 `$CLAUDE_ENV_FILE` didn't apply. Prefix commands with
