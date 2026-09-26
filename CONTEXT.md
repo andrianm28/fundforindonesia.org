@@ -72,7 +72,7 @@ _Avoid_: Donatur (di kode), user, contributor
 Donor tanpa akun; hanya meninggalkan data minimal yang dibutuhkan untuk Receipt.
 
 **Fundraiser**:
-Pengguna terdaftar yang memiliki sebuah Campaign dan menerima Payout-nya. Organisasi program seperti YIEM adalah Fundraiser untuk Campaign yang dijalankannya sendiri; Platform Operator bukan Fundraiser.
+Pengguna terdaftar yang memiliki sebuah Campaign dan menerima Payout-nya. Organisasi program seperti YIEM adalah Fundraiser untuk Campaign yang dijalankannya sendiri; Platform Operator bukan Fundraiser. Setiap pengguna terdaftar boleh mengajukan Campaign atau Volunteer Trip; yang meloloskannya adalah Verifier, yang juga memverifikasi identitas Fundraiser pada pengajuan pertamanya. Tidak ada peringkat atau jenis akun yang membuat seseorang menjadi Fundraiser.
 _Avoid_: Penggalang dana (di kode), creator, campaigner, owner
 
 **Wakif**:
