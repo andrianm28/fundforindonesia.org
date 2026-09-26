@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import Image from "next/image";
 import { prisma } from "@/lib/prisma";
+import { effectiveStatus } from "@/lib/campaign-lifecycle";
+import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
 import { CampaignModerationActions } from "./CampaignModerationActions";
 
 interface PageProps {
@@ -22,6 +24,8 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
   if (!campaign) {
     notFound();
   }
+
+  const status = effectiveStatus(campaign, new Date());
 
   return (
     <div>
@@ -66,7 +70,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
             <h1 className="text-lg font-semibold text-[#212121]">
               {campaign.title}
             </h1>
-            <StatusBadge status={campaign.status} />
+            <CampaignStatusBadge status={status} />
           </div>
 
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -124,7 +128,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
       <div className="mt-6">
         <CampaignModerationActions
           campaignId={campaign.id}
-          currentStatus={campaign.status}
+          currentStatus={status}
         />
       </div>
     </div>
@@ -137,31 +141,5 @@ function InfoItem({ label, value }: { label: string; value: string }) {
       <p className="text-xs text-[#757575]">{label}</p>
       <p className="text-sm font-medium text-[#212121] mt-0.5">{value}</p>
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    pending: "bg-[#FFF3E0] text-[#E65100]",
-    active: "bg-[#E8F5E9] text-[#2E7D32]",
-    rejected: "bg-[#FFEBEE] text-[#C62828]",
-    suspended: "bg-[#FBE9E7] text-[#BF360C]",
-  };
-
-  const labels: Record<string, string> = {
-    pending: "Menunggu",
-    active: "Aktif",
-    rejected: "Ditolak",
-    suspended: "Ditangguhkan",
-  };
-
-  return (
-    <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-        styles[status] || "bg-[#F5F5F5] text-[#757575]"
-      }`}
-    >
-      {labels[status] || status}
-    </span>
   );
 }

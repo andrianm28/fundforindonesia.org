@@ -22,7 +22,6 @@ export interface CampaignDetailData {
   targetAmount: number;
   collectedAmount: number;
   category: string;
-  status: string;
   /** Effective status: an Active Campaign past its deadline arrives as EXPIRED. */
   lifecycleStatus: CampaignLifecycleStatus;
   isUrgent: boolean;

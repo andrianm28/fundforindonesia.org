@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { effectiveStatus } from '@/lib/campaign-lifecycle';
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession();
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
   const limit = 10;
   const skip = (page - 1) * limit;
 
-  const [campaigns, total] = await Promise.all([
+  const [rows, total] = await Promise.all([
     prisma.campaign.findMany({
       where: { creatorId: session.user.id },
       orderBy: { createdAt: 'desc' },
@@ -26,12 +27,21 @@ export async function GET(request: NextRequest) {
         coverImage: true,
         collectedAmount: true,
         targetAmount: true,
-        status: true,
+        lifecycleStatus: true,
+        deadline: true,
         createdAt: true,
       },
     }),
     prisma.campaign.count({ where: { creatorId: session.user.id } }),
   ]);
+
+  // Effective, so an Active Campaign past its deadline reads as Expired
+  // here just as on the public page.
+  const now = new Date();
+  const campaigns = rows.map(({ lifecycleStatus, deadline, ...campaign }) => ({
+    ...campaign,
+    lifecycleStatus: effectiveStatus({ lifecycleStatus, deadline }, now),
+  }));
 
   return NextResponse.json({
     campaigns,

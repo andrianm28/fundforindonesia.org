@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
-import { Assignment } from "@/generated/prisma/client";
+import { Assignment, CampaignStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export default async function ModerasiPage() {
@@ -13,7 +13,7 @@ export default async function ModerasiPage() {
   }
 
   const pendingCampaignsCount = await prisma.campaign.count({
-    where: { status: "pending" },
+    where: { lifecycleStatus: CampaignStatus.SUBMITTED },
   });
 
   return (

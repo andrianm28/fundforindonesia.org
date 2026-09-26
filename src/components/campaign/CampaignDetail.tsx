@@ -20,7 +20,6 @@ export interface CampaignDetailProps {
     targetAmount: number;
     collectedAmount: number;
     category: string;
-    status: string;
     /** Effective status, as GET /api/campaigns/[slug] returns it. */
     lifecycleStatus: CampaignLifecycleStatus;
     /** Present only in the owning Fundraiser's payload. */

@@ -55,9 +55,10 @@ describe('GET /api/campaigns/[slug]', () => {
       collectedAmount: 25841000,
       category: 'bencana-alam',
       status: 'active',
+      lifecycleStatus: 'ACTIVE',
       isUrgent: false,
       isDemo: false,
-      deadline: new Date('2026-06-06T00:00:00Z'),
+      deadline: null,
       creatorId: 'user-1',
       createdAt: new Date('2024-01-01T00:00:00Z'),
       updatedAt: new Date('2024-06-01T00:00:00Z'),
@@ -93,7 +94,7 @@ describe('GET /api/campaigns/[slug]', () => {
     expect(body.campaign.targetAmount).toBe(50000000);
     expect(body.campaign.collectedAmount).toBe(25841000);
     expect(body.campaign.category).toBe('bencana-alam');
-    expect(body.campaign.status).toBe('active');
+    expect(body.campaign.lifecycleStatus).toBe('ACTIVE');
     expect(body.campaign.isUrgent).toBe(false);
     expect(body.campaign.isDemo).toBe(false);
     expect(body.campaign.creator).toEqual({
@@ -293,10 +294,10 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
     return { response, body: await response.json() };
   }
 
-  it('exposes lifecycleStatus next to the existing fields', async () => {
+  it('sends lifecycleStatus as its one status field, without the legacy status string', async () => {
     const { body } = await getAs(campaignRow({ lifecycleStatus: 'CANCELLED', status: 'cancelled' }));
     expect(body.campaign.lifecycleStatus).toBe('CANCELLED');
-    expect(body.campaign.status).toBe('cancelled');
+    expect(body.campaign).not.toHaveProperty('status');
   });
 
   it('reports a Campaign stored Active whose deadline has passed as EXPIRED', async () => {

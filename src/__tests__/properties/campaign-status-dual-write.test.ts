@@ -117,6 +117,13 @@ describe("Campaign status dual-write", () => {
         // Suspension keeps a payment in Escrow Hold
         // (subject-guard-and-suspension-money ticket 05).
         "src/app/api/admin/reconcile/route.ts",
+        // The legacy status string's former readers (legacy-status-contract
+        // ticket 01): the Verifier queue and count filter on SUBMITTED, and
+        // "Kampanye Saya" and its API show the effective status.
+        "src/app/moderasi/page.tsx",
+        "src/app/moderasi/campaigns/page.tsx",
+        "src/app/api/user/campaigns/route.ts",
+        "src/app/akun/kampanye-saya/page.tsx",
       ].sort()
     );
   });

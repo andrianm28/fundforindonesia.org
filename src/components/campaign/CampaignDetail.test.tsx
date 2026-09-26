@@ -21,7 +21,6 @@ const mockCampaign: CampaignDetailProps['campaign'] = {
   targetAmount: 50000000,
   collectedAmount: 25841000,
   category: 'bencana-alam',
-  status: 'active',
   lifecycleStatus: 'ACTIVE',
   isUrgent: true,
   deadline: new Date(Date.now() + 61 * 24 * 60 * 60 * 1000).toISOString(),

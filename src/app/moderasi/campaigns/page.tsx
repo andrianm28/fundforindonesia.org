@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { CampaignStatus } from "@/generated/prisma/client";
 
 export default async function ModerasiCampaignsPage() {
   const campaigns = await prisma.campaign.findMany({
-    where: { status: "pending" },
+    // Awaiting a Verifier means Submitted (CONTEXT.md, Campaign Status).
+    where: { lifecycleStatus: CampaignStatus.SUBMITTED },
     include: {
       creator: {
         select: { name: true, email: true },

@@ -265,9 +265,14 @@ export function makeCampaignDb(
         },
         // What the public list readers call. Order is insertion order; the
         // readers' tests assert on which Campaigns come back, not the order.
-        findMany: async ({ where = {}, skip = 0, take, select }: { where?: Where; skip?: number; take?: number; select?: Record<string, boolean> }) => {
+        findMany: async ({ where = {}, skip = 0, take, select, omit }: { where?: Where; skip?: number; take?: number; select?: Record<string, boolean>; omit?: Record<string, boolean> }) => {
           const rows = getData().campaigns.filter((c) => matches(c, where));
           const page = rows.slice(skip, take === undefined ? undefined : skip + take);
+          if (omit) {
+            return page.map((row) =>
+              Object.fromEntries(Object.entries(row).filter(([key]) => !omit[key])),
+            );
+          }
           if (!select) return page.map((row) => ({ ...row }));
           return page.map((row) =>
             Object.fromEntries(

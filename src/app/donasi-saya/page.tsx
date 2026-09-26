@@ -18,7 +18,6 @@ interface DonationItem {
     title: string;
     slug: string;
     coverImage: string;
-    status: string;
   };
 }
 

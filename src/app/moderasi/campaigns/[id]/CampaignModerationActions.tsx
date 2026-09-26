@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import type { CampaignLifecycleStatus } from "@/types/campaign";
 
 interface CampaignModerationActionsProps {
   campaignId: string;
-  currentStatus: string;
+  currentStatus: CampaignLifecycleStatus;
 }
 
 export function CampaignModerationActions({
@@ -65,7 +66,8 @@ export function CampaignModerationActions({
     }
   };
 
-  const isPending = currentStatus === "pending";
+  // Only a Submitted Campaign awaits a Verifier's decision.
+  const isPending = currentStatus === "SUBMITTED";
 
   return (
     <div className="bg-white rounded-xl border border-[#E0E0E0] p-6">

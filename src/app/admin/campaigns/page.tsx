@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
+import { effectiveStatus } from "@/lib/campaign-lifecycle";
+import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
 
 export default async function AdminCampaignsPage() {
   const campaigns = await prisma.campaign.findMany({
@@ -11,6 +13,7 @@ export default async function AdminCampaignsPage() {
       },
     },
   });
+  const now = new Date();
 
   return (
     <div>
@@ -83,7 +86,7 @@ export default async function AdminCampaignsPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <StatusBadge status={campaign.status} />
+                      <CampaignStatusBadge status={effectiveStatus(campaign, now)} />
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       {formatCurrency(campaign.targetAmount)}
@@ -118,48 +121,6 @@ export default async function AdminCampaignsPage() {
         </div>
       </div>
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const config: Record<string, { label: string; className: string }> = {
-    active: {
-      label: "Aktif",
-      className: "bg-green-100 text-green-800",
-    },
-    pending: {
-      label: "Menunggu",
-      className: "bg-yellow-100 text-yellow-800",
-    },
-    rejected: {
-      label: "Ditolak",
-      className: "bg-red-100 text-red-800",
-    },
-    completed: {
-      label: "Selesai",
-      className: "bg-blue-100 text-blue-800",
-    },
-    suspended: {
-      label: "Ditangguhkan",
-      className: "bg-orange-100 text-orange-800",
-    },
-    expired: {
-      label: "Kedaluwarsa",
-      className: "bg-gray-100 text-gray-800",
-    },
-  };
-
-  const { label, className } = config[status] ?? {
-    label: status,
-    className: "bg-gray-100 text-gray-800",
-  };
-
-  return (
-    <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${className}`}
-    >
-      {label}
-    </span>
   );
 }
 
