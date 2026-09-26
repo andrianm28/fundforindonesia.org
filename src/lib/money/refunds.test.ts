@@ -9,8 +9,7 @@ import {
   RefundNotFoundError,
   SelfApprovalError,
   InvalidRefundStatusError,
-  OwnCampaignConflictError,
-  OwnTripConflictError,
+  OwnSubjectConflictError,
 } from './refunds';
 
 type LedgerRow = {
@@ -314,7 +313,7 @@ describe('createRefund', () => {
       requestedById: 'admin-1',
     });
 
-    await expect(attempt).rejects.toThrow(OwnCampaignConflictError);
+    await expect(attempt).rejects.toThrow(OwnSubjectConflictError);
     await expect(attempt).rejects.toMatchObject({ code: 'OWN_CAMPAIGN_CONFLICT', message: expect.stringContaining('harus dilakukan Admin lain') });
     expect(refundCreate).not.toHaveBeenCalled();
     expect(rows).toHaveLength(0);
@@ -584,7 +583,7 @@ describe('approveRefund', () => {
 
     const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
 
-    await expect(attempt).rejects.toThrow(OwnCampaignConflictError);
+    await expect(attempt).rejects.toThrow(OwnSubjectConflictError);
     await expect(attempt).rejects.toMatchObject({ code: 'OWN_CAMPAIGN_CONFLICT', message: expect.stringContaining('harus dilakukan Admin lain') });
     expect(tx.refund.updateMany).not.toHaveBeenCalled();
     expect(rows).toHaveLength(0);
@@ -597,7 +596,7 @@ describe('approveRefund', () => {
 
     const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
 
-    await expect(attempt).rejects.toThrow(OwnTripConflictError);
+    await expect(attempt).rejects.toThrow(OwnSubjectConflictError);
     await expect(attempt).rejects.toMatchObject({ code: 'OWN_TRIP_CONFLICT', message: expect.stringContaining('harus dilakukan Admin lain') });
     expect(tx.refund.updateMany).not.toHaveBeenCalled();
     expect(rows).toHaveLength(0);

@@ -31,7 +31,7 @@ import {
   LifecycleValidationError,
   MissingCampaignUpdateError,
   NotAuthorizedError,
-  OwnCampaignConflictError,
+  OwnSubjectConflictError,
   PayoutAlreadyCompletedError,
   SameAdminLiftError,
 } from './campaign-lifecycle';
@@ -175,7 +175,7 @@ describe('lifecycleRoute', () => {
   it.each([
     [new LifecycleValidationError('Alasan wajib diisi.'), 400, 'VALIDATION'],
     [new NotAuthorizedError('Hanya Admin yang dapat membekukan Campaign.'), 403, 'NOT_AUTHORIZED'],
-    [new OwnCampaignConflictError('ADMIN'), 403, 'OWN_CAMPAIGN_CONFLICT'],
+    [new OwnSubjectConflictError('campaign', 'ADMIN'), 403, 'OWN_CAMPAIGN_CONFLICT'],
     [new SameAdminLiftError(), 403, 'SAME_ADMIN_LIFT'],
     [new InvalidTransitionError('SUSPENDED'), 409, 'INVALID_TRANSITION'],
     [new ConcurrentTransitionError(), 409, 'CONCURRENT_TRANSITION'],

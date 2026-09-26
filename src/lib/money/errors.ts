@@ -8,8 +8,9 @@ import { DomainError, type MoneyErrorCode } from '@/lib/domain-errors';
  * lifecycle routes use. ./payouts.ts and ./refunds.ts re-export the ones
  * they raise, so `catch` sites that import from there keep working.
  *
- * OwnTripConflictError extends MoneyError too, but lives with the subject
- * guard that raises it (src/lib/subject-guard.ts).
+ * Acting as Admin on your own Campaign or Trip is refused by the Capacity
+ * judgement's OwnSubjectConflictError (src/lib/capacity.ts), not a money
+ * error.
  */
 export abstract class MoneyError extends DomainError {
   abstract override readonly code: MoneyErrorCode;

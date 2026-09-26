@@ -13,7 +13,7 @@ import {
   LifecycleValidationError,
   MissingCampaignUpdateError,
   NotAuthorizedError,
-  OwnCampaignConflictError,
+  OwnSubjectConflictError,
   PayoutAlreadyCompletedError,
   SameAdminLiftError,
 } from './campaign-lifecycle';
@@ -144,8 +144,8 @@ describe('domainErrorToHttp', () => {
   it.each([
     [new LifecycleValidationError('Alasan wajib diisi.', 'reason'), 400, 'VALIDATION'],
     [new NotAuthorizedError(), 403, 'NOT_AUTHORIZED'],
-    [new OwnCampaignConflictError('ADMIN'), 403, 'OWN_CAMPAIGN_CONFLICT'],
-    [new OwnCampaignConflictError('VERIFIER'), 403, 'OWN_CAMPAIGN_CONFLICT'],
+    [new OwnSubjectConflictError('campaign', 'ADMIN'), 403, 'OWN_CAMPAIGN_CONFLICT'],
+    [new OwnSubjectConflictError('campaign', 'VERIFIER'), 403, 'OWN_CAMPAIGN_CONFLICT'],
     [new SameAdminLiftError(), 403, 'SAME_ADMIN_LIFT'],
     [new CampaignNotFoundError('campaign-1'), 404, 'CAMPAIGN_NOT_FOUND'],
     [new InvalidTransitionError('SUSPENDED'), 409, 'INVALID_TRANSITION'],
@@ -167,8 +167,8 @@ describe('domainErrorToHttp', () => {
   });
 
   it('tells an Admin or Verifier on their own Campaign that another of the same role must act', () => {
-    expect(new OwnCampaignConflictError('ADMIN').message).toContain('Admin lain');
-    expect(new OwnCampaignConflictError('VERIFIER').message).toContain('Verifier lain');
+    expect(new OwnSubjectConflictError('campaign', 'ADMIN').message).toContain('Admin lain');
+    expect(new OwnSubjectConflictError('campaign', 'VERIFIER').message).toContain('Verifier lain');
   });
 
   it('tells the Admin another Admin must lift their Suspension', () => {

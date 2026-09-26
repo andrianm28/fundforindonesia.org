@@ -1,11 +1,12 @@
 import {
+  Assignment,
   CampaignStatus,
   StatusChangeCapacity,
   VolunteerTripStatus,
   type Prisma,
 } from "@/generated/prisma/client";
-import { CampaignLifecycleError, OPERATOR_LABELS, OwnCampaignConflictError, type OperatorCapacity } from "./campaign-lifecycle-errors";
-import { MoneyError } from "./money/errors";
+import { CampaignLifecycleError } from "./campaign-lifecycle-errors";
+import { judgeCapacity } from "./capacity";
 import type { LedgerSubject } from "./money/ledger";
 
 /**
@@ -210,32 +211,18 @@ export function isEscrowReleaseFrozen(subject: SubjectStatus): boolean {
 }
 
 /**
- * The Trip-side mirror of OwnCampaignConflictError: an Admin or Verifier
- * tried to act in that role on a Volunteer Trip they run as its Fundraiser
- * (CONTEXT.md, Admin and Verifier; ADR 0005). A typed refusal like the
- * lifecycle one (stable `code`, Indonesian `message`, 403 through
- * `domainErrorToHttp`), worded for a Trip and for the capacity. The capacity
- * defaults to Admin, the Trip-side money operations' only capacity.
- */
-export class OwnTripConflictError extends MoneyError {
-  readonly code = "OWN_TRIP_CONFLICT";
-  constructor(capacity: OperatorCapacity = StatusChangeCapacity.ADMIN) {
-    const role = OPERATOR_LABELS[capacity];
-    super(
-      `Anda tidak dapat bertindak sebagai ${role} atas Volunteer Trip milik Anda sendiri. Tindakan ini harus dilakukan ${role} lain.`
-    );
-    this.name = "OwnTripConflictError";
-  }
-}
-
-/**
  * An Admin never acts as Admin on a Campaign or Volunteer Trip they own:
- * there they are only its Fundraiser (CONTEXT.md, Admin; ADR 0005).
+ * there they are only its Fundraiser (CONTEXT.md, Capacity; ADR 0005).
+ * Refuses with OwnSubjectConflictError (./capacity.ts).
+ *
+ * For the money operations, which take only the acting person's id: their
+ * routes have already required the ADMIN assignment (withAssignmentCheck),
+ * so the actor is judged as holding it and only ownership is left to decide.
  */
 export function requireNotOwnerAsAdmin(state: SubjectState, actorId: string): void {
-  if (state.ownerId !== actorId) return;
-  if (state.kind === "campaign") {
-    throw new OwnCampaignConflictError(StatusChangeCapacity.ADMIN);
-  }
-  throw new OwnTripConflictError();
+  judgeCapacity(
+    state,
+    { userId: actorId, assignments: [Assignment.ADMIN] },
+    StatusChangeCapacity.ADMIN
+  );
 }

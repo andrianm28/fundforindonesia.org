@@ -71,6 +71,8 @@ export function campaignAcceptsDonations(
 // ==================== Typed errors ====================
 
 export * from "./campaign-lifecycle-errors";
+// Raised by the Admin and Verifier commands through the Capacity judgement.
+export { OwnSubjectConflictError } from "./capacity";
 import {
   CampaignLifecycleError,
   CampaignNotFoundError,
@@ -78,14 +80,12 @@ import {
   InvalidTransitionError,
   LifecycleValidationError,
   MissingCampaignUpdateError,
-  NotAuthorizedError,
-  OwnCampaignConflictError,
   PayoutAlreadyCompletedError,
   CancellationAlreadyPendingError,
   SameAdminLiftError,
   STATUS_LABEL,
-  type OperatorCapacity,
 } from "./campaign-lifecycle-errors";
+import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
 
 // ==================== Effective status ====================
@@ -308,47 +308,13 @@ function optionalReason(raw: unknown): string | null {
   return requireReason(raw);
 }
 
-const OPERATOR_ASSIGNMENT: Record<OperatorCapacity, Assignment> = {
-  ADMIN: Assignment.ADMIN,
-  VERIFIER: Assignment.VERIFIER,
-};
-
 /**
- * Who may run a command, and the capacity it is recorded in.
- * - `operator`: needs that assignment, checked before anything is read, and
- *   never acts on a Campaign they own: there they are only its Fundraiser
- *   (CONTEXT.md, Admin and Verifier; ADR 0005).
- * - `fundraiser`: only the Campaign's Fundraiser, checked once it is read.
- * - `fundraiserOrAdmin`: the owner acts as FUNDRAISER, even holding ADMIN;
- *   anyone else needs ADMIN. Checked once the Campaign is read.
+ * Who may run a command, and the capacity it is recorded in: the Capacity
+ * the command asks for, judged by ./capacity.ts once the Campaign is read.
+ * An ADMIN or VERIFIER request's assignment is checked before anything is
+ * read. `message` is the refusal for anyone not authorized.
  */
-type Authority =
-  | { kind: "operator"; capacity: OperatorCapacity; message: string }
-  | { kind: "fundraiser"; message: string }
-  | { kind: "fundraiserOrAdmin"; message: string };
-
-/** The capacity the actor acts in on this Campaign, or the refusal. */
-function authorize(
-  authority: Authority,
-  actor: LifecycleActor,
-  campaign: { creatorId: string }
-): StatusChangeCapacity {
-  const isOwner = campaign.creatorId === actor.userId;
-  switch (authority.kind) {
-    case "operator":
-      if (isOwner) throw new OwnCampaignConflictError(authority.capacity);
-      return authority.capacity;
-    case "fundraiser":
-      if (!isOwner) throw new NotAuthorizedError(authority.message);
-      return StatusChangeCapacity.FUNDRAISER;
-    case "fundraiserOrAdmin":
-      if (isOwner) return StatusChangeCapacity.FUNDRAISER;
-      if (!actor.assignments.includes(Assignment.ADMIN)) {
-        throw new NotAuthorizedError(authority.message);
-      }
-      return StatusChangeCapacity.ADMIN;
-  }
-}
+type Authority = { capacity: RequestedCapacity; message: string };
 
 /**
  * - `none`: the command takes no reason.
@@ -424,8 +390,8 @@ type CommandDeclaration<P extends ReasonPolicy, Extra> = {
  *   1. the operator assignment, then the reason, before anything is read;
  *   2. lazy expiry, committed in its own transaction;
  *   3. in the command's transaction: lock the Campaign row, then read it;
- *      not found; who is acting (the own-Campaign rule, Fundraiser-only,
- *      Fundraiser-or-Admin, with a capacity-dependent reason); the allowed
+ *      not found; who is acting (the Capacity judgement, ./capacity.ts,
+ *      then a capacity-dependent reason); the allowed
  *      effective statuses; the command's step;
  *   4. the Campaign re-read, so a caller never reports an Urgent flag the
  *      leave-Active side effects have just cleared.
@@ -437,19 +403,19 @@ async function runCommand<P extends ReasonPolicy, Extra extends object>(
 ): Promise<LifecycleResult & Extra> {
   const { campaignId, actor, now = new Date() } = target;
   const { authority } = command;
-  if (
-    authority.kind === "operator" &&
-    !actor.assignments.includes(OPERATOR_ASSIGNMENT[authority.capacity])
-  ) {
-    throw new NotAuthorizedError(authority.message);
-  }
+  requireAssignmentFor(actor, authority.capacity, authority.message);
   let reason: string | null =
     command.reasonPolicy === "required" ? requireReason(command.rawReason) : null;
   await expireIfPastDeadline(prisma, campaignId, now);
   return prisma.$transaction(async (tx) => {
     const campaign = await lockAndRead(tx, campaignId, now);
     if (!campaign) throw new CampaignNotFoundError(campaignId);
-    const capacity = authorize(authority, actor, campaign);
+    const capacity = judgeCapacity(
+      { kind: "campaign", ownerId: campaign.creatorId },
+      actor,
+      authority.capacity,
+      authority.message
+    );
     if (command.reasonPolicy === "requiredUnlessFundraiser") {
       reason =
         capacity === StatusChangeCapacity.FUNDRAISER
@@ -524,7 +490,6 @@ export async function decideSubmission(
   const decision = SUBMISSION_DECISIONS[params.decision];
   return runCommand(prisma, params, {
     authority: {
-      kind: "operator",
       capacity: StatusChangeCapacity.VERIFIER,
       message: "Hanya Verifier yang dapat menyetujui atau menolak Campaign.",
     },
@@ -562,7 +527,7 @@ export async function completeCampaign(
 ): Promise<LifecycleResult> {
   return runCommand(prisma, params, {
     authority: {
-      kind: "fundraiserOrAdmin",
+      capacity: "FUNDRAISER_OR_ADMIN",
       message:
         "Hanya Fundraiser pemilik Campaign atau Admin yang dapat menandai Campaign Completed.",
     },
@@ -641,7 +606,7 @@ export async function requestCancellation(
 ): Promise<CancellationResult> {
   return runCommand(prisma, params, {
     authority: {
-      kind: "fundraiser",
+      capacity: StatusChangeCapacity.FUNDRAISER,
       message: "Hanya Fundraiser pemilik Campaign yang dapat mengajukan Cancellation.",
     },
     reasonPolicy: "required",
@@ -701,7 +666,6 @@ export async function decideCancellation(
   const decision = CANCELLATION_DECISIONS[params.decision];
   return runCommand(prisma, params, {
     authority: {
-      kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
       message: "Hanya Admin yang dapat memutuskan pengajuan Cancellation.",
     },
@@ -788,7 +752,6 @@ export async function suspendCampaign(
 ): Promise<LifecycleResult> {
   return runCommand(prisma, params, {
     authority: {
-      kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
       message: "Hanya Admin yang dapat menjatuhkan Suspension.",
     },
@@ -837,7 +800,6 @@ export async function liftSuspension(
 ): Promise<LifecycleResult> {
   return runCommand(prisma, params, {
     authority: {
-      kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
       message: "Hanya Admin yang dapat mencabut Suspension.",
     },
@@ -897,7 +859,6 @@ export async function setUrgent(
   const { urgent } = params;
   return runCommand(prisma, params, {
     authority: {
-      kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
       message: "Hanya Admin yang dapat memasang atau melepas Urgent.",
     },
@@ -992,7 +953,6 @@ export async function flagCampaign(
 ): Promise<FlagResult> {
   return runCommand(prisma, params, {
     authority: {
-      kind: "operator",
       capacity: StatusChangeCapacity.VERIFIER,
       message: "Hanya Verifier yang dapat memasang Flag pada Campaign.",
     },
@@ -1030,7 +990,6 @@ export async function dismissFlag(
   const { flagId } = params;
   return runCommand(prisma, params, {
     authority: {
-      kind: "operator",
       capacity: StatusChangeCapacity.ADMIN,
       message: "Hanya Admin yang dapat menolak Flag.",
     },

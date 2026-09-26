@@ -1,4 +1,4 @@
-import { CampaignStatus, StatusChangeCapacity } from "@/generated/prisma/client";
+import { CampaignStatus } from "@/generated/prisma/client";
 import { DomainError, type LifecycleErrorCode } from "./domain-errors";
 
 /**
@@ -45,34 +45,6 @@ export class NotAuthorizedError extends CampaignLifecycleError {
   constructor(message = "Anda tidak berwenang melakukan tindakan ini pada Campaign ini.") {
     super(message);
     this.name = "NotAuthorizedError";
-  }
-}
-
-/**
- * The operator capacities that are barred on a Campaign or Volunteer Trip
- * the person owns (OwnTripConflictError reuses the labels).
- */
-export type OperatorCapacity =
-  | typeof StatusChangeCapacity.ADMIN
-  | typeof StatusChangeCapacity.VERIFIER;
-
-export const OPERATOR_LABELS: Record<OperatorCapacity, string> = {
-  ADMIN: "Admin",
-  VERIFIER: "Verifier",
-};
-
-/**
- * An Admin or Verifier tried to act in that role on a Campaign they own
- * (CONTEXT.md, Admin and Verifier; ADR 0005).
- */
-export class OwnCampaignConflictError extends CampaignLifecycleError {
-  readonly code = "OWN_CAMPAIGN_CONFLICT";
-  constructor(capacity: OperatorCapacity) {
-    const role = OPERATOR_LABELS[capacity];
-    super(
-      `Anda tidak dapat bertindak sebagai ${role} atas Campaign milik Anda sendiri. Tindakan ini harus dilakukan ${role} lain.`
-    );
-    this.name = "OwnCampaignConflictError";
   }
 }
 

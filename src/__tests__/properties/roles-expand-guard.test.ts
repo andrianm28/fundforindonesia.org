@@ -64,10 +64,14 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/volunteer-trips/[slug]/refunds/[id]/approve/route.ts",
   "src/app/moderasi/layout.tsx",
   "src/app/moderasi/page.tsx",
-  // Not a route: the Campaign lifecycle module authorizes each transition
-  // itself, because "owner or Admin" and "never Admin on your own Campaign"
-  // are not single-assignment checks a route wrapper can express.
-  "src/lib/campaign-lifecycle.ts",
+  // Not a route: the Capacity judgement, which the lifecycle module, the
+  // money operations and Trip moderation ask, because "owner or Admin" and
+  // "never Admin on your own Campaign or Trip" are not single-assignment
+  // checks a route wrapper can express.
+  "src/lib/capacity.ts",
+  // Not a route: requireNotOwnerAsAdmin asks the judgement for the money
+  // operations, whose routes have already required ADMIN.
+  "src/lib/subject-guard.ts",
 ];
 
 /** Every route that changes a Campaign's lifecycle through the lifecycle module. */

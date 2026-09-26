@@ -1,6 +1,6 @@
 import type { Payment, Prisma, PrismaClient, Refund } from '@/generated/prisma/client';
-import { OwnCampaignConflictError } from '@/lib/campaign-lifecycle';
-import { lockAndLoad, OwnTripConflictError, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
+import { OwnSubjectConflictError } from '@/lib/capacity';
+import { lockAndLoad, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
 import {
   campaignBalance,
   tripBalance,
@@ -38,8 +38,7 @@ import {
 
 export {
   DemoCampaignError,
-  OwnCampaignConflictError,
-  OwnTripConflictError,
+  OwnSubjectConflictError,
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
   RefundExceedsRemainingError,

@@ -16,7 +16,7 @@ import {
   InvalidTransitionError,
   LifecycleValidationError,
   NotAuthorizedError,
-  OwnCampaignConflictError,
+  OwnSubjectConflictError,
   type LifecycleActor,
 } from './campaign-lifecycle';
 import {
@@ -227,7 +227,7 @@ const COMMANDS: Record<string, CommandCase> = {
     takesReason: true,
     ownCampaignRole: 'Admin',
     // An Expired Campaign can be suspended, so the refusal comes from the owner.
-    refusedOnceExpired: { actor: ownerOperator, error: OwnCampaignConflictError },
+    refusedOnceExpired: { actor: ownerOperator, error: OwnSubjectConflictError },
     competing: {
       write: (data) => {
         Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
@@ -302,7 +302,7 @@ const COMMANDS: Record<string, CommandCase> = {
     takesReason: true,
     ownCampaignRole: 'Admin',
     // Expiry clears Urgent and clearing is allowed from Expired, so the refusal comes from the owner.
-    refusedOnceExpired: { actor: ownerOperator, error: OwnCampaignConflictError },
+    refusedOnceExpired: { actor: ownerOperator, error: OwnSubjectConflictError },
     // A competitor that clears Urgent first leaves nothing to refuse; see setUrgent's own tests.
   },
   flagCampaign: {
@@ -319,7 +319,7 @@ const COMMANDS: Record<string, CommandCase> = {
     takesReason: true,
     ownCampaignRole: 'Verifier',
     // An Expired Campaign can be flagged, so the refusal comes from the owner.
-    refusedOnceExpired: { actor: ownerOperator, error: OwnCampaignConflictError },
+    refusedOnceExpired: { actor: ownerOperator, error: OwnSubjectConflictError },
     competing: {
       write: (data) => {
         Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
@@ -342,7 +342,7 @@ const COMMANDS: Record<string, CommandCase> = {
     takesReason: true,
     ownCampaignRole: 'Admin',
     // Dismissal ignores the status, so the refusal comes from the owner.
-    refusedOnceExpired: { actor: ownerOperator, error: OwnCampaignConflictError },
+    refusedOnceExpired: { actor: ownerOperator, error: OwnSubjectConflictError },
     competing: {
       write: (data) => {
         Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
@@ -475,13 +475,14 @@ describe.each(TAKING_A_REASON)('%s reason', (_name, command) => {
 });
 
 describe.each(WITH_OWN_CAMPAIGN_RULE)('%s on its own Campaign', (_name, command) => {
-  it('refuses its owner, even holding every assignment, with OwnCampaignConflictError and writes nothing', async () => {
+  it('refuses its owner, even holding every assignment, with OwnSubjectConflictError and writes nothing', async () => {
     const db = makeCampaignDb(command.seed());
     const before = snapshot(db);
 
     const error = await refusal(command.run(db, { actor: ownerOperator }));
 
-    expect(error).toBeInstanceOf(OwnCampaignConflictError);
+    expect(error).toBeInstanceOf(OwnSubjectConflictError);
+    expect(error).toMatchObject({ code: 'OWN_CAMPAIGN_CONFLICT' });
     expect((error as Error).message).toContain(`${command.ownCampaignRole} lain`);
     expect(snapshot(db)).toEqual(before);
   });
