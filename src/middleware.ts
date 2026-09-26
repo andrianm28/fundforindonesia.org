@@ -30,8 +30,8 @@ export default withAuth(
   },
   {
     callbacks: {
-      // Every matched route needs a signed-in user. /campaign/create asks for
-      // nothing more: anyone registered may submit a Campaign (PRD FFI-04).
+      // Every matched route needs a signed-in user; only ASSIGNMENT_ROUTES
+      // ask for more.
       authorized: ({ token }) => !!token,
     },
     pages: {

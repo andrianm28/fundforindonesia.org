@@ -59,7 +59,8 @@ import { join } from "node:path";
  * Campaign or Volunteer Trip (PRD FFI-04), and a Payout needs ownership,
  * not a Role. Every CAMPAIGN_CREATOR gate is gone -- the create, Trip
  * create and Payout routes, refusal-response.ts, the middleware and the
- * create and account pages -- and CAMPAIGN_CREATOR_GATE pins it. Only
+ * create, account and Kampanye Saya pages -- and CAMPAIGN_CREATOR_GATE
+ * pins it. Only
  * the upload route's DONOR floor (a signed-in check in Role clothing)
  * still uses the hierarchy; ticket 02 removes it with withRoleCheck.
  */
@@ -116,10 +117,11 @@ const ADMIN_BY_ROLE =
 
 /**
  * Gating on the legacy CAMPAIGN_CREATOR Role: the route wrapper, a rank
- * comparison, a middleware rank route, or the old owner-route gate.
+ * comparison, a middleware rank route, the old owner-route gate, or
+ * branching on whether a session is a DONOR or a CAMPAIGN_CREATOR.
  */
 const CAMPAIGN_CREATOR_GATE =
-  /\bwithRoleCheck\(\s*["']CAMPAIGN_CREATOR["']|\b(isAtLeast|hasRole|requireRole)\([^)]*["']CAMPAIGN_CREATOR["']|minimumRole:\s*["']CAMPAIGN_CREATOR["']|\blegacyCampaignCreatorGate\b/;
+  /\bwithRoleCheck\(\s*["']CAMPAIGN_CREATOR["']|\b(isAtLeast|hasRole|requireRole)\([^)]*["']CAMPAIGN_CREATOR["']|minimumRole:\s*["']CAMPAIGN_CREATOR["']|\blegacyCampaignCreatorGate\b|(\.role|\buserRole)\s*[!=]==?\s*["'](DONOR|CAMPAIGN_CREATOR)["']/;
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -201,10 +203,11 @@ describe("roles expand scope", () => {
     expect("if (!isAtLeast(user?.role, 'CAMPAIGN_CREATOR')) {").toMatch(CAMPAIGN_CREATOR_GATE);
     expect('{ pattern: "/campaign/create", minimumRole: "CAMPAIGN_CREATOR" }').toMatch(CAMPAIGN_CREATOR_GATE);
     expect("return legacyCampaignCreatorGate(user) ?? refusal;").toMatch(CAMPAIGN_CREATOR_GATE);
+    expect("{user?.role === 'DONOR' ? (").toMatch(CAMPAIGN_CREATOR_GATE);
     expect('<option value="CAMPAIGN_CREATOR">Kreator Kampanye</option>').not.toMatch(CAMPAIGN_CREATOR_GATE);
   });
 
-  it("no file gates on the CAMPAIGN_CREATOR Role: anyone registered may submit (FFI-04)", () => {
+  it("no file gates on the CAMPAIGN_CREATOR Role or account type: anyone registered may submit (FFI-04)", () => {
     const offenders = walk("src")
       .filter((file) => !file.endsWith(".test.ts") && !file.endsWith(".test.tsx"))
       .filter((file) => !file.startsWith("src/generated/"))

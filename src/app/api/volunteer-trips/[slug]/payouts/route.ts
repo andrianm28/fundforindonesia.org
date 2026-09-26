@@ -20,7 +20,7 @@ const requestPayoutSchema = z.object({
  * Mirrors POST /api/campaigns/[slug]/payouts exactly, including the
  * escrow-release-at-the-top-of-the-request pattern. Any signed-in user may
  * ask; no Role is needed. The Capacity judgement below (only this Trip's
- * Fundraiser) is what stops one Fundraiser from draining another's Trip.
+ * Fundraiser) is what stops one person from draining another's Trip.
  */
 export async function POST(request: NextRequest, context: any) {
   const { slug } = await context.params;

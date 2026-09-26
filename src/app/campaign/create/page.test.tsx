@@ -36,13 +36,6 @@ describe('CampaignCreatePage access', () => {
     expect(screen.getByText('Judul Campaign')).toBeDefined();
     expect(screen.queryByText('Belum Terdaftar sebagai Fundraiser')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Hubungi Admin' })).toBeNull();
-  });
-
-  it('asks for no self-declared verification either', () => {
-    mockUseSession.mockReturnValue(sessionAs('DONOR', false));
-
-    render(<CampaignCreatePage />);
-
     expect(screen.queryByText('Verifikasi Identitas Diperlukan')).toBeNull();
   });
 });

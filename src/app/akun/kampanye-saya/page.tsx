@@ -35,7 +35,7 @@ const fetcher = (url: string) => fetch(url).then((res) => {
 });
 
 export default function MyCampaignsPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
   const [page, setPage] = useState(1);
 
@@ -58,7 +58,6 @@ export default function MyCampaignsPage() {
     return null;
   }
 
-  const user = session?.user;
   const campaigns = data?.campaigns ?? [];
   const totalPages = data?.totalPages ?? 1;
   const total = data?.total ?? 0;
@@ -90,34 +89,15 @@ export default function MyCampaignsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
           </div>
-          {user?.role === 'DONOR' ? (
-            <>
-              <p className="text-[#757575] text-center text-sm mb-4">
-                Anda belum memiliki kampanye
-              </p>
-              <p className="text-[#757575] text-center text-xs mb-6">
-                Verifikasi identitas Anda untuk mulai membuat galang dana
-              </p>
-              <Link
-                href="/akun"
-                className="bg-[#0073E6] text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-[#005BB5] transition-colors"
-              >
-                Verifikasi Sekarang
-              </Link>
-            </>
-          ) : (
-            <>
-              <p className="text-[#757575] text-center text-sm mb-4">
-                Anda belum membuat kampanye galang dana
-              </p>
-              <Link
-                href="/campaign/create"
-                className="bg-[#0073E6] text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-[#005BB5] transition-colors"
-              >
-                Buat Kampanye
-              </Link>
-            </>
-          )}
+          <p className="text-[#757575] text-center text-sm mb-4">
+            Anda belum membuat kampanye galang dana
+          </p>
+          <Link
+            href="/campaign/create"
+            className="bg-[#0073E6] text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-[#005BB5] transition-colors"
+          >
+            Buat Kampanye
+          </Link>
         </div>
       </div>
     );

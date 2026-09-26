@@ -72,9 +72,6 @@ export default function CampaignCreatePage() {
     return null;
   }
 
-  // Signed in is enough: anyone registered may submit a Campaign (PRD
-  // FFI-04). It lands SUBMITTED and a Verifier's approval publishes it.
-
   // Validation functions
   function validateStep1(): boolean {
     const newErrors: FormErrors = {};

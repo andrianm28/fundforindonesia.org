@@ -14,7 +14,7 @@ export async function POST() {
   }
 
   return NextResponse.json(
-    { error: "Verifikasi identitas mandiri tidak tersedia. Siapa pun yang terdaftar dapat mengajukan Campaign; Verifier meninjaunya sebelum terbit." },
+    { error: "Verifikasi identitas mandiri tidak tersedia. Siapa pun yang terdaftar dapat mengajukan Campaign atau Volunteer Trip; Verifier meninjaunya sebelum terbit." },
     { status: 503 }
   );
 }

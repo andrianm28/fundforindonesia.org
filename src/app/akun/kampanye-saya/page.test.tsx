@@ -7,8 +7,9 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
  * Fundraiser's list matches the public page and the Admin list.
  */
 
+const session = vi.hoisted(() => ({ role: 'FUNDRAISER' }));
 vi.mock('next-auth/react', () => ({
-  useSession: () => ({ data: { user: { id: 'creator-1', role: 'FUNDRAISER' } }, status: 'authenticated' }),
+  useSession: () => ({ data: { user: { id: 'creator-1', role: session.role } }, status: 'authenticated' }),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -38,6 +39,17 @@ function campaign(slug: string, lifecycleStatus: string) {
 afterEach(() => cleanup());
 
 describe('Kampanye Saya', () => {
+  it('points a user with no Campaign, and no Role, straight to creating one (FFI-04)', () => {
+    session.role = 'DONOR';
+    swr.data = { campaigns: [], total: 0, page: 1, totalPages: 0 };
+
+    render(<MyCampaignsPage />);
+
+    expect(screen.getByRole('link', { name: 'Buat Kampanye' }).getAttribute('href')).toBe('/campaign/create');
+    expect(screen.queryByRole('link', { name: 'Verifikasi Sekarang' })).toBeNull();
+    session.role = 'FUNDRAISER';
+  });
+
   it('shows each Campaign under its Indonesian status badge', () => {
     swr.data = {
       campaigns: [

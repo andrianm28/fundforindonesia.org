@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
 }
 
 // Anyone registered may submit a Campaign (PRD FFI-04): no Role is asked
-// for. It lands SUBMITTED, and the Verifier's approval is the gate.
+// for. It lands Submitted, and the Verifier's approval is the gate.
 export async function POST(request: NextRequest) {
   try {
     // 1. Get session: signing in is the only requirement
