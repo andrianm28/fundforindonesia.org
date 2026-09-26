@@ -25,7 +25,13 @@ vi.mock('@/components/campaign/CampaignDetailView', () => ({
   },
 }));
 
-vi.mock('@/components/shared/SEOHead', () => ({ StructuredData: () => null }));
+const capturedStructuredData = vi.hoisted(() => ({ data: null as null | Record<string, unknown> }));
+vi.mock('@/components/shared/SEOHead', () => ({
+  StructuredData: (props: { data: Record<string, unknown> }) => {
+    capturedStructuredData.data = props.data;
+    return null;
+  },
+}));
 
 import { prisma } from '@/lib/prisma';
 import CampaignDetailPage, { generateMetadata } from './page';
@@ -61,6 +67,7 @@ async function campaignHandedToView(overrides: Record<string, unknown> = {}) {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 describe('the Campaign page payload', () => {
@@ -122,5 +129,34 @@ describe('an unapproved Campaign on the cached page', () => {
     const metadata = await generateMetadata({ params: Promise.resolve({ slug: 'sumur-desa' }) });
 
     expect(metadata.title).toBe('Sumur untuk Desa - Fund for Indonesia');
+  });
+});
+
+/** Renders an approved Campaign's page and returns its metadata; the structured data lands in capturedStructuredData. */
+async function renderApprovedCampaign() {
+  vi.mocked(prisma.campaign.findUnique).mockResolvedValue(row({}) as never);
+  const metadata = await generateMetadata({ params: Promise.resolve({ slug: 'sumur-desa' }) });
+  render(await CampaignDetailPage({ params: Promise.resolve({ slug: 'sumur-desa' }) }));
+  return metadata;
+}
+
+describe('the Campaign page links the canonical public site', () => {
+  it('falls back to https://fundforindonesia.org in the metadata and the structured data', async () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', '');
+
+    const metadata = await renderApprovedCampaign();
+
+    expect(metadata.alternates?.canonical).toBe('https://fundforindonesia.org/campaign/sumur-desa');
+    expect(metadata.openGraph).toMatchObject({ url: 'https://fundforindonesia.org/campaign/sumur-desa' });
+    expect(capturedStructuredData.data?.url).toBe('https://fundforindonesia.org/campaign/sumur-desa');
+  });
+
+  it('uses NEXT_PUBLIC_BASE_URL when set', async () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://staging.example.test/');
+
+    const metadata = await renderApprovedCampaign();
+
+    expect(metadata.alternates?.canonical).toBe('https://staging.example.test/campaign/sumur-desa');
+    expect(capturedStructuredData.data?.url).toBe('https://staging.example.test/campaign/sumur-desa');
   });
 });

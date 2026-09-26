@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { CANONICAL_PUBLIC_URL } from "@/lib/public-url";
 
 /**
  * Guards the Dockerfile that cd.yml builds for production (ticket 05).
@@ -39,14 +40,21 @@ const stage = (name: string) => {
 };
 
 describe("Dockerfile", () => {
-  it("takes the build-time public values as build args, with today's values as defaults", () => {
+  it("takes the build-time public values as build args, with production's values as defaults", () => {
     const builder = stage("builder");
-    expect(builder).toContain('ARG NEXT_PUBLIC_BASE_URL="https://galang.fundforindonesia.org"');
+    expect(builder).toContain('ARG NEXT_PUBLIC_BASE_URL="https://fundforindonesia.org"');
     expect(builder).toContain('ARG NEXTAUTH_URL="https://galang.fundforindonesia.org"');
     expect(builder).toContain('ARG NEXT_PUBLIC_DONATIONS_ENABLED="false"');
     expect(builder).toContain("ENV NEXT_PUBLIC_BASE_URL=$NEXT_PUBLIC_BASE_URL");
     expect(builder).toContain("ENV NEXTAUTH_URL=$NEXTAUTH_URL");
     expect(builder).toContain("ENV NEXT_PUBLIC_DONATIONS_ENABLED=$NEXT_PUBLIC_DONATIONS_ENABLED");
+  });
+
+  it("defaults NEXT_PUBLIC_BASE_URL to the canonical public domain, the same in cd.yml and the app", () => {
+    const cd = readFileSync(resolve(".github/workflows/cd.yml"), "utf8");
+    expect(CANONICAL_PUBLIC_URL).toBe("https://fundforindonesia.org");
+    expect(stage("builder")).toContain(`ARG NEXT_PUBLIC_BASE_URL="${CANONICAL_PUBLIC_URL}"`);
+    expect(cd).toContain(`NEXT_PUBLIC_BASE_URL=\${{ vars.NEXT_PUBLIC_BASE_URL || '${CANONICAL_PUBLIC_URL}' }}`);
   });
 
   it("hardcodes no production URL outside the build arg defaults", () => {

@@ -1,5 +1,6 @@
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { withContactFieldProtection } from "./field-protection";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -38,7 +39,9 @@ function createPrismaClient(): PrismaClient {
   }
   const connectionString = process.env.DATABASE_URL!;
   const adapter = new PrismaPg({ connectionString });
-  return new PrismaClient({ adapter }) as unknown as PrismaClient;
+  // Every User and BankAccount write also stores the encrypted forms of the
+  // contact details (ADR 0012).
+  return withContactFieldProtection(new PrismaClient({ adapter }));
 }
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();

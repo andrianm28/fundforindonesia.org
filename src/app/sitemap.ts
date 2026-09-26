@@ -1,37 +1,36 @@
 import { MetadataRoute } from 'next';
 import { prisma } from '@/lib/prisma';
 import { sitemapCampaignWhere } from '@/lib/subject-guard';
-
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://fundforindonesia.com';
+import { publicUrl } from '@/lib/public-url';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Static pages
   const staticPages: MetadataRoute.Sitemap = [
     {
-      url: BASE_URL,
+      url: publicUrl(),
       lastModified: new Date(),
       changeFrequency: 'daily',
       priority: 1.0,
     },
     {
-      url: `${BASE_URL}/explore/all`,
+      url: publicUrl('/explore/all'),
       lastModified: new Date(),
       changeFrequency: 'daily',
       priority: 0.8,
     },
     {
-      url: `${BASE_URL}/zakat`,
+      url: publicUrl('/zakat'),
       lastModified: new Date(),
       changeFrequency: 'monthly',
       priority: 0.7,
     },
     {
-      url: `${BASE_URL}/login`,
+      url: publicUrl('/login'),
       changeFrequency: 'monthly',
       priority: 0.3,
     },
     {
-      url: `${BASE_URL}/register`,
+      url: publicUrl('/register'),
       changeFrequency: 'monthly',
       priority: 0.3,
     },
@@ -43,7 +42,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   });
 
   const categoryPages: MetadataRoute.Sitemap = categories.map((cat) => ({
-    url: `${BASE_URL}/explore/${cat.slug}`,
+    url: publicUrl(`/explore/${cat.slug}`),
     lastModified: new Date(),
     changeFrequency: 'daily' as const,
     priority: 0.7,
@@ -58,7 +57,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   });
 
   const campaignPages: MetadataRoute.Sitemap = campaigns.map((campaign) => ({
-    url: `${BASE_URL}/campaign/${campaign.slug}`,
+    url: publicUrl(`/campaign/${campaign.slug}`),
     lastModified: campaign.updatedAt,
     changeFrequency: 'daily' as const,
     priority: 0.9,
