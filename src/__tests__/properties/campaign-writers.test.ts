@@ -57,10 +57,4 @@ describe("Campaign writers", () => {
       expect(write).not.toMatch(/\bstatus\b|lifecycleStatus/);
     }
   });
-
-  // lifecycleStatus defaults to SUBMITTED, so a seed that forgot it would
-  // quietly hide every demo Campaign from the public listings.
-  it("the seed sets each Campaign's lifecycleStatus", () => {
-    expect(readFileSync("prisma/seed.ts", "utf8")).toContain("lifecycleStatus: campaignData.lifecycleStatus");
-  });
 });

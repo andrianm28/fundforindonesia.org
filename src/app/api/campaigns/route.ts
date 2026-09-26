@@ -149,6 +149,8 @@ export const POST = withRoleCheck("CAMPAIGN_CREATOR", async (request: NextReques
         // hinge on a default someone changes.
         lifecycleStatus: CampaignStatus.SUBMITTED,
       },
+      // The legacy status string is never sent back (ticket 03 drops it).
+      omit: { status: true },
       include: {
         creator: {
           select: {

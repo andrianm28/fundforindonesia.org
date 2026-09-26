@@ -384,8 +384,10 @@ describe('POST /api/campaigns', () => {
     expect(response.status).toBe(201);
     const { data } = mockCreate.mock.calls[0][0] as { data: Record<string, unknown> };
     expect(data.lifecycleStatus).toBe('SUBMITTED');
-    // The legacy status string is no longer written (legacy-status-contract 02).
+    // The legacy status string is neither written nor sent back
+    // (legacy-status-contract 02).
     expect(data).not.toHaveProperty('status');
+    expect(mockCreate.mock.calls[0][0]).toMatchObject({ omit: { status: true } });
   });
 
   it('passes correct data to prisma.campaign.create', async () => {

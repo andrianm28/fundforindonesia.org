@@ -583,6 +583,8 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
 
     expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { title: 'Judul Baru' } }));
+    // Nor is the legacy status string sent back (legacy-status-contract 02).
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ omit: { status: true } }));
   });
 
   it('drops deadline, category, and isUrgent -- those change through a Verification Request or an Admin, not a direct edit', async () => {

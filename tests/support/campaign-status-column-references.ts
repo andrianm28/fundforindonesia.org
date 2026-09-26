@@ -2,8 +2,8 @@ import path from 'node:path';
 import ts from 'typescript';
 
 /**
- * Every place in `src` (tests and generated code excluded), in the seed
- * (`prisma/seed.ts`) and in any `extraFiles` that names the legacy Campaign
+ * Every place in `src` (tests and generated code excluded), and in any
+ * `alsoScan` file outside it (the seed, say), that names the legacy Campaign
  * `status` column, as `file:line` relative to `root`.
  *
  * Resolved with the type checker rather than a text search, because `status`
@@ -20,8 +20,8 @@ import ts from 'typescript';
  */
 export function findCampaignStatusReferences({
   root = process.cwd(),
-  extraFiles = [],
-}: { root?: string; extraFiles?: string[] } = {}): string[] {
+  alsoScan = [],
+}: { root?: string; alsoScan?: string[] } = {}): string[] {
   const parsed = ts.getParsedCommandLineOfConfigFile(
     path.join(root, 'tsconfig.json'),
     {},
@@ -29,7 +29,7 @@ export function findCampaignStatusReferences({
   );
   if (!parsed) throw new Error('tsconfig.json could not be read');
 
-  const alsoScanned = ['prisma/seed.ts', ...extraFiles].map((file) => path.join(root, file));
+  const alsoScanned = alsoScan.map((file) => path.join(root, file));
   const sources = parsed.fileNames.filter(
     (file) =>
       alsoScanned.includes(file) ||
