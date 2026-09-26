@@ -43,6 +43,8 @@ describe('Kampanye Saya', () => {
       campaigns: [
         campaign('waiting', 'SUBMITTED'),
         campaign('running', 'ACTIVE'),
+        // An Active Campaign past its deadline: the API already sends it as
+        // EXPIRED (covered in src/app/api/user/campaigns/route.test.ts).
         campaign('lapsed', 'EXPIRED'),
         campaign('frozen', 'SUSPENDED'),
       ],
