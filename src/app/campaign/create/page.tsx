@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaignStepIndicator';
+import { submitToVerifier } from '@/lib/verification-submission';
 
 const categories = [
   { value: 'bencana-alam', label: 'Bencana Alam' },
@@ -233,11 +234,8 @@ export default function CampaignCreatePage() {
       const slug = await createDraft();
       created = true;
       if (action === 'submit') {
-        const res = await fetch(`/api/campaigns/${slug}/verification-requests`, { method: 'POST' });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || 'Gagal mengajukan campaign ke Verifier');
-        }
+        const refused = await submitToVerifier(slug);
+        if (refused) throw new Error(refused);
       }
       router.push('/akun/kampanye-saya');
     } catch (error) {

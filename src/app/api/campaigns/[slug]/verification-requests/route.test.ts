@@ -45,7 +45,7 @@ describe('POST /api/campaigns/[slug]/verification-requests', () => {
     });
   });
 
-  it("submits the owner's Draft, answering 201 with the Submitted Campaign and its PENDING request", async () => {
+  it("submits the Fundraiser's Draft, answering 201 with the Submitted Campaign and its PENDING request", async () => {
     mockSession.mockResolvedValue({ user: { id: 'creator-1', assignments: [] } });
 
     const response = await post();
@@ -66,7 +66,7 @@ describe('POST /api/campaigns/[slug]/verification-requests', () => {
     });
   });
 
-  it('refuses someone who does not own the Campaign with 403 NOT_AUTHORIZED', async () => {
+  it("refuses someone who is not the Campaign's Fundraiser with 403 NOT_AUTHORIZED", async () => {
     mockSession.mockResolvedValue({ user: { id: 'stranger-1', assignments: [] } });
 
     const response = await post();

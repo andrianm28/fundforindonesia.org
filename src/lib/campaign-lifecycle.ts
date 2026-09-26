@@ -45,6 +45,7 @@ import {
 } from "./campaign-lifecycle-errors";
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
+import { SUBMITTABLE_STATUSES } from "./verification-submission";
 
 // ==================== Effective status ====================
 
@@ -438,9 +439,9 @@ export type SubmissionResult = LifecycleResult & { verificationRequest: Verifica
  * Verification Request opens, holding a snapshot of the checklist items
  * active right now, none ticked, so a later edit of the checklist never
  * changes what this request is judged against. A Draft's submission is the
- * Campaign's first request; a Rejected one's is a resubmission. Only the
- * owner may submit, even holding ADMIN or VERIFIER; nobody is notified, since
- * the Fundraiser is the one acting.
+ * Campaign's first request; a Rejected one's is a resubmission. Only its
+ * Fundraiser may submit, and always in that Capacity, even holding ADMIN or
+ * VERIFIER; nobody is notified, since the Fundraiser is the one acting.
  */
 export async function submitCampaign(
   prisma: PrismaClient,
@@ -452,7 +453,7 @@ export async function submitCampaign(
       message: "Hanya Fundraiser pemilik Campaign yang dapat mengajukannya ke Verifier.",
     },
     reasonPolicy: "none",
-    allowedFrom: [CampaignStatus.DRAFT, CampaignStatus.REJECTED],
+    allowedFrom: SUBMITTABLE_STATUSES,
     step: async ({ tx, campaign, current, actor, now, transition }) => {
       const items = await tx.verificationChecklistItem.findMany({
         where: { active: true },

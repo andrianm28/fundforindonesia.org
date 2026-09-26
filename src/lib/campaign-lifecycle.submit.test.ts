@@ -19,7 +19,7 @@ import {
  * in-memory Prisma stand-in: assertions are about the rows left behind.
  */
 const NOW = new Date('2026-09-26T10:00:00Z');
-const owner = { userId: 'creator-1', assignments: [] };
+const fundraiser = { userId: 'creator-1', assignments: [] };
 
 const CHECKLIST = [
   checklistItemRow({ id: 'identitas-fundraiser', label: 'KTP Fundraiser perorangan atau akta pendirian organisasi', position: 1 }),
@@ -36,7 +36,7 @@ describe('submitCampaign', () => {
 
     const result = await submitCampaign(db.prisma as never, {
       campaignId: 'campaign-1',
-      actor: owner,
+      actor: fundraiser,
       now: NOW,
     });
 
@@ -87,7 +87,7 @@ describe('submitCampaign', () => {
       verificationRequests: [rejected],
     });
 
-    const result = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: owner, now: NOW });
+    const result = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
 
     expect(result.campaign.lifecycleStatus).toBe('SUBMITTED');
     expect(db.verificationRequests).toHaveLength(2);
@@ -108,7 +108,7 @@ describe('submitCampaign', () => {
       ],
     });
 
-    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: owner, now: NOW });
+    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
 
     expect(db.verificationRequests[0].checklist).toEqual([
       { id: 'first', label: 'Pertama', required: false, position: 1, ticked: false },
@@ -124,7 +124,7 @@ describe('submitCampaign', () => {
         checklistItems: CHECKLIST,
       });
 
-      const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: owner, now: NOW }).catch(
+      const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW }).catch(
         (e: unknown) => e,
       );
 
@@ -138,8 +138,8 @@ describe('submitCampaign', () => {
 
   it.each([
     ['a stranger', { userId: 'stranger-1', assignments: [] }],
-    ['an Admin who does not own it', { userId: 'admin-1', assignments: ['ADMIN' as const] }],
-    ['a Verifier who does not own it', { userId: 'verifier-1', assignments: ['VERIFIER' as const] }],
+    ['an Admin who is not its Fundraiser', { userId: 'admin-1', assignments: ['ADMIN' as const] }],
+    ['a Verifier who is not its Fundraiser', { userId: 'verifier-1', assignments: ['VERIFIER' as const] }],
   ])('refuses %s with 403 NOT_AUTHORIZED, writing nothing', async (_who, actor) => {
     const db = makeCampaignDb({
       campaigns: [campaignRow({ lifecycleStatus: 'DRAFT' })],
@@ -156,7 +156,7 @@ describe('submitCampaign', () => {
     expect(db.verificationRequests).toEqual([]);
   });
 
-  it('lets an owner who also holds ADMIN and VERIFIER submit, recorded as Fundraiser', async () => {
+  it('lets its Fundraiser submit while also holding ADMIN and VERIFIER, recorded as Fundraiser', async () => {
     const db = makeCampaignDb({
       campaigns: [campaignRow({ lifecycleStatus: 'DRAFT' })],
       checklistItems: CHECKLIST,
@@ -181,7 +181,7 @@ describe('submitCampaign', () => {
       data.verificationRequests.push(verificationRequestRow({ id: 'verification-first' }));
     });
 
-    const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: owner, now: NOW }).catch(
+    const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW }).catch(
       (e: unknown) => e,
     );
 

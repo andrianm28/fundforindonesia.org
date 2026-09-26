@@ -56,7 +56,7 @@ describe("ModerasiPage", () => {
     expect(mockRequestCount).toHaveBeenCalledOnce();
   });
 
-  it("counts only the PENDING Verification Requests as awaiting review", async () => {
+  it("counts only the PENDING Verification Requests as waiting for a Verifier", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
     const db = makeCampaignDb({
       campaigns: [

@@ -9,6 +9,7 @@ import useSWR from 'swr';
 import { formatRupiah } from '@/lib/utils/currency';
 import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
+import { SUBMITTABLE_STATUSES, submitToVerifier } from '@/lib/verification-submission';
 
 interface Campaign {
   id: string;
@@ -154,7 +155,7 @@ export default function MyCampaignsPage() {
                       </div>
                     )}
                   </div>
-  
+
                   {/* Content */}
                   <div className="flex-1 p-3 flex flex-col justify-between min-w-0">
                     <div>
@@ -165,7 +166,7 @@ export default function MyCampaignsPage() {
                         <CampaignStatusBadge status={campaign.lifecycleStatus} />
                       </div>
                     </div>
-  
+
                     <div className="mt-2">
                       {/* Progress Bar */}
                       <div className="w-full bg-[#E0E0E0] rounded-full h-1.5 mb-1.5">
@@ -174,7 +175,7 @@ export default function MyCampaignsPage() {
                           style={{ width: `${progress}%` }}
                         />
                       </div>
-  
+
                       {/* Amount Info */}
                       <div className="flex items-center justify-between">
                         <div>
@@ -193,7 +194,7 @@ export default function MyCampaignsPage() {
                   </div>
                 </div>
               </Link>
-              {SUBMITTABLE.includes(campaign.lifecycleStatus) && (
+              {SUBMITTABLE_STATUSES.includes(campaign.lifecycleStatus) && (
                 <SubmitToVerifier slug={campaign.slug} onSubmitted={() => mutate()} />
               )}
             </div>
@@ -279,9 +280,6 @@ export default function MyCampaignsPage() {
   );
 }
 
-/** The statuses a Fundraiser may submit from (verification-request 01). */
-const SUBMITTABLE: readonly CampaignLifecycleStatus[] = ['DRAFT', 'REJECTED'];
-
 /**
  * Submits a Draft or Rejected Campaign to a Verifier, opening its
  * Verification Request, then refreshes the list so the badge reads Diajukan.
@@ -293,19 +291,10 @@ function SubmitToVerifier({ slug, onSubmitted }: { slug: string; onSubmitted: ()
   async function submit() {
     setPending(true);
     setRefusal('');
-    try {
-      const res = await fetch(`/api/campaigns/${slug}/verification-requests`, { method: 'POST' });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setRefusal(body.error || 'Gagal mengajukan campaign ke Verifier.');
-        return;
-      }
-      onSubmitted();
-    } catch {
-      setRefusal('Gagal mengajukan campaign ke Verifier.');
-    } finally {
-      setPending(false);
-    }
+    const refused = await submitToVerifier(slug);
+    setPending(false);
+    if (refused) setRefusal(refused);
+    else onSubmitted();
   }
 
   return (

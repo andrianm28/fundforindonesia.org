@@ -12,7 +12,7 @@ export default async function ModerasiPage() {
     redirect("/");
   }
 
-  // Awaiting review means an open Verification Request (CONTEXT.md).
+  // What waits for a Verifier is an open Verification Request (CONTEXT.md).
   const pendingRequestsCount = await prisma.verificationRequest.count({
     where: { outcome: VerificationOutcome.PENDING },
   });
