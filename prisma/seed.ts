@@ -83,21 +83,21 @@ type SeededAs = 'admin' | 'verifier' | 'fundraiser' | 'donor';
 
 const USERS_DATA: { email: string; name: string; avatar: string | null; seededAs: SeededAs }[] = [
   // Admin user
-  { email: 'admin@kitabisa.com', name: 'Admin', avatar: '/avatars/admin.jpg', seededAs: 'admin' },
+  { email: 'admin@fundforindonesia.test', name: 'Admin', avatar: '/avatars/admin.jpg', seededAs: 'admin' },
   // Verifier user
-  { email: 'moderator@kitabisa.com', name: 'Moderator', avatar: '/avatars/moderator.jpg', seededAs: 'verifier' },
+  { email: 'moderator@fundforindonesia.test', name: 'Moderator', avatar: '/avatars/moderator.jpg', seededAs: 'verifier' },
   // Fundraisers (5)
-  { email: 'ahmad.fauzi@email.com', name: 'Ahmad Fauzi', avatar: '/avatars/ahmad.jpg', seededAs: 'fundraiser' },
-  { email: 'siti.nurhaliza@email.com', name: 'Siti Nurhaliza', avatar: '/avatars/siti.jpg', seededAs: 'fundraiser' },
-  { email: 'budi.santoso@email.com', name: 'Budi Santoso', avatar: '/avatars/budi.jpg', seededAs: 'fundraiser' },
-  { email: 'dewi.lestari@email.com', name: 'Dewi Lestari', avatar: '/avatars/dewi.jpg', seededAs: 'fundraiser' },
-  { email: 'rizki.pratama@email.com', name: 'Rizki Pratama', avatar: '/avatars/rizki.jpg', seededAs: 'fundraiser' },
+  { email: 'ahmad.fauzi@fundforindonesia.test', name: 'Ahmad Fauzi', avatar: '/avatars/ahmad.jpg', seededAs: 'fundraiser' },
+  { email: 'siti.nurhaliza@fundforindonesia.test', name: 'Siti Nurhaliza', avatar: '/avatars/siti.jpg', seededAs: 'fundraiser' },
+  { email: 'budi.santoso@fundforindonesia.test', name: 'Budi Santoso', avatar: '/avatars/budi.jpg', seededAs: 'fundraiser' },
+  { email: 'dewi.lestari@fundforindonesia.test', name: 'Dewi Lestari', avatar: '/avatars/dewi.jpg', seededAs: 'fundraiser' },
+  { email: 'rizki.pratama@fundforindonesia.test', name: 'Rizki Pratama', avatar: '/avatars/rizki.jpg', seededAs: 'fundraiser' },
   // Regular donors (5)
-  { email: 'andi.wijaya@email.com', name: 'Andi Wijaya', avatar: null, seededAs: 'donor' },
-  { email: 'putri.ayu@email.com', name: 'Putri Ayu', avatar: null, seededAs: 'donor' },
-  { email: 'hendra.gunawan@email.com', name: 'Hendra Gunawan', avatar: null, seededAs: 'donor' },
-  { email: 'maya.sari@email.com', name: 'Maya Sari', avatar: null, seededAs: 'donor' },
-  { email: 'donor@test.com', name: 'Test Donor', avatar: null, seededAs: 'donor' },
+  { email: 'andi.wijaya@fundforindonesia.test', name: 'Andi Wijaya', avatar: null, seededAs: 'donor' },
+  { email: 'putri.ayu@fundforindonesia.test', name: 'Putri Ayu', avatar: null, seededAs: 'donor' },
+  { email: 'hendra.gunawan@fundforindonesia.test', name: 'Hendra Gunawan', avatar: null, seededAs: 'donor' },
+  { email: 'maya.sari@fundforindonesia.test', name: 'Maya Sari', avatar: null, seededAs: 'donor' },
+  { email: 'donor@fundforindonesia.test', name: 'Test Donor', avatar: null, seededAs: 'donor' },
 ];
 
 const CAMPAIGNS_DATA = [
@@ -556,10 +556,6 @@ async function main() {
   console.log(`   Payouts:          ${payoutCount}`);
   console.log(`   Notifications:    ${notifCount}`);
   console.log(`   Auto Donations:   ${autoDonationCount}`);
-  console.log('\n🔑 Test Credentials:');
-  console.log('   Admin:     admin@kitabisa.com / password123');
-  console.log('   Moderator: moderator@kitabisa.com / password123');
-  console.log('   Donor:     donor@test.com / password123');
   console.log('');
 }
 

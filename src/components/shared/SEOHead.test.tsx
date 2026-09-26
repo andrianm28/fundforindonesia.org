@@ -9,7 +9,7 @@ describe('StructuredData', () => {
       '@type': 'DonateAction',
       name: 'Test Campaign',
       description: 'A test campaign',
-      url: 'https://kitabisa.com/campaign/test',
+      url: 'https://fundforindonesia.org/campaign/test',
       recipient: {
         '@type': 'Organization',
         name: 'Test Org',
@@ -27,7 +27,7 @@ describe('StructuredData', () => {
     const data = {
       '@context': 'https://schema.org',
       '@type': 'Organization',
-      name: 'Kitabisa',
+      name: 'Fund for Indonesia',
     };
 
     const { container } = render(<StructuredData data={data} />);

@@ -12,7 +12,7 @@ export interface FeaturedCampaignsProps {
 }
 
 /**
- * FeaturedCampaigns — "Pilihan Kitabisa" section.
+ * FeaturedCampaigns — "Pilihan Terbaik" section.
  *
  * Displays up to 12 campaigns in a responsive grid with a
  * "Lihat semua" link to the explore page.
