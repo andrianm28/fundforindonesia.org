@@ -1,16 +1,16 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import nextConfig from '../../next.config.mjs';
 
-// Ticket 13 (GHSA-2xp9-vwfh-vxw4): Next 14.2.35's image optimizer can be driven
-// to RCE by an AVIF input. Until Next is upgraded (ticket 15), the optimizer
-// must stay off: with images.unoptimized, /_next/image answers 404 and every
-// <Image> renders its src directly. Campaign and trip cover images accept any
-// https URL, so a host allowlist could not keep untrusted input out.
+// ci-cd-github-actions ticket 13 (GHSA-2xp9-vwfh-vxw4): the image optimizer
+// stays off until Next is upgraded. The reasoning lives in next.config.mjs.
 describe('next.config.mjs image optimizer', () => {
   it('is turned off', () => {
     expect(nextConfig.images?.unoptimized).toBe(true);
   });
 
+  // remotePatterns are unused while the optimizer is off. This guards the day
+  // it is turned back on: `hostname: '**'` must not come back with it.
   it('allows no wildcard remote host', () => {
     const hosts = (nextConfig.images?.remotePatterns ?? []).map((p) => p.hostname);
     expect(hosts.filter((h) => h.includes('*'))).toEqual([]);
