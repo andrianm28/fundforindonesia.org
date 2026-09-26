@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -9,6 +9,7 @@ import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
 import { offersDonating } from '@/lib/campaign-page-status';
 import { useSuspensionReason } from '@/lib/hooks/useSuspensionReason';
+import { useWithdrawableSubmission } from '@/lib/hooks/useWithdrawableSubmission';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { formatFeePercent } from '@/lib/money/platform-fee';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
@@ -62,7 +63,16 @@ interface CampaignDetailViewProps {
  */
 export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   const router = useRouter();
-  const suspensionReason = useSuspensionReason(campaign.slug, campaign.lifecycleStatus);
+  // Its own state, seeded from the prop, not just the prop itself: a
+  // Fundraiser who withdraws their pending submission here
+  // (verification-request 10) must see the Campaign's new status (Draft or
+  // Rejected) without a page reload. `campaign` never changes identity
+  // once this view is mounted (its caller renders it once per lookup), so
+  // this is initial state, not state to keep synced with the prop.
+  const [lifecycleStatus, setLifecycleStatus] = useState(campaign.lifecycleStatus);
+
+  const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
+  const withdrawal = useWithdrawableSubmission(campaign.slug, lifecycleStatus, setLifecycleStatus);
 
   const remainingDays = campaign.deadline
     ? getRemainingDays(new Date(campaign.deadline))
@@ -164,9 +174,30 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           )}
 
           <CampaignStatusBanner
-            status={campaign.lifecycleStatus}
+            status={lifecycleStatus}
             suspensionReason={suspensionReason}
           />
+
+          {/* "Tarik pengajuan": while the Campaign is Submitted, the
+              owning Fundraiser may withdraw the Verification Request it
+              waits on (verification-request 10). GET
+              /api/campaigns/[slug] withholds `pendingVerificationRequestId`
+              from anyone else, so nobody else ever sees this button. */}
+          {typeof withdrawal.requestId === 'string' && (
+            <div className="mb-3">
+              {withdrawal.refusal && (
+                <p className="text-xs text-danger mb-1">{withdrawal.refusal}</p>
+              )}
+              <button
+                type="button"
+                onClick={withdrawal.withdraw}
+                disabled={withdrawal.pending}
+                className="w-full text-xs font-medium px-3 py-2 rounded-lg border border-primary text-primary hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                Tarik pengajuan
+              </button>
+            </div>
+          )}
 
           {/* Title */}
           <h2 className="text-lg font-bold text-text leading-tight mb-3">
@@ -287,7 +318,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           separate desktop-specific button is added (see this task's Design
           decision above). Offered only while the Campaign is effectively
           Active; any other status has its banner above instead. */}
-      {offersDonating(campaign.lifecycleStatus) && (
+      {offersDonating(lifecycleStatus) && (
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-border p-4 z-10">
           <div className="max-w-3xl mx-auto">
             <Link
