@@ -672,6 +672,16 @@ describe('PATCH /api/campaigns/[slug]', () => {
       expect(response.status).toBe(200);
     });
 
+    it('still gates an Admin on their own Campaign by the legacy CAMPAIGN_CREATOR Role, as its Fundraiser (tickets 06-08)', async () => {
+      sessionAs({ id: 'owner-admin', role: 'DONOR', assignments: ['ADMIN'] });
+
+      const response = await patchCampaignOwnedBy('owner-admin');
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: 'Forbidden' });
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
     it('does not let the VERIFIER assignment stand in for ADMIN', async () => {
       sessionAs({ id: 'verifier-1', role: 'CAMPAIGN_CREATOR', assignments: ['VERIFIER'] });
 

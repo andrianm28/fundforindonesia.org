@@ -75,6 +75,7 @@ export default function CampaignCreatePage() {
 
   // Fundraiser gate: the same role POST /api/campaigns requires. Identity is
   // not self-declared any more (gap C2); an Admin assigns this role by hand.
+  // Legacy CAMPAIGN_CREATOR Role gate (prd-compliance tickets 06-08).
   if (session && !isAtLeast(session.user.role, 'CAMPAIGN_CREATOR')) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">

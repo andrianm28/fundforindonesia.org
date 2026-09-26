@@ -24,6 +24,9 @@ const requestPayoutSchema = z.object({
  * getServerSession is called again here and the Capacity judgement below
  * (only this Trip's Fundraiser) is what actually stops one Fundraiser from
  * draining another's Trip.
+ *
+ * The CAMPAIGN_CREATOR Role gate is legacy, kept until who may create a
+ * Campaign or Volunteer Trip is decided (prd-compliance tickets 06-08).
  */
 export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextRequest, context: any) => {
   const { slug } = await context.params;
@@ -92,6 +95,9 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
  * tripEscrowBalance/tripBalance -- no equivalent surface exists on the
  * Campaign side yet either (see lib/money/ledger.ts's own doc comment on
  * escrowBalance, which says outright nothing has surfaced it so far).
+ *
+ * The CAMPAIGN_CREATOR Role gate is legacy, kept until who may create a
+ * Campaign or Volunteer Trip is decided (prd-compliance tickets 06-08).
  */
 export const GET = withRoleCheck('CAMPAIGN_CREATOR', async (_request: NextRequest, context: any) => {
   const { slug } = await context.params;

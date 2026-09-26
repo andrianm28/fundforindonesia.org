@@ -104,6 +104,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Legacy CAMPAIGN_CREATOR Role gate, kept until who may create a Campaign or
+// Volunteer Trip is decided (prd-compliance tickets 06-08).
 export const POST = withRoleCheck("CAMPAIGN_CREATOR", async (request: NextRequest) => {
   try {
     // 1. Get session (already authenticated and role-checked by withRoleCheck)
