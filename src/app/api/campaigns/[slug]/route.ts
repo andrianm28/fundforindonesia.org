@@ -8,6 +8,7 @@ import { donationBlock, effectiveStatus } from '@/lib/campaign-lifecycle';
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import {
   lockAndLoad,
+  requireActiveContentFieldsEditable,
   requireCollectingEntityEditable,
   requireContentEditable,
   requireKindAndDeadlineEditable,
@@ -233,6 +234,7 @@ export async function PATCH(
       const state = await lockAndLoad(tx, { type: 'campaign', campaignId: campaign.id }, new Date());
       if (!state) return null;
       requireContentEditable(state);
+      requireActiveContentFieldsEditable(state, result.data);
       const { deadline, collectingEntityId, ...fields } = result.data;
       const data = {
         ...fields,

@@ -79,13 +79,17 @@ function mockCampaign(creatorId: string) {
   };
 }
 
-// Helper to create a PATCH request
+// Helper to create a PATCH request. Edits `story`, not `title`: on an Active
+// Campaign, title and description are frozen (verification-request 09), and
+// this property is about ownership and the ADMIN assignment, not which
+// content field is editable -- so it exercises a field that stays editable
+// throughout.
 function createPatchRequest(slug: string) {
   return new NextRequest(
     `http://localhost:3000/api/campaigns/${slug}`,
     {
       method: "PATCH",
-      body: JSON.stringify({ title: "Updated Title" }),
+      body: JSON.stringify({ story: "<p>Updated story</p>" }),
       headers: { "Content-Type": "application/json" },
     }
   );

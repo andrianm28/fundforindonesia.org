@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { CampaignStatus, StatusChangeCapacity, VolunteerTripStatus, type Kind } from '@/generated/prisma/client';
 import {
   lockAndLoad,
+  requireActiveContentFieldsEditable,
   requireNotOwnerAsAdmin,
   requirePayoutAllowed,
   isEscrowReleaseFrozen,
+  ActiveContentFrozenError,
   PayoutNotAllowedForStatusError,
   type SubjectState,
 } from './subject-guard';
@@ -177,6 +179,43 @@ describe('requirePayoutAllowed', () => {
 
   it.each(Object.values(VolunteerTripStatus))('leaves a %s Volunteer Trip to the rule it has today: no status check', (status) => {
     expect(() => requirePayoutAllowed(tripState(status))).not.toThrow();
+  });
+});
+
+describe('requireActiveContentFieldsEditable', () => {
+  it.each(['title', 'description'])('refuses a %s edit on an Active Campaign, coded and Indonesian', (field) => {
+    let caught: unknown;
+    try {
+      requireActiveContentFieldsEditable(campaignState(CampaignStatus.ACTIVE), { [field]: 'apa saja' });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ActiveContentFrozenError);
+    expect(domainErrorToHttp(caught)).toEqual({
+      status: 409,
+      body: { code: 'ACTIVE_CONTENT_FROZEN', error: expect.stringMatching(/Judul dan deskripsi/) },
+    });
+  });
+
+  it('passes an Active Campaign edit that touches neither field', () => {
+    expect(() =>
+      requireActiveContentFieldsEditable(campaignState(CampaignStatus.ACTIVE), { story: '<p>Baru</p>' }),
+    ).not.toThrow();
+  });
+
+  it.each(Object.values(CampaignStatus).filter((s) => s !== CampaignStatus.ACTIVE))(
+    'passes a title and description edit on a %s Campaign -- requireContentEditable judges other statuses',
+    (status) => {
+      expect(() =>
+        requireActiveContentFieldsEditable(campaignState(status), { title: 't', description: 'd' }),
+      ).not.toThrow();
+    },
+  );
+
+  it('leaves a Volunteer Trip untouched: it has no title/description freeze', () => {
+    expect(() =>
+      requireActiveContentFieldsEditable(tripState(VolunteerTripStatus.ACTIVE), { title: 't' }),
+    ).not.toThrow();
   });
 });
 
