@@ -7,8 +7,9 @@ CI on GitHub Actions stays the merge gate either way.
 
 ## In a cloud session (the default)
 
-The container (4 vCPU, 16 GB) is yours alone. The SessionStart hook
-(`.claude/hooks/session-start.sh`) runs `npm install` and `npx prisma
+The container (4 vCPU, 16 GB) is yours alone; its setup is in
+[cloud-environment.md](cloud-environment.md). The SessionStart hook
+(`.claude/hooks/session-start.sh`) puts Node 24 on `PATH`, runs `npm install` and `npx prisma
 generate`. Before pushing, run what CI will run:
 
 ```sh
