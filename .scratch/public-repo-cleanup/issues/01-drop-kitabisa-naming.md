@@ -5,7 +5,7 @@ Kitabisa. The public tree reads as Fund for Indonesia.
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** done (PR #40, 4e42858)
 
 - [ ] `package.json` `name` is `fundforindonesia`; `package-lock.json` is regenerated with npm, not by hand (and `bun.lock` is regenerated or removed if nothing uses bun)
 - [ ] `src/components/home/AboutSection.tsx` is deleted (dead: nothing imports it, and it links to Kitabisa's real social accounts); `git grep AboutSection` finds nothing
