@@ -107,6 +107,16 @@ export type VerificationRequestRow = {
   isFirst: boolean;
 };
 
+export type ChecklistAuditRow = {
+  id: string;
+  itemId: string;
+  action: 'CREATED' | 'UPDATED';
+  before: unknown;
+  after: unknown;
+  actedById: string;
+  actedAt: Date;
+};
+
 /** Every table the stand-in holds; what the interleave hooks receive. */
 export type CampaignDbData = Data;
 
@@ -119,6 +129,7 @@ type Data = {
   payouts: PayoutRow[];
   campaignFlags: CampaignFlagRow[];
   checklistItems: ChecklistItemRow[];
+  checklistAudits: ChecklistAuditRow[];
   verificationRequests: VerificationRequestRow[];
 };
 
@@ -195,6 +206,7 @@ function clone(data: Data): Data {
     payouts: data.payouts.map((p) => ({ ...p })),
     campaignFlags: data.campaignFlags.map((f) => ({ ...f })),
     checklistItems: data.checklistItems.map((i) => ({ ...i })),
+    checklistAudits: data.checklistAudits.map((a) => ({ ...a })),
     verificationRequests: data.verificationRequests.map((r) => ({ ...r })),
   };
 }
@@ -309,6 +321,7 @@ export function makeCampaignDb(
     payouts: (seed.payouts ?? []).map((p) => ({ ...p })),
     campaignFlags: (seed.campaignFlags ?? []).map((f) => ({ ...f })),
     checklistItems: (seed.checklistItems ?? []).map((i) => ({ ...i })),
+    checklistAudits: [],
     verificationRequests: (seed.verificationRequests ?? []).map((r) => ({ ...r })),
   };
   // Row locks taken with `SELECT ... FOR UPDATE`, in order, as
@@ -491,6 +504,29 @@ export function makeCampaignDb(
       verificationChecklistItem: {
         findMany: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'> } = {}) =>
           ordered(getData().checklistItems.filter((i) => matches(i, where)), orderBy).map((i) => ({ ...i })),
+        findUnique: async ({ where }: { where: Where }) => {
+          const row = getData().checklistItems.find((i) => matches(i, where));
+          return row ? { ...row } : null;
+        },
+        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active'> & { active?: boolean } }) => {
+          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, ...data };
+          getData().checklistItems.push(row);
+          return { ...row };
+        },
+        update: async ({ where, data }: { where: { id: string }; data: Partial<ChecklistItemRow> }) => {
+          const row = getData().checklistItems.find((i) => i.id === where.id);
+          if (!row) throw new Error('No VerificationChecklistItem found');
+          Object.assign(row, data);
+          return { ...row };
+        },
+      },
+      verificationChecklistAuditEntry: {
+        create: async ({ data }: { data: Omit<ChecklistAuditRow, 'id' | 'actedAt' | 'before'> & { before?: unknown; actedAt?: Date } }) => {
+          // An omitted (or undefined) `before` is SQL NULL, as Prisma writes it.
+          const row: ChecklistAuditRow = { id: `audit-${nextId++}`, actedAt: new Date(), ...data, before: data.before ?? null };
+          getData().checklistAudits.push(row);
+          return { ...row };
+        },
       },
       verificationRequest: {
         create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'submittedById' | 'checklist' | 'isFirst'> & { submittedAt?: Date } }) => {
@@ -528,7 +564,10 @@ export function makeCampaignDb(
       },
       $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const sql = strings.join('?');
-        const table = /FROM "(\w+)" WHERE id = \? FOR UPDATE/.exec(sql)?.[1];
+        // A lock on one row, or on every row of a table (recorded as "<Table>:*").
+        const rowLock = /FROM "(\w+)" WHERE id = \? FOR UPDATE/.exec(sql);
+        const tableLock = /FROM "(\w+)" FOR UPDATE/.exec(sql);
+        const table = rowLock?.[1] ?? tableLock?.[1];
         if (!table) throw new Error(`in-memory db does not understand: ${sql}`);
         if (pendingLockInterleave) {
           const interleave = pendingLockInterleave;
@@ -540,6 +579,10 @@ export function makeCampaignDb(
           // this lock before its first read or write, so there is nothing
           // of our own in the working copy for this to overwrite.
           Object.assign(getData(), clone(committed));
+        }
+        if (!rowLock) {
+          rowLocks.push(`${table}:*`);
+          return [];
         }
         rowLocks.push(`${table}:${String(values[0])}`);
         return [{ id: values[0] }];
@@ -584,6 +627,12 @@ export function makeCampaignDb(
     },
     get verificationRequests() {
       return committed.verificationRequests;
+    },
+    get checklistItems() {
+      return committed.checklistItems;
+    },
+    get checklistAudits() {
+      return committed.checklistAudits;
     },
     campaignFlag(id = 'flag-1') {
       const row = committed.campaignFlags.find((f) => f.id === id);
