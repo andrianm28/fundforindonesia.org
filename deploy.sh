@@ -1,6 +1,9 @@
 #!/bin/bash
 # Deploy Fund for Indonesia: build, database, migrations, app.
 #
+# Local and bootstrap use only, with docker-compose.yml. Production deploys
+# pre-built GHCR images with ops/deploy.sh and docker-compose.prod.yml.
+#
 # Usage:
 #   ./deploy.sh           Normal deploy. Never seeds; safe to run again and again.
 #   SEED=1 ./deploy.sh    First deploy onto a FRESH, EMPTY database only: also

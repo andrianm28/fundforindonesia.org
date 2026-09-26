@@ -72,9 +72,11 @@ Production deploys only through the CD `deploy` job, which the owner starts
 by hand (`workflow_dispatch`): the repo stays on GitHub Free, where
 environment approvals and branch protection are unavailable, so dispatching it
 is the approval, and the job itself refuses any commit whose CI run is not
-green. Agents never dispatch it. That job is still being built (`ops/deploy.sh`
-and the deploy job are later tickets of `.scratch/ci-cd-github-actions/`). Until it lands, deploying is the owner's
-call, not an agent's. Leave the running production stack alone: no
+green. Agents never dispatch it. That job is still being built: the host side,
+`ops/deploy.sh`, exists, and the deploy job that calls it is a later ticket of
+`.scratch/ci-cd-github-actions/`. Until it lands, deploying is the owner's
+call, not an agent's. Never run `ops/deploy.sh` on the host yourself: it
+switches production. Its tests stub `docker` and `curl`. Leave the running production stack alone: no
 `docker compose` against it, no manual deploy scripts from the host, and
 nothing inside `/home/ubuntu/kibi-clone`, which is the live production checkout.
 

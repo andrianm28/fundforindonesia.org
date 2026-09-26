@@ -4,7 +4,8 @@
 # The host never builds. The app and migrate images are built, scanned and
 # pushed to GHCR by .github/workflows/cd.yml, and deployed by digest, so what
 # runs is exactly what CI built and scanned, even if a tag is moved later. The
-# deploy script (ticket 07) sets both digests, which cd.yml prints as outputs:
+# deploy script, ops/deploy.sh (ticket 06), sets both digests, which cd.yml
+# prints as outputs, and runs the equivalent of:
 #
 #   APP_DIGEST=sha256:... MIGRATE_DIGEST=sha256:... \
 #     docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
