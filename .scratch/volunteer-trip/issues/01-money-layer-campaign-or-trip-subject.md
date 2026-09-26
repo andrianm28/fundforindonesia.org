@@ -6,7 +6,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (on main via volunteer-trip-operations 01-03; triage 2026-09-26)
 
 - [ ] `Payment.donationId` becomes nullable; a new nullable, unique `registrationId` is added alongside it, **as a plain scalar column with no `@relation`** — `Registration` doesn't exist yet, so there's nothing to relate to. Exactly one of `donationId`/`registrationId` is ever set, enforced at the application level (Prisma can't express the constraint). Ticket 03 adds the `@relation` and the `Registration.payment` back-reference once `Registration` exists — leave a comment on the column saying so, so it isn't mistaken for an oversight.
 - [ ] `Payout.campaignId` becomes nullable; a new nullable `volunteerTripId` is added alongside it, same exactly-one-of-two shape. If `VolunteerTrip` already exists in this branch's history when you implement this (check `prisma/schema.prisma` first — Ticket 02 has no dependency on this ticket and may have landed first), wire up the real `@relation` and `VolunteerTrip`'s back-reference now; if not, add it as a plain scalar with the same "relation added later" comment as above, and note in your report which case applied.

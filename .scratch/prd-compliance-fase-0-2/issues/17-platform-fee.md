@@ -4,7 +4,7 @@
 
 **Blocked by:** 9
 
-**Status:** ready-for-agent
+**Status:** done (PR #33, 397ebdc)
 
 - [ ] Fee resolves per Campaign, then per Category, then per Kind default
 - [ ] Waived below an Admin-set threshold, so a small gift carries only the Provider Fee

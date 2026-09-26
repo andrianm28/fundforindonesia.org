@@ -90,7 +90,7 @@ cloud sessions only:
 
 - it puts `/opt/node24/bin` first on `PATH`, for the hook and, through
   `$CLAUDE_ENV_FILE`, for every command in the session;
-- it runs `npm install`, but only when `package-lock.json` or the Node
+- it runs `npm ci` (never rewrites the lockfile), but only when `package-lock.json` or the Node
   version changed;
 - it always runs `npx prisma generate`.
 
@@ -105,7 +105,9 @@ DATABASE_URL='postgresql://ffi:ffi@localhost:5432/ffi?schema=public' npx prisma 
 
 - `node -v` prints v24.
 - `npx vitest run` is green.
-- `/tdd` resolves to the vendored skill.
+- `58da2c13-5ed4-4485-9625-fb87b369e6b4:tdd` (Skills For Real Engineers plugin,
+  enabled on the owner's claude.ai account) is listed; the vendored `/tdd` is
+  only a fallback until that is proven.
 - `gh pr list` works (else the built-in GitHub tools cover PRs, checks and merges).
 
 If `node -v` still prints v22, the setup script didn't run or

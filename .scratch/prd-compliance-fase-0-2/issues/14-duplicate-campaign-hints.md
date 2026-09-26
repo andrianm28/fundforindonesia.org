@@ -4,7 +4,7 @@
 
 **Blocked by:** 12
 
-**Status:** ready-for-agent
+**Status:** needs-info (no trigram index or hints API yet; matching rule and scope need a decision first)
 
 - [ ] At most five hints, matched on same Fundraiser, title similarity, or identical beneficiary name
 - [ ] Title similarity uses the Postgres trigram extension, enabled by migration

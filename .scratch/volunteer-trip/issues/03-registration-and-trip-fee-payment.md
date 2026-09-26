@@ -6,7 +6,7 @@
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** done (on main via volunteer-trip-operations 01-03; triage 2026-09-26)
 
 - [ ] New `RegistrationStatus` enum: `HOLD`, `CONFIRMED`, `EXPIRED`, `CANCELLED`. `HOLD` and `CONFIRMED` together count toward a Batch's `maxQuota`; only `CONFIRMED` counts toward its `minQuota`.
 - [ ] New `Registration` model: belongs to one Volunteer (`User`) and one `VolunteerBatch`, a `holdExpiresAt`, a status, and a `payment Payment?` back-relation. This is also where `Payment.registrationId` (added as a plain scalar in Ticket 01) gets its real `@relation` wired up — `Payment.registrationId` should reference this model once it exists, mirroring `Donation.payment`/`Payment.donationId`'s existing shape exactly.

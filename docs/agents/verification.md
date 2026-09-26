@@ -1,7 +1,7 @@
 # Verification: prove the change before and in CI
 
 Agent sessions for this repo run in **Claude Code cloud sessions**, not on the
-VPS. The VPS (103.92.214.243) serves production and other stacks; heavy checks
+VPS. The VPS serves production and other stacks; heavy checks
 from agents once pushed its load to about 22 on 8 cores and filled its disk.
 CI on GitHub Actions stays the merge gate either way.
 

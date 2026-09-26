@@ -23,12 +23,15 @@ See `docs/agents/domain.md`.
 
 ### Alur spec -> implementasi
 
-Repo ini **hanya** memakai skill `mattpocock-skills` 1.2.3, yang di-vendor ke
-`.claude/skills/` (lihat README di sana) supaya cloud session memuatnya. Panggil
-dengan nama polos (`tdd`, `code-review`, `grilling`, ...). Plugin workflow lain
-(superpowers, feature-dev, specflow, dll.), termasuk plugin mattpocock-skills
-itu sendiri, dimatikan di `.claude/settings.json`; jangan memanggil skill mereka
-walau terpasang secara global. Urutannya:
+Repo ini **hanya** memakai skill Matt Pocock dari plugin official **Skills For
+Real Engineers** (Anthropic Directory, 1.2.3), yang diaktifkan owner di akun
+claude.ai dan tersinkron ke cloud session. Skill plugin ber-namespace ID plugin:
+`58da2c13-5ed4-4485-9625-fb87b369e6b4:<skill>` (mis. `...:tdd`,
+`...:code-review`); di bawah ditulis dengan nama pendek. Salinan vendored di
+`.claude/skills/` hanya cadangan sampai plugin terbukti termuat di cloud session
+baru, lalu dihapus; bila keduanya ada, pakai versi plugin. Plugin workflow lain
+(superpowers, feature-dev, specflow, dll.) dimatikan di `.claude/settings.json`;
+jangan memanggil skill mereka walau terpasang secara global. Urutannya:
 
 1. **Intake**: `/grill-with-docs`, yang sekaligus memelihara `CONTEXT.md` dan ADR.
 2. **Spec**: `/to-spec` menulis `.scratch/<feature-slug>/spec.md`.

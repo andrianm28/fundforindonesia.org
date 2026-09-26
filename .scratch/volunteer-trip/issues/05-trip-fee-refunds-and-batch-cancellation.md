@@ -4,7 +4,7 @@
 
 **Blocked by:** 03, and externally by Refund's own create/approve/complete API existing somewhere in this codebase. As of this spec, `Refund` exists only as a schema model — nothing anywhere creates, approves, or completes one, for Campaign or otherwise. This is not a ticket in this set; sequence this ticket's implementation after that API lands (whichever ticket builds it), or build both together. Do not invent a Volunteer-Trip-only refund path that diverges from whatever Refund API eventually ships for Campaign.
 
-**Status:** ready-for-agent
+**Status:** done (on main via volunteer-trip-operations 01-03; triage 2026-09-26)
 
 - [ ] New pure function, e.g. `tripFeeRefundAmount({ departureDate, now, paidAmount })`, computing the tiered-by-time-to-departure refund amount for a Volunteer-initiated cancellation. The exact day-thresholds and percentages are **not** decided by the spec this ticket comes from — pick reasonable, clearly-documented defaults (e.g. full refund beyond some number of weeks out, a lower tier inside that window, none inside a final short window) and record them as this function's own contract, since no upstream document pins them down.
 - [ ] A Volunteer can trigger cancellation of their own `CONFIRMED` Registration, which creates a Refund for the Trip Fee Payment sized by `tripFeeRefundAmount`, sourced from `ESCROW_HOLD` or `TRIP_BALANCE` depending on whether this Payment's escrow has already matured — mirroring exactly how Campaign refunds already choose their source.

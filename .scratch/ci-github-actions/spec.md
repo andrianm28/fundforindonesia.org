@@ -1,7 +1,7 @@
 # Spec: CI on GitHub-hosted runners
 
 Status: ready-for-agent
-Source: the user's request of 2026-09-26 ("pindahkan CI build/test ke GitHub Actions hosted runner"), plus a report from the `yiem-main-agent` session: this project's vitest runs, builds and Docker migration checks on the shared host (103.92.214.243) pushed the load average to about 22 on 8 cores, and left roughly 11 GB of Docker build cache that needed three manual cleanups in a week. Decided in the grilling of 2026-09-26 (Q1–Q6).
+Source: the user's request of 2026-09-26 ("pindahkan CI build/test ke GitHub Actions hosted runner"), plus a report from the `yiem-main-agent` session: this project's vitest runs, builds and Docker migration checks on the shared host pushed the load average to about 22 on 8 cores, and left roughly 11 GB of Docker build cache that needed three manual cleanups in a week. Decided in the grilling of 2026-09-26 (Q1–Q6).
 
 ## Problem Statement
 

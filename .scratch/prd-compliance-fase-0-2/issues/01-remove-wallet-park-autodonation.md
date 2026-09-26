@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (wallet and TopUp removed on main; triage 2026-09-26)
 
 - [ ] Wallet top-up and balance-spend are gone from the UI and the API, not merely disabled behind a flag
 - [ ] Any outstanding `donationBalance` is honoured or settled before its column is removed; no user silently loses a balance

@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately — touches no money code, independent of Ticket 01)
 
-**Status:** ready-for-agent
+**Status:** done (on main via volunteer-trip-operations 01-03; triage 2026-09-26)
 
 - [ ] New `VolunteerTripStatus` enum: `DRAFT`, `SUBMITTED`, `REJECTED`, `ACTIVE`, `SUSPENDED`, `CANCELLED`, `COMPLETED`. No `EXPIRED` — a Trip has no single deadline of its own (a Batch's registration deadline is a separate, per-Batch concern, not built in this ticket).
 - [ ] New `VolunteerTrip` model: destination, itinerary (free text), a Trip Fee amount shared across every Batch of the Trip, owning Fundraiser, status, slug. Shaped like `Campaign` minus the fields that don't apply (`targetAmount`, `deadline`, `isUrgent`, `isDemo`) plus the fields Campaign doesn't need (`destination`, `itinerary`, Trip Fee amount).

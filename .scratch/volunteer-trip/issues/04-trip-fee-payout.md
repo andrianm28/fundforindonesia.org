@@ -4,7 +4,7 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** done (on main via volunteer-trip-operations 01-03; triage 2026-09-26)
 
 - [ ] `POST /api/volunteer-trips/[slug]/payouts` — the owning Fundraiser requests a payout from their Trip's `TRIP_BALANCE`, mirroring `POST /api/campaigns/[slug]/payouts` including its escrow-release-at-the-top-of-the-request pattern.
 - [ ] Trip payout approval reuses the same two-person rule as Campaign payout: the approver must not be the requester, enforced the same way `requestPayout`/`approvePayout` (or their Trip-scoped equivalents, built the same way) already enforce it for Campaign — including the row-lock discipline `SELECT ... FOR UPDATE` already established for Campaign payout approval, applied to the Trip's balance-bearing row instead.

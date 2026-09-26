@@ -22,12 +22,14 @@ else
   echo "warning: /opt/node24 missing; running on $(node -v). Add the setup script from docs/agents/cloud-environment.md." >&2
 fi
 
-# npm is canonical (the Dockerfile uses package-lock.json). Skip the install
-# when node_modules already matches the lockfile (resumed or cached sessions).
+# npm is canonical (the Dockerfile and CI use package-lock.json). `npm ci`
+# installs the lockfile exactly; `npm install` rewrote it (dropping optional
+# peer entries) and left the tree dirty. Skip the install when node_modules
+# already matches the lockfile (resumed or cached sessions).
 stamp=node_modules/.package-lock.sha256
 want=$(sha256sum package-lock.json | cut -d' ' -f1)-$(node -v)
 if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$want" ]; then
-  npm install --no-audit --no-fund
+  npm ci --no-audit --no-fund
   echo "$want" > "$stamp"
 fi
 
