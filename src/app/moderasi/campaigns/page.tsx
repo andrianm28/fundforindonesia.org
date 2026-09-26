@@ -1,17 +1,22 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { CampaignStatus } from "@/generated/prisma/client";
+import { VerificationOutcome } from "@/generated/prisma/client";
 
 export default async function ModerasiCampaignsPage() {
-  const campaigns = await prisma.campaign.findMany({
-    // Awaiting a Verifier means Submitted (CONTEXT.md, Campaign Status).
-    where: { lifecycleStatus: CampaignStatus.SUBMITTED },
+  // The queue is the open Verification Requests (CONTEXT.md, Verification
+  // Request), oldest submission first.
+  const requests = await prisma.verificationRequest.findMany({
+    where: { outcome: VerificationOutcome.PENDING },
     include: {
-      creator: {
-        select: { name: true, email: true },
+      campaign: {
+        include: {
+          creator: {
+            select: { name: true, email: true },
+          },
+        },
       },
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: { submittedAt: "asc" },
   });
 
   return (
@@ -24,7 +29,7 @@ export default async function ModerasiCampaignsPage() {
       </p>
 
       <div className="mt-6">
-        {campaigns.length === 0 ? (
+        {requests.length === 0 ? (
           <div className="bg-white rounded-xl border border-[#E0E0E0] p-8 text-center">
             <svg
               className="w-12 h-12 mx-auto text-[#BDBDBD]"
@@ -45,9 +50,9 @@ export default async function ModerasiCampaignsPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {campaigns.map((campaign) => (
+            {requests.map(({ id, campaign, submittedAt, isFirst }) => (
               <Link
-                key={campaign.id}
+                key={id}
                 href={`/moderasi/campaigns/${campaign.id}`}
                 className="block bg-white rounded-xl border border-[#E0E0E0] p-4 hover:border-[#0073E6] hover:shadow-sm transition-all"
               >
@@ -68,7 +73,8 @@ export default async function ModerasiCampaignsPage() {
                         {campaign.targetAmount.toLocaleString("id-ID")}
                       </span>
                       <span className="text-xs text-[#757575]">
-                        {new Date(campaign.createdAt).toLocaleDateString(
+                        Diajukan{" "}
+                        {new Date(submittedAt).toLocaleDateString(
                           "id-ID",
                           {
                             day: "numeric",
@@ -79,9 +85,14 @@ export default async function ModerasiCampaignsPage() {
                       </span>
                     </div>
                   </div>
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FFF3E0] text-[#E65100]">
-                    Menunggu
-                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FFF3E0] text-[#E65100]">
+                      Menunggu
+                    </span>
+                    {!isFirst && (
+                      <span className="text-[10px] text-[#757575]">Pengajuan ulang</span>
+                    )}
+                  </div>
                 </div>
               </Link>
             ))}

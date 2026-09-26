@@ -52,6 +52,9 @@ beforeEach(() => {
       campaign('suspended', { lifecycleStatus: 'SUSPENDED' }),
       campaign('cancelled', { lifecycleStatus: 'CANCELLED' }),
       campaign('submitted', { lifecycleStatus: 'SUBMITTED' }),
+      // Titled so a search for "active" would find them if the rule slipped.
+      campaign('draft-active', { lifecycleStatus: 'DRAFT' }),
+      campaign('rejected-active', { lifecycleStatus: 'REJECTED' }),
       campaign('completed', { lifecycleStatus: 'COMPLETED' }),
       campaign('expired', { lifecycleStatus: 'EXPIRED', deadline: YESTERDAY }),
     ],
@@ -63,7 +66,7 @@ afterEach(() => {
 });
 
 describe('GET /api/campaigns lists only effectively Active Campaigns', () => {
-  it('shows effectively Active Campaigns and hides effectively Expired, Suspended, Cancelled, Submitted and Completed ones', async () => {
+  it('shows effectively Active Campaigns and hides effectively Expired, Suspended, Cancelled, Draft, Submitted, Rejected and Completed ones', async () => {
     expect(await listSlugs()).toEqual(['active-no-deadline', 'active-until-tomorrow']);
   });
 

@@ -6,6 +6,7 @@ import {
   FlagResolution,
   PayoutStatus,
   StatusChangeCapacity,
+  VerificationOutcome,
   type Prisma,
   type PrismaClient,
 } from "@/generated/prisma/client";
@@ -44,6 +45,7 @@ import {
 } from "./campaign-lifecycle-errors";
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
+import { SUBMITTABLE_STATUSES } from "./verification-submission";
 
 // ==================== Effective status ====================
 
@@ -405,9 +407,84 @@ async function runCommand<P extends ReasonPolicy, Extra extends object>(
 
 // ==================== Commands ====================
 
+// ==================== Verification Request (verification-request 01) ====================
+
+/** One checklist item as a Verification Request keeps it: the item at submission, and the Verifier's tick. */
+export type ChecklistEntry = {
+  id: string;
+  label: string;
+  required: boolean;
+  position: number;
+  ticked: boolean;
+};
+
+export type VerificationRequestState = {
+  id: string;
+  campaignId: string;
+  submittedById: string;
+  submittedAt: Date;
+  checklist: Prisma.JsonValue;
+  outcome: VerificationOutcome;
+  reason: string | null;
+  decidedById: string | null;
+  decidedAt: Date | null;
+  isFirst: boolean;
+};
+
+export type SubmissionResult = LifecycleResult & { verificationRequest: VerificationRequestState };
+
+/**
+ * The Fundraiser submits their Draft or Rejected Campaign to a Verifier
+ * (FFI-04, FFI-05). The Campaign becomes Submitted and a new PENDING
+ * Verification Request opens, holding a snapshot of the checklist items
+ * active right now, none ticked, so a later edit of the checklist never
+ * changes what this request is judged against. A Draft's submission is the
+ * Campaign's first request; a Rejected one's is a resubmission. Only its
+ * Fundraiser may submit, and always in that Capacity, even holding ADMIN or
+ * VERIFIER; nobody is notified, since the Fundraiser is the one acting.
+ */
+export async function submitCampaign(
+  prisma: PrismaClient,
+  params: { campaignId: string; actor: LifecycleActor; now?: Date }
+): Promise<SubmissionResult> {
+  return runCommand(prisma, params, {
+    authority: {
+      capacity: StatusChangeCapacity.FUNDRAISER,
+      message: "Hanya Fundraiser pemilik Campaign yang dapat mengajukannya ke Verifier.",
+    },
+    reasonPolicy: "none",
+    allowedFrom: SUBMITTABLE_STATUSES,
+    step: async ({ tx, campaign, current, actor, now, transition }) => {
+      const items = await tx.verificationChecklistItem.findMany({
+        where: { active: true },
+        orderBy: { position: "asc" },
+      });
+      const checklist: ChecklistEntry[] = items.map((item) => ({
+        id: item.id,
+        label: item.label,
+        required: item.required,
+        position: item.position,
+        ticked: false,
+      }));
+      const verificationRequest = await tx.verificationRequest.create({
+        data: {
+          campaignId: campaign.id,
+          submittedById: actor.userId,
+          submittedAt: now,
+          checklist,
+          isFirst: current === CampaignStatus.DRAFT,
+        },
+      });
+      await transition(CampaignStatus.SUBMITTED, CampaignStatusChangeAction.SUBMITTED);
+      return { verificationRequest };
+    },
+  });
+}
+
 const SUBMISSION_DECISIONS = {
   approve: {
     to: CampaignStatus.ACTIVE,
+    outcome: VerificationOutcome.APPROVED,
     action: CampaignStatusChangeAction.SUBMISSION_APPROVED,
     title: "Campaign Disetujui",
     message: (title: string) =>
@@ -415,6 +492,7 @@ const SUBMISSION_DECISIONS = {
   },
   reject: {
     to: CampaignStatus.REJECTED,
+    outcome: VerificationOutcome.REJECTED,
     action: CampaignStatusChangeAction.SUBMISSION_REJECTED,
     title: "Campaign Ditolak",
     message: (title: string) =>
@@ -434,6 +512,11 @@ export function isSubmissionDecision(value: unknown): value is SubmissionDecisio
  * Suspended, Completed or Cancelled Campaign. Recorded in the VERIFIER
  * capacity, without a reason: rejection reasons belong to Verification
  * Request (ticket 12). A Verifier never decides on a Campaign they own.
+ *
+ * It also closes the Campaign's PENDING Verification Request with the same
+ * outcome, so the Verifier queue, which reads PENDING requests, stays true
+ * until verification-request 02 replaces this command with
+ * `decideVerificationRequest`.
  */
 export async function decideSubmission(
   prisma: PrismaClient,
@@ -452,7 +535,11 @@ export async function decideSubmission(
     },
     reasonPolicy: "none",
     allowedFrom: [CampaignStatus.SUBMITTED],
-    step: async ({ campaign, transition, notify }) => {
+    step: async ({ tx, campaign, actor, now, transition, notify }) => {
+      await tx.verificationRequest.updateMany({
+        where: { campaignId: campaign.id, outcome: VerificationOutcome.PENDING },
+        data: { outcome: decision.outcome, decidedById: actor.userId, decidedAt: now },
+      });
       await transition(decision.to, decision.action);
       await notify({ title: decision.title, message: decision.message(campaign.title) });
       return {};

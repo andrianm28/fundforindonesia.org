@@ -62,6 +62,8 @@ beforeEach(() => {
       campaign('urgent-cancelled', { isUrgent: true, lifecycleStatus: 'CANCELLED' }),
       campaign('active'),
       campaign('submitted', { lifecycleStatus: 'SUBMITTED' }),
+      campaign('draft', { lifecycleStatus: 'DRAFT' }),
+      campaign('urgent-draft', { isUrgent: true, lifecycleStatus: 'DRAFT' }),
     ],
   });
 });

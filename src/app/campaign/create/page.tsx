@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaignStepIndicator';
+import { submitToVerifier } from '@/lib/verification-submission';
 
 const categories = [
   { value: 'bencana-alam', label: 'Bencana Alam' },
@@ -44,7 +45,10 @@ export default function CampaignCreatePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [currentStep, setCurrentStep] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Which review action is running: saving the Draft, or submitting it.
+  const [pendingAction, setPendingAction] = useState<'draft' | 'submit' | null>(null);
+  // The Draft once created, so a retried submission never creates another.
+  const [draftSlug, setDraftSlug] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   const [formData, setFormData] = useState<FormData>({
@@ -160,66 +164,88 @@ export default function CampaignCreatePage() {
     return parseInt(numbers, 10).toLocaleString('id-ID');
   }
 
-  async function handleSubmit() {
-    setIsSubmitting(true);
+  /** Creates the Draft (once), returning its slug. */
+  async function createDraft(): Promise<string> {
+    if (draftSlug) return draftSlug;
+
+    // Upload image first (simulate with a data URL for now)
+    let coverImageUrl = formData.coverImagePreview;
+
+    if (formData.coverImage) {
+      const uploadFormData = new FormData();
+      uploadFormData.append('file', formData.coverImage);
+
+      try {
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          body: uploadFormData,
+        });
+
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          coverImageUrl = uploadData.url;
+        }
+      } catch {
+        // If upload API doesn't exist, use placeholder
+        coverImageUrl = '/images/placeholder-campaign.jpg';
+      }
+    }
+
+    const amount = parseInt(formData.targetAmount.replace(/\D/g, ''), 10);
+    const payload = {
+      title: formData.title.trim(),
+      description: formData.story.trim().substring(0, 200),
+      story: formData.story.trim(),
+      coverImage: coverImageUrl,
+      targetAmount: amount,
+      category: formData.category,
+      deadline: formData.deadline
+        ? new Date(formData.deadline).toISOString()
+        : undefined,
+    };
+
+    const res = await fetch('/api/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Gagal membuat campaign');
+    }
+
+    const campaign = await res.json();
+    setDraftSlug(campaign.slug);
+    return campaign.slug;
+  }
+
+  /**
+   * "Simpan Draft" creates the Campaign as a Draft; "Ajukan ke Verifier" also
+   * submits it, opening its Verification Request. Either way the Fundraiser
+   * lands on their Campaigns, where a Draft can be submitted later.
+   */
+  async function handleSave(action: 'draft' | 'submit') {
+    setPendingAction(action);
     setSubmitError('');
 
+    let created = false;
     try {
-      // Upload image first (simulate with a data URL for now)
-      let coverImageUrl = formData.coverImagePreview;
-
-      if (formData.coverImage) {
-        const uploadFormData = new FormData();
-        uploadFormData.append('file', formData.coverImage);
-
-        try {
-          const uploadRes = await fetch('/api/upload', {
-            method: 'POST',
-            body: uploadFormData,
-          });
-
-          if (uploadRes.ok) {
-            const uploadData = await uploadRes.json();
-            coverImageUrl = uploadData.url;
-          }
-        } catch {
-          // If upload API doesn't exist, use placeholder
-          coverImageUrl = '/images/placeholder-campaign.jpg';
-        }
+      const slug = await createDraft();
+      created = true;
+      if (action === 'submit') {
+        const refused = await submitToVerifier(slug);
+        if (refused) throw new Error(refused);
       }
-
-      const amount = parseInt(formData.targetAmount.replace(/\D/g, ''), 10);
-      const payload = {
-        title: formData.title.trim(),
-        description: formData.story.trim().substring(0, 200),
-        story: formData.story.trim(),
-        coverImage: coverImageUrl,
-        targetAmount: amount,
-        category: formData.category,
-        deadline: formData.deadline
-          ? new Date(formData.deadline).toISOString()
-          : undefined,
-      };
-
-      const res = await fetch('/api/campaigns', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Gagal membuat campaign');
-      }
-
-      const campaign = await res.json();
-      router.push(`/campaign/${campaign.slug}`);
+      router.push('/akun/kampanye-saya');
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Terjadi kesalahan. Silakan coba lagi.';
       setSubmitError(
-        error instanceof Error ? error.message : 'Terjadi kesalahan. Silakan coba lagi.'
+        created ? `Campaign tersimpan sebagai Draft, tetapi belum diajukan: ${message}` : message
       );
     } finally {
-      setIsSubmitting(false);
+      setPendingAction(null);
     }
   }
 
@@ -508,17 +534,32 @@ export default function CampaignCreatePage() {
               </div>
 
               <div className="flex gap-3 pt-4">
-                <Button variant="secondary" size="md" onClick={handleBack}>
+                {/* Once the Draft exists, edits here would not reach it. */}
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={handleBack}
+                  disabled={pendingAction !== null || draftSlug !== null}
+                >
                   Kembali
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="full"
+                  onClick={() => handleSave('draft')}
+                  isLoading={pendingAction === 'draft'}
+                  disabled={pendingAction !== null || draftSlug !== null}
+                >
+                  Simpan Draft
                 </Button>
                 <Button
                   variant="primary"
                   size="full"
-                  onClick={handleSubmit}
-                  isLoading={isSubmitting}
-                  disabled={isSubmitting}
+                  onClick={() => handleSave('submit')}
+                  isLoading={pendingAction === 'submit'}
+                  disabled={pendingAction !== null}
                 >
-                  Buat Campaign
+                  Ajukan ke Verifier
                 </Button>
               </div>
             </div>

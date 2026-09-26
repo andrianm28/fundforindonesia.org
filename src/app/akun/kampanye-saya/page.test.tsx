@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 /**
@@ -15,9 +15,9 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), back: vi.fn(), push: vi.fn() }),
 }));
 
-const swr = vi.hoisted(() => ({ data: undefined as unknown }));
+const swr = vi.hoisted(() => ({ data: undefined as unknown, mutate: vi.fn() }));
 vi.mock('swr', () => ({
-  default: () => ({ data: swr.data, isLoading: false, error: undefined }),
+  default: () => ({ data: swr.data, isLoading: false, error: undefined, mutate: swr.mutate }),
 }));
 
 import MyCampaignsPage from './page';
@@ -35,7 +35,11 @@ function campaign(slug: string, lifecycleStatus: string) {
   };
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  swr.mutate.mockReset();
+});
 
 describe('Kampanye Saya', () => {
   it('points a user with no Campaign straight to creating one (FFI-04)', () => {
@@ -73,5 +77,41 @@ describe('Kampanye Saya', () => {
       const card = screen.getByText(`Campaign ${slug}`).parentElement!;
       expect(card.textContent).toContain(label);
     }
+  });
+
+  it('offers "Ajukan ke Verifier" on a Draft or Rejected Campaign only, and submits it', async () => {
+    swr.data = {
+      campaigns: [campaign('draft', 'DRAFT'), campaign('refused', 'REJECTED'), campaign('waiting', 'SUBMITTED'), campaign('running', 'ACTIVE')],
+      total: 4,
+      page: 1,
+      totalPages: 1,
+    };
+    const fetchMock = vi.fn(async () => Response.json({}, { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MyCampaignsPage />);
+
+    const buttons = screen.getAllByRole('button', { name: 'Ajukan ke Verifier' });
+    expect(buttons).toHaveLength(2);
+    expect(within(screen.getByTestId('campaign-waiting')).queryByRole('button', { name: 'Ajukan ke Verifier' })).toBeNull();
+
+    fireEvent.click(within(screen.getByTestId('campaign-draft')).getByRole('button', { name: 'Ajukan ke Verifier' }));
+
+    await waitFor(() => expect(swr.mutate).toHaveBeenCalled());
+    expect(fetchMock).toHaveBeenCalledWith('/api/campaigns/draft/verification-requests', { method: 'POST' });
+  });
+
+  it('shows why a submission was refused', async () => {
+    swr.data = { campaigns: [campaign('draft', 'DRAFT')], total: 1, page: 1, totalPages: 1 };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'Tindakan ini tidak dapat dilakukan.' }, { status: 409 })),
+    );
+
+    render(<MyCampaignsPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
+
+    expect(await screen.findByText('Tindakan ini tidak dapat dilakukan.')).toBeDefined();
+    expect(swr.mutate).not.toHaveBeenCalled();
   });
 });

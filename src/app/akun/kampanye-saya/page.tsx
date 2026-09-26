@@ -9,6 +9,7 @@ import useSWR from 'swr';
 import { formatRupiah } from '@/lib/utils/currency';
 import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
+import { SUBMITTABLE_STATUSES, submitToVerifier } from '@/lib/verification-submission';
 
 interface Campaign {
   id: string;
@@ -45,7 +46,7 @@ export default function MyCampaignsPage() {
     }
   }, [status, router]);
 
-  const { data, isLoading, error } = useSWR<CampaignsResponse>(
+  const { data, isLoading, error, mutate } = useSWR<CampaignsResponse>(
     status === 'authenticated' ? `/api/user/campaigns?page=${page}&limit=10` : null,
     fetcher
   );
@@ -129,69 +130,74 @@ export default function MyCampaignsPage() {
             : 0;
 
           return (
-            <Link
+            <div
               key={campaign.id}
-              href={`/campaign/${campaign.slug}`}
-              className="block bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+              data-testid={`campaign-${campaign.slug}`}
+              className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow"
             >
-              <div className="flex">
-                {/* Cover Image */}
-                <div className="w-28 h-28 flex-shrink-0 relative bg-[#E0E0E0]">
-                  {campaign.coverImage ? (
-                    <Image
-                      src={campaign.coverImage}
-                      alt={campaign.title}
-                      fill
-                      className="object-cover"
-                      sizes="112px"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <svg className="w-8 h-8 text-[#757575]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 p-3 flex flex-col justify-between min-w-0">
-                  <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-[#212121] text-sm font-medium line-clamp-2 flex-1">
-                        {campaign.title}
-                      </h3>
-                      <CampaignStatusBadge status={campaign.lifecycleStatus} />
-                    </div>
+              <Link href={`/campaign/${campaign.slug}`} className="block">
+                <div className="flex">
+                  {/* Cover Image */}
+                  <div className="w-28 h-28 flex-shrink-0 relative bg-[#E0E0E0]">
+                    {campaign.coverImage ? (
+                      <Image
+                        src={campaign.coverImage}
+                        alt={campaign.title}
+                        fill
+                        className="object-cover"
+                        sizes="112px"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <svg className="w-8 h-8 text-[#757575]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="mt-2">
-                    {/* Progress Bar */}
-                    <div className="w-full bg-[#E0E0E0] rounded-full h-1.5 mb-1.5">
-                      <div
-                        className="bg-[#0073E6] h-1.5 rounded-full transition-all"
-                        style={{ width: `${progress}%` }}
-                      />
+                  {/* Content */}
+                  <div className="flex-1 p-3 flex flex-col justify-between min-w-0">
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="text-[#212121] text-sm font-medium line-clamp-2 flex-1">
+                          {campaign.title}
+                        </h3>
+                        <CampaignStatusBadge status={campaign.lifecycleStatus} />
+                      </div>
                     </div>
 
-                    {/* Amount Info */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-[#212121] text-xs font-semibold">
-                          {formatRupiah(campaign.collectedAmount)}
-                        </p>
-                        <p className="text-[#757575] text-[10px]">
-                          dari {formatRupiah(campaign.targetAmount)}
+                    <div className="mt-2">
+                      {/* Progress Bar */}
+                      <div className="w-full bg-[#E0E0E0] rounded-full h-1.5 mb-1.5">
+                        <div
+                          className="bg-[#0073E6] h-1.5 rounded-full transition-all"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+
+                      {/* Amount Info */}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-[#212121] text-xs font-semibold">
+                            {formatRupiah(campaign.collectedAmount)}
+                          </p>
+                          <p className="text-[#757575] text-[10px]">
+                            dari {formatRupiah(campaign.targetAmount)}
+                          </p>
+                        </div>
+                        <p className="text-[#757575] text-xs font-medium">
+                          {progress}%
                         </p>
                       </div>
-                      <p className="text-[#757575] text-xs font-medium">
-                        {progress}%
-                      </p>
                     </div>
                   </div>
                 </div>
-              </div>
-            </Link>
+              </Link>
+              {SUBMITTABLE_STATUSES.includes(campaign.lifecycleStatus) && (
+                <SubmitToVerifier slug={campaign.slug} onSubmitted={() => mutate()} />
+              )}
+            </div>
           );
         })}
       </div>
@@ -270,6 +276,38 @@ export default function MyCampaignsPage() {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Submits a Draft or Rejected Campaign to a Verifier, opening its
+ * Verification Request, then refreshes the list so the badge reads Diajukan.
+ */
+function SubmitToVerifier({ slug, onSubmitted }: { slug: string; onSubmitted: () => void }) {
+  const [pending, setPending] = useState(false);
+  const [refusal, setRefusal] = useState('');
+
+  async function submit() {
+    setPending(true);
+    setRefusal('');
+    const refused = await submitToVerifier(slug);
+    setPending(false);
+    if (refused) setRefusal(refused);
+    else onSubmitted();
+  }
+
+  return (
+    <div className="border-t border-[#E0E0E0] px-3 py-2 flex items-center justify-between gap-2">
+      <p className="text-xs text-danger">{refusal}</p>
+      <button
+        type="button"
+        onClick={submit}
+        disabled={pending}
+        className="text-xs font-medium text-white bg-[#0073E6] px-3 py-1.5 rounded-lg hover:bg-[#005BB5] disabled:opacity-50 transition-colors"
+      >
+        Ajukan ke Verifier
+      </button>
     </div>
   );
 }

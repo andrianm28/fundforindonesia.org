@@ -55,6 +55,8 @@ beforeEach(() => {
       campaign('zakat-suspended', { lifecycleStatus: 'SUSPENDED' }),
       campaign('zakat-cancelled', { lifecycleStatus: 'CANCELLED' }),
       campaign('zakat-submitted', { lifecycleStatus: 'SUBMITTED' }),
+      campaign('zakat-draft', { lifecycleStatus: 'DRAFT' }),
+      campaign('zakat-rejected', { lifecycleStatus: 'REJECTED' }),
       campaign('zakat-completed', { lifecycleStatus: 'COMPLETED' }),
       campaign('kesehatan-active', { category: 'kesehatan' }),
     ],
@@ -66,7 +68,7 @@ afterEach(() => {
 });
 
 describe('GET /api/zakat/campaigns lists only effectively Active Campaigns in its Categories', () => {
-  it('hides effectively Expired, Suspended, Cancelled, Submitted and Completed Campaigns', async () => {
+  it('hides effectively Expired, Suspended, Cancelled, Draft, Submitted, Rejected and Completed Campaigns', async () => {
     expect(await listSlugs()).toEqual(['kemanusiaan-active', 'zakat-active']);
   });
 
