@@ -4,8 +4,6 @@ import {
   effectiveStatus,
   expireIfPastDeadline,
   domainErrorToHttp,
-  toLegacyStatus,
-  toLifecycleStatus,
   CampaignNotFoundError,
   CancellationAlreadyPendingError,
   ConcurrentTransitionError,
@@ -34,7 +32,7 @@ describe('decideSubmission', () => {
     });
 
     expect(result.campaign).toMatchObject({ lifecycleStatus: 'ACTIVE', isUrgent: false });
-    expect(db.campaign()).toMatchObject({ status: 'active', lifecycleStatus: 'ACTIVE' });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'ACTIVE' });
     expect(db.statusChanges).toEqual([
       expect.objectContaining({
         campaignId: 'campaign-1',
@@ -60,7 +58,7 @@ describe('decideSubmission', () => {
     });
 
     expect(result.campaign.lifecycleStatus).toBe('REJECTED');
-    expect(db.campaign()).toMatchObject({ status: 'rejected', lifecycleStatus: 'REJECTED' });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'REJECTED' });
     expect(db.statusChanges).toEqual([
       expect.objectContaining({
         action: 'SUBMISSION_REJECTED',
@@ -92,17 +90,17 @@ describe('decideSubmission', () => {
 
   describe.each(['approve', 'reject'] as const)('%s outside Submitted', (decision) => {
     it.each([
-      ['DRAFT', 'pending'],
-      ['ACTIVE', 'active'],
-      ['REJECTED', 'rejected'],
-      ['SUSPENDED', 'suspended'],
-      ['COMPLETED', 'completed'],
-      ['EXPIRED', 'expired'],
-      ['CANCELLED', 'cancelled'],
+      ['DRAFT'],
+      ['ACTIVE'],
+      ['REJECTED'],
+      ['SUSPENDED'],
+      ['COMPLETED'],
+      ['EXPIRED'],
+      ['CANCELLED'],
     ] as const)(
       'is refused from %s with InvalidTransitionError, leaving the Campaign, log and inbox untouched',
-      async (lifecycleStatus, status) => {
-        const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus, status })] });
+      async (lifecycleStatus) => {
+        const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus })] });
 
         const error = await decideSubmission(db.prisma as never, {
           campaignId: 'campaign-1',
@@ -113,30 +111,11 @@ describe('decideSubmission', () => {
 
         expect(error).toBeInstanceOf(InvalidTransitionError);
         expect((error as InvalidTransitionError).currentStatus).toBe(lifecycleStatus);
-        expect(db.campaign()).toMatchObject({ lifecycleStatus, status });
+        expect(db.campaign()).toMatchObject({ lifecycleStatus });
         expect(db.statusChanges).toEqual([]);
         expect(db.notifications).toEqual([]);
       },
     );
-  });
-});
-
-describe('legacy status string', () => {
-  it.each([
-    ['SUBMITTED', 'pending'],
-    ['ACTIVE', 'active'],
-    ['REJECTED', 'rejected'],
-    ['SUSPENDED', 'suspended'],
-    ['COMPLETED', 'completed'],
-    ['EXPIRED', 'expired'],
-    ['CANCELLED', 'cancelled'],
-  ] as const)('maps %s to "%s" and back', (lifecycle, legacy) => {
-    expect(toLegacyStatus(lifecycle)).toBe(legacy);
-    expect(toLifecycleStatus(legacy)).toBe(lifecycle);
-  });
-
-  it('refuses to invent a legacy string for DRAFT, which the legacy column never had', () => {
-    expect(() => toLegacyStatus('DRAFT')).toThrow();
   });
 });
 
@@ -207,7 +186,7 @@ describe('lazy expiry', () => {
   const pastDeadline = new Date('2026-09-20T00:00:00Z');
 
   function activePastDeadline(overrides: Parameters<typeof campaignRow>[0] = {}) {
-    return campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', deadline: pastDeadline, ...overrides });
+    return campaignRow({ lifecycleStatus: 'ACTIVE', deadline: pastDeadline, ...overrides });
   }
 
   it('tells the Fundraiser their Campaign has ended', async () => {
@@ -250,9 +229,9 @@ describe('lazy expiry', () => {
   });
 
   it.each([
-    ['an Active Campaign before its deadline', campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', deadline: new Date('2026-10-01T00:00:00Z') })],
-    ['an Active Campaign without a deadline', campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', deadline: null })],
-    ['a Suspended Campaign past its deadline', campaignRow({ status: 'suspended', lifecycleStatus: 'SUSPENDED', deadline: pastDeadline })],
+    ['an Active Campaign before its deadline', campaignRow({ lifecycleStatus: 'ACTIVE', deadline: new Date('2026-10-01T00:00:00Z') })],
+    ['an Active Campaign without a deadline', campaignRow({ lifecycleStatus: 'ACTIVE', deadline: null })],
+    ['a Suspended Campaign past its deadline', campaignRow({ lifecycleStatus: 'SUSPENDED', deadline: pastDeadline })],
     ['an unknown Campaign', campaignRow({ id: 'another-campaign' })],
   ])('leaves %s alone', async (_label, row) => {
     const db = makeCampaignDb({ campaigns: [row] });
@@ -268,7 +247,7 @@ describe('lazy expiry', () => {
   it('writes nothing when another request moved the Campaign first, and the command judges what that request left', async () => {
     const db = makeCampaignDb({ campaigns: [activePastDeadline()] });
     db.beforeNextCampaignWrite((data) => {
-      Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+      Object.assign(data.campaigns[0], { lifecycleStatus: 'SUSPENDED' });
     });
 
     const error = await decideSubmission(db.prisma as never, {

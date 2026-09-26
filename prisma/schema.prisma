@@ -155,7 +155,10 @@ model Campaign {
   targetAmount    Int
   collectedAmount Int       @default(0)
   category        String
-  status          String    @default("active") // legacy values: "pending" | "active" | "rejected" | "suspended" | "completed" | "expired" | "cancelled"
+  // Legacy status string: no application code or seed reads or writes it
+  // (legacy-status-contract 02). Nullable and ignored until ticket 03 drops
+  // it with its index.
+  status          String?
   lifecycleStatus CampaignStatus @default(SUBMITTED)
   isUrgent        Boolean   @default(false)
   deadline        DateTime?
@@ -854,9 +857,8 @@ enum RegistrationStatus {
 
 /// A Volunteer's registration on one Volunteer Batch. HOLD and CONFIRMED
 /// together count toward the Batch's maxQuota; only CONFIRMED counts toward
-/// minQuota. status is denormalized from this Registration's Payment.status
-/// -- the same dual-write shape Campaign.status/lifecycleStatus already
-/// uses, kept in sync by the settlement webhook (Task 3) and the
+/// minQuota. status is denormalized from this Registration's Payment.status,
+/// kept in sync by the settlement webhook (Task 3) and the
 /// hold-expiry sweep (Task 2), never by this Registration being written
 /// directly outside those two paths.
 model Registration {

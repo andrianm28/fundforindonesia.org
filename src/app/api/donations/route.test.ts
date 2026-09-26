@@ -84,7 +84,6 @@ describe('POST /api/donations', () => {
   it('returns 503 even for a valid, well-formed donation', async () => {
     mockCampaignFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      status: 'active',
       title: 'Test Campaign',
       isDemo: false,
     });
@@ -122,7 +121,6 @@ describe('POST /api/donations', () => {
   it('never creates a Donation, a Payment, or a charge while disabled', async () => {
     mockCampaignFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      status: 'active',
       title: 'Test Campaign',
       isDemo: false,
     });

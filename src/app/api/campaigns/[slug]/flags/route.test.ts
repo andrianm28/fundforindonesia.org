@@ -43,7 +43,7 @@ function request(path: string, body: unknown): NextRequest {
 }
 
 function activeCampaign() {
-  return campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', deadline: FUTURE });
+  return campaignRow({ lifecycleStatus: 'ACTIVE', deadline: FUTURE });
 }
 
 describe('POST /api/campaigns/[slug]/flags', () => {

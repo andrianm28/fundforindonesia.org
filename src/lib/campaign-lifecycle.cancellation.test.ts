@@ -24,7 +24,7 @@ const NOW = new Date('2026-09-25T10:00:00Z');
 const owner = { userId: 'creator-1', assignments: [] as const };
 
 function activeCampaign(overrides: Partial<CampaignRow> = {}) {
-  return campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', ...overrides });
+  return campaignRow({ lifecycleStatus: 'ACTIVE', ...overrides });
 }
 
 describe('requestCancellation', () => {
@@ -53,7 +53,7 @@ describe('requestCancellation', () => {
       createdAt: NOW,
     });
     expect(db.cancellationRequests).toEqual([expect.objectContaining({ status: 'PENDING' })]);
-    expect(db.campaign()).toMatchObject({ status: 'active', lifecycleStatus: 'ACTIVE' });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'ACTIVE' });
     expect(db.statusChanges).toEqual([]);
     expect(db.notifications).toEqual([]);
   });
@@ -85,15 +85,15 @@ describe('requestCancellation', () => {
   });
 
   it.each([
-    ['DRAFT', 'pending'],
-    ['SUBMITTED', 'pending'],
-    ['REJECTED', 'rejected'],
-    ['SUSPENDED', 'suspended'],
-    ['COMPLETED', 'completed'],
-    ['EXPIRED', 'expired'],
-    ['CANCELLED', 'cancelled'],
-  ] as const)('refuses a Campaign stored %s with InvalidTransitionError', async (lifecycleStatus, status) => {
-    const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus, status })] });
+    ['DRAFT'],
+    ['SUBMITTED'],
+    ['REJECTED'],
+    ['SUSPENDED'],
+    ['COMPLETED'],
+    ['EXPIRED'],
+    ['CANCELLED'],
+  ] as const)('refuses a Campaign stored %s with InvalidTransitionError', async (lifecycleStatus) => {
+    const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus })] });
 
     const error = await requestCancellation(db.prisma as never, {
       campaignId: 'campaign-1',
@@ -272,12 +272,12 @@ describe('a PENDING request lapses on the Completed and Suspended exits too', ()
     });
 
     it.each([
-      ['EXPIRED', 'expired'],
-      ['COMPLETED', 'completed'],
-    ] as const)('from %s finds no PENDING request, leaves the lapsed one as it was and creates none', async (lifecycleStatus, status) => {
+      ['EXPIRED'],
+      ['COMPLETED'],
+    ] as const)('from %s finds no PENDING request, leaves the lapsed one as it was and creates none', async (lifecycleStatus) => {
       const lapsedAt = new Date('2026-09-01T00:00:00Z');
       const db = makeCampaignDb({
-        campaigns: [campaignRow({ lifecycleStatus, status })],
+        campaigns: [campaignRow({ lifecycleStatus })],
         cancellationRequests: [cancellationRequestRow({ status: 'SUPERSEDED', decidedAt: lapsedAt })],
       });
 
@@ -413,7 +413,7 @@ describe('decideCancellation', () => {
         decisionReason: 'Dana belum dicairkan.',
         decidedAt: NOW,
       });
-      expect(db.campaign()).toMatchObject({ status: 'cancelled', lifecycleStatus: 'CANCELLED' });
+      expect(db.campaign()).toMatchObject({ lifecycleStatus: 'CANCELLED' });
       expect(db.cancellationRequest()).toMatchObject({ status: 'APPROVED', decidedById: 'admin-1' });
       expect(db.statusChanges).toEqual([
         expect.objectContaining({
@@ -490,14 +490,14 @@ describe('decideCancellation', () => {
     });
 
     it.each([
-      ['SUSPENDED', 'suspended'],
-      ['COMPLETED', 'completed'],
-      ['EXPIRED', 'expired'],
-      ['CANCELLED', 'cancelled'],
+      ['SUSPENDED'],
+      ['COMPLETED'],
+      ['EXPIRED'],
+      ['CANCELLED'],
     ] as const)(
       'is refused with InvalidTransitionError from %s even if a stray request is still PENDING',
-      async (lifecycleStatus, status) => {
-        const db = seeded({ campaign: { lifecycleStatus, status } });
+      async (lifecycleStatus) => {
+        const db = seeded({ campaign: { lifecycleStatus } });
 
         const error = await decide(db).catch((e: unknown) => e);
 
@@ -528,7 +528,7 @@ describe('decideCancellation', () => {
         decidedAt: NOW,
       });
       expect(db.cancellationRequest().status).toBe('REJECTED');
-      expect(db.campaign()).toMatchObject({ status: 'active', lifecycleStatus: 'ACTIVE' });
+      expect(db.campaign()).toMatchObject({ lifecycleStatus: 'ACTIVE' });
       expect(db.statusChanges).toEqual([]);
     });
 

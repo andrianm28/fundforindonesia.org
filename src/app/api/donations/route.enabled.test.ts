@@ -93,7 +93,6 @@ beforeEach(() => {
   mockGetServerSession.mockResolvedValue(null);
   mockCampaignFindUnique.mockResolvedValue({
     id: 'campaign-1',
-    status: 'active',
     lifecycleStatus: CampaignStatus.ACTIVE,
     title: 'Bantu Korban Banjir',
     isDemo: false,
@@ -232,7 +231,6 @@ describe('POST /api/donations guards that must survive the gate opening', () => 
   it('still refuses a demo campaign', async () => {
     mockCampaignFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      status: 'active',
       lifecycleStatus: CampaignStatus.ACTIVE,
       title: 'Contoh',
       isDemo: true,
@@ -247,7 +245,6 @@ describe('POST /api/donations guards that must survive the gate opening', () => 
   it('still refuses an inactive campaign', async () => {
     mockCampaignFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      status: 'completed',
       lifecycleStatus: CampaignStatus.COMPLETED,
       title: 'Selesai',
       isDemo: false,

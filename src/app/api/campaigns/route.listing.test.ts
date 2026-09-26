@@ -30,7 +30,7 @@ const YESTERDAY = new Date('2026-09-24T12:00:00Z');
 const TOMORROW = new Date('2026-09-26T12:00:00Z');
 
 function campaign(slug: string, overrides: Partial<CampaignRow> = {}): CampaignRow {
-  return campaignRow({ id: slug, slug, title: slug, status: 'active', lifecycleStatus: 'ACTIVE', ...overrides });
+  return campaignRow({ id: slug, slug, title: slug, lifecycleStatus: 'ACTIVE', ...overrides });
 }
 
 async function listSlugs(query = ''): Promise<string[]> {
@@ -49,11 +49,11 @@ beforeEach(() => {
       campaign('active-until-tomorrow', { deadline: TOMORROW, isUrgent: true }),
       // Stored ACTIVE, but its deadline passed and nobody recorded it yet.
       campaign('expired-unrecorded', { deadline: YESTERDAY, isUrgent: true }),
-      campaign('suspended', { status: 'suspended', lifecycleStatus: 'SUSPENDED' }),
-      campaign('cancelled', { status: 'cancelled', lifecycleStatus: 'CANCELLED' }),
-      campaign('submitted', { status: 'pending', lifecycleStatus: 'SUBMITTED' }),
-      campaign('completed', { status: 'completed', lifecycleStatus: 'COMPLETED' }),
-      campaign('expired', { status: 'active', lifecycleStatus: 'EXPIRED', deadline: YESTERDAY }),
+      campaign('suspended', { lifecycleStatus: 'SUSPENDED' }),
+      campaign('cancelled', { lifecycleStatus: 'CANCELLED' }),
+      campaign('submitted', { lifecycleStatus: 'SUBMITTED' }),
+      campaign('completed', { lifecycleStatus: 'COMPLETED' }),
+      campaign('expired', { lifecycleStatus: 'EXPIRED', deadline: YESTERDAY }),
     ],
   });
 });

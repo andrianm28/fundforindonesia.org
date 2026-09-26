@@ -15,7 +15,7 @@ const REASON = 'Program selesai dan laporan akhir sudah terbit.';
 
 function activeWithUpdate(overrides: Parameters<typeof campaignRow>[0] = {}) {
   return makeCampaignDb({
-    campaigns: [campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', ...overrides })],
+    campaigns: [campaignRow({ lifecycleStatus: 'ACTIVE', ...overrides })],
     campaignUpdates: [{ id: 'update-1', campaignId: 'campaign-1' }],
   });
 }
@@ -32,7 +32,7 @@ describe('completeCampaign', () => {
       lifecycleStatus: 'COMPLETED',
       isUrgent: false,
     });
-    expect(db.campaign()).toMatchObject({ status: 'completed', lifecycleStatus: 'COMPLETED' });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'COMPLETED' });
     expect(db.statusChanges).toEqual([
       expect.objectContaining({
         action: 'COMPLETED',
@@ -105,7 +105,7 @@ describe('completeCampaign', () => {
       const result = await completeCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: admin, reason: `  ${REASON} `, now: NOW });
 
       expect(result.campaign.lifecycleStatus).toBe('COMPLETED');
-      expect(db.campaign()).toMatchObject({ status: 'completed', lifecycleStatus: 'COMPLETED' });
+      expect(db.campaign()).toMatchObject({ lifecycleStatus: 'COMPLETED' });
       expect(db.statusChanges).toEqual([
         expect.objectContaining({
           action: 'COMPLETED',
@@ -153,7 +153,7 @@ describe('completeCampaign', () => {
     ['an Admin', admin, REASON],
   ])('refuses %s while the Campaign has no Campaign Update', async (_label, actor, reason) => {
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE' })],
+      campaigns: [campaignRow({ lifecycleStatus: 'ACTIVE' })],
       campaignUpdates: [{ id: 'update-9', campaignId: 'another-campaign' }],
     });
 
@@ -170,20 +170,20 @@ describe('completeCampaign', () => {
     ['an Admin', admin, REASON],
   ])('outside Active, for %s', (_label, actor, reason) => {
     it.each([
-      ['SUBMITTED', 'pending'],
-      ['REJECTED', 'rejected'],
-      ['SUSPENDED', 'suspended'],
-      ['EXPIRED', 'expired'],
-      ['CANCELLED', 'cancelled'],
-      ['COMPLETED', 'completed'],
-    ] as const)('refuses a %s Campaign, leaving it as it was', async (lifecycleStatus, status) => {
-      const db = activeWithUpdate({ lifecycleStatus, status });
+      ['SUBMITTED'],
+      ['REJECTED'],
+      ['SUSPENDED'],
+      ['EXPIRED'],
+      ['CANCELLED'],
+      ['COMPLETED'],
+    ] as const)('refuses a %s Campaign, leaving it as it was', async (lifecycleStatus) => {
+      const db = activeWithUpdate({ lifecycleStatus });
 
       const error = await completeCampaign(db.prisma as never, { campaignId: 'campaign-1', actor, reason, now: NOW }).catch((e: unknown) => e);
 
       expect(error).toBeInstanceOf(InvalidTransitionError);
       expect((error as InvalidTransitionError).currentStatus).toBe(lifecycleStatus);
-      expect(db.campaign()).toMatchObject({ lifecycleStatus, status });
+      expect(db.campaign()).toMatchObject({ lifecycleStatus });
       expect(db.statusChanges).toEqual([]);
       expect(db.notifications).toEqual([]);
     });

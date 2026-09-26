@@ -23,7 +23,7 @@ const adminA = { userId: 'admin-a', assignments: ['ADMIN' as const] };
 const adminB = { userId: 'admin-b', assignments: ['ADMIN' as const] };
 
 function active(overrides: Partial<CampaignRow> = {}): CampaignRow {
-  return campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', deadline: FUTURE, ...overrides });
+  return campaignRow({ lifecycleStatus: 'ACTIVE', deadline: FUTURE, ...overrides });
 }
 
 function suspend(db: ReturnType<typeof makeCampaignDb>, overrides: Record<string, unknown> = {}) {
@@ -58,7 +58,7 @@ describe('suspendCampaign', () => {
       lifecycleStatus: 'SUSPENDED',
       isUrgent: false,
     });
-    expect(db.campaign()).toMatchObject({ status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'SUSPENDED' });
     expect(db.statusChanges).toEqual([
       expect.objectContaining({
         campaignId: 'campaign-1',
@@ -87,12 +87,12 @@ describe('suspendCampaign', () => {
     ['expired', 'EXPIRED'],
     ['completed', 'COMPLETED'],
   ] as const)('suspends a %s Campaign (ADR 0015), logging where it came from', async (status, lifecycleStatus) => {
-    const db = makeCampaignDb({ campaigns: [campaignRow({ status, lifecycleStatus, deadline: PAST })] });
+    const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus, deadline: PAST })] });
 
     const result = await suspend(db);
 
     expect(result.campaign.lifecycleStatus).toBe('SUSPENDED');
-    expect(db.campaign()).toMatchObject({ status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'SUSPENDED' });
     expect(db.statusChanges).toEqual([
       expect.objectContaining({ action: 'SUSPENDED', fromStatus: lifecycleStatus, toStatus: 'SUSPENDED' }),
     ]);
@@ -116,7 +116,7 @@ describe('suspendCampaign', () => {
     ['rejected', 'REJECTED'],
     ['pending', 'SUBMITTED'],
   ] as const)('refuses to suspend a Campaign that is %s with InvalidTransitionError and changes nothing', async (status, lifecycleStatus) => {
-    const db = makeCampaignDb({ campaigns: [campaignRow({ status, lifecycleStatus })] });
+    const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus })] });
 
     const refusal = suspend(db);
 
@@ -173,7 +173,7 @@ function suspendedFrom(
   suspendedBy = 'admin-a',
 ) {
   const db = makeCampaignDb({
-    campaigns: [campaignRow({ status: 'suspended', lifecycleStatus: 'SUSPENDED', deadline: FUTURE, ...overrides })],
+    campaigns: [campaignRow({ lifecycleStatus: 'SUSPENDED', deadline: FUTURE, ...overrides })],
     statusChanges: [
       {
         id: 'suspension-1', campaignId: 'campaign-1', action: 'SUSPENDED', fromStatus: from,
@@ -197,7 +197,7 @@ describe('liftSuspension', () => {
       lifecycleStatus: 'ACTIVE',
       isUrgent: false,
     });
-    expect(db.campaign()).toMatchObject({ status: 'active', lifecycleStatus: 'ACTIVE' });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'ACTIVE' });
     expect(db.statusChanges.slice(1)).toEqual([
       expect.objectContaining({
         campaignId: 'campaign-1',
@@ -213,15 +213,15 @@ describe('liftSuspension', () => {
   });
 
   it.each([
-    ['EXPIRED', 'expired'],
-    ['COMPLETED', 'completed'],
-  ] as const)('returns a Campaign suspended while %s to that status, never to Active', async (from, legacy) => {
+    ['EXPIRED'],
+    ['COMPLETED'],
+  ] as const)('returns a Campaign suspended while %s to that status, never to Active', async (from) => {
     const db = suspendedFrom(from, { deadline: PAST });
 
     const result = await lift(db);
 
     expect(result.campaign.lifecycleStatus).toBe(from);
-    expect(db.campaign()).toMatchObject({ status: legacy, lifecycleStatus: from });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: from });
     expect(db.statusChanges[1]).toMatchObject({ action: 'SUSPENSION_LIFTED', fromStatus: 'SUSPENDED', toStatus: from });
   });
 
@@ -231,7 +231,7 @@ describe('liftSuspension', () => {
     const result = await lift(db);
 
     expect(result.campaign.lifecycleStatus).toBe('EXPIRED');
-    expect(db.campaign()).toMatchObject({ status: 'expired', lifecycleStatus: 'EXPIRED' });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'EXPIRED' });
     expect(db.statusChanges.slice(1)).toEqual([
       expect.objectContaining({ action: 'SUSPENSION_LIFTED', fromStatus: 'SUSPENDED', toStatus: 'EXPIRED', capacity: 'ADMIN' }),
     ]);
@@ -246,7 +246,7 @@ describe('liftSuspension', () => {
 
   it('restores from the latest Suspension, not an earlier one', async () => {
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ status: 'suspended', lifecycleStatus: 'SUSPENDED', deadline: FUTURE })],
+      campaigns: [campaignRow({ lifecycleStatus: 'SUSPENDED', deadline: FUTURE })],
       statusChanges: [
         {
           id: 's-old', campaignId: 'campaign-1', action: 'SUSPENDED', fromStatus: 'ACTIVE', toStatus: 'SUSPENDED',
@@ -296,7 +296,7 @@ describe('liftSuspension', () => {
     ['rejected', 'REJECTED'],
     ['pending', 'SUBMITTED'],
   ] as const)('refuses to lift a Campaign that is %s with InvalidTransitionError and changes nothing', async (status, lifecycleStatus) => {
-    const db = makeCampaignDb({ campaigns: [campaignRow({ status, lifecycleStatus, deadline: FUTURE })] });
+    const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus, deadline: FUTURE })] });
 
     const refusal = lift(db);
 
@@ -308,7 +308,7 @@ describe('liftSuspension', () => {
 
   it('refuses a Suspension with no recorded history (imposed before the log existed) rather than guessing its prior status', async () => {
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ status: 'suspended', lifecycleStatus: 'SUSPENDED' })],
+      campaigns: [campaignRow({ lifecycleStatus: 'SUSPENDED' })],
     });
 
     const refusal = lift(db);

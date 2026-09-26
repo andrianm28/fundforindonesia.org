@@ -73,7 +73,7 @@ function donate(): Promise<Response> {
 }
 
 function activeCampaign(overrides: Partial<CampaignRow> = {}): CampaignRow {
-  return { ...campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', ...overrides }), isDemo: false } as CampaignRow;
+  return { ...campaignRow({ lifecycleStatus: 'ACTIVE', ...overrides }), isDemo: false } as CampaignRow;
 }
 
 beforeEach(() => {
@@ -118,7 +118,7 @@ describe('POST /api/donations on an Active Campaign past its deadline', () => {
 
     await donate();
 
-    expect(holder.db.campaign()).toMatchObject({ status: 'expired', lifecycleStatus: 'EXPIRED' });
+    expect(holder.db.campaign()).toMatchObject({ lifecycleStatus: 'EXPIRED' });
     expect(holder.db.statusChanges).toEqual([
       expect.objectContaining({
         action: 'EXPIRED',

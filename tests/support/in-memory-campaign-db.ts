@@ -13,7 +13,7 @@ import type { CampaignStatus } from '@/generated/prisma/client';
  * refused command" is observable, not assumed.
  *
  * Lives outside src/ so the static guards that scan src/ for Campaign
- * writers and `lifecycleStatus` readers never mistake it for application
+ * writers and the legacy `status` column never mistake it for application
  * code. Later lifecycle tickets extend it with the models they add.
  */
 
@@ -22,7 +22,6 @@ export type CampaignRow = {
   slug: string;
   title: string;
   creatorId: string;
-  status: string;
   lifecycleStatus: CampaignStatus;
   isUrgent: boolean;
   deadline: Date | null;
@@ -213,7 +212,6 @@ export function campaignRow(overrides: Partial<CampaignRow> = {}): CampaignRow {
     slug: 'bantu-korban-banjir',
     title: 'Bantu Korban Banjir',
     creatorId: 'creator-1',
-    status: 'pending',
     lifecycleStatus: 'SUBMITTED',
     isUrgent: false,
     deadline: null,

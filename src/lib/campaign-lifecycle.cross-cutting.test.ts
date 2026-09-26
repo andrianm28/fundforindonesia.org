@@ -74,7 +74,7 @@ function reasonOf(params: Params) {
 }
 
 function active(overrides: Partial<CampaignRow> = {}) {
-  return campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', ...overrides });
+  return campaignRow({ lifecycleStatus: 'ACTIVE', ...overrides });
 }
 
 const COMMANDS: Record<string, CommandCase> = {
@@ -94,7 +94,7 @@ const COMMANDS: Record<string, CommandCase> = {
     refusedOnceExpired: { error: InvalidTransitionError },
     competing: {
       write: (data) => {
-        Object.assign(data.campaigns[0], { status: 'rejected', lifecycleStatus: 'REJECTED' });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'REJECTED' });
       },
       losesWith: InvalidTransitionError,
     },
@@ -117,7 +117,7 @@ const COMMANDS: Record<string, CommandCase> = {
     refusedOnceExpired: { error: InvalidTransitionError },
     competing: {
       write: (data) => {
-        Object.assign(data.campaigns[0], { status: 'completed', lifecycleStatus: 'COMPLETED' });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'COMPLETED' });
       },
       losesWith: InvalidTransitionError,
     },
@@ -140,7 +140,7 @@ const COMMANDS: Record<string, CommandCase> = {
     refusedOnceExpired: { error: InvalidTransitionError },
     competing: {
       write: (data) => {
-        Object.assign(data.campaigns[0], { status: 'completed', lifecycleStatus: 'COMPLETED' });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'COMPLETED' });
       },
       losesWith: InvalidTransitionError,
     },
@@ -183,7 +183,7 @@ const COMMANDS: Record<string, CommandCase> = {
     refusedOnceExpired: { error: CancellationNotPendingError },
     competing: {
       write: (data) => {
-        Object.assign(data.campaigns[0], { status: 'cancelled', lifecycleStatus: 'CANCELLED' });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'CANCELLED' });
         Object.assign(data.cancellationRequests[0], { status: 'APPROVED', decidedById: 'admin-2' });
       },
       losesWith: CancellationNotPendingError,
@@ -207,7 +207,7 @@ const COMMANDS: Record<string, CommandCase> = {
     refusedOnceExpired: { error: CancellationNotPendingError },
     competing: {
       write: (data) => {
-        Object.assign(data.campaigns[0], { status: 'cancelled', lifecycleStatus: 'CANCELLED' });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'CANCELLED' });
         Object.assign(data.cancellationRequests[0], { status: 'APPROVED', decidedById: 'admin-2' });
       },
       losesWith: CancellationNotPendingError,
@@ -230,14 +230,14 @@ const COMMANDS: Record<string, CommandCase> = {
     refusedOnceExpired: { actor: ownerOperator, error: OwnSubjectConflictError },
     competing: {
       write: (data) => {
-        Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'SUSPENDED' });
       },
       losesWith: InvalidTransitionError,
     },
   },
   liftSuspension: {
     seed: (campaign) => ({
-      campaigns: [campaignRow({ status: 'suspended', lifecycleStatus: 'SUSPENDED', ...campaign })],
+      campaigns: [campaignRow({ lifecycleStatus: 'SUSPENDED', ...campaign })],
       statusChanges: [
         {
           id: 'suspension-1', campaignId: 'campaign-1', action: 'SUSPENDED', fromStatus: 'ACTIVE',
@@ -260,7 +260,7 @@ const COMMANDS: Record<string, CommandCase> = {
     refusedOnceExpired: { error: InvalidTransitionError },
     competing: {
       write: (data) => {
-        Object.assign(data.campaigns[0], { status: 'active', lifecycleStatus: 'ACTIVE' });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'ACTIVE' });
       },
       losesWith: InvalidTransitionError,
     },
@@ -282,7 +282,7 @@ const COMMANDS: Record<string, CommandCase> = {
     refusedOnceExpired: { error: InvalidTransitionError },
     competing: {
       write: (data) => {
-        Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'SUSPENDED' });
       },
       losesWith: InvalidTransitionError,
     },
@@ -322,7 +322,7 @@ const COMMANDS: Record<string, CommandCase> = {
     refusedOnceExpired: { actor: ownerOperator, error: OwnSubjectConflictError },
     competing: {
       write: (data) => {
-        Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'SUSPENDED' });
       },
       losesWith: InvalidTransitionError,
     },
@@ -345,7 +345,7 @@ const COMMANDS: Record<string, CommandCase> = {
     refusedOnceExpired: { actor: ownerOperator, error: OwnSubjectConflictError },
     competing: {
       write: (data) => {
-        Object.assign(data.campaigns[0], { status: 'suspended', lifecycleStatus: 'SUSPENDED' });
+        Object.assign(data.campaigns[0], { lifecycleStatus: 'SUSPENDED' });
         Object.assign(data.campaignFlags[0], {
           resolution: 'SUSPENDED', resolvedById: 'admin-2', resolutionReason: 'Penipuan', resolvedAt: NOW,
         });
@@ -412,12 +412,12 @@ describe.each(Object.entries(COMMANDS))('%s', (_name, command) => {
   );
 
   it('records a Campaign past its deadline Expired at its now, and keeps that when the command is refused', async () => {
-    const db = makeCampaignDb(command.seed({ status: 'active', lifecycleStatus: 'ACTIVE', deadline: PAST }));
+    const db = makeCampaignDb(command.seed({ lifecycleStatus: 'ACTIVE', deadline: PAST }));
 
     const error = await refusal(command.run(db, { actor: command.refusedOnceExpired.actor ?? command.actor }));
 
     expect(error).toBeInstanceOf(command.refusedOnceExpired.error);
-    expect(db.campaign()).toMatchObject({ status: 'expired', lifecycleStatus: 'EXPIRED' });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'EXPIRED' });
     const written = db.statusChanges.filter((c) => c.id !== 'suspension-1');
     expect(written).toContainEqual(
       expect.objectContaining({

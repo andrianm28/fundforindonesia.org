@@ -46,7 +46,7 @@ describe('POST /api/campaigns/[slug]/complete', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.db = makeCampaignDb({
-      campaigns: [campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE' })],
+      campaigns: [campaignRow({ lifecycleStatus: 'ACTIVE' })],
       campaignUpdates: [{ id: 'update-1', campaignId: 'campaign-1' }],
     });
   });

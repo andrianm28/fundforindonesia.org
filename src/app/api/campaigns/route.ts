@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { Prisma } from '@/generated/prisma/client';
+import { CampaignStatus, type Prisma } from '@/generated/prisma/client';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { toLifecycleStatus } from "@/lib/campaign-lifecycle";
 import { listableCampaignWhere } from '@/lib/subject-guard';
 import { withRoleCheck } from '@/lib/withRoleCheck';
 
@@ -144,13 +143,14 @@ export const POST = withRoleCheck("CAMPAIGN_CREATOR", async (request: NextReques
         deadline: deadline ? new Date(deadline) : null,
         creatorId: session!.user.id,
         // A new campaign is never published by its author. It waits in the
-        // Verifier queue at /moderasi until a moderator approves it, which is
-        // what flips it to "active". The schema default is "active", so this
-        // has to be set explicitly -- omitting it publishes an unverified
-        // appeal for money.
-        status: 'pending',
-        lifecycleStatus: toLifecycleStatus('pending'),
+        // Verifier queue at /moderasi until a Verifier approves it, which is
+        // what makes it ACTIVE. Set explicitly rather than left to the schema
+        // default, so publishing an unverified appeal for money can never
+        // hinge on a default someone changes.
+        lifecycleStatus: CampaignStatus.SUBMITTED,
       },
+      // The legacy status string is never sent back (ticket 03 drops it).
+      omit: { status: true },
       include: {
         creator: {
           select: {

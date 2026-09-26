@@ -48,7 +48,6 @@ describe('GET /api/campaigns', () => {
         targetAmount: 1000000,
         collectedAmount: 500000,
         category: 'kesehatan',
-        status: 'active',
         isUrgent: false,
         deadline: null,
         creatorId: 'user1',
@@ -351,7 +350,6 @@ describe('POST /api/campaigns', () => {
       slug: 'bantuan-untuk-korban-banjir-abc123',
       ...validBody,
       collectedAmount: 0,
-      status: 'active',
       isUrgent: false,
       deadline: null,
       creatorId: 'user-1',
@@ -372,25 +370,11 @@ describe('POST /api/campaigns', () => {
     expect(data.creatorId).toBe('user-1');
   });
 
-  it('creates the campaign as pending so it cannot publish itself', async () => {
+  it('creates the campaign as Submitted so it cannot publish itself', async () => {
     // A campaign must pass a Verifier before it is visible. Creating it as
-    // "active" would publish an unverified appeal for money under the
+    // Active would publish an unverified appeal for money under the
     // platform's name, and would also leave the /moderasi queue -- which
-    // filters on "pending" -- permanently empty.
-    mockGetServerSession.mockResolvedValue(verifiedSession as never);
-    mockCreate.mockResolvedValue({ id: 'c1' } as never);
-
-    const request = createPostRequest(validBody);
-    await POST(request);
-
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'pending' }),
-      })
-    );
-  });
-
-  it('sets lifecycleStatus SUBMITTED next to status pending on create', async () => {
+    // lists Submitted Campaigns -- permanently empty.
     mockGetServerSession.mockResolvedValue(verifiedSession as never);
     mockCreate.mockResolvedValue({ id: 'campaign-1' } as never);
 
@@ -398,14 +382,12 @@ describe('POST /api/campaigns', () => {
     const response = await POST(request);
 
     expect(response.status).toBe(201);
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: 'pending',
-          lifecycleStatus: 'SUBMITTED',
-        }),
-      })
-    );
+    const { data } = mockCreate.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(data.lifecycleStatus).toBe('SUBMITTED');
+    // The legacy status string is neither written nor sent back
+    // (legacy-status-contract 02).
+    expect(data).not.toHaveProperty('status');
+    expect(mockCreate.mock.calls[0][0]).toMatchObject({ omit: { status: true } });
   });
 
   it('passes correct data to prisma.campaign.create', async () => {

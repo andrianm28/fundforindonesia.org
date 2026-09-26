@@ -1,11 +1,10 @@
 import 'dotenv/config';
 import { randomUUID } from 'crypto';
-import { PrismaClient, Role, Assignment, PaymentStatus, PayoutStatus } from '@/generated/prisma/client';
+import { PrismaClient, Role, Assignment, CampaignStatus, PaymentStatus, PayoutStatus } from '@/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import { REGISTRATION_HASH_COST } from '@/lib/password-hash-cost';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
-import { toLifecycleStatus } from '@/lib/campaign-lifecycle';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -95,43 +94,43 @@ const USERS_DATA = [
 
 const CAMPAIGNS_DATA = [
   // Bencana Alam (4)
-  { title: 'Bantu Korban Banjir Bandang Garut', category: 'bencana-alam', target: 500000000, collected: 387500000, isUrgent: true, status: 'active', daysOld: 5, deadlineDays: 25 },
-  { title: 'Gempa Cianjur - Bangun Kembali Rumah Warga', category: 'bencana-alam', target: 1000000000, collected: 892000000, isUrgent: true, status: 'active', daysOld: 14, deadlineDays: 16 },
-  { title: 'Tanah Longsor Banjarnegara - Evakuasi Warga', category: 'bencana-alam', target: 250000000, collected: 250000000, isUrgent: false, status: 'completed', daysOld: 60, deadlineDays: -30 },
-  { title: 'Erupsi Gunung Semeru - Bantuan Darurat', category: 'bencana-alam', target: 750000000, collected: 312000000, isUrgent: true, status: 'active', daysOld: 3, deadlineDays: 27 },
+  { title: 'Bantu Korban Banjir Bandang Garut', category: 'bencana-alam', target: 500000000, collected: 387500000, isUrgent: true, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 5, deadlineDays: 25 },
+  { title: 'Gempa Cianjur - Bangun Kembali Rumah Warga', category: 'bencana-alam', target: 1000000000, collected: 892000000, isUrgent: true, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 14, deadlineDays: 16 },
+  { title: 'Tanah Longsor Banjarnegara - Evakuasi Warga', category: 'bencana-alam', target: 250000000, collected: 250000000, isUrgent: false, lifecycleStatus: CampaignStatus.COMPLETED, daysOld: 60, deadlineDays: -30 },
+  { title: 'Erupsi Gunung Semeru - Bantuan Darurat', category: 'bencana-alam', target: 750000000, collected: 312000000, isUrgent: true, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 3, deadlineDays: 27 },
   // Bantuan Medis (4)
-  { title: 'Bantu Adik Rafi Lawan Leukemia', category: 'bantuan-medis', target: 300000000, collected: 178500000, isUrgent: true, status: 'active', daysOld: 10, deadlineDays: 20 },
-  { title: 'Operasi Jantung untuk Ibu Sumiati', category: 'bantuan-medis', target: 450000000, collected: 450000000, isUrgent: false, status: 'completed', daysOld: 45, deadlineDays: -15 },
-  { title: 'Pengobatan Kanker Anak Yatim Piatu', category: 'bantuan-medis', target: 200000000, collected: 95000000, isUrgent: true, status: 'active', daysOld: 7, deadlineDays: 23 },
-  { title: 'Bantu Pak Joko Cuci Darah Rutin', category: 'bantuan-medis', target: 150000000, collected: 67000000, isUrgent: false, status: 'active', daysOld: 20, deadlineDays: 40 },
+  { title: 'Bantu Adik Rafi Lawan Leukemia', category: 'bantuan-medis', target: 300000000, collected: 178500000, isUrgent: true, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 10, deadlineDays: 20 },
+  { title: 'Operasi Jantung untuk Ibu Sumiati', category: 'bantuan-medis', target: 450000000, collected: 450000000, isUrgent: false, lifecycleStatus: CampaignStatus.COMPLETED, daysOld: 45, deadlineDays: -15 },
+  { title: 'Pengobatan Kanker Anak Yatim Piatu', category: 'bantuan-medis', target: 200000000, collected: 95000000, isUrgent: true, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 7, deadlineDays: 23 },
+  { title: 'Bantu Pak Joko Cuci Darah Rutin', category: 'bantuan-medis', target: 150000000, collected: 67000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 20, deadlineDays: 40 },
   // Pendidikan (4)
-  { title: 'Beasiswa Anak Pedalaman Papua', category: 'pendidikan', target: 200000000, collected: 142000000, isUrgent: false, status: 'active', daysOld: 30, deadlineDays: 60 },
-  { title: 'Bangun Perpustakaan Desa Terpencil', category: 'pendidikan', target: 100000000, collected: 100000000, isUrgent: false, status: 'completed', daysOld: 90, deadlineDays: -30 },
-  { title: 'Laptop untuk Siswa Berprestasi Kurang Mampu', category: 'pendidikan', target: 75000000, collected: 52000000, isUrgent: false, status: 'active', daysOld: 15, deadlineDays: 45 },
-  { title: 'Beasiswa S2 Guru Honorer Berprestasi', category: 'pendidikan', target: 350000000, collected: 89000000, isUrgent: false, status: 'active', daysOld: 8, deadlineDays: 82 },
+  { title: 'Beasiswa Anak Pedalaman Papua', category: 'pendidikan', target: 200000000, collected: 142000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 30, deadlineDays: 60 },
+  { title: 'Bangun Perpustakaan Desa Terpencil', category: 'pendidikan', target: 100000000, collected: 100000000, isUrgent: false, lifecycleStatus: CampaignStatus.COMPLETED, daysOld: 90, deadlineDays: -30 },
+  { title: 'Laptop untuk Siswa Berprestasi Kurang Mampu', category: 'pendidikan', target: 75000000, collected: 52000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 15, deadlineDays: 45 },
+  { title: 'Beasiswa S2 Guru Honorer Berprestasi', category: 'pendidikan', target: 350000000, collected: 89000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 8, deadlineDays: 82 },
   // Rumah Ibadah (4)
-  { title: 'Renovasi Masjid Al-Ikhlas yang Hampir Roboh', category: 'rumah-ibadah', target: 400000000, collected: 267000000, isUrgent: true, status: 'active', daysOld: 12, deadlineDays: 18 },
-  { title: 'Bangun Mushola di Pelosok Kalimantan', category: 'rumah-ibadah', target: 150000000, collected: 150000000, isUrgent: false, status: 'completed', daysOld: 120, deadlineDays: -60 },
-  { title: 'Renovasi Gereja Tua di Flores', category: 'rumah-ibadah', target: 200000000, collected: 78000000, isUrgent: false, status: 'active', daysOld: 25, deadlineDays: 65 },
-  { title: 'Pembangunan Pura di Desa Adat Bali', category: 'rumah-ibadah', target: 300000000, collected: 134000000, isUrgent: false, status: 'active', daysOld: 18, deadlineDays: 72 },
+  { title: 'Renovasi Masjid Al-Ikhlas yang Hampir Roboh', category: 'rumah-ibadah', target: 400000000, collected: 267000000, isUrgent: true, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 12, deadlineDays: 18 },
+  { title: 'Bangun Mushola di Pelosok Kalimantan', category: 'rumah-ibadah', target: 150000000, collected: 150000000, isUrgent: false, lifecycleStatus: CampaignStatus.COMPLETED, daysOld: 120, deadlineDays: -60 },
+  { title: 'Renovasi Gereja Tua di Flores', category: 'rumah-ibadah', target: 200000000, collected: 78000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 25, deadlineDays: 65 },
+  { title: 'Pembangunan Pura di Desa Adat Bali', category: 'rumah-ibadah', target: 300000000, collected: 134000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 18, deadlineDays: 72 },
   // Panti Asuhan (4)
-  { title: 'Bantu Makan 50 Anak Panti Asuhan Al-Falah', category: 'panti-asuhan', target: 100000000, collected: 72000000, isUrgent: true, status: 'active', daysOld: 6, deadlineDays: 24 },
-  { title: 'Renovasi Panti Asuhan Kasih Ibu', category: 'panti-asuhan', target: 250000000, collected: 198000000, isUrgent: false, status: 'active', daysOld: 35, deadlineDays: 25 },
-  { title: 'Perlengkapan Sekolah Anak Panti', category: 'panti-asuhan', target: 50000000, collected: 50000000, isUrgent: false, status: 'completed', daysOld: 80, deadlineDays: -20 },
-  { title: 'Santunan Lebaran Anak Yatim Se-Jakarta', category: 'panti-asuhan', target: 300000000, collected: 215000000, isUrgent: false, status: 'active', daysOld: 10, deadlineDays: 20 },
+  { title: 'Bantu Makan 50 Anak Panti Asuhan Al-Falah', category: 'panti-asuhan', target: 100000000, collected: 72000000, isUrgent: true, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 6, deadlineDays: 24 },
+  { title: 'Renovasi Panti Asuhan Kasih Ibu', category: 'panti-asuhan', target: 250000000, collected: 198000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 35, deadlineDays: 25 },
+  { title: 'Perlengkapan Sekolah Anak Panti', category: 'panti-asuhan', target: 50000000, collected: 50000000, isUrgent: false, lifecycleStatus: CampaignStatus.COMPLETED, daysOld: 80, deadlineDays: -20 },
+  { title: 'Santunan Lebaran Anak Yatim Se-Jakarta', category: 'panti-asuhan', target: 300000000, collected: 215000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 10, deadlineDays: 20 },
   // Infrastruktur (4)
-  { title: 'Bangun Jembatan Penghubung 2 Desa di NTT', category: 'infrastruktur', target: 500000000, collected: 234000000, isUrgent: false, status: 'active', daysOld: 40, deadlineDays: 50 },
-  { title: 'Perbaikan Jalan Desa Terisolir Sulawesi', category: 'infrastruktur', target: 350000000, collected: 89000000, isUrgent: false, status: 'active', daysOld: 20, deadlineDays: 70 },
-  { title: 'Sumur Bor untuk Desa Kekeringan', category: 'infrastruktur', target: 75000000, collected: 75000000, isUrgent: false, status: 'completed', daysOld: 100, deadlineDays: -40 },
-  { title: 'Listrik Tenaga Surya Desa Pedalaman', category: 'infrastruktur', target: 200000000, collected: 67000000, isUrgent: false, status: 'active', daysOld: 15, deadlineDays: 75 },
+  { title: 'Bangun Jembatan Penghubung 2 Desa di NTT', category: 'infrastruktur', target: 500000000, collected: 234000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 40, deadlineDays: 50 },
+  { title: 'Perbaikan Jalan Desa Terisolir Sulawesi', category: 'infrastruktur', target: 350000000, collected: 89000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 20, deadlineDays: 70 },
+  { title: 'Sumur Bor untuk Desa Kekeringan', category: 'infrastruktur', target: 75000000, collected: 75000000, isUrgent: false, lifecycleStatus: CampaignStatus.COMPLETED, daysOld: 100, deadlineDays: -40 },
+  { title: 'Listrik Tenaga Surya Desa Pedalaman', category: 'infrastruktur', target: 200000000, collected: 67000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 15, deadlineDays: 75 },
   // Kemanusiaan (4)
-  { title: 'Bantuan Pangan Warga Terdampak PHK', category: 'kemanusiaan', target: 150000000, collected: 112000000, isUrgent: true, status: 'active', daysOld: 4, deadlineDays: 26 },
-  { title: 'Paket Sembako untuk 1000 Keluarga Miskin', category: 'kemanusiaan', target: 400000000, collected: 287000000, isUrgent: false, status: 'active', daysOld: 22, deadlineDays: 38 },
-  { title: 'Bantuan untuk Pengungsi Rohingya di Aceh', category: 'kemanusiaan', target: 600000000, collected: 423000000, isUrgent: true, status: 'active', daysOld: 9, deadlineDays: 21 },
-  { title: 'Dapur Umum Ramadan untuk Duafa', category: 'kemanusiaan', target: 100000000, collected: 100000000, isUrgent: false, status: 'completed', daysOld: 70, deadlineDays: -10 },
+  { title: 'Bantuan Pangan Warga Terdampak PHK', category: 'kemanusiaan', target: 150000000, collected: 112000000, isUrgent: true, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 4, deadlineDays: 26 },
+  { title: 'Paket Sembako untuk 1000 Keluarga Miskin', category: 'kemanusiaan', target: 400000000, collected: 287000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 22, deadlineDays: 38 },
+  { title: 'Bantuan untuk Pengungsi Rohingya di Aceh', category: 'kemanusiaan', target: 600000000, collected: 423000000, isUrgent: true, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 9, deadlineDays: 21 },
+  { title: 'Dapur Umum Ramadan untuk Duafa', category: 'kemanusiaan', target: 100000000, collected: 100000000, isUrgent: false, lifecycleStatus: CampaignStatus.COMPLETED, daysOld: 70, deadlineDays: -10 },
   // Zakat (2)
-  { title: 'Zakat Fitrah untuk Mustahik Sekitar Kita', category: 'zakat', target: 200000000, collected: 156000000, isUrgent: false, status: 'active', daysOld: 5, deadlineDays: 25 },
-  { title: 'Zakat Maal - Berdayakan Ekonomi Umat', category: 'zakat', target: 500000000, collected: 312000000, isUrgent: false, status: 'active', daysOld: 30, deadlineDays: 60 },
+  { title: 'Zakat Fitrah untuk Mustahik Sekitar Kita', category: 'zakat', target: 200000000, collected: 156000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 5, deadlineDays: 25 },
+  { title: 'Zakat Maal - Berdayakan Ekonomi Umat', category: 'zakat', target: 500000000, collected: 312000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 30, deadlineDays: 60 },
 ];
 
 const STORIES = [
@@ -292,7 +291,7 @@ async function main() {
     const slug = slugify(campaignData.title);
     const campaign = await prisma.campaign.upsert({
       where: { slug },
-      // update is empty: re-seeds never heal divergence; the migration backfill is the single source of truth for existing rows.
+      // update is empty: a re-seed leaves existing rows exactly as they are.
       update: {},
       create: {
         slug,
@@ -303,8 +302,7 @@ async function main() {
         targetAmount: campaignData.target,
         collectedAmount: campaignData.collected,
         category: campaignData.category,
-        status: campaignData.status,
-        lifecycleStatus: toLifecycleStatus(campaignData.status),
+        lifecycleStatus: campaignData.lifecycleStatus,
         isUrgent: campaignData.isUrgent,
         deadline: campaignData.deadlineDays > 0 ? daysFromNow(campaignData.deadlineDays) : daysAgo(Math.abs(campaignData.deadlineDays)),
         creatorId: creator.id,
@@ -320,7 +318,7 @@ async function main() {
   // balances rather than a bunch of donation rows with no money behind them.
   console.log('💰 Creating donations...');
   const donations = [];
-  const activeCampaigns = campaigns.filter(c => c.status === 'active' || c.status === 'completed');
+  const activeCampaigns = campaigns.filter(c => c.lifecycleStatus === CampaignStatus.ACTIVE || c.lifecycleStatus === CampaignStatus.COMPLETED);
   let paymentCount = 0;
 
   for (let i = 0; i < 110; i++) {
@@ -447,7 +445,7 @@ async function main() {
   console.log(`   ✓ ${bankAccountByCreatorId.size} bank accounts created\n`);
 
   console.log('💸 Creating payouts...');
-  const completedCampaigns = campaigns.filter(c => c.status === 'completed');
+  const completedCampaigns = campaigns.filter(c => c.lifecycleStatus === CampaignStatus.COMPLETED);
   const approvers = [...admins, ...moderators];
   let payoutCount = 0;
 

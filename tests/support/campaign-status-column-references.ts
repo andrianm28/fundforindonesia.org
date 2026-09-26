@@ -2,8 +2,9 @@ import path from 'node:path';
 import ts from 'typescript';
 
 /**
- * Every place in `src` (tests and generated code excluded) that names the
- * legacy Campaign `status` column, as `file:line`.
+ * Every place in `src` (tests and generated code excluded), and in any
+ * `alsoScan` file outside it (the seed, say), that names the legacy Campaign
+ * `status` column, as `file:line` relative to `root`.
  *
  * Resolved with the type checker rather than a text search, because `status`
  * is also a column on Payments, Refunds, Payouts, VolunteerTrips and more,
@@ -17,7 +18,10 @@ import ts from 'typescript';
  *
  * Lives outside src/ so it is never mistaken for application code.
  */
-export function findCampaignStatusReferences(root = process.cwd()): string[] {
+export function findCampaignStatusReferences({
+  root = process.cwd(),
+  alsoScan = [],
+}: { root?: string; alsoScan?: string[] } = {}): string[] {
   const parsed = ts.getParsedCommandLineOfConfigFile(
     path.join(root, 'tsconfig.json'),
     {},
@@ -25,13 +29,18 @@ export function findCampaignStatusReferences(root = process.cwd()): string[] {
   );
   if (!parsed) throw new Error('tsconfig.json could not be read');
 
+  const alsoScanned = alsoScan.map((file) => path.join(root, file));
   const sources = parsed.fileNames.filter(
     (file) =>
-      file.includes('/src/') &&
-      !file.includes('/src/generated/') &&
-      !file.includes('/__tests__/') &&
-      !/\.test\.tsx?$/.test(file),
+      alsoScanned.includes(file) ||
+      (file.includes('/src/') &&
+        !file.includes('/src/generated/') &&
+        !file.includes('/__tests__/') &&
+        !/\.test\.tsx?$/.test(file)),
   );
+  for (const file of alsoScanned) {
+    if (!sources.includes(file)) throw new Error(`${path.relative(root, file)} is not part of the TypeScript project`);
+  }
   const program = ts.createProgram(sources, { ...parsed.options, incremental: false, noEmit: true });
   const checker = program.getTypeChecker();
   const COMPLETIONS_CONTEXT = 4; // ts.ContextFlags.Completions

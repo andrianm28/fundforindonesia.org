@@ -183,7 +183,6 @@ describe("Feature: platform-polish, Property 7: Search Filter Intersection", () 
               title: `Campaign about ${searchTerm}`,
               description: "Some description",
               category: categorySlug,
-              status: "active",
               collectedAmount: 100000,
               targetAmount: 500000,
               coverImage: "/img.jpg",

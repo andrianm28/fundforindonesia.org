@@ -185,6 +185,8 @@ export async function PATCH(
     const updatedCampaign = await prisma.campaign.update({
       where: { id: campaign.id },
       data: result.data,
+      // The legacy status string is never sent back (ticket 03 drops it).
+      omit: { status: true },
       include: {
         creator: {
           select: {

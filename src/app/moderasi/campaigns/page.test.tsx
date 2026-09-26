@@ -61,14 +61,4 @@ describe('the Verifier queue', () => {
     const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent).sort();
     expect(titles).toEqual(['submitted-one', 'submitted-two']);
   });
-
-  it('lists a Submitted Campaign even when its legacy status string says otherwise', async () => {
-    holder.db = makeCampaignDb({
-      campaigns: [campaignRow({ id: 'x', slug: 'x', title: 'mismatched', status: 'active', lifecycleStatus: 'SUBMITTED' })],
-    });
-
-    render(await ModerasiCampaignsPage());
-
-    expect(screen.getByText('mismatched')).toBeDefined();
-  });
 });
