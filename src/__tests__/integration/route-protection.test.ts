@@ -125,19 +125,29 @@ describe("Route Protection Integration Tests", () => {
   describe("Middleware Route Access: MODERATOR permissions", () => {
     // **Validates: Requirements 3.2, 4.1**
 
-    it("MODERATOR can access /moderasi route — allowed", () => {
+    it("the VERIFIER assignment can access /moderasi — allowed", () => {
+      const result = checkRouteAccess("/moderasi", "MODERATOR", ["VERIFIER"]);
+      expect(result).toBe("allow");
+    });
+
+    it("the VERIFIER assignment can access /moderasi/campaigns — allowed", () => {
+      const result = checkRouteAccess("/moderasi/campaigns", "MODERATOR", ["VERIFIER"]);
+      expect(result).toBe("allow");
+    });
+
+    it("the VERIFIER assignment can access /moderasi/reports — allowed", () => {
+      const result = checkRouteAccess("/moderasi/reports", "MODERATOR", ["VERIFIER"]);
+      expect(result).toBe("allow");
+    });
+
+    it("the VERIFIER assignment without the MODERATOR Role can access /moderasi — allowed", () => {
+      const result = checkRouteAccess("/moderasi", "DONOR", ["VERIFIER"]);
+      expect(result).toBe("allow");
+    });
+
+    it("the MODERATOR Role without the VERIFIER assignment cannot access /moderasi — redirected to home", () => {
       const result = checkRouteAccess("/moderasi", "MODERATOR");
-      expect(result).toBe("allow");
-    });
-
-    it("MODERATOR can access /moderasi/campaigns — allowed", () => {
-      const result = checkRouteAccess("/moderasi/campaigns", "MODERATOR");
-      expect(result).toBe("allow");
-    });
-
-    it("MODERATOR can access /moderasi/reports — allowed", () => {
-      const result = checkRouteAccess("/moderasi/reports", "MODERATOR");
-      expect(result).toBe("allow");
+      expect(result).toBe("redirect:/");
     });
 
     it("MODERATOR cannot access /admin route — redirected to home", () => {
@@ -184,13 +194,13 @@ describe("Route Protection Integration Tests", () => {
       expect(result).toBe("allow");
     });
 
-    it("ADMIN can access /moderasi route — allowed", () => {
-      const result = checkRouteAccess("/moderasi", "ADMIN");
-      expect(result).toBe("allow");
+    it("the ADMIN Role and assignment without VERIFIER cannot access /moderasi — redirected to home", () => {
+      const result = checkRouteAccess("/moderasi", "ADMIN", ["ADMIN"]);
+      expect(result).toBe("redirect:/");
     });
 
-    it("ADMIN can access /moderasi/campaigns — allowed", () => {
-      const result = checkRouteAccess("/moderasi/campaigns", "ADMIN");
+    it("an Admin who also holds VERIFIER can access /moderasi/campaigns — allowed", () => {
+      const result = checkRouteAccess("/moderasi/campaigns", "ADMIN", ["ADMIN", "VERIFIER"]);
       expect(result).toBe("allow");
     });
 

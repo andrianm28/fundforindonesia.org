@@ -50,6 +50,10 @@ import { join } from "node:path";
  * path, so that file replaces the Campaign PATCH route below. The admin
  * pages join the assignment readers, and NO_ADMIN_BY_ROLE pins that no
  * file grants Admin from the Role any more.
+ *
+ * NOTE (campaign-rule-bugs ticket 04): the middleware gates /moderasi on
+ * the VERIFIER assignment too, so no Role rank decides who reaches the
+ * moderation pages ahead of moderasi/layout.tsx.
  */
 const HIERARCHY_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/payouts/route.ts",
@@ -186,6 +190,12 @@ describe("roles expand scope", () => {
     const source = readFileSync("src/middleware.ts", "utf8");
     expect(source).toMatch(/pattern:\s*"\/admin",\s*assignment:\s*"ADMIN"/);
     expect(source).toContain("token?.assignments");
+  });
+
+  it("the middleware gates /moderasi on the VERIFIER assignment, never on a Role rank", () => {
+    const source = readFileSync("src/middleware.ts", "utf8");
+    expect(source).toMatch(/pattern:\s*"\/moderasi",\s*assignment:\s*"VERIFIER"/);
+    expect(source).not.toMatch(/pattern:\s*"\/moderasi",\s*minimumRole:/);
   });
 
   it("every lifecycle route goes through the lifecycle adapter, never a route-level gate", () => {

@@ -5,8 +5,8 @@ import { NextResponse } from "next/server";
 type Role = "ADMIN" | "MODERATOR" | "CAMPAIGN_CREATOR" | "DONOR";
 type Assignment = "ADMIN" | "VERIFIER";
 
-// Role hierarchy: higher number = more privilege. Only the /moderasi and
-// /campaign/create gates below still read it (prd-compliance tickets 06-08).
+// Role hierarchy: higher number = more privilege. Only the /campaign/create
+// gate below still reads it (prd-compliance tickets 06-08).
 const ROLE_LEVELS: Record<Role, number> = {
   DONOR: 0,
   CAMPAIGN_CREATOR: 1,
@@ -14,20 +14,18 @@ const ROLE_LEVELS: Record<Role, number> = {
   ADMIN: 3,
 };
 
-// Routes gated by an assignment (ADR 0005): Admin power comes only from the
-// ADMIN assignment, never from the Role. The session token carries the
+// Routes gated by an assignment (ADR 0005): Admin and Verifier power come
+// only from the ADMIN and VERIFIER assignments, never from the Role. The session token carries the
 // assignments (see the jwt callback in src/lib/auth.ts), the same list
 // admin/layout.tsx and moderasi/layout.tsx read from the session.
 const ASSIGNMENT_ROUTES: { pattern: string; assignment: Assignment }[] = [
   { pattern: "/admin", assignment: "ADMIN" },
+  { pattern: "/moderasi", assignment: "VERIFIER" },
 ];
 
-// Route-to-minimum-role mapping. Legacy Role gates, left until who may create
-// a Campaign and who verifies are decided (prd-compliance tickets 06-08).
-// /moderasi/layout.tsx already requires the VERIFIER assignment behind this
-// gate.
+// Route-to-minimum-role mapping. A legacy Role gate, left until who may
+// create a Campaign is decided (prd-compliance tickets 06-08).
 const ROLE_ROUTES: { pattern: string; minimumRole: Role }[] = [
-  { pattern: "/moderasi", minimumRole: "MODERATOR" },
   { pattern: "/campaign/create", minimumRole: "CAMPAIGN_CREATOR" },
 ];
 

@@ -57,4 +57,25 @@ describe('middleware', () => {
       expect(run('/admin', 'MODERATOR', ['VERIFIER']).headers.get('location')).toBe('http://localhost:3000/');
     });
   });
+
+  describe('the /moderasi gate asks for the VERIFIER assignment (ADR 0005), not the Role', () => {
+    it.each(['/moderasi', '/moderasi/campaigns', '/moderasi/campaigns/123'])(
+      'lets someone holding the VERIFIER assignment, whatever their Role, into %s',
+      (path) => {
+        expect(run(path, 'DONOR', ['VERIFIER']).headers.get('location')).toBeNull();
+      },
+    );
+
+    it('sends someone with the MODERATOR Role but no VERIFIER assignment home', () => {
+      expect(run('/moderasi', 'MODERATOR', []).headers.get('location')).toBe('http://localhost:3000/');
+    });
+
+    it('sends someone whose token carries no assignments home', () => {
+      expect(run('/moderasi/campaigns', 'MODERATOR').headers.get('location')).toBe('http://localhost:3000/');
+    });
+
+    it('does not let the ADMIN assignment stand in for VERIFIER', () => {
+      expect(run('/moderasi', 'ADMIN', ['ADMIN']).headers.get('location')).toBe('http://localhost:3000/');
+    });
+  });
 });

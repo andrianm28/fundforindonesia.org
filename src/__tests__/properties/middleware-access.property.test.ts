@@ -116,15 +116,18 @@ describe("Feature: user-roles, Property 3: Admin Route Access Control", () => {
 describe("Feature: user-roles, Property 4: Moderation Route Access Control", () => {
   // Feature: user-roles, Property 4: Moderation route access control
   // **Validates: Requirements 4.1, 4.2, 6.5**
-  // Still the legacy Role gate in the middleware (prd-compliance tickets
-  // 06-08); /moderasi/layout.tsx requires the VERIFIER assignment behind it.
+  // campaign-rule-bugs ticket 04: Verifier power comes only from the
+  // VERIFIER assignment (ADR 0005), never from the Role, the same list
+  // /moderasi/layout.tsx reads.
 
-  test("only MODERATOR or ADMIN grants access to /moderasi routes — lower roles are redirected", () => {
+  const assignmentsArb = fc.subarray<MiddlewareAssignment>(["ADMIN", "VERIFIER"]);
+
+  test("only the VERIFIER assignment grants access to /moderasi routes, whatever the Role", () => {
     fc.assert(
-      fc.property(roleArb, moderasiPathArb, (role, moderasiPath) => {
-        const result = checkRouteAccess(moderasiPath, role);
+      fc.property(roleArb, assignmentsArb, moderasiPathArb, (role, assignments, moderasiPath) => {
+        const result = checkRouteAccess(moderasiPath, role, assignments);
 
-        if (role === "ADMIN" || role === "MODERATOR") {
+        if (assignments.includes("VERIFIER")) {
           expect(result).toBe("allow");
         } else {
           expect(result).toBe("redirect:/");
@@ -134,47 +137,26 @@ describe("Feature: user-roles, Property 4: Moderation Route Access Control", () 
     );
   });
 
-  test("ADMIN can access any moderasi sub-route", () => {
+  test("the MODERATOR or ADMIN Role without the VERIFIER assignment is always redirected from moderasi routes", () => {
     fc.assert(
-      fc.property(moderasiPathArb, (moderasiPath) => {
-        const result = checkRouteAccess(moderasiPath, "ADMIN");
-        expect(result).toBe("allow");
+      fc.property(fc.constantFrom<Role>("MODERATOR", "ADMIN"), moderasiPathArb, (role, moderasiPath) => {
+        expect(checkRouteAccess(moderasiPath, role, ["ADMIN"])).toBe("redirect:/");
+        expect(checkRouteAccess(moderasiPath, role, [])).toBe("redirect:/");
       }),
       { numRuns: 100 }
     );
   });
 
-  test("MODERATOR can access any moderasi sub-route", () => {
+  test("the VERIFIER assignment without the MODERATOR Role can access any moderasi sub-route", () => {
     fc.assert(
-      fc.property(moderasiPathArb, (moderasiPath) => {
-        const result = checkRouteAccess(moderasiPath, "MODERATOR");
-        expect(result).toBe("allow");
+      fc.property(fc.constantFrom<Role>("DONOR", "CAMPAIGN_CREATOR"), moderasiPathArb, (role, moderasiPath) => {
+        expect(checkRouteAccess(moderasiPath, role, ["VERIFIER"])).toBe("allow");
       }),
       { numRuns: 100 }
     );
   });
 
-  test("CAMPAIGN_CREATOR is always denied access to moderasi routes", () => {
-    fc.assert(
-      fc.property(moderasiPathArb, (moderasiPath) => {
-        const result = checkRouteAccess(moderasiPath, "CAMPAIGN_CREATOR");
-        expect(result).toBe("redirect:/");
-      }),
-      { numRuns: 100 }
-    );
-  });
-
-  test("DONOR is always denied access to moderasi routes", () => {
-    fc.assert(
-      fc.property(moderasiPathArb, (moderasiPath) => {
-        const result = checkRouteAccess(moderasiPath, "DONOR");
-        expect(result).toBe("redirect:/");
-      }),
-      { numRuns: 100 }
-    );
-  });
-
-  test("null/undefined role (defaults to DONOR) is denied access to moderasi routes", () => {
+  test("null/undefined role with no assignments is denied access to moderasi routes", () => {
     const missingRoleArb = fc.constantFrom<null | undefined>(null, undefined);
 
     fc.assert(
