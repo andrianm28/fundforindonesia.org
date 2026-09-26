@@ -42,6 +42,19 @@
     transaction cleanly (logs for manual review; does not mark the losing
     Payment `FAILED`, since its money may genuinely have arrived).
 
+- 2026-09-26 (agent, follow-up). Independent Spec review of PR #44 caught
+  checklist item 3 as unmet: nothing showed the Provider Fee basis before
+  payment. `DonationConfirmation.tsx` added a per-method `fee` to a `Total`,
+  which whenever that fee is nonzero told the donor they would pay
+  amount + fee -- contradicting Gross (CONTEXT.md: "tidak ada tambahan apa
+  pun di atasnya"). Fixed: the fee-on-top total is gone, replaced with a
+  disclosure grounded in CONTEXT.md's Provider Fee entry ("dibaca dari
+  payload penyedia dan ditanggung Campaign") and ADR 0007 (the platform
+  absorbs it on refund) -- no number invented, since neither defines one to
+  show upfront. Also merged `origin/main`'s Next 16.3.6 / React 19 / ESLint 9
+  flat-config upgrade (merge commit, not rebase); full suite and ratchet
+  re-run green afterward.
+
   **Assumptions made, not decided by this ticket -- flagged for the owner:**
   1. Escrow Hold has no per-Kind/Category/Campaign Admin override yet (only
      Platform Fee does, per ticket 17). `escrowHoldDays` freezes the single
