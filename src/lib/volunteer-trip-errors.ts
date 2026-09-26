@@ -1,4 +1,4 @@
-import type { VolunteerBatchStatus, VolunteerTripStatus } from '@/generated/prisma/client';
+import type { RegistrationStatus, VolunteerBatchStatus, VolunteerTripStatus } from '@/generated/prisma/client';
 import { DomainError, type TripErrorCode } from '@/lib/domain-errors';
 
 /**
@@ -124,5 +124,91 @@ export class BatchNotEndedError extends TripError {
   constructor() {
     super('Batch belum bisa diselesaikan sebelum endDate');
     this.name = 'BatchNotEndedError';
+  }
+}
+
+/** A Volunteer registers only on an ACTIVE Trip. 400 through `domainErrorToHttp`. */
+export class TripNotTakingRegistrationsError extends TripError {
+  readonly code = 'TRIP_NOT_TAKING_REGISTRATIONS';
+  constructor(readonly currentStatus: VolunteerTripStatus) {
+    super('Trip ini tidak menerima registrasi');
+    this.name = 'TripNotTakingRegistrationsError';
+  }
+}
+
+/**
+ * A Volunteer registers only on an OPEN Batch. 400 through
+ * `domainErrorToHttp`, unlike BatchNotOpenError's 409: the Volunteer raced
+ * no one, the Batch is simply not taking people.
+ */
+export class BatchNotTakingRegistrationsError extends TripError {
+  readonly code = 'BATCH_NOT_TAKING_REGISTRATIONS';
+  constructor(readonly currentStatus: VolunteerBatchStatus) {
+    super('Batch ini tidak menerima registrasi');
+    this.name = 'BatchNotTakingRegistrationsError';
+  }
+}
+
+/** The Batch's registrationDeadline has passed. 400 through `domainErrorToHttp`. */
+export class RegistrationDeadlinePassedError extends TripError {
+  readonly code = 'REGISTRATION_DEADLINE_PASSED';
+  constructor() {
+    super('Pendaftaran batch ini sudah ditutup');
+    this.name = 'RegistrationDeadlinePassedError';
+  }
+}
+
+/** Every seat of the Batch is held or confirmed. 400 through `domainErrorToHttp`. */
+export class BatchFullError extends TripError {
+  readonly code = 'BATCH_FULL';
+  constructor() {
+    super('Batch ini sudah penuh');
+    this.name = 'BatchFullError';
+  }
+}
+
+/**
+ * The Volunteer already holds or has confirmed a seat on this Batch. 400
+ * through `domainErrorToHttp`.
+ */
+export class AlreadyRegisteredError extends TripError {
+  readonly code = 'ALREADY_REGISTERED';
+  constructor() {
+    super('Anda sudah memiliki registrasi aktif pada batch ini');
+    this.name = 'AlreadyRegisteredError';
+  }
+}
+
+/** No Registration has this id. 404 through `domainErrorToHttp`. */
+export class RegistrationNotFoundError extends TripError {
+  readonly code = 'REGISTRATION_NOT_FOUND';
+  constructor(readonly registrationId: string) {
+    super('Registrasi tidak ditemukan');
+    this.name = 'RegistrationNotFoundError';
+  }
+}
+
+/**
+ * A Volunteer cancels only a HOLD or CONFIRMED Registration. Raised when the
+ * Registration, read under its row lock, is in any other status, including
+ * a cancel or expiry committed first. 400 through `domainErrorToHttp`.
+ */
+export class RegistrationNotCancellableError extends TripError {
+  readonly code = 'REGISTRATION_NOT_CANCELLABLE';
+  constructor(readonly currentStatus: RegistrationStatus) {
+    super('Registrasi tidak bisa dibatalkan pada status ini');
+    this.name = 'RegistrationNotCancellableError';
+  }
+}
+
+/**
+ * A Registration on a COMPLETED Batch is not cancelled: the trip already
+ * ran. 400 through `domainErrorToHttp`.
+ */
+export class BatchAlreadyCompletedError extends TripError {
+  readonly code = 'BATCH_ALREADY_COMPLETED';
+  constructor() {
+    super('Registrasi tidak bisa dibatalkan karena Batch sudah selesai');
+    this.name = 'BatchAlreadyCompletedError';
   }
 }

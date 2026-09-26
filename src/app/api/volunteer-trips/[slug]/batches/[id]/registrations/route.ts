@@ -5,10 +5,9 @@ import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import type { PaymentMethod } from '@/lib/payments';
 import { PaymentStatus } from '@/generated/prisma/client';
-import { releaseExpiredHolds } from '@/lib/volunteer/registration';
+import { refusalResponse } from '@/lib/refusal-response';
+import { holdRegistration } from '@/lib/volunteer/trip';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
-
-const HOLD_WINDOW_MS = 30 * 60 * 1000; // 30 minutes -- see plan Further Notes: this exact duration is an open parameter, not re-derived from any spec value.
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris'] as const;
 const PROVIDER_METHOD_FOR: Record<(typeof VALID_PAYMENT_METHODS)[number], PaymentMethod> = {
@@ -19,9 +18,6 @@ const PROVIDER_METHOD_FOR: Record<(typeof VALID_PAYMENT_METHODS)[number], Paymen
 const registerSchema = z.object({
   paymentMethod: z.enum(VALID_PAYMENT_METHODS, { error: 'Metode pembayaran tidak valid.' }),
 });
-
-class BatchFullError extends Error {}
-class DuplicateRegistrationError extends Error {}
 
 export async function POST(
   request: NextRequest,
@@ -35,34 +31,10 @@ export async function POST(
 
     const { slug, id: batchId } = await params;
 
-    const batch = await prisma.volunteerBatch.findUnique({
-      where: { id: batchId },
-      select: {
-        id: true,
-        status: true,
-        maxQuota: true,
-        registrationDeadline: true,
-        trip: { select: { id: true, slug: true, status: true, tripFeeAmount: true } },
-      },
-    });
-
-    if (!batch) {
-      return NextResponse.json({ error: 'Volunteer batch tidak ditemukan' }, { status: 404 });
-    }
-
-    if (batch.status !== 'OPEN') {
-      return NextResponse.json({ error: 'Batch ini tidak menerima registrasi' }, { status: 400 });
-    }
-
-    if (batch.trip.status !== 'ACTIVE') {
-      return NextResponse.json({ error: 'Trip ini tidak menerima registrasi' }, { status: 400 });
-    }
-
-    if (batch.registrationDeadline <= new Date()) {
-      return NextResponse.json({ error: 'Pendaftaran batch ini sudah ditutup' }, { status: 400 });
-    }
-
-    if (batch.trip.slug !== slug) {
+    // Only which Trip the URL names; whether it and the Batch take
+    // Registrations is judged by `holdRegistration`, under their locks.
+    const trip = await prisma.volunteerTrip.findUnique({ where: { slug }, select: { id: true } });
+    if (!trip) {
       return NextResponse.json({ error: 'Volunteer batch tidak ditemukan' }, { status: 404 });
     }
 
@@ -97,73 +69,30 @@ export async function POST(
       );
     }
 
-    const volunteerId = session.user.id as string;
-
-    // Sweep expired holds on THIS batch first, at the top of the request --
-    // no scheduler needed, mirrors releaseMaturedEscrow's own pattern
-    // (src/lib/money/escrow.ts). Frees any seat an abandoned HOLD was still
-    // occupying before the occupancy count below is taken.
-    await releaseExpiredHolds(batchId);
-
-    let registration;
+    let held;
     try {
-      registration = await prisma.$transaction(async (tx) => {
-        // Lock the Batch row before reading the quota count, so two
-        // concurrent registration attempts at the last seat serialize on
-        // this lock rather than both reading the same pre-insert count --
-        // the same "lock the contended resource before reading an aggregate
-        // derived from it" pattern used for the Campaign balance check in
-        // approvePayout (src/lib/money/payouts.ts) and releaseMaturedEscrow
-        // (src/lib/money/escrow.ts).
-        await tx.$queryRaw`SELECT id FROM "VolunteerBatch" WHERE id = ${batchId} FOR UPDATE`;
-
-        const occupied = await tx.registration.count({
-          where: { batchId, status: { in: ['HOLD', 'CONFIRMED'] } },
-        });
-        if (occupied >= batch.maxQuota) {
-          throw new BatchFullError();
-        }
-
-        const existing = await tx.registration.findFirst({
-          where: { volunteerId, batchId, status: { in: ['HOLD', 'CONFIRMED'] } },
-          select: { id: true },
-        });
-        if (existing) {
-          throw new DuplicateRegistrationError();
-        }
-
-        return tx.registration.create({
-          data: {
-            volunteerId,
-            batchId,
-            status: 'HOLD',
-            holdExpiresAt: new Date(Date.now() + HOLD_WINDOW_MS),
-          },
-        });
+      held = await holdRegistration(prisma, {
+        tripId: trip.id,
+        batchId,
+        volunteerId: session.user.id as string,
       });
     } catch (err) {
-      if (err instanceof BatchFullError) {
-        return NextResponse.json({ error: 'Batch ini sudah penuh' }, { status: 400 });
-      }
-      if (err instanceof DuplicateRegistrationError) {
-        return NextResponse.json(
-          { error: 'Anda sudah memiliki registrasi aktif pada batch ini' },
-          { status: 400 },
-        );
-      }
+      const refusal = refusalResponse(err);
+      if (refusal) return refusal;
       throw err;
     }
+    const { registration, tripFeeAmount } = held;
 
     // Charge outside the transaction that created the Registration -- the
     // Registration is already committed, so a failed charge leaves a
-    // recoverable HOLD (it simply expires via the sweep above) rather than
+    // recoverable HOLD (it simply expires at the next hold on its Batch) rather than
     // an uncommitted row holding a database connection across a provider
     // round trip. Mirrors POST /api/donations's own reasoning exactly.
     let charge;
     try {
       charge = await provider.createCharge({
         orderId: registration.id,
-        grossAmount: batch.trip.tripFeeAmount,
+        grossAmount: tripFeeAmount,
         currency: 'IDR',
       });
     } catch (err) {
@@ -196,7 +125,7 @@ export async function POST(
         provider: provider.name,
         method: charge.method,
         providerRef: registration.id,
-        amount: batch.trip.tripFeeAmount,
+        amount: tripFeeAmount,
         status: PaymentStatus.PENDING,
         expiresAt: charge.expiresAt,
       },
@@ -208,7 +137,7 @@ export async function POST(
         : { type: 'bank_transfer' as const, vaNumber: charge.vaNumber, expiresAt: charge.expiresAt };
 
     return NextResponse.json(
-      { registrationId: registration.id, amount: batch.trip.tripFeeAmount, paymentInstructions },
+      { registrationId: registration.id, amount: tripFeeAmount, paymentInstructions },
       { status: 201 },
     );
   } catch (error) {

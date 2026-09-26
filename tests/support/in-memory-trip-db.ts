@@ -125,9 +125,10 @@ type Data = {
 };
 
 /** The tables `SELECT id FROM "<Table>" WHERE id = ... FOR UPDATE` may name. */
-const LOCKABLE: Record<string, 'trips' | 'batches' | 'payments'> = {
+const LOCKABLE: Record<string, 'trips' | 'batches' | 'registrations' | 'payments'> = {
   VolunteerTrip: 'trips',
   VolunteerBatch: 'batches',
+  Registration: 'registrations',
   Payment: 'payments',
 };
 
@@ -137,18 +138,19 @@ const LIVE_REGISTRATIONS_LOCK =
 
 type Where = Record<string, unknown>;
 
-/** Plain equality, `in` and `notIn`; anything else throws rather than over-match. */
+/** Plain equality, `in`, `notIn` and a Date `lte`; anything else throws rather than over-match. */
 function matches(row: object, where: Where): boolean {
   const fields = row as Record<string, unknown>;
   return Object.entries(where).every(([key, filter]) => {
     if (filter === undefined) return true;
     if (filter !== null && typeof filter === 'object' && !(filter instanceof Date)) {
-      const { in: list, notIn, ...rest } = filter as { in?: unknown[]; notIn?: unknown[] };
-      if (Object.keys(rest).length > 0 || (!list && !notIn)) {
+      const { in: list, notIn, lte, ...rest } = filter as { in?: unknown[]; notIn?: unknown[]; lte?: Date };
+      if (Object.keys(rest).length > 0 || (!list && !notIn && !lte)) {
         throw new Error(`in-memory trip db does not understand the filter on ${key}`);
       }
       if (list && !list.includes(fields[key])) return false;
       if (notIn && notIn.includes(fields[key])) return false;
+      if (lte && !((fields[key] as Date).getTime() <= lte.getTime())) return false;
       return true;
     }
     return fields[key] === filter;
@@ -307,6 +309,28 @@ export function makeTripDb(seed: Seed = {}) {
         },
       },
       registration: {
+        count: async ({ where }: { where: Where }) => getData().registrations.filter((r) => matches(r, where)).length,
+        findFirst: async ({ where }: { where: Where }) => {
+          const row = getData().registrations.find((r) => matches(r, where));
+          return row ? { ...row } : null;
+        },
+        // With the batch and payment includes Registration cancel asks for.
+        findUnique: async ({ where, include }: { where: Where; include?: { batch?: boolean; payment?: boolean } }) => {
+          const data = getData();
+          const row = data.registrations.find((r) => matches(r, where));
+          if (!row) return null;
+          const batch = data.batches.find((b) => b.id === row.batchId)!;
+          return {
+            ...row,
+            ...(include?.batch ? { batch: { ...batch } } : {}),
+            ...(include?.payment ? { payment: paymentOf(data, row.id) } : {}),
+          };
+        },
+        create: async ({ data }: { data: Omit<RegistrationRow, 'id'> }) => {
+          const row: RegistrationRow = { id: `registration-${nextId++}`, ...data };
+          getData().registrations.push(row);
+          return { ...row };
+        },
         findMany: async ({ where, include }: { where: Where; include?: { payment?: boolean } }) =>
           getData()
             .registrations.filter((r) => matches(r, where))
