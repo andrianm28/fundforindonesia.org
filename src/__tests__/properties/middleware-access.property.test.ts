@@ -41,6 +41,9 @@ const VALID_ROLES: Role[] = ["ADMIN", "MODERATOR", "CAMPAIGN_CREATOR", "DONOR"];
 // Arbitrary that generates valid Role values
 const roleArb = fc.constantFrom<Role>(...VALID_ROLES);
 
+// Arbitrary that generates any set of assignments a token can carry
+const assignmentsArb = fc.subarray<MiddlewareAssignment>(["ADMIN", "VERIFIER"]);
+
 // Arbitrary that generates random sub-path segments for admin routes
 const subPathArb = fc.array(
   fc.stringMatching(/^[a-z0-9-]+$/).filter((s) => s.length > 0 && s.length <= 20),
@@ -64,8 +67,6 @@ describe("Feature: user-roles, Property 3: Admin Route Access Control", () => {
   // **Validates: Requirements 3.1, 3.2**
   // Capacity-judgement ticket 03: Admin power comes only from the ADMIN
   // assignment (ADR 0005), never from the Role.
-
-  const assignmentsArb = fc.subarray<MiddlewareAssignment>(["ADMIN", "VERIFIER"]);
 
   test("only the ADMIN assignment grants access to /admin routes, whatever the Role", () => {
     fc.assert(
@@ -119,8 +120,6 @@ describe("Feature: user-roles, Property 4: Moderation Route Access Control", () 
   // campaign-rule-bugs ticket 04: Verifier power comes only from the
   // VERIFIER assignment (ADR 0005), never from the Role, the same list
   // /moderasi/layout.tsx reads.
-
-  const assignmentsArb = fc.subarray<MiddlewareAssignment>(["ADMIN", "VERIFIER"]);
 
   test("only the VERIFIER assignment grants access to /moderasi routes, whatever the Role", () => {
     fc.assert(

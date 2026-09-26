@@ -122,8 +122,8 @@ describe("Route Protection Integration Tests", () => {
     });
   });
 
-  describe("Middleware Route Access: MODERATOR permissions", () => {
-    // **Validates: Requirements 3.2, 4.1**
+  describe("Middleware Route Access: the VERIFIER assignment (ADR 0005)", () => {
+    // **Validates: Requirements 4.1, 4.2**
 
     it("the VERIFIER assignment can access /moderasi — allowed", () => {
       const result = checkRouteAccess("/moderasi", "MODERATOR", ["VERIFIER"]);
@@ -149,6 +149,10 @@ describe("Route Protection Integration Tests", () => {
       const result = checkRouteAccess("/moderasi", "MODERATOR");
       expect(result).toBe("redirect:/");
     });
+  });
+
+  describe("Middleware Route Access: MODERATOR permissions", () => {
+    // **Validates: Requirements 3.2**
 
     it("MODERATOR cannot access /admin route — redirected to home", () => {
       const result = checkRouteAccess("/admin", "MODERATOR");

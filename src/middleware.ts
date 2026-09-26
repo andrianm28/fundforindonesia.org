@@ -15,9 +15,10 @@ const ROLE_LEVELS: Record<Role, number> = {
 };
 
 // Routes gated by an assignment (ADR 0005): Admin and Verifier power come
-// only from the ADMIN and VERIFIER assignments, never from the Role. The session token carries the
-// assignments (see the jwt callback in src/lib/auth.ts), the same list
-// admin/layout.tsx and moderasi/layout.tsx read from the session.
+// only from the ADMIN and VERIFIER assignments, never from the Role. The
+// session token carries the assignments (see the jwt callback in
+// src/lib/auth.ts), the same list admin/layout.tsx and moderasi/layout.tsx
+// read from the session.
 const ASSIGNMENT_ROUTES: { pattern: string; assignment: Assignment }[] = [
   { pattern: "/admin", assignment: "ADMIN" },
   { pattern: "/moderasi", assignment: "VERIFIER" },
