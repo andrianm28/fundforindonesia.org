@@ -11,49 +11,6 @@ import {
 } from "@/generated/prisma/client";
 
 /**
- * Single source of the legacy-string to lifecycle-enum mapping.
- * Every writer that sets the `status` string sets `lifecycleStatus`
- * through this function, so the two columns cannot diverge.
- *
- * Unknown strings throw rather than map to a default: writing a
- * lifecycle state that is not one of the known legacy values
- * must fail loudly, never silently land somewhere plausible.
- */
-const STRING_TO_LIFECYCLE: Record<string, CampaignStatus> = {
-  pending: CampaignStatus.SUBMITTED,
-  active: CampaignStatus.ACTIVE,
-  rejected: CampaignStatus.REJECTED,
-  suspended: CampaignStatus.SUSPENDED,
-  completed: CampaignStatus.COMPLETED,
-  expired: CampaignStatus.EXPIRED,
-  cancelled: CampaignStatus.CANCELLED,
-};
-
-// Derived from the table above, so adding a legacy value adds both
-// directions at once. DRAFT has no legacy string and stays unmapped.
-const LIFECYCLE_TO_STRING = Object.fromEntries(
-  Object.entries(STRING_TO_LIFECYCLE).map(([legacy, lifecycle]) => [lifecycle, legacy])
-) as Partial<Record<CampaignStatus, string>>;
-
-export function toLifecycleStatus(status: string): CampaignStatus {
-  const mapped = STRING_TO_LIFECYCLE[status];
-  if (!mapped) {
-    throw new Error(
-      `Unknown legacy campaign status: ${JSON.stringify(status)}`
-    );
-  }
-  return mapped;
-}
-
-export function toLegacyStatus(status: CampaignStatus): string {
-  const mapped = LIFECYCLE_TO_STRING[status];
-  if (!mapped) {
-    throw new Error(`Campaign status ${status} has no legacy string`);
-  }
-  return mapped;
-}
-
-/**
  * Single enforcement point for "only ACTIVE accepts a Donation".
  * POST /api/donations is the only caller. The argument is the whole
  * campaign row as selected, so the gate reads the enum that writers
@@ -149,7 +106,7 @@ async function transition(
   const from = campaign.lifecycleStatus;
   const written = await tx.campaign.updateMany({
     where: { id: campaign.id, lifecycleStatus: from },
-    data: { status: toLegacyStatus(change.to), lifecycleStatus: change.to },
+    data: { lifecycleStatus: change.to },
   });
   if (written.count === 0) throw new ConcurrentTransitionError();
   await tx.campaignStatusChange.create({

@@ -11,7 +11,7 @@ const REASON = 'Korban banjir bertambah, butuh bantuan segera';
 
 function activeCampaign(overrides: Partial<CampaignRow> = {}) {
   return makeCampaignDb({
-    campaigns: [campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', ...overrides })],
+    campaigns: [campaignRow({ lifecycleStatus: 'ACTIVE', ...overrides })],
   });
 }
 
@@ -33,7 +33,7 @@ describe('setUrgent', () => {
       lifecycleStatus: 'ACTIVE',
       isUrgent: true,
     });
-    expect(db.campaign()).toMatchObject({ isUrgent: true, status: 'active', lifecycleStatus: 'ACTIVE' });
+    expect(db.campaign()).toMatchObject({ isUrgent: true, lifecycleStatus: 'ACTIVE' });
     expect(db.statusChanges).toEqual([
       expect.objectContaining({
         campaignId: 'campaign-1',
@@ -104,15 +104,15 @@ describe('setUrgent', () => {
 
   describe('status', () => {
     it.each([
-      ['DRAFT', 'draft'],
-      ['SUBMITTED', 'pending'],
-      ['REJECTED', 'rejected'],
-      ['SUSPENDED', 'suspended'],
-      ['CANCELLED', 'cancelled'],
-      ['COMPLETED', 'completed'],
-      ['EXPIRED', 'expired'],
-    ] as const)('refuses to set Urgent on a %s Campaign with InvalidTransitionError and changes nothing', async (lifecycleStatus, status) => {
-      const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus, status })] });
+      ['DRAFT'],
+      ['SUBMITTED'],
+      ['REJECTED'],
+      ['SUSPENDED'],
+      ['CANCELLED'],
+      ['COMPLETED'],
+      ['EXPIRED'],
+    ] as const)('refuses to set Urgent on a %s Campaign with InvalidTransitionError and changes nothing', async (lifecycleStatus) => {
+      const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus })] });
 
       const refusal = await setUrgent(db.prisma as never, {
         campaignId: 'campaign-1',
@@ -137,11 +137,11 @@ describe('setUrgent', () => {
     });
 
     it.each([
-      ['SUSPENDED', 'suspended'],
-      ['COMPLETED', 'completed'],
-      ['EXPIRED', 'expired'],
-    ] as const)('clears an Urgent flag left on a %s Campaign, since clearing is allowed whenever the flag is set', async (lifecycleStatus, status) => {
-      const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus, status, isUrgent: true })] });
+      ['SUSPENDED'],
+      ['COMPLETED'],
+      ['EXPIRED'],
+    ] as const)('clears an Urgent flag left on a %s Campaign, since clearing is allowed whenever the flag is set', async (lifecycleStatus) => {
+      const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus, isUrgent: true })] });
 
       const result = await setUrgent(db.prisma as never, {
         campaignId: 'campaign-1',
@@ -170,10 +170,10 @@ describe('setUrgent', () => {
     });
 
     it.each([
-      ['ACTIVE', 'active'],
-      ['SUSPENDED', 'suspended'],
-    ] as const)('clearing Urgent on a %s Campaign that is not Urgent answers the Campaign as it is and logs nothing', async (lifecycleStatus, status) => {
-      const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus, status })] });
+      ['ACTIVE'],
+      ['SUSPENDED'],
+    ] as const)('clearing Urgent on a %s Campaign that is not Urgent answers the Campaign as it is and logs nothing', async (lifecycleStatus) => {
+      const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus })] });
 
       const result = await setUrgent(db.prisma as never, { campaignId: 'campaign-1', actor: admin, urgent: false, reason: REASON, now: NOW });
 

@@ -15,8 +15,8 @@ import { readFileSync } from "node:fs";
  * seed.ts cannot be executed in this test process -- it opens a real
  * Postgres connection at module scope via PrismaPg -- so, matching the
  * existing precedent for this file
- * (src/__tests__/properties/campaign-status-dual-write.test.ts's
- * "the seed writes lifecycleStatus" case), this asserts against the source
+ * (src/__tests__/properties/campaign-writers.test.ts's
+ * "the seed sets each Campaign's lifecycleStatus" case), this asserts against the source
  * text rather than running it.
  */
 describe("seed backfills UserAssignment rows", () => {

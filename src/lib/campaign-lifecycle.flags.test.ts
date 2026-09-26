@@ -29,7 +29,7 @@ const verifier = { userId: 'verifier-1', assignments: ['VERIFIER' as const] };
 const adminA = { userId: 'admin-a', assignments: ['ADMIN' as const] };
 
 function active(overrides: Partial<CampaignRow> = {}): CampaignRow {
-  return campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', deadline: FUTURE, ...overrides });
+  return campaignRow({ lifecycleStatus: 'ACTIVE', deadline: FUTURE, ...overrides });
 }
 
 function flag(db: ReturnType<typeof makeCampaignDb>, overrides: Record<string, unknown> = {}) {
@@ -65,7 +65,7 @@ describe('flagCampaign', () => {
       resolvedAt: null,
     });
     expect(db.campaignFlags).toEqual([result.flag]);
-    expect(db.campaign()).toMatchObject({ status: 'active', lifecycleStatus: 'ACTIVE', isUrgent: true });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'ACTIVE', isUrgent: true });
     expect(db.statusChanges).toEqual([]);
   });
 
@@ -82,7 +82,7 @@ describe('flagCampaign', () => {
     ['expired', 'EXPIRED'],
     ['completed', 'COMPLETED'],
   ] as const)('raises a Flag on a Campaign that is already %s, leaving it unchanged', async (status, lifecycleStatus) => {
-    const db = makeCampaignDb({ campaigns: [campaignRow({ status, lifecycleStatus, deadline: PAST })] });
+    const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus, deadline: PAST })] });
 
     const result = await flag(db);
 
@@ -98,7 +98,7 @@ describe('flagCampaign', () => {
     ['rejected', 'REJECTED'],
     ['pending', 'SUBMITTED'],
   ] as const)('refuses a Campaign that is %s with InvalidTransitionError and raises nothing', async (status, lifecycleStatus) => {
-    const db = makeCampaignDb({ campaigns: [campaignRow({ status, lifecycleStatus })] });
+    const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus })] });
 
     const error = await flag(db).catch((e: unknown) => e);
 
@@ -205,7 +205,7 @@ describe('suspendCampaign resolving Flags', () => {
 
   it('resolves Flags on an Expired or Completed Campaign it suspends', async () => {
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ status: 'completed', lifecycleStatus: 'COMPLETED' })],
+      campaigns: [campaignRow({ lifecycleStatus: 'COMPLETED' })],
       campaignFlags: [campaignFlagRow()],
     });
 
@@ -308,7 +308,7 @@ describe('dismissFlag', () => {
     ['completed', 'COMPLETED'],
   ] as const)('dismisses an open Flag on a %s Campaign without changing its status', async (status, lifecycleStatus) => {
     const db = makeCampaignDb({
-      campaigns: [campaignRow({ status, lifecycleStatus })],
+      campaigns: [campaignRow({ lifecycleStatus })],
       campaignFlags: [campaignFlagRow()],
     });
 

@@ -97,29 +97,9 @@ describe('POST /api/donations lifecycle gate', () => {
     });
   });
 
-  it('the enum governs, not the string: active string with SUSPENDED enum is refused', async () => {
-    mockCampaignFindUnique.mockResolvedValue({
-      id: 'campaign-1',
-      status: 'active',
-      lifecycleStatus: 'SUSPENDED',
-      title: 'Bantu Korban Banjir',
-      isDemo: false,
-    });
-
-    const response = await POST(donateRequest(VALID_BODY));
-    const data = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(data.error).toBe(
-      'Campaign tidak aktif. Hanya campaign aktif yang dapat menerima donasi.'
-    );
-    expect(mockGetPaymentProvider).not.toHaveBeenCalled();
-  });
-
   it('ACTIVE enum passes the gate and reaches the provider', async () => {
     mockCampaignFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      status: 'active',
       lifecycleStatus: 'ACTIVE',
       title: 'Bantu Korban Banjir',
       isDemo: false,
@@ -131,18 +111,17 @@ describe('POST /api/donations lifecycle gate', () => {
   });
 
   describe.each([
-    ['SUBMITTED', 'pending'],
-    ['REJECTED', 'rejected'],
-    ['SUSPENDED', 'suspended'],
-    ['CANCELLED', 'active'],
-    ['COMPLETED', 'completed'],
-    ['EXPIRED', 'expired'],
-    ['DRAFT', 'pending'],
-  ] as const)('lifecycleStatus %s refuses donations', (lifecycleStatus, status) => {
+    ['SUBMITTED'],
+    ['REJECTED'],
+    ['SUSPENDED'],
+    ['CANCELLED'],
+    ['COMPLETED'],
+    ['EXPIRED'],
+    ['DRAFT'],
+  ] as const)('lifecycleStatus %s refuses donations', (lifecycleStatus) => {
     it('returns 400 with the unchanged message and never reaches the provider', async () => {
       mockCampaignFindUnique.mockResolvedValue({
         id: 'campaign-1',
-        status,
         lifecycleStatus,
         title: 'Bantu Korban Banjir',
         isDemo: false,
@@ -157,19 +136,5 @@ describe('POST /api/donations lifecycle gate', () => {
       );
       expect(mockGetPaymentProvider).not.toHaveBeenCalled();
     });
-  });
-
-  it('the enum governs in reverse: suspended string with ACTIVE enum passes the gate', async () => {
-    mockCampaignFindUnique.mockResolvedValue({
-      id: 'campaign-1',
-      status: 'suspended',
-      lifecycleStatus: 'ACTIVE',
-      title: 'Bantu Korban Banjir',
-      isDemo: false,
-    });
-
-    await POST(donateRequest(VALID_BODY));
-
-    expect(mockGetPaymentProvider).toHaveBeenCalled();
   });
 });

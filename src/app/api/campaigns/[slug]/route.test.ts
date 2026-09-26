@@ -54,7 +54,6 @@ describe('GET /api/campaigns/[slug]', () => {
       targetAmount: 50000000,
       collectedAmount: 25841000,
       category: 'bencana-alam',
-      status: 'active',
       lifecycleStatus: 'ACTIVE',
       isUrgent: false,
       isDemo: false,
@@ -118,7 +117,6 @@ describe('GET /api/campaigns/[slug]', () => {
       targetAmount: 10000000,
       collectedAmount: 5000000,
       category: 'bencana-alam',
-      status: 'active',
       isUrgent: false,
       isDemo: true,
       deadline: null,
@@ -167,7 +165,6 @@ describe('GET /api/campaigns/[slug]', () => {
       targetAmount: 10000000,
       collectedAmount: 5000000,
       category: 'kesehatan',
-      status: 'active',
       isUrgent: false,
       deadline: null,
       creatorId: 'user-2',
@@ -272,7 +269,6 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
       targetAmount: 50000000,
       collectedAmount: 1000000,
       category: 'bencana-alam',
-      status: 'active',
       lifecycleStatus: 'ACTIVE',
       isUrgent: false,
       isDemo: false,
@@ -295,7 +291,7 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
   }
 
   it('sends lifecycleStatus as its one status field, without the legacy status string', async () => {
-    const { body } = await getAs(campaignRow({ lifecycleStatus: 'CANCELLED', status: 'cancelled' }));
+    const { body } = await getAs(campaignRow({ lifecycleStatus: 'CANCELLED' }));
     expect(body.campaign.lifecycleStatus).toBe('CANCELLED');
     expect(body.campaign).not.toHaveProperty('status');
   });
@@ -342,7 +338,7 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
       }) as any);
     });
 
-    const suspended = () => campaignRow({ lifecycleStatus: 'SUSPENDED', status: 'suspended' });
+    const suspended = () => campaignRow({ lifecycleStatus: 'SUSPENDED' });
 
     function sessionOf(id: string, role = 'CAMPAIGN_CREATOR') {
       mockGetServerSession.mockResolvedValue({ user: { id, role } } as any);

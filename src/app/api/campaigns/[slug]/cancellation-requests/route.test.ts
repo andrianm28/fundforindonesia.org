@@ -30,7 +30,7 @@ describe('POST /api/campaigns/[slug]/cancellation-requests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSession.mockResolvedValue({ user: { id: 'creator-1', role: 'CAMPAIGN_CREATOR', assignments: [] } });
-    state.db = makeCampaignDb({ campaigns: [campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE' })] });
+    state.db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus: 'ACTIVE' })] });
   });
 
   it('records a PENDING request with the reason, answering 201 with the Campaign state and the request', async () => {

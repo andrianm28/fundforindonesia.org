@@ -49,7 +49,7 @@ describe('POST /api/campaigns/[slug]/cancellation-requests/[id]/approve and reje
     vi.clearAllMocks();
     mockSession.mockResolvedValue(ADMIN);
     state.db = makeCampaignDb({
-      campaigns: [campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE' })],
+      campaigns: [campaignRow({ lifecycleStatus: 'ACTIVE' })],
       // Only request-2 is PENDING, so reaching it proves the path's id was used.
       cancellationRequests: [
         cancellationRequestRow({ status: 'REJECTED' }),

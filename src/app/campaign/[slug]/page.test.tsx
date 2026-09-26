@@ -41,7 +41,6 @@ function row(overrides: Record<string, unknown>) {
     targetAmount: 10_000_000,
     collectedAmount: 0,
     category: 'lingkungan',
-    status: 'active',
     lifecycleStatus: 'ACTIVE',
     isUrgent: false,
     isDemo: false,

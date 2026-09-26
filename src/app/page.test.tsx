@@ -38,7 +38,7 @@ const YESTERDAY = new Date('2026-09-24T12:00:00Z');
 const TOMORROW = new Date('2026-09-26T12:00:00Z');
 
 function campaign(slug: string, overrides: Partial<CampaignRow> = {}): CampaignRow {
-  return campaignRow({ id: slug, slug, title: slug, status: 'active', lifecycleStatus: 'ACTIVE', ...overrides });
+  return campaignRow({ id: slug, slug, title: slug, lifecycleStatus: 'ACTIVE', ...overrides });
 }
 
 /** The `campaigns` prop of every element of the given component type in the tree. */
@@ -58,10 +58,10 @@ beforeEach(() => {
       campaign('urgent-active', { isUrgent: true, deadline: TOMORROW }),
       // Stored ACTIVE and urgent, but its deadline passed yesterday.
       campaign('urgent-expired-unrecorded', { isUrgent: true, deadline: YESTERDAY }),
-      campaign('urgent-suspended', { isUrgent: true, status: 'suspended', lifecycleStatus: 'SUSPENDED' }),
-      campaign('urgent-cancelled', { isUrgent: true, status: 'cancelled', lifecycleStatus: 'CANCELLED' }),
+      campaign('urgent-suspended', { isUrgent: true, lifecycleStatus: 'SUSPENDED' }),
+      campaign('urgent-cancelled', { isUrgent: true, lifecycleStatus: 'CANCELLED' }),
       campaign('active'),
-      campaign('submitted', { status: 'pending', lifecycleStatus: 'SUBMITTED' }),
+      campaign('submitted', { lifecycleStatus: 'SUBMITTED' }),
     ],
   });
 });

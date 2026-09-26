@@ -32,7 +32,6 @@ function campaign(slug: string, overrides: Partial<CampaignRow> = {}): CampaignR
     slug,
     title: slug,
     category: 'zakat',
-    status: 'active',
     lifecycleStatus: 'ACTIVE',
     ...overrides,
   });
@@ -53,10 +52,10 @@ beforeEach(() => {
       campaign('zakat-active'),
       campaign('kemanusiaan-active', { category: 'kemanusiaan', deadline: TOMORROW }),
       campaign('zakat-expired-unrecorded', { deadline: YESTERDAY }),
-      campaign('zakat-suspended', { status: 'suspended', lifecycleStatus: 'SUSPENDED' }),
-      campaign('zakat-cancelled', { status: 'cancelled', lifecycleStatus: 'CANCELLED' }),
-      campaign('zakat-submitted', { status: 'pending', lifecycleStatus: 'SUBMITTED' }),
-      campaign('zakat-completed', { status: 'completed', lifecycleStatus: 'COMPLETED' }),
+      campaign('zakat-suspended', { lifecycleStatus: 'SUSPENDED' }),
+      campaign('zakat-cancelled', { lifecycleStatus: 'CANCELLED' }),
+      campaign('zakat-submitted', { lifecycleStatus: 'SUBMITTED' }),
+      campaign('zakat-completed', { lifecycleStatus: 'COMPLETED' }),
       campaign('kesehatan-active', { category: 'kesehatan' }),
     ],
   });

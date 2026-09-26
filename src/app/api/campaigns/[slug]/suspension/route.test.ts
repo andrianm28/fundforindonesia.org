@@ -58,7 +58,7 @@ describe('POST /api/campaigns/[slug]/suspension', () => {
     vi.clearAllMocks();
     mockSession.mockResolvedValue(session('admin-a'));
     state.db = makeCampaignDb({
-      campaigns: [campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', deadline: FUTURE })],
+      campaigns: [campaignRow({ lifecycleStatus: 'ACTIVE', deadline: FUTURE })],
     });
   });
 
@@ -80,7 +80,7 @@ describe('DELETE /api/campaigns/[slug]/suspension', () => {
     vi.clearAllMocks();
     mockSession.mockResolvedValue(session('admin-b'));
     state.db = makeCampaignDb({
-      campaigns: [campaignRow({ status: 'suspended', lifecycleStatus: 'SUSPENDED', deadline: FUTURE })],
+      campaigns: [campaignRow({ lifecycleStatus: 'SUSPENDED', deadline: FUTURE })],
       statusChanges: [suspensionRow()],
     });
   });

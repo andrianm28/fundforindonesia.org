@@ -52,14 +52,14 @@ describe("ModerasiPage", () => {
     expect(mockCampaignCount).toHaveBeenCalledOnce();
   });
 
-  it("counts the Submitted Campaigns as awaiting review, whatever the legacy status string says", async () => {
+  it("counts only the Submitted Campaigns as awaiting review", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", role: "MODERATOR", assignments: ["VERIFIER"] } });
     const db = makeCampaignDb({
       campaigns: [
         campaignRow({ id: "a", slug: "a", lifecycleStatus: "SUBMITTED" }),
-        campaignRow({ id: "b", slug: "b", status: "active", lifecycleStatus: "SUBMITTED" }),
-        campaignRow({ id: "c", slug: "c", status: "pending", lifecycleStatus: "ACTIVE" }),
-        campaignRow({ id: "d", slug: "d", status: "pending", lifecycleStatus: "DRAFT" }),
+        campaignRow({ id: "b", slug: "b", lifecycleStatus: "SUBMITTED" }),
+        campaignRow({ id: "c", slug: "c", lifecycleStatus: "ACTIVE" }),
+        campaignRow({ id: "d", slug: "d", lifecycleStatus: "DRAFT" }),
       ],
     });
     mockCampaignCount.mockImplementation((args) => db.prisma.campaign.count(args));

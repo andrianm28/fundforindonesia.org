@@ -11,7 +11,7 @@ import { join } from "node:path";
  *
  * Checked per Campaign write call, not per file: several files both write a
  * Campaign and merely READ isUrgent (for example to answer a GET). Like the
- * dual-write guard, it recognises writes through `prisma.` or `tx.` only;
+ * Campaign writers guard, it recognises writes through `prisma.` or `tx.` only;
  * a client under another name, or a nested write from another model, is
  * outside what it can see.
  *

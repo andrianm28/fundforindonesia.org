@@ -155,7 +155,9 @@ model Campaign {
   targetAmount    Int
   collectedAmount Int       @default(0)
   category        String
-  status          String    @default("active") // legacy values: "pending" | "active" | "rejected" | "suspended" | "completed" | "expired" | "cancelled"
+  // Legacy status string: nothing reads or writes it (legacy-status-contract
+  // 02). Nullable and ignored until ticket 03 drops it with its index.
+  status          String?
   lifecycleStatus CampaignStatus @default(SUBMITTED)
   isUrgent        Boolean   @default(false)
   deadline        DateTime?

@@ -35,9 +35,9 @@ beforeEach(() => {
   vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'creator-1' } } as never);
   holder.db = makeCampaignDb({
     campaigns: [
-      campaignRow({ id: 'running', slug: 'running', status: 'active', lifecycleStatus: 'ACTIVE', deadline: new Date('2026-09-26T12:00:00Z') }),
-      campaignRow({ id: 'lapsed', slug: 'lapsed', status: 'active', lifecycleStatus: 'ACTIVE', deadline: new Date('2026-09-24T12:00:00Z') }),
-      campaignRow({ id: 'waiting', slug: 'waiting', status: 'pending', lifecycleStatus: 'SUBMITTED' }),
+      campaignRow({ id: 'running', slug: 'running', lifecycleStatus: 'ACTIVE', deadline: new Date('2026-09-26T12:00:00Z') }),
+      campaignRow({ id: 'lapsed', slug: 'lapsed', lifecycleStatus: 'ACTIVE', deadline: new Date('2026-09-24T12:00:00Z') }),
+      campaignRow({ id: 'waiting', slug: 'waiting', lifecycleStatus: 'SUBMITTED' }),
       campaignRow({ id: 'someone-elses', slug: 'someone-elses', creatorId: 'creator-2' }),
     ],
   });

@@ -36,7 +36,7 @@ const REASON = 'Korban banjir bertambah, butuh bantuan segera';
 
 function seed(overrides: Partial<CampaignRow> = {}) {
   state.db = makeCampaignDb({
-    campaigns: [campaignRow({ status: 'active', lifecycleStatus: 'ACTIVE', ...overrides })],
+    campaigns: [campaignRow({ lifecycleStatus: 'ACTIVE', ...overrides })],
   });
 }
 
