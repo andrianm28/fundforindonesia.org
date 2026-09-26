@@ -38,7 +38,5 @@ secara global. Urutannya:
 5. **Debug**: `/diagnosing-bugs`. **Laporan masuk**: `/triage`.
    **Kesehatan kode**: `/improve-codebase-architecture`.
 
-**Verifikasi lewat CI, bukan di host bersama**: lokal hanya `npx vitest run
-<file>` yang relevan; langkah full-suite `/implement` dijalankan CI lewat PR,
-merge setelah hijau, deploy hanya lewat job CD yang disetujui. See
-`docs/agents/verification.md`.
+**Verifikasi**: lewat CI, termasuk langkah full-suite `/implement`. Baca sebelum
+menjalankan tes, merge, deploy, atau menghapus worktree. See `docs/agents/verification.md`.

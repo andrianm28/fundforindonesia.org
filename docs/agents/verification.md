@@ -26,7 +26,7 @@ In a fresh worktree, run `npx prisma generate` once after `npm install` (see
 ```sh
 git push -u origin <feature-branch>
 gh pr create --draft --base main   # draft while you are still working
-gh pr checks --watch               # blocks until every job finishes
+gh pr checks --watch               # blocks until every job finishes (or: gh run watch <run-id>)
 gh run view <run-id> --log-failed  # logs of the failing steps only
 ```
 
@@ -37,8 +37,8 @@ done and CI is green.
 
 ## What each CI job proves
 
-`.github/workflows/ci.yml` runs four jobs in parallel on every PR and push to
-`main`:
+`.github/workflows/ci.yml` runs four jobs in parallel on every PR against
+`main` and every push to `main`:
 
 - **test**: the full vitest suite passes. This is the full-suite step of
   `/implement`.
@@ -48,11 +48,12 @@ done and CI is green.
   schema change without a matching migration fails here. Fix it by adding or
   correcting the migration, never by editing an applied one.
 - **ratchet**: the `tsc` and lint error counts are at or below
-  `ci/baselines.json`. The repo carries old errors; the ratchet only lets the
-  count fall. When the job reports a count below the baseline, lower
-  `ci/baselines.json` to that count in the same PR, so the gain is locked in.
-  When it reports a count above, fix the new errors. Raising a baseline
-  hides new errors, so the baselines only ever go down.
+  `ci/baselines.json`. The repo carries old errors, and the baselines only ever
+  go down: raising one hides new errors. When the job fails, fix the new
+  errors. When you fixed errors, the job stays green, so read its log (`gh run
+  view --log --job <job-id>`, the ID ending the ratchet URL in `gh pr checks`); if it says a count is below the
+  baseline, lower `ci/baselines.json` to that count in the same PR, so the gain
+  is locked in.
 
 ## Merge and deploy
 
@@ -76,6 +77,8 @@ git merge-base --is-ancestor <worktree-HEAD> origin/main && \
   git worktree unlock <path> && git worktree remove <path>
 ```
 
-Run `git fetch origin` first so `origin/main` is current. If `remove` refuses
+Run `git fetch origin` first so `origin/main` is current. PRs here land as
+merge commits, so a merged HEAD is an ancestor of `origin/main`; if the check
+fails, treat the worktree as unmerged and leave it. If `remove` refuses
 because of uncommitted or untracked files, stop and report them; `--force`
 would destroy someone's unsaved work.
