@@ -82,13 +82,22 @@ describe('the Campaign not-found view', () => {
     expect(screen.queryByRole('status', { name: 'Status Campaign' })).toBeNull();
   });
 
-  it('tells them the same when the API cannot be reached', async () => {
+  it('says loading failed, not that the Campaign is missing, on a server error', async () => {
+    apiAnswers(500, { code: 'INTERNAL_ERROR' });
+
+    render(<CampaignNotFound />);
+
+    expect(await screen.findByText('Gagal memuat Campaign. Coba muat ulang halaman.')).toBeDefined();
+    expect(screen.queryByText('Campaign tidak ditemukan')).toBeNull();
+  });
+
+  it('says the same when the API cannot be reached', async () => {
     global.fetch = vi.fn(async () => {
       throw new Error('offline');
     }) as unknown as typeof fetch;
 
     render(<CampaignNotFound />);
 
-    expect(await screen.findByText('Campaign tidak ditemukan')).toBeDefined();
+    expect(await screen.findByText('Gagal memuat Campaign. Coba muat ulang halaman.')).toBeDefined();
   });
 });

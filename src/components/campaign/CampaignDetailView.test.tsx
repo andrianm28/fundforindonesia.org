@@ -209,8 +209,8 @@ describe('CampaignDetailView -- where the Campaign stands', () => {
   // Campaign; the banner tells them where it stands and that it is not public.
   it.each([
     ['DRAFT', 'Draf'],
-    ['SUBMITTED', 'menunggu keputusan Verifier'],
-    ['REJECTED', 'ditolak'],
+    ['SUBMITTED', 'Diajukan'],
+    ['REJECTED', 'Ditolak'],
   ] as const)('says where a %s Campaign stands, and that it is not public', (status, phrase) => {
     renderAs(status);
     const banner = screen.getByRole('status', { name: 'Status Campaign' });

@@ -11,6 +11,7 @@ import {
 type Lookup =
   | { state: 'loading' }
   | { state: 'missing' }
+  | { state: 'failed' }
   | { state: 'found'; campaign: CampaignDetailData };
 
 /**
@@ -40,14 +41,16 @@ export default function CampaignNotFound() {
       cache: 'no-store',
       credentials: 'same-origin',
     })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (cancelled) return;
+      .then(async (res) => {
+        if (res.status === 404) return { state: 'missing' } as const;
+        if (!res.ok) return { state: 'failed' } as const;
+        const body = await res.json();
         const campaign = body?.campaign as CampaignDetailData | undefined;
-        setLookup(campaign ? { state: 'found', campaign } : { state: 'missing' });
+        return campaign ? ({ state: 'found', campaign } as const) : ({ state: 'missing' } as const);
       })
-      .catch(() => {
-        if (!cancelled) setLookup({ state: 'missing' });
+      .catch(() => ({ state: 'failed' }) as const)
+      .then((next: Lookup) => {
+        if (!cancelled) setLookup(next);
       });
     return () => {
       cancelled = true;
@@ -62,6 +65,16 @@ export default function CampaignNotFound() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-pulse text-text-secondary">Memuat...</div>
+      </div>
+    );
+  }
+
+  // A failure is not an answer: a privileged viewer must not be told their
+  // Campaign is missing because the API was briefly unreachable.
+  if (lookup.state === 'failed') {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 text-center">
+        <p className="text-text-secondary">Gagal memuat Campaign. Coba muat ulang halaman.</p>
       </div>
     );
   }

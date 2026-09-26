@@ -253,8 +253,8 @@ describe('DonatePage for a Campaign that is not Active', () => {
     // Only its Fundraiser, Verifiers and Admins get this far (the API 404s
     // everyone else); they are told it is not public and takes no donation.
     ['DRAFT', 'Campaign ini masih Draf: belum tampil untuk publik dan belum menerima donasi.'],
-    ['SUBMITTED', 'Campaign ini sedang menunggu keputusan Verifier: belum tampil untuk publik dan belum menerima donasi.'],
-    ['REJECTED', 'Campaign ini ditolak Verifier: belum tampil untuk publik dan tidak menerima donasi.'],
+    ['SUBMITTED', 'Campaign ini sudah Diajukan dan menunggu keputusan Verifier: belum tampil untuk publik dan belum menerima donasi.'],
+    ['REJECTED', 'Campaign ini Ditolak Verifier: belum tampil untuk publik dan tidak menerima donasi.'],
   ])('says why a %s Campaign takes no donation, and offers no donation step', (status, copy) => {
     campaignIn(status);
     render(<DonatePage />);
@@ -304,6 +304,6 @@ describe('DonatePage when the Campaign is not found', () => {
 
     render(<DonatePage />);
 
-    expect(screen.getByText('Kampanye tidak ditemukan atau terjadi kesalahan.')).toBeDefined();
+    expect(screen.getByText('Campaign tidak ditemukan atau terjadi kesalahan.')).toBeDefined();
   });
 });

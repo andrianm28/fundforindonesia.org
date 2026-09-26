@@ -92,6 +92,10 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   // Not a route: requireNotOwnerAsAdmin asks the judgement for the money
   // operations, whose routes have already required ADMIN.
   "src/lib/subject-guard.ts",
+  // Not a route: who may view an unapproved Campaign (its Fundraiser, or
+  // anyone holding VERIFIER or ADMIN), which GET /api/campaigns/[slug] asks
+  // for every viewer, so no route wrapper can require one assignment.
+  "src/lib/campaign-visibility.ts",
 ];
 
 /** Every route that changes a Campaign's lifecycle through the lifecycle module. */

@@ -16,8 +16,8 @@ export function offersDonating(status: CampaignLifecycleStatus | undefined): boo
 // Admins (CONTEXT.md, Campaign Status), so its banner says it is not public.
 const BANNER_COPY: Partial<Record<CampaignLifecycleStatus, string>> = {
   DRAFT: 'Campaign ini masih Draf: belum tampil untuk publik dan belum menerima donasi.',
-  SUBMITTED: 'Campaign ini sedang menunggu keputusan Verifier: belum tampil untuk publik dan belum menerima donasi.',
-  REJECTED: 'Campaign ini ditolak Verifier: belum tampil untuk publik dan tidak menerima donasi.',
+  SUBMITTED: 'Campaign ini sudah Diajukan dan menunggu keputusan Verifier: belum tampil untuk publik dan belum menerima donasi.',
+  REJECTED: 'Campaign ini Ditolak Verifier: belum tampil untuk publik dan tidak menerima donasi.',
   SUSPENDED: 'Campaign ini sedang ditinjau dan tidak menerima donasi.',
   CANCELLED: 'Fundraiser telah menarik Campaign ini.',
   EXPIRED: 'Campaign ini telah berakhir.',

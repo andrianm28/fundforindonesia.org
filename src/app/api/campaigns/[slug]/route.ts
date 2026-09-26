@@ -8,8 +8,8 @@ import { effectiveStatus } from '@/lib/campaign-lifecycle';
 import { lockAndLoad, requireContentEditable } from '@/lib/subject-guard';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 
-// Rendered per request: a Suspended or unapproved Campaign's answer depends
-// on who asks (see suspensionReasonFor and mayViewCampaign), and reading the session inside a route Next
+// Rendered per request: a Suspended or unapproved Campaign's answer
+// depends on who asks (suspensionReasonFor, mayViewCampaign), and reading the session inside a route Next
 // had cached as static fails at runtime. Shared caching of everything else
 // is left to the Cache-Control header set in GET.
 export const dynamic = 'force-dynamic';
@@ -106,7 +106,7 @@ export async function GET(
     // Admins; anyone else gets the same 404 as a slug that never existed.
     if (!isPublic) {
       const session = await getServerSession();
-      if (!mayViewCampaign({ status: lifecycleStatus, creatorId: campaign.creatorId }, session?.user)) {
+      if (!mayViewCampaign({ status: lifecycleStatus, fundraiserId: campaign.creatorId }, session?.user)) {
         return campaignNotFound();
       }
     }

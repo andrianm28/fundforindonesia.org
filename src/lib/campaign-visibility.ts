@@ -15,7 +15,7 @@ import { hasAssignment } from "./withAssignmentCheck";
  * Pure: it reads nothing. Keyed by every status, so a status added later
  * fails to compile until someone decides whether it is public.
  */
-const PUBLIC: Record<CampaignStatus, boolean> = {
+const PUBLIC_BY_STATUS: Record<CampaignStatus, boolean> = {
   DRAFT: false,
   SUBMITTED: false,
   REJECTED: false,
@@ -28,11 +28,12 @@ const PUBLIC: Record<CampaignStatus, boolean> = {
 
 /**
  * Whether a Campaign in this effective status opens for anyone, so its
- * answer may be the same for every viewer. False for an unknown status:
- * deny by default.
+ * answer may be the same for every viewer. The status comes from the
+ * database at runtime, so one this code does not know is refused: deny by
+ * default.
  */
 export function isPubliclyViewable(status: CampaignStatus): boolean {
-  return PUBLIC[status] === true;
+  return PUBLIC_BY_STATUS[status] === true;
 }
 
 /** The signed-in viewer, as the session carries them; null when anonymous. */
@@ -43,13 +44,13 @@ export type CampaignViewer = {
 
 /** Whether this viewer may open a Campaign in this effective status. */
 export function mayViewCampaign(
-  campaign: { status: CampaignStatus; creatorId: string },
+  campaign: { status: CampaignStatus; fundraiserId: string },
   viewer: CampaignViewer
 ): boolean {
   if (isPubliclyViewable(campaign.status)) return true;
   if (!viewer?.id) return false;
   return (
-    viewer.id === campaign.creatorId ||
+    viewer.id === campaign.fundraiserId ||
     hasAssignment(viewer.assignments, Assignment.VERIFIER) ||
     hasAssignment(viewer.assignments, Assignment.ADMIN)
   );

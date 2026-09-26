@@ -139,7 +139,7 @@ export default function DonatePage() {
         <p className="text-text-secondary text-center">
           {notFound
             ? 'Campaign tidak ditemukan.'
-            : 'Kampanye tidak ditemukan atau terjadi kesalahan.'}
+            : 'Campaign tidak ditemukan atau terjadi kesalahan.'}
         </p>
         <button
           onClick={() => router.back()}
