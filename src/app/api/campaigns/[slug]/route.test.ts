@@ -1024,11 +1024,11 @@ describe('PATCH /api/campaigns/[slug] -- title and description are frozen once A
     vi.clearAllMocks();
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(NOW);
-    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as any);
-    mockLockQuery.mockResolvedValue([] as any);
-    mockFindUnique.mockImplementation((async () => ({ ...row })) as any);
-    mockUpdate.mockImplementation((async (args: any) => ({ ...row, ...args.data })) as any);
-    mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as any);
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as never);
+    mockLockQuery.mockResolvedValue([] as never);
+    mockFindUnique.mockImplementation((async () => ({ ...row })) as never);
+    mockUpdate.mockImplementation((async (args: { data: object }) => ({ ...row, ...args.data })) as never);
+    mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as never);
   });
 
   afterEach(() => {

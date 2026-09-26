@@ -282,7 +282,7 @@ export class ActiveContentFrozenError extends CampaignLifecycleError {
  */
 export function requireActiveContentFieldsEditable(
   state: SubjectState,
-  edit: { title?: unknown; description?: unknown }
+  edit: { title?: unknown; description?: unknown; [key: string]: unknown }
 ): void {
   if (state.kind !== "campaign") return;
   if (state.effectiveStatus !== CampaignStatus.ACTIVE) return;
