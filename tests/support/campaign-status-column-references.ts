@@ -10,8 +10,10 @@ import ts from 'typescript';
  * and a Campaign row is often held in a variable not called `campaign`. A
  * `status` counts when it resolves to the Campaign model's field in the
  * generated Prisma client: a `where`, `select` or `data` key, or a property
- * read off a Campaign row. An `omit: { status: true }` key does not count:
- * it keeps the column out of a result, the opposite of reading it.
+ * read off a Campaign row (`row.status`, `row['status']`, or destructured).
+ * An `omit: { status: true }` key does not count: it keeps the column out
+ * of a result, the opposite of reading it. Not seen: raw SQL, `groupBy`'s
+ * `by: ['status']`, and untyped JSON a browser reads back.
  *
  * Lives outside src/ so it is never mistaken for application code.
  */
@@ -74,9 +76,20 @@ export function findCampaignStatusReferences(root = process.cwd()): string[] {
     if (!sourceSet.has(sourceFile.fileName)) continue;
 
     const visit = (node: ts.Node) => {
-      if (ts.isIdentifier(node) && node.text === 'status') {
+      const named =
+        (ts.isIdentifier(node) && node.text === 'status') ||
+        // row['status']
+        (ts.isStringLiteralLike(node) && node.text === 'status' && ts.isElementAccessExpression(node.parent));
+      if (named) {
         let hit = declaredOnCampaign(checker.getSymbolAtLocation(node));
         const parent = node.parent;
+        // const { status } = row, or const { status: s } = row: the name is
+        // looked up on the type being destructured.
+        if (!hit && ts.isBindingElement(parent) && (parent.propertyName ?? parent.name) === node) {
+          const destructured = checker.getTypeAtLocation(parent.parent);
+          const types = destructured.isUnion() ? destructured.types : [destructured];
+          hit = types.some((type) => declaredOnCampaign(type.getProperty('status')));
+        }
         if (
           !hit &&
           (ts.isPropertyAssignment(parent) || ts.isShorthandPropertyAssignment(parent)) &&

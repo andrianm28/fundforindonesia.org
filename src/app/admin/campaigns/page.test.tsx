@@ -39,7 +39,6 @@ describe('AdminCampaignsPage actions', () => {
     expect(within(row).getByText('Lihat')).toBeDefined();
     expect(within(row).queryByText(/hapus/i)).toBeNull();
   });
-
 });
 
 describe('AdminCampaignsPage status badges', () => {
