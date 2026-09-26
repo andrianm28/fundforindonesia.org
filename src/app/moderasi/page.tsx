@@ -4,7 +4,7 @@ import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
 import { Assignment, VerificationOutcome } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { expiringGrants } from "@/lib/collecting-entity";
+import { expiringWindows } from "@/lib/collecting-entity";
 import { KIND_LABEL } from "@/lib/campaign-kind";
 
 export default async function ModerasiPage() {
@@ -30,7 +30,7 @@ export default async function ModerasiPage() {
       kindAuthorisations: { select: { kind: true, validFrom: true, validTo: true } },
     },
   });
-  const expiring = expiringGrants(organisations, now);
+  const expiring = expiringWindows(organisations, now);
 
   return (
     <div>

@@ -189,7 +189,8 @@ export class IndividualFundraiserKindError extends CampaignLifecycleError {
  * Campaign's Kind, so the Campaign may not open (CONTEXT.md, Kind
  * Authorisation; ADR 0013). Every Kind but donation needs one. Raised on
  * submission and on approval, after the Fundraising Permit check passes: the
- * two are separate grants and both must hold.
+ * Fundraising Permit and the Kind Authorisation are separate, and both must
+ * hold.
  */
 export class KindAuthorisationRequiredError extends CampaignLifecycleError {
   readonly code = "KIND_AUTHORISATION_REQUIRED";

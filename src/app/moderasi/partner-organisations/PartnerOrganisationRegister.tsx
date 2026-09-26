@@ -184,13 +184,13 @@ export function PartnerOrganisationRegister() {
               <p className="text-sm text-[#757575]">Belum ada Kind Authorisation.</p>
             ) : (
               <ul className="space-y-2">
-                {(organisation.kindAuthorisations ?? []).map((grant) => (
+                {(organisation.kindAuthorisations ?? []).map((authorisation) => (
                   <KindAuthorisationRow
-                    key={grant.id}
-                    grant={grant}
+                    key={authorisation.id}
+                    authorisation={authorisation}
                     onRenew={(validTo) =>
                       act(
-                        send(`${API}/${organisation.id}/kind-authorisations/${grant.id}`, "PATCH", {
+                        send(`${API}/${organisation.id}/kind-authorisations/${authorisation.id}`, "PATCH", {
                           validTo: dayEnd(validTo),
                         }),
                         "Masa berlaku Kind Authorisation diperbarui."
@@ -368,23 +368,23 @@ function PermitForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) =>
 }
 
 function KindAuthorisationRow({
-  grant,
+  authorisation,
   onRenew,
 }: {
-  grant: KindAuthorisation;
+  authorisation: KindAuthorisation;
   onRenew: (validTo: string) => Promise<boolean>;
 }) {
   const [validTo, setValidTo] = useState("");
   const now = Date.now();
-  const valid = new Date(grant.validFrom).getTime() <= now && now <= new Date(grant.validTo).getTime();
+  const valid = new Date(authorisation.validFrom).getTime() <= now && now <= new Date(authorisation.validTo).getTime();
 
   return (
     <li className="rounded-lg border border-[#E0E0E0] p-3 text-sm text-[#424242]">
       <p className="font-medium text-[#212121]">
-        {KIND_LABEL[grant.kind]} · {grant.documentReference}
+        {KIND_LABEL[authorisation.kind]} · {authorisation.documentReference}
       </p>
       <p>
-        Berlaku {formatDay(grant.validFrom)} s.d. {formatDay(grant.validTo)}{" "}
+        Berlaku {formatDay(authorisation.validFrom)} s.d. {formatDay(authorisation.validTo)}{" "}
         <span className={valid ? "text-[#2E7D32]" : "text-[#C62828]"}>({valid ? "berlaku" : "tidak berlaku"})</span>
       </p>
       <form

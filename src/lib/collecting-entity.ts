@@ -36,7 +36,7 @@ export function holdsValidPermit(
   return entity.permits.some((permit) => permitCovers(permit, kind, now));
 }
 
-/** What the Kind Authorisation rule needs of one grant. */
+/** What the Kind Authorisation rule needs of one authorisation. */
 export type KindAuthorisationWindow = { kind: Kind; validFrom: Date; validTo: Date };
 
 /**
@@ -49,12 +49,14 @@ export function requiresKindAuthorisation(kind: Kind): boolean {
 }
 
 /**
- * Whether the grant authorises `kind` at `now`: it is for that Kind, and
+ * Whether the authorisation covers `kind` at `now`: it is for that Kind, and
  * `now` lies between `validFrom` and `validTo`, both inclusive.
  */
-export function kindAuthorisationCovers(grant: KindAuthorisationWindow, kind: Kind, now: Date): boolean {
+export function kindAuthorisationCovers(authorisation: KindAuthorisationWindow, kind: Kind, now: Date): boolean {
   return (
-    grant.kind === kind && grant.validFrom.getTime() <= now.getTime() && now.getTime() <= grant.validTo.getTime()
+    authorisation.kind === kind &&
+    authorisation.validFrom.getTime() <= now.getTime() &&
+    now.getTime() <= authorisation.validTo.getTime()
   );
 }
 
@@ -64,7 +66,7 @@ export function holdsValidKindAuthorisation(
   kind: Kind,
   now: Date
 ): boolean {
-  return entity.kindAuthorisations.some((grant) => kindAuthorisationCovers(grant, kind, now));
+  return entity.kindAuthorisations.some((authorisation) => kindAuthorisationCovers(authorisation, kind, now));
 }
 
 /**
@@ -102,9 +104,9 @@ export function collectingEntityBlock(
 
 /**
  * What a reader selects of a Campaign for the permit and Kind Authorisation
- * rules: its Collecting Entity's name and every permit's and grant's window.
- * Both are few per organisation and never deleted, so all of them are read
- * and judged in code.
+ * rules: its Collecting Entity's name and every permit's and authorisation's
+ * window. Both are few per organisation and never deleted, so all of them
+ * are read and judged in code.
  */
 export const COLLECTING_ENTITY_SELECT = {
   collectingEntity: {
@@ -118,7 +120,7 @@ export const COLLECTING_ENTITY_SELECT = {
 } as const;
 
 /** One Fundraising Permit or Kind Authorisation the "expiring soon" list names. */
-export type ExpiringGrant =
+export type ExpiringWindow =
   | { type: "permit"; organisationId: string; organisationName: string; kinds: readonly Kind[]; validTo: Date }
   | { type: "kindAuthorisation"; organisationId: string; organisationName: string; kind: Kind; validTo: Date };
 
@@ -128,9 +130,10 @@ export type ExpiringGrant =
  * Verifier's dashboard (prd-compliance 11; CONTEXT.md, Fundraising Permit,
  * Kind Authorisation): the warning that stands in for a scheduled reminder
  * until one exists (prd-compliance 20). Sorted soonest first. Pure: the
- * reader passes every organisation's permits and grants, already read.
+ * reader passes every organisation's permits and Kind Authorisations,
+ * already read.
  */
-export function expiringGrants(
+export function expiringWindows(
   organisations: readonly {
     id: string;
     name: string;
@@ -139,12 +142,12 @@ export function expiringGrants(
   }[],
   now: Date,
   days = 30
-): ExpiringGrant[] {
+): ExpiringWindow[] {
   const horizon = now.getTime() + days * 24 * 60 * 60 * 1000;
   const expiringSoon = (validFrom: Date, validTo: Date) =>
     validFrom.getTime() <= now.getTime() && now.getTime() <= validTo.getTime() && validTo.getTime() <= horizon;
 
-  const items: ExpiringGrant[] = [];
+  const items: ExpiringWindow[] = [];
   for (const organisation of organisations) {
     for (const permit of organisation.permits) {
       if (expiringSoon(permit.validFrom, permit.validTo)) {
@@ -157,14 +160,14 @@ export function expiringGrants(
         });
       }
     }
-    for (const grant of organisation.kindAuthorisations) {
-      if (expiringSoon(grant.validFrom, grant.validTo)) {
+    for (const authorisation of organisation.kindAuthorisations) {
+      if (expiringSoon(authorisation.validFrom, authorisation.validTo)) {
         items.push({
           type: "kindAuthorisation",
           organisationId: organisation.id,
           organisationName: organisation.name,
-          kind: grant.kind,
-          validTo: grant.validTo,
+          kind: authorisation.kind,
+          validTo: authorisation.validTo,
         });
       }
     }

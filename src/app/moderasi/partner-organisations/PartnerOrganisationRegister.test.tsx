@@ -118,7 +118,7 @@ describe('PartnerOrganisationRegister', () => {
   });
 
   it('lists Kind Authorisations, marking a lapsed one', async () => {
-    const organisationWithGrant = {
+    const organisationWithAuthorisation = {
       ...ORGANISATION,
       kindAuthorisations: [
         {
@@ -134,7 +134,7 @@ describe('PartnerOrganisationRegister', () => {
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         calls.push({ url, method: init?.method ?? 'GET', body: undefined });
-        if ((init?.method ?? 'GET') === 'GET') return Response.json({ organisations: [organisationWithGrant] });
+        if ((init?.method ?? 'GET') === 'GET') return Response.json({ organisations: [organisationWithAuthorisation] });
         return Response.json({}, { status: 201 });
       }),
     );
@@ -148,13 +148,13 @@ describe('PartnerOrganisationRegister', () => {
   it('grants a Kind Authorisation, its days taken as whole days in WIB', async () => {
     render(<PartnerOrganisationRegister />);
     await screen.findByText('Yayasan Indonesia Emas Merdeka');
-    const grantForm = within(screen.getByLabelText('Rujukan dokumen').closest('form')!);
+    const authorisationForm = within(screen.getByLabelText('Rujukan dokumen').closest('form')!);
 
-    fireEvent.change(grantForm.getByLabelText('Kind'), { target: { value: 'WAKAF' } });
-    fireEvent.change(grantForm.getByLabelText('Rujukan dokumen'), { target: { value: 'SK Nazhir 001/2027' } });
-    fireEvent.change(grantForm.getByLabelText('Berlaku dari'), { target: { value: '2027-01-01' } });
-    fireEvent.change(grantForm.getByLabelText('Berlaku sampai'), { target: { value: '2027-12-31' } });
-    fireEvent.click(grantForm.getByRole('button', { name: 'Berikan Kind Authorisation' }));
+    fireEvent.change(authorisationForm.getByLabelText('Kind'), { target: { value: 'WAKAF' } });
+    fireEvent.change(authorisationForm.getByLabelText('Rujukan dokumen'), { target: { value: 'SK Nazhir 001/2027' } });
+    fireEvent.change(authorisationForm.getByLabelText('Berlaku dari'), { target: { value: '2027-01-01' } });
+    fireEvent.change(authorisationForm.getByLabelText('Berlaku sampai'), { target: { value: '2027-12-31' } });
+    fireEvent.click(authorisationForm.getByRole('button', { name: 'Berikan Kind Authorisation' }));
 
     await waitFor(() =>
       expect(calls.find((c) => c.method === 'POST')).toEqual({

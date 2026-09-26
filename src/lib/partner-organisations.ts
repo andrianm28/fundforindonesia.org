@@ -172,13 +172,13 @@ function permitState(permit: Pick<FundraisingPermit, "number" | "issuer" | "kind
 }
 
 function kindAuthorisationState(
-  grant: Pick<KindAuthorisation, "kind" | "documentReference" | "validFrom" | "validTo">
+  authorisation: Pick<KindAuthorisation, "kind" | "documentReference" | "validFrom" | "validTo">
 ): KindAuthorisationState {
   return {
-    kind: grant.kind,
-    documentReference: grant.documentReference,
-    validFrom: grant.validFrom.toISOString(),
-    validTo: grant.validTo.toISOString(),
+    kind: authorisation.kind,
+    documentReference: authorisation.documentReference,
+    validFrom: authorisation.validFrom.toISOString(),
+    validTo: authorisation.validTo.toISOString(),
   };
 }
 
@@ -460,7 +460,7 @@ export async function grantKindAuthorisation(
 
   return prisma.$transaction(async (tx) => {
     const organisation = await lockOrganisation(tx, params.organisationId, params.actorId);
-    const grant = await tx.kindAuthorisation.create({
+    const authorisation = await tx.kindAuthorisation.create({
       data: {
         partnerOrganisationId: organisation.id,
         kind,
@@ -473,14 +473,14 @@ export async function grantKindAuthorisation(
     });
     await audit(tx, {
       organisationId: organisation.id,
-      kindAuthorisationId: grant.id,
+      kindAuthorisationId: authorisation.id,
       action: "KIND_AUTHORISATION_GRANTED",
       before: null,
-      after: kindAuthorisationState(grant),
+      after: kindAuthorisationState(authorisation),
       actorId: params.actorId,
       now,
     });
-    return grant;
+    return authorisation;
   });
 }
 
@@ -521,17 +521,17 @@ export async function updateKindAuthorisation(
     requireWindow(next.validFrom, next.validTo);
     const before = kindAuthorisationState(current);
     if (same(before, kindAuthorisationState(next))) return current;
-    const grant = await tx.kindAuthorisation.update({ where: { id: current.id }, data });
+    const authorisation = await tx.kindAuthorisation.update({ where: { id: current.id }, data });
     await audit(tx, {
       organisationId: organisation.id,
-      kindAuthorisationId: grant.id,
+      kindAuthorisationId: authorisation.id,
       action: "KIND_AUTHORISATION_UPDATED",
       before,
-      after: kindAuthorisationState(grant),
+      after: kindAuthorisationState(authorisation),
       actorId: params.actorId,
       now,
     });
-    return grant;
+    return authorisation;
   });
 }
 

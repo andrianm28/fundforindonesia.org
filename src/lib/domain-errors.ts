@@ -145,7 +145,7 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   COLLECTING_ENTITY_ALREADY_SET: 409,
   COLLECTING_ENTITY_NOT_EDITABLE: 409,
   // The Fundraiser can fix it by changing the Kind while still Draft, like
-  // DEADLINE_REQUIRED; a grant the Verifier can record, like
+  // DEADLINE_REQUIRED; a Kind Authorisation the Verifier can record, like
   // FUNDRAISING_PERMIT_REQUIRED.
   INDIVIDUAL_FUNDRAISER_KIND_NOT_ALLOWED: 422,
   KIND_AUTHORISATION_REQUIRED: 422,

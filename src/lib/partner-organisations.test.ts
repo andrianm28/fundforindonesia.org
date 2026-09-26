@@ -327,7 +327,7 @@ describe('updateFundraisingPermit', () => {
 });
 
 describe('grantKindAuthorisation', () => {
-  const GRANT = {
+  const AUTHORISATION_PARAMS = {
     kind: 'ZAKAT',
     documentReference: ' SK Pengukuhan Amil Zakat 001/2026 ',
     validFrom: '2026-01-01T00:00:00.000Z',
@@ -337,16 +337,16 @@ describe('grantKindAuthorisation', () => {
   it('grants a dated Kind Authorisation for one non-donation Kind, and audits it', async () => {
     const store = db({ partnerOrganisations: [partnerOrganisationRow()] });
 
-    const grant = await grantKindAuthorisation(store.prisma as never, {
+    const authorisation = await grantKindAuthorisation(store.prisma as never, {
       actorId: 'verifier-2',
       organisationId: 'partner-1',
-      ...GRANT,
+      ...AUTHORISATION_PARAMS,
       now: NOW,
     });
 
     expect(store.kindAuthorisations).toEqual([
       {
-        id: grant.id,
+        id: authorisation.id,
         partnerOrganisationId: 'partner-1',
         kind: 'ZAKAT',
         documentReference: 'SK Pengukuhan Amil Zakat 001/2026',
@@ -359,7 +359,7 @@ describe('grantKindAuthorisation', () => {
     expect(store.partnerOrganisationAudits).toEqual([
       expect.objectContaining({
         partnerOrganisationId: 'partner-1',
-        kindAuthorisationId: grant.id,
+        kindAuthorisationId: authorisation.id,
         permitId: null,
         action: 'KIND_AUTHORISATION_GRANTED',
         before: null,
@@ -387,7 +387,7 @@ describe('grantKindAuthorisation', () => {
     const error = await grantKindAuthorisation(store.prisma as never, {
       actorId: 'verifier-2',
       organisationId: 'partner-1',
-      ...GRANT,
+      ...AUTHORISATION_PARAMS,
       ...override,
       now: NOW,
     }).catch((e: unknown) => e);
@@ -403,7 +403,7 @@ describe('grantKindAuthorisation', () => {
     const error = await grantKindAuthorisation(store.prisma as never, {
       actorId: 'verifier-2',
       organisationId: 'partner-1',
-      ...GRANT,
+      ...AUTHORISATION_PARAMS,
       now: NOW,
     }).catch((e: unknown) => e);
 

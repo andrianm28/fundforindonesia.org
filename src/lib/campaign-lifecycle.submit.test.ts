@@ -408,12 +408,12 @@ describe('submitCampaign', () => {
       ['has lapsed', kindAuthorisationRow({ validTo: new Date('2026-09-26T09:00:00Z') })],
       ['is not valid yet', kindAuthorisationRow({ validFrom: new Date('2026-10-01T00:00:00Z') })],
       ['is for another Kind', kindAuthorisationRow({ kind: 'WAKAF' })],
-    ])('refuses when the Collecting Entity\'s only Kind Authorisation %s, with a 422 naming it and the Kind', async (_why, grant) => {
+    ])('refuses when the Collecting Entity\'s only Kind Authorisation %s, with a 422 naming it and the Kind', async (_why, authorisation) => {
       const db = makeCampaignDb({
         campaigns: [
           campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
         ],
-        kindAuthorisations: [grant],
+        kindAuthorisations: [authorisation],
       });
 
       const error = await refusal(db, { userId: 'partner-fundraiser-1', assignments: [] });
