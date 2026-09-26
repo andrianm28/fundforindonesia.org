@@ -445,7 +445,8 @@ describe('POST /api/campaigns', () => {
     });
 
     it('refuses a Campaign that declares no Kind, writing nothing', async () => {
-      const { kind: _omitted, ...withoutKind } = validBody;
+      const withoutKind: Record<string, unknown> = { ...validBody };
+      delete withoutKind.kind;
 
       const response = await create(withoutKind);
 
@@ -462,7 +463,8 @@ describe('POST /api/campaigns', () => {
     });
 
     it.each(['DONATION', 'ZAKAT', 'HIBAH'])('refuses a %s Campaign without a deadline', async (kind) => {
-      const { deadline: _omitted, ...withoutDeadline } = validBody;
+      const withoutDeadline: Record<string, unknown> = { ...validBody };
+      delete withoutDeadline.deadline;
 
       const response = await create({ ...withoutDeadline, kind });
 
@@ -474,7 +476,8 @@ describe('POST /api/campaigns', () => {
     });
 
     it('creates a wakaf Campaign without a deadline, which stays open', async () => {
-      const { deadline: _omitted, ...withoutDeadline } = validBody;
+      const withoutDeadline: Record<string, unknown> = { ...validBody };
+      delete withoutDeadline.deadline;
 
       const response = await create({ ...withoutDeadline, kind: 'WAKAF' });
 

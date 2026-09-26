@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { listableCampaignWhere } from '@/lib/subject-guard';
-import { deadlineRequired, KIND_LABEL, KINDS, parseKind, type CampaignKind } from '@/lib/campaign-kind';
+import { deadlineRequiredMessage, KINDS, missingRequiredDeadline, parseKind } from '@/lib/campaign-kind';
 
 const createCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
@@ -13,14 +13,14 @@ const createCampaignSchema = z.object({
   coverImage: z.string().url("URL gambar tidak valid"),
   targetAmount: z.number().positive("Target donasi harus lebih dari 0"),
   category: z.string().min(1, "Kategori harus dipilih"),
-  kind: z.enum(KINDS as [CampaignKind, ...CampaignKind[]], { message: "Kind harus dipilih" }),
+  kind: z.enum(KINDS, { message: "Kind harus dipilih" }),
   deadline: z.string().datetime().optional(),
 }).superRefine((body, ctx) => {
   // Every Kind but wakaf needs a deadline (CONTEXT.md, Campaign).
-  if (body.deadline === undefined && deadlineRequired(body.kind)) {
+  if (missingRequiredDeadline(body)) {
     ctx.addIssue({
       code: 'custom',
-      message: `Tenggat wajib diisi untuk Campaign ber-Kind ${KIND_LABEL[body.kind]}.`,
+      message: deadlineRequiredMessage(body.kind),
       path: ['deadline'],
     });
   }

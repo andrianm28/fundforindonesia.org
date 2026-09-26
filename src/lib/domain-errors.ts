@@ -34,6 +34,7 @@ export type LifecycleErrorCode =
   | "VERIFICATION_REQUEST_NOT_PENDING"
   | "REQUIRED_CHECKLIST_ITEMS_UNTICKED"
   | "DEADLINE_REQUIRED"
+  | "DEADLINE_NOT_EDITABLE"
   | "KIND_IMMUTABLE";
 
 export type MoneyErrorCode =
@@ -114,6 +115,7 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // The Fundraiser can fix it by setting a deadline, as above.
   DEADLINE_REQUIRED: 422,
   KIND_IMMUTABLE: 409,
+  DEADLINE_NOT_EDITABLE: 409,
   OWN_TRIP_CONFLICT: 403,
   DEMO_CAMPAIGN: 403,
   BANK_ACCOUNT_NOT_ELIGIBLE: 403,

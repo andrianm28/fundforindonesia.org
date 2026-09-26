@@ -14,7 +14,7 @@ import type { Kind } from "@/generated/prisma/client";
 export type CampaignKind = Kind;
 
 /** Every Kind, in the order the creation form and the catalogue offer them. */
-export const KINDS: readonly CampaignKind[] = ["DONATION", "ZAKAT", "WAKAF", "HIBAH"];
+export const KINDS = ["DONATION", "ZAKAT", "WAKAF", "HIBAH"] as const satisfies readonly CampaignKind[];
 
 /** The Indonesian name of each Kind, as screens show it. */
 export const KIND_LABEL: Record<CampaignKind, string> = {
@@ -36,4 +36,17 @@ export function parseKind(value: string): CampaignKind | null {
  */
 export function deadlineRequired(kind: CampaignKind): boolean {
   return kind !== "WAKAF";
+}
+
+/** Whether a Campaign lacks the deadline its Kind requires. */
+export function missingRequiredDeadline(campaign: {
+  kind: CampaignKind;
+  deadline: Date | string | null | undefined;
+}): boolean {
+  return (campaign.deadline === null || campaign.deadline === undefined) && deadlineRequired(campaign.kind);
+}
+
+/** The one sentence every refusal of a missing deadline shows. */
+export function deadlineRequiredMessage(kind: CampaignKind): string {
+  return `Tenggat wajib diisi untuk Campaign ber-Kind ${KIND_LABEL[kind]}.`;
 }

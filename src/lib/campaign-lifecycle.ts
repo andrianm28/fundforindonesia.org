@@ -44,7 +44,7 @@ import {
   SameAdminLiftError,
   STATUS_LABEL,
 } from "./campaign-lifecycle-errors";
-import { deadlineRequired } from "./campaign-kind";
+import { missingRequiredDeadline } from "./campaign-kind";
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
 import { SUBMITTABLE_STATUSES } from "./verification-submission";
@@ -463,7 +463,7 @@ export async function submitCampaign(
     reasonPolicy: "none",
     allowedFrom: SUBMITTABLE_STATUSES,
     step: async ({ tx, campaign, current, actor, now, transition }) => {
-      if (campaign.deadline === null && deadlineRequired(campaign.kind)) {
+      if (missingRequiredDeadline(campaign)) {
         throw new DeadlineRequiredError(campaign.kind);
       }
       const items = await tx.verificationChecklistItem.findMany({

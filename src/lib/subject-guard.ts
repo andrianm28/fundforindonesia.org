@@ -11,7 +11,7 @@ import {
   DeadlineRequiredError,
   STATUS_LABEL,
 } from "./campaign-lifecycle-errors";
-import { deadlineRequired } from "./campaign-kind";
+import { missingRequiredDeadline } from "./campaign-kind";
 import { judgeCapacity } from "./capacity";
 import type { LedgerSubject } from "./money/ledger";
 
@@ -252,23 +252,53 @@ export class KindImmutableError extends CampaignLifecycleError {
   }
 }
 
+/** A deadline change refused because the Campaign is past Draft and Rejected. */
+export class DeadlineNotEditableError extends CampaignLifecycleError {
+  readonly code = "DEADLINE_NOT_EDITABLE";
+  constructor(readonly currentStatus: CampaignStatus) {
+    super("Tenggat Campaign hanya dapat diubah saat berstatus Draft atau Rejected.");
+    this.name = "DeadlineNotEditableError";
+  }
+}
+
+/** The effective statuses a direct edit may change the deadline in. */
+const DEADLINE_EDITABLE_STATUSES: readonly CampaignStatus[] = [
+  CampaignStatus.DRAFT,
+  CampaignStatus.REJECTED,
+];
+
 /**
- * Judges an edit that names a Kind (prd-compliance 09). Naming the Kind the
- * Campaign already has is no change and always passes. A real change passes
- * only while the Campaign is effectively Draft: once submitted, the Verifier
- * and then Donors rely on it, and a Rejected Campaign has been judged as
- * that Kind. The new Kind must also be satisfied by the stored deadline, so
- * a wakaf Draft with none cannot become a Kind that needs one. Judge it on
- * `lockAndLoad`'s result, like `requireContentEditable`.
+ * Judges an edit of a Campaign's Kind or deadline (prd-compliance 09), the
+ * two fields its deadline rule reads. Naming the value a field already has
+ * is no change and always passes.
+ * - Kind changes only while effectively Draft: once submitted the Verifier
+ *   and then Donors rely on it, and a Rejected Campaign was judged as it.
+ * - The deadline changes only while Draft or Rejected, before a Verifier
+ *   approves it; an Active one's moves through a new Verification Request
+ *   (CONTEXT.md, Verification Request).
+ * - What the edit leaves must still give the Kind the deadline it needs.
+ * Judge it on `lockAndLoad`'s result, like `requireContentEditable`.
  */
-export function requireKindEditable(state: SubjectState, requested: Kind): void {
-  if (state.kind !== "campaign" || requested === state.campaignKind) return;
-  if (state.effectiveStatus !== CampaignStatus.DRAFT) {
+export function requireKindAndDeadlineEditable(
+  state: SubjectState,
+  edit: { kind?: Kind; deadline?: Date | null }
+): void {
+  if (state.kind !== "campaign") return;
+  const kindChanges = edit.kind !== undefined && edit.kind !== state.campaignKind;
+  const deadlineChanges =
+    edit.deadline !== undefined && edit.deadline?.getTime() !== state.deadline?.getTime();
+  if (kindChanges && state.effectiveStatus !== CampaignStatus.DRAFT) {
     throw new KindImmutableError(state.effectiveStatus);
   }
-  if (state.deadline === null && deadlineRequired(requested)) {
-    throw new DeadlineRequiredError(requested);
+  if (deadlineChanges && !DEADLINE_EDITABLE_STATUSES.includes(state.effectiveStatus)) {
+    throw new DeadlineNotEditableError(state.effectiveStatus);
   }
+  if (!kindChanges && !deadlineChanges) return;
+  const after = {
+    kind: edit.kind ?? state.campaignKind,
+    deadline: edit.deadline !== undefined ? edit.deadline : state.deadline,
+  };
+  if (missingRequiredDeadline(after)) throw new DeadlineRequiredError(after.kind);
 }
 
 /**

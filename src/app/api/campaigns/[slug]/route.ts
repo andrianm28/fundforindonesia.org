@@ -5,8 +5,8 @@ import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
 import { CampaignStatus, CampaignStatusChangeAction } from '@/generated/prisma/client';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
-import { lockAndLoad, requireContentEditable, requireKindEditable } from '@/lib/subject-guard';
-import { KINDS, type CampaignKind } from '@/lib/campaign-kind';
+import { lockAndLoad, requireContentEditable, requireKindAndDeadlineEditable } from '@/lib/subject-guard';
+import { KINDS } from '@/lib/campaign-kind';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibility-route';
 
@@ -17,16 +17,18 @@ import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibili
 export const dynamic = 'force-dynamic';
 
 // The only columns a direct edit may write; zod strips every other key.
-// Kind only while Draft (requireKindEditable). Status moves through
-// src/lib/campaign-lifecycle.ts; target, deadline, and category through a
-// Verification Request or an Admin; money, ownership, and isDemo are never
-// client-writable.
+// Kind and deadline only before approval (requireKindAndDeadlineEditable).
+// Status moves through src/lib/campaign-lifecycle.ts; target and category
+// through a Verification Request or an Admin; money, ownership, and isDemo
+// are never client-writable.
 const editCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
   description: z.string().min(1, "Deskripsi harus diisi"),
   story: z.string().min(1, "Cerita campaign harus diisi"),
   coverImage: z.string().url("URL gambar tidak valid"),
-  kind: z.enum(KINDS as [CampaignKind, ...CampaignKind[]], { message: "Kind tidak dikenal" }),
+  kind: z.enum(KINDS, { message: "Kind tidak dikenal" }),
+  // null clears it, which only a wakaf Campaign may have.
+  deadline: z.string().datetime().nullable(),
 }).partial();
 
 /**
@@ -197,11 +199,16 @@ export async function PATCH(
       const state = await lockAndLoad(tx, { type: 'campaign', campaignId: campaign.id }, new Date());
       if (!state) return null;
       requireContentEditable(state);
-      if (result.data.kind !== undefined) requireKindEditable(state, result.data.kind);
+      const { deadline, ...fields } = result.data;
+      const data = {
+        ...fields,
+        ...(deadline !== undefined && { deadline: deadline === null ? null : new Date(deadline) }),
+      };
+      requireKindAndDeadlineEditable(state, data);
 
       return tx.campaign.update({
         where: { id: campaign.id },
-        data: result.data,
+        data,
         // The legacy status string is never sent back (ticket 03 drops it).
         omit: { status: true },
         include: {
