@@ -1,0 +1,302 @@
+# CD: build the production image in Actions and push it to GHCR, so the shared
+# host never builds (.scratch/ci-cd-github-actions, ticket 05). The deploy job
+# (ticket 07) consumes this job's digest outputs.
+#
+# Triggers:
+# - workflow_run: after CI passes on main. Builds exactly the commit CI tested
+#   (workflow_run.head_sha, not whatever main points at by now) and pushes it.
+# - workflow_dispatch: a manual rebuild. Pushes only when run on main.
+# - pull_request: proves the image on every PR without pushing anything:
+#   builds both targets, runs the migrations and a health check from the built
+#   images, and scans them. workflow_run only ever fires from the default
+#   branch's copy of this file, so without this a broken Dockerfile or
+#   workflow would first show up after merge. Jobs added here later that must
+#   not run on PRs (deploy) need their own `if`.
+#
+# Build args: NEXT_PUBLIC_* and the site URLs are inlined by `next build`, so
+# they are fixed per image. They come from repository-level Actions variables
+# (Settings > Secrets and variables > Actions > Variables), not from the
+# `production` Environment: a job that names an Environment waits for that
+# Environment's required reviewers, which would put an approval in front of
+# every image build and block PR builds entirely. They are public values, so
+# variables, never secrets. Unset, each falls back to today's production
+# value:
+#   NEXT_PUBLIC_BASE_URL           default https://galang.fundforindonesia.org
+#   NEXTAUTH_URL                   default https://galang.fundforindonesia.org
+#   NEXT_PUBLIC_DONATIONS_ENABLED  default false
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  # PR runs are superseded by newer pushes. On main a running build is never
+  # cancelled half-way; GitHub keeps at most one pending run behind it and
+  # drops older pending ones, which is fine because only the newest commit
+  # matters (and the gate step keeps :latest from moving backwards).
+  group: cd-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/andrianm28/fundforindonesia.org
+  # The commit CI tested on workflow_run; the triggering commit otherwise.
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  PUSH: ${{ github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
+
+jobs:
+  image:
+    name: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # A workflow_run fires for every completed CI run on a branch named main,
+    # including failed runs and a fork's PR from its own "main". Only a green
+    # push to this repository's main may publish.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    permissions:
+      contents: read
+      actions: read # the gate step checks CI's result for a dispatched commit
+      packages: write # push to GHCR
+      id-token: write # sign the provenance attestation
+      attestations: write # store the provenance attestation
+    outputs:
+      sha: ${{ env.SHA }}
+      app-digest: ${{ steps.push-app.outputs.digest }}
+      migrate-digest: ${{ steps.push-migrate.outputs.digest }}
+    services:
+      # A throwaway database, only for the smoke run of the built images.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SMOKE_DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+    steps:
+      # The runner's free disk does not hold the app image twice over (buildx
+      # cache, the loaded image, and Trivy's export of it): the first PR run
+      # died with "no space left on device" in the scan. These preinstalled
+      # SDKs are unused here and free well over 10 GB.
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SHA }}
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # workflow_run is already gated on green CI by the job's `if`; a manual
+      # dispatch is not, so it must find a green CI push run for the commit.
+      # And since CI runs can finish out of commit order, :latest only moves
+      # to the commit that is main's head right now.
+      - name: Gate, publish only CI-passed commits; latest only for main's head
+        id: gate
+        if: env.PUSH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            passed="$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$SHA" \
+              --event push --status success --json databaseId --jq length)"
+            if [ "$passed" = 0 ]; then
+              echo "::error::CI has not passed on $SHA; refusing to publish it"
+              exit 1
+            fi
+          fi
+          head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [ "$head" = "$SHA" ]; then
+            echo "latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::main has moved on to $head; pushing :$SHA without moving :latest"
+          fi
+
+      - name: Image tags and OCI labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ env.SHA }}
+            type=raw,value=latest,enable=${{ steps.gate.outputs.latest == 'true' }}
+          # The default revision label is github.sha, which on workflow_run is
+          # main's head rather than the tested commit. (`context: git` would
+          # read the checkout, but refuses a detached HEAD.)
+          labels: |
+            org.opencontainers.image.revision=${{ env.SHA }}
+
+      # Build both targets into the local Docker engine first, so they can be
+      # smoke-run and scanned before anything is pushed: :latest never moves
+      # to an image that failed either check. The push steps below repeat the
+      # same builds in the same buildx builder, whose local cache still holds
+      # every layer from these ones (independent of the GHA cache export), so
+      # they push the layers that were tested and scanned.
+      - name: Build the app image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runner
+          load: true
+          push: false
+          provenance: false
+          tags: local/app:candidate
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: &build-args |
+            NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'https://galang.fundforindonesia.org' }}
+            NEXTAUTH_URL=${{ vars.NEXTAUTH_URL || 'https://galang.fundforindonesia.org' }}
+            NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.NEXT_PUBLIC_DONATIONS_ENABLED || 'false' }}
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+
+      - name: Build the migrate image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: migrate
+          load: true
+          push: false
+          provenance: false
+          tags: local/migrate:candidate
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=migrate
+          cache-to: type=gha,mode=max,scope=migrate
+
+      - name: Smoke test, migrate an empty database with the migrate image
+        run: docker run --rm --network host -e DATABASE_URL="$SMOKE_DATABASE_URL" local/migrate:candidate
+
+      - name: Smoke test, the app image serves /api/health against it
+        run: |
+          docker run -d --name app --network host \
+            -e DATABASE_URL="$SMOKE_DATABASE_URL" \
+            -e NEXTAUTH_SECRET=ci-placeholder-not-a-secret \
+            -e NEXTAUTH_URL=http://localhost:3000 \
+            -e MOCK_MIDTRANS_SERVER_KEY=ci-placeholder-not-a-secret \
+            local/app:candidate
+          for _ in $(seq 1 30); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health)" = 200 ]; then
+              echo "healthy"; docker rm -f app >/dev/null; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::the app image never answered 200 on /api/health"
+          docker logs app
+          exit 1
+
+      - name: Scan the app image (fail on CRITICAL, fixable vulns and secrets)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: local/app:candidate
+          scanners: vuln,secret
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Scan the migrate image (fail on CRITICAL, fixable vulns and secrets)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: local/migrate:candidate
+          scanners: vuln,secret
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          # The first scan already installed trivy and fetched its database.
+          skip-setup-trivy: true
+
+      - name: Log in to GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the app image
+        id: push-app
+        if: env.PUSH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runner
+          push: true
+          # Buildx's own SLSA provenance, stored with the image in GHCR. It
+          # works on this private user-owned repository, unlike the GitHub
+          # attestation below. It records the build args, which are public.
+          provenance: mode=max
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: *build-args
+          cache-from: type=gha,scope=app
+
+      - name: Push the migrate image
+        id: push-migrate
+        if: env.PUSH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: migrate
+          push: true
+          provenance: mode=max
+          tags: ${{ env.IMAGE }}:${{ env.SHA }}-migrate
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=migrate
+
+      # GitHub artifact attestations need a public repository (or GitHub
+      # Enterprise Cloud); on a private user-owned repository the API refuses
+      # them. So they run once the repository is public, and until then the
+      # buildx provenance above is the attestation.
+      - name: Attest the app image
+        if: env.PUSH == 'true' && !github.event.repository.private
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push-app.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Attest the migrate image
+        if: env.PUSH == 'true' && !github.event.repository.private
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push-migrate.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Summary
+        if: env.PUSH == 'true'
+        env:
+          APP_DIGEST: ${{ steps.push-app.outputs.digest }}
+          MIGRATE_DIGEST: ${{ steps.push-migrate.outputs.digest }}
+        run: |
+          {
+            echo "### Pushed ${IMAGE}"
+            echo "| | tag | digest |"
+            echo "|---|---|---|"
+            echo "| app | \`${SHA}\`, \`latest\` | \`${APP_DIGEST}\` |"
+            echo "| migrate | \`${SHA}-migrate\` | \`${MIGRATE_DIGEST}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
