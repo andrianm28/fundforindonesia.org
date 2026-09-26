@@ -150,7 +150,7 @@ function matches(row: object, where: Where): boolean {
       }
       if (list && !list.includes(fields[key])) return false;
       if (notIn && notIn.includes(fields[key])) return false;
-      if (lte && !((fields[key] as Date).getTime() <= lte.getTime())) return false;
+      if (lte && !(fields[key] instanceof Date && fields[key].getTime() <= lte.getTime())) return false;
       return true;
     }
     return fields[key] === filter;

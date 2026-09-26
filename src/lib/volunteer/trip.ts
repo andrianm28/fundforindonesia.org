@@ -35,7 +35,7 @@ import {
   TripNotSubmittedError,
   TripNotTakingRegistrationsError,
 } from '@/lib/volunteer-trip-errors';
-import { tripFeeRefund } from './refunds';
+import { tripFeeRefund, type TripFeeRefundCase } from './refunds';
 
 /**
  * The Volunteer Trip operations module: the one place a Volunteer Trip's,
@@ -469,15 +469,9 @@ export async function cancelBatch(prisma: PrismaClient, params: BatchOperation):
     const refunds: BatchCancelRefund[] = [];
     for (const registration of paid) {
       const payment = paymentOfConfirmed(registration);
-      const { amount, reason } = tripFeeRefund({ batch, payment }, 'batch cancel', now);
-      const refund = await createRefund(tx, {
-        subject: { type: 'trip', tripId: trip.id },
-        paymentId: payment.id,
-        amount,
-        reason,
-        requestedById: actor.userId,
-      });
-      refunds.push({ registrationId: registration.id, refundId: refund.id, amount: refund.amount });
+      const refund = await refundTripFee(tx, trip, { batch, payment }, 'batch cancel', actor.userId, now);
+      // A full Refund of a settled Trip Fee is never zero.
+      if (refund) refunds.push({ registrationId: registration.id, refundId: refund.id, amount: refund.amount });
     }
     return { batch: cancelled, refunds };
   });
@@ -500,7 +494,7 @@ const LIVE_REGISTRATION_STATUSES: RegistrationStatus[] = [RegistrationStatus.HOL
  * payout request (src/lib/money/escrow.ts). The Payment of an expired hold
  * is left alone: a late settlement of it is the webhook's business.
  */
-async function expireRegistrationHolds(tx: Tx, batchId: string, now: Date): Promise<void> {
+async function expireLapsedHolds(tx: Tx, batchId: string, now: Date): Promise<void> {
   await tx.registration.updateMany({
     where: { batchId, status: RegistrationStatus.HOLD, holdExpiresAt: { lte: now } },
     data: { status: RegistrationStatus.EXPIRED },
@@ -531,14 +525,16 @@ export async function holdRegistration(
   const { tripId, batchId, volunteerId, now = new Date() } = params;
   return prisma.$transaction(async (tx: Tx) => {
     const trip = await lockTrip(tx, tripId, now);
+    // Judged in the order the hold route always answered: which Batch,
+    // then the Batch's status, then the Trip's, then the deadline.
+    const batch = await lockBatch(tx, trip, batchId);
+    if (batch.status !== VolunteerBatchStatus.OPEN) throw new BatchNotTakingRegistrationsError(batch.status);
     if (trip.effectiveStatus !== VolunteerTripStatus.ACTIVE) {
       throw new TripNotTakingRegistrationsError(trip.effectiveStatus);
     }
-    const batch = await lockBatch(tx, trip, batchId);
-    if (batch.status !== VolunteerBatchStatus.OPEN) throw new BatchNotTakingRegistrationsError(batch.status);
     if (batch.registrationDeadline <= now) throw new RegistrationDeadlinePassedError();
 
-    await expireRegistrationHolds(tx, batch.id, now);
+    await expireLapsedHolds(tx, batch.id, now);
     const occupied = await tx.registration.count({
       where: { batchId: batch.id, status: { in: LIVE_REGISTRATION_STATUSES } },
     });
@@ -616,6 +612,32 @@ function paymentOfConfirmed(registration: { id: string; payment: Payment | null 
   return registration.payment;
 }
 
+/**
+ * Refund a paid Registration's Trip Fee by the Trip Fee Refund policy's
+ * `refundCase`: a REQUESTED Refund, frozen at once, of the amount and
+ * reason the policy decides, or none when it owes nothing. Takes the
+ * Payment lock (4) inside `createRefund`, after re-entering the Trip lock
+ * already held.
+ */
+async function refundTripFee(
+  tx: Tx,
+  trip: LockedTrip,
+  paid: { batch: VolunteerBatch; payment: Payment },
+  refundCase: TripFeeRefundCase,
+  requestedById: string,
+  now: Date,
+): Promise<Refund | null> {
+  const { amount, reason } = tripFeeRefund(paid, refundCase, now);
+  if (amount === 0) return null;
+  return createRefund(tx, {
+    subject: { type: 'trip', tripId: trip.id },
+    paymentId: paid.payment.id,
+    amount,
+    reason,
+    requestedById,
+  });
+}
+
 const NOT_OWN_REGISTRATION = 'Hanya Volunteer pemilik Registrasi ini yang dapat membatalkannya.';
 
 export type CancelRegistrationResult = { registration: Registration; refund: Refund | null };
@@ -655,16 +677,8 @@ export async function cancelRegistration(
     );
     if (current === RegistrationStatus.HOLD) return { registration: cancelled, refund: null };
 
-    const payment = paymentOfConfirmed(registration);
-    const { amount, reason } = tripFeeRefund({ batch: registration.batch, payment }, 'volunteer cancel', now);
-    if (amount === 0) return { registration: cancelled, refund: null };
-    const refund = await createRefund(tx, {
-      subject: { type: 'trip', tripId: trip.id },
-      paymentId: payment.id,
-      amount,
-      reason,
-      requestedById: actor.userId,
-    });
+    const paid = { batch: registration.batch, payment: paymentOfConfirmed(registration) };
+    const refund = await refundTripFee(tx, trip, paid, 'volunteer cancel', actor.userId, now);
     return { registration: cancelled, refund };
   });
 }
@@ -733,15 +747,8 @@ export async function refundLateSettlement(
   return prisma.$transaction(async (tx: Tx) => {
     const { trip, registration } = await lockRegistration(tx, registrationId, now);
     if (registration.status !== RegistrationStatus.CANCELLED || !registration.payment) return { refund: null };
-    const { payment } = registration;
-    const { amount, reason } = tripFeeRefund({ batch: registration.batch, payment }, 'late settlement', now);
-    const refund = await createRefund(tx, {
-      subject: { type: 'trip', tripId: trip.id },
-      paymentId: payment.id,
-      amount,
-      reason,
-      requestedById: registration.volunteerId,
-    });
+    const { batch, payment } = registration;
+    const refund = await refundTripFee(tx, trip, { batch, payment }, 'late settlement', registration.volunteerId, now);
     return { refund };
   });
 }

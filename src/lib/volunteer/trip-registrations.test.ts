@@ -95,6 +95,19 @@ describe('holdRegistration', () => {
     expect(db.registrations).toHaveLength(before);
   });
 
+  it('judges the Batch before the Trip, as the hold route always answered', async () => {
+    const db = makeTripDb({ trips: [tripRow({ status: 'SUSPENDED' })], batches: [batchRow({ tripId: 'trip-2' })] });
+
+    const error = await holdRegistration(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      volunteerId: 'volunteer-9',
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(domainErrorToHttp(error)).toMatchObject({ status: 404, body: { code: 'BATCH_NOT_FOUND' } });
+  });
+
   it('refuses the last seat to a hold that waited on the lock while another hold took it', async () => {
     const db = openTrip([], batchRow({ maxQuota: 1 }));
     db.beforeNextRowLock((data) => {
