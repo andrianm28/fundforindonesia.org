@@ -17,7 +17,7 @@ function getStyleValue(value?: string | number): string | undefined {
 
 /**
  * Skeleton component for loading placeholder states.
- * Supports shimmer animation matching kitabisa.com's loading UX.
+ * Supports shimmer animation for loading UX.
  */
 export function Skeleton({
   variant,

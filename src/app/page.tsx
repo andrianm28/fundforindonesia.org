@@ -182,7 +182,7 @@ export default async function HomePage() {
         <UrgentCampaigns campaigns={urgentCards} isLoading={false} />
       )}
 
-      {/* New Campaigns - "Yang Baru di Kitabisa" */}
+      {/* New Campaigns - "Yang Baru" */}
       {newCards.length > 0 && (
         <section className="px-4 py-4">
           <h2 className="text-lg font-bold text-text mb-3">
@@ -196,7 +196,7 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* Featured Campaigns - "Pilihan Kitabisa" */}
+      {/* Featured Campaigns - "Pilihan Terbaik" */}
       {featuredCards.length > 0 && (
         <section className="px-4 py-4">
           <h2 className="text-lg font-bold text-text mb-3">

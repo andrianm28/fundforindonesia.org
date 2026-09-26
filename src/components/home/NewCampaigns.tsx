@@ -11,7 +11,7 @@ export interface NewCampaignsProps {
 }
 
 /**
- * NewCampaigns — "Yang Baru di Kitabisa" section.
+ * NewCampaigns — "Yang Baru" section.
  *
  * Displays a horizontally scrollable list of new campaigns
  * using compact CampaignCard variant.

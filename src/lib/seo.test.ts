@@ -107,7 +107,7 @@ describe('generateStructuredData', () => {
     const data = {
       '@context': 'https://schema.org',
       '@type': 'Organization',
-      name: 'Kitabisa',
+      name: 'Fund for Indonesia',
       address: { streetAddress: 'Jakarta', country: 'ID' },
     };
     const result = generateStructuredData(data);
