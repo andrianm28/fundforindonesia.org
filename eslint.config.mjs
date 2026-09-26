@@ -9,7 +9,9 @@ import nextTypescript from 'eslint-config-next/typescript';
 // etc.) keep running, not just the parser/plugin registration.
 const eslintConfig = [
   {
-    ignores: ['src/generated/**'],
+    // .claude/worktrees holds agent checkouts in cloud sessions; linting them
+    // multiplies the count (and nested configs clash).
+    ignores: ['src/generated/**', '.claude/**'],
   },
   ...nextCoreWebVitals,
   ...nextTypescript,

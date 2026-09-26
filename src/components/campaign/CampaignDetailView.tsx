@@ -41,6 +41,9 @@ export interface CampaignDetailData {
    * points (CONTEXT.md, Platform Fee; prd-compliance 17) -- resolved
    * server-side per Campaign, then per Category, then per Kind default. */
   platformFeePercentBps: number;
+  /** The Escrow Hold length every new Payment freezes at creation
+   * (CONTEXT.md, Escrow Hold; prd-compliance 18). */
+  escrowHoldDays: number;
 }
 
 interface CampaignDetailViewProps {
@@ -241,6 +244,13 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
                 "ditampilkan terbuka di halaman Campaign") */}
             <p className="text-xs text-text-secondary">
               Platform Fee: <span className="font-medium text-text">{formatFeePercent(campaign.platformFeePercentBps)}</span>
+            </p>
+
+            {/* Escrow Hold length every new Payment freezes at creation
+                (prd-compliance 18, CONTEXT.md: "ditampilkan di halaman
+                Campaign") */}
+            <p className="text-xs text-text-secondary">
+              Masa tahan dana: <span className="font-medium text-text">{campaign.escrowHoldDays} hari</span>
             </p>
           </div>
         </div>

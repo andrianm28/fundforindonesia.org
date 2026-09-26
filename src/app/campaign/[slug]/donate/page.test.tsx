@@ -22,6 +22,10 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ back: vi.fn(), push: vi.fn() }),
 }));
 
+vi.mock('next-auth/react', () => ({
+  useSession: () => ({ status: 'unauthenticated' }),
+}));
+
 vi.mock('@/components/donation/DonationAmountSelector', () => ({
   DonationAmountSelector: () => <div data-testid="amount-selector" />,
 }));

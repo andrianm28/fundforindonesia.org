@@ -63,15 +63,32 @@ describe('DonationConfirmation', () => {
     expect(screen.getByText('BCA Virtual Account')).toBeInTheDocument();
   });
 
-  it('displays formatted fee', () => {
+  // Gross (CONTEXT.md): "Nominal yang dibayar Donor untuk satu Payment...
+  // sama dengan nominal Donation, karena tidak ada tambahan apa pun di
+  // atasnya." A per-method "Biaya Layanan" added to a "Total" told the donor
+  // they would pay amount + fee, which is exactly the addition Gross rules
+  // out -- it never reflected what the API actually charged (spot-check:
+  // src/app/campaign/[slug]/donate/page.tsx's own paymentMethods always set
+  // fee: 0, with a comment explaining why). The donor is never shown a
+  // second, larger number to pay.
+  it('never shows a total larger than the donation amount, whatever paymentMethod.fee says', () => {
     render(<DonationConfirmation {...defaultProps} />);
-    expect(screen.getByText('Rp2.500')).toBeInTheDocument();
+    expect(screen.queryByText('Rp52.500')).toBeNull();
+    expect(screen.queryByText(/Biaya Layanan/)).toBeNull();
+    expect(screen.queryByText('Total')).toBeNull();
   });
 
-  it('displays formatted total (amount + fee)', () => {
+  // Provider Fee (CONTEXT.md): "dibaca dari payload penyedia dan ditanggung
+  // Campaign" -- real, but never known until Settlement, and never the
+  // Donor's to pay (Gross, above). Shown as a disclosure, not a number this
+  // screen would have to invent (prd-compliance 18, ADR 0007: the platform
+  // absorbs it on refund, so the Donor is never short either way).
+  it('discloses the Provider Fee as the Campaign’s cost, not the donor’s, before payment', () => {
     render(<DonationConfirmation {...defaultProps} />);
-    // 50000 + 2500 = 52500
-    expect(screen.getByText('Rp52.500')).toBeInTheDocument();
+    expect(screen.getByText(/Biaya Provider/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/ditanggung campaign.*tidak menambah nominal yang anda bayar/i),
+    ).toBeInTheDocument();
   });
 
   it('renders anonymous toggle checkbox', () => {

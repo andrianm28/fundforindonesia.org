@@ -16,6 +16,21 @@ export interface DonationConfirmationProps {
   onAnonymousToggle: (value: boolean) => void;
   onConfirm: () => void;
   isSubmitting: boolean;
+  /**
+   * Shown only for a Guest Donor (no session): email required, name and
+   * phone optional, kept only for Receipt (CONTEXT.md, Guest Donor;
+   * prd-compliance 18). Omitted entirely for a signed-in Donor, whose
+   * contact details already exist on their account.
+   */
+  guestContact?: {
+    email: string;
+    name: string;
+    phone: string;
+    onEmailChange: (value: string) => void;
+    onNameChange: (value: string) => void;
+    onPhoneChange: (value: string) => void;
+    error?: string;
+  };
 }
 
 const PRAYER_MAX_LENGTH = 500;
@@ -30,10 +45,8 @@ export function DonationConfirmation({
   onAnonymousToggle,
   onConfirm,
   isSubmitting,
+  guestContact,
 }: DonationConfirmationProps) {
-  const fee = paymentMethod.fee;
-  const total = amount + fee;
-
   const handlePrayerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     if (value.length <= PRAYER_MAX_LENGTH) {
@@ -71,21 +84,80 @@ export function DonationConfirmation({
             </span>
           </div>
 
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-text-secondary">Biaya Layanan</span>
-            <span className="text-sm font-medium text-text">
-              {formatRupiah(fee)}
-            </span>
-          </div>
-
-          <div className="border-t border-gray-200 pt-2 flex justify-between items-center">
-            <span className="text-sm font-semibold text-text">Total</span>
-            <span className="text-base font-bold text-primary">
-              {formatRupiah(total)}
+          {/* Provider Fee (CONTEXT.md, Provider Fee; prd-compliance 18): a
+              real cost the payment provider deducts, but never known until
+              Settlement (it "dibaca dari payload penyedia") and never the
+              Donor's to pay -- it is "ditanggung Campaign", matching Gross
+              (CONTEXT.md): what the Donor pays is exactly the Nominal Donasi
+              above, with nothing added on top. A per-method fee used to be
+              added to a "Total" shown here, which claimed the opposite; that
+              total is gone; this disclosure replaces it. */}
+          <div className="border-t border-gray-200 pt-2 flex justify-between items-start gap-3">
+            <span className="text-sm text-text-secondary">Biaya Provider</span>
+            <span className="text-xs text-text-secondary text-right max-w-[65%]">
+              Ditanggung campaign, tidak menambah nominal yang Anda bayar
             </span>
           </div>
         </div>
       </div>
+
+      {/* Guest Donor contact details (CONTEXT.md, Guest Donor; prd-compliance
+          18): shown only when there is no session. Email is required for a
+          Receipt; name and phone are optional. */}
+      {guestContact && (
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <label htmlFor="guest-email" className="text-sm font-medium text-text">
+              Email <span className="text-danger">*</span>
+            </label>
+            <input
+              id="guest-email"
+              type="email"
+              required
+              value={guestContact.email}
+              onChange={(e) => guestContact.onEmailChange(e.target.value)}
+              placeholder="email@contoh.com"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              aria-invalid={!!guestContact.error}
+              aria-describedby={guestContact.error ? 'guest-email-error' : undefined}
+            />
+            {guestContact.error && (
+              <p id="guest-email-error" className="text-xs text-danger" role="alert">
+                {guestContact.error}
+              </p>
+            )}
+            <p className="text-xs text-text-secondary">Untuk mengirim bukti donasi (Receipt).</p>
+          </div>
+
+          <div className="space-y-1">
+            <label htmlFor="guest-name" className="text-sm font-medium text-text">
+              Nama (opsional)
+            </label>
+            <input
+              id="guest-name"
+              type="text"
+              value={guestContact.name}
+              onChange={(e) => guestContact.onNameChange(e.target.value)}
+              placeholder="Nama Anda"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label htmlFor="guest-phone" className="text-sm font-medium text-text">
+              Nomor telepon (opsional)
+            </label>
+            <input
+              id="guest-phone"
+              type="tel"
+              value={guestContact.phone}
+              onChange={(e) => guestContact.onPhoneChange(e.target.value)}
+              placeholder="08xxxxxxxxxx"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Anonymous Toggle */}
       <label className="flex items-center gap-3 cursor-pointer">

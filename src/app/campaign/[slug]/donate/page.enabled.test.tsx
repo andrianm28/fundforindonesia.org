@@ -22,6 +22,16 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ back: vi.fn(), push: mockPush }),
 }));
 
+// A signed-in Donor by default: none of the tests above are about the Guest
+// Donor contact requirement (prd-compliance 18), which has its own coverage
+// below, and DonationConfirmation is stubbed to a plain "confirm" button
+// that never fills in a guest email. mockSessionStatus lets the tests below
+// switch to a Guest Donor without a second mock module.
+let mockSessionStatus: 'authenticated' | 'unauthenticated' = 'authenticated';
+vi.mock('next-auth/react', () => ({
+  useSession: () => ({ status: mockSessionStatus }),
+}));
+
 // Stand-ins that expose the callbacks the page wires to them, so a test can
 // walk the four steps without depending on each child's markup.
 vi.mock('@/components/donation/DonationAmountSelector', () => ({
@@ -74,8 +84,24 @@ vi.mock('@/components/donation/PaymentMethodSelector', () => ({
 }));
 
 vi.mock('@/components/donation/DonationConfirmation', () => ({
-  DonationConfirmation: ({ onConfirm }: { onConfirm: () => void }) => (
-    <button onClick={onConfirm}>confirm</button>
+  DonationConfirmation: ({
+    onConfirm,
+    guestContact,
+  }: {
+    onConfirm: () => void;
+    guestContact?: { email: string; onEmailChange: (v: string) => void; error?: string };
+  }) => (
+    <div>
+      {guestContact && (
+        <input
+          aria-label="guest email"
+          value={guestContact.email}
+          onChange={(e) => guestContact.onEmailChange(e.target.value)}
+        />
+      )}
+      {guestContact?.error && <p role="alert">{guestContact.error}</p>}
+      <button onClick={onConfirm}>confirm</button>
+    </div>
   ),
 }));
 
@@ -111,6 +137,7 @@ let assignedUrl: string | null;
 
 beforeEach(() => {
   assignedUrl = null;
+  mockSessionStatus = 'authenticated';
   mockUseCampaignDetail.mockReturnValue({
     campaign: {
       id: 'campaign-1',
@@ -341,5 +368,52 @@ describe('DonatePage when the Campaign is not found', () => {
     render(<DonatePage />);
 
     expect(screen.getByText('Campaign tidak ditemukan atau terjadi kesalahan.')).toBeDefined();
+  });
+});
+
+// Guest Donor contact details (CONTEXT.md, Guest Donor; prd-compliance 18).
+describe('DonatePage Guest Donor contact requirement', () => {
+  beforeEach(() => {
+    mockSessionStatus = 'unauthenticated';
+  });
+
+  it('does not submit, and shows an error, when a guest confirms with no email', async () => {
+    await walkToConfirm();
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Email harus diisi untuk donasi tanpa akun');
+  });
+
+  it('sends the guest email once filled in', async () => {
+    render(<DonatePage />);
+    await act(async () => {
+      fireEvent.click(screen.getByText('pick amount'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('pick method'));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('guest email'), { target: { value: 'guest@example.com' } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('confirm'));
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/donations',
+      expect.objectContaining({
+        body: expect.stringContaining('"guestEmail":"guest@example.com"'),
+      }),
+    );
+  });
+
+  it('never sends guest fields for a signed-in Donor', async () => {
+    mockSessionStatus = 'authenticated';
+    await walkToConfirm();
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/donations',
+      expect.objectContaining({ body: expect.not.stringContaining('guestEmail') }),
+    );
   });
 });

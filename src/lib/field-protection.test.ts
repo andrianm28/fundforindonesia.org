@@ -13,7 +13,7 @@ const keys = loadFieldKeys({
 
 /** Runs one hooked operation and returns the args it forwarded to Prisma. */
 async function forwarded(
-  model: 'user' | 'bankAccount',
+  model: 'user' | 'bankAccount' | 'donation',
   operation: string,
   args: Record<string, unknown>,
   withKeys: FieldKeys | null = keys,
@@ -135,6 +135,67 @@ describe('BankAccount writes', () => {
         keyId: 'enc-test-1',
       }),
     ).toBe('1234567890');
+  });
+});
+
+describe('Donation writes (Guest Donor contact details, prd-compliance 18)', () => {
+  it('stores a Guest Donor email plaintext, its lookup HMAC and its ciphertext', async () => {
+    const { data } = await forwarded('donation', 'create', {
+      data: {
+        amount: 50000,
+        campaignId: 'c1',
+        paymentMethod: 'qris',
+        guestEmail: 'Guest@Email.com',
+        guestName: 'Tamu Baik',
+      },
+    });
+
+    expect(data.guestEmail).toBe('Guest@Email.com');
+    expect(data.guestName).toBe('Tamu Baik');
+    expect(data).toMatchObject({
+      guestEmailHmac: keys.emailLookup('guest@email.com').hmac,
+      guestEmailHmacKeyId: 'hmac-test-1',
+      guestEmailKeyId: 'enc-test-1',
+    });
+    expect(
+      keys.decrypt('Donation.guestEmail', {
+        ciphertext: data.guestEmailCiphertext as string,
+        keyId: data.guestEmailKeyId as string,
+      }),
+    ).toBe('Guest@Email.com');
+  });
+
+  it('leaves guestName plaintext and adds nothing for it', async () => {
+    const { data } = await forwarded('donation', 'create', {
+      data: { amount: 50000, campaignId: 'c1', paymentMethod: 'qris', guestName: 'Tamu Baik' },
+    });
+
+    expect(data.guestName).toBe('Tamu Baik');
+    expect(Object.keys(data).filter((k) => k.startsWith('guestName'))).toEqual(['guestName']);
+  });
+
+  it('encrypts a Guest Donor phone number, and leaves it absent when none is given', async () => {
+    const { data } = await forwarded('donation', 'create', {
+      data: { amount: 50000, campaignId: 'c1', paymentMethod: 'qris', guestPhone: '081200000000' },
+    });
+
+    expect(data.guestPhone).toBe('081200000000');
+    expect(
+      keys.decrypt('Donation.guestPhone', {
+        ciphertext: data.guestPhoneCiphertext as string,
+        keyId: data.guestPhoneKeyId as string,
+      }),
+    ).toBe('081200000000');
+
+    const { data: withoutPhone } = await forwarded('donation', 'create', {
+      data: { amount: 50000, campaignId: 'c1', paymentMethod: 'qris' },
+    });
+    expect(withoutPhone.guestPhoneCiphertext).toBeUndefined();
+  });
+
+  it('leaves a registered Donor donation (no guest fields) untouched', async () => {
+    const args = { data: { amount: 50000, campaignId: 'c1', paymentMethod: 'qris', donorId: 'u1' } };
+    expect(await forwarded('donation', 'create', structuredClone(args))).toEqual(args);
   });
 });
 

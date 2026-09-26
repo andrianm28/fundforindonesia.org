@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCampaignDetail } from '@/lib/hooks/useCampaignDetail';
 import { DonationAmountSelector } from '@/components/donation/DonationAmountSelector';
@@ -39,6 +40,8 @@ export default function DonatePage() {
   const slug = typeof params.slug === 'string' ? params.slug : '';
 
   const { campaign, isLoading, error, notFound } = useCampaignDetail(slug);
+  const { status: sessionStatus } = useSession();
+  const isGuest = sessionStatus !== 'authenticated';
 
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
@@ -47,9 +50,22 @@ export default function DonatePage() {
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // A Guest Donor's contact details (CONTEXT.md, Guest Donor;
+  // prd-compliance 18): email required, name and phone optional. Unused and
+  // never sent for a signed-in Donor.
+  const [guestEmail, setGuestEmail] = useState('');
+  const [guestName, setGuestName] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
+  const [guestEmailError, setGuestEmailError] = useState<string | null>(null);
 
   const handleConfirm = async () => {
     if (!campaign || !selectedAmount || !selectedPaymentMethod) return;
+
+    if (isGuest && !guestEmail.trim()) {
+      setGuestEmailError('Email harus diisi untuk donasi tanpa akun');
+      return;
+    }
+    setGuestEmailError(null);
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -67,6 +83,11 @@ export default function DonatePage() {
           paymentMethod: selectedPaymentMethod.type,
           message: prayer || undefined,
           isAnonymous,
+          ...(isGuest && {
+            guestEmail: guestEmail.trim(),
+            guestName: guestName.trim() || undefined,
+            guestPhone: guestPhone.trim() || undefined,
+          }),
         }),
       });
 
@@ -319,6 +340,22 @@ export default function DonatePage() {
               onAnonymousToggle={setIsAnonymous}
               onConfirm={handleConfirm}
               isSubmitting={isSubmitting}
+              guestContact={
+                isGuest
+                  ? {
+                      email: guestEmail,
+                      name: guestName,
+                      phone: guestPhone,
+                      onEmailChange: (value) => {
+                        setGuestEmail(value);
+                        if (guestEmailError) setGuestEmailError(null);
+                      },
+                      onNameChange: setGuestName,
+                      onPhoneChange: setGuestPhone,
+                      error: guestEmailError ?? undefined,
+                    }
+                  : undefined
+              }
             />
             {submitError && (
               <p className="text-sm text-danger text-center" role="alert">

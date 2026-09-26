@@ -43,6 +43,12 @@ export async function GET(
               name: true,
             },
           },
+          // A Guest Donor (CONTEXT.md, Guest Donor) has no `donor` relation
+          // at all, so without this every guest showed as "Anonim" here
+          // whether or not they actually chose anonymity (prd-compliance
+          // 18). guestEmail/guestPhone are never selected: this list is
+          // public, and a name is the only guest detail meant to be shown.
+          guestName: true,
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -51,11 +57,14 @@ export async function GET(
       prisma.donation.count({ where }),
     ]);
 
-    // Map donations to include donor name or "Anonim"
+    // Map donations to include donor name or "Anonim". A registered Donor's
+    // name comes from `donor`; a Guest Donor's (no account, so no `donor`
+    // relation at all) comes from `guestName` instead -- both hidden alike
+    // behind isAnonymous.
     const mappedDonations = donations.map((donation) => ({
       id: donation.id,
       amount: donation.amount,
-      donorName: donation.isAnonymous ? 'Anonim' : (donation.donor?.name || 'Anonim'),
+      donorName: donation.isAnonymous ? 'Anonim' : (donation.donor?.name || donation.guestName || 'Anonim'),
       message: donation.message,
       createdAt: donation.createdAt,
     }));

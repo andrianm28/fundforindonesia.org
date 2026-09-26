@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { PaymentStatus } from '@/generated/prisma/client';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
-import type { PaymentMethod } from '@/lib/payments';
 import {
   donationsEnabled,
   sandboxInProductionReason,
@@ -13,37 +11,29 @@ import {
 import { campaignAcceptsDonations, donationBlock, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
-import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
-import { computePlatformFee } from '@/lib/money/platform-fee';
+import { chargeDonation } from '@/lib/money/donation-charge';
+import { VALID_PAYMENT_METHODS, PROVIDER_METHOD_FOR } from '@/lib/money/payment-method-map';
 
-const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris', 'ewallet', 'credit_card'] as const;
-
-/**
- * What each donor-facing choice means to a provider.
- *
- * `ewallet` and `credit_card` stay in the enum because the frontend contract
- * depends on them, and map to nothing: no adapter implements either, and
- * inventing payment instructions for a method nobody can pay through is the
- * habit this money layer exists to end.
- */
-const PROVIDER_METHOD_FOR: Record<
-  (typeof VALID_PAYMENT_METHODS)[number],
-  PaymentMethod | null
-> = {
-  bank_transfer: 'bank_transfer_va',
-  qris: 'qris_redirect',
-  ewallet: null,
-  credit_card: null,
-};
+/** CONTEXT.md, "Minimum Rp20.000, dengan nominal cepat dan nominal bebas" (prd-compliance 18). */
+const MIN_DONATION_AMOUNT = 20_000;
 
 const createDonationSchema = z.object({
   campaignId: z.string().min(1, "Campaign ID harus diisi"),
-  amount: z.number().int().min(1000, "Minimum donasi Rp1.000"),
+  amount: z.number().int().min(MIN_DONATION_AMOUNT, "Minimum donasi Rp20.000"),
   paymentMethod: z.enum(VALID_PAYMENT_METHODS, {
     error: "Metode pembayaran tidak valid. Pilih: bank_transfer, qris, ewallet, atau credit_card",
   }),
   message: z.string().max(500, "Pesan maksimal 500 karakter").optional(),
   isAnonymous: z.boolean().optional().default(false),
+  // A Guest Donor (CONTEXT.md, Guest Donor): email required, name and phone
+  // optional, kept only for Receipt. Not required at all for a signed-in
+  // Donor, whose email/name already exist on their account. Validated here
+  // as a shape only -- the "required when there is no session" rule cannot
+  // be expressed in this schema, because whether there IS a session is not
+  // known until after the session is read below, so it is enforced there.
+  guestEmail: z.string().trim().email("Email tidak valid").optional(),
+  guestName: z.string().trim().min(1).max(100, "Nama maksimal 100 karakter").optional(),
+  guestPhone: z.string().trim().min(1).max(20, "Nomor telepon maksimal 20 karakter").optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -76,7 +66,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { campaignId, amount, paymentMethod, message, isAnonymous } = result.data;
+    const { campaignId, amount, paymentMethod, message, isAnonymous, guestEmail, guestName, guestPhone } =
+      result.data;
 
     // 2. Verify campaign exists and is active
     const campaign = await prisma.campaign.findUnique({
@@ -136,9 +127,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Get session (optional -- donorId can be null for anonymous guests)
+    // 3. Get session (optional -- donorId can be null for a Guest Donor)
     const session = await getServerSession();
     const donorId = session?.user?.id || null;
+
+    // A Guest Donor must leave an email -- the minimum data needed for a
+    // Receipt (CONTEXT.md, Guest Donor). A signed-in Donor's email already
+    // lives on their account, so this is refused only when there is no
+    // session at all, before anything is written.
+    if (!donorId && !guestEmail) {
+      return NextResponse.json(
+        { error: 'Email harus diisi untuk donasi tanpa akun', fieldErrors: { guestEmail: ['Email harus diisi'] } },
+        { status: 400 },
+      );
+    }
 
     // 4. Build the provider before touching the database. If it is not
     // configured, nothing has been written yet -- there is no half-created
@@ -160,7 +162,10 @@ export async function POST(request: NextRequest) {
     // anything is written and before a charge exists anywhere. Checking
     // afterwards would leave an abandoned charge at the provider -- a live
     // payment link a donor could still find and pay into, with nothing on
-    // this side expecting the money.
+    // this side expecting the money. chargeDonation repeats this same check
+    // right before it charges, as defense in depth against a future caller
+    // that skips this one -- but that check runs after the Donation row
+    // already exists, so it alone is not enough here.
     const wantedMethod = PROVIDER_METHOD_FOR[paymentMethod];
     if (wantedMethod === null || wantedMethod !== provider.method) {
       return NextResponse.json(
@@ -195,75 +200,45 @@ export async function POST(request: NextRequest) {
         message: message || null,
         campaignId,
         donorId,
+        // A signed-in Donor's contact details live on their User row; a
+        // Guest Donor's live here instead, protected the same way
+        // (src/lib/field-protection.ts, ADR 0012).
+        ...(donorId
+          ? {}
+          : { guestEmail, guestName: guestName || null, guestPhone: guestPhone || null }),
       },
     });
 
     // The donation id IS the provider's order id -- the webhook gets only an
     // order id back and finds this Payment by providerRef, so the two must be
     // the same value from the start.
-    let charge;
-    try {
-      charge = await provider.createCharge({
-        orderId: donation.id,
-        grossAmount: amount,
-        currency: 'IDR',
-      });
-    } catch (err) {
+    const charged = await chargeDonation({
+      db: prisma,
+      provider,
+      campaign,
+      donationId: donation.id,
+      amount,
+      orderId: donation.id,
+      paymentMethod: wantedMethod,
+    });
+
+    if (!charged.ok) {
       // The Donation is already committed. Left at 'pending' it would sit in
       // the donor's history as an unfinished payment they can neither
       // complete nor understand, so it is closed out here.
-      console.error(`[donations] charge failed for donation ${donation.id}:`, err);
+      console.error(`[donations] charge failed for donation ${donation.id}: ${charged.reason}`);
       await prisma.donation.update({
         where: { id: donation.id },
         data: { paymentStatus: 'failed' },
       });
-      return NextResponse.json(
-        { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
-        { status: 503 }
-      );
+      const errorMessage =
+        charged.reason === 'method_unavailable'
+          ? 'Metode pembayaran ini belum tersedia. Silakan pilih metode lain.'
+          : 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.';
+      return NextResponse.json({ error: errorMessage }, { status: 503 });
     }
 
-    // Narrowed against what the provider declared, not cast. A provider
-    // answering with a shape this route did not prepare for must fail loudly
-    // rather than write a Payment with no way to pay it.
-    if (charge.method !== provider.method) {
-      console.error(
-        `[donations] provider ${provider.name} declared ${provider.method} but charged ${charge.method} for donation ${donation.id}`,
-      );
-      await prisma.donation.update({
-        where: { id: donation.id },
-        data: { paymentStatus: 'failed' },
-      });
-      return NextResponse.json(
-        { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
-        { status: 503 }
-      );
-    }
-
-    // Resolved and frozen here, at creation -- never recomputed at
-    // Settlement (prd-compliance 17). Per Campaign, then per Category, then
-    // per Kind default, first match wins; waived below the Admin-set
-    // threshold; rounded DOWN so the remainder falls to the Campaign, never
-    // the platform. A later change to the rate cannot alter what this
-    // Payment already promised the Donor (CONTEXT.md, Platform Fee).
-    const { percentBps, thresholdAmount } = await resolvePlatformFeeBasisForCampaign(prisma, campaign);
-    const platformFee = computePlatformFee({ grossAmount: amount, percentBps, thresholdAmount });
-
-    await prisma.payment.create({
-      data: {
-        donationId: donation.id,
-        // The provider that actually issued this charge. Hardcoding one name
-        // made every Payment claim the same origin, which makes per-provider
-        // reconciliation compare the wrong rows.
-        provider: provider.name,
-        method: charge.method,
-        providerRef: donation.id,
-        amount,
-        platformFee,
-        status: PaymentStatus.PENDING,
-        expiresAt: charge.expiresAt,
-      },
-    });
+    const charge = charged.charge;
 
     // 7. If message is provided, create a Prayer record linked to the donation
     if (message) {

@@ -2,8 +2,8 @@ import type { PrismaClient } from '@/generated/prisma/client';
 import { loadFieldKeys, type FieldKeys } from './field-encryption';
 
 /**
- * Makes every User and BankAccount write carry the protected forms of the
- * contact details next to the plaintext, as ADR 0012 lays out:
+ * Makes every User, BankAccount and Donation write carry the protected forms
+ * of the contact details next to the plaintext, as ADR 0012 lays out:
  *
  * - `email` also gets `emailHmac` (searchable, keyed HMAC of the normalized
  *   address) and `emailCiphertext` (randomized AES-256-GCM), each with a key id.
@@ -11,6 +11,9 @@ import { loadFieldKeys, type FieldKeys } from './field-encryption';
  *   key id. They are never searched, so they get no HMAC.
  * - `name` and `BankAccount.accountName` stay plaintext by decision: names are
  *   shown publicly and Refund compares the holder name.
+ * - `Donation.guestEmail`/`guestPhone` (a Guest Donor's contact details,
+ *   CONTEXT.md Guest Donor; prd-compliance 18) follow the same rules as
+ *   `email`/`phone` above; `guestName` stays plaintext like `name`.
  *
  * This is the expand step: the plaintext is still written and still read.
  * Hooking the client rather than each route means the Auth.js adapter's
@@ -58,10 +61,12 @@ type ModelHooks = Record<(typeof DATA_OPERATIONS)[number] | 'upsert', Hook>;
 export function contactFieldWrites(keys: FieldKeys | null): {
   user: ModelHooks;
   bankAccount: ModelHooks;
+  donation: ModelHooks;
 } {
   return {
     user: hooksFor(keys ? (data) => protectUser(keys, data) : null),
     bankAccount: hooksFor(keys ? (data) => protectBankAccount(keys, data) : null),
+    donation: hooksFor(keys ? (data) => protectDonation(keys, data) : null),
   };
 }
 
@@ -108,6 +113,28 @@ function protectBankAccount(keys: FieldKeys, data: Data): Data {
     ...data,
     ...seal(keys, 'BankAccount.accountNumber', 'accountNumber', scalarWrite(data.accountNumber)),
   };
+}
+
+/**
+ * A Guest Donor's contact details (CONTEXT.md, Guest Donor; prd-compliance
+ * 18): guestEmail gets the same searchable HMAC + ciphertext treatment as
+ * User.email, guestPhone the same ciphertext-only treatment as User.phone.
+ * guestName stays plaintext, same as User.name -- it is what a non-anonymous
+ * Donor's name shows as when there is no User account behind it.
+ */
+function protectDonation(keys: FieldKeys, data: Data): Data {
+  const out: Data = { ...data };
+
+  const guestEmail = scalarWrite(data.guestEmail);
+  if (typeof guestEmail === 'string') {
+    const lookup = keys.emailLookup(guestEmail);
+    out.guestEmailHmac = lookup.hmac;
+    out.guestEmailHmacKeyId = lookup.keyId;
+    Object.assign(out, seal(keys, 'Donation.guestEmail', 'guestEmail', guestEmail));
+  }
+
+  Object.assign(out, seal(keys, 'Donation.guestPhone', 'guestPhone', scalarWrite(data.guestPhone)));
+  return out;
 }
 
 /** The ciphertext and key id columns for a field; clears both when the field is cleared. */

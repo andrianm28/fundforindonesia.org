@@ -58,6 +58,15 @@ const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 /** Records the order in which the route touches the world. */
 let callOrder: string[];
 
+/** QRIS_BODY without its guestEmail, for the signed-in / no-email cases. */
+function withoutGuestEmail(): Omit<typeof QRIS_BODY, 'guestEmail'> {
+  const rest: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(QRIS_BODY)) {
+    if (key !== 'guestEmail') rest[key] = value;
+  }
+  return rest as Omit<typeof QRIS_BODY, 'guestEmail'>;
+}
+
 function createRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/donations', {
     method: 'POST',
@@ -71,6 +80,10 @@ const QRIS_BODY = {
   amount: 50_000,
   paymentMethod: 'qris',
   isAnonymous: false,
+  // A Guest Donor's minimum data for a Receipt (CONTEXT.md, Guest Donor;
+  // prd-compliance 18). mockGetServerSession resolves null by default, so
+  // every test below is a Guest Donor unless it sets a session itself.
+  guestEmail: 'donor@example.com',
 };
 
 function sumopodLike(overrides: Record<string, unknown> = {}) {
@@ -268,14 +281,14 @@ describe('POST /api/donations guards that must survive the gate opening', () => 
     expect(mockDonationCreate).not.toHaveBeenCalled();
   });
 
-  it('lets a guest donate without a session', async () => {
+  it('lets a guest donate without a session, keeping the guest email it left', async () => {
     mockGetServerSession.mockResolvedValue(null);
 
     const response = await POST(createRequest(QRIS_BODY));
 
     expect(response.status).toBe(201);
     expect(mockDonationCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({ donorId: null }),
+      data: expect.objectContaining({ donorId: null, guestEmail: 'donor@example.com' }),
     });
   });
 
@@ -365,6 +378,80 @@ describe('POST /api/donations resolving and freezing the Platform Fee (prd-compl
 
     expect(mockPaymentCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ platformFee: 1_250 }),
+    });
+  });
+});
+
+describe('POST /api/donations Guest Donor contact details (prd-compliance 18)', () => {
+  it('refuses a session-less donation with no guest email, before anything is written', async () => {
+    mockGetServerSession.mockResolvedValue(null);
+    const bodyWithoutEmail = withoutGuestEmail();
+
+    const response = await POST(createRequest(bodyWithoutEmail));
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error).toBe('Email harus diisi untuk donasi tanpa akun');
+    expect(mockDonationCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed guest email as a validation error, not the "email required" one', async () => {
+    const response = await POST(createRequest({ ...QRIS_BODY, guestEmail: 'not-an-email' }));
+
+    expect(response.status).toBe(400);
+    expect(mockDonationCreate).not.toHaveBeenCalled();
+  });
+
+  it('does not require a guest email for a signed-in Donor', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'user-1', name: 'Donor', email: 'donor@test.com' } });
+    const bodyWithoutEmail = withoutGuestEmail();
+
+    const response = await POST(createRequest(bodyWithoutEmail));
+
+    expect(response.status).toBe(201);
+    expect(mockDonationCreate).toHaveBeenCalledWith({
+      data: expect.not.objectContaining({ guestEmail: expect.anything() }),
+    });
+  });
+
+  it('keeps optional guest name and phone alongside the required email', async () => {
+    await POST(
+      createRequest({ ...QRIS_BODY, guestName: 'Tamu Baik', guestPhone: '081200000000' }),
+    );
+
+    expect(mockDonationCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        guestEmail: 'donor@example.com',
+        guestName: 'Tamu Baik',
+        guestPhone: '081200000000',
+      }),
+    });
+  });
+});
+
+describe('POST /api/donations minimum amount (prd-compliance 18)', () => {
+  it('refuses an amount below Rp20.000', async () => {
+    const response = await POST(createRequest({ ...QRIS_BODY, amount: 19_999 }));
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.fieldErrors.amount).toBeDefined();
+    expect(mockDonationCreate).not.toHaveBeenCalled();
+  });
+
+  it('accepts exactly Rp20.000', async () => {
+    const response = await POST(createRequest({ ...QRIS_BODY, amount: 20_000 }));
+
+    expect(response.status).toBe(201);
+  });
+});
+
+describe('POST /api/donations freezes the Escrow Hold duration (prd-compliance 18)', () => {
+  it('freezes the live ESCROW_HOLD_DAYS onto the Payment at creation', async () => {
+    await POST(createRequest(QRIS_BODY));
+
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ escrowHoldDays: 7 }),
     });
   });
 });
