@@ -142,9 +142,10 @@ describe('GET /api/campaigns/[slug]', () => {
       updatedAt: new Date('2024-06-01T00:00:00Z'),
       creator: { id: 'user-1', name: 'Yayasan Peduli', avatar: null },
       _count: { donations: 0 },
-    } as any);
-    mockPlatformFeeRuleFindFirst.mockImplementation(async ({ where }: any) =>
-      where.scope === 'KIND' ? ({ percentBps: 250 } as any) : null,
+    } as never);
+    mockPlatformFeeRuleFindFirst.mockImplementation(
+      (async ({ where }: { where: { scope: string } }) =>
+        where.scope === 'KIND' ? { percentBps: 250 } : null) as never,
     );
 
     const response = await GET(createRequest('bantu-korban-bencana'), {

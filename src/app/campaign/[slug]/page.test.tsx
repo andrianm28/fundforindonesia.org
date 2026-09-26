@@ -87,8 +87,9 @@ describe('the Platform Fee rate in force (prd-compliance 17)', () => {
   });
 
   it('carries the resolved Kind default rate', async () => {
-    vi.mocked(prisma.platformFeeRule.findFirst).mockImplementation(async ({ where }: any) =>
-      where.scope === 'KIND' ? ({ percentBps: 250 } as never) : null,
+    vi.mocked(prisma.platformFeeRule.findFirst).mockImplementation(
+      (async ({ where }: { where: { scope: string } }) =>
+        where.scope === 'KIND' ? { percentBps: 250 } : null) as never,
     );
 
     const campaign = await campaignHandedToView();

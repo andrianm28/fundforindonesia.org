@@ -36,7 +36,7 @@ function makeDb(seed: { rules?: RuleRow[]; thresholds?: ThresholdRow[] } = {}) {
     rules,
     thresholds,
     platformFeeRule: {
-      findFirst: vi.fn(async ({ where, orderBy }: { where: Record<string, unknown>; orderBy: { setAt: 'desc' } }) => {
+      findFirst: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
         const matches = rules.filter((r) =>
           Object.entries(where).every(([k, v]) => (r as never as Record<string, unknown>)[k] === v),
         );
