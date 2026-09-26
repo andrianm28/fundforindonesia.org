@@ -54,23 +54,16 @@ services:
         condition: service_healthy
     volumes:
       - uploads:/app/public/uploads
-      # Static images bind-mounted read-only instead of baked into the image.
-      #
-      # Two reasons, both discovered the hard way. First, COPY --from=builder
-      # preserves this repo's working-tree modes (drwxrwx--- / -rw-rw----, no
-      # other-read), and the container runs as nextjs (uid 1001, in group
-      # nogroup -- the Dockerfile's `adduser --uid 1001` has no --ingroup, so it
-      # never joined nodejs). Next scans public/ recursively at startup, so one
-      # unreadable subdirectory is fatal rather than degraded: the server exits
-      # with EACCES scandir '/app/public/images' and the container
-      # restart-loops. Second, rebuilding to fix that is not currently possible
-      # -- `npm run build` fails in the builder stage because next/font cannot
-      # reach fonts.googleapis.com from inside the build (ETIMEDOUT fetching
-      # Inter), which is unrelated to any of this.
-      #
-      # A bind mount sidesteps both: the host directory is a+rX, and no rebuild
-      # is needed. Read-only because nothing in the app writes here.
-      - ./public/images:/app/public/images:ro
+      # No bind mount over public/images (or anything else under public/). The
+      # image already carries public/ chowned to nextjs:nodejs (Dockerfile:
+      # `RUN chown -R nextjs:nodejs public`). A host bind mount replaces that
+      # copy with the checkout's own drwxrwx--- ubuntu:ubuntu directory, and
+      # since Next scans public/ at startup, the unreadable directory crash-loops
+      # the container with EACCES: scandir '/app/public/images'. The mount was
+      # once a workaround for a build that could not run (next/font fetching
+      # Inter from Google at build time); Inter is self-hosted now, so the
+      # workaround only did harm. Production dropped it in kibi-clone 0045c62.
+      # Guarded by src/__tests__/docker-compose.test.ts.
 
   # One-time migration runner
   migrate:
