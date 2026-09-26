@@ -47,7 +47,16 @@ export type MoneyErrorCode =
  * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
  * Campaign lifecycle codes because a Trip is not a Campaign (ADR 0014).
  */
-export type TripErrorCode = "TRIP_NOT_FOUND" | "TRIP_NOT_EDITABLE" | "TRIP_NOT_SUBMITTED";
+export type TripErrorCode =
+  | "TRIP_NOT_FOUND"
+  | "TRIP_NOT_EDITABLE"
+  | "TRIP_NOT_SUBMITTED"
+  | "TRIP_NOT_ACCEPTING_BATCHES"
+  | "BATCH_FIELDS_INVALID"
+  | "BATCH_NOT_FOUND"
+  | "BATCH_NOT_OPEN"
+  | "BATCH_MIN_QUOTA_MET"
+  | "BATCH_NOT_ENDED";
 
 /**
  * The Capacity judgement's refusals (./capacity.ts; CONTEXT.md, Capacity),
@@ -97,6 +106,12 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   TRIP_NOT_FOUND: 404,
   TRIP_NOT_EDITABLE: 409,
   TRIP_NOT_SUBMITTED: 409,
+  TRIP_NOT_ACCEPTING_BATCHES: 400,
+  BATCH_FIELDS_INVALID: 400,
+  BATCH_NOT_FOUND: 404,
+  BATCH_NOT_OPEN: 409,
+  BATCH_MIN_QUOTA_MET: 400,
+  BATCH_NOT_ENDED: 400,
 };
 
 /**

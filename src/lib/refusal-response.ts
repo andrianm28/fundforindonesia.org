@@ -3,6 +3,7 @@ import { StatusChangeCapacity, type Assignment, type Role } from '@/generated/pr
 import { domainErrorToHttp } from '@/lib/domain-errors';
 import { fundraiserOnlyRefusal, judgeCapacity, type CapacitySubject, type RequestedCapacity } from '@/lib/capacity';
 import { isAtLeast } from '@/lib/roles';
+import { BatchFieldsInvalidError } from '@/lib/volunteer-trip-errors';
 
 /**
  * The HTTP answer for a typed refusal (its status, Indonesian message and
@@ -13,6 +14,18 @@ import { isAtLeast } from '@/lib/roles';
 export function refusalResponse(error: unknown): NextResponse | null {
   const refusal = domainErrorToHttp(error);
   return refusal ? NextResponse.json(refusal.body, { status: refusal.status }) : null;
+}
+
+/**
+ * `refusalResponse`, plus the form-shaped `fieldErrors` the Batch routes
+ * have always answered with when the refusal names a field
+ * (BatchFieldsInvalidError): `{ [field]: [message] }`.
+ */
+export function batchRefusalResponse(error: unknown): NextResponse | null {
+  const refusal = domainErrorToHttp(error);
+  if (!refusal) return null;
+  const fieldErrors = error instanceof BatchFieldsInvalidError ? { [error.field]: [error.message] } : undefined;
+  return NextResponse.json({ ...refusal.body, ...(fieldErrors && { fieldErrors }) }, { status: refusal.status });
 }
 
 /** A signed-in user as the session gives them, for the judgement. */
