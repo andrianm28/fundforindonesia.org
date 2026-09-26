@@ -82,16 +82,37 @@ describe('judgeCapacity', () => {
     expect(judge('campaign', 'ADMIN', true, false)).toThrow(NotAuthorizedError);
   });
 
-  it('refuses with the caller’s own message when it gives one, a default naming the subject otherwise', () => {
+  it('refuses with the caller’s own message when it gives one', () => {
     const subject = { kind: 'campaign' as const, ownerId: 'owner-1' };
     const actor = { userId: 'user-1', assignments: [] };
     expect(() => judgeCapacity(subject, actor, 'FUNDRAISER', 'Hanya Fundraiser.')).toThrow('Hanya Fundraiser.');
-    expect(() => judgeCapacity(subject, actor, 'FUNDRAISER')).toThrow(
-      'Anda tidak berwenang melakukan tindakan ini pada Campaign ini.',
-    );
-    expect(() => judgeCapacity({ kind: 'trip', ownerId: 'owner-1' }, actor, 'FUNDRAISER')).toThrow(
-      'Anda tidak berwenang melakukan tindakan ini pada Volunteer Trip ini.',
-    );
+  });
+
+  it.each([
+    ['campaign', 'FUNDRAISER', 'Hanya Fundraiser Campaign ini yang dapat melakukan tindakan ini.'],
+    ['trip', 'FUNDRAISER', 'Hanya Fundraiser Volunteer Trip ini yang dapat melakukan tindakan ini.'],
+    ['campaign', 'FUNDRAISER_OR_ADMIN', 'Anda tidak berwenang melakukan tindakan ini pada Campaign ini.'],
+    ['campaign', 'ADMIN', 'Anda tidak berwenang melakukan tindakan ini pada Campaign ini.'],
+    ['trip', 'VERIFIER', 'Anda tidak berwenang melakukan tindakan ini pada Volunteer Trip ini.'],
+  ] as const)('refuses %s × %s, given no message, with the default “%s”', (kind, requested, message) => {
+    const actor = { userId: 'user-1', assignments: [] };
+    expect(() => judgeCapacity({ kind, ownerId: 'owner-1' }, actor, requested)).toThrow(message);
+  });
+
+  it('answers a Fundraiser-only refusal as 403 NOT_AUTHORIZED', () => {
+    const actor = { userId: 'user-1', assignments: [] };
+    try {
+      judgeCapacity({ kind: 'trip', ownerId: 'owner-1' }, actor, 'FUNDRAISER');
+      expect.unreachable();
+    } catch (error) {
+      expect(domainErrorToHttp(error)).toEqual({
+        status: 403,
+        body: {
+          error: 'Hanya Fundraiser Volunteer Trip ini yang dapat melakukan tindakan ini.',
+          code: 'NOT_AUTHORIZED',
+        },
+      });
+    }
   });
 });
 

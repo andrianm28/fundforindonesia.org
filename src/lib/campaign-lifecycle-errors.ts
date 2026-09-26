@@ -39,14 +39,12 @@ export class LifecycleValidationError extends CampaignLifecycleError {
   }
 }
 
-/** Missing the assignment the action needs, or not the Campaign's owner. */
-export class NotAuthorizedError extends CampaignLifecycleError {
-  readonly code = "NOT_AUTHORIZED";
-  constructor(message = "Anda tidak berwenang melakukan tindakan ini pada Campaign ini.") {
-    super(message);
-    this.name = "NotAuthorizedError";
-  }
-}
+/**
+ * Missing the assignment the action needs, or not the Campaign's owner.
+ * Raised by the Capacity judgement, so it lives there (./capacity.ts) and
+ * is re-exported here for the lifecycle's callers.
+ */
+export { NotAuthorizedError } from "./capacity";
 
 /** The Admin who imposed the latest Suspension tried to lift it. */
 export class SameAdminLiftError extends CampaignLifecycleError {

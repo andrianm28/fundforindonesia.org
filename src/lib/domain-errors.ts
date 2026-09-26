@@ -17,7 +17,6 @@ export abstract class DomainError extends Error {
 
 export type LifecycleErrorCode =
   | "VALIDATION"
-  | "NOT_AUTHORIZED"
   | "SAME_ADMIN_LIFT"
   | "CAMPAIGN_NOT_FOUND"
   | "INVALID_TRANSITION"
@@ -51,11 +50,15 @@ export type MoneyErrorCode =
 export type TripErrorCode = "TRIP_NOT_SUBMITTED";
 
 /**
- * Acting in an operator Capacity on your own Campaign or Volunteer Trip
- * (CONTEXT.md, Capacity). One family, one class (OwnSubjectConflictError,
- * ./capacity.ts), two codes so API clients keep telling the subjects apart.
+ * The Capacity judgement's refusals (./capacity.ts; CONTEXT.md, Capacity),
+ * for a Campaign and a Volunteer Trip alike:
+ * - NOT_AUTHORIZED (NotAuthorizedError): missing the assignment the
+ *   Capacity needs, or not the subject's Fundraiser;
+ * - OWN_CAMPAIGN_CONFLICT / OWN_TRIP_CONFLICT (OwnSubjectConflictError):
+ *   acting as Admin or Verifier on your own subject, two codes so API
+ *   clients keep telling the subjects apart.
  */
-export type CapacityErrorCode = "OWN_CAMPAIGN_CONFLICT" | "OWN_TRIP_CONFLICT";
+export type CapacityErrorCode = "NOT_AUTHORIZED" | "OWN_CAMPAIGN_CONFLICT" | "OWN_TRIP_CONFLICT";
 
 export type DomainErrorCode =
   | LifecycleErrorCode
