@@ -1,17 +1,11 @@
 # Findings the image scan in .github/workflows/cd.yml may skip. Trivy reads
 # this file from the checkout root. Every entry says why, and the expiring
 # entry fails the scan again after its date, so it cannot be forgotten.
-
-# next 14.2.35: RCE on Windows-hosted servers only (GHSA-p293-qw3h-jr36). The
-# image runs on Linux (node:24-alpine), so the vulnerable path does not exist.
-CVE-2026-75604
-
-# next 14.2.35: RCE through sharp/libheif when the Image Optimization API
-# optimizes an AVIF file. Trivy flags it by package version, so it keeps
-# reporting it until Next itself is upgraded (15.5.24+ or 16.3.3+, ticket 15),
-# but the vulnerable path is closed: next.config.mjs sets images.unoptimized,
-# so /_next/image answers 404 and nothing reaches the optimizer (ticket 13,
-# pinned by src/__tests__/next-config-images.test.ts). The expiry stays so the
-# upgrade cannot be forgotten: after it the scan fails again until ticket 15
-# lands.
-GHSA-2xp9-vwfh-vxw4 exp:2026-10-10
+#
+# ci-cd-github-actions ticket 15 upgraded next from 14.2.35 to 16.3.6, which
+# fixes both advisories that used to be muted here (GHSA-p293-qw3h-jr36 /
+# CVE-2026-75604, and the sharp/libheif AVIF RCE GHSA-2xp9-vwfh-vxw4 that used
+# to be muted only because next.config.mjs's images.unoptimized closed the
+# path — see src/__tests__/next-config-images.test.ts). Trivy flags both by
+# package version, so upgrading past the fixed release stops it reporting
+# them; nothing needs muting for either right now.
