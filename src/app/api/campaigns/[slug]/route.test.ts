@@ -6,6 +6,8 @@ import { GET, PATCH } from './route';
 // Mock prisma
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
     campaign: {
       findUnique: vi.fn(),
       update: vi.fn(),
@@ -28,6 +30,8 @@ const mockFindUnique = vi.mocked(prisma.campaign.findUnique);
 const mockUpdate = vi.mocked(prisma.campaign.update);
 const mockGetServerSession = vi.mocked(getServerSession);
 const mockStatusChangeFindFirst = vi.mocked(prisma.campaignStatusChange.findFirst);
+const mockTransaction = vi.mocked(prisma.$transaction);
+const mockLockQuery = vi.mocked(prisma.$queryRaw);
 
 function createRequest(slug: string, method = 'GET', body?: unknown) {
   const init: RequestInit = { method };
@@ -403,6 +407,8 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
 describe('PATCH /api/campaigns/[slug]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // An interactive transaction runs its callback on the same client.
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as any);
   });
 
   it('returns 401 if user is not authenticated', async () => {
@@ -440,7 +446,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'other-user',
+      creatorId: 'other-user', lifecycleStatus: 'ACTIVE', deadline: null,
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
@@ -465,7 +471,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'creator-user',
+      creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null,
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
@@ -490,7 +496,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'different-user',
+      creatorId: 'different-user', lifecycleStatus: 'ACTIVE', deadline: null,
     } as any);
 
     const request = createRequest('other-campaign', 'PATCH', { title: 'Hack' });
@@ -513,7 +519,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'other-user',
+      creatorId: 'other-user', lifecycleStatus: 'ACTIVE', deadline: null,
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
@@ -535,7 +541,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'other-user',
+      creatorId: 'other-user', lifecycleStatus: 'ACTIVE', deadline: null,
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
@@ -555,7 +561,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
       user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
       expires: '2099-01-01',
     });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user' } as any);
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
       creator: { id: 'creator-user', name: 'Creator', avatar: null },
@@ -584,7 +590,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
       user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
       expires: '2099-01-01',
     });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user' } as any);
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
       creator: { id: 'creator-user', name: 'Creator', avatar: null },
@@ -608,7 +614,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
       user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
       expires: '2099-01-01',
     });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user' } as any);
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null } as any);
 
     const request = createRequest('bantu-korban-banjir', 'PATCH', { title: '', coverImage: 'bukan-url' });
     const response = await PATCH(request, {
@@ -626,7 +632,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
       mockGetServerSession.mockResolvedValue({ user, expires: '2099-01-01' } as any);
     }
     function patchCampaignOwnedBy(creatorId: string) {
-      mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId } as any);
+      mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId, lifecycleStatus: 'ACTIVE', deadline: null } as any);
       mockUpdate.mockResolvedValue({ id: 'campaign-1', title: 'Baru' } as any);
       return PATCH(createRequest('test-campaign', 'PATCH', { title: 'Baru' }), {
         params: Promise.resolve({ slug: 'test-campaign' }),
@@ -680,6 +686,140 @@ describe('PATCH /api/campaigns/[slug]', () => {
       expect(response.status).toBe(403);
       expect(mockUpdate).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign status', () => {
+  const NOW = new Date('2026-09-26T12:00:00Z');
+  const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
+
+  // The one stored Campaign row; both the slug lookup and the read under
+  // the lock see it as it stands at the time of the call.
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as any);
+    mockLockQuery.mockResolvedValue([] as any);
+    mockFindUnique.mockImplementation((async () => ({ ...row })) as any);
+    mockUpdate.mockImplementation((async (args: any) => ({ ...row, ...args.data })) as any);
+    mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as any);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function storedAs(lifecycleStatus: string, deadline: Date | null = null) {
+    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline };
+  }
+
+  function editTitle() {
+    return PATCH(createRequest('bantu-korban-banjir', 'PATCH', { title: 'Judul Baru' }), {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+  }
+
+  it.each(['DRAFT', 'REJECTED', 'ACTIVE'])('lets the Fundraiser edit the content of a %s Campaign', async (status) => {
+    storedAs(status);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).campaign.title).toBe('Judul Baru');
+  });
+
+  it('lets the Fundraiser edit an Active Campaign whose deadline is still ahead', async () => {
+    storedAs('ACTIVE', new Date('2026-10-01T00:00:00Z'));
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(200);
+  });
+
+  it('refuses while Submitted, so the Verifier checks a fixed version', async () => {
+    storedAs('SUBMITTED');
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      code: 'CAMPAIGN_NOT_EDITABLE',
+      error: 'Konten Campaign tidak dapat diubah saat berstatus Submitted.',
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['SUSPENDED', 'Suspended'],
+    ['CANCELLED', 'Cancelled'],
+    ['COMPLETED', 'Completed'],
+    ['EXPIRED', 'Expired'],
+  ])('refuses in the final status %s', async (status, label) => {
+    storedAs(status);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      code: 'CAMPAIGN_NOT_EDITABLE',
+      error: `Konten Campaign tidak dapat diubah saat berstatus ${label}.`,
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('refuses an Active Campaign past its deadline, which is effectively Expired', async () => {
+    storedAs('ACTIVE', new Date('2026-09-25T00:00:00Z'));
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe('Konten Campaign tidak dapat diubah saat berstatus Expired.');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('refuses an Admin on a Submitted Campaign they do not own too', async () => {
+    storedAs('SUBMITTED');
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'admin-1', assignments: ['ADMIN'] },
+      expires: '2099-01-01',
+    } as any);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 the same way when the Campaign is gone by the time the lock is taken', async () => {
+    storedAs('DRAFT');
+    mockFindUnique
+      .mockImplementationOnce((async () => ({ ...row })) as any)
+      .mockImplementationOnce((async () => null) as any);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Campaign tidak ditemukan' });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('judges a submit committed before this edit took the lock, and writes nothing', async () => {
+    storedAs('DRAFT');
+    // The Fundraiser submits from another tab between our first read and
+    // our row lock; the lock is granted only once that submit commits.
+    mockLockQuery.mockImplementation((async () => {
+      row = { ...row, lifecycleStatus: 'SUBMITTED' };
+      return [];
+    }) as any);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('CAMPAIGN_NOT_EDITABLE');
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });
 
