@@ -156,6 +156,7 @@ enum CampaignStatus {
 }
 
 model Campaign {
+  ciProofNoMigration String? // throwaway: must fail CI
   id              String    @id @default(cuid())
   slug            String    @unique
   title           String
