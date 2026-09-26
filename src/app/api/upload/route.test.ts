@@ -22,15 +22,16 @@ vi.mock('fs/promises', async (importOriginal) => {
   };
 });
 
-// POST is now behind withRoleCheck('DONOR'). These tests exercise the upload
-// logic, not the gate, so a signed-in DONOR is mocked for the whole file; the
-// gate itself is asserted separately at the bottom.
+// POST needs a signed-in user and nothing more. These tests exercise the
+// upload logic, not the gate, so a signed-in user holding no assignment is
+// mocked for the whole file; the gate itself is asserted separately at the
+// bottom.
 vi.mock('@/lib/auth', () => ({
   getServerSession: vi.fn(async () => mockSession),
 }));
 
-let mockSession: { user: { id: string; role: string } } | null = {
-  user: { id: 'u1', role: 'DONOR' },
+let mockSession: { user: { id: string; assignments: string[] } } | null = {
+  user: { id: 'u1', assignments: [] },
 };
 
 import { POST } from './route';

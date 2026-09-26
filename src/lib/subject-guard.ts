@@ -5,15 +5,15 @@ import {
   VolunteerTripStatus,
   type Prisma,
 } from "@/generated/prisma/client";
-import { CampaignLifecycleError } from "./campaign-lifecycle-errors";
+import { CampaignLifecycleError, STATUS_LABEL } from "./campaign-lifecycle-errors";
 import { judgeCapacity } from "./capacity";
 import type { LedgerSubject } from "./money/ledger";
 
 /**
  * The subject guard: the one place that locks a Campaign or Volunteer Trip
- * row and reads it, for the lifecycle commands and for every money
+ * row and reads it, for the lifecycle commands, for every money
  * operation that spends or freezes a subject's money (Payouts, Refunds, the
- * Escrow release). It is the only code in `src` that issues
+ * Escrow release), and for the Campaign content edit. It is the only code in `src` that issues
  * `SELECT ... FOR UPDATE` on those two tables;
  * src/__tests__/properties/subject-lock-single-owner.test.ts pins that.
  *
@@ -22,6 +22,8 @@ import type { LedgerSubject } from "./money/ledger";
  * settlement webhook is the one path that touches Payment before Campaign,
  * and it only ever writes a Payment while it is still PENDING, which no
  * caller of this guard locks; see releaseMaturedEscrow (./money/escrow.ts).
+ * Volunteer Trip operations place a Batch and its Registrations between the
+ * Trip and the Payment; that full order lives in ./volunteer/trip.ts.
  *
  * It also owns which Campaigns public listings show
  * (`listableCampaignWhere`, `sitemapCampaignWhere`), next to
@@ -192,6 +194,41 @@ export function requirePayoutAllowed(state: SubjectState): void {
   if (state.kind === "trip") return;
   if (!PAYOUT_ALLOWED_FROM.includes(state.effectiveStatus)) {
     throw new PayoutNotAllowedForStatusError(state.effectiveStatus);
+  }
+}
+
+/**
+ * The Campaign effective statuses whose content (title, description, story,
+ * cover image; verification-request ticket 05) its Fundraiser or an Admin
+ * may edit directly. Submitted is frozen so the Verifier checks a fixed
+ * version (CONTEXT.md, Verification Request); the final statuses are closed.
+ */
+const CONTENT_EDITABLE_STATUSES: readonly CampaignStatus[] = [
+  CampaignStatus.DRAFT,
+  CampaignStatus.REJECTED,
+  CampaignStatus.ACTIVE,
+];
+
+/** A content edit refused because of the Campaign's effective status. */
+export class CampaignNotEditableError extends CampaignLifecycleError {
+  readonly code = "CAMPAIGN_NOT_EDITABLE";
+  constructor(readonly currentStatus: CampaignStatus) {
+    super(`Konten Campaign tidak dapat diubah saat berstatus ${STATUS_LABEL[currentStatus]}.`);
+    this.name = "CampaignNotEditableError";
+  }
+}
+
+/**
+ * Passes only for a Campaign that is effectively Draft, Rejected or Active,
+ * so an Active Campaign past its deadline refuses as Expired. Judge it on
+ * `lockAndLoad`'s result, so a submit that committed first is seen. A
+ * Volunteer Trip has its own edit rule (TRIP_EDITABLE_STATUSES) and is not
+ * judged here.
+ */
+export function requireContentEditable(state: SubjectState): void {
+  if (state.kind !== "campaign") return;
+  if (!CONTENT_EDITABLE_STATUSES.includes(state.effectiveStatus)) {
+    throw new CampaignNotEditableError(state.effectiveStatus);
   }
 }
 

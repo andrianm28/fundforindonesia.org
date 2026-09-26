@@ -34,7 +34,7 @@ const SLUG = 'bantu-korban-banjir';
 const FUTURE = new Date('2099-12-31T00:00:00Z');
 
 function session(id: string) {
-  return { user: { id, role: 'ADMIN', assignments: ['ADMIN'] } };
+  return { user: { id, assignments: ['ADMIN'] } };
 }
 
 function suspensionRow(): StatusChangeRow {

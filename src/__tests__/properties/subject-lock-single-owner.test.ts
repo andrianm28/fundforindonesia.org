@@ -22,6 +22,16 @@ const ALLOWED_LOCKERS = ["src/lib/subject-guard.ts"];
 const SUBJECT_LOCK =
   /FROM\s+"(Campaign|VolunteerTrip)"[^`;]*?\bFOR\s+(UPDATE|NO\s+KEY\s+UPDATE|SHARE|KEY\s+SHARE)\b/;
 
+/**
+ * The Batch and Registration row locks belong to the Volunteer Trip module
+ * (src/lib/volunteer/trip.ts), which documents the one lock order: Trip →
+ * Batch → Registration → Payment.
+ */
+const ALLOWED_BATCH_OR_REGISTRATION_LOCKERS = ["src/lib/volunteer/trip.ts"];
+
+const BATCH_OR_REGISTRATION_LOCK =
+  /FROM\s+"(VolunteerBatch|Registration)"[^`;]*?\bFOR\s+(UPDATE|NO\s+KEY\s+UPDATE|SHARE|KEY\s+SHARE)\b/;
+
 function walk(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -45,6 +55,25 @@ describe("Campaign and Volunteer Trip row locks have one owner", () => {
     const lockers = appFiles().filter((file) => SUBJECT_LOCK.test(readFileSync(file, "utf8")));
 
     expect(lockers).toEqual(ALLOWED_LOCKERS);
+  });
+
+  it("only the Volunteer Trip module locks a Batch or Registration row", () => {
+    const lockers = appFiles()
+      .filter((file) => BATCH_OR_REGISTRATION_LOCK.test(readFileSync(file, "utf8")))
+      .sort();
+
+    expect(lockers).toEqual([...ALLOWED_BATCH_OR_REGISTRATION_LOCKERS].sort());
+  });
+
+  it("recognises Batch and Registration lock SQL and ignores the subject tables", () => {
+    expect(BATCH_OR_REGISTRATION_LOCK.test('SELECT id FROM "VolunteerBatch" WHERE id = ${id} FOR UPDATE')).toBe(true);
+    expect(
+      BATCH_OR_REGISTRATION_LOCK.test(
+        'SELECT id, status FROM "Registration"\n  WHERE "batchId" = ${id} AND status IN (\'HOLD\')\n  ORDER BY id\n  FOR UPDATE'
+      )
+    ).toBe(true);
+    expect(BATCH_OR_REGISTRATION_LOCK.test('SELECT id FROM "VolunteerTrip" WHERE id = ${id} FOR UPDATE')).toBe(false);
+    expect(BATCH_OR_REGISTRATION_LOCK.test('SELECT id FROM "Registration" WHERE id = ${id}')).toBe(false);
   });
 
   // Guards the guard: if the pattern silently stopped matching, the test

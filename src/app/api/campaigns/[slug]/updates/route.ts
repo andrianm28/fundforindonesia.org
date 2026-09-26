@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
+import { campaignNotFound, findViewableCampaign } from '@/lib/campaign-visibility-route';
 import { getServerSession } from '@/lib/auth';
 import { refuseUnlessFundraiser } from '@/lib/refusal-response';
 
@@ -9,6 +10,11 @@ const createUpdateSchema = z.object({
   content: z.string().min(1, 'Konten harus diisi'),
   images: z.array(z.string().url()).optional().default([]),
 });
+
+// Rendered per request: an unapproved Campaign's answer depends on who asks
+// (findViewableCampaign reads the session), which a statically cached route
+// cannot do.
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: NextRequest,
@@ -22,18 +28,10 @@ export async function GET(
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '10', 10)));
     const skip = (page - 1) * limit;
 
-    // Resolve campaign by slug
-    const campaign = await prisma.campaign.findUnique({
-      where: { slug },
-      select: { id: true },
-    });
-
-    if (!campaign) {
-      return NextResponse.json(
-        { code: 'NOT_FOUND', message: 'Campaign tidak ditemukan', status: 404 },
-        { status: 404 }
-      );
-    }
+    // An unapproved Campaign is private to its Fundraiser, Verifiers and
+    // Admins; anyone else gets the same 404 as a slug that never existed.
+    const campaign = await findViewableCampaign(slug);
+    if (!campaign) return campaignNotFound();
 
     const [updates, total] = await Promise.all([
       prisma.campaignUpdate.findMany({
@@ -52,7 +50,7 @@ export async function GET(
       prisma.campaignUpdate.count({ where: { campaignId: campaign.id } }),
     ]);
 
-    return NextResponse.json({
+    return campaign.respond({
       updates,
       total,
       page,

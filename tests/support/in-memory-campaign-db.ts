@@ -86,6 +86,45 @@ export type PayoutRow = {
   status: string;
 };
 
+export type ChecklistItemRow = {
+  id: string;
+  label: string;
+  required: boolean;
+  position: number;
+  active: boolean;
+};
+
+export type VerificationRequestRow = {
+  id: string;
+  campaignId: string;
+  submittedById: string;
+  submittedAt: Date;
+  checklist: unknown;
+  outcome: 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN';
+  reason: string | null;
+  decidedById: string | null;
+  decidedAt: Date | null;
+  isFirst: boolean;
+};
+
+export type ChecklistAuditRow = {
+  id: string;
+  itemId: string;
+  action: 'CREATED' | 'UPDATED';
+  before: unknown;
+  after: unknown;
+  actedById: string;
+  actedAt: Date;
+};
+
+export type IdentityVerificationRow = {
+  id: string;
+  userId: string;
+  verifierId: string;
+  verifiedAt: Date;
+  note: string | null;
+};
+
 /** Every table the stand-in holds; what the interleave hooks receive. */
 export type CampaignDbData = Data;
 
@@ -97,6 +136,10 @@ type Data = {
   cancellationRequests: CancellationRequestRow[];
   payouts: PayoutRow[];
   campaignFlags: CampaignFlagRow[];
+  checklistItems: ChecklistItemRow[];
+  checklistAudits: ChecklistAuditRow[];
+  verificationRequests: VerificationRequestRow[];
+  identityVerifications: IdentityVerificationRow[];
 };
 
 type Where = Record<string, unknown>;
@@ -171,7 +214,55 @@ function clone(data: Data): Data {
     cancellationRequests: data.cancellationRequests.map((r) => ({ ...r })),
     payouts: data.payouts.map((p) => ({ ...p })),
     campaignFlags: data.campaignFlags.map((f) => ({ ...f })),
+    checklistItems: data.checklistItems.map((i) => ({ ...i })),
+    checklistAudits: data.checklistAudits.map((a) => ({ ...a })),
+    verificationRequests: data.verificationRequests.map((r) => ({ ...r })),
+    identityVerifications: data.identityVerifications.map((v) => ({ ...v })),
   };
+}
+
+export function checklistItemRow(overrides: Partial<ChecklistItemRow> = {}): ChecklistItemRow {
+  return {
+    id: 'item-1',
+    label: 'Rencana anggaran',
+    required: true,
+    position: 1,
+    active: true,
+    ...overrides,
+  };
+}
+
+export function verificationRequestRow(
+  overrides: Partial<VerificationRequestRow> = {},
+): VerificationRequestRow {
+  return {
+    id: 'verification-1',
+    campaignId: 'campaign-1',
+    submittedById: 'creator-1',
+    submittedAt: new Date('2026-09-24T08:00:00Z'),
+    checklist: [],
+    outcome: 'PENDING',
+    reason: null,
+    decidedById: null,
+    decidedAt: null,
+    isFirst: true,
+    ...overrides,
+  };
+}
+
+/** Sorts rows by a single-field Prisma `orderBy`, keeping insertion order for ties. */
+function ordered<T>(rows: T[], orderBy?: Record<string, 'asc' | 'desc'>): T[] {
+  if (!orderBy) return rows;
+  const [[field, direction]] = Object.entries(orderBy);
+  const sign = direction === 'desc' ? -1 : 1;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const x = comparable((a.row as Record<string, unknown>)[field]);
+      const y = comparable((b.row as Record<string, unknown>)[field]);
+      return (x < y ? -sign : x > y ? sign : 0) || a.index - b.index;
+    })
+    .map(({ row }) => row);
 }
 
 export function cancellationRequestRow(
@@ -227,6 +318,9 @@ export function makeCampaignDb(
     cancellationRequests?: CancellationRequestRow[];
     payouts?: PayoutRow[];
     campaignFlags?: CampaignFlagRow[];
+    checklistItems?: ChecklistItemRow[];
+    verificationRequests?: VerificationRequestRow[];
+    identityVerifications?: IdentityVerificationRow[];
   } = {},
 ) {
   let committed: Data = {
@@ -237,6 +331,10 @@ export function makeCampaignDb(
     cancellationRequests: (seed.cancellationRequests ?? []).map((r) => ({ ...r })),
     payouts: (seed.payouts ?? []).map((p) => ({ ...p })),
     campaignFlags: (seed.campaignFlags ?? []).map((f) => ({ ...f })),
+    checklistItems: (seed.checklistItems ?? []).map((i) => ({ ...i })),
+    checklistAudits: [],
+    verificationRequests: (seed.verificationRequests ?? []).map((r) => ({ ...r })),
+    identityVerifications: (seed.identityVerifications ?? []).map((v) => ({ ...v })),
   };
   // Row locks taken with `SELECT ... FOR UPDATE`, in order, as
   // "<Table>:<id>". Observable because taking the lock IS the behaviour
@@ -415,6 +513,82 @@ export function makeCampaignDb(
           return { count: rows.length };
         },
       },
+      verificationChecklistItem: {
+        findMany: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'> } = {}) =>
+          ordered(getData().checklistItems.filter((i) => matches(i, where)), orderBy).map((i) => ({ ...i })),
+        findUnique: async ({ where }: { where: Where }) => {
+          const row = getData().checklistItems.find((i) => matches(i, where));
+          return row ? { ...row } : null;
+        },
+        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active'> & { active?: boolean } }) => {
+          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, ...data };
+          getData().checklistItems.push(row);
+          return { ...row };
+        },
+        update: async ({ where, data }: { where: { id: string }; data: Partial<ChecklistItemRow> }) => {
+          const row = getData().checklistItems.find((i) => i.id === where.id);
+          if (!row) throw new Error('No VerificationChecklistItem found');
+          Object.assign(row, data);
+          return { ...row };
+        },
+      },
+      verificationChecklistAuditEntry: {
+        create: async ({ data }: { data: Omit<ChecklistAuditRow, 'id' | 'actedAt' | 'before'> & { before?: unknown; actedAt?: Date } }) => {
+          // An omitted (or undefined) `before` is SQL NULL, as Prisma writes it.
+          const row: ChecklistAuditRow = { id: `audit-${nextId++}`, actedAt: new Date(), ...data, before: data.before ?? null };
+          getData().checklistAudits.push(row);
+          return { ...row };
+        },
+      },
+      verificationRequest: {
+        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'submittedById' | 'checklist' | 'isFirst'> & { submittedAt?: Date } }) => {
+          const row: VerificationRequestRow = {
+            id: `verification-${nextId++}`,
+            submittedAt: new Date(),
+            outcome: 'PENDING',
+            reason: null,
+            decidedById: null,
+            decidedAt: null,
+            ...data,
+          };
+          getData().verificationRequests.push(row);
+          return { ...row };
+        },
+        // `include: { campaign }` joins the request's Campaign row, as the
+        // Verifier queue reads it; any nested include is the caller's to fill.
+        findMany: async ({ where = {}, orderBy, include }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'>; include?: { campaign?: unknown } } = {}) =>
+          ordered(getData().verificationRequests.filter((r) => matches(r, where)), orderBy).map((r) => {
+            if (!include?.campaign) return { ...r };
+            const campaign = getData().campaigns.find((c) => c.id === r.campaignId);
+            return { ...r, campaign: campaign ? { ...campaign } : null };
+          }),
+        findUnique: async ({ where }: { where: Where }) => {
+          const row = getData().verificationRequests.find((r) => matches(r, where));
+          return row ? { ...row } : null;
+        },
+        count: async ({ where = {} }: { where?: Where } = {}) =>
+          getData().verificationRequests.filter((r) => matches(r, where)).length,
+        updateMany: async ({ where, data }: { where: Where; data: Partial<VerificationRequestRow> }) => {
+          const rows = getData().verificationRequests.filter((r) => matches(r, where));
+          for (const row of rows) Object.assign(row, data);
+          return { count: rows.length };
+        },
+      },
+      identityVerification: {
+        // `skipDuplicates` is ON CONFLICT DO NOTHING on the unique userId.
+        createMany: async ({ data, skipDuplicates }: { data: Omit<IdentityVerificationRow, 'id'>[]; skipDuplicates?: boolean }) => {
+          let count = 0;
+          for (const input of data) {
+            if (getData().identityVerifications.some((v) => v.userId === input.userId)) {
+              if (skipDuplicates) continue;
+              throw new Error('Unique constraint failed on IdentityVerification.userId');
+            }
+            getData().identityVerifications.push({ id: `identity-${nextId++}`, ...input });
+            count += 1;
+          }
+          return { count };
+        },
+      },
       payout: {
         count: async ({ where }: { where: Where }) =>
           getData().payouts.filter((p) => matches(p, where)).length,
@@ -436,6 +610,16 @@ export function makeCampaignDb(
         }
         rowLocks.push(`${table}:${String(values[0])}`);
         return [{ id: values[0] }];
+      },
+      // Only `LOCK TABLE "<Table>" IN SHARE ROW EXCLUSIVE MODE`, recorded as
+      // "<Table>:*". The stand-in runs one command at a time, so the lock
+      // itself has nothing to serialise; taking it is what is observable.
+      $executeRaw: async (strings: TemplateStringsArray) => {
+        const sql = strings.join('?');
+        const table = /^LOCK TABLE "(\w+)" IN SHARE ROW EXCLUSIVE MODE$/.exec(sql)?.[1];
+        if (!table) throw new Error(`in-memory db does not understand: ${sql}`);
+        rowLocks.push(`${table}:*`);
+        return 0;
       },
       notification: {
         create: async ({ data }: { data: Omit<NotificationRow, 'id' | 'link'> & { link?: string | null } }) => {
@@ -474,6 +658,18 @@ export function makeCampaignDb(
     },
     get campaignFlags() {
       return committed.campaignFlags;
+    },
+    get verificationRequests() {
+      return committed.verificationRequests;
+    },
+    get checklistItems() {
+      return committed.checklistItems;
+    },
+    get checklistAudits() {
+      return committed.checklistAudits;
+    },
+    get identityVerifications() {
+      return committed.identityVerifications;
     },
     campaignFlag(id = 'flag-1') {
       const row = committed.campaignFlags.find((f) => f.id === id);

@@ -25,7 +25,7 @@ function listRequest(): NextRequest {
 describe('GET /api/moderasi/volunteer-trips', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'verifier-1', role: 'MODERATOR', assignments: ['VERIFIER'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
     mockFindMany.mockResolvedValue([{ id: 'trip-1', status: 'SUBMITTED' }]);
   });
 
@@ -36,7 +36,7 @@ describe('GET /api/moderasi/volunteer-trips', () => {
   });
 
   it('returns 403 for a user without the VERIFIER assignment', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'user-2', role: 'MODERATOR', assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'user-2', assignments: [] } });
     const response = await GET(listRequest());
     expect(response.status).toBe(403);
   });

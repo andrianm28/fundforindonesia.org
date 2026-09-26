@@ -16,8 +16,6 @@ const mockUser: User = {
   name: 'John Doe',
   avatar: 'https://example.com/avatar.jpg',
   phone: null,
-  isVerified: true,
-  verificationType: 'ktp',
   donationBalance: 100000,
   createdAt: new Date(),
   updatedAt: new Date(),

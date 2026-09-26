@@ -11,7 +11,7 @@ Satu ajakan mengumpulkan dana daring dengan target, satu Fundraiser, dan tenggat
 _Avoid_: Kampanye, program, project, penggalangan (untuk entitasnya)
 
 **Campaign Status**:
-Tahap hidup Campaign: Draft, Submitted, Rejected, Active, Suspended, Cancelled, Completed, Expired. Nama-nama ini dipakai apa adanya dalam kalimat; lencana status di layar menampilkan padanan Indonesianya (Draf, Diajukan, Ditolak, Aktif, Dibekukan, Ditarik, Selesai, Berakhir). Hanya Active yang menerima Donation. Expired terjadi otomatis saat tenggat lewat; Completed hanya bisa dicapai dari Active, ditetapkan Fundraiser atau Admin, dan butuh minimal satu Campaign Update siapa pun yang menetapkannya; setelah itu final, satu-satunya jalan keluar adalah Suspension. Tercapainya target tidak mengubah status. Campaign Active yang tenggatnya sudah lewat diperlakukan sebagai Expired walau belum dicatat demikian. Daftar publik (beranda, Urgent, jelajah, pencarian) hanya mencantumkan Campaign yang efektif Active; Campaign yang berakhir tetap bisa dibuka lewat tautannya dan tetap tercantum di sitemap, sedangkan yang Suspended, Cancelled, atau belum diloloskan tidak dicantumkan di mana pun.
+Tahap hidup Campaign: Draft, Submitted, Rejected, Active, Suspended, Cancelled, Completed, Expired. Nama-nama ini dipakai apa adanya dalam kalimat; lencana status di layar menampilkan padanan Indonesianya (Draf, Diajukan, Ditolak, Aktif, Dibekukan, Ditarik, Selesai, Berakhir). Hanya Active yang menerima Donation. Expired terjadi otomatis saat tenggat lewat; Completed hanya bisa dicapai dari Active, ditetapkan Fundraiser atau Admin, dan butuh minimal satu Campaign Update siapa pun yang menetapkannya; setelah itu final, satu-satunya jalan keluar adalah Suspension. Tercapainya target tidak mengubah status. Campaign Active yang tenggatnya sudah lewat diperlakukan sebagai Expired walau belum dicatat demikian. Daftar publik (beranda, Urgent, jelajah, pencarian) hanya mencantumkan Campaign yang efektif Active; Campaign yang berakhir tetap bisa dibuka lewat tautannya dan tetap tercantum di sitemap, sedangkan yang Suspended, Cancelled, atau belum diloloskan tidak dicantumkan di mana pun. Halaman Campaign yang belum diloloskan (Draft, Submitted, Rejected) hanya bisa dibuka Fundraiser-nya, Verifier, dan Admin.
 _Avoid_: State, pending, published
 
 **Kind**:
@@ -115,15 +115,19 @@ Penanda dari Verifier bahwa sebuah Campaign perlu dipertimbangkan untuk Suspensi
 _Avoid_: Laporan (bentrok dengan Usage Report), report, aduan, dilaporkan
 
 **Verification Request**:
-Satu pengajuan Campaign untuk diperiksa Verifier, dengan checklist dokumen dan hasil lolos atau ditolak beserta alasan. Setiap submit ulang membuat Verification Request baru, sehingga riwayat penolakan tersimpan.
+Satu pengajuan Campaign untuk diperiksa Verifier, dengan checklist dokumen dan hasil lolos atau ditolak beserta alasan. Setiap submit ulang membuat Verification Request baru, sehingga riwayat penolakan tersimpan. Verifier hanya boleh meloloskannya bila setiap butir wajib pada checklist sudah dicentang. Selama belum diputuskan, Fundraiser boleh menariknya (tarik pengajuan; yang ditarik pengajuannya, berbeda dari Cancellation yang menarik Campaign Active): Campaign kembali ke Draft bila itu pengajuan pertamanya, atau ke Rejected bila pengajuan ulang. Campaign yang Draft atau Rejected boleh diedit dan diajukan lagi tanpa batas. Selama Submitted, isinya dibekukan agar Verifier memeriksa versi yang tetap. Pada Campaign Active, hanya cerita dan sampul yang boleh diubah langsung (judul dan deskripsi dibekukan sejak Active, lebih ketat dari PRD, agar Donor tidak menyumbang untuk satu tujuan lalu judulnya berganti); perubahan target, tenggat, atau Bank Account membutuhkan Verification Request baru.
 _Avoid_: Moderasi, review, approval
+
+**Identity Verification**:
+Catatan bertanggal bahwa seorang Verifier sudah memeriksa identitas seorang Fundraiser, dibuat saat Verification Request pertamanya diloloskan. Berlaku untuk pengajuan berikutnya; tidak pernah diklaim sendiri oleh Fundraiser.
+_Avoid_: Terverifikasi (sebagai lencana), isVerified, verified badge
 
 **Capacity**:
 Peran yang dipakai seseorang untuk satu tindakan: Fundraiser, Verifier, Admin, atau System (tindakan otomatis platform). Satu orang boleh memegang beberapa penugasan, tetapi setiap tindakan tercatat dalam tepat satu Capacity. Atas Campaign atau Volunteer Trip miliknya sendiri, seseorang hanya bisa bertindak sebagai Fundraiser.
 _Avoid_: Role (di kode itu hierarki lama), peran, jabatan
 
 **Admin**:
-Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, mengelola peran pengguna, memutuskan dan mencabut Suspension, menyetujui Cancellation, menandai Campaign Completed, serta memasang dan melepas Urgent. Tidak pernah bertindak sebagai Admin atas Campaign atau Volunteer Trip miliknya sendiri; di sana ia hanya Fundraiser. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
+Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, mengelola peran pengguna, memutuskan dan mencabut Suspension, menyetujui Cancellation, menandai Campaign Completed, memasang dan melepas Urgent, serta menyusun checklist dokumen Verification Request (berlaku untuk pengajuan berikutnya saja). Tidak pernah bertindak sebagai Admin atas Campaign atau Volunteer Trip miliknya sendiri; di sana ia hanya Fundraiser. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
 
 ### Uang
 

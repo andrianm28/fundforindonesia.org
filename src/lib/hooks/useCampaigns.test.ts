@@ -32,8 +32,6 @@ const mockCampaignsResponse: CampaignsResponse = {
         id: 'user1',
         name: 'Yayasan Peduli',
         avatar: null,
-        isVerified: true,
-        verificationType: 'organization',
       },
     },
   ],

@@ -6,6 +6,8 @@ import { GET, PATCH } from './route';
 // Mock prisma
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
     campaign: {
       findUnique: vi.fn(),
       update: vi.fn(),
@@ -28,6 +30,8 @@ const mockFindUnique = vi.mocked(prisma.campaign.findUnique);
 const mockUpdate = vi.mocked(prisma.campaign.update);
 const mockGetServerSession = vi.mocked(getServerSession);
 const mockStatusChangeFindFirst = vi.mocked(prisma.campaignStatusChange.findFirst);
+const mockTransaction = vi.mocked(prisma.$transaction);
+const mockLockQuery = vi.mocked(prisma.$queryRaw);
 
 function createRequest(slug: string, method = 'GET', body?: unknown) {
   const init: RequestInit = { method };
@@ -65,8 +69,6 @@ describe('GET /api/campaigns/[slug]', () => {
         id: 'user-1',
         name: 'Yayasan Peduli',
         avatar: null,
-        isVerified: true,
-        verificationType: 'organization',
       },
       _count: {
         donations: 342,
@@ -100,8 +102,6 @@ describe('GET /api/campaigns/[slug]', () => {
       id: 'user-1',
       name: 'Yayasan Peduli',
       avatar: null,
-      isVerified: true,
-      verificationType: 'organization',
     });
     expect(body.campaign.donationCount).toBe(342);
   });
@@ -117,13 +117,14 @@ describe('GET /api/campaigns/[slug]', () => {
       targetAmount: 10000000,
       collectedAmount: 5000000,
       category: 'bencana-alam',
+      lifecycleStatus: 'ACTIVE',
       isUrgent: false,
       isDemo: true,
       deadline: null,
       creatorId: 'user-1',
       createdAt: new Date(),
       updatedAt: new Date(),
-      creator: { id: 'user-1', name: 'Creator', avatar: null, isVerified: false, verificationType: null },
+      creator: { id: 'user-1', name: 'Creator', avatar: null },
       _count: { donations: 0 },
     } as any);
 
@@ -165,6 +166,7 @@ describe('GET /api/campaigns/[slug]', () => {
       targetAmount: 10000000,
       collectedAmount: 5000000,
       category: 'kesehatan',
+      lifecycleStatus: 'ACTIVE',
       isUrgent: false,
       deadline: null,
       creatorId: 'user-2',
@@ -174,8 +176,6 @@ describe('GET /api/campaigns/[slug]', () => {
         id: 'user-2',
         name: 'Test Creator',
         avatar: 'https://example.com/avatar.jpg',
-        isVerified: false,
-        verificationType: null,
       },
       _count: {
         donations: 10,
@@ -210,8 +210,6 @@ describe('GET /api/campaigns/[slug]', () => {
             id: true,
             name: true,
             avatar: true,
-            isVerified: true,
-            verificationType: true,
           },
         },
         _count: {
@@ -276,7 +274,7 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
       creatorId: 'owner-1',
       createdAt: new Date('2026-01-01T00:00:00Z'),
       updatedAt: new Date('2026-01-01T00:00:00Z'),
-      creator: { id: 'owner-1', name: 'Pemilik', avatar: null, isVerified: true, verificationType: null },
+      creator: { id: 'owner-1', name: 'Pemilik', avatar: null },
       _count: { donations: 3 },
       ...overrides,
     };
@@ -340,8 +338,8 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
 
     const suspended = () => campaignRow({ lifecycleStatus: 'SUSPENDED' });
 
-    function sessionOf(id: string, role = 'CAMPAIGN_CREATOR') {
-      mockGetServerSession.mockResolvedValue({ user: { id, role } } as any);
+    function sessionOf(id: string, assignments: string[] = []) {
+      mockGetServerSession.mockResolvedValue({ user: { id, assignments } } as any);
     }
 
     it('is returned to the owning Fundraiser, from the latest SUSPENDED row', async () => {
@@ -360,13 +358,13 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
     });
 
     it('is withheld from a signed-in user who does not own the Campaign', async () => {
-      sessionOf('donor-9', 'DONOR');
+      sessionOf('donor-9');
       const { body } = await getAs(suspended());
       expect(body.campaign).not.toHaveProperty('suspensionReason');
     });
 
     it('is withheld from an Admin who does not own the Campaign', async () => {
-      sessionOf('admin-1', 'ADMIN');
+      sessionOf('admin-1', ['ADMIN']);
       const { body } = await getAs(suspended());
       expect(body.campaign).not.toHaveProperty('suspensionReason');
     });
@@ -408,9 +406,102 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
   });
 });
 
+describe('GET /api/campaigns/[slug] -- an unapproved Campaign is private', () => {
+  // CONTEXT.md, Campaign Status: a Draft, Submitted or Rejected Campaign
+  // opens only for its Fundraiser, Verifiers and Admins. Everyone else is
+  // told it does not exist, in the same words as a slug that never did.
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function row(lifecycleStatus: string) {
+    return {
+      id: 'campaign-1',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+      description: 'Deskripsi',
+      story: '<p>Cerita</p>',
+      coverImage: 'https://example.com/a.jpg',
+      targetAmount: 10_000_000,
+      collectedAmount: 0,
+      category: 'lingkungan',
+      lifecycleStatus,
+      isUrgent: false,
+      isDemo: false,
+      deadline: null,
+      creatorId: 'owner-1',
+      createdAt: new Date('2026-09-01T00:00:00Z'),
+      updatedAt: new Date('2026-09-01T00:00:00Z'),
+      creator: { id: 'owner-1', name: 'Pemilik', avatar: null },
+      _count: { donations: 0 },
+    };
+  }
+
+  const viewers = {
+    anonymous: null,
+    'another signed-in user': { user: { id: 'donor-9', assignments: [] } },
+    'the Fundraiser': { user: { id: 'owner-1', assignments: [] } },
+    'a Verifier': { user: { id: 'verifier-1', assignments: ['VERIFIER'] } },
+    'an Admin': { user: { id: 'admin-1', assignments: ['ADMIN'] } },
+    // Viewing is not acting: owning the Campaign bars acting on it as its
+    // Verifier, not looking at it.
+    'a Verifier who owns it': { user: { id: 'owner-1', assignments: ['VERIFIER'] } },
+  } as const;
+
+  const privileged = ['the Fundraiser', 'a Verifier', 'an Admin', 'a Verifier who owns it'] as const;
+  const outsiders = ['anonymous', 'another signed-in user'] as const;
+
+  async function getAs(viewer: keyof typeof viewers, lifecycleStatus: string) {
+    mockGetServerSession.mockResolvedValue(viewers[viewer] as any);
+    mockFindUnique.mockResolvedValue(row(lifecycleStatus) as any);
+    const response = await GET(createRequest('sumur-desa'), {
+      params: Promise.resolve({ slug: 'sumur-desa' }),
+    });
+    return { response, body: await response.json() };
+  }
+
+  describe.each(['DRAFT', 'SUBMITTED', 'REJECTED'])('while %s', (status) => {
+    it.each(outsiders)('answers 404 to %s, exactly as for a missing slug', async (viewer) => {
+      const { response, body } = await getAs(viewer, status);
+
+      expect(response.status).toBe(404);
+      expect(body).toEqual({ code: 'NOT_FOUND', message: 'Campaign tidak ditemukan', status: 404 });
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    });
+
+    it.each(privileged)('opens for %s, with its status, never shared-cached', async (viewer) => {
+      const { response, body } = await getAs(viewer, status);
+
+      expect(response.status).toBe(200);
+      expect(body.campaign.lifecycleStatus).toBe(status);
+      expect(body.campaign.title).toBe('Sumur untuk Desa');
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    });
+  });
+
+  describe.each(['ACTIVE', 'CANCELLED', 'COMPLETED'])('once approved (%s)', (status) => {
+    it.each(outsiders)('opens for %s as today, publicly cached', async (viewer) => {
+      const { response, body } = await getAs(viewer, status);
+
+      expect(response.status).toBe(200);
+      expect(body.campaign.lifecycleStatus).toBe(status);
+      expect(response.headers.get('Cache-Control')).toBe(
+        'public, s-maxage=60, stale-while-revalidate=300'
+      );
+    });
+  });
+
+  it('answers 404 to an outsider for a status it does not know (deny by default)', async () => {
+    const { response } = await getAs('anonymous', 'SOMETHING_NEW');
+    expect(response.status).toBe(404);
+  });
+});
+
 describe('PATCH /api/campaigns/[slug]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // An interactive transaction runs its callback on the same client.
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as any);
   });
 
   it('returns 401 if user is not authenticated', async () => {
@@ -428,7 +519,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('returns 404 if campaign does not exist', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'user-1', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null },
+      user: { id: 'user-1', name: 'Admin', email: 'admin@test.com' },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue(null);
@@ -443,17 +534,17 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('allows an Admin (the ADMIN assignment) to edit any campaign', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: ['ADMIN'] },
+      user: { id: 'admin-user', name: 'Admin', email: 'admin@test.com', assignments: ['ADMIN'] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'other-user',
+      creatorId: 'other-user', lifecycleStatus: 'ACTIVE', deadline: null,
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
       title: 'Updated Title',
-      creator: { id: 'other-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
+      creator: { id: 'other-user', name: 'Creator', avatar: null },
     } as any);
 
     const request = createRequest('test-campaign', 'PATCH', { title: 'Updated Title' });
@@ -468,17 +559,17 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('allows CAMPAIGN_CREATOR who is the owner to edit their campaign', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', role: 'CAMPAIGN_CREATOR', name: 'Creator', email: 'creator@test.com', isVerified: true, verificationType: null },
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'creator-user',
+      creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null,
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
       title: 'My Updated Campaign',
-      creator: { id: 'creator-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
+      creator: { id: 'creator-user', name: 'Creator', avatar: null },
     } as any);
 
     const request = createRequest('my-campaign', 'PATCH', { title: 'My Updated Campaign' });
@@ -493,12 +584,12 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('returns 403 for CAMPAIGN_CREATOR who is NOT the owner', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', role: 'CAMPAIGN_CREATOR', name: 'Creator', email: 'creator@test.com', isVerified: true, verificationType: null },
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'different-user',
+      creatorId: 'different-user', lifecycleStatus: 'ACTIVE', deadline: null,
     } as any);
 
     const request = createRequest('other-campaign', 'PATCH', { title: 'Hack' });
@@ -516,16 +607,16 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('ignores a status in the body even from an ADMIN -- status moves only through moderation', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: ['ADMIN'] },
+      user: { id: 'admin-user', name: 'Admin', email: 'admin@test.com', assignments: ['ADMIN'] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'other-user',
+      creatorId: 'other-user', lifecycleStatus: 'ACTIVE', deadline: null,
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
-      creator: { id: 'other-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
+      creator: { id: 'other-user', name: 'Creator', avatar: null },
     } as any);
 
     const request = createRequest('bantu-korban-banjir', 'PATCH', { status: 'active' });
@@ -538,16 +629,16 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('ignores a client-supplied lifecycleStatus without a status', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'admin-user', role: 'ADMIN', name: 'Admin', email: 'admin@test.com', isVerified: true, verificationType: null, assignments: ['ADMIN'] },
+      user: { id: 'admin-user', name: 'Admin', email: 'admin@test.com', assignments: ['ADMIN'] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
-      creatorId: 'other-user',
+      creatorId: 'other-user', lifecycleStatus: 'ACTIVE', deadline: null,
     } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
-      creator: { id: 'other-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
+      creator: { id: 'other-user', name: 'Creator', avatar: null },
     } as any);
 
     const request = createRequest('bantu-korban-banjir', 'PATCH', { lifecycleStatus: 'DRAFT' });
@@ -560,13 +651,13 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('writes only the fields a Fundraiser may edit, dropping money, status, and ownership fields', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', role: 'CAMPAIGN_CREATOR', name: 'Creator', email: 'creator@test.com', isVerified: true, verificationType: null },
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
       expires: '2099-01-01',
     });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user' } as any);
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
-      creator: { id: 'creator-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
+      creator: { id: 'creator-user', name: 'Creator', avatar: null },
     } as any);
 
     const request = createRequest('bantu-korban-banjir', 'PATCH', {
@@ -589,13 +680,13 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('drops deadline, category, and isUrgent -- those change through a Verification Request or an Admin, not a direct edit', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', role: 'CAMPAIGN_CREATOR', name: 'Creator', email: 'creator@test.com', isVerified: true, verificationType: null },
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
       expires: '2099-01-01',
     });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user' } as any);
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null } as any);
     mockUpdate.mockResolvedValue({
       id: 'campaign-1',
-      creator: { id: 'creator-user', name: 'Creator', avatar: null, isVerified: true, verificationType: null },
+      creator: { id: 'creator-user', name: 'Creator', avatar: null },
     } as any);
 
     const request = createRequest('bantu-korban-banjir', 'PATCH', {
@@ -613,10 +704,10 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('returns 400 and writes nothing when an editable field is invalid', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', role: 'CAMPAIGN_CREATOR', name: 'Creator', email: 'creator@test.com', isVerified: true, verificationType: null },
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
       expires: '2099-01-01',
     });
-    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user' } as any);
+    mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null } as any);
 
     const request = createRequest('bantu-korban-banjir', 'PATCH', { title: '', coverImage: 'bukan-url' });
     const response = await PATCH(request, {
@@ -629,20 +720,20 @@ describe('PATCH /api/campaigns/[slug]', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  describe('Admin power comes from the ADMIN assignment, not the Role (ADR 0005)', () => {
-    function sessionAs(user: { id: string; role: string; assignments: string[] }) {
+  describe('Admin power comes from the ADMIN assignment (ADR 0005)', () => {
+    function sessionAs(user: { id: string; assignments: string[] }) {
       mockGetServerSession.mockResolvedValue({ user, expires: '2099-01-01' } as any);
     }
     function patchCampaignOwnedBy(creatorId: string) {
-      mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId } as any);
+      mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId, lifecycleStatus: 'ACTIVE', deadline: null } as any);
       mockUpdate.mockResolvedValue({ id: 'campaign-1', title: 'Baru' } as any);
       return PATCH(createRequest('test-campaign', 'PATCH', { title: 'Baru' }), {
         params: Promise.resolve({ slug: 'test-campaign' }),
       });
     }
 
-    it('lets someone holding the ADMIN assignment without the Role edit a Campaign they do not own', async () => {
-      sessionAs({ id: 'ops-1', role: 'DONOR', assignments: ['ADMIN'] });
+    it('lets someone holding the ADMIN assignment edit a Campaign they do not own', async () => {
+      sessionAs({ id: 'ops-1', assignments: ['ADMIN'] });
 
       const response = await patchCampaignOwnedBy('other-user');
 
@@ -650,8 +741,8 @@ describe('PATCH /api/campaigns/[slug]', () => {
       expect(mockUpdate).toHaveBeenCalled();
     });
 
-    it('refuses someone with the ADMIN Role but no ADMIN assignment on a Campaign they do not own', async () => {
-      sessionAs({ id: 'legacy-admin', role: 'ADMIN', assignments: [] });
+    it('refuses someone without the ADMIN assignment on a Campaign they do not own', async () => {
+      sessionAs({ id: 'legacy-admin', assignments: [] });
 
       const response = await patchCampaignOwnedBy('other-user');
 
@@ -664,7 +755,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
 
     it('lets an Admin edit their own Campaign, as its Fundraiser', async () => {
-      sessionAs({ id: 'owner-admin', role: 'CAMPAIGN_CREATOR', assignments: ['ADMIN'] });
+      sessionAs({ id: 'owner-admin', assignments: ['ADMIN'] });
 
       const response = await patchCampaignOwnedBy('owner-admin');
 
@@ -672,7 +763,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
 
     it('lets the owner edit their Campaign whatever their Role, with no assignment', async () => {
-      sessionAs({ id: 'owner-1', role: 'DONOR', assignments: [] });
+      sessionAs({ id: 'owner-1', assignments: [] });
 
       const response = await patchCampaignOwnedBy('owner-1');
 
@@ -681,13 +772,147 @@ describe('PATCH /api/campaigns/[slug]', () => {
     });
 
     it('does not let the VERIFIER assignment stand in for ADMIN', async () => {
-      sessionAs({ id: 'verifier-1', role: 'CAMPAIGN_CREATOR', assignments: ['VERIFIER'] });
+      sessionAs({ id: 'verifier-1', assignments: ['VERIFIER'] });
 
       const response = await patchCampaignOwnedBy('other-user');
 
       expect(response.status).toBe(403);
       expect(mockUpdate).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign status', () => {
+  const NOW = new Date('2026-09-26T12:00:00Z');
+  const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
+
+  // The one stored Campaign row; both the slug lookup and the read under
+  // the lock see it as it stands at the time of the call.
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as any);
+    mockLockQuery.mockResolvedValue([] as any);
+    mockFindUnique.mockImplementation((async () => ({ ...row })) as any);
+    mockUpdate.mockImplementation((async (args: any) => ({ ...row, ...args.data })) as any);
+    mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as any);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function storedAs(lifecycleStatus: string, deadline: Date | null = null) {
+    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline };
+  }
+
+  function editTitle() {
+    return PATCH(createRequest('bantu-korban-banjir', 'PATCH', { title: 'Judul Baru' }), {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+  }
+
+  it.each(['DRAFT', 'REJECTED', 'ACTIVE'])('lets the Fundraiser edit the content of a %s Campaign', async (status) => {
+    storedAs(status);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).campaign.title).toBe('Judul Baru');
+  });
+
+  it('lets the Fundraiser edit an Active Campaign whose deadline is still ahead', async () => {
+    storedAs('ACTIVE', new Date('2026-10-01T00:00:00Z'));
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(200);
+  });
+
+  it('refuses while Submitted, so the Verifier checks a fixed version', async () => {
+    storedAs('SUBMITTED');
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      code: 'CAMPAIGN_NOT_EDITABLE',
+      error: 'Konten Campaign tidak dapat diubah saat berstatus Submitted.',
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['SUSPENDED', 'Suspended'],
+    ['CANCELLED', 'Cancelled'],
+    ['COMPLETED', 'Completed'],
+    ['EXPIRED', 'Expired'],
+  ])('refuses in the final status %s', async (status, label) => {
+    storedAs(status);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      code: 'CAMPAIGN_NOT_EDITABLE',
+      error: `Konten Campaign tidak dapat diubah saat berstatus ${label}.`,
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('refuses an Active Campaign past its deadline, which is effectively Expired', async () => {
+    storedAs('ACTIVE', new Date('2026-09-25T00:00:00Z'));
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe('Konten Campaign tidak dapat diubah saat berstatus Expired.');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('refuses an Admin on a Submitted Campaign they do not own too', async () => {
+    storedAs('SUBMITTED');
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'admin-1', assignments: ['ADMIN'] },
+      expires: '2099-01-01',
+    } as any);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 the same way when the Campaign is gone by the time the lock is taken', async () => {
+    storedAs('DRAFT');
+    mockFindUnique
+      .mockImplementationOnce((async () => ({ ...row })) as any)
+      .mockImplementationOnce((async () => null) as any);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Campaign tidak ditemukan' });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('judges a submit committed before this edit took the lock, and writes nothing', async () => {
+    storedAs('DRAFT');
+    // The Fundraiser submits from another tab between our first read and
+    // our row lock; the lock is granted only once that submit commits.
+    mockLockQuery.mockImplementation((async () => {
+      row = { ...row, lifecycleStatus: 'SUBMITTED' };
+      return [];
+    }) as any);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('CAMPAIGN_NOT_EDITABLE');
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });
 

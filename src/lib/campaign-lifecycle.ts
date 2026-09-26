@@ -6,6 +6,7 @@ import {
   FlagResolution,
   PayoutStatus,
   StatusChangeCapacity,
+  VerificationOutcome,
   type Prisma,
   type PrismaClient,
 } from "@/generated/prisma/client";
@@ -44,6 +45,7 @@ import {
 } from "./campaign-lifecycle-errors";
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
+import { SUBMITTABLE_STATUSES } from "./verification-submission";
 
 // ==================== Effective status ====================
 
@@ -243,26 +245,31 @@ export async function expireIfPastDeadline(
 
 const REASON_MAX_LENGTH = 1000;
 
-/** A required reason: trimmed, non-empty, at most REASON_MAX_LENGTH characters. */
-function requireReason(raw: unknown): string {
+/** A free-text field a command takes: the body field it came from, and its name in a refusal. */
+type TextField = { field: string; label: string };
+
+const REASON: TextField = { field: "reason", label: "Alasan" };
+
+/** A required text: trimmed, non-empty, at most REASON_MAX_LENGTH characters. */
+function requireReason(raw: unknown, text: TextField = REASON): string {
   const reason = typeof raw === "string" ? raw.trim() : "";
   if (reason === "") {
-    throw new LifecycleValidationError("Alasan wajib diisi.", "reason");
+    throw new LifecycleValidationError(`${text.label} wajib diisi.`, text.field);
   }
   if (reason.length > REASON_MAX_LENGTH) {
     throw new LifecycleValidationError(
-      `Alasan maksimal ${REASON_MAX_LENGTH} karakter.`,
-      "reason"
+      `${text.label} maksimal ${REASON_MAX_LENGTH} karakter.`,
+      text.field
     );
   }
   return reason;
 }
 
-/** An optional reason: absent or blank is none; anything else must pass requireReason. */
-function optionalReason(raw: unknown): string | null {
+/** An optional text: absent or blank is none; anything else must pass requireReason. */
+function optionalReason(raw: unknown, text: TextField = REASON): string | null {
   if (raw === undefined || raw === null) return null;
   if (typeof raw === "string" && raw.trim() === "") return null;
-  return requireReason(raw);
+  return requireReason(raw, text);
 }
 
 /**
@@ -405,57 +412,308 @@ async function runCommand<P extends ReasonPolicy, Extra extends object>(
 
 // ==================== Commands ====================
 
-const SUBMISSION_DECISIONS = {
-  approve: {
-    to: CampaignStatus.ACTIVE,
-    action: CampaignStatusChangeAction.SUBMISSION_APPROVED,
-    title: "Campaign Disetujui",
-    message: (title: string) =>
-      `Campaign "${title}" telah disetujui dan kini aktif menerima donasi.`,
-  },
-  reject: {
-    to: CampaignStatus.REJECTED,
-    action: CampaignStatusChangeAction.SUBMISSION_REJECTED,
-    title: "Campaign Ditolak",
-    message: (title: string) =>
-      `Campaign "${title}" ditolak setelah ditinjau oleh Verifier.`,
-  },
-} as const;
+// ==================== Verification Request (verification-request 01) ====================
 
-export type SubmissionDecision = keyof typeof SUBMISSION_DECISIONS;
+/** One checklist item as a Verification Request keeps it: the item at submission, and the Verifier's tick. */
+export type ChecklistEntry = {
+  id: string;
+  label: string;
+  required: boolean;
+  position: number;
+  ticked: boolean;
+};
 
-export function isSubmissionDecision(value: unknown): value is SubmissionDecision {
-  return typeof value === "string" && Object.hasOwn(SUBMISSION_DECISIONS, value);
+export type VerificationRequestState = {
+  id: string;
+  campaignId: string;
+  submittedById: string;
+  submittedAt: Date;
+  checklist: Prisma.JsonValue;
+  outcome: VerificationOutcome;
+  reason: string | null;
+  decidedById: string | null;
+  decidedAt: Date | null;
+  isFirst: boolean;
+};
+
+export type SubmissionResult = LifecycleResult & { verificationRequest: VerificationRequestState };
+
+/**
+ * The Fundraiser submits their Draft or Rejected Campaign to a Verifier
+ * (FFI-04, FFI-05). The Campaign becomes Submitted and a new PENDING
+ * Verification Request opens, holding a snapshot of the checklist items
+ * active right now, none ticked, so a later edit of the checklist never
+ * changes what this request is judged against. A Draft's submission is the
+ * Campaign's first request; a Rejected one's is a resubmission. Only its
+ * Fundraiser may submit, and always in that Capacity, even holding ADMIN or
+ * VERIFIER; nobody is notified, since the Fundraiser is the one acting.
+ */
+export async function submitCampaign(
+  prisma: PrismaClient,
+  params: { campaignId: string; actor: LifecycleActor; now?: Date }
+): Promise<SubmissionResult> {
+  return runCommand(prisma, params, {
+    authority: {
+      capacity: StatusChangeCapacity.FUNDRAISER,
+      message: "Hanya Fundraiser pemilik Campaign yang dapat mengajukannya ke Verifier.",
+    },
+    reasonPolicy: "none",
+    allowedFrom: SUBMITTABLE_STATUSES,
+    step: async ({ tx, campaign, current, actor, now, transition }) => {
+      const items = await tx.verificationChecklistItem.findMany({
+        where: { active: true },
+        orderBy: { position: "asc" },
+      });
+      const checklist: ChecklistEntry[] = items.map((item) => ({
+        id: item.id,
+        label: item.label,
+        required: item.required,
+        position: item.position,
+        ticked: false,
+      }));
+      const verificationRequest = await tx.verificationRequest.create({
+        data: {
+          campaignId: campaign.id,
+          submittedById: actor.userId,
+          submittedAt: now,
+          checklist,
+          isFirst: current === CampaignStatus.DRAFT,
+        },
+      });
+      await transition(CampaignStatus.SUBMITTED, CampaignStatusChangeAction.SUBMITTED);
+      return { verificationRequest };
+    },
+  });
+}
+
+/** No such request on this Campaign (a request is always addressed through its Campaign). */
+export class VerificationRequestNotFoundError extends CampaignLifecycleError {
+  readonly code = "VERIFICATION_REQUEST_NOT_FOUND";
+  constructor(readonly requestId: string) {
+    super("Verification Request tidak ditemukan.");
+    this.name = "VerificationRequestNotFoundError";
+  }
+}
+
+/** The request was already decided or withdrawn; a closed request is never changed again. */
+export class VerificationRequestNotPendingError extends CampaignLifecycleError {
+  readonly code = "VERIFICATION_REQUEST_NOT_PENDING";
+  constructor(readonly outcome: VerificationOutcome) {
+    super(
+      outcome === VerificationOutcome.WITHDRAWN
+        ? "Verification Request ini sudah ditarik oleh Fundraiser."
+        : "Verification Request ini sudah diputuskan."
+    );
+    this.name = "VerificationRequestNotPendingError";
+  }
 }
 
 /**
- * A Verifier approves (ACTIVE) or rejects (REJECTED) a Submitted Campaign.
- * Any other effective status is refused, so moderation can never reopen a
- * Suspended, Completed or Cancelled Campaign. Recorded in the VERIFIER
- * capacity, without a reason: rejection reasons belong to Verification
- * Request (ticket 12). A Verifier never decides on a Campaign they own.
+ * The PENDING request `requestId` of this Campaign, read under its row lock.
+ * The request is judged before the Campaign's status, so a missing, decided
+ * or withdrawn request answers as such whatever the Campaign's status; a
+ * pending one is only acted on while the Campaign is Submitted.
  */
-export async function decideSubmission(
+async function readPendingRequest(tx: Tx, campaignId: string, requestId: string, current: CampaignStatus) {
+  const request = await tx.verificationRequest.findUnique({ where: { id: requestId } });
+  if (!request || request.campaignId !== campaignId) {
+    throw new VerificationRequestNotFoundError(requestId);
+  }
+  if (request.outcome !== VerificationOutcome.PENDING) {
+    throw new VerificationRequestNotPendingError(request.outcome);
+  }
+  if (current !== CampaignStatus.SUBMITTED) throw new InvalidTransitionError(current);
+  return request;
+}
+
+/**
+ * Closes a request, by a decision or a withdrawal. The write matches PENDING
+ * rows only, so a closed request is never written again.
+ */
+async function closeRequest(
+  tx: Tx,
+  requestId: string,
+  closed: Prisma.VerificationRequestUpdateManyMutationInput
+): Promise<void> {
+  const written = await tx.verificationRequest.updateMany({
+    where: { id: requestId, outcome: VerificationOutcome.PENDING },
+    data: closed,
+  });
+  if (written.count === 0) throw new ConcurrentTransitionError();
+}
+
+const VERIFICATION_DECISIONS = {
+  approve: {
+    to: CampaignStatus.ACTIVE,
+    outcome: VerificationOutcome.APPROVED,
+    action: CampaignStatusChangeAction.SUBMISSION_APPROVED,
+    reasonPolicy: "none",
+    title: "Campaign Diloloskan",
+    message: (title: string) =>
+      `Campaign "${title}" diloloskan Verifier dan kini aktif menerima donasi.`,
+  },
+  reject: {
+    to: CampaignStatus.REJECTED,
+    outcome: VerificationOutcome.REJECTED,
+    action: CampaignStatusChangeAction.SUBMISSION_REJECTED,
+    reasonPolicy: "required",
+    title: "Campaign Ditolak",
+    message: (title: string, reason: string | null) =>
+      `Campaign "${title}" ditolak oleh Verifier. Perbaiki Campaign Anda, lalu ajukan kembali. Alasan: ${reason}`,
+  },
+} as const;
+
+export type VerificationDecision = keyof typeof VERIFICATION_DECISIONS;
+
+export function isVerificationDecision(value: unknown): value is VerificationDecision {
+  return typeof value === "string" && Object.hasOwn(VERIFICATION_DECISIONS, value);
+}
+
+/** The ticked checklist item ids: absent is none; otherwise an array of strings. */
+function parseTicked(raw: unknown): Set<string> {
+  if (raw === undefined || raw === null) return new Set();
+  if (!Array.isArray(raw) || !raw.every((id) => typeof id === "string")) {
+    throw new LifecycleValidationError("Checklist tidak valid.", "ticked");
+  }
+  return new Set(raw);
+}
+
+const IDENTITY_NOTE: TextField = { field: "identityNote", label: "Catatan identitas" };
+
+export type VerificationDecisionResult = LifecycleResult & {
+  verificationRequest: VerificationRequestState;
+  /** Whether this approval is the one that recorded the Fundraiser's Identity Verification. */
+  identityVerificationRecorded: boolean;
+};
+
+/**
+ * A Verifier decides a PENDING Verification Request (FFI-05): approve makes
+ * the Submitted Campaign Active; reject makes it Rejected, with a required
+ * reason. The Verifier's ticks are recorded on the request's own checklist
+ * snapshot, beside the outcome, reason, Verifier and time. Recorded in the
+ * VERIFIER Capacity; a Verifier never decides on a Campaign they own.
+ *
+ * The request is judged before the Campaign's status, so a decided or
+ * withdrawn request answers as such. A decided request is never written
+ * again: the write is predicated on PENDING, under the Campaign row lock.
+ *
+ * Approving records the Fundraiser's Identity Verification when they have
+ * none yet (CONTEXT.md, Identity Verification), with this Verifier, `now`
+ * and the optional note; an existing one is left as it is. The Fundraiser is
+ * told the outcome, and on rejection the reason.
+ */
+export async function decideVerificationRequest(
   prisma: PrismaClient,
   params: {
     campaignId: string;
+    requestId: string;
     actor: LifecycleActor;
-    decision: SubmissionDecision;
+    decision: VerificationDecision;
+    ticked?: unknown;
+    reason?: unknown;
+    identityNote?: unknown;
     now?: Date;
   }
-): Promise<LifecycleResult> {
-  const decision = SUBMISSION_DECISIONS[params.decision];
+): Promise<VerificationDecisionResult> {
+  const { requestId } = params;
+  const decision = VERIFICATION_DECISIONS[params.decision];
+  const ticked = parseTicked(params.ticked);
+  const identityNote = optionalReason(params.identityNote, IDENTITY_NOTE);
   return runCommand(prisma, params, {
     authority: {
       capacity: StatusChangeCapacity.VERIFIER,
       message: "Hanya Verifier yang dapat menyetujui atau menolak Campaign.",
     },
-    reasonPolicy: "none",
-    allowedFrom: [CampaignStatus.SUBMITTED],
-    step: async ({ campaign, transition, notify }) => {
+    reasonPolicy: decision.reasonPolicy,
+    rawReason: params.reason,
+    step: async ({ tx, campaign, current, actor, reason, now, transition, notify }) => {
+      const request = await readPendingRequest(tx, campaign.id, requestId, current);
+      const snapshot = request.checklist as ChecklistEntry[];
+      const known = new Set(snapshot.map((entry) => entry.id));
+      if (Array.from(ticked).some((id) => !known.has(id))) {
+        throw new LifecycleValidationError(
+          "Checklist memuat item yang tidak ada pada pengajuan ini.",
+          "ticked"
+        );
+      }
+      const checklist: ChecklistEntry[] = snapshot.map((entry) => ({
+        ...entry,
+        ticked: ticked.has(entry.id),
+      }));
+      const decided = {
+        checklist,
+        outcome: decision.outcome,
+        reason,
+        decidedById: actor.userId,
+        decidedAt: now,
+      };
+      await closeRequest(tx, requestId, decided);
       await transition(decision.to, decision.action);
-      await notify({ title: decision.title, message: decision.message(campaign.title) });
-      return {};
+      let identityVerificationRecorded = false;
+      if (decision.outcome === VerificationOutcome.APPROVED) {
+        // Two Campaigns of one Fundraiser hold different row locks, so two
+        // approvals may race here; the unique userId keeps the first.
+        const created = await tx.identityVerification.createMany({
+          data: [
+            { userId: campaign.creatorId, verifierId: actor.userId, verifiedAt: now, note: identityNote },
+          ],
+          skipDuplicates: true,
+        });
+        identityVerificationRecorded = created.count > 0;
+      }
+      await notify({ title: decision.title, message: decision.message(campaign.title, reason) });
+      return { verificationRequest: { ...request, ...decided }, identityVerificationRecorded };
+    },
+  });
+}
+
+/** The Campaign and the request as a withdrawal leaves them; the same shape a submission returns. */
+export type WithdrawalResult = SubmissionResult;
+
+/**
+ * The Fundraiser withdraws their undecided Verification Request (CONTEXT.md,
+ * Verification Request). The request becomes WITHDRAWN, recording the
+ * Fundraiser and `now` as who closed it and when, and the Campaign leaves
+ * Submitted: back to Draft if this was its first request, back to Rejected
+ * if it was a resubmission. Only its Fundraiser may withdraw, always in that
+ * Capacity; nobody is notified, since the Fundraiser is the one acting.
+ *
+ * It races a Verifier's decision for the same Campaign row lock, so exactly
+ * one of the two closes the request; the other finds it no longer pending.
+ */
+export async function withdrawVerificationRequest(
+  prisma: PrismaClient,
+  params: { campaignId: string; requestId: string; actor: LifecycleActor; now?: Date }
+): Promise<WithdrawalResult> {
+  const { requestId } = params;
+  return runCommand(prisma, params, {
+    authority: {
+      capacity: StatusChangeCapacity.FUNDRAISER,
+      message: "Hanya Fundraiser pemilik Campaign yang dapat menarik pengajuannya.",
+    },
+    reasonPolicy: "none",
+    step: async ({ tx, campaign, current, actor, now, transition }) => {
+      const request = await readPendingRequest(tx, campaign.id, requestId, current);
+      const withdrawn = {
+        outcome: VerificationOutcome.WITHDRAWN,
+        decidedById: actor.userId,
+        decidedAt: now,
+      };
+      await closeRequest(tx, requestId, withdrawn);
+      const to = request.isFirst ? CampaignStatus.DRAFT : CampaignStatus.REJECTED;
+      await transition(to, CampaignStatusChangeAction.SUBMISSION_WITHDRAWN);
+      // The spec's withdraw confirmation: the one lifecycle notice a
+      // Fundraiser gets for their own action, so it bypasses `notify`.
+      await tx.notification.create({
+        data: {
+          type: "campaign_status",
+          userId: campaign.creatorId,
+          link: `/campaign/${campaign.slug}`,
+          title: "Pengajuan Ditarik",
+          message: `Pengajuan Campaign "${campaign.title}" ke Verifier telah ditarik. Campaign kini ${STATUS_LABEL[to]} dan dapat diedit lalu diajukan kembali.`,
+        },
+      });
+      return { verificationRequest: { ...request, ...withdrawn } };
     },
   });
 }

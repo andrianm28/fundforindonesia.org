@@ -51,7 +51,7 @@ function routeContext(id = "user-2") {
 describe("POST /api/admin/users/[id]/assignments", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", role: "ADMIN", assignments: ["ADMIN"] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: ["ADMIN"] } });
     mockUpsert.mockResolvedValue({ userId: "user-2", assignment: "VERIFIER" });
     mockAuditCreate.mockResolvedValue({});
     mockNotificationCreate.mockResolvedValue({});
@@ -66,14 +66,14 @@ describe("POST /api/admin/users/[id]/assignments", () => {
   });
 
   it("returns 403 for a Verifier who does not hold the Admin assignment", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", role: "MODERATOR", assignments: ["VERIFIER"] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
     const response = await POST(createRequest({ assignment: "VERIFIER" }), routeContext());
     expect(response.status).toBe(403);
     expect(mockUpsert).not.toHaveBeenCalled();
   });
 
   it("returns 403 for an ADMIN-ranked user who does not hold the ADMIN assignment", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: "someone-1", role: "ADMIN", assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "someone-1", assignments: [] } });
     const response = await POST(createRequest({ assignment: "VERIFIER" }), routeContext());
     expect(response.status).toBe(403);
     expect(mockUpsert).not.toHaveBeenCalled();
@@ -146,7 +146,7 @@ function deleteRequest(body: unknown): NextRequest {
 describe("DELETE /api/admin/users/[id]/assignments", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", role: "ADMIN", assignments: ["ADMIN"] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: ["ADMIN"] } });
     mockFindUnique.mockResolvedValue({ userId: "user-2", assignment: "VERIFIER" });
     mockDelete.mockResolvedValue({ userId: "user-2", assignment: "VERIFIER" });
     mockAuditCreate.mockResolvedValue({});
@@ -164,7 +164,7 @@ describe("DELETE /api/admin/users/[id]/assignments", () => {
   });
 
   it("returns 403 for an ADMIN-ranked user who does not hold the ADMIN assignment", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: "someone-1", role: "ADMIN", assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "someone-1", assignments: [] } });
     const response = await DELETE(deleteRequest({ assignment: "VERIFIER" }), routeContext());
     expect(response.status).toBe(403);
     expect(mockDelete).not.toHaveBeenCalled();

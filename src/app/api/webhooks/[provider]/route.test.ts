@@ -27,8 +27,13 @@ vi.mock('@/lib/payments', async () => {
   };
 });
 
-vi.mock('@/lib/money/refunds', () => ({
-  createRefund: vi.fn(),
+// The Trip Fee side of a Settlement is the Volunteer Trip module's
+// (src/lib/volunteer/trip.ts, tested in trip-registrations.test.ts); this
+// route only calls it and acts on what it reports.
+vi.mock('@/lib/volunteer/trip', () => ({
+  confirmRegistration: vi.fn(),
+  expireRegistrationHold: vi.fn(),
+  refundLateSettlement: vi.fn(),
 }));
 
 import { prisma } from '@/lib/prisma';
@@ -38,9 +43,11 @@ import {
   UnknownPaymentProviderError,
   InvalidWebhookSignatureError,
 } from '@/lib/payments';
-import { createRefund } from '@/lib/money/refunds';
+import { confirmRegistration, expireRegistrationHold, refundLateSettlement } from '@/lib/volunteer/trip';
 
-const mockCreateRefund = createRefund as unknown as Mock;
+const mockConfirmRegistration = confirmRegistration as unknown as Mock;
+const mockExpireRegistrationHold = expireRegistrationHold as unknown as Mock;
+const mockRefundLateSettlement = refundLateSettlement as unknown as Mock;
 const mockWebhookEventCreate = prisma.webhookEvent.create as unknown as Mock;
 const mockWebhookEventUpdate = prisma.webhookEvent.update as unknown as Mock;
 const mockWebhookEventFindUniqueOrThrow = prisma.webhookEvent.findUniqueOrThrow as unknown as Mock;
@@ -80,17 +87,13 @@ type LedgerRow = {
  * the normal "this delivery won" case, 0 simulates a concurrent, distinct
  * event having already flipped the Payment out of PENDING first.
  */
-function makeTx(options: { paymentUpdateManyCount?: number; registrationUpdateManyCount?: number; registrationCurrentStatus?: string } = {}) {
-  const { paymentUpdateManyCount = 1, registrationUpdateManyCount = 1, registrationCurrentStatus = 'EXPIRED' } = options;
+function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
+  const { paymentUpdateManyCount = 1 } = options;
   const ledgerRows: LedgerRow[] = [];
   const tx = {
     payment: { updateMany: vi.fn().mockResolvedValue({ count: paymentUpdateManyCount }) },
     donation: { update: vi.fn().mockResolvedValue({}) },
     campaign: { update: vi.fn().mockResolvedValue({}) },
-    registration: {
-      updateMany: vi.fn().mockResolvedValue({ count: registrationUpdateManyCount }),
-      findUnique: vi.fn().mockResolvedValue({ status: registrationCurrentStatus }),
-    },
     webhookEvent: { update: vi.fn().mockResolvedValue({}) },
     ledgerEntry: {
       count: vi.fn().mockResolvedValue(0),
@@ -597,14 +600,16 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     mockWebhookEventUpdate.mockResolvedValue({});
     mockNotificationCreateMany.mockResolvedValue({ count: 0 });
     mockNotificationCreate.mockResolvedValue({});
-    mockCreateRefund.mockResolvedValue({ id: 'refund-1', status: 'REQUESTED' });
-  });
-
-  it('paid: confirms the Registration, posts TRIP_BALANCE-bound legs, notifies the Volunteer, does not touch Campaign/Donation tables', async () => {
+    mockConfirmRegistration.mockResolvedValue({ outcome: 'confirmed' });
+    mockExpireRegistrationHold.mockResolvedValue(undefined);
+    mockRefundLateSettlement.mockResolvedValue({ refund: { id: 'refund-1' } });
     mockGetPaymentProvider.mockReturnValue({
       parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
     });
     mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+  });
+
+  it('paid: confirms the Registration through the module inside the settlement, posts escrow legs for the Trip, notifies the Volunteer, does not touch Campaign/Donation tables', async () => {
     const { tx, ledgerRows } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -614,10 +619,7 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     expect(response.status).toBe(200);
     expect(data.received).toBe(true);
 
-    expect(tx.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: 'registration-1', status: 'HOLD' },
-      data: { status: 'CONFIRMED' },
-    });
+    expect(mockConfirmRegistration).toHaveBeenCalledWith(tx, { registrationId: 'registration-1' });
 
     // Campaign/Donation tables are never written for a Trip Fee settlement.
     expect(tx.donation.update).not.toHaveBeenCalled();
@@ -645,6 +647,7 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
       }),
     });
     expect(mockNotificationCreateMany).not.toHaveBeenCalled();
+    expect(mockRefundLateSettlement).not.toHaveBeenCalled();
 
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'we-1' },
@@ -652,29 +655,21 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     });
   });
 
-  it('paid: still posts the ledger legs and settles the Payment when the Registration is no longer HOLD (hold already expired), but does not notify the Volunteer', async () => {
-    // releaseExpiredHolds can flip a Registration HOLD -> EXPIRED without
-    // ever touching its Payment, which can stay PENDING for up to
-    // VA_EXPIRY_MS after the 30-minute hold window closed. If the charge
-    // clears in that window, the money genuinely arrived at the provider --
-    // settlement must not be refused -- but there is no seat left to
-    // confirm, so the Volunteer must not be told registration succeeded.
-    mockGetPaymentProvider.mockReturnValue({
-      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
-    });
-    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
-    const { tx, ledgerRows } = makeTx({ registrationUpdateManyCount: 0 });
+  it('paid: still posts the ledger legs and settles the Payment when the hold had lapsed, but neither notifies nor refunds', async () => {
+    // A hold can expire without its Payment being touched, and the Payment
+    // can stay PENDING for up to VA_EXPIRY_MS after the 30-minute hold
+    // window closed. If the charge clears in that window, the money
+    // genuinely arrived at the provider -- settlement must not be refused --
+    // but there is no seat left to confirm, so the Volunteer must not be
+    // told registration succeeded.
+    mockConfirmRegistration.mockResolvedValue({ outcome: 'lapsed' });
+    const { tx, ledgerRows } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const response = await POST(createRequest(), routeContext());
-    const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(data.received).toBe(true);
-
-    // The charge genuinely settled -- Payment still goes PAID and the ledger
-    // legs still post.
     expect(tx.payment.updateMany).toHaveBeenCalledWith({
       where: { id: 'payment-1', status: 'PENDING' },
       data: expect.objectContaining({ status: 'PAID' }),
@@ -682,82 +677,48 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     expect(ledgerRows).toContainEqual(
       expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 250_000, volunteerTripId: 'trip-1' }),
     );
-
-    // But no seat was confirmed, so the Volunteer is not told it was.
     expect(mockNotificationCreate).not.toHaveBeenCalled();
-
+    expect(mockRefundLateSettlement).not.toHaveBeenCalled();
     // Logged for manual review: money collected, no seat confirmed.
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('registration-1'),
-    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('registration-1'));
 
     consoleErrorSpy.mockRestore();
   });
 
-  it('paid: automatically refunds the Payment when the Registration was cancelled before the charge cleared', async () => {
-    mockGetPaymentProvider.mockReturnValue({
-      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
+  it('paid: has the module refund a Registration cancelled before the charge cleared, once the settlement has committed', async () => {
+    mockConfirmRegistration.mockResolvedValue({ outcome: 'cancelled' });
+    const { tx, ledgerRows } = makeTx();
+    const order: string[] = [];
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => {
+      const result = await cb(tx);
+      order.push('settlement committed');
+      return result;
     });
-    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
-    const { tx, ledgerRows } = makeTx({ registrationUpdateManyCount: 0, registrationCurrentStatus: 'CANCELLED' });
-    const refundTx = {};
-    mockTransaction
-      .mockImplementationOnce(async (cb: (tx: unknown) => unknown) => cb(tx))
-      .mockImplementationOnce(async (cb: (tx: unknown) => unknown) => cb(refundTx));
+    mockRefundLateSettlement.mockImplementation(async () => {
+      order.push('late-settlement refund');
+      return { refund: { id: 'refund-1' } };
+    });
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(200);
-    // The money genuinely arrived -- settlement and the ledger legs still
-    // post, exactly as the "hold already expired" case already proves.
-    expect(ledgerRows.some((r) => r.account === 'TRIP_BALANCE' || r.account === 'ESCROW_HOLD')).toBe(true);
+    // The money genuinely arrived -- settlement and the ledger legs still post.
+    expect(ledgerRows.some((r) => r.account === 'ESCROW_HOLD')).toBe(true);
     // No false-success notification -- there is no seat.
     expect(mockNotificationCreate).not.toHaveBeenCalled();
-    // The auto-refund runs in its own, separate transaction -- not nested
-    // inside the settlement transaction, which would risk a deadlock.
-    expect(mockTransaction).toHaveBeenCalledTimes(2);
-    // The auto-refund, called after the settlement transaction commits, for
-    // the full Gross amount, attributed to the cancelling Volunteer.
-    expect(mockCreateRefund).toHaveBeenCalledTimes(1);
-    expect(mockCreateRefund).toHaveBeenCalledWith(
-      refundTx,
-      {
-        subject: { type: 'trip', tripId: 'trip-1' },
-        paymentId: 'payment-1',
-        amount: 250_000,
-        reason: 'Trip Fee settlement arrived after the Registration was already cancelled -- refunded automatically',
-        requestedById: 'volunteer-1',
-      },
-    );
+    // In its own transaction, after the settlement's, never nested in it.
+    expect(mockRefundLateSettlement).toHaveBeenCalledTimes(1);
+    expect(mockRefundLateSettlement).toHaveBeenCalledWith(prisma, { registrationId: 'registration-1' });
+    expect(order).toEqual(['settlement committed', 'late-settlement refund']);
+    consoleErrorSpy.mockRestore();
   });
 
-  it('paid: does not attempt an auto-refund when the Registration is EXPIRED rather than CANCELLED', async () => {
-    // Regression guard: the naturally-expired case (ticket 03) must keep its
-    // existing log-only behavior, unchanged by this fix.
-    mockGetPaymentProvider.mockReturnValue({
-      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
-    });
-    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
-    const { tx } = makeTx({ registrationUpdateManyCount: 0, registrationCurrentStatus: 'EXPIRED' });
+  it('paid: logs and still answers 200 when the automatic refund itself fails', async () => {
+    mockConfirmRegistration.mockResolvedValue({ outcome: 'cancelled' });
+    const { tx } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
-
-    const response = await POST(createRequest(), routeContext());
-
-    expect(response.status).toBe(200);
-    expect(mockCreateRefund).not.toHaveBeenCalled();
-  });
-
-  it('paid: logs and still answers 200 when the automatic refund creation itself fails', async () => {
-    mockGetPaymentProvider.mockReturnValue({
-      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
-    });
-    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
-    const { tx } = makeTx({ registrationUpdateManyCount: 0, registrationCurrentStatus: 'CANCELLED' });
-    const refundTx = {};
-    mockTransaction
-      .mockImplementationOnce(async (cb: (tx: unknown) => unknown) => cb(tx))
-      .mockImplementationOnce(async (cb: (tx: unknown) => unknown) => cb(refundTx));
-    mockCreateRefund.mockRejectedValue(new Error('database exploded'));
+    mockRefundLateSettlement.mockRejectedValue(new Error('database exploded'));
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const response = await POST(createRequest(), routeContext());
@@ -770,7 +731,7 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     consoleErrorSpy.mockRestore();
   });
 
-  it('failed/expired: flips Registration.status to EXPIRED, posts nothing, does not touch Campaign/Donation tables', async () => {
+  it('failed/expired: has the module expire the hold inside the same transaction, posts nothing, does not touch Campaign/Donation tables', async () => {
     mockGetPaymentProvider.mockReturnValue({
       parseWebhook: vi.fn().mockResolvedValue({
         ...REGISTRATION_PAID_EVENT,
@@ -778,7 +739,6 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
         providerEventId: 'evt-reg-2',
       }),
     });
-    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
     const { tx } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -789,20 +749,29 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
       where: { id: 'payment-1', status: 'PENDING' },
       data: expect.objectContaining({ status: 'EXPIRED' }),
     });
-    expect(tx.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: 'registration-1', status: 'HOLD' },
-      data: { status: 'EXPIRED' },
-    });
+    expect(mockExpireRegistrationHold).toHaveBeenCalledWith(tx, { registrationId: 'registration-1' });
+    expect(mockConfirmRegistration).not.toHaveBeenCalled();
     expect(tx.donation.update).not.toHaveBeenCalled();
     expect(tx.campaign.update).not.toHaveBeenCalled();
     expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
+  });
+
+  it('failed/expired: leaves the Registration alone when another delivery already moved the Payment', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...REGISTRATION_PAID_EVENT, status: 'expired', providerEventId: 'evt-reg-3' }),
+    });
+    const { tx } = makeTx({ paymentUpdateManyCount: 0 });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(mockExpireRegistrationHold).not.toHaveBeenCalled();
   });
 
   it('no Platform Fee leg is ever posted against a Trip Fee settlement', async () => {
     mockGetPaymentProvider.mockReturnValue({
       parseWebhook: vi.fn().mockResolvedValue({ ...REGISTRATION_PAID_EVENT, providerFee: 2_500 }),
     });
-    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
     const { tx, ledgerRows } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 

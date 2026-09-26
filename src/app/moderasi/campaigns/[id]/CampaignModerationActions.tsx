@@ -2,50 +2,82 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CampaignLifecycleStatus } from "@/types/campaign";
+import type { ChecklistEntry, VerificationDecision } from "@/lib/campaign-lifecycle";
 
 interface CampaignModerationActionsProps {
   campaignId: string;
-  currentStatus: CampaignLifecycleStatus;
+  /** The Campaign's PENDING Verification Request, or null when none awaits a decision. */
+  request: { id: string; isFirst: boolean; checklist: ChecklistEntry[] } | null;
+  /** When the Fundraiser's Identity Verification was recorded, or null if it never was. */
+  identityVerifiedAt: Date | null;
 }
 
+/**
+ * The Verifier's decision on one Verification Request: tick the checklist
+ * snapshot it was submitted with, then approve, or reject with a reason.
+ * The first approval of a Fundraiser also records their Identity
+ * Verification, so the note field shows only while they have none.
+ * Suspension is an Admin decision (ADR 0005), so this panel never offers it.
+ */
 export function CampaignModerationActions({
   campaignId,
-  currentStatus,
+  request,
+  identityVerifiedAt,
 }: CampaignModerationActionsProps) {
   const router = useRouter();
-  const [loading, setLoading] = useState<string | null>(null);
+  const [loading, setLoading] = useState<VerificationDecision | null>(null);
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  const [reason, setReason] = useState("");
+  const [identityNote, setIdentityNote] = useState("");
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
   } | null>(null);
 
-  // A Verifier only approves or rejects a Submitted Campaign. Suspension is
-  // an Admin decision (ADR 0005), so this panel no longer offers it.
-  const handleAction = async (action: "approve" | "reject") => {
-    setLoading(action);
+  const toggle = (id: string) => {
+    setTicked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAction = async (decision: VerificationDecision) => {
+    if (!request) return;
     setMessage(null);
+    if (decision === "reject" && reason.trim() === "") {
+      setMessage({ type: "error", text: "Alasan penolakan wajib diisi." });
+      return;
+    }
+    setLoading(decision);
+
+    const body: Record<string, unknown> = {
+      action: decision,
+      requestId: request.id,
+      // In checklist order, whatever order the boxes were ticked in.
+      ticked: request.checklist.filter((entry) => ticked.has(entry.id)).map((entry) => entry.id),
+    };
+    if (decision === "reject") body.reason = reason;
+    if (decision === "approve" && !identityVerifiedAt && identityNote.trim() !== "") {
+      body.identityNote = identityNote;
+    }
 
     try {
       const response = await fetch(`/api/moderasi/campaigns/${campaignId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
         throw new Error(data.error || "Terjadi kesalahan");
       }
 
-      const actionLabels: Record<string, string> = {
-        approve: "disetujui",
-        reject: "ditolak",
-      };
-
       setMessage({
         type: "success",
-        text: `Kampanye berhasil ${actionLabels[action]}`,
+        text: decision === "approve" ? "Campaign berhasil diloloskan" : "Campaign berhasil ditolak",
       });
 
       // Refresh the page data after a short delay
@@ -66,17 +98,15 @@ export function CampaignModerationActions({
     }
   };
 
-  // Only a Submitted Campaign awaits a Verifier's decision.
-  const awaitsVerifier = currentStatus === "SUBMITTED";
-
   return (
     <div className="bg-white rounded-xl border border-[#E0E0E0] p-6">
       <h2 className="text-sm font-semibold text-[#212121] mb-4">
-        Aksi Moderasi
+        Verification Request
       </h2>
 
       {message && (
         <div
+          role={message.type === "error" ? "alert" : "status"}
           className={`mb-4 p-3 rounded-lg text-sm ${
             message.type === "success"
               ? "bg-[#E8F5E9] text-[#2E7D32]"
@@ -87,25 +117,100 @@ export function CampaignModerationActions({
         </div>
       )}
 
-      {!awaitsVerifier && (
+      {!request && (
         <p className="text-sm text-[#757575]">
-          Kampanye ini sudah dimoderasi dengan status saat ini.
+          Tidak ada Verification Request yang menunggu keputusan.
         </p>
       )}
 
-      <div className="flex flex-wrap gap-3">
-        {awaitsVerifier && (
-          <>
+      {request && (
+        <>
+          <p className="text-xs text-[#757575] mb-3">
+            {request.isFirst ? "Pengajuan pertama" : "Pengajuan ulang"}
+          </p>
+
+          <fieldset className="mb-4">
+            <legend className="text-sm font-medium text-[#212121] mb-2">Checklist dokumen</legend>
+            {request.checklist.length === 0 ? (
+              <p className="text-sm text-[#757575]">Checklist kosong saat Campaign diajukan.</p>
+            ) : (
+              <ul className="space-y-2">
+                {request.checklist.map((entry) => (
+                  <li key={entry.id}>
+                    <label className="flex items-start gap-2 text-sm text-[#424242]">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={ticked.has(entry.id)}
+                        onChange={() => toggle(entry.id)}
+                        disabled={loading !== null}
+                      />
+                      <span>
+                        {entry.label}
+                        {entry.required && (
+                          <span className="ml-2 text-xs text-[#C62828]">Wajib</span>
+                        )}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </fieldset>
+
+          {identityVerifiedAt ? (
+            <p className="mb-4 text-sm text-[#2E7D32]">
+              Identitas Fundraiser sudah diverifikasi pada{" "}
+              {new Date(identityVerifiedAt).toLocaleDateString("id-ID", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+              .
+            </p>
+          ) : (
+            <div className="mb-4">
+              <label htmlFor="identity-note" className="block text-sm font-medium text-[#212121] mb-1">
+                Catatan verifikasi identitas (opsional)
+              </label>
+              <p className="text-xs text-[#757575] mb-2">
+                Identitas Fundraiser ini belum pernah diverifikasi. Menyetujui pengajuan ini mencatat
+                Identity Verification atas nama Anda.
+              </p>
+              <textarea
+                id="identity-note"
+                value={identityNote}
+                onChange={(event) => setIdentityNote(event.target.value)}
+                maxLength={1000}
+                rows={2}
+                disabled={loading !== null}
+                className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+              />
+            </div>
+          )}
+
+          <div className="mb-4">
+            <label htmlFor="reject-reason" className="block text-sm font-medium text-[#212121] mb-1">
+              Alasan penolakan (wajib bila menolak)
+            </label>
+            <textarea
+              id="reject-reason"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              maxLength={1000}
+              rows={3}
+              disabled={loading !== null}
+              className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-3">
             <button
               onClick={() => handleAction("approve")}
               disabled={loading !== null}
               className="inline-flex items-center gap-2 px-4 py-2 bg-[#2E7D32] text-white text-sm font-medium rounded-lg hover:bg-[#1B5E20] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {loading === "approve" ? (
-                <LoadingSpinner />
-              ) : (
-                <CheckIcon />
-              )}
+              {loading === "approve" ? <LoadingSpinner /> : <CheckIcon />}
               Setujui
             </button>
 
@@ -114,16 +219,12 @@ export function CampaignModerationActions({
               disabled={loading !== null}
               className="inline-flex items-center gap-2 px-4 py-2 bg-[#C62828] text-white text-sm font-medium rounded-lg hover:bg-[#B71C1C] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {loading === "reject" ? (
-                <LoadingSpinner />
-              ) : (
-                <XIcon />
-              )}
+              {loading === "reject" ? <LoadingSpinner /> : <XIcon />}
               Tolak
             </button>
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

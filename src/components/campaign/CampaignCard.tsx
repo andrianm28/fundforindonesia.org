@@ -23,8 +23,6 @@ export interface CampaignCardProps {
     isDemo?: boolean;
     creator: {
       name: string;
-      isVerified: boolean;
-      verificationType: string | null;
     };
   };
   variant: 'compact' | 'standard';

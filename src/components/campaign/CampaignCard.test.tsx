@@ -41,8 +41,6 @@ const mockCampaign = {
   isUrgent: false,
   creator: {
     name: 'Yayasan Peduli Bencana',
-    isVerified: true,
-    verificationType: 'organization',
   },
 };
 
@@ -84,7 +82,7 @@ describe('CampaignCard', () => {
   it('shows no verified mark for an unverified creator', () => {
     const unverifiedCampaign = {
       ...mockCampaign,
-      creator: { name: 'John', isVerified: false, verificationType: null },
+      creator: { name: 'John' },
     };
     const { container } = render(<CampaignCard campaign={unverifiedCampaign} variant="standard" />);
     const badge = container.querySelector('svg[aria-label]');

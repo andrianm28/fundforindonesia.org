@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 /**
@@ -7,18 +7,17 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
  * Fundraiser's list matches the public page and the Admin list.
  */
 
-const session = vi.hoisted(() => ({ role: 'FUNDRAISER' }));
 vi.mock('next-auth/react', () => ({
-  useSession: () => ({ data: { user: { id: 'creator-1', role: session.role } }, status: 'authenticated' }),
+  useSession: () => ({ data: { user: { id: 'creator-1', assignments: [] } }, status: 'authenticated' }),
 }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), back: vi.fn(), push: vi.fn() }),
 }));
 
-const swr = vi.hoisted(() => ({ data: undefined as unknown }));
+const swr = vi.hoisted(() => ({ data: undefined as unknown, mutate: vi.fn() }));
 vi.mock('swr', () => ({
-  default: () => ({ data: swr.data, isLoading: false, error: undefined }),
+  default: () => ({ data: swr.data, isLoading: false, error: undefined, mutate: swr.mutate }),
 }));
 
 import MyCampaignsPage from './page';
@@ -36,18 +35,20 @@ function campaign(slug: string, lifecycleStatus: string) {
   };
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  swr.mutate.mockReset();
+});
 
 describe('Kampanye Saya', () => {
-  it('points a user with no Campaign, and no Role, straight to creating one (FFI-04)', () => {
-    session.role = 'DONOR';
+  it('points a user with no Campaign straight to creating one (FFI-04)', () => {
     swr.data = { campaigns: [], total: 0, page: 1, totalPages: 0 };
 
     render(<MyCampaignsPage />);
 
     expect(screen.getByRole('link', { name: 'Buat Kampanye' }).getAttribute('href')).toBe('/campaign/create');
     expect(screen.queryByRole('link', { name: 'Verifikasi Sekarang' })).toBeNull();
-    session.role = 'FUNDRAISER';
   });
 
   it('shows each Campaign under its Indonesian status badge', () => {
@@ -76,5 +77,86 @@ describe('Kampanye Saya', () => {
       const card = screen.getByText(`Campaign ${slug}`).parentElement!;
       expect(card.textContent).toContain(label);
     }
+  });
+
+  it('offers "Ajukan ke Verifier" on a Draft or Rejected Campaign only, and submits it', async () => {
+    swr.data = {
+      campaigns: [campaign('draft', 'DRAFT'), campaign('refused', 'REJECTED'), campaign('waiting', 'SUBMITTED'), campaign('running', 'ACTIVE')],
+      total: 4,
+      page: 1,
+      totalPages: 1,
+    };
+    const fetchMock = vi.fn(async () => Response.json({}, { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MyCampaignsPage />);
+
+    const buttons = screen.getAllByRole('button', { name: 'Ajukan ke Verifier' });
+    expect(buttons).toHaveLength(2);
+    expect(within(screen.getByTestId('campaign-waiting')).queryByRole('button', { name: 'Ajukan ke Verifier' })).toBeNull();
+
+    fireEvent.click(within(screen.getByTestId('campaign-draft')).getByRole('button', { name: 'Ajukan ke Verifier' }));
+
+    await waitFor(() => expect(swr.mutate).toHaveBeenCalled());
+    expect(fetchMock).toHaveBeenCalledWith('/api/campaigns/draft/verification-requests', { method: 'POST' });
+  });
+
+  it('offers "Tarik pengajuan" only while a request is pending, and withdraws that request', async () => {
+    swr.data = {
+      campaigns: [
+        { ...campaign('waiting', 'SUBMITTED'), pendingVerificationRequestId: 'verification-open' },
+        { ...campaign('draft', 'DRAFT'), pendingVerificationRequestId: null },
+        { ...campaign('running', 'ACTIVE'), pendingVerificationRequestId: null },
+      ],
+      total: 3,
+      page: 1,
+      totalPages: 1,
+    };
+    const fetchMock = vi.fn(async () => Response.json({}, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MyCampaignsPage />);
+
+    expect(screen.getAllByRole('button', { name: 'Tarik pengajuan' })).toHaveLength(1);
+    fireEvent.click(within(screen.getByTestId('campaign-waiting')).getByRole('button', { name: 'Tarik pengajuan' }));
+
+    await waitFor(() => expect(swr.mutate).toHaveBeenCalled());
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/campaigns/waiting/verification-requests/verification-open/withdraw',
+      { method: 'POST' },
+    );
+  });
+
+  it('shows why a withdrawal was refused', async () => {
+    swr.data = {
+      campaigns: [{ ...campaign('waiting', 'SUBMITTED'), pendingVerificationRequestId: 'verification-open' }],
+      total: 1,
+      page: 1,
+      totalPages: 1,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'Verification Request ini sudah diputuskan.' }, { status: 409 })),
+    );
+
+    render(<MyCampaignsPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tarik pengajuan' }));
+
+    expect(await screen.findByText('Verification Request ini sudah diputuskan.')).toBeDefined();
+    expect(swr.mutate).not.toHaveBeenCalled();
+  });
+
+  it('shows why a submission was refused', async () => {
+    swr.data = { campaigns: [campaign('draft', 'DRAFT')], total: 1, page: 1, totalPages: 1 };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'Tindakan ini tidak dapat dilakukan.' }, { status: 409 })),
+    );
+
+    render(<MyCampaignsPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
+
+    expect(await screen.findByText('Tindakan ini tidak dapat dilakukan.')).toBeDefined();
+    expect(swr.mutate).not.toHaveBeenCalled();
   });
 });

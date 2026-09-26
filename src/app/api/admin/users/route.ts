@@ -21,7 +21,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest
       }
     : undefined;
 
-  const [users, total] = await Promise.all([
+  const [rows, total] = await Promise.all([
     prisma.user.findMany({
       where,
       skip,
@@ -30,14 +30,20 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest
         id: true,
         name: true,
         email: true,
-        role: true,
-        isVerified: true,
         createdAt: true,
+        assignments: { select: { assignment: true } },
       },
       orderBy: { createdAt: "desc" },
     }),
     prisma.user.count({ where }),
   ]);
+
+  // Assignments are the only thing that grants power (ADR 0005), so they are
+  // what the Admin sees and edits for each user.
+  const users = rows.map(({ assignments, ...user }) => ({
+    ...user,
+    assignments: assignments.map((a) => a.assignment),
+  }));
 
   const totalPages = Math.ceil(total / limit);
 

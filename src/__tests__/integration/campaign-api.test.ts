@@ -82,7 +82,7 @@ function makeCampaign(overrides: Record<string, unknown> = {}) {
     creatorId: 'user-1',
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-10'),
-    creator: { name: 'Creator', isVerified: true, verificationType: 'ktp' },
+    creator: { name: 'Creator' },
     ...overrides,
   };
 }
@@ -93,9 +93,6 @@ function makeVerifiedSession() {
       id: 'user-1',
       name: 'Creator',
       email: 'creator@example.com',
-      role: 'CAMPAIGN_CREATOR',
-      isVerified: true,
-      verificationType: 'ktp',
     },
     expires: '2099-01-01',
   };
@@ -107,9 +104,6 @@ function makeUnverifiedSession() {
       id: 'user-2',
       name: 'Unverified User',
       email: 'unverified@example.com',
-      role: 'DONOR',
-      isVerified: false,
-      verificationType: null,
     },
     expires: '2099-01-01',
   };
@@ -296,8 +290,6 @@ describe('Campaign API Integration Tests', () => {
           id: 'user-1',
           name: 'Creator',
           avatar: 'https://example.com/avatar.jpg',
-          isVerified: true,
-          verificationType: 'ktp',
         },
         _count: { donations: 15 },
       };
@@ -316,7 +308,9 @@ describe('Campaign API Integration Tests', () => {
       expect(data.campaign.title).toBe('Bantuan untuk Korban Banjir');
       expect(data.campaign.donationCount).toBe(15);
       expect(data.campaign.creator.name).toBe('Creator');
-      expect(data.campaign.creator.isVerified).toBe(true);
+      // No self-claimed verification is read, so none can be sent
+      // (retire-role-hierarchy).
+      expect((mockFindUnique.mock.calls[0][0] as any).include.creator.select).toEqual({ id: true, name: true, avatar: true });
     });
 
     it('returns 404 for non-existent campaign slug', async () => {
@@ -340,8 +334,6 @@ describe('Campaign API Integration Tests', () => {
           id: 'user-1',
           name: 'Creator',
           avatar: null,
-          isVerified: true,
-          verificationType: 'ktp',
         },
         _count: { donations: 5 },
       };
@@ -394,7 +386,7 @@ describe('Campaign API Integration Tests', () => {
       expect(data.error).toBe('Unauthorized');
     });
 
-    it('lets a registered user with no Role or assignment submit a Campaign, as SUBMITTED (FFI-04)', async () => {
+    it('lets a registered user with no Role or assignment create a Campaign, as a Draft (FFI-04)', async () => {
       mockGetServerSession.mockResolvedValue(makeUnverifiedSession() as never);
       mockCreate.mockResolvedValue(makeCampaign({ creatorId: 'user-2' }) as never);
 
@@ -404,7 +396,7 @@ describe('Campaign API Integration Tests', () => {
       expect(response.status).toBe(201);
       const { data } = mockCreate.mock.calls[0][0];
       expect(data.creatorId).toBe('user-2');
-      expect(data.lifecycleStatus).toBe('SUBMITTED');
+      expect(data.lifecycleStatus).toBe('DRAFT');
     });
 
     it('validates all required fields', async () => {
@@ -447,7 +439,7 @@ describe('Campaign API Integration Tests', () => {
         creatorId: 'user-1',
         createdAt: new Date(),
         updatedAt: new Date(),
-        creator: { name: 'Creator', isVerified: true, verificationType: 'ktp' },
+        creator: { name: 'Creator' },
       };
 
       mockCreate.mockResolvedValue(createdCampaign as never);
@@ -513,9 +505,18 @@ describe('Campaign API Integration Tests', () => {
   });
 
   describe('Campaign Sub-Resources', () => {
+    // An approved Campaign opens for anyone; the private, unapproved case is
+    // pinned in src/app/api/campaigns/[slug]/sub-resources-visibility.test.ts.
+    const approvedCampaign = {
+      id: 'campaign-1',
+      creatorId: 'owner-1',
+      lifecycleStatus: 'ACTIVE',
+      deadline: null,
+    };
+
     describe('GET /api/campaigns/[slug]/updates', () => {
       it('returns paginated campaign updates', async () => {
-        mockFindUnique.mockResolvedValue({ id: 'campaign-1' } as never);
+        mockFindUnique.mockResolvedValue(approvedCampaign as never);
 
         const updates = [
           { id: 'u1', title: 'Update 1', content: '<p>Content 1</p>', images: [], createdAt: new Date('2025-01-10') },
@@ -554,7 +555,7 @@ describe('Campaign API Integration Tests', () => {
 
     describe('GET /api/campaigns/[slug]/donations', () => {
       it('returns paginated confirmed donations with donor names', async () => {
-        mockFindUnique.mockResolvedValue({ id: 'campaign-1' } as never);
+        mockFindUnique.mockResolvedValue(approvedCampaign as never);
 
         const donations = [
           { id: 'd1', amount: 50000, isAnonymous: false, message: 'Semoga cepat sembuh', createdAt: new Date(), donor: { name: 'John' } },
@@ -593,7 +594,7 @@ describe('Campaign API Integration Tests', () => {
 
     describe('GET /api/campaigns/[slug]/disbursements', () => {
       it('returns all completed payout records for the campaign', async () => {
-        mockFindUnique.mockResolvedValue({ id: 'campaign-1' } as never);
+        mockFindUnique.mockResolvedValue(approvedCampaign as never);
 
         const payouts = [
           { id: 'payout1', amount: 10000000, description: 'Pembelian bahan bangunan', proofImage: 'https://proof.com/1.jpg', createdAt: new Date() },
@@ -615,7 +616,7 @@ describe('Campaign API Integration Tests', () => {
       });
 
       it('only queries payouts with status COMPLETED, never drafts or pending ones', async () => {
-        mockFindUnique.mockResolvedValue({ id: 'campaign-1' } as never);
+        mockFindUnique.mockResolvedValue(approvedCampaign as never);
         mockPayoutFindMany.mockResolvedValue([] as never);
 
         const request = createGetRequest('/api/campaigns/bantuan-banjir-abc123/disbursements');
@@ -669,7 +670,7 @@ describe('Campaign API Integration Tests', () => {
         creatorId: 'user-1',
         createdAt: new Date(),
         updatedAt: new Date(),
-        creator: { name: 'Creator', isVerified: true, verificationType: 'ktp' },
+        creator: { name: 'Creator' },
       };
 
       mockCreate.mockResolvedValue(createdCampaign as never);
@@ -688,8 +689,6 @@ describe('Campaign API Integration Tests', () => {
           id: 'user-1',
           name: 'Creator',
           avatar: null,
-          isVerified: true,
-          verificationType: 'ktp',
         },
         _count: { donations: 0 },
       };

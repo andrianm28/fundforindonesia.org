@@ -73,8 +73,6 @@ export interface CampaignWithCreator extends Campaign {
     id: string;
     name: string;
     avatar?: string | null;
-    isVerified: boolean;
-    verificationType?: "ktp" | "organization" | null;
   };
 }
 
@@ -161,7 +159,5 @@ export interface CampaignCardData {
   isDemo: boolean;
   creator: {
     name: string;
-    isVerified: boolean;
-    verificationType: string | null;
   };
 }

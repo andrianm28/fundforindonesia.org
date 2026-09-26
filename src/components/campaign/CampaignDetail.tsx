@@ -33,8 +33,6 @@ export interface CampaignDetailProps {
       id: string;
       name: string;
       avatar: string | null;
-      isVerified: boolean;
-      verificationType: string | null;
     };
   };
   onDonate: () => void;

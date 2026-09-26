@@ -250,6 +250,11 @@ describe('DonatePage for a Campaign that is not Active', () => {
     ['CANCELLED', 'Fundraiser telah menarik Campaign ini.'],
     ['EXPIRED', 'Campaign ini telah berakhir.'],
     ['COMPLETED', 'Campaign ini telah berakhir.'],
+    // Only its Fundraiser, Verifiers and Admins get this far (the API 404s
+    // everyone else); they are told it is not public and takes no donation.
+    ['DRAFT', 'Campaign ini masih Draf: belum tampil untuk publik dan belum menerima donasi.'],
+    ['SUBMITTED', 'Campaign ini sudah Diajukan dan menunggu keputusan Verifier: belum tampil untuk publik dan belum menerima donasi.'],
+    ['REJECTED', 'Campaign ini Ditolak Verifier: belum tampil untuk publik dan tidak menerima donasi.'],
   ])('says why a %s Campaign takes no donation, and offers no donation step', (status, copy) => {
     campaignIn(status);
     render(<DonatePage />);
@@ -257,8 +262,8 @@ describe('DonatePage for a Campaign that is not Active', () => {
     expect(screen.queryByText('pick amount')).toBeNull();
   });
 
-  it.each(['SUBMITTED', undefined])('offers no donation step when the status is %s', (status) => {
-    campaignIn(status);
+  it('offers no donation step when the status is missing', () => {
+    campaignIn(undefined);
     render(<DonatePage />);
     expect(screen.getByText('Campaign ini tidak menerima donasi.')).toBeDefined();
     expect(screen.queryByText('pick amount')).toBeNull();
@@ -269,5 +274,36 @@ describe('DonatePage for a Campaign that is not Active', () => {
     render(<DonatePage />);
     fireEvent.click(screen.getByText('Kembali ke Campaign'));
     expect(mockPush).toHaveBeenCalledWith('/campaign/campaign-contoh');
+  });
+});
+
+// GET /api/campaigns/[slug] answers 404 for a missing slug and, to anyone
+// but its Fundraiser, Verifiers and Admins, for an unapproved Campaign.
+describe('DonatePage when the Campaign is not found', () => {
+  it('says the Campaign was not found and offers no donation step', () => {
+    mockUseCampaignDetail.mockReturnValue({
+      campaign: null,
+      isLoading: false,
+      error: new Error('Gagal memuat data'),
+      notFound: true,
+    });
+
+    render(<DonatePage />);
+
+    expect(screen.getByText('Campaign tidak ditemukan.')).toBeDefined();
+    expect(screen.queryByText('pick amount')).toBeNull();
+  });
+
+  it('still says something went wrong on any other failure', () => {
+    mockUseCampaignDetail.mockReturnValue({
+      campaign: null,
+      isLoading: false,
+      error: new Error('Gagal memuat data'),
+      notFound: false,
+    });
+
+    render(<DonatePage />);
+
+    expect(screen.getByText('Campaign tidak ditemukan atau terjadi kesalahan.')).toBeDefined();
   });
 });

@@ -6,10 +6,26 @@ import type { CampaignWithRelations } from '@/types/campaign';
 // undefined, so a donation could never name its Campaign.
 const fetcher = async (url: string): Promise<CampaignWithRelations> => {
   const res = await fetch(url);
-  if (!res.ok) throw new Error('Gagal memuat data');
+  if (!res.ok) throw new CampaignFetchError(res.status);
   const body = await res.json();
   return body.campaign;
 };
+
+/**
+ * A non-2xx answer, keeping its status. A 404 means the Campaign does not
+ * exist or is unapproved and not the viewer's to see (the API answers both
+ * alike); that is an answer, so it is neither retried nor toasted.
+ */
+class CampaignFetchError extends Error {
+  constructor(readonly status: number) {
+    super('Gagal memuat data');
+    this.name = 'CampaignFetchError';
+  }
+}
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof CampaignFetchError && error.status === 404;
+}
 
 function showErrorToast(message: string) {
   if (typeof window !== 'undefined') {
@@ -27,12 +43,13 @@ export function useCampaignDetail(slug: string | null) {
     {
       revalidateOnFocus: true,
       dedupingInterval: 30000, // 30s stale time
-      onError: () => {
+      onError: (error) => {
+        if (isNotFound(error)) return;
         showErrorToast('Gagal memuat data. Coba lagi.');
       },
       onErrorRetry: (error, _key, _config, revalidate, { retryCount }) => {
         // Exponential backoff: 1s, 2s, 4s — up to 3 attempts
-        if (retryCount >= 3) return;
+        if (isNotFound(error) || retryCount >= 3) return;
         setTimeout(() => revalidate({ retryCount }), Math.pow(2, retryCount) * 1000);
       },
     }
@@ -83,6 +100,7 @@ export function useCampaignDetail(slug: string | null) {
     isLoading,
     isValidating,
     error,
+    notFound: isNotFound(error),
     mutate,
     optimisticDonate,
   };

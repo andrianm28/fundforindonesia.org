@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  decideSubmission,
+  decideVerificationRequest,
   effectiveStatus,
   expireIfPastDeadline,
   domainErrorToHttp,
@@ -15,109 +15,14 @@ import {
   PayoutAlreadyCompletedError,
   SameAdminLiftError,
 } from './campaign-lifecycle';
-import { campaignRow, makeCampaignDb } from '../../tests/support/in-memory-campaign-db';
+import {
+  campaignRow,
+  makeCampaignDb,
+  verificationRequestRow,
+} from '../../tests/support/in-memory-campaign-db';
 
 const NOW = new Date('2026-09-25T10:00:00Z');
 const verifier = { userId: 'verifier-1', assignments: ['VERIFIER' as const] };
-
-describe('decideSubmission', () => {
-  it('approving a Submitted Campaign makes it Active in both columns and records who acted as Verifier', async () => {
-    const db = makeCampaignDb({ campaigns: [campaignRow()] });
-
-    const result = await decideSubmission(db.prisma as never, {
-      campaignId: 'campaign-1',
-      actor: verifier,
-      decision: 'approve',
-      now: NOW,
-    });
-
-    expect(result.campaign).toMatchObject({ lifecycleStatus: 'ACTIVE', isUrgent: false });
-    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'ACTIVE' });
-    expect(db.statusChanges).toEqual([
-      expect.objectContaining({
-        campaignId: 'campaign-1',
-        action: 'SUBMISSION_APPROVED',
-        fromStatus: 'SUBMITTED',
-        toStatus: 'ACTIVE',
-        actorId: 'verifier-1',
-        capacity: 'VERIFIER',
-        reason: null,
-        createdAt: NOW,
-      }),
-    ]);
-  });
-
-  it('rejecting a Submitted Campaign makes it Rejected in both columns, logged as a Verifier decision', async () => {
-    const db = makeCampaignDb({ campaigns: [campaignRow()] });
-
-    const result = await decideSubmission(db.prisma as never, {
-      campaignId: 'campaign-1',
-      actor: verifier,
-      decision: 'reject',
-      now: NOW,
-    });
-
-    expect(result.campaign.lifecycleStatus).toBe('REJECTED');
-    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'REJECTED' });
-    expect(db.statusChanges).toEqual([
-      expect.objectContaining({
-        action: 'SUBMISSION_REJECTED',
-        fromStatus: 'SUBMITTED',
-        toStatus: 'REJECTED',
-        actorId: 'verifier-1',
-        capacity: 'VERIFIER',
-      }),
-    ]);
-  });
-
-  it.each(['approve', 'reject'] as const)(
-    'notifies the Fundraiser of the %s decision without calling anyone a moderator',
-    async (decision) => {
-      const db = makeCampaignDb({ campaigns: [campaignRow()] });
-
-      await decideSubmission(db.prisma as never, { campaignId: 'campaign-1', actor: verifier, decision, now: NOW });
-
-      expect(db.notifications).toHaveLength(1);
-      const [notification] = db.notifications;
-      expect(notification).toMatchObject({
-        userId: 'creator-1',
-        link: '/campaign/bantu-korban-banjir',
-      });
-      expect(notification.message).toContain('Bantu Korban Banjir');
-      expect(`${notification.title} ${notification.message}`.toLowerCase()).not.toContain('moderator');
-    },
-  );
-
-  describe.each(['approve', 'reject'] as const)('%s outside Submitted', (decision) => {
-    it.each([
-      ['DRAFT'],
-      ['ACTIVE'],
-      ['REJECTED'],
-      ['SUSPENDED'],
-      ['COMPLETED'],
-      ['EXPIRED'],
-      ['CANCELLED'],
-    ] as const)(
-      'is refused from %s with InvalidTransitionError, leaving the Campaign, log and inbox untouched',
-      async (lifecycleStatus) => {
-        const db = makeCampaignDb({ campaigns: [campaignRow({ lifecycleStatus })] });
-
-        const error = await decideSubmission(db.prisma as never, {
-          campaignId: 'campaign-1',
-          actor: verifier,
-          decision,
-          now: NOW,
-        }).catch((e: unknown) => e);
-
-        expect(error).toBeInstanceOf(InvalidTransitionError);
-        expect((error as InvalidTransitionError).currentStatus).toBe(lifecycleStatus);
-        expect(db.campaign()).toMatchObject({ lifecycleStatus });
-        expect(db.statusChanges).toEqual([]);
-        expect(db.notifications).toEqual([]);
-      },
-    );
-  });
-});
 
 describe('domainErrorToHttp', () => {
   it.each([
@@ -245,13 +150,17 @@ describe('lazy expiry', () => {
   });
 
   it('writes nothing when another request moved the Campaign first, and the command judges what that request left', async () => {
-    const db = makeCampaignDb({ campaigns: [activePastDeadline()] });
+    const db = makeCampaignDb({
+      campaigns: [activePastDeadline()],
+      verificationRequests: [verificationRequestRow()],
+    });
     db.beforeNextCampaignWrite((data) => {
       Object.assign(data.campaigns[0], { lifecycleStatus: 'SUSPENDED' });
     });
 
-    const error = await decideSubmission(db.prisma as never, {
+    const error = await decideVerificationRequest(db.prisma as never, {
       campaignId: 'campaign-1',
+      requestId: 'verification-1',
       actor: verifier,
       decision: 'approve',
       now: NOW,

@@ -41,8 +41,6 @@ const mockCampaigns = [
     isUrgent: true,
     creator: {
       name: 'Yayasan Peduli Bencana',
-      isVerified: true,
-      verificationType: 'organization',
     },
   },
   {
@@ -57,8 +55,6 @@ const mockCampaigns = [
     isUrgent: true,
     creator: {
       name: 'Relawan Banjir',
-      isVerified: false,
-      verificationType: null,
     },
   },
 ];

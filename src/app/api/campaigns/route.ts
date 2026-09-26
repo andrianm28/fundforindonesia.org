@@ -68,8 +68,6 @@ export async function GET(request: NextRequest) {
           creator: {
             select: {
               name: true,
-              isVerified: true,
-              verificationType: true,
             },
           },
         },
@@ -105,8 +103,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Anyone registered may submit a Campaign (PRD FFI-04): no Role is asked
-// for. It lands Submitted, and the Verifier's approval is the gate.
+// Anyone registered may create a Campaign (PRD FFI-04): no Role is asked
+// for. It lands as a Draft; the Fundraiser submits it to a Verifier through
+// POST /api/campaigns/[slug]/verification-requests, and the Verifier's
+// approval is the gate.
 export async function POST(request: NextRequest) {
   try {
     // 1. Get session: signing in is the only requirement
@@ -144,12 +144,12 @@ export async function POST(request: NextRequest) {
         category,
         deadline: deadline ? new Date(deadline) : null,
         creatorId: session.user.id,
-        // A new campaign is never published by its author. It waits in the
-        // Verifier queue at /moderasi until a Verifier approves it, which is
-        // what makes it ACTIVE. Set explicitly rather than left to the schema
+        // A new campaign is a Draft: visible only to its Fundraiser, and not
+        // in the Verifier queue until they submit it, which opens its
+        // Verification Request. Set explicitly rather than left to the schema
         // default, so publishing an unverified appeal for money can never
         // hinge on a default someone changes.
-        lifecycleStatus: CampaignStatus.SUBMITTED,
+        lifecycleStatus: CampaignStatus.DRAFT,
       },
       // The legacy status string is never sent back (ticket 03 drops it).
       omit: { status: true },
@@ -157,8 +157,6 @@ export async function POST(request: NextRequest) {
         creator: {
           select: {
             name: true,
-            isVerified: true,
-            verificationType: true,
           },
         },
       },

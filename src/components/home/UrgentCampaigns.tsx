@@ -16,8 +16,6 @@ export interface UrgentCampaignItem {
   isDemo?: boolean;
   creator: {
     name: string;
-    isVerified: boolean;
-    verificationType: string | null;
   };
 }
 

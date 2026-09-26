@@ -1,0 +1,105 @@
+# CI on GitHub-hosted runners, so routine verification never loads the shared
+# production host (.scratch/ci-cd-github-actions, ticket 02).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx vitest run
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # A "dummy" URL makes src/lib/prisma.ts use its build-time mock.
+      DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
+      NEXTAUTH_SECRET: ci-placeholder-not-a-secret
+      NEXTAUTH_URL: http://localhost:3000
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx next build
+
+  migrations:
+    name: migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Apply every migration to an empty Postgres
+        run: npx prisma migrate deploy
+      - name: The migrated database must match schema.prisma exactly
+        run: |
+          diff_sql="$(npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script)"
+          echo "$diff_sql"
+          if ! printf '%s' "$diff_sql" | grep -q "This is an empty migration"; then
+            echo "::error::schema.prisma and prisma/migrations disagree; add or fix a migration."
+            exit 1
+          fi
+
+  ratchet:
+    name: ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - name: TypeScript and lint error counts may only go down
+        run: node ci/ratchet.mjs

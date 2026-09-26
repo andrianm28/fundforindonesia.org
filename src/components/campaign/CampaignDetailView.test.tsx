@@ -29,8 +29,6 @@ const mockCampaign: CampaignDetailData = {
     id: 'user-1',
     name: 'Yayasan Peduli Bencana',
     avatar: null,
-    isVerified: true,
-    verificationType: 'organization',
   },
   donationCount: 12,
 };
@@ -205,6 +203,19 @@ describe('CampaignDetailView -- where the Campaign stands', () => {
   it.each(['DRAFT', 'SUBMITTED', 'REJECTED'] as const)('offers no donating for a %s Campaign', (status) => {
     renderAs(status);
     expect(screen.queryByText('Donasi sekarang')).toBeNull();
+  });
+
+  // Only its Fundraiser, Verifiers and Admins ever see an unapproved
+  // Campaign; the banner tells them where it stands and that it is not public.
+  it.each([
+    ['DRAFT', 'Draf'],
+    ['SUBMITTED', 'Diajukan'],
+    ['REJECTED', 'Ditolak'],
+  ] as const)('says where a %s Campaign stands, and that it is not public', (status, phrase) => {
+    renderAs(status);
+    const banner = screen.getByRole('status', { name: 'Status Campaign' });
+    expect(banner.textContent).toContain(phrase);
+    expect(banner.textContent).toContain('belum tampil untuk publik');
   });
 
   it('shows the owning Fundraiser the Suspension reason under the banner', async () => {

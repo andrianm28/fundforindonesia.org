@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
+import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
 import { CampaignStatus, CampaignStatusChangeAction } from '@/generated/prisma/client';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
+import { lockAndLoad, requireContentEditable } from '@/lib/subject-guard';
+import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
+import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibility-route';
 
-// Rendered per request: a Suspended Campaign's answer depends on who asks
-// (see suspensionReasonFor), and reading the session inside a route Next
+// Rendered per request: a Suspended or unapproved Campaign's answer
+// depends on who asks (suspensionReasonFor, mayViewCampaign), and reading the session inside a route Next
 // had cached as static fails at runtime. Shared caching of everything else
 // is left to the Cache-Control header set in GET.
 export const dynamic = 'force-dynamic';
@@ -60,8 +63,6 @@ export async function GET(
             id: true,
             name: true,
             avatar: true,
-            isVerified: true,
-            verificationType: true,
           },
         },
         _count: {
@@ -76,19 +77,21 @@ export async function GET(
       },
     });
 
-    if (!campaign) {
-      return NextResponse.json(
-        {
-          code: 'NOT_FOUND',
-          message: 'Campaign tidak ditemukan',
-          status: 404,
-        },
-        { status: 404 }
-      );
-    }
+    if (!campaign) return campaignNotFound();
 
     const lifecycleStatus = effectiveStatus(campaign, new Date());
     const isSuspended = lifecycleStatus === CampaignStatus.SUSPENDED;
+    const isPublic = isPubliclyViewable(lifecycleStatus);
+
+    // An unapproved Campaign is private to its Fundraiser, Verifiers and
+    // Admins; anyone else gets the same 404 as a slug that never existed.
+    if (!isPublic) {
+      const session = await getServerSession();
+      if (!mayViewCampaign({ status: lifecycleStatus, fundraiserId: campaign.creatorId }, session?.user)) {
+        return campaignNotFound();
+      }
+    }
+
     const suspensionReason = isSuspended
       ? await suspensionReasonFor(campaign)
       : undefined;
@@ -117,11 +120,12 @@ export async function GET(
     });
 
     // A Suspended Campaign's answer differs between its owner and everyone
-    // else, so no shared cache may keep either version.
+    // else, and an unapproved one between its privileged viewers and
+    // everyone else, so no shared cache may keep either version.
     response.headers.set(
       'Cache-Control',
-      isSuspended
-        ? 'private, no-store'
+      isSuspended || !isPublic
+        ? PRIVATE_CACHE_CONTROL
         : 'public, s-maxage=60, stale-while-revalidate=300'
     );
 
@@ -182,26 +186,42 @@ export async function PATCH(
       );
     }
 
-    const updatedCampaign = await prisma.campaign.update({
-      where: { id: campaign.id },
-      data: result.data,
-      // The legacy status string is never sent back (ticket 03 drops it).
-      omit: { status: true },
-      include: {
-        creator: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
-            isVerified: true,
-            verificationType: true,
+    // Whether the content may change is judged under the Campaign's row
+    // lock, never on the read above: a submit committed in the meantime is
+    // seen here, and one that comes after waits for this edit to commit.
+    const updatedCampaign = await prisma.$transaction(async (tx) => {
+      const state = await lockAndLoad(tx, { type: 'campaign', campaignId: campaign.id }, new Date());
+      if (!state) return null;
+      requireContentEditable(state);
+
+      return tx.campaign.update({
+        where: { id: campaign.id },
+        data: result.data,
+        // The legacy status string is never sent back (ticket 03 drops it).
+        omit: { status: true },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              name: true,
+              avatar: true,
+            },
           },
         },
-      },
+      });
     });
+
+    if (!updatedCampaign) {
+      return NextResponse.json(
+        { error: "Campaign tidak ditemukan" },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({ campaign: updatedCampaign });
   } catch (error) {
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error updating campaign:', error);
     return NextResponse.json(
       { error: "Terjadi kesalahan server" },

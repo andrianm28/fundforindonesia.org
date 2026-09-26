@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
-import { Assignment, CampaignStatus } from "@/generated/prisma/client";
+import { Assignment, VerificationOutcome } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export default async function ModerasiPage() {
@@ -12,8 +12,9 @@ export default async function ModerasiPage() {
     redirect("/");
   }
 
-  const submittedCampaignsCount = await prisma.campaign.count({
-    where: { lifecycleStatus: CampaignStatus.SUBMITTED },
+  // What waits for a Verifier is an open Verification Request (CONTEXT.md).
+  const pendingRequestsCount = await prisma.verificationRequest.count({
+    where: { outcome: VerificationOutcome.PENDING },
   });
 
   return (
@@ -24,13 +25,13 @@ export default async function ModerasiPage() {
       </p>
 
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Submitted Campaigns card */}
+        {/* Open Verification Requests card */}
         <div className="bg-white rounded-xl border border-[#E0E0E0] p-5">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-[#757575]">Kampanye Menunggu Review</p>
               <p className="text-2xl font-bold text-[#212121] mt-1">
-                {submittedCampaignsCount}
+                {pendingRequestsCount}
               </p>
             </div>
             <div className="w-10 h-10 rounded-full bg-[#FFF3E0] flex items-center justify-center">

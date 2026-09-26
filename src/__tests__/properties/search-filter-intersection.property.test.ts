@@ -19,10 +19,6 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-vi.mock("@/lib/withRoleCheck", () => ({
-  withRoleCheck: (_role: string, handler: any) => handler,
-}));
-
 import { prisma } from "@/lib/prisma";
 
 const mockedPrisma = vi.mocked(prisma);
@@ -191,8 +187,6 @@ describe("Feature: platform-polish, Property 7: Search Filter Intersection", () 
               createdAt: new Date(),
               creator: {
                 name: "Creator",
-                isVerified: true,
-                verificationType: "ktp",
               },
             },
           ];

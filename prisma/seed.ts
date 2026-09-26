@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { randomUUID } from 'crypto';
-import { PrismaClient, Role, Assignment, CampaignStatus, PaymentStatus, PayoutStatus } from '@/generated/prisma/client';
+import { PrismaClient, Assignment, CampaignStatus, PaymentStatus, PayoutStatus, type User } from '@/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import { REGISTRATION_HASH_COST } from '@/lib/password-hash-cost';
@@ -73,23 +73,29 @@ const CATEGORIES = [
   { name: 'Zakat', slug: 'zakat', icon: '🌙', order: 8 },
 ];
 
-const USERS_DATA = [
+// seededAs says what the seed does with each user (which assignments it
+// grants, who owns Campaigns, who donates); it is not stored. Nothing about a
+// user's authority lives on the User row: Admin and Verifier power come only
+// from assignments (ADR 0005), and anyone registered may be a Fundraiser.
+type SeededAs = 'admin' | 'verifier' | 'fundraiser' | 'donor';
+
+const USERS_DATA: { email: string; name: string; avatar: string | null; seededAs: SeededAs }[] = [
   // Admin user
-  { email: 'admin@kitabisa.com', name: 'Admin', isVerified: true, verificationType: 'organization', avatar: '/avatars/admin.jpg', role: Role.ADMIN },
-  // Moderator user
-  { email: 'moderator@kitabisa.com', name: 'Moderator', isVerified: true, verificationType: 'organization', avatar: '/avatars/moderator.jpg', role: Role.MODERATOR },
-  // Verified creators (5)
-  { email: 'ahmad.fauzi@email.com', name: 'Ahmad Fauzi', isVerified: true, verificationType: 'ktp', avatar: '/avatars/ahmad.jpg', role: Role.CAMPAIGN_CREATOR },
-  { email: 'siti.nurhaliza@email.com', name: 'Siti Nurhaliza', isVerified: true, verificationType: 'organization', avatar: '/avatars/siti.jpg', role: Role.CAMPAIGN_CREATOR },
-  { email: 'budi.santoso@email.com', name: 'Budi Santoso', isVerified: true, verificationType: 'ktp', avatar: '/avatars/budi.jpg', role: Role.CAMPAIGN_CREATOR },
-  { email: 'dewi.lestari@email.com', name: 'Dewi Lestari', isVerified: true, verificationType: 'organization', avatar: '/avatars/dewi.jpg', role: Role.CAMPAIGN_CREATOR },
-  { email: 'rizki.pratama@email.com', name: 'Rizki Pratama', isVerified: true, verificationType: 'ktp', avatar: '/avatars/rizki.jpg', role: Role.CAMPAIGN_CREATOR },
+  { email: 'admin@kitabisa.com', name: 'Admin', avatar: '/avatars/admin.jpg', seededAs: 'admin' },
+  // Verifier user
+  { email: 'moderator@kitabisa.com', name: 'Moderator', avatar: '/avatars/moderator.jpg', seededAs: 'verifier' },
+  // Fundraisers (5)
+  { email: 'ahmad.fauzi@email.com', name: 'Ahmad Fauzi', avatar: '/avatars/ahmad.jpg', seededAs: 'fundraiser' },
+  { email: 'siti.nurhaliza@email.com', name: 'Siti Nurhaliza', avatar: '/avatars/siti.jpg', seededAs: 'fundraiser' },
+  { email: 'budi.santoso@email.com', name: 'Budi Santoso', avatar: '/avatars/budi.jpg', seededAs: 'fundraiser' },
+  { email: 'dewi.lestari@email.com', name: 'Dewi Lestari', avatar: '/avatars/dewi.jpg', seededAs: 'fundraiser' },
+  { email: 'rizki.pratama@email.com', name: 'Rizki Pratama', avatar: '/avatars/rizki.jpg', seededAs: 'fundraiser' },
   // Regular donors (5)
-  { email: 'andi.wijaya@email.com', name: 'Andi Wijaya', isVerified: false, verificationType: null, avatar: null, role: Role.DONOR },
-  { email: 'putri.ayu@email.com', name: 'Putri Ayu', isVerified: false, verificationType: null, avatar: null, role: Role.DONOR },
-  { email: 'hendra.gunawan@email.com', name: 'Hendra Gunawan', isVerified: false, verificationType: null, avatar: null, role: Role.DONOR },
-  { email: 'maya.sari@email.com', name: 'Maya Sari', isVerified: false, verificationType: null, avatar: null, role: Role.DONOR },
-  { email: 'donor@test.com', name: 'Test Donor', isVerified: false, verificationType: null, avatar: null, role: Role.DONOR },
+  { email: 'andi.wijaya@email.com', name: 'Andi Wijaya', avatar: null, seededAs: 'donor' },
+  { email: 'putri.ayu@email.com', name: 'Putri Ayu', avatar: null, seededAs: 'donor' },
+  { email: 'hendra.gunawan@email.com', name: 'Hendra Gunawan', avatar: null, seededAs: 'donor' },
+  { email: 'maya.sari@email.com', name: 'Maya Sari', avatar: null, seededAs: 'donor' },
+  { email: 'donor@test.com', name: 'Test Donor', avatar: null, seededAs: 'donor' },
 ];
 
 const CAMPAIGNS_DATA = [
@@ -243,7 +249,7 @@ async function main() {
   // 2. Seed Users
   console.log('👤 Creating users...');
   const password = await bcrypt.hash('password123', REGISTRATION_HASH_COST);
-  const users = [];
+  const users: User[] = [];
   for (const userData of USERS_DATA) {
     const user = await prisma.user.upsert({
       where: { email: userData.email },
@@ -253,32 +259,29 @@ async function main() {
         name: userData.name,
         password,
         avatar: userData.avatar,
-        isVerified: userData.isVerified,
-        verificationType: userData.verificationType,
-        role: userData.role,
-        donationBalance: userData.isVerified ? 0 : randomInt(50000, 500000),
+        donationBalance: userData.seededAs === 'donor' ? randomInt(50000, 500000) : 0,
       },
     });
     users.push(user);
   }
-  const admins = users.filter(u => u.role === Role.ADMIN);
-  const moderators = users.filter(u => u.role === Role.MODERATOR);
-  const creators = users.filter(u => u.role === Role.CAMPAIGN_CREATOR);
-  const donors = users.filter(u => u.role === Role.DONOR);
-  console.log(`   ✓ ${users.length} users created (${admins.length} admin, ${moderators.length} moderator, ${creators.length} creators, ${donors.length} donors)\n`);
+  const seededAs = (kind: SeededAs) => users.filter((_, i) => USERS_DATA[i].seededAs === kind);
+  const admins = seededAs('admin');
+  const verifiers = seededAs('verifier');
+  const fundraisers = seededAs('fundraiser');
+  const donors = seededAs('donor');
+  console.log(`   ✓ ${users.length} users created (${admins.length} admin, ${verifiers.length} verifier, ${fundraisers.length} fundraisers, ${donors.length} donors)\n`);
 
-  // Backfill UserAssignment rows so a fresh-seeded DB matches a migrated
-  // one. This mirrors prisma/migrations/20260920160016_backfill_user_assignments/
-  // migration.sql exactly: ADMIN gains both assignments, MODERATOR gains
-  // Verifier only. Nothing reads assignments yet (ticket 06), but ticket 07
-  // starts reading them, and a fresh environment must not diverge from a
-  // migrated one the moment it does. skipDuplicates mirrors the migration's
-  // ON CONFLICT DO NOTHING, so re-running the seed is safe.
+  // Grant the assignments, the only source of Admin and Verifier power. This
+  // mirrors prisma/migrations/20260920160016_backfill_user_assignments/
+  // migration.sql, so a fresh-seeded DB matches a migrated one: the Admin
+  // gains both assignments, the Verifier gains VERIFIER only. skipDuplicates
+  // mirrors the migration's ON CONFLICT DO NOTHING, so re-running the seed is
+  // safe.
   await prisma.userAssignment.createMany({
     data: [
       ...admins.map(u => ({ userId: u.id, assignment: Assignment.VERIFIER })),
       ...admins.map(u => ({ userId: u.id, assignment: Assignment.ADMIN })),
-      ...moderators.map(u => ({ userId: u.id, assignment: Assignment.VERIFIER })),
+      ...verifiers.map(u => ({ userId: u.id, assignment: Assignment.VERIFIER })),
     ],
     skipDuplicates: true,
   });
@@ -287,7 +290,7 @@ async function main() {
   console.log('📢 Creating campaigns...');
   const campaigns = [];
   for (const campaignData of CAMPAIGNS_DATA) {
-    const creator = randomElement(creators);
+    const creator = randomElement(fundraisers);
     const slug = slugify(campaignData.title);
     const campaign = await prisma.campaign.upsert({
       where: { slug },
@@ -430,7 +433,7 @@ async function main() {
   console.log('🏦 Creating bank accounts...');
   const BANK_CODES = ['bca', 'mandiri', 'bni', 'bri'];
   const bankAccountByCreatorId = new Map<string, { id: string }>();
-  for (const creator of creators) {
+  for (const creator of fundraisers) {
     const bankAccount = await prisma.bankAccount.create({
       data: {
         ownerId: creator.id,
@@ -446,7 +449,7 @@ async function main() {
 
   console.log('💸 Creating payouts...');
   const completedCampaigns = campaigns.filter(c => c.lifecycleStatus === CampaignStatus.COMPLETED);
-  const approvers = [...admins, ...moderators];
+  const approvers = [...admins, ...verifiers];
   let payoutCount = 0;
 
   for (const campaign of completedCampaigns) {

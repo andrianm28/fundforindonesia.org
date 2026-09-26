@@ -33,9 +33,13 @@ model User {
   password         String?
   avatar           String?
   phone            String?
-  isVerified       Boolean  @default(false)
-  verificationType String? // "ktp" | "organization"
-  role             Role     @default(DONOR)
+  // Retired: the self-claimed verification and the Role hierarchy. No
+  // application code or seed reads or writes them (retire-role-hierarchy
+  // 02); authority comes only from assignments (ADR 0005). Nullable and
+  // ignored until ticket 03 drops them with the Role enum.
+  isVerified       Boolean?
+  verificationType String?
+  role             Role?
   donationBalance  Int      @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -58,6 +62,11 @@ model User {
   cancellationRequestsDecided CancellationRequest[] @relation("CancellationDecider")
   campaignFlagsRaised         CampaignFlag[]        @relation("FlagVerifier")
   campaignFlagsResolved       CampaignFlag[]        @relation("FlagResolver")
+  verificationRequestsSubmitted VerificationRequest[]  @relation("VerificationRequestSubmitter")
+  verificationRequestsDecided   VerificationRequest[]  @relation("VerificationRequestDecider")
+  identityVerification          IdentityVerification?  @relation("IdentityVerificationSubject")
+  identityVerificationsMade     IdentityVerification[] @relation("IdentityVerificationVerifier")
+  checklistAuditEntries         VerificationChecklistAuditEntry[]
 
   // Money layer
   bankAccounts     BankAccount[]
@@ -160,7 +169,8 @@ model Campaign {
   // (legacy-status-contract 02). Nullable and ignored until ticket 03 drops
   // it with its index.
   status          String?
-  lifecycleStatus CampaignStatus @default(SUBMITTED)
+  // A new Campaign is a Draft until its Fundraiser submits it (FFI-04).
+  lifecycleStatus CampaignStatus @default(DRAFT)
   isUrgent        Boolean   @default(false)
   deadline        DateTime?
   creatorId       String
@@ -204,6 +214,7 @@ model Campaign {
   statusChanges CampaignStatusChange[]
   cancellationRequests CancellationRequest[]
   flags                CampaignFlag[]
+  verificationRequests VerificationRequest[]
 
   @@index([slug])
   @@index([category])
@@ -214,8 +225,10 @@ model Campaign {
 }
 
 enum CampaignStatusChangeAction {
+  SUBMITTED
   SUBMISSION_APPROVED
   SUBMISSION_REJECTED
+  SUBMISSION_WITHDRAWN
   COMPLETED
   SUSPENDED
   SUSPENSION_LIFTED
@@ -342,6 +355,100 @@ model CampaignFlag {
 }
 
 // ==================== Donation ====================
+
+enum VerificationOutcome {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+/// One submission of a Campaign to a Verifier (CONTEXT.md, Verification
+/// Request; FFI-05). Every submit creates a new row, so the history of
+/// refusals survives; nothing is ever deleted. At most one is PENDING per
+/// Campaign: only a Draft or Rejected Campaign can be submitted, and
+/// submitting makes it Submitted, both under the Campaign row lock.
+model VerificationRequest {
+  id            String              @id @default(cuid())
+  campaignId    String
+  submittedById String
+  submittedAt   DateTime            @default(now())
+  /// The active checklist items as they stood at submission, with the
+  /// Verifier's ticks: [{ id, label, required, position, ticked }].
+  checklist     Json
+  outcome       VerificationOutcome @default(PENDING)
+  reason        String?
+  /// Who closed the request and when: the Verifier on APPROVED or REJECTED,
+  /// the Fundraiser on WITHDRAWN. Null while PENDING.
+  decidedById   String?
+  decidedAt     DateTime?
+  /// Submitted from Draft (the Campaign's first request) rather than from
+  /// Rejected. A withdrawal returns the Campaign to Draft or Rejected by it.
+  isFirst       Boolean
+
+  // Relations
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  submittedBy User     @relation("VerificationRequestSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  decidedBy   User?    @relation("VerificationRequestDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@index([outcome, submittedAt])
+  @@index([campaignId, submittedAt])
+}
+
+/// A dated record that a Verifier checked a Fundraiser's identity, made when
+/// their first Verification Request is approved (CONTEXT.md, Identity
+/// Verification). Never claimed by the Fundraiser.
+model IdentityVerification {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  verifierId String
+  verifiedAt DateTime @default(now())
+  note       String?
+
+  // Relations
+  user     User @relation("IdentityVerificationSubject", fields: [userId], references: [id], onDelete: Restrict)
+  verifier User @relation("IdentityVerificationVerifier", fields: [verifierId], references: [id], onDelete: Restrict)
+}
+
+/// The documents a Verifier checks on every submission (PRD §7.1), edited by
+/// an Admin from the panel. Seeded with the "Semua" row by migration; each
+/// submission snapshots the active items. Items are deactivated, never
+/// deleted. Per-Kind items (a `kind` column) come with ticket 09.
+model VerificationChecklistItem {
+  id       String  @id @default(cuid())
+  label    String
+  required Boolean @default(true)
+  position Int
+  active   Boolean @default(true)
+
+  auditEntries VerificationChecklistAuditEntry[]
+
+  @@index([active, position])
+}
+
+enum VerificationChecklistAuditAction {
+  CREATED
+  UPDATED
+}
+
+/// One Admin change to a checklist item: who, when, and the item as it stood
+/// before and after ({ label, required, position, active }). `before` is null
+/// for CREATED. Append-only; items themselves are never deleted.
+model VerificationChecklistAuditEntry {
+  id        String                           @id @default(cuid())
+  itemId    String
+  action    VerificationChecklistAuditAction
+  before    Json?
+  after     Json
+  actedById String
+  actedAt   DateTime                         @default(now())
+
+  // Relations
+  item    VerificationChecklistItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  actedBy User                      @relation(fields: [actedById], references: [id], onDelete: Restrict)
+
+  @@index([itemId, actedAt])
+}
 
 model Donation {
   id            String   @id @default(cuid())

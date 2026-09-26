@@ -44,7 +44,6 @@ export function AppShell({ children }: AppShellProps) {
         email: session.user.email ?? '',
         name: session.user.name ?? '',
         avatar: session.user.image ?? null,
-        isVerified: session.user.isVerified ?? false,
         donationBalance: 0,
         createdAt: new Date(),
         updatedAt: new Date(),

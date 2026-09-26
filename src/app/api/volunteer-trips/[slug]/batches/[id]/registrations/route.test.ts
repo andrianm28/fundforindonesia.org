@@ -3,17 +3,8 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    volunteerBatch: { findUnique: vi.fn() },
-    registration: {
-      findMany: vi.fn(),
-      updateMany: vi.fn(),
-      findFirst: vi.fn(),
-      count: vi.fn(),
-      create: vi.fn(),
-    },
+    volunteerTrip: { findUnique: vi.fn() },
     payment: { create: vi.fn() },
-    $transaction: vi.fn(),
-    $queryRaw: vi.fn(),
   },
 }));
 
@@ -26,21 +17,29 @@ vi.mock('@/lib/payments', () => ({
   PaymentProviderNotConfiguredError: class extends Error {},
 }));
 
+vi.mock('@/lib/volunteer/trip', () => ({
+  holdRegistration: vi.fn(),
+}));
+
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider } from '@/lib/payments';
+import { holdRegistration } from '@/lib/volunteer/trip';
+import {
+  AlreadyRegisteredError,
+  BatchFullError,
+  BatchNotFoundError,
+  BatchNotTakingRegistrationsError,
+  RegistrationDeadlinePassedError,
+  TripNotTakingRegistrationsError,
+} from '@/lib/volunteer-trip-errors';
 import { POST } from './route';
 
-const mockBatchFindUnique = prisma.volunteerBatch.findUnique as unknown as Mock;
-const mockTransaction = prisma.$transaction as unknown as Mock;
+const mockTripFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
+const mockPaymentCreate = prisma.payment.create as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
-const mockRegistrationFindMany = prisma.registration.findMany as unknown as Mock;
-const mockRegistrationUpdateMany = prisma.registration.updateMany as unknown as Mock;
-const mockRegistrationCount = prisma.registration.count as unknown as Mock;
-const mockRegistrationFindFirst = prisma.registration.findFirst as unknown as Mock;
-const mockRegistrationCreate = prisma.registration.create as unknown as Mock;
-const mockPaymentCreate = prisma.payment.create as unknown as Mock;
+const mockHoldRegistration = holdRegistration as unknown as Mock;
 
 function createRequest(body: unknown = { paymentMethod: 'qris' }): NextRequest {
   return new NextRequest('http://localhost:3000/api/volunteer-trips/some-slug/batches/batch-1/registrations', {
@@ -58,13 +57,7 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetServerSession.mockResolvedValue({ user: { id: 'volunteer-1' } });
-    mockBatchFindUnique.mockResolvedValue({
-      id: 'batch-1',
-      status: 'OPEN',
-      maxQuota: 20,
-      registrationDeadline: new Date('2026-12-31'),
-      trip: { id: 'trip-1', slug: 'some-slug', status: 'ACTIVE', tripFeeAmount: 1_500_000 },
-    });
+    mockTripFindUnique.mockResolvedValue({ id: 'trip-1' });
     mockGetPaymentProvider.mockReturnValue({
       name: 'sumopod',
       method: 'qris_redirect',
@@ -74,26 +67,9 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
         expiresAt: new Date('2026-12-01'),
       }),
     });
-    // releaseExpiredHolds runs at the top of every request -- give it
-    // nothing to sweep by default so tests exercise the registration logic,
-    // not the sweep itself (that's registration.test.ts's job).
-    mockRegistrationFindMany.mockResolvedValue([]);
-    mockRegistrationUpdateMany.mockResolvedValue({ count: 0 });
-    // tx and prisma are the same mocked object here (see mockTransaction
-    // below), matching src/app/api/admin/users/[id]/assignments/route.test.ts's
-    // established pattern for a transaction whose tx client needs no ledger
-    // simulation -- unlike the payout/escrow transactions, nothing here
-    // reads a derived financial aggregate that a fake tx would need to
-    // compute for real.
-    mockTransaction.mockImplementation(async (cb) => cb(prisma));
-    mockRegistrationCount.mockResolvedValue(0);
-    mockRegistrationFindFirst.mockResolvedValue(null);
-    mockRegistrationCreate.mockResolvedValue({
-      id: 'registration-1',
-      volunteerId: 'volunteer-1',
-      batchId: 'batch-1',
-      status: 'HOLD',
-      holdExpiresAt: new Date('2026-09-23T00:30:00.000Z'),
+    mockHoldRegistration.mockResolvedValue({
+      registration: { id: 'registration-1', volunteerId: 'volunteer-1', batchId: 'batch-1', status: 'HOLD' },
+      tripFeeAmount: 1_500_000,
     });
   });
 
@@ -101,97 +77,29 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     mockGetServerSession.mockResolvedValue(null);
     const response = await POST(createRequest(), routeContext());
     expect(response.status).toBe(401);
+    expect(mockHoldRegistration).not.toHaveBeenCalled();
   });
 
-  it('returns 404 for a nonexistent batch', async () => {
-    mockBatchFindUnique.mockResolvedValue(null);
-    const response = await POST(createRequest(), routeContext());
+  it('returns 404 when no Trip has the URL slug, holding nothing', async () => {
+    mockTripFindUnique.mockResolvedValue(null);
+    const response = await POST(createRequest(), routeContext('wrong-slug'));
     expect(response.status).toBe(404);
+    expect(mockHoldRegistration).not.toHaveBeenCalled();
   });
 
-  it('returns 400 when the batch is not OPEN', async () => {
-    mockBatchFindUnique.mockResolvedValue({
-      id: 'batch-1',
-      status: 'CLOSED',
-      maxQuota: 20,
-      registrationDeadline: new Date('2026-12-31'),
-      trip: { id: 'trip-1', slug: 'some-slug', status: 'ACTIVE', tripFeeAmount: 1_500_000 },
-    });
-    const response = await POST(createRequest(), routeContext());
-    expect(response.status).toBe(400);
-  });
-
-  it('returns 400 when the trip is not ACTIVE', async () => {
-    mockBatchFindUnique.mockResolvedValue({
-      id: 'batch-1',
-      status: 'OPEN',
-      maxQuota: 20,
-      registrationDeadline: new Date('2026-12-31'),
-      trip: { id: 'trip-1', slug: 'some-slug', status: 'SUSPENDED', tripFeeAmount: 1_500_000 },
-    });
-    const response = await POST(createRequest(), routeContext());
-    expect(response.status).toBe(400);
-    expect(mockRegistrationCreate).not.toHaveBeenCalled();
-  });
-
-  it('returns 400 when the batch registrationDeadline has passed', async () => {
-    mockBatchFindUnique.mockResolvedValue({
-      id: 'batch-1',
-      status: 'OPEN',
-      maxQuota: 20,
-      registrationDeadline: new Date('2020-01-01'),
-      trip: { id: 'trip-1', slug: 'some-slug', status: 'ACTIVE', tripFeeAmount: 1_500_000 },
-    });
-    const response = await POST(createRequest(), routeContext());
-    expect(response.status).toBe(400);
-    expect(mockRegistrationCreate).not.toHaveBeenCalled();
-  });
-
-  it("returns 404 when the URL slug does not match the batch's trip", async () => {
-    const response = await POST(createRequest(), routeContext('wrong-slug', 'batch-1'));
-    expect(response.status).toBe(404);
-    expect(mockRegistrationCreate).not.toHaveBeenCalled();
-  });
-
-  it('returns 400 (Batch full) when HOLD+CONFIRMED count is at maxQuota', async () => {
-    mockRegistrationCount.mockResolvedValue(20);
-    const response = await POST(createRequest(), routeContext());
-    expect(response.status).toBe(400);
-    const body = await response.json();
-    expect(body.error).toMatch(/penuh/i);
-    expect(mockRegistrationCreate).not.toHaveBeenCalled();
-  });
-
-  it('returns 400 when the same Volunteer already has an open HOLD/CONFIRMED registration on this batch', async () => {
-    mockRegistrationFindFirst.mockResolvedValue({ id: 'existing-reg' });
-    const response = await POST(createRequest(), routeContext());
-    expect(response.status).toBe(400);
-    expect(mockRegistrationCreate).not.toHaveBeenCalled();
-  });
-
-  it('sweeps expired holds on this batch before checking quota', async () => {
+  it('asks the module to hold a seat on the Batch of the URL Trip for the signed-in Volunteer', async () => {
     await POST(createRequest(), routeContext());
-    expect(mockRegistrationFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ batchId: 'batch-1', status: 'HOLD' }),
-      }),
-    );
+    expect(mockTripFindUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { slug: 'some-slug' } }));
+    expect(mockHoldRegistration).toHaveBeenCalledWith(prisma, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      volunteerId: 'volunteer-1',
+    });
   });
 
-  it('locks the Batch row before reading the occupancy count', async () => {
+  it('charges the Trip Fee the hold named and records a PENDING Payment for it', async () => {
     const response = await POST(createRequest(), routeContext());
     expect(response.status).toBe(201);
-    expect(prisma.$queryRaw).toHaveBeenCalled();
-  });
-
-  it('creates a HOLD registration and a PENDING payment for the trip fee amount', async () => {
-    const response = await POST(createRequest(), routeContext());
-    expect(response.status).toBe(201);
-    expect(mockRegistrationCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ volunteerId: 'volunteer-1', batchId: 'batch-1', status: 'HOLD' }),
-      }),
-    );
     expect(mockPaymentCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -202,35 +110,37 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
         }),
       }),
     );
+    expect(await response.json()).toMatchObject({ registrationId: 'registration-1', amount: 1_500_000 });
   });
 
-  it('returns 503 when the payment provider is not configured', async () => {
+  it.each([
+    ['BatchNotFoundError', new BatchNotFoundError('batch-1'), 404, 'BATCH_NOT_FOUND'],
+    ['TripNotTakingRegistrationsError', new TripNotTakingRegistrationsError('SUSPENDED'), 400, 'TRIP_NOT_TAKING_REGISTRATIONS'],
+    ['BatchNotTakingRegistrationsError', new BatchNotTakingRegistrationsError('CLOSED'), 400, 'BATCH_NOT_TAKING_REGISTRATIONS'],
+    ['RegistrationDeadlinePassedError', new RegistrationDeadlinePassedError(), 400, 'REGISTRATION_DEADLINE_PASSED'],
+    ['BatchFullError', new BatchFullError(), 400, 'BATCH_FULL'],
+    ['AlreadyRegisteredError', new AlreadyRegisteredError(), 400, 'ALREADY_REGISTERED'],
+  ])('answers %s with %i through domainErrorToHttp, charging nothing', async (_name, error, status, code) => {
+    mockHoldRegistration.mockRejectedValue(error);
+    const response = await POST(createRequest(), routeContext());
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ code });
+    expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 when the payment provider is not configured, holding nothing', async () => {
     const { PaymentProviderNotConfiguredError } = await import('@/lib/payments');
     mockGetPaymentProvider.mockImplementation(() => {
       throw new PaymentProviderNotConfiguredError('PAYMENT_PROVIDER');
     });
     const response = await POST(createRequest(), routeContext());
     expect(response.status).toBe(503);
+    expect(mockHoldRegistration).not.toHaveBeenCalled();
   });
 
-  it('CONCURRENCY: two simultaneous registrations at the last remaining seat -- exactly one succeeds', async () => {
-    // Simulate the row lock's serializing effect: the first call to
-    // registration.count sees 19 (one seat left, maxQuota 20), the second
-    // (running "after" the first's transaction commits, as the real FOR
-    // UPDATE lock would force) sees 20 (full). This test proves the ROUTE's
-    // logic correctly refuses the second given that count, not that the
-    // mocked $transaction itself serializes concurrent JS calls (it can't --
-    // real serialization is a Postgres row-lock property this seam cannot
-    // exercise; what this test proves is that the code correctly acts on
-    // whatever count the lock would have made accurate).
-    mockRegistrationCount.mockResolvedValueOnce(19).mockResolvedValueOnce(20);
-
-    const [first, second] = await Promise.all([
-      POST(createRequest(), routeContext()),
-      POST(createRequest(), routeContext()),
-    ]);
-
-    const statuses = [first.status, second.status].sort();
-    expect(statuses).toEqual([201, 400]);
+  it('returns 400 for an unknown payment method, holding nothing', async () => {
+    const response = await POST(createRequest({ paymentMethod: 'cash' }), routeContext());
+    expect(response.status).toBe(400);
+    expect(mockHoldRegistration).not.toHaveBeenCalled();
   });
 });
