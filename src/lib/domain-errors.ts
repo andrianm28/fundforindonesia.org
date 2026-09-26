@@ -6,9 +6,9 @@
  * same refusal the same way.
  *
  * This file imports nothing, so the lifecycle errors
- * (./campaign-lifecycle-errors.ts), the subject guard (./subject-guard.ts)
- * and the money errors (./money/errors.ts) can all extend it without an
- * import cycle.
+ * (./campaign-lifecycle-errors.ts), the subject guard (./subject-guard.ts),
+ * the money errors (./money/errors.ts) and the Volunteer Trip errors
+ * (./volunteer-trip-errors.ts) can all extend it without an import cycle.
  */
 export abstract class DomainError extends Error {
   abstract readonly code: DomainErrorCode;
@@ -45,7 +45,13 @@ export type MoneyErrorCode =
   | "PAYMENT_SUBJECT_MISMATCH"
   | "REFUND_EXCEEDS_REMAINING";
 
-export type DomainErrorCode = LifecycleErrorCode | MoneyErrorCode;
+/**
+ * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
+ * Campaign lifecycle codes because a Trip is not a Campaign (ADR 0014).
+ */
+export type TripErrorCode = "TRIP_NOT_SUBMITTED";
+
+export type DomainErrorCode = LifecycleErrorCode | MoneyErrorCode | TripErrorCode;
 
 const HTTP_STATUS: Record<DomainErrorCode, number> = {
   VALIDATION: 400,
@@ -75,6 +81,7 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   PAYMENT_NOT_FOUND: 404,
   PAYMENT_SUBJECT_MISMATCH: 404,
   REFUND_EXCEEDS_REMAINING: 400,
+  TRIP_NOT_SUBMITTED: 409,
 };
 
 /**
