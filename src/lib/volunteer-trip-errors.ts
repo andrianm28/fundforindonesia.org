@@ -1,5 +1,4 @@
 import { DomainError, type TripErrorCode } from '@/lib/domain-errors';
-import type { VolunteerTripStatus } from '@/generated/prisma/client';
 
 /**
  * The typed refusals of a Volunteer Trip's own lifecycle (ADR 0014: a Trip
@@ -14,12 +13,12 @@ export abstract class TripError extends DomainError {
 /**
  * A Verifier approves or rejects only a Submitted Volunteer Trip. Raised
  * when the Trip was read in another status, and when another Verifier's
- * decision won the race to the predicated write (`currentStatus` is then
- * the SUBMITTED that was read).
+ * decision won the race to the predicated write; the message fits both, as
+ * InvalidPayoutStatusError's does (src/lib/money/errors.ts).
  */
 export class TripNotSubmittedError extends TripError {
   readonly code = 'TRIP_NOT_SUBMITTED';
-  constructor(readonly currentStatus: VolunteerTripStatus) {
+  constructor() {
     super(
       'Volunteer Trip ini tidak sedang menunggu keputusan Verifier. Muat ulang halaman lalu periksa kembali.',
     );

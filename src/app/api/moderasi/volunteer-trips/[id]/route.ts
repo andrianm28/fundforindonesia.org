@@ -1,8 +1,8 @@
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment, StatusChangeCapacity, VolunteerTripStatus } from '@/generated/prisma/client';
 import { getServerSession } from '@/lib/auth';
-import { domainErrorToHttp } from '@/lib/domain-errors';
 import { prisma } from '@/lib/prisma';
+import { refusalResponse } from '@/lib/refusal-response';
 import { OwnTripConflictError } from '@/lib/subject-guard';
 import { TripNotSubmittedError } from '@/lib/volunteer-trip-errors';
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,15 +15,10 @@ const ACTION_STATUS_MAP: Record<ModerationAction, 'ACTIVE' | 'REJECTED'> = {
   reject: 'REJECTED',
 };
 
-const ACTION_MESSAGE_MAP: Record<ModerationAction, string> = {
-  approve: 'Volunteer Trip Anda telah disetujui dan kini aktif',
-  reject: 'Volunteer Trip Anda ditolak',
+const ACTION_NOTIFICATION_MAP: Record<ModerationAction, { title: string; message: string }> = {
+  approve: { title: 'Volunteer Trip Disetujui', message: 'Volunteer Trip Anda telah disetujui dan kini aktif' },
+  reject: { title: 'Volunteer Trip Ditolak', message: 'Volunteer Trip Anda ditolak' },
 };
-
-function refuse(error: OwnTripConflictError | TripNotSubmittedError) {
-  const refusal = domainErrorToHttp(error)!;
-  return NextResponse.json(refusal.body, { status: refusal.status });
-}
 
 export const PATCH = withAssignmentCheck(Assignment.VERIFIER, async (req: NextRequest, context: any) => {
   const { id } = await context.params;
@@ -39,7 +34,7 @@ export const PATCH = withAssignmentCheck(Assignment.VERIFIER, async (req: NextRe
 
   const trip = await prisma.volunteerTrip.findUnique({
     where: { id },
-    select: { id: true, fundraiserId: true, title: true, status: true },
+    select: { id: true, fundraiserId: true, title: true, slug: true, status: true },
   });
 
   if (!trip) {
@@ -50,38 +45,39 @@ export const PATCH = withAssignmentCheck(Assignment.VERIFIER, async (req: NextRe
   // Verifier; ADR 0005): another Verifier must judge it.
   const session = await getServerSession();
   if (trip.fundraiserId === session?.user?.id) {
-    return refuse(new OwnTripConflictError(StatusChangeCapacity.VERIFIER));
+    return refusalResponse(new OwnTripConflictError(StatusChangeCapacity.VERIFIER))!;
   }
 
-  // A Verifier decides only a Submitted Trip (mirroring Campaign
-  // moderation, decideSubmission). The write is predicated on SUBMITTED too,
-  // so of two Verifiers deciding at once only the first changes it.
+  // A Verifier decides only a Submitted Trip, as with a Campaign
+  // (decideSubmission). The write is predicated on SUBMITTED too, so of two
+  // Verifiers deciding at once only the first changes it; the other gets the
+  // same refusal. Status and notification commit together or not at all.
   if (trip.status !== VolunteerTripStatus.SUBMITTED) {
-    return refuse(new TripNotSubmittedError(trip.status));
+    return refusalResponse(new TripNotSubmittedError())!;
   }
 
   const validAction = action as ModerationAction;
   const newStatus = ACTION_STATUS_MAP[validAction];
 
-  const written = await prisma.volunteerTrip.updateMany({
-    where: { id, status: VolunteerTripStatus.SUBMITTED },
-    data: { status: newStatus },
+  const written = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.volunteerTrip.updateMany({
+      where: { id, status: VolunteerTripStatus.SUBMITTED },
+      data: { status: newStatus },
+    });
+    if (count === 0) return false;
+    await tx.notification.create({
+      data: {
+        type: 'volunteer_trip_moderation',
+        ...ACTION_NOTIFICATION_MAP[validAction],
+        userId: trip.fundraiserId,
+        link: `/volunteer-trip/${trip.slug}`,
+      },
+    });
+    return true;
   });
-  if (written.count === 0) {
-    return refuse(new TripNotSubmittedError(trip.status));
+  if (!written) {
+    return refusalResponse(new TripNotSubmittedError())!;
   }
 
-  const updatedTrip = (await prisma.volunteerTrip.findUnique({ where: { id } }))!;
-
-  await prisma.notification.create({
-    data: {
-      type: 'volunteer_trip_moderation',
-      title: 'Volunteer Trip Moderation Update',
-      message: ACTION_MESSAGE_MAP[validAction],
-      userId: trip.fundraiserId,
-      link: `/volunteer-trip/${updatedTrip.slug}`,
-    },
-  });
-
-  return NextResponse.json({ trip: updatedTrip });
+  return NextResponse.json({ trip: { ...trip, status: newStatus } });
 });
