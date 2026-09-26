@@ -4,7 +4,7 @@
 
 **Blocked by:** 03, 06
 
-**Status:** in review (PR #48)
+**Status:** done (PR #48, e713cde)
 
 - [x] The Fundraiser sees and can use the button on their Submitted Campaign's page; Verifiers, Admins and others do not see it
 - [x] After a withdraw the view shows the new status (Draft or Rejected)

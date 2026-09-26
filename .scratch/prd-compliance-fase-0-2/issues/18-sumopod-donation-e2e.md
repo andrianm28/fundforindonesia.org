@@ -4,7 +4,7 @@
 
 **Blocked by:** 10, 17
 
-**Status:** in review (PR #44)
+**Status:** done (PR #44, 36741eb)
 
 - [x] A Guest Donor donates with email required, name and phone optional, and an anonymous option that hides them from the public and the Fundraiser
 - [x] Minimum Rp20.000, with quick amounts and a free amount

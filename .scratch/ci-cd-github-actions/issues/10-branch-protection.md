@@ -2,9 +2,13 @@
 
 **Blocked by:** 02, 03
 
-**Status:** wontfix
+**Status:** ready-for-human (reopened 2026-09-26: the repo is public, so GitHub Free allows branch protection)
 
-- [ ] `main` requires test, build, migrations and ratchet to pass; decide whether the owner may push directly
+- [ ] `main` requires the checks test, build, migrations, ratchet and image to pass before merge
+- [ ] Force-push to `main` and deleting `main` are blocked
+- [ ] Decided and recorded here: whether the owner may bypass (push directly)
+
+Owner applies it in Settings → Branches → Add rule for `main`, or an agent does it through the API only after the owner explicitly allows that call. See `.scratch/ci-cd-github-actions/spec-production-environment.md`.
 
 ## Comments
 
