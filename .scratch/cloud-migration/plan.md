@@ -1,6 +1,6 @@
 # Plan: move the agent workspace from the VPS to Claude Code cloud sessions
 
-Status: needs-triage (waiting on the owner's decisions in §4)
+Status: in progress. Phase 1 is PR #30. The owner decided on 2026-09-26: "ya, maksudnya pindahkan semua sesi claude project ini ke claude cloud"
 Date: 2026-09-26
 
 ## Why
@@ -36,7 +36,7 @@ A cloud session has 4 vCPU, 16 GB RAM, Docker and Postgres 16, and runs isolated
 | Work | Where |
 |---|---|
 | Implementing tickets (tdd, code-review), full-suite and tsc verification | **Cloud sessions**, one per ticket |
-| Orchestration: triage, merge, status updates, relaying decisions to the owner | One coordinator session. Recommended: stays small on the VPS, or runs from the owner's laptop |
+| Orchestration: triage, merge, status updates, relaying decisions to the owner | **A cloud session too** (owner decision). It runs builders as subagents inside its container (max 3), or the owner opens one cloud session per ticket. |
 | Grilling, specs, tickets | Any session, since the tracker lives in git |
 | Production ops: nginx, cutover, kibi-clone, mail, host backups | **VPS only, owner-run** (ci-cd 08) |
 | Deploy | `deploy.yml` dispatched by the owner (unchanged) |
@@ -85,3 +85,24 @@ A cloud session has 4 vCPU, 16 GB RAM, Docker and Postgres 16, and runs isolated
 - **Q2.** How do the skills reach the cloud? Recommended: vendor them into `.claude/skills/`, so they are deterministic and offline. The hook install depends on the network and is unproven. The cost of vendoring is manual updates.
 - **Q3.** Where does the coordinator live? Recommended: stay on the VPS as one light session with no builds, because it needs `gh` for all PRs and the production-ops context. Alternative: the owner's laptop.
 - **Q4.** Should `.scratch` status changes ride in the implementing PR or in separate direct commits to main? Recommended: in the implementing PR, which avoids a push to main for every status change.
+
+## Decisions (2026-09-26)
+
+- Q1: commit `.scratch/` as it is. Done in PR #30.
+- Q2: vendor the skills into `.claude/skills/`. Done in PR #30.
+- Q3: **every** session goes to the cloud, including the coordinator. That overrides the recommendation to keep it on the VPS.
+- Q4: status changes ride in the implementing PR.
+
+## Handover checklist for the first cloud coordinator session
+
+- [ ] PR #30 is merged, and main CI is green.
+- [ ] The owner opens a cloud session on this repo from `main`, at claude.ai/code or with `claude --cloud`.
+- [ ] In that session:
+  - the SessionStart hook passes;
+  - `/tdd` and the other skills list under their bare names;
+  - `cat .scratch/deploy-readiness.md` works;
+  - `npx vitest run` passes;
+  - `gh pr list` works.
+- [ ] Start the pilot with one ready ticket (phase 2).
+- [ ] The VPS session finishes the agents it already started (prd-compliance 11 and 17), merges their PRs, then stops taking work.
+- [ ] Phase 4, owner-run on the VPS: remove the dev caches (`node_modules` in the checkout, the Docker build cache). Keep the checkout only for ci-cd 08.
