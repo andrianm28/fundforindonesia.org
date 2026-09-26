@@ -14,7 +14,7 @@ vi.mock('@/lib/donations', async () => {
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     donation: { findUnique: vi.fn() },
-    payment: { updateMany: vi.fn(), create: vi.fn(), count: vi.fn() },
+    payment: { updateMany: vi.fn(), create: vi.fn() },
     platformFeeRule: { findFirst: vi.fn().mockResolvedValue(null) },
     platformFeeThreshold: { findFirst: vi.fn().mockResolvedValue(null) },
   },
@@ -35,7 +35,6 @@ import { getPaymentProvider } from '@/lib/payments';
 const mockDonationFindUnique = prisma.donation.findUnique as unknown as Mock;
 const mockPaymentUpdateMany = prisma.payment.updateMany as unknown as Mock;
 const mockPaymentCreate = prisma.payment.create as unknown as Mock;
-const mockPaymentCount = prisma.payment.count as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 
@@ -76,7 +75,6 @@ beforeEach(() => {
   mockSandboxReason.mockReturnValue(null);
   mockGetServerSession.mockResolvedValue(null);
   mockDonationFindUnique.mockResolvedValue(makeDonation());
-  mockPaymentCount.mockResolvedValue(1);
   mockPaymentUpdateMany.mockResolvedValue({ count: 1 });
   mockPaymentCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: 'payment-2',
@@ -111,7 +109,11 @@ describe('POST /api/donations/[id]/retry', () => {
     expect(response.status).toBe(201);
     expect(data.paymentInstructions.redirectUrl).toBe('https://pay.sumopod.com/pay/def');
     expect(mockPaymentCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({ donationId: 'donation-1', providerRef: 'donation-1-r2', amount: 50_000 }),
+      data: expect.objectContaining({
+        donationId: 'donation-1',
+        providerRef: expect.stringMatching(/^donation-1-r[0-9a-f]{8}$/),
+        amount: 50_000,
+      }),
     });
   });
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
@@ -170,10 +171,13 @@ export async function POST(
     }
 
     // A fresh, distinct providerRef for this attempt -- Payment.providerRef
-    // is unique, so a retry cannot reuse the first attempt's order id.
-    // Readable and traceable back to the Donation without needing a join.
-    const attemptNumber = await prisma.payment.count({ where: { donationId: donation.id } });
-    const orderId = `${donation.id}-r${attemptNumber + 1}`;
+    // is unique, so a retry cannot reuse a prior attempt's order id. Random
+    // rather than a counted attempt number: two retry requests racing (a
+    // doubled-click) would both count the same number and collide on the
+    // same providerRef, failing the slower one outright instead of retrying
+    // cleanly. Still traceable back to the Donation without a join, since it
+    // is prefixed with the Donation's own id.
+    const orderId = `${donation.id}-r${randomUUID().slice(0, 8)}`;
 
     const charged = await chargeDonation({
       db: prisma,
