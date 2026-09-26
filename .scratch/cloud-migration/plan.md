@@ -105,4 +105,5 @@ A cloud session has 4 vCPU, 16 GB RAM, Docker and Postgres 16, and runs isolated
   - `gh pr list` works.
 - [ ] Start the pilot with one ready ticket (phase 2).
 - [ ] The VPS session finishes the agents it already started (prd-compliance 11 and 17), merges their PRs, then stops taking work.
-- [ ] Phase 4, owner-run on the VPS: remove the dev caches (`node_modules` in the checkout, the Docker build cache). Keep the checkout only for ci-cd 08.
+- [ ] Phase 4, owner-run on the VPS: remove the FFI dev caches (`node_modules` in the checkout, FFI-only images and build cache). Keep the checkout only for ci-cd 08.
+  - **No host-wide prunes.** makam shares this Docker daemon (confirmed by makam-main-agent on 2026-09-26): `makam-staging`, `glitchtip`, `makam-nonprod-*`, `makam-testpg`, `~/.cache/makam/deps`, and up to 4 makam worktrees. Never run `docker system prune`, `docker builder prune -a` or `docker image prune -a`. Remove FFI images by name only (`fundforindonesia*`, old `kibi-clone-app` tags after the cutover). Clear build cache only with a filter that matches FFI builds, or leave it to the owner.
