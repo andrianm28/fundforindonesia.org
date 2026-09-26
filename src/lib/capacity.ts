@@ -50,7 +50,10 @@ const SUBJECT_LABELS: Record<CapacitySubject["kind"], string> = {
   trip: "Volunteer Trip",
 };
 
-const OWN_SUBJECT_CODES: Record<CapacitySubject["kind"], "OWN_CAMPAIGN_CONFLICT" | "OWN_TRIP_CONFLICT"> = {
+/** The two codes of acting on your own record, one per subject kind. */
+type OwnSubjectCode = Exclude<CapacityErrorCode, "NOT_AUTHORIZED">;
+
+const OWN_SUBJECT_CODES: Record<CapacitySubject["kind"], OwnSubjectCode> = {
   campaign: "OWN_CAMPAIGN_CONFLICT",
   trip: "OWN_TRIP_CONFLICT",
 };
@@ -64,7 +67,7 @@ const OWN_SUBJECT_CODES: Record<CapacitySubject["kind"], "OWN_CAMPAIGN_CONFLICT"
  */
 export class NotAuthorizedError extends DomainError {
   readonly code = "NOT_AUTHORIZED";
-  constructor(message = "Anda tidak berwenang melakukan tindakan ini pada Campaign ini.") {
+  constructor(message = "Anda tidak berwenang melakukan tindakan ini.") {
     super(message);
     this.name = "NotAuthorizedError";
   }
@@ -77,7 +80,7 @@ export class NotAuthorizedError extends DomainError {
  * or `OWN_TRIP_CONFLICT`, as API clients have always seen it.
  */
 export class OwnSubjectConflictError extends DomainError {
-  readonly code: "OWN_CAMPAIGN_CONFLICT" | "OWN_TRIP_CONFLICT";
+  readonly code: OwnSubjectCode;
   constructor(
     readonly subjectKind: CapacitySubject["kind"],
     readonly capacity: OperatorCapacity

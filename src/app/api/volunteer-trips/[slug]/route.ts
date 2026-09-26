@@ -45,7 +45,7 @@ export async function PATCH(
 
     if (!isAdmin) {
       // Still gated by the legacy CAMPAIGN_CREATOR Role until who may create
-      // a Campaign is decided (prd-compliance tickets 06-08).
+      // a Campaign or Volunteer Trip is decided (prd-compliance tickets 06-08).
       if (!isAtLeast(userRole, 'CAMPAIGN_CREATOR')) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
