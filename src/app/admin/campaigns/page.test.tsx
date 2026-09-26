@@ -66,16 +66,16 @@ describe('AdminCampaignsPage status badges', () => {
     return within(tr).getAllByRole('cell')[2].textContent ?? '';
   }
 
-  it('shows each Campaign Status by its glossary name', async () => {
+  it('shows each Campaign Status by its Indonesian badge label', async () => {
     const statuses: [CampaignStatus, string][] = [
-      ['DRAFT', 'Draft'],
-      ['SUBMITTED', 'Submitted'],
-      ['REJECTED', 'Rejected'],
-      ['ACTIVE', 'Active'],
-      ['SUSPENDED', 'Suspended'],
-      ['CANCELLED', 'Cancelled'],
-      ['COMPLETED', 'Completed'],
-      ['EXPIRED', 'Expired'],
+      ['DRAFT', 'Draf'],
+      ['SUBMITTED', 'Diajukan'],
+      ['REJECTED', 'Ditolak'],
+      ['ACTIVE', 'Aktif'],
+      ['SUSPENDED', 'Dibekukan'],
+      ['CANCELLED', 'Ditarik'],
+      ['COMPLETED', 'Selesai'],
+      ['EXPIRED', 'Berakhir'],
     ];
     vi.mocked(prisma.campaign.findMany).mockResolvedValue(
       statuses.map(([status]) => row(`campaign-${status}`, status)) as any,
@@ -98,7 +98,7 @@ describe('AdminCampaignsPage status badges', () => {
 
     render(await AdminCampaignsPage());
 
-    expect(await badgeOf('lapsed')).toBe('Expired');
-    expect(await badgeOf('running')).toBe('Active');
+    expect(await badgeOf('lapsed')).toBe('Berakhir');
+    expect(await badgeOf('running')).toBe('Aktif');
   });
 });

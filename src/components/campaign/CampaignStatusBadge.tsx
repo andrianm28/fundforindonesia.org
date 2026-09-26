@@ -1,4 +1,3 @@
-import { STATUS_LABEL } from '@/lib/campaign-status-label';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 
 const TONE: Record<CampaignLifecycleStatus, string> = {
@@ -13,16 +12,31 @@ const TONE: Record<CampaignLifecycleStatus, string> = {
 };
 
 /**
- * A Campaign's status as a badge, named as the glossary names it
- * (STATUS_LABEL). Pass the effective status, so an Active Campaign past its
- * deadline reads as Expired.
+ * What a badge reads, in Indonesian, for the Donors and Fundraisers who see
+ * it. Badges only: refusals and notifications keep the glossary names in
+ * STATUS_LABEL (CONTEXT.md, Campaign Status).
+ */
+const BADGE_LABEL: Record<CampaignLifecycleStatus, string> = {
+  DRAFT: 'Draf',
+  SUBMITTED: 'Diajukan',
+  REJECTED: 'Ditolak',
+  ACTIVE: 'Aktif',
+  SUSPENDED: 'Dibekukan',
+  CANCELLED: 'Ditarik',
+  COMPLETED: 'Selesai',
+  EXPIRED: 'Berakhir',
+};
+
+/**
+ * A Campaign's status as a badge, in Indonesian. Pass the effective status,
+ * so an Active Campaign past its deadline reads as Berakhir (Expired).
  */
 export function CampaignStatusBadge({ status }: { status: CampaignLifecycleStatus }) {
   return (
     <span
       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${TONE[status]}`}
     >
-      {STATUS_LABEL[status]}
+      {BADGE_LABEL[status]}
     </span>
   );
 }

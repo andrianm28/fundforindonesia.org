@@ -2,7 +2,7 @@ import { render, screen, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 /**
- * "Kampanye Saya" names each Campaign's status as the glossary does, from
+ * "Kampanye Saya" shows each Campaign's status badge in Indonesian, from
  * the effective `lifecycleStatus` GET /api/user/campaigns sends, so the
  * Fundraiser's list matches the public page and the Admin list.
  */
@@ -38,11 +38,13 @@ function campaign(slug: string, lifecycleStatus: string) {
 afterEach(() => cleanup());
 
 describe('Kampanye Saya', () => {
-  it('shows each Campaign under its glossary status name', () => {
+  it('shows each Campaign under its Indonesian status badge', () => {
     swr.data = {
       campaigns: [
         campaign('waiting', 'SUBMITTED'),
         campaign('running', 'ACTIVE'),
+        // An Active Campaign past its deadline: the API already sends it as
+        // EXPIRED (covered in src/app/api/user/campaigns/route.test.ts).
         campaign('lapsed', 'EXPIRED'),
         campaign('frozen', 'SUSPENDED'),
       ],
@@ -54,10 +56,10 @@ describe('Kampanye Saya', () => {
     render(<MyCampaignsPage />);
 
     for (const [slug, label] of [
-      ['waiting', 'Submitted'],
-      ['running', 'Active'],
-      ['lapsed', 'Expired'],
-      ['frozen', 'Suspended'],
+      ['waiting', 'Diajukan'],
+      ['running', 'Aktif'],
+      ['lapsed', 'Berakhir'],
+      ['frozen', 'Dibekukan'],
     ]) {
       const card = screen.getByText(`Campaign ${slug}`).parentElement!;
       expect(card.textContent).toContain(label);
