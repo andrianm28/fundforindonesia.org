@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { campaignNotFound, findViewableCampaign, withViewerCacheControl } from '@/lib/campaign-visibility-route';
+import { campaignNotFound, findViewableCampaign } from '@/lib/campaign-visibility-route';
 
 // Rendered per request: an unapproved Campaign's answer depends on who asks
 // (findViewableCampaign reads the session), which a statically cached route
@@ -60,13 +60,13 @@ export async function GET(
       createdAt: donation.createdAt,
     }));
 
-    return withViewerCacheControl(NextResponse.json({
+    return campaign.respond({
       donations: mappedDonations,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    }), campaign);
+    });
   } catch (error) {
     console.error('Error fetching campaign donations:', error);
     return NextResponse.json(

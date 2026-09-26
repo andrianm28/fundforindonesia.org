@@ -15,10 +15,6 @@ import { describe, it, expect } from 'vitest';
  */
 const ROOT = join(__dirname);
 
-// GETs that answer only to an already-privileged caller (and so never leak
-// a Campaign to the public) may be listed here, each with its reason.
-const EXEMPT: Record<string, string> = {};
-
 function routeFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const path = join(dir, entry);
@@ -29,6 +25,14 @@ function routeFiles(dir: string): string[] {
 
 const EXPORTS_GET = /export\s+(async\s+function\s+GET\b|const\s+GET\b|\{[^}]*\bGET\b[^}]*\})/;
 const CONSULTS_RULE = /\b(mayViewCampaign|findViewableCampaign)\s*\(/;
+
+/** The GET handler's own text: from its export to the next export, if any. */
+function getHandlerSource(source: string): string {
+  const start = source.search(/export\s+async\s+function\s+GET\b/);
+  expect(start, 'GET is exported as an async function').toBeGreaterThanOrEqual(0);
+  const next = source.slice(start + 1).search(/\nexport\s/);
+  return next < 0 ? source.slice(start) : source.slice(start, start + 1 + next);
+}
 
 const getRoutes = routeFiles(ROOT)
   .filter((file) => EXPORTS_GET.test(readFileSync(file, 'utf8')))
@@ -46,10 +50,10 @@ describe('every GET under /api/campaigns/[slug]/', () => {
     );
   });
 
-  it.each(getRoutes.filter((route) => !(route in EXEMPT)))(
+  it.each(getRoutes)(
     '%s consults the Campaign visibility rule',
     (route) => {
-      expect(readFileSync(join(ROOT, route), 'utf8')).toMatch(CONSULTS_RULE);
+      expect(getHandlerSource(readFileSync(join(ROOT, route), 'utf8'))).toMatch(CONSULTS_RULE);
     }
   );
 });

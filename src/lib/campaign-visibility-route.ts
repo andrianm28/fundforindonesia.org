@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+// From subject-guard, where it is defined, rather than the campaign-lifecycle
+// re-export: this read path needs none of the lifecycle commands.
 import { effectiveStatus } from '@/lib/subject-guard';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 
@@ -27,6 +29,16 @@ export function campaignNotFound() {
 }
 
 /**
+ * A Campaign the viewer may see, as a public sub-resource answers for it.
+ * `respond` builds the 200 and marks it private, no-store when the Campaign
+ * is unapproved (its answer differs by viewer), so no caller can forget to.
+ */
+export type ViewableCampaign = {
+  id: string;
+  respond: (body: unknown) => NextResponse;
+};
+
+/**
  * Resolves the Campaign behind a public sub-resource of
  * /api/campaigns/[slug] (updates, donations, disbursements) for the one
  * asking, under the same rule as the Campaign itself
@@ -35,12 +47,9 @@ export function campaignNotFound() {
  * Fundraiser, a Verifier or an Admin.
  *
  * The session is read only for an unapproved Campaign, so an approved one's
- * answer stays the same for everyone. `isPublic` false means the answer
- * differs by viewer and must carry PRIVATE_CACHE_CONTROL.
+ * answer stays the same for everyone.
  */
-export async function findViewableCampaign(
-  slug: string
-): Promise<{ id: string; isPublic: boolean } | null> {
+export async function findViewableCampaign(slug: string): Promise<ViewableCampaign | null> {
   const campaign = await prisma.campaign.findUnique({
     where: { slug },
     select: { id: true, creatorId: true, lifecycleStatus: true, deadline: true },
@@ -48,20 +57,20 @@ export async function findViewableCampaign(
   if (!campaign) return null;
 
   const status = effectiveStatus(campaign, new Date());
-  if (isPubliclyViewable(status)) return { id: campaign.id, isPublic: true };
+  if (isPubliclyViewable(status)) {
+    return { id: campaign.id, respond: (body) => NextResponse.json(body) };
+  }
 
   const session = await getServerSession();
   if (!mayViewCampaign({ status, fundraiserId: campaign.creatorId }, session?.user)) {
     return null;
   }
-  return { id: campaign.id, isPublic: false };
-}
-
-/** Marks an unapproved Campaign's sub-resource answer as never shared-cached. */
-export function withViewerCacheControl<R extends NextResponse>(
-  response: R,
-  campaign: { isPublic: boolean }
-): R {
-  if (!campaign.isPublic) response.headers.set('Cache-Control', PRIVATE_CACHE_CONTROL);
-  return response;
+  return {
+    id: campaign.id,
+    respond: (body) => {
+      const response = NextResponse.json(body);
+      response.headers.set('Cache-Control', PRIVATE_CACHE_CONTROL);
+      return response;
+    },
+  };
 }

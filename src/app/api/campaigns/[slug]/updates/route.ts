@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { campaignNotFound, findViewableCampaign, withViewerCacheControl } from '@/lib/campaign-visibility-route';
+import { campaignNotFound, findViewableCampaign } from '@/lib/campaign-visibility-route';
 import { getServerSession } from '@/lib/auth';
 import { refuseUnlessFundraiser } from '@/lib/refusal-response';
 
@@ -50,13 +50,13 @@ export async function GET(
       prisma.campaignUpdate.count({ where: { campaignId: campaign.id } }),
     ]);
 
-    return withViewerCacheControl(NextResponse.json({
+    return campaign.respond({
       updates,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    }), campaign);
+    });
   } catch (error) {
     console.error('Error fetching campaign updates:', error);
     return NextResponse.json(

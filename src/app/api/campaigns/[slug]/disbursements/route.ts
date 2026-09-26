@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { campaignNotFound, findViewableCampaign, withViewerCacheControl } from '@/lib/campaign-visibility-route';
+import { campaignNotFound, findViewableCampaign } from '@/lib/campaign-visibility-route';
 
 // Rendered per request: an unapproved Campaign's answer depends on who asks
 // (findViewableCampaign reads the session), which a statically cached route
@@ -35,9 +35,9 @@ export async function GET(
       orderBy: { createdAt: 'desc' },
     });
 
-    return withViewerCacheControl(NextResponse.json({
+    return campaign.respond({
       disbursements: payouts,
-    }), campaign);
+    });
   } catch (error) {
     console.error('Error fetching campaign disbursements:', error);
     return NextResponse.json(
