@@ -57,7 +57,7 @@ RUN npm run build
 #
 # Ownership is set here rather than with `chown -R` in the runner, where it
 # would store every file a second time in a new layer. COPY --from keeps the
-# numeric owner, and 1001:1001 is the runner's nextjs:nodejs.
+# numeric owner: uid 1001 is the runner's nextjs user, gid 1001 its nodejs group.
 #   public/  Next scans it recursively at startup (recursiveReadDir inside
 #            setupFsCheck), so one unreadable subdirectory is fatal: the
 #            server exits with `EACCES: permission denied, scandir

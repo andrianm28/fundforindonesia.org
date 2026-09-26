@@ -187,19 +187,19 @@ jobs:
           cache-from: type=gha,scope=migrate
           cache-to: type=gha,mode=max,scope=migrate
 
-      # Ticket 14 slimmed the app image from about 1 GB; keep the size visible
+      # Ticket 14 slimmed the app image from 974 to 220 MiB; keep the size visible
       # so a regression shows up in the run summary, not on the host's disk.
       - name: Report the image sizes
         run: |
-          app="$(docker image inspect --format '{{.Size}}' local/app:candidate)"
-          migrate="$(docker image inspect --format '{{.Size}}' local/migrate:candidate)"
-          echo "app: $((app / 1048576)) MiB, migrate: $((migrate / 1048576)) MiB (uncompressed)"
+          app="$(( $(docker image inspect --format '{{.Size}}' local/app:candidate) / 1048576 ))"
+          migrate="$(( $(docker image inspect --format '{{.Size}}' local/migrate:candidate) / 1048576 ))"
+          echo "app: $app MiB, migrate: $migrate MiB (uncompressed)"
           {
             echo "### Image sizes (uncompressed)"
             echo "| image | MiB |"
             echo "|---|---|"
-            echo "| app | $((app / 1048576)) |"
-            echo "| migrate | $((migrate / 1048576)) |"
+            echo "| app | $app |"
+            echo "| migrate | $migrate |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # The image optimizer is off (next.config.mjs), so /api/health passes
