@@ -1,7 +1,7 @@
 import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, payoutInstructedLegs, postTransaction, type LedgerSubject } from './ledger';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
-import { lockAndLoad, requirePayoutAllowed } from '@/lib/subject-guard';
+import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed } from '@/lib/subject-guard';
 import {
   DemoCampaignError,
   BankAccountNotEligibleError,
@@ -235,6 +235,11 @@ export async function approvePayout(
     // The checks above read only this Payout's own row. The subject itself
     // is read nowhere before this lock; lockAndLoad reads it under it.
     const subjectState = await lockAndLoad(tx, subject, new Date());
+
+    // Approval is always an Admin act, so it is refused to the Campaign's or
+    // the Trip's own Fundraiser, whoever requested it (CONTEXT.md, Capacity).
+    // Judged on the owner read under the lock, like approveRefund.
+    if (subjectState) requireNotOwnerAsAdmin(subjectState, approvedById);
 
     // Re-judged here, not trusted from request time: a Suspension or
     // Cancellation committed between the request and this lock refuses the

@@ -365,6 +365,32 @@ describe('approvePayout', () => {
     expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
   });
 
+  it.each([
+    ['Campaign', { campaignId: 'campaign-1', volunteerTripId: null }, 'OWN_CAMPAIGN_CONFLICT', 'CAMPAIGN_BALANCE'],
+    ['Volunteer Trip', { campaignId: null, volunteerTripId: 'trip-1' }, 'OWN_TRIP_CONFLICT', 'TRIP_BALANCE'],
+  ] as const)(
+    'refuses an Admin who owns the %s, though someone else requested it, leaving the Payout as it was',
+    async (_label, link, code, account) => {
+      // The owner read under the lock is the approving Admin; the request
+      // came from someone else, so the two-person rule alone would pass it.
+      const payoutRow = basePayoutRow({ ...link, requestedById: 'requester-1' });
+      const ledgerRows: LedgerRow[] = [
+        { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account, campaignId: link.campaignId, volunteerTripId: link.volunteerTripId },
+      ];
+      const { tx, rows, payoutState, queryRawCalls } = makeTx({ ledgerRows, payoutRow });
+      tx.campaign.findUnique.mockResolvedValue({ creatorId: 'admin-1', isDemo: false, lifecycleStatus: 'ACTIVE', deadline: null });
+      tx.volunteerTrip.findUnique.mockResolvedValue({ fundraiserId: 'admin-1', status: 'ACTIVE' });
+      const prisma = makePrisma(tx, payoutRow);
+
+      await expect(
+        approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' }),
+      ).rejects.toMatchObject({ code });
+      expect(queryRawCalls.some((q) => q.includes('FOR UPDATE'))).toBe(true);
+      expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+      expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
+    },
+  );
+
   it('approves a Trip-linked DRAFT payout: locks VolunteerTrip (not Campaign), debits TRIP_BALANCE, credits PAYOUT_CLEARING', async () => {
     const ledgerRows: LedgerRow[] = [
       { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-1' },
