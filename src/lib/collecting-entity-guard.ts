@@ -3,6 +3,7 @@ import {
   CollectingEntityNotEligibleError,
   CollectingEntityRequiredError,
   FundraisingPermitRequiredError,
+  type OpeningStep,
 } from "./campaign-lifecycle-errors";
 import { holdsValidPermit } from "./collecting-entity";
 
@@ -29,12 +30,14 @@ export async function organisationOf(db: Db, userId: string): Promise<Organisati
   return db.partnerOrganisation.findUnique({ where: { fundraiserId: userId } });
 }
 
+function notOwnOrganisation(own: Organisation): CollectingEntityNotEligibleError {
+  return new CollectingEntityNotEligibleError(
+    `Campaign dari akun ${own.name} selalu dihimpun atas nama ${own.name}.`
+  );
+}
+
 function requireEligible(entity: Organisation, own: Organisation | null): void {
-  if (own && entity.id !== own.id) {
-    throw new CollectingEntityNotEligibleError(
-      `Campaign dari akun ${own.name} selalu dihimpun atas nama ${own.name}.`
-    );
-  }
+  if (own && entity.id !== own.id) throw notOwnOrganisation(own);
   if (!own && !entity.acceptsIndividualCampaigns) {
     throw new CollectingEntityNotEligibleError(
       `${entity.name} tidak menaungi Campaign Fundraiser perorangan. Pilih Partner Organisation lain.`
@@ -57,7 +60,7 @@ export async function resolveCollectingEntity(
 ): Promise<string | null | undefined> {
   const own = await organisationOf(db, creatorId);
   if (own) {
-    if (requested && requested !== own.id) requireEligible({ ...own, id: requested }, own);
+    if (requested && requested !== own.id) throw notOwnOrganisation(own);
     return own.id;
   }
   if (requested === undefined || requested === null) return requested;
@@ -70,15 +73,14 @@ export async function resolveCollectingEntity(
 /**
  * Refuses a Campaign that may not open: no Collecting Entity, one it may not
  * have, or one holding no Fundraising Permit valid at `now` for its Kind.
- * Returns the entity. `action` words the permit refusal for submission or
- * approval.
+ * `step` words the permit refusal for submission or approval.
  */
 export async function requireOpenable(
   db: Db,
   campaign: { creatorId: string; kind: Kind; collectingEntityId: string | null },
   now: Date,
-  action: "diajukan" | "diloloskan"
-): Promise<Organisation> {
+  step: OpeningStep
+): Promise<void> {
   if (!campaign.collectingEntityId) throw new CollectingEntityRequiredError();
   const entity = await db.partnerOrganisation.findUnique({
     where: { id: campaign.collectingEntityId },
@@ -87,7 +89,6 @@ export async function requireOpenable(
   if (!entity) throw new CollectingEntityRequiredError();
   requireEligible(entity, await organisationOf(db, campaign.creatorId));
   if (!holdsValidPermit(entity, campaign.kind, now)) {
-    throw new FundraisingPermitRequiredError(entity.name, campaign.kind, action);
+    throw new FundraisingPermitRequiredError(entity.name, campaign.kind, step);
   }
-  return entity;
 }

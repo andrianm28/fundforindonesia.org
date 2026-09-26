@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
 import { getServerSession } from "@/lib/auth";
 import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
-import { domainErrorToHttp } from "@/lib/domain-errors";
+import { refusalResponse } from "@/lib/refusal-response";
 
 /**
  * Wraps a Verifier's Partner Organisation register handler (prd-compliance
  * 10): only a VERIFIER assignment holder gets through (401 or 403
  * otherwise); the handler receives the acting Verifier's id, the route
  * params and the parsed JSON body (400 if a body it reads is not a JSON
- * object); typed refusals answer through `domainErrorToHttp`.
+ * object); typed refusals answer through `refusalResponse`.
  */
 export function partnerOrganisationRoute(
   handler: (input: {
@@ -38,8 +38,8 @@ export function partnerOrganisationRoute(
       try {
         return await handler({ actorId, params, body });
       } catch (error) {
-        const refusal = domainErrorToHttp(error);
-        if (refusal) return NextResponse.json(refusal.body, { status: refusal.status });
+        const refusal = refusalResponse(error);
+        if (refusal) return refusal;
         throw error;
       }
     }

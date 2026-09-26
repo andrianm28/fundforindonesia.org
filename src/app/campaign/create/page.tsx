@@ -700,7 +700,7 @@ function CollectingEntityField({
   onChange: (id: string) => void;
 }) {
   if (!options) {
-    return <p className="text-xs text-text-secondary">Memuat lembaga penghimpun...</p>;
+    return <p className="text-xs text-text-secondary">Memuat Partner Organisation...</p>;
   }
   if (options.own) {
     return (
@@ -715,12 +715,12 @@ function CollectingEntityField({
   return (
     <div data-testid="collecting-entity" className="w-full">
       <label htmlFor="collecting-entity" className="block text-sm font-medium text-text mb-1.5">
-        Collecting Entity (lembaga penaung) <span className="text-danger ml-0.5">*</span>
+        Collecting Entity <span className="text-danger ml-0.5">*</span>
       </label>
       <p className="mb-2 text-xs text-text-secondary">
-        Fundraiser perorangan menggalang dana di bawah naungan Partner Organisation yang memegang izin
-        penghimpunan dana: dana Campaign dihimpun atas nama lembaga itu, bukan atas nama Anda atau platform.
-        Verifier mengonfirmasi lembaga penaung saat meloloskan pengajuan.
+        Fundraiser perorangan menggalang dana di bawah naungan Partner Organisation yang memegang Fundraising
+        Permit: dana Campaign dihimpun atas nama Partner Organisation itu, bukan atas nama Anda atau platform.
+        Verifier mengonfirmasi Partner Organisation yang menaungi saat meloloskan pengajuan.
       </p>
       {options.sponsors.length === 0 ? (
         <p className="text-sm text-danger">

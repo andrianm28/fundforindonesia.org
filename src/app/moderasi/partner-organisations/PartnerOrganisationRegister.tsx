@@ -136,7 +136,7 @@ export function PartnerOrganisationRegister() {
             <h3 className="text-sm font-medium text-[#212121] mb-2">Fundraising Permit</h3>
             {organisation.permits.length === 0 ? (
               <p className="text-sm text-[#C62828]">
-                Belum ada izin tercatat: Campaign di bawah lembaga ini tidak dapat dibuka.
+                Belum ada Fundraising Permit tercatat: Campaign yang dihimpunnya tidak dapat dibuka.
               </p>
             ) : (
               <ul className="space-y-2">

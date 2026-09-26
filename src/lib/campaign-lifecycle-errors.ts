@@ -147,15 +147,18 @@ export class CollectingEntityRequiredError extends CampaignLifecycleError {
  * Campaign's Kind, so the Campaign may not open (ADR 0010). Raised on
  * submission and on approval.
  */
+/** Which step the missing permit stops: the Fundraiser's submission or the Verifier's approval. */
+export type OpeningStep = "diajukan" | "diloloskan";
+
 export class FundraisingPermitRequiredError extends CampaignLifecycleError {
   readonly code = "FUNDRAISING_PERMIT_REQUIRED";
   constructor(
     readonly entityName: string,
     readonly kind: CampaignKind,
-    action: "diajukan" | "diloloskan"
+    step: OpeningStep
   ) {
     super(
-      `${entityName} belum memegang Fundraising Permit yang berlaku untuk Kind ${KIND_LABEL[kind]}, sehingga Campaign ini belum dapat ${action}.`
+      `${entityName} belum memegang Fundraising Permit yang berlaku untuk Kind ${KIND_LABEL[kind]}, sehingga Campaign ini belum dapat ${step}.`
     );
     this.name = "FundraisingPermitRequiredError";
   }

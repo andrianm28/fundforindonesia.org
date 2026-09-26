@@ -36,5 +36,5 @@ export function statusBannerCopy(status: CampaignLifecycleStatus | undefined): s
  * page and returned by POST /api/donations.
  */
 export const COLLECTING_ENTITY_REFUSAL =
-  'Campaign ini belum dapat menerima donasi karena belum ada lembaga penghimpun dengan izin penghimpunan dana yang berlaku untuknya.';
+  'Campaign ini belum dapat menerima donasi karena belum ada Collecting Entity yang memegang Fundraising Permit yang berlaku untuknya.';
 

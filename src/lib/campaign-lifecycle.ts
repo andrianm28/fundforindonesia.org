@@ -1287,7 +1287,7 @@ export async function assignCollectingEntity(
       });
       await notify({
         title: "Collecting Entity Ditetapkan",
-        message: `Collecting Entity Campaign "${campaign.title}" telah ditetapkan. Campaign dapat menerima donasi selama lembaga itu memegang izin penghimpunan dana yang berlaku. Alasan: ${reason}`,
+        message: `Collecting Entity Campaign "${campaign.title}" telah ditetapkan. Campaign menerima donasi selama Partner Organisation itu memegang Fundraising Permit yang berlaku untuk Kind-nya. Alasan: ${reason}`,
       });
       return {};
     },

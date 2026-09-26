@@ -445,10 +445,6 @@ model IdentityVerification {
   verifier User @relation("IdentityVerificationVerifier", fields: [verifierId], references: [id], onDelete: Restrict)
 }
 
-/// The documents a Verifier checks on every submission (PRD §7.1), edited by
-/// an Admin from the panel. Seeded with the "Semua" row by migration; each
-/// submission snapshots the active items. Items are deactivated, never
-/// deleted. Per-Kind items (a `kind` column) come with ticket 09.
 // ==================== Partner Organisation (prd-compliance 10) ====================
 
 /// An organisation running programs on the platform (CONTEXT.md, Partner
@@ -527,6 +523,10 @@ model PartnerOrganisationAuditEntry {
   @@index([partnerOrganisationId, actedAt])
 }
 
+/// The documents a Verifier checks on every submission (PRD §7.1), edited by
+/// an Admin from the panel. Seeded with the "Semua" row by migration; each
+/// submission snapshots the active items. Items are deactivated, never
+/// deleted. Per-Kind items (a `kind` column) come with ticket 09.
 model VerificationChecklistItem {
   id       String  @id @default(cuid())
   label    String

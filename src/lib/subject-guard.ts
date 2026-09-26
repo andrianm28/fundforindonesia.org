@@ -322,13 +322,19 @@ export function requireKindAndDeadlineEditable(
  * organisation named is one this Fundraiser may collect under is judged
  * apart (./collecting-entity-guard.ts). Judge it on `lockAndLoad`'s result.
  */
+/** The effective statuses a direct edit may change the Collecting Entity in: before a Verifier confirms it. */
+const COLLECTING_ENTITY_EDITABLE_STATUSES: readonly CampaignStatus[] = [
+  CampaignStatus.DRAFT,
+  CampaignStatus.REJECTED,
+];
+
 export function requireCollectingEntityEditable(
   state: SubjectState,
   edit: { collectingEntityId?: string | null }
 ): void {
   if (state.kind !== "campaign") return;
   if (edit.collectingEntityId === undefined || edit.collectingEntityId === state.collectingEntityId) return;
-  if (!DEADLINE_EDITABLE_STATUSES.includes(state.effectiveStatus)) {
+  if (!COLLECTING_ENTITY_EDITABLE_STATUSES.includes(state.effectiveStatus)) {
     throw new CollectingEntityNotEditableError(state.effectiveStatus);
   }
 }

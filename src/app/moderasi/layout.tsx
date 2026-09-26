@@ -44,7 +44,7 @@ export default async function ModerasiLayout({
             <MobileNavLink href="/moderasi/campaigns" label="Kampanye" />
             <MobileNavLink href="/moderasi/reports" label="Laporan" />
             <MobileNavLink href="/moderasi/partner-organisations" label="Partner" />
-            <MobileNavLink href="/moderasi/collecting-entities" label="Penghimpun" />
+            <MobileNavLink href="/moderasi/collecting-entities" label="Collecting Entity" />
           </div>
         </div>
 

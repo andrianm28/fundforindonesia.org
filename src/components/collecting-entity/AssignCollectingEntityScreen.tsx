@@ -39,7 +39,7 @@ export async function AssignCollectingEntityScreen() {
       <h1 className="text-lg font-semibold text-[#212121]">Collecting Entity</h1>
       <p className="text-sm text-[#424242]">
         Campaign Aktif berikut belum menyebutkan Collecting Entity, sehingga tidak menerima donasi sampai
-        Collecting Entity ditetapkan dan lembaga itu memegang izin penghimpunan dana yang berlaku.
+        Collecting Entity ditetapkan dan Partner Organisation itu memegang Fundraising Permit yang berlaku.
       </p>
       {assignable.length === 0 ? (
         <p className="text-sm text-[#757575]">Semua Campaign Aktif sudah memiliki Collecting Entity.</p>
