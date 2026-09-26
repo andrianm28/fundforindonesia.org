@@ -1,4 +1,8 @@
-import type { VolunteerTripStatus } from '@/generated/prisma/client';
+import type {
+  StatusChangeCapacity,
+  VolunteerTripStatus,
+  VolunteerTripStatusChangeAction,
+} from '@/generated/prisma/client';
 
 /**
  * In-memory stand-in for the slice of PrismaClient that the Volunteer Trip
@@ -33,11 +37,11 @@ export type TripRow = {
 export type TripStatusChangeRow = {
   id: string;
   tripId: string;
-  action: string;
+  action: VolunteerTripStatusChangeAction;
   fromStatus: VolunteerTripStatus;
   toStatus: VolunteerTripStatus;
   actorId: string | null;
-  capacity: string;
+  capacity: StatusChangeCapacity;
   reason: string | null;
   createdAt: Date;
 };

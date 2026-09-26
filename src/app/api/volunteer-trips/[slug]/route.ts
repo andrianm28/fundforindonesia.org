@@ -61,18 +61,21 @@ export async function PATCH(
       return NextResponse.json({ trip: submitted });
     }
 
-    if (!TRIP_EDITABLE_STATUSES.includes(trip.status)) {
+    // A plain edit changes no status, so it is judged by the write itself:
+    // predicated on the editable statuses, never on the status read above,
+    // which a submit or decision may have changed since.
+    const { count } = await prisma.volunteerTrip.updateMany({
+      where: { id: trip.id, status: { in: [...TRIP_EDITABLE_STATUSES] } },
+      data: fields,
+    });
+    if (count === 0) {
       return NextResponse.json(
         { error: 'Trip tidak bisa diedit pada status ini' },
         { status: 400 },
       );
     }
 
-    const updated = await prisma.volunteerTrip.update({
-      where: { id: trip.id },
-      data: fields,
-    });
-
+    const updated = await prisma.volunteerTrip.findUnique({ where: { id: trip.id } });
     return NextResponse.json({ trip: updated });
   } catch (error) {
     const refusal = refusalResponse(error);

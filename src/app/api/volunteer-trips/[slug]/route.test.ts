@@ -5,7 +5,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     volunteerTrip: {
       findUnique: vi.fn(),
-      update: vi.fn(),
+      updateMany: vi.fn(),
     },
     volunteerBatch: {
       findMany: vi.fn(),
@@ -38,7 +38,7 @@ import { PATCH, GET } from './route';
 const mockSubmitTrip = submitTrip as unknown as Mock;
 
 const mockFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
-const mockUpdate = prisma.volunteerTrip.update as unknown as Mock;
+const mockUpdate = prisma.volunteerTrip.updateMany as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockBatchFindMany = prisma.volunteerBatch.findMany as unknown as Mock;
 const mockRegistrationCount = prisma.registration.count as unknown as Mock;
@@ -60,7 +60,7 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
     vi.clearAllMocks();
     mockGetServerSession.mockResolvedValue({ user: { id: 'owner-1', role: 'CAMPAIGN_CREATOR' } });
     mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', status: 'DRAFT' });
-    mockUpdate.mockResolvedValue({ id: 'trip-1', status: 'DRAFT', title: 'Updated title' });
+    mockUpdate.mockResolvedValue({ count: 1 });
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -119,11 +119,23 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
     expect(response.status).toBe(200);
   });
 
-  it('returns 400 when editing fields on an ACTIVE Trip', async () => {
-    mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', status: 'ACTIVE' });
+  it('writes an edit only while the Trip is Draft or Rejected, judged by the write itself', async () => {
+    await PATCH(patchRequest({ title: 'Updated title' }), routeContext());
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 'trip-1', status: { in: ['DRAFT', 'REJECTED'] } },
+      data: { title: 'Updated title' },
+    });
+  });
+
+  it.each([
+    ['read as ACTIVE', 'ACTIVE'],
+    ['read as DRAFT but submitted before the write', 'DRAFT'],
+  ])('returns 400 when editing a Trip %s', async (_case, status) => {
+    mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', status });
+    mockUpdate.mockResolvedValue({ count: 0 });
     const response = await PATCH(patchRequest({ title: 'Updated title' }), routeContext());
     expect(response.status).toBe(400);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ error: 'Trip tidak bisa diedit pada status ini' });
   });
 
   describe('action "submit"', () => {
