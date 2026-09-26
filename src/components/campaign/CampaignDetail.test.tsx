@@ -31,8 +31,6 @@ const mockCampaign: CampaignDetailProps['campaign'] = {
     id: 'user-1',
     name: 'Yayasan Peduli Bencana',
     avatar: '/images/avatar.jpg',
-    isVerified: true,
-    verificationType: 'organization',
   },
 };
 

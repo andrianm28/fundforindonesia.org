@@ -58,8 +58,6 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
           id: true,
           name: true,
           avatar: true,
-          isVerified: true,
-          verificationType: true,
         },
       },
       _count: {

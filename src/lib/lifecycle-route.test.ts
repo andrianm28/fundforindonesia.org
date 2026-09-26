@@ -40,7 +40,7 @@ import { getServerSession } from '@/lib/auth';
 const mockSession = getServerSession as unknown as Mock;
 
 const SLUG = 'bantu-korban-banjir';
-const ADMIN = { user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } };
+const ADMIN = { user: { id: 'admin-1', assignments: ['ADMIN'] } };
 const RESULT = { campaign: { id: 'campaign-1', slug: SLUG, lifecycleStatus: 'ACTIVE', isUrgent: false } };
 
 function request(body?: unknown, method = 'POST'): NextRequest {
@@ -105,7 +105,7 @@ describe('lifecycleRoute', () => {
   });
 
   it('hands the input builder the route params, and an actor without assignments an empty list', async () => {
-    mockSession.mockResolvedValue({ user: { id: 'creator-1', role: 'USER' } });
+    mockSession.mockResolvedValue({ user: { id: 'creator-1' } });
     const { command, input, call } = slugRoute({ input: ({ params }) => ({ flagId: params.id }) });
 
     await call({}, { slug: SLUG, id: 'flag-7' });

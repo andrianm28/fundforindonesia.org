@@ -32,8 +32,8 @@ describe("seed backfills UserAssignment rows", () => {
     expect(source).toMatch(/admins\.map\([^)]*Assignment\.ADMIN/);
   });
 
-  it("gives MODERATOR the Verifier assignment only", () => {
-    expect(source).toMatch(/moderators\.map\([^)]*Assignment\.VERIFIER/);
-    expect(source).not.toMatch(/moderators\.map\([^)]*Assignment\.ADMIN/);
+  it("gives the seeded Verifier (the old MODERATOR) the Verifier assignment only", () => {
+    expect(source).toMatch(/verifiers\.map\([^)]*Assignment\.VERIFIER/);
+    expect(source).not.toMatch(/verifiers\.map\([^)]*Assignment\.ADMIN/);
   });
 });

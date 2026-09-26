@@ -45,7 +45,7 @@ function createRequest(body: unknown): NextRequest {
 describe('POST /api/volunteer-trips', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'user-1', role: 'DONOR' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'user-1' } });
     mockCreate.mockResolvedValue({ id: 'trip-1', slug: 'mengajar-di-pulau-terpencil-ab12cd', ...VALID_BODY, status: 'DRAFT', fundraiserId: 'user-1' });
   });
 
@@ -57,7 +57,7 @@ describe('POST /api/volunteer-trips', () => {
   });
 
   it('lets a registered user with no Role or assignment create a Trip (FFI-04)', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'user-2', role: 'DONOR', assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'user-2', assignments: [] } });
     const response = await POST(createRequest(VALID_BODY));
     expect(response.status).toBe(201);
     expect(mockCreate.mock.calls[0][0].data.fundraiserId).toBe('user-2');

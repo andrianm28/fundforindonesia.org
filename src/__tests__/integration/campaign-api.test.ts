@@ -82,7 +82,7 @@ function makeCampaign(overrides: Record<string, unknown> = {}) {
     creatorId: 'user-1',
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-10'),
-    creator: { name: 'Creator', isVerified: true, verificationType: 'ktp' },
+    creator: { name: 'Creator' },
     ...overrides,
   };
 }
@@ -93,9 +93,6 @@ function makeVerifiedSession() {
       id: 'user-1',
       name: 'Creator',
       email: 'creator@example.com',
-      role: 'CAMPAIGN_CREATOR',
-      isVerified: true,
-      verificationType: 'ktp',
     },
     expires: '2099-01-01',
   };
@@ -107,9 +104,6 @@ function makeUnverifiedSession() {
       id: 'user-2',
       name: 'Unverified User',
       email: 'unverified@example.com',
-      role: 'DONOR',
-      isVerified: false,
-      verificationType: null,
     },
     expires: '2099-01-01',
   };
@@ -296,8 +290,6 @@ describe('Campaign API Integration Tests', () => {
           id: 'user-1',
           name: 'Creator',
           avatar: 'https://example.com/avatar.jpg',
-          isVerified: true,
-          verificationType: 'ktp',
         },
         _count: { donations: 15 },
       };
@@ -316,7 +308,9 @@ describe('Campaign API Integration Tests', () => {
       expect(data.campaign.title).toBe('Bantuan untuk Korban Banjir');
       expect(data.campaign.donationCount).toBe(15);
       expect(data.campaign.creator.name).toBe('Creator');
-      expect(data.campaign.creator.isVerified).toBe(true);
+      // No self-claimed verification is read, so none can be sent
+      // (retire-role-hierarchy).
+      expect((mockFindUnique.mock.calls[0][0] as any).include.creator.select).toEqual({ id: true, name: true, avatar: true });
     });
 
     it('returns 404 for non-existent campaign slug', async () => {
@@ -340,8 +334,6 @@ describe('Campaign API Integration Tests', () => {
           id: 'user-1',
           name: 'Creator',
           avatar: null,
-          isVerified: true,
-          verificationType: 'ktp',
         },
         _count: { donations: 5 },
       };
@@ -447,7 +439,7 @@ describe('Campaign API Integration Tests', () => {
         creatorId: 'user-1',
         createdAt: new Date(),
         updatedAt: new Date(),
-        creator: { name: 'Creator', isVerified: true, verificationType: 'ktp' },
+        creator: { name: 'Creator' },
       };
 
       mockCreate.mockResolvedValue(createdCampaign as never);
@@ -669,7 +661,7 @@ describe('Campaign API Integration Tests', () => {
         creatorId: 'user-1',
         createdAt: new Date(),
         updatedAt: new Date(),
-        creator: { name: 'Creator', isVerified: true, verificationType: 'ktp' },
+        creator: { name: 'Creator' },
       };
 
       mockCreate.mockResolvedValue(createdCampaign as never);
@@ -688,8 +680,6 @@ describe('Campaign API Integration Tests', () => {
           id: 'user-1',
           name: 'Creator',
           avatar: null,
-          isVerified: true,
-          verificationType: 'ktp',
         },
         _count: { donations: 0 },
       };

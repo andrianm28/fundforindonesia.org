@@ -12,11 +12,11 @@ vi.mock('next/navigation', () => ({
 
 import CampaignCreatePage from './page';
 
-function sessionAs(role: string, isVerified: boolean) {
+function signedIn() {
   return {
     status: 'authenticated',
     data: {
-      user: { id: 'user-1', role, isVerified, verificationType: null, assignments: [] },
+      user: { id: 'user-1', assignments: [] },
       expires: '2099-01-01',
     },
   };
@@ -29,7 +29,7 @@ describe('CampaignCreatePage access', () => {
   });
 
   it('lets any registered user, with no Role or assignment, fill in a Campaign (FFI-04)', () => {
-    mockUseSession.mockReturnValue(sessionAs('DONOR', false));
+    mockUseSession.mockReturnValue(signedIn());
 
     render(<CampaignCreatePage />);
 

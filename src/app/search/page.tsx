@@ -92,8 +92,6 @@ function SearchContent() {
                   isDemo: c.isDemo,
                   creator: {
                     name: c.creator.name,
-                    isVerified: c.creator.isVerified,
-                    verificationType: c.creator.verificationType ?? null,
                   },
                 }))}
                 variant="standard"

@@ -68,8 +68,6 @@ export async function GET(request: NextRequest) {
           creator: {
             select: {
               name: true,
-              isVerified: true,
-              verificationType: true,
             },
           },
         },
@@ -157,8 +155,6 @@ export async function POST(request: NextRequest) {
         creator: {
           select: {
             name: true,
-            isVerified: true,
-            verificationType: true,
           },
         },
       },

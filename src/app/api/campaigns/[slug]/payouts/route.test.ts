@@ -151,7 +151,7 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-1', role: 'DONOR', assignments: [] },
+      user: { id: 'creator-1', assignments: [] },
     });
     mockCampaignFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-1' });
     // No matured escrow holds by default -- releaseMaturedEscrow (called at
@@ -171,7 +171,7 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
   it('returns 403 NOT_AUTHORIZED when the caller is not this campaign\'s creator, whatever their Role', async () => {
     // Ownership, asked of the Capacity judgement, is the only gate: a Role
     // (even the legacy CAMPAIGN_CREATOR one) grants nothing here.
-    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else' } });
     const response = await POST(createRequest(VALID_BODY), routeContext());
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({

@@ -85,7 +85,7 @@ function routeContext(id = 'refund-1') {
 describe('PATCH /api/campaigns/[slug]/refunds/[id]/approve', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-2', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } });
     mockCampaignFindUnique.mockResolvedValue({ id: 'campaign-1' });
     mockRefundFindUnique.mockResolvedValue({ payment: { donation: { campaignId: 'campaign-1' } } });
     mockRefundFindUniqueOrThrow.mockResolvedValue(makeRefundRow({ status: 'APPROVED', approvedById: 'admin-2' }));
@@ -99,7 +99,7 @@ describe('PATCH /api/campaigns/[slug]/refunds/[id]/approve', () => {
   });
 
   it('returns 403 for a Verifier who does not hold the Admin assignment', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', role: 'MODERATOR', assignments: ['VERIFIER'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', assignments: ['VERIFIER'] } });
     const response = await PATCH(patchRequest(), routeContext());
     expect(response.status).toBe(403);
     expect(mockTransaction).not.toHaveBeenCalled();
@@ -137,7 +137,7 @@ describe('PATCH /api/campaigns/[slug]/refunds/[id]/approve', () => {
   });
 
   it('returns 403 when the approver is the same person who requested it', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'requester-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'requester-1', assignments: ['ADMIN'] } });
     const { tx } = makeTx({ refundRow: makeRefundRow() });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 

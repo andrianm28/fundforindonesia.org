@@ -112,7 +112,7 @@ const VALID_BODY = { bankAccountId: 'bank-1', amount: 200_000, description: 'Pen
 describe('POST /api/volunteer-trips/[slug]/payouts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', role: 'DONOR', assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', assignments: [] } });
     mockTripFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'fundraiser-1' });
     mockPaymentFindMany.mockResolvedValue([]);
   });
@@ -125,7 +125,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts', () => {
   });
 
   it("returns 403 NOT_AUTHORIZED when the caller is not this Trip's Fundraiser, whatever their Role", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else' } });
     const response = await POST(postRequest(VALID_BODY), routeContext());
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
@@ -236,7 +236,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts', () => {
 describe('GET /api/volunteer-trips/[slug]/payouts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', role: 'DONOR', assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', assignments: [] } });
     mockTripFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'fundraiser-1' });
   });
 
@@ -247,7 +247,7 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
   });
 
   it("returns 403 when the caller is not this Trip's Fundraiser", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else' } });
     const response = await GET(getRequest(), routeContext());
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({

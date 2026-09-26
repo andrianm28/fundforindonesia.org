@@ -32,8 +32,6 @@ const mockCampaign: CampaignWithRelations = {
     name: 'Yayasan Peduli',
     avatar: null,
     phone: null,
-    isVerified: true,
-    verificationType: 'organization',
     donationBalance: 0,
     createdAt: new Date(),
     updatedAt: new Date(),

@@ -35,9 +35,6 @@ describe("GET /api/balance", () => {
       id: "user-1",
       name: "Test",
       email: "test@test.com",
-      role: "DONOR" as const,
-      isVerified: false,
-      verificationType: null,
     },
     expires: "2099-01-01",
   };

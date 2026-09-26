@@ -7,8 +7,6 @@ export interface User {
   password?: string | null;
   avatar?: string | null;
   phone?: string | null;
-  isVerified: boolean;
-  verificationType?: "ktp" | "organization" | null;
   donationBalance: number;
   createdAt: Date;
   updatedAt: Date;
@@ -63,6 +61,4 @@ export interface SessionUser {
   email: string;
   name: string;
   avatar?: string | null;
-  isVerified: boolean;
-  verificationType?: "ktp" | "organization" | null;
 }

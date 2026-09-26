@@ -59,8 +59,6 @@ const createMockCampaigns = (count: number): CampaignCardData[] =>
     isDemo: false,
     creator: {
       name: `Creator ${i}`,
-      isVerified: true,
-      verificationType: 'ktp',
     },
   }));
 

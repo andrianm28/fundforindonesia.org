@@ -26,12 +26,12 @@ describe("ModerasiLayout", () => {
   });
 
   it("redirects home for an ADMIN-ranked user who does not hold the Verifier assignment", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", role: "ADMIN", assignments: [] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: [] } });
     await expect(ModerasiLayout({ children: null })).rejects.toThrow("NEXT_REDIRECT:/");
   });
 
   it("renders for a user who holds the Verifier assignment", async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", role: "MODERATOR", assignments: ["VERIFIER"] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
     const result = await ModerasiLayout({ children: null });
     expect(result).toBeDefined();
   });

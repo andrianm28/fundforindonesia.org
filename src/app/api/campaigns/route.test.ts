@@ -53,7 +53,7 @@ describe('GET /api/campaigns', () => {
         creatorId: 'user1',
         createdAt: new Date(),
         updatedAt: new Date(),
-        creator: { name: 'Creator 1', isVerified: true, verificationType: 'ktp' },
+        creator: { name: 'Creator 1' },
       },
     ];
 
@@ -171,7 +171,7 @@ describe('GET /api/campaigns', () => {
     expect(data.totalPages).toBe(3);
   });
 
-  it('includes creator relation with name, isVerified, verificationType', async () => {
+  it("includes only the creator's name: no self-claimed verification is sent (retire-role-hierarchy)", async () => {
     mockFindMany.mockResolvedValue([]);
     mockCount.mockResolvedValue(0);
 
@@ -184,8 +184,6 @@ describe('GET /api/campaigns', () => {
           creator: {
             select: {
               name: true,
-              isVerified: true,
-              verificationType: true,
             },
           },
         },
@@ -249,9 +247,6 @@ describe('POST /api/campaigns', () => {
       id: 'user-1',
       name: 'John Doe',
       email: 'john@example.com',
-      isVerified: true,
-      verificationType: 'ktp',
-      role: 'CAMPAIGN_CREATOR',
     },
     expires: '2099-01-01',
   };
@@ -261,9 +256,6 @@ describe('POST /api/campaigns', () => {
       id: 'user-2',
       name: 'Jane Doe',
       email: 'jane@example.com',
-      isVerified: false,
-      verificationType: null,
-      role: 'DONOR',
       assignments: [],
     },
     expires: '2099-01-01',
@@ -358,7 +350,7 @@ describe('POST /api/campaigns', () => {
       creatorId: 'user-1',
       createdAt: new Date(),
       updatedAt: new Date(),
-      creator: { name: 'John Doe', isVerified: true, verificationType: 'ktp' },
+      creator: { name: 'John Doe' },
     };
 
     mockCreate.mockResolvedValue(mockCampaign as never);
@@ -416,8 +408,6 @@ describe('POST /api/campaigns', () => {
           creator: {
             select: {
               name: true,
-              isVerified: true,
-              verificationType: true,
             },
           },
         },

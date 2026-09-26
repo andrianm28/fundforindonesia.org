@@ -149,7 +149,7 @@ const FULL_BALANCE_ROWS: LedgerRow[] = [
 describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
     mockTripFindUnique.mockResolvedValue({ id: 'trip-1' });
     mockPayoutFindUnique.mockResolvedValue({ volunteerTripId: 'trip-1' });
     mockPayoutUpdateManyTop.mockResolvedValue({ count: 1 });
@@ -164,7 +164,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
   });
 
   it('returns 403 for a Verifier who does not hold the Admin assignment', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', role: 'MODERATOR', assignments: ['VERIFIER'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', assignments: ['VERIFIER'] } });
     const response = await POST(createRequest(), routeContext());
     expect(response.status).toBe(403);
     expect(mockTransaction).not.toHaveBeenCalled();
@@ -202,7 +202,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
   });
 
   it('refuses self-approval with 403 and leaves the payout completely untouched', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', role: 'ADMIN', assignments: ['ADMIN'] } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', assignments: ['ADMIN'] } });
     const { tx, updateMany, queryRaw } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 

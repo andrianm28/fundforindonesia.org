@@ -68,7 +68,7 @@ describe('POST /api/donations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'user-1', name: 'Test User', email: 'test@test.com', isVerified: true, verificationType: 'ktp' },
+      user: { id: 'user-1', name: 'Test User', email: 'test@test.com' },
       expires: '2099-01-01',
     });
     mockGetPaymentProvider.mockReturnValue({

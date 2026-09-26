@@ -45,7 +45,7 @@ export default async function CategoryPage({ params }: Props) {
     where: { ...listableCampaignWhere(new Date()), category },
     include: {
       creator: {
-        select: { name: true, isVerified: true, verificationType: true },
+        select: { name: true },
       },
     },
     orderBy: { createdAt: 'desc' },
@@ -66,8 +66,6 @@ export default async function CategoryPage({ params }: Props) {
     isDemo: c.isDemo,
     creator: {
       name: c.creator.name,
-      isVerified: c.creator.isVerified,
-      verificationType: c.creator.verificationType,
     },
   }));
 

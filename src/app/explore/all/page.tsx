@@ -32,8 +32,6 @@ export default function ExploreAllPage() {
             isDemo: c.isDemo,
             creator: {
               name: c.creator.name,
-              isVerified: c.creator.isVerified,
-              verificationType: c.creator.verificationType ?? null,
             },
           }));
         return [...prev, ...newCampaigns];

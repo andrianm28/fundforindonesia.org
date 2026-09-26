@@ -62,7 +62,7 @@ describe("withAssignmentCheck", () => {
     // The exact scenario ADR 0005 exists to fix: rank alone must never
     // substitute for the assignment a route requires.
     mockGetServerSession.mockResolvedValue({
-      user: { id: "user-1", role: "ADMIN" },
+      user: { id: "user-1" },
     } as any);
 
     const handler = vi.fn();

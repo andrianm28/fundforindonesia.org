@@ -33,8 +33,6 @@ export interface CampaignDetailData {
     id: string;
     name: string;
     avatar: string | null;
-    isVerified: boolean;
-    verificationType: string | null;
   };
   donationCount: number;
 }
