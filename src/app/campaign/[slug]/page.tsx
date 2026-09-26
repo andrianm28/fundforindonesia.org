@@ -7,6 +7,7 @@ import { effectiveStatus } from '@/lib/campaign-lifecycle';
 import { isPubliclyViewable } from '@/lib/campaign-visibility';
 import { publicUrl } from '@/lib/public-url';
 import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
+import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
 
 // ISR: one render per Campaign, cached for every visitor alike and
 // revalidated every 60 seconds. So this page never reads the session, and an
@@ -95,6 +96,13 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
   // change reaches it on the same cadence as everything else here.
   const { percentBps: platformFeePercentBps } = await resolvePlatformFeeBasisForCampaign(prisma, campaign);
 
+  // The Escrow Hold length, shown next to the Platform Fee (CONTEXT.md,
+  // Escrow Hold; prd-compliance 18). Every Payment freezes its own duration
+  // at creation (ESCROW_HOLD_DAYS today -- there is no Admin override per
+  // Kind/Category/Campaign yet, unlike Platform Fee), so what is shown here
+  // is what the next Donation's Payment would actually freeze.
+  const escrowHoldDays = ESCROW_HOLD_DAYS;
+
   // Transform the data for the client component
   const campaignData = {
     id: campaign.id,
@@ -118,6 +126,7 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     creator: campaign.creator,
     donationCount: campaign._count.donations,
     platformFeePercentBps,
+    escrowHoldDays,
   };
 
   return (

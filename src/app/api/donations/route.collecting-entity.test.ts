@@ -58,6 +58,10 @@ const QRIS_BODY = {
   amount: 50_000,
   paymentMethod: 'qris',
   isAnonymous: false,
+  // getServerSession always resolves null in this file (a Guest Donor),
+  // which now requires an email (CONTEXT.md, Guest Donor; prd-compliance
+  // 18).
+  guestEmail: 'donor@example.com',
 };
 
 function donate(): Promise<Response> {

@@ -19,9 +19,15 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /**
  * When a payment settled at `settledAt` stops being escrow and becomes
  * withdrawable.
+ *
+ * `holdDays` defaults to the live constant, but every real caller (the
+ * settlement webhook) passes the specific Payment's own frozen
+ * `escrowHoldDays` instead (CONTEXT.md, Escrow Hold; prd-compliance 18): the
+ * length is decided once, at Payment creation, and a later Admin change to
+ * the default must not move a Payment already created under the old one.
  */
-export function escrowReleaseAt(settledAt: Date): Date {
-  return new Date(settledAt.getTime() + ESCROW_HOLD_DAYS * MS_PER_DAY);
+export function escrowReleaseAt(settledAt: Date, holdDays: number = ESCROW_HOLD_DAYS): Date {
+  return new Date(settledAt.getTime() + holdDays * MS_PER_DAY);
 }
 
 /**

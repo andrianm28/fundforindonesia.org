@@ -17,6 +17,7 @@ import { KINDS } from '@/lib/campaign-kind';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibility-route';
 import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
+import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
 
 // Rendered per request: a Suspended or unapproved Campaign's answer
 // depends on who asks (suspensionReasonFor, mayViewCampaign), and reading the session inside a route Next
@@ -121,6 +122,12 @@ export async function GET(
     // freezes it: Campaign, then Category, then Kind default.
     const { percentBps: platformFeePercentBps } = await resolvePlatformFeeBasisForCampaign(prisma, campaign);
 
+    // The Escrow Hold length every new Payment freezes at creation
+    // (CONTEXT.md, Escrow Hold; prd-compliance 18) -- there is no per-Kind/
+    // Category/Campaign override yet, unlike Platform Fee, so this is the
+    // one value in force everywhere.
+    const escrowHoldDays = ESCROW_HOLD_DAYS;
+
     const response = NextResponse.json({
       campaign: {
         id: campaign.id,
@@ -147,6 +154,7 @@ export async function GET(
         donationBlock: donationBlock({ ...campaign, collectingEntity }, now),
         donationCount: campaign._count.donations,
         platformFeePercentBps,
+        escrowHoldDays,
         ...(suspensionReason !== undefined && { suspensionReason }),
       },
     });
