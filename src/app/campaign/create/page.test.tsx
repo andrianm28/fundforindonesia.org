@@ -22,27 +22,27 @@ function sessionAs(role: string, isVerified: boolean) {
   };
 }
 
-describe('CampaignCreatePage access gate', () => {
+describe('CampaignCreatePage access', () => {
   afterEach(() => {
     cleanup();
     mockUseSession.mockReset();
   });
 
-  it('lets a Fundraiser assigned by an Admin create a campaign without a self-declared verification', () => {
-    mockUseSession.mockReturnValue(sessionAs('CAMPAIGN_CREATOR', false));
+  it('lets any registered user, with no Role or assignment, fill in a Campaign (FFI-04)', () => {
+    mockUseSession.mockReturnValue(sessionAs('DONOR', false));
+
+    render(<CampaignCreatePage />);
+
+    expect(screen.getByText('Judul Campaign')).toBeDefined();
+    expect(screen.queryByText('Belum Terdaftar sebagai Fundraiser')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Hubungi Admin' })).toBeNull();
+  });
+
+  it('asks for no self-declared verification either', () => {
+    mockUseSession.mockReturnValue(sessionAs('DONOR', false));
 
     render(<CampaignCreatePage />);
 
     expect(screen.queryByText('Verifikasi Identitas Diperlukan')).toBeNull();
-    expect(screen.getByText('Judul Campaign')).toBeDefined();
-  });
-
-  it('keeps a Donor out, pointing them to an Admin rather than a self-verification form', () => {
-    mockUseSession.mockReturnValue(sessionAs('DONOR', true));
-
-    render(<CampaignCreatePage />);
-
-    expect(screen.queryByText('Judul Campaign')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Hubungi Admin' })).toBeDefined();
   });
 });

@@ -25,16 +25,16 @@ function run(pathname: string, role: TokenRole, assignments?: TokenAssignment[])
 }
 
 describe('middleware', () => {
-  it('sends a Donor on /campaign/create to /akun, where becoming a Fundraiser is explained', () => {
-    const response = run('/campaign/create', 'DONOR');
+  it.each(['/campaign/create', '/campaign/create/step-2'])(
+    'lets any signed-in user, with no Role or assignment, through to %s (FFI-04)',
+    (path) => {
+      expect(run(path, 'DONOR', []).headers.get('location')).toBeNull();
+    },
+  );
 
-    expect(response.headers.get('location')).toBe('http://localhost:3000/akun');
-  });
-
-  it('lets a Fundraiser through to /campaign/create', () => {
-    const response = run('/campaign/create', 'CAMPAIGN_CREATOR');
-
-    expect(response.headers.get('location')).toBeNull();
+  it('still asks for sign-in on /campaign/create: it stays in the matcher and a token is required', async () => {
+    const { config } = await import('./middleware');
+    expect(config.matcher).toContain('/campaign/create/:path*');
   });
 
   describe('the /admin gate asks for the ADMIN assignment (ADR 0005), not the Role', () => {

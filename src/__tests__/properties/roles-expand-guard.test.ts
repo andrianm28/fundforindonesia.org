@@ -54,14 +54,17 @@ import { join } from "node:path";
  * NOTE (campaign-rule-bugs ticket 04): the middleware gates /moderasi on
  * the VERIFIER assignment too, so no Role rank decides who reaches the
  * moderation pages ahead of moderasi/layout.tsx.
+ *
+ * NOTE (retire-role-hierarchy ticket 01): anyone registered may submit a
+ * Campaign or Volunteer Trip (PRD FFI-04), and a Payout needs ownership,
+ * not a Role. Every CAMPAIGN_CREATOR gate is gone -- the create, Trip
+ * create and Payout routes, refusal-response.ts, the middleware and the
+ * create and account pages -- and CAMPAIGN_CREATOR_GATE pins it. Only
+ * the upload route's DONOR floor (a signed-in check in Role clothing)
+ * still uses the hierarchy; ticket 02 removes it with withRoleCheck.
  */
 const HIERARCHY_GUARDED_ROUTES = [
-  "src/app/api/campaigns/[slug]/payouts/route.ts",
-  "src/app/api/campaigns/route.ts",
   "src/app/api/upload/route.ts",
-  // Not a route: the CAMPAIGN_CREATOR gate on the Fundraiser path of the
-  // Campaign, Trip and Batch edit routes (prd-compliance tickets 06-08).
-  "src/lib/refusal-response.ts",
 ];
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -111,6 +114,13 @@ const LIFECYCLE_ROUTES = [
 const ADMIN_BY_ROLE =
   /(\.role|\buserRole)\s*[!=]==?\s*["']ADMIN["']|\b(isAtLeast|hasRole|requireRole)\([^)]*["']ADMIN["']|\bwithRoleCheck\(\s*["']ADMIN["']|minimumRole:\s*["']ADMIN["']/;
 
+/**
+ * Gating on the legacy CAMPAIGN_CREATOR Role: the route wrapper, a rank
+ * comparison, a middleware rank route, or the old owner-route gate.
+ */
+const CAMPAIGN_CREATOR_GATE =
+  /\bwithRoleCheck\(\s*["']CAMPAIGN_CREATOR["']|\b(isAtLeast|hasRole|requireRole)\([^)]*["']CAMPAIGN_CREATOR["']|minimumRole:\s*["']CAMPAIGN_CREATOR["']|\blegacyCampaignCreatorGate\b/;
+
 function walk(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -142,7 +152,7 @@ function usesAssignment(source: string): boolean {
 }
 
 describe("roles expand scope", () => {
-  it("the four account-type routes still enforce the Role hierarchy", () => {
+  it("the one account-type route left still enforces the Role hierarchy (until ticket 02)", () => {
     const offenders = HIERARCHY_GUARDED_ROUTES.filter(
       (file) => !usesHierarchy(readFileSync(file, "utf8"))
     );
@@ -184,6 +194,29 @@ describe("roles expand scope", () => {
       .filter((file) => ADMIN_BY_ROLE.test(readFileSync(file, "utf8")));
 
     expect(offenders).toEqual([]);
+  });
+
+  it("catches a CAMPAIGN_CREATOR gate (the guard's own check)", () => {
+    expect("export const POST = withRoleCheck('CAMPAIGN_CREATOR', async () => {").toMatch(CAMPAIGN_CREATOR_GATE);
+    expect("if (!isAtLeast(user?.role, 'CAMPAIGN_CREATOR')) {").toMatch(CAMPAIGN_CREATOR_GATE);
+    expect('{ pattern: "/campaign/create", minimumRole: "CAMPAIGN_CREATOR" }').toMatch(CAMPAIGN_CREATOR_GATE);
+    expect("return legacyCampaignCreatorGate(user) ?? refusal;").toMatch(CAMPAIGN_CREATOR_GATE);
+    expect('<option value="CAMPAIGN_CREATOR">Kreator Kampanye</option>').not.toMatch(CAMPAIGN_CREATOR_GATE);
+  });
+
+  it("no file gates on the CAMPAIGN_CREATOR Role: anyone registered may submit (FFI-04)", () => {
+    const offenders = walk("src")
+      .filter((file) => !file.endsWith(".test.ts") && !file.endsWith(".test.tsx"))
+      .filter((file) => !file.startsWith("src/generated/"))
+      .filter((file) => CAMPAIGN_CREATOR_GATE.test(readFileSync(file, "utf8")));
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("the middleware decides no route by Role rank", () => {
+    const source = readFileSync("src/middleware.ts", "utf8");
+    expect(source).not.toContain("minimumRole");
+    expect(source).not.toContain("ROLE_LEVELS");
   });
 
   it("the middleware gates /admin on the ADMIN assignment the session token carries", () => {
