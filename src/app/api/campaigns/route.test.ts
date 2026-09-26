@@ -441,12 +441,44 @@ describe('POST /api/campaigns', () => {
       return POST(createPostRequest(body));
     }
 
-    it.each(['DONATION', 'ZAKAT', 'WAKAF', 'HIBAH'])('creates a %s Campaign carrying its Kind', async (kind) => {
-      const response = await create({ ...validBody, kind });
+    it('creates a Donation Campaign for an individual Fundraiser, carrying its Kind', async () => {
+      mockOrganisationFindUnique.mockResolvedValue(null);
+
+      const response = await create({ ...validBody, kind: 'DONATION' });
 
       expect(response.status).toBe(201);
-      expect(mockCreate.mock.calls[0][0]).toMatchObject({ data: { kind } });
+      expect(mockCreate.mock.calls[0][0]).toMatchObject({ data: { kind: 'DONATION' } });
     });
+
+    it.each(['ZAKAT', 'WAKAF', 'HIBAH'])(
+      'creates a %s Campaign for an organisation\'s linked account, carrying its Kind',
+      async (kind) => {
+        mockOrganisationFindUnique.mockResolvedValue({
+          id: 'yiem',
+          name: 'YIEM',
+          fundraiserId: 'user-1',
+          acceptsIndividualCampaigns: false,
+        } as never);
+
+        const response = await create({ ...validBody, kind });
+
+        expect(response.status).toBe(201);
+        expect(mockCreate.mock.calls[0][0]).toMatchObject({ data: { kind } });
+      }
+    );
+
+    it.each(['ZAKAT', 'WAKAF', 'HIBAH'])(
+      'refuses a %s Campaign for an individual Fundraiser (CONTEXT.md, Kind Authorisation), writing nothing',
+      async (kind) => {
+        mockOrganisationFindUnique.mockResolvedValue(null);
+
+        const response = await create({ ...validBody, kind });
+
+        expect(response.status).toBe(422);
+        expect((await response.json()).code).toBe('INDIVIDUAL_FUNDRAISER_KIND_NOT_ALLOWED');
+        expect(mockCreate).not.toHaveBeenCalled();
+      }
+    );
 
     it('refuses a Campaign that declares no Kind, writing nothing', async () => {
       const withoutKind: Record<string, unknown> = { ...validBody };
@@ -480,6 +512,14 @@ describe('POST /api/campaigns', () => {
     });
 
     it('creates a wakaf Campaign without a deadline, which stays open', async () => {
+      // Wakaf needs a Kind Authorisation (prd-compliance 11), which only a
+      // Partner Organisation may hold, so this is the linked account's own.
+      mockOrganisationFindUnique.mockResolvedValue({
+        id: 'yiem',
+        name: 'YIEM',
+        fundraiserId: 'user-1',
+        acceptsIndividualCampaigns: false,
+      } as never);
       const withoutDeadline: Record<string, unknown> = { ...validBody };
       delete withoutDeadline.deadline;
 

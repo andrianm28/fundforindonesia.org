@@ -4,12 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import { KIND_LABEL, KINDS, type CampaignKind } from "@/lib/campaign-kind";
 
 /**
- * The Verifier's register of Partner Organisations and their Fundraising
- * Permits (prd-compliance 10): register an organisation with the account
- * that acts for it, set whether it accepts individual Campaigns, record a
- * permit, and renew one by moving its end date. Every change is audited on
- * the server; nothing here is ever deleted.
+ * The Verifier's register of Partner Organisations, their Fundraising
+ * Permits and their Kind Authorisations (prd-compliance 10, 11): register an
+ * organisation with the account that acts for it, set whether it accepts
+ * individual Campaigns, record a permit or grant a Kind Authorisation, and
+ * renew either by moving its end date. Every change is audited on the
+ * server; nothing here is ever deleted.
  */
+
+/** Zakat, wakaf and hibah are the only Kinds a Kind Authorisation may name; donation needs none. */
+const AUTHORISABLE_KINDS = KINDS.filter((kind) => kind !== "DONATION");
 
 type Permit = {
   id: string;
@@ -20,12 +24,21 @@ type Permit = {
   validTo: string;
 };
 
+type KindAuthorisation = {
+  id: string;
+  kind: CampaignKind;
+  documentReference: string;
+  validFrom: string;
+  validTo: string;
+};
+
 type Organisation = {
   id: string;
   name: string;
   acceptsIndividualCampaigns: boolean;
   fundraiser: { name: string; email: string };
   permits: Permit[];
+  kindAuthorisations?: KindAuthorisation[];
 };
 
 const API = "/api/moderasi/partner-organisations";
@@ -159,6 +172,39 @@ export function PartnerOrganisationRegister() {
           <PermitForm
             onSubmit={(body) =>
               act(send(`${API}/${organisation.id}/permits`, "POST", body), "Fundraising Permit tercatat.")
+            }
+          />
+
+          <div>
+            <h3 className="text-sm font-medium text-[#212121] mb-2">Kind Authorisation</h3>
+            <p className="text-xs text-[#757575] mb-2">
+              Izin tambahan agar organisasi ini boleh menjalankan Campaign ber-Kind Zakat, Wakaf, atau Hibah.
+            </p>
+            {(organisation.kindAuthorisations ?? []).length === 0 ? (
+              <p className="text-sm text-[#757575]">Belum ada Kind Authorisation.</p>
+            ) : (
+              <ul className="space-y-2">
+                {(organisation.kindAuthorisations ?? []).map((authorisation) => (
+                  <KindAuthorisationRow
+                    key={authorisation.id}
+                    authorisation={authorisation}
+                    onRenew={(validTo) =>
+                      act(
+                        send(`${API}/${organisation.id}/kind-authorisations/${authorisation.id}`, "PATCH", {
+                          validTo: dayEnd(validTo),
+                        }),
+                        "Masa berlaku Kind Authorisation diperbarui."
+                      )
+                    }
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <KindAuthorisationForm
+            onSubmit={(body) =>
+              act(send(`${API}/${organisation.id}/kind-authorisations`, "POST", body), "Kind Authorisation diberikan.")
             }
           />
         </section>
@@ -316,6 +362,110 @@ function PermitForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) =>
       </fieldset>
       <button type="submit" className="px-4 py-2 bg-[#0073E6] text-white text-sm font-medium rounded-lg">
         Catat izin
+      </button>
+    </form>
+  );
+}
+
+function KindAuthorisationRow({
+  authorisation,
+  onRenew,
+}: {
+  authorisation: KindAuthorisation;
+  onRenew: (validTo: string) => Promise<boolean>;
+}) {
+  const [validTo, setValidTo] = useState("");
+  const now = Date.now();
+  const valid = new Date(authorisation.validFrom).getTime() <= now && now <= new Date(authorisation.validTo).getTime();
+
+  return (
+    <li className="rounded-lg border border-[#E0E0E0] p-3 text-sm text-[#424242]">
+      <p className="font-medium text-[#212121]">
+        {KIND_LABEL[authorisation.kind]} · {authorisation.documentReference}
+      </p>
+      <p>
+        Berlaku {formatDay(authorisation.validFrom)} s.d. {formatDay(authorisation.validTo)}{" "}
+        <span className={valid ? "text-[#2E7D32]" : "text-[#C62828]"}>({valid ? "berlaku" : "tidak berlaku"})</span>
+      </p>
+      <form
+        className="mt-2 flex flex-wrap items-end gap-2"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (validTo && (await onRenew(validTo))) setValidTo("");
+        }}
+      >
+        <label className="text-xs text-[#757575]">
+          Perpanjang sampai
+          <input className={inputClass} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} />
+        </label>
+        <button type="submit" className="px-3 py-2 border border-[#E0E0E0] rounded-lg text-xs">
+          Perbarui
+        </button>
+      </form>
+    </li>
+  );
+}
+
+function KindAuthorisationForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) => Promise<boolean> }) {
+  const [kind, setKind] = useState<CampaignKind>(AUTHORISABLE_KINDS[0]);
+  const [documentReference, setDocumentReference] = useState("");
+  const [validFrom, setValidFrom] = useState("");
+  const [validTo, setValidTo] = useState("");
+
+  return (
+    <form
+      className="rounded-lg bg-[#F5F5F5] p-3 space-y-2"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const done = await onSubmit({
+          kind,
+          documentReference,
+          validFrom: validFrom ? dayStart(validFrom) : "",
+          validTo: validTo ? dayEnd(validTo) : "",
+        });
+        if (done) {
+          setDocumentReference("");
+          setValidFrom("");
+          setValidTo("");
+        }
+      }}
+    >
+      <h3 className="text-sm font-medium text-[#212121]">Berikan Kind Authorisation</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <label className="text-xs text-[#757575]">
+          Kind
+          <select
+            className={inputClass}
+            value={kind}
+            onChange={(e) => setKind(e.target.value as CampaignKind)}
+          >
+            {AUTHORISABLE_KINDS.map((option) => (
+              <option key={option} value={option}>
+                {KIND_LABEL[option]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs text-[#757575]">
+          Rujukan dokumen
+          <input
+            className={inputClass}
+            value={documentReference}
+            onChange={(e) => setDocumentReference(e.target.value)}
+            required
+          />
+        </label>
+        <label className="text-xs text-[#757575]">
+          Berlaku dari
+          <input className={inputClass} type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} required />
+        </label>
+        <label className="text-xs text-[#757575]">
+          Berlaku sampai
+          <input className={inputClass} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} required />
+        </label>
+      </div>
+      <button type="submit" className="px-4 py-2 bg-[#0073E6] text-white text-sm font-medium rounded-lg">
+        Berikan Kind Authorisation
       </button>
     </form>
   );

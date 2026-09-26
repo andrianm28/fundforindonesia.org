@@ -3,9 +3,11 @@ import {
   CollectingEntityNotEligibleError,
   CollectingEntityRequiredError,
   FundraisingPermitRequiredError,
+  IndividualFundraiserKindError,
+  KindAuthorisationRequiredError,
   type OpeningStep,
 } from "./campaign-lifecycle-errors";
-import { holdsValidPermit } from "./collecting-entity";
+import { holdsValidKindAuthorisation, holdsValidPermit, requiresKindAuthorisation } from "./collecting-entity";
 
 /**
  * Which Partner Organisation may be a Campaign's Collecting Entity, and
@@ -28,6 +30,19 @@ type Organisation = { id: string; name: string; fundraiserId: string; acceptsInd
 /** The Partner Organisation this user's account acts for, if any. */
 export async function organisationOf(db: Db, userId: string): Promise<Organisation | null> {
   return db.partnerOrganisation.findUnique({ where: { fundraiserId: userId } });
+}
+
+/**
+ * An individual Fundraiser (`own` is null, from `organisationOf`) may only
+ * run Kind `donation` (CONTEXT.md, Kind Authorisation; ADR 0013): zakat,
+ * wakaf and hibah need an institution a Verifier has vetted. The one check
+ * shared by Campaign creation (POST /api/campaigns), an edit of Kind (PATCH
+ * /api/campaigns/[slug]), and requireOpenable below (submission and
+ * approval), so a Draft can never even be set to a Kind its Fundraiser may
+ * not run.
+ */
+export function requireDonationOnlyForIndividual(own: Organisation | null, kind: Kind): void {
+  if (!own && kind !== "DONATION") throw new IndividualFundraiserKindError(kind);
 }
 
 function notOwnOrganisation(own: Organisation): CollectingEntityNotEligibleError {
@@ -72,8 +87,11 @@ export async function resolveCollectingEntity(
 
 /**
  * Refuses a Campaign that may not open: no Collecting Entity, one it may not
- * have, or one holding no Fundraising Permit valid at `now` for its Kind.
- * `step` words the permit refusal for submission or approval.
+ * have, its Fundraiser is an individual running a Kind only a Partner
+ * Organisation may (CONTEXT.md, Kind Authorisation), or its Collecting
+ * Entity holds no Fundraising Permit or no Kind Authorisation valid at `now`
+ * for its Kind. `step` words the permit and Kind Authorisation refusals for
+ * submission or approval.
  */
 export async function requireOpenable(
   db: Db,
@@ -82,13 +100,18 @@ export async function requireOpenable(
   step: OpeningStep
 ): Promise<void> {
   if (!campaign.collectingEntityId) throw new CollectingEntityRequiredError();
+  const own = await organisationOf(db, campaign.creatorId);
+  requireDonationOnlyForIndividual(own, campaign.kind);
   const entity = await db.partnerOrganisation.findUnique({
     where: { id: campaign.collectingEntityId },
-    include: { permits: true },
+    include: { permits: true, kindAuthorisations: true },
   });
   if (!entity) throw new CollectingEntityRequiredError();
-  requireEligible(entity, await organisationOf(db, campaign.creatorId));
+  requireEligible(entity, own);
   if (!holdsValidPermit(entity, campaign.kind, now)) {
     throw new FundraisingPermitRequiredError(entity.name, campaign.kind, step);
+  }
+  if (requiresKindAuthorisation(campaign.kind) && !holdsValidKindAuthorisation(entity, campaign.kind, now)) {
+    throw new KindAuthorisationRequiredError(entity.name, campaign.kind, step);
   }
 }

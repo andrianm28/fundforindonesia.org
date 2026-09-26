@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { listableCampaignWhere } from '@/lib/subject-guard';
 import { deadlineRequiredMessage, KINDS, missingRequiredDeadline, parseKind } from '@/lib/campaign-kind';
-import { resolveCollectingEntity } from '@/lib/collecting-entity-guard';
+import { organisationOf, requireDonationOnlyForIndividual, resolveCollectingEntity } from '@/lib/collecting-entity-guard';
 import { refusalResponse } from '@/lib/refusal-response';
 
 const createCampaignSchema = z.object({
@@ -153,6 +153,10 @@ export async function POST(request: NextRequest) {
     }
 
     const { title, description, story, coverImage, targetAmount, category, kind, deadline } = result.data;
+
+    // An individual Fundraiser may only run Kind donation (CONTEXT.md, Kind
+    // Authorisation; ADR 0013); zakat, wakaf and hibah need an institution.
+    requireDonationOnlyForIndividual(await organisationOf(prisma, session.user.id), kind);
 
     // The Collecting Entity it collects under (ADR 0010): the creator's own
     // organisation when their account acts for one, else the one they named,

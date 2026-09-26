@@ -4,6 +4,8 @@ import {
   CollectingEntityRequiredError,
   decideVerificationRequest,
   FundraisingPermitRequiredError,
+  IndividualFundraiserKindError,
+  KindAuthorisationRequiredError,
   domainErrorToHttp,
   RequiredChecklistItemsUntickedError,
   LifecycleValidationError,
@@ -14,8 +16,10 @@ import {
 import {
   campaignRow,
   fundraisingPermitRow,
+  kindAuthorisationRow,
   makeCampaignDb,
   partnerOrganisationRow,
+  userRow,
   verificationRequestRow,
 } from '../../tests/support/in-memory-campaign-db';
 
@@ -551,6 +555,78 @@ describe('decideVerificationRequest', () => {
         actor: verifier,
         decision: 'reject',
         reason: 'Lembaga penaung belum memegang izin.',
+        now: NOW,
+      });
+
+      expect(result.campaign.lifecycleStatus).toBe('REJECTED');
+    });
+  });
+
+  describe('confirming the Kind Authorisation (prd-compliance 11, CONTEXT.md, ADR 0013)', () => {
+    function zakatSeeded(overrides: Parameters<typeof makeCampaignDb>[0] = {}) {
+      return seeded({
+        campaigns: [campaignRow({ kind: 'ZAKAT', creatorId: 'partner-fundraiser-1' })],
+        fundraisingPermits: [fundraisingPermitRow({ kinds: ['ZAKAT'] })],
+        kindAuthorisations: [kindAuthorisationRow()],
+        users: [userRow(), userRow({ id: 'partner-fundraiser-1', email: 'partner-fundraiser@example.test', name: 'Yayasan Contoh Peduli' })],
+        ...overrides,
+      });
+    }
+
+    const approve = (db: ReturnType<typeof seeded>) =>
+      decideVerificationRequest(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'verification-open',
+        actor: verifier,
+        decision: 'approve',
+        ticked: ALL_REQUIRED_TICKED,
+        now: NOW,
+      }).catch((e: unknown) => e);
+
+    it('approves a Kind that needs one while the Collecting Entity still holds a valid Kind Authorisation', async () => {
+      const db = zakatSeeded();
+
+      const result = await approve(db);
+
+      expect(result).toMatchObject({ campaign: { lifecycleStatus: 'ACTIVE' } });
+    });
+
+    it('refuses to approve when the Kind Authorisation lapsed while it waited, leaving the request pending', async () => {
+      const db = zakatSeeded({ kindAuthorisations: [kindAuthorisationRow({ validTo: new Date('2026-09-24T09:00:00Z') })] });
+
+      const error = await approve(db);
+
+      expect(error).toBeInstanceOf(KindAuthorisationRequiredError);
+      expect(domainErrorToHttp(error)).toEqual({
+        status: 422,
+        body: {
+          code: 'KIND_AUTHORISATION_REQUIRED',
+          error:
+            'Yayasan Contoh Peduli belum memegang Kind Authorisation yang berlaku untuk Kind Zakat, sehingga Campaign ini belum dapat diloloskan.',
+        },
+      });
+      expect(db.campaign().lifecycleStatus).toBe('SUBMITTED');
+      expect(db.verificationRequests[0]).toMatchObject({ outcome: 'PENDING' });
+    });
+
+    it('refuses to approve an individual Fundraiser\'s Campaign of a Kind only a Partner Organisation may run', async () => {
+      const db = zakatSeeded({ campaigns: [campaignRow({ kind: 'ZAKAT', creatorId: 'creator-1' })] });
+
+      const error = await approve(db);
+
+      expect(error).toBeInstanceOf(IndividualFundraiserKindError);
+      expect(db.campaign().lifecycleStatus).toBe('SUBMITTED');
+    });
+
+    it('still lets a Verifier reject a Campaign whose Collecting Entity holds no valid Kind Authorisation', async () => {
+      const db = zakatSeeded({ kindAuthorisations: [] });
+
+      const result = await decideVerificationRequest(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'verification-open',
+        actor: verifier,
+        decision: 'reject',
+        reason: 'Lembaga penaung belum memegang Kind Authorisation.',
         now: NOW,
       });
 
