@@ -60,6 +60,18 @@ function toRupiah(raw: unknown): number {
 }
 
 /**
+ * Parses one of the payload's own timestamp fields (`paid_at`, `settled_at`),
+ * or undefined if the field is missing or not a valid date -- never NaN or a
+ * guessed value, so the caller decides its own fallback explicitly rather
+ * than silently getting `Invalid Date`.
+ */
+function parseProviderTimestamp(raw: unknown): Date | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+/**
  * The Sumopod adapter: QRIS collection through a hosted payment page, with
  * svix-signed webhooks.
  *
@@ -183,6 +195,19 @@ export class SumopodProvider implements PaymentProvider {
             ? 'expired'
             : 'ignored';
 
+    // Sumopod reports `paid_at` (when the donor actually paid) and
+    // `settled_at` (its own T+2-for-QRIS estimate of when the money clears)
+    // separately on every event (docs/integrasi-sumopod.md, "Waktu dan
+    // Escrow"). A missing or malformed `paid_at` falls back to receipt time,
+    // the same degrade-gracefully behaviour this route always had before
+    // either field existed. A missing `settled_at` falls back to `paidAt`
+    // itself (T+0) -- Sumopod always sends one for a real
+    // `payment.completed`, so this only fires for a malformed payload or a
+    // status this adapter does not otherwise act on (`ignored`/`failed`/
+    // `expired`).
+    const paidAt = parseProviderTimestamp(data.paid_at) ?? new Date();
+    const settledAt = parseProviderTimestamp(data.settled_at) ?? paidAt;
+
     return {
       provider: 'sumopod',
       // The svix message id, not anything in the body: it is what the
@@ -194,6 +219,8 @@ export class SumopodProvider implements PaymentProvider {
       grossAmount: toRupiah(data.amount),
       providerFee: typeof data.fee === 'number' && Number.isFinite(data.fee) ? data.fee : undefined,
       rawPayload: payload,
+      paidAt,
+      settledAt,
     };
   }
 

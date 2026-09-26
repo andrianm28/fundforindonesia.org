@@ -148,6 +148,11 @@ function makeWebhookPayment(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// T+0 -- paidAt and settledAt equal, matching MockPaymentProvider's own
+// behaviour for a provider with no separate settlement estimate
+// (prd-compliance 19).
+const WEBHOOK_PROVIDER_PAID_AT = new Date('2026-09-20T10:00:00Z');
+
 const WEBHOOK_PAID_EVENT = {
   provider: 'mock',
   providerEventId: 'evt-webhook-1',
@@ -156,6 +161,8 @@ const WEBHOOK_PAID_EVENT = {
   // Matches makeWebhookPayment()'s default amount.
   grossAmount: 75_000,
   rawPayload: { order_id: 'donation-webhook-1', transaction_status: 'settlement' },
+  paidAt: WEBHOOK_PROVIDER_PAID_AT,
+  settledAt: WEBHOOK_PROVIDER_PAID_AT,
 };
 
 describe('Donation Flow Integration Tests', () => {

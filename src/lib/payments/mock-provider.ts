@@ -137,6 +137,14 @@ export class MockPaymentProvider implements PaymentProvider {
           ? 'expired'
           : 'failed';
 
+    // The Midtrans-shaped payload this mock speaks carries no paid-at or
+    // settlement timestamp at all, unlike Sumopod's. Per prd-compliance 19,
+    // that decision belongs here in the adapter, not the escrow layer: with
+    // nothing better to report, this treats receipt time as both paidAt and
+    // settledAt (T+0), the same behaviour the webhook route had before
+    // either field existed.
+    const paidAt = new Date();
+
     return {
       provider: 'mock',
       providerEventId: String(body.transaction_id ?? ''),
@@ -144,6 +152,8 @@ export class MockPaymentProvider implements PaymentProvider {
       status,
       grossAmount: parseGrossAmount(grossAmount),
       rawPayload: body,
+      paidAt,
+      settledAt: paidAt,
     };
   }
 

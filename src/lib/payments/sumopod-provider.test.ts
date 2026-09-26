@@ -192,7 +192,50 @@ describe('SumopodProvider.parseWebhook', () => {
       status: 'paid',
       grossAmount: 50000,
       providerFee: 650,
+      paidAt: new Date('2026-09-19T12:00:00Z'),
+      settledAt: new Date('2026-09-21T12:00:00Z'),
     });
+  });
+
+  it('falls back to paidAt (T+0) when the payload reports no settlement estimate', async () => {
+    // Sumopod always sends settled_at on a real payment.completed, but per
+    // prd-compliance 19 a provider with no estimate at all must have this
+    // decided in the adapter, not guessed downstream in the escrow layer.
+    const req = await signedRequest({
+      event_type: 'payment.completed',
+      data: { ...COMPLETED_PAYLOAD.data, settled_at: undefined },
+    });
+
+    const event = await provider().parseWebhook(req);
+
+    expect(event.settledAt).toEqual(event.paidAt);
+    expect(event.paidAt).toEqual(new Date('2026-09-19T12:00:00Z'));
+  });
+
+  it('falls back to receipt time when the payload reports no paid_at at all', async () => {
+    const before = new Date();
+    const req = await signedRequest({
+      event_type: 'payment.completed',
+      data: { ...COMPLETED_PAYLOAD.data, paid_at: undefined, settled_at: undefined },
+    });
+
+    const event = await provider().parseWebhook(req);
+    const after = new Date();
+
+    expect(event.paidAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    expect(event.paidAt.getTime()).toBeLessThanOrEqual(after.getTime());
+    expect(event.settledAt).toEqual(event.paidAt);
+  });
+
+  it('falls back to paidAt rather than a malformed date when settled_at cannot be parsed', async () => {
+    const req = await signedRequest({
+      event_type: 'payment.completed',
+      data: { ...COMPLETED_PAYLOAD.data, settled_at: 'not-a-date' },
+    });
+
+    const event = await provider().parseWebhook(req);
+
+    expect(event.settledAt).toEqual(event.paidAt);
   });
 
   it('takes the event id from svix-id, not from the body', async () => {
