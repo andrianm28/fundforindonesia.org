@@ -1,6 +1,6 @@
 # Handoff: FFI coordinator, VPS session → Claude Code cloud session
 
-Written 2026-09-26 by the last coordinator session on the VPS. You are the first **cloud** coordinator for `andrianm28/fundforindonesia.org`. Start with `CLAUDE.md` (rules, workflow, model tiering), then `.scratch/cloud-migration/plan.md` (why, phases, handover checklist).
+Written 2026-09-26 by the last coordinator session on the VPS (via `/handoff`). The owner explicitly asked for it to live in the repo rather than the temp dir. You are the first **cloud** coordinator for `andrianm28/fundforindonesia.org`. Start with `CLAUDE.md` (rules, workflow, model tiering), then `.scratch/cloud-migration/plan.md` (why, phases, handover checklist).
 
 ## Who and how
 
@@ -27,6 +27,7 @@ Written 2026-09-26 by the last coordinator session on the VPS. You are the first
        1. The default rate per Kind. No rate is seeded, so the fee is 0% until an Admin sets one.
        2. Whether zakat and wakaf are fee-exempt. There is no hard-coded exemption; an Admin would set 0% for those Kinds.
        3. Whether an Admin UI is needed, or the API alone is enough for now.
+     - The VPS coordinator's recommendation to the owner: merge now. With no rate configured the fee stays 0%, so merging changes no one's money. Decisions 1 and 2 become Admin settings through the API, and 3 can be a separate UI ticket. Wait for the owner's answer to 1–3 before you merge.
      - The ticket's `**Status:**` line in `.scratch/` has not been set yet. Set it to done in a docs commit after the merge.
 3. No VPS agent is working any more. The branch is yours.
 
@@ -77,6 +78,7 @@ Order comes from `.scratch/percepatan-produksi/plan.md` (fastest path to product
   - Partner Organisation and Collecting Entity rules;
   - `.org` is the canonical domain (`publicUrl()`).
 - **Recently merged on 2026-09-26** (details in the PRs):
+  - #32 Kind Authorisation;
   - #19 Mailer;
   - #20 Kind;
   - #21 image optimizer off;
@@ -90,11 +92,21 @@ Order comes from `.scratch/percepatan-produksi/plan.md` (fastest path to product
   - #31 plan note.
 - **Roadmap for the owner:** Claude Docs "Roadmap FFI — status 26 September 2026", https://claude.ai/code/artifact/1d0de03d-eb75-4bf3-8978-89bcac4d1591. It was last updated before PRs #19–#31 merged, so refresh it when you next report status.
 
+## Not in other artifacts (from the last VPS session)
+
+- **VPS leftovers:** two agent worktrees remain under `/home/ubuntu/fundforindonesia.org/.claude/worktrees/`, from prd-compliance 11 and 17. The VPS session or the owner removes them after #33 merges. They don't concern you.
+- **Peer sessions on the VPS:**
+  - `makam-main-agent`, for the makam project on the same host, was told about this migration and confirmed no clash.
+  - `yiem-main-agent` asked earlier for CI to stay off the host.
+  - Cloud sessions can't message either of them, so relay through the owner if needed.
+- **`handoff` is user-only.** A session can't invoke the vendored `handoff` skill (`disable-model-invocation`). When you need the next handoff, ask the owner to run `/handoff`, pointing it at a repo path as they did here.
+- **Plugin setting:** the owner mentioned that the mattpocock-skills plugin is installed in the cloud. It stays disabled in `.claude/settings.json` on purpose, so the vendored copy in `.claude/skills/` is the only one loaded (same version everywhere, no duplicates). Check in your first session that `/tdd` resolves.
+
 ## Suggested skills
 
 - `triage`: sort out stale `ready-for-agent` files and the Playwright ticket.
 - `tdd` and `code-review`: every ticket, through subagents.
-- `resolving-merge-conflicts`: when #32 and #33 or later branches conflict.
-- `diagnosing-bugs`: CI failures that aren't obvious, starting with #33's ratchet if the cause is unclear.
+- `resolving-merge-conflicts`: when #33 or later branches conflict with main.
+- `diagnosing-bugs`: CI failures that aren't obvious.
 - `grilling` and `domain-modeling`: new policy questions (Platform Fee rates, Hibah rules), keeping `CONTEXT.md` current.
 - `wizard`: if the owner wants a guided script for the cutover (ci-cd 08).
