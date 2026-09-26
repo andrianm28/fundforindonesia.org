@@ -28,7 +28,8 @@ Compiled 2026-09-26 from the work merged on 25–26 September. This covers every
 `deploy.sh` runs `docker compose run --rm seed` on **every** deploy, under `set -e`. The seed refuses a database that already has data, so the second deploy stops before step 5 and the app never starts. On a fresh environment, the seed creates `admin@kitabisa.com` / `password123` with both the ADMIN and VERIFIER assignments.
 
 - [x] **Fixed (deploy-fixes 01):** a default `./deploy.sh` never seeds, so repeated deploys reach the app start. Seeding needs an explicit `SEED=1 ./deploy.sh`, on a fresh database only.
-- [ ] If the seed ever ran on production: delete or re-password `admin@kitabisa.com`, and remove its assignments.
+- [x] The seed did run on production. On 2026-09-26 the owner rotated both passwords of `admin@kitabisa.com` and `moderator@kitabisa.com`, then **deleted both accounts**. Before that, `andrianm28bot@gmail.com` and `admin@fundforindonesia.org` were given ADMIN and VERIFIER in one audited transaction, so two ADMINs remain.
+- [x] The 10 other seed demo users in production (`*@email.com`, `donor@test.com`) were locked on 2026-09-26 with random, unstored passwords. The accounts and their demo Campaigns remain (hide them: prd-compliance 26).
 
 ## 2. Migrations (run in this order)
 
