@@ -132,13 +132,19 @@ describe('an unapproved Campaign on the cached page', () => {
   });
 });
 
+/** Renders an approved Campaign's page and returns its metadata; the structured data lands in capturedStructuredData. */
+async function renderApprovedCampaign() {
+  vi.mocked(prisma.campaign.findUnique).mockResolvedValue(row({}) as never);
+  const metadata = await generateMetadata({ params: Promise.resolve({ slug: 'sumur-desa' }) });
+  render(await CampaignDetailPage({ params: Promise.resolve({ slug: 'sumur-desa' }) }));
+  return metadata;
+}
+
 describe('the Campaign page links the canonical public site', () => {
   it('falls back to https://fundforindonesia.org in the metadata and the structured data', async () => {
     vi.stubEnv('NEXT_PUBLIC_BASE_URL', '');
-    vi.mocked(prisma.campaign.findUnique).mockResolvedValue(row({}) as any);
 
-    const metadata = await generateMetadata({ params: Promise.resolve({ slug: 'sumur-desa' }) });
-    render(await CampaignDetailPage({ params: Promise.resolve({ slug: 'sumur-desa' }) }));
+    const metadata = await renderApprovedCampaign();
 
     expect(metadata.alternates?.canonical).toBe('https://fundforindonesia.org/campaign/sumur-desa');
     expect(metadata.openGraph).toMatchObject({ url: 'https://fundforindonesia.org/campaign/sumur-desa' });
@@ -147,10 +153,8 @@ describe('the Campaign page links the canonical public site', () => {
 
   it('uses NEXT_PUBLIC_BASE_URL when set', async () => {
     vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://staging.example.test/');
-    vi.mocked(prisma.campaign.findUnique).mockResolvedValue(row({}) as any);
 
-    const metadata = await generateMetadata({ params: Promise.resolve({ slug: 'sumur-desa' }) });
-    render(await CampaignDetailPage({ params: Promise.resolve({ slug: 'sumur-desa' }) }));
+    const metadata = await renderApprovedCampaign();
 
     expect(metadata.alternates?.canonical).toBe('https://staging.example.test/campaign/sumur-desa');
     expect(capturedStructuredData.data?.url).toBe('https://staging.example.test/campaign/sumur-desa');
