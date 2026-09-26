@@ -81,6 +81,19 @@ describe('PATCH /api/moderasi/campaigns/[id]', () => {
     ]);
   });
 
+  it('answers 422 REQUIRED_CHECKLIST_ITEMS_UNTICKED to an approval missing a required tick, naming it, and changes nothing', async () => {
+    const response = await patch({ action: 'approve', requestId: 'verification-1', ticked: ['item-1'] });
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      error: 'Campaign belum dapat diloloskan. Butir wajib yang belum dicentang: Rencana anggaran.',
+      code: 'REQUIRED_CHECKLIST_ITEMS_UNTICKED',
+    });
+    expect(state.db.verificationRequests[0]).toMatchObject({ outcome: 'PENDING', checklist: CHECKLIST });
+    expect(state.db.campaign().lifecycleStatus).toBe('SUBMITTED');
+    expect(state.db.identityVerifications).toEqual([]);
+  });
+
   it('reject with a reason makes the Campaign Rejected and keeps the reason', async () => {
     const response = await patch({ action: 'reject', requestId: 'verification-1', reason: 'KTP buram.' });
 

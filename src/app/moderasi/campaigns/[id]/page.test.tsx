@@ -84,7 +84,7 @@ describe('the moderation page of one Campaign', () => {
     expect(screen.getByRole('checkbox', { name: /Foto kondisi lapangan/ })).toBeDefined();
     expect(screen.getByText('Wajib')).toBeDefined();
     expect(screen.getByRole('textbox', { name: /Alasan penolakan/ })).toBeDefined();
-    expect(screen.getByRole('button', { name: /Setujui/ })).toBeDefined();
+    expect(screen.getByRole('button', { name: /Loloskan/ })).toBeDefined();
     expect(screen.getByRole('button', { name: /Tolak/ })).toBeDefined();
   });
 
@@ -111,7 +111,7 @@ describe('the moderation page of one Campaign', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /Catatan verifikasi identitas/ }), {
       target: { value: 'KTP cocok.' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Setujui/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Loloskan/ }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0];
@@ -122,6 +122,49 @@ describe('the moderation page of one Campaign', () => {
       requestId: 'verification-1',
       ticked: ['item-1'],
       identityNote: 'KTP cocok.',
+    });
+  });
+
+  describe('required checklist items', () => {
+    const TWO_REQUIRED = {
+      ...PENDING_REQUEST,
+      checklist: [
+        { id: 'item-1', label: 'KTP penanggung jawab', required: true, position: 1, ticked: false },
+        { id: 'item-2', label: 'Rencana anggaran', required: true, position: 2, ticked: false },
+        { id: 'item-3', label: 'Foto kondisi lapangan', required: false, position: 3, ticked: false },
+      ],
+    };
+    const approve = () => screen.getByRole('button', { name: /Loloskan/ }) as HTMLButtonElement;
+
+    it('disables approve, and says which required items are unticked, until every one is ticked', async () => {
+      await renderFor(campaign('SUBMITTED'), { request: TWO_REQUIRED });
+
+      expect(approve().disabled).toBe(true);
+      expect(
+        screen.getByText('Centang semua butir wajib untuk meloloskan: KTP penanggung jawab, Rencana anggaran.'),
+      ).toBeDefined();
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /KTP penanggung jawab/ }));
+      expect(approve().disabled).toBe(true);
+      expect(screen.getByText('Centang semua butir wajib untuk meloloskan: Rencana anggaran.')).toBeDefined();
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /Rencana anggaran/ }));
+      expect(approve().disabled).toBe(false);
+      expect(screen.queryByText(/Centang semua butir wajib/)).toBeNull();
+    });
+
+    it('does not ask the server when approve is clicked while disabled', async () => {
+      await renderFor(campaign('SUBMITTED'), { request: TWO_REQUIRED });
+
+      fireEvent.click(approve());
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('leaves reject available whatever is ticked', async () => {
+      await renderFor(campaign('SUBMITTED'), { request: TWO_REQUIRED });
+
+      expect((screen.getByRole('button', { name: /Tolak/ }) as HTMLButtonElement).disabled).toBe(false);
     });
   });
 
@@ -156,7 +199,8 @@ describe('the moderation page of one Campaign', () => {
     );
     await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
 
-    fireEvent.click(screen.getByRole('button', { name: /Setujui/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /KTP penanggung jawab/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Loloskan/ }));
 
     expect(await screen.findByText('Verification Request ini sudah diputuskan.')).toBeDefined();
   });
@@ -166,7 +210,7 @@ describe('the moderation page of one Campaign', () => {
     async (status) => {
       await renderFor(campaign(status));
 
-      expect(screen.queryByRole('button', { name: /Setujui/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /Loloskan/ })).toBeNull();
       expect(screen.queryByRole('checkbox')).toBeNull();
       expect(screen.getByText('Tidak ada Verification Request yang menunggu keputusan.')).toBeDefined();
     },

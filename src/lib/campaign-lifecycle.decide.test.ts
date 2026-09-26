@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   decideVerificationRequest,
   domainErrorToHttp,
+  RequiredChecklistItemsUntickedError,
   LifecycleValidationError,
   OwnSubjectConflictError,
   VerificationRequestNotFoundError,
@@ -21,6 +22,7 @@ const CHECKLIST = [
   { id: 'item-2', label: 'Rencana anggaran', required: true, position: 2, ticked: false },
   { id: 'item-3', label: 'Foto kondisi', required: false, position: 3, ticked: false },
 ];
+const REQUIRED = ['item-1', 'item-2'];
 
 function seeded(overrides: Parameters<typeof makeCampaignDb>[0] = {}) {
   return makeCampaignDb({
@@ -109,6 +111,83 @@ describe('decideVerificationRequest', () => {
     ]);
   });
 
+  describe('required checklist items', () => {
+    it('refuses an approval with a required item unticked, naming it, and changes nothing (422)', async () => {
+      const db = seeded();
+
+      const error = await decideVerificationRequest(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'verification-open',
+        actor: verifier,
+        decision: 'approve',
+        ticked: ['item-1', 'item-3'],
+        now: NOW,
+      }).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(RequiredChecklistItemsUntickedError);
+      expect(domainErrorToHttp(error)).toEqual({
+        status: 422,
+        body: {
+          error: 'Campaign belum dapat diloloskan. Butir wajib yang belum dicentang: Rencana anggaran.',
+          code: 'REQUIRED_CHECKLIST_ITEMS_UNTICKED',
+        },
+      });
+      expect(db.verificationRequests[0]).toMatchObject({ outcome: 'PENDING', decidedAt: null, checklist: CHECKLIST });
+      expect(db.campaign().lifecycleStatus).toBe('SUBMITTED');
+      expect(db.identityVerifications).toEqual([]);
+      expect(db.statusChanges).toEqual([]);
+      expect(db.notifications).toEqual([]);
+    });
+
+    it('names every unticked required item, in checklist order', async () => {
+      const db = seeded();
+
+      const error = await decideVerificationRequest(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'verification-open',
+        actor: verifier,
+        decision: 'approve',
+        now: NOW,
+      }).catch((e: unknown) => e);
+
+      expect((error as Error).message).toBe(
+        'Campaign belum dapat diloloskan. Butir wajib yang belum dicentang: KTP penanggung jawab, Rencana anggaran.'
+      );
+      expect((error as RequiredChecklistItemsUntickedError).labels).toEqual(['KTP penanggung jawab', 'Rencana anggaran']);
+    });
+
+    it('approves with every required item ticked and the optional one not', async () => {
+      const db = seeded();
+
+      const result = await decideVerificationRequest(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'verification-open',
+        actor: verifier,
+        decision: 'approve',
+        ticked: ['item-2', 'item-1'],
+        now: NOW,
+      });
+
+      expect(result.campaign.lifecycleStatus).toBe('ACTIVE');
+    });
+
+    it.each([[[]], [['item-3']], [['item-1', 'item-2', 'item-3']]])('rejects whatever is ticked (%j)', async (ticked) => {
+      const db = seeded();
+
+      const result = await decideVerificationRequest(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'verification-open',
+        actor: verifier,
+        decision: 'reject',
+        ticked,
+        reason: 'Dokumen kurang.',
+        now: NOW,
+      });
+
+      expect(result.campaign.lifecycleStatus).toBe('REJECTED');
+    });
+  });
+
   it.each([undefined, '', '   ', 42])('refuses a rejection whose reason is %j, changing nothing', async (reason) => {
     const db = seeded();
 
@@ -143,6 +222,7 @@ describe('decideVerificationRequest', () => {
       requestId: 'verification-open',
       actor: verifier,
       decision: 'approve',
+      ticked: REQUIRED,
       now: NOW,
     });
 
@@ -239,6 +319,7 @@ describe('decideVerificationRequest', () => {
       requestId,
       actor: verifier,
       decision: 'approve',
+      ticked: REQUIRED,
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -276,6 +357,7 @@ describe('decideVerificationRequest', () => {
       requestId: 'verification-open',
       actor: { userId: 'creator-1', assignments: ['VERIFIER'] },
       decision: 'approve',
+      ticked: REQUIRED,
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -293,6 +375,7 @@ describe('decideVerificationRequest', () => {
         requestId: 'verification-open',
         actor: verifier,
         decision: 'approve',
+        ticked: REQUIRED,
         identityNote: '  KTP dicocokkan lewat panggilan video.  ',
         now: NOW,
       });
@@ -317,6 +400,7 @@ describe('decideVerificationRequest', () => {
         requestId: 'verification-open',
         actor: verifier,
         decision: 'approve',
+        ticked: REQUIRED,
         now: NOW,
       });
 
@@ -342,6 +426,7 @@ describe('decideVerificationRequest', () => {
         requestId: 'verification-open',
         actor: verifier,
         decision: 'approve',
+        ticked: REQUIRED,
         identityNote: 'Catatan baru.',
         now: NOW,
       });
@@ -373,6 +458,7 @@ describe('decideVerificationRequest', () => {
         requestId: 'verification-open',
         actor: verifier,
         decision: 'approve',
+        ticked: REQUIRED,
         identityNote: 'x'.repeat(1001),
         now: NOW,
       }).catch((e: unknown) => e);
