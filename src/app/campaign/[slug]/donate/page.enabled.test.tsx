@@ -85,6 +85,7 @@ vi.mock('@/lib/hooks/useCampaignDetail', () => ({
 }));
 
 import DonatePage from './page';
+import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
 
 const REDIRECT_URL = 'https://pay.sumopod.com/pay/abc';
 
@@ -274,6 +275,41 @@ describe('DonatePage for a Campaign that is not Active', () => {
     render(<DonatePage />);
     fireEvent.click(screen.getByText('Kembali ke Campaign'));
     expect(mockPush).toHaveBeenCalledWith('/campaign/campaign-contoh');
+  });
+});
+
+describe('DonatePage and the Collecting Entity (prd-compliance 10)', () => {
+  function activeCampaign(extra: Record<string, unknown>) {
+    mockUseCampaignDetail.mockReturnValue({
+      campaign: {
+        id: 'campaign-1',
+        slug: 'campaign-contoh',
+        title: 'Bantu Korban Bencana',
+        collectedAmount: 1_000_000,
+        isDemo: false,
+        lifecycleStatus: 'ACTIVE',
+        ...extra,
+      },
+      isLoading: false,
+      error: null,
+    });
+  }
+
+  it.each(['NO_COLLECTING_ENTITY', 'NO_VALID_PERMIT'])(
+    'says why an Active Campaign blocked by %s takes no donation, and offers no donation step',
+    (donationBlock) => {
+      activeCampaign({ donationBlock, collectingEntity: null });
+      render(<DonatePage />);
+      expect(screen.getByText(COLLECTING_ENTITY_REFUSAL)).toBeDefined();
+      expect(screen.queryByText('pick amount')).toBeNull();
+    },
+  );
+
+  it('names who collects the money above the amount', () => {
+    activeCampaign({ donationBlock: null, collectingEntity: { id: 'yiem', name: 'Yayasan Indonesia Emas Merdeka' } });
+    render(<DonatePage />);
+    expect(screen.getByText('Dihimpun oleh Yayasan Indonesia Emas Merdeka')).toBeDefined();
+    expect(screen.getByText('pick amount')).toBeDefined();
   });
 });
 

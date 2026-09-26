@@ -16,6 +16,7 @@ const ASSIGNMENT_FOR: Record<RequestedCapacity, Assignment> = {
   VERIFIER: Assignment.VERIFIER,
   FUNDRAISER: Assignment.ADMIN,
   FUNDRAISER_OR_ADMIN: Assignment.ADMIN,
+  VERIFIER_OR_ADMIN: Assignment.VERIFIER,
 };
 
 type Expected = { capacity: string } | { refused: 'NOT_AUTHORIZED' | 'OWN_CAMPAIGN_CONFLICT' | 'OWN_TRIP_CONFLICT' };
@@ -39,6 +40,9 @@ const TABLE: Array<[Kind, RequestedCapacity, boolean, boolean, Expected]> = [
   ['campaign', 'FUNDRAISER_OR_ADMIN', true, false, { capacity: 'FUNDRAISER' }],
   ['campaign', 'FUNDRAISER_OR_ADMIN', false, true, { capacity: 'ADMIN' }],
   ['campaign', 'FUNDRAISER_OR_ADMIN', false, false, { refused: 'NOT_AUTHORIZED' }],
+  ['campaign', 'VERIFIER_OR_ADMIN', false, true, { capacity: 'VERIFIER' }],
+  ['campaign', 'VERIFIER_OR_ADMIN', true, true, { refused: 'OWN_CAMPAIGN_CONFLICT' }],
+  ['campaign', 'VERIFIER_OR_ADMIN', false, false, { refused: 'NOT_AUTHORIZED' }],
   ['trip', 'ADMIN', false, true, { capacity: 'ADMIN' }],
   ['trip', 'ADMIN', true, true, { refused: 'OWN_TRIP_CONFLICT' }],
   ['trip', 'ADMIN', false, false, { refused: 'NOT_AUTHORIZED' }],
@@ -113,6 +117,24 @@ describe('judgeCapacity', () => {
         },
       });
     }
+  });
+});
+
+describe('judgeCapacity, VERIFIER_OR_ADMIN (assigning a Collecting Entity, prd-compliance 10)', () => {
+  const subject = { kind: 'campaign' as const, ownerId: 'owner-1' };
+
+  it('records an Admin who is not a Verifier as ADMIN', () => {
+    expect(judgeCapacity(subject, { userId: 'user-1', assignments: [Assignment.ADMIN] }, 'VERIFIER_OR_ADMIN')).toBe('ADMIN');
+  });
+
+  it('records someone holding both as VERIFIER', () => {
+    const actor = { userId: 'user-1', assignments: [Assignment.ADMIN, Assignment.VERIFIER] };
+    expect(judgeCapacity(subject, actor, 'VERIFIER_OR_ADMIN')).toBe('VERIFIER');
+  });
+
+  it('refuses an Admin on their own Campaign as Admin', () => {
+    const actor = { userId: 'owner-1', assignments: [Assignment.ADMIN] };
+    expect(() => judgeCapacity(subject, actor, 'VERIFIER_OR_ADMIN')).toThrow(/sebagai Admin atas Campaign/);
   });
 });
 

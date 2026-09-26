@@ -27,12 +27,16 @@ export type OperatorCapacity =
 /**
  * What a caller may ask for. `FUNDRAISER_OR_ADMIN` (completing a Campaign)
  * is the owner as FUNDRAISER, even holding ADMIN, or anyone else as ADMIN.
- * SYSTEM is never asked for: no person acts as the platform.
+ * `VERIFIER_OR_ADMIN` (assigning a Collecting Entity, prd-compliance 10) is
+ * someone holding VERIFIER as VERIFIER, else someone holding ADMIN as ADMIN,
+ * never on a subject they own. SYSTEM is never asked for: no person acts as
+ * the platform.
  */
 export type RequestedCapacity =
   | OperatorCapacity
   | typeof StatusChangeCapacity.FUNDRAISER
-  | "FUNDRAISER_OR_ADMIN";
+  | "FUNDRAISER_OR_ADMIN"
+  | "VERIFIER_OR_ADMIN";
 
 const OPERATOR_ASSIGNMENT: Record<OperatorCapacity, Assignment> = {
   ADMIN: Assignment.ADMIN,
@@ -98,6 +102,15 @@ function isOperator(requested: RequestedCapacity): requested is OperatorCapacity
   return requested === StatusChangeCapacity.ADMIN || requested === StatusChangeCapacity.VERIFIER;
 }
 
+/** The operator Capacity a request resolves to for this actor: VERIFIER_OR_ADMIN picks the one they hold. */
+function operatorCapacityFor(actor: CapacityActor, requested: RequestedCapacity): OperatorCapacity | null {
+  if (isOperator(requested)) return requested;
+  if (requested !== "VERIFIER_OR_ADMIN") return null;
+  return actor.assignments.includes(Assignment.VERIFIER)
+    ? StatusChangeCapacity.VERIFIER
+    : StatusChangeCapacity.ADMIN;
+}
+
 /**
  * The part of the judgement that needs nothing from the subject: an ADMIN
  * or VERIFIER request needs that assignment. A no-op for the Fundraiser
@@ -109,7 +122,8 @@ export function requireAssignmentFor(
   requested: RequestedCapacity,
   refusal?: string
 ): void {
-  if (isOperator(requested) && !actor.assignments.includes(OPERATOR_ASSIGNMENT[requested])) {
+  const operator = operatorCapacityFor(actor, requested);
+  if (operator && !actor.assignments.includes(OPERATOR_ASSIGNMENT[operator])) {
     throw new NotAuthorizedError(refusal);
   }
 }
@@ -134,10 +148,11 @@ export function judgeCapacity(
   refusal: string = defaultRefusal(subject.kind, requested)
 ): StatusChangeCapacity {
   const isOwner = subject.ownerId === actor.userId;
-  if (isOperator(requested)) {
-    requireAssignmentFor(actor, requested, refusal);
-    if (isOwner) throw new OwnSubjectConflictError(subject.kind, requested);
-    return requested;
+  const operator = operatorCapacityFor(actor, requested);
+  if (operator) {
+    requireAssignmentFor(actor, operator, refusal);
+    if (isOwner) throw new OwnSubjectConflictError(subject.kind, operator);
+    return operator;
   }
   if (isOwner) return StatusChangeCapacity.FUNDRAISER;
   if (requested === "FUNDRAISER_OR_ADMIN" && actor.assignments.includes(Assignment.ADMIN)) {

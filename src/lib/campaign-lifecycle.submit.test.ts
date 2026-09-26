@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CollectingEntityNotEligibleError,
+  CollectingEntityRequiredError,
   DeadlineRequiredError,
+  FundraisingPermitRequiredError,
   domainErrorToHttp,
   InvalidTransitionError,
   NotAuthorizedError,
@@ -9,7 +12,9 @@ import {
 import {
   campaignRow,
   checklistItemRow,
+  fundraisingPermitRow,
   makeCampaignDb,
+  partnerOrganisationRow,
   verificationRequestRow,
 } from '../../tests/support/in-memory-campaign-db';
 
@@ -60,6 +65,7 @@ describe('submitCampaign', () => {
         decidedById: null,
         decidedAt: null,
         isFirst: true,
+        collectingEntityId: 'partner-1',
       },
     ]);
     expect(db.statusChanges).toEqual([
@@ -225,6 +231,122 @@ describe('submitCampaign', () => {
       const result = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
 
       expect(result.campaign.lifecycleStatus).toBe('SUBMITTED');
+    });
+  });
+
+  describe('the Collecting Entity and its Fundraising Permit (prd-compliance 10, ADR 0010)', () => {
+    async function refusal(db: ReturnType<typeof makeCampaignDb>) {
+      return submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW }).catch(
+        (e: unknown) => e,
+      );
+    }
+
+    function expectNothingWritten(db: ReturnType<typeof makeCampaignDb>) {
+      expect(db.campaign().lifecycleStatus).toBe('DRAFT');
+      expect(db.verificationRequests).toEqual([]);
+      expect(db.statusChanges).toEqual([]);
+    }
+
+    it('refuses a Campaign that names no Collecting Entity with a 422', async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', deadline: DEADLINE, collectingEntityId: null })],
+      });
+
+      const error = await refusal(db);
+
+      expect(error).toBeInstanceOf(CollectingEntityRequiredError);
+      expect(domainErrorToHttp(error)).toMatchObject({ status: 422, body: { code: 'COLLECTING_ENTITY_REQUIRED' } });
+      expectNothingWritten(db);
+    });
+
+    it.each([
+      ['has lapsed', fundraisingPermitRow({ validTo: new Date('2026-09-26T09:00:00Z') })],
+      ['is not valid yet', fundraisingPermitRow({ validFrom: new Date('2026-10-01T00:00:00Z') })],
+      ['covers other Kinds only', fundraisingPermitRow({ kinds: ['ZAKAT', 'WAKAF'] })],
+    ])('refuses when the Collecting Entity\'s only permit %s, with a 422 naming it and the Kind', async (_why, permit) => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', deadline: DEADLINE })],
+        fundraisingPermits: [permit],
+      });
+
+      const error = await refusal(db);
+
+      expect(error).toBeInstanceOf(FundraisingPermitRequiredError);
+      expect(domainErrorToHttp(error)).toEqual({
+        status: 422,
+        body: {
+          code: 'FUNDRAISING_PERMIT_REQUIRED',
+          error:
+            'Yayasan Contoh Peduli belum memegang Fundraising Permit yang berlaku untuk Kind Donasi, sehingga Campaign ini belum dapat diajukan.',
+        },
+      });
+      expectNothingWritten(db);
+    });
+
+    it('refuses an individual Fundraiser\'s Campaign under an organisation that no longer accepts individual Campaigns', async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', deadline: DEADLINE })],
+        partnerOrganisations: [partnerOrganisationRow({ acceptsIndividualCampaigns: false })],
+      });
+
+      const error = await refusal(db);
+
+      expect(error).toBeInstanceOf(CollectingEntityNotEligibleError);
+      expect(domainErrorToHttp(error)).toMatchObject({ status: 422, body: { code: 'COLLECTING_ENTITY_NOT_ELIGIBLE' } });
+      expectNothingWritten(db);
+    });
+
+    it('lets the linked account submit under its own organisation, whether or not it accepts individual Campaigns', async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' })],
+        partnerOrganisations: [partnerOrganisationRow({ acceptsIndividualCampaigns: false })],
+      });
+
+      const result = await submitCampaign(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: { userId: 'partner-fundraiser-1', assignments: [] },
+        now: NOW,
+      });
+
+      expect(result.campaign.lifecycleStatus).toBe('SUBMITTED');
+    });
+
+    it('gives the linked account\'s Draft that names none its own organisation, and records it on the request', async () => {
+      const db = makeCampaignDb({
+        campaigns: [
+          campaignRow({ lifecycleStatus: 'DRAFT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1', collectingEntityId: null }),
+        ],
+      });
+
+      await submitCampaign(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: { userId: 'partner-fundraiser-1', assignments: [] },
+        now: NOW,
+      });
+
+      expect(db.campaign().collectingEntityId).toBe('partner-1');
+      expect(db.verificationRequests[0]).toMatchObject({ collectingEntityId: 'partner-1' });
+    });
+
+    it('refuses the linked account\'s Campaign under another organisation', async () => {
+      const db = makeCampaignDb({
+        campaigns: [
+          campaignRow({ lifecycleStatus: 'DRAFT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1', collectingEntityId: 'partner-2' }),
+        ],
+        partnerOrganisations: [
+          partnerOrganisationRow(),
+          partnerOrganisationRow({ id: 'partner-2', name: 'Yayasan Lain', fundraiserId: 'other-fundraiser' }),
+        ],
+        fundraisingPermits: [fundraisingPermitRow(), fundraisingPermitRow({ id: 'permit-2', partnerOrganisationId: 'partner-2' })],
+      });
+
+      const error = await submitCampaign(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: { userId: 'partner-fundraiser-1', assignments: [] },
+        now: NOW,
+      }).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(CollectingEntityNotEligibleError);
     });
   });
 });

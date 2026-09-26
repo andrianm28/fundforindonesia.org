@@ -7,23 +7,46 @@ import {
   PayoutStatus,
   StatusChangeCapacity,
   VerificationOutcome,
+  type Kind,
   type Prisma,
   type PrismaClient,
 } from "@/generated/prisma/client";
+import {
+  collectingEntityBlock,
+  type CollectingEntityBlock,
+  type PermitWindow,
+} from "./collecting-entity";
+
+/** What the donation gate reads of a Campaign (select COLLECTING_ENTITY_SELECT for the entity). */
+type DonationGateCampaign = {
+  lifecycleStatus: CampaignStatus;
+  deadline: Date | null;
+  kind: Kind;
+  collectingEntity: { permits: readonly PermitWindow[] } | null;
+};
 
 /**
- * Single enforcement point for "only ACTIVE accepts a Donation".
- * POST /api/donations is the only caller. The argument is the whole
- * campaign row as selected, so the gate reads the enum that writers
- * maintain, never the legacy string. It judges the effective status, so an
- * Active Campaign past its deadline is refused before anyone has recorded
- * it Expired; the caller runs `expireIfPastDeadline` to record it.
+ * Single enforcement point for "only ACTIVE accepts a Donation", and only
+ * while its Collecting Entity holds a Fundraising Permit valid now for its
+ * Kind (prd-compliance 10, ADR 0010). POST /api/donations is the only
+ * caller. The gate reads the enum that writers maintain, never the legacy
+ * string. It judges the effective status, so an Active Campaign past its
+ * deadline is refused before anyone has recorded it Expired; the caller runs
+ * `expireIfPastDeadline` to record it. The permit is judged the same lazy
+ * way: nothing is written when it lapses, the gate just stops passing.
  */
-export function campaignAcceptsDonations(
-  campaign: { lifecycleStatus: CampaignStatus; deadline: Date | null },
-  now: Date
-): boolean {
-  return effectiveStatus(campaign, now) === CampaignStatus.ACTIVE;
+export function campaignAcceptsDonations(campaign: DonationGateCampaign, now: Date): boolean {
+  return effectiveStatus(campaign, now) === CampaignStatus.ACTIVE && collectingEntityBlock(campaign, now) === null;
+}
+
+/**
+ * Why an effectively Active Campaign refuses a Donation because of its
+ * Collecting Entity, for the donate page's banner; null when it accepts one,
+ * and null when it is not effectively Active, where the status is the reason.
+ */
+export function donationBlock(campaign: DonationGateCampaign, now: Date): CollectingEntityBlock | null {
+  if (effectiveStatus(campaign, now) !== CampaignStatus.ACTIVE) return null;
+  return collectingEntityBlock(campaign, now);
 }
 
 // ==================== Typed errors ====================
@@ -43,8 +66,10 @@ import {
   DeadlineRequiredError,
   SameAdminLiftError,
   STATUS_LABEL,
+  CollectingEntityAlreadySetError,
 } from "./campaign-lifecycle-errors";
 import { missingRequiredDeadline } from "./campaign-kind";
+import { organisationOf, requireOpenable, resolveCollectingEntity } from "./collecting-entity-guard";
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
 import { SUBMITTABLE_STATUSES } from "./verification-submission";
@@ -447,7 +472,12 @@ export type SubmissionResult = LifecycleResult & { verificationRequest: Verifica
  * active right now, none ticked, so a later edit of the checklist never
  * changes what this request is judged against. A Draft's submission is the
  * Campaign's first request; a Rejected one's is a resubmission. A Campaign
- * whose Kind needs a deadline and has none is refused. Only its
+ * whose Kind needs a deadline and has none is refused, and so is one that
+ * may not open (prd-compliance 10, ADR 0010): no Collecting Entity, one this
+ * Fundraiser may not collect under, or one holding no Fundraising Permit
+ * valid now for its Kind. A Draft of an organisation's linked account that
+ * names none gets that organisation here. The request records the
+ * Collecting Entity it was submitted under. Only its
  * Fundraiser may submit, and always in that Capacity, even holding ADMIN or
  * VERIFIER; nobody is notified, since the Fundraiser is the one acting.
  */
@@ -465,6 +495,14 @@ export async function submitCampaign(
     step: async ({ tx, campaign, current, actor, now, transition }) => {
       if (missingRequiredDeadline(campaign)) {
         throw new DeadlineRequiredError(campaign.kind);
+      }
+      // A Draft of an organisation's linked account that names no Collecting
+      // Entity gets its organisation now, as it would have at creation.
+      const collectingEntityId =
+        campaign.collectingEntityId ?? (await organisationOf(tx, campaign.creatorId))?.id ?? null;
+      await requireOpenable(tx, { ...campaign, collectingEntityId }, now, "diajukan");
+      if (collectingEntityId !== campaign.collectingEntityId) {
+        await tx.campaign.update({ where: { id: campaign.id }, data: { collectingEntityId } });
       }
       const items = await tx.verificationChecklistItem.findMany({
         where: { active: true },
@@ -484,6 +522,7 @@ export async function submitCampaign(
           submittedAt: now,
           checklist,
           isFirst: current === CampaignStatus.DRAFT,
+          collectingEntityId,
         },
       });
       await transition(CampaignStatus.SUBMITTED, CampaignStatusChangeAction.SUBMITTED);
@@ -611,8 +650,11 @@ export type VerificationDecisionResult = LifecycleResult & {
  * reason. The Verifier's ticks are recorded on the request's own checklist
  * snapshot, beside the outcome, reason, Verifier and time. Only a request
  * with every required item of that snapshot ticked may be diloloskan; a
- * rejection needs none. Recorded in the VERIFIER Capacity; a Verifier never
- * decides on a Campaign they own.
+ * rejection needs none. Approving also confirms the Collecting Entity
+ * (prd-compliance 10): it must still be one the Fundraiser may collect
+ * under, holding a Fundraising Permit valid now for the Kind, or the
+ * approval is refused and the request stays pending. Recorded in the
+ * VERIFIER Capacity; a Verifier never decides on a Campaign they own.
  *
  * The request is judged before the Campaign's status, so a decided or
  * withdrawn request answers as such. A decided request is never written
@@ -666,6 +708,10 @@ export async function decideVerificationRequest(
         if (unticked.length > 0) {
           throw new RequiredChecklistItemsUntickedError(unticked.map((entry) => entry.label));
         }
+        // Approving confirms the Collecting Entity the Campaign was submitted
+        // under (frozen since), so it must still be one this Fundraiser may
+        // collect under, holding a permit valid now for the Kind (ADR 0010).
+        await requireOpenable(tx, campaign, now, "diloloskan");
       }
       const decided = {
         checklist,
@@ -1125,6 +1171,69 @@ export async function setUrgent(
           reason,
           createdAt: now,
         },
+      });
+      return {};
+    },
+  });
+}
+
+// ==================== Collecting Entity (prd-compliance 10) ====================
+
+/**
+ * An Admin or Verifier names the Collecting Entity of an effectively Active
+ * Campaign that has none (one that predates the Collecting Entity), with a
+ * reason, never on a Campaign they own. Until then it refuses Donations
+ * (campaignAcceptsDonations). The organisation must be one the Campaign's
+ * Fundraiser may collect under (./collecting-entity-guard.ts). Nothing about
+ * the status moves; the assignment is recorded in the status log
+ * (COLLECTING_ENTITY_ASSIGNED) in the Capacity acted in, Verifier when the
+ * person holds that assignment, else Admin, and the Fundraiser is told.
+ *
+ * Assigning is only for a Campaign that names none: an Active Campaign's
+ * Collecting Entity is the counterparty of every Donation it has taken, so
+ * it is never swapped here.
+ */
+export async function assignCollectingEntity(
+  prisma: PrismaClient,
+  params: {
+    campaignId: string;
+    actor: LifecycleActor;
+    collectingEntityId: unknown;
+    reason: unknown;
+    now?: Date;
+  }
+): Promise<LifecycleResult> {
+  const requested = params.collectingEntityId;
+  if (typeof requested !== "string" || requested.trim() === "") {
+    throw new LifecycleValidationError("Collecting Entity wajib dipilih.", "collectingEntityId");
+  }
+  return runCommand(prisma, params, {
+    authority: {
+      capacity: "VERIFIER_OR_ADMIN",
+      message: "Hanya Admin atau Verifier yang dapat menetapkan Collecting Entity.",
+    },
+    reasonPolicy: "required",
+    rawReason: params.reason,
+    allowedFrom: [CampaignStatus.ACTIVE],
+    step: async ({ tx, campaign, actor, capacity, reason, now, notify }) => {
+      if (campaign.collectingEntityId) throw new CollectingEntityAlreadySetError();
+      const collectingEntityId = await resolveCollectingEntity(tx, campaign.creatorId, requested);
+      await tx.campaign.update({ where: { id: campaign.id }, data: { collectingEntityId } });
+      await tx.campaignStatusChange.create({
+        data: {
+          campaignId: campaign.id,
+          action: CampaignStatusChangeAction.COLLECTING_ENTITY_ASSIGNED,
+          fromStatus: null,
+          toStatus: null,
+          actorId: actor.userId,
+          capacity,
+          reason,
+          createdAt: now,
+        },
+      });
+      await notify({
+        title: "Collecting Entity Ditetapkan",
+        message: `Collecting Entity Campaign "${campaign.title}" telah ditetapkan. Campaign dapat menerima donasi selama lembaga itu memegang izin penghimpunan dana yang berlaku. Alasan: ${reason}`,
       });
       return {};
     },

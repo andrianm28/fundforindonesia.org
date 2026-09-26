@@ -29,6 +29,8 @@ export default async function ModerasiLayout({
             <NavLink href="/moderasi" label="Dashboard" icon={DashboardIcon} />
             <NavLink href="/moderasi/campaigns" label="Kampanye" icon={CampaignIcon} />
             <NavLink href="/moderasi/reports" label="Laporan" icon={ReportIcon} />
+            <NavLink href="/moderasi/partner-organisations" label="Partner Organisation" icon={CampaignIcon} />
+            <NavLink href="/moderasi/collecting-entities" label="Collecting Entity" icon={CampaignIcon} />
           </nav>
         </aside>
 
@@ -41,6 +43,8 @@ export default async function ModerasiLayout({
             <MobileNavLink href="/moderasi" label="Dashboard" />
             <MobileNavLink href="/moderasi/campaigns" label="Kampanye" />
             <MobileNavLink href="/moderasi/reports" label="Laporan" />
+            <MobileNavLink href="/moderasi/partner-organisations" label="Partner" />
+            <MobileNavLink href="/moderasi/collecting-entities" label="Penghimpun" />
           </div>
         </div>
 

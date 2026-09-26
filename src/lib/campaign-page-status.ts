@@ -28,3 +28,13 @@ const BANNER_COPY: Partial<Record<CampaignLifecycleStatus, string>> = {
 export function statusBannerCopy(status: CampaignLifecycleStatus | undefined): string | null {
   return (status && BANNER_COPY[status]) ?? null;
 }
+
+/**
+ * Why an Active Campaign refuses a Donation because of its Collecting Entity
+ * (prd-compliance 10): it names none, or that entity holds no Fundraising
+ * Permit valid now for its Kind. One sentence for both, shown on the donate
+ * page and returned by POST /api/donations.
+ */
+export const COLLECTING_ENTITY_REFUSAL =
+  'Campaign ini belum dapat menerima donasi karena belum ada lembaga penghimpun dengan izin penghimpunan dana yang berlaku untuknya.';
+

@@ -8,6 +8,7 @@ import {
 } from "@/generated/prisma/client";
 import {
   CampaignLifecycleError,
+  CollectingEntityNotEditableError,
   DeadlineRequiredError,
   STATUS_LABEL,
 } from "./campaign-lifecycle-errors";
@@ -53,6 +54,8 @@ export type SubjectState =
       /** The Campaign's Kind (CONTEXT.md, Kind), named apart from the `kind` discriminant. */
       campaignKind: Kind;
       deadline: Date | null;
+      /** The Partner Organisation it collects under (ADR 0010), or null. */
+      collectingEntityId: string | null;
     }
   | {
       kind: "trip";
@@ -149,7 +152,14 @@ export async function lockAndLoad(
     await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${id} FOR UPDATE`;
     const campaign = await tx.campaign.findUnique({
       where: { id },
-      select: { creatorId: true, isDemo: true, lifecycleStatus: true, deadline: true, kind: true },
+      select: {
+        creatorId: true,
+        isDemo: true,
+        lifecycleStatus: true,
+        deadline: true,
+        kind: true,
+        collectingEntityId: true,
+      },
     });
     if (!campaign) return null;
     return {
@@ -160,6 +170,7 @@ export async function lockAndLoad(
       effectiveStatus: effectiveStatus(campaign, now),
       campaignKind: campaign.kind,
       deadline: campaign.deadline,
+      collectingEntityId: campaign.collectingEntityId,
     };
   }
   const id = subject.tripId;
@@ -299,6 +310,27 @@ export function requireKindAndDeadlineEditable(
     deadline: edit.deadline !== undefined ? edit.deadline : state.deadline,
   };
   if (missingRequiredDeadline(after)) throw new DeadlineRequiredError(after.kind);
+}
+
+/**
+ * Judges an edit of a Campaign's Collecting Entity (prd-compliance 10): it
+ * changes only while effectively Draft or Rejected, like the deadline,
+ * before a Verifier confirms it by approving; once Active it is the
+ * counterparty of the Donations taken, and only an Admin or Verifier may
+ * name one for an Active Campaign that has none (assignCollectingEntity).
+ * Naming the one it already has is no change and always passes. Whether the
+ * organisation named is one this Fundraiser may collect under is judged
+ * apart (./collecting-entity-guard.ts). Judge it on `lockAndLoad`'s result.
+ */
+export function requireCollectingEntityEditable(
+  state: SubjectState,
+  edit: { collectingEntityId?: string | null }
+): void {
+  if (state.kind !== "campaign") return;
+  if (edit.collectingEntityId === undefined || edit.collectingEntityId === state.collectingEntityId) return;
+  if (!DEADLINE_EDITABLE_STATUSES.includes(state.effectiveStatus)) {
+    throw new CollectingEntityNotEditableError(state.effectiveStatus);
+  }
 }
 
 /**

@@ -67,6 +67,10 @@ model User {
   identityVerification          IdentityVerification?  @relation("IdentityVerificationSubject")
   identityVerificationsMade     IdentityVerification[] @relation("IdentityVerificationVerifier")
   checklistAuditEntries         VerificationChecklistAuditEntry[]
+  partnerOrganisation            PartnerOrganisation?            @relation("PartnerOrganisationFundraiser")
+  partnerOrganisationsRegistered PartnerOrganisation[]           @relation("PartnerOrganisationRegistrar")
+  fundraisingPermitsRecorded     FundraisingPermit[]
+  partnerOrganisationAudits      PartnerOrganisationAuditEntry[]
 
   // Money layer
   bankAccounts     BankAccount[]
@@ -187,6 +191,13 @@ model Campaign {
   isUrgent        Boolean   @default(false)
   deadline        DateTime?
   creatorId       String
+  /// The Partner Organisation under whose Fundraising Permit this Campaign
+  /// collects (CONTEXT.md, Collecting Entity; ADR 0010). Always a Partner
+  /// Organisation, so the Platform Operator can never be one. Null on a
+  /// Draft that has not named one yet and on a Campaign that predates this
+  /// column; neither accepts a Donation (campaignAcceptsDonations), and
+  /// submitCampaign refuses a Campaign without one.
+  collectingEntityId String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -217,6 +228,7 @@ model Campaign {
 
   // Relations
   creator       User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  collectingEntity PartnerOrganisation? @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
   donations     Donation[]
   updates       CampaignUpdate[]
   // Disbursement is replaced by Payout, which carries status, an approver and
@@ -235,6 +247,7 @@ model Campaign {
   @@index([status])
   @@index([lifecycleStatus])
   @@index([creatorId])
+  @@index([collectingEntityId])
   @@index([isUrgent, status])
 }
 
@@ -250,6 +263,9 @@ enum CampaignStatusChangeAction {
   EXPIRED
   URGENT_SET
   URGENT_CLEARED
+  /// An Admin or Verifier named the Collecting Entity of an Active Campaign
+  /// that had none (prd-compliance 10). Not a status change.
+  COLLECTING_ENTITY_ASSIGNED
 }
 
 /// The capacity a person acted in (ADR 0005). One person may hold several
@@ -399,9 +415,14 @@ model VerificationRequest {
   /// Submitted from Draft (the Campaign's first request) rather than from
   /// Rejected. A withdrawal returns the Campaign to Draft or Rejected by it.
   isFirst       Boolean
+  /// The Campaign's Collecting Entity when it was submitted: the one the
+  /// Verifier confirms by approving (prd-compliance 10). Null on requests
+  /// submitted before this column existed.
+  collectingEntityId String?
 
   // Relations
   campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  collectingEntity PartnerOrganisation? @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
   submittedBy User     @relation("VerificationRequestSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
   decidedBy   User?    @relation("VerificationRequestDecider", fields: [decidedById], references: [id], onDelete: Restrict)
 
@@ -428,6 +449,84 @@ model IdentityVerification {
 /// an Admin from the panel. Seeded with the "Semua" row by migration; each
 /// submission snapshots the active items. Items are deactivated, never
 /// deleted. Per-Kind items (a `kind` column) come with ticket 09.
+// ==================== Partner Organisation (prd-compliance 10) ====================
+
+/// An organisation running programs on the platform (CONTEXT.md, Partner
+/// Organisation), registered by a Verifier after checking its legal
+/// documents, with the one Fundraiser account that acts for it. The only
+/// thing a Campaign's Collecting Entity can be (ADR 0010). Never deleted.
+model PartnerOrganisation {
+  id                         String   @id @default(cuid())
+  name                       String
+  /// The linked Fundraiser account. A Campaign it creates gets this
+  /// organisation as its Collecting Entity automatically.
+  fundraiserId               String   @unique
+  /// Set by the Verifier: whether an individual Fundraiser may pick it as
+  /// the sponsoring Collecting Entity of their Campaign.
+  acceptsIndividualCampaigns Boolean  @default(false)
+  registeredById             String
+  registeredAt               DateTime @default(now())
+
+  // Relations
+  fundraiser           User                            @relation("PartnerOrganisationFundraiser", fields: [fundraiserId], references: [id], onDelete: Restrict)
+  registeredBy         User                            @relation("PartnerOrganisationRegistrar", fields: [registeredById], references: [id], onDelete: Restrict)
+  permits              FundraisingPermit[]
+  campaigns            Campaign[]
+  verificationRequests VerificationRequest[]
+  auditEntries         PartnerOrganisationAuditEntry[]
+}
+
+/// A dated permit to collect public donations held by a Partner Organisation
+/// (CONTEXT.md, Fundraising Permit), recorded by a Verifier. Valid from
+/// `validFrom` to `validTo`, both inclusive, for the Kinds it lists. Never
+/// deleted; a renewal is a new permit or a later `validTo`.
+model FundraisingPermit {
+  id                    String   @id @default(cuid())
+  partnerOrganisationId String
+  number                String
+  issuer                String
+  kinds                 Kind[]
+  validFrom             DateTime
+  validTo               DateTime
+  recordedById          String
+  recordedAt            DateTime @default(now())
+
+  // Relations
+  partnerOrganisation PartnerOrganisation             @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
+  recordedBy          User                            @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  auditEntries        PartnerOrganisationAuditEntry[]
+
+  @@index([partnerOrganisationId, validTo])
+}
+
+enum PartnerOrganisationAuditAction {
+  REGISTERED
+  UPDATED
+  PERMIT_RECORDED
+  PERMIT_UPDATED
+}
+
+/// Append-only audit of every Partner Organisation registration and change,
+/// and every Fundraising Permit recorded or changed: who, when, before and
+/// after.
+model PartnerOrganisationAuditEntry {
+  id                    String                         @id @default(cuid())
+  partnerOrganisationId String
+  permitId              String?
+  action                PartnerOrganisationAuditAction
+  before                Json?
+  after                 Json
+  actedById             String
+  actedAt               DateTime                       @default(now())
+
+  // Relations
+  partnerOrganisation PartnerOrganisation @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
+  permit              FundraisingPermit?  @relation(fields: [permitId], references: [id], onDelete: Restrict)
+  actedBy             User                @relation(fields: [actedById], references: [id], onDelete: Restrict)
+
+  @@index([partnerOrganisationId, actedAt])
+}
+
 model VerificationChecklistItem {
   id       String  @id @default(cuid())
   label    String

@@ -49,10 +49,12 @@ describe('CampaignCreatePage access', () => {
 describe('CampaignCreatePage review step', () => {
   const calls: Array<{ url: string; method: string; body?: unknown }> = [];
   let submission: { status: number; body: unknown };
+  let sponsorOptions: { own: { id: string; name: string } | null; sponsors: { id: string; name: string }[] };
 
   beforeEach(() => {
     calls.length = 0;
     submission = { status: 201, body: { campaign: { lifecycleStatus: 'SUBMITTED' } } };
+    sponsorOptions = { own: null, sponsors: [{ id: 'sponsor', name: 'Yayasan Penaung' }] };
     mockUseSession.mockReturnValue(signedIn());
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:cover' }));
     vi.stubGlobal(
@@ -63,6 +65,7 @@ describe('CampaignCreatePage review step', () => {
           method: init?.method ?? 'GET',
           body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
         });
+        if (url === '/api/partner-organisations/sponsors') return Response.json(sponsorOptions);
         if (url === '/api/upload') return Response.json({ url: 'https://cdn.test/cover.jpg' });
         if (url === '/api/campaigns') return Response.json({ slug: 'bantu-banjir-abc123' }, { status: 201 });
         return Response.json(submission.body, { status: submission.status });
@@ -77,8 +80,10 @@ describe('CampaignCreatePage review step', () => {
     mockPush.mockReset();
   });
 
-  function fillInToReview({ kind = 'DONATION', deadline = '2099-12-31' } = {}) {
+  async function fillInToReview({ kind = 'DONATION', deadline = '2099-12-31' } = {}) {
     const { container } = render(<CampaignCreatePage />);
+    await screen.findByTestId('collecting-entity');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Collecting Entity' }), { target: { value: 'sponsor' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), { target: { value: kind } });
     fireEvent.change(screen.getByPlaceholderText('Contoh: Bantu Korban Banjir Jakarta'), {
       target: { value: 'Bantu Banjir' },
@@ -96,15 +101,15 @@ describe('CampaignCreatePage review step', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Lanjutkan' }));
   }
 
-  it('offers "Simpan Draft" and "Ajukan ke Verifier"', () => {
-    fillInToReview();
+  it('offers "Simpan Draft" and "Ajukan ke Verifier"', async () => {
+    await fillInToReview();
 
     expect(screen.getByRole('button', { name: 'Simpan Draft' })).toBeDefined();
     expect(screen.getByRole('button', { name: 'Ajukan ke Verifier' })).toBeDefined();
   });
 
   it('"Simpan Draft" creates the Draft without submitting it', async () => {
-    fillInToReview();
+    await fillInToReview();
 
     fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
 
@@ -113,7 +118,7 @@ describe('CampaignCreatePage review step', () => {
   });
 
   it('"Ajukan ke Verifier" creates the Draft, then submits it', async () => {
-    fillInToReview();
+    await fillInToReview();
 
     fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
 
@@ -127,7 +132,7 @@ describe('CampaignCreatePage review step', () => {
 
   it('keeps the Draft when submitting fails, and a retry submits it without creating another', async () => {
     submission = { status: 500, body: { error: 'Terjadi kesalahan pada server.' } };
-    fillInToReview();
+    await fillInToReview();
 
     fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
     expect(await screen.findByText(/tersimpan sebagai Draft/)).toBeDefined();
@@ -142,7 +147,7 @@ describe('CampaignCreatePage review step', () => {
   });
 
   it('sends the Kind the Fundraiser chose', async () => {
-    fillInToReview({ kind: 'ZAKAT' });
+    await fillInToReview({ kind: 'ZAKAT' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
 
@@ -151,7 +156,7 @@ describe('CampaignCreatePage review step', () => {
   });
 
   it('lets a wakaf Campaign go without a deadline', async () => {
-    fillInToReview({ kind: 'WAKAF', deadline: '' });
+    await fillInToReview({ kind: 'WAKAF', deadline: '' });
 
     expect(screen.getByText('Tanpa batas waktu')).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
@@ -162,8 +167,9 @@ describe('CampaignCreatePage review step', () => {
     expect(body).not.toHaveProperty('deadline');
   });
 
-  it('holds any other Kind on the first step until a deadline is chosen', () => {
+  it('holds any other Kind on the first step until a deadline is chosen', async () => {
     render(<CampaignCreatePage />);
+    await screen.findByTestId('collecting-entity');
     fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), { target: { value: 'HIBAH' } });
     fireEvent.change(screen.getByPlaceholderText('Contoh: Bantu Korban Banjir Jakarta'), {
       target: { value: 'Bantu Banjir' },
@@ -175,5 +181,56 @@ describe('CampaignCreatePage review step', () => {
 
     expect(screen.getByText('Batas waktu harus dipilih')).toBeDefined();
     expect(screen.getByRole('combobox', { name: 'Kind' })).toBeDefined();
+  });
+
+  describe('the Collecting Entity (prd-compliance 10, ADR 0010)', () => {
+    it('tells an individual Fundraiser plainly that they collect under a sponsoring organisation, and sends the one chosen', async () => {
+      await fillInToReview();
+
+      expect(screen.getByText('Yayasan Penaung')).toBeDefined();
+      fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalled());
+      expect(calls.find((c) => c.url === '/api/campaigns')?.body).toMatchObject({ collectingEntityId: 'sponsor' });
+    });
+
+    it('explains the sponsorship on the first step', async () => {
+      render(<CampaignCreatePage />);
+
+      expect(await screen.findByText(/Fundraiser perorangan menggalang dana di bawah naungan Partner Organisation/)).toBeDefined();
+    });
+
+    it('holds an individual Fundraiser on the first step until they pick a sponsoring organisation', async () => {
+      const { container } = render(<CampaignCreatePage />);
+      await screen.findByTestId('collecting-entity');
+      fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), { target: { value: 'DONATION' } });
+      fireEvent.change(screen.getByPlaceholderText('Contoh: Bantu Korban Banjir Jakarta'), {
+        target: { value: 'Bantu Banjir' },
+      });
+      fireEvent.change(screen.getByPlaceholderText('1.000.000'), { target: { value: '5000000' } });
+      fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2099-12-31' } });
+      fireEvent.change(screen.getByRole('combobox', { name: 'Kategori' }), { target: { value: 'bencana-alam' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Lanjutkan' }));
+
+      expect(screen.getByText('Pilih Partner Organisation yang menaungi Campaign ini')).toBeDefined();
+      expect(screen.getByRole('combobox', { name: 'Kind' })).toBeDefined();
+    });
+
+    it("names an organisation's own account's organisation and asks nothing", async () => {
+      sponsorOptions = { own: { id: 'yiem', name: 'Yayasan Indonesia Emas Merdeka' }, sponsors: [] };
+      render(<CampaignCreatePage />);
+
+      expect(
+        await screen.findByText('Dana Campaign ini dihimpun atas nama Yayasan Indonesia Emas Merdeka, organisasi yang diwakili akun Anda.'),
+      ).toBeDefined();
+      expect(screen.queryByRole('combobox', { name: 'Collecting Entity' })).toBeNull();
+    });
+
+    it('says so when no organisation accepts individual Campaigns yet', async () => {
+      sponsorOptions = { own: null, sponsors: [] };
+      render(<CampaignCreatePage />);
+
+      expect(await screen.findByText(/Belum ada Partner Organisation yang menaungi Campaign perorangan/)).toBeDefined();
+    });
   });
 });

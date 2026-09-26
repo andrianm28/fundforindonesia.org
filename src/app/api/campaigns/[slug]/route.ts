@@ -4,8 +4,15 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
 import { CampaignStatus, CampaignStatusChangeAction } from '@/generated/prisma/client';
-import { effectiveStatus } from '@/lib/campaign-lifecycle';
-import { lockAndLoad, requireContentEditable, requireKindAndDeadlineEditable } from '@/lib/subject-guard';
+import { donationBlock, effectiveStatus } from '@/lib/campaign-lifecycle';
+import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
+import {
+  lockAndLoad,
+  requireCollectingEntityEditable,
+  requireContentEditable,
+  requireKindAndDeadlineEditable,
+} from '@/lib/subject-guard';
+import { resolveCollectingEntity } from '@/lib/collecting-entity-guard';
 import { KINDS } from '@/lib/campaign-kind';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibility-route';
@@ -29,6 +36,10 @@ const editCampaignSchema = z.object({
   kind: z.enum(KINDS, { message: "Kind tidak dikenal" }),
   // null clears it, which only a wakaf Campaign may have.
   deadline: z.string().datetime().nullable(),
+  // The sponsoring Partner Organisation, only before approval
+  // (requireCollectingEntityEditable) and only one the Fundraiser may
+  // collect under (resolveCollectingEntity).
+  collectingEntityId: z.string().min(1),
 }).partial();
 
 /**
@@ -70,6 +81,7 @@ export async function GET(
             avatar: true,
           },
         },
+        ...COLLECTING_ENTITY_SELECT,
         _count: {
           select: {
             donations: {
@@ -84,7 +96,9 @@ export async function GET(
 
     if (!campaign) return campaignNotFound();
 
-    const lifecycleStatus = effectiveStatus(campaign, new Date());
+    const now = new Date();
+    const lifecycleStatus = effectiveStatus(campaign, now);
+    const collectingEntity = campaign.collectingEntity ?? null;
     const isSuspended = lifecycleStatus === CampaignStatus.SUSPENDED;
     const isPublic = isPubliclyViewable(lifecycleStatus);
 
@@ -120,6 +134,11 @@ export async function GET(
         createdAt: campaign.createdAt,
         updatedAt: campaign.updatedAt,
         creator: campaign.creator,
+        // Who collects its money (ADR 0010), and, while it is Active, why it
+        // cannot take a Donation right now: no Collecting Entity, or no
+        // Fundraising Permit valid now for its Kind. Judged at read time.
+        collectingEntity: collectingEntity && { id: collectingEntity.id, name: collectingEntity.name },
+        donationBlock: donationBlock({ ...campaign, collectingEntity }, now),
         donationCount: campaign._count.donations,
         ...(suspensionReason !== undefined && { suspensionReason }),
       },
@@ -199,12 +218,20 @@ export async function PATCH(
       const state = await lockAndLoad(tx, { type: 'campaign', campaignId: campaign.id }, new Date());
       if (!state) return null;
       requireContentEditable(state);
-      const { deadline, ...fields } = result.data;
+      const { deadline, collectingEntityId, ...fields } = result.data;
       const data = {
         ...fields,
         ...(deadline !== undefined && { deadline: deadline === null ? null : new Date(deadline) }),
       };
       requireKindAndDeadlineEditable(state, data);
+      if (collectingEntityId !== undefined) {
+        requireCollectingEntityEditable(state, { collectingEntityId });
+        if (collectingEntityId !== state.collectingEntityId) {
+          Object.assign(data, {
+            collectingEntityId: await resolveCollectingEntity(tx, state.ownerId, collectingEntityId),
+          });
+        }
+      }
 
       return tx.campaign.update({
         where: { id: campaign.id },

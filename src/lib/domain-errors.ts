@@ -35,7 +35,12 @@ export type LifecycleErrorCode =
   | "REQUIRED_CHECKLIST_ITEMS_UNTICKED"
   | "DEADLINE_REQUIRED"
   | "DEADLINE_NOT_EDITABLE"
-  | "KIND_IMMUTABLE";
+  | "KIND_IMMUTABLE"
+  | "COLLECTING_ENTITY_REQUIRED"
+  | "FUNDRAISING_PERMIT_REQUIRED"
+  | "COLLECTING_ENTITY_NOT_ELIGIBLE"
+  | "COLLECTING_ENTITY_ALREADY_SET"
+  | "COLLECTING_ENTITY_NOT_EDITABLE";
 
 export type MoneyErrorCode =
   | "DEMO_CAMPAIGN"
@@ -84,11 +89,23 @@ export type TripErrorCode =
  */
 export type CapacityErrorCode = "NOT_AUTHORIZED" | "OWN_CAMPAIGN_CONFLICT" | "OWN_TRIP_CONFLICT";
 
+/**
+ * Refusals of the Verifier's Partner Organisation and Fundraising Permit
+ * register (./partner-organisations.ts; prd-compliance 10).
+ */
+export type PartnerOrganisationErrorCode =
+  | "PARTNER_ORGANISATION_INVALID"
+  | "PARTNER_ORGANISATION_NOT_FOUND"
+  | "FUNDRAISING_PERMIT_NOT_FOUND"
+  | "FUNDRAISER_ALREADY_LINKED"
+  | "OWN_PARTNER_ORGANISATION_CONFLICT";
+
 export type DomainErrorCode =
   | LifecycleErrorCode
   | MoneyErrorCode
   | TripErrorCode
-  | CapacityErrorCode;
+  | CapacityErrorCode
+  | PartnerOrganisationErrorCode;
 
 const HTTP_STATUS: Record<DomainErrorCode, number> = {
   VALIDATION: 400,
@@ -116,6 +133,14 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   DEADLINE_REQUIRED: 422,
   KIND_IMMUTABLE: 409,
   DEADLINE_NOT_EDITABLE: 409,
+  // Unmet preconditions the actor can fix (name an entity, have a permit
+  // recorded), like DEADLINE_REQUIRED.
+  COLLECTING_ENTITY_REQUIRED: 422,
+  FUNDRAISING_PERMIT_REQUIRED: 422,
+  COLLECTING_ENTITY_NOT_ELIGIBLE: 422,
+  // Another actor already assigned one, or the Campaign has moved on.
+  COLLECTING_ENTITY_ALREADY_SET: 409,
+  COLLECTING_ENTITY_NOT_EDITABLE: 409,
   OWN_TRIP_CONFLICT: 403,
   DEMO_CAMPAIGN: 403,
   BANK_ACCOUNT_NOT_ELIGIBLE: 403,
@@ -145,6 +170,11 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   REGISTRATION_NOT_FOUND: 404,
   REGISTRATION_NOT_CANCELLABLE: 400,
   BATCH_ALREADY_COMPLETED: 400,
+  PARTNER_ORGANISATION_INVALID: 400,
+  PARTNER_ORGANISATION_NOT_FOUND: 404,
+  FUNDRAISING_PERMIT_NOT_FOUND: 404,
+  FUNDRAISER_ALREADY_LINKED: 409,
+  OWN_PARTNER_ORGANISATION_CONFLICT: 403,
 };
 
 /**

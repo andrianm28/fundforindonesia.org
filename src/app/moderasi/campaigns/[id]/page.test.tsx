@@ -74,6 +74,49 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('the Collecting Entity on the moderation page (prd-compliance 10)', () => {
+  const permit = (validTo: string) => ({
+    kinds: ['DONATION'],
+    validFrom: new Date('2026-01-01T00:00:00Z'),
+    validTo: new Date(validTo),
+  });
+
+  it('names the sponsoring organisation of an individual Fundraiser, and that approving confirms it', async () => {
+    await renderFor(
+      campaign('SUBMITTED', {
+        kind: 'DONATION',
+        collectingEntity: { id: 'p', name: 'Yayasan Penaung', fundraiserId: 'other', permits: [permit('2099-01-01T00:00:00Z')] },
+      }),
+      { request: PENDING_REQUEST },
+    );
+
+    expect(screen.getByText('Yayasan Penaung (menaungi Fundraiser perorangan)')).toBeDefined();
+    expect(screen.getByText('Memegang Fundraising Permit yang berlaku untuk Kind Donasi.')).toBeDefined();
+    expect(screen.getByText(/Meloloskan pengajuan ini mengonfirmasi Yayasan Penaung sebagai Collecting Entity/)).toBeDefined();
+  });
+
+  it('warns when the Collecting Entity holds no permit valid now for the Kind', async () => {
+    await renderFor(
+      campaign('SUBMITTED', {
+        kind: 'DONATION',
+        collectingEntity: { id: 'p', name: 'YIEM', fundraiserId: 'creator-1', permits: [permit('2026-01-02T00:00:00Z')] },
+      }),
+      { request: PENDING_REQUEST },
+    );
+
+    expect(screen.getByText('YIEM (akun organisasi ini)')).toBeDefined();
+    expect(
+      screen.getByText('Belum memegang Fundraising Permit yang berlaku untuk Kind Donasi: Campaign ini tidak dapat diloloskan.'),
+    ).toBeDefined();
+  });
+
+  it('says when the Campaign names none', async () => {
+    await renderFor(campaign('ACTIVE', { kind: 'DONATION', collectingEntity: null }));
+
+    expect(screen.getByText('Belum ada')).toBeDefined();
+  });
+});
+
 describe('the moderation page of one Campaign', () => {
   it("renders the open request's checklist with tick boxes, a reason field, and approve and reject", async () => {
     await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
