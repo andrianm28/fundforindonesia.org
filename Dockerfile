@@ -125,7 +125,11 @@ RUN chown -R nextjs:nodejs public
 # is now force-dynamic (see the comment in src/app/page.tsx). Fixing the cache
 # here does not undo that: a live campaign list should not be a build-time
 # snapshot whether or not the cache happens to work.
+#
+# `npm cache clean` drops the download cache the install leaves in /root/.npm:
+# dead weight in every pulled image, and most of the Trivy secret scan's time.
 RUN npm install --no-save sharp \
+    && npm cache clean --force \
     && mkdir -p .next/cache \
     && chown -R nextjs:nodejs .next node_modules/sharp
 

@@ -1,0 +1,18 @@
+# Findings the image scan in .github/workflows/cd.yml may skip. Trivy reads
+# this file from the checkout root. Every entry says why, and the expiring
+# entry fails the scan again after its date, so it cannot be forgotten.
+
+# next 14.2.35: RCE on Windows-hosted servers only (GHSA-p293-qw3h-jr36). The
+# image runs on Linux (node:24-alpine), so the vulnerable path does not exist.
+CVE-2026-75604
+
+# next 14.2.35: RCE through sharp/libheif when the Image Optimization API
+# optimizes an AVIF file. This one DOES apply: next.config.mjs allows remote
+# images from any host, so anyone can send an AVIF through /_next/image. The
+# only fixes are Next 15.5.24 or 16.3.3, a major upgrade that is its own
+# ticket, and production already runs this same Next version today, so
+# holding back the pipeline would not remove the exposure. Muted for two weeks
+# so that the pipeline and the cutover can land; after that the scan fails
+# again until Next is upgraded or image optimization is turned off
+# (images.unoptimized) as a stopgap.
+GHSA-2xp9-vwfh-vxw4 exp:2026-10-10
