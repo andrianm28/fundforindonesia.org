@@ -245,26 +245,31 @@ export async function expireIfPastDeadline(
 
 const REASON_MAX_LENGTH = 1000;
 
-/** A required reason: trimmed, non-empty, at most REASON_MAX_LENGTH characters. */
-function requireReason(raw: unknown): string {
+/** A free-text field a command takes: the body field it came from, and its name in a refusal. */
+type TextField = { field: string; label: string };
+
+const REASON: TextField = { field: "reason", label: "Alasan" };
+
+/** A required text: trimmed, non-empty, at most REASON_MAX_LENGTH characters. */
+function requireReason(raw: unknown, text: TextField = REASON): string {
   const reason = typeof raw === "string" ? raw.trim() : "";
   if (reason === "") {
-    throw new LifecycleValidationError("Alasan wajib diisi.", "reason");
+    throw new LifecycleValidationError(`${text.label} wajib diisi.`, text.field);
   }
   if (reason.length > REASON_MAX_LENGTH) {
     throw new LifecycleValidationError(
-      `Alasan maksimal ${REASON_MAX_LENGTH} karakter.`,
-      "reason"
+      `${text.label} maksimal ${REASON_MAX_LENGTH} karakter.`,
+      text.field
     );
   }
   return reason;
 }
 
-/** An optional reason: absent or blank is none; anything else must pass requireReason. */
-function optionalReason(raw: unknown): string | null {
+/** An optional text: absent or blank is none; anything else must pass requireReason. */
+function optionalReason(raw: unknown, text: TextField = REASON): string | null {
   if (raw === undefined || raw === null) return null;
   if (typeof raw === "string" && raw.trim() === "") return null;
-  return requireReason(raw);
+  return requireReason(raw, text);
 }
 
 /**
@@ -509,9 +514,9 @@ const VERIFICATION_DECISIONS = {
     outcome: VerificationOutcome.APPROVED,
     action: CampaignStatusChangeAction.SUBMISSION_APPROVED,
     reasonPolicy: "none",
-    title: "Campaign Disetujui",
+    title: "Campaign Diloloskan",
     message: (title: string) =>
-      `Campaign "${title}" lolos verifikasi dan kini aktif menerima donasi.`,
+      `Campaign "${title}" diloloskan Verifier dan kini aktif menerima donasi.`,
   },
   reject: {
     to: CampaignStatus.REJECTED,
@@ -520,7 +525,7 @@ const VERIFICATION_DECISIONS = {
     reasonPolicy: "required",
     title: "Campaign Ditolak",
     message: (title: string, reason: string | null) =>
-      `Campaign "${title}" ditolak oleh Verifier. Alasan: ${reason} Perbaiki Campaign Anda, lalu ajukan kembali.`,
+      `Campaign "${title}" ditolak oleh Verifier. Perbaiki Campaign Anda, lalu ajukan kembali. Alasan: ${reason}`,
   },
 } as const;
 
@@ -539,27 +544,12 @@ function parseTicked(raw: unknown): Set<string> {
   return new Set(raw);
 }
 
-const NOTE_MAX_LENGTH = 1000;
+const IDENTITY_NOTE: TextField = { field: "identityNote", label: "Catatan identitas" };
 
-/** The optional Identity Verification note: absent or blank is none. */
-function optionalNote(raw: unknown): string | null {
-  if (raw === undefined || raw === null) return null;
-  if (typeof raw !== "string") {
-    throw new LifecycleValidationError("Catatan identitas tidak valid.", "identityNote");
-  }
-  const note = raw.trim();
-  if (note.length > NOTE_MAX_LENGTH) {
-    throw new LifecycleValidationError(
-      `Catatan identitas maksimal ${NOTE_MAX_LENGTH} karakter.`,
-      "identityNote"
-    );
-  }
-  return note === "" ? null : note;
-}
-
-export type DecisionResult = SubmissionResult & {
-  /** Whether this approval recorded the Fundraiser's Identity Verification. */
-  identityVerified: boolean;
+export type VerificationDecisionResult = LifecycleResult & {
+  verificationRequest: VerificationRequestState;
+  /** Whether this approval is the one that recorded the Fundraiser's Identity Verification. */
+  identityVerificationRecorded: boolean;
 };
 
 /**
@@ -590,11 +580,11 @@ export async function decideVerificationRequest(
     identityNote?: unknown;
     now?: Date;
   }
-): Promise<DecisionResult> {
+): Promise<VerificationDecisionResult> {
   const { requestId } = params;
   const decision = VERIFICATION_DECISIONS[params.decision];
   const ticked = parseTicked(params.ticked);
-  const identityNote = optionalNote(params.identityNote);
+  const identityNote = optionalReason(params.identityNote, IDENTITY_NOTE);
   return runCommand(prisma, params, {
     authority: {
       capacity: StatusChangeCapacity.VERIFIER,
@@ -602,6 +592,8 @@ export async function decideVerificationRequest(
     },
     reasonPolicy: decision.reasonPolicy,
     rawReason: params.reason,
+    // The request is judged before the status: a missing, decided or
+    // withdrawn request answers as such whatever the Campaign's status.
     step: async ({ tx, campaign, current, actor, reason, now, transition, notify }) => {
       const request = await tx.verificationRequest.findUnique({ where: { id: requestId } });
       if (!request || request.campaignId !== campaign.id) {
@@ -636,7 +628,7 @@ export async function decideVerificationRequest(
       });
       if (written.count === 0) throw new ConcurrentTransitionError();
       await transition(decision.to, decision.action);
-      let identityVerified = false;
+      let identityVerificationRecorded = false;
       if (decision.outcome === VerificationOutcome.APPROVED) {
         // Two Campaigns of one Fundraiser hold different row locks, so two
         // approvals may race here; the unique userId keeps the first.
@@ -646,10 +638,10 @@ export async function decideVerificationRequest(
           ],
           skipDuplicates: true,
         });
-        identityVerified = created.count > 0;
+        identityVerificationRecorded = created.count > 0;
       }
       await notify({ title: decision.title, message: decision.message(campaign.title, reason) });
-      return { verificationRequest: { ...request, ...decided }, identityVerified };
+      return { verificationRequest: { ...request, ...decided }, identityVerificationRecorded };
     },
   });
 }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { ChecklistEntry } from "@/lib/campaign-lifecycle";
+import type { ChecklistEntry, VerificationDecision } from "@/lib/campaign-lifecycle";
 
 interface CampaignModerationActionsProps {
   campaignId: string;
@@ -11,8 +11,6 @@ interface CampaignModerationActionsProps {
   /** When the Fundraiser's Identity Verification was recorded, or null if it never was. */
   identityVerifiedAt: Date | null;
 }
-
-type Decision = "approve" | "reject";
 
 /**
  * The Verifier's decision on one Verification Request: tick the checklist
@@ -27,7 +25,7 @@ export function CampaignModerationActions({
   identityVerifiedAt,
 }: CampaignModerationActionsProps) {
   const router = useRouter();
-  const [loading, setLoading] = useState<Decision | null>(null);
+  const [loading, setLoading] = useState<VerificationDecision | null>(null);
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
   const [reason, setReason] = useState("");
   const [identityNote, setIdentityNote] = useState("");
@@ -45,7 +43,7 @@ export function CampaignModerationActions({
     });
   };
 
-  const handleAction = async (decision: Decision) => {
+  const handleAction = async (decision: VerificationDecision) => {
     if (!request) return;
     setMessage(null);
     if (decision === "reject" && reason.trim() === "") {
@@ -79,7 +77,7 @@ export function CampaignModerationActions({
 
       setMessage({
         type: "success",
-        text: decision === "approve" ? "Kampanye berhasil disetujui" : "Kampanye berhasil ditolak",
+        text: decision === "approve" ? "Campaign berhasil diloloskan" : "Campaign berhasil ditolak",
       });
 
       // Refresh the page data after a short delay

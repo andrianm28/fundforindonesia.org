@@ -73,7 +73,7 @@ describe('PATCH /api/moderasi/campaigns/[id]', () => {
       isUrgent: false,
     });
     expect(body.verificationRequest).toMatchObject({ id: 'verification-1', outcome: 'APPROVED', decidedById: 'verifier-1' });
-    expect(body.identityVerified).toBe(true);
+    expect(body.identityVerificationRecorded).toBe(true);
     expect(state.db.verificationRequests[0].checklist).toEqual(CHECKLIST.map((e) => ({ ...e, ticked: true })));
     expect(state.db.identityVerifications).toEqual([expect.objectContaining({ userId: 'creator-1', note: 'KTP cocok.' })]);
     expect(state.db.statusChanges).toEqual([
@@ -97,17 +97,24 @@ describe('PATCH /api/moderasi/campaigns/[id]', () => {
     expect(state.db.verificationRequests[0].outcome).toBe('PENDING');
   });
 
-  it('answers 409 to a request that is no longer pending', async () => {
-    state.db = makeCampaignDb({
-      campaigns: [campaignRow()],
-      verificationRequests: [verificationRequestRow({ id: 'verification-1', outcome: 'WITHDRAWN' })],
-    });
+  it.each(['APPROVED', 'REJECTED', 'WITHDRAWN'] as const)(
+    'answers 409 to a request already %s and leaves it as it was',
+    async (outcome) => {
+      const closed = verificationRequestRow({
+        id: 'verification-1',
+        outcome,
+        reason: outcome === 'REJECTED' ? 'Alasan lama.' : null,
+        decidedById: outcome === 'WITHDRAWN' ? null : 'verifier-2',
+      });
+      state.db = makeCampaignDb({ campaigns: [campaignRow()], verificationRequests: [closed] });
 
-    const response = await patch({ action: 'approve', requestId: 'verification-1' });
+      const response = await patch({ action: 'reject', requestId: 'verification-1', reason: 'Alasan baru.' });
 
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ code: 'VERIFICATION_REQUEST_NOT_PENDING' });
-  });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'VERIFICATION_REQUEST_NOT_PENDING' });
+      expect(state.db.verificationRequests).toEqual([closed]);
+    },
+  );
 
   it('answers 403 OWN_CAMPAIGN_CONFLICT to the Verifier who owns the Campaign', async () => {
     mockSession.mockResolvedValue({ user: { id: 'creator-1', assignments: ['VERIFIER'] } });

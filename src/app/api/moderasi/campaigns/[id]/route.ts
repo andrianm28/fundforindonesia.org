@@ -10,7 +10,8 @@ import { lifecycleRoute } from "@/lib/lifecycle-route";
  * `{ action, requestId, ticked?, reason?, identityNote? }`. `action` is
  * approve or reject; `requestId` names the request the Verifier looked at,
  * so a stale page never decides a newer one; `ticked` lists the checklist
- * item ids they ticked; `reason` is required to reject; `identityNote` goes
+ * item ids they ticked; `reason` is required to reject (an approval takes
+none, so one sent with it is ignored); `identityNote` goes
  * on the Fundraiser's Identity Verification if this approval records it.
  * There is no `suspend`: a Verifier raises a Flag and an Admin decides on
  * Suspension (ADR 0005, FFI-07b), so `suspend` is refused like any other

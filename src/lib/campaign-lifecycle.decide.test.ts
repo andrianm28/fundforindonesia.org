@@ -152,7 +152,7 @@ describe('decideVerificationRequest', () => {
     expect(rejected.notifications[0].message).toContain('Foto KTP buram.');
     expect(rejected.notifications[0].message).toContain('Bantu Korban Banjir');
     expect(approved.notifications).toEqual([
-      expect.objectContaining({ userId: 'creator-1', title: 'Campaign Disetujui' }),
+      expect.objectContaining({ userId: 'creator-1', title: 'Campaign Diloloskan' }),
     ]);
   });
 
@@ -297,7 +297,7 @@ describe('decideVerificationRequest', () => {
         now: NOW,
       });
 
-      expect(result.identityVerified).toBe(true);
+      expect(result.identityVerificationRecorded).toBe(true);
       expect(db.identityVerifications).toEqual([
         {
           id: expect.any(String),
@@ -346,7 +346,7 @@ describe('decideVerificationRequest', () => {
         now: NOW,
       });
 
-      expect(result.identityVerified).toBe(false);
+      expect(result.identityVerificationRecorded).toBe(false);
       expect(db.identityVerifications).toEqual([existing]);
     });
 
