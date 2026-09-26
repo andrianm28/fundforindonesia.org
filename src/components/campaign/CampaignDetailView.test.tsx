@@ -1,4 +1,4 @@
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { CampaignDetailView, type CampaignDetailData } from './CampaignDetailView';
 
@@ -254,5 +254,130 @@ describe('CampaignDetailView -- where the Campaign stands', () => {
   it('does not ask for a reason when the Campaign is not Suspended', () => {
     renderAs('CANCELLED');
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('CampaignDetailView -- the Fundraiser withdraws a pending submission (verification-request 10)', () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function submittedCampaign(overrides: Record<string, unknown> = {}) {
+    return { ...mockCampaign, lifecycleStatus: 'SUBMITTED' as const, ...overrides };
+  }
+
+  it('offers "Tarik pengajuan" while a request is pending -- GET /api/campaigns/[slug] answers it only to the owning Fundraiser', async () => {
+    global.fetch = vi.fn(async () =>
+      ({
+        ok: true,
+        json: async () => ({ campaign: { ...submittedCampaign(), pendingVerificationRequestId: 'request-9' } }),
+      }) as Response
+    ) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={submittedCampaign()} />);
+
+    expect(await screen.findByRole('button', { name: 'Tarik pengajuan' })).toBeDefined();
+  });
+
+  it.each(['DRAFT', 'REJECTED', 'ACTIVE'] as const)(
+    'never asks and never offers the button for a %s Campaign',
+    (status) => {
+      global.fetch = vi.fn();
+      render(<CampaignDetailView campaign={{ ...mockCampaign, lifecycleStatus: status }} />);
+      expect(screen.queryByRole('button', { name: 'Tarik pengajuan' })).toBeNull();
+      expect(global.fetch).not.toHaveBeenCalled();
+    }
+  );
+
+  it('offers no button to a Verifier or Admin -- the API withholds pendingVerificationRequestId from them', async () => {
+    global.fetch = vi.fn(async () =>
+      ({ ok: true, json: async () => ({ campaign: submittedCampaign() }) }) as Response
+    ) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={submittedCampaign()} />);
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Tarik pengajuan' })).toBeNull();
+  });
+
+  it('withdraws the request and shows the Campaign back at Draft', async () => {
+    const posts: string[] = [];
+    let gets = 0;
+    global.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        posts.push(String(_url));
+        return { ok: true, json: async () => ({}) } as Response;
+      }
+      gets += 1;
+      return {
+        ok: true,
+        json: async () =>
+          gets === 1
+            ? { campaign: { ...submittedCampaign(), pendingVerificationRequestId: 'request-9' } }
+            : { campaign: { ...mockCampaign, lifecycleStatus: 'DRAFT' } },
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={submittedCampaign()} />);
+
+    const button = await screen.findByRole('button', { name: 'Tarik pengajuan' });
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: 'Status Campaign' }).textContent).toContain('Draf')
+    );
+    expect(screen.queryByRole('button', { name: 'Tarik pengajuan' })).toBeNull();
+    expect(posts).toEqual(['/api/campaigns/bantu-korban-bencana/verification-requests/request-9/withdraw']);
+  });
+
+  it('withdraws a resubmission and shows the Campaign back at Rejected', async () => {
+    let gets = 0;
+    global.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        return { ok: true, json: async () => ({}) } as Response;
+      }
+      gets += 1;
+      return {
+        ok: true,
+        json: async () =>
+          gets === 1
+            ? { campaign: { ...submittedCampaign(), pendingVerificationRequestId: 'request-9' } }
+            : { campaign: { ...mockCampaign, lifecycleStatus: 'REJECTED' } },
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={submittedCampaign()} />);
+
+    const button = await screen.findByRole('button', { name: 'Tarik pengajuan' });
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: 'Status Campaign' }).textContent).toContain('Ditolak')
+    );
+    expect(screen.queryByRole('button', { name: 'Tarik pengajuan' })).toBeNull();
+  });
+
+  it('shows the refusal and keeps the button when the withdraw is refused', async () => {
+    global.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        return {
+          ok: false,
+          json: async () => ({ error: 'Verification Request ini sudah diputuskan.' }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ campaign: { ...submittedCampaign(), pendingVerificationRequestId: 'request-9' } }),
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={submittedCampaign()} />);
+
+    const button = await screen.findByRole('button', { name: 'Tarik pengajuan' });
+    fireEvent.click(button);
+
+    expect(await screen.findByText('Verification Request ini sudah diputuskan.')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Tarik pengajuan' })).toBeDefined();
   });
 });
