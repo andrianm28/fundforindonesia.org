@@ -42,7 +42,9 @@ describe('POST /api/user/verify', () => {
 
     expect(response.status).toBe(503);
     const body = await response.json();
-    expect(body.error).toMatch(/Admin/);
+    // No one needs a Role to submit (FFI-04), so nothing sends them to an Admin.
+    expect(body.error).not.toMatch(/Admin|Hubungi/);
+    expect(body.error).toMatch(/Verifier/);
     expect(mockUserUpdate).not.toHaveBeenCalled();
   });
 });

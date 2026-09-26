@@ -112,7 +112,7 @@ const VALID_BODY = { bankAccountId: 'bank-1', amount: 200_000, description: 'Pen
 describe('POST /api/volunteer-trips/[slug]/payouts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', role: 'CAMPAIGN_CREATOR' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', role: 'DONOR', assignments: [] } });
     mockTripFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'fundraiser-1' });
     mockPaymentFindMany.mockResolvedValue([]);
   });
@@ -124,14 +124,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('returns 403 for a role below CAMPAIGN_CREATOR', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'donor-1', role: 'DONOR' } });
-    const response = await POST(postRequest(VALID_BODY), routeContext());
-    expect(response.status).toBe(403);
-    expect(mockTransaction).not.toHaveBeenCalled();
-  });
-
-  it("returns 403 when the caller is a CAMPAIGN_CREATOR but not this Trip's Fundraiser", async () => {
+  it("returns 403 NOT_AUTHORIZED when the caller is not this Trip's Fundraiser, whatever their Role", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else', role: 'CAMPAIGN_CREATOR' } });
     const response = await POST(postRequest(VALID_BODY), routeContext());
     expect(response.status).toBe(403);
@@ -191,7 +184,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts', () => {
     expect(payoutCreate).not.toHaveBeenCalled();
   });
 
-  it('creates a DRAFT payout with volunteerTripId set (never campaignId) when the balance covers it', async () => {
+  it('lets the owner, with no Role or assignment, create a DRAFT payout with volunteerTripId set (never campaignId) when the balance covers it', async () => {
     const ledgerRows: LedgerRow[] = [
       { transactionId: 't1', direction: 'CREDIT', amount: 200_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-1' },
     ];
@@ -243,7 +236,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts', () => {
 describe('GET /api/volunteer-trips/[slug]/payouts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', role: 'CAMPAIGN_CREATOR' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', role: 'DONOR', assignments: [] } });
     mockTripFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'fundraiser-1' });
   });
 

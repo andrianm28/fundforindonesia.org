@@ -671,14 +671,13 @@ describe('PATCH /api/campaigns/[slug]', () => {
       expect(response.status).toBe(200);
     });
 
-    it('still gates an Admin on their own Campaign by the legacy CAMPAIGN_CREATOR Role, as its Fundraiser (tickets 06-08)', async () => {
-      sessionAs({ id: 'owner-admin', role: 'DONOR', assignments: ['ADMIN'] });
+    it('lets the owner edit their Campaign whatever their Role, with no assignment', async () => {
+      sessionAs({ id: 'owner-1', role: 'DONOR', assignments: [] });
 
-      const response = await patchCampaignOwnedBy('owner-admin');
+      const response = await patchCampaignOwnedBy('owner-1');
 
-      expect(response.status).toBe(403);
-      expect(await response.json()).toEqual({ error: 'Forbidden' });
-      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(response.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalled();
     });
 
     it('does not let the VERIFIER assignment stand in for ADMIN', async () => {
@@ -689,26 +688,6 @@ describe('PATCH /api/campaigns/[slug]', () => {
       expect(response.status).toBe(403);
       expect(mockUpdate).not.toHaveBeenCalled();
     });
-  });
-
-  it('returns 403 for DONOR user', async () => {
-    mockGetServerSession.mockResolvedValue({
-      user: { id: 'donor-user', role: 'DONOR', name: 'Donor', email: 'donor@test.com', isVerified: false, verificationType: null },
-      expires: '2099-01-01',
-    });
-    mockFindUnique.mockResolvedValue({
-      id: 'campaign-1',
-      creatorId: 'donor-user',
-    } as any);
-
-    const request = createRequest('some-campaign', 'PATCH', { title: 'Hack' });
-    const response = await PATCH(request, {
-      params: Promise.resolve({ slug: 'some-campaign' }),
-    });
-
-    expect(response.status).toBe(403);
-    const body = await response.json();
-    expect(body.error).toBe('Forbidden');
   });
 });
 

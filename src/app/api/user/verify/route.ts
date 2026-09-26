@@ -4,8 +4,9 @@ import { getServerSession } from '@/lib/auth';
 // Identity used to be self-declared here: any 16-digit NIK set isVerified and
 // granted CAMPAIGN_CREATOR, with nothing stored and no Verifier involved
 // (gap C2). Until Verifier-reviewed identity checks exist (ticket 12), this
-// endpoint grants nothing; an Admin assigns the Fundraiser role by hand at
-// /admin/users after checking identity off-platform.
+// endpoint grants nothing. No Role is needed to submit (PRD FFI-04): the
+// Verifier checks identity off-platform before approving a person's first
+// submission.
 export async function POST() {
   const session = await getServerSession();
   if (!session?.user) {
@@ -13,7 +14,7 @@ export async function POST() {
   }
 
   return NextResponse.json(
-    { error: "Verifikasi identitas sementara dilakukan oleh Admin. Hubungi kami untuk menjadi Fundraiser." },
+    { error: "Verifikasi identitas mandiri tidak tersedia. Siapa pun yang terdaftar dapat mengajukan Campaign; Verifier meninjaunya sebelum terbit." },
     { status: 503 }
   );
 }

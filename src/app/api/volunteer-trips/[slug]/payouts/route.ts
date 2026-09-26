@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { withRoleCheck } from '@/lib/withRoleCheck';
 import { refusalResponse, refuseUnlessFundraiser } from '@/lib/refusal-response';
 import { requestPayout } from '@/lib/money/payouts';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
@@ -19,19 +18,17 @@ const requestPayoutSchema = z.object({
  * a payout of their Trip's withdrawable TRIP_BALANCE.
  *
  * Mirrors POST /api/campaigns/[slug]/payouts exactly, including the
- * escrow-release-at-the-top-of-the-request pattern: withRoleCheck only
- * proves "a CAMPAIGN_CREATOR-ranked user", not "this Trip's Fundraiser", so
- * getServerSession is called again here and the Capacity judgement below
- * (only this Trip's Fundraiser) is what actually stops one Fundraiser from
- * draining another's Trip.
- *
- * The CAMPAIGN_CREATOR Role gate is legacy, kept until who may create a
- * Campaign or Volunteer Trip is decided (prd-compliance tickets 06-08).
+ * escrow-release-at-the-top-of-the-request pattern. Any signed-in user may
+ * ask; no Role is needed. The Capacity judgement below (only this Trip's
+ * Fundraiser) is what stops one Fundraiser from draining another's Trip.
  */
-export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextRequest, context: any) => {
+export async function POST(request: NextRequest, context: any) {
   const { slug } = await context.params;
   const session = await getServerSession();
-  const userId = session!.user!.id as string;
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const userId = session.user.id as string;
 
   const body = await request.json().catch(() => null);
   const parsed = requestPayoutSchema.safeParse(body);
@@ -48,7 +45,7 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
   if (!trip) {
     return NextResponse.json({ error: 'Volunteer trip tidak ditemukan' }, { status: 404 });
   }
-  const refusal = refuseUnlessFundraiser({ kind: 'trip', ownerId: trip.fundraiserId }, session!.user!);
+  const refusal = refuseUnlessFundraiser({ kind: 'trip', ownerId: trip.fundraiserId }, session.user);
   if (refusal) return refusal;
 
   try {
@@ -86,7 +83,7 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
     console.error('Error requesting trip payout:', error);
     return NextResponse.json({ error: 'Gagal mengajukan pencairan' }, { status: 500 });
   }
-});
+}
 
 /**
  * GET /api/volunteer-trips/[slug]/payouts -- the owning Fundraiser sees
@@ -95,13 +92,14 @@ export const POST = withRoleCheck('CAMPAIGN_CREATOR', async (request: NextReques
  * tripEscrowBalance/tripBalance -- no equivalent surface exists on the
  * Campaign side yet either (see lib/money/ledger.ts's own doc comment on
  * escrowBalance, which says outright nothing has surfaced it so far).
- *
- * The CAMPAIGN_CREATOR Role gate is legacy, kept until who may create a
- * Campaign or Volunteer Trip is decided (prd-compliance tickets 06-08).
+ * Only this Trip's Fundraiser may look; no Role is needed.
  */
-export const GET = withRoleCheck('CAMPAIGN_CREATOR', async (_request: NextRequest, context: any) => {
+export async function GET(_request: NextRequest, context: any) {
   const { slug } = await context.params;
   const session = await getServerSession();
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   const trip = await prisma.volunteerTrip.findUnique({
     where: { slug },
@@ -110,7 +108,7 @@ export const GET = withRoleCheck('CAMPAIGN_CREATOR', async (_request: NextReques
   if (!trip) {
     return NextResponse.json({ error: 'Volunteer trip tidak ditemukan' }, { status: 404 });
   }
-  const refusal = refuseUnlessFundraiser({ kind: 'trip', ownerId: trip.fundraiserId }, session!.user!);
+  const refusal = refuseUnlessFundraiser({ kind: 'trip', ownerId: trip.fundraiserId }, session.user);
   if (refusal) return refusal;
 
   const [escrowHold, tripBalanceAmount] = await prisma.$transaction((tx) =>
@@ -118,4 +116,4 @@ export const GET = withRoleCheck('CAMPAIGN_CREATOR', async (_request: NextReques
   );
 
   return NextResponse.json({ escrowHold, tripBalance: tripBalanceAmount });
-});
+}

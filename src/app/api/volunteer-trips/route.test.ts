@@ -45,7 +45,7 @@ function createRequest(body: unknown): NextRequest {
 describe('POST /api/volunteer-trips', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetServerSession.mockResolvedValue({ user: { id: 'user-1', role: 'CAMPAIGN_CREATOR' } });
+    mockGetServerSession.mockResolvedValue({ user: { id: 'user-1', role: 'DONOR' } });
     mockCreate.mockResolvedValue({ id: 'trip-1', slug: 'mengajar-di-pulau-terpencil-ab12cd', ...VALID_BODY, status: 'DRAFT', fundraiserId: 'user-1' });
   });
 
@@ -56,17 +56,11 @@ describe('POST /api/volunteer-trips', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('returns 403 for a DONOR (below CAMPAIGN_CREATOR)', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'user-2', role: 'DONOR' } });
-    const response = await POST(createRequest(VALID_BODY));
-    expect(response.status).toBe(403);
-    expect(mockCreate).not.toHaveBeenCalled();
-  });
-
-  it('allows an ADMIN (above CAMPAIGN_CREATOR in the hierarchy) to create a Trip', async () => {
-    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN' } });
+  it('lets a registered user with no Role or assignment create a Trip (FFI-04)', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'user-2', role: 'DONOR', assignments: [] } });
     const response = await POST(createRequest(VALID_BODY));
     expect(response.status).toBe(201);
+    expect(mockCreate.mock.calls[0][0].data.fundraiserId).toBe('user-2');
   });
 
   it('creates a DRAFT Trip owned by the requester', async () => {

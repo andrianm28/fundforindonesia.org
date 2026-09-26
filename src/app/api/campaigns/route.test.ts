@@ -256,7 +256,7 @@ describe('POST /api/campaigns', () => {
     expires: '2099-01-01',
   };
 
-  const unverifiedSession = {
+  const noRoleSession = {
     user: {
       id: 'user-2',
       name: 'Jane Doe',
@@ -264,6 +264,7 @@ describe('POST /api/campaigns', () => {
       isVerified: false,
       verificationType: null,
       role: 'DONOR',
+      assignments: [],
     },
     expires: '2099-01-01',
   };
@@ -291,15 +292,17 @@ describe('POST /api/campaigns', () => {
     expect(data.error).toBe('Unauthorized');
   });
 
-  it('returns 403 if user role is below CAMPAIGN_CREATOR', async () => {
-    mockGetServerSession.mockResolvedValue(unverifiedSession as never);
+  it('lets a registered user with no Role or assignment submit a Campaign (FFI-04)', async () => {
+    mockGetServerSession.mockResolvedValue(noRoleSession as never);
+    mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
 
     const request = createPostRequest(validBody);
     const response = await POST(request);
 
-    expect(response.status).toBe(403);
-    const data = await response.json();
-    expect(data.error).toBe('Forbidden');
+    expect(response.status).toBe(201);
+    const { data } = mockCreate.mock.calls[0][0];
+    expect(data.creatorId).toBe('user-2');
+    expect(data.lifecycleStatus).toBe('SUBMITTED');
   });
 
   it('returns 400 with field errors for invalid body', async () => {
