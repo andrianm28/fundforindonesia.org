@@ -5,7 +5,6 @@ import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
 import { CampaignStatus, CampaignStatusChangeAction } from '@/generated/prisma/client';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
-import { CampaignNotFoundError } from '@/lib/campaign-lifecycle-errors';
 import { lockAndLoad, requireContentEditable } from '@/lib/subject-guard';
 
 // Rendered per request: a Suspended Campaign's answer depends on who asks
@@ -187,7 +186,7 @@ export async function PATCH(
     // seen here, and one that comes after waits for this edit to commit.
     const updatedCampaign = await prisma.$transaction(async (tx) => {
       const state = await lockAndLoad(tx, { type: 'campaign', campaignId: campaign.id }, new Date());
-      if (!state) throw new CampaignNotFoundError(slug, 'slug');
+      if (!state) return null;
       requireContentEditable(state);
 
       return tx.campaign.update({
@@ -206,6 +205,13 @@ export async function PATCH(
         },
       });
     });
+
+    if (!updatedCampaign) {
+      return NextResponse.json(
+        { error: "Campaign tidak ditemukan" },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({ campaign: updatedCampaign });
   } catch (error) {

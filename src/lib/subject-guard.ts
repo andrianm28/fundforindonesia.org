@@ -11,9 +11,9 @@ import type { LedgerSubject } from "./money/ledger";
 
 /**
  * The subject guard: the one place that locks a Campaign or Volunteer Trip
- * row and reads it, for the lifecycle commands and for every money
+ * row and reads it, for the lifecycle commands, for every money
  * operation that spends or freezes a subject's money (Payouts, Refunds, the
- * Escrow release). It is the only code in `src` that issues
+ * Escrow release), and for the Campaign content edit. It is the only code in `src` that issues
  * `SELECT ... FOR UPDATE` on those two tables;
  * src/__tests__/properties/subject-lock-single-owner.test.ts pins that.
  *
@@ -199,9 +199,9 @@ export function requirePayoutAllowed(state: SubjectState): void {
 
 /**
  * The Campaign effective statuses whose content (title, description, story,
- * cover image) its Fundraiser or an Admin may edit directly (CONTEXT.md,
- * Verification Request). Submitted is frozen so the Verifier checks a fixed
- * version; the final statuses are closed.
+ * cover image; verification-request ticket 05) its Fundraiser or an Admin
+ * may edit directly. Submitted is frozen so the Verifier checks a fixed
+ * version (CONTEXT.md, Verification Request); the final statuses are closed.
  */
 const CONTENT_EDITABLE_STATUSES: readonly CampaignStatus[] = [
   CampaignStatus.DRAFT,

@@ -793,6 +793,19 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  it('answers 404 the same way when the Campaign is gone by the time the lock is taken', async () => {
+    storedAs('DRAFT');
+    mockFindUnique
+      .mockImplementationOnce((async () => ({ ...row })) as any)
+      .mockImplementationOnce((async () => null) as any);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Campaign tidak ditemukan' });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it('judges a submit committed before this edit took the lock, and writes nothing', async () => {
     storedAs('DRAFT');
     // The Fundraiser submits from another tab between our first read and
