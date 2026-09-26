@@ -10,7 +10,9 @@ CI on GitHub Actions stays the merge gate either way.
 The container (4 vCPU, 16 GB) is yours alone; its setup is in
 [cloud-environment.md](cloud-environment.md). The SessionStart hook
 (`.claude/hooks/session-start.sh`) puts Node 24 on `PATH`, runs `npm ci` and `npx prisma
-generate`. Before pushing, run what CI will run:
+generate`. Before pushing, run what CI will run. `npm run ci:local` runs the four CI jobs
+(test, build, migrations against a throwaway local Postgres, ratchet) in CI's
+order; pass job names to run a subset (`npm run ci:local -- test ratchet`). By hand:
 
 ```sh
 npx vitest run                 # full suite
