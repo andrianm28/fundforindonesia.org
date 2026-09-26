@@ -42,6 +42,12 @@ describe('loading the keys from env', () => {
     );
   });
 
+  it('refuses one key id for both secrets, so a stored id always names one key', () => {
+    expect(() =>
+      loadFieldKeys(env({ FIELD_ENCRYPTION_KEY_ID: 'k1', FIELD_HMAC_KEY_ID: 'k1' })),
+    ).toThrow(/key id/);
+  });
+
   it('refuses the same secret for HMAC and encryption, since ADR 0012 makes them separate', () => {
     const shared = randomBytes(32).toString('base64');
 
@@ -52,7 +58,9 @@ describe('loading the keys from env', () => {
 });
 
 describe('email lookup HMAC', () => {
-  // Reference value from: echo -n "andi@email.com" | openssl dgst -sha256 -hmac "k"x32
+  // Reference value, independent of this code:
+  //   echo -n "andi@email.com" | openssl dgst -sha256 -hmac kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
+  // KEY_OF_32_KS is that same 32-character key in base64.
   const KEY_OF_32_KS = 'a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=';
 
   it('is HMAC-SHA256 under the HMAC key of the normalized email, tagged with its key id', () => {
@@ -104,6 +112,14 @@ describe('field encryption', () => {
     expect(() =>
       keys.decrypt('User.phone', { ...sealed, ciphertext: raw.toString('base64') }),
     ).toThrow();
+  });
+
+  it('refuses a truncated ciphertext with a plain message', () => {
+    const keys = loadFieldKeys(env())!;
+
+    expect(() =>
+      keys.decrypt('User.phone', { ciphertext: 'c2hvcnQ=', keyId: 'enc-test-1' }),
+    ).toThrow(/too short/);
   });
 
   it('refuses a ciphertext sealed under a key id it does not hold', () => {

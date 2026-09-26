@@ -25,11 +25,17 @@ import { loadFieldKeys, type FieldKeys } from './field-encryption';
  * registration.
  */
 export function withContactFieldProtection(client: PrismaClient): PrismaClient {
+  const keys = loadFieldKeys(process.env);
+  if (!keys && process.env.NODE_ENV === 'production') {
+    console.warn(
+      'Field encryption is off: FIELD_ENCRYPTION_KEY and FIELD_HMAC_KEY are unset, so contact details are stored in plaintext only (ADR 0012).',
+    );
+  }
   return client.$extends({
     name: 'contactFieldProtection',
     // The hooks are typed loosely (they only touch `data`, `create` and
     // `update`); Prisma's per-model argument types add nothing here.
-    query: contactFieldWrites(loadFieldKeys(process.env)) as never,
+    query: contactFieldWrites(keys) as never,
   }) as unknown as PrismaClient;
 }
 
@@ -88,26 +94,24 @@ function protectUser(keys: FieldKeys, data: Data): Data {
   const email = scalarWrite(data.email);
   if (typeof email === 'string') {
     const lookup = keys.emailLookup(email);
-    const sealed = keys.encrypt('User.email', email);
     out.emailHmac = lookup.hmac;
     out.emailHmacKeyId = lookup.keyId;
-    out.emailCiphertext = sealed.ciphertext;
-    out.emailKeyId = sealed.keyId;
+    Object.assign(out, seal(keys, 'User.email', 'email', email));
   }
 
-  Object.assign(out, sealOptional(keys, 'User.phone', 'phone', scalarWrite(data.phone)));
+  Object.assign(out, seal(keys, 'User.phone', 'phone', scalarWrite(data.phone)));
   return out;
 }
 
 function protectBankAccount(keys: FieldKeys, data: Data): Data {
   return {
     ...data,
-    ...sealOptional(keys, 'BankAccount.accountNumber', 'accountNumber', scalarWrite(data.accountNumber)),
+    ...seal(keys, 'BankAccount.accountNumber', 'accountNumber', scalarWrite(data.accountNumber)),
   };
 }
 
-/** The ciphertext and key id columns for a nullable field; clears both when it is cleared. */
-function sealOptional(keys: FieldKeys, field: string, column: string, value: unknown): Data {
+/** The ciphertext and key id columns for a field; clears both when the field is cleared. */
+function seal(keys: FieldKeys, field: string, column: string, value: unknown): Data {
   if (value === null) return { [`${column}Ciphertext`]: null, [`${column}KeyId`]: null };
   if (typeof value !== 'string') return {};
   const sealed = keys.encrypt(field, value);

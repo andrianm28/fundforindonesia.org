@@ -52,6 +52,9 @@ export function loadFieldKeys(env: Record<string, string | undefined>): FieldKey
   if (encKey.equals(hmacKey)) {
     throw new Error('FIELD_ENCRYPTION_KEY and FIELD_HMAC_KEY must be separate secrets (ADR 0012)');
   }
+  if (encKeyId === hmacKeyId) {
+    throw new Error('FIELD_ENCRYPTION_KEY_ID and FIELD_HMAC_KEY_ID must differ: a key id names one key');
+  }
 
   return {
     emailLookup(email) {
@@ -71,6 +74,9 @@ export function loadFieldKeys(env: Record<string, string | undefined>): FieldKey
         throw new Error(`No field encryption key with id "${sealed.keyId}" is configured`);
       }
       const raw = Buffer.from(sealed.ciphertext, 'base64');
+      if (raw.length < IV_BYTES + TAG_BYTES) {
+        throw new Error(`Ciphertext for ${field} is too short to be sealed data`);
+      }
       const iv = raw.subarray(0, IV_BYTES);
       const tag = raw.subarray(raw.length - TAG_BYTES);
       const body = raw.subarray(IV_BYTES, raw.length - TAG_BYTES);
@@ -93,6 +99,6 @@ function decodeKey(name: string, value: string): Buffer {
 }
 
 /** Trimmed and lowercased, so a lookup finds the Donor however they typed it. */
-export function normalizeEmail(email: string): string {
+function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
