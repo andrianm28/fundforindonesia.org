@@ -88,7 +88,7 @@ cloud sessions only:
 
 - it puts `/opt/node24/bin` first on `PATH`, for the hook and, through
   `$CLAUDE_ENV_FILE`, for every command in the session;
-- it runs `npm install`, but only when `package-lock.json` or the Node
+- it runs `npm ci` (never rewrites the lockfile), but only when `package-lock.json` or the Node
   version changed;
 - it always runs `npx prisma generate`.
 
