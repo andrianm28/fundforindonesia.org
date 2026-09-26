@@ -18,14 +18,59 @@ RUN mkdir -p public
 # Generate Prisma client
 RUN npx prisma generate
 
-# Build Next.js (need dummy DATABASE_URL for page data collection)
+# Build-time public values. Next inlines NEXT_PUBLIC_* into the server and
+# client bundles during `next build`, so these are fixed per image: changing
+# one means building a new image, not restarting a container. cd.yml passes
+# them from the repository's Actions variables (see the comment there); the
+# defaults are production's values, so a plain `docker build` still matches
+# production. They are public by nature. Never pass a secret as a build arg:
+# build args are recorded in the image history and the provenance attestation.
+#   NEXT_PUBLIC_BASE_URL           canonical site URL (sitemap, SEO metadata)
+#   NEXTAUTH_URL                   the URL next-auth sees during the build; the
+#                                  running app takes it from the runtime env
+#   NEXT_PUBLIC_DONATIONS_ENABLED  "true" to take real donations, else off
+ARG NEXT_PUBLIC_BASE_URL="https://galang.fundforindonesia.org"
+ARG NEXTAUTH_URL="https://galang.fundforindonesia.org"
+ARG NEXT_PUBLIC_DONATIONS_ENABLED="false"
+
+# Build Next.js. DATABASE_URL and NEXTAUTH_SECRET are placeholders, not
+# secrets: a "dummy" URL makes src/lib/prisma.ts use its build-time mock. They
+# live in this stage only; the runner stage below starts from a clean base and
+# gets the real values from the runtime environment.
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy?schema=public"
-ENV NEXTAUTH_SECRET="build-time-secret"
-ENV NEXTAUTH_URL="https://galang.fundforindonesia.org"
-ENV NEXT_PUBLIC_BASE_URL="https://galang.fundforindonesia.org"
+ENV NEXTAUTH_SECRET="build-time-placeholder-not-a-secret"
+ENV NEXTAUTH_URL=$NEXTAUTH_URL
+ENV NEXT_PUBLIC_BASE_URL=$NEXT_PUBLIC_BASE_URL
+ENV NEXT_PUBLIC_DONATIONS_ENABLED=$NEXT_PUBLIC_DONATIONS_ENABLED
 RUN npm run build
+
+# Stage: migrate (`docker build --target migrate`). A small one-off image that
+# runs `prisma migrate deploy` against $DATABASE_URL and exits. The app image
+# cannot: its standalone output carries neither the prisma CLI nor
+# prisma.config.ts. Rather than ship the whole dependency tree (the deps stage
+# is most of a gigabyte), it installs just the two packages the CLI and
+# prisma.config.ts need, at the exact versions package-lock.json pins, so it
+# migrates with the same Prisma the app was built and CI-tested with.
+FROM node:24-alpine AS migrate
+WORKDIR /app
+
+COPY package-lock.json /tmp/package-lock.json
+RUN versions="$(node -e 'const p = require("/tmp/package-lock.json").packages; console.log(["prisma", "dotenv"].map((n) => n + "@" + p["node_modules/" + n].version).join(" "))')" \
+    && npm install --no-save --no-package-lock --no-audit --no-fund $versions \
+    && npm cache clean --force \
+    && rm /tmp/package-lock.json
+
+# --chown for the same reason the runner chowns public/: COPY keeps the build
+# context's modes, and a checkout that is drwxrwx--- would leave the
+# migrations unreadable to `node`, the base image's stock unprivileged user.
+COPY --chown=node:node prisma ./prisma
+COPY --chown=node:node prisma.config.ts ./
+
+USER node
+
+CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
 
 # Stage 3: Production
 FROM node:24-alpine AS runner
