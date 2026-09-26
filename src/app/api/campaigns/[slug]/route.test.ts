@@ -15,6 +15,9 @@ vi.mock('@/lib/prisma', () => ({
     campaignStatusChange: {
       findFirst: vi.fn(),
     },
+    verificationRequest: {
+      findFirst: vi.fn(),
+    },
     partnerOrganisation: {
       findUnique: vi.fn(),
     },
@@ -39,6 +42,7 @@ const mockFindUnique = vi.mocked(prisma.campaign.findUnique);
 const mockUpdate = vi.mocked(prisma.campaign.update);
 const mockGetServerSession = vi.mocked(getServerSession);
 const mockStatusChangeFindFirst = vi.mocked(prisma.campaignStatusChange.findFirst);
+const mockVerificationRequestFindFirst = vi.mocked(prisma.verificationRequest.findFirst);
 const mockTransaction = vi.mocked(prisma.$transaction);
 const mockLockQuery = vi.mocked(prisma.$queryRaw);
 const mockPlatformFeeRuleFindFirst = vi.mocked(prisma.platformFeeRule.findFirst);
@@ -496,6 +500,59 @@ describe('GET /api/campaigns/[slug] -- where the Campaign stands', () => {
     it('does not read the session for a Campaign that is not Suspended', async () => {
       await getAs(campaignRow({ lifecycleStatus: 'ACTIVE' }));
       expect(mockGetServerSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the pending Verification Request id (verification-request 10)', () => {
+    function sessionOf(id: string, assignments: string[] = []) {
+      mockGetServerSession.mockResolvedValue({ user: { id, assignments } } as any);
+    }
+
+    const submitted = () => campaignRow({ lifecycleStatus: 'SUBMITTED' });
+
+    it("is returned to the owning Fundraiser, so their Campaign page can offer to withdraw it", async () => {
+      sessionOf('owner-1');
+      mockVerificationRequestFindFirst.mockResolvedValue({ id: 'request-9' } as any);
+      const { body } = await getAs(submitted());
+      expect(body.campaign.pendingVerificationRequestId).toBe('request-9');
+    });
+
+    it('is withheld from a Verifier -- viewing is not acting, and the button is the Fundraiser\'s alone', async () => {
+      sessionOf('verifier-1', ['VERIFIER']);
+      mockVerificationRequestFindFirst.mockResolvedValue({ id: 'request-9' } as any);
+      const { body } = await getAs(submitted());
+      expect(body.campaign).not.toHaveProperty('pendingVerificationRequestId');
+    });
+
+    it('is withheld from an Admin', async () => {
+      sessionOf('admin-1', ['ADMIN']);
+      mockVerificationRequestFindFirst.mockResolvedValue({ id: 'request-9' } as any);
+      const { body } = await getAs(submitted());
+      expect(body.campaign).not.toHaveProperty('pendingVerificationRequestId');
+    });
+
+    it('is not returned once the Campaign is no longer Submitted, even to the owner', async () => {
+      sessionOf('owner-1');
+      const { body } = await getAs(campaignRow({ lifecycleStatus: 'ACTIVE' }));
+      expect(body.campaign).not.toHaveProperty('pendingVerificationRequestId');
+    });
+
+    it('comes back null for the owner when no PENDING request is found (already decided or withdrawn elsewhere)', async () => {
+      sessionOf('owner-1');
+      mockVerificationRequestFindFirst.mockResolvedValue(null);
+      const { body } = await getAs(submitted());
+      expect(body.campaign.pendingVerificationRequestId).toBeNull();
+    });
+
+    it('looks up the PENDING request for this Campaign, not any other', async () => {
+      sessionOf('owner-1');
+      mockVerificationRequestFindFirst.mockResolvedValue({ id: 'request-9' } as any);
+      await getAs(submitted());
+      expect(mockVerificationRequestFindFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ campaignId: 'campaign-1', outcome: 'PENDING' }),
+        })
+      );
     });
   });
 });

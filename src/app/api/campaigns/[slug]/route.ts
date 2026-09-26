@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
-import { CampaignStatus, CampaignStatusChangeAction } from '@/generated/prisma/client';
+import { CampaignStatus, CampaignStatusChangeAction, VerificationOutcome } from '@/generated/prisma/client';
 import { donationBlock, effectiveStatus } from '@/lib/campaign-lifecycle';
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import {
@@ -65,6 +65,30 @@ async function suspensionReasonFor(campaign: {
   return latest?.reason ?? null;
 }
 
+/**
+ * The id of the PENDING Verification Request a Submitted Campaign waits on,
+ * returned only to its owning Fundraiser (verification-request 10) so their
+ * Campaign page can offer "Tarik pengajuan". Anyone else, a Verifier or
+ * Admin included, gets `undefined`, so the field is left out of the
+ * payload: viewing is not acting, and the withdraw button is the
+ * Fundraiser's alone.
+ */
+async function pendingVerificationRequestIdFor(campaign: {
+  id: string;
+  creatorId: string;
+}, lifecycleStatus: CampaignStatus): Promise<string | null | undefined> {
+  if (lifecycleStatus !== CampaignStatus.SUBMITTED) return undefined;
+  const session = await getServerSession();
+  if (!session?.user?.id || session.user.id !== campaign.creatorId) {
+    return undefined;
+  }
+  const pending = await prisma.verificationRequest.findFirst({
+    where: { campaignId: campaign.id, outcome: VerificationOutcome.PENDING },
+    select: { id: true },
+  });
+  return pending?.id ?? null;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -115,6 +139,7 @@ export async function GET(
     const suspensionReason = isSuspended
       ? await suspensionReasonFor(campaign)
       : undefined;
+    const pendingVerificationRequestId = await pendingVerificationRequestIdFor(campaign, lifecycleStatus);
 
     // The rate in force right now (prd-compliance 17), resolved the same
     // way as the public page and frozen the same way POST /api/donations
@@ -148,6 +173,7 @@ export async function GET(
         donationCount: campaign._count.donations,
         platformFeePercentBps,
         ...(suspensionReason !== undefined && { suspensionReason }),
+        ...(pendingVerificationRequestId !== undefined && { pendingVerificationRequestId }),
       },
     });
 
