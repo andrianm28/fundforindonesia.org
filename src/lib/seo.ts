@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { publicUrl } from '@/lib/public-url';
 
 export interface SEOProps {
   title: string;
@@ -10,12 +11,11 @@ export interface SEOProps {
 }
 
 const SITE_NAME = 'Fund for Indonesia';
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://fundforindonesia.com';
 
 export function generateSEOMetadata(props: SEOProps): Metadata {
   const { title, description, image, url, type = 'website' } = props;
   const fullTitle = `${title} - ${SITE_NAME}`;
-  const canonicalUrl = `${BASE_URL}${url}`;
+  const canonicalUrl = publicUrl(url);
 
   return {
     title: fullTitle,

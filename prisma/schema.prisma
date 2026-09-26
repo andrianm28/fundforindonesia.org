@@ -33,6 +33,19 @@ model User {
   password         String?
   avatar           String?
   phone            String?
+  // Field-level protection (ADR 0012), expand step: written next to the
+  // plaintext `email` and `phone` by the client hook in
+  // src/lib/field-protection.ts; nothing reads them yet. Null on rows written
+  // before the keys were configured, until the backfill. `name` stays
+  // plaintext by decision, not by omission.
+  /// Hex HMAC-SHA256 of the trimmed, lowercased email under FIELD_HMAC_KEY. Searchable.
+  emailHmac        String?
+  emailHmacKeyId   String?
+  /// base64(iv | AES-256-GCM ciphertext | tag) of the email under FIELD_ENCRYPTION_KEY.
+  emailCiphertext  String?
+  emailKeyId       String?
+  phoneCiphertext  String?
+  phoneKeyId       String?
   // Retired: the self-claimed verification and the Role hierarchy. No
   // application code or seed reads or writes them (retire-role-hierarchy
   // 02); authority comes only from assignments (ADR 0005). Nullable and
@@ -80,6 +93,7 @@ model User {
   refundsApproved  Refund[]      @relation("RefundApprover")
 
   @@index([email])
+  @@index([emailHmac])
 }
 
 /// Verifier and Admin are assignments a person holds, not ranks.
@@ -870,6 +884,11 @@ model BankAccount {
   /// Stored in full. This is a payout destination, not a card number -- it has
   /// to be readable to instruct the transfer, and masking happens at the UI.
   accountNumber String
+  /// ADR 0012 expand step: randomized AES-256-GCM of `accountNumber`, written
+  /// beside it by src/lib/field-protection.ts. Null until keys are set or the
+  /// backfill runs. `accountName` stays plaintext: Refund compares it.
+  accountNumberCiphertext String?
+  accountNumberKeyId      String?
   accountName   String
   /// Set only once the name has been checked against the bank's records.
   /// Payouts must refuse an unverified destination.

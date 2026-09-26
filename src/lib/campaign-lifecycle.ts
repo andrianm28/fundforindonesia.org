@@ -75,6 +75,7 @@ import { effectiveStatus, lockAndLoad } from "./subject-guard";
 import { SUBMITTABLE_STATUSES } from "./verification-submission";
 import { sendReportingFailure, type Mailer, type MailMessage } from "./mail";
 import { verificationOutcomeEmail } from "./mail/verification-outcome";
+import { publicUrl } from "./public-url";
 
 // ==================== Effective status ====================
 
@@ -761,7 +762,7 @@ export async function decideVerificationRequest(
         to: fundraiser.email,
         fundraiserName: fundraiser.name,
         campaignTitle: campaign.title,
-        campaignUrl: `${siteUrl()}/campaign/${campaign.slug}`,
+        campaignUrl: publicUrl(`/campaign/${campaign.slug}`),
         ...(decision.outcome === VerificationOutcome.APPROVED
           ? { outcome: "approved" as const }
           : { outcome: "rejected" as const, reason: requireReason(reason) }),
@@ -782,16 +783,6 @@ export async function decideVerificationRequest(
     );
   }
   return result;
-}
-
-/**
- * The public site address links in an email start with: the same address,
- * and the same fallback, the SEO and sitemap links use (src/lib/seo.ts).
- */
-function siteUrl(): string {
-  const base =
-    process.env.NEXT_PUBLIC_BASE_URL || "https://fundforindonesia.com";
-  return base.replace(/\/+$/, "");
 }
 
 /** The Campaign and the request as a withdrawal leaves them; the same shape a submission returns. */

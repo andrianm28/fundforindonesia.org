@@ -73,3 +73,28 @@ describe('sitemap Campaign pages', () => {
     expect(await campaignSlugsInSitemap()).toEqual(['active', 'completed', 'expired', 'expired-unrecorded']);
   });
 });
+
+describe('the sitemap links the canonical public site', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('falls back to https://fundforindonesia.org when NEXT_PUBLIC_BASE_URL is unset', async () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', '');
+
+    const urls = (await sitemap()).map((entry) => entry.url);
+
+    expect(urls).toContain('https://fundforindonesia.org');
+    expect(urls).toContain('https://fundforindonesia.org/campaign/active');
+    expect(urls.every((url) => url.startsWith('https://fundforindonesia.org'))).toBe(true);
+  });
+
+  it('uses NEXT_PUBLIC_BASE_URL, without its trailing slash', async () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://staging.example.test/');
+
+    const urls = (await sitemap()).map((entry) => entry.url);
+
+    expect(urls).toContain('https://staging.example.test');
+    expect(urls).toContain('https://staging.example.test/zakat');
+  });
+});
