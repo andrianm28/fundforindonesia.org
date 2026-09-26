@@ -63,6 +63,9 @@ export async function GET(request: NextRequest) {
     const [campaigns, total] = await Promise.all([
       prisma.campaign.findMany({
         where,
+        // The legacy status string is never sent; lifecycleStatus is the
+        // one status field (spec legacy-status-contract).
+        omit: { status: true },
         include: {
           creator: {
             select: {

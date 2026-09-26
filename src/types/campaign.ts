@@ -1,22 +1,15 @@
 // Campaign entity types matching Prisma models
 
-export type CampaignStatus = "active" | "completed" | "expired";
+import type { CampaignStatus } from "@/generated/prisma/client";
 
 /**
- * The Campaign's effective lifecycle status as GET /api/campaigns/[slug]
- * and the Campaign page send it: an Active Campaign past its deadline
- * already arrives as EXPIRED. Spelled out rather than imported from the
- * generated Prisma client, which does not belong in a browser bundle.
+ * The Campaign Status as payloads and pages carry it, in `lifecycleStatus`
+ * (the legacy `status` string is never sent). Sent effective: an Active
+ * Campaign past its deadline already arrives as EXPIRED. A type-only import
+ * of the Prisma enum, so the generated client never reaches a browser
+ * bundle.
  */
-export type CampaignLifecycleStatus =
-  | "DRAFT"
-  | "SUBMITTED"
-  | "REJECTED"
-  | "ACTIVE"
-  | "SUSPENDED"
-  | "CANCELLED"
-  | "COMPLETED"
-  | "EXPIRED";
+export type CampaignLifecycleStatus = CampaignStatus;
 
 export interface Campaign {
   id: string;
@@ -28,8 +21,7 @@ export interface Campaign {
   targetAmount: number;
   collectedAmount: number;
   category: string;
-  status: CampaignStatus;
-  /** Sent by GET /api/campaigns/[slug]; a reader that needs it treats absence as not Active. */
+  /** Effective. A reader that needs it treats absence as not Active. */
   lifecycleStatus?: CampaignLifecycleStatus;
   isUrgent: boolean;
   /** Sample content marked by the task M9 migration -- see schema.prisma. Never take money from a campaign where this is true. */
@@ -124,7 +116,6 @@ export interface UpdateCampaignInput {
   category?: string;
   isUrgent?: boolean;
   deadline?: Date | null;
-  status?: CampaignStatus;
 }
 
 export interface CreateCampaignUpdateInput {
@@ -145,7 +136,6 @@ export interface CampaignFilters {
   category?: string;
   search?: string;
   urgent?: boolean;
-  status?: CampaignStatus;
 }
 
 export interface CampaignListResponse {

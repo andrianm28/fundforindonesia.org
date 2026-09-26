@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import type { CampaignLifecycleStatus } from "@/types/campaign";
 
 interface CampaignModerationActionsProps {
   campaignId: string;
-  currentStatus: string;
+  currentStatus: CampaignLifecycleStatus;
 }
 
 export function CampaignModerationActions({
@@ -65,7 +66,8 @@ export function CampaignModerationActions({
     }
   };
 
-  const isPending = currentStatus === "pending";
+  // Only a Submitted Campaign awaits a Verifier's decision.
+  const awaitsVerifier = currentStatus === "SUBMITTED";
 
   return (
     <div className="bg-white rounded-xl border border-[#E0E0E0] p-6">
@@ -85,14 +87,14 @@ export function CampaignModerationActions({
         </div>
       )}
 
-      {!isPending && (
+      {!awaitsVerifier && (
         <p className="text-sm text-[#757575]">
           Kampanye ini sudah dimoderasi dengan status saat ini.
         </p>
       )}
 
       <div className="flex flex-wrap gap-3">
-        {isPending && (
+        {awaitsVerifier && (
           <>
             <button
               onClick={() => handleAction("approve")}

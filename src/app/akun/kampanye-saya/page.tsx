@@ -7,6 +7,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { formatRupiah } from '@/lib/utils/currency';
+import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
+import type { CampaignLifecycleStatus } from '@/types/campaign';
 
 interface Campaign {
   id: string;
@@ -15,7 +17,8 @@ interface Campaign {
   coverImage: string;
   collectedAmount: number;
   targetAmount: number;
-  status: string;
+  /** Effective: an Active Campaign past its deadline arrives as EXPIRED. */
+  lifecycleStatus: CampaignLifecycleStatus;
   createdAt: string;
 }
 
@@ -30,35 +33,6 @@ const fetcher = (url: string) => fetch(url).then((res) => {
   if (!res.ok) throw new Error('Failed to fetch');
   return res.json();
 });
-
-function getStatusBadge(status: string) {
-  switch (status) {
-    case 'active':
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-          Aktif
-        </span>
-      );
-    case 'completed':
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-          Selesai
-        </span>
-      );
-    case 'expired':
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-          Berakhir
-        </span>
-      );
-    default:
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-          {status}
-        </span>
-      );
-  }
-}
 
 export default function MyCampaignsPage() {
   const { data: session, status } = useSession();
@@ -207,7 +181,7 @@ export default function MyCampaignsPage() {
                       <h3 className="text-[#212121] text-sm font-medium line-clamp-2 flex-1">
                         {campaign.title}
                       </h3>
-                      {getStatusBadge(campaign.status)}
+                      <CampaignStatusBadge status={campaign.lifecycleStatus} />
                     </div>
                   </div>
 

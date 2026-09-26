@@ -18,6 +18,8 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+import { render, screen, cleanup } from "@testing-library/react";
+import { campaignRow, makeCampaignDb } from "../../../tests/support/in-memory-campaign-db";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import ModerasiPage from "./page";
@@ -48,5 +50,24 @@ describe("ModerasiPage", () => {
     const result = await ModerasiPage();
     expect(result).toBeDefined();
     expect(mockCampaignCount).toHaveBeenCalledOnce();
+  });
+
+  it("counts the Submitted Campaigns as awaiting review, whatever the legacy status string says", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", role: "MODERATOR", assignments: ["VERIFIER"] } });
+    const db = makeCampaignDb({
+      campaigns: [
+        campaignRow({ id: "a", slug: "a", lifecycleStatus: "SUBMITTED" }),
+        campaignRow({ id: "b", slug: "b", status: "active", lifecycleStatus: "SUBMITTED" }),
+        campaignRow({ id: "c", slug: "c", status: "pending", lifecycleStatus: "ACTIVE" }),
+        campaignRow({ id: "d", slug: "d", status: "pending", lifecycleStatus: "DRAFT" }),
+      ],
+    });
+    mockCampaignCount.mockImplementation((args) => db.prisma.campaign.count(args));
+
+    render(await ModerasiPage());
+
+    const card = screen.getByText("Kampanye Menunggu Review").parentElement!;
+    expect(card.textContent).toContain("2");
+    cleanup();
   });
 });

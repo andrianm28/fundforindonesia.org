@@ -79,7 +79,6 @@ export async function POST(request: NextRequest) {
       where: { id: campaignId },
       select: {
         id: true,
-        status: true,
         lifecycleStatus: true,
         deadline: true,
         title: true,

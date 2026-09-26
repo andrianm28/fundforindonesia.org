@@ -20,7 +20,6 @@ const mockCampaign: CampaignDetailData = {
   targetAmount: 50000000,
   collectedAmount: 25841000,
   category: 'bencana-alam',
-  status: 'active',
   lifecycleStatus: 'ACTIVE',
   isUrgent: false,
   isDemo: false,

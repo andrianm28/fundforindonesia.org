@@ -104,7 +104,6 @@ export async function GET(
         targetAmount: campaign.targetAmount,
         collectedAmount: campaign.collectedAmount,
         category: campaign.category,
-        status: campaign.status,
         lifecycleStatus,
         isUrgent: campaign.isUrgent,
         isDemo: campaign.isDemo,

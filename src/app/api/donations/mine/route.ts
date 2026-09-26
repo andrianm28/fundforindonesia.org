@@ -36,7 +36,6 @@ export async function GET(request: NextRequest) {
             title: true,
             slug: true,
             coverImage: true,
-            status: true,
           },
         },
       },

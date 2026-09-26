@@ -1,5 +1,6 @@
-import { CampaignStatus } from "@/generated/prisma/client";
+import type { CampaignStatus } from "@/generated/prisma/client";
 import { DomainError, type LifecycleErrorCode } from "./domain-errors";
+import { STATUS_LABEL } from "./campaign-status-label";
 
 /**
  * The lifecycle module's typed refusals. Kept apart from the command module
@@ -18,17 +19,8 @@ export abstract class CampaignLifecycleError extends DomainError {
 
 export { domainErrorToHttp, type LifecycleErrorCode } from "./domain-errors";
 
-/** Glossary names (CONTEXT.md), used as-is inside Indonesian sentences. */
-export const STATUS_LABEL: Record<CampaignStatus, string> = {
-  DRAFT: "Draft",
-  SUBMITTED: "Submitted",
-  REJECTED: "Rejected",
-  ACTIVE: "Active",
-  SUSPENDED: "Suspended",
-  CANCELLED: "Cancelled",
-  COMPLETED: "Completed",
-  EXPIRED: "Expired",
-};
+/** The glossary name of each status, used inside the sentences below. */
+export { STATUS_LABEL };
 
 /** A required input is missing or malformed, such as a blank reason. */
 export class LifecycleValidationError extends CampaignLifecycleError {

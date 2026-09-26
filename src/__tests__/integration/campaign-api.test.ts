@@ -77,6 +77,7 @@ function makeCampaign(overrides: Record<string, unknown> = {}) {
     collectedAmount: 25000000,
     category: 'bencana-alam',
     status: 'active',
+    lifecycleStatus: 'ACTIVE',
     isUrgent: false,
     deadline: new Date('2025-12-31'),
     creatorId: 'user-1',
@@ -364,7 +365,8 @@ describe('Campaign API Integration Tests', () => {
       expect(campaign).toHaveProperty('targetAmount');
       expect(campaign).toHaveProperty('collectedAmount');
       expect(campaign).toHaveProperty('category');
-      expect(campaign).toHaveProperty('status');
+      expect(campaign).toHaveProperty('lifecycleStatus');
+      expect(campaign).not.toHaveProperty('status');
       expect(campaign).toHaveProperty('isUrgent');
       expect(campaign).toHaveProperty('deadline');
       expect(campaign).toHaveProperty('creator');

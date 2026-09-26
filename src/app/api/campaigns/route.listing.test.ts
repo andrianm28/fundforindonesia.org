@@ -89,6 +89,17 @@ describe('GET /api/campaigns lists only effectively Active Campaigns', () => {
     }
   );
 
+  it('sends lifecycleStatus and no legacy status string', async () => {
+    const response = await GET(new NextRequest(new URL('http://localhost:3000/api/campaigns')));
+    const { campaigns } = await response.json();
+
+    expect(campaigns.length).toBeGreaterThan(0);
+    for (const campaign of campaigns) {
+      expect(campaign.lifecycleStatus).toBe('ACTIVE');
+      expect(campaign).not.toHaveProperty('status');
+    }
+  });
+
   it('writes nothing while listing', async () => {
     const before = holder.db.campaigns.map((c) => ({ ...c }));
     await listSlugs();

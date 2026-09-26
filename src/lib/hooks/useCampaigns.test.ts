@@ -21,7 +21,7 @@ const mockCampaignsResponse: CampaignsResponse = {
       targetAmount: 100000000,
       collectedAmount: 50000000,
       category: 'bencana-alam',
-      status: 'active',
+      lifecycleStatus: 'ACTIVE',
       isUrgent: true,
       isDemo: false,
       deadline: null,
