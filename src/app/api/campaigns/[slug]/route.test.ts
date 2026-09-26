@@ -267,6 +267,7 @@ describe('GET /api/campaigns/[slug]', () => {
             id: true,
             name: true,
             permits: { select: { kinds: true, validFrom: true, validTo: true } },
+            kindAuthorisations: { select: { kind: true, validFrom: true, validTo: true } },
           },
         },
         _count: {
@@ -1023,6 +1024,16 @@ describe('PATCH /api/campaigns/[slug] -- Kind is fixed once the Campaign leaves 
     mockFindUnique.mockImplementation((async () => ({ ...row })) as never);
     mockUpdate.mockImplementation((async (args: { data: object }) => ({ ...row, ...args.data })) as never);
     mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as never);
+    // The owner acts for a Partner Organisation, so every non-donation Kind
+    // below is one it may run (CONTEXT.md, Kind Authorisation): this block
+    // tests Kind editability, not the individual-Fundraiser restriction,
+    // which src/app/api/campaigns/route.test.ts covers.
+    vi.mocked(prisma.partnerOrganisation.findUnique).mockResolvedValue({
+      id: 'org-1',
+      name: 'Yayasan Contoh',
+      fundraiserId: owner.id,
+      acceptsIndividualCampaigns: false,
+    } as never);
   });
 
   afterEach(() => {
@@ -1105,6 +1116,66 @@ describe('PATCH /api/campaigns/[slug] -- Kind is fixed once the Campaign leaves 
     expect(mockUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: { kind: 'DONATION', deadline: DEADLINE } }),
     );
+  });
+});
+
+describe('PATCH /api/campaigns/[slug] -- an individual Fundraiser may only run donation (CONTEXT.md, Kind Authorisation)', () => {
+  const NOW = new Date('2026-09-26T12:00:00Z');
+  const DEADLINE = new Date('2026-12-31T00:00:00Z');
+  const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as never);
+    mockLockQuery.mockResolvedValue([] as never);
+    mockFindUnique.mockImplementation((async () => ({ ...row })) as never);
+    mockUpdate.mockImplementation((async (args: { data: object }) => ({ ...row, ...args.data })) as never);
+    mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as never);
+    // An individual Fundraiser: acts for no Partner Organisation.
+    vi.mocked(prisma.partnerOrganisation.findUnique).mockResolvedValue(null as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function storedAs(kind: string, deadline: Date | null = DEADLINE) {
+    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus: 'DRAFT', deadline, kind };
+  }
+
+  function edit(body: Record<string, unknown>) {
+    return PATCH(createRequest('bantu-korban-banjir', 'PATCH', body), {
+      params: Promise.resolve({ slug: 'bantu-korban-banjir' }),
+    });
+  }
+
+  it.each(['ZAKAT', 'WAKAF', 'HIBAH'])('refuses turning a Draft into %s, writing nothing', async (kind) => {
+    storedAs('DONATION');
+
+    const response = await edit({ kind });
+
+    expect(response.status).toBe(422);
+    expect((await response.json()).code).toBe('INDIVIDUAL_FUNDRAISER_KIND_NOT_ALLOWED');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('still lets it stay or become donation', async () => {
+    storedAs('DONATION');
+
+    const response = await edit({ kind: 'DONATION', title: 'Judul Baru' });
+
+    expect(response.status).toBe(200);
+  });
+
+  it('does not judge the Kind when the edit leaves it unchanged', async () => {
+    storedAs('ZAKAT');
+
+    const response = await edit({ title: 'Judul Baru' });
+
+    expect(response.status).toBe(200);
   });
 });
 

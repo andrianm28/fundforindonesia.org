@@ -2,22 +2,27 @@ import { Prisma } from "@/generated/prisma/client";
 import type {
   FundraisingPermit,
   Kind,
+  KindAuthorisation,
   PartnerOrganisation,
   PartnerOrganisationAuditAction,
   PrismaClient,
 } from "@/generated/prisma/client";
 import { DomainError, type PartnerOrganisationErrorCode } from "./domain-errors";
 import { parseKind } from "./campaign-kind";
+import { requiresKindAuthorisation } from "./collecting-entity";
 
 /**
- * The Verifier's register of Partner Organisations and their Fundraising
- * Permits (prd-compliance 10; CONTEXT.md, Partner Organisation, Fundraising
- * Permit). A Verifier registers an organisation after checking its legal
- * documents, linked to the one Fundraiser account that acts for it, sets
- * whether it accepts individual Campaigns, and records each permit (number,
- * issuer, Kinds covered, valid from and to). Nothing is ever deleted; every
- * registration and change writes a PartnerOrganisationAuditEntry with the
- * actor, the time, and the record before and after, in the same transaction.
+ * The Verifier's register of Partner Organisations, their Fundraising
+ * Permits and their Kind Authorisations (prd-compliance 10, 11; CONTEXT.md,
+ * Partner Organisation, Fundraising Permit, Kind Authorisation). A Verifier
+ * registers an organisation after checking its legal documents, linked to
+ * the one Fundraiser account that acts for it, sets whether it accepts
+ * individual Campaigns, records each Fundraising Permit (number, issuer,
+ * Kinds covered, valid from and to), and grants each Kind Authorisation (one
+ * Kind, a document reference, valid from and to). Nothing is ever deleted;
+ * every registration and change writes a PartnerOrganisationAuditEntry with
+ * the actor, the time, and the record before and after, in the same
+ * transaction.
  *
  * Callers establish the VERIFIER assignment (the routes do, through
  * withAssignmentCheck); these commands take the acting person's id. As with
@@ -51,6 +56,14 @@ export class FundraisingPermitNotFoundError extends PartnerOrganisationError {
   constructor() {
     super("Fundraising Permit tidak ditemukan.");
     this.name = "FundraisingPermitNotFoundError";
+  }
+}
+
+export class KindAuthorisationNotFoundError extends PartnerOrganisationError {
+  readonly code = "KIND_AUTHORISATION_NOT_FOUND";
+  constructor() {
+    super("Kind Authorisation tidak ditemukan.");
+    this.name = "KindAuthorisationNotFoundError";
   }
 }
 
@@ -113,6 +126,19 @@ function cleanKinds(raw: unknown): Kind[] {
   return Array.from(new Set(kinds as Kind[]));
 }
 
+/** The single Kind a Kind Authorisation grants; never `donation`, which needs none. */
+function cleanKind(raw: unknown): Kind {
+  const kind = typeof raw === "string" ? parseKind(raw) : null;
+  if (!kind) throw new InvalidPartnerOrganisationError("Kind tidak dikenal.", "kind");
+  if (!requiresKindAuthorisation(kind)) {
+    throw new InvalidPartnerOrganisationError(
+      "Kind Authorisation hanya berlaku untuk Zakat, Wakaf, atau Hibah.",
+      "kind"
+    );
+  }
+  return kind;
+}
+
 function requireWindow(validFrom: Date, validTo: Date): void {
   if (validTo.getTime() < validFrom.getTime()) {
     throw new InvalidPartnerOrganisationError("Akhir masa berlaku tidak boleh sebelum awalnya.", "validTo");
@@ -124,6 +150,8 @@ function requireWindow(validFrom: Date, validTo: Date): void {
 type OrganisationState = Pick<PartnerOrganisation, "name" | "fundraiserId" | "acceptsIndividualCampaigns">;
 
 type PermitState = { number: string; issuer: string; kinds: Kind[]; validFrom: string; validTo: string };
+
+type KindAuthorisationState = { kind: Kind; documentReference: string; validFrom: string; validTo: string };
 
 function organisationState(organisation: OrganisationState): OrganisationState {
   return {
@@ -143,14 +171,26 @@ function permitState(permit: Pick<FundraisingPermit, "number" | "issuer" | "kind
   };
 }
 
+function kindAuthorisationState(
+  authorisation: Pick<KindAuthorisation, "kind" | "documentReference" | "validFrom" | "validTo">
+): KindAuthorisationState {
+  return {
+    kind: authorisation.kind,
+    documentReference: authorisation.documentReference,
+    validFrom: authorisation.validFrom.toISOString(),
+    validTo: authorisation.validTo.toISOString(),
+  };
+}
+
 async function audit(
   tx: Tx,
   entry: {
     organisationId: string;
     permitId?: string;
+    kindAuthorisationId?: string;
     action: PartnerOrganisationAuditAction;
-    before: OrganisationState | PermitState | null;
-    after: OrganisationState | PermitState;
+    before: OrganisationState | PermitState | KindAuthorisationState | null;
+    after: OrganisationState | PermitState | KindAuthorisationState;
     actorId: string;
     now: Date;
   }
@@ -159,6 +199,7 @@ async function audit(
     data: {
       partnerOrganisationId: entry.organisationId,
       permitId: entry.permitId ?? null,
+      kindAuthorisationId: entry.kindAuthorisationId ?? null,
       action: entry.action,
       before: entry.before ?? undefined,
       after: entry.after,
@@ -391,6 +432,106 @@ export async function updateFundraisingPermit(
       now,
     });
     return permit;
+  });
+}
+
+/**
+ * Grants a Kind Authorisation the organisation holds for one non-donation
+ * Kind (prd-compliance 11; CONTEXT.md, Kind Authorisation).
+ */
+export async function grantKindAuthorisation(
+  prisma: PrismaClient,
+  params: {
+    actorId: string;
+    organisationId: string;
+    kind: unknown;
+    documentReference: unknown;
+    validFrom: unknown;
+    validTo: unknown;
+    now?: Date;
+  }
+): Promise<KindAuthorisation> {
+  const kind = cleanKind(params.kind);
+  const documentReference = cleanText(params.documentReference, "Rujukan dokumen", "documentReference");
+  const validFrom = cleanDate(params.validFrom, "Awal masa berlaku", "validFrom");
+  const validTo = cleanDate(params.validTo, "Akhir masa berlaku", "validTo");
+  requireWindow(validFrom, validTo);
+  const now = params.now ?? new Date();
+
+  return prisma.$transaction(async (tx) => {
+    const organisation = await lockOrganisation(tx, params.organisationId, params.actorId);
+    const authorisation = await tx.kindAuthorisation.create({
+      data: {
+        partnerOrganisationId: organisation.id,
+        kind,
+        documentReference,
+        validFrom,
+        validTo,
+        grantedById: params.actorId,
+        grantedAt: now,
+      },
+    });
+    await audit(tx, {
+      organisationId: organisation.id,
+      kindAuthorisationId: authorisation.id,
+      action: "KIND_AUTHORISATION_GRANTED",
+      before: null,
+      after: kindAuthorisationState(authorisation),
+      actorId: params.actorId,
+      now,
+    });
+    return authorisation;
+  });
+}
+
+/**
+ * Corrects or renews a Kind Authorisation: any of `kind`, `documentReference`,
+ * `validFrom` and `validTo`, at least one. A change that leaves it as it was
+ * writes no audit entry. Renewal reopens Donations for its Kind immediately,
+ * since accepting Donations is computed lazily.
+ */
+export async function updateKindAuthorisation(
+  prisma: PrismaClient,
+  params: {
+    actorId: string;
+    organisationId: string;
+    kindAuthorisationId: string;
+    changes: { kind?: unknown; documentReference?: unknown; validFrom?: unknown; validTo?: unknown };
+    now?: Date;
+  }
+): Promise<KindAuthorisation> {
+  const { changes } = params;
+  const data: Partial<Pick<KindAuthorisation, "kind" | "documentReference" | "validFrom" | "validTo">> = {};
+  if (changes.kind !== undefined) data.kind = cleanKind(changes.kind);
+  if (changes.documentReference !== undefined) {
+    data.documentReference = cleanText(changes.documentReference, "Rujukan dokumen", "documentReference");
+  }
+  if (changes.validFrom !== undefined) data.validFrom = cleanDate(changes.validFrom, "Awal masa berlaku", "validFrom");
+  if (changes.validTo !== undefined) data.validTo = cleanDate(changes.validTo, "Akhir masa berlaku", "validTo");
+  if (Object.keys(data).length === 0) {
+    throw new InvalidPartnerOrganisationError("Tidak ada perubahan untuk Kind Authorisation.");
+  }
+  const now = params.now ?? new Date();
+
+  return prisma.$transaction(async (tx) => {
+    const organisation = await lockOrganisation(tx, params.organisationId, params.actorId);
+    const current = await tx.kindAuthorisation.findUnique({ where: { id: params.kindAuthorisationId } });
+    if (!current || current.partnerOrganisationId !== organisation.id) throw new KindAuthorisationNotFoundError();
+    const next = { ...current, ...data };
+    requireWindow(next.validFrom, next.validTo);
+    const before = kindAuthorisationState(current);
+    if (same(before, kindAuthorisationState(next))) return current;
+    const authorisation = await tx.kindAuthorisation.update({ where: { id: current.id }, data });
+    await audit(tx, {
+      organisationId: organisation.id,
+      kindAuthorisationId: authorisation.id,
+      action: "KIND_AUTHORISATION_UPDATED",
+      before,
+      after: kindAuthorisationState(authorisation),
+      actorId: params.actorId,
+      now,
+    });
+    return authorisation;
   });
 }
 

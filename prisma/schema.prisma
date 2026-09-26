@@ -83,6 +83,7 @@ model User {
   partnerOrganisation            PartnerOrganisation?            @relation("PartnerOrganisationFundraiser")
   partnerOrganisationsRegistered PartnerOrganisation[]           @relation("PartnerOrganisationRegistrar")
   fundraisingPermitsRecorded     FundraisingPermit[]
+  kindAuthorisationsGranted      KindAuthorisation[]
   partnerOrganisationAudits      PartnerOrganisationAuditEntry[]
 
   // Money layer
@@ -484,6 +485,7 @@ model PartnerOrganisation {
   fundraiser           User                            @relation("PartnerOrganisationFundraiser", fields: [fundraiserId], references: [id], onDelete: Restrict)
   registeredBy         User                            @relation("PartnerOrganisationRegistrar", fields: [registeredById], references: [id], onDelete: Restrict)
   permits              FundraisingPermit[]
+  kindAuthorisations   KindAuthorisation[]
   campaigns            Campaign[]
   verificationRequests VerificationRequest[]
   auditEntries         PartnerOrganisationAuditEntry[]
@@ -512,20 +514,49 @@ model FundraisingPermit {
   @@index([partnerOrganisationId, validTo])
 }
 
+/// A dated authorisation for a Partner Organisation to run Campaigns of one
+/// non-donation Kind (CONTEXT.md, Kind Authorisation; ADR 0013), granted by a
+/// Verifier from the institutional document it names. Distinct from the
+/// Fundraising Permit (prd-compliance 10), which is the general social
+/// fundraising licence: this is the per-Kind institutional clearance (amil
+/// zakat, nazhir wakaf, or the Hibah placeholder) layered on top of it.
+/// Valid from `validFrom` to `validTo`, both inclusive. Never deleted; a
+/// renewal is a new authorisation or a later `validTo`.
+model KindAuthorisation {
+  id                    String   @id @default(cuid())
+  partnerOrganisationId String
+  kind                  Kind
+  documentReference     String
+  validFrom             DateTime
+  validTo               DateTime
+  grantedById           String
+  grantedAt             DateTime @default(now())
+
+  // Relations
+  partnerOrganisation PartnerOrganisation             @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
+  grantedBy           User                            @relation(fields: [grantedById], references: [id], onDelete: Restrict)
+  auditEntries        PartnerOrganisationAuditEntry[]
+
+  @@index([partnerOrganisationId, validTo])
+}
+
 enum PartnerOrganisationAuditAction {
   REGISTERED
   UPDATED
   PERMIT_RECORDED
   PERMIT_UPDATED
+  KIND_AUTHORISATION_GRANTED
+  KIND_AUTHORISATION_UPDATED
 }
 
 /// Append-only audit of every Partner Organisation registration and change,
-/// and every Fundraising Permit recorded or changed: who, when, before and
-/// after.
+/// every Fundraising Permit recorded or changed, and every Kind Authorisation
+/// granted or changed: who, when, before and after.
 model PartnerOrganisationAuditEntry {
   id                    String                         @id @default(cuid())
   partnerOrganisationId String
   permitId              String?
+  kindAuthorisationId   String?
   action                PartnerOrganisationAuditAction
   before                Json?
   after                 Json
@@ -535,6 +566,7 @@ model PartnerOrganisationAuditEntry {
   // Relations
   partnerOrganisation PartnerOrganisation @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
   permit              FundraisingPermit?  @relation(fields: [permitId], references: [id], onDelete: Restrict)
+  kindAuthorisation   KindAuthorisation?  @relation(fields: [kindAuthorisationId], references: [id], onDelete: Restrict)
   actedBy             User                @relation(fields: [actedById], references: [id], onDelete: Restrict)
 
   @@index([partnerOrganisationId, actedAt])

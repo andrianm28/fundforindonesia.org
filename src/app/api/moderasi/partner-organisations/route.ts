@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { partnerOrganisationRoute } from "@/lib/partner-organisation-route";
 import { registerPartnerOrganisation } from "@/lib/partner-organisations";
 
-/** Every Partner Organisation with its linked account and permits, by name: what the Verifier's register shows. */
+/**
+ * Every Partner Organisation with its linked account, permits and Kind
+ * Authorisations, by name: what the Verifier's register shows.
+ */
 export const GET = partnerOrganisationRoute(
   async () => {
     const organisations = await prisma.partnerOrganisation.findMany({
@@ -11,6 +14,7 @@ export const GET = partnerOrganisationRoute(
       include: {
         fundraiser: { select: { name: true, email: true } },
         permits: { orderBy: { validTo: "desc" } },
+        kindAuthorisations: { orderBy: { validTo: "desc" } },
       },
     });
     return NextResponse.json({ organisations });

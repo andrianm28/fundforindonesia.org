@@ -12,7 +12,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Repo ships no static assets; ensure the dir exists for the runner stage COPY
+# Repo ships no static assets; ensure the dir exists for the runtime tree below
 RUN mkdir -p public
 
 # Generate Prisma client
@@ -48,6 +48,37 @@ ENV NEXT_PUBLIC_BASE_URL=$NEXT_PUBLIC_BASE_URL
 ENV NEXT_PUBLIC_DONATIONS_ENABLED=$NEXT_PUBLIC_DONATIONS_ENABLED
 RUN npm run build
 
+# Assemble the whole runtime tree inside .next/standalone, so the runner takes
+# it in a single COPY. The standalone output is all the server needs: Next
+# traces the node_modules files it requires at runtime, and webpack bundles
+# the Prisma client (src/generated/prisma, its query compiler and the pg
+# adapter) into the server chunks, so neither node_modules/@prisma nor
+# src/generated has to be copied separately.
+#
+# Ownership is set here rather than with `chown -R` in the runner, where it
+# would store every file a second time in a new layer. COPY --from keeps the
+# numeric owner: uid 1001 is the runner's nextjs user, gid 1001 its nodejs group.
+#   public/  Next scans it recursively at startup (recursiveReadDir inside
+#            setupFsCheck), so one unreadable subdirectory is fatal: the
+#            server exits with `EACCES: permission denied, scandir
+#            '/app/public/images'` and the container restart-loops. COPY keeps
+#            the build context's modes, and a checkout that is drwxrwx--- /
+#            -rw-rw---- leaves any asset unreadable to nextjs unless it owns
+#            the tree. public/uploads is where uploaded files are written.
+#   .next/   writable, because ISR (campaign/[slug] revalidates every 60 s)
+#            rewrites pages under .next/server, and next/image keeps its
+#            results in .next/cache. Found in production logs, not testing: an
+#            unwritable .next gave a steady trickle of `EACCES: permission
+#            denied, mkdir '/app/.next/cache'`, recomputed every optimized
+#            image on every request, and kept ISR from ever refreshing a page.
+#            (The homepage is force-dynamic regardless; see src/app/page.tsx.)
+# The rest (server.js, node_modules) stays root-owned: the app has no reason
+# to rewrite its own code.
+RUN cp -r public .next/standalone/public \
+    && cp -r .next/static .next/standalone/.next/static \
+    && mkdir -p .next/standalone/public/uploads .next/standalone/.next/cache \
+    && chown -R 1001:1001 .next/standalone/public .next/standalone/.next
+
 # Stage: migrate (`docker build --target migrate`). A small one-off image that
 # runs `prisma migrate deploy` against $DATABASE_URL and exits. The app image
 # cannot: its standalone output carries neither the prisma CLI nor
@@ -74,6 +105,29 @@ USER node
 
 CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
 
+# Stage: sharp. next/image needs sharp to optimize at all in a standalone
+# build. It was found missing in production logs, not in testing: 37
+# occurrences of
+#   'sharp' is required to be installed in standalone mode for the image
+#   optimization to function correctly
+# in forty minutes. Without it every cover and avatar is served at full
+# weight, on a donation site browsed mostly over Indonesian mobile data.
+# (The optimizer is off until the Next upgrade, ticket 15, see next.config.mjs;
+# sharp stays so that turning it back on needs no image change.)
+#
+# It is installed here, alone, rather than with `npm install sharp` in the
+# runner: there, npm reified the whole package.json tree next to it (next's
+# SWC compiler, prisma's CLI and studio, typescript, …), most of a gigabyte.
+# Its own directory also keeps its dependencies from overwriting the
+# standalone node_modules. The base image is the runner's, so npm fetches the
+# prebuilt binaries for the image's platform (linuxmusl, amd64 or arm64). The
+# version is exact, not whatever is latest at build time; bump it here.
+FROM node:24-alpine AS sharp
+WORKDIR /opt/sharp
+ARG SHARP_VERSION="0.35.4"
+RUN npm install --no-save --no-package-lock --no-audit --no-fund sharp@$SHARP_VERSION \
+    && npm cache clean --force
+
 # Stage 3: Production
 FROM node:24-alpine AS runner
 WORKDIR /app
@@ -87,53 +141,12 @@ ENV HOSTNAME="0.0.0.0"
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy necessary files
-COPY --from=builder /app/public ./public
+# Everything the server runs from, assembled and owned in the builder stage.
 COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder /app/src/generated ./src/generated
 
-# Create uploads directory
-RUN mkdir -p public/uploads && chown -R nextjs:nodejs public/uploads
-
-# chown the WHOLE public tree, not just uploads. Next scans public/ recursively
-# at startup (recursiveReadDir inside setupFsCheck), so one unreadable
-# subdirectory is fatal rather than degraded -- the server exits with
-#   EACCES: permission denied, scandir '/app/public/images'
-# and the container restart-loops. COPY --from=builder preserves the build
-# context's file modes, and this repo's working tree is drwxrwx--- / -rw-rw----
-# with no other-read, so any asset directory added to public/ is unreadable to
-# the nextjs user (uid 1001, neither owner nor group) unless chowned here.
-RUN chown -R nextjs:nodejs public
-
-# sharp, and somewhere writable to keep what it produces.
-#
-# Both were found in production logs rather than in testing: 37 occurrences of
-#   'sharp' is required to be installed in standalone mode for the image
-#   optimization to function correctly
-# in forty minutes, alongside a steady trickle of
-#   EACCES: permission denied, mkdir '/app/.next/cache'
-#
-# Two separate faults wearing one symptom. Without sharp, next/image cannot
-# optimize at all in a standalone build, so every cover and avatar is served at
-# full weight -- on a donation site browsed mostly over Indonesian mobile data,
-# that cost lands hardest on the people least able to absorb it. And with an
-# unwritable .next/cache, whatever optimization does happen is recomputed on
-# every request, because the result can never be stored.
-#
-# The same unwritable .next is why ISR could never refresh the homepage, which
-# is now force-dynamic (see the comment in src/app/page.tsx). Fixing the cache
-# here does not undo that: a live campaign list should not be a build-time
-# snapshot whether or not the cache happens to work.
-#
-# `npm cache clean` drops the download cache the install leaves in /root/.npm:
-# dead weight in every pulled image, and most of the Trivy secret scan's time.
-RUN npm install --no-save sharp \
-    && npm cache clean --force \
-    && mkdir -p .next/cache \
-    && chown -R nextjs:nodejs .next node_modules/sharp
+# sharp, outside /app/node_modules; next/image requires it from this path.
+COPY --from=sharp /opt/sharp/node_modules /opt/sharp/node_modules
+ENV NEXT_SHARP_PATH=/opt/sharp/node_modules/sharp
 
 USER nextjs
 

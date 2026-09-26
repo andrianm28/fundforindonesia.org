@@ -49,8 +49,6 @@ next-env.d.ts
 # Superpowers SDD scratch: ledger, briefs, review packages. Never committed.
 .superpowers/
 
-# Local issue tracker (mattpocock-skills): specs and tickets are local scratch. Never committed.
-.scratch/
 
 # Harness-managed git worktrees. Never committed.
 .claude/worktrees/

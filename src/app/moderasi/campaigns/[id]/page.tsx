@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { effectiveStatus, type ChecklistEntry } from "@/lib/campaign-lifecycle";
 import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
 import { CampaignModerationActions } from "./CampaignModerationActions";
-import { holdsValidPermit } from "@/lib/collecting-entity";
+import { holdsValidKindAuthorisation, holdsValidPermit, requiresKindAuthorisation } from "@/lib/collecting-entity";
 import { KIND_LABEL } from "@/lib/campaign-kind";
 
 interface PageProps {
@@ -26,6 +26,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
           name: true,
           fundraiserId: true,
           permits: { select: { kinds: true, validFrom: true, validTo: true } },
+          kindAuthorisations: { select: { kind: true, validFrom: true, validTo: true } },
         },
       },
     },
@@ -43,6 +44,11 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
     ? `${entity.name} (${entity.fundraiserId === campaign.creatorId ? "akun organisasi ini" : "menaungi Fundraiser perorangan"})`
     : "Belum ada";
   const permitValid = entity ? holdsValidPermit(entity, campaign.kind, now) : false;
+  const kindAuthorisationNeeded = requiresKindAuthorisation(campaign.kind);
+  const kindAuthorisationValid =
+    entity && kindAuthorisationNeeded
+      ? holdsValidKindAuthorisation({ kindAuthorisations: entity.kindAuthorisations ?? [] }, campaign.kind, now)
+      : false;
   // The one open request, if any: what the Verifier decides here. The
   // decision itself is judged on the request, never on this page's view.
   const [openRequest, identity] = await Promise.all([
@@ -115,6 +121,13 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
                   {permitValid
                     ? `Memegang Fundraising Permit yang berlaku untuk Kind ${KIND_LABEL[campaign.kind]}.`
                     : `Belum memegang Fundraising Permit yang berlaku untuk Kind ${KIND_LABEL[campaign.kind]}: Campaign ini tidak dapat diloloskan.`}
+                </p>
+              )}
+              {entity && kindAuthorisationNeeded && (
+                <p className={`text-xs mt-0.5 ${kindAuthorisationValid ? "text-[#2E7D32]" : "text-[#C62828]"}`}>
+                  {kindAuthorisationValid
+                    ? `Memegang Kind Authorisation yang berlaku untuk Kind ${KIND_LABEL[campaign.kind]}.`
+                    : `Belum memegang Kind Authorisation yang berlaku untuk Kind ${KIND_LABEL[campaign.kind]}: Campaign ini tidak dapat diloloskan.`}
                 </p>
               )}
             </div>

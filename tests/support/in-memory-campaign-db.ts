@@ -53,11 +53,29 @@ export type FundraisingPermitRow = {
   recordedAt: Date;
 };
 
+export type KindAuthorisationRow = {
+  id: string;
+  partnerOrganisationId: string;
+  kind: Kind;
+  documentReference: string;
+  validFrom: Date;
+  validTo: Date;
+  grantedById: string;
+  grantedAt: Date;
+};
+
 export type PartnerOrganisationAuditRow = {
   id: string;
   partnerOrganisationId: string;
   permitId: string | null;
-  action: 'REGISTERED' | 'UPDATED' | 'PERMIT_RECORDED' | 'PERMIT_UPDATED';
+  kindAuthorisationId: string | null;
+  action:
+    | 'REGISTERED'
+    | 'UPDATED'
+    | 'PERMIT_RECORDED'
+    | 'PERMIT_UPDATED'
+    | 'KIND_AUTHORISATION_GRANTED'
+    | 'KIND_AUTHORISATION_UPDATED';
   before: unknown;
   after: unknown;
   actedById: string;
@@ -190,6 +208,7 @@ type Data = {
   identityVerifications: IdentityVerificationRow[];
   partnerOrganisations: PartnerOrganisationRow[];
   fundraisingPermits: FundraisingPermitRow[];
+  kindAuthorisations: KindAuthorisationRow[];
   partnerOrganisationAudits: PartnerOrganisationAuditRow[];
 };
 
@@ -271,6 +290,7 @@ function clone(data: Data): Data {
     identityVerifications: data.identityVerifications.map((v) => ({ ...v })),
     partnerOrganisations: data.partnerOrganisations.map((o) => ({ ...o })),
     fundraisingPermits: data.fundraisingPermits.map((p) => ({ ...p, kinds: [...p.kinds] })),
+    kindAuthorisations: data.kindAuthorisations.map((k) => ({ ...k })),
     partnerOrganisationAudits: data.partnerOrganisationAudits.map((a) => ({ ...a })),
   };
 }
@@ -308,9 +328,26 @@ export function fundraisingPermitRow(overrides: Partial<FundraisingPermitRow> = 
 }
 
 /**
+ * A Kind Authorisation of `partner-1` for zakat, covering 2020 through 2099.
+ */
+export function kindAuthorisationRow(overrides: Partial<KindAuthorisationRow> = {}): KindAuthorisationRow {
+  return {
+    id: 'kind-authorisation-1',
+    partnerOrganisationId: 'partner-1',
+    kind: 'ZAKAT',
+    documentReference: 'SK Pengukuhan Amil Zakat 001/2026',
+    validFrom: new Date('2020-01-01T00:00:00Z'),
+    validTo: new Date('2099-12-31T23:59:59Z'),
+    grantedById: 'verifier-1',
+    grantedAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  };
+}
+
+/**
  * Applies a Prisma `select` or `include` to a Campaign row, joining its
- * Collecting Entity with its permits when asked for, as
- * COLLECTING_ENTITY_SELECT reads it.
+ * Collecting Entity with its permits and Kind Authorisations when asked for,
+ * as COLLECTING_ENTITY_SELECT reads it.
  */
 function shapeCampaign(
   data: Data,
@@ -325,6 +362,7 @@ function shapeCampaign(
       permits: data.fundraisingPermits
         .filter((p) => p.partnerOrganisationId === entity.id)
         .map((p) => ({ ...p, kinds: [...p.kinds] })),
+      kindAuthorisations: data.kindAuthorisations.filter((k) => k.partnerOrganisationId === entity.id).map((k) => ({ ...k })),
     };
   };
   if (shape.select) {
@@ -444,6 +482,8 @@ export function makeCampaignDb(
     partnerOrganisations?: PartnerOrganisationRow[];
     /** Defaults to `permit-1` alone, covering every Kind until 2099. */
     fundraisingPermits?: FundraisingPermitRow[];
+    /** Defaults to none: only zakat, wakaf and hibah Campaigns need one. */
+    kindAuthorisations?: KindAuthorisationRow[];
     /** Read-only, so kept outside the transactional copy; defaults to the Fundraiser of campaignRow(). */
     users?: UserRow[];
   } = {},
@@ -463,6 +503,7 @@ export function makeCampaignDb(
     identityVerifications: (seed.identityVerifications ?? []).map((v) => ({ ...v })),
     partnerOrganisations: (seed.partnerOrganisations ?? [partnerOrganisationRow()]).map((o) => ({ ...o })),
     fundraisingPermits: (seed.fundraisingPermits ?? [fundraisingPermitRow()]).map((p) => ({ ...p, kinds: [...p.kinds] })),
+    kindAuthorisations: (seed.kindAuthorisations ?? []).map((k) => ({ ...k })),
     partnerOrganisationAudits: [],
   };
   // Row locks taken with `SELECT ... FOR UPDATE`, in order, as
@@ -719,15 +760,28 @@ export function makeCampaignDb(
         },
       },
       partnerOrganisation: {
-        findUnique: async ({ where, include }: { where: Where; include?: { permits?: unknown } }) => {
+        findUnique: async (
+          { where, include }: { where: Where; include?: { permits?: unknown; kindAuthorisations?: unknown } },
+        ) => {
           const row = getData().partnerOrganisations.find((o) => matches(o, where));
           if (!row) return null;
-          if (!include?.permits) return { ...row };
+          if (!include?.permits && !include?.kindAuthorisations) return { ...row };
           return {
             ...row,
-            permits: getData().fundraisingPermits
-              .filter((p) => p.partnerOrganisationId === row.id)
-              .map((p) => ({ ...p, kinds: [...p.kinds] })),
+            ...(include?.permits
+              ? {
+                  permits: getData().fundraisingPermits
+                    .filter((p) => p.partnerOrganisationId === row.id)
+                    .map((p) => ({ ...p, kinds: [...p.kinds] })),
+                }
+              : {}),
+            ...(include?.kindAuthorisations
+              ? {
+                  kindAuthorisations: getData()
+                    .kindAuthorisations.filter((k) => k.partnerOrganisationId === row.id)
+                    .map((k) => ({ ...k })),
+                }
+              : {}),
           };
         },
         findMany: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'>; select?: unknown; include?: unknown } = {}) =>
@@ -764,13 +818,31 @@ export function makeCampaignDb(
           return { ...row, kinds: [...row.kinds] };
         },
       },
+      kindAuthorisation: {
+        findUnique: async ({ where }: { where: Where }) => {
+          const row = getData().kindAuthorisations.find((k) => matches(k, where));
+          return row ? { ...row } : null;
+        },
+        create: async ({ data }: { data: Omit<KindAuthorisationRow, 'id' | 'grantedAt'> & { grantedAt?: Date } }) => {
+          const row: KindAuthorisationRow = { id: `kind-authorisation-${nextId++}`, grantedAt: new Date(), ...data };
+          getData().kindAuthorisations.push(row);
+          return { ...row };
+        },
+        update: async ({ where, data }: { where: { id: string }; data: Partial<KindAuthorisationRow> }) => {
+          const row = getData().kindAuthorisations.find((k) => k.id === where.id);
+          if (!row) throw new Error('No KindAuthorisation found');
+          Object.assign(row, data);
+          return { ...row };
+        },
+      },
       partnerOrganisationAuditEntry: {
-        create: async ({ data }: { data: Omit<PartnerOrganisationAuditRow, 'id' | 'actedAt' | 'before' | 'permitId'> & { before?: unknown; permitId?: string | null; actedAt?: Date } }) => {
+        create: async ({ data }: { data: Omit<PartnerOrganisationAuditRow, 'id' | 'actedAt' | 'before' | 'permitId' | 'kindAuthorisationId'> & { before?: unknown; permitId?: string | null; kindAuthorisationId?: string | null; actedAt?: Date } }) => {
           const row: PartnerOrganisationAuditRow = {
             id: `partner-audit-${nextId++}`,
             actedAt: new Date(),
             ...data,
             permitId: data.permitId ?? null,
+            kindAuthorisationId: data.kindAuthorisationId ?? null,
             before: data.before ?? null,
           };
           getData().partnerOrganisationAudits.push(row);
@@ -887,6 +959,9 @@ export function makeCampaignDb(
     },
     get fundraisingPermits() {
       return committed.fundraisingPermits;
+    },
+    get kindAuthorisations() {
+      return committed.kindAuthorisations;
     },
     get partnerOrganisationAudits() {
       return committed.partnerOrganisationAudits;

@@ -4,6 +4,8 @@ import {
   CollectingEntityRequiredError,
   DeadlineRequiredError,
   FundraisingPermitRequiredError,
+  IndividualFundraiserKindError,
+  KindAuthorisationRequiredError,
   domainErrorToHttp,
   InvalidTransitionError,
   NotAuthorizedError,
@@ -13,6 +15,7 @@ import {
   campaignRow,
   checklistItemRow,
   fundraisingPermitRow,
+  kindAuthorisationRow,
   makeCampaignDb,
   partnerOrganisationRow,
   verificationRequestRow,
@@ -223,12 +226,22 @@ describe('submitCampaign', () => {
     });
 
     it('submits a wakaf Campaign that has no deadline', async () => {
+      // Wakaf needs a Kind Authorisation (prd-compliance 11), which only a
+      // Partner Organisation may hold, so this Campaign is the linked
+      // account's own, not an individual Fundraiser's.
       const db = makeCampaignDb({
-        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', kind: 'WAKAF', deadline: null })],
+        campaigns: [
+          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'WAKAF', deadline: null, creatorId: 'partner-fundraiser-1' }),
+        ],
         checklistItems: CHECKLIST,
+        kindAuthorisations: [kindAuthorisationRow({ kind: 'WAKAF' })],
       });
 
-      const result = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
+      const result = await submitCampaign(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: { userId: 'partner-fundraiser-1', assignments: [] },
+        now: NOW,
+      });
 
       expect(result.campaign.lifecycleStatus).toBe('SUBMITTED');
     });
@@ -347,6 +360,89 @@ describe('submitCampaign', () => {
       }).catch((e: unknown) => e);
 
       expect(error).toBeInstanceOf(CollectingEntityNotEligibleError);
+    });
+  });
+
+  describe('Kind Authorisation (prd-compliance 11, CONTEXT.md, ADR 0013)', () => {
+    async function refusal(db: ReturnType<typeof makeCampaignDb>, actor = fundraiser) {
+      return submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor, now: NOW }).catch(
+        (e: unknown) => e,
+      );
+    }
+
+    it('refuses an individual Fundraiser\'s Campaign of a Kind only a Partner Organisation may run, even under a sponsor with a valid permit', async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE })],
+        kindAuthorisations: [kindAuthorisationRow()],
+      });
+
+      const error = await refusal(db);
+
+      expect(error).toBeInstanceOf(IndividualFundraiserKindError);
+      expect(domainErrorToHttp(error)).toMatchObject({
+        status: 422,
+        body: { code: 'INDIVIDUAL_FUNDRAISER_KIND_NOT_ALLOWED' },
+      });
+      expect(db.campaign().lifecycleStatus).toBe('DRAFT');
+      expect(db.verificationRequests).toEqual([]);
+    });
+
+    it('lets the linked account submit its own Kind Authorisation-covered Campaign', async () => {
+      const db = makeCampaignDb({
+        campaigns: [
+          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
+        ],
+        kindAuthorisations: [kindAuthorisationRow()],
+      });
+
+      const result = await submitCampaign(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: { userId: 'partner-fundraiser-1', assignments: [] },
+        now: NOW,
+      });
+
+      expect(result.campaign.lifecycleStatus).toBe('SUBMITTED');
+    });
+
+    it.each([
+      ['has lapsed', kindAuthorisationRow({ validTo: new Date('2026-09-26T09:00:00Z') })],
+      ['is not valid yet', kindAuthorisationRow({ validFrom: new Date('2026-10-01T00:00:00Z') })],
+      ['is for another Kind', kindAuthorisationRow({ kind: 'WAKAF' })],
+    ])('refuses when the Collecting Entity\'s only Kind Authorisation %s, with a 422 naming it and the Kind', async (_why, authorisation) => {
+      const db = makeCampaignDb({
+        campaigns: [
+          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
+        ],
+        kindAuthorisations: [authorisation],
+      });
+
+      const error = await refusal(db, { userId: 'partner-fundraiser-1', assignments: [] });
+
+      expect(error).toBeInstanceOf(KindAuthorisationRequiredError);
+      expect(domainErrorToHttp(error)).toEqual({
+        status: 422,
+        body: {
+          code: 'KIND_AUTHORISATION_REQUIRED',
+          error:
+            'Yayasan Contoh Peduli belum memegang Kind Authorisation yang berlaku untuk Kind Zakat, sehingga Campaign ini belum dapat diajukan.',
+        },
+      });
+      expect(db.campaign().lifecycleStatus).toBe('DRAFT');
+      expect(db.verificationRequests).toEqual([]);
+    });
+
+    it('refuses with the Fundraising Permit error first when the Collecting Entity holds neither', async () => {
+      const db = makeCampaignDb({
+        campaigns: [
+          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
+        ],
+        fundraisingPermits: [fundraisingPermitRow({ kinds: ['DONATION'] })],
+        kindAuthorisations: [],
+      });
+
+      const error = await refusal(db, { userId: 'partner-fundraiser-1', assignments: [] });
+
+      expect(error).toBeInstanceOf(FundraisingPermitRequiredError);
     });
   });
 });

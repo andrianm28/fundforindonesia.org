@@ -12,7 +12,7 @@ import {
   requireContentEditable,
   requireKindAndDeadlineEditable,
 } from '@/lib/subject-guard';
-import { resolveCollectingEntity } from '@/lib/collecting-entity-guard';
+import { organisationOf, requireDonationOnlyForIndividual, resolveCollectingEntity } from '@/lib/collecting-entity-guard';
 import { KINDS } from '@/lib/campaign-kind';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibility-route';
@@ -231,6 +231,12 @@ export async function PATCH(
         ...(deadline !== undefined && { deadline: deadline === null ? null : new Date(deadline) }),
       };
       requireKindAndDeadlineEditable(state, data);
+      // An individual Fundraiser may only run Kind donation (CONTEXT.md,
+      // Kind Authorisation; ADR 0013): refused here too, not only at
+      // submission, so a Draft can never even be edited into one.
+      if (data.kind !== undefined && state.kind === 'campaign') {
+        requireDonationOnlyForIndividual(await organisationOf(tx, state.ownerId), data.kind);
+      }
       if (collectingEntityId !== undefined && state.kind === 'campaign') {
         requireCollectingEntityEditable(state, { collectingEntityId });
         if (collectingEntityId !== state.collectingEntityId) {

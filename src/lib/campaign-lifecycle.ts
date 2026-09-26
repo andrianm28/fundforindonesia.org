@@ -14,6 +14,7 @@ import {
 import {
   collectingEntityBlock,
   type CollectingEntityBlock,
+  type KindAuthorisationWindow,
   type PermitWindow,
 } from "./collecting-entity";
 
@@ -22,7 +23,10 @@ type DonationGateCampaign = {
   lifecycleStatus: CampaignStatus;
   deadline: Date | null;
   kind: Kind;
-  collectingEntity: { permits: readonly PermitWindow[] } | null;
+  collectingEntity: {
+    permits: readonly PermitWindow[];
+    kindAuthorisations: readonly KindAuthorisationWindow[];
+  } | null;
 };
 
 /**
