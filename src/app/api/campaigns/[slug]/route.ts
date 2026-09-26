@@ -16,7 +16,7 @@ import { resolveCollectingEntity } from '@/lib/collecting-entity-guard';
 import { KINDS } from '@/lib/campaign-kind';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibility-route';
-import { resolvePlatformFeeBasis } from '@/lib/money/platform-fee-config';
+import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
 
 // Rendered per request: a Suspended or unapproved Campaign's answer
 // depends on who asks (suspensionReasonFor, mayViewCampaign), and reading the session inside a route Next
@@ -119,11 +119,7 @@ export async function GET(
     // The rate in force right now (prd-compliance 17), resolved the same
     // way as the public page and frozen the same way POST /api/donations
     // freezes it: Campaign, then Category, then Kind default.
-    const { percentBps: platformFeePercentBps } = await resolvePlatformFeeBasis(prisma, {
-      kind: campaign.kind,
-      category: campaign.category,
-      campaignId: campaign.id,
-    });
+    const { percentBps: platformFeePercentBps } = await resolvePlatformFeeBasisForCampaign(prisma, campaign);
 
     const response = NextResponse.json({
       campaign: {

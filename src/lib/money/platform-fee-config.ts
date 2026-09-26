@@ -67,6 +67,20 @@ export async function resolvePlatformFeeBasis(
   return { percentBps, thresholdAmount };
 }
 
+/**
+ * Convenience wrapper over resolvePlatformFeeBasis for the common case: a
+ * caller that already has a Campaign row in hand (POST /api/donations, GET
+ * /api/campaigns/[slug], and the Campaign detail page all do). Kept as one
+ * function so the three-field shape it destructures is spelled once, not
+ * copied at every call site.
+ */
+export function resolvePlatformFeeBasisForCampaign(
+  db: ReadDb,
+  campaign: { id: string; kind: Kind; category: string },
+): Promise<PlatformFeeBasis> {
+  return resolvePlatformFeeBasis(db, { kind: campaign.kind, category: campaign.category, campaignId: campaign.id });
+}
+
 function assertValidPercentBps(percentBps: unknown): asserts percentBps is number {
   if (
     typeof percentBps !== 'number' ||

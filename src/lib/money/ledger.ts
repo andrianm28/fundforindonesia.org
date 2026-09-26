@@ -311,31 +311,60 @@ export function ceilMulDiv(a: number, b: number, c: number): number {
 }
 
 /**
- * The Provider Fee portion of one Refund's `amount`, proportional to
- * amount / payment.amount, rounded up -- capped so the SUM of every non-
- * REJECTED/FAILED Refund's fee portion on the same Payment, taken in
- * creation order, never exceeds the Payment's actual providerFee. Without
+ * The proportional, capped share of one Payment-level fee (Provider Fee or
+ * Platform Fee) attributable to one Refund's `targetAmount`, rounded up --
+ * capped so the SUM of every non-REJECTED/FAILED Refund's portion on the
+ * same Payment, taken in creation order, never exceeds `feeTotal`. Without
  * this cumulative cap, two 50_000 partial refunds on a Gross 100_000 /
- * Provider Fee 3_333 Payment would each independently round their own
- * 1_666.5 up to 1_667, recognizing 3_334 total -- one rupiah more than the
- * Payment ever actually paid the provider.
+ * fee 3_333 Payment would each independently round their own 1_666.5 up to
+ * 1_667, recognizing 3_334 total -- one rupiah more than the Payment ever
+ * actually carried.
  *
- * `priorAmounts` must be every OTHER non-REJECTED/FAILED Refund's `amount`
- * on this same Payment, in ascending `createdAt` order, excluding the
- * Refund whose portion is being computed now.
+ * Shared by providerFeePortionFor and platformFeePortionFor below: both
+ * fees are split off a Payment's `amount` by the identical rule, so the
+ * math lives once. `priorAmounts` must be every OTHER non-REJECTED/FAILED
+ * Refund's `amount` on this same Payment, in ascending `createdAt` order,
+ * excluding the Refund whose portion is being computed now.
  */
+function feePortionOf(feeTotal: number, paymentAmount: number, targetAmount: number, priorAmounts: number[]): number {
+  let recognized = 0;
+  for (const priorAmount of priorAmounts) {
+    const raw = ceilMulDiv(feeTotal, priorAmount, paymentAmount);
+    recognized += Math.min(raw, Math.max(0, feeTotal - recognized));
+  }
+  const raw = ceilMulDiv(feeTotal, targetAmount, paymentAmount);
+  return Math.min(raw, Math.max(0, feeTotal - recognized), targetAmount);
+}
+
+/** The Provider Fee portion of one Refund's `amount` -- see feePortionOf above. */
 export function providerFeePortionFor(
   payment: { amount: number; providerFee: number },
   refundAmount: number,
   priorAmounts: number[],
 ): number {
-  let recognized = 0;
-  for (const priorAmount of priorAmounts) {
-    const raw = ceilMulDiv(payment.providerFee, priorAmount, payment.amount);
-    recognized += Math.min(raw, Math.max(0, payment.providerFee - recognized));
-  }
-  const raw = ceilMulDiv(payment.providerFee, refundAmount, payment.amount);
-  return Math.min(raw, Math.max(0, payment.providerFee - recognized), refundAmount);
+  return feePortionOf(payment.providerFee, payment.amount, refundAmount, priorAmounts);
+}
+
+/**
+ * The Platform Fee portion of one Refund's `amount` (prd-compliance 17) --
+ * see feePortionOf above for the shared rule. A refunded Payment's pool
+ * (ESCROW_HOLD or the withdrawable balance) only ever held
+ * `gross - providerFee - platformFee` (paymentSettledLegs), so a Refund
+ * must return the Platform Fee's share the same proportional way it
+ * already returns the Provider Fee's -- otherwise the pool is debited more
+ * than it was ever credited, for exactly the Platform Fee amount.
+ *
+ * `payment.platformFee` is read as 0 when null/undefined, the same way
+ * every other reader of this field treats its absence (POST
+ * /api/webhooks/[provider] does the same for providerFee) -- a Payment that
+ * predates this column, or a Trip Fee Payment, carries no Platform Fee.
+ */
+export function platformFeePortionFor(
+  payment: { amount: number; platformFee: number | null | undefined },
+  refundAmount: number,
+  priorAmounts: number[],
+): number {
+  return feePortionOf(payment.platformFee ?? 0, payment.amount, refundAmount, priorAmounts);
 }
 
 // ---------------------------------------------------------------------------

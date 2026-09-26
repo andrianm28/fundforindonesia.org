@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   resolvePlatformFeeBasis,
+  resolvePlatformFeeBasisForCampaign,
   setPlatformFeeRule,
   setPlatformFeeThreshold,
   InvalidPlatformFeeRuleError,
@@ -158,6 +159,24 @@ describe('resolvePlatformFeeBasis', () => {
     });
 
     expect(basis.thresholdAmount).toBe(50_000);
+  });
+});
+
+describe('resolvePlatformFeeBasisForCampaign', () => {
+  it('resolves the same as resolvePlatformFeeBasis, from a Campaign row', async () => {
+    const db = makeDb({
+      rules: [
+        { id: 'r1', scope: 'KIND', kind: 'DONATION', category: null, campaignId: null, percentBps: 250, setById: 'admin-1', setAt: new Date('2026-01-01') },
+      ],
+    });
+
+    const basis = await resolvePlatformFeeBasisForCampaign(db as never, {
+      id: 'campaign-1',
+      kind: 'DONATION' as never,
+      category: 'kesehatan',
+    });
+
+    expect(basis.percentBps).toBe(250);
   });
 });
 

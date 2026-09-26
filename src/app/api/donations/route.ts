@@ -13,7 +13,7 @@ import {
 import { campaignAcceptsDonations, donationBlock, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
-import { resolvePlatformFeeBasis } from '@/lib/money/platform-fee-config';
+import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
 import { computePlatformFee } from '@/lib/money/platform-fee';
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris', 'ewallet', 'credit_card'] as const;
@@ -246,11 +246,7 @@ export async function POST(request: NextRequest) {
     // threshold; rounded DOWN so the remainder falls to the Campaign, never
     // the platform. A later change to the rate cannot alter what this
     // Payment already promised the Donor (CONTEXT.md, Platform Fee).
-    const { percentBps, thresholdAmount } = await resolvePlatformFeeBasis(prisma, {
-      kind: campaign.kind,
-      category: campaign.category,
-      campaignId: campaign.id,
-    });
+    const { percentBps, thresholdAmount } = await resolvePlatformFeeBasisForCampaign(prisma, campaign);
     const platformFee = computePlatformFee({ grossAmount: amount, percentBps, thresholdAmount });
 
     await prisma.payment.create({
