@@ -68,10 +68,12 @@ done and CI is green.
 
 Merge to `main` only when every job is green.
 
-Production deploys only through the approved CD job: the `deploy` job, gated
-by the GitHub Environment `production`, which the owner approves per deploy.
-That job is still being built (`cd.yml` and `ops/deploy.sh` are later tickets
-of `.scratch/ci-cd-github-actions/`). Until it lands, deploying is the owner's
+Production deploys only through the CD `deploy` job, which the owner starts
+by hand (`workflow_dispatch`): the repo stays on GitHub Free, where
+environment approvals and branch protection are unavailable, so dispatching it
+is the approval, and the job itself refuses any commit whose CI run is not
+green. Agents never dispatch it. That job is still being built (`ops/deploy.sh`
+and the deploy job are later tickets of `.scratch/ci-cd-github-actions/`). Until it lands, deploying is the owner's
 call, not an agent's. Leave the running production stack alone: no
 `docker compose` against it, no manual deploy scripts from the host, and
 nothing inside `/home/ubuntu/kibi-clone`, which is the live production checkout.
