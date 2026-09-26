@@ -3,10 +3,9 @@
 # ticket 07).
 #
 # Started only by hand: Actions > Deploy > Run workflow, on main, with an
-# optional commit SHA (empty means main's head). The repo is on GitHub Free,
-# with no Environment approvals and no branch protection, so dispatching is
-# the owner's approval, and this job checks everything itself before it
-# touches the host (ci/deploy-gate.sh):
+# optional commit SHA (empty means main's head). Two jobs: `gate` (no
+# Environment) checks everything itself before anything reaches the host
+# (ci/deploy-gate.sh):
 #   - the SHA is a full commit on main;
 #   - CI passed on it (test, build, migrations, ratchet);
 #   - cd.yml pushed its app and migrate images to GHCR, and their provenance
@@ -14,6 +13,10 @@
 #     cd.yml run on main).
 # The digests the host deploys come from GHCR, checked against those images'
 # bytes, not from anything typed into the form.
+#
+# `deploy` (needs: gate, environment: production) runs only once the owner
+# approves it as that environment's required reviewer: an agent may dispatch
+# this workflow, but never approves its own deployment.
 #
 # It lives apart from cd.yml because cd.yml builds on every CI pass and every
 # PR: sharing that workflow's concurrency group would let a new build push a
@@ -62,14 +65,20 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
-    name: deploy
+  gate:
+    name: gate
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     permissions:
       contents: read # check out ci/deploy-gate.sh
       actions: read # CI's result and the image's build run
       packages: read # the images and their provenance in GHCR
+    outputs:
+      sha: ${{ steps.gate.outputs.sha }}
+      app-digest: ${{ steps.gate.outputs.app-digest }}
+      migrate-digest: ${{ steps.gate.outputs.migrate-digest }}
+      ci-run: ${{ steps.gate.outputs.ci-run }}
+      build-run: ${{ steps.gate.outputs.build-run }}
     steps:
       # Against mistakes, not a control: anyone who can dispatch can also push
       # a branch with an edited copy of this file, and on the Free plan
@@ -101,6 +110,13 @@ jobs:
             echo "The gate's error above says why. Nothing was sent to the host; production is unchanged."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  deploy:
+    name: deploy
+    needs: gate
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
       - name: SSH key and the pinned host key
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -122,11 +138,11 @@ jobs:
       - name: Deploy on the host
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          SHA: ${{ steps.gate.outputs.sha }}
-          APP_DIGEST: ${{ steps.gate.outputs.app-digest }}
-          MIGRATE_DIGEST: ${{ steps.gate.outputs.migrate-digest }}
-          CI_RUN: ${{ steps.gate.outputs.ci-run }}
-          BUILD_RUN: ${{ steps.gate.outputs.build-run }}
+          SHA: ${{ needs.gate.outputs.sha }}
+          APP_DIGEST: ${{ needs.gate.outputs.app-digest }}
+          MIGRATE_DIGEST: ${{ needs.gate.outputs.migrate-digest }}
+          CI_RUN: ${{ needs.gate.outputs.ci-run }}
+          BUILD_RUN: ${{ needs.gate.outputs.build-run }}
         run: |
           dir="$RUNNER_TEMP/ssh"
           # The forced command ignores the command line and hands these three
