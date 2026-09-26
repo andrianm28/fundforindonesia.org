@@ -4,7 +4,7 @@
 
 **Blocked by:** 10
 
-**Status:** ready-for-agent
+**Status:** done (PR #32)
 
 - [ ] A Verifier grants a dated Kind Authorisation for zakat or wakaf to a Partner Organisation
 - [ ] An individual Fundraiser can only ever run Kind donation
