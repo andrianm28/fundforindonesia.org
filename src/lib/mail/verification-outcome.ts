@@ -38,7 +38,7 @@ export function verificationOutcomeEmail(input: VerificationOutcomeEmailInput): 
       ? {
           subject: `Campaign "${title}" diloloskan`,
           body: [
-            `Campaign "${input.campaignTitle}" diloloskan Verifier dan kini aktif menerima donasi.`,
+            `Campaign "${input.campaignTitle}" diloloskan Verifier dan kini tampil untuk publik.`,
             'Bagikan tautan Campaign Anda agar semakin banyak orang ikut membantu:',
           ],
         }

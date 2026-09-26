@@ -46,7 +46,7 @@ import {
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
 import { SUBMITTABLE_STATUSES } from "./verification-submission";
-import { getMailer, sendReportingFailure, type Mailer, type MailMessage } from "./mail";
+import { sendReportingFailure, type Mailer, type MailMessage } from "./mail";
 import { verificationOutcomeEmail } from "./mail/verification-outcome";
 
 // ==================== Effective status ====================
@@ -623,12 +623,11 @@ export type VerificationDecisionResult = LifecycleResult & {
  * The email is sent after commit and never inside the transaction: sent
  * before commit, a rollback would leave the Fundraiser told of a decision
  * that never happened, and a slow relay would hold the Campaign row lock.
- * A failed send does not undo the decision; it is logged for an operator
- * (sendReportingFailure), and the in-app Notification, committed with the
- * decision, still tells the Fundraiser. The Mailer is resolved before
- * anything is read, so an unconfigured Mailer refuses the decision instead
- * of letting it pass in silence. `mailer` is for tests; routes use the
- * configured one.
+ * Neither a failed send nor a Mailer left unconfigured undoes or refuses
+ * the decision: each is logged for an operator (sendReportingFailure:
+ * `mail_send_failed`, `mail_not_configured`), and the in-app Notification,
+ * committed with the decision, still tells the Fundraiser. `mailer` is for
+ * tests; routes use the configured one.
  */
 export async function decideVerificationRequest(
   prisma: PrismaClient,
@@ -648,7 +647,6 @@ export async function decideVerificationRequest(
   const decision = VERIFICATION_DECISIONS[params.decision];
   const ticked = parseTicked(params.ticked);
   const identityNote = optionalReason(params.identityNote, IDENTITY_NOTE);
-  const mailer = params.mailer ?? getMailer();
   // Composed under the lock from what was decided; sent only after commit.
   // Kept out of the command's result, which the route returns as JSON: the
   // Fundraiser's address has no business in the Verifier's response.
@@ -720,23 +718,27 @@ export async function decideVerificationRequest(
     },
   });
   if (outcome.email && outcome.fundraiserId) {
-    await sendReportingFailure(mailer, outcome.email, {
-      mail: "verification_outcome",
-      campaignId: params.campaignId,
-      verificationRequestId: requestId,
-      userId: outcome.fundraiserId,
-    });
+    await sendReportingFailure(
+      outcome.email,
+      {
+        mail: "verification_outcome",
+        campaignId: params.campaignId,
+        verificationRequestId: requestId,
+        userId: outcome.fundraiserId,
+      },
+      params.mailer
+    );
   }
   return result;
 }
 
 /**
- * The absolute site address links in an email start with. NEXTAUTH_URL is
- * the address the deployment actually answers on (docker-compose sets it).
+ * The public site address links in an email start with: the same address,
+ * and the same fallback, the SEO and sitemap links use (src/lib/seo.ts).
  */
 function siteUrl(): string {
   const base =
-    process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXTAUTH_URL || "https://fundforindonesia.org";
+    process.env.NEXT_PUBLIC_BASE_URL || "https://fundforindonesia.com";
   return base.replace(/\/+$/, "");
 }
 

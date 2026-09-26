@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { decideVerificationRequest } from './campaign-lifecycle';
-import { MockMailer, MailerNotConfiguredError, type Mailer } from './mail';
+import { MockMailer, type Mailer } from './mail';
 import {
   campaignRow,
   makeCampaignDb,
@@ -106,6 +106,27 @@ describe('decideVerificationRequest emails the Fundraiser', () => {
   });
 });
 
+describe('decideVerificationRequest links the Campaign on the public site', () => {
+  it('uses NEXT_PUBLIC_BASE_URL, as the SEO and sitemap links do', async () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://staging.example.test/');
+    const mailer = new MockMailer();
+
+    await approve(seeded(), mailer);
+
+    expect(mailer.sent[0].text).toContain('https://staging.example.test/campaign/bantu-korban-banjir');
+  });
+
+  it('falls back to the same public address as src/lib/seo.ts, never NEXTAUTH_URL', async () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', '');
+    vi.stubEnv('NEXTAUTH_URL', 'http://localhost:3000');
+    const mailer = new MockMailer();
+
+    await approve(seeded(), mailer);
+
+    expect(mailer.sent[0].text).toContain('https://fundforindonesia.com/campaign/bantu-korban-banjir');
+  });
+});
+
 describe('decideVerificationRequest when the email fails', () => {
   const failing: Mailer = {
     name: 'failing',
@@ -145,26 +166,40 @@ describe('decideVerificationRequest when the email fails', () => {
   });
 });
 
-describe('decideVerificationRequest with no Mailer configured', () => {
-  it('refuses to decide in production rather than decide in silence', async () => {
+describe('decideVerificationRequest with the configured Mailer', () => {
+  it('in production, still commits the decision and logs mail_not_configured loudly', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     for (const key of ['MAIL_PROVIDER', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'MAIL_FROM']) {
       vi.stubEnv(key, '');
     }
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const db = seeded();
 
-    await expect(
-      decideVerificationRequest(db.prisma as never, {
-        campaignId: 'campaign-1',
-        requestId: 'verification-open',
-        actor: verifier,
-        decision: 'approve',
-        ticked: ['item-1'],
-        now: NOW,
-      }),
-    ).rejects.toThrow(MailerNotConfiguredError);
+    const result = await decideVerificationRequest(db.prisma as never, {
+      campaignId: 'campaign-1',
+      requestId: 'verification-open',
+      actor: verifier,
+      decision: 'approve',
+      ticked: ['item-1'],
+      now: NOW,
+    });
 
-    expect(db.campaign().lifecycleStatus).toBe('SUBMITTED');
+    expect(result.campaign.lifecycleStatus).toBe('ACTIVE');
+    expect(db.campaign().lifecycleStatus).toBe('ACTIVE');
+    expect(db.notifications).toEqual([
+      expect.objectContaining({ userId: 'creator-1', title: 'Campaign Diloloskan' }),
+    ]);
+    expect(error).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(String(error.mock.calls[0][0]));
+    expect(logged).toMatchObject({
+      event: 'mail_not_configured',
+      mail: 'verification_outcome',
+      campaignId: 'campaign-1',
+      verificationRequestId: 'verification-open',
+      userId: 'creator-1',
+    });
+    expect(logged.error).toMatch(/SMTP_PORT is not set/);
+    expect(JSON.stringify(logged)).not.toContain('siti@example.test');
   });
 
   it('uses the mock Mailer by default outside production', async () => {

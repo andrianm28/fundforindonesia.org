@@ -51,8 +51,8 @@ services:
       SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-}
       # The Mailer (src/lib/mail). Empty falls back to nothing, not a default:
       # in production getMailer() picks smtp and throws MailerNotConfiguredError
-      # while any of these is missing, so a Verifier's decision is refused
-      # rather than taken without emailing the Fundraiser.
+      # while any of these is missing, and every email is then logged as
+      # mail_not_configured instead of sent (the decision itself stands).
       MAIL_PROVIDER: ${MAIL_PROVIDER:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}

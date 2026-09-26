@@ -78,31 +78,47 @@ const BUILDERS: Record<string, () => Mailer> = {
   },
 };
 
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Sends a message whose failure must not undo what it reports: a decision
- * already committed stands whether or not the email arrives. A failed send
- * is never swallowed; it is logged as one JSON line (event
- * `mail_send_failed`) naming the mail, the provider, the caller's context
- * and the error, so an operator can find it and resend. The recipient's
- * address is left out of the log; the context names them by id.
+ * already committed stands whether or not the email arrives. Nothing here
+ * throws, and nothing is swallowed either. Each failure is logged as one
+ * JSON line naming the mail, the caller's context and the error, so an
+ * operator can find it and resend:
+ * - `mail_not_configured`: the Mailer could not be built (MAIL_PROVIDER or
+ *   the SMTP_* variables are missing or wrong); nothing was attempted;
+ * - `mail_send_failed`: the provider refused or never answered.
+ * The recipient's address is left out of the log; the context names them
+ * by id.
  *
+ * `mailer` is the configured one (getMailer) unless a test passes its own.
  * Returns whether the provider accepted the message.
  */
 export async function sendReportingFailure(
-  mailer: Mailer,
   message: MailMessage,
   report: { mail: string } & Record<string, string>,
+  mailer?: Mailer,
 ): Promise<boolean> {
+  let resolved: Mailer;
   try {
-    await mailer.send(message);
+    resolved = mailer ?? getMailer();
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'mail_not_configured', ...report, error: errorText(error) }));
+    return false;
+  }
+  try {
+    await resolved.send(message);
     return true;
   } catch (error) {
     console.error(
       JSON.stringify({
         event: 'mail_send_failed',
         ...report,
-        provider: mailer.name,
-        error: error instanceof Error ? error.message : String(error),
+        provider: resolved.name,
+        error: errorText(error),
       }),
     );
     return false;

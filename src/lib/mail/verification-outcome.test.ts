@@ -19,17 +19,21 @@ describe('verificationOutcomeEmail for a Campaign diloloskan', () => {
     expect(email.subject).toBe('Campaign "Bantu Korban Banjir" diloloskan');
   });
 
-  it('tells the Fundraiser the Verifier passed it and it now takes donations, with its link', () => {
+  it('tells the Fundraiser the Verifier passed it and it is now public, with its link', () => {
     for (const body of [email.text, email.html]) {
       expect(body).toContain('Siti');
       expect(body).toContain('diloloskan Verifier');
-      expect(body).toContain('menerima donasi');
+      expect(body).toContain('kini tampil untuk publik');
       expect(body).toContain('https://fundforindonesia.org/campaign/bantu-korban-banjir');
     }
   });
 
   it('carries no rejection reason', () => {
     expect(email.text).not.toContain('Alasan');
+  });
+
+  it('promises no donations, which may be switched off (NEXT_PUBLIC_DONATIONS_ENABLED)', () => {
+    expect(email.text).not.toMatch(/donasi/i);
   });
 });
 
