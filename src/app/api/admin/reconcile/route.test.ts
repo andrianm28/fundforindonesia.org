@@ -53,6 +53,15 @@ type PaymentRow = {
   volunteerTripId?: string;
   amount?: number;
   providerFee?: number;
+  /**
+   * Payment.platformFee, the Platform Fee the platform kept (prd-compliance
+   * 17). Left optional and passed through to the route untouched, so a
+   * fixture can be any of the three shapes this report has to survive: a
+   * charged fee (a number), an explicit null, and no field at all. The route
+   * reads the last two as 0, the same absence platformFeePortionFor
+   * (./ledger.ts) documents for every other reader of this column.
+   */
+  platformFee?: number | null;
   status?: string;
   escrowReleaseAt?: Date | null;
   escrowReleasedAt?: Date | null;
@@ -181,6 +190,15 @@ function makeTx(options: {
               id: p.id,
               amount: p.amount ?? 0,
               providerFee: p.providerFee ?? 0,
+              // Passed through raw -- undefined for a fixture that never
+              // mentions the field, exactly as a Prisma row would look if the
+              // field were not selected -- rather than defaulted to 0 like
+              // amount and providerFee above. That is the input that matters:
+              // `x - undefined` is NaN, where `x - null` quietly coerces to 0
+              // and needs no guard at all, so a harness that supplied 0 (or
+              // null) here would let an unguarded subtraction read as green
+              // here while the report emitted `residual: null` for real.
+              platformFee: p.platformFee,
               escrowReleaseAt: p.escrowReleaseAt ?? null,
               donationId: p.donationId,
               registrationId: p.registrationId,
@@ -455,6 +473,57 @@ describe('GET /api/admin/reconcile', () => {
     expect(data.mismatches).toEqual([]);
   });
 
+  it('reconstructs a campaign\'s gross with its Platform Fee included -- and still reports a campaign that really disagrees', async () => {
+    // Campaign.collectedAmount is written as the GROSS (webhooks/[provider]
+    // increments it by payment.amount), while the ledger splits that gross
+    // three ways: ESCROW_HOLD gets the net, PROVIDER_FEE and PLATFORM_FEE get
+    // their own shares. Adding back only the Provider Fee left the Platform
+    // Fee out of the reconstruction, so every campaign that charged one was
+    // reported here as a permanent mismatch of exactly that fee -- on every
+    // single run, for every campaign, which is what makes a report like this
+    // unusable rather than merely noisy.
+    //
+    // campaign-2 is the control: byte-identical ledger to campaign-1's, the
+    // only difference being a collectedAmount that really is wrong, and it is
+    // still reported -- 30_000 off, not 2_500, which is the number that shows
+    // the fee is now reconstructed rather than the check quietly skipped.
+    const tx = makeTx({
+      ledgerRows: [
+        { transactionId: 't1', direction: 'DEBIT', amount: 100_000, account: 'GATEWAY_CLEARING', campaignId: null },
+        { transactionId: 't1', direction: 'CREDIT', amount: 92_500, account: 'ESCROW_HOLD', campaignId: 'campaign-1' },
+        { transactionId: 't1', direction: 'CREDIT', amount: 5_000, account: 'PROVIDER_FEE', campaignId: null, paymentId: 'payment-1' },
+        { transactionId: 't1', direction: 'CREDIT', amount: 2_500, account: 'PLATFORM_FEE', campaignId: null, paymentId: 'payment-1' },
+        { transactionId: 't2', direction: 'DEBIT', amount: 100_000, account: 'GATEWAY_CLEARING', campaignId: null },
+        { transactionId: 't2', direction: 'CREDIT', amount: 92_500, account: 'ESCROW_HOLD', campaignId: 'campaign-2' },
+        { transactionId: 't2', direction: 'CREDIT', amount: 5_000, account: 'PROVIDER_FEE', campaignId: null, paymentId: 'payment-2' },
+        { transactionId: 't2', direction: 'CREDIT', amount: 2_500, account: 'PLATFORM_FEE', campaignId: null, paymentId: 'payment-2' },
+      ],
+      payments: [
+        { id: 'payment-1', campaignId: 'campaign-1', amount: 100_000, providerFee: 5_000, platformFee: 2_500 },
+        { id: 'payment-2', campaignId: 'campaign-2', amount: 100_000, providerFee: 5_000, platformFee: 2_500 },
+      ],
+      campaigns: [
+        { id: 'campaign-1', title: 'Charged a Platform Fee, collectedAmount correct', collectedAmount: 100_000 },
+        { id: 'campaign-2', title: 'Charged a Platform Fee, collectedAmount wrong', collectedAmount: 130_000 },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.mismatches).toEqual([
+      {
+        campaignId: 'campaign-2',
+        campaignTitle: 'Charged a Platform Fee, collectedAmount wrong',
+        collectedAmount: 130_000,
+        ledgerAmount: 100_000,
+        difference: 30_000,
+      },
+    ]);
+    expect(data.preLedger).toEqual([]);
+  });
+
   it('still reports a real mismatch on a non-demo campaign sitting alongside an excluded isDemo one', async () => {
     const tx = makeTx({
       ledgerRows: [
@@ -511,6 +580,120 @@ describe('GET /api/admin/reconcile', () => {
     const data = await response.json();
 
     expect(data.strandedEscrow).toEqual([]);
+  });
+
+  it('computes a released payment\'s credited net as Gross minus BOTH fees -- and still flags one whose net is genuinely short', async () => {
+    // The paired half of the escrow.ts fix. paymentSettledLegs credits
+    // ESCROW_HOLD 92_500 for a 100_000 Payment that kept 5_000 to the provider
+    // and 2_500 to the platform, and releaseMaturedEscrow releases that same
+    // 92_500. A reconcile that read only `amount - providerFee` would credit
+    // this payment with a 95_000 net, find 92_500 released, and report a
+    // 2_500 residual -- i.e. flag every single Platform-Fee Payment ever
+    // released as stranded escrow, forever, with nothing an admin could do.
+    //
+    // payment-2 is the control that this is a real comparison and not a
+    // suppressed alarm: same shape, same fees, but only 90_000 of its 92_500
+    // net ever left escrow, and it is reported -- with a residual of exactly
+    // the 2_500 still sitting there, which is the number that proves the net
+    // was computed with the Platform Fee subtracted.
+    const tx = makeTx({
+      ledgerRows: [
+        { transactionId: 't1', direction: 'DEBIT', amount: 100_000, account: 'GATEWAY_CLEARING', campaignId: null },
+        { transactionId: 't1', direction: 'CREDIT', amount: 92_500, account: 'ESCROW_HOLD', campaignId: 'campaign-1' },
+        { transactionId: 't1', direction: 'CREDIT', amount: 5_000, account: 'PROVIDER_FEE', campaignId: null, paymentId: 'payment-1' },
+        { transactionId: 't1', direction: 'CREDIT', amount: 2_500, account: 'PLATFORM_FEE', campaignId: null, paymentId: 'payment-1' },
+        {
+          transactionId: 'escrow-release:payment-1',
+          direction: 'DEBIT',
+          amount: 92_500,
+          account: 'ESCROW_HOLD',
+          campaignId: 'campaign-1',
+          paymentId: 'payment-1',
+        },
+        { transactionId: 'escrow-release:payment-1', direction: 'CREDIT', amount: 92_500, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1' },
+        // payment-2 released 2_500 short of its net and was never refunded.
+        {
+          transactionId: 'escrow-release:payment-2',
+          direction: 'DEBIT',
+          amount: 90_000,
+          account: 'ESCROW_HOLD',
+          campaignId: 'campaign-2',
+          paymentId: 'payment-2',
+        },
+        { transactionId: 'escrow-release:payment-2', direction: 'CREDIT', amount: 90_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-2' },
+      ],
+      payments: [
+        { id: 'payment-1', campaignId: 'campaign-1', amount: 100_000, providerFee: 5_000, platformFee: 2_500, escrowReleasedAt: new Date('2026-08-10') },
+        { id: 'payment-2', campaignId: 'campaign-2', amount: 100_000, providerFee: 5_000, platformFee: 2_500, escrowReleasedAt: new Date('2026-08-10') },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.strandedEscrow).toEqual([
+      {
+        paymentId: 'payment-2',
+        campaignId: 'campaign-2',
+        creditedNet: 92_500,
+        releasedAmount: 90_000,
+        refundedAmount: 0,
+        residual: 2_500,
+      },
+    ]);
+  });
+
+  it('reads a missing or null platformFee as no Platform Fee at all -- never as a NaN residual that hides a stranded payment', async () => {
+    // Two failures from one unguarded subtraction, both asserted here -- and
+    // only the first is the interesting one, because `100_000 - null` is
+    // 95_000 and needs no guard at all. It is the *absent* field that is
+    // poisonous: `x - undefined` is NaN, and NaN compares unequal to 0 in
+    // both directions, so a residual can never read as settled.
+    //
+    // payment-1 (no platformFee field at all, as a row whose select never
+    // asked for one would look): released in full at 95_000, so it must be
+    // silent. Under the NaN arithmetic it would be reported as stranded,
+    // with a residual that serialises to `null` -- an incident an admin can
+    // neither size nor trust.
+    //
+    // payment-2 (an explicit null, which does coerce): genuinely stranded,
+    // and it must still be reported, with its true 100_000 intact.
+    const tx = makeTx({
+      ledgerRows: [
+        {
+          transactionId: 'escrow-release:payment-1',
+          direction: 'DEBIT',
+          amount: 95_000,
+          account: 'ESCROW_HOLD',
+          campaignId: 'campaign-1',
+          paymentId: 'payment-1',
+        },
+        { transactionId: 'escrow-release:payment-1', direction: 'CREDIT', amount: 95_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1' },
+      ],
+      payments: [
+        // platformFee omitted entirely: this report walks historical rows,
+        // and platformFeePortionFor (./ledger.ts) documents a missing one as
+        // 0 rather than as a reason to refuse.
+        { id: 'payment-1', campaignId: 'campaign-1', amount: 100_000, providerFee: 5_000, escrowReleasedAt: new Date('2026-08-10') },
+        { id: 'payment-2', campaignId: 'campaign-2', amount: 100_000, providerFee: 0, platformFee: null, escrowReleasedAt: new Date('2026-08-10') },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.strandedEscrow).toEqual([
+      {
+        paymentId: 'payment-2',
+        campaignId: 'campaign-2',
+        creditedNet: 100_000,
+        releasedAmount: 0,
+        refundedAmount: 0,
+        residual: 100_000,
+      },
+    ]);
   });
 
   it('does not flag a payment that was fully and finally refunded (refund debit accounts for the full net)', async () => {

@@ -152,6 +152,14 @@ export async function releaseMaturedEscrow(
       id: true,
       amount: true,
       providerFee: true,
+      // Read as 0 when absent, like every other reader of this column
+      // (platformFeePortionFor in ./ledger.ts, the settlement webhook): a
+      // Payment that predates the column, or a Trip Fee Payment, carries no
+      // Platform Fee. Selected here because the release has to move the same
+      // NET paymentSettledLegs credited -- not Gross minus the Provider Fee
+      // alone, which over-drew ESCROW_HOLD by the Platform Fee and paid it
+      // out again as withdrawable Campaign Balance.
+      platformFee: true,
       donationId: true,
       registrationId: true,
       donation: { select: { campaignId: true } },
@@ -267,9 +275,9 @@ export async function releaseMaturedEscrow(
         // Every refund above is now final (COMPLETED or REJECTED), so the
         // amount to release is knowable for good: the NET this payment
         // originally credited to ESCROW_HOLD (paymentSettledLegs credits
-        // amount - providerFee, never the gross), minus the NET share each
-        // non-REJECTED/FAILED refund actually removed from this same
-        // account at freeze time. Each such refund's freeze
+        // `gross - providerFee - platformFee`, never the gross), minus the NET
+        // share each non-REJECTED/FAILED refund actually removed from this
+        // same account at freeze time. Each such refund's freeze
         // (refundRequestedLegs, ./ledger.ts) debits ESCROW_HOLD only its own
         // net portion -- the fee portion went straight to REFUND_COST/
         // PLATFORM_FEE at freeze time, never out of this account -- so what
@@ -284,7 +292,7 @@ export async function releaseMaturedEscrow(
         // shared pot would let this payment's release "borrow" headroom
         // that in fact belongs to a sibling payment which has not matured
         // yet.
-        const netAmount = payment.amount - payment.providerFee;
+        const netAmount = payment.amount - payment.providerFee - (payment.platformFee ?? 0);
         const nonRejectedAmounts = refunds
           .filter((r) => r.status !== 'REJECTED' && r.status !== 'FAILED')
           .map((r) => r.amount);

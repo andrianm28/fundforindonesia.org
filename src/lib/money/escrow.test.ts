@@ -25,6 +25,11 @@ type PaymentRow = {
   id: string;
   amount: number;
   providerFee: number;
+  // Payment.platformFee is NOT NULL DEFAULT 0 in the schema, so the database
+  // itself never hands back an absent one. Typed to allow it anyway, because
+  // `?? 0` is the only thing standing between a nullish one and a stranded
+  // Payment -- see the "nullish platformFee" test below.
+  platformFee: number | null | undefined;
   status: string;
   escrowReleaseAt: Date | null;
   escrowReleasedAt: Date | null;
@@ -55,6 +60,9 @@ function makePayment(overrides: Partial<PaymentRow> = {}): PaymentRow {
     id: 'payment-1',
     amount: 100_000,
     providerFee: 0,
+    // No Platform Fee unless a test asks for one: what the schema's DEFAULT 0
+    // gives every Payment created without a rule in force.
+    platformFee: 0,
     status: 'PAID',
     escrowReleaseAt: new Date(Date.now() - MS_PER_DAY), // matured yesterday
     escrowReleasedAt: null,
@@ -116,6 +124,7 @@ function makeDb(
               id: p.id,
               amount: p.amount,
               providerFee: p.providerFee,
+              platformFee: p.platformFee,
               donationId: `donation-${p.id}`,
               registrationId: null,
               donation: { campaignId: p.campaignId },
@@ -125,6 +134,7 @@ function makeDb(
               id: p.id,
               amount: p.amount,
               providerFee: p.providerFee,
+              platformFee: p.platformFee,
               donationId: null,
               registrationId: `registration-${p.id}`,
               donation: null,
@@ -359,7 +369,82 @@ describe('releaseMaturedEscrow', () => {
   );
 
   it(
-    "caps a release at this payment's own net minus its own refunds, never at a sibling payment's " +
+    "releases exactly the NET Settlement credited -- Gross minus BOTH fees -- so a Platform Fee already " +
+      'recorded as platform revenue never lands in withdrawable Campaign Balance',
+    async () => {
+      // CONTEXT.md, Net: "Gross dikurangi Provider Fee dan Platform Fee".
+      // paymentSettledLegs credits ESCROW_HOLD exactly that -- Gross 100_000,
+      // Provider Fee 5_000, Platform Fee 2_500, so 92_500 -- and the release has
+      // to move that same 92_500. Releasing `amount - providerFee` instead
+      // over-draws ESCROW_HOLD by the Platform Fee (100_000 - 5_000 = 95_000
+      // against 92_500 actually held, leaving it at -2_500) AND credits
+      // Campaign Balance 2_500 the platform had already booked as PLATFORM_FEE
+      // revenue -- money that is then withdrawable by a Payout. Nothing
+      // rejects it: postTransaction never checks a per-account balance.
+      const { rows } = makeDb(
+        [makePayment({ id: 'payment-1', amount: 100_000, providerFee: 5_000, platformFee: 2_500, campaignId: 'campaign-1' })],
+        [
+          { transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 92_500, campaignId: 'campaign-1' },
+          { transactionId: 'settle-1', direction: 'CREDIT', account: 'PLATFORM_FEE', amount: 2_500, campaignId: null },
+        ],
+      );
+
+      const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+      expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+      const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
+      expect(releaseLegs.find((r) => r.direction === 'DEBIT')).toMatchObject({ account: 'ESCROW_HOLD', amount: 92_500 });
+      expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({ account: 'CAMPAIGN_BALANCE', amount: 92_500 });
+
+      // The whole point, read off the account rather than off the release legs:
+      // every rupiah Settlement put in Escrow Hold is out of it and no more,
+      // and the Platform Fee is still sitting only in PLATFORM_FEE.
+      const escrowNet = rows
+        .filter((r) => r.account === 'ESCROW_HOLD' && r.campaignId === 'campaign-1')
+        .reduce((s, r) => s + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+      expect(escrowNet).toBe(0);
+      const withdrawn = rows
+        .filter((r) => r.account === 'CAMPAIGN_BALANCE' && r.campaignId === 'campaign-1')
+        .reduce((s, r) => s + r.amount, 0);
+      expect(withdrawn).toBe(92_500);
+    },
+  );
+
+  it(
+    'releases a Payment carrying no Platform Fee (nullish platformFee) as Gross minus the Provider Fee alone, ' +
+      'never releasing nothing at all',
+    async () => {
+      // The column is NOT NULL DEFAULT 0, so the database never returns a
+      // nullish one -- but `?? 0` is what keeps an absent value from being
+      // arithmetic rather than money. Left unguarded, `amount - providerFee -
+      // undefined` is NaN, and `Math.max(0, NaN) > 0` is false: the sweep
+      // would post nothing, still stamp escrowReleasedAt, and strand this
+      // Payment's whole net in Escrow Hold with no later sweep able to reach
+      // it. (`null` coerces to 0 in arithmetic on its own; `undefined` does
+      // not, so that is the case worth pinning.)
+      const { rows } = makeDb(
+        [
+          makePayment({ id: 'payment-undefined', amount: 100_000, providerFee: 5_000, platformFee: undefined, campaignId: 'campaign-1' }),
+          makePayment({ id: 'payment-null', amount: 100_000, providerFee: 5_000, platformFee: null, campaignId: 'campaign-1' }),
+        ],
+        [{ transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 95_000, campaignId: 'campaign-1' }],
+      );
+
+      const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+      // Both released -- a missing Platform Fee means "none was charged",
+      // never "this Payment's money stays held forever".
+      expect(result).toEqual({ releasedCount: 2, consideredCount: 2 });
+      for (const id of ['payment-undefined', 'payment-null']) {
+        const releaseLegs = rows.filter((r) => r.transactionId === `escrow-release:${id}`);
+        expect(releaseLegs.find((r) => r.direction === 'DEBIT')).toMatchObject({ account: 'ESCROW_HOLD', amount: 95_000 });
+        expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({ account: 'CAMPAIGN_BALANCE', amount: 95_000 });
+      }
+    },
+  );
+
+  it(
+    'caps a release at this payment\'s own net minus its own refunds, never at a sibling payment\'s ' +
       'still-held money in the same campaign-level ESCROW_HOLD account',
     async () => {
       // The exact scenario the campaign-wide cap got wrong: payment A is
