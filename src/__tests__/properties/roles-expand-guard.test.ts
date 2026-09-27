@@ -68,9 +68,16 @@ import { join } from "node:path";
  * matches nothing in src; src/__tests__/user-role-readers.test.ts pins
  * that no code names the User role column either.
  *
- * NOTE (csr-01): POST /api/programs and PATCH /api/programs/[id] let an
+ * NOTE (csr-01): POST /api/programs and PATCH /api/programs/[slug] let an
  * Admin create and edit CSR Programs, each through withAssignmentCheck on
  * the ADMIN assignment -- growing this list by two.
+ *
+ * NOTE (csr-04): the Program edit was keyed by id when csr-01 landed, and the
+ * public portfolio read needed the same segment for the slug a public link can
+ * carry. Next.js allows one dynamic segment per level, so the segment is the
+ * slug, as it already is for a Campaign, and PATCH resolves it before calling
+ * the module. The assignment guard is unaffected: GET is public by design (a
+ * Program is a catalog entry with nothing to gate), and only PATCH is wrapped.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -85,7 +92,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/refunds/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/route.ts",
-  "src/app/api/programs/[id]/route.ts",
+  "src/app/api/programs/[slug]/route.ts",
   "src/app/api/programs/route.ts",
   "src/app/api/volunteer-trips/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/volunteer-trips/[slug]/refunds/[id]/approve/route.ts",
