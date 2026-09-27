@@ -4,7 +4,7 @@
 
 **Blocked by:** 18
 
-**Status:** in review (PR #51)
+**Status:** done
 
 - [x] A settlement timestamp is stored on the Payment, read from the provider payload
 - [x] Escrow release is computed from provider settlement, not server receipt time
@@ -24,3 +24,9 @@ own T+0 fallback explicitly rather than the escrow layer guessing one.
 Assumption flagged in the PR for owner review: a missing/malformed provider
 timestamp degrades to T+0 rather than failing the webhook closed -- no
 existing policy doc says otherwise either way.
+
+**Owner decision, 2026-09-27:** a missing/malformed `settled_at` on an
+otherwise validly-signed Sumopod event now falls back to `paidAt + 2 days`
+(T+2, Sumopod's documented QRIS settlement window) instead of T+0 -- the
+Escrow Hold must never get shorter just because data is missing. Merged to
+`main` in PR #51 (`72ff9c0`).
