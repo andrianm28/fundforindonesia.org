@@ -71,11 +71,17 @@ import { join } from "node:path";
  * NOTE (csr-01): POST /api/programs and PATCH /api/programs/[id] let an
  * Admin create and edit CSR Programs, each through withAssignmentCheck on
  * the ADMIN assignment -- growing this list by two.
+ *
+ * NOTE (prd-compliance 14): POST /api/admin/duplicate-similarity lets an
+ * Admin set the title similarity a Verifier's duplicate hints are built on
+ * (PRD FFI-05), through withAssignmentCheck on the ADMIN assignment like
+ * every other Admin setting here -- growing this list by one.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
+  "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
