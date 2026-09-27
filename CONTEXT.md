@@ -75,6 +75,10 @@ Donor tanpa akun; hanya meninggalkan data minimal yang dibutuhkan untuk Receipt.
 Pengguna terdaftar yang memiliki sebuah Campaign dan menerima Payout-nya. Organisasi program seperti YIEM adalah Fundraiser untuk Campaign yang dijalankannya sendiri; Platform Operator bukan Fundraiser. Setiap pengguna terdaftar boleh mengajukan Campaign atau Volunteer Trip; yang meloloskannya adalah Verifier, yang juga memverifikasi identitas Fundraiser pada pengajuan pertamanya. Tidak ada peringkat atau jenis akun yang membuat seseorang menjadi Fundraiser.
 _Avoid_: Penggalang dana (di kode), creator, campaigner, owner
 
+**Penerima Manfaat**:
+Orang atau lembaga yang menerima dana sebuah Campaign, disebut pada halaman Campaign dan boleh tidak diisi karena tidak selalu diketahui. Tiga Campaign berbeda boleh menunjuk Penerima Manfaat yang sama; Verifier melihatnya lewat Petunjuk Duplikat, karena dana yang berulang ke penerima yang sama adalah pola kecurangan berulang. Disimpan sebagai teks biasa, bukan terenkripsi, dan tidak pernah dicari lewat indeks: yang dicari adalah kemiripan judul, bukan nama.
+_Avoid_: penerima, penerima dana, penerima bantuan, beneficiary (untuk orangnya), donatur (menyalahartikan)
+
 **Wakif**:
 Donor pada Campaign ber-Kind `wakaf`. Dipakai di UI dan dokumen akad, bukan sebagai peran terpisah.
 
@@ -117,6 +121,10 @@ _Avoid_: Laporan (bentrok dengan Usage Report), report, aduan, dilaporkan
 **Verification Request**:
 Satu pengajuan Campaign untuk diperiksa Verifier, dengan checklist dokumen dan hasil lolos atau ditolak beserta alasan. Setiap submit ulang membuat Verification Request baru, sehingga riwayat penolakan tersimpan. Verifier hanya boleh meloloskannya bila setiap butir wajib pada checklist sudah dicentang. Selama belum diputuskan, Fundraiser boleh menariknya (tarik pengajuan; yang ditarik pengajuannya, berbeda dari Cancellation yang menarik Campaign Active): Campaign kembali ke Draft bila itu pengajuan pertamanya, atau ke Rejected bila pengajuan ulang. Campaign yang Draft atau Rejected boleh diedit dan diajukan lagi tanpa batas. Selama Submitted, isinya dibekukan agar Verifier memeriksa versi yang tetap. Pada Campaign Active, hanya cerita dan sampul yang boleh diubah langsung (judul dan deskripsi dibekukan sejak Active, lebih ketat dari PRD, agar Donor tidak menyumbang untuk satu tujuan lalu judulnya berganti); perubahan target, tenggat, atau Bank Account membutuhkan Verification Request baru.
 _Avoid_: Moderasi, review, approval
+
+**Petunjuk Duplikat**:
+Lima Campaign paling mirip yang sedang diperiksa Verifier, atau lebih sedikit, dengan alasan masing-masing tercantum. Dicocokkan pada tiga hal: Fundraiser yang sama, kemiripan judul di atas ambang yang dapat diatur Admin, dan Penerima Manfaat yang sama persis. Ambangnya 0,6 sampai Admin mengaturnya, dan kesimirannya memakai ekstensi Postgres `pg_trgm`. Tujuannya menahan duplikat dan kecurangan berulang sebelum dipublikasikan, bukan sesudahnya. Checklist punya butir wajib "bukan duplikat", dan verdict-nya ikut tersimpan bersama Verification Request, sehingga keputusan itu tercatat dan bukan sekadar tidak ditampilkan.
+_Avoid_: duplikat (untuk Campaign-nya), similar, recommendations, campaign suggestions
 
 **Identity Verification**:
 Catatan bertanggal bahwa seorang Verifier sudah memeriksa identitas seorang Fundraiser, dibuat saat Verification Request pertamanya diloloskan. Berlaku untuk pengajuan berikutnya; tidak pernah diklaim sendiri oleh Fundraiser.
