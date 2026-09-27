@@ -11,12 +11,14 @@ is public, and no step of that needs `psql`.
 Every session orients to this before choosing a ticket.
 
 **The destination, counted:** [scorecard.md](scorecard.md) measures every job in
-the four job descriptions against what a person can actually reach. As of
-2026-09-27: Donor 5 of 5, Verifier 4 of 5, Fundraiser 2 of 5, **Admin 2 of 13**.
+the job descriptions against what a person can actually reach. As of
+2026-09-27: Donor 5 of 5, Tim CSR 2 of 4, Verifier 6 of 8, Fundraiser 2 of 5,
+Volunteer 0 of 5, **Admin 2 of 13**.
 A screen does not count unless something points a person at it — a button, a
 nav link, or a redirect. Ten of Admin's thirteen jobs are enforced in code and
 unreachable by a person, which is why the money cannot move through the
-product.
+product. The Volunteer module is unreachable at **both** ends, so a Volunteer
+Trip can be created and never approved.
 
 ## Notes
 

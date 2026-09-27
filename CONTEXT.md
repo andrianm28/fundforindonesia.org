@@ -38,6 +38,10 @@ _Avoid_: Prioritas, featured, darurat
 Item katalog kolaborasi CSR per Sektor yang dibaca tim CSR perusahaan. Program tidak menerima uang daring; kolaborasinya berjalan lewat Partnership Inquiry.
 _Avoid_: Campaign CSR, proposal
 
+**Tim CSR**:
+Tim di perusahaan atau lembaga yang mencari program siap implementasi dan bukti dampaknya, lalu mengirim Partnership Inquiry. Ia membaca katalog Program, bukan Campaign, dan tidak memberi uang lewat Donation: Program tidak menerima uang daring. Berbeda dari Partner Organisation, yang juga bergerak di platform tetapi menjadi Fundraiser di atasnya. Belum diputuskan apakah ia memakai akun sendiri atau hanya korespondensi; yang sudah pasti, permintaannya masuk ke antrean Admin dan Tim CSR tidak diberi tahu hasilnya. Pekerjaan seorang Tim CSR: menelusuri portofolio Program per Sector; membaca anggaran dan KPI sebuah Program; mengirim Partnership Inquiry; dan mencari tahu apa yang terjadi atas permintaannya. Dua pertama ada, dua terakhir belum.
+_Avoid_: Mitra (dipakai untuk Partner Organisation), penggalang dana, foundations
+
 **Sector**:
 Pengelompokan Program CSR: Health, Education, Environment, Disability Inclusion.
 _Avoid_: Category
@@ -82,8 +86,12 @@ _Avoid_: penerima, penerima dana, penerima bantuan, beneficiary (untuk orangnya)
 **Wakif**:
 Donor pada Campaign ber-Kind `wakaf`. Dipakai di UI dan dokumen akad, bukan sebagai peran terpisah.
 
+**Donor Hibah**:
+Donor yang memberi hibah untuk lembaga atau tujuan tertentu, melalui Campaign ber-Kind `hibah`. Tetap seorang Donor, bukan peran terpisah: yang membedakan adalah tujuan dan lawannya, bukan statusnya di platform. Berbeda dari Wakif, tidak ada akad yang harus ia konfirmasi — dokumen dan izin melekat pada Collecting Entity, bukan padanya.
+_Avoid__: Penghibah, pemberi hibah, wakif (untuk Kind `wakaf`), Donor Institusi
+
 **Volunteer**:
-Pengguna terdaftar yang mendaftar Volunteer Batch dan membayar Trip Fee-nya. Berbeda dari Donor: uangnya menutup partisipasinya sendiri, bukan disumbangkan untuk tujuan orang lain.
+Pengguna terdaftar yang mendaftar Volunteer Batch dan membayar Trip Fee-nya. Berbeda dari Donor: uangnya menutup partisipasinya sendiri, bukan disumbangkan untuk tujuan orang lain. Pekerjaan seorang Volunteer: menelusuri katalog Volunteer Trip dan Batch beserta tanggal dan harganya; mendaftar Volunteer Batch; membayar Trip Fee-nya; membaca konfirmasi pembayarannya; dan menerima sertifikat keikutsertaan.
 _Avoid_: Relawan (di kode), Donor
 
 **Platform Operator**:
@@ -103,7 +111,7 @@ Izin penghimpunan dana sosial bertanggal yang dipegang sebuah Collecting Entity,
 _Avoid_: Izin PUB (di kode), lisensi, legalitas
 
 **Verifier**:
-Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memasang Flag, memverifikasi identitas Fundraiser, memeriksa rekening tujuan baik untuk Payout maupun untuk Refund, dan menilai Petunjuk Duplikat sebelum meloloskan. Tidak men-suspend; itu keputusan Admin. Seperti Admin, tidak pernah bertindak sebagai Verifier atas Campaign atau Volunteer Trip miliknya sendiri. Di kode ini penugasan VERIFIER; Role lama MODERATOR tidak lagi memberi wewenang apa pun.
+Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memasang Flag, memverifikasi identitas Fundraiser, memverifikasi dokumen legal Partner Organisation, mencatat Fundraising Permit pada Collecting Entity, memoderasi Volunteer Trip, memeriksa rekening tujuan baik untuk Payout maupun untuk Refund, dan menilai Petunjuk Duplikat sebelum meloloskan. Tidak men-suspend; itu keputusan Admin. Seperti Admin, tidak pernah bertindak sebagai Verifier atas Campaign atau Volunteer Trip miliknya sendiri. Di kode ini penugasan VERIFIER; Role lama MODERATOR tidak lagi memberi wewenang apa pun.
 _Avoid_: Verifikator, moderator (di percakapan)
 
 **Cancellation**:

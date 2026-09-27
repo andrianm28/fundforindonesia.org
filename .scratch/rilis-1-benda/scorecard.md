@@ -140,3 +140,131 @@ Recorded because the map cites these as established:
   platform-fee summary per Kind are all defensible readings.
 - **Which of the ten unreachable Admin screens are Rilis 1, and in what order.**
   The list is known; the priority is not, and it depends on tickets 01 and 07.
+
+---
+
+# Appendix: the three modules added 2026-09-27
+
+The owner asked to add the roles for the **CSR**, **hibah** and **Volunteer**
+modules. Two of the three were missing from the glossary entirely, and measuring
+them changes the picture rather than extending it.
+
+## What was added to `CONTEXT.md`
+
+- **`Tim CSR`** (new) — the actor that `Program`'s definition already referred to
+  as "tim CSR perusahaan" but never defined. It is a dangling reference, now
+  closed. It is *not* a Partner Organisation: that one becomes a Fundraiser,
+  this one only reads a catalogue and sends an inquiry.
+- **`Donor Hibah`** (new) — **deliberately not a role.** A hibah donor is a
+  Donor; what differs is the purpose and the counterparty, not their standing
+  on the platform. This follows the precedent `Wakif` already set. Making it a
+  fifth role would have broken the rule that roles come from an `Assignment`:
+  a person who gives zakat in the morning and hibah in the afternoon would
+  need to be two roles.
+- **`Volunteer`** — already existed as a definition with no job list, exactly
+  like `Fundraiser` and `Donor` did before today. It now has one.
+
+## The correction this forced, to a jobdesc written an hour earlier
+
+`Verifier`'s job list was **incomplete**, and I wrote it. It omitted three jobs
+the Verifier actually has:
+
+- verify a Partner Organisation's legal documents — the screen exists,
+  `/moderasi/partner-organisations`
+- record a Fundraising Permit against a Collecting Entity — the screen exists,
+  `/moderasi/collecting-entities`
+- moderate a Volunteer Trip — **the route exists, the screen does not**
+
+So the first two were already reachable and simply not in the measure. This is
+the same failure the scorecard is about, and it was in the yardstick itself.
+
+## Tim CSR — 2 of 4
+
+| Job | State |
+| --- | --- |
+| Browse the Program portfolio by Sector | reachable — `/program`, grouped into the four sectors |
+| Read a Program's budget and KPIs | reachable — `/program/[slug]`, an "Anggaran" field |
+| Send a Partnership Inquiry | reachable — the form is rendered on the Program page |
+| **Find out what happened to their inquiry** | **no code.** The inquiry enters the Admin queue and the company is told nothing |
+
+That last one is the whole reason this role is in the glossary. It was an
+unguarded hole: the form works, the Admin queue works, and the person who
+filled in the form never hears a word.
+
+## Volunteer — 0 of 5
+
+| Job | State |
+| --- | --- |
+| Browse the Volunteer Trip and Batch catalogue | **no page exists at all.** No file under `src/app` matches `volunt` |
+| Register for a Batch | **no model.** `VolunteerRegistration` appears zero times in the schema |
+| Pay the Trip Fee | **no flow.** `tripFeeAmount` exists only as a creation field on a Trip |
+| Read the payment confirmation | **no code** |
+| Receive a certificate | **no code** — "sertifikat" has zero hits in `src/` |
+
+**The entire module is unreachable end to end, and it is unreachable for
+everyone, not just the Volunteer.** Both ends of the loop are API-only:
+
+- A Fundraiser creating a Volunteer Trip: `POST /api/volunteer-trips` exists
+  with no screen. `tripFeeAmount` is a validated field on a Trip.
+- A Verifier moderating it: `GET /api/moderasi/volunteer-trips` exists and
+  filters on `status: 'SUBMITTED'`, and **no screen anywhere**. The moderation
+  area has `campaigns`, `collecting-entities`, `partner-organisations` and
+  `reports`; there is no `volunteer-trips`.
+
+So a Volunteer Trip submitted through the product **can never be approved by a
+person**. That is the sixth family of route-without-screen beyond the eleven
+Admin ones, and the first one where a whole feature is stranded at both ends.
+
+**A note on scope.** The PRD places Volunteer at release 3, outside Rilis 1.
+That is why none of this was built. But the glossary already described the
+Volunteer's job as "registering and paying the Trip Fee" — a flow that has
+never existed. The entry described an intention as though it were a fact, which
+is how the gap stayed invisible. Measuring it is what exposed that.
+
+## Donor Hibah — the Kind has no donor surface
+
+`hibah` appears in exactly two places in the product's React code: a comment in
+the Partner Organisation register, and a verification-checklist test. The donate
+flow branches on **one** Kind only:
+
+```
+const isWakaf = campaign?.kind === 'WAKAF';
+if (isWakaf && !ikrarConfirmed) { ... }
+```
+
+A Donor giving hibah goes through the same path as any other Donor and gets
+nothing that marks it as hibah. The `hibah` checklist row exists, so the
+document requirements are known, and the money treatment is already decided by
+ticket 06 — but the donor-facing side of the module is unbuilt.
+
+This is consistent with the earlier finding that the only home page tile for
+Wakif is `comingSoon` while Zakat has a page. The rule that would explain the
+asymmetry — *Zakat gets a page because it has a calculator to run* — is real,
+and it implies Wakaf and hibah get no page unless we decide otherwise.
+
+## The score, with the three modules included
+
+| Role | Jobs | Reachable | Code but no screen | No code at all |
+| --- | --- | --- | --- | --- |
+| **Donor** | 5 | 5 (one leaks) | 0 | 0 |
+| **Donor Hibah** | same as Donor | nothing marks the Kind | 0 | any hibah-specific surface |
+| **Tim CSR** | 4 | 2 | 0 | 2 |
+| **Volunteer** | 5 | 0 | 2 (both ends API-only) | 3 |
+| **Verifier** | 8 | 6 | 2 | 1 |
+| **Fundraiser** | 5 | 2 | 4 | 2 |
+| **Admin** | 13 | 2 | 10 | 1 |
+
+Verifier rose from 4 of 5 to 6 of 8 once its real jobs were listed — two of the
+three additions were already reachable. The count went up and the number went
+up too, which is the correct direction: a measure that only ever lowers is
+measuring the wrong thing.
+
+## Two more things needing a human
+
+- **Does a Tim CSR get an account?** An account means storing the company's
+  contact details and a per-company thread of follow-up. No account means the
+  acknowledgement is an email and nothing more. Rilis 1 has no answer.
+- **Should Volunteer be in Rilis 1 at all?** The PRD says no. But the glossary
+  described its flow as though it existed, and a Fundraiser can create a Trip
+  with a price today and a Verifier has no screen to approve it. Leaving it out
+  of scope is defensible; leaving a half-open loop in the code is not.
