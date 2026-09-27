@@ -253,7 +253,13 @@ describe('CampaignDetailView -- where the Campaign stands', () => {
 
   it('does not ask for a reason when the Campaign is not Suspended', () => {
     renderAs('CANCELLED');
-    expect(global.fetch).not.toHaveBeenCalled();
+    // Traffic Source counts (ticket 24) are asked for regardless of
+    // lifecycle status, so this checks the Suspension-reason call
+    // specifically, not "no fetch happened at all".
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      '/api/campaigns/bantu-korban-bencana',
+      expect.objectContaining({ cache: 'no-store' })
+    );
   });
 });
 
@@ -283,10 +289,16 @@ describe('CampaignDetailView -- the Fundraiser withdraws a pending submission (v
   it.each(['DRAFT', 'REJECTED', 'ACTIVE'] as const)(
     'never asks and never offers the button for a %s Campaign',
     (status) => {
-      global.fetch = vi.fn();
+      global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 }) as unknown as typeof fetch;
       render(<CampaignDetailView campaign={{ ...mockCampaign, lifecycleStatus: status }} />);
       expect(screen.queryByRole('button', { name: 'Tarik pengajuan' })).toBeNull();
-      expect(global.fetch).not.toHaveBeenCalled();
+      // Traffic Source counts (ticket 24) are asked for regardless of
+      // lifecycle status; this checks the withdrawal-eligibility call
+      // specifically, not "no fetch happened at all".
+      expect(global.fetch).not.toHaveBeenCalledWith(
+        '/api/campaigns/bantu-korban-bencana',
+        expect.objectContaining({ cache: 'no-store' })
+      );
     }
   );
 
@@ -305,6 +317,12 @@ describe('CampaignDetailView -- the Fundraiser withdraws a pending submission (v
     const posts: string[] = [];
     let gets = 0;
     global.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      // Traffic Source counts (ticket 24) fetch the same Campaign
+      // independently of the withdrawal flow this test drives -- answered
+      // separately so it does not consume a slot `gets` is counting.
+      if (String(_url).endsWith('/traffic-sources')) {
+        return { ok: false, status: 403 } as Response;
+      }
       if (init?.method === 'POST') {
         posts.push(String(_url));
         return { ok: true, json: async () => ({}) } as Response;
@@ -334,6 +352,9 @@ describe('CampaignDetailView -- the Fundraiser withdraws a pending submission (v
   it('withdraws a resubmission and shows the Campaign back at Rejected', async () => {
     let gets = 0;
     global.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(_url).endsWith('/traffic-sources')) {
+        return { ok: false, status: 403 } as Response;
+      }
       if (init?.method === 'POST') {
         return { ok: true, json: async () => ({}) } as Response;
       }
@@ -379,5 +400,49 @@ describe('CampaignDetailView -- the Fundraiser withdraws a pending submission (v
 
     expect(await screen.findByText('Verification Request ini sudah diputuskan.')).toBeDefined();
     expect(screen.getByRole('button', { name: 'Tarik pengajuan' })).toBeDefined();
+  });
+});
+
+describe('CampaignDetailView Traffic Source (ticket 24)', () => {
+  afterEach(() => {
+    cleanup();
+    sessionStorage.clear();
+  });
+
+  it('captures a well-formed src from the URL for this campaign on mount', () => {
+    window.history.pushState({}, '', `/campaign/${mockCampaign.slug}?src=whatsapp`);
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={mockCampaign} />);
+
+    expect(sessionStorage.getItem(`ffi:traffic-source:${mockCampaign.slug}`)).toBe('whatsapp');
+  });
+
+  it('renders nothing extra when the viewer is not the Fundraiser (the API refuses)', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={mockCampaign} />);
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(screen.queryByText(/Sumber Kunjungan/i)).toBeNull();
+  });
+
+  it("shows counts per source to the campaign's own Fundraiser", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        sources: [
+          { source: 'whatsapp', count: 3 },
+          { source: null, count: 5 },
+        ],
+      }),
+    }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={mockCampaign} />);
+
+    expect(await screen.findByText(/Sumber Kunjungan/i)).toBeDefined();
+    expect(screen.getByText('whatsapp')).toBeDefined();
+    expect(screen.getByText('3')).toBeDefined();
+    expect(screen.getByText('5')).toBeDefined();
   });
 });

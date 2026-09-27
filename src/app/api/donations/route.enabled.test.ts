@@ -456,6 +456,51 @@ describe('POST /api/donations freezes the Escrow Hold duration (prd-compliance 1
   });
 });
 
+describe('POST /api/donations Traffic Source (ticket 24)', () => {
+  it('records a well-formed trafficSource on the Donation', async () => {
+    await POST(createRequest({ ...QRIS_BODY, trafficSource: 'whatsapp' }));
+
+    expect(mockDonationCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ trafficSource: 'whatsapp' }),
+    });
+  });
+
+  it('sanitizes an unsafe trafficSource rather than reflecting it unescaped', async () => {
+    await POST(createRequest({ ...QRIS_BODY, trafficSource: '<script>alert(1)</script>' }));
+
+    expect(mockDonationCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ trafficSource: 'scriptalert1script' }),
+    });
+  });
+
+  it('never blocks the donation when trafficSource is absent', async () => {
+    const response = await POST(createRequest(QRIS_BODY));
+
+    expect(response.status).toBe(201);
+    expect(mockDonationCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ trafficSource: null }),
+    });
+  });
+
+  it('never blocks the donation when trafficSource is malformed (e.g. an object)', async () => {
+    const response = await POST(createRequest({ ...QRIS_BODY, trafficSource: { not: 'a string' } }));
+
+    expect(response.status).toBe(201);
+    expect(mockDonationCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ trafficSource: null }),
+    });
+  });
+
+  it('caps an overlong trafficSource instead of refusing the donation', async () => {
+    const response = await POST(createRequest({ ...QRIS_BODY, trafficSource: 'a'.repeat(500) }));
+
+    expect(response.status).toBe(201);
+    expect(mockDonationCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ trafficSource: 'a'.repeat(40) }),
+    });
+  });
+});
+
 describe('POST /api/donations refuses a misconfigured environment', () => {
   it('answers 503 and writes nothing when sandbox credentials are live in production', async () => {
     // The switch being on is not enough. Sandbox credentials in production

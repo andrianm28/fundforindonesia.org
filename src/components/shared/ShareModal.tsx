@@ -18,7 +18,15 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
   const [copied, setCopied] = useState(false);
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-  const campaignUrl = `${baseUrl}/campaign/${campaign.slug}`;
+  /**
+   * Traffic Source (ticket 24): each channel tags the link it hands out
+   * with its own `src`, so a Donation that comes back through it can be
+   * told apart from one that arrives through a different shared link.
+   * Sanitized again on arrival at the API (src/lib/traffic-source.ts) --
+   * this value is never trusted just because this app produced it, since
+   * anyone can also hand-edit the query string before sharing it further.
+   */
+  const urlWithSource = (source: string) => `${baseUrl}/campaign/${campaign.slug}?src=${source}`;
   const shareText = `Bantu donasi untuk: ${campaign.title} - ${campaign.description.slice(0, 100)}`;
 
   const shareOptions = [
@@ -33,7 +41,7 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
       color: 'bg-[#25D366] hover:bg-[#1DA851]',
       onClick: () => {
         window.open(
-          `https://wa.me/?text=${encodeURIComponent(shareText + ' ' + campaignUrl)}`,
+          `https://wa.me/?text=${encodeURIComponent(shareText + ' ' + urlWithSource('whatsapp'))}`,
           '_blank'
         );
       },
@@ -49,7 +57,7 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
       color: 'bg-[#1877F2] hover:bg-[#0d6eea]',
       onClick: () => {
         window.open(
-          `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(campaignUrl)}`,
+          `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(urlWithSource('facebook'))}`,
           '_blank'
         );
       },
@@ -65,7 +73,7 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
       color: 'bg-[#000000] hover:bg-[#333333]',
       onClick: () => {
         window.open(
-          `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(campaignUrl)}`,
+          `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(urlWithSource('twitter'))}`,
           '_blank'
         );
       },
@@ -82,13 +90,13 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
       color: copied ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-600 hover:bg-gray-700',
       onClick: async () => {
         try {
-          await navigator.clipboard.writeText(campaignUrl);
+          await navigator.clipboard.writeText(urlWithSource('copy'));
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         } catch {
           // Fallback for older browsers
           const textArea = document.createElement('textarea');
-          textArea.value = campaignUrl;
+          textArea.value = urlWithSource('copy');
           document.body.appendChild(textArea);
           textArea.select();
           document.execCommand('copy');
