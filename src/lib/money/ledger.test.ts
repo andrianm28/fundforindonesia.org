@@ -27,6 +27,7 @@ import {
   type LedgerSubject,
   type ManualContributionSubject,
 } from './ledger';
+import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
 
 /**
  * A ledger is the one place where "mostly right" is worthless, so these tests
@@ -652,18 +653,25 @@ describe('providerBalances', () => {
     await postTransaction(
       tx as never,
       paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c2' }, grossAmount: 200_000, providerFee: 0 }),
-      { provider: 'xendit' },
+      { provider: 'mock' },
     );
     await postTransaction(tx as never, payoutCompletedLegs({ amount: 120_000 }));
 
+    // Named providers in name order, the unnamed bucket last -- which is the
+    // order providerBalances sorts to, so the expectation is the documented
+    // one and not the order the rows happen to be posted in.
     expect(await providerBalances(tx as never)).toEqual([
+      { provider: 'mock', debited: 200_000, credited: 0, balance: 200_000 },
       { provider: 'sumopod', debited: 500_000, credited: 0, balance: 500_000 },
-      { provider: 'xendit', debited: 200_000, credited: 0, balance: 200_000 },
       { provider: null, debited: 0, credited: 120_000, balance: -120_000 },
     ]);
   });
 
   it('keeps a withdrawal against the provider it was drawn from, so the pot shrinks for that provider only', async () => {
+    // `mock` is the other name this build has a provider for, which is what a
+    // second pot has to be: the split is by exact string equality, so the point
+    // of the test is two names, and only registered ones are states the
+    // platform can be in. The guard at the end of this describe says so.
     const tx = makeTx();
     await postTransaction(
       tx as never,
@@ -673,7 +681,7 @@ describe('providerBalances', () => {
     await postTransaction(
       tx as never,
       paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c2' }, grossAmount: 900_000, providerFee: 0 }),
-      { provider: 'xendit' },
+      { provider: 'mock' },
     );
     await postTransaction(tx as never, collectionAccountWithdrawalLegs({ amount: 300_000 }), { provider: 'sumopod' });
 
@@ -686,7 +694,7 @@ describe('providerBalances', () => {
     });
     // The other provider's money is untouched by a sweep out of this one, which
     // is the whole reason the column exists.
-    expect(pots.find((p) => p.provider === 'xendit')?.balance).toBe(900_000);
+    expect(pots.find((p) => p.provider === 'mock')?.balance).toBe(900_000);
   });
 
   it('is debit-normal, like heldOf: a pot of money at a provider is a positive number', async () => {
@@ -720,6 +728,47 @@ describe('providerBalances', () => {
 
   it('is empty when the provider has never been touched, rather than reporting a zero pot as a finding', async () => {
     expect(await providerBalances(makeTx() as never)).toEqual([]);
+  });
+
+  it('stamps only names this build has a provider for, because a pot split by an unknown name is a pot nothing can settle', async () => {
+    // The fixtures above used to file money under a provider this build has no
+    // adapter for, which made this file disagree with payouts.test.ts and
+    // provider-withdrawals.test.ts about whether that name exists. The rule ADR
+    // 0006 gave us is a closed list (@/lib/payments/provider-names), and a test
+    // that quietly posts a name off the list is testing a state the platform
+    // cannot reach: the Provider Balance is split by exact string equality, so
+    // such a bucket reconciles perfectly against nothing and settles against
+    // no code path at all. Green tests, no evidence.
+    //
+    // A name can only reach a ledger entry through this file, so the fixtures
+    // are the whole surface, and they are checked against the registry rather
+    // than against a list written here. The two files that post an unregistered
+    // name on purpose -- to prove approvePayout and recordProviderWithdrawal
+    // refuse one -- are not this file's business; this file has no such claim
+    // to make.
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const source = readFileSync(join(process.cwd(), 'src', 'lib', 'money', 'ledger.test.ts'), 'utf8');
+
+    // `\s*` rather than a literal space, so the pattern cannot match its own
+    // source line: with a space there, the text after the colon is a backslash
+    // rather than a quote, and the scan leaves this line alone. A rewrite that
+    // puts the space back makes the pattern read its own capture group as a
+    // provider name, which fails here -- the safe direction.
+    const stamped = [...new Set([...source.matchAll(/provider:\s*'([^']+)'/g)].map((m) => m[1]))];
+    // Greater than zero, so a rewrite of the pattern cannot make this pass by
+    // finding no provider name to complain about.
+    expect(stamped.length).toBeGreaterThan(0);
+
+    const unknown = stamped.filter((name) => {
+      try {
+        canonicalPaymentProviderName(name);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    expect(unknown).toEqual([]);
   });
 });
 
