@@ -66,6 +66,11 @@ function requireEnv(key: string): string {
  * Every provider this build can speak to, keyed by the name that appears in
  * its webhook URL. Adding one is a new entry here plus an adapter; nothing
  * else in the app names a provider.
+ *
+ * Read only through hasOwnProperty (see canonicalPaymentProviderName): an
+ * object literal also answers `constructor` and `__proto__` from
+ * Object.prototype, and a caller that treated one of those as a registered
+ * provider would be handed a name that resolves to no adapter at all.
  */
 const BUILDERS: Record<string, () => PaymentProvider> = {
   mock: () => new MockPaymentProvider({ serverKey: requireEnv('MOCK_MIDTRANS_SERVER_KEY') }),
@@ -95,7 +100,12 @@ const BUILDERS: Record<string, () => PaymentProvider> = {
  */
 export function canonicalPaymentProviderName(name: string): string {
   const canonical = name.toLowerCase();
-  if (!BUILDERS[canonical]) throw new UnknownPaymentProviderError(name);
+  // hasOwnProperty, not a plain lookup: BUILDERS is an object literal, so
+  // `BUILDERS['constructor']` is truthy and would hand back a name this build
+  // has no adapter for. For the webhook that meant an adapter-less 500; for
+  // the money layer it means the string lands on a ledger entry and becomes a
+  // Provider Balance bucket that no code can ever settle against.
+  if (!Object.hasOwn(BUILDERS, canonical)) throw new UnknownPaymentProviderError(name);
   return canonical;
 }
 
