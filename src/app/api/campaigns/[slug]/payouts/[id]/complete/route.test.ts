@@ -64,6 +64,17 @@ function makeApprovedPayout(overrides: Record<string, unknown> = {}) {
     completedAt: null,
     proofImage: null,
     providerRef: null,
+    // The destination, re-read at completion the way the approve route's row
+    // carries it: completePayout refuses a completion whose Bank Account is
+    // gone, no longer the requester's, or no longer verified.
+    bankAccount: {
+      id: 'bank-1',
+      ownerId: 'creator-1',
+      bankCode: 'BCA',
+      accountNumber: '1234567890',
+      accountName: 'Creator One',
+      verifiedAt: new Date('2026-01-01'),
+    },
     ...overrides,
   };
 }
@@ -252,6 +263,27 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/complete', () => {
     expect(response.status).toBe(403);
     expect(data.code).toBe('OWN_CAMPAIGN_CONFLICT');
     expect(state).toMatchObject({ status: 'APPROVED', completedById: null });
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+  });
+
+  it('refuses completion when the bank account is no longer eligible (verifiedAt cleared since approval) with 403, and posts nothing', async () => {
+    // Verification can be revoked for an account discovered to be fraudulent
+    // in the window between approval and completion. Nothing has been sent
+    // until this step, so the money-out path is the step that has to ask
+    // whether the destination is still eligible.
+    const { tx, state, rows, queryRaw } = makeTx({
+      payout: makeApprovedPayout({ bankAccount: { ...makeApprovedPayout().bankAccount, verifiedAt: null } }),
+      ledgerRows: INSTRUCTED_ROWS,
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data.code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
+    expect(state).toMatchObject({ status: 'APPROVED', completedById: null, proofImage: null });
+    expect(queryRaw).not.toHaveBeenCalled();
     expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
   });
 

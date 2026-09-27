@@ -52,6 +52,17 @@ function makeApprovedTripPayout(overrides: Record<string, unknown> = {}) {
     completedAt: null,
     proofImage: null,
     providerRef: null,
+    // The destination, re-read at completion the way the approve route's row
+    // carries it: completePayout refuses a completion whose Bank Account is
+    // gone, no longer the fundraiser's, or no longer verified.
+    bankAccount: {
+      id: 'bank-1',
+      ownerId: 'fundraiser-1',
+      bankCode: 'BCA',
+      accountNumber: '1234567890',
+      accountName: 'Fundraiser One',
+      verifiedAt: new Date('2026-01-01'),
+    },
     ...overrides,
   };
 }
@@ -184,6 +195,25 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/complete', () => {
       expect(response.status).toBe(200);
       expect(state).toMatchObject({ status: 'COMPLETED' });
     }
+  });
+
+  it('refuses completion with 403 BANK_ACCOUNT_NOT_ELIGIBLE when the bank account lost its verification after approval, posting nothing', async () => {
+    // The Trip side of the same gate. Verification can be revoked for an
+    // account discovered fraudulent, and nothing has been sent until this
+    // step, so the destination has to be re-checked here too.
+    const { tx, state, rows, queryRaw } = makeTx({
+      payout: makeApprovedTripPayout({ bankAccount: { ...makeApprovedTripPayout().bankAccount, verifiedAt: null } }),
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data.code).toBe('BANK_ACCOUNT_NOT_ELIGIBLE');
+    expect(state).toMatchObject({ status: 'APPROVED', completedById: null });
+    expect(queryRaw).not.toHaveBeenCalled();
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
   });
 
   it('refuses the Admin who approved it, and the Trip Fundraiser, both with 403', async () => {

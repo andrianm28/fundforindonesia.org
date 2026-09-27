@@ -245,7 +245,9 @@ export async function approvePayout(
     // writes a BankAccount after creation except (by hand, outside the app)
     // clearing verifiedAt when one turns out to be fraudulent -- exactly the
     // scenario this exists to catch, in the window between a requester's
-    // request and an admin's approval.
+    // request and an admin's approval. The window does not end here, which is
+    // why completePayout repeats this same check before the money is recorded
+    // as sent.
     const { bankAccount } = payout;
     if (!bankAccount || bankAccount.ownerId !== payout.requestedById || !bankAccount.verifiedAt) {
       throw new BankAccountNotEligibleError();
@@ -367,6 +369,17 @@ export async function approvePayout(
  *    the money has been committed to the balance but not yet sent anywhere,
  *    and a Suspended Campaign's money is meant to stay put.
  *
+ * AND WHOSE DESTINATION IS STILL ELIGIBLE. The three above are about people.
+ * This one is about the account the money is sent to, and it is the same
+ * judgement approvePayout makes, re-read here because approval is not the
+ * step the money leaves on: BankAccountNotEligibleError unless the Payout's
+ * own Bank Account is still the requester's and still carries a verifiedAt.
+ * Approval only makes the balance stop being withdrawable, so a verification
+ * cleared in the window between the two would otherwise let this function
+ * record a transfer to an account nobody may pay. Judged on the Payout's own
+ * row, like every other check above and before the lock, because it needs
+ * nothing from the subject.
+ *
  * WHY THE SAME ROW LOCK AS CANCELLATION. Cancellation approval refuses
  * while no Payout on the Campaign is COMPLETED, and it checks that under
  * the Campaign row lock (src/lib/campaign-lifecycle.ts). Two writers
@@ -415,15 +428,15 @@ export async function completePayout(
   }
 
   await prisma.$transaction(async (tx) => {
-    const payout = await tx.payout.findUnique({ where: { id: payoutId } });
+    const payout = await tx.payout.findUnique({ where: { id: payoutId }, include: { bankAccount: true } });
     if (!payout) {
       throw new PayoutNotFoundError(payoutId);
     }
 
     // Only the Payout's own row is read before the lock, and every check
-    // below needs nothing from the subject: status, approver and amount all
-    // live on this row. The subject itself is read nowhere before
-    // lockPayoutSubject, the same rule approvePayout follows.
+    // below needs nothing from the subject: status, approver, amount and the
+    // destination account all live on this row. The subject itself is read
+    // nowhere before lockPayoutSubject, the same rule approvePayout follows.
     if (payout.status !== 'APPROVED') {
       throw new InvalidPayoutStatusError(payout.status);
     }
@@ -436,6 +449,22 @@ export async function completePayout(
     // the two-person rule is satisfied by.
     if (!payout.approvedById || payout.approvedById === completedById) {
       throw new TwoPersonRuleError();
+    }
+
+    // Re-checked here for the same reason approvePayout re-checks it, and
+    // with the same three gaps in one condition, so the two gates cannot
+    // disagree about what an eligible destination is: this Payout's own row
+    // still has to name an account the requester owns and that carries a
+    // verifiedAt. The window approval closes is not the end of the road --
+    // nothing has been sent until the Admin records it here -- so a
+    // verification cleared (by hand, outside the app) for an account that
+    // turns out fraudulent, or an account that has changed owner, must stop
+    // this too, on the Payout's own row and before any lock, exactly as at
+    // approval. The money stays in PAYOUT_CLEARING either way, awaiting a
+    // destination that is still eligible.
+    const { bankAccount } = payout;
+    if (!bankAccount || bankAccount.ownerId !== payout.requestedById || !bankAccount.verifiedAt) {
+      throw new BankAccountNotEligibleError();
     }
 
     // Same guard, same order, as approvePayout: the subject this Payout is

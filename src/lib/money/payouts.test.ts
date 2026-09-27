@@ -317,6 +317,10 @@ describe('completePayout', () => {
     proofImage: null,
     completedById: null,
     completedAt: null,
+    // The destination, as completePayout now reads it: the same re-check
+    // approvePayout makes, in the same include, so the same three gaps --
+    // missing, not the requester's, no verifiedAt -- refuse here too.
+    bankAccount: verifiedBankAccount(),
     ...overrides,
   });
 
@@ -362,6 +366,74 @@ describe('completePayout', () => {
       .filter((r) => r.account === 'PAYOUT_CLEARING')
       .reduce((sum, r) => (r.direction === 'CREDIT' ? sum + r.amount : sum - r.amount), 0);
     expect(clearing).toBe(0);
+  });
+
+  it('refuses a Payout whose Bank Account lost its verification after approval, with the same error and message the other two gates raise', async () => {
+    // Verification can be revoked (by hand, outside the app) for an account
+    // that turns out to be fraudulent, and that window does not close at
+    // approval: the money has not been sent until the second Admin records
+    // it here. Recording the transfer anyway would make this the one money-out
+    // step that never asks whether the destination is still eligible.
+    const { tx, rows, payoutState, queryRawCalls } = makeTx({
+      ledgerRows: INSTRUCTED_ROWS,
+      payoutRow: approvedPayoutRow({ bankAccount: verifiedBankAccount({ verifiedAt: null }) }),
+    });
+    const prisma = makePrisma(tx, {});
+
+    const refusal = await completePayout(prisma as never, {
+      payoutId: 'payout-1',
+      completedById: 'admin-2',
+      proofImage: 'proof-1',
+    }).then(
+      () => null,
+      (error: BankAccountNotEligibleError) => error,
+    );
+
+    // The one error the other two gates raise, unchanged -- no third rule
+    // and no new code for the same judgement.
+    expect(refusal).toBeInstanceOf(BankAccountNotEligibleError);
+    expect(refusal).toMatchObject({ code: 'BANK_ACCOUNT_NOT_ELIGIBLE', message: new BankAccountNotEligibleError().message });
+    // Refused on the Payout's own row, like the two gates before it: nothing
+    // is locked, nothing is written, and the money stays in PAYOUT_CLEARING
+    // for an Admin who can still act on it.
+    expect(queryRawCalls).toEqual([]);
+    expect(payoutState).toMatchObject({ status: 'APPROVED', completedById: null, proofImage: null });
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+  });
+
+  it.each([
+    ['the Bank Account is gone', null],
+    ['it is not the requester\'s any more', verifiedBankAccount({ ownerId: 'a-stranger' })],
+  ])('refuses completion for the same reason when $label, like the gate at approval', async (_label, bankAccount) => {
+    const { tx, rows, payoutState } = makeTx({
+      ledgerRows: INSTRUCTED_ROWS,
+      payoutRow: approvedPayoutRow({ bankAccount }),
+    });
+    const prisma = makePrisma(tx, {});
+
+    await expect(
+      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' }),
+    ).rejects.toThrow(BankAccountNotEligibleError);
+    expect(payoutState).toMatchObject({ status: 'APPROVED', completedById: null });
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+  });
+
+  it('completes a Payout whose Bank Account is still verified and still the requester\'s: the new gate refuses only what approval would have refused', async () => {
+    // The other half of the guarantee. A gate that refuses every completion
+    // would pass the test above and break the money-out path it exists to
+    // protect, so the ordinary case is asserted, not assumed.
+    const { tx, rows, payoutState } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
+    const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED' });
+
+    const result = await completePayout(prisma as never, {
+      payoutId: 'payout-1',
+      completedById: 'admin-2',
+      proofImage: 'proof-1',
+    });
+
+    expect(result.status).toBe('COMPLETED');
+    expect(payoutState).toMatchObject({ status: 'COMPLETED', completedById: 'admin-2' });
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toHaveLength(2);
   });
 
   it('refuses to complete without proof of transfer, writing nothing at all', async () => {
