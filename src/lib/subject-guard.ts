@@ -14,6 +14,7 @@ import {
 } from "./campaign-lifecycle-errors";
 import { missingRequiredDeadline } from "./campaign-kind";
 import { judgeCapacity } from "./capacity";
+import { PAYOUT_REQUESTABLE_STATUSES } from "./payout-requestable-statuses";
 import type { LedgerSubject } from "./money/ledger";
 
 /**
@@ -221,12 +222,16 @@ export async function lockAndLoad(
   };
 }
 
-/** The Campaign effective statuses a Payout may be requested or approved in. */
-const PAYOUT_ALLOWED_FROM: readonly CampaignStatus[] = [
-  CampaignStatus.ACTIVE,
-  CampaignStatus.EXPIRED,
-  CampaignStatus.COMPLETED,
-];
+/**
+ * The Campaign effective statuses a Payout may be requested or approved in.
+ *
+ * The list itself lives in ./payout-requestable-statuses.ts, which imports no
+ * Prisma values so a browser bundle can ask the same question this guard
+ * answers. Written against it here rather than kept as a second copy, so a
+ * status a screen offers and a status the money layer accepts cannot drift
+ * apart.
+ */
+const PAYOUT_ALLOWED_FROM: readonly CampaignStatus[] = PAYOUT_REQUESTABLE_STATUSES;
 
 /** A Payout refused because of the Campaign's status (CONTEXT.md, Payout). */
 export class PayoutNotAllowedForStatusError extends CampaignLifecycleError {
