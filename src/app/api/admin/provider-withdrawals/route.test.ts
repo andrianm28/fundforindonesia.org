@@ -116,6 +116,37 @@ describe('POST /api/admin/provider-withdrawals', () => {
     expect(mockCreateMany).not.toHaveBeenCalled();
   });
 
+  it('refuses a provider this build cannot speak to, and writes nothing', async () => {
+    // The name is resolved through the payment provider registry, so a
+    // provider this deployment has no adapter for is refused here rather than
+    // recorded under a spelling no code can settle, refund or reconcile
+    // against. Same code as any other bad field, so the Admin gets a 400 that
+    // names the field rather than a 500 from the ledger write.
+    const res = await post({ ...VALID, provider: 'zendesk' });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe('PROVIDER_WITHDRAWAL_INVALID');
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockCreateMany).not.toHaveBeenCalled();
+  });
+
+  it('records a provider typed in any case under the one name the ledger uses', async () => {
+    // The Admin copies the dashboard's spelling; the webhook stamped the
+    // provider's own. Both have to land on the same pot, or a sweep's credit
+    // opens a second bucket that reconciles perfectly against nothing.
+    const res = await post({ ...VALID, provider: 'SumoPod' });
+
+    expect(res.status).toBe(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ provider: 'sumopod' }) }),
+    );
+    expect(mockCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([expect.objectContaining({ provider: 'sumopod' })]),
+      }),
+    );
+  });
+
   it('refuses a sweep with no evidence, and writes nothing', async () => {
     const res = await post({ ...VALID, proofReference: '' });
 
