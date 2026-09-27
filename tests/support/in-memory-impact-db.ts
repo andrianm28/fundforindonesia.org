@@ -1,4 +1,5 @@
 import {
+  collectionAccountWithdrawalLegs,
   escrowReleaseLegs,
   manualContributionReceivedLegs,
   manualContributionReversedLegs,
@@ -61,6 +62,7 @@ export type LedgerRow = {
   refundId: string | null;
   payoutId: string | null;
   manualContributionId: string | null;
+  providerWithdrawalId: string | null;
 };
 
 type Row = Record<string, unknown>;
@@ -131,7 +133,9 @@ export function ledgerFixture() {
 
   const post = (
     legs: LedgerLeg[],
-    refs: Partial<Pick<LedgerRow, 'paymentId' | 'refundId' | 'payoutId' | 'manualContributionId'>>,
+    refs: Partial<
+      Pick<LedgerRow, 'paymentId' | 'refundId' | 'payoutId' | 'manualContributionId' | 'providerWithdrawalId'>
+    >,
   ) => {
     const transactionId = `tx-${++sequence}`;
     for (const leg of legs) {
@@ -147,6 +151,7 @@ export function ledgerFixture() {
         refundId: refs.refundId ?? null,
         payoutId: refs.payoutId ?? null,
         manualContributionId: refs.manualContributionId ?? null,
+        providerWithdrawalId: refs.providerWithdrawalId ?? null,
       });
     }
   };
@@ -239,8 +244,24 @@ export function ledgerFixture() {
     ) {
       post(legs, refs);
     },
-    /** Money an Admin recorded as arriving outside the gateway, into a Campaign. */
-    manualContribution(opts: { manualContributionId: string; campaignId: string; amount: number }) {
+    /**
+     * A withdrawal from the Provider Balance to the Collection Account
+     * (prd-compliance 35), posted with the real leg builder so the fixture is
+     * exactly the shape the money layer writes.
+     *
+     * On the Impact page this movement must change nothing at all, and that is
+     * worth a fixture rather than a `raw()` call: both legs are platform-level
+     * and carry no Payment, Refund, Payout or Campaign, so none of the six
+     * lines has anything to read them from. If a future version of this
+     * movement ever acquired one of those, the conservation assertion in
+     * impact.ts would start throwing and this fixture is what would show it.
+     */
+    providerSweep(opts: { providerWithdrawalId: string; amount: number }) {
+      post(collectionAccountWithdrawalLegs({ amount: opts.amount }), {
+        providerWithdrawalId: opts.providerWithdrawalId,
+      });
+    },
+    /** Money an Admin recorded as arriving outside the gateway, into a Campaign. */    manualContribution(opts: { manualContributionId: string; campaignId: string; amount: number }) {
       post(
         manualContributionReceivedLegs({
           subject: manualSubject(opts.campaignId),

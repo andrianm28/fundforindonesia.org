@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
-import { findUnbalancedTransactions, providerBalances } from '@/lib/money/ledger';
+import { collectionAccountBalance, findUnbalancedTransactions, providerBalances } from '@/lib/money/ledger';
 import { reconcileProviderBalances } from '@/lib/money/provider-withdrawals';
 import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/lib/money/escrow';
 import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
@@ -634,18 +634,11 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // The Collection Account, which is the honest answer to "how much of the
     // Donors' money has actually reached a bank" -- and which nothing in this
     // codebase spends, because a Payout is paid out of the Provider Balance by
-    // hand in the provider's dashboard (ADR 0006). Credit-normal is NOT the
-    // right reading: the sweep DEBITS it, so it is debit-normal like the Provider
-    // Balance, and read the other way round it would print as money that has left
-    // the bank.
-    const collectionRows = await tx.ledgerEntry.groupBy({
-      by: ['direction'],
-      where: { account: 'COLLECTION_ACCOUNT' },
-      _sum: { amount: true },
-    });
-    const collectionDebits = collectionRows.find((r) => r.direction === 'DEBIT')?._sum.amount ?? 0;
-    const collectionCredits = collectionRows.find((r) => r.direction === 'CREDIT')?._sum.amount ?? 0;
-    const collectionAccountBalance = collectionDebits - collectionCredits;
+    // hand in the provider's dashboard (ADR 0006). Read through
+    // collectionAccountBalance (./ledger.ts) like every other balance here,
+    // rather than re-derived in this route, so there is one place that knows
+    // which way round this account runs.
+    const collectionAccountTotal = await collectionAccountBalance(tx);
 
     // The licence axis (CONTEXT.md, Fundraising Permit; prd-compliance 10): what
     // has been collected under each Kind. Joined Campaign -> Donation -> Payment
@@ -653,8 +646,8 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // ledger.ts's own doc comment gives about Campaign.collectedAmount: a
     // second copy of a fact that cannot change is still a second copy, and one
     // day it will be the one that is wrong with nothing to compare it against.
-    // Campaign.kind is immutable (KIND_IMMABLE refusal, prd-compliance 09), so
-    // the join is always in step with what the entry was posted for.
+    // Campaign.kind is immutable (the KIND_IMMUTABLE refusal, prd-compliance
+    // 09), so the join is always in step with what the entry was posted for.
     //
     // Demo Campaigns are excluded before anything is counted, the same as
     // everywhere else in this report: their figures are fixture data with no
@@ -769,7 +762,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
           providersWithDivergence,
         },
         /** Debit-normal: money that has arrived in a bank account. */
-        collectionAccountBalance,
+        collectionAccountBalance: collectionAccountTotal,
         /** Gross collected under each Kind -- the licence axis. Inbound only; see above. */
         collectedByKind: Array.from(grossByKind.entries())
           .map(([kind, settledGross]) => ({ kind, settledGross }))

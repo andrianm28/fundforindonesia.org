@@ -254,12 +254,13 @@ export async function approvePayout(
   // platform talks to exposes a balance API, so a human has to read the
   // dashboard and write the number down, and the only thing the system can do
   // about that is insist it happened.
-  const provider = params.provider.trim();
-  if (
-    provider === '' ||
-    !Number.isInteger(providerBalance) ||
-    providerBalance <= 0
-  ) {
+  // A typeof check on the provider as well as the arithmetic on the figure:
+  // this is a public seam that both routes call with whatever the body held, so
+  // `params.provider.trim()` on a non-string would throw a TypeError that no
+  // route can turn into a 422, and the caller would be told the server is
+  // broken rather than that it forgot to read the dashboard.
+  const provider = typeof params.provider === 'string' ? params.provider.trim() : '';
+  if (provider === '' || !Number.isInteger(providerBalance) || providerBalance <= 0) {
     throw new ProviderBalanceNotRecordedError();
   }
 

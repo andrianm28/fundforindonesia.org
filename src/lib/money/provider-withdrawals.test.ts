@@ -111,9 +111,7 @@ function makeTx() {
     },
     campaign: {
       findMany: vi.fn(async () => []),
-      groupBy: vi.fn(async () => []),
     },
-    payment: { findMany: vi.fn(async () => []) },
   };
 }
 

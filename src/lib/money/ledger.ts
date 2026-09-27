@@ -460,6 +460,33 @@ export async function programBalance(tx: Prisma.TransactionClient, programId: st
 }
 
 /**
+ * What has reached a bank account, in rupiah. Debit-normal, like the Provider
+ * Balance, because collectionAccountWithdrawalLegs DEBITS the Collection
+ * Account.
+ *
+ * Credit-normal is the obvious reading of "the money that got to the bank" and
+ * it is wrong: the account has no credits today, so a credit-normal reader
+ * would print 0 on a system that had just moved a million rupiah to a bank, and
+ * a negative number the moment anything else ever touched it. Read with the
+ * wrong sign, a report puts the money on the wrong side of the world.
+ */
+export async function collectionAccountBalance(tx: Prisma.TransactionClient): Promise<number> {
+  const rows = await tx.ledgerEntry.groupBy({
+    by: ['direction'],
+    where: { account: 'COLLECTION_ACCOUNT' },
+    _sum: { amount: true },
+  });
+
+  let credits = 0;
+  let debits = 0;
+  for (const row of rows) {
+    if (row.direction === 'CREDIT') credits = row._sum.amount ?? 0;
+    if (row.direction === 'DEBIT') debits = row._sum.amount ?? 0;
+  }
+  return debits - credits;
+}
+
+/**
  * Whether every transaction in the ledger balances.
  *
  * Prisma cannot express "entries sharing a transactionId sum to zero" as a
