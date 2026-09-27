@@ -13,12 +13,16 @@ import {
   refundApprovedLegs,
   refundPaidLegs,
   payoutInstructedLegs,
+  manualContributionReceivedLegs,
+  manualContributionReversedLegs,
+  programBalance,
   payoutCompletedLegs,
   UnbalancedTransactionError,
   InvalidLedgerLegError,
   DuplicateLedgerTransactionError,
   type LedgerLeg,
   type LedgerSubject,
+  type ManualContributionSubject,
 } from './ledger';
 
 /**
@@ -36,6 +40,7 @@ type Row = {
   account: string;
   campaignId: string | null;
   volunteerTripId: string | null;
+  programId: string | null;
 };
 
 /** The one unique index a ledger posting can reach; see makeTx below. */
@@ -221,7 +226,19 @@ describe('postTransaction', () => {
         { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 1000 },
         { account: 'TRIP_BALANCE', direction: 'CREDIT', amount: 1000 },
       ]),
-    ).rejects.toThrow(/requires a campaignId or volunteerTripId/);
+    ).rejects.toThrow(/TRIP_BALANCE requires a volunteerTripId/);
+  });
+
+  it('requires a subject id of some kind on the accounts shared across subjects', async () => {
+    // FROZEN_BALANCE is one subject's money whatever the subject is, so it
+    // has no account of its own to be pinned to -- but it still has to belong
+    // to somebody.
+    await expect(
+      postTransaction(tx as never, [
+        { account: 'REFUND_CLEARING', direction: 'CREDIT', amount: 1000 },
+        { account: 'FROZEN_BALANCE', direction: 'DEBIT', amount: 1000 },
+      ]),
+    ).rejects.toThrow(/requires a campaignId or volunteerTripId or a programId/);
   });
 
   it('rejects a volunteerTripId on a platform-level account', async () => {
@@ -703,8 +720,8 @@ describe('findUnbalancedTransactions already covers trip-scoped entries', () => 
     // directly the way a real bug (not this plan's own code) would have
     // to reach the database to produce this state.
     tx.rows.push(
-      { transactionId: 'trip-tx-1', legIndex: 0, direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9' },
-      { transactionId: 'trip-tx-1', legIndex: 1, direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9' },
+      { transactionId: 'trip-tx-1', legIndex: 0, direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9', programId: null },
+      { transactionId: 'trip-tx-1', legIndex: 1, direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9', programId: null },
     );
 
     const result = await findUnbalancedTransactions(tx as never);
@@ -816,5 +833,191 @@ describe('tripBalance / tripEscrowBalance', () => {
     );
     expect(await campaignBalance(tx as never, 'shared-id')).toBe(0);
     expect(await tripBalance(tx as never, 'shared-id')).toBe(50_000);
+  });
+});
+
+/**
+ * Manual Contribution (CONTEXT.md): money that arrived outside the payment
+ * gateway, so there is no Settlement, no Escrow Hold and neither fee. It is
+ * credited straight to the withdrawable balance, on its own ledger accounts,
+ * and can be taken back out by the mirror-image journal.
+ */
+describe('manualContributionReceivedLegs / manualContributionReversedLegs', () => {
+  const CAMPAIGN: ManualContributionSubject = { type: 'campaign', campaignId: 'camp-1' };
+  const PROGRAM: ManualContributionSubject = { type: 'program', programId: 'prog-1' };
+
+  it('credits the Campaign Balance directly -- no Escrow Hold, and neither fee', () => {
+    const legs = manualContributionReceivedLegs({ subject: CAMPAIGN, amount: 75_000 });
+
+    expect(legs).toEqual([
+      { account: 'MANUAL_INTAKE_CLEARING', direction: 'DEBIT', amount: 75_000 },
+      { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 75_000, campaignId: 'camp-1' },
+    ]);
+    // A hold would strand the money for seven days for a bank transfer that
+    // already cleared; a fee would mean the campaign is credited less than
+    // the rupiah that arrived.
+    expect(legs.some((l) => l.account === 'ESCROW_HOLD')).toBe(false);
+    expect(legs.some((l) => l.account === 'PLATFORM_FEE' || l.account === 'PROVIDER_FEE')).toBe(false);
+  });
+
+  it('credits PROGRAM_BALANCE when the contribution names a Program', () => {
+    const legs = manualContributionReceivedLegs({ subject: PROGRAM, amount: 40_000 });
+
+    expect(legs).toEqual([
+      { account: 'MANUAL_INTAKE_CLEARING', direction: 'DEBIT', amount: 40_000 },
+      { account: 'PROGRAM_BALANCE', direction: 'CREDIT', amount: 40_000, programId: 'prog-1' },
+    ]);
+  });
+
+  it('never credits TRIP_BALANCE, because a Program is not a Volunteer Trip and a Campaign is not either', () => {
+    for (const subject of [CAMPAIGN, PROGRAM]) {
+      const legs = manualContributionReceivedLegs({ subject, amount: 1_000 });
+      expect(legs.some((l) => l.account === 'TRIP_BALANCE')).toBe(false);
+    }
+  });
+
+  it('reverses with the exact mirror image of the credit, on the same accounts', () => {
+    // Compared as a set keyed by account, because what has to be true is that
+    // every account the credit touched is debited here and vice versa -- the
+    // order the two legs happen to be listed in is not the invariant.
+    const byAccount = (legs: LedgerLeg[]) =>
+      Object.fromEntries(
+        legs.map((leg) => [leg.account, { ...leg, direction: leg.direction }]),
+      );
+    const received = byAccount(manualContributionReceivedLegs({ subject: PROGRAM, amount: 40_000 }));
+    const reversed = byAccount(manualContributionReversedLegs({ subject: PROGRAM, amount: 40_000 }));
+
+    expect(reversed).toEqual({
+      MANUAL_INTAKE_CLEARING: { ...received.MANUAL_INTAKE_CLEARING, direction: 'CREDIT' },
+      PROGRAM_BALANCE: { ...received.PROGRAM_BALANCE, direction: 'DEBIT' },
+    });
+  });
+
+  it('is idempotent per Manual Contribution, so a retry cannot post the credit twice', async () => {
+    // The retry is refused by the database rather than silently ignored: the
+    // transactionId is claimed by one entry, and a second claim of the same id
+    // is a unique violation (prd-28b). The invariant this test is about is
+    // unchanged -- the credit is posted once and once only -- but it is now the
+    // partial unique index that enforces it, not postTransaction quietly
+    // writing nothing. The first posting is untouched by the refusal.
+    const tx = makeTx();
+    const legs = manualContributionReceivedLegs({ subject: CAMPAIGN, amount: 10_000 });
+    await postTransaction(tx as never, legs, {
+      manualContributionId: 'mc-1',
+      transactionId: 'manual-contribution-mc-1',
+    });
+    await expect(
+      postTransaction(tx as never, legs, {
+        manualContributionId: 'mc-1',
+        transactionId: 'manual-contribution-mc-1',
+      }),
+    ).rejects.toThrow(DuplicateLedgerTransactionError);
+
+    expect(tx.rows).toHaveLength(2);
+    expect(await campaignBalance(tx as never, 'camp-1')).toBe(10_000);
+  });
+
+  it('leaves the Campaign Balance where the reversal found it, never below zero', async () => {
+    const tx = makeTx();
+    await postTransaction(tx as never, manualContributionReceivedLegs({ subject: CAMPAIGN, amount: 60_000 }));
+    expect(await campaignBalance(tx as never, 'camp-1')).toBe(60_000);
+
+    await postTransaction(tx as never, manualContributionReversedLegs({ subject: CAMPAIGN, amount: 60_000 }));
+
+    expect(await campaignBalance(tx as never, 'camp-1')).toBe(0);
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+
+  it('keeps each Program balance to its own Program', async () => {
+    const tx = makeTx();
+    await postTransaction(tx as never, manualContributionReceivedLegs({ subject: PROGRAM, amount: 40_000 }));
+    await postTransaction(
+      tx as never,
+      manualContributionReceivedLegs({ subject: { type: 'program', programId: 'prog-2' }, amount: 15_000 }),
+    );
+
+    expect(await programBalance(tx as never, 'prog-1')).toBe(40_000);
+    expect(await programBalance(tx as never, 'prog-2')).toBe(15_000);
+  });
+
+  it('CROSS-SUBJECT LEAKAGE: a Program and a Campaign sharing a raw id value never see each other money', async () => {
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      manualContributionReceivedLegs({ subject: { type: 'program', programId: 'shared-id' }, amount: 40_000 }),
+    );
+
+    expect(await campaignBalance(tx as never, 'shared-id')).toBe(0);
+    expect(await programBalance(tx as never, 'shared-id')).toBe(40_000);
+  });
+
+  it('CROSS-SUBJECT LEAKAGE: a Campaign balance never counts PROGRAM_BALANCE and the reverse', async () => {
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      manualContributionReceivedLegs({ subject: { type: 'program', programId: 'camp-1' }, amount: 40_000 }),
+    );
+
+    expect(await campaignBalance(tx as never, 'camp-1')).toBe(0);
+    expect(await programBalance(tx as never, 'camp-1')).toBe(40_000);
+  });
+
+  it('refuses a PROGRAM_BALANCE leg with no programId, so the money belongs to nobody', async () => {
+    await expect(
+      postTransaction(makeTx() as never, [
+        { account: 'MANUAL_INTAKE_CLEARING', direction: 'DEBIT', amount: 1000 },
+        { account: 'PROGRAM_BALANCE', direction: 'CREDIT', amount: 1000 },
+      ]),
+    ).rejects.toThrow(/PROGRAM_BALANCE requires a programId/);
+  });
+
+  it('refuses a programId on a platform-level account, the intake clearing included', async () => {
+    // The intake side is the platform's own money; scoping it to a Program
+    // would let a Program's figure be read off a platform-wide account.
+    await expect(
+      postTransaction(makeTx() as never, [
+        { account: 'MANUAL_INTAKE_CLEARING', direction: 'DEBIT', amount: 1000, programId: 'prog-1' },
+        { account: 'PROGRAM_BALANCE', direction: 'CREDIT', amount: 1000, programId: 'prog-1' },
+      ]),
+    ).rejects.toThrow(/platform-level/);
+  });
+
+  it('refuses a leg carrying a programId alongside a campaignId or a volunteerTripId', async () => {
+    await expect(
+      postTransaction(makeTx() as never, [
+        { account: 'MANUAL_INTAKE_CLEARING', direction: 'DEBIT', amount: 1000 },
+        { account: 'PROGRAM_BALANCE', direction: 'CREDIT', amount: 1000, programId: 'p1', campaignId: 'c1' },
+      ]),
+    ).rejects.toThrow(/cannot carry a programId/);
+  });
+
+  it('is zero for a Program with no movements', async () => {
+    expect(await programBalance(makeTx() as never, 'nobody')).toBe(0);
+  });
+});
+
+describe('ledger invariants with a Manual Contribution (property-based)', () => {
+  it('a manual contribution and its reversal balance for any amount, for either target', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 1_000_000_000 }),
+        fc.constantFrom<'campaign' | 'program'>('campaign', 'program'),
+        (amount, subjectType) => {
+          const subject: ManualContributionSubject =
+            subjectType === 'campaign'
+              ? { type: 'campaign', campaignId: 'c1' }
+              : { type: 'program', programId: 'p1' };
+          for (const legs of [
+            manualContributionReceivedLegs({ subject, amount }),
+            manualContributionReversedLegs({ subject, amount }),
+          ]) {
+            const debits = legs.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + l.amount, 0);
+            const credits = legs.filter((l) => l.direction === 'CREDIT').reduce((s, l) => s + l.amount, 0);
+            expect(debits).toBe(credits);
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
   });
 });

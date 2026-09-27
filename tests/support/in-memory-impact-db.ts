@@ -1,5 +1,7 @@
 import {
   escrowReleaseLegs,
+  manualContributionReceivedLegs,
+  manualContributionReversedLegs,
   paymentSettledLegs,
   payoutInstructedLegs,
   refundApprovedLegs,
@@ -7,6 +9,7 @@ import {
   refundRequestedLegs,
   type LedgerLeg,
   type LedgerSubject,
+  type ManualContributionSubject,
 } from '@/lib/money/ledger';
 
 /**
@@ -53,9 +56,11 @@ export type LedgerRow = {
   amount: number;
   campaignId: string | null;
   volunteerTripId: string | null;
+  programId: string | null;
   paymentId: string | null;
   refundId: string | null;
   payoutId: string | null;
+  manualContributionId: string | null;
 };
 
 type Row = Record<string, unknown>;
@@ -124,7 +129,10 @@ export function ledgerFixture() {
   const rows: LedgerRow[] = [];
   let sequence = 0;
 
-  const post = (legs: LedgerLeg[], refs: Partial<Pick<LedgerRow, 'paymentId' | 'refundId' | 'payoutId'>>) => {
+  const post = (
+    legs: LedgerLeg[],
+    refs: Partial<Pick<LedgerRow, 'paymentId' | 'refundId' | 'payoutId' | 'manualContributionId'>>,
+  ) => {
     const transactionId = `tx-${++sequence}`;
     for (const leg of legs) {
       rows.push({
@@ -134,14 +142,21 @@ export function ledgerFixture() {
         amount: leg.amount,
         campaignId: leg.campaignId ?? null,
         volunteerTripId: leg.volunteerTripId ?? null,
+        programId: leg.programId ?? null,
         paymentId: refs.paymentId ?? null,
         refundId: refs.refundId ?? null,
         payoutId: refs.payoutId ?? null,
+        manualContributionId: refs.manualContributionId ?? null,
       });
     }
   };
 
   const subject = (campaignId: string): LedgerSubject => ({ type: 'campaign', campaignId });
+
+  // The Manual Contribution builders take the narrower ManualContributionSubject
+  // rather than LedgerSubject, so they cannot be handed a trip by accident --
+  // the same separation the production code keeps.
+  const manualSubject = (campaignId: string): ManualContributionSubject => ({ type: 'campaign', campaignId });
 
   return {
     rows,
@@ -218,8 +233,31 @@ export function ledgerFixture() {
       });
     },
     /** An arbitrary balanced pair, for fixtures the builders above cannot express. */
-    raw(legs: LedgerLeg[], refs: Partial<Pick<LedgerRow, 'paymentId' | 'refundId' | 'payoutId'>> = {}) {
+    raw(
+      legs: LedgerLeg[],
+      refs: Partial<Pick<LedgerRow, 'paymentId' | 'refundId' | 'payoutId' | 'manualContributionId'>> = {},
+    ) {
       post(legs, refs);
+    },
+    /** Money an Admin recorded as arriving outside the gateway, into a Campaign. */
+    manualContribution(opts: { manualContributionId: string; campaignId: string; amount: number }) {
+      post(
+        manualContributionReceivedLegs({
+          subject: manualSubject(opts.campaignId),
+          amount: opts.amount,
+        }),
+        { manualContributionId: opts.manualContributionId },
+      );
+    },
+    /** The same money taken back out again, on a new transaction. */
+    manualContributionReversal(opts: { manualContributionId: string; campaignId: string; amount: number }) {
+      post(
+        manualContributionReversedLegs({
+          subject: manualSubject(opts.campaignId),
+          amount: opts.amount,
+        }),
+        { manualContributionId: opts.manualContributionId },
+      );
     },
   };
 }

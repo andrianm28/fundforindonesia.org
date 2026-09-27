@@ -79,6 +79,12 @@ import { join } from "node:path";
  * a queue of companies and the people at them is nobody else's to read, and
  * growing this list by two.
  *
+ * NOTE (prd-compliance 34): the two Manual Contribution routes ask for the
+ * ADMIN assignment too. Recording money that arrived outside the gateway and
+ * deciding it are both in the Admin's remit in CONTEXT.md and neither in the
+ * Verifier's, so they are gated on ADMIN alone -- not on a rank, and not on
+ * "an operator is good enough for this one".
+ *
  * NOTE (prd-compliance 14): POST /api/admin/duplicate-similarity lets an
  * Admin set the title similarity a Verifier's duplicate hints are built on
  * (PRD FFI-05), through withAssignmentCheck on the ADMIN assignment like
@@ -105,6 +111,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/page.tsx",
   "src/app/api/admin/abuse-thresholds/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
+  "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
+  "src/app/api/admin/manual-contributions/route.ts",
   "src/app/api/admin/partnership-inquiries/[id]/route.ts",
   "src/app/api/admin/partnership-inquiries/route.ts",
   "src/app/api/admin/platform-fee/route.ts",

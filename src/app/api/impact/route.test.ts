@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { manualContributionReceivedLegs } from '@/lib/money/ledger';
 import { ledgerFixture, makeImpactDb, type ImpactDbData } from '../../../../tests/support/in-memory-impact-db';
 
 /**
@@ -481,6 +482,102 @@ describe('GET /api/impact -- who the money is for, and what the page must not cl
     // accounted for is worse than no number at all.
     expect(body).not.toHaveProperty('lines');
     expect(body).not.toHaveProperty('collected');
+  });
+});
+
+describe('GET /api/impact -- a Manual Contribution (prd-compliance 34, PRD FFI-14)', () => {
+  it('counts it in the collected figure and in the available Campaign Balance, with no fee lines', async () => {
+    // A 75 000 bank transfer into a Campaign that also took one 100 000
+    // Donation (3 000 provider fee, 5 000 platform fee). Collected is the
+    // Donation's gross plus the manual money -- there was no provider to
+    // charge and no online gift to take a percentage of, so both arrive whole.
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    ledger.manualContribution({ manualContributionId: 'mc-1', campaignId: 'campaign-1', amount: 75_000 });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    const raw = await getBreakdown();
+
+    expect(raw.collected).toBe(175_000);
+    expect(lines(raw)).toEqual({
+      disbursedToFundraisers: 0,
+      returnedToDonors: 0,
+      heldInEscrowHold: 92_000,
+      availableInCampaignBalance: 75_000,
+      platformFeeRetained: 5_000,
+      providerFeeKept: 3_000,
+    });
+    // The lines still add up to what was collected, which is the whole
+    // reason the manual money has to enter `collected` and not just the
+    // available line: six numbers that do not reconcile are not served.
+    expect(sumOf(lines(raw))).toBe(175_000);
+  });
+
+  it('marks it separately, so a visitor is told it is not a Donation', async () => {
+    const ledger = ledgerFixture();
+    ledger.manualContribution({ manualContributionId: 'mc-1', campaignId: 'campaign-1', amount: 75_000 });
+    holder.db = makeImpactDb({ campaigns: [CAMPAIGN], ledgerEntries: ledger.rows });
+
+    const raw = await getBreakdown();
+
+    expect(raw.manualContributions).toBe(75_000);
+  });
+
+  it('drops a reversed contribution out of both the collected figure and the marker', async () => {
+    // Recorded, then found to be the wrong rupiah and taken back out. The
+    // money did arrive and did leave again, so counting it would overstate
+    // what this Campaign holds; the reversal's own journal is what removes it,
+    // not a status anyone has to remember to filter on.
+    const ledger = ledgerFixture();
+    ledger.manualContribution({ manualContributionId: 'mc-1', campaignId: 'campaign-1', amount: 75_000 });
+    ledger.manualContributionReversal({ manualContributionId: 'mc-1', campaignId: 'campaign-1', amount: 75_000 });
+    holder.db = makeImpactDb({ campaigns: [CAMPAIGN], ledgerEntries: ledger.rows });
+
+    const raw = await getBreakdown();
+
+    expect(raw.collected).toBe(0);
+    expect(raw.manualContributions).toBe(0);
+    expect(lines(raw).availableInCampaignBalance).toBe(0);
+    expect(sumOf(lines(raw))).toBe(0);
+  });
+
+  it('leaves CSR money on a Program out of every Campaign figure', async () => {
+    // A Program is not a Campaign, it has no page here, and FFI-14's CSR line
+    // is a later ticket. Its money must not inflate a Campaign's collected
+    // total -- nor break the reconciliation by appearing in a balance line
+    // with no matching entry in `collected`.
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 0, platformFee: 0 });
+    ledger.raw(
+      manualContributionReceivedLegs({ subject: { type: 'program', programId: 'program-1' }, amount: 500_000_000 }),
+      { manualContributionId: 'mc-9' },
+    );
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    const raw = await getBreakdown();
+
+    expect(raw.collected).toBe(100_000);
+    expect(raw.manualContributions).toBe(0);
+    expect(sumOf(lines(raw))).toBe(100_000);
+  });
+
+  it('still leaves held escrow out of it -- a Manual Contribution never waits', async () => {
+    const ledger = ledgerFixture();
+    ledger.manualContribution({ manualContributionId: 'mc-1', campaignId: 'campaign-1', amount: 75_000 });
+    holder.db = makeImpactDb({ campaigns: [CAMPAIGN], ledgerEntries: ledger.rows });
+
+    const body = lines(await getBreakdown());
+
+    expect(body.heldInEscrowHold).toBe(0);
+    expect(body.availableInCampaignBalance).toBe(75_000);
   });
 });
 

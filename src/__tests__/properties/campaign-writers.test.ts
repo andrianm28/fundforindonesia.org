@@ -22,6 +22,11 @@ const CAMPAIGN_WRITERS = [
   // deadline reminder via a predicated updateMany on deadlineReminderSentAt
   // alone -- it never touches status or lifecycleStatus.
   "src/lib/reminders.ts",
+  // Manual Contribution (prd-compliance 34): moves collectedAmount and
+  // nothing else, in the same transaction as the ledger entries that credit
+  // the money -- an increment on approval and a decrement on the reversal.
+  // Never a status, exactly as the Settlement webhook below.
+  "src/lib/money/manual-contributions.ts",
 ];
 
 function walk(dir: string): string[] {
@@ -58,6 +63,20 @@ describe("Campaign writers", () => {
     expect(writes.length).toBeGreaterThan(0);
     for (const write of writes) {
       expect(write).toMatch(/data:\s*\{\s*collectedAmount:\s*\{\s*increment:[^{}]*\}\s*\}/);
+      expect(write).not.toMatch(/\bstatus\b|lifecycleStatus/);
+    }
+  });
+
+  // The same rule for the other off-gateway door into collectedAmount: money an
+  // Admin recorded arriving outside the gateway moves the figure, and must not
+  // be able to close, suspend or otherwise touch the Campaign on its way past.
+  it("the Manual Contribution module's Campaign writes set only collectedAmount", () => {
+    const source = readFileSync("src/lib/money/manual-contributions.ts", "utf8");
+    const writes = source.match(new RegExp(`${WRITE.source}\\(\\{[\\s\\S]*?\\}\\);`, "g")) ?? [];
+
+    expect(writes.length).toBeGreaterThan(0);
+    for (const write of writes) {
+      expect(write).toMatch(/data:\s*\{\s*collectedAmount:\s*\{\s*(increment|decrement):[^{}]*\}\s*\}/);
       expect(write).not.toMatch(/\bstatus\b|lifecycleStatus/);
     }
   });
