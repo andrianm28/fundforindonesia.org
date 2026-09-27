@@ -7,6 +7,7 @@ import {
   PayoutStatus,
   StatusChangeCapacity,
   VerificationOutcome,
+  VerificationRequestKind,
   type Kind,
   type Prisma,
   type PrismaClient,
@@ -74,6 +75,7 @@ import {
 } from "./campaign-lifecycle-errors";
 import { missingRequiredDeadline } from "./campaign-kind";
 import { organisationOf, requireOpenable, resolveCollectingEntity } from "./collecting-entity-guard";
+import { activeCampaignCountsByFundraiser, resolveAbuseThresholds } from "./abuse-thresholds";
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
 import { SUBMITTABLE_STATUSES } from "./verification-submission";
@@ -337,9 +339,12 @@ type ReasonFor<P extends ReasonPolicy> = P extends "required"
  * still open", Urgent. The same pattern the balance-touching Payout
  * operations use (src/lib/money/payouts.ts).
  *
- * The Payout guarantee is only as strong as its writer: nothing marks a
- * Payout COMPLETED yet, and the endpoint that will must take this same
- * Campaign row lock, or a Payout could complete between check and write.
+ * The Payout guarantee is only as strong as its writer, and its writer
+ * exists: completePayout (src/lib/money/payouts.ts) is what marks a Payout
+ * COMPLETED, and it takes this same Campaign row lock through the same
+ * guard before its status write. So the check below and that write cannot
+ * interleave -- no Payout can complete between "none completed" and
+ * CANCELLED.
  *
  * The lock is the subject guard's (./subject-guard.ts); the whole row, which
  * the steps need, is read after it, still under the lock.
@@ -480,7 +485,8 @@ async function snapshotChecklist(tx: Tx, kind: Kind): Promise<ChecklistEntry[]> 
 export type VerificationRequestState = {
   id: string;
   campaignId: string;
-  submittedById: string;
+  /** Null on an AMOUNT_REVIEW: the System raises that one, no person submits it. */
+  submittedById: string | null;
   submittedAt: Date;
   checklist: Prisma.JsonValue;
   outcome: VerificationOutcome;
@@ -488,6 +494,9 @@ export type VerificationRequestState = {
   decidedById: string | null;
   decidedAt: Date | null;
   isFirst: boolean;
+  kind: VerificationRequestKind;
+  /** The Gross and threshold behind an AMOUNT_REVIEW; null on the other kinds. */
+  raisedByAmount: Prisma.JsonValue;
 };
 
 export type SubmissionResult = LifecycleResult & { verificationRequest: VerificationRequestState };
@@ -541,6 +550,7 @@ export async function submitCampaign(
           checklist,
           isFirst: current === CampaignStatus.DRAFT,
           collectingEntityId,
+          kind: VerificationRequestKind.SUBMISSION,
         },
       });
       await transition(CampaignStatus.SUBMITTED, CampaignStatusChangeAction.SUBMITTED);
@@ -585,12 +595,80 @@ export class VerificationRequestNotPendingError extends CampaignLifecycleError {
 }
 
 /**
+ * The Fundraiser already runs as many Active Campaigns as the limit allows,
+ * so this approval would open one more (prd-compliance 38, PRD
+ * §"Anti penyalahgunaan"; see the Active Campaign limit below).
+ */
+export class TooManyActiveCampaignsError extends CampaignLifecycleError {
+  readonly code = "TOO_MANY_ACTIVE_CAMPAIGNS";
+  constructor(
+    readonly activeCampaigns: number,
+    readonly limit: number
+  ) {
+    super(
+      `Fundraiser sudah memiliki ${activeCampaigns} Campaign Active, yaitu batas ${limit}. Selesaikan, batalkan, atau biarkan tenggatnya lewat salah satunya sebelum Campaign ini diloloskan.`
+    );
+    this.name = "TooManyActiveCampaignsError";
+  }
+}
+
+/**
+ * The Active Campaign limit (prd-compliance 38, PRD §"Anti penyalahgunaan":
+ * "batas tiga Campaign Active sebelum Usage Report pertama"), enforced where
+ * it can be: on the approval that would open one more.
+ *
+ * The PRD's escape is the Fundraiser's first Usage Report, and no Usage
+ * Report exists in this schema yet (prd-compliance 29), so today the only way
+ * a fourth Active Campaign becomes possible is for one of the first three to
+ * leave Active on its own -- reach its deadline, be Completed, be Cancelled,
+ * be Suspended. That is why the refusal names those and does not name a Usage
+ * Report, and why the count is of Active Campaigns rather than of Campaigns
+ * ever created. Campaigns already collecting are never touched by this: no
+ * Donation is held, no Campaign is closed, and only the new one waits.
+ *
+ * A Demo Campaign does not count, and a Campaign past its deadline has
+ * already stopped counting: both are decided by
+ * activeCampaignCountsByFundraiser, the one place this rule's arithmetic
+ * lives, which the Admin's scrutiny view reads too.
+ *
+ * THE RACE, STATED PLAINLY. The count is read under this Campaign's row lock,
+ * which is not the same lock as a sibling Campaign of the same Fundraiser, so
+ * two approvals committed at the same moment can both see two Active Campaigns
+ * and both open a third. The outcome is one extra Active Campaign, never a
+ * wrong count and never money moving; locking the Fundraiser's User row would
+ * close it, and is deliberately not done here because nothing else in this
+ * module locks a User and a second lock order is a worse trade than the race.
+ * The limit is a ceiling on parallel appeals, not an accounting rule.
+ */
+async function requireWithinActiveCampaignLimit(
+  tx: Tx,
+  params: { campaignId: string; fundraiserId: string; now: Date }
+): Promise<void> {
+  const { campaignId, fundraiserId, now } = params;
+  const { activeCampaignsPerFundraiser: limit } = await resolveAbuseThresholds(tx);
+  const counts = await activeCampaignCountsByFundraiser(tx, {
+    now,
+    excludeCampaignId: campaignId,
+    fundraiserId,
+  });
+  const active = counts.get(fundraiserId) ?? 0;
+  if (active >= limit) throw new TooManyActiveCampaignsError(active, limit);
+}
+
+/**
  * The PENDING request `requestId` of this Campaign, read under its row lock.
  * The request is judged before the Campaign's status, so a missing, decided
  * or withdrawn request answers as such whatever the Campaign's status; a
  * pending one is only acted on while the Campaign still holds the status it
  * was opened from: Submitted for a submission, Active for a change request
  * (ticket 12), which an Active Campaign keeps running throughout.
+ *
+ * An AMOUNT_REVIEW (prd-compliance 38) is judged in every status, and that is
+ * the point of it: the money arrived while the Campaign was Active, and it
+ * may be Expired, Suspended or Completed by the time a Verifier gets to it.
+ * Refusing the decision because the Campaign has since closed would leave the
+ * review permanently undecidable, which is how an unreviewed Campaign stays
+ * unreviewed.
  */
 async function readPendingRequest(tx: Tx, campaignId: string, requestId: string, current: CampaignStatus) {
   const request = await tx.verificationRequest.findUnique({ where: { id: requestId } });
@@ -600,6 +678,7 @@ async function readPendingRequest(tx: Tx, campaignId: string, requestId: string,
   if (request.outcome !== VerificationOutcome.PENDING) {
     throw new VerificationRequestNotPendingError(request.outcome);
   }
+  if (request.kind === VerificationRequestKind.AMOUNT_REVIEW) return request;
   const openedFrom = isChangeRequest(request) ? CampaignStatus.ACTIVE : CampaignStatus.SUBMITTED;
   if (current !== openedFrom) throw new InvalidTransitionError(current);
   return request;
@@ -608,11 +687,22 @@ async function readPendingRequest(tx: Tx, campaignId: string, requestId: string,
 /**
  * A change request asks an Active Campaign's Verifier to approve a new target
  * and/or deadline; the Campaign keeps running on its old values until then,
- * and holds no other status for the request's life. A request with no
- * proposal is a submission from Draft or Rejected.
+ * and holds no other status for the request's life. Which of the three kinds
+ * of request this is, is the `kind` column (prd-compliance 38); the proposal
+ * itself is still read off `proposedChanges`, which only a CHANGE carries.
  */
-function isChangeRequest(request: { proposedChanges: unknown }): request is { proposedChanges: ProposedChanges } {
-  return request.proposedChanges !== null && request.proposedChanges !== undefined;
+function isChangeRequest(request: { kind: VerificationRequestKind }): boolean {
+  return request.kind === VerificationRequestKind.CHANGE;
+}
+
+/**
+ * The proposal a CHANGE carries, narrowed from its JSON column. Empty rather
+ * than undefined when the column is somehow null, so applying it writes
+ * nothing instead of throwing mid-decision: a CHANGE with no proposal is a row
+ * the migration could not produce, and a decision must not die on it.
+ */
+function proposedChangesOf(request: { proposedChanges: unknown }): ProposedChanges {
+  return (request.proposedChanges ?? {}) as ProposedChanges;
 }
 
 /**
@@ -684,6 +774,25 @@ function changeMessage(key: "approved" | "rejected", title: string, reason: stri
   return key === "approved"
     ? `Perubahan target atau tenggat Campaign "${title}" disetujui Verifier dan sudah berlaku.`
     : `Perubahan target atau tenggat Campaign "${title}" ditolak oleh Verifier. Campaign tetap berjalan dengan target dan tenggat sebelumnya. Alasan: ${reason}`;
+}
+
+/**
+ * The Fundraiser's wording for a decided Verifikasi Tambahan
+ * (prd-compliance 38). Deliberately says what did not happen: the Campaign
+ * is untouched and still taking Donations either way, because the review
+ * exists to look at the money, not to punish the Fundraiser for having
+ * received it. On a rejection the Verifier's reason is carried, since a
+ * reason nobody is told is a decision with no reader.
+ */
+const AMOUNT_REVIEW_TITLES = {
+  approved: "Verifikasi Tambahan Selesai",
+  rejected: "Verifikasi Tambahan Mencatat Kekhawatiran",
+} as const;
+
+function amountReviewMessage(key: "approved" | "rejected", title: string, reason: string | null): string {
+  return key === "approved"
+    ? `Campaign "${title}" telah ditinjau ulang Verifier karena dana terkumpulnya besar. Campaign tetap berjalan seperti sebelumnya.`
+    : `Verifier mencatat kekhawatiran pada Campaign "${title}" setelah dana terkumpulnya besar. Campaign tetap berjalan dan tidak ada tindakan otomatis yang diambil. Alasan: ${reason}`;
 }
 
 export function isVerificationDecision(value: unknown): value is VerificationDecision {
@@ -789,7 +898,22 @@ export async function decideVerificationRequest(
         // Approving confirms the Collecting Entity the Campaign was submitted
         // under (frozen since), so it must still be one this Fundraiser may
         // collect under, holding a permit valid now for the Kind (ADR 0010).
+        // An AMOUNT_REVIEW is approved on the same terms, even though nobody
+        // submitted it: passing it says the Campaign's collecting arrangement
+        // is still sound as of now, which is the question a large Campaign
+        // raises anyway.
         await requireOpenable(tx, campaign, now, "diloloskan");
+        // ...and the approval must not open more Active Campaigns than one
+        // Fundraiser may run (prd-compliance 38). Counted here, where the
+        // decision is taken, so the refusal is a refusal rather than an
+        // approval somebody has to undo.
+        if (request.kind === VerificationRequestKind.SUBMISSION) {
+          await requireWithinActiveCampaignLimit(tx, {
+            campaignId: campaign.id,
+            fundraiserId: campaign.creatorId,
+            now,
+          });
+        }
       }
       const decided = {
         checklist,
@@ -799,12 +923,17 @@ export async function decideVerificationRequest(
         decidedAt: now,
       };
       await closeRequest(tx, requestId, decided);
-      if (isChangeRequest(request)) {
+      if (request.kind === VerificationRequestKind.AMOUNT_REVIEW) {
+        // An amount review decides nothing about the Campaign: it was not
+        // asked to change and must not be closed by the answer. A Verifier
+        // who is not satisfied raises a Flag (below), which is the one
+        // record that asks an Admin to consider Suspension.
+      } else if (isChangeRequest(request)) {
         // A change request never moves the Campaign: it stays Active on its
         // old values either way, so approving only writes the proposal onto
         // the row and logs no status change (ticket 12).
         if (decision.outcome === VerificationOutcome.APPROVED) {
-          await applyProposedChanges(tx, campaign.id, request.proposedChanges);
+          await applyProposedChanges(tx, campaign.id, proposedChangesOf(request));
         }
       } else {
         await transition(decision.to, decision.action);
@@ -822,27 +951,41 @@ export async function decideVerificationRequest(
         identityVerificationRecorded = created.count > 0;
       }
       const changeRequest = isChangeRequest(request);
+      const amountReview = request.kind === VerificationRequestKind.AMOUNT_REVIEW;
       await notify({
-        title: changeRequest ? CHANGE_TITLES[changeKey(decision.outcome)] : decision.title,
-        message: changeRequest
-          ? changeMessage(changeKey(decision.outcome), campaign.title, reason)
-          : decision.message(campaign.title, reason),
+        title: amountReview
+          ? AMOUNT_REVIEW_TITLES[changeKey(decision.outcome)]
+          : changeRequest
+            ? CHANGE_TITLES[changeKey(decision.outcome)]
+            : decision.title,
+        message: amountReview
+          ? amountReviewMessage(changeKey(decision.outcome), campaign.title, reason)
+          : changeRequest
+            ? changeMessage(changeKey(decision.outcome), campaign.title, reason)
+            : decision.message(campaign.title, reason),
       });
-      const fundraiser = await tx.user.findUniqueOrThrow({
-        where: { id: campaign.creatorId },
-        select: { email: true, name: true },
-      });
-      outcome.fundraiserId = campaign.creatorId;
-      outcome.email = verificationOutcomeEmail({
-        to: fundraiser.email,
-        fundraiserName: fundraiser.name,
-        campaignTitle: campaign.title,
-        campaignUrl: publicUrl(`/campaign/${campaign.slug}`),
-        ...(changeRequest ? { kind: "change" as const } : {}),
-        ...(decision.outcome === VerificationOutcome.APPROVED
-          ? { outcome: "approved" as const }
-          : { outcome: "rejected" as const, reason: requireReason(reason) }),
-      });
+      // No email for an amount review: nothing about the Fundraiser's
+      // Campaign changed and nothing is asked of them, so an email saying
+      // so would only teach people to ignore this address. The in-app
+      // notification above already tells them their Campaign was looked at
+      // again, and why.
+      if (!amountReview) {
+        const fundraiser = await tx.user.findUniqueOrThrow({
+          where: { id: campaign.creatorId },
+          select: { email: true, name: true },
+        });
+        outcome.fundraiserId = campaign.creatorId;
+        outcome.email = verificationOutcomeEmail({
+          to: fundraiser.email,
+          fundraiserName: fundraiser.name,
+          campaignTitle: campaign.title,
+          campaignUrl: publicUrl(`/campaign/${campaign.slug}`),
+          ...(changeRequest ? { kind: "change" as const } : {}),
+          ...(decision.outcome === VerificationOutcome.APPROVED
+            ? { outcome: "approved" as const }
+            : { outcome: "rejected" as const, reason: requireReason(reason) }),
+        });
+      }
       return { verificationRequest: { ...request, ...decided }, identityVerificationRecorded };
     },
   });
@@ -864,6 +1007,17 @@ export async function decideVerificationRequest(
 /** The Campaign and the request as a withdrawal leaves them; the same shape a submission returns. */
 export type WithdrawalResult = SubmissionResult;
 
+/** A Verifikasi Tambahan is the System's, so the Fundraiser cannot withdraw it (prd-compliance 38). */
+export class AmountReviewNotWithdrawableError extends CampaignLifecycleError {
+  readonly code = "AMOUNT_REVIEW_NOT_WITHDRAWABLE";
+  constructor() {
+    super(
+      "Verifikasi Tambahan tidak dapat ditarik oleh Fundraiser. Permintaan ini dibuka platform karena akumulasi dana Campaign yang besar, dan hanya Verifier yang dapat menutupnya."
+    );
+    this.name = "AmountReviewNotWithdrawableError";
+  }
+}
+
 /**
  * The Fundraiser withdraws their undecided Verification Request (CONTEXT.md,
  * Verification Request). The request becomes WITHDRAWN, recording the
@@ -871,6 +1025,10 @@ export type WithdrawalResult = SubmissionResult;
  * Submitted: back to Draft if this was its first request, back to Rejected
  * if it was a resubmission. Only its Fundraiser may withdraw, always in that
  * Capacity; nobody is notified, since the Fundraiser is the one acting.
+ *
+ * A Verifikasi Tambahan is refused here (prd-compliance 38): it was raised
+ * because the Campaign crossed an amount, and letting the person whose money
+ * it is withdraw the review would make the whole rule advisory.
  *
  * It races a Verifier's decision for the same Campaign row lock, so exactly
  * one of the two closes the request; the other finds it no longer pending.
@@ -888,6 +1046,9 @@ export async function withdrawVerificationRequest(
     reasonPolicy: "none",
     step: async ({ tx, campaign, current, actor, now, transition }) => {
       const request = await readPendingRequest(tx, campaign.id, requestId, current);
+      if (request.kind === VerificationRequestKind.AMOUNT_REVIEW) {
+        throw new AmountReviewNotWithdrawableError();
+      }
       const withdrawn = {
         outcome: VerificationOutcome.WITHDRAWN,
         decidedById: actor.userId,
@@ -1005,7 +1166,7 @@ export async function requestCampaignChange(
         throw new DeadlineRequiredError(campaign.kind);
       }
       const pending = await tx.verificationRequest.count({
-        where: { campaignId: campaign.id, outcome: VerificationOutcome.PENDING },
+        where: { campaignId: campaign.id, outcome: VerificationOutcome.PENDING, kind: VerificationRequestKind.CHANGE },
       });
       if (pending > 0) throw new ChangeRequestAlreadyPendingError();
       const checklist = await snapshotChecklist(tx, campaign.kind);
@@ -1022,9 +1183,68 @@ export async function requestCampaignChange(
           isFirst: false,
           collectingEntityId: campaign.collectingEntityId,
           proposedChanges,
+          kind: VerificationRequestKind.CHANGE,
         },
       });
       return { verificationRequest };
+    },
+  });
+}
+
+// ==================== Verifikasi Tambahan (prd-compliance 38) ====================
+
+/**
+ * Raises the extra Verifier review a Campaign earns by collecting (PRD
+ * §"Anti penyalahgunaan", "akumulasi Gross di atas Rp100 juta per Campaign
+ * memicu verifikasi tambahan Verifier"; CONTEXT.md, Verifikasi Tambahan).
+ *
+ * The System raises it, in the SYSTEM Capacity, because it is the arrival of
+ * money that triggers it and not somebody looking at a queue -- a rule read
+ * only while a Verifier opens a request would never fire at all, since a
+ * Campaign's Cumulative Gross is 0 while it waits to be approved. The
+ * settlement webhook calls this inside its own transaction, so the review and
+ * the money that raised it commit together or not at all.
+ *
+ * It is a Verification Request of the third kind, so it lands in the Verifier's
+ * existing queue and is decided through the existing decision path -- with
+ * the same per-Kind checklist snapshot a submission takes, which is what
+ * makes the "bukan duplikat" item apply to a large Campaign too. It moves no
+ * status, notifies nobody, and cannot be withdrawn by the Fundraiser: a
+ * Campaign is not being punished for the money it received, and a review the
+ * person under review could cancel would not be one.
+ *
+ * At most one per Campaign, ever, checked under the Campaign row lock. Two
+ * Donations settling at once can both see the threshold passed, and this is
+ * what makes one of them raise nothing; the lock is the subject guard's, like
+ * every other command here.
+ *
+ * Returns null when the Campaign is gone or already has one: money settling
+ * is not a reason to fail a Settlement, and a duplicate review is a smaller
+ * harm than a Donation left unrecorded.
+ */
+export async function raiseAmountReviewVerificationRequest(
+  tx: Tx,
+  params: { campaignId: string; cumulativeGross: number; threshold: number; now?: Date }
+): Promise<VerificationRequestState | null> {
+  const { campaignId, cumulativeGross, threshold } = params;
+  const now = params.now ?? new Date();
+  const campaign = await lockAndRead(tx, campaignId, now);
+  if (!campaign) return null;
+  const existing = await tx.verificationRequest.findFirst({
+    where: { campaignId, kind: VerificationRequestKind.AMOUNT_REVIEW },
+  });
+  if (existing) return null;
+  const checklist = await snapshotChecklist(tx, campaign.kind);
+  return tx.verificationRequest.create({
+    data: {
+      campaignId,
+      submittedById: null,
+      submittedAt: now,
+      checklist,
+      isFirst: false,
+      collectingEntityId: campaign.collectingEntityId,
+      kind: VerificationRequestKind.AMOUNT_REVIEW,
+      raisedByAmount: { cumulativeGross, threshold },
     },
   });
 }

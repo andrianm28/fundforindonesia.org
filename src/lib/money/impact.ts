@@ -11,8 +11,8 @@ import type { PrismaClient } from '@/generated/prisma/client';
  * be checking.
  *
  * **The six lines.** `collected` is the Gross of every settled Payment plus
- * Manual Contributions, and it is split into exactly six destinations, which
- * is what a visitor is shown:
+ * the Manual Contributions still standing (prd-compliance 34), and it is split
+ * into exactly six destinations, which is what a visitor is shown:
  *
  *   1. disbursedToFundraisers     instructed out of the Campaign Balance
  *   2. returnedToDonors           handed back, at Gross
@@ -49,8 +49,9 @@ import type { PrismaClient } from '@/generated/prisma/client';
  *
  * And two figures read zero until the models behind them exist, rather than
  * being guessed at: `beneficiaries` (Usage Report, a later ticket) and
- * `manualContributions` (ManualContribution, likewise). `notes` carries both
- * caveats out to the page so a visitor is told why a number is zero.
+ * `manualContributions` (a Manual Contribution no Admin has recorded, or only
+ * ones that have since been reversed). `notes` carries both caveats out to the
+ * page so a visitor is told why a number is zero.
  */
 
 export const IMPACT_LINES = [
@@ -104,7 +105,13 @@ export interface ImpactBreakdown {
   };
   /** Disbursed but not yet marked COMPLETED (a later ticket adds that step). */
   disbursedNotYetCompleted: number;
-  /** Zero until ManualContribution exists. */
+  /**
+   * Money that arrived outside the gateway and is counted in `collected`,
+   * marked apart so it is never read as a Donation. Zero until an Admin
+   * records one; excludes anything already reversed, and excludes
+   * Program-targeted money (a Program is not a Campaign, and FFI-14's CSR line
+   * is a later ticket).
+   */
   manualContributions: number;
   /** Zero until Usage Report exists. */
   beneficiaries: number;
@@ -129,9 +136,9 @@ export class ImpactDoesNotReconcileError extends Error {
 /**
  * A Payout that has been instructed out of the Campaign Balance
  * (payoutInstructedLegs, ./ledger.ts) but not yet marked COMPLETED with proof
- * of transfer -- a step no code writes yet. Its money has already left, so it
- * belongs in the disbursed line; this is only here so the page can say how
- * much of that figure is still unconfirmed.
+ * of transfer (completePayout, ./payouts.ts; ticket 27). Its money has already
+ * left, so it belongs in the disbursed line; this is only here so the page can
+ * say how much of that figure is still unconfirmed.
  */
 const PAYOUT_AWAITING_COMPLETION = ['APPROVED', 'PROCESSING'];
 
@@ -254,6 +261,30 @@ export async function impactBreakdown(
     });
     const byPayout = totalsOf(payoutRows);
 
+    // Manual Contributions (CONTEXT.md, Manual Contribution; PRD FFI-14):
+    // money an Admin recorded as arriving outside the gateway, credited
+    // straight to the withdrawable balance with no Escrow Hold and neither
+    // fee. Credits minus debits, so a contribution that was later reversed
+    // falls out of both the collected figure and the marker on its own --
+    // there is no status to remember to filter on, and the reversal is the
+    // same balanced journal as every other correction in this ledger.
+    //
+    // Scoped to Campaign-targeted rows only (`campaignId in campaignIds`), and
+    // that is the whole reason a Program's money cannot inflate a Campaign's
+    // figure: a Program's entries carry no campaignId at all. FFI-14's
+    // separate CSR line is a later ticket; until then this page is about
+    // Campaigns, and saying so is better than mixing the two.
+    const manualRows = await tx.ledgerEntry.groupBy({
+      by: ['account', 'direction'] as const,
+      where: {
+        campaignId: { in: campaignIds },
+        manualContributionId: { not: null },
+        account: 'CAMPAIGN_BALANCE',
+      },
+      _sum: { amount: true },
+    });
+    const byManual = totalsOf(manualRows);
+
     const netSettled = sum(byPayment, 'ESCROW_HOLD:CREDIT');
     const providerFeeCharged = sum(byPayment, 'PROVIDER_FEE:CREDIT');
     const platformFeeCharged = sum(byPayment, 'PLATFORM_FEE:CREDIT');
@@ -261,8 +292,13 @@ export async function impactBreakdown(
     // PLATFORM_FEE with the refunded share, so the platform's retained fee is
     // what it took minus what it gave back.
     const platformFeeReturned = sum(byRefund, 'PLATFORM_FEE:DEBIT');
+    const manualContributions = balance(byManual, 'CAMPAIGN_BALANCE');
 
-    const collected = netSettled + providerFeeCharged + platformFeeCharged;
+    // Both halves of the conservation law move together: a Manual Contribution
+    // is already inside `availableInCampaignBalance` (it is a CAMPAIGN_BALANCE
+    // credit), so leaving it out of `collected` here would make the six lines
+    // overshoot by exactly that amount and throw.
+    const collected = netSettled + providerFeeCharged + platformFeeCharged + manualContributions;
 
     const returnedGross = sum(byRefund, 'REFUND_CLEARING:CREDIT');
     // REFUND_COST carries two different things (refundRequestedLegs debits
@@ -298,16 +334,18 @@ export async function impactBreakdown(
       lines: IMPACT_LINES.map((line) => ({ ...line, amount: amounts[line.key] })),
       platformCost: { unrecoveredProviderFee, uncoveredRefunds },
       disbursedNotYetCompleted,
-      // Manual Contribution (CONTEXT.md) has no model yet, so nothing enters
-      // the ledger through that door. Read as zero rather than assumed.
-      manualContributions: 0,
+      // Money that arrived outside the gateway and is counted apart from
+      // Donations, so a visitor is never told a bank transfer was a Donation.
+      // Program-targeted money is deliberately not here -- see the groupBy
+      // above; it has no Campaign to be part of.
+      manualContributions,
       // Usage Report (CONTEXT.md) has no model yet either, so no beneficiary
       // has ever been counted. The PRD expects zero here until Fase 2.
       beneficiaries: 0,
       location,
       notes: [
         'Penerima manfaat dihitung dari Usage Report; belum ada satu pun Usage Report, jadi angkanya nol.',
-        'Manual Contribution belum pernah tercatat, jadi terkumpul saat ini hanya berisi Gross Payment yang Settlement.',
+        'Manual Contribution adalah dana yang masuk di luar payment gateway, dicatat Admin dengan bukti dan disetujui Admin kedua; masuk ke terkumpul tanpa biaya provider maupun platform, dan yang sudah dibalikkan tidak dihitung.',
         'Platform Fee dan Provider Fee adalah uang platform dan penyedia, bukan bagian dari dana Campaign.',
       ],
     };

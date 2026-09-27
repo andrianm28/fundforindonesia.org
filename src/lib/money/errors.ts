@@ -20,11 +20,17 @@ export abstract class MoneyError extends DomainError {
  * The Campaign is a Demo Campaign (CONTEXT.md): sample content with no real
  * ledger balance behind it. Refused by name, not as an insufficient
  * balance, so an operator does not go hunting for money that never existed.
+ *
+ * One error for all three paths that can touch a Demo Campaign's money -- a
+ * Payout, a Refund, and a Manual Contribution -- because it is one rule: real
+ * rupiah never enters a Campaign whose data is fictional. A contribution
+ * credited to one would be money nobody could ever get out again, since
+ * neither of the other two paths would move it.
  */
 export class DemoCampaignError extends MoneyError {
   readonly code = 'DEMO_CAMPAIGN';
   constructor() {
-    super('Demo Campaign tidak memiliki dana nyata untuk Payout atau Refund.');
+    super('Demo Campaign tidak memiliki dana nyata untuk Payout, Refund, atau Manual Contribution.');
     this.name = 'DemoCampaignError';
   }
 }
@@ -61,12 +67,28 @@ export class InsufficientBalanceError extends MoneyError {
 
 /**
  * The two-person rule: the approver is the requester. Refused before any
- * write, not recorded as a decision. One class for Payout and Refund.
+ * write, not recorded as a decision. One class for Payout, Refund and
+ * Manual Contribution.
+ *
+ * `action` names which half of the rule was breached, because the rule does
+ * not stop at approval: a Manual Contribution can also be reversed, and the
+ * two people who put the money in -- the one who recorded it and the one who
+ * approved it -- may not be the one who takes it back out. The CODE is the
+ * same either way (one rule, one code, one HTTP status); only the sentence
+ * differs, so an Admin refused on a reversal is not told they may not approve
+ * something they never approved.
  */
 export class SelfApprovalError extends MoneyError {
   readonly code = 'SELF_APPROVAL';
-  constructor(readonly what: 'Payout' | 'Refund') {
-    super(`${what} tidak dapat disetujui oleh orang yang mengajukannya.`);
+  constructor(
+    readonly what: 'Payout' | 'Refund' | 'Manual Contribution',
+    readonly action: 'approval' | 'reversal' = 'approval',
+  ) {
+    super(
+      action === 'reversal'
+        ? `${what} tidak dapat dibalikkan oleh orang yang mencatat atau menyetujuinya.`
+        : `${what} tidak dapat disetujui oleh orang yang mengajukannya.`,
+    );
     this.name = 'SelfApprovalError';
   }
 }
@@ -80,6 +102,48 @@ export class InvalidPayoutStatusError extends MoneyError {
   ) {
     super('Payout tidak lagi menunggu persetujuan.');
     this.name = 'InvalidPayoutStatusError';
+  }
+}
+
+/**
+ * A Payout completion with no proof of transfer attached (CONTEXT.md, Payout:
+ * "ditandai selesai dengan bukti transfer"; ADR 0006, where the mandatory
+ * proof is named as one of the two controls the two-person rule rests on).
+ *
+ * Refused rather than warned because a COMPLETED row with no proof is a
+ * claim that the money moved, not a record that it did -- and because the
+ * money has, by then, left the platform: nothing here can be checked
+ * afterwards from the books, only from the image an Admin was asked for
+ * and did not attach.
+ */
+export class PayoutProofRequiredError extends MoneyError {
+  readonly code = 'PAYOUT_PROOF_REQUIRED';
+  constructor() {
+    super('Payout hanya dapat ditandai selesai dengan bukti transfer yang terlampir.');
+    this.name = 'PayoutProofRequiredError';
+  }
+}
+
+/**
+ * The two-person rule on the SECOND action: the Admin recording the transfer
+ * is the Admin who approved it (or the Payout has no recorded approver at
+ * all, which cannot show two people either). Distinct from SelfApprovalError,
+ * which is the same rule on the first action -- the requester approving
+ * their own request.
+ *
+ * ContEXT.md, Payout: the Payout is "disetujui satu Admin, lalu ... ditandai
+ * selesai dengan bukti transfer oleh Admin yang berbeda". The rule is
+ * enforced here, not merely advised: an approver who marks their own
+ * approval done has performed one person's action and called it two, and
+ * nothing downstream of that write can tell the difference.
+ */
+export class TwoPersonRuleError extends MoneyError {
+  readonly code = 'TWO_PERSON_RULE';
+  constructor() {
+    super(
+      'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
+    );
+    this.name = 'TwoPersonRuleError';
   }
 }
 
@@ -146,5 +210,115 @@ export class RefundExceedsRemainingError extends MoneyError {
   ) {
     super('Jumlah Refund melebihi sisa yang masih bisa direfund dari Payment ini.');
     this.name = 'RefundExceedsRemainingError';
+  }
+}
+
+/**
+ * The Manual Contribution (CONTEXT.md) names no target, or names two at once.
+ * A Manual Contribution credits exactly one balance, and "both" is not a way
+ * to be in two balances at the same time.
+ */
+export class ManualContributionTargetError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_TARGET_INVALID';
+  constructor(
+    message = 'Manual Contribution harus menunjuk tepat satu Campaign atau satu Program.',
+  ) {
+    super(message);
+    this.name = 'ManualContributionTargetError';
+  }
+}
+
+/**
+ * Some other field of the record is unusable: a note or a reason left blank,
+ * or longer than the column takes. Its own code rather than a reuse of the
+ * target's, so a client that sent a mistyped note is not told the target is
+ * wrong.
+ */
+export class ManualContributionInputError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'ManualContributionInputError';
+  }
+}
+
+/**
+ * No proof of transfer. Required rather than optional because the entire point
+ * of a Manual Contribution is that no provider confirms it: the evidence is
+ * the only thing standing between a recorded number and a fabricated one, and
+ * the two-person rule only ever checks that evidence.
+ */
+export class ManualContributionProofRequiredError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_PROOF_REQUIRED';
+  constructor() {
+    super('Bukti transfer wajib diisi untuk setiap Manual Contribution.');
+    this.name = 'ManualContributionProofRequiredError';
+  }
+}
+
+/**
+ * Not whole rupiah, not above zero, or past what the column can hold -- the
+ * ways a money amount is wrong here. The last one is the column's own limit
+ * (ManualContribution.amount is an Int), not a rule of our own: refused only
+ * by the database it would be a driver error, which no route can turn into a
+ * 400.
+ */
+export class ManualContributionAmountError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_AMOUNT_INVALID';
+  constructor() {
+    super('Nominal Manual Contribution harus berupa angka rupiah bulat di atas nol dan tidak melebihi 2.147.483.647.');
+    this.name = 'ManualContributionAmountError';
+  }
+}
+
+export class ManualContributionNotFoundError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_NOT_FOUND';
+  constructor(readonly manualContributionId: string) {
+    super('Manual Contribution tidak ditemukan.');
+    this.name = 'ManualContributionNotFoundError';
+  }
+}
+
+/** The contribution is no longer PENDING, or another decision won the race. */
+export class ManualContributionNotPendingError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_NOT_PENDING';
+  constructor(
+    readonly currentStatus: string,
+    readonly detail?: string,
+  ) {
+    super('Manual Contribution ini tidak lagi menunggu keputusan Admin kedua.');
+    this.name = 'ManualContributionNotPendingError';
+  }
+}
+
+/**
+ * The contribution was never APPROVED, or has already been reversed. Nothing
+ * entered the books, so there is nothing to take back out of them.
+ */
+export class ManualContributionNotApprovedError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_NOT_APPROVED';
+  constructor(readonly currentStatus: string) {
+    super('Hanya Manual Contribution yang sudah disetujui yang bisa dibalikkan.');
+    this.name = 'ManualContributionNotApprovedError';
+  }
+}
+
+/**
+ * The balance no longer covers the contribution: a Payout has drawn the money
+ * out, or a Refund has frozen it. The opposite journal would drive the pool
+ * negative, so the money is left where it is and a human decides what to do
+ * about it -- the reporting surfaces it, nothing here silently corrects it.
+ */
+export class ManualContributionAlreadySpentError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_ALREADY_SPENT';
+  constructor(
+    readonly amount: number,
+    readonly available: number,
+  ) {
+    super(
+      'Dana Manual Contribution ini sudah tidak ada di saldo, jadi tidak bisa dibalikkan. ' +
+        'Saldo yang tersedia lebih kecil daripada nominalnya.',
+    );
+    this.name = 'ManualContributionAlreadySpentError';
   }
 }

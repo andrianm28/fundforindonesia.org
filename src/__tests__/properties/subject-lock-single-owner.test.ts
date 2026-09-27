@@ -32,6 +32,21 @@ const ALLOWED_BATCH_OR_REGISTRATION_LOCKERS = ["src/lib/volunteer/trip.ts"];
 const BATCH_OR_REGISTRATION_LOCK =
   /FROM\s+"(VolunteerBatch|Registration)"[^`;]*?\bFOR\s+(UPDATE|NO\s+KEY\s+UPDATE|SHARE|KEY\s+SHARE)\b/;
 
+/**
+ * The Program row lock has its own owner: the Manual Contribution module
+ * (src/lib/money/manual-contributions.ts, prd-compliance 34).
+ *
+ * A Program is not a withdrawable subject -- it cannot be paid out, and no
+ * Payout names one -- so it is deliberately NOT in SUBJECT_LOCK above, which
+ * is the subject guard's rule about money-spending paths. It is a separate
+ * rule for a separate table: two Admins approving or reversing two different
+ * contributions against the same Program would otherwise both read the same
+ * pre-spend PROGRAM_BALANCE, both pass, and both commit.
+ */
+const PROGRAM_LOCK = /FROM\s+"Program"[^`;]*?\bFOR\s+(UPDATE|NO\s+KEY\s+UPDATE)\b/;
+
+const ALLOWED_PROGRAM_LOCKERS = ["src/lib/money/manual-contributions.ts"];
+
 function walk(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -63,6 +78,23 @@ describe("Campaign and Volunteer Trip row locks have one owner", () => {
       .sort();
 
     expect(lockers).toEqual([...ALLOWED_BATCH_OR_REGISTRATION_LOCKERS].sort());
+  });
+
+  it("only the Manual Contribution module locks a Program row", () => {
+    const lockers = appFiles()
+      .filter((file) => PROGRAM_LOCK.test(readFileSync(file, "utf8")))
+      .sort();
+
+    expect(lockers).toEqual([...ALLOWED_PROGRAM_LOCKERS].sort());
+  });
+
+  it("keeps the Program rule separate from the Campaign and Trip one", () => {
+    // The two must not overlap in either direction: a Program is not a
+    // withdrawable subject, and a Campaign or Trip is not a Program.
+    expect(PROGRAM_LOCK.test('SELECT id FROM "Program" WHERE id = ${id} FOR UPDATE')).toBe(true);
+    expect(PROGRAM_LOCK.test('SELECT id FROM "Campaign" WHERE id = ${id} FOR UPDATE')).toBe(false);
+    expect(SUBJECT_LOCK.test('SELECT id FROM "Program" WHERE id = ${id} FOR UPDATE')).toBe(false);
+    expect(SUBJECT_LOCK.test('SELECT id FROM "Program" WHERE id = ${id}')).toBe(false);
   });
 
   it("recognises Batch and Registration lock SQL and ignores the subject tables", () => {

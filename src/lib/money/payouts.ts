@@ -1,7 +1,7 @@
 import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
-import { campaignBalance, tripBalance, payoutInstructedLegs, postTransaction, type LedgerSubject } from './ledger';
+import { campaignBalance, tripBalance, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
-import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed } from '@/lib/subject-guard';
+import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
 import {
   DemoCampaignError,
   BankAccountNotEligibleError,
@@ -9,6 +9,8 @@ import {
   SelfApprovalError,
   InvalidPayoutStatusError,
   PayoutNotFoundError,
+  PayoutProofRequiredError,
+  TwoPersonRuleError,
 } from './errors';
 
 /**
@@ -23,6 +25,11 @@ import {
  * creates -- is the only status a payout is ever in before approval. SUBMITTED
  * stays in the schema's enum for a future submit flow; nothing here produces
  * it, and approvePayout does not accept it.
+ *
+ * The three functions are the whole Payout lifecycle, and the two-person
+ * rule is split across two of them: approvePayout refuses the requester,
+ * completePayout refuses the approver. Neither does the other's job, and
+ * neither contacts a payment provider.
  */
 
 export {
@@ -32,7 +39,49 @@ export {
   SelfApprovalError,
   InvalidPayoutStatusError,
   PayoutNotFoundError,
+  PayoutProofRequiredError,
+  TwoPersonRuleError,
 };
+
+/**
+ * The subject a Payout's money is for, taken from its row and locked, in
+ * the caller's transaction.
+ *
+ * Every operation on an already-created Payout -- approving it, completing
+ * it -- has to learn the same three things in the same order, and the order
+ * is the point:
+ *
+ *  1. the row carries exactly one of campaignId/volunteerTripId, so the
+ *     money has a single thing it is for (payout-subject.ts guards what
+ *     requestPayout wrote; this defends against a row written by anything
+ *     else);
+ *  2. the Campaign or VolunteerTrip row is locked, and only then read, so
+ *     every check the caller makes of its state stays true until it commits
+ *     (src/lib/subject-guard.ts is the only code in `src` that issues this
+ *     lock, and it is the same lock Cancellation approval takes);
+ *  3. the caller's own two judgements, which differ per operation -- who is
+ *     acting, and therefore which rules apply to them -- are made on the
+ *     state returned, never before it.
+ *
+ * Returns the subject itself as well as its locked state, because the
+ * balance reads and the leg builders both need it and deriving it twice
+ * would be the one thing that could drift. `state` is null when the subject
+ * row does not exist; what that means belongs to the caller: the foreign
+ * key keeps a Campaign alive behind a Payout, and a Trip has no status rule,
+ * so both guards are skipped on null in practice.
+ */
+async function lockPayoutSubject(
+  tx: Prisma.TransactionClient,
+  payout: Pick<Payout, 'campaignId' | 'volunteerTripId'>,
+): Promise<{ subject: LedgerSubject; state: SubjectState | null }> {
+  assertExactlyOnePayoutSubject({ campaignId: payout.campaignId, volunteerTripId: payout.volunteerTripId });
+
+  const subject: LedgerSubject = payout.campaignId
+    ? { type: 'campaign', campaignId: payout.campaignId }
+    : { type: 'trip', tripId: payout.volunteerTripId! };
+
+  return { subject, state: await lockAndLoad(tx, subject, new Date()) };
+}
 
 /**
  * The owning Fundraiser or Campaign creator requests a payout. Creates a
@@ -160,11 +209,8 @@ export async function requestPayout(
  * withdrawable the moment the legs commit, which is what prevents the same
  * balance being paid out twice. A second, different admin then performs the
  * withdrawal by hand in the provider dashboard and marks the payout COMPLETED
- * with proof of transfer -- that endpoint does not exist yet, and building it
- * needs a ledger account for money that has physically left, which the
- * LedgerAccount enum does not have. Until it does, an APPROVED payout is
- * where the flow ends and PAYOUT_CLEARING is never drained; the reconcile
- * report surfaces both as anomalies rather than correcting them.
+ * with proof of transfer -- completePayout, below, which is the other half of
+ * the two-person rule and takes the same subject row lock.
  */
 export async function approvePayout(
   prisma: PrismaClient,
@@ -211,12 +257,7 @@ export async function approvePayout(
     // hardcodes 'campaign': it is what makes a Trip-linked Payout unable to
     // ever touch CAMPAIGN_BALANCE, and a Campaign-linked one unable to ever
     // touch TRIP_BALANCE, no matter how either was requested.
-    assertExactlyOnePayoutSubject({ campaignId: payout.campaignId, volunteerTripId: payout.volunteerTripId });
-
-    const subject: LedgerSubject = payout.campaignId
-      ? { type: 'campaign', campaignId: payout.campaignId }
-      : { type: 'trip', tripId: payout.volunteerTripId! };
-
+    //
     // The contended resource is the subject's withdrawable BALANCE, not
     // this payout row -- a second, different DRAFT payout against the same
     // subject is a different row entirely and would sail straight past a
@@ -232,8 +273,8 @@ export async function approvePayout(
     // stored.
     //
     // The checks above read only this Payout's own row. The subject itself
-    // is read nowhere before this lock; lockAndLoad reads it under it.
-    const subjectState = await lockAndLoad(tx, subject, new Date());
+    // is read nowhere before this lock; lockPayoutSubject reads it under it.
+    const { subject, state: subjectState } = await lockPayoutSubject(tx, payout);
 
     // Approval is always an Admin act, so it is refused to the Campaign's or
     // the Trip's own Fundraiser, whoever requested it (CONTEXT.md, Capacity).
@@ -264,6 +305,13 @@ export async function approvePayout(
     // lock closes the cross-payout balance race above, this closes a second
     // approval of THIS SAME row racing in with a stale read of its own. The
     // loser sees count 0 and never reaches the ledger post below.
+    //
+    // Kept rather than left to the ledger (prd-compliance 28b), even though
+    // the ledger now refuses a transactionId twice on its own: the index
+    // would stop the second posting only by aborting this whole transaction
+    // and reporting a duplicate, where the claim above reports what actually
+    // happened -- another approval got there first -- and stops the loser
+    // before it writes anything at all.
     const claimed = await tx.payout.updateMany({
       where: { id: payoutId, status: 'DRAFT' },
       data: { status: 'APPROVED', approvedById, approvedAt: new Date() },
@@ -278,13 +326,163 @@ export async function approvePayout(
 
     // Posted at approval, not at completion. Money promised to a bank must
     // stop being withdrawable immediately, or the same balance can be
-    // approved for payout twice. transactionId is keyed on the payout id so
-    // this post can never happen twice, on top of (not instead of) the
-    // updateMany guard above.
+    // approved for payout twice. transactionId is keyed on the payout id, and
+    // the ledger's claim index
+    // (LedgerEntry_transactionId_claim_key, prd-compliance 28b) makes that
+    // key a one-shot: this post can never happen twice, on top of (not
+    // instead of) the updateMany guard above.
     await postTransaction(
       tx,
       payoutInstructedLegs({ subject, amount: payout.amount }),
       { payoutId: payout.id, transactionId: `payout-instructed-${payout.id}` },
+    );
+  });
+
+  return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
+}
+
+/**
+ * The SECOND Admin records that the money has actually moved: marks the
+ * Payout COMPLETED with the proof of transfer attached, and posts the legs
+ * that drain PAYOUT_CLEARING and credit the Provider Balance.
+ *
+ * This is the second half of the two-person rule, and it is enforced here
+ * rather than advised in a UI (CONTEXT.md, Payout; ADR 0006; PRD FFI-07).
+ * Three separate people must not be able to do this between them:
+ *
+ *  - the approver, who refused their own completion below. Without the
+ *    check, "two people touched this payout" would be satisfiable by one
+ *    person touching it twice, and no audit of the row afterwards could
+ *    tell the difference -- which is why completedById is recorded, the
+ *    same reason approvedById is;
+ *  - the Campaign's or Trip's own Fundraiser, refused through
+ *    requireNotOwnerAsAdmin on the owner read under the lock. The Fundraiser
+ *    is the requester, so they are not the approver on the ordinary path --
+ *    meaning "completer is not the approver" alone would let the person who
+ *    asked for the money also record having sent it, and CONTEXT.md's Admin
+ *    is explicit that they may not act as an Admin over their own subject;
+ *  - anyone at all, when the Campaign's status has stopped allowing a
+ *    Payout: requirePayoutAllowed, under the same lock as everything else.
+ *    A Suspension that lands after approval still holds the Payout, because
+ *    the money has been committed to the balance but not yet sent anywhere,
+ *    and a Suspended Campaign's money is meant to stay put.
+ *
+ * WHY THE SAME ROW LOCK AS CANCELLATION. Cancellation approval refuses
+ * while no Payout on the Campaign is COMPLETED, and it checks that under
+ * the Campaign row lock (src/lib/campaign-lifecycle.ts). Two writers
+ * holding no common lock can interleave: cancellation checks (none
+ * COMPLETED), completion commits, cancellation writes CANCELLED. The
+ * Campaign would then be Cancelled after money had already left it, which
+ * is the exact thing the Cancellation rule forbids. Both sides therefore
+ * take the lock through the subject guard, the only code in `src` that
+ * issues it, and the checks above stay true until each commits.
+ *
+ * WHY NO PROVIDER CALL, same as approval. The transfer is made by hand in
+ * the provider's dashboard, straight to the Fundraiser's verified Bank
+ * Account; there is no provider with a disbursement API before launch, and
+ * the two-person rule means the money moves on the second Admin's own
+ * action rather than a keystroke of the first's (ADR 0006). This function
+ * only records what that Admin did.
+ *
+ * APPROVED ONLY. PROCESSING is a status nothing in this repo writes, so a
+ * row in it has no guarantee its instructed legs were posted by this
+ * codebase at all, and completing it would post the second half of a
+ * movement whose first half cannot be shown to exist. Whoever introduces
+ * PROCESSING (a provider webhook, FFI-18) widens this check with it.
+ *
+ * Generalized over `subject` for the same reason requestPayout and
+ * approvePayout are: one money path, two subjects, and the only difference
+ * is which row the guard locks.
+ */
+export async function completePayout(
+  prisma: PrismaClient,
+  params: {
+    payoutId: string;
+    completedById: string;
+    /** Evidence of the transfer. Non-empty, or there is nothing to record. */
+    proofImage: string;
+  },
+): Promise<Payout> {
+  const { payoutId, completedById, proofImage } = params;
+
+  // Checked before the transaction opens, because it is a property of the
+  // request and not of any row: a blank proof can never become a good one
+  // by reading the database. Nothing below is reached, so nothing is
+  // written, and the payout keeps waiting in APPROVED for a second Admin who
+  // attaches the evidence.
+  if (proofImage.trim() === '') {
+    throw new PayoutProofRequiredError();
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const payout = await tx.payout.findUnique({ where: { id: payoutId } });
+    if (!payout) {
+      throw new PayoutNotFoundError(payoutId);
+    }
+
+    // Only the Payout's own row is read before the lock, and every check
+    // below needs nothing from the subject: status, approver and amount all
+    // live on this row. The subject itself is read nowhere before
+    // lockPayoutSubject, the same rule approvePayout follows.
+    if (payout.status !== 'APPROVED') {
+      throw new InvalidPayoutStatusError(payout.status);
+    }
+
+    // The whole two-person rule, before any write: a self-completion leaves
+    // the Payout exactly as it was, because it is a refusal and not a
+    // decision this Payout has been through. An APPROVED Payout with no
+    // recorded approver fails the same check: there is no second person to
+    // be different from, and a row that cannot show two people is not a row
+    // the two-person rule is satisfied by.
+    if (!payout.approvedById || payout.approvedById === completedById) {
+      throw new TwoPersonRuleError();
+    }
+
+    // Same guard, same order, as approvePayout: the subject this Payout is
+    // for, locked before it is read.
+    const { state: subjectState } = await lockPayoutSubject(tx, payout);
+
+    // Never the Fundraiser of this Campaign or Trip, whoever approved it.
+    if (subjectState) requireNotOwnerAsAdmin(subjectState, completedById);
+
+    // A Suspension or Cancellation committed after approval still holds the
+    // Payout (CONTEXT.md, Payout). Judged on the state read under the lock,
+    // so a Suspension that committed first is seen. A null state cannot
+    // happen for a Campaign, whose row Payout.campaignId's foreign key
+    // keeps alive, and a Trip has no status rule; either way it is left to
+    // the checks below, as before.
+    if (subjectState) requirePayoutAllowed(subjectState);
+
+    // Predicated on the status, exactly as approvePayout is: the lock above
+    // serialises operations on the Campaign's money, not two admins racing
+    // for this one row, and this is what makes the loser of that race see
+    // count 0 instead of a second COMPLETED and a second set of legs.
+    const claimed = await tx.payout.updateMany({
+      where: { id: payoutId, status: 'APPROVED' },
+      data: {
+        status: 'COMPLETED',
+        completedById,
+        completedAt: new Date(),
+        proofImage: proofImage.trim(),
+      },
+    });
+    if (claimed.count === 0) {
+      // payout.status above is the pre-update read and is now stale; some
+      // other write got here first. The message says so rather than
+      // repeating a status that may no longer be true.
+      throw new InvalidPayoutStatusError('unknown (changed concurrently)', 'lost the completion race');
+    }
+
+    // Posted at completion, in the same transaction as the status write:
+    // a COMPLETED Payout with the money still in PAYOUT_CLEARING would say
+    // the transfer happened while the books still had it in flight, and
+    // PAYOUT_CLEARING would never drain. transactionId is keyed on the
+    // payout id, so this post is idempotent on top of (not instead of) the
+    // updateMany guard above.
+    await postTransaction(
+      tx,
+      payoutCompletedLegs({ amount: payout.amount }),
+      { payoutId: payout.id, transactionId: `payout-completed-${payout.id}` },
     );
   });
 

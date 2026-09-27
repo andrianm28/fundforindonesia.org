@@ -33,7 +33,9 @@ export type LifecycleErrorCode =
   | "ACTIVE_CONTENT_FROZEN"
   | "VERIFICATION_REQUEST_NOT_FOUND"
   | "VERIFICATION_REQUEST_NOT_PENDING"
+  | "AMOUNT_REVIEW_NOT_WITHDRAWABLE"
   | "CHANGE_REQUEST_ALREADY_PENDING"
+  | "TOO_MANY_ACTIVE_CAMPAIGNS"
   | "REQUIRED_CHECKLIST_ITEMS_UNTICKED"
   | "DEADLINE_REQUIRED"
   | "DEADLINE_NOT_EDITABLE"
@@ -51,13 +53,23 @@ export type MoneyErrorCode =
   | "BANK_ACCOUNT_NOT_ELIGIBLE"
   | "INSUFFICIENT_BALANCE"
   | "SELF_APPROVAL"
+  | "TWO_PERSON_RULE"
+  | "PAYOUT_PROOF_REQUIRED"
   | "INVALID_PAYOUT_STATUS"
   | "INVALID_REFUND_STATUS"
   | "PAYOUT_NOT_FOUND"
   | "REFUND_NOT_FOUND"
   | "PAYMENT_NOT_FOUND"
   | "PAYMENT_SUBJECT_MISMATCH"
-  | "REFUND_EXCEEDS_REMAINING";
+  | "REFUND_EXCEEDS_REMAINING"
+  | "MANUAL_CONTRIBUTION_NOT_FOUND"
+  | "MANUAL_CONTRIBUTION_TARGET_INVALID"
+  | "MANUAL_CONTRIBUTION_INVALID"
+  | "MANUAL_CONTRIBUTION_PROOF_REQUIRED"
+  | "MANUAL_CONTRIBUTION_AMOUNT_INVALID"
+  | "MANUAL_CONTRIBUTION_NOT_PENDING"
+  | "MANUAL_CONTRIBUTION_NOT_APPROVED"
+  | "MANUAL_CONTRIBUTION_ALREADY_SPENT";
 
 /**
  * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
@@ -138,6 +150,13 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   VERIFICATION_REQUEST_NOT_PENDING: 409,
   // A second change asked while the first still waits for a Verifier.
   CHANGE_REQUEST_ALREADY_PENDING: 409,
+  // A Verifikasi Tambahan is the System's, so the Fundraiser asking to
+  // withdraw it is a conflict with who owns the record, not a bad input.
+  AMOUNT_REVIEW_NOT_WITHDRAWABLE: 409,
+  // The Fundraiser is already at the Active Campaign limit, so this approval
+  // would open one more: a conflict with the Campaign's own state, which
+  // clears by itself when one of theirs leaves Active.
+  TOO_MANY_ACTIVE_CAMPAIGNS: 409,
   // Like MISSING_CAMPAIGN_UPDATE: an unmet precondition the actor can fix
   // (tick the items), not a status conflict another actor caused.
   REQUIRED_CHECKLIST_ITEMS_UNTICKED: 422,
@@ -163,6 +182,13 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   BANK_ACCOUNT_NOT_ELIGIBLE: 403,
   INSUFFICIENT_BALANCE: 400,
   SELF_APPROVAL: 403,
+  // The two-person control itself: the same Admin cannot both approve and
+  // record the transfer. Not something they can fix by resending, so 403
+  // like the other capacity refusals, not a 409 status conflict.
+  TWO_PERSON_RULE: 403,
+  // Unlike the rest: the Admin can fix this one, by attaching the proof the
+  // route asked for. Same shape as DEADLINE_REQUIRED.
+  PAYOUT_PROOF_REQUIRED: 422,
   INVALID_PAYOUT_STATUS: 409,
   INVALID_REFUND_STATUS: 409,
   PAYOUT_NOT_FOUND: 404,
@@ -170,6 +196,17 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   PAYMENT_NOT_FOUND: 404,
   PAYMENT_SUBJECT_MISMATCH: 404,
   REFUND_EXCEEDS_REMAINING: 400,
+  MANUAL_CONTRIBUTION_NOT_FOUND: 404,
+  // Unmet preconditions the Admin can fix by filling the form in properly,
+  // like REFUND_EXCEEDS_REMAINING and DEADLINE_REQUIRED.
+  MANUAL_CONTRIBUTION_TARGET_INVALID: 400,
+  MANUAL_CONTRIBUTION_INVALID: 400,
+  MANUAL_CONTRIBUTION_PROOF_REQUIRED: 400,
+  MANUAL_CONTRIBUTION_AMOUNT_INVALID: 400,
+  MANUAL_CONTRIBUTION_NOT_PENDING: 409,
+  MANUAL_CONTRIBUTION_NOT_APPROVED: 409,
+  // The money has already left through a Payout, so it cannot be taken back.
+  MANUAL_CONTRIBUTION_ALREADY_SPENT: 409,
   TRIP_NOT_FOUND: 404,
   TRIP_NOT_EDITABLE: 409,
   TRIP_NOT_SUBMITTED: 409,

@@ -167,7 +167,8 @@ export type ChecklistItemRow = {
 export type VerificationRequestRow = {
   id: string;
   campaignId: string;
-  submittedById: string;
+  /** Null on an AMOUNT_REVIEW, which the System raises and no person submits. */
+  submittedById: string | null;
   submittedAt: Date;
   checklist: unknown;
   outcome: 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN';
@@ -178,6 +179,10 @@ export type VerificationRequestRow = {
   collectingEntityId?: string | null;
   /** A change asked for an Active Campaign (target, deadline), or null. */
   proposedChanges?: unknown;
+  /** Which of the three kinds of request this is (prd-compliance 38). */
+  kind?: 'SUBMISSION' | 'CHANGE' | 'AMOUNT_REVIEW';
+  /** The Gross and threshold that raised an AMOUNT_REVIEW, or null. */
+  raisedByAmount?: unknown;
 };
 
 export type ChecklistAuditRow = {
@@ -223,9 +228,9 @@ type Where = Record<string, unknown>;
 
 /**
  * Evaluates the slice of a Prisma `where` the Campaign readers use: plain
- * equality (null included), AND / OR / NOT, and the `in`, `gt`, `gte`, `lt`,
- * `lte` and `contains` (with `mode: 'insensitive'`) filters. Anything else
- * throws, so a reader never silently matches more than Postgres would.
+ * equality (null included), AND / OR / NOT, and the `in`, `not`, `gt`, `gte`,
+ * `lt`, `lte` and `contains` (with `mode: 'insensitive'`) filters. Anything
+ * else throws, so a reader never silently matches more than Postgres would.
  */
 function matches(row: Record<string, unknown>, where: Where): boolean {
   return Object.entries(where).every(([key, value]) => {
@@ -265,6 +270,8 @@ function matchesField(actual: unknown, filter: unknown): boolean {
         return actual !== null && actual !== undefined && comparable(actual) < comparable(operand);
       case 'lte':
         return actual !== null && actual !== undefined && comparable(actual) <= comparable(operand);
+      case 'not':
+        return !matchesField(actual, operand);
       case 'contains': {
         if (typeof actual !== 'string') return false;
         return mode === 'insensitive'
@@ -410,6 +417,8 @@ export function verificationRequestRow(
     decidedAt: null,
     isFirst: true,
     proposedChanges: null,
+    kind: 'SUBMISSION',
+    raisedByAmount: null,
     ...overrides,
   };
 }
@@ -495,6 +504,8 @@ export function makeCampaignDb(
     fundraisingPermits?: FundraisingPermitRow[];
     /** Defaults to none: only zakat, wakaf and hibah Campaigns need one. */
     kindAuthorisations?: KindAuthorisationRow[];
+    /** The abuse thresholds an Admin has set (prd-compliance 38); empty means the PRD's numbers. */
+    abuseThresholds?: { kind: string; value: number; setAt: string }[];
     /** Read-only, so kept outside the transactional copy; defaults to the Fundraiser of campaignRow(). */
     users?: UserRow[];
   } = {},
@@ -517,6 +528,9 @@ export function makeCampaignDb(
     kindAuthorisations: (seed.kindAuthorisations ?? []).map((k) => ({ ...k })),
     partnerOrganisationAudits: [],
   };
+  // The abuse threshold history is read-only here, like the Users below, so it
+  // sits outside the transactional copy.
+  const abuseThresholds = (seed.abuseThresholds ?? []).map((t) => ({ ...t }));
   // Row locks taken with `SELECT ... FOR UPDATE`, in order, as
   // "<Table>:<id>". Observable because taking the lock IS the behaviour
   // that serialises two Admins deciding against the same Campaign.
@@ -722,15 +736,18 @@ export function makeCampaignDb(
         },
       },
       verificationRequest: {
-        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'submittedById' | 'checklist' | 'isFirst' | 'collectingEntityId'> & { submittedAt?: Date; proposedChanges?: unknown } }) => {
+        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'checklist' | 'isFirst' | 'collectingEntityId'> & { submittedById?: string | null; submittedAt?: Date; proposedChanges?: unknown; kind?: VerificationRequestRow['kind']; raisedByAmount?: unknown } }) => {
           const row: VerificationRequestRow = {
             id: `verification-${nextId++}`,
+            submittedById: 'creator-1',
             submittedAt: new Date(),
             outcome: 'PENDING',
             reason: null,
             decidedById: null,
             decidedAt: null,
             proposedChanges: null,
+            kind: 'SUBMISSION',
+            raisedByAmount: null,
             ...data,
           };
           getData().verificationRequests.push(row);
@@ -744,6 +761,12 @@ export function makeCampaignDb(
             const campaign = getData().campaigns.find((c) => c.id === r.campaignId);
             return { ...r, campaign: campaign ? { ...campaign } : null };
           }),
+        // The lifecycle's "the one open request of this Campaign" and the
+        // amount review's "has this Campaign already had one" reads.
+        findFirst: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'> } = {}) => {
+          const rows = ordered(getData().verificationRequests.filter((r) => matches(r, where)), orderBy);
+          return rows.length > 0 ? { ...rows[0] } : null;
+        },
         findUnique: async ({ where }: { where: Where }) => {
           const row = getData().verificationRequests.find((r) => matches(r, where));
           return row ? { ...row } : null;
@@ -887,6 +910,17 @@ export function makeCampaignDb(
       },
       platformFeeThreshold: {
         findFirst: async () => null,
+      },
+      // No abuse threshold is seeded unless a test says so (prd-compliance
+      // 38); with none, resolveAbuseThresholds answers the PRD's own numbers,
+      // which is what every test that is not about the thresholds needs. Same
+      // argument as the Platform Fee rows above.
+      abuseThreshold: {
+        findMany: async ({ orderBy }: { orderBy?: { setAt: string } } = {}) => {
+          const rows = [...abuseThresholds];
+          if (orderBy?.setAt === 'desc') rows.sort((a, b) => b.setAt.localeCompare(a.setAt));
+          return rows;
+        },
       },
       $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const sql = strings.join('?');

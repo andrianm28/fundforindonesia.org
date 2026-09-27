@@ -111,8 +111,19 @@ function makeWebhookTx() {
   const ledgerRows: LedgerRow[] = [];
   const tx = {
     payment: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    donation: { update: vi.fn().mockResolvedValue({}) },
+    donation: {
+      update: vi.fn().mockResolvedValue({}),
+      // The abuse thresholds read the settled Donation back (prd-compliance
+      // 38). An ordinary Donation, so this flow's own assertions are about
+      // the money and not about the markers.
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({
+        id: where.id,
+        amount: 75_000,
+        campaign: { id: 'campaign-webhook-1', collectedAmount: 75_000, isDemo: false },
+      })),
+    },
     campaign: { update: vi.fn().mockResolvedValue({}) },
+    abuseThreshold: { findMany: vi.fn(async () => []) },
     receipt: { create: vi.fn().mockResolvedValue({}) },
     webhookEvent: { update: vi.fn().mockResolvedValue({}) },
     ledgerEntry: {
