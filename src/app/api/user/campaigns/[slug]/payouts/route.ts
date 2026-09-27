@@ -4,7 +4,7 @@ import { getServerSession } from '@/lib/auth';
 import { refuseUnlessFundraiser } from '@/lib/refusal-response';
 import { PRIVATE_CACHE_CONTROL } from '@/lib/campaign-visibility-route';
 import { campaignBalance, escrowBalance } from '@/lib/money/ledger';
-import { releaseMaturedEscrow } from '@/lib/money/escrow';
+import { effectiveStatus } from '@/lib/campaign-lifecycle';
 
 // Per request: the answer depends on who asks, and it reads the ledger.
 export const dynamic = 'force-dynamic';
@@ -31,13 +31,21 @@ type RouteContext = { params: Promise<{ slug: string }> };
  * twice. `ledger.ts` calls surfacing escrowBalance an obligation on whoever
  * builds this screen rather than a nicety, and this is that screen.
  *
- * The lazy escrow sweep runs here for the same reason it runs at the top of
- * the Payout request handler (src/app/api/campaigns/[slug]/payouts/route.ts):
- * there is no scheduler calling runScheduledJobs in production yet (ticket
- * 45), so a matured hold would otherwise sit in ESCROW_HOLD and read as
- * unavailable for as long as nobody asked to withdraw. Running it before the
- * read is what makes the Campaign Balance shown here the same number a
- * request made a second later would be judged against.
+ * IT ALSO SENDS THE CAMPAIGN'S EFFECTIVE STATUS, because the screen has a form
+ * on it and the form has to know whether a Payout may be asked for at all.
+ * The link on the Campaign list is already hidden outside Active, Expired and
+ * Completed, but a Fundraiser who types this URL arrives anyway, and a form
+ * that cannot tell is a form that collects a request the server will refuse.
+ *
+ * NOT A RELEASE PATH. This read never calls releaseMaturedEscrow. spec.md
+ * puts the release on a schedule (runScheduledJobs) and keeps the lazy sweep
+ * as a SECOND path -- the one at the top of the Payout REQUEST handler
+ * (src/app/api/campaigns/[slug]/payouts/route.ts), which is the only place
+ * money is about to be asked for. A GET that moved money would make how
+ * quickly someone loaded a page a fact about the books, and a read that can
+ * write is not a read. The consequence is stated on ticket 28 rather than
+ * papered over: a matured hold is released on the request, not before it, so
+ * the figure below can read lower than it will be a moment after submitting.
  */
 export async function GET(_request: Request, context: RouteContext) {
   const { slug } = await context.params;
@@ -50,7 +58,12 @@ export async function GET(_request: Request, context: RouteContext) {
 
   const campaign = await prisma.campaign.findUnique({
     where: { slug },
-    select: { id: true, creatorId: true, isDemo: true },
+    // lifecycleStatus and deadline because the response carries the Campaign's
+    // EFFECTIVE status (effectiveStatus below), which is what the screen needs
+    // in order to decide whether a Payout may be asked for at all. Without it
+    // the form is offered on a Suspended or Cancelled Campaign and the
+    // Fundraiser only learns from the refusal.
+    select: { id: true, creatorId: true, isDemo: true, lifecycleStatus: true, deadline: true },
   });
   if (!campaign) {
     return NextResponse.json({ error: 'Campaign tidak ditemukan' }, { status: 404 });
@@ -58,11 +71,6 @@ export async function GET(_request: Request, context: RouteContext) {
 
   const refusal = refuseUnlessFundraiser({ kind: 'campaign', ownerId: campaign.creatorId }, session.user);
   if (refusal) return refusal;
-
-  // Outside the transaction below, and for the same reason as in the request
-  // handler: it owns its own per-payment transactions, so a release that
-  // fails for one payment cannot roll back the read.
-  await releaseMaturedEscrow({ type: 'campaign', id: campaign.id });
 
   const [escrowHold, available, payouts] = await prisma.$transaction(async (tx) =>
     Promise.all([
@@ -114,6 +122,16 @@ export async function GET(_request: Request, context: RouteContext) {
     // balance of 0 alone reads as "not arrived yet" and sends the Fundraiser
     // hunting for a shortfall that does not exist.
     isDemo: campaign.isDemo,
+    // The EFFECTIVE status, not the stored column: an Active Campaign past its
+    // deadline is Expired, and the money layer is judged on that
+    // (requirePayoutAllowed, in ./lib/subject-guard.ts). The screen asks the
+    // same question of the same list
+    // (PAYOUT_REQUESTABLE_STATUSES, ./lib/payout-requestable-statuses.ts) --
+    // which is why it is sent, and why it is sent as the effective one.
+    lifecycleStatus: effectiveStatus(
+      { lifecycleStatus: campaign.lifecycleStatus, deadline: campaign.deadline },
+      new Date(),
+    ),
     escrowHold,
     campaignBalance: available,
     payouts,

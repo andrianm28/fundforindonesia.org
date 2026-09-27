@@ -2,6 +2,7 @@ import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
+import { exceedsPayoutBalance } from '@/lib/payout-balance-rule';
 import {
   DemoCampaignError,
   BankAccountNotEligibleError,
@@ -161,7 +162,12 @@ export async function requestPayout(
     subject.type === 'campaign'
       ? await campaignBalance(tx, subject.campaignId)
       : await tripBalance(tx, subject.tripId);
-  if (amount > balance) {
+  // The cap itself is one named rule, asked of the same module a screen asks:
+  // exceedsPayoutBalance (@/lib/payout-balance-rule.ts). The server stays the
+  // holder of the decision -- this is where it is enforced, under the lock --
+  // but the question is written down once, so the screen warning about it
+  // cannot become a second opinion.
+  if (exceedsPayoutBalance(amount, balance)) {
     throw new InsufficientBalanceError(amount, balance);
   }
 

@@ -166,8 +166,6 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
     vi.clearAllMocks();
     mockGetServerSession.mockResolvedValue({ user: { id: 'creator-1', assignments: [] } });
     mockCampaignFindUnique.mockResolvedValue(campaign());
-    // No matured escrow holds by default, so the lazy release sweep this read
-    // runs finds nothing.
     mockPaymentFindMany.mockResolvedValue([]);
     mockPayoutFindMany.mockResolvedValue([]);
     // Honours `where` and `select` the way the database and the real client
@@ -261,6 +259,81 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
     expect(mockBankAccountFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { ownerId: 'creator-1', verifiedAt: { not: null } } }),
     );
+  });
+
+  it("tells the screen which Campaign status it is reading, so the screen can judge the request itself", async () => {
+    mockCampaignFindUnique.mockResolvedValue(
+      campaign({ lifecycleStatus: 'SUSPENDED' }),
+    );
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await read();
+    const body = await response.json();
+
+    // The link on the Campaign list is hidden for a Suspended Campaign, but a
+    // Fundraiser who types this URL arrives anyway. Without the status in the
+    // response the form cannot know, so they fill it in and only learn from the
+    // refusal -- the request would have been made against a Campaign that
+    // cannot pay out at all.
+    expect(body.lifecycleStatus).toBe('SUSPENDED');
+  });
+
+  it("reads the EFFECTIVE status, the same one the money layer is judged on, not the stored column", async () => {
+    // Stored ACTIVE with yesterday's deadline. The subject guard judges
+    // requirePayoutAllowed on effectiveStatus, so a stored column would let
+    // the screen offer a request the server refuses as Expired -- and the two
+    // statuses also badge differently, so the screen would mislabel the
+    // Campaign besides.
+    mockCampaignFindUnique.mockResolvedValue(
+      campaign({ lifecycleStatus: 'ACTIVE', deadline: new Date('2020-01-01T00:00:00.000Z') }),
+    );
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const body = await (await read()).json();
+
+    expect(body.lifecycleStatus).toBe('EXPIRED');
+  });
+
+  it("asks the database for the status and the deadline, and nothing else it would not answer", async () => {
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    await read();
+
+    // `select` is a claim about which columns this read depends on, and the
+    // two it now does are the status and the deadline behind it. A fake that
+    // ignored `select` could otherwise hand this read a status it never asked
+    // for, and the assertion above would pass for the wrong reason.
+    expect(mockCampaignFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({ lifecycleStatus: true, deadline: true }),
+      }),
+    );
+  });
+
+  it("moves no money: a screen the Fundraiser is only LOOKING at writes nothing to the ledger", async () => {
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await read();
+
+    expect(response.status).toBe(200);
+    // A GET is a read. Every payment lookup the Escrow release does starts at
+    // prisma.payment.findMany, so an empty call list is the property itself:
+    // this route writes no LedgerEntry, moves nothing out of ESCROW_HOLD, and
+    // posts no transaction of its own.
+    //
+    // spec.md puts the release on a schedule (runScheduledJobs) and keeps the
+    // lazy sweep as a SECOND path -- the one at the top of the Payout REQUEST
+    // handler. A third path, taken every time a page is looked at, was never
+    // asked for: it made how fast a Fundraiser's screen loaded a fact about
+    // the books, and a read that can write cannot be replayed or reasoned
+    // about as a read.
+    expect(mockPaymentFindMany).not.toHaveBeenCalled();
+    expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
+    expect(tx.payment.updateMany).not.toHaveBeenCalled();
   });
 
   it("answers 401 to an anonymous reader and 403 to a signed-in stranger, reading nothing either way", async () => {
