@@ -40,3 +40,44 @@
   tersendiri" true of the campaign page as well as of the Impact breakdown, but
   it adds this module to two writer allowlists and makes the reconciliation
   report account for off-gateway credits. Both are argued in the PR body.
+- 2026-09-27 (review findings, fixed in PR #75): three of the independent
+  review's points are addressed here.
+  1. The reversal had no two-person separation: `reversedById` could be
+     `recordedById` or `decidedById`, so the Admin who had just approved a
+     contribution could pull the money back out alone -- record, approve,
+     reverse, and the books are back where they started with three decisions on
+     the record and nobody outside the pair to notice. `reverseManualContribution`
+     now refuses both halves of the pair with the same `SelfApprovalError` an
+     approval of the wrong person gets, before the status is read and before
+     any write. The code is still `SELF_APPROVAL` for both halves; the error
+     takes an `action` so the sentence names the act instead of telling an
+     Admin they may not approve something they never approved.
+  2. A Demo Campaign was not refused, so real rupiah could be credited into one
+     and locked there for good: `payouts.ts` and `refunds.ts` both refuse it,
+     so neither could ever move that money out. The refusal is now
+     `requireNotDemoCampaign` in this module, throwing the same
+     `DemoCampaignError` the other two paths throw, and it is called from both
+     commands -- recording as well as approval, because recording is where this
+     path is opened (a Payout and a Refund are both refused at the request, not
+     at the approval) and because a contribution to a Campaign whose data is
+     fictional is not a queue entry worth keeping. One function, so the rule
+     cannot drift away from the two paths that already refuse it.
+  3. The migration comment claimed every relation was `onDelete: Restrict` when
+     `LedgerEntry.manualContributionId` is `SetNull`; both the migration and the
+     schema comment now say so and say why (a ledger entry is the immutable
+     record of the money and outlives the row it points at).
+- 2026-09-27 (noted, not done, deliberately): (1) CONTEXT.md says a Manual
+  Contribution is never deleted, and no database constraint enforces that --
+  `onDelete: Restrict` stops a Campaign, a Program or a person being deleted out
+  from under the row, but nothing stops the row itself being deleted, by this
+  code or by a script against the database. Closing that gap means a
+  database-level rule (a trigger, or a revoking of DELETE on the table) whose
+  cost and blast radius are a decision for the owner, not something to add
+  quietly inside a feature PR. What this PR does instead is assert the
+  guarantee it does have: `manual-contributions.test.ts` now scans all of `src`
+  (not just this module) for a `delete`/`deleteMany` of this row, and the
+  decision route enumerates its verbs so "delete" has nowhere to land. (2) The
+  amount is now bounded by int4's ceiling (2 147 483 647) in the service layer,
+  because a larger rupiah is refused by the column as a driver error that no
+  route can turn into a 400; the bound is the column's own, not a rule of ours,
+  and the largest amount the column holds still records.

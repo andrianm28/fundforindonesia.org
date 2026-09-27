@@ -7,9 +7,10 @@ import {
   programBalance,
   type ManualContributionSubject,
 } from './ledger';
-import { lockAndLoad, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
+import { lockAndLoad, requireNotOwnerAsAdmin, type SubjectState } from '@/lib/subject-guard';
 import { OwnSubjectConflictError } from '@/lib/capacity';
 import {
+  DemoCampaignError,
   ManualContributionAlreadySpentError,
   ManualContributionAmountError,
   ManualContributionInputError,
@@ -38,7 +39,8 @@ import {
  *   approve  a DIFFERENT Admin. This is where the money enters the books.
  *   reject   a different Admin, with a reason. Nothing was ever posted; the
  *            record and its proof stay, because a decision is not a deletion.
- *   reverse  an opposite journal that takes the money back out. Never a delete
+ *   reverse  a third Admin again -- neither the recorder nor the approver.
+ *            An opposite journal that takes the money back out. Never a delete
  *            and never an edit of the original rows.
  *
  * WHERE THE MONEY LANDS, and the two rules that come with it:
@@ -51,6 +53,29 @@ import {
  *    ledger, exactly as the settlement webhook does, so the display figure and
  *    the books move together and cannot drift. A Program has no collected
  *    figure, so nothing is written there.
+ *
+ * WHY THE REVERSAL IS A THIRD PERSON AND NOT A FOURTH DECISION BY EITHER OF
+ * THE FIRST TWO. The two-person rule exists so no single Admin can invent a
+ * donation and have it rubber-stamped. If the reversal were open to the
+ * recorder or the approver, the rule would be worth nothing at the one moment
+ * it matters most: record a contribution, approve it yourself two minutes
+ * later, reverse it yourself, and the books are back where they started with
+ * three decisions on the record and nobody outside the pair to notice. So
+ * reverseManualContribution refuses both of them, with the same
+ * SelfApprovalError an approval of the wrong person gets, before it reads the
+ * balance and before any write.
+ *
+ * WHY A DEMO CAMPAIGN IS REFUSED, AT RECORDING AND AT APPROVAL. A Demo
+ * Campaign's data is fictional (CONTEXT.md, Demo Campaign), and a Payout and a
+ * Refund already refuse it by name, both when the money path is opened. A
+ * contribution to one would be a claim that real rupiah arrived for a Campaign
+ * with no real donors, and once credited it could never leave again, because
+ * both of those paths are closed to it. So the refusal is on the record as
+ * well as on the credit: there is no such thing as a legitimate contribution
+ * to a Demo Campaign, and refusing only at approval would leave a queue full of
+ * entries that can only ever be rejected. `requireNotDemoCampaign` is the one
+ * reading of `isDemo` in this module, called from both commands, so it cannot
+ * drift away from the two paths that already refuse it.
  *
  * WHY AN ADMIN WHO OWNS THE CAMPAIGN IS REFUSED. That is the one check here
  * that is not about the two-person rule, and it is the most important: a
@@ -75,6 +100,7 @@ import {
  */
 
 export {
+  DemoCampaignError,
   ManualContributionAlreadySpentError,
   ManualContributionAmountError,
   ManualContributionInputError,
@@ -146,8 +172,22 @@ const UNPOSTABLE_TARGET = {
   both: 'Manual Contribution menunjuk Campaign dan Program sekaligus, sehingga tidak bisa dibukukan.',
 };
 
+/**
+ * The most rupiah that fits the column: ManualContribution.amount is an Int,
+ * so PostgreSQL's int4 ceiling is the real limit on what a contribution can
+ * be. Refusing it here rather than letting the write fail means a too-large
+ * amount is a 400 with a message about the amount, not a driver error no
+ * route can turn into a 400.
+ */
+const MAX_RUPIAH_AMOUNT = 2_147_483_647;
+
 function assertAmountIsRupiah(amount: unknown): asserts amount is number {
-  if (typeof amount !== 'number' || !Number.isInteger(amount) || amount <= 0) {
+  if (
+    typeof amount !== 'number' ||
+    !Number.isInteger(amount) ||
+    amount <= 0 ||
+    amount > MAX_RUPIAH_AMOUNT
+  ) {
     throw new ManualContributionAmountError();
   }
 }
@@ -204,6 +244,20 @@ async function assertTargetExists(
 }
 
 /**
+ * A Demo Campaign's data is fictional, so no real money may be recorded
+ * against it or credited to it -- CONTEXT.md, Demo Campaign. The same
+ * DemoCampaignError a Payout request and a Refund request throw, from one
+ * function both of this module's commands call, so the rule is read once here
+ * rather than copied into each of them and into the two paths that already
+ * refuse it.
+ */
+function requireNotDemoCampaign(state: SubjectState): void {
+  if (state.isDemo) {
+    throw new DemoCampaignError();
+  }
+}
+
+/**
  * One Admin records a Manual Contribution. Posts nothing to the ledger and
  * writes nothing to any balance: until a second Admin approves, this is a
  * claim, not money.
@@ -234,7 +288,10 @@ export async function recordManualContribution(
   // must not be the one doing it.
   if (subject.type === 'campaign') {
     const state = await lockAndLoad(tx, subject, new Date());
-    if (state) requireNotOwnerAsAdmin(state, params.recordedById);
+    if (state) {
+      requireNotDemoCampaign(state);
+      requireNotOwnerAsAdmin(state, params.recordedById);
+    }
   }
 
   return tx.manualContribution.create({
@@ -294,7 +351,13 @@ async function lockTargetAndJudge(
     // it be deleted out from under the contribution. The same reasoning
     // approvePayout gives for Payout.campaignId.
     const state = await lockAndLoad(tx, subject, new Date());
-    if (state) requireNotOwnerAsAdmin(state, actorId);
+    if (state) {
+      // Same order the Payout and Refund paths use: the Demo refusal, which
+      // says the Campaign has no real money at all, before the ownership
+      // judgement about who may touch it.
+      requireNotDemoCampaign(state);
+      requireNotOwnerAsAdmin(state, actorId);
+    }
     return campaignBalance(tx, subject.campaignId);
   }
   await tx.$queryRaw`SELECT id FROM "Program" WHERE id = ${subject.programId} FOR UPDATE`;
@@ -425,6 +488,11 @@ export async function rejectManualContribution(
  * Takes the money back out: the mirror-image journal, in a new transaction,
  * with the original rows left exactly where they were.
  *
+ * A third person does it. Neither the Admin who recorded the contribution nor
+ * the Admin who approved it may reverse it, so the two-person rule still means
+ * two people by the time the money leaves again; see the module comment for why
+ * a reversal the pair could do itself would make the rule worth nothing.
+ *
  * Refused once the balance no longer covers the amount -- see the module doc
  * comment for why the balance and not the Payout history is the test. The
  * reversal is its own Admin act, and the Admin who does it is judged against
@@ -444,6 +512,20 @@ export async function reverseManualContribution(
     });
     if (!contribution) {
       throw new ManualContributionNotFoundError(manualContributionId);
+    }
+    // The two-person rule, at the reversal as well as at the approval, and for
+    // the same reason: the pair that created this money may not also be the one
+    // that takes it back out. Otherwise the whole rule collapses into one
+    // person's afternoon -- record it, approve it, reverse it -- and the books
+    // end where they began with nothing on the record for anyone else to have
+    // seen. Both halves of the pair are refused, and the refusal is the same
+    // SelfApprovalError an approval of the wrong person gets, thrown before
+    // the status is even looked at, so this decision has no trace either.
+    if (
+      reversedById === contribution.recordedById ||
+      reversedById === contribution.decidedById
+    ) {
+      throw new SelfApprovalError('Manual Contribution', 'reversal');
     }
     if (contribution.status !== 'APPROVED') {
       throw new ManualContributionNotApprovedError(contribution.status);

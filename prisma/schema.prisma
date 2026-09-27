@@ -1244,9 +1244,12 @@ model BankAccount {
 /// correction is a REVERSAL, a new balanced transaction that posts the mirror
 /// image of the credit, and the original rows stay where they are.
 ///
-/// onDelete: Restrict on every relation, like Payout and
+/// onDelete: Restrict on every relation of this table, like Payout and
 /// CampaignStatusChange: neither deleting the Campaign, the Program, nor the
-/// people involved may erase who recorded, who approved, or how much.
+/// people involved may erase who recorded, who approved, or how much. The
+/// back-reference on LedgerEntry is the exception, onDelete: SetNull, because a
+/// ledger entry is the immutable record of the money and outlives the row it
+/// points at.
 model ManualContribution {
   id       String @id @default(cuid())
   amount   Int
@@ -1276,6 +1279,10 @@ model ManualContribution {
   decidedBy    User?     @relation("ManualContributionDecider", fields: [decidedById], references: [id], onDelete: Restrict)
   decidedAt    DateTime?
   decisionReason String?
+  /// Two-person rule, second half: never recordedById and never decidedById.
+  /// A reversal the pair that put the money in could do itself would make the
+  /// whole rule revocable by one person, so a THIRD Admin takes it back out.
+  /// The check is in the service layer, like the one above.
   reversedById String?
   reversedBy   User?     @relation("ManualContributionReverser", fields: [reversedById], references: [id], onDelete: Restrict)
   reversedAt   DateTime?

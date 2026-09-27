@@ -17,10 +17,19 @@
 --    referential guarantee comes from ManualContribution.programId below, a
 --    real foreign key, written in the same transaction as the entries.
 --
---  - Every relation here is onDelete: Restrict, like Payout and
---    CampaignStatusChange: a contribution record, who recorded it, who
+--  - Every relation ON ManualContribution is onDelete: Restrict, like Payout
+--    and CampaignStatusChange: a contribution record, who recorded it, who
 --    approved it and how much it was are all evidence, and deleting a
 --    Campaign, a Program or a person must not be able to take any of it away.
+--    The one exception is the ledger's back-reference,
+--    LedgerEntry.manualContributionId, which is onDelete: SetNull: a ledger
+--    entry is the immutable record of the money and outlives the row it points
+--    at, so the reference is cleared rather than the entry going with it.
+--    Nothing in src deletes a ManualContribution -- a reversal is an opposite
+--    journal, and the decision route enumerates its verbs so "delete" has
+--    nowhere to land -- so this table is only defensible, not depended on.
+--    That is asserted rather than assumed: manual-contributions.test.ts
+--    scans all of src for a delete of this row.
 
 -- CreateEnum
 CREATE TYPE "ManualContributionStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'REVERSED');

@@ -4,6 +4,7 @@ import {
   approveManualContribution,
   rejectManualContribution,
   reverseManualContribution,
+  DemoCampaignError,
   ManualContributionNotFoundError,
   ManualContributionTargetError,
   ManualContributionProofRequiredError,
@@ -28,11 +29,14 @@ import {
  *  - a correction is an opposite journal, never a deletion, and only while the
  *    money is still there to take back.
  *
- * The two checks that are easy to leave out and expensive to discover late:
+ * The three checks that are easy to leave out and expensive to discover late:
  * an Admin who is the Campaign's own Fundraiser is refused (otherwise a
- * fundraiser could credit their own Campaign and pay it straight out), and the
+ * fundraiser could credit their own Campaign and pay it straight out); the
  * reversal is refused once a Payout has drawn the balance below the
- * contribution (otherwise the opposite journal drives the pool negative).
+ * contribution (otherwise the opposite journal drives the pool negative); and
+ * the two-person rule is enforced at the reversal as well as the approval
+ * (otherwise the pair could invent a contribution, approve it, reverse it, and
+ * leave no trace anyone outside the pair could have seen).
  */
 
 type LedgerRow = {
@@ -75,6 +79,7 @@ function makeTx(
     row?: Record<string, unknown> | null;
     ledgerRows?: LedgerRow[];
     campaignCreatorId?: string;
+    campaignIsDemo?: boolean;
     programExists?: boolean;
   } = {},
 ) {
@@ -106,7 +111,7 @@ function makeTx(
     campaign: {
       findUnique: vi.fn().mockResolvedValue({
         creatorId: options.campaignCreatorId ?? 'fundraiser-1',
-        isDemo: false,
+        isDemo: options.campaignIsDemo ?? false,
         lifecycleStatus: 'ACTIVE',
         deadline: null,
         kind: 'DONATION',
@@ -278,6 +283,33 @@ describe('recordManualContribution', () => {
     }
   });
 
+  it('refuses an amount past what the column can hold, instead of letting the write fail', async () => {
+    // ManualContribution.amount is an Int, so int4's ceiling is the real
+    // limit. Refused here it is a 400 with a message about the amount; left to
+    // the database it is a driver error no route can turn into a 400.
+    const { tx, contributionCreate } = makeTx();
+
+    await expect(
+      recordManualContribution(tx as never, {
+        target: CAMPAIGN,
+        amount: 2_147_483_648,
+        proofReference: 'bukti.pdf',
+        recordedById: 'admin-1',
+      }),
+    ).rejects.toThrow(ManualContributionAmountError);
+    expect(contributionCreate).not.toHaveBeenCalled();
+
+    // The ceiling itself is allowed: the bound is the column's, not a rule of
+    // our own, so the largest amount the column holds still records.
+    await recordManualContribution(tx as never, {
+      target: CAMPAIGN,
+      amount: 2_147_483_647,
+      proofReference: 'bukti.pdf',
+      recordedById: 'admin-1',
+    });
+    expect(contributionCreate).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses a Volunteer Trip as the target, however it is spelled', async () => {
     // A Trip Fee is money a Volunteer pays for their own seat and has its own
     // Payout path. Money recorded off-gateway must not be able to top one up.
@@ -291,6 +323,24 @@ describe('recordManualContribution', () => {
         recordedById: 'admin-1',
       }),
     ).rejects.toThrow(ManualContributionTargetError);
+  });
+
+  it('refuses a Demo Campaign at recording, so the claim is never even made', async () => {
+    // A Payout and a Refund both refuse a Demo Campaign when the money path is
+    // opened, not later; recording is where this path is opened. Refusing here
+    // also keeps the queue out of entries that could only ever be rejected --
+    // no money arrived for a Campaign whose data is fictional.
+    const { tx, contributionCreate } = makeTx({ campaignIsDemo: true });
+
+    await expect(
+      recordManualContribution(tx as never, {
+        target: CAMPAIGN,
+        amount: 1_000,
+        proofReference: 'bukti.pdf',
+        recordedById: 'admin-1',
+      }),
+    ).rejects.toThrow(DemoCampaignError);
+    expect(contributionCreate).not.toHaveBeenCalled();
   });
 
   it('refuses a target that does not exist, rather than crediting money to nobody', async () => {
@@ -461,6 +511,24 @@ describe('approveManualContribution', () => {
       }),
     ).rejects.toThrow(OwnSubjectConflictError);
     expect(rows).toEqual([]);
+  });
+
+  it('refuses a Demo Campaign by name at approval too, in case one was recorded before', async () => {
+    // A Payout and a Refund already refuse it, so money credited here could
+    // never be moved out again -- and it would sit in a Campaign with no real
+    // donors. The same DemoCampaignError the other two paths throw, read from
+    // the same place, so the three cannot drift apart.
+    const { tx, rows, state, campaignUpdate } = makeTx({ campaignIsDemo: true });
+
+    await expect(
+      approveManualContribution(makePrisma(tx, {}) as never, {
+        manualContributionId: 'mc-1',
+        decidedById: 'admin-2',
+      }),
+    ).rejects.toThrow(DemoCampaignError);
+    expect(rows).toEqual([]);
+    expect(state?.status).toBe('PENDING');
+    expect(campaignUpdate).not.toHaveBeenCalled();
   });
 
   it('locks the Campaign row before reading the balance, so a Payout cannot drain it mid-approval', async () => {
@@ -773,6 +841,60 @@ describe('reverseManualContribution', () => {
     expect(alreadyReversed.rows).toEqual([]);
   });
 
+  it('refuses the Admin who recorded it, and the Admin who approved it', async () => {
+    // The two-person rule has to hold at the reversal too, or it is worth
+    // nothing: one person records a contribution, approves it themselves two
+    // minutes later and reverses it, and the books are back where they began
+    // with three decisions on the record and nobody outside the pair to notice.
+    // The recorder is `admin-1` and the approver `admin-2` on every approved()
+    // fixture, so the two cases differ only in who is asking.
+    for (const reversedById of ['admin-1', 'admin-2']) {
+      const { tx, rows, state } = approved();
+
+      await expect(
+        reverseManualContribution(makePrisma(tx, {}) as never, {
+          manualContributionId: 'mc-1',
+          reversedById,
+          reason: 'Salah rekening tujuan',
+        }),
+      ).rejects.toThrow(SelfApprovalError);
+      // Nothing at all: no journal, no status change, and the balance left
+      // exactly as it was.
+      expect(rows).toHaveLength(1);
+      expect(state?.status).toBe('APPROVED');
+      expect(state?.reversedById).toBeNull();
+    }
+  });
+
+  it('refuses a Demo Campaign on the reversal as well, by the same rule as the other two paths', async () => {
+    const { tx, rows, state } = makeTx({
+      row: contribution({ status: 'APPROVED', decidedById: 'admin-2' }),
+      campaignIsDemo: true,
+      ledgerRows: [
+        {
+          transactionId: 'manual-contribution-mc-1',
+          direction: 'CREDIT',
+          amount: 250_000,
+          account: 'CAMPAIGN_BALANCE',
+          campaignId: 'campaign-1',
+          volunteerTripId: null,
+          programId: null,
+          manualContributionId: 'mc-1',
+        },
+      ],
+    });
+
+    await expect(
+      reverseManualContribution(makePrisma(tx, {}) as never, {
+        manualContributionId: 'mc-1',
+        reversedById: 'admin-3',
+        reason: 'Salah rekening tujuan',
+      }),
+    ).rejects.toThrow(DemoCampaignError);
+    expect(rows).toHaveLength(1);
+    expect(state?.status).toBe('APPROVED');
+  });
+
   it('refuses an Admin who is the Campaign Fundraiser, who could otherwise drain their own Campaign', async () => {
     const { tx, rows } = approved();
 
@@ -786,16 +908,37 @@ describe('reverseManualContribution', () => {
     expect(rows).toHaveLength(1);
   });
 
-  it('never deletes the record: no statement in this module removes one', async () => {
+  it('never deletes the record: no statement anywhere in src removes one', async () => {
     // The guarantee is structural. A reversal that dropped the row would
-    // leave no evidence the money had ever been recorded.
-    const { readFileSync } = await import('node:fs');
+    // leave no evidence the money had ever been recorded. CONTEXT.md says a
+    // Manual Contribution is never deleted, and no foreign key in the
+    // database enforces it, so the whole of src is scanned rather than this
+    // one file -- the route is as able to delete it as the service is. The
+    // generated Prisma client is skipped: its own JSDoc mentions delete.
+    const { readFileSync, readdirSync } = await import('node:fs');
     const { join } = await import('node:path');
     const source = readFileSync(join(process.cwd(), 'src', 'lib', 'money', 'manual-contributions.ts'), 'utf8');
-
     expect(source).not.toMatch(/manualContribution\.(delete|deleteMany)\b/);
     // And the ledger rows this module's commands post are only ever added to:
     // postTransaction creates, nothing rewrites one.
     expect(source).not.toMatch(/ledgerEntry\.(delete|deleteMany|update|updateMany)\b/);
+
+    const offenders: string[] = [];
+    const scan = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (path === join(process.cwd(), 'src', 'generated')) continue;
+          scan(path);
+          continue;
+        }
+        if (!entry.name.endsWith('.ts') || entry.name.endsWith('.test.ts')) continue;
+        if (/manualContribution\.(delete|deleteMany)\b/.test(readFileSync(path, 'utf8'))) {
+          offenders.push(path);
+        }
+      }
+    };
+    scan(join(process.cwd(), 'src'));
+    expect(offenders).toEqual([]);
   });
 });

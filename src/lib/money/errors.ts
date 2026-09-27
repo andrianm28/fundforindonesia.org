@@ -20,11 +20,17 @@ export abstract class MoneyError extends DomainError {
  * The Campaign is a Demo Campaign (CONTEXT.md): sample content with no real
  * ledger balance behind it. Refused by name, not as an insufficient
  * balance, so an operator does not go hunting for money that never existed.
+ *
+ * One error for all three paths that can touch a Demo Campaign's money -- a
+ * Payout, a Refund, and a Manual Contribution -- because it is one rule: real
+ * rupiah never enters a Campaign whose data is fictional. A contribution
+ * credited to one would be money nobody could ever get out again, since
+ * neither of the other two paths would move it.
  */
 export class DemoCampaignError extends MoneyError {
   readonly code = 'DEMO_CAMPAIGN';
   constructor() {
-    super('Demo Campaign tidak memiliki dana nyata untuk Payout atau Refund.');
+    super('Demo Campaign tidak memiliki dana nyata untuk Payout, Refund, atau Manual Contribution.');
     this.name = 'DemoCampaignError';
   }
 }
@@ -63,11 +69,26 @@ export class InsufficientBalanceError extends MoneyError {
  * The two-person rule: the approver is the requester. Refused before any
  * write, not recorded as a decision. One class for Payout, Refund and
  * Manual Contribution.
+ *
+ * `action` names which half of the rule was breached, because the rule does
+ * not stop at approval: a Manual Contribution can also be reversed, and the
+ * two people who put the money in -- the one who recorded it and the one who
+ * approved it -- may not be the one who takes it back out. The CODE is the
+ * same either way (one rule, one code, one HTTP status); only the sentence
+ * differs, so an Admin refused on a reversal is not told they may not approve
+ * something they never approved.
  */
 export class SelfApprovalError extends MoneyError {
   readonly code = 'SELF_APPROVAL';
-  constructor(readonly what: 'Payout' | 'Refund' | 'Manual Contribution') {
-    super(`${what} tidak dapat disetujui oleh orang yang mengajukannya.`);
+  constructor(
+    readonly what: 'Payout' | 'Refund' | 'Manual Contribution',
+    readonly action: 'approval' | 'reversal' = 'approval',
+  ) {
+    super(
+      action === 'reversal'
+        ? `${what} tidak dapat dibalikkan oleh orang yang mencatat atau menyetujuinya.`
+        : `${what} tidak dapat disetujui oleh orang yang mengajukannya.`,
+    );
     this.name = 'SelfApprovalError';
   }
 }
@@ -193,11 +214,17 @@ export class ManualContributionProofRequiredError extends MoneyError {
   }
 }
 
-/** Not whole rupiah, or not above zero -- the two ways a money amount is wrong here. */
+/**
+ * Not whole rupiah, not above zero, or past what the column can hold -- the
+ * ways a money amount is wrong here. The last one is the column's own limit
+ * (ManualContribution.amount is an Int), not a rule of our own: refused only
+ * by the database it would be a driver error, which no route can turn into a
+ * 400.
+ */
 export class ManualContributionAmountError extends MoneyError {
   readonly code = 'MANUAL_CONTRIBUTION_AMOUNT_INVALID';
   constructor() {
-    super('Nominal Manual Contribution harus berupa angka rupiah bulat di atas nol.');
+    super('Nominal Manual Contribution harus berupa angka rupiah bulat di atas nol dan tidak melebihi 2.147.483.647.');
     this.name = 'ManualContributionAmountError';
   }
 }
