@@ -22,6 +22,7 @@ vi.mock("bcryptjs", () => ({
 }));
 
 import bcrypt from "bcryptjs";
+import type { CredentialsConfig } from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { PASSWORD_HASH_COST } from "@/lib/password-hash-cost";
@@ -32,10 +33,24 @@ const mockCompare = bcrypt.compare as unknown as Mock;
 const mockHash = bcrypt.hash as unknown as Mock;
 const mockGetRounds = bcrypt.getRounds as unknown as Mock;
 
-/** The credentials provider's `authorize`, which is where login lives. */
+/**
+ * The credentials provider's `authorize`, which is where login lives.
+ *
+ * next-auth's provider wrapper puts the call we wrote under `options` and
+ * leaves a stub returning null at the top level, so this reaches into
+ * `options`. That is the only way to drive the real function; the alternative
+ * is to log in over HTTP, which no unit test in this repo does.
+ */
 async function login(credentials: { email: string; password: string }) {
-  const provider = authOptions.providers.find((p) => p.id === "credentials")!;
-  return (provider as any).options.authorize(credentials);
+  const provider = authOptions.providers.find(
+    (p): p is CredentialsConfig => p.id === "credentials"
+  );
+  if (!provider?.options) {
+    throw new Error("the credentials provider is missing from authOptions");
+  }
+  // The request argument is unused by our `authorize`, and every field of the
+  // shape next-auth asks for is optional.
+  return provider.options.authorize(credentials, {});
 }
 
 describe("authOptions.callbacks.jwt", () => {
