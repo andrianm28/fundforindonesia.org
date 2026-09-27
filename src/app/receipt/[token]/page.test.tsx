@@ -1,0 +1,94 @@
+import { render, cleanup } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+
+/**
+ * The print page (CONTEXT.md, Receipt) looks a Receipt up by its token alone
+ * -- a Guest Donor has no account, so nothing else may gate it -- and hands
+ * ReceiptView exactly what it needs to render, never the Donation's or
+ * Donor's other fields.
+ */
+
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    receipt: { findUnique: vi.fn() },
+  },
+}));
+
+vi.mock('next/navigation', () => ({
+  notFound: vi.fn(() => {
+    throw new Error('NEXT_NOT_FOUND');
+  }),
+}));
+
+const view = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }));
+vi.mock('@/components/receipt/ReceiptView', () => ({
+  ReceiptView: (props: Record<string, unknown>) => {
+    view.props = props;
+    return null;
+  },
+}));
+
+import { prisma } from '@/lib/prisma';
+import ReceiptPage from './page';
+
+const mockFindUnique = prisma.receipt.findUnique as unknown as ReturnType<typeof vi.fn>;
+
+function makeReceipt(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'receipt-1',
+    token: 'tok-1',
+    createdAt: new Date('2026-09-26T10:00:00.000Z'),
+    donation: {
+      id: 'donation-1',
+      amount: 250_000,
+      donorId: 'donor-1',
+      guestName: null,
+      donor: { id: 'donor-1', name: 'Sari' },
+      campaign: {
+        title: 'Bantu Sekolah Yatim',
+        collectingEntity: { name: 'Yayasan Insan Ekonomi Mandiri' },
+      },
+    },
+    ...overrides,
+  };
+}
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  view.props = null;
+});
+
+describe('ReceiptPage', () => {
+  it('renders the Receipt for a valid token, naming the Collecting Entity', async () => {
+    mockFindUnique.mockResolvedValue(makeReceipt());
+
+    render(await ReceiptPage({ params: Promise.resolve({ token: 'tok-1' }) }));
+
+    expect(view.props).toMatchObject({
+      token: 'tok-1',
+      campaignTitle: 'Bantu Sekolah Yatim',
+      collectingEntityName: 'Yayasan Insan Ekonomi Mandiri',
+      amount: 250_000,
+      donorName: 'Sari',
+    });
+  });
+
+  it('falls back to the Guest Donor name when there is no account', async () => {
+    mockFindUnique.mockResolvedValue(
+      makeReceipt({ donation: { ...makeReceipt().donation, donorId: null, donor: null, guestName: 'Budi' } }),
+    );
+
+    render(await ReceiptPage({ params: Promise.resolve({ token: 'tok-1' }) }));
+
+    expect(view.props).toMatchObject({ donorName: 'Budi' });
+  });
+
+  it('answers not found for a token that names no Receipt', async () => {
+    mockFindUnique.mockResolvedValue(null);
+
+    await expect(ReceiptPage({ params: Promise.resolve({ token: 'missing' }) })).rejects.toThrow(
+      'NEXT_NOT_FOUND',
+    );
+  });
+});

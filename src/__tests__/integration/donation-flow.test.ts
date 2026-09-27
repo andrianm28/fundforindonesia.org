@@ -113,6 +113,7 @@ function makeWebhookTx() {
     payment: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     donation: { update: vi.fn().mockResolvedValue({}) },
     campaign: { update: vi.fn().mockResolvedValue({}) },
+    receipt: { create: vi.fn().mockResolvedValue({}) },
     webhookEvent: { update: vi.fn().mockResolvedValue({}) },
     ledgerEntry: {
       count: vi.fn().mockResolvedValue(0),

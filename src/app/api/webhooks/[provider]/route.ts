@@ -17,6 +17,10 @@ import {
   refundLateSettlement,
   type ConfirmRegistrationOutcome,
 } from '@/lib/volunteer/trip';
+import { generateReceiptToken } from '@/lib/receipt-token';
+import { receiptEmail, resolveReceiptRecipient } from '@/lib/mail/receipt';
+import { sendReportingFailure } from '@/lib/mail';
+import { publicUrl } from '@/lib/public-url';
 
 /**
  * The single place where money becomes real.
@@ -166,7 +170,16 @@ export async function POST(
     const payment = await prisma.payment.findUnique({
       where: { providerRef: event.providerOrderId },
       include: {
-        donation: { include: { campaign: true } },
+        donation: {
+          include: {
+            // collectingEntity is who the Receipt (below) says received the
+            // money; donor is who it is addressed to when the Donor has an
+            // account (a Guest Donor's address is Donation.guestEmail
+            // itself, already plaintext -- no extra include needed for it).
+            campaign: { include: { collectingEntity: true } },
+            donor: { select: { id: true, email: true, name: true } },
+          },
+        },
         registration: { include: { batch: { include: { trip: true } } } },
       },
     });
@@ -265,7 +278,11 @@ export async function POST(
       // when it releases.
       const releaseAt = escrowReleaseAt(event.settledAt, payment.escrowHoldDays);
 
-      let settled: { settled: boolean; registrationOutcome?: ConfirmRegistrationOutcome | null };
+      let settled: {
+        settled: boolean;
+        registrationOutcome?: ConfirmRegistrationOutcome | null;
+        receiptToken?: string;
+      };
       try {
         settled = await prisma.$transaction(async (tx) => {
         // The database decides who wins, once: two DISTINCT events for the
@@ -320,6 +337,7 @@ export async function POST(
         }
 
         let registrationOutcome: ConfirmRegistrationOutcome | null = null;
+        let receiptToken: string | undefined;
 
         if (isTripPayment) {
           const { registration } = payment;
@@ -369,6 +387,18 @@ export async function POST(
             data: { paymentStatus: 'confirmed' },
           });
 
+          // Receipt (CONTEXT.md, Receipt; prd-compliance 21): created once,
+          // right here, riding the same updated.count > 0 win as the rest of
+          // this branch -- a retried delivery for an already-settled
+          // Donation never reaches this line twice, so a Donation never gets
+          // two Receipts. The token is generated in the app rather than read
+          // back from the row, so the email below can use it without a
+          // second query.
+          receiptToken = generateReceiptToken();
+          await tx.receipt.create({
+            data: { donationId: donation!.id, token: receiptToken, sentAt: paidAt, lastSentAt: paidAt },
+          });
+
           // The Platform Fee this Payment already froze at creation time
           // (resolvePlatformFeeBasis + computePlatformFee, POST
           // /api/donations, prd-compliance 17) -- read, never recomputed,
@@ -415,7 +445,7 @@ export async function POST(
           data: { processedAt: new Date() },
         });
 
-        return { settled: true as const, registrationOutcome };
+        return { settled: true as const, registrationOutcome, receiptToken };
         });
       } catch (err) {
         if (err instanceof SiblingPaymentAlreadySettledError) {
@@ -481,6 +511,41 @@ export async function POST(
             campaignTitle: campaign.title,
             amount: payment.amount,
           });
+
+          // Receipt email (CONTEXT.md, Receipt), sent only now that the
+          // settlement has committed -- same reasoning as every other
+          // notification here: a failed send must never undo money that has
+          // genuinely settled. Named recipient and Collecting Entity are
+          // read from what the settlement transaction already looked up
+          // (no second query); either missing is an anomaly this webhook
+          // does not fail over, since the Payment has already settled --
+          // it is logged for manual follow-up instead.
+          if (settled.receiptToken) {
+            const resolved = resolveReceiptRecipient({
+              donor: donation!.donor,
+              guestEmail: donation!.guestEmail,
+              guestName: donation!.guestName,
+              collectingEntityName: campaign.collectingEntity?.name ?? null,
+            });
+            if (resolved.ok) {
+              await sendReportingFailure(
+                receiptEmail({
+                  to: resolved.recipient.recipientEmail,
+                  donorName: resolved.recipient.donorName,
+                  campaignTitle: campaign.title,
+                  collectingEntityName: resolved.recipient.collectingEntityName,
+                  amount: payment.amount,
+                  paidAt,
+                  printUrl: publicUrl(`/receipt/${settled.receiptToken}`),
+                }),
+                { mail: 'receipt', donationId: donation!.id, paymentId: payment.id },
+              );
+            } else {
+              console.error(
+                `[webhooks/${providerParam}] settled payment ${payment.id} but could not send its Receipt: ${resolved.reason}`,
+              );
+            }
+          }
         }
       } else {
         console.error(
