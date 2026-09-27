@@ -490,4 +490,97 @@ describe('submitCampaign', () => {
       ]);
     });
   });
+
+  // Hibah's checklist began as a copy of wakaf's (FFI-08b, ADR 0013) and
+  // diverging the two is the Admin's call, so the snapshot has to come from
+  // hibah's own rows and not from wakaf's. The copy was a stated placeholder
+  // pending a sharia review (pasal 14), and one of its three documents has since
+  // been retired: a hibah Campaign has no Akad Wakaf (PRD §4), so the akad row
+  // under HIBAH is inactive while wakaf's stays. Whether the two documents that
+  // remain are the right two is still the sharia review's, not a settled rule: a
+  // reviewer who changes the expectations below is correcting a provisional
+  // decision, which is expected, not a regression.
+  describe("a hibah Campaign's checklist (csr-and-hibah 11, FFI-08b)", () => {
+    // Wakaf's and hibah's documents, as separate rows per Kind so one can change
+    // without the other. The labels still read alike on purpose — that overlap
+    // is what the snapshot below has to be told apart by. hibah's akad row is
+    // inactive, as the retirement migration leaves it, while wakaf's is not:
+    // the Akad Wakaf is a real document of the wakaf flow.
+    const WAKAF_AND_HIBAH = [
+      checklistItemRow({ id: 'general', label: 'Rencana anggaran', position: 1, kind: null }),
+      checklistItemRow({ id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', position: 2, kind: 'WAKAF' }),
+      checklistItemRow({ id: 'hibah-nazhir', label: 'Dokumen lembaga nazhir', position: 3, kind: 'HIBAH' }),
+      checklistItemRow({ id: 'wakaf-akad', label: 'Draf akad wakaf', position: 4, kind: 'WAKAF' }),
+      checklistItemRow({ id: 'hibah-akad', label: 'Draf akad wakaf', position: 5, kind: 'HIBAH', active: false }),
+    ];
+    const HIBAH = { lifecycleStatus: 'DRAFT' as const, kind: 'HIBAH' as const, deadline: DEADLINE, creatorId: 'partner-fundraiser-1' };
+    const WAKAF = { lifecycleStatus: 'DRAFT' as const, kind: 'WAKAF' as const, creatorId: 'partner-fundraiser-1' };
+
+    it("snapshots hibah's own items, never wakaf's, and asks for no akad", async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow(HIBAH)],
+        checklistItems: WAKAF_AND_HIBAH,
+        kindAuthorisations: [kindAuthorisationRow({ kind: 'HIBAH' })],
+      });
+
+      await submitCampaign(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: { userId: 'partner-fundraiser-1', assignments: [] },
+        now: NOW,
+      });
+
+      // hibah's rows, not wakaf's, even though the two carry the same labels —
+      // and wakaf's akad, active and in scope, stays out of this snapshot.
+      expect(db.verificationRequests[0].checklist).toEqual([
+        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
+        { id: 'hibah-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 3, ticked: false },
+      ]);
+    });
+
+    it("still asks a wakaf Campaign for its akad, since that document is the wakaf flow's", async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ id: 'wakaf-1', slug: 'wakaf', ...WAKAF })],
+        checklistItems: WAKAF_AND_HIBAH,
+        partnerOrganisations: [partnerOrganisationRow()],
+        kindAuthorisations: [kindAuthorisationRow({ id: 'kind-authorisation-2', kind: 'WAKAF' })],
+      });
+
+      await submitCampaign(db.prisma as never, {
+        campaignId: 'wakaf-1',
+        actor: { userId: 'partner-fundraiser-1', assignments: [] },
+        now: NOW,
+      });
+
+      expect(db.verificationRequests[0].checklist).toEqual([
+        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
+        { id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 2, ticked: false },
+        { id: 'wakaf-akad', label: 'Draf akad wakaf', required: true, position: 4, ticked: false },
+      ]);
+    });
+
+    it("leaves wakaf's submissions on wakaf's items when hibah's checklist has since diverged", async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ id: 'hibah-1', slug: 'hibah', ...HIBAH }), campaignRow({ id: 'wakaf-1', slug: 'wakaf', ...WAKAF })],
+        checklistItems: [
+          ...WAKAF_AND_HIBAH,
+          checklistItemRow({ id: 'hibah-pernyataan', label: 'Surat pernyataan hibah', position: 6, kind: 'HIBAH' }),
+        ],
+        partnerOrganisations: [partnerOrganisationRow()],
+        kindAuthorisations: [
+          kindAuthorisationRow({ kind: 'HIBAH' }),
+          kindAuthorisationRow({ id: 'kind-authorisation-2', kind: 'WAKAF' }),
+        ],
+      });
+
+      const partner = { userId: 'partner-fundraiser-1', assignments: [] };
+      await submitCampaign(db.prisma as never, { campaignId: 'hibah-1', actor: partner, now: NOW });
+      await submitCampaign(db.prisma as never, { campaignId: 'wakaf-1', actor: partner, now: NOW });
+
+      const byCampaign = Object.fromEntries(
+        db.verificationRequests.map((request) => [request.campaignId, (request.checklist as { id: string }[]).map((i) => i.id)]),
+      );
+      expect(byCampaign['hibah-1']).toEqual(['general', 'hibah-nazhir', 'hibah-pernyataan']);
+      expect(byCampaign['wakaf-1']).toEqual(['general', 'wakaf-nazhir', 'wakaf-akad']);
+    });
+  });
 });

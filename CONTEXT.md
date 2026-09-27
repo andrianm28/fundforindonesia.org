@@ -19,7 +19,7 @@ Jenis Campaign yang menentukan aturan uangnya: `donation`, `zakat`, `wakaf`, ata
 _Avoid_: Type, jenis campaign, kategori (Category adalah hal lain)
 
 **Hibah**:
-Kind Campaign untuk pemberian atau hibah institusional yang bukan zakat maupun wakaf: dananya ditransfer untuk tujuan tertentu, berbeda dari Wakaf yang mengikat aset itu selamanya. Perlakuan uangnya — kebutuhan Kind Authorisation, batas Refund, Platform Fee default — sementara mengikuti pola `wakaf` sampai ditinjau ulang terhadap ketentuan syariah yang berlaku; ini asumsi sementara, bukan keputusan final.
+Kind Campaign untuk pemberian atau hibah institusional yang bukan zakat maupun wakaf: dananya ditransfer untuk tujuan tertentu, berbeda dari Wakaf yang mengikat aset itu selamanya. Perlakuan uangnya — kebutuhan Kind Authorisation, batas Refund, Platform Fee default — sementara mengikuti pola `wakaf` sampai ditinjau ulang terhadap ketentuan syariah yang berlaku; ini asumsi sementara, bukan keputusan final. Dokumen wajibnya untuk verifikasi tidak: Kind ini tidak punya Akad Wakaf maupun ikrar, dan checklist-nya meminta dokumen lembaga penerima dan Kind Authorisation `hibah` saja. Yang belum diputuskan adalah apakah dua dokumen itu sudah cukup dan apa lagi yang perlu ditambahkan; itu menunggu tinjauan syariah yang sama. Karena Kind menentukan dokumen wajibnya, checklist `hibah` punya barisnya sendiri, yang dapat dibedakan dari panel Admin tanpa menyentuh baris `wakaf`.
 _Avoid_: Grant (di kode), donasi terarah, sumbangan
 
 **Kind Authorisation**:
