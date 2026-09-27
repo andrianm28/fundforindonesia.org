@@ -48,23 +48,31 @@ Ticket frontier — **start at 01**, first by number wins:
 
 ## The two things that will stop you
 
-**1. Subagent credits are exhausted.** Every dispatch in the last hour failed
-with `Insufficient account funds` or `requires more credits` — on both
-`opencode` and `openrouter`. **This is not fixable by retrying.** Until Dri
-tops up, `/code-review` cannot run, and therefore **PR #93 (2,938 lines,
-money) and PR #94 (1,155 lines, Payout) must not be merged.** Dri was told
-twice; they replied that credits existed, and they did not. Ask again before
-planning around subagents.
+**1. Subagent credits were exhausted for the session that wrote this handoff.**
+Every dispatch in that session's last hour failed with `Insufficient account
+funds` or `requires more credits`, on both `opencode` and `openrouter`. **Dri
+has since said the next session can dispatch 4 subagents** — so this is a fact
+about the session that is ending, not a standing condition of the repo.
 
-If credits stay dead, Dri's other option was offered and they did not take it:
-I review the money code myself, with the absence of independent review stated
-plainly in the PR. My recommendation was against this for money code. It is
-their call, not a default.
+Do not take that on trust and do not plan four parallel reviews around it
+before checking. Dispatch **one** review, confirm it actually runs, then fill
+the remaining slots. Six dispatches in a row failed silently-but-obviously in
+the previous session, and a fourth agent that never runs is worse than one that
+does: it looks like capacity.
 
-**2. This session's context is degraded and should not continue.** I typed
-`dokumenlegal`, `Click refunded`, `diagnostic Diagnostic`, `presentlyTim CSR`
-and `yangaalannya` into files, then had to grep for non-Latin characters to
-catch each one. A fresh window is the fix, not more care.
+If credits turn out to be dead after all, `/code-review` cannot run and
+therefore **PR #93 (2,938 lines, money) and PR #94 (1,155 lines, Payout) must
+not be merged.** Dri was told twice that credits existed and they did not. The
+other option on offer was that I review the money code myself with the absence
+of independent review stated plainly in the PR; my recommendation was against
+it, and Dri did not take it. It is their call, not a default.
+
+**2. The session that wrote this file was degraded, and should not have
+continued.** It typed `dokumenlegal`, `Click refunded`, `diagnostic
+Diagnostic`, `presentlyTim CSR` and `yangaalannya` into files, then had to grep
+for non-Latin characters to catch each one. It also squash-merged locally
+instead of using `gh pr merge`, so PR #96 needed a manual close. A fresh window
+was the fix. You are that fresh window.
 
 ## Process notes — mistakes made here, so the next session does not repeat them
 
@@ -123,8 +131,11 @@ broke `main` twice (194 against a baseline of 193). Never raise
 
 ## Where the next session should start
 
-1. Write the "one ticket per session" rule into `docs/agents/issue-tracker.md`.
-2. Ask Dri about credits. Nothing about PR #93 or #94 can move without it.
+1. ~~Write the "one ticket per session" rule.~~ **Done** in this PR.
+2. Confirm credits with one real dispatch, then fill the remaining slots and
+   run the two-axis `/code-review` on PR #93 and #94. Those two PRs are green
+   and have no prerequisite work left — the only thing standing between them
+   and `main` is that review.
 3. Take ticket **01** through `/grill-with-docs` — load the skill this time.
    It is the only ticket that blocks money from actually moving, because
    `BankAccount` cannot be created by anyone, which also makes 9 of Admin's 13
@@ -146,8 +157,9 @@ Call the Skill tool for these, in this order:
   instead of loading the skill.
 - **`domain-modeling`** — any time a term is resolved. The glossary is the
   finish line, so this is load-bearing here, not decorative.
-- **`code-review`** — for PR #93 and #94, once credits exist. It runs both
-  axes; do not hand-roll the prompts as this session did.
+- **`code-review`** — for PR #93 and #94, first thing, in both axes
+  parallel. Do not hand-roll the prompts as this session did; that is the second
+  mistake in the list above.
 - **`wayfinder`** — to read the map's own conventions. The map is 3 of 9
   tickets resolved; it has not handed off yet.
 - **`research`** — for the next measurement, e.g. which of the ten
