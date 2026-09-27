@@ -160,4 +160,20 @@ describe('activeCampaignCountsByFundraiser', () => {
 
     expect(counts.get('creator-1')).toBe(1);
   });
+
+  it('reads only one Fundraiser when the caller names one', async () => {
+    const asked: { where?: { creatorId?: string } } = {};
+    const db = {
+      campaign: {
+        findMany: async ({ where }: { where?: { creatorId?: string } }) => {
+          asked.where = where;
+          return [];
+        },
+      },
+    };
+
+    await activeCampaignCountsByFundraiser(db as never, { now: NOW, fundraiserId: 'creator-1' });
+
+    expect(asked.where?.creatorId).toBe('creator-1');
+  });
 });

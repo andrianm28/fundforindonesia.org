@@ -63,8 +63,7 @@ describe('POST /api/admin/abuse-thresholds', () => {
     const res = await post({ kind: 'DONATION_REVIEW_AMOUNT', value: -5 });
 
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/bilangan bulat lebih besar dari 0/);
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect((await res.json()).error).toMatch(/bilangan bulat lebih besar dari 0/);    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('refuses a kind that is not one of the four, without writing anything', async () => {

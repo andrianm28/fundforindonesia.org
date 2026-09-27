@@ -643,7 +643,11 @@ async function requireWithinActiveCampaignLimit(
 ): Promise<void> {
   const { campaignId, fundraiserId, now } = params;
   const { activeCampaignsPerFundraiser: limit } = await resolveAbuseThresholds(tx);
-  const counts = await activeCampaignCountsByFundraiser(tx, { now, excludeCampaignId: campaignId });
+  const counts = await activeCampaignCountsByFundraiser(tx, {
+    now,
+    excludeCampaignId: campaignId,
+    fundraiserId,
+  });
   const active = counts.get(fundraiserId) ?? 0;
   if (active >= limit) throw new TooManyActiveCampaignsError(active, limit);
 }
@@ -688,9 +692,14 @@ function isChangeRequest(request: { kind: VerificationRequestKind }): boolean {
   return request.kind === VerificationRequestKind.CHANGE;
 }
 
-/** The proposal a CHANGE carries, narrowed from its JSON column. */
+/**
+ * The proposal a CHANGE carries, narrowed from its JSON column. Empty rather
+ * than undefined when the column is somehow null, so applying it writes
+ * nothing instead of throwing mid-decision: a CHANGE with no proposal is a row
+ * the migration could not produce, and a decision must not die on it.
+ */
 function proposedChangesOf(request: { proposedChanges: unknown }): ProposedChanges {
-  return request.proposedChanges as ProposedChanges;
+  return (request.proposedChanges ?? {}) as ProposedChanges;
 }
 
 /**
@@ -780,7 +789,7 @@ const AMOUNT_REVIEW_TITLES = {
 function amountReviewMessage(key: "approved" | "rejected", title: string, reason: string | null): string {
   return key === "approved"
     ? `Campaign "${title}" telah ditinjau ulang Verifier karena dana terkumpulnya besar. Campaign tetap berjalan seperti sebelumnya.`
-    : `Verifier mencatat setiaatan pada Campaign "${title}" setelah dana terkumpulnya besar. Campaign tetap berjalan dan tidak ada tindakan otomatis yang diambil. Alasan: ${reason}`;
+    : `Verifier mencatat kekhawatiran pada Campaign "${title}" setelah dana terkumpulnya besar. Campaign tetap berjalan dan tidak ada tindakan otomatis yang diambil. Alasan: ${reason}`;
 }
 
 export function isVerificationDecision(value: unknown): value is VerificationDecision {
@@ -886,6 +895,10 @@ export async function decideVerificationRequest(
         // Approving confirms the Collecting Entity the Campaign was submitted
         // under (frozen since), so it must still be one this Fundraiser may
         // collect under, holding a permit valid now for the Kind (ADR 0010).
+        // An AMOUNT_REVIEW is approved on the same terms, even though nobody
+        // submitted it: passing it says the Campaign's collecting arrangement
+        // is still sound as of now, which is the question a large Campaign
+        // raises anyway.
         await requireOpenable(tx, campaign, now, "diloloskan");
         // ...and the approval must not open more Active Campaigns than one
         // Fundraiser may run (prd-compliance 38). Counted here, where the
@@ -996,7 +1009,7 @@ export class AmountReviewNotWithdrawableError extends CampaignLifecycleError {
   readonly code = "AMOUNT_REVIEW_NOT_WITHDRAWABLE";
   constructor() {
     super(
-      "Verifikasi Tambahan tidak dapat ditarik oleh Fundraiser. Permintaan ini dibuka platform karena dana Campaign yang besar, dan hanya Verifier yang dapat menutupnya."
+      "Verifikasi Tambahan tidak dapat ditarik oleh Fundraiser. Permintaan ini dibuka platform karena akumulasi dana Campaign yang besar, dan hanya Verifier yang dapat menutupnya."
     );
     this.name = "AmountReviewNotWithdrawableError";
   }

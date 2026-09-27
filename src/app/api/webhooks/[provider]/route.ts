@@ -441,8 +441,11 @@ export async function POST(
           // Tambahan. Read here, in the settlement's own transaction and
           // after the increment above, so the limits are judged against the
           // Gross this Donation brought the Campaign to -- and skipped by
-          // nobody who would rather not be judged. Nothing here blocks or
-          // reverses anything; see src/lib/scrutiny.ts.
+          // nobody who would rather not be judged. Stamped with the
+          // provider's `paidAt`, like the Receipt above, rather than with
+          // webhook receipt time. Nothing here blocks or reverses anything
+          // (src/lib/scrutiny.ts); a failure writes nothing and settles
+          // nothing, the same bargain the Receipt and the ledger legs make.
           await evaluateSettledDonationScrutiny(tx, { donationId: donation!.id, now: paidAt });
 
           // Deriving the ledger transactionId from the provider event id makes

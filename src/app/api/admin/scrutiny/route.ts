@@ -5,6 +5,13 @@ import { prisma } from '@/lib/prisma';
 import { activeCampaignCountsByFundraiser, resolveAbuseThresholds } from '@/lib/abuse-thresholds';
 
 /**
+ * How many rows each marker list carries. This is a screen an Admin opens, not
+ * a report: the full history of markers is the database's job (and an audit's),
+ * and an unbounded list would grow for as long as the platform runs.
+ */
+const LIST_LIMIT = 100;
+
+/**
  * GET /api/admin/scrutiny: what the anti-penyalahgunaan limits have actually
  * caught (prd-compliance 38, PRD §"Anti penyalahgunaan").
  *
@@ -31,10 +38,12 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async () => {
     resolveAbuseThresholds(prisma),
     prisma.campaignAuditMarker.findMany({
       orderBy: { placedAt: "desc" },
+      take: LIST_LIMIT,
       include: { campaign: { select: { id: true, title: true, slug: true } } },
     }),
     prisma.donationReviewMarker.findMany({
       orderBy: { flaggedAt: "desc" },
+      take: LIST_LIMIT,
       include: { campaign: { select: { id: true, title: true, slug: true } } },
     }),
     activeCampaignCountsByFundraiser(prisma, { now }),
@@ -42,6 +51,10 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async () => {
 
   return NextResponse.json({
     thresholds,
+    // Said out loud rather than left to be discovered: each list is the most
+    // recent LIST_LIMIT and nothing more. A marker older than that is still on
+    // the record and still in the audit, it is just not on this screen.
+    truncatedTo: LIST_LIMIT,
     auditMarkers: auditMarkers.map((marker) => ({
       id: marker.id,
       campaignId: marker.campaignId,

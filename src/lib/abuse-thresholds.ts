@@ -131,7 +131,9 @@ export async function setAbuseThreshold(
     );
   }
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-    throw new InvalidAbuseThresholdError("Ambang harus berupa bilangan bulat lebih besar dari 0, dalam rupiah.");
+    throw new InvalidAbuseThresholdError(
+      "Ambang harus berupa bilangan bulat lebih besar dari 0: rupiah untuk ambang dana, jumlah Campaign untuk batas Campaign Active.",
+    );
   }
 
   return db.abuseThreshold.create({
@@ -165,14 +167,22 @@ export function abuseThresholdErrorToHttp(error: unknown): { status: number; err
  *
  * `excludeCampaignId` is for the caller that is deciding the Campaign's own
  * fate: an approval must not count the Campaign it is about to open.
+ * `fundraiserId` narrows the read to one Fundraiser, which is what the
+ * approval path wants: counting every Active Campaign on the platform to
+ * answer a question about one person would make the cost of a Verifier's click
+ * grow with the size of the catalogue.
  */
 export async function activeCampaignCountsByFundraiser(
   db: Pick<PrismaClient, "campaign">,
-  params: { now?: Date; excludeCampaignId?: string }
+  params: { now?: Date; excludeCampaignId?: string; fundraiserId?: string }
 ): Promise<Map<string, number>> {
-  const { now = new Date(), excludeCampaignId } = params;
+  const { now = new Date(), excludeCampaignId, fundraiserId } = params;
   const campaigns = await db.campaign.findMany({
-    where: { lifecycleStatus: CampaignStatus.ACTIVE, isDemo: false },
+    where: {
+      lifecycleStatus: CampaignStatus.ACTIVE,
+      isDemo: false,
+      ...(fundraiserId === undefined ? {} : { creatorId: fundraiserId }),
+    },
     select: { id: true, creatorId: true, lifecycleStatus: true, deadline: true },
   });
   const counts = new Map<string, number>();
