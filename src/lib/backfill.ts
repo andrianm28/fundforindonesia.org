@@ -36,7 +36,12 @@ import {
  *
  * - It selects only rows whose protected columns are not all filled, so it
  *   never re-encrypts a row that is already sealed and never disturbs a row
- *   the app has written since.
+ *   the app has written since. The cost of that is one thing to know: do not
+ *   change FIELD_ENCRYPTION_KEY_ID between two runs. Skipping sealed rows is
+ *   what makes re-running safe, and it is also what leaves one table holding
+ *   rows under two key ids if the key moves half-way through -- which `decrypt`
+ *   cannot read, there being no keyring yet (ADR 0012, Consequences). The
+ *   migration's guard refuses that, naming the field, the key ids and the rows.
  * - It commits each row as it goes, so stopping at any point leaves the work
  *   done so far intact and the next run picks up from there.
  * - It stops at the first row it cannot seal, naming the row, rather than

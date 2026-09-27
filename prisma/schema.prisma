@@ -1292,13 +1292,16 @@ model BankAccount {
 
   payouts Payout[]
 
-  // The uniqueness that was `@@unique([ownerId, bankCode, accountNumber])`
-  // cannot survive the drop: the account number is a randomized ciphertext, and
-  // two encryptions of one number never match, so the constraint would never
-  // fire. The application check in src/lib/money/payouts.ts and the Bank
-  // Account form are what refuse a duplicate destination now. Reinstating a
-  // database-level guarantee needs a keyed lookup for the account number, which
-  // ADR 0012 deliberately does not have: it is never searched.
+  // What used to be `@@unique([ownerId, bankCode, accountNumber])` cannot
+  // survive the drop: the account number is a randomized ciphertext, and two
+  // encryptions of one number never match, so the constraint could never fire.
+  // Nothing replaces it. The database does not refuse a duplicate and no
+  // application code checks for one, so a Fundraiser may end up holding two
+  // Bank Accounts with the same number and nothing will say so. Restoring a
+  // guarantee needs a keyed lookup for the account number, which ADR 0012
+  // deliberately does not have: it is never searched. CONTEXT.md records this
+  // under Bank Account, and whether that is acceptable for a payout
+  // destination is the owner's call.
   @@index([ownerId])
 }
 

@@ -1,16 +1,18 @@
 import { NextAuthOptions, getServerSession as nextAuthGetServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
-import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { Assignment } from "@/generated/prisma/client";
+import { buildAuthAdapter } from "@/lib/auth-adapter";
 import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 
 export const authOptions: NextAuthOptions = {
-  // The adapter writes through the same hooked client, so an OAuth sign-in's
-  // email is sealed on the way in like any other write (ADR 0012).
-  adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
+  // Both halves of the adapter need the schema it cannot see: the write goes
+  // through the hooked client, so an OAuth sign-in's address is sealed on the
+  // way in, and the read is rewired onto the lookup HMAC, because the plaintext
+  // column this one used to ask for is gone (ADR 0012, src/lib/auth-adapter.ts).
+  adapter: buildAuthAdapter(prisma) as NextAuthOptions["adapter"],
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,

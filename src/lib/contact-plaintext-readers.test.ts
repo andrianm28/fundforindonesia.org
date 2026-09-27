@@ -27,7 +27,14 @@ function model(name: string): string {
 }
 
 describe('the plaintext contact columns', () => {
-  it('are gone from User, and its searchable email lookup is the HMAC', () => {
+  // Uniqueness moves with the address, and this is the one assertion that says
+  // so. The old `email @unique` was case-sensitive, so one person could hold
+  // `Andi@x.id` and `andi@x.id` as two accounts; the lookup HMAC is computed from
+  // the lowercased address, so those two collide now and the pair is one account.
+  // `@unique` on the column is the declaration itself, which is what CI's
+  // `migrations` job compares against the database -- an index name in the
+  // schema file would say nothing about either.
+  it('are gone from User, and the lookup that replaced its unique is the HMAC', () => {
     const user = model('User');
 
     expect(user).not.toMatch(/^\s*email\s+String/m);
@@ -57,17 +64,6 @@ describe('the plaintext contact columns', () => {
     expect(inquiry).not.toMatch(/^\s*contactEmail\s+String/m);
     expect(inquiry).not.toMatch(/^\s*contactPhone\s+String/m);
     expect(inquiry).toMatch(/^\s*contactName\s+String/m);
-  });
-
-  // Uniqueness moves with the address. The old `email @unique` was
-  // case-sensitive, so one person could hold `Andi@x.id` and `andi@x.id` as two
-  // accounts; the HMAC is computed from the lowercased address, so those two
-  // collide now and the pair is one account.
-  it('leave User unique on the lookup rather than on the plaintext address', () => {
-    const user = model('User');
-
-    expect(user).not.toMatch(/@@index\(\[email\]\)/);
-    expect(user).toMatch(/@@index\(\[emailHmac\]\)/);
   });
 });
 

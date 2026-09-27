@@ -38,15 +38,35 @@
      `docker-compose.yml`, `docker-compose.prod.yml` and the e2e CI job all say
      so now.
 
-  3. **One database constraint is gone and should be a decision, not a
-     surprise.** `@@unique([ownerId, bankCode, accountNumber])` cannot survive:
-     the account number is a randomized ciphertext and two encryptions of one
-     number never match, so the constraint could never fire again. Putting it
-     back at the database level needs a keyed lookup for the account number,
-     which ADR 0012 deliberately does not have. A duplicate destination is now
-     refused by the application.
+  3. **One database constraint is gone and nothing took its place.**
+     `@@unique([ownerId, bankCode, accountNumber])` cannot survive: the account
+     number is a randomized ciphertext and two encryptions of one number never
+     match, so the constraint could never fire again. Putting it back at the
+     database level needs a keyed lookup for the account number, which ADR 0012
+     deliberately does not have.
 
-  4. **`User.email @unique` moved to `emailHmac @unique`, and case now
+     So a **bank account number has no uniqueness guarantee at all**: neither
+     the database nor any application code refuses a duplicate. (An earlier
+     version of this note said the Bank Account form and
+     `src/lib/money/payouts.ts` were what refused one. Neither exists:
+     `payouts.ts` never looks at `accountNumber` or `bankCode`, there is no
+     Bank Account form, and the only writer of the row is the seed. It is
+     recorded under Bank Account in CONTEXT.md.) Whether two payout
+     destinations with one number is acceptable is the owner's decision, and
+     closing it is a ticket of its own.
+
+  4. **A key that changes between two backfill runs is refused, not carried
+     over.** The backfill seals each row under whatever
+     `FIELD_ENCRYPTION_KEY_ID` the deployment has when it runs, and it
+     deliberately skips rows that are already sealed, so rotating the key
+     half-way through leaves one table holding rows under two ids -- and
+     `decrypt` refuses a key id it has no key for, because there is no keyring
+     yet (15's item 4). The migration's guard now refuses that as well, naming
+     the field, the key ids and the rows. The recovery, while the plaintext is
+     still in place: clear the sealed columns on those rows and run the backfill
+     again under a single key id.
+
+  5. **`User.email @unique` moved to `emailHmac @unique`, and case now
      counts as the same address.** The old unique was case-sensitive, so one
      person could hold `Andi@x.id` and `andi@x.id` as two accounts; the lookup
      HMAC is computed from the lowercased address, so those collide. If

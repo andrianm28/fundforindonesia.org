@@ -4,14 +4,46 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
     },
   },
 }));
 
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
+import { lookupUserEmail, sealUserEmail } from "@/lib/contact-fields";
 
 const mockFindUnique = prisma.user.findUnique as unknown as Mock;
+const mockFindFirst = prisma.user.findFirst as unknown as Mock;
+
+// The adapter the app installs. This is the wiring only -- src/lib/auth-adapter.test.ts
+// drives the real adapter and next-auth's own sign-in step, which is where the
+// row it finds here actually comes from.
+describe("authOptions.adapter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("finds a Donor by their sealed address, and asks for no column that is gone", async () => {
+    // A row as Prisma returns it: sealed, with no `email` -- the shape on which
+    // the adapter's own lookup threw on a Google sign-in.
+    mockFindFirst.mockResolvedValue({ id: "user-9", name: "Andi", ...sealUserEmail("Andi@Email.com") });
+
+    const found = await authOptions.adapter!.getUserByEmail!("Andi@Email.com");
+
+    expect(mockFindFirst).toHaveBeenCalledWith({ where: lookupUserEmail("Andi@Email.com") });
+    expect(mockFindUnique).not.toHaveBeenCalled();
+    // The address comes back decrypted, because it is what next-auth puts on
+    // the token and what the AppShell and the account page render.
+    expect(found?.email).toBe("Andi@Email.com");
+  });
+
+  it("returns nothing for an address with no account, rather than throwing", async () => {
+    mockFindFirst.mockResolvedValue(null);
+
+    expect(await authOptions.adapter!.getUserByEmail!("nobody@email.com")).toBeNull();
+  });
+});
 
 describe("authOptions.callbacks.jwt", () => {
   beforeEach(() => {

@@ -231,6 +231,14 @@ fi
 #     migrate image has no reason to carry, and on a large database it is long
 #     enough that it belongs where a person can watch it, stop it and re-run it.
 #
+# Do NOT change FIELD_ENCRYPTION_KEY_ID or FIELD_HMAC_KEY_ID between two runs of
+# the backfill. The backfill skips rows it has already sealed, so a key that
+# changes half-way through leaves one table holding rows under two key ids --
+# and there is no keyring yet, so `decrypt` cannot read the older ones. The
+# migration refuses that, naming the field, the key ids and the rows; while the
+# plaintext is still there, clear the sealed columns on those rows and run the
+# backfill again under a single key id.
+#
 # Run it against the same DATABASE_URL, from a checkout of this release, with
 # the production .env loaded:
 #
