@@ -9,7 +9,7 @@ step no one has decided to skip.
 are still open, and as of this spec `VerificationChecklistItem` has no
 `kind` column at all — the checklist is not per-Kind for any Kind yet)
 
-**Status:** ready-for-agent (sequencing decided 2026-09-27: per-Kind mechanism rides in prd-12; this ticket seeds hibah = wakaf's items after 12 is done)
+**Status:** done (PR #86, sha 506d856)
 
 - [x] `VerificationChecklistItem` (or its replacement) is scoped per Kind,
       built as the general per-Kind mechanism ticket 12 already owes
