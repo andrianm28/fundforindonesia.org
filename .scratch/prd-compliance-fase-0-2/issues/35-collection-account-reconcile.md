@@ -9,7 +9,7 @@
 - [x] A collection account exists in the ledger, distinct from the Merchant Account and able to belong to a different legal entity
 - [x] An Admin records a withdrawal from the provider to the collection account as a balanced journal
 - [x] Reconciliation runs per provider and reports the provider balance against the ledger
-- [x] Ledger entries carry Kind and provider so reporting works per licence and per provider
+- [x] Ledger entries carry Kind, provider and collecting entity, so reconciliation runs per provider and reporting runs per licence
 - [x] Supports the invariant ADR 0011 depends on
 
 ## Comments
@@ -140,26 +140,47 @@ jawaban yang benar, bukan data yang belum terisi.
 ### Yang belum dikerjakan, dan alasannya
 
 - **Kind tidak jadi kolom di `LedgerEntry`.** Box checklist kalimatnya "carry
-  Kind and provider"; sisi provider memang kolom (`LedgerEntry.provider`,
-  distempel di Settlement dan di penarikan, karena di dua gerakan itu provider
-  adalah fakta). Sisi Kind **diturunkan** lewat join, dan itulah yang membuat
-  `collectedByKind` bekerja dan teruji. Alasannya: `Campaign.kind` immutable,
-  jadi salinannya tidak akan basi -- tapi tetap saja itu sumber kebenaran kedua
-  untuk fakta yang sama, persis kelas yang repo ini sudah punya namanya
-  (`Campaign.collectedAmount`). Kalau yang kedua ini yang salah, tidak ada yang
-  bisa dibandingkan. Kolomnya bisa ditambahkan belakangan tanpa mengubah apa pun
-  yang sudah ada: `PostOptions.provider` sudah jadi tempatnya.
+  Kind, provider and collecting entity"; sisi provider memang kolom
+  (`LedgerEntry.provider`, distempel di Settlement dan di penarikan, karena di
+  dua gerakan itu provider adalah fakta). Sisi Kind **diturunkan** lewat join,
+  dan itulah yang membuat `collectedByKind` bekerja dan teruji. Alasannya:
+  `Campaign.kind` immutable, jadi salinannya tidak akan basi -- tapi tetap saja
+  itu sumber kebenaran kedua untuk fakta yang sama, persis kelas yang repo ini
+  sudah punya namanya (`Campaign.collectedAmount`). Kalau yang kedua ini yang
+  salah, tidak ada yang bisa dibandingkan. Kolomnya bisa ditambahkan belakangan
+  tanpa mengubah apa pun yang sudah ada: `PostOptions.provider` sudah jadi
+  tempatnya.
+- **`collectingEntityId` juga tidak jadi kolom di `LedgerEntry`**, dan ini yang
+  sebelumnya tidak tercatat di mana pun. `spec.md:193` meminta entri jurnal
+  membawa Kind, provider **dan** collecting entity; entri jurnal membawa Kind
+  (diturunkan lewat join, di atas) dan provider (kolom), tapi **tidak punya
+  kolom collecting entity sama sekali** -- bukan nullable, tidak ada. Yang ada
+  adalah `ProviderWithdrawal.collectingEntityId`, yaitu kolom pada baris yang
+  me-posting, dan entri menunjuk baris itu lewat
+  `LedgerEntry.providerWithdrawalId`, jadi jawabannya bisa dibaca dari kaki
+  jurnal.
+  Alasannya sengaja: satu rekening penghimpunan bisa menerima dari lebih dari
+  satu penarikan, dan "rekening ini milik badan hukum mana" berubah per
+  penarikan, jadi menyalinnya ke tiap kaki jurnal akan menyimpan jawaban yang
+  berubah di tempat yang tidak bisa ikut berubah -- kelas yang repo ini sudah
+  punya namanya (`Campaign.collectedAmount`). Kolomnya bisa ditambahkan
+  belakangan tanpa mengubah apa pun yang sudah ada: `PostOptions` sudah jadi
+  tempatnya, sama seperti `provider`.
+  Bedakan dengan bullet `collectingEntityId` opsional di bawah: itu soal
+  apakah kolomnya pada `ProviderWithdrawal` boleh `null`, sedangkan ini soal
+  entri jurnal yang tidak punya kolom itu.
 - **Payout dan Refund yang mengikis Provider Balance tidak mencatat provider.**
   Lihat pertanyaan 1.
 - **Tidak ada aturan dua orang untuk penarikan ke rekening.** Lihat pertanyaan 2.
 - **Laporan ini dibuat saat dipanggil, bukan terjadwal harian.** Story 65
   meminta harian; `runScheduledJobs` adalah tiket 20/45 dan di luar PR ini.
-- **`collectingEntityId` opsional.** Kalau rekening tujuan adalah milik
-  Platform Operator sendiri, itu bukan Collecting Entity, dan kolomnya
-  dibiarkan `null` alih-alih dipaksa jadi Partner Organisation. Yang bisa
-  menjangkau keadaan itu cuma satu Admin yang mengisinya, dan tidak ada yang
-  mengetahuinya selain catatan itu sendiri -- jadi ini sengaja dibiarkan
-  terbuka, bukan dijawab.
+- **`ProviderWithdrawal.collectingEntityId` opsional** (kolom pada baris
+  penarikan, bukan pada entri jurnal -- lihat bullet di atas). Kalau rekening
+  tujuan adalah milik Platform Operator sendiri, itu bukan Collecting Entity,
+  dan kolomnya dibiarkan `null` alih-alih dipaksa jadi Partner Organisation.
+  Yang bisa menjangkau keadaan itu cuma satu Admin yang mengisinya, dan tidak
+  ada yang mengetahuinya selain catatan itu sendiri -- jadi ini sengaja
+  dibiarkan terbuka, bukan dijawab.
 
 ### PERTANYAAN UNTUK OWNER
 
