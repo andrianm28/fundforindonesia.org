@@ -48,6 +48,9 @@ function AdminSidebar() {
         <SidebarLink href="/admin/collecting-entities" icon="campaigns">
           Collecting Entity
         </SidebarLink>
+        <SidebarLink href="/admin/partnership-inquiries" icon="campaigns">
+          Partnership Inquiry
+        </SidebarLink>
       </nav>
 
       <div className="p-4 border-t border-gray-200">

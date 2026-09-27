@@ -72,6 +72,13 @@ import { join } from "node:path";
  * Admin create and edit CSR Programs, each through withAssignmentCheck on
  * the ADMIN assignment -- growing this list by two.
  *
+ * NOTE (csr-06): the partnership team's Inquiry queue and the one door that
+ * moves a follow-up forward -- `GET /api/admin/partnership-inquiries` and
+ * `PATCH /api/admin/partnership-inquiries/[id]` -- are Admin routes through
+ * `withAssignmentCheck` on the ADMIN assignment, like every other route here:
+ * a queue of companies and the people at them is nobody else's to read, and
+ * growing this list by two.
+ *
  * NOTE (prd-compliance 14): POST /api/admin/duplicate-similarity lets an
  * Admin set the title similarity a Verifier's duplicate hints are built on
  * (PRD FFI-05), through withAssignmentCheck on the ADMIN assignment like
@@ -89,6 +96,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
   "src/app/api/admin/duplicate-similarity/route.ts",
+  "src/app/api/admin/partnership-inquiries/[id]/route.ts",
+  "src/app/api/admin/partnership-inquiries/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
