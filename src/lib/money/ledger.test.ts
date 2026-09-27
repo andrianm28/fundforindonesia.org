@@ -30,6 +30,14 @@ import {
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
 
 /**
+ * A Payment Provider name written onto something in this file, in any quote
+ * style. The backreference is what makes it safe to point at itself: the
+ * pattern's own text has no matching pair of quotes around a name, so the scan
+ * below never reads its own source.
+ */
+const STAMPED_PROVIDER = /provider:\s*(['"`])([^'"`]+)\1/g;
+
+/**
  * A ledger is the one place where "mostly right" is worthless, so these tests
  * are about invariants rather than examples: every movement balances, nothing
  * single-sided gets in, and a retry cannot double-post.
@@ -583,6 +591,45 @@ describe('collectionAccountBalance', () => {
     expect(await collectionAccountBalance(tx as never)).toBe(500_000);
   });
 
+  /**
+   * The direction every leg in a source gives the Collection Account.
+   *
+   * Paired by proximity, not by one literal shape, because a scan that only
+   * recognises the shape in use today reads every other shape as "nothing to
+   * complain about" -- and a leg it cannot read is a leg it cannot refuse.
+   *
+   * `amount:` is what tells a leg from a filter. Every leg has one
+   * (postTransaction refuses an amount that is not whole rupiah) and a filter
+   * has none, so `accountTotal(tx, { account: 'COLLECTION_ACCOUNT' }, 'debit')`
+   * is a reader and is left alone. A leg whose direction is not a literal --
+   * `{ account: 'COLLECTION_ACCOUNT', direction: dir, amount }` -- is reported
+   * as UNREADABLE rather than passed over, because the alternative is a claim
+   * of "nothing credits this account" resting on a scan that did not read it.
+   */
+  const UNREADABLE = 'UNREADABLE-DIRECTION';
+  const DIRECTION_LITERAL = /direction:\s*(['"])(\w+)\1/;
+  const AMOUNT_LITERAL = /\bamount\b\s*:/;
+
+  function collectionAccountDirections(source: string): string[] {
+    // Block comments go first: this account is named in prose in ledger.ts's own
+    // doc blocks, and prose is not a leg. Line comments are left alone on
+    // purpose -- a `//` inside a URL string would take the rest of the line with
+    // it, and a leg is never written on a line with a URL.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '');
+
+    return [...code.matchAll(/(['"])COLLECTION_ACCOUNT\1/g)].flatMap((account) => {
+      // The braces around the name are its own leg's: a leg literal is flat, so
+      // the nearest `{` before it and the nearest `}` after it are its edges.
+      const open = code.lastIndexOf('{', account.index);
+      const close = code.indexOf('}', account.index);
+      const leg = open === -1 || close === -1 ? '' : code.slice(open, close + 1);
+
+      const direction = DIRECTION_LITERAL.exec(leg);
+      if (direction) return [direction[2]];
+      return AMOUNT_LITERAL.test(leg) ? [UNREADABLE] : [];
+    });
+  }
+
   it('has no movement that can credit the Collection Account, which is what makes the test above a seeded state', async () => {
     // The premise of the seeded-CREDIT test, asserted rather than left in a
     // comment. A leg builder naming this account is the only way a row can
@@ -590,18 +637,57 @@ describe('collectionAccountBalance', () => {
     // credit here" is checkable -- and when a movement that credits the account
     // is ever added (a corrected sweep, a clawback), this fails and the seeded
     // test's title has to be re-read rather than quietly left standing.
-    const { readFileSync } = await import('node:fs');
+    //
+    // EVERY module of the money layer, not ledger.ts alone. The scan used to
+    // read one file, so a leg added to refunds.ts or provider-withdrawals.ts --
+    // exactly where a corrected sweep or a clawback would go -- was never read,
+    // and the claim above was reported as true because the scan had not looked.
+    const { readdirSync, readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
-    const source = readFileSync(join(process.cwd(), 'src', 'lib', 'money', 'ledger.ts'), 'utf8');
+    const dir = join(process.cwd(), 'src', 'lib', 'money');
+    const modules = readdirSync(dir).filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'));
 
-    const directions = [
-      ...source.matchAll(/account: 'COLLECTION_ACCOUNT',\s*direction: '(\w+)'/g),
-    ].map((match) => match[1]);
+    const directions = modules.flatMap((name) =>
+      collectionAccountDirections(readFileSync(join(dir, name), 'utf8')),
+    );
 
     // Greater than zero, so a leg written in some other shape cannot make this
-    // pass by finding nothing to complain about.
+    // pass by finding nothing to complain about -- and with the shape check
+    // below, so a shape the scan cannot read cannot make it pass either.
     expect(directions.length).toBeGreaterThan(0);
     expect([...new Set(directions)]).toEqual(['DEBIT']);
+  });
+
+  it('reads a Collection Account leg in every shape the money layer writes one, so the scan above is not one literal deep', () => {
+    // The guard on the guard. The old pattern was
+    // `account: 'COLLECTION_ACCOUNT',\s*direction: '(\w+)'` over one file, and
+    // it had two holes this file proves: a leg in double quotes or with the
+    // direction written first was skipped rather than refused. Skipped is the
+    // dangerous direction -- the scan reports "no credit here" for a leg that
+    // does credit the account, and the test above stays green.
+    //
+    // Each shape below is one a contributor or a formatter can produce from the
+    // shape the repo uses today, and none of them is a leg the ledger must not
+    // have: all of them credit this account, so all of them must be read.
+    for (const credit of [
+      "{ account: 'COLLECTION_ACCOUNT', direction: 'CREDIT', amount: 1 }",
+      '{ account: "COLLECTION_ACCOUNT", direction: "CREDIT", amount: 1 }',
+      "{ direction: 'CREDIT', account: 'COLLECTION_ACCOUNT', amount: 1 }",
+      "{\n  account: 'COLLECTION_ACCOUNT',\n  direction: 'CREDIT',\n  amount: 1,\n}",
+      "function sweep() {\n  return [{ account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 1 }, { account: 'COLLECTION_ACCOUNT', direction: 'CREDIT', amount: 1 }];\n}",
+    ]) {
+      expect(collectionAccountDirections(credit)).toEqual(['CREDIT']);
+    }
+
+    // And a doc block that merely NAMES the account is not a leg. ledger.ts
+    // prints this account in a table in the sweep builder's comment, so the scan
+    // strips block comments first: without that, the prose is read as a leg and
+    // paired with whatever direction happened to follow it.
+    expect(
+      collectionAccountDirections(
+        "/**\n *   DEBIT  COLLECTION_ACCOUNT  amount   the money reached a bank\n */\n",
+      ),
+    ).toEqual([]);
   });
 
   /**
@@ -786,12 +872,7 @@ describe('providerBalances', () => {
     const { join } = await import('node:path');
     const source = readFileSync(join(process.cwd(), 'src', 'lib', 'money', 'ledger.test.ts'), 'utf8');
 
-    // `\s*` rather than a literal space, so the pattern cannot match its own
-    // source line: with a space there, the text after the colon is a backslash
-    // rather than a quote, and the scan leaves this line alone. A rewrite that
-    // puts the space back makes the pattern read its own capture group as a
-    // provider name, which fails here -- the safe direction.
-    const stamped = [...new Set([...source.matchAll(/provider:\s*'([^']+)'/g)].map((m) => m[1]))];
+    const stamped = [...new Set([...source.matchAll(STAMPED_PROVIDER)].map((m) => m[2]))];
     // Greater than zero, so a rewrite of the pattern cannot make this pass by
     // finding no provider name to complain about.
     expect(stamped.length).toBeGreaterThan(0);
@@ -805,6 +886,26 @@ describe('providerBalances', () => {
       }
     });
     expect(unknown).toEqual([]);
+  });
+
+  it('reads a stamped provider name in every quote style, so an unregistered one cannot be written in another', () => {
+    // The guard on the guard. The pattern used to read single quotes and
+    // nothing else, so a fixture that wrote the name in double quotes posted
+    // an unregistered name onto a ledger entry and the check above passed,
+    // because that name was not a name to it. A scan that cannot see a shape
+    // reports the shape as absent, which is the one answer always wrong here.
+    //
+    // The names below are registered ones on purpose. This file is its own
+    // input: the check above scans it, so an unregistered name written here as
+    // an example would be posted money filed under a provider this build has no
+    // adapter for -- and, more to the point, would make the two tests fail each
+    // other instead of saying anything about the pattern.
+    expect([...`{ provider: 'sumopod' }`.matchAll(STAMPED_PROVIDER)].map((m) => m[2])).toEqual(['sumopod']);
+    expect([...`{ provider: "sumopod" }`.matchAll(STAMPED_PROVIDER)].map((m) => m[2])).toEqual(['sumopod']);
+    expect([...'{ provider: `sumopod` }'.matchAll(STAMPED_PROVIDER)].map((m) => m[2])).toEqual(['sumopod']);
+    // And it still does not read its own source: the capture group is behind a
+    // backreference, so the text of the pattern in this file is not a name.
+    expect([...STAMPED_PROVIDER.source.matchAll(STAMPED_PROVIDER)]).toEqual([]);
   });
 });
 
