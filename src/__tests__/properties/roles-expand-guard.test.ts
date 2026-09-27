@@ -71,11 +71,19 @@ import { join } from "node:path";
  * NOTE (csr-01): POST /api/programs and PATCH /api/programs/[id] let an
  * Admin create and edit CSR Programs, each through withAssignmentCheck on
  * the ADMIN assignment -- growing this list by two.
+ *
+ * NOTE (prd-compliance 34): the two Manual Contribution routes ask for the
+ * ADMIN assignment too. Recording money that arrived outside the gateway and
+ * deciding it are both in the Admin's remit in CONTEXT.md and neither in the
+ * Verifier's, so they are gated on ADMIN alone -- not on a rank, and not on
+ * "an operator is good enough for this one".
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
+  "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
+  "src/app/api/admin/manual-contributions/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",

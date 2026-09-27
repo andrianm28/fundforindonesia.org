@@ -22,6 +22,8 @@ export interface LedgerLeg {
   campaignId?: string;
   /** Required for trip-scoped accounts, omitted otherwise. */
   volunteerTripId?: string;
+  /** Required for PROGRAM_BALANCE, omitted otherwise. */
+  programId?: string;
   memo?: string;
 }
 
@@ -29,6 +31,8 @@ export interface PostOptions {
   paymentId?: string;
   refundId?: string;
   payoutId?: string;
+  /** Which Manual Contribution a movement belongs to, for the off-gateway accounts. */
+  manualContributionId?: string;
   /**
    * Supply this to make posting idempotent across retries: the same id posts
    * one set of entries, not two. Generated when omitted.
@@ -48,6 +52,20 @@ export type LedgerSubject =
   | { type: 'campaign'; campaignId: string }
   | { type: 'trip'; tripId: string };
 
+/**
+ * Which Campaign-or-Program a Manual Contribution is about (CONTEXT.md,
+ * Manual Contribution).
+ *
+ * Deliberately NOT an extension of LedgerSubject: a Program is not a Campaign
+ * and a Program-targeted balance is never a Payout source, so widening the
+ * type every Payout and Refund path is written against would have handed that
+ * possibility to code that must not have it. A Volunteer Trip is not a target
+ * at all, which is why TRIP_BALANCE is unreachable from here.
+ */
+export type ManualContributionSubject =
+  | { type: 'campaign'; campaignId: string }
+  | { type: 'program'; programId: string };
+
 function subjectFk(subject: LedgerSubject): { campaignId?: string; volunteerTripId?: string } {
   return subject.type === 'campaign'
     ? { campaignId: subject.campaignId }
@@ -56,6 +74,28 @@ function subjectFk(subject: LedgerSubject): { campaignId?: string; volunteerTrip
 
 function balanceAccount(subject: LedgerSubject): 'CAMPAIGN_BALANCE' | 'TRIP_BALANCE' {
   return subject.type === 'campaign' ? 'CAMPAIGN_BALANCE' : 'TRIP_BALANCE';
+}
+
+/**
+ * The account a Manual Contribution credits, and the FK that scopes it.
+ *
+ * Its own two functions rather than a widened `balanceAccount`, so the trip
+ * branch simply does not exist: a Manual Contribution can name a Campaign or a
+ * Program and nothing else, and there is no code path here that could reach
+ * TRIP_BALANCE however it was called.
+ */
+function manualContributionFk(
+  subject: ManualContributionSubject,
+): { campaignId?: string; programId?: string } {
+  return subject.type === 'campaign'
+    ? { campaignId: subject.campaignId }
+    : { programId: subject.programId };
+}
+
+function manualContributionBalanceAccount(
+  subject: ManualContributionSubject,
+): 'CAMPAIGN_BALANCE' | 'PROGRAM_BALANCE' {
+  return subject.type === 'campaign' ? 'CAMPAIGN_BALANCE' : 'PROGRAM_BALANCE';
 }
 
 export class UnbalancedTransactionError extends Error {
@@ -91,6 +131,7 @@ const SUBJECT_SCOPED: ReadonlySet<string> = new Set<string>([
   'ESCROW_HOLD',
   'CAMPAIGN_BALANCE',
   'TRIP_BALANCE',
+  'PROGRAM_BALANCE',
   'FROZEN_BALANCE',
 ]);
 
@@ -116,28 +157,45 @@ function assertLegsValid(legs: LedgerLeg[]): void {
         `Amount must be positive; use direction to express sign. Got ${leg.amount}.`,
       );
     }
-    const hasSubjectId = Boolean(leg.campaignId) || Boolean(leg.volunteerTripId);
-    if (SUBJECT_SCOPED.has(leg.account) && !hasSubjectId) {
-      throw new InvalidLedgerLegError(`${leg.account} requires a campaignId or volunteerTripId.`);
-    }
+    const hasSubjectId =
+      Boolean(leg.campaignId) || Boolean(leg.volunteerTripId) || Boolean(leg.programId);
     if (!SUBJECT_SCOPED.has(leg.account) && hasSubjectId) {
       throw new InvalidLedgerLegError(
-        `${leg.account} is a platform-level account and must not carry a campaignId or volunteerTripId.`,
+        `${leg.account} is a platform-level account and must not carry a campaignId, volunteerTripId, or programId.`,
       );
     }
-    // ESCROW_HOLD is shared by both subjects, so only CAMPAIGN_BALANCE and
-    // TRIP_BALANCE are pinned to their own FK below -- otherwise a leg built
-    // with a campaign subject but a TRIP_BALANCE (or vice versa) account,
-    // e.g. a mismatched refundRequestedLegs({ subject, source }) call, would
-    // carry the wrong subject's FK and post invisibly to every balance query.
+    // Each withdrawable account is pinned to its own FK, checked BEFORE the
+    // generic "a subject id at all" rule below so the refusal names the id
+    // that is actually missing. ESCROW_HOLD and FROZEN_BALANCE are shared
+    // across subjects, so they are deliberately absent from this list --
+    // otherwise a leg built with a campaign subject but a TRIP_BALANCE (or
+    // vice versa) account, e.g. a mismatched refundRequestedLegs({ subject,
+    // source }) call, would carry the wrong subject's FK and post invisibly to
+    // every balance query.
     if (leg.account === 'CAMPAIGN_BALANCE' && !leg.campaignId) {
       throw new InvalidLedgerLegError(`${leg.account} requires a campaignId.`);
     }
     if (leg.account === 'TRIP_BALANCE' && !leg.volunteerTripId) {
       throw new InvalidLedgerLegError(`${leg.account} requires a volunteerTripId.`);
     }
+    // This is what stops a Program-targeted Manual Contribution from landing
+    // in a Campaign's withdrawable balance because the caller mixed up its
+    // subject -- the one leak the Program Balance is most exposed to.
+    if (leg.account === 'PROGRAM_BALANCE' && !leg.programId) {
+      throw new InvalidLedgerLegError(`${leg.account} requires a programId.`);
+    }
+    if (SUBJECT_SCOPED.has(leg.account) && !hasSubjectId) {
+      throw new InvalidLedgerLegError(
+        `${leg.account} requires a campaignId or volunteerTripId or a programId.`,
+      );
+    }
     if (leg.campaignId && leg.volunteerTripId) {
       throw new InvalidLedgerLegError('A leg cannot carry both campaignId and volunteerTripId.');
+    }
+    if (leg.programId && (leg.campaignId || leg.volunteerTripId)) {
+      throw new InvalidLedgerLegError(
+        'A leg cannot carry a programId alongside a campaignId or volunteerTripId.',
+      );
     }
   }
 }
@@ -185,10 +243,12 @@ export async function postTransaction(
       amount: leg.amount,
       campaignId: leg.campaignId ?? null,
       volunteerTripId: leg.volunteerTripId ?? null,
+      programId: leg.programId ?? null,
       memo: leg.memo ?? null,
       paymentId: options.paymentId ?? null,
       refundId: options.refundId ?? null,
       payoutId: options.payoutId ?? null,
+      manualContributionId: options.manualContributionId ?? null,
       transactionId,
     })),
   });
@@ -269,6 +329,34 @@ export async function tripBalance(tx: Prisma.TransactionClient, tripId: string):
 /** Trip-scoped sibling of escrowBalance. */
 export async function tripEscrowBalance(tx: Prisma.TransactionClient, tripId: string): Promise<number> {
   return accountBalance(tx, 'ESCROW_HOLD', { type: 'trip', tripId });
+}
+
+/**
+ * What a Program has been credited with off-gateway, in rupiah
+ * (CONTEXT.md, Program Balance).
+ *
+ * Its own query rather than a widened accountBalance, and it filters on
+ * programId alone -- so a Campaign and a Program that happen to share a raw id
+ * value cannot read each other's money, which is the same guarantee
+ * campaignBalance and tripBalance give each other.
+ *
+ * Not withdrawable by anything: there is no Payout against a Program, so this
+ * figure exists to be reported and to gate a reversal, not to be spent.
+ */
+export async function programBalance(tx: Prisma.TransactionClient, programId: string): Promise<number> {
+  const rows = await tx.ledgerEntry.groupBy({
+    by: ['direction'],
+    where: { account: 'PROGRAM_BALANCE', programId },
+    _sum: { amount: true },
+  });
+
+  let credits = 0;
+  let debits = 0;
+  for (const row of rows) {
+    if (row.direction === 'CREDIT') credits = row._sum.amount ?? 0;
+    if (row.direction === 'DEBIT') debits = row._sum.amount ?? 0;
+  }
+  return credits - debits;
 }
 
 /**
@@ -561,5 +649,68 @@ export function payoutInstructedLegs(params: { subject: LedgerSubject; amount: n
   return [
     { account: balanceAccount(subject), direction: 'DEBIT', amount, ...subjectFk(subject) },
     { account: 'PAYOUT_CLEARING', direction: 'CREDIT', amount },
+  ];
+}
+
+/**
+ * Money that arrived outside the payment gateway (CONTEXT.md, Manual
+ * Contribution; PRD FFI-07c).
+ *
+ *   DEBIT  MANUAL_INTAKE_CLEARING  amount   the platform physically has it
+ *   CREDIT CAMPAIGN_BALANCE        amount   a Campaign, withdrawable at once
+ *            -- or --
+ *   CREDIT PROGRAM_BALANCE         amount   a Program, withdrawable by nothing
+ *
+ * Three things this deliberately does NOT do, and each of them is a rule
+ * rather than an omission:
+ *
+ *  - It does not touch ESCROW_HOLD. The hold exists to give a chargeback time
+ *    to arrive while the money is still the platform's problem; a bank
+ *    transfer that already cleared has no provider to charge back through, so
+ *    holding it would strand real money for seven days for nothing.
+ *
+ *  - It credits neither PROVIDER_FEE nor PLATFORM_FEE. There was no provider
+ *    charge to keep and no online gift to charge a percentage of, so the
+ *    credited amount is exactly the rupiah that arrived. Crediting gross is
+ *    therefore the same figure here as net is on a settled Payment.
+ *
+ *  - It is idempotent per Manual Contribution, keyed on the contribution's own
+ *    id by the caller, so a retried approval cannot credit twice.
+ */
+export function manualContributionReceivedLegs(params: {
+  subject: ManualContributionSubject;
+  amount: number;
+}): LedgerLeg[] {
+  const { subject, amount } = params;
+  return [
+    { account: 'MANUAL_INTAKE_CLEARING', direction: 'DEBIT', amount },
+    { account: manualContributionBalanceAccount(subject), direction: 'CREDIT', amount, ...manualContributionFk(subject) },
+  ];
+}
+
+/**
+ * The same movement taken back: an APPROVED Manual Contribution that turned
+ * out to be wrong.
+ *
+ *   DEBIT  CAMPAIGN_BALANCE        amount   -- or PROGRAM_BALANCE
+ *   CREDIT MANUAL_INTAKE_CLEARING  amount   the money leaves the books again
+ *
+ * The exact mirror image of manualContributionReceivedLegs, and a NEW pair of
+ * rows rather than a deletion or an edit of the original ones. A correction
+ * that removed the credit would leave no trace that money had ever been
+ * recorded, which is the one thing a ledger exists to prevent. Whether this
+ * may be posted at all -- the balance has to still hold the amount, i.e. no
+ * Payout has spent it -- is judged by the caller under the subject's row
+ * lock, because balances are derived by summing entries and have no row of
+ * their own to lock.
+ */
+export function manualContributionReversedLegs(params: {
+  subject: ManualContributionSubject;
+  amount: number;
+}): LedgerLeg[] {
+  const { subject, amount } = params;
+  return [
+    { account: manualContributionBalanceAccount(subject), direction: 'DEBIT', amount, ...manualContributionFk(subject) },
+    { account: 'MANUAL_INTAKE_CLEARING', direction: 'CREDIT', amount },
   ];
 }

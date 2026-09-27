@@ -61,11 +61,12 @@ export class InsufficientBalanceError extends MoneyError {
 
 /**
  * The two-person rule: the approver is the requester. Refused before any
- * write, not recorded as a decision. One class for Payout and Refund.
+ * write, not recorded as a decision. One class for Payout, Refund and
+ * Manual Contribution.
  */
 export class SelfApprovalError extends MoneyError {
   readonly code = 'SELF_APPROVAL';
-  constructor(readonly what: 'Payout' | 'Refund') {
+  constructor(readonly what: 'Payout' | 'Refund' | 'Manual Contribution') {
     super(`${what} tidak dapat disetujui oleh orang yang mengajukannya.`);
     this.name = 'SelfApprovalError';
   }
@@ -146,5 +147,95 @@ export class RefundExceedsRemainingError extends MoneyError {
   ) {
     super('Jumlah Refund melebihi sisa yang masih bisa direfund dari Payment ini.');
     this.name = 'RefundExceedsRemainingError';
+  }
+}
+
+/**
+ * The Manual Contribution (CONTEXT.md) names no target, or names two at once.
+ * A Manual Contribution credits exactly one balance, and "both" is not a way
+ * to be in two balances at the same time.
+ */
+export class ManualContributionTargetError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_TARGET_INVALID';
+  constructor(
+    message = 'Manual Contribution harus menunjuk tepat satu Campaign atau satu Program.',
+  ) {
+    super(message);
+    this.name = 'ManualContributionTargetError';
+  }
+}
+
+/**
+ * No proof of transfer. Required rather than optional because the entire point
+ * of a Manual Contribution is that no provider confirms it: the evidence is
+ * the only thing standing between a recorded number and a fabricated one, and
+ * the two-person rule only ever checks that evidence.
+ */
+export class ManualContributionProofRequiredError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_PROOF_REQUIRED';
+  constructor() {
+    super('Bukti transfer wajib diisi untuk setiap Manual Contribution.');
+    this.name = 'ManualContributionProofRequiredError';
+  }
+}
+
+/** Not whole rupiah, or not above zero -- the two ways a money amount is wrong here. */
+export class ManualContributionAmountError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_AMOUNT_INVALID';
+  constructor() {
+    super('Nominal Manual Contribution harus berupa angka rupiah bulat di atas nol.');
+    this.name = 'ManualContributionAmountError';
+  }
+}
+
+export class ManualContributionNotFoundError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_NOT_FOUND';
+  constructor(readonly manualContributionId: string) {
+    super('Manual Contribution tidak ditemukan.');
+    this.name = 'ManualContributionNotFoundError';
+  }
+}
+
+/** The contribution is no longer PENDING, or another decision won the race. */
+export class ManualContributionNotPendingError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_NOT_PENDING';
+  constructor(
+    readonly currentStatus: string,
+    readonly detail?: string,
+  ) {
+    super('Manual Contribution ini tidak lagi menunggu keputusan Admin kedua.');
+    this.name = 'ManualContributionNotPendingError';
+  }
+}
+
+/**
+ * The contribution was never APPROVED, or has already been reversed. Nothing
+ * entered the books, so there is nothing to take back out of them.
+ */
+export class ManualContributionNotApprovedError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_NOT_APPROVED';
+  constructor(readonly currentStatus: string) {
+    super('Hanya Manual Contribution yang sudah disetujui yang bisa dibalikkan.');
+    this.name = 'ManualContributionNotApprovedError';
+  }
+}
+
+/**
+ * The balance no longer covers the contribution: a Payout has drawn the money
+ * out, or a Refund has frozen it. The opposite journal would drive the pool
+ * negative, so the money is left where it is and a human decides what to do
+ * about it -- the reporting surfaces it, nothing here silently corrects it.
+ */
+export class ManualContributionAlreadySpentError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_ALREADY_SPENT';
+  constructor(
+    readonly amount: number,
+    readonly available: number,
+  ) {
+    super(
+      'Dana Manual Contribution ini sudah tidak ada di saldo, jadi tidak bisa dibalikkan. ' +
+        'Saldo yang tersedia lebih kecil daripada nominalnya.',
+    );
+    this.name = 'ManualContributionAlreadySpentError';
   }
 }

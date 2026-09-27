@@ -34,6 +34,7 @@ type LedgerRow = {
   volunteerTripId?: string | null;
   paymentId?: string | null;
   refundId?: string | null;
+  manualContributionId?: string | null;
 };
 
 type PayoutRow = {
@@ -74,6 +75,17 @@ type RefundRow = {
 
 type CampaignRow = { id: string; title: string; collectedAmount: number; isDemo?: boolean };
 
+type ManualContributionRow = {
+  id: string;
+  campaignId?: string | null;
+  programId?: string | null;
+  amount: number;
+  proofReference: string;
+  recordedById: string;
+  status?: string;
+  createdAt?: Date;
+};
+
 /** Handles the `{ not }` and `{ in }` Prisma filter shapes this route's queries use. */
 function matchesWhere(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([k, v]) => {
@@ -100,12 +112,14 @@ function makeTx(options: {
   payments?: PaymentRow[];
   refunds?: RefundRow[];
   campaigns?: CampaignRow[];
+  manualContributions?: ManualContributionRow[];
 } = {}) {
   const rows = options.ledgerRows ?? [];
   const payouts = options.payouts ?? [];
   const payments = options.payments ?? [];
   const refunds = options.refunds ?? [];
   const campaigns = options.campaigns ?? [];
+  const manualContributions = options.manualContributions ?? [];
 
   return {
     ledgerEntry: {
@@ -219,6 +233,21 @@ function makeTx(options: {
     },
     campaign: {
       findMany: vi.fn(async () => campaigns),
+    },
+    manualContribution: {
+      findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+        // status defaults to PENDING, as the column does, so a fixture that
+        // never mentions it is a real queued contribution rather than a row
+        // whose `status: 'PENDING'` predicate silently matches nothing.
+        const normalized = manualContributions.map((m) => ({
+          campaignId: null,
+          programId: null,
+          ...m,
+          status: m.status ?? 'PENDING',
+          createdAt: m.createdAt ?? new Date('2026-01-01T00:00:00.000Z'),
+        }));
+        return normalized.filter((m) => matchesWhere(m as never as Record<string, unknown>, where));
+      }),
     },
     payout: {
       findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
@@ -861,6 +890,173 @@ describe('GET /api/admin/reconcile', () => {
     const body = await response.json();
 
     expect(body.orphanedCancelledRegistrationPayments).toEqual([]);
+  });
+});
+
+describe('GET /api/admin/reconcile -- Manual Contributions (prd-compliance 34)', () => {
+  beforeEach(() => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
+  });
+
+  it('lists the ones still waiting for a second Admin, as a work queue', async () => {
+    // The two-person rule is only operable if the second Admin can find what
+    // is waiting for them. Nothing else in this report makes a PENDING
+    // Manual Contribution discoverable.
+    const tx = makeTx({
+      manualContributions: [
+        { id: 'mc-1', campaignId: 'campaign-1', amount: 250_000, proofReference: 'bukti.pdf', recordedById: 'admin-1' },
+        { id: 'mc-2', programId: 'program-1', amount: 500_000_000, proofReference: 'invoice.pdf', recordedById: 'admin-3' },
+      ],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(body.pendingManualContributions).toEqual([
+      {
+        manualContributionId: 'mc-1',
+        campaignId: 'campaign-1',
+        programId: null,
+        amount: 250_000,
+        proofReference: 'bukti.pdf',
+        recordedById: 'admin-1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        manualContributionId: 'mc-2',
+        campaignId: null,
+        programId: 'program-1',
+        amount: 500_000_000,
+        proofReference: 'invoice.pdf',
+        recordedById: 'admin-3',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('excludes an already-decided contribution from that queue', async () => {
+    for (const status of ['APPROVED', 'REJECTED', 'REVERSED']) {
+      const tx = makeTx({
+        manualContributions: [
+          { id: 'mc-1', campaignId: 'campaign-1', amount: 250_000, proofReference: 'bukti.pdf', recordedById: 'admin-1', status },
+        ],
+      });
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+      const body = await (await GET(createRequest())).json();
+
+      expect(body.pendingManualContributions).toEqual([]);
+    }
+  });
+
+  it('does not flag a Campaign whose only money arrived off-gateway', async () => {
+    // collectedAmount was incremented by the approval, in the same
+    // transaction as the ledger. Reconciling it against ESCROW_HOLD credits
+    // alone would call every Manual Contribution a permanent mismatch.
+    const tx = makeTx({
+      campaigns: [{ id: 'campaign-1', title: 'Pemulihan Gudang', collectedAmount: 250_000 }],
+      ledgerRows: [
+        {
+          transactionId: 'manual-contribution-mc-1',
+          direction: 'CREDIT',
+          amount: 250_000,
+          account: 'CAMPAIGN_BALANCE',
+          campaignId: 'campaign-1',
+          manualContributionId: 'mc-1',
+        },
+        {
+          transactionId: 'manual-contribution-mc-1',
+          direction: 'DEBIT',
+          amount: 250_000,
+          account: 'MANUAL_INTAKE_CLEARING',
+          campaignId: null,
+          manualContributionId: 'mc-1',
+        },
+      ],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const body = await (await GET(createRequest())).json();
+
+    expect(body.mismatches).toEqual([]);
+    expect(body.preLedger).toEqual([]);
+  });
+
+  it('takes a reversed contribution back out of the reconciliation, not just out of the balance', async () => {
+    const tx = makeTx({
+      campaigns: [{ id: 'campaign-1', title: 'Pemulihan Gudang', collectedAmount: 0 }],
+      ledgerRows: [
+        {
+          transactionId: 'manual-contribution-mc-1',
+          direction: 'CREDIT',
+          amount: 250_000,
+          account: 'CAMPAIGN_BALANCE',
+          campaignId: 'campaign-1',
+          manualContributionId: 'mc-1',
+        },
+        {
+          transactionId: 'manual-contribution-reversed-mc-1',
+          direction: 'DEBIT',
+          amount: 250_000,
+          account: 'CAMPAIGN_BALANCE',
+          campaignId: 'campaign-1',
+          manualContributionId: 'mc-1',
+        },
+        {
+          transactionId: 'manual-contribution-mc-1',
+          direction: 'DEBIT',
+          amount: 250_000,
+          account: 'MANUAL_INTAKE_CLEARING',
+          campaignId: null,
+          manualContributionId: 'mc-1',
+        },
+        {
+          transactionId: 'manual-contribution-reversed-mc-1',
+          direction: 'CREDIT',
+          amount: 250_000,
+          account: 'MANUAL_INTAKE_CLEARING',
+          campaignId: null,
+          manualContributionId: 'mc-1',
+        },
+      ],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const body = await (await GET(createRequest())).json();
+
+    expect(body.mismatches).toEqual([]);
+  });
+
+  it('never reports a Program as a Campaign with no ledger, however much it holds', async () => {
+    const tx = makeTx({
+      campaigns: [{ id: 'campaign-1', title: 'Pemulihan Gudang', collectedAmount: 0 }],
+      ledgerRows: [
+        {
+          transactionId: 'manual-contribution-mc-9',
+          direction: 'CREDIT',
+          amount: 500_000_000,
+          account: 'PROGRAM_BALANCE',
+          campaignId: null,
+          volunteerTripId: null,
+          manualContributionId: 'mc-9',
+        },
+        {
+          transactionId: 'manual-contribution-mc-9',
+          direction: 'DEBIT',
+          amount: 500_000_000,
+          account: 'MANUAL_INTAKE_CLEARING',
+          campaignId: null,
+          manualContributionId: 'mc-9',
+        },
+      ],
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const body = await (await GET(createRequest())).json();
+
+    expect(body.mismatches).toEqual([]);
+    expect(body.preLedger).toEqual([]);
   });
 });
 

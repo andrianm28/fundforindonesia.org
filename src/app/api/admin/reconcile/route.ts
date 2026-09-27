@@ -84,6 +84,13 @@ import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
  *  - pendingRefunds: every Refund whose status is REQUESTED, Campaign-or-Trip
  *    both in one combined list -- the only place in this codebase a REQUESTED
  *    Refund becomes discoverable after it's created.
+ *  - pendingManualContributions: every Manual Contribution still waiting for
+ *    the second Admin (prd-compliance 34), Campaign-or-Program both. The
+ *    approval queue for the two-person rule on money that arrived outside the
+ *    gateway. Also folded into `mismatches` above: a contribution's approval
+ *    moves collectedAmount and the ledger in one transaction, so comparing
+ *    collectedAmount against settled net and provider fee alone would report
+ *    every one of them as a permanent discrepancy.
  *  - orphanedCancelledRegistrationPayments: a PAID Trip Payment whose
  *    Registration is CANCELLED with no live Refund against it -- the safety
  *    net for the settlement webhook's own auto-refund failing silently.
@@ -192,6 +199,61 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       feeByCampaign.set(campaignId, (feeByCampaign.get(campaignId) ?? 0) + entry.amount);
     }
 
+    // Money that arrived outside the gateway (CONTEXT.md, Manual
+    // Contribution; prd-compliance 34) is a third thing the gross a Campaign
+    // has been credited with can be made of, alongside the settled net and
+    // its provider fee. Its approval increments collectedAmount in the same
+    // transaction as the ledger, so leaving it out here would report every
+    // Manual Contribution as a permanent mismatch.
+    //
+    // Credits minus debits, keyed on the CAMPAIGN_BALANCE account alone, so a
+    // reversed contribution nets back to zero and a Program's money -- which
+    // carries no campaignId and is never reconciled against a Campaign --
+    // cannot be counted here at all.
+    const manualRows = await tx.ledgerEntry.groupBy({
+      by: ['campaignId', 'direction'],
+      where: {
+        account: 'CAMPAIGN_BALANCE',
+        campaignId: { not: null },
+        manualContributionId: { not: null },
+      },
+      _sum: { amount: true },
+    });
+    const manualByCampaign = new Map<string, number>();
+    for (const row of manualRows) {
+      const campaignId = row.campaignId as string;
+      const signed = row.direction === 'CREDIT' ? (row._sum.amount ?? 0) : -(row._sum.amount ?? 0);
+      manualByCampaign.set(campaignId, (manualByCampaign.get(campaignId) ?? 0) + signed);
+    }
+
+    // Every recorded Manual Contribution still waiting for a second Admin --
+    // the two-person rule's work queue. Nothing else in this report makes a
+    // PENDING one discoverable, and a rule nobody can find the work for is a
+    // rule that quietly stops happening.
+    const pendingManualContributionRows = await tx.manualContribution.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        campaignId: true,
+        programId: true,
+        amount: true,
+        proofReference: true,
+        recordedById: true,
+        createdAt: true,
+      },
+    });
+
+    const pendingManualContributions = pendingManualContributionRows.map((m) => ({
+      manualContributionId: m.id,
+      campaignId: m.campaignId,
+      programId: m.programId,
+      amount: m.amount,
+      proofReference: m.proofReference,
+      recordedById: m.recordedById,
+      createdAt: m.createdAt,
+    }));
+
     const campaigns = await tx.campaign.findMany({
       select: { id: true, title: true, collectedAmount: true, isDemo: true },
     });
@@ -216,7 +278,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       if (campaign.isDemo) continue;
 
       const ledgerAmount =
-        (netEverCreditedByCampaign.get(campaign.id) ?? 0) + (feeByCampaign.get(campaign.id) ?? 0);
+        (netEverCreditedByCampaign.get(campaign.id) ?? 0) +
+        (feeByCampaign.get(campaign.id) ?? 0) +
+        (manualByCampaign.get(campaign.id) ?? 0);
       if (ledgerAmount === campaign.collectedAmount) continue;
 
       const row: CollectedAmountRow = {
@@ -231,7 +295,10 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       // nets to exactly 0 (fully refunded, say) must still land in
       // `mismatches` if collectedAmount disagrees, not be waved through as
       // pre-ledger.
-      const hasLedgerActivity = balances.has(campaign.id) || feeByCampaign.has(campaign.id);
+      const hasLedgerActivity =
+        balances.has(campaign.id) ||
+        feeByCampaign.has(campaign.id) ||
+        (manualByCampaign.get(campaign.id) ?? 0) !== 0;
       if (!hasLedgerActivity) {
         preLedger.push(row);
       } else {
@@ -544,6 +611,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       // creation -- treat a non-empty result as a data-integrity incident.
       subjectlessPayments,
       pendingRefunds,
+      pendingManualContributions,
       orphanedCancelledRegistrationPayments,
       stuckPayouts: {
         // Nothing in this codebase writes PROCESSING today -- approval stops

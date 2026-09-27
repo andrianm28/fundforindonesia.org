@@ -94,6 +94,9 @@ model User {
   refundsApproved  Refund[]      @relation("RefundApprover")
   platformFeeRulesSet      PlatformFeeRule[]
   platformFeeThresholdsSet PlatformFeeThreshold[]
+  manualContributionsRecorded ManualContribution[] @relation("ManualContributionRecorder")
+  manualContributionsDecided  ManualContribution[] @relation("ManualContributionDecider")
+  manualContributionsReversed ManualContribution[] @relation("ManualContributionReverser")
 
   @@index([email])
   @@index([emailHmac])
@@ -201,10 +204,13 @@ enum Sector {
 /// A CSR collaboration catalog item (CONTEXT.md, Program; ticket csr-01).
 /// Read by company CSR teams; it never takes money online, so it carries no
 /// Kind and no relation any Donation, Payment, Refund, Payout, or ledger code
-/// path can reach. Money the platform can account for arrives later as
-/// PROGRAM_BALANCE ledger postings (ticket csr-07); money that never crossed
-/// the platform's account is only the plain reportedAmount figure below, kept
-/// apart from the ledger on purpose (ticket csr-08).
+/// path can reach. Money the platform can account for arrives as a Manual
+/// Contribution naming this Program, credited to PROGRAM_BALANCE (FFI-07c,
+/// prd-compliance 34) -- the contribution row below is the only way a
+/// Program id reaches the money layer, and it is a write, never a read by
+/// online-money code. Money that never crossed the platform's account is only
+/// the plain reportedAmount figure below, kept apart from the ledger on
+/// purpose (ticket csr-08).
 model Program {
   id           String @id @default(cuid())
   slug         String @unique
@@ -229,6 +235,13 @@ model Program {
   reportedNote  String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  /// Manual Contributions that name this Program. Inert on its own: nothing
+  /// in the Donation, Payment, Refund, Payout or escrow paths reads it, and
+  /// no back-relation onto a money model exists in the other direction --
+  /// LedgerEntry.programId is a bare scalar, deliberately, so the word
+  /// "ledger" never has to appear here (program-money-isolation.test.ts).
+  manualContributions ManualContribution[]
 
   @@index([sector])
 }
@@ -324,6 +337,10 @@ model Campaign {
   flags                CampaignFlag[]
   verificationRequests VerificationRequest[]
   platformFeeRules     PlatformFeeRule[]
+  /// Money recorded by an Admin as arriving outside the payment gateway
+  /// (CONTEXT.md, Manual Contribution). Not a Donation: it has no Payment,
+  /// no Donor and no Refund, and it can be taken back out by a reversal.
+  manualContributions ManualContribution[]
 
   @@index([slug])
   @@index([category])
@@ -959,6 +976,11 @@ enum LedgerAccount {
   ESCROW_HOLD // settled at the provider, still inside the dispute window
   CAMPAIGN_BALANCE // owed to a specific campaign, withdrawable now
   TRIP_BALANCE
+  /// CSR money recorded against a Program (CONTEXT.md, Program Balance;
+  /// Manual Contribution). Withdrawable by no Payout, ever: a Program is not
+  /// a Campaign, Payout has no Program column, and nothing in this codebase
+  /// can set one -- asserted in manual-contribution-isolation.test.ts.
+  PROGRAM_BALANCE
   /// Money moved out of ESCROW_HOLD or the withdrawable balance the moment a
   /// Refund is created -- no longer visible as available, no longer eligible
   /// for a Payout, remaining the Donor's right until the (out-of-scope for
@@ -969,6 +991,13 @@ enum LedgerAccount {
   GATEWAY_CLEARING // money at the provider, not yet settled to us
   PAYOUT_CLEARING // money instructed out, not yet confirmed
   REFUND_CLEARING
+  /// Money that arrived outside the payment gateway -- a bank transfer or cash
+  /// handed over -- and is not yet attributed to a Campaign or a Program. The
+  /// other side of a Manual Contribution, and the account the money returns to
+  /// when that contribution is reversed. Platform-level on purpose: until a
+  /// contribution names its target, the money belongs to nobody in particular,
+  /// which is exactly why it cannot be read as any subject's balance.
+  MANUAL_INTAKE_CLEARING
   /// The platform's absorption of whatever a Refund's source didn't cover --
   /// the unrecoverable Provider Fee on every Gross refund (ADR 0007), and,
   /// when the subject's pool has gone negative, the uncovered shortfall too.
@@ -1201,6 +1230,77 @@ model BankAccount {
 /// Replaces the previous Disbursement model, which had no status, no approver,
 /// and no destination -- it recorded that a payout had supposedly happened
 /// without any of the facts that make it checkable.
+/// Money that arrived outside the payment gateway (CONTEXT.md, Manual
+/// Contribution; PRD FFI-07c): a bank transfer, or cash handed over.
+///
+/// Two people, the same rule as a Payout. One Admin records it with the proof
+/// of transfer; a DIFFERENT Admin approves it, and only then does the money
+/// enter the books -- credited straight to the Campaign Balance, or to the
+/// Program Balance when it names a Program, with no Escrow Hold and neither
+/// fee, because none of that machinery describes money that never went near
+/// a provider.
+///
+/// `status` is the whole lifecycle, and no step deletes anything: a
+/// correction is a REVERSAL, a new balanced transaction that posts the mirror
+/// image of the credit, and the original rows stay where they are.
+///
+/// onDelete: Restrict on every relation, like Payout and
+/// CampaignStatusChange: neither deleting the Campaign, the Program, nor the
+/// people involved may erase who recorded, who approved, or how much.
+model ManualContribution {
+  id       String @id @default(cuid())
+  amount   Int
+  /// Exactly one of campaignId/programId is set, guarded in the service
+  /// layer (assertExactlyOneManualContributionSubject,
+  /// src/lib/money/manual-contributions.ts) because Prisma cannot express a
+  /// conditional requirement on two nullable columns.
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  programId  String?
+  program    Program?  @relation(fields: [programId], references: [id], onDelete: Restrict)
+  /// The proof of transfer: a receipt image, a bank statement line, whatever
+  /// the Admin can point at. Required, not nullable -- an Admin recording
+  /// money on a word of mouth is exactly what the two-person rule is there to
+  /// catch, and a later column would not be evidence of anything.
+  proofReference String  @db.VarChar(500)
+  /// Free text: who handed it over, which bank, what for.
+  note            String?
+
+  status ManualContributionStatus @default(PENDING)
+  recordedById String
+  recordedBy   User    @relation("ManualContributionRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+  /// Two-person rule: never recordedById. The columns exist so the rule is
+  /// auditable after the fact, exactly as on Payout; the check is in the
+  /// service layer.
+  decidedById  String?
+  decidedBy    User?     @relation("ManualContributionDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt    DateTime?
+  decisionReason String?
+  reversedById String?
+  reversedBy   User?     @relation("ManualContributionReverser", fields: [reversedById], references: [id], onDelete: Restrict)
+  reversedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([campaignId, status])
+  @@index([programId, status])
+  @@index([status, createdAt])
+}
+
+/// PENDING until a second Admin decides. APPROVED: the money is in the
+/// balance. REJECTED: the second Admin declined, and nothing was ever posted
+/// -- a decision, not a deletion, so the record and the proof survive.
+/// REVERSED: the money has been taken back out by an opposite journal.
+enum ManualContributionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVERSED
+}
+
 model Payout {
   id            String       @id @default(cuid())
   campaignId    String?
@@ -1264,6 +1364,15 @@ model LedgerEntry {
   /// scalar, no @relation: VolunteerTrip doesn't exist yet -- Ticket 02
   /// adds the relation once it does.
   volunteerTripId String?
+  /// Program-scoped sibling of volunteerTripId, and deliberately a plain
+  /// scalar with no @relation like it. The one @relation that would have
+  /// carried a Program id into a money model is the one Program must not
+  /// have: a back-relation would put a ledger name on the Program row and
+  /// blur the line csr-01 drew (program-money-isolation.test.ts pins it).
+  /// The referential guarantee comes from ManualContribution.programId, a
+  /// real foreign key, written in the same transaction as the entries below
+  /// -- and the only writer of a programId here is that module.
+  programId String?
 
   /// Exactly one of these is set, naming what caused the movement.
   paymentId String?
@@ -1272,6 +1381,11 @@ model LedgerEntry {
   refund    Refund?  @relation(fields: [refundId], references: [id])
   payoutId  String?
   payout    Payout?  @relation(fields: [payoutId], references: [id])
+  /// Which Manual Contribution this movement belongs to -- set on both the
+  /// credit and its reversal, which is what lets a reader tell money that
+  /// arrived off-gateway apart from money that came through a Payment.
+  manualContributionId String?
+  manualContribution   ManualContribution? @relation(fields: [manualContributionId], references: [id])
 
   /// Groups the entries of one balanced transaction. Every entry sharing a
   /// transactionId must sum to zero; that invariant is asserted in tests and
@@ -1283,7 +1397,9 @@ model LedgerEntry {
   @@index([transactionId])
   @@index([account, campaignId])
   @@index([account, volunteerTripId])
+  @@index([account, programId])
   @@index([campaignId, createdAt])
+  @@index([manualContributionId])
 }
 
 /// The old `Disbursement` table, renamed rather than dropped by the money-layer

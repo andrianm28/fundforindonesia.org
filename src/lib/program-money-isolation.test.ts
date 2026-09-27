@@ -4,11 +4,33 @@ import { join } from 'node:path';
 
 /**
  * Ticket 01's structural invariant: a Program is a CSR catalog item, never a
- * money subject. No Donation, Payment, Refund, Payout, or LedgerEntry may
- * reach a Program (no foreign key, no relation, no scalar), and the fixed
- * Sector enum lives apart from Campaign's Category table. This test reads
- * prisma/schema.prisma itself, so a later ticket that wires a Program id
- * into any money model fails here before it can take money online.
+ * money subject. No Donation, Payment, Refund, or Payout may reach a Program
+ * (no foreign key, no relation, no scalar), and the fixed Sector enum lives
+ * apart from Campaign's Category table. This test reads prisma/schema.prisma
+ * itself, so a later ticket that wires a Program id into any money model
+ * fails here before it can take money online.
+ *
+ * ONE DELIBERATE EXCEPTION, added by prd-compliance 34. A Program can hold
+ * CSR money that crossed the platform's own account, credited to the
+ * PROGRAM_BALANCE ledger account (CONTEXT.md, Program Balance; PRD FFI-07c).
+ * That is a Manual Contribution -- money an Admin recorded with proof of
+ * transfer and a second Admin approved -- and it is not online money:
+ *
+ *  - PROGRAM_BALANCE is the only account a Program id can appear beside, and
+ *    it is a leaf: nothing credits it but a Manual Contribution, and nothing
+ *    spends it at all.
+ *  - LedgerEntry carries the Program id as a BARE SCALAR with no @relation,
+ *    so no money model holds a Prisma relation to Program and Program itself
+ *    never has to name a ledger. The referential guarantee comes from
+ *    ManualContribution.programId, a real foreign key written in the same
+ *    transaction.
+ *  - ManualContribution is the one model with a Program foreign key, and it
+ *    is not a Donation, Payment, Refund or Payout: it cannot take money
+ *    online, cannot be refunded, and cannot be paid out.
+ *
+ * The exception is a hole of exactly this shape. A later ticket that adds a
+ * Program id to any other model, or a second program-scoped account, fails
+ * the assertions below rather than quietly widening it.
  */
 const schema = readFileSync(join(process.cwd(), 'prisma', 'schema.prisma'), 'utf8');
 
@@ -51,12 +73,54 @@ describe('Program money isolation (ticket 01)', () => {
     expect(program).not.toMatch(/kind/i);
   });
 
-  it.each(['Donation', 'Payment', 'Refund', 'Payout', 'LedgerEntry'])(
+  it.each(['Donation', 'Payment', 'Refund', 'Payout'])(
     'lets no %s reach a Program',
     (model) => {
       expect(blockOf('model', model)).not.toMatch(/program/i);
     },
   );
+
+  it('lets LedgerEntry name a Program only as the bare column that scopes PROGRAM_BALANCE', () => {
+    const entry = uncommented(blockOf('model', 'LedgerEntry'));
+
+    // The one column, a plain scalar. A @relation here would force a
+    // back-relation onto Program and put the word "ledger" on a catalog row.
+    expect(entry).toMatch(/programId\s+String\?/);
+    expect(entry).not.toMatch(/program\s+Program\??\s*@relation/);
+    expect(entry).not.toMatch(/program\w*\s+Program\[\]/);
+  });
+
+  it('makes PROGRAM_BALANCE the only account a Program can hold money in', () => {
+    const accounts = enumValues(blockOf('enum', 'LedgerAccount'));
+    const programScoped = accounts.filter((value) => value.includes('PROGRAM'));
+
+    expect(programScoped).toEqual(['PROGRAM_BALANCE']);
+  });
+
+  it('keeps the ManualContribution relation one-directional: money names a Program, never the reverse', () => {
+    // Exactly two models carry a Program column, and only one of them treats
+    // it as a foreign key. ManualContribution is a write; LedgerEntry's is the
+    // bare scope column the assertion above pins.
+    const models = ['Donation', 'Payment', 'Refund', 'Payout', 'LedgerEntry', 'ManualContribution'];
+    const withProgramColumn = models.filter((model) =>
+      uncommented(blockOf('model', model)).match(/programId\s+String\?/),
+    );
+    expect(withProgramColumn).toEqual(['LedgerEntry', 'ManualContribution']);
+
+    // The relation has to be the very next line: matching "@relation" within
+    // some window of the column would also catch LedgerEntry's unrelated
+    // ManualContribution relation further down its block.
+    const withProgramRelation = models.filter((model) =>
+      uncommented(blockOf('model', model)).match(/programId\s+String\?\s*\n\s*program\s+Program\?/),
+    );
+    // A real foreign key means the database refuses a contribution against a
+    // Program that does not exist. It lives here and nowhere else.
+    expect(withProgramRelation).toEqual(['ManualContribution']);
+
+    const program = uncommented(blockOf('model', 'Program'));
+    // The back-relation is inert: a list, with no money model named.
+    expect(program).toMatch(/manualContributions\s+ManualContribution\[\]/);
+  });
 
   it('lets no Program reach back into money, escrow, or payout code', () => {
     const program = uncommented(blockOf('model', 'Program'));
