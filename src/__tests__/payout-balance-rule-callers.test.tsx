@@ -64,6 +64,7 @@ vi.mock('@/lib/payout-balance-rule', async (importOriginal) => {
 
 import { CampaignPayoutPanel } from '@/components/campaign/CampaignPayoutPanel';
 import { requestPayout, approvePayout, InsufficientBalanceError } from '@/lib/money/payouts';
+import { ledgerGroupBy } from '../../tests/support/ledger-group-by';
 
 const BALANCE = 800_000;
 const FUNDRAISER = 'fundraiser-1';
@@ -96,9 +97,8 @@ function panelRead(balance: number) {
  * A transaction client over one Campaign's CAMPAIGN_BALANCE account, holding
  * exactly `balance`. `ledgerEntry.groupBy` is simulated rather than mocked away
  * so `campaignBalance` sums real rows and the balance the money layer judges is
- * the figure under test, not a number handed to it -- the same simulation, and
- * for the same reason, as src/lib/money/payouts.test.ts and
- * src/lib/money/ledger.test.ts.
+ * the figure under test, not a number handed to it -- the shared simulation in
+ * tests/support/ledger-group-by.ts, for that reason everywhere it is used.
  */
 function makeMoney(balance: number, payoutAmount: number) {
   const rows: LedgerRow[] = [
@@ -156,24 +156,7 @@ function makeMoney(balance: number, payoutAmount: number) {
         rows.push(...data);
         return { count: data.length };
       }),
-      groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
-        const filtered = rows.filter((row) =>
-          Object.entries(args.where ?? {}).every(
-            ([key, value]) => (row as never as Record<string, unknown>)[key] === value,
-          ),
-        );
-        const buckets = new Map<string, { row: Record<string, unknown>; sum: number }>();
-        for (const row of filtered) {
-          const key = args.by.map((k) => String((row as never as Record<string, unknown>)[k])).join('|');
-          const bucket = buckets.get(key) ?? {
-            row: Object.fromEntries(args.by.map((k) => [k, (row as never as Record<string, unknown>)[k]])),
-            sum: 0,
-          };
-          bucket.sum += row.amount;
-          buckets.set(key, bucket);
-        }
-        return Array.from(buckets.values()).map((b) => ({ ...b.row, _sum: { amount: b.sum } }));
-      }),
+      groupBy: vi.fn(ledgerGroupBy(rows)),
     },
   };
 

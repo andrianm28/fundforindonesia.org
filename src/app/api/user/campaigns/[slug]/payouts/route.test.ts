@@ -81,6 +81,7 @@ vi.mock('@/lib/auth', () => ({
 
 import { getServerSession } from '@/lib/auth';
 import { GET } from './route';
+import { ledgerGroupBy } from '../../../../../../../tests/support/ledger-group-by';
 
 const mockCampaignFindUnique = fake.prisma.proxy.campaign.findUnique as unknown as Mock;
 const mockPaymentFindMany = fake.prisma.proxy.payment.findMany as unknown as Mock;
@@ -121,9 +122,9 @@ type PaymentRow = {
 };
 
 /**
- * Minimal in-memory stand-in for a transaction client, reusing the same
- * ledgerEntry.groupBy simulation as src/lib/money/ledger.test.ts so the two
- * balances are real sums over real rows.
+ * Minimal in-memory stand-in for a transaction client, using the shared
+ * ledgerEntry.groupBy simulation (tests/support/ledger-group-by.ts) so the
+ * two balances are real sums over real rows.
  */
 /**
  * Projects a mocked row down to the columns a query's `select` asked for, so
@@ -180,23 +181,7 @@ function makeTx(options: { ledgerRows?: LedgerRow[]; payments?: PaymentRow[] } =
         rows.push(...data);
         return { count: data.length };
       }),
-      groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
-        const filtered = rows.filter((r) => {
-          const w = args.where ?? {};
-          return Object.entries(w).every(([k, v]) => (r as never as Record<string, unknown>)[k] === v);
-        });
-        const buckets = new Map<string, { row: Record<string, unknown>; sum: number }>();
-        for (const r of filtered) {
-          const key = args.by.map((k) => String((r as never as Record<string, unknown>)[k])).join('|');
-          const b = buckets.get(key) ?? {
-            row: Object.fromEntries(args.by.map((k) => [k, (r as never as Record<string, unknown>)[k]])),
-            sum: 0,
-          };
-          b.sum += r.amount;
-          buckets.set(key, b);
-        }
-        return Array.from(buckets.values()).map((b) => ({ ...b.row, _sum: { amount: b.sum } }));
-      }),
+      groupBy: vi.fn(ledgerGroupBy(rows)),
     },
   };
   const tracked = fake.wrap(tx, 'tx');
