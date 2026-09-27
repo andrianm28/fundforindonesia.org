@@ -27,6 +27,14 @@ const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { sentCount: 0, consideredC
  * 3. Sends Kind Authorisation expiry warnings (sendKindAuthorisationExpiryWarnings,
  *    ./reminders.ts).
  *
+ * spec.md's own description of this entry point also names two further
+ * phases -- Refund link expiry and the 60-day unclaimed-balance report --
+ * neither of which ticket 20's own checklist asks for. Deliberately left out
+ * of this change rather than silently dropped: the unclaimed-balance report
+ * has nothing to hook into yet (Dormant Balance is unbuilt), and Refund link
+ * expiry belongs to whichever ticket owns that policy. Both are meant to
+ * join the phases below once their own tickets land, not be designed here.
+ *
  * Takes the current time as its only required argument and does nothing
  * with timers itself: a caller (a cron-triggered route, a container
  * scheduler) decides when and how often to invoke it, and a test drives it
