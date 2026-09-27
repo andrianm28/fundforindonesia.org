@@ -28,7 +28,7 @@ vi.mock("bcryptjs", () => ({
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
 import bcrypt from "bcryptjs";
-import { PASSWORD_CHANGE_HASH_COST } from "@/lib/password-hash-cost";
+import { PASSWORD_HASH_COST } from "@/lib/password-hash-cost";
 
 const mockedGetServerSession = vi.mocked(getServerSession);
 const mockedPrismaUserFindUnique = vi.mocked(prisma.user.findUnique);
@@ -195,7 +195,7 @@ describe("PATCH /api/user/password", () => {
     expect(response.status).toBe(200);
     expect(data.message).toBe("Password berhasil diubah");
 
-    expect(mockedBcryptHash).toHaveBeenCalledWith("newpass123", PASSWORD_CHANGE_HASH_COST);
+    expect(mockedBcryptHash).toHaveBeenCalledWith("newpass123", PASSWORD_HASH_COST);
     expect(mockedPrismaUserUpdate).toHaveBeenCalledWith({
       where: { id: "user-1" },
       data: { password: "$2a$10$hashednewpassword" },

@@ -34,7 +34,7 @@ vi.mock('@/lib/auth', () => ({
 
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
-import { REGISTRATION_HASH_COST } from '@/lib/password-hash-cost';
+import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import { getServerSession } from '@/lib/auth';
 import { POST as registerPOST } from '@/app/api/auth/register/route';
 import { GET as notificationsGET } from '@/app/api/notifications/route';
@@ -102,7 +102,7 @@ describe('Auth & Notifications Integration Tests', () => {
       expect(body.user.name).toBe('John Doe');
 
       // Verify bcrypt was used to hash the password
-      expect(mockBcryptHash).toHaveBeenCalledWith('securepass123', REGISTRATION_HASH_COST);
+      expect(mockBcryptHash).toHaveBeenCalledWith('securepass123', PASSWORD_HASH_COST);
 
       // Verify user was created with hashed password (not plain text)
       expect(mockUserCreate).toHaveBeenCalledWith({

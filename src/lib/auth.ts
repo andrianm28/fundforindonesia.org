@@ -4,6 +4,7 @@ import GoogleProvider from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { PASSWORD_HASH_COST, isHashAtCurrentCost } from "@/lib/password-hash-cost";
 import { Assignment } from "@/generated/prisma/client";
 
 export const authOptions: NextAuthOptions = {
@@ -39,6 +40,30 @@ export const authOptions: NextAuthOptions = {
 
         if (!isPasswordValid) {
           throw new Error("Email atau password salah");
+        }
+
+        // An account whose hash sits below the current factor — because an
+        // older password change re-hashed it more weakly, see ADR 0017 — is
+        // brought back up here, on the login where we hold the plaintext and
+        // without asking the user for anything. The factor is read off the
+        // stored hash's own prefix, so this is not a write on the request path:
+        // `authorize` runs on an actual sign-in, not per request, and once
+        // rewritten the hash reports the current factor and the next login
+        // skips this entirely. Best-effort, because failing to upgrade a hash
+        // must never cost a user their login.
+        if (!isHashAtCurrentCost(user.password)) {
+          try {
+            const rehashed = await bcrypt.hash(
+              credentials.password,
+              PASSWORD_HASH_COST
+            );
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { password: rehashed },
+            });
+          } catch (error) {
+            console.error("Failed to re-hash password at the current cost:", error);
+          }
         }
 
         return {
