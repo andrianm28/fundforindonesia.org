@@ -643,6 +643,14 @@ model Donation {
   guestPhoneCiphertext String?
   guestPhoneKeyId      String?
 
+  /// Whether the Wakif ticked the ikrar confirmation at checkout (CONTEXT.md,
+  /// Akad Wakaf; PRD user story 17: "confirm the ikrar by checkbox ... so
+  /// that the pledge is explicit rather than assumed"). Meaningless and left
+  /// false on every non-`wakaf` Donation; POST /api/donations refuses a
+  /// `wakaf` Donation where this is not explicitly true, so it can never be
+  /// an assumed default for the Kind that requires it.
+  ikrarConfirmed Boolean @default(false)
+
   // Relations
   campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   donor    User?     @relation(fields: [donorId], references: [id], onDelete: SetNull)
@@ -657,6 +665,9 @@ model Donation {
   /// Created once, the moment this Donation's Payment settles (prd-compliance
   /// 21) -- never before, since there is nothing to receipt until then.
   receipt  Receipt?
+  /// Created alongside the Receipt, only for a Donation on a `wakaf`
+  /// Campaign (CONTEXT.md, Akad Wakaf; ticket 22).
+  akadWakaf AkadWakaf?
 
   @@index([campaignId])
   @@index([donorId])
@@ -682,6 +693,27 @@ model Receipt {
   lastSentAt  DateTime?
   resendCount Int       @default(0)
   createdAt   DateTime  @default(now())
+
+  // Relations
+  donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
+}
+
+/// The Wakif's pledge document per Donation on a `wakaf` Campaign
+/// (CONTEXT.md, Akad Wakaf; ADR 0010; ticket 22), created once, alongside
+/// the Receipt, the moment that Donation's Payment settles -- never before,
+/// same reasoning as Receipt. Names the Wakif, the amount, the purpose and
+/// the nazhir; none of those are columns here because every one of them is
+/// read off the Donation/Campaign/Collecting Entity at render time, exactly
+/// like Receipt does, so there is nothing here to fall out of sync with them.
+///
+/// `token` gates its print page the same way Receipt's does: unguessable,
+/// never derived from the Donation id, since a Guest Donor (Wakif with no
+/// account) has no session to gate it with instead.
+model AkadWakaf {
+  id         String   @id @default(cuid())
+  donationId String   @unique
+  token      String   @unique
+  createdAt  DateTime @default(now())
 
   // Relations
   donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)

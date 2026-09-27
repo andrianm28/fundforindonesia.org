@@ -31,6 +31,20 @@ export interface DonationConfirmationProps {
     onPhoneChange: (value: string) => void;
     error?: string;
   };
+  /**
+   * Shown only for a Campaign ber-Kind `wakaf`: the explicit ikrar
+   * confirmation checkout carries (CONTEXT.md, Akad Wakaf; PRD user story
+   * 17), never assumed. `nazhirName` and `purpose` name who receives the
+   * wakaf and what for, the same Collecting Entity and Campaign title the
+   * Akad Wakaf document itself will carry.
+   */
+  ikrarWakaf?: {
+    confirmed: boolean;
+    onToggle: (value: boolean) => void;
+    nazhirName: string;
+    purpose: string;
+    error?: string;
+  };
 }
 
 const PRAYER_MAX_LENGTH = 500;
@@ -46,6 +60,7 @@ export function DonationConfirmation({
   onConfirm,
   isSubmitting,
   guestContact,
+  ikrarWakaf,
 }: DonationConfirmationProps) {
   const handlePrayerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -156,6 +171,35 @@ export function DonationConfirmation({
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
+        </div>
+      )}
+
+      {/* Ikrar Wakaf confirmation (CONTEXT.md, Akad Wakaf; PRD user story 17).
+          Wording here is a plain confirmation, not a formal syariah ikrar
+          formula -- neither the ticket nor CONTEXT.md defines one, and this
+          codebase does not invent syariah wording (ADR 0010). Flagged for
+          the owner: have this copy reviewed before it reaches a real Wakif. */}
+      {ikrarWakaf && (
+        <div className="space-y-1">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={ikrarWakaf.confirmed}
+              onChange={(e) => ikrarWakaf.onToggle(e.target.checked)}
+              className="mt-0.5 w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+              aria-invalid={!!ikrarWakaf.error}
+              aria-describedby={ikrarWakaf.error ? 'ikrar-wakaf-error' : undefined}
+            />
+            <span className="text-sm text-text">
+              Saya berikrar mewakafkan donasi ini untuk {ikrarWakaf.purpose}, diterima oleh{' '}
+              {ikrarWakaf.nazhirName} selaku nazhir.
+            </span>
+          </label>
+          {ikrarWakaf.error && (
+            <p id="ikrar-wakaf-error" className="text-xs text-danger" role="alert">
+              {ikrarWakaf.error}
+            </p>
+          )}
         </div>
       )}
 

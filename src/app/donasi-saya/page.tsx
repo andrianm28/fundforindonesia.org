@@ -21,6 +21,8 @@ interface DonationItem {
   };
   /** Set once this Donation has a Receipt (CONTEXT.md, Receipt) -- only after Settlement. */
   receiptToken: string | null;
+  /** Set once this Donation has an Akad Wakaf (CONTEXT.md, Akad Wakaf) -- only for a `wakaf` Campaign, after Settlement. */
+  akadWakafToken: string | null;
 }
 
 interface DonationsResponse {
@@ -140,6 +142,15 @@ function DonationCard({
           className="mt-2 inline-block text-[#0073E6] text-xs font-medium hover:underline"
         >
           Lihat &amp; Cetak Bukti Donasi
+        </a>
+      )}
+      {donation.paymentStatus === 'confirmed' && donation.akadWakafToken && (
+        <a
+          href={`/akad-wakaf/${donation.akadWakafToken}`}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-2 ml-3 inline-block text-[#0073E6] text-xs font-medium hover:underline"
+        >
+          Lihat &amp; Cetak Akad Wakaf
         </a>
       )}
     </div>
