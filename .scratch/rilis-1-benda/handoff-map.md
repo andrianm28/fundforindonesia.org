@@ -11,6 +11,36 @@ This session was **degraded** — see "Session health" below. The map, the
 scorecard and the glossary are all merged and correct; what needs a fresh
 window is the *judgement*, not the facts.
 
+## Prompt to open the next session with
+
+Copy the block below as the first message of a fresh session. It is
+deliberately short: the detail is in this file, which that session will read.
+
+```
+Baca dulu berurutan: CLAUDE.md, lalu .scratch/rilis-1-benda/handoff-map.md,
+lalu .scratch/rilis-1-benda/map.md.
+
+Kamu koordinator wayfinder untuk Rilis 1, bukan builder. Saya Dri, balas
+dalam bahasa Indonesia.
+
+Muat `ask-matt` dulu untuk routing, lalu `grill-with-docs`. Jangan jalankan
+/implement — peta belum handing off ke /to-spec, dan detail yang tertaut di
+sembilan tiket hilang kalau langsung build.
+
+Urutan kerja:
+1. Dispatch SATU review `/code-review` untuk PR #93. Pastikan benar-benar
+   jalan sebelum mengisi slot lain. Jangan percaya soal kredit tanpa bukti —
+   sesi sebelumnya gagal dispatch enam kali berturut-turut di dua provider.
+   Kalau ternyata masih mati, berhenti dan bilang. Jangan meyakinkan saya
+   bahwa bisa.
+2. Kalau jalan, isi slot tersisa dengan review PR #94 di kedua sumbu.
+3. Merge hanya kalau saya bilang "ya", dan kode uang hanya setelah review
+   independen.
+4. Setelah itu ambil tiket 01 (bank account verification) lewat
+   /grill-with-docs, dengan memuat skill-nya. Itu satu-satunya yang
+   memblokir uang benar-benar bergerak.
+```
+
 ## What this session did
 
 Continued the `rilis-1-benda` wayfinder map. The owner's decision this
