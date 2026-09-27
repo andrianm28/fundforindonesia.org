@@ -84,6 +84,14 @@ import { join } from "node:path";
  * (PRD FFI-05), through withAssignmentCheck on the ADMIN assignment like
  * every other Admin setting here -- growing this list by one.
  *
+ * NOTE (prd-compliance 38): POST /api/admin/abuse-thresholds sets the money and
+ * volume limits the platform watches itself against, and GET
+ * /api/admin/scrutiny is the Admin's read on what those limits caught (PRD
+ * §"Anti penyalahgunaan"). Both through withAssignmentCheck on the ADMIN
+ * assignment, like every other Admin setting here -- growing this list by two.
+ * The Active Campaign limit itself is enforced in the lifecycle module
+ * (campaign-lifecycle.ts), which is a Capacity judgement, not a route gate.
+ *
  * NOTE (csr-04): the Program edit was keyed by id when csr-01 landed, and the
  * public portfolio read needed the same segment for the slug a public link can
  * carry. Next.js allows one dynamic segment per level, so the segment is the
@@ -95,11 +103,13 @@ import { join } from "node:path";
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
+  "src/app/api/admin/abuse-thresholds/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/partnership-inquiries/[id]/route.ts",
   "src/app/api/admin/partnership-inquiries/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/reconcile/route.ts",
+  "src/app/api/admin/scrutiny/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",

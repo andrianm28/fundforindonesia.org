@@ -70,6 +70,10 @@ describe('submitCampaign', () => {
         isFirst: true,
         collectingEntityId: 'partner-1',
         proposedChanges: null,
+        // Which of the three kinds of request this is (prd-compliance 38): a
+        // submission from a Draft, submitted by a person.
+        kind: 'SUBMISSION',
+        raisedByAmount: null,
       },
     ]);
     expect(db.statusChanges).toEqual([

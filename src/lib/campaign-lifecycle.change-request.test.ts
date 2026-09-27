@@ -72,6 +72,8 @@ describe('requestCampaignChange', () => {
         isFirst: false,
         collectingEntityId: 'partner-1',
         proposedChanges: { targetAmount: 100_000_000, deadline: NEW_DEADLINE.toISOString() },
+        kind: 'CHANGE',
+        raisedByAmount: null,
       },
     ]);
     // A change request moves no status, so it logs no status change.
@@ -99,7 +101,7 @@ describe('requestCampaignChange', () => {
     const seeded = makeCampaignDb({
       campaigns: [campaignRow({ lifecycleStatus: 'ACTIVE', deadline: DEADLINE, targetAmount: 50_000_000 })],
       checklistItems: CHECKLIST,
-      verificationRequests: [verificationRequestRow({ proposedChanges: { targetAmount: 60_000_000 } })],
+      verificationRequests: [verificationRequestRow({ kind: 'CHANGE', proposedChanges: { targetAmount: 60_000_000 } })],
     });
 
     const error = await requestCampaignChange(seeded.prisma as never, {

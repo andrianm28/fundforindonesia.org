@@ -33,7 +33,9 @@ export type LifecycleErrorCode =
   | "ACTIVE_CONTENT_FROZEN"
   | "VERIFICATION_REQUEST_NOT_FOUND"
   | "VERIFICATION_REQUEST_NOT_PENDING"
+  | "AMOUNT_REVIEW_NOT_WITHDRAWABLE"
   | "CHANGE_REQUEST_ALREADY_PENDING"
+  | "TOO_MANY_ACTIVE_CAMPAIGNS"
   | "REQUIRED_CHECKLIST_ITEMS_UNTICKED"
   | "DEADLINE_REQUIRED"
   | "DEADLINE_NOT_EDITABLE"
@@ -138,6 +140,13 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   VERIFICATION_REQUEST_NOT_PENDING: 409,
   // A second change asked while the first still waits for a Verifier.
   CHANGE_REQUEST_ALREADY_PENDING: 409,
+  // A Verifikasi Tambahan is the System's, so the Fundraiser asking to
+  // withdraw it is a conflict with who owns the record, not a bad input.
+  AMOUNT_REVIEW_NOT_WITHDRAWABLE: 409,
+  // The Fundraiser is already at the Active Campaign limit, so this approval
+  // would open one more: a conflict with the Campaign's own state, which
+  // clears by itself when one of theirs leaves Active.
+  TOO_MANY_ACTIVE_CAMPAIGNS: 409,
   // Like MISSING_CAMPAIGN_UPDATE: an unmet precondition the actor can fix
   // (tick the items), not a status conflict another actor caused.
   REQUIRED_CHECKLIST_ITEMS_UNTICKED: 422,

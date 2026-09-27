@@ -113,10 +113,76 @@ type LedgerRow = {
 function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
   const { paymentUpdateManyCount = 1 } = options;
   const ledgerRows: LedgerRow[] = [];
+  // What the abuse thresholds left behind in the settlement's transaction
+  // (prd-compliance 38), as rows rather than as calls: the Donation's
+  // marker, the Campaign's audit marker and the Verifikasi Tambahan.
+  const donationMarkers: Record<string, unknown>[] = [];
+  const auditMarkers: Record<string, unknown>[] = [];
+  const verificationRequests: Record<string, unknown>[] = [];
+  // Stands in for the threshold history: empty, so the PRD's own numbers are
+  // in force, exactly as on a database no Admin has configured yet.
+  const thresholds: { kind: string; value: number }[] = [];
   const tx = {
     payment: { updateMany: vi.fn().mockResolvedValue({ count: paymentUpdateManyCount }) },
-    donation: { update: vi.fn().mockResolvedValue({}) },
-    campaign: { update: vi.fn().mockResolvedValue({}) },
+    donation: {
+      update: vi.fn().mockResolvedValue({}),
+      // Read by the abuse thresholds (prd-compliance 38) after the
+      // collectedAmount increment. An ordinary Donation by default, so a test
+      // about thresholds overrides this with the amount it needs.
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({
+        id: where.id,
+        amount: 100_000,
+        campaign: { id: 'campaign-1', collectedAmount: 100_000, isDemo: false },
+      })),
+    },
+    campaign: {
+      update: vi.fn().mockResolvedValue({}),
+      findUnique: vi.fn(async () => ({
+        id: 'campaign-1',
+        creatorId: 'creator-1',
+        lifecycleStatus: 'ACTIVE',
+        deadline: null,
+        kind: 'DONATION',
+        collectingEntityId: 'org-1',
+      })),
+      findUniqueOrThrow: vi.fn(async () => ({
+        id: 'campaign-1',
+        creatorId: 'creator-1',
+        lifecycleStatus: 'ACTIVE',
+        deadline: null,
+        kind: 'DONATION',
+        collectingEntityId: 'org-1',
+      })),
+    },
+    abuseThreshold: { findMany: vi.fn(async () => thresholds) },
+    donationReviewMarker: {
+      upsert: vi.fn(async ({ where, create }: { where: { donationId: string }; create: Record<string, unknown> }) => {
+        const existing = donationMarkers.find((m) => m.donationId === where.donationId);
+        if (existing) return existing;
+        const row = { id: 'donation-marker-1', ...create };
+        donationMarkers.push(row);
+        return row;
+      }),
+    },
+    campaignAuditMarker: {
+      upsert: vi.fn(async ({ where, create }: { where: { campaignId: string }; create: Record<string, unknown> }) => {
+        const existing = auditMarkers.find((m) => m.campaignId === where.campaignId);
+        if (existing) return existing;
+        const row = { id: 'audit-marker-1', ...create };
+        auditMarkers.push(row);
+        return row;
+      }),
+    },
+    verificationRequest: {
+      findFirst: vi.fn(async () => null),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: 'verification-amount-1', ...data };
+        verificationRequests.push(row);
+        return row;
+      }),
+    },
+    verificationChecklistItem: { findMany: vi.fn(async () => []) },
+    $queryRaw: vi.fn(async () => [{ id: 'campaign-1' }]),
     receipt: { create: vi.fn().mockResolvedValue({}) },
     akadWakaf: { create: vi.fn().mockResolvedValue({}) },
     webhookEvent: { update: vi.fn().mockResolvedValue({}) },
@@ -128,7 +194,7 @@ function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
       }),
     },
   };
-  return { tx, ledgerRows };
+  return { tx, ledgerRows, donationMarkers, auditMarkers, verificationRequests };
 }
 
 function makePayment(overrides: Record<string, unknown> = {}) {
@@ -457,6 +523,64 @@ describe('POST /api/webhooks/[provider]', () => {
     });
 
     expect(mockNotificationCreateMany).toHaveBeenCalled();
+  });
+
+  it('leaves the abuse thresholds nothing to do for an ordinary Donation (prd-compliance 38)', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    const { tx, donationMarkers, auditMarkers, verificationRequests } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(donationMarkers).toEqual([]);
+    expect(auditMarkers).toEqual([]);
+    expect(verificationRequests).toEqual([]);
+  });
+
+  it('marks a large Donation and its Campaign in the settlement transaction, and never blocks the money (prd-compliance 38)', async () => {
+    // A Rp600 juta Donation: above the single-Donation limit, above both
+    // Campaign limits, and the Donation that carried the Campaign past them.
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, grossAmount: 600_000_000 }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ amount: 600_000_000 }));
+    const { tx, ledgerRows, donationMarkers, auditMarkers, verificationRequests } = makeTx();
+    (tx.donation.findUnique as Mock).mockResolvedValue({
+      id: 'donation-1',
+      amount: 600_000_000,
+      campaign: { id: 'campaign-1', collectedAmount: 600_000_000, isDemo: false },
+    });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    // The money settled exactly as it would have: the ledger is balanced and
+    // the Campaign is credited. Nothing about the Donation is held back.
+    expect(response.status).toBe(200);
+    const debits = ledgerRows.filter((r) => r.direction === 'DEBIT').reduce((s, r) => s + r.amount, 0);
+    const credits = ledgerRows.filter((r) => r.direction === 'CREDIT').reduce((s, r) => s + r.amount, 0);
+    expect(debits).toBe(credits);
+    expect(tx.campaign.update).toHaveBeenCalledWith({
+      where: { id: 'campaign-1' },
+      data: { collectedAmount: { increment: 600_000_000 } },
+    });
+
+    expect(donationMarkers).toEqual([
+      expect.objectContaining({ donationId: 'donation-1', amount: 600_000_000, threshold: 50_000_000 }),
+    ]);
+    expect(auditMarkers).toEqual([
+      expect.objectContaining({ campaignId: 'campaign-1', cumulativeGross: 600_000_000, threshold: 500_000_000 }),
+    ]);
+    expect(verificationRequests).toEqual([
+      expect.objectContaining({
+        campaignId: 'campaign-1',
+        kind: 'AMOUNT_REVIEW',
+        submittedById: null,
+        raisedByAmount: { cumulativeGross: 600_000_000, threshold: 100_000_000 },
+      }),
+    ]);
   });
 
   it('creates the Receipt inside the settlement transaction and emails it to a registered Donor, naming the Collecting Entity (prd-compliance 21)', async () => {
