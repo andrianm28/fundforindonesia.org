@@ -519,16 +519,16 @@ export async function programBalance(tx: Prisma.TransactionClient, programId: st
  * on the wrong side of the world.
  *
  * WHICH WAS THE DISAGREEMENT, AND WHY IT IS SETTLED BY THE CODE RATHER THAN BY
- * A COMMENT. schema.prisma used to document this account as "Credit-normal,
- * the one account that only ever grows", which reads as the opposite. It is
- * wrong about the convention and right about the growth: the account is never
- * debited from, so its figure only ever rises -- but the movement that puts the
- * money there is a DEBIT, so the balance is debits - credits. "Only ever
- * grows" and "credit-normal" are different claims, and the ledger is the only
- * place that decides which one holds. The claim is now pinned by tests in
- * ledger.test.ts, and accountTotal is the one place a balance is summed, so a
- * new account has to declare its sign rather than copy a query and keep
- * whichever comment was closest.
+ * A COMMENT. schema.prisma used to document this account as credit-normal, and
+ * a doc that says the opposite of the movement two paragraphs above it leaves a
+ * reader to adjudicate between them. So the sign is stated once, here, next to
+ * the legs that make it true: the sweep DEBITS this account, so the balance is
+ * debits - credits. That claim is written in two places -- the enum member in
+ * schema.prisma and this comment -- and it was left contradicting itself in
+ * both, so ledger.test.ts checks the same two rules against both files rather
+ * than against whichever one it was pointed at. And accountTotal is the one
+ * place a balance is summed, so a new account has to declare its sign rather
+ * than copy a query and keep whichever comment was closest.
  */
 export async function collectionAccountBalance(tx: Prisma.TransactionClient): Promise<number> {
   return accountTotal(tx, { account: 'COLLECTION_ACCOUNT' }, 'debit');

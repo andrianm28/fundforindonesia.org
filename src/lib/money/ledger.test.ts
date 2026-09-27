@@ -604,35 +604,71 @@ describe('collectionAccountBalance', () => {
     expect([...new Set(directions)]).toEqual(['DEBIT']);
   });
 
-  it('documents the one direction this account has, in the schema, with nothing left that argues with it', async () => {
-    // The disagreement this repo had about the Collection Account was never in
-    // the code -- it always DEBITS, read debits - credits, which is what
-    // collectionAccountBalance does and what the two tests above pin. It was in
-    // the comment on the enum member, which said the account was "only ever
-    // grows" and that "nothing debits this account" in the same breath as the
-    // sweep DEBITS it. Both halves cannot be true, and a reader who has to
-    // choose ends up choosing a half.
-    //
-    // So the claim is pinned where it is written rather than left to be
-    // resolved by whoever opens the file next: the doc may not deny the debit,
-    // and it must still say which way the figure is read, so deleting the
-    // false claim cannot pass by deleting the answer along with it.
-    const { readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
-    const schema = readFileSync(join(process.cwd(), 'prisma', 'schema.prisma'), 'utf8');
+  /**
+   * The claim is written in TWO places -- the enum member in schema.prisma and
+   * the reader in ledger.ts -- and it was contradicted in BOTH. A guard that
+   * reads one of them is green while the other copy says the opposite, which is
+   * how "only ever grows" was deleted from the schema and survived two lines
+   * below a paragraph saying the sweep DEBITS the account. So both files are
+   * read here, from one table, against the same two rules: the doc may not deny
+   * the debit, and it must still say which way the figure is read, so deleting
+   * the false claim cannot pass by deleting the answer with it.
+   *
+   * One table rather than a per-file `it` block on purpose: a block per file
+   * can lose one file to an edit and leave the other passing, which is the
+   * failure this table exists to make impossible to overlook.
+   */
+  const DOC_BLOCKS = [
+    {
+      place: 'the enum member in prisma/schema.prisma',
+      source: `${process.cwd()}/prisma/schema.prisma`,
+      // The enum member's OWN doc block: every `///` line between the last
+      // non-comment line and the member, not one of the paragraphs on the way
+      // up to it. A bare `///` paragraph break is part of the block, so the
+      // run matches `///` with or without text after it.
+      pattern: /\n((?: {2}\/\/\/.*\n)+) {2}COLLECTION_ACCOUNT\n/,
+    },
+    {
+      place: 'collectionAccountBalance in src/lib/money/ledger.ts',
+      source: `${process.cwd()}/src/lib/money/ledger.ts`,
+      // The nearest `/** ... */` before the declaration, which is that
+      // function's own doc block rather than one of the paragraphs on the way
+      // up to it: `[\s\S]*?` is lazy, so it stops at the first `*/`.
+      pattern: /\/\*\*([\s\S]*?)\*\/\nexport async function collectionAccountBalance\b/,
+    },
+  ];
 
-    // The enum member's OWN doc block: every `///` line between the last
-    // non-comment line and the member, not one of the paragraphs on the way
-    // up to it. A bare `///` paragraph break is part of the block, so the
-    // run matches `///` with or without text after it.
-    const doc = /\n((?: {2}\/\/\/.*\n)+) {2}COLLECTION_ACCOUNT\n/.exec(schema);
-    expect(doc).not.toBeNull();
-    const comment = doc![1];
+  it.each(DOC_BLOCKS)(
+    'documents the one direction this account has, in $place, with nothing left that argues with it',
+    async ({ source, pattern }) => {
+      // The disagreement this repo had about the Collection Account was never in
+      // the code -- it always DEBITS, read debits - credits, which is what
+      // collectionAccountBalance does and what the two tests above pin. It was
+      // in the comments, which said the account was "only ever grows" and that
+      // "nothing debits this account" in the same breath as the sweep DEBITS
+      // it. Both halves cannot be true, and a reader who has to choose ends up
+      // choosing a half.
+      //
+      // So the claim is pinned where it is written rather than left to be
+      // resolved by whoever opens the file next. Every phrasing of the growth
+      // claim is named, not just the one that was there: the wording is what
+      // gets re-invented, and a guard against one string guards one string.
+      const { readFileSync } = await import('node:fs');
+      const doc = pattern.exec(readFileSync(source, 'utf8'));
+      expect(doc).not.toBeNull();
+      const comment = doc![1];
 
-    expect(comment).not.toMatch(/only ever grows/i);
-    expect(comment).not.toMatch(/nothing debits/i);
-    expect(comment).toMatch(/debits\s*-\s*credits/i);
-  });
+      for (const denial of [
+        /only ever grows/i,
+        /only ever rises/i,
+        /nothing debits/i,
+        /never (?:is )?debited/i,
+      ]) {
+        expect(comment).not.toMatch(denial);
+      }
+      expect(comment).toMatch(/debits\s*-\s*credits/i);
+    },
+  );
 });
 
 describe('providerBalances', () => {
