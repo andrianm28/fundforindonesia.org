@@ -95,6 +95,7 @@ model User {
   platformFeeRulesSet      PlatformFeeRule[]
   platformFeeThresholdsSet PlatformFeeThreshold[]
   duplicateSimilarityThresholdsSet DuplicateSimilarityThreshold[]
+  abuseThresholdsSet               AbuseThreshold[]
 
   @@index([email])
   @@index([emailHmac])
@@ -388,6 +389,8 @@ model Campaign {
   flags                CampaignFlag[]
   verificationRequests VerificationRequest[]
   platformFeeRules     PlatformFeeRule[]
+  auditMarker          CampaignAuditMarker?
+  donationReviewMarkers DonationReviewMarker[]
 
   @@index([slug])
   @@index([category])
@@ -553,10 +556,30 @@ enum VerificationOutcome {
 /// refusals survives; nothing is ever deleted. At most one is PENDING per
 /// Campaign: only a Draft or Rejected Campaign can be submitted, and
 /// submitting makes it Submitted, both under the Campaign row lock.
+/// What a Verification Request is for. Two of the three are asked for by a
+/// Fundraiser and decided by a Verifier; the third is raised by the System
+/// because a Campaign's money crossed a threshold (prd-compliance 38).
+enum VerificationRequestKind {
+  /// Submitted from a Draft or Rejected Campaign. The only kind that moves
+  /// the Campaign to Active or back to Rejected.
+  SUBMISSION
+  /// An Active Campaign asking for a new target or deadline; it keeps
+  /// running on its old values until the request is decided (ticket 12).
+  CHANGE
+  /// The extra Verifier review a Campaign earns by crossing the cumulative
+  /// Gross threshold (CONTEXT.md, Verifikasi Tambahan). Raised by the
+  /// System, so it moves no status either way and the Fundraiser cannot
+  /// withdraw it: a review the person under review could cancel is not a
+  /// review.
+  AMOUNT_REVIEW
+}
+
 model VerificationRequest {
   id            String              @id @default(cuid())
   campaignId    String
-  submittedById String
+  /// Null only on an AMOUNT_REVIEW, which the System raises and no person
+  /// submits (prd-compliance 38); `kind` is what says so.
+  submittedById String?
   submittedAt   DateTime            @default(now())
   /// The active checklist items as they stood at submission, with the
   /// Verifier's ticks: [{ id, label, required, position, ticked }].
@@ -572,9 +595,21 @@ model VerificationRequest {
   isFirst       Boolean
   /// A change asked for an Active Campaign (ticket 12, FFI-05): the new
   /// target and/or deadline the Campaign keeps running without until a
-  /// Verifier approves this request. Null on every submission from Draft or
-  /// Rejected. Approving applies it; rejecting or withdrawing discards it.
+  /// Verifier approves this request. Null on every SUBMISSION and on every
+  /// AMOUNT_REVIEW. Approving applies it; rejecting or withdrawing discards it.
   proposedChanges Json?
+  /// Which of the three kinds of request this is (prd-compliance 38).
+  /// Backfilled from `proposedChanges` by the migration that added it, so
+  /// every request already in the table says which kind it is instead of
+  /// being inferred from a nullable JSON column.
+  kind           VerificationRequestKind @default(SUBMISSION)
+  /// Why the System raised an AMOUNT_REVIEW: the Campaign's Cumulative Gross
+  /// and the threshold it had passed, as `{ cumulativeGross, threshold }`.
+  /// Null on the other two kinds. Kept on the request rather than re-derived
+  /// at read time, because the Verifier judges the Campaign as it stood when
+  /// the review was raised, and a later Donation would move the number under
+  /// them.
+  raisedByAmount Json?
   /// The Campaign's Collecting Entity when it was submitted: the one the
   /// Verifier confirms by approving (prd-compliance 10). Null on requests
   /// submitted before this column existed.
@@ -583,7 +618,7 @@ model VerificationRequest {
   // Relations
   campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   collectingEntity PartnerOrganisation? @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
-  submittedBy User     @relation("VerificationRequestSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  submittedBy User?    @relation("VerificationRequestSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
   decidedBy   User?    @relation("VerificationRequestDecider", fields: [decidedById], references: [id], onDelete: Restrict)
 
   @@index([outcome, submittedAt])
@@ -826,6 +861,11 @@ model Donation {
   /// Created alongside the Receipt, only for a Donation on a `wakaf`
   /// Campaign (CONTEXT.md, Akad Wakaf; ticket 22).
   akadWakaf AkadWakaf?
+
+  /// Set once, the moment this Donation settles above the single-Donation
+  /// review threshold, and read by nobody but the Admin's scrutiny view
+  /// (prd-compliance 38). It marks the Donation; it does not change it.
+  reviewMarker DonationReviewMarker?
 
   @@index([campaignId])
   @@index([donorId])
@@ -1211,6 +1251,91 @@ model DuplicateSimilarityThreshold {
   setBy User @relation(fields: [setById], references: [id], onDelete: Restrict)
 
   @@index([setAt])
+}
+
+/// The four money-and-volume limits the platform watches itself against
+/// (PRD §"Anti penyalahgunaan"; CONTEXT.md, Verifikasi Tambahan, Penanda
+/// Audit, Penanda Donasi; prd-compliance 38).
+///
+/// A separate table from DuplicateSimilarityThreshold on purpose, though the
+/// pattern is the same one: both are Admin settings an append-only history
+/// answers, but that threshold is a trigram score compared between two
+/// Campaigns at review time, and these are rupiah amounts and a Campaign
+/// count compared against money that has actually arrived. One place per
+/// question, never one place per Admin who typed a number.
+enum AbuseThresholdKind {
+  /// Cumulative Gross on one Campaign above which a Verifier reviews it again.
+  CAMPAIGN_REVIEW_GROSS
+  /// Cumulative Gross on one Campaign above which the Campaign carries an audit marker.
+  CAMPAIGN_AUDIT_GROSS
+  /// One Donation above which an Admin is pointed at it. Never blocks it.
+  DONATION_REVIEW_AMOUNT
+  /// How many Active Campaigns one Fundraiser may run before their first Usage Report.
+  ACTIVE_CAMPAIGNS_PER_FUNDRAISER
+}
+
+/// One threshold in force, as an Admin set it: the row with the latest setAt
+/// for a kind is the current value, and setById/setAt on it are the "who and
+/// when". Nothing is seeded, so with no row set the PRD's own numbers apply,
+/// read from code (resolveAbuseThresholds, src/lib/abuse-thresholds.ts) the
+/// way an unset Platform Fee resolves to 0 bps.
+model AbuseThreshold {
+  id      String            @id @default(cuid())
+  kind    AbuseThresholdKind
+  /// Rupiah for the three money limits, a plain count for
+  /// ACTIVE_CAMPAIGNS_PER_FUNDRAISER. Int, like every amount in this schema.
+  value   Int
+  setById String
+  setAt   DateTime          @default(now())
+
+  setBy User @relation(fields: [setById], references: [id], onDelete: Restrict)
+
+  @@index([kind, setAt])
+}
+
+/// The audit marker a Campaign carries once its Cumulative Gross has passed
+/// the audit threshold (CONTEXT.md, Penanda Audit). One row per Campaign --
+/// the unique campaignId is what makes a second settlement above the
+/// threshold a no-op rather than a second marker -- carrying the Gross and the
+/// threshold in force at the moment it was placed, so the marker says why it
+/// is there without re-deriving anything.
+///
+/// A marker, not a decision: it changes no status, blocks no Donation and
+/// nobody is asked to do anything by it being written. It is the record that
+/// the platform noticed the size of a Campaign, which an audit reads later.
+model CampaignAuditMarker {
+  id               String   @id @default(cuid())
+  campaignId       String   @unique
+  cumulativeGross  Int
+  threshold        Int
+  placedAt         DateTime @default(now())
+
+  // Relations
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+}
+
+/// One Donation above the single-Donation threshold, pointed at for an Admin
+/// (CONTEXT.md, Penanda Donasi). One row per Donation, by the same unique
+/// donationId argument as the audit marker: the Donation is the thing being
+/// looked at, so a retried settlement must not turn it into several.
+///
+/// Nothing is blocked and no status moves. The Donation settled, the money is
+/// in the books, and an Admin is told it is unusual -- which is the whole
+/// point: the alternative, refusing the money, is what loses the platform the
+/// evidence.
+model DonationReviewMarker {
+  id         String   @id @default(cuid())
+  donationId String   @unique
+  campaignId String
+  amount     Int
+  threshold  Int
+  flaggedAt  DateTime @default(now())
+
+  // Relations
+  donation Donation @relation(fields: [donationId], references: [id], onDelete: Restrict)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+
+  @@index([campaignId, flaggedAt])
 }
 
 /// Every webhook the platform has accepted, by provider event id.

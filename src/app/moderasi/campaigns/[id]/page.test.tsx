@@ -46,6 +46,11 @@ const PENDING_REQUEST = {
   submittedAt: new Date('2026-09-24T08:00:00Z'),
   outcome: 'PENDING',
   isFirst: true,
+  // A request raised by a Fundraiser is a SUBMISSION; the System's
+  // Verifikasi Tambahan is the third kind (prd-compliance 38), and what it
+  // carries that a submission does not.
+  kind: 'SUBMISSION' as 'SUBMISSION' | 'CHANGE' | 'AMOUNT_REVIEW',
+  raisedByAmount: null as unknown,
   checklist: [
     { id: 'item-1', label: 'KTP penanggung jawab', required: true, position: 1, ticked: false },
     { id: 'item-2', label: 'Foto kondisi lapangan', required: false, position: 2, ticked: false },
@@ -126,8 +131,7 @@ describe('the Collecting Entity on the moderation page (prd-compliance 10)', () 
 });
 
 describe('the moderation page of one Campaign', () => {
-  it("renders the open request's checklist with tick boxes, a reason field, and approve and reject", async () => {
-    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
+  it("renders the open request's checklist with tick boxes, a reason field, and approve and reject", async () => {    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
 
     expect(screen.getByText('Diajukan')).toBeDefined();
     const ktp = screen.getByRole('checkbox', { name: /KTP penanggung jawab/ }) as HTMLInputElement;
@@ -139,8 +143,24 @@ describe('the moderation page of one Campaign', () => {
     expect(screen.getByRole('button', { name: /Tolak/ })).toBeDefined();
   });
 
-  it('asks for an optional identity note when the Fundraiser has no Identity Verification yet', async () => {
-    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
+  it('says why an amount review is open, and that deciding it does not freeze the Campaign (prd-compliance 38)', async () => {
+    await renderFor(campaign('ACTIVE'), {
+      request: {
+        ...PENDING_REQUEST,
+        kind: 'AMOUNT_REVIEW' as const,        isFirst: false,
+        raisedByAmount: { cumulativeGross: 120_000_000, threshold: 100_000_000 },
+      },
+    });
+
+    expect(screen.getByText('Verifikasi Tambahan')).toBeDefined();
+    expect(screen.getByText(/tidak membekukan Campaign dan tidak memblokir donasi baru/)).toBeDefined();
+    // The Gross the Verifier is judging the Campaign at, not a figure
+    // recomputed from whatever has been collected since.
+    expect(screen.getByText(/Rp120.000.000/)).toBeDefined();
+    expect(screen.getByText(/Rp100.000.000/)).toBeDefined();
+  });
+
+  it('asks for an optional identity note when the Fundraiser has no Identity Verification yet', async () => {    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
 
     expect(screen.getByRole('textbox', { name: /Catatan verifikasi identitas/ })).toBeDefined();
   });

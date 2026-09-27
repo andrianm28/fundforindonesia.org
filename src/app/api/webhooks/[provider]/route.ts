@@ -20,6 +20,7 @@ import {
 import { generateReceiptToken } from '@/lib/receipt-token';
 import { receiptEmail, resolveReceiptRecipient } from '@/lib/mail/receipt';
 import { generateAkadWakafToken } from '@/lib/akad-wakaf-token';
+import { evaluateSettledDonationScrutiny } from '@/lib/scrutiny';
 import { withAkadWakaf } from '@/lib/mail/akad-wakaf';
 import { sendReportingFailure } from '@/lib/mail';
 import { publicUrl } from '@/lib/public-url';
@@ -432,6 +433,17 @@ export async function POST(
             where: { id: campaign.id },
             data: { collectedAmount: { increment: payment.amount } },
           });
+
+          // What the money just collected is worth looking at (prd-compliance
+          // 38, PRD §"Anti penyalahgunaan"): a Donation above the
+          // single-Donation limit is marked for an Admin, a Campaign past an
+          // amount limit carries an audit marker and earns a Verifikasi
+          // Tambahan. Read here, in the settlement's own transaction and
+          // after the increment above, so the limits are judged against the
+          // Gross this Donation brought the Campaign to -- and skipped by
+          // nobody who would rather not be judged. Nothing here blocks or
+          // reverses anything; see src/lib/scrutiny.ts.
+          await evaluateSettledDonationScrutiny(tx, { donationId: donation!.id, now: paidAt });
 
           // Deriving the ledger transactionId from the provider event id makes
           // the ledger idempotent on the same key the WebhookEvent table is --
