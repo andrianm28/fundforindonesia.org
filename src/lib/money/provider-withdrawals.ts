@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient, ProviderWithdrawal } from '@/generated/prisma/client';
 import { collectionAccountWithdrawalLegs, postTransaction, providerBalances, type ProviderBalance } from './ledger';
 import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
+import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments';
 import {
   ProviderWithdrawalAmountError,
   ProviderWithdrawalDuplicateError,
@@ -76,7 +77,11 @@ const MAX_RUPIAH_AMOUNT = 2_147_483_647;
 const MAX_TEXT_LENGTH = 500;
 
 export interface RecordProviderWithdrawalParams {
-  /** Which Payment Provider, exactly as the provider's own dashboard names it. */
+  /**
+   * Which Payment Provider the Admin read the dashboard on. Typed as the
+   * dashboard spells it; resolved through the provider registry before it
+   * touches money, so it is the same string the webhooks stamp.
+   */
   provider: string;
   /** The provider's own reference for this disbursement. The claim. */
   reference: string;
@@ -107,6 +112,32 @@ function cleanText(value: unknown, field: string): string {
     throw new ProviderWithdrawalInputError(`${field} paling panjang ${MAX_TEXT_LENGTH} karakter.`);
   }
   return trimmed;
+}
+
+/**
+ * The provider's name as the ledger already knows it, from whatever the Admin
+ * typed on the form.
+ *
+ * The name is a join key here, not a label: the Provider Balance is split by
+ * exact string equality, and the settlements filling it were stamped by the
+ * webhook route with the provider's own canonical name. So free text would let
+ * "Sumopod" -- the spelling on the dashboard -- put a sweep's credit in a
+ * second pot, and the report would show two providers, each reconciling
+ * exactly, for one provider. Resolving through the registry is what keeps this
+ * module from being the second place that names a provider.
+ */
+function canonicalProviderName(value: unknown): string {
+  const typed = cleanText(value, 'Nama penyedia pembayaran');
+  try {
+    return canonicalPaymentProviderName(typed);
+  } catch (err) {
+    if (err instanceof UnknownPaymentProviderError) {
+      throw new ProviderWithdrawalInputError(
+        `Penyedia pembayaran tidak dikenal: ${typed}. Gunakan nama penyedia yang terdaftar.`,
+      );
+    }
+    throw err;
+  }
 }
 
 function assertAmount(value: unknown, field: string, rule: 'positive' | 'nonNegative'): number {
@@ -151,7 +182,7 @@ export async function recordProviderWithdrawal(
   prisma: PrismaClient,
   params: RecordProviderWithdrawalParams,
 ): Promise<ProviderWithdrawal> {
-  const provider = cleanText(params.provider, 'Nama penyedia pembayaran');
+  const provider = canonicalProviderName(params.provider);
   const reference = cleanText(params.reference, 'Referensi penarikan dari penyedia');
   const destinationName = cleanText(params.destinationName, 'Nama pemilik rekening tujuan');
   const amount = assertAmount(params.amount, 'Nominal penarikan', 'positive');

@@ -78,6 +78,28 @@ const BUILDERS: Record<string, () => PaymentProvider> = {
 };
 
 /**
+ * The one name this build knows a provider by, or UnknownPaymentProviderError.
+ *
+ * Split from getPaymentProvider because a provider's name is needed by code
+ * that never talks to the provider: the money layer stamps it on ledger entries,
+ * and the Provider Balance is split by exact string equality (ledger.ts's
+ * providerBalances). So an Admin who writes "Sumopod" -- the spelling on the
+ * dashboard -- and a webhook that stamps "sumopod" are two pots to the ledger,
+ * and the sweep's credit lands in a bucket the pot that was checked never had.
+ * Every piece of code that names a provider goes through here, which is what
+ * makes the registry the one list rather than a convention.
+ *
+ * No adapter is built, and none is needed: the answer is which name, not whether
+ * the provider is reachable. Only the webhook path, which actually calls the
+ * provider, has to care about configuration.
+ */
+export function canonicalPaymentProviderName(name: string): string {
+  const canonical = name.toLowerCase();
+  if (!BUILDERS[canonical]) throw new UnknownPaymentProviderError(name);
+  return canonical;
+}
+
+/**
  * The provider a given call should use.
  *
  * With no argument this is the provider currently taking money, named by
@@ -91,7 +113,5 @@ const BUILDERS: Record<string, () => PaymentProvider> = {
  */
 export function getPaymentProvider(name?: string): PaymentProvider {
   const requested = name === undefined ? (process.env.PAYMENT_PROVIDER ?? 'mock') : name;
-  const build = BUILDERS[requested.toLowerCase()];
-  if (!build) throw new UnknownPaymentProviderError(requested);
-  return build();
+  return BUILDERS[canonicalPaymentProviderName(requested)]();
 }
