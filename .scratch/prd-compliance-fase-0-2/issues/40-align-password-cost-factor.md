@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in progress
+**Status:** done (PR #90, sha 81a3053)
 
-- [ ] One cost factor is defined in a single place and used by every path that hashes a password
-- [ ] Registration and password change produce hashes of the same strength
-- [ ] Accounts already downgraded to the weaker cost are re-hashed at the stronger cost on their next successful login, without asking the user to do anything
-- [ ] A test proves a password change does not lower the cost factor of the stored hash
-- [ ] Decide and record whether the shared factor is 12 or something else; ticket 41 changes what that number costs in latency, so the two interact
+- [x] One cost factor is defined in a single place and used by every path that hashes a password
+- [x] Registration and password change produce hashes of the same strength
+- [x] Accounts already downgraded to the weaker cost are re-hashed at the stronger cost on their next successful login, without asking the user to do anything
+- [x] A test proves a password change does not lower the cost factor of the stored hash
+- [x] Decide and record whether the shared factor is 12 or something else; ticket 41 changes what that number costs in latency, so the two interact
 
 **Notes:** Both values date to the initial commit (`d9b9c54`), so no regression introduced this: it has always been this way. Measured locally with bcryptjs, cost 12 is roughly 4x the work of cost 10 (409ms vs 104ms per operation).
 
