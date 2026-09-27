@@ -207,6 +207,13 @@ model Campaign {
   lifecycleStatus CampaignStatus @default(DRAFT)
   isUrgent        Boolean   @default(false)
   deadline        DateTime?
+  /// Stamped once the scheduled job (runScheduledJobs, ticket 20) sends the
+  /// deadline reminder to this Campaign's Fundraiser. Null until then, so the
+  /// same reminder is never sent twice -- claimed via a predicated
+  /// `updateMany` (WHERE deadlineReminderSentAt IS NULL) before sending,
+  /// mirroring Payment.escrowReleasedAt's own claim pattern, so two
+  /// overlapping scheduler runs still send exactly one reminder.
+  deadlineReminderSentAt DateTime?
   creatorId       String
   /// The Partner Organisation under whose Fundraising Permit this Campaign
   /// collects (CONTEXT.md, Collecting Entity; ADR 0010). Always a Partner
@@ -267,6 +274,7 @@ model Campaign {
   @@index([creatorId])
   @@index([collectingEntityId])
   @@index([isUrgent, status])
+  @@index([lifecycleStatus, deadline])
 }
 
 enum CampaignStatusChangeAction {
@@ -531,6 +539,12 @@ model KindAuthorisation {
   validTo               DateTime
   grantedById           String
   grantedAt             DateTime @default(now())
+  /// Stamped once the scheduled job (runScheduledJobs, ticket 20) sends the
+  /// 30-day expiry warning to this authorisation's Partner Organisation.
+  /// Null until then; claimed via a predicated `updateMany` (WHERE
+  /// expiryWarningSentAt IS NULL) before sending, same idempotency pattern as
+  /// Campaign.deadlineReminderSentAt.
+  expiryWarningSentAt   DateTime?
 
   // Relations
   partnerOrganisation PartnerOrganisation             @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
@@ -538,6 +552,7 @@ model KindAuthorisation {
   auditEntries        PartnerOrganisationAuditEntry[]
 
   @@index([partnerOrganisationId, validTo])
+  @@index([validTo, expiryWarningSentAt])
 }
 
 enum PartnerOrganisationAuditAction {
@@ -649,6 +664,14 @@ model Donation {
   /// blocks a Donation.
   trafficSource String? @db.VarChar(40)
 
+  /// Whether the Wakif ticked the ikrar confirmation at checkout (CONTEXT.md,
+  /// Akad Wakaf; PRD user story 17: "confirm the ikrar by checkbox ... so
+  /// that the pledge is explicit rather than assumed"). Meaningless and left
+  /// false on every non-`wakaf` Donation; POST /api/donations refuses a
+  /// `wakaf` Donation where this is not explicitly true, so it can never be
+  /// an assumed default for the Kind that requires it.
+  ikrarConfirmed Boolean @default(false)
+
   // Relations
   campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   donor    User?     @relation(fields: [donorId], references: [id], onDelete: SetNull)
@@ -663,6 +686,9 @@ model Donation {
   /// Created once, the moment this Donation's Payment settles (prd-compliance
   /// 21) -- never before, since there is nothing to receipt until then.
   receipt  Receipt?
+  /// Created alongside the Receipt, only for a Donation on a `wakaf`
+  /// Campaign (CONTEXT.md, Akad Wakaf; ticket 22).
+  akadWakaf AkadWakaf?
 
   @@index([campaignId])
   @@index([donorId])
@@ -688,6 +714,27 @@ model Receipt {
   lastSentAt  DateTime?
   resendCount Int       @default(0)
   createdAt   DateTime  @default(now())
+
+  // Relations
+  donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
+}
+
+/// The Wakif's pledge document per Donation on a `wakaf` Campaign
+/// (CONTEXT.md, Akad Wakaf; ADR 0010; ticket 22), created once, alongside
+/// the Receipt, the moment that Donation's Payment settles -- never before,
+/// same reasoning as Receipt. Names the Wakif, the amount, the purpose and
+/// the nazhir; none of those are columns here because every one of them is
+/// read off the Donation/Campaign/Collecting Entity at render time, exactly
+/// like Receipt does, so there is nothing here to fall out of sync with them.
+///
+/// `token` gates its print page the same way Receipt's does: unguessable,
+/// never derived from the Donation id, since a Guest Donor (Wakif with no
+/// account) has no session to gate it with instead.
+model AkadWakaf {
+  id         String   @id @default(cuid())
+  donationId String   @unique
+  token      String   @unique
+  createdAt  DateTime @default(now())
 
   // Relations
   donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)

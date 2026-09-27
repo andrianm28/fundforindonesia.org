@@ -58,6 +58,11 @@ export default function DonatePage() {
   const [guestName, setGuestName] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
   const [guestEmailError, setGuestEmailError] = useState<string | null>(null);
+  // Explicit ikrar confirmation (CONTEXT.md, Akad Wakaf; PRD user story 17):
+  // only meaningful on a `wakaf` Campaign, never pre-checked.
+  const [ikrarConfirmed, setIkrarConfirmed] = useState(false);
+  const [ikrarError, setIkrarError] = useState<string | null>(null);
+  const isWakaf = campaign?.kind === 'WAKAF';
 
   const handleConfirm = async () => {
     if (!campaign || !selectedAmount || !selectedPaymentMethod) return;
@@ -67,6 +72,12 @@ export default function DonatePage() {
       return;
     }
     setGuestEmailError(null);
+
+    if (isWakaf && !ikrarConfirmed) {
+      setIkrarError('Konfirmasi ikrar wakaf harus dicentang sebelum melanjutkan');
+      return;
+    }
+    setIkrarError(null);
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -90,6 +101,7 @@ export default function DonatePage() {
           // (src/lib/traffic-source.ts) either way -- this is convenience,
           // never the trust boundary.
           trafficSource: readCapturedTrafficSource(slug) ?? undefined,
+          ...(isWakaf && { ikrarConfirmed }),
           ...(isGuest && {
             guestEmail: guestEmail.trim(),
             guestName: guestName.trim() || undefined,
@@ -347,6 +359,20 @@ export default function DonatePage() {
               onAnonymousToggle={setIsAnonymous}
               onConfirm={handleConfirm}
               isSubmitting={isSubmitting}
+              ikrarWakaf={
+                isWakaf
+                  ? {
+                      confirmed: ikrarConfirmed,
+                      onToggle: (value) => {
+                        setIkrarConfirmed(value);
+                        if (ikrarError) setIkrarError(null);
+                      },
+                      nazhirName: campaign.collectingEntity?.name ?? '',
+                      purpose: campaign.title,
+                      error: ikrarError ?? undefined,
+                    }
+                  : undefined
+              }
               guestContact={
                 isGuest
                   ? {

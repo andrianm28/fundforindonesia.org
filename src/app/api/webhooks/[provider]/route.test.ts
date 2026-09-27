@@ -43,6 +43,11 @@ vi.mock('@/lib/receipt-token', () => ({
   generateReceiptToken: vi.fn().mockReturnValue('tok-fixed'),
 }));
 
+// Same reasoning as the Receipt token mock above, for the Akad Wakaf token.
+vi.mock('@/lib/akad-wakaf-token', () => ({
+  generateAkadWakafToken: vi.fn().mockReturnValue('akad-tok-fixed'),
+}));
+
 // The Receipt email's own content (Collecting Entity naming, anonymous vs
 // named Donor, escaping) is covered independently in
 // src/lib/mail/receipt.test.ts; this route only needs to know sendReportingFailure
@@ -60,6 +65,7 @@ import {
 } from '@/lib/payments';
 import { confirmRegistration, expireRegistrationHold, refundLateSettlement } from '@/lib/volunteer/trip';
 import { sendReportingFailure } from '@/lib/mail';
+import { formatRupiah } from '@/lib/utils/currency';
 
 const mockConfirmRegistration = confirmRegistration as unknown as Mock;
 const mockExpireRegistrationHold = expireRegistrationHold as unknown as Mock;
@@ -112,6 +118,7 @@ function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
     donation: { update: vi.fn().mockResolvedValue({}) },
     campaign: { update: vi.fn().mockResolvedValue({}) },
     receipt: { create: vi.fn().mockResolvedValue({}) },
+    akadWakaf: { create: vi.fn().mockResolvedValue({}) },
     webhookEvent: { update: vi.fn().mockResolvedValue({}) },
     ledgerEntry: {
       count: vi.fn().mockResolvedValue(0),
@@ -519,6 +526,73 @@ describe('POST /api/webhooks/[provider]', () => {
 
     expect(tx.receipt.create).not.toHaveBeenCalled();
     expect(mockSendReportingFailure).not.toHaveBeenCalled();
+  });
+
+  it('creates an Akad Wakaf alongside the Receipt for a `wakaf` Campaign, naming the Wakif, amount, purpose and nazhir, and emails it in the same delivery as the Receipt (CONTEXT.md, Akad Wakaf; ticket 22)', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(
+      makePayment({
+        donation: {
+          id: 'donation-1',
+          donorId: 'donor-1',
+          guestEmail: null,
+          guestName: null,
+          donor: { id: 'donor-1', email: 'donor@example.test', name: 'Wakif Test' },
+          campaign: {
+            id: 'campaign-1',
+            title: 'Wakaf Pembangunan Masjid Al-Ikhlas',
+            kind: 'WAKAF',
+            creatorId: 'creator-1',
+            collectedAmount: 0,
+            targetAmount: 1_000_000,
+            collectingEntity: { id: 'org-1', name: 'Yayasan Contoh' },
+          },
+        },
+      }),
+    );
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(tx.akadWakaf.create).toHaveBeenCalledWith({
+      data: { donationId: 'donation-1', token: 'akad-tok-fixed' },
+    });
+    expect(mockSendReportingFailure).toHaveBeenCalledTimes(1);
+    const [message] = mockSendReportingFailure.mock.calls[0];
+    // Same delivery as the Receipt, not a second email.
+    expect(message.to).toBe('donor@example.test');
+    expect(message.text).toContain('/receipt/tok-fixed');
+    expect(message.text).toContain('/akad-wakaf/akad-tok-fixed');
+    expect(message.text).toContain('Wakif Test');
+    expect(message.text).toContain(formatRupiah(100_000));
+    expect(message.text).toContain('Wakaf Pembangunan Masjid Al-Ikhlas');
+    expect(message.text).toContain('Yayasan Contoh');
+  });
+
+  it('does not create an Akad Wakaf for a non-`wakaf` Campaign', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(tx.akadWakaf.create).not.toHaveBeenCalled();
+    const [message] = mockSendReportingFailure.mock.calls[0];
+    expect(message.text).not.toContain('/akad-wakaf/');
+  });
+
+  it('does not create an Akad Wakaf for a Trip Fee (Registration) settlement', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    mockConfirmRegistration.mockResolvedValue({ outcome: 'confirmed' });
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(tx.akadWakaf.create).not.toHaveBeenCalled();
   });
 
   it('settles the Donation and logs instead of sending when the Campaign has no Collecting Entity, without failing the webhook', async () => {

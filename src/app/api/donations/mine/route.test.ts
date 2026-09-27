@@ -41,6 +41,7 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     createdAt: new Date('2026-09-26T00:00:00.000Z'),
     campaign: { title: 'Test Campaign', slug: 'test-campaign', coverImage: '' },
     receipt: { token: 'tok-1' },
+    akadWakaf: null,
     ...overrides,
   };
 }
@@ -74,5 +75,27 @@ describe('GET /api/donations/mine', () => {
     const data = await response.json();
 
     expect(data.donations[0].receiptToken).toBeNull();
+  });
+
+  it("carries the Akad Wakaf's token for a settled Donation on a `wakaf` Campaign (CONTEXT.md, Akad Wakaf)", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'donor-1' } });
+    mockFindMany.mockResolvedValue([makeRow({ akadWakaf: { token: 'akad-tok-1' } })]);
+    mockCount.mockResolvedValue(1);
+
+    const response = await GET(mineRequest());
+    const data = await response.json();
+
+    expect(data.donations[0].akadWakafToken).toBe('akad-tok-1');
+  });
+
+  it('carries no Akad Wakaf token for a Donation on a non-`wakaf` Campaign', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'donor-1' } });
+    mockFindMany.mockResolvedValue([makeRow()]);
+    mockCount.mockResolvedValue(1);
+
+    const response = await GET(mineRequest());
+    const data = await response.json();
+
+    expect(data.donations[0].akadWakafToken).toBeNull();
   });
 });
