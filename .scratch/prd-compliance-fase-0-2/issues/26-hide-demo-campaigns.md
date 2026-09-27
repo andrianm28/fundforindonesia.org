@@ -4,7 +4,7 @@
 
 **Blocked by:** 25
 
-**Status:** ready-for-agent
+**Status:** done (PR #71, 1a65a87)
 
 - [ ] Demo Campaigns are excluded from the catalogue, search and the Impact page
 - [ ] They remain visible to an Admin and continue to refuse Donations and Payouts
