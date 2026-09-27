@@ -235,6 +235,9 @@ async function uniqueSlug(
 /** Creates a Program with a slug derived from its title unless one is given. */
 export async function createProgram(prisma: PrismaClient, input: ProgramCreateInput): Promise<Program> {
   const cleaned = cleanCommon(input, true);
+  // cleanText already refused a missing title on the required path; this guard
+  // states the invariant the slug below relies on, rather than casting it away.
+  if (cleaned.title === undefined) throw new InvalidProgramInputError('Judul Program wajib diisi.');
   const delegate = delegateOf(prisma);
   const slug = await uniqueSlug(delegate, cleaned.slug ?? slugifyTitle(cleaned.title), null);
 
