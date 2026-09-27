@@ -1155,22 +1155,18 @@ enum LedgerAccount {
   /// the money still sitting there that the Campaign, the platform and the
   /// provider are owed between them, and nothing else (ADR 0011).
   ///
-  /// IT IS NOT CREDITED BY ANYTHING TODAY, and reading this comment as if it
-  /// were would be the single easiest way to be wrong about this ledger. The
-  /// two movements that ought to credit it are both absent:
+  /// PR #73 (prd-compliance 27) HAS since landed, and it credits this account:
+  /// payoutCompletedLegs (src/lib/money/payouts.ts) posts
+  /// DEBIT PAYOUT_CLEARING / CREDIT GATEWAY_CLEARING when the second Admin marks
+  /// a Payout completed. ledger.ts:807-815 is the current statement of the
+  /// rule; ADR 0011's 27 September update records the same. The Refund credit is
+  /// still absent: refundPaidLegs has no caller, because the COMPLETED
+  /// transition that would call it is ticket 32.
   ///
-  ///   - a Payout completed by the second Admin, which is prd-compliance 27
-  ///     (PR #73, still unmerged as of 2026-09-27), and
-  ///   - a Refund actually paid to the Donor, whose leg builder refundPaidLegs
-  ///     was added by prd-compliance 28c but has NO CALLER, because the
-  ///     COMPLETED transition that would call it is ticket 32.
-  ///
-  /// So the account is debit-only in this repository: it grows by every Gross
-  /// ever collected and is drained by nothing. Approval posts no credit either
-  /// -- the fee accounts take their share out of this pot by ALLOCATION at
-  /// settlement rather than by moving cash, and approving a Refund is an
-  /// internal decision that moves no money. Until both credits land, treat any
-  /// non-zero balance here as unsettled, not as a reconciliation signal, and
+  /// So the account is still debit-only in one direction: it grows by every Gross
+  /// ever collected, and the Payout path now drains it. What still drains it by
+  /// nothing is a paid Refund. Until that credit lands, treat any non-zero
+  /// balance here as unsettled, not as a reconciliation signal, and
   /// do not use it to tell a Donor or a Fundraiser what they are owed.
   GATEWAY_CLEARING
   PAYOUT_CLEARING // money instructed out, not yet confirmed
