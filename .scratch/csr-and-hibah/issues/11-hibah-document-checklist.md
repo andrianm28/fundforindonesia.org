@@ -9,7 +9,7 @@ step no one has decided to skip.
 are still open, and as of this spec `VerificationChecklistItem` has no
 `kind` column at all — the checklist is not per-Kind for any Kind yet)
 
-**Status:** done (PR #86, sha 506d856)
+**Status:** done (PR #86, sha f0182c1)
 
 - [x] `VerificationChecklistItem` (or its replacement) is scoped per Kind,
       built as the general per-Kind mechanism ticket 12 already owes
