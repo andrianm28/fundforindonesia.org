@@ -12,7 +12,7 @@ vi.mock("next-auth/middleware", () => ({
   withAuth: (middleware: unknown) => middleware,
 }));
 
-import middleware from "@/middleware";
+import proxy from "@/proxy";
 
 type MiddlewareAssignment = "ADMIN" | "VERIFIER";
 
@@ -30,7 +30,7 @@ function checkRouteAccess(
     nextauth: { token: { role?: Role; assignments: MiddlewareAssignment[] } };
   };
   req.nextauth = { token: { role: userRole ?? undefined, assignments } };
-  const response = (middleware as unknown as (r: NextRequest) => Response)(req);
+  const response = (proxy as unknown as (r: NextRequest) => Response)(req);
   const location = response.headers.get("location");
   return location ? `redirect:${new URL(location).pathname}` : "allow";
 }

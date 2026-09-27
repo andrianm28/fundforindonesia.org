@@ -7,7 +7,7 @@ vi.mock('next-auth/middleware', () => ({
   withAuth: (middleware: unknown) => middleware,
 }));
 
-import middleware from './middleware';
+import proxy from './proxy';
 
 type TokenRole = 'DONOR' | 'CAMPAIGN_CREATOR' | 'MODERATOR' | 'ADMIN';
 type TokenAssignment = 'ADMIN' | 'VERIFIER';
@@ -21,10 +21,10 @@ function requestAs(pathname: string, role: TokenRole, assignments?: TokenAssignm
 }
 
 function run(pathname: string, role: TokenRole, assignments?: TokenAssignment[]) {
-  return (middleware as unknown as (req: NextRequest) => Response)(requestAs(pathname, role, assignments));
+  return (proxy as unknown as (req: NextRequest) => Response)(requestAs(pathname, role, assignments));
 }
 
-describe('middleware', () => {
+describe('proxy', () => {
   it.each(['/campaign/create', '/campaign/create/step-2'])(
     'lets any signed-in user, with no Role or assignment, through to %s (FFI-04)',
     (path) => {
@@ -33,7 +33,7 @@ describe('middleware', () => {
   );
 
   it('still asks for sign-in on /campaign/create: it stays in the matcher and a token is required', async () => {
-    const { config } = await import('./middleware');
+    const { config } = await import('./proxy');
     expect(config.matcher).toContain('/campaign/create/:path*');
   });
 

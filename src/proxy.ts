@@ -1,7 +1,7 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
-// Local type to avoid importing from @prisma/client (edge-runtime compatibility)
+// Local type to avoid importing from @prisma/client (keeps the proxy lightweight)
 type Assignment = "ADMIN" | "VERIFIER";
 
 // Routes gated by an assignment (ADR 0005): Admin and Verifier power come
@@ -15,7 +15,7 @@ const ASSIGNMENT_ROUTES: { pattern: string; assignment: Assignment }[] = [
 ];
 
 export default withAuth(
-  function middleware(req) {
+  function proxy(req) {
     const token = req.nextauth.token;
     const pathname = req.nextUrl.pathname;
     const assignments = (token?.assignments as Assignment[] | undefined) ?? [];
