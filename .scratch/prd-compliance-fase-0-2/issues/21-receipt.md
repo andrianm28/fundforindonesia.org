@@ -4,7 +4,7 @@
 
 **Blocked by:** 13, 18
 
-**Status:** in review (PR #52)
+**Status:** done
 
 - [x] A Receipt reaches the Donor's email after Settlement, including a Guest Donor
 - [x] A print page is reachable from the email and from the dashboard
@@ -21,5 +21,5 @@ at `src/app/api/receipts/[token]/resend/route.ts`, a public print page at
 `src/app/donasi-saya/page.tsx`. Full suite, tsc and lint all at or under
 `ci/baselines.json`; `npm run ci:local -- test ratchet` green. Reviewed with
 `/code-review` (parallel Standards + Spec); findings (resend not checking
-delivery, duplicated recipient-resolution logic) fixed before this push. Not
-merged -- draft PR awaiting CI and owner review.
+delivery, duplicated recipient-resolution logic) fixed before this push.
+Merged to `main` (PR #52, merge commit c3e98ef).
