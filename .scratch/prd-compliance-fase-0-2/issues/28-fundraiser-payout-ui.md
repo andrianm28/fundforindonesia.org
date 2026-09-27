@@ -4,7 +4,7 @@
 
 **Blocked by:** 27
 
-**Status:** done (PR #94, fec1d02)
+**Status:** done (PR #94, 43f7734)
 
 - [x] Escrow Hold and Campaign Balance are shown separately and computed from the ledger
 - [x] A partial Payout may be requested while the Campaign is Active
