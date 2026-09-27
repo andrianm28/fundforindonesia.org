@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, within } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import QuickActionTiles from "./QuickActionTiles";
 
@@ -86,6 +86,17 @@ describe("QuickActionTiles", () => {
     const grid = container.querySelector(".grid");
 
     expect(grid).toHaveClass("grid-cols-5");
+  });
+
+  // A bare <section> is anonymous; the tiles region is named so the e2e specs
+  // (and a screen reader) can address it without guessing at its position.
+  it("names the tiles region", () => {
+    const { container } = render(<QuickActionTiles tiles={mockTiles} />);
+
+    expect(container.querySelector("section")).toHaveAttribute(
+      "aria-label",
+      "Quick action tiles"
+    );
   });
 
   it("renders empty grid when no tiles provided", () => {

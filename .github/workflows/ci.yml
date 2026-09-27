@@ -113,3 +113,62 @@ jobs:
       - run: npx prisma generate
       - name: TypeScript and lint error counts may only go down
         run: node ci/ratchet.mjs
+
+  e2e:
+    # The flows unit tests cannot prove (ticket 11: the privileged
+    # not-found view, the QRIS donation path through Receipt), driven in a
+    # real browser against the production bundle. Browser-side answers that
+    # need no login are stubbed at the network edge (see the specs); the
+    # deploy gate only requires test, build, migrations and ratchet green,
+    # so this job gates deploys through the run's overall success instead.
+    name: e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+      NEXTAUTH_SECRET: ci-placeholder-not-a-secret
+      NEXTAUTH_URL: http://localhost:3000
+      # Inlined into the client bundle at build time: the donate page shows
+      # its form. The money itself stays stubbed in the specs: in
+      # production `next start` the mock adapter is refused, so CI raises
+      # no inspectable charge.
+      NEXT_PUBLIC_DONATIONS_ENABLED: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Install Playwright's chromium
+        run: npx playwright install --with-deps chromium
+      - name: Migrate the throwaway database
+        run: npx prisma migrate deploy
+      - name: Seed the e2e fixtures
+        run: npx tsx tests/e2e/seed-e2e.ts
+      - name: Build the bundle under test
+        env:
+          # A "dummy" URL makes src/lib/prisma.ts use its build-time mock,
+          # as in build; the server under test gets the real URL instead.
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
+        run: npx next build
+      - name: Drive the production bundle with Playwright
+        run: npm run test:e2e

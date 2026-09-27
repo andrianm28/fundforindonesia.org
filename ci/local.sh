@@ -2,6 +2,8 @@
 # Run the CI jobs of .github/workflows/ci.yml locally, in the same order and
 # with the same commands: test, build, migrations, ratchet. The `image` job
 # (cd.yml: Docker build + Trivy) is not included; it needs a Docker daemon.
+# Neither is the `e2e` job: it needs Playwright browsers, a production build
+# and a throwaway database, so it runs on GitHub Actions only.
 #
 # Usage: npm run ci:local            # all jobs
 #        npm run ci:local -- test ratchet

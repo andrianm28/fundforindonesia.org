@@ -8,9 +8,26 @@ test.describe('Homepage', () => {
 
   test('should display quick action tiles', async ({ page }) => {
     await page.goto('/');
-    // Quick action tiles section should render with grid of action items
-    const tilesSection = page.locator('section').filter({ hasText: 'Donasi Otomatis' });
-    await expect(tilesSection).toBeVisible();
+    // The PRD's actual menu (src/lib/home/quickActionTiles.ts): Donasi and
+    // Galang Dana are the two working destinations, and the three modules
+    // with no frontend yet are honestly shown rather than linked into
+    // /explore/all pretending to work. The old "Donasi Otomatis" tile is
+    // gone on purpose: AutoDonation was parked (plan
+    // docs/superpowers/plans/2026-09-20-remove-wallet-park-autodonation.md).
+    const tiles = page.getByRole('region', { name: 'Quick action tiles' });
+    await expect(tiles).toBeVisible();
+    await expect(tiles.getByRole('link', { name: /Donasi/ })).toHaveAttribute(
+      'href',
+      '/explore/all'
+    );
+    await expect(tiles.getByRole('link', { name: /Galang Dana/ })).toHaveAttribute(
+      'href',
+      '/campaign/create'
+    );
+    for (const label of ['Kolaborasi CSR', 'Wakaf', 'Hibah']) {
+      await expect(tiles.getByText(label)).toBeVisible();
+      await expect(tiles.getByRole('link', { name: new RegExp(label) })).toHaveCount(0);
+    }
   });
 
   test('should have bottom navigation on mobile', async ({ page, viewport }) => {
