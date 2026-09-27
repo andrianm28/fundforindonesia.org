@@ -17,6 +17,7 @@ export function Footer() {
             <h4 className="font-semibold text-text mb-2">Informasi</h4>
             <ul className="space-y-1 text-text-secondary">
               <li><Link href="/about" className="hover:text-primary">Tentang Kami</Link></li>
+              <li><Link href="/impact" className="hover:text-primary">Impact &amp; Transparansi</Link></li>
               <li><Link href="/careers" className="hover:text-primary">Karir</Link></li>
               <li><Link href="/press" className="hover:text-primary">Media</Link></li>
             </ul>

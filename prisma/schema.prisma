@@ -269,6 +269,18 @@ model Campaign {
   /// column; neither accepts a Donation (campaignAcceptsDonations), and
   /// submitCampaign refuses a Campaign without one.
   collectingEntityId String?
+  /// Where this Campaign happens, free text and nullable, the way
+  /// `category` is (ticket 25, "Impact & Transparency"). One field rather
+  /// than a province and a regency/city pair on purpose: nothing in this
+  /// codebase has a taxonomy of Indonesian provinces to validate against,
+  /// and inventing one here would be a guess the campaign form (FFI-02 /
+  /// FFI-04, Fase 1) would then have to live with. The Impact page's
+  /// location filter reads this column today and matches it case-
+  /// insensitively as a substring, so "Jawa" covers Jawa Barat and Jawa
+  /// Tengah. Null until a Campaign form writes one -- a Campaign with no
+  /// location simply matches no location filter, which is honest rather
+  /// than quietly counted as everywhere.
+  location        String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -320,6 +332,7 @@ model Campaign {
   @@index([lifecycleStatus])
   @@index([creatorId])
   @@index([collectingEntityId])
+  @@index([location])
   @@index([isUrgent, status])
   @@index([lifecycleStatus, deadline])
 }

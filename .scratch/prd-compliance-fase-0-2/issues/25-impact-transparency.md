@@ -4,7 +4,7 @@
 
 **Blocked by:** 17, 20
 
-**Status:** ready-for-agent
+**Status:** done (PR #67, 8959c7e)
 
 - [ ] Collected is Gross of settled Payments plus Manual Contribution, excluding Demo Campaigns and reversed contributions
 - [ ] The six lines sum exactly to collected, and the page fails loudly rather than showing numbers that do not reconcile
