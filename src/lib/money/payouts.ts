@@ -13,6 +13,7 @@ import {
   PayoutProofRequiredError,
   ProviderBalanceInsufficientError,
   ProviderBalanceNotRecordedError,
+  ProviderBalanceAmountError,
   TwoPersonRuleError,
   UnknownPaymentProviderNameError,
 } from './errors';
@@ -46,6 +47,7 @@ export {
   PayoutProofRequiredError,
   ProviderBalanceInsufficientError,
   ProviderBalanceNotRecordedError,
+  ProviderBalanceAmountError,
   TwoPersonRuleError,
   UnknownPaymentProviderNameError,
 };
@@ -293,31 +295,41 @@ export async function approvePayout(
   // this is a public seam that both routes call with whatever the body held, so
   // `params.provider.trim()` on a non-string would throw a TypeError that no
   // route can turn into a 422, and the caller would be told the server is
-  // broken rather than that it forgot to read the dashboard. A blank name is
-  // the same refusal as no reading at all: no dashboard named, no reading to
-  // judge.
+  // broken rather than that it forgot to read the dashboard.
   // The name that is there is then resolved through the registry, so the row
   // cannot collect two spellings of one provider and cannot collect a name that
-  // resolves to no provider at all.
-  // The ceiling is the column's, not a policy: Payout.approvedProviderBalance
-  // is an Int, so int4's maximum is the largest reading this row can hold. A
-  // figure above it is not a dashboard anyone read, and letting it through
-  // turns a bad field into a driver error the Admin sees as a 500 rather than
-  // as a reading to correct. Same refusal, same 422, and the Payout stays
-  // DRAFT -- for the same reason a missing reading does not approve anything:
-  // an approval has to be backed by a figure that can be written down.
-  const typedProvider = typeof params.provider === 'string' ? params.provider.trim() : '';
-  if (typedProvider === '') {
+  // resolves to no provider at all -- including a blank one, which resolves to
+  // no provider either and needs no branch of its own to say so.
+  //
+  // THE READING, IN THREE ANSWERS RATHER THAN ONE. What is missing, what is
+  // recorded but is not a figure of money, and what is recorded and is one are
+  // three different situations and the Admin is told which: "belum dicatat" is
+  // true only of the first, and answering it to the other two sends somebody to
+  // a dashboard to write down a number they have already written.
+  //  - nothing usable at all (absent, not a number, NaN): NOT RECORDED.
+  //  - a number this column cannot hold or that is not whole rupiah above zero:
+  //    AMOUNT INVALID, naming the ceiling. The ceiling is the column's, not a
+  //    policy: Payout.approvedProviderBalance is an Int, and a figure above it is
+  //    not a dashboard anyone read -- letting it through turned a bad field into
+  //    a driver error the Admin saw as a 500 rather than as a reading to correct.
+  //  - both fields there and usable: approved below, against the real Payout.
+  // Both readings answer 422 and leave the Payout in DRAFT, for the same reason
+  // a missing reading approves nothing: an approval has to be backed by a figure
+  // that can be written down.
+  if (typeof providerBalance !== 'number' || !Number.isFinite(providerBalance)) {
     throw new ProviderBalanceNotRecordedError();
   }
-  const provider = canonicalProviderName(typedProvider);
   if (
     !Number.isInteger(providerBalance) ||
     providerBalance <= 0 ||
     providerBalance > MAX_RUPIAH_AMOUNT
   ) {
-    throw new ProviderBalanceNotRecordedError();
+    throw new ProviderBalanceAmountError(providerBalance);
   }
+
+  const provider = canonicalProviderName(
+    typeof params.provider === 'string' ? params.provider.trim() : '',
+  );
 
   await prisma.$transaction(async (tx) => {
     const payout = await tx.payout.findUnique({

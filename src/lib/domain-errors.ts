@@ -77,6 +77,7 @@ export type MoneyErrorCode =
   | "PROVIDER_WITHDRAWAL_DUPLICATE"
   | "PROVIDER_WITHDRAWAL_ENTITY_NOT_FOUND"
   | "PROVIDER_BALANCE_NOT_RECORDED"
+  | "PROVIDER_BALANCE_AMOUNT_INVALID"
   | "PROVIDER_BALANCE_INSUFFICIENT"
   | "PROVIDER_NAME_UNKNOWN";
 
@@ -238,6 +239,11 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // precondition the actor can fix by opening the dashboard -- rather than
   // 400, because the field is not wrong, it is absent on purpose.
   PROVIDER_BALANCE_NOT_RECORDED: 422,
+  // The reading is there and it is not a figure that column holds -- not whole
+  // rupiah, not above zero, or past int4. The same 422 as the absent reading,
+  // because the Admin fixes it the same way: read the dashboard again and write
+  // down what it says.
+  PROVIDER_BALANCE_AMOUNT_INVALID: 422,
   // The reading is there and it says the money is not there. Same 422: the
   // Admin can fix it, either by finding the shortfall or by not approving this
   // Payout yet.
