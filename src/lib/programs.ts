@@ -17,6 +17,25 @@ export const SECTORS = ['HEALTH', 'EDUCATION', 'ENVIRONMENT', 'DISABILITY_INCLUS
 
 export type SectorValue = (typeof SECTORS)[number];
 
+/**
+ * The label a visitor reads for each Sector, next to the code so the two
+ * cannot drift apart. Indonesian, like every other label the platform shows;
+ * the four values themselves stay the codes the schema stores (ticket csr-04).
+ */
+export const SECTOR_LABEL: Record<SectorValue, string> = {
+  HEALTH: 'Kesehatan',
+  EDUCATION: 'Pendidikan',
+  ENVIRONMENT: 'Lingkungan',
+  DISABILITY_INCLUSION: 'Inklusi Penyandang Disabilitas',
+};
+
+/** The Sector a link or a query names, in whatever case it was written, or null. */
+export function parseSector(value: unknown): SectorValue | null {
+  if (typeof value !== 'string') return null;
+  const code = value.trim().toUpperCase();
+  return (SECTORS as readonly string[]).includes(code) ? (code as SectorValue) : null;
+}
+
 export class ProgramNotFoundError extends Error {
   constructor() {
     super('Program tidak ditemukan.');
@@ -210,7 +229,15 @@ function cleanCommon(input: ProgramUpdateInput, required: boolean): CleanedProgr
 }
 
 type ProgramDelegate = {
-  findUnique(args: { where: Record<string, unknown> }): Promise<Program | null>;
+  findUnique(args: {
+    where: Record<string, unknown>;
+    select?: Record<string, boolean>;
+  }): Promise<Program | null>;
+  findMany(args: {
+    where: Record<string, unknown>;
+    select: Record<string, boolean>;
+    orderBy: Record<string, 'asc' | 'desc'>;
+  }): Promise<Program[]>;
   create(args: { data: Record<string, unknown> }): Promise<Program>;
   update(args: { where: { id: string }; data: Record<string, unknown> }): Promise<Program>;
 };
@@ -299,4 +326,120 @@ export async function updateProgram(
   }
 
   return delegate.update({ where: { id: current.id }, data });
+}
+
+/**
+ * What the public portfolio shows (ticket csr-04; PRD FFI-09).
+ *
+ * A Program has no lifecycle and no visibility rule -- an Admin writes the
+ * catalog and a visitor reads all of it -- so the readers below are plain
+ * reads, and the only rule they apply is grouping by the four fixed Sectors.
+ *
+ * The payload is named field by field rather than handed back as a row, for
+ * one reason: it is a promise about what a Program is. Every field below is
+ * something a CSR team reads to judge the work. No field is money, because a
+ * Program never receives money online (ADR 0002) -- `reportedAmount` is
+ * deliberately absent even though the row carries it, since reporting CSR
+ * money that never crossed the platform's account only makes sense next to
+ * the ledger-backed Program Balance, which lands with ticket 07 (csr-08).
+ */
+export type ProgramSummary = {
+  slug: string;
+  title: string;
+  sector: SectorValue;
+  location: string;
+  budget: number;
+  timeline: string;
+};
+
+export type ProgramSectorGroup = {
+  sector: SectorValue;
+  label: string;
+  programs: ProgramSummary[];
+};
+
+export type ProgramPortfolio = {
+  /** Always all four Sectors, in the fixed order, empty ones included. */
+  sectors: ProgramSectorGroup[];
+  total: number;
+};
+
+export type ProgramDetail = ProgramSummary & {
+  /** The id a Partnership Inquiry names (FFI-10); never a way to give money. */
+  id: string;
+  problem: string;
+  beneficiaries: string;
+  activities: string;
+  kpis: string[];
+  documentation: string[];
+  impactReport: string | null;
+};
+
+const SUMMARY_SELECT = {
+  slug: true,
+  title: true,
+  sector: true,
+  location: true,
+  budget: true,
+  timeline: true,
+} as const;
+
+/**
+ * Every Program, grouped by its Sector, optionally narrowed to one Sector.
+ *
+ * The grouping is done here rather than left to the caller's shape: the four
+ * Sectors are fixed, so a Sector with no Program is still a card a visitor is
+ * shown, and the order is the order in `SECTORS` rather than whatever the
+ * database returned.
+ */
+export async function listProgramPortfolio(
+  prisma: PrismaClient,
+  options: { sector?: unknown } = {},
+): Promise<ProgramPortfolio> {
+  const asked = options.sector;
+  // An absent or blank filter lists the whole portfolio; a Sector the
+  // platform does not know is a refusal, not an empty list, so a typo in a
+  // link cannot read as "we have nothing in this Sector".
+  const narrowed = asked !== undefined && asked !== null && asked !== '';
+  const sector = narrowed ? parseSector(asked) : null;
+  if (narrowed && sector === null) throw new InvalidProgramInputError('Sektor Program tidak dikenal.');
+
+  const rows = (await delegateOf(prisma).findMany({
+    where: sector === null ? {} : { sector },
+    select: SUMMARY_SELECT,
+    orderBy: { title: 'asc' },
+  })) as ProgramSummary[];
+
+  return {
+    sectors: SECTORS.map((code) => ({
+      sector: code,
+      label: SECTOR_LABEL[code],
+      programs: rows.filter((row) => row.sector === code),
+    })),
+    total: rows.length,
+  };
+}
+
+/**
+ * One Program as the detail page and the public API show it. Throws
+ * ProgramNotFoundError for a slug no Program has, which the routes answer
+ * with 404 -- the same answer as a Program that never existed, since every
+ * Program is public and there is nothing to keep private here.
+ */
+export async function readProgram(prisma: PrismaClient, slug: string): Promise<ProgramDetail> {
+  const row = (await delegateOf(prisma).findUnique({
+    where: { slug },
+    select: {
+      ...SUMMARY_SELECT,
+      id: true,
+      problem: true,
+      beneficiaries: true,
+      activities: true,
+      kpis: true,
+      documentation: true,
+      impactReport: true,
+    },
+  })) as ProgramDetail | null;
+  if (!row) throw new ProgramNotFoundError();
+  return row;
 }

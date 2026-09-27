@@ -13,7 +13,7 @@ const keys = loadFieldKeys({
 
 /** Runs one hooked operation and returns the args it forwarded to Prisma. */
 async function forwarded(
-  model: 'user' | 'bankAccount' | 'donation',
+  model: 'user' | 'bankAccount' | 'donation' | 'partnershipInquiry',
   operation: string,
   args: Record<string, unknown>,
   withKeys: FieldKeys | null = keys,
@@ -196,6 +196,70 @@ describe('Donation writes (Guest Donor contact details, prd-compliance 18)', () 
   it('leaves a registered Donor donation (no guest fields) untouched', async () => {
     const args = { data: { amount: 50000, campaignId: 'c1', paymentMethod: 'qris', donorId: 'u1' } };
     expect(await forwarded('donation', 'create', structuredClone(args))).toEqual(args);
+  });
+});
+
+describe('PartnershipInquiry writes (a company contact is contact data too, ADR 0012)', () => {
+  const INQUIRY = {
+    programId: 'p1',
+    companyName: 'PT SinarRIER',
+    contactName: 'Budi Santoso',
+    contactEmail: 'Budi@Sponsor.com',
+    needs: 'Kapasitas pelatihan kerja',
+  };
+
+  it('stores the contact email plaintext, its lookup HMAC and its ciphertext', async () => {
+    const { data } = await forwarded('partnershipInquiry', 'create', { data: INQUIRY });
+
+    expect(data.contactEmail).toBe('Budi@Sponsor.com');
+    expect(data).toMatchObject({
+      contactEmailHmac: keys.emailLookup('budi@sponsor.com').hmac,
+      contactEmailHmacKeyId: 'hmac-test-1',
+      contactEmailKeyId: 'enc-test-1',
+    });
+    expect(
+      keys.decrypt('PartnershipInquiry.contactEmail', {
+        ciphertext: data.contactEmailCiphertext as string,
+        keyId: data.contactEmailKeyId as string,
+      }),
+    ).toBe('Budi@Sponsor.com');
+  });
+
+  it('encrypts the contact phone, and leaves it absent when the company gave none', async () => {
+    const { data } = await forwarded('partnershipInquiry', 'create', {
+      data: { ...INQUIRY, contactPhone: '+622123456789' },
+    });
+
+    expect(data.contactPhone).toBe('+622123456789');
+    expect(
+      keys.decrypt('PartnershipInquiry.contactPhone', {
+        ciphertext: data.contactPhoneCiphertext as string,
+        keyId: data.contactPhoneKeyId as string,
+      }),
+    ).toBe('+622123456789');
+    // Never searched, so no HMAC -- same as User.phone and Donation.guestPhone.
+    expect(Object.keys(data).filter((k) => k.startsWith('contactPhone'))).toEqual([
+      'contactPhone',
+      'contactPhoneCiphertext',
+      'contactPhoneKeyId',
+    ]);
+
+    const { data: withoutPhone } = await forwarded('partnershipInquiry', 'create', { data: INQUIRY });
+    expect(withoutPhone.contactPhoneCiphertext).toBeUndefined();
+  });
+
+  it('leaves contactName plaintext and adds nothing for it, like User.name', async () => {
+    const { data } = await forwarded('partnershipInquiry', 'create', { data: INQUIRY });
+
+    expect(data.contactName).toBe('Budi Santoso');
+    expect(data.companyName).toBe('PT SinarRIER');
+    expect(Object.keys(data).filter((k) => k.startsWith('contactName'))).toEqual(['contactName']);
+  });
+
+  it('leaves an update that touches no contact field exactly as it was', async () => {
+    const args = { where: { id: 'i1' }, data: { status: 'IN_PROGRESS' }, select: { id: true } };
+
+    expect(await forwarded('partnershipInquiry', 'update', structuredClone(args))).toEqual(args);
   });
 });
 

@@ -60,6 +60,9 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      # The partnership team's mailbox, for Partnership Inquiry notifications.
+      # No default: see .env.example.
+      PARTNERSHIP_TEAM_EMAIL: ${PARTNERSHIP_TEAM_EMAIL:-}
       # Field-level encryption keys (ADR 0012). No defaults: a default key is
       # a published one. Empty means encryption is off and only plaintext is
       # written; see .env.example.

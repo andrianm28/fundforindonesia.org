@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { listableCampaignWhere } from '@/lib/subject-guard';
+import { NOT_A_DEMO_CAMPAIGN, listableCampaignWhere } from '@/lib/subject-guard';
 import { HeroBanner } from '@/components/home/HeroBanner';
 import QuickActionTiles from '@/components/home/QuickActionTiles';
 import { UrgentCampaigns } from '@/components/home/UrgentCampaigns';
@@ -153,6 +153,11 @@ export default async function HomePage() {
       take: 12,
     }),
     prisma.prayer.findMany({
+      // The Prayer Wall is a platform-wide feed that names its Campaign and
+      // links to it, so it may not name one no public list shows: a visitor
+      // would meet a Demo Campaign here, and follow the link to its page
+      // (CONTEXT.md, Demo Campaign; prd-compliance 26).
+      where: { campaign: NOT_A_DEMO_CAMPAIGN },
       orderBy: { createdAt: 'desc' },
       take: 10,
       include: {
