@@ -186,6 +186,53 @@ enum Kind {
   HIBAH
 }
 
+/// How CSR Programs are grouped for the portfolio (CONTEXT.md, Sector).
+/// Fixed in code: there is no Admin panel, table, or API that adds, removes,
+/// or renames a value. Deliberately a separate enum from Campaign's Category
+/// model -- the two groupings answer different questions (CSR collaboration
+/// area vs. donation appeal theme) and must never share a type or a table.
+enum Sector {
+  HEALTH
+  EDUCATION
+  ENVIRONMENT
+  DISABILITY_INCLUSION
+}
+
+/// A CSR collaboration catalog item (CONTEXT.md, Program; ticket csr-01).
+/// Read by company CSR teams; it never takes money online, so it carries no
+/// Kind and no relation any Donation, Payment, Refund, Payout, or ledger code
+/// path can reach. Money the platform can account for arrives later as
+/// PROGRAM_BALANCE ledger postings (ticket csr-07); money that never crossed
+/// the platform's account is only the plain reportedAmount figure below, kept
+/// apart from the ledger on purpose (ticket csr-08).
+model Program {
+  id           String @id @default(cuid())
+  slug         String @unique
+  title        String
+  sector       Sector
+  problem       String   @db.Text
+  beneficiaries String   @db.Text
+  location     String
+  activities   String   @db.Text
+  /// Planned need in rupiah (Int, like every other money figure here).
+  budget       Int
+  /// Free-text schedule (e.g. "Jan–Des 2027"), not a deadline with rules.
+  timeline     String
+  kpis         String[]
+  documentation String[]
+  /// Written once the work can show results; null until then.
+  impactReport String?  @db.Text
+  /// Plain reported figure for CSR money that never crossed the platform's
+  /// account: no ledger entry behind it, by design. Only an Admin writes it.
+  reportedAmount Int       @default(0)
+  reportedAsOf  DateTime?
+  reportedNote  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([sector])
+}
+
 model Campaign {
   id              String    @id @default(cuid())
   slug            String    @unique
