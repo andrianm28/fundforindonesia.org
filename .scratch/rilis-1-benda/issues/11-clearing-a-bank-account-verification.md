@@ -1,0 +1,46 @@
+# 11: What clears a Bank Account's verification, and who may do it?
+
+**Type:** grilling
+
+**Status:** open
+
+## Question
+
+[01: How does a Fundraiser get a bank account, and who says it is theirs?](01-bank-account-verification.md)
+decided that the account a Payout points at is the thing verified before the
+Payout is approved. That was chosen as the compensating control for the one
+guarantee the schema cannot give: nothing refuses two Bank Accounts holding the
+same number, because the number is a randomized ciphertext that is never
+searched (ADR 0012).
+
+A control that can only be applied forwards is not a control. The decisions that
+remain:
+
+1. **Who may clear `verifiedAt`?** The same Verifier who set it, a different
+   Verifier, an Admin, or nobody. `CONTEXT.md` puts checking a payout account on
+   a Verifier, and suspension on an Admin, and this sits between them.
+2. **Is it one action or two — refuse future Payouts, or make the account
+   unusable?** Clearing `verifiedAt` stops a Payout that has not been approved
+   yet and does nothing to a Payout already completed, so a decision here is
+   also a decision about what happens to money that already left.
+3. **Is it reversible?** If a cleared account can be verified again, the record
+   has to say who restored it and why, or a cleared-then-restored account is
+   indistinguishable from one that was never cleared.
+4. **What triggers it?** Nobody has to notice on their own. Suspicion, a
+   complaint, a returned transfer, a Dormant Balance, or a Verifier noticing
+   while checking something else — each gives a different queue.
+
+## Notes
+
+Surfaced 2026-09-27 by [01: How does a Fundraiser get a bank account, and who
+says it is theirs?](01-bank-account-verification.md), and it is a consequence of
+that decision rather than a leftover. `src/lib/money/payouts.ts:246` already
+names the idea in a comment — clearing `verifiedAt` "when one turns out to be
+fraudulent" — and `payouts.ts:149` and `:250` already refuse an unverified
+destination, so the read side works. Only the write is missing.
+
+The two-person rule does not obviously apply, because this removes a
+destination rather than paying one, but the same reasoning does: whoever clears
+a verification should not be the person who set it, and the person whose account
+it is should certainly not be. Whether that is a rule or a preference is part of
+question 1.
