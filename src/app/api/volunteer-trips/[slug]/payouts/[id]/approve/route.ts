@@ -27,6 +27,10 @@ import { approvePayout } from '@/lib/money/payouts';
  * to be at the provider for the transfer to succeed -- and no provider this
  * platform talks to exposes a balance API (ADR 0006). The reading is a human's,
  * and approvePayout refuses both a missing one and one that is short.
+ *
+ * `provider` is forwarded exactly as the body held it, as on the Campaign
+ * route: the spelling is resolved where the name becomes money, so this route
+ * records the one name the registry knows and refuses one that names nothing.
  */
 export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRequest, context: any) => {
   const { slug, id } = await context.params;

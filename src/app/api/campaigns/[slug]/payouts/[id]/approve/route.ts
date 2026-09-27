@@ -21,8 +21,15 @@ import { approvePayout } from '@/lib/money/payouts';
  * balance API, so this is the only place the real figure can come from, and an
  * approval that leaves it out has been checked against the Campaign's books
  * alone -- which say the Campaign is owed the money and say nothing about
- * whether the provider is holding it. approvePayout refuses one that is missing
- * and one that is short of the Payout's amount.
+ * whether the provider is holding it. approvePayout refuses one that is
+ * missing and one that is short of the Payout's amount.
+ *
+ * `provider` is forwarded exactly as the body held it, and that is deliberate:
+ * how an Admin typed the name is not the route's business, and the spelling is
+ * resolved where the name becomes money -- approvePayout takes it through the
+ * provider registry, so the Payout records the one name this build knows the
+ * provider by and a name that names no provider is refused (400) rather than
+ * stored.
  */
 export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRequest, context: any) => {
   const { slug, id } = await context.params;

@@ -1,6 +1,7 @@
 import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
+import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
 import {
   DemoCampaignError,
@@ -13,6 +14,7 @@ import {
   ProviderBalanceInsufficientError,
   ProviderBalanceNotRecordedError,
   TwoPersonRuleError,
+  UnknownPaymentProviderNameError,
 } from './errors';
 
 /**
@@ -45,6 +47,7 @@ export {
   ProviderBalanceInsufficientError,
   ProviderBalanceNotRecordedError,
   TwoPersonRuleError,
+  UnknownPaymentProviderNameError,
 };
 
 /**
@@ -188,6 +191,34 @@ export async function requestPayout(
 }
 
 /**
+ * The one name the registry knows, or a refusal naming what was typed.
+ *
+ * `approvedProvider` is not a reconciliation datum -- nothing sums by it, and a
+ * sweep's reconciliation reads the ledger, not this column -- so what has to be
+ * true of it is narrow: one value per provider. It is read by a human at audit,
+ * and two Admins approving against the same provider's dashboard wrote "Sumopod"
+ * and "sumopod", which leaves a reader unable to tell a typo from a second
+ * provider. So the name goes through the same registry the webhook route stamps
+ * from (@/lib/payments/provider-names), which is also what refuses a name no
+ * provider answers to, rather than storing text that names nothing.
+ *
+ * Its own wrapper rather than a shared one with the withdrawal path's, because
+ * the two modules answer in their own error vocabulary: that path's code
+ * (PROVIDER_WITHDRAWAL_INVALID) is already wired into its route, and this
+ * module's code has to be wired into both of the approve routes.
+ */
+function canonicalProviderName(typed: string): string {
+  try {
+    return canonicalPaymentProviderName(typed);
+  } catch (err) {
+    if (err instanceof UnknownPaymentProviderError) {
+      throw new UnknownPaymentProviderNameError(typed);
+    }
+    throw err;
+  }
+}
+
+/**
  * ADMIN approves a DRAFT payout: posts the instructed legs and lands on
  * APPROVED. It does NOT contact the payment provider, and it never has.
  *
@@ -232,7 +263,11 @@ export async function approvePayout(
   params: {
     payoutId: string;
     approvedById: string;
-    /** Which Payment Provider's dashboard the reading below was taken from. */
+    /**
+     * Which Payment Provider's dashboard the reading below was taken from,
+     * however the Admin typed it: resolved to the one name the registry knows
+     * before it reaches the row, so this column holds one value per provider.
+     */
     provider: string;
     /** What that dashboard showed, in rupiah, immediately before approving. */
     providerBalance: number;
@@ -258,7 +293,12 @@ export async function approvePayout(
   // this is a public seam that both routes call with whatever the body held, so
   // `params.provider.trim()` on a non-string would throw a TypeError that no
   // route can turn into a 422, and the caller would be told the server is
-  // broken rather than that it forgot to read the dashboard.
+  // broken rather than that it forgot to read the dashboard. A blank name is
+  // the same refusal as no reading at all: no dashboard named, no reading to
+  // judge.
+  // The name that is there is then resolved through the registry, so the row
+  // cannot collect two spellings of one provider and cannot collect a name that
+  // resolves to no provider at all.
   // The ceiling is the column's, not a policy: Payout.approvedProviderBalance
   // is an Int, so int4's maximum is the largest reading this row can hold. A
   // figure above it is not a dashboard anyone read, and letting it through
@@ -266,9 +306,12 @@ export async function approvePayout(
   // as a reading to correct. Same refusal, same 422, and the Payout stays
   // DRAFT -- for the same reason a missing reading does not approve anything:
   // an approval has to be backed by a figure that can be written down.
-  const provider = typeof params.provider === 'string' ? params.provider.trim() : '';
+  const typedProvider = typeof params.provider === 'string' ? params.provider.trim() : '';
+  if (typedProvider === '') {
+    throw new ProviderBalanceNotRecordedError();
+  }
+  const provider = canonicalProviderName(typedProvider);
   if (
-    provider === '' ||
     !Number.isInteger(providerBalance) ||
     providerBalance <= 0 ||
     providerBalance > MAX_RUPIAH_AMOUNT

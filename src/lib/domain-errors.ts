@@ -77,7 +77,8 @@ export type MoneyErrorCode =
   | "PROVIDER_WITHDRAWAL_DUPLICATE"
   | "PROVIDER_WITHDRAWAL_ENTITY_NOT_FOUND"
   | "PROVIDER_BALANCE_NOT_RECORDED"
-  | "PROVIDER_BALANCE_INSUFFICIENT";
+  | "PROVIDER_BALANCE_INSUFFICIENT"
+  | "PROVIDER_NAME_UNKNOWN";
 
 /**
  * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
@@ -241,6 +242,12 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // Admin can fix it, either by finding the shortfall or by not approving this
   // Payout yet.
   PROVIDER_BALANCE_INSUFFICIENT: 422,
+  // A field the Admin got wrong rather than one they left out, so 400 like
+  // PROVIDER_WITHDRAWAL_INVALID -- the same fault under the same shape on the
+  // withdrawal path -- and not the 422 the two reading refusals answer. The
+  // Admin can fix it by choosing a registered provider, and no rule was
+  // breached, only a name that names nothing.
+  PROVIDER_NAME_UNKNOWN: 400,
   TRIP_NOT_FOUND: 404,
   TRIP_NOT_EDITABLE: 409,
   TRIP_NOT_SUBMITTED: 409,

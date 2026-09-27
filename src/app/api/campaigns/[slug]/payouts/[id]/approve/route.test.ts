@@ -272,6 +272,21 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
       expect(ledgerRows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
     });
 
+    it('answers 400 PROVIDER_NAME_UNKNOWN for a name no provider answers to, and opens no transaction', async () => {
+      // The body is free text, so a name this build has no provider for can
+      // arrive here. It has to come back as a refusal the Admin can act on --
+      // pick a registered provider -- rather than a 500, and rather than a row
+      // recording a provider that does not exist.
+      const response = await POST(
+        createRequest({ provider: 'zendesk', providerBalance: 5_000_000 }),
+        routeContext(),
+      );
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).code).toBe('PROVIDER_NAME_UNKNOWN');
+      expect(mockTransaction).not.toHaveBeenCalled();
+    });
+
     it('records the reading on the Payout and answers 200 with it', async () => {
       const { tx, state } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
       mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
