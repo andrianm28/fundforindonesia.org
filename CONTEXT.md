@@ -38,6 +38,10 @@ _Avoid_: Prioritas, featured, darurat
 Item katalog kolaborasi CSR per Sektor yang dibaca tim CSR perusahaan. Program tidak menerima uang daring; kolaborasinya berjalan lewat Partnership Inquiry.
 _Avoid_: Campaign CSR, proposal
 
+**Tim CSR**:
+Tim di perusahaan atau lembaga yang mencari program siap implementasi dan bukti dampaknya, lalu mengirim Partnership Inquiry. Ia membaca katalog Program, bukan Campaign, dan tidak memberi uang lewat Donation: Program tidak menerima uang daring. Berbeda dari Partner Organisation, yang juga bergerak di platform tetapi menjadi Fundraiser di atasnya. Ia memakai akun sendiri, diputuskan untuk Rilis 1, dan ia bukan Fundraiser: akunnya tidak membawa Campaign, Payout, atau Verification Request. Satu perusahaan boleh punya lebih dari satu Tim CSR. Permintaannya masuk ke antrean Admin, dan tanpa balasan ia tidak akan pernah tahu hasilnya. Pekerjaan seorang Tim CSR: menelusuri portofolio Program per Sector; membaca anggaran dan KPI sebuah Program; mengirim Partnership Inquiry; dan mencari tahu apa yang terjadi atas permintaannya. Dua pertama ada, dua terakhir belum.
+_Avoid_: Mitra (dipakai untuk Partner Organisation), penggalang dana, foundations
+
 **Sector**:
 Pengelompokan Program CSR: Health, Education, Environment, Disability Inclusion.
 _Avoid_: Category
@@ -51,7 +55,7 @@ Pengajuan wakaf non-tunai (tanah, bangunan, barang) yang ditindaklanjuti nazhir 
 _Avoid_: Wakaf aset (di kode), donasi barang
 
 **Volunteer Trip**:
-Item katalog milik satu Fundraiser yang mengumpulkan Volunteer untuk ikut satu atau beberapa Volunteer Batch, dengan destinasi, itinerary, dan Trip Fee yang sama di semua Batch-nya. Bukan Campaign dan bukan Kind: uangnya bergerak sebagai Trip Fee, bukan Donation (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Dinamai "Trip", bukan "Program", supaya tidak tertukar dengan Program CSR di atas.
+Item katalog milik satu Fundraiser yang mengumpulkan Volunteer untuk ikut satu atau beberapa Volunteer Batch, dengan destinasi, itinerary, dan Trip Fee yang sama di semua Batch-nya. Bukan Campaign dan bukan Kind: uangnya bergerak sebagai Trip Fee, bukan Donation (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Dinamai "Trip", bukan "Program", supaya tidak tertukar dengan Program CSR di atas. Volunteer masuk Rilis 1, diputuskan 2026-09-27, sebelumnya hanya direncanakan untuk rilis 3.
 _Avoid_: Volunteer Event, Volunteer Program, Kegiatan, activity, trip package
 
 **Volunteer Batch**:
@@ -65,14 +69,14 @@ _Avoid_: Booking, sign-up
 ### Orang dan peran
 
 **Donor**:
-Orang yang membayar Donation. Tidak wajib punya akun.
+Orang yang membayar Donation. Tidak wajib punya akun. Pekerjaan seorang Donor: berdonasi tanpa wajib membuat akun; membaca Receipt-nya; mengirim ulang dan mencetak Receipt; melihat riwayat Donation-nya; dan menyembunyikan identitasnya pada sebuah Donation.
 _Avoid_: Donatur (di kode), user, contributor
 
 **Guest Donor**:
 Donor tanpa akun; hanya meninggalkan data minimal yang dibutuhkan untuk Receipt.
 
 **Fundraiser**:
-Pengguna terdaftar yang memiliki sebuah Campaign dan menerima Payout-nya. Organisasi program seperti YIEM adalah Fundraiser untuk Campaign yang dijalankannya sendiri; Platform Operator bukan Fundraiser. Setiap pengguna terdaftar boleh mengajukan Campaign atau Volunteer Trip; yang meloloskannya adalah Verifier, yang juga memverifikasi identitas Fundraiser pada pengajuan pertamanya. Tidak ada peringkat atau jenis akun yang membuat seseorang menjadi Fundraiser.
+Pengguna terdaftar yang memiliki sebuah Campaign dan menerima Payout-nya. Organisasi program seperti YIEM adalah Fundraiser untuk Campaign yang dijalankannya sendiri; Platform Operator bukan Fundraiser. Setiap pengguna terdaftar boleh mengajukan Campaign atau Volunteer Trip; yang meloloskannya adalah Verifier, yang juga memverifikasi identitas Fundraiser pada pengajuan pertamanya. Tidak ada peringkat atau jenis akun yang membuat seseorang menjadi Fundraiser. Pekerjaan seorang Fundraiser: menyusun dan menyimpan Draft Campaign lengkap dengan dokumennya; mengajukan dan mempertahankan Verification Request; menulis Campaign Update; mengajukan dan memantau Payout; serta melaporkan pemakaian dana lewat Usage Report. Berbagi Campaign bukan pekerjaan Fundraiser: tautannya ada, tetapi tidak ada klausa PRD atau tiket yang memintanya, dan ShareModal karena itu tidak terjangkau halaman mana pun.
 _Avoid_: Penggalang dana (di kode), creator, campaigner, owner
 
 **Penerima Manfaat**:
@@ -82,8 +86,12 @@ _Avoid_: penerima, penerima dana, penerima bantuan, beneficiary (untuk orangnya)
 **Wakif**:
 Donor pada Campaign ber-Kind `wakaf`. Dipakai di UI dan dokumen akad, bukan sebagai peran terpisah.
 
+**Donor Hibah**:
+Donor yang memberi hibah untuk lembaga atau tujuan tertentu, melalui Campaign ber-Kind `hibah`. Tetap seorang Donor, bukan peran terpisah: yang membedakan adalah tujuan dan lawannya, bukan statusnya di platform. Berbeda dari Wakif, tidak ada akad yang harus ia konfirmasi — dokumen dan izin melekat pada Collecting Entity, bukan padanya.
+_Avoid__: Penghibah, pemberi hibah, wakif (untuk Kind `wakaf`), Donor Institusi
+
 **Volunteer**:
-Pengguna terdaftar yang mendaftar Volunteer Batch dan membayar Trip Fee-nya. Berbeda dari Donor: uangnya menutup partisipasinya sendiri, bukan disumbangkan untuk tujuan orang lain.
+Pengguna terdaftar yang mendaftar Volunteer Batch dan membayar Trip Fee-nya. Berbeda dari Donor: uangnya menutup partisipasinya sendiri, bukan disumbangkan untuk tujuan orang lain. Pekerjaan seorang Volunteer: menelusuri katalog Volunteer Trip dan Batch beserta tanggal dan harganya; mendaftar Volunteer Batch; membayar Trip Fee-nya; membaca konfirmasi pembayarannya; dan menerima sertifikat keikutsertaan.
 _Avoid_: Relawan (di kode), Donor
 
 **Platform Operator**:
@@ -103,7 +111,7 @@ Izin penghimpunan dana sosial bertanggal yang dipegang sebuah Collecting Entity,
 _Avoid_: Izin PUB (di kode), lisensi, legalitas
 
 **Verifier**:
-Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memasang Flag, memverifikasi identitas Fundraiser, dan memeriksa rekening tujuan baik untuk Payout maupun untuk Refund. Tidak men-suspend; itu keputusan Admin. Seperti Admin, tidak pernah bertindak sebagai Verifier atas Campaign atau Volunteer Trip miliknya sendiri. Di kode ini penugasan VERIFIER; Role lama MODERATOR tidak lagi memberi wewenang apa pun.
+Peran di sisi Platform Operator yang meloloskan atau menolak Campaign, memasang Flag, memverifikasi identitas Fundraiser, memverifikasi dokumen legal Partner Organisation, mencatat Fundraising Permit pada Collecting Entity, memoderasi Volunteer Trip, memeriksa rekening tujuan baik untuk Payout maupun untuk Refund, dan menilai Petunjuk Duplikat sebelum meloloskan. Tidak men-suspend; itu keputusan Admin. Seperti Admin, tidak pernah bertindak sebagai Verifier atas Campaign atau Volunteer Trip miliknya sendiri. Di kode ini penugasan VERIFIER; Role lama MODERATOR tidak lagi memberi wewenang apa pun.
 _Avoid_: Verifikator, moderator (di percakapan)
 
 **Cancellation**:
@@ -151,7 +159,7 @@ Peran yang dipakai seseorang untuk satu tindakan: Fundraiser, Verifier, Admin, a
 _Avoid_: Role (di kode itu hierarki lama), peran, jabatan
 
 **Admin**:
-Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, mengelola peran pengguna, memutuskan dan mencabut Suspension, menyetujui Cancellation, menandai Campaign Completed, memasang dan melepas Urgent, serta menyusun checklist dokumen Verification Request (berlaku untuk pengajuan berikutnya saja). Tidak pernah bertindak sebagai Admin atas Campaign atau Volunteer Trip miliknya sendiri; di sana ia hanya Fundraiser. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
+Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, mengelola peran pengguna, memutuskan dan mencabut Suspension, menyetujui Cancellation, menandai Campaign Completed, memasang dan melepas Urgent, serta menyusun checklist dokumen Verification Request (berlaku untuk pengajuan berikutnya saja), menyetujui dan menolak Refund, mencatat Manual Contribution, dan membuat rekap keuangan. Tidak pernah bertindak sebagai Admin atas Campaign atau Volunteer Trip miliknya sendiri; di sana ia hanya Fundraiser. Penugasan terpisah dari Verifier; satu orang boleh memegang keduanya.
 
 ### Uang
 
