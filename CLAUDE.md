@@ -74,21 +74,6 @@ untuk produksi dan ops yang dijalankan owner (nginx, cutover, backup).
 - Merge hanya setelah semua check CI hijau.
 - Tidak ada kredensial asli di repo, termasuk `.scratch/`.
 
-### Model subagent (anggaran token)
+### Model agent
 
-Selalu isi `model` saat men-dispatch subagent; jangan biarkan mewarisi model
-sesi:
-
-- Membangun kode (tiket, TDD), code review pertama, riset, prototipe: `sonnet`.
-- Re-review yang hanya mengecek daftar perbaikan, sapuan dokumen, edit mekanis,
-  pencarian kode: `haiku`.
-- `opus` hanya untuk kode keamanan, uang, atau konkurensi yang sulit, bila
-  `sonnet` gagal atau review terus menemukan pelanggaran berat.
-- Diff kecil (di bawah ~300 baris, atau commit lanjutan): satu reviewer yang
-  tetap melaporkan tiap sumbu review di bawah judulnya sendiri; diff besar tetap
-  memakai reviewer paralel.
-- Brief menunjuk path file, bukan menempel isi; minta laporan paling banyak
-  ~200 kata.
-- Cloud container punya 4 vCPU: paling banyak 3 subagent pembangun sekaligus
-  per sesi. Untuk lebih banyak paralelisme, buka cloud session terpisah per
-  tiket.
+Tiering model, dispatch, dan review: @AGENTS.md
