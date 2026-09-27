@@ -228,8 +228,59 @@ describe('GET /api/impact -- a refunded Donation', () => {
     expect(body.returnedToDonors).toBe(0);
   });
 
-  it('a Refund the Campaign could no longer cover does not shrink the disbursed line -- it is platform cost', async () => {
-    // The Campaign was paid out in full, so the 100 000 Gross refund finds an
+  it('still totals the collected figure after a Refund that returns BOTH fees, and after that Refund is paid out', async () => {
+    // prd-compliance 28c. A fee that was counted into a line and then handed
+    // back has to leave the page the same way it arrived, or the six lines
+    // stop being a conservation law. The Provider Balance leg that pays the
+    // Refund is the one that could have broken it, since it moves the same
+    // money the page already reports as returned.
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    ledger.refundRequest({
+      refundId: 'refund-1',
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      source: 'ESCROW_HOLD',
+      platformFeePortion: 5_000,
+      providerFeePortion: 3_000,
+    });
+    ledger.refundApproval({ refundId: 'refund-1', campaignId: 'campaign-1', amount: 100_000, source: 'ESCROW_HOLD', shortfall: 0 });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    const approved = await getBreakdown();
+
+    expect(approved.collected).toBe(100_000);
+    expect(sumOf(lines(approved))).toBe(100_000);
+    // Both fees left the page with the refund: 3 000 the provider never
+    // returned, 5 000 of platform fee given back, and the platform's cost is
+    // reported beside the lines rather than inside them.
+    expect(lines(approved)).toEqual({
+      disbursedToFundraisers: 0,
+      returnedToDonors: 100_000,
+      heldInEscrowHold: 0,
+      availableInCampaignBalance: 0,
+      platformFeeRetained: 0,
+      providerFeeKept: 0,
+    });
+    expect(approved.platformCost).toEqual({ unrecoveredProviderFee: 3_000, uncoveredRefunds: 0 });
+
+    // Now the Donor is actually paid, which drains the Provider Balance. The
+    // page must not move by a single rupiah: the money was already reported
+    // as returned when the Refund was approved.
+    ledger.refundPayment({ refundId: 'refund-1', amount: 100_000 });
+    const paid = await getBreakdown();
+
+    expect(paid.collected).toBe(100_000);
+    expect(lines(paid)).toEqual(lines(approved));
+    expect(sumOf(lines(paid))).toBe(100_000);
+  });
+
+  it('a Refund the Campaign could no longer cover does not shrink the disbursed line -- it is platform cost', async () => {    // The Campaign was paid out in full, so the 100 000 Gross refund finds an
     // empty balance: 92 000 of it is a shortfall the platform covered.
     const ledger = ledgerFixture();
     ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });

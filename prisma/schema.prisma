@@ -1035,12 +1035,34 @@ enum LedgerAccount {
   FROZEN_BALANCE
   PLATFORM_FEE // retained by the platform
   PROVIDER_FEE // retained by the payment provider
-  GATEWAY_CLEARING // money at the provider, not yet settled to us
+  /// CONTEXT.md's Provider Balance: the Donors' money sitting at the payment
+  /// provider, debited with the full Gross of every settlement. Debit-normal
+  /// -- it grows when money arrives and shrinks when money is sent OUT. It is
+  /// credited by exactly two movements, both of them money physically leaving
+  /// the provider: a Payout completed by the second Admin (prd-compliance 27)
+  /// and a Refund paid to the Donor (refundPaidLegs, prd-compliance 28c,
+  /// whose COMPLETED transition is ticket 32). Nothing else credits it: the
+  /// fee accounts take their share out of this pot by ALLOCATION at
+  /// settlement, not by moving cash, and a Refund's approval is an internal
+  /// decision that moves none. What is left in here must be money some
+  /// account still claims: a pot holding more than the Campaign, the platform
+  /// and the provider are owed between them is the signal that one of those
+  /// two steps never ran.
+  GATEWAY_CLEARING
   PAYOUT_CLEARING // money instructed out, not yet confirmed
+  /// The Donor's own claim once a Refund is approved, and the money the
+  /// platform owes that Donor until the transfer lands: credited the full
+  /// Gross at approval, debited when the Donor is actually paid
+  /// (refundPaidLegs). Every returned fee rides out of here rather than
+  /// staying behind in the Provider Balance, so nothing a Refund hands back
+  /// is left claimed as money owed to the platform or the provider.
   REFUND_CLEARING
   /// The platform's absorption of whatever a Refund's source didn't cover --
   /// the unrecoverable Provider Fee on every Gross refund (ADR 0007), and,
   /// when the subject's pool has gone negative, the uncovered shortfall too.
+  /// Debit-normal, and an expense rather than a pot: the balance is what the
+  /// platform has spent carrying Refunds, and it is the account that keeps
+  /// that difference named instead of silently absorbed.
   REFUND_COST
 }
 
