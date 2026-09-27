@@ -4,7 +4,7 @@
 
 **Blocked by:** 12, 18
 
-**Status:** done (PR #88, b3a34f1)
+**Status:** done (PR #88, 574835d)
 
 - [x] Cumulative Gross above Rp100 juta on a Campaign triggers additional Verifier review
 - [x] Above Rp500 juta places an audit marker on the Campaign
