@@ -341,9 +341,9 @@ describe('completePayout', () => {
     expect(payoutState).toMatchObject({
       status: 'COMPLETED',
       completedById: 'admin-2',
+      completedAt: expect.any(Date),
       proofImage: 'https://files.example/transfer-admin-2.png',
     });
-    expect(payoutState.completedAt).toBeInstanceOf(Date);
 
     const posted = rows.filter((r) => r.transactionId === 'payout-completed-payout-1');
     expect(posted).toEqual([
