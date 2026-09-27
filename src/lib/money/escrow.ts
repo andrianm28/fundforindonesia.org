@@ -107,19 +107,27 @@ export interface ReleaseSweepSubject {
  * withdraw -- without a cron job existing at all.
  *
  * Idempotent by construction, so calling this twice concurrently -- two
- * payout requests for the same campaign landing at once, or a request
- * racing a future scheduled sweep -- posts one set of release entries per
- * payment, never two. Each payment is released in its own transaction,
- * keyed on `transactionId: \`escrow-release:${paymentId}\``, and claimed via
- * a status-predicated `updateMany` (WHERE escrowReleasedAt IS NULL) rather
+ * payout requests for the same campaign landing at once, a request racing
+ * the scheduled sweep (runScheduledJobs, ticket 20), or two scheduler
+ * runners overlapping -- posts one set of release entries per payment,
+ * never two. Each payment is released in its own transaction, keyed on
+ * `transactionId: \`escrow-release:${paymentId}\``, and claimed via a
+ * status-predicated `updateMany` (WHERE escrowReleasedAt IS NULL) rather
  * than a read-then-write: the database arbitrates which of two concurrent
  * callers gets to release a given payment, and the loser sees `count === 0`
  * and does nothing further. A read-then-write here was Critical twice
  * already on this branch (see approvePayout in ./payouts.ts for
  * the same pattern applied to payout approval).
+ *
+ * `now` defaults to the live clock; the scheduled job (./scheduled-jobs.ts)
+ * passes its own injected `now` so it can be driven directly in tests,
+ * never through timers, same as every other `now`-taking function in this
+ * codebase (expireIfPastDeadline, expiringWindows).
  */
-export async function releaseMaturedEscrow(subject?: ReleaseSweepSubject): Promise<ReleaseSweepResult> {
-  const now = new Date();
+export async function releaseMaturedEscrow(
+  subject?: ReleaseSweepSubject,
+  now: Date = new Date(),
+): Promise<ReleaseSweepResult> {
 
   const matured = await prisma.payment.findMany({
     where: {
