@@ -155,6 +155,19 @@ describe('CampaignCreatePage review step', () => {
     expect(calls.find((c) => c.url === '/api/campaigns')?.body).toMatchObject({ kind: 'ZAKAT' });
   });
 
+  it('offers Hibah as a Kind choice, labelled in Indonesian (CONTEXT.md, Kind), and sends it', async () => {
+    render(<CampaignCreatePage />);
+    await screen.findByTestId('collecting-entity');
+    expect(screen.getByRole('option', { name: 'Hibah' })).toBeDefined();
+    cleanup();
+
+    await fillInToReview({ kind: 'HIBAH' });
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalled());
+    expect(calls.find((c) => c.url === '/api/campaigns')?.body).toMatchObject({ kind: 'HIBAH' });
+  });
+
   it('lets a wakaf Campaign go without a deadline', async () => {
     await fillInToReview({ kind: 'WAKAF', deadline: '' });
 
