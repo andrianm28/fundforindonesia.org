@@ -6,7 +6,7 @@ other CSR ticket in this feature builds on.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (PR #65, a96982b + 6039241)
 
 - [ ] `Sector` is a four-value enum (`HEALTH`, `EDUCATION`, `ENVIRONMENT`,
       `DISABILITY_INCLUSION`) defined in code, with no Admin-facing way to add,
