@@ -155,3 +155,37 @@
   `.tsx` mentioning a Payout for `PROGRAM_BALANCE`/`programBalance`, so a
   future Payout screen cannot quietly introduce one.
 
+- 2026-09-27 (a deny-list only holds back what its author thought of): the
+  "a read moves no money" case in
+  `src/app/api/user/campaigns/[slug]/payouts/route.test.ts` denied three
+  method names, so it proved only that THOSE three were unused. A
+  `releaseMaturedEscrow` written with any other query shape kept it green,
+  which is the whole failure the case has to survive. It is now an allow-list
+  of the reads a GET legitimately makes, asserted in **both** directions: a new
+  query fails by name, and every name in the list is proved to have been seen.
+
+  The allow-list was inert until now, and the reason belongs here because it is
+  the shape `docs/agents/verification.md` warns about. The recorder pushed
+  `model.method` from inside a `vi.fn` wrapper; the push lived in the
+  IMPLEMENTATION, and `mockResolvedValue` / `mockImplementation` *replace* an
+  implementation. So not one `prisma.*` call was ever recorded, and
+  `prisma.payment.findMany` — the entry point the sweep opens with — among
+  them. Three of the five allow-list entries were impossible to see. The
+  recorder now hands back the real mock and reads that mock's own
+  `.mock.calls`, the passthrough shape the rest of this repo already uses.
+
+  Proved by putting the sweep in the GET temporarily: the case goes red on
+  `prisma.payment.findMany`. The fixture's Payment row also had no `donation`
+  relation, so the sweep threw inside its per-payment `try`/`catch`, logged and
+  moved nothing — meaning "the books did not move" stayed true for a read that
+  HAD swept. With the relation in the fixture, a sweep really claims the
+  payment and posts both legs, and the state assertions catch it too. No
+  production code changed.
+
+  Separately, the guard comment on `/akun/kampanye-saya/[slug]/pencairan`
+  claimed the read below refuses a signed-out visitor on its own, and that this
+  was the sibling pages' guard. The pages under `/akun` guard with
+  `useSession` — which the next paragraph of that same comment says — and this
+  guard settles before the panel renders, so the read is never issued. Both
+  claims are gone; comment only.
+
