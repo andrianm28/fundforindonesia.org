@@ -19,7 +19,8 @@ Selalu isi `model` saat men-dispatch; subagent tidak pernah mewarisi model sesi.
 - Builder berjalan sebagai **subagent background** di sesi koordinator, dengan
   worktree sendiri (keputusan owner 2026-09-27); cloud session terpisah hanya
   bila owner memintanya.
-- Paling banyak 3 builder sekaligus (container 4 vCPU).
+- Paling banyak 4 agent background sekaligus (keputusan owner 2026-09-27;
+  container 4 vCPU, jadi jangan menjalankan full suite di keempatnya bersamaan).
 - Sebelum dispatch, cocokkan baris "Blocked by" tiket dengan `**Status:**`
   tiap pemblokir; dispatch hanya bila semuanya `done`.
 - Brief menunjuk path file, bukan menempel isi; minta laporan paling banyak
