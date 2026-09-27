@@ -96,6 +96,17 @@ describe('canonicalPaymentProviderName', () => {
     expect(() => canonicalPaymentProviderName('zendesk')).toThrow(UnknownPaymentProviderError);
   });
 
+  it('refuses a name that is only a property of Object.prototype, not a registered provider', () => {
+    // BUILDERS is an object literal, so `BUILDERS[name]` finds inherited keys.
+    // "constructor" and "__proto__" are therefore truthy lookups that resolve to
+    // Object's own members rather than to an adapter -- and for the money layer
+    // that is worse than a bad lookup, because the returned string is stamped
+    // on ledger entries and becomes a Provider Balance bucket of its own.
+    for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+      expect(() => canonicalPaymentProviderName(name)).toThrow(UnknownPaymentProviderError);
+    }
+  });
+
   it('needs no adapter built, so naming a provider never depends on it being configured', () => {
     // A recorded sweep is a human's account of a movement that already
     // happened; refusing to file it because the provider is not configured
