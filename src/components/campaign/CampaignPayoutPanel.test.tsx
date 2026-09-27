@@ -32,6 +32,7 @@ function refused(status: number, body: unknown) {
 
 const READ = {
   isDemo: false,
+  lifecycleStatus: 'ACTIVE' as const,
   escrowHold: 120_000,
   campaignBalance: 800_000,
   payouts: [],
@@ -188,6 +189,87 @@ describe('CampaignPayoutPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('melebihi Campaign Balance');
     expect(screen.getByRole('button', { name: /Ajukan pencairan/ })).toBeDisabled();
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it('never shows a Fundraiser a raw enum for a Payout status, whatever the row says', async () => {
+    mockFetch.mockImplementation(() =>
+      ok({
+        ...READ,
+        payouts: [
+          {
+            id: 'payout-4',
+            amount: 10_000,
+            description: 'Statuses this repo does not write yet',
+            // Nothing in src/ writes SUBMITTED, PROCESSING, REJECTED or FAILED
+            // today (payouts.ts). A row can still carry one -- a status
+            // added later, a row written outside the app -- and a fallback of
+            // `?? status` would then put the English enum in front of a
+            // Fundraiser reading their own money, in a panel whose other
+            // labels are all Indonesian.
+            status: 'SUBMITTED',
+            createdAt: '2026-09-26T00:00:00.000Z',
+            approvedAt: null,
+            completedAt: null,
+          },
+        ],
+      }),
+    );
+
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+
+    expect(await screen.findByText('Diajukan, menunggu ditinjau')).toBeInTheDocument();
+    expect(screen.queryByText('SUBMITTED')).toBeNull();
+  });
+
+  it('offers no way to ask for money from a Campaign that cannot pay out, however the Fundraiser arrived', async () => {
+    const post = vi.fn();
+    // Enough balance and a verified account, so the ONLY thing standing
+    // between this Fundraiser and a submittable form is the Campaign's status.
+    // A URL typed by hand reaches this page with the same read as the link.
+    mockFetch.mockImplementation((_url: string, init?: RequestInit) =>
+      init?.method === 'POST' ? post() : ok({ ...READ, lifecycleStatus: 'SUSPENDED' }),
+    );
+
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+
+    // FFI-07: Suspended and Cancelled refuse a Payout, and a Suspension
+    // falling between the request and the approval refuses it too. The
+    // server refuses under the subject lock regardless; what this pins is
+    // that the screen does not collect a request it knows is impossible, and
+    // says which status is the reason.
+    expect(
+      await screen.findByText('Campaign ini berstatus Suspended, jadi pencairan tidak bisa diajukan.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Ajukan pencairan/ })).toBeNull();
+    expect(screen.queryByLabelText(/Jumlah pencairan/)).toBeNull();
+    expect(screen.queryByLabelText('Rekening tujuan')).toBeNull();
+    // And the balance is still shown: it is the Fundraiser's money and they
+    // are owed the truth about it, whatever they may do with it today.
+    expect(screen.getByText('Rp800.000')).toBeInTheDocument();
+  });
+
+  it('asks the same list the money layer enforces, rather than a copy of the statuses', async () => {
+    // One list decides both: PAYOUT_REQUESTABLE_STATUSES is what
+    // requirePayoutAllowed is written against, and it is what the Campaign
+    // list hides the link on. A second copy here is how a status ends up
+    // offered by a screen and refused by the money.
+    for (const status of ['SUSPENDED', 'CANCELLED', 'DRAFT', 'SUBMITTED', 'REJECTED'] as const) {
+      mockFetch.mockImplementation(() => ok({ ...READ, lifecycleStatus: status }));
+      const { unmount } = render(<CampaignPayoutPanel slug="sumur-desa" />);
+      await screen.findByText(/pencairan tidak bisa diajukan/);
+      expect(screen.queryByRole('button', { name: /Ajukan pencairan/ })).toBeNull();
+      unmount();
+    }
+
+    for (const status of ['ACTIVE', 'EXPIRED', 'COMPLETED'] as const) {
+      mockFetch.mockImplementation(() => ok({ ...READ, lifecycleStatus: status }));
+      const { unmount } = render(<CampaignPayoutPanel slug="sumur-desa" />);
+      // Offered, not merely enabled: the form is what the Fundraiser fills in,
+      // and the button inside it is disabled until it is full.
+      expect(await screen.findByLabelText(/Jumlah pencairan/)).toBeInTheDocument();
+      expect(screen.getByLabelText('Rekening tujuan')).toBeInTheDocument();
+      unmount();
+    }
   });
 
   it('offers no way to withdraw a Program Balance, because a Program is not a Campaign', async () => {

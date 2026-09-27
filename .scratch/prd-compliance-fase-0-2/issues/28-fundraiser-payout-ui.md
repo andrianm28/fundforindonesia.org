@@ -4,7 +4,7 @@
 
 **Blocked by:** 27
 
-**Status:** done (PR #94, 43f7734)
+**Status:** ready-for-agent
 
 - [x] Escrow Hold and Campaign Balance are shown separately and computed from the ledger
 - [x] A partial Payout may be requested while the Campaign is Active
@@ -13,11 +13,80 @@
 
 ## Comments
 
+- 2026-09-27 (status corrected): this file said `done (PR #94, 43f7734)`.
+  Wrong twice. `done` is this repo's CLOSING status, and
+  `docs/agents/triage-labels.md` sets it only once the branch has merged to
+  `main` -- `prd-28-payout-ui` has not. And `43f7734` is not the work: it is a
+  commit whose whole content was a wrong sha, one of three successive attempts
+  to point this line at the right one. **The work is `398877c`** ("Give the
+  Fundraiser a Payout screen"), on branch `prd-28-payout-ui`, PR #94. From
+  here the pointer lives in this comment and the `Status:` line carries the
+  triage role alone, so adding a commit no longer makes the status line a
+  lie. Set `Status:` to `done` when PR #94 merges.
+
+- 2026-09-27 (a read is a read): `GET /api/user/campaigns/[slug]/payouts` ran
+  `releaseMaturedEscrow` on every page load. Removed. spec.md puts escrow
+  release on a schedule (`runScheduledJobs`) and keeps the lazy sweep as a
+  SECOND path -- the one at the top of the Payout request handler, which is
+  where the money is about to be asked for. This was a third path nobody
+  asked for, and it made how fast someone loaded a page a fact about the
+  books. **The consequence, stated rather than papered over:** nothing in
+  `src/` invokes `runScheduledJobs` -- the function exists (ticket 20) but no
+  cron route or scheduler calls it -- so a matured hold is now released when a
+  Payout is REQUESTED rather than when a page is opened, and the Campaign
+  Balance this screen shows can read lower than it will be a moment after
+  submitting. Whether the screen is allowed to nudge that, or the schedule has
+  to be wired up first, is a product decision and is not settled here.
+
+- 2026-09-27 (the form is gated too, not just the link): the read now carries
+  the Campaign's EFFECTIVE `lifecycleStatus`, and the panel withholds the
+  request form outside `PAYOUT_REQUESTABLE_STATUSES` -- the same list
+  `requirePayoutAllowed` is written against, asked of the same module rather
+  than a copy. Before, a Fundraiser who typed this URL on a Suspended or
+  Cancelled Campaign filled in a live form and learned from the refusal. The
+  server still judges every request under the Campaign row lock; this only
+  stops the screen collecting one it knows is impossible.
+
+- 2026-09-27 (page guard): `/akun/kampanye-saya/[slug]/pencairan` had no
+  session guard, unlike every other page under `/akun`, so an anonymous
+  visitor was shown "Gagal memuat data pencairan." No data leaked -- the read
+  is refused server-side -- but the wrong person was told the wrong thing, and
+  a URL that looks broken is a dead end. It now uses the same `useSession`
+  guard as `akun/page.tsx`, `pengaturan/page.tsx` and `kampanye-saya/page.tsx`,
+  and reads its slug with `useParams`.
+
+- 2026-09-27 (one rule, one name): the panel's `requested > campaignBalance`
+  duplicated the money layer's own cap, and its docstring claimed it "never
+  decides that an amount is affordable" while `disabled` + `role="alert"` made
+  it decide. The cap is now `exceedsPayoutBalance`
+  (`src/lib/payout-balance-rule.ts`), asked of by `requestPayout` in
+  `src/lib/money/payouts.ts` and by the panel; the server is still the holder
+  of the decision. The comment now says what the code does. Separately,
+  `STATUS_LABEL` in the panel was a Payout-status map under a name that means
+  the Campaign lifecycle's statuses everywhere else in the repo, and it was
+  `Partial` with a `?? status` fallback -- so a Fundraiser could be shown
+  `SUBMITTED`. It is now `PAYOUT_STATUS_LABEL`
+  (`src/lib/payout-status-label.ts`), a total `Record`, next to
+  `campaign-status-label.ts`.
+
+- 2026-09-27 (NOT fixed here, and it makes two boxes above untrue):
+  **`BankAccount` cannot be created by anyone in the product.**
+  `bankAccount.create` does not appear anywhere in `src/`; the only writer is
+  `prisma/seed.ts`. So `bankAccounts` is always empty for a real Fundraiser,
+  the destination picker never renders, and `canRequest` cannot be true. That
+  means the "partial Payout may be requested" and "verified Bank Account
+  only" boxes cannot be exercised end to end, and the tests here pass on
+  fixtures that invent accounts the product cannot make. Building the
+  creation flow is ticket 01 and needs product decisions not yet taken, so it
+  is left visible rather than papered over: **the two boxes stay checked
+  because the code is right, and the flow is unreachable until ticket 01
+  lands.**
+
 - 2026-09-27 (implementation): `GET /api/user/campaigns/[slug]/payouts` reads
   `escrowBalance` and `campaignBalance` from the ledger, never
-  `Campaign.collectedAmount`; it runs `releaseMaturedEscrow` for the Campaign
-  first, exactly as the request handler does, so the figure on screen is the
-  figure a request a second later is judged against. The screen is
+  `Campaign.collectedAmount`, and it moves no money (see the "a read is a
+  read" comment above, which corrected the lazy sweep this originally ran
+  here). The screen is
   `/akun/kampanye-saya/[slug]/pencairan`, reached from a "Cairkan dana" link
   on each Campaign card.
 
