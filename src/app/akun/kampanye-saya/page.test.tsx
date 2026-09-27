@@ -79,6 +79,18 @@ describe('Kampanye Saya', () => {
     }
   });
 
+  it('links each Campaign to its own Payout screen, so the money a Fundraiser raised is reachable', () => {
+    // Without this the Payout screen exists but no Fundraiser can find it:
+    // FFI-07's whole subject is a person asking for their own money back out.
+    swr.data = { campaigns: [campaign('running', 'ACTIVE')], total: 1, page: 1, totalPages: 1 };
+
+    render(<MyCampaignsPage />);
+
+    const card = screen.getByTestId('campaign-running');
+    const link = within(card).getByRole('link', { name: 'Cairkan dana' });
+    expect(link.getAttribute('href')).toBe('/akun/kampanye-saya/running/pencairan');
+  });
+
   it('offers "Ajukan ke Verifier" on a Draft or Rejected Campaign only, and submits it', async () => {
     swr.data = {
       campaigns: [campaign('draft', 'DRAFT'), campaign('refused', 'REJECTED'), campaign('waiting', 'SUBMITTED'), campaign('running', 'ACTIVE')],

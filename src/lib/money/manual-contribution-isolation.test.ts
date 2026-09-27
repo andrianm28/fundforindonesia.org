@@ -77,6 +77,23 @@ describe('a Program Balance is never money anyone can pay out', () => {
     }
   });
 
+  it('keeps PROGRAM_BALANCE out of every Payout screen', () => {
+    // The same guarantee one layer up. A Payout screen is where a Program
+    // Balance would first become reachable by a person rather than by code:
+    // a Fundraiser reading "Program Balance: Rp..." next to a request form
+    // would reasonably believe that money is theirs to withdraw. The Fundraiser
+    // Payout panel (prd-compliance 28) is the first Payout UI in this repo at
+    // all, so it is the first place this could have been introduced.
+    const payoutScreens = appFiles().filter(
+      (file) => file.endsWith('.tsx') && /Payout/i.test(source(file)),
+    );
+    expect(payoutScreens.length).toBeGreaterThan(0);
+
+    for (const file of payoutScreens) {
+      expect(source(file)).not.toMatch(/PROGRAM_BALANCE|programBalance/);
+    }
+  });
+
   it('lets only the Manual Contribution module read a Program Balance', () => {
     // ledger.ts defines programBalance; one caller decides what it is for.
     // A second reader would be a second opinion on money that has no exit.
