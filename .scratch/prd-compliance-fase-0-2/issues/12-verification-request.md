@@ -4,7 +4,7 @@
 
 **Blocked by:** 5
 
-**Status:** ready-for-agent
+**Status:** done (PR #68, 7f8c89d)
 
 - [ ] Submitting creates a Verification Request; each resubmission creates a new one and none is overwritten
 - [ ] The document checklist is configured per Kind from the Admin panel, not in code

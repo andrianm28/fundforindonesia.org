@@ -33,6 +33,7 @@ export type LifecycleErrorCode =
   | "ACTIVE_CONTENT_FROZEN"
   | "VERIFICATION_REQUEST_NOT_FOUND"
   | "VERIFICATION_REQUEST_NOT_PENDING"
+  | "CHANGE_REQUEST_ALREADY_PENDING"
   | "REQUIRED_CHECKLIST_ITEMS_UNTICKED"
   | "DEADLINE_REQUIRED"
   | "DEADLINE_NOT_EDITABLE"
@@ -135,6 +136,8 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   ACTIVE_CONTENT_FROZEN: 409,
   VERIFICATION_REQUEST_NOT_FOUND: 404,
   VERIFICATION_REQUEST_NOT_PENDING: 409,
+  // A second change asked while the first still waits for a Verifier.
+  CHANGE_REQUEST_ALREADY_PENDING: 409,
   // Like MISSING_CAMPAIGN_UPDATE: an unmet precondition the actor can fix
   // (tick the items), not a status conflict another actor caused.
   REQUIRED_CHECKLIST_ITEMS_UNTICKED: 422,

@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { MoveDirection } from "@/lib/verification-checklist";
+import { KIND_LABEL, KINDS, type CampaignKind } from "@/lib/campaign-kind";
 
 // The Admin edits the verification checklist here (verification-request 04,
 // PRD §7.1). Changes apply to Verification Requests submitted afterwards;
 // every existing request keeps the checklist it was submitted with. Items are
-// deactivated, never deleted. The admin layout gates the page on the ADMIN
-// assignment and the API re-checks it.
+// deactivated, never deleted. An item scoped to one Kind is only checked on
+// that Kind's submissions; a general one ("Semua") on every Kind's. The admin
+// layout gates the page on the ADMIN assignment and the API re-checks it.
 
 interface ChecklistItem {
   id: string;
@@ -15,6 +17,11 @@ interface ChecklistItem {
   required: boolean;
   position: number;
   active: boolean;
+  kind: CampaignKind | null;
+}
+
+function kindLabel(kind: CampaignKind | null): string {
+  return kind === null ? "Semua" : KIND_LABEL[kind];
 }
 
 const API = "/api/admin/verification-checklist";
@@ -26,6 +33,7 @@ export default function AdminChecklistPage() {
   const [error, setError] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState("");
   const [newRequired, setNewRequired] = useState(true);
+  const [newKind, setNewKind] = useState<CampaignKind | "">("");
 
   const load = useCallback(async () => {
     try {
@@ -71,9 +79,10 @@ export default function AdminChecklistPage() {
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
-    if (await send(API, "POST", { label: newLabel, required: newRequired })) {
+    if (await send(API, "POST", { label: newLabel, required: newRequired, kind: newKind === "" ? null : newKind })) {
       setNewLabel("");
       setNewRequired(true);
+      setNewKind("");
     }
   }
 
@@ -125,6 +134,22 @@ export default function AdminChecklistPage() {
           <input type="checkbox" checked={newRequired} onChange={(e) => setNewRequired(e.target.checked)} />
           Wajib
         </label>
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          Berlaku untuk
+          <select
+            aria-label="Cakupan Kind item baru"
+            value={newKind}
+            onChange={(e) => setNewKind(e.target.value as CampaignKind | "")}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="">Semua</option>
+            {KINDS.map((kind) => (
+              <option key={kind} value={kind}>
+                {KIND_LABEL[kind]}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="submit"
           disabled={busy}
@@ -149,7 +174,7 @@ function ChecklistRow({
   isFirst: boolean;
   isLast: boolean;
   busy: boolean;
-  onSave: (changes: Partial<Pick<ChecklistItem, "label" | "required" | "active">>) => Promise<boolean>;
+  onSave: (changes: Partial<Pick<ChecklistItem, "label" | "required" | "active" | "kind">>) => Promise<boolean>;
   onMove: (direction: MoveDirection) => Promise<boolean>;
 }) {
   const [label, setLabel] = useState(item.label);
@@ -183,6 +208,24 @@ function ChecklistRow({
           />
           Wajib
         </label>
+        <label className="flex items-center gap-2 text-gray-700">
+          Berlaku untuk
+          <select
+            aria-label={`Cakupan Kind item ${item.position}`}
+            value={item.kind ?? ""}
+            disabled={busy}
+            onChange={(e) => onSave({ kind: e.target.value === "" ? null : (e.target.value as CampaignKind) })}
+            className="rounded-lg border border-gray-300 px-3 py-1 text-sm disabled:opacity-50"
+          >
+            <option value="">Semua</option>
+            {KINDS.map((kind) => (
+              <option key={kind} value={kind}>
+                {KIND_LABEL[kind]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-800">{kindLabel(item.kind)}</span>
         {!item.active && <span className="rounded bg-gray-300 px-2 py-0.5 text-xs text-gray-700">Nonaktif</span>}
         <button
           type="button"

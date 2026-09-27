@@ -501,6 +501,11 @@ model VerificationRequest {
   /// Submitted from Draft (the Campaign's first request) rather than from
   /// Rejected. A withdrawal returns the Campaign to Draft or Rejected by it.
   isFirst       Boolean
+  /// A change asked for an Active Campaign (ticket 12, FFI-05): the new
+  /// target and/or deadline the Campaign keeps running without until a
+  /// Verifier approves this request. Null on every submission from Draft or
+  /// Rejected. Approving applies it; rejecting or withdrawing discards it.
+  proposedChanges Json?
   /// The Campaign's Collecting Entity when it was submitted: the one the
   /// Verifier confirms by approving (prd-compliance 10). Null on requests
   /// submitted before this column existed.
@@ -650,17 +655,20 @@ model PartnerOrganisationAuditEntry {
 /// The documents a Verifier checks on every submission (PRD §7.1), edited by
 /// an Admin from the panel. Seeded with the "Semua" row by migration; each
 /// submission snapshots the active items. Items are deactivated, never
-/// deleted. Per-Kind items (a `kind` column) come with ticket 09.
+/// deleted. `kind` scopes an item to one Kind (PRD §7.1, ticket 12); null is
+/// the "Semua" row, snapshotted for every Kind.
 model VerificationChecklistItem {
   id       String  @id @default(cuid())
   label    String
   required Boolean @default(true)
   position Int
   active   Boolean @default(true)
+  kind     Kind?
 
   auditEntries VerificationChecklistAuditEntry[]
 
   @@index([active, position])
+  @@index([kind, active, position])
 }
 
 enum VerificationChecklistAuditAction {

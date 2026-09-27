@@ -4,16 +4,19 @@ import type {
   VerificationChecklistAuditAction,
   VerificationChecklistItem,
 } from "@/generated/prisma/client";
+import { KINDS, type CampaignKind } from "./campaign-kind";
 
 /**
  * The Admin-configured verification checklist (verification-request 04, PRD
  * §7.1 "configured from the panel, not code"). Admins add, reword, reorder,
- * mark required or optional, and deactivate or reactivate items; nothing is
+ * mark required or optional, scope items to one Kind or leave them general
+ * ("Semua"), and deactivate or reactivate items; nothing is
  * ever deleted. Every change writes a VerificationChecklistAuditEntry with the
  * actor, the time, and the item before and after, in the same transaction.
  *
  * Edits apply only to Verification Requests submitted afterwards:
- * `submitCampaign` copies the active items into each request, so an existing
+ * `submitCampaign` copies the active items for the Campaign's Kind (the
+ * general items plus its Kind's own) into each request, so an existing
  * request's checklist is its own and nothing here touches it.
  *
  * Callers establish the ADMIN Capacity (the routes do, through
@@ -23,7 +26,7 @@ import type {
 export const MAX_LABEL_LENGTH = 300;
 
 /** The audited shape of an item: everything but its id. */
-type ItemState = Pick<VerificationChecklistItem, "label" | "required" | "position" | "active">;
+type ItemState = Pick<VerificationChecklistItem, "label" | "required" | "position" | "active" | "kind">;
 
 export class ChecklistItemNotFoundError extends Error {
   constructor() {
@@ -47,12 +50,23 @@ export function checklistErrorToHttp(error: unknown): { status: number; error: s
 }
 
 /** Every item, active or not, in checklist order: what the editor shows. */
-export async function listChecklistItems(prisma: PrismaClient): Promise<VerificationChecklistItem[]> {
-  return prisma.verificationChecklistItem.findMany({ orderBy: { position: "asc" } });
+export async function listChecklistItems(
+  prisma: PrismaClient,
+  filter?: { kind?: CampaignKind | null }
+): Promise<VerificationChecklistItem[]> {
+  // No filter is every item; a Kind is its own items plus the general ones,
+  // the same set a submission of that Kind snapshots.
+  const where =
+    filter?.kind === undefined
+      ? {}
+      : filter.kind === null
+        ? { kind: null }
+        : { OR: [{ kind: null }, { kind: filter.kind }] };
+  return prisma.verificationChecklistItem.findMany({ where, orderBy: { position: "asc" } });
 }
 
 function stateOf(item: ItemState): ItemState {
-  return { label: item.label, required: item.required, position: item.position, active: item.active };
+  return { label: item.label, required: item.required, position: item.position, active: item.active, kind: item.kind };
 }
 
 function cleanLabel(label: unknown): string {
@@ -71,6 +85,20 @@ function cleanFlag(value: unknown, name: string): boolean {
     throw new InvalidChecklistChangeError(`${name} harus bernilai true atau false.`);
   }
   return value;
+}
+
+/**
+ * The Kind an item is scoped to, or null for the general ("Semua") items
+ * every Kind's submission snapshots. Absent on add is general; on edit
+ * absent leaves the scope alone, while an explicit null moves the item back
+ * to general.
+ */
+function cleanKind(value: unknown): CampaignKind | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || !(KINDS as readonly string[]).includes(value)) {
+    throw new InvalidChecklistChangeError("Kind item checklist tidak dikenal.");
+  }
+  return value as CampaignKind;
 }
 
 type Tx = Prisma.TransactionClient;
@@ -103,36 +131,38 @@ async function lockChecklist(tx: Tx) {
   await tx.$executeRaw`LOCK TABLE "VerificationChecklistItem" IN SHARE ROW EXCLUSIVE MODE`;
 }
 
-/** Adds an item, active, after the last one. */
+/** Adds an item, active, after the last one. `kind` scopes it to one Kind; absent is general. */
 export async function addChecklistItem(
   prisma: PrismaClient,
-  params: { actorId: string; label: unknown; required: unknown; now?: Date }
+  params: { actorId: string; label: unknown; required: unknown; kind?: unknown; now?: Date }
 ): Promise<VerificationChecklistItem> {
   const label = cleanLabel(params.label);
   const required = cleanFlag(params.required, "Wajib");
+  const kind = cleanKind(params.kind);
   const now = params.now ?? new Date();
 
   return prisma.$transaction(async (tx) => {
     await lockChecklist(tx);
     const items = await tx.verificationChecklistItem.findMany({ orderBy: { position: "asc" } });
     const position = items.length === 0 ? 1 : items[items.length - 1].position + 1;
-    const item = await tx.verificationChecklistItem.create({ data: { label, required, position, active: true } });
+    const item = await tx.verificationChecklistItem.create({ data: { label, required, position, active: true, kind } });
     await audit(tx, { itemId: item.id, action: "CREATED", before: null, after: stateOf(item), actorId: params.actorId, now });
     return item;
   });
 }
 
 /**
- * Rewords an item, marks it required or optional, or deactivates or
- * reactivates it: any of `label`, `required` and `active`, at least one.
- * A change that leaves the item as it was writes no audit entry.
+ * Rewords an item, marks it required or optional, scopes it to one Kind or
+ * back to general, or deactivates or reactivates it: any of `label`,
+ * `required`, `kind` and `active`, at least one. A change that leaves the
+ * item as it was writes no audit entry.
  */
 export async function editChecklistItem(
   prisma: PrismaClient,
   params: {
     actorId: string;
     itemId: string;
-    changes: { label?: unknown; required?: unknown; active?: unknown };
+    changes: { label?: unknown; required?: unknown; kind?: unknown; active?: unknown };
     now?: Date;
   }
 ): Promise<VerificationChecklistItem> {
@@ -140,6 +170,7 @@ export async function editChecklistItem(
   const data: Partial<ItemState> = {};
   if (changes.label !== undefined) data.label = cleanLabel(changes.label);
   if (changes.required !== undefined) data.required = cleanFlag(changes.required, "Wajib");
+  if (changes.kind !== undefined) data.kind = cleanKind(changes.kind);
   if (changes.active !== undefined) data.active = cleanFlag(changes.active, "Aktif");
   if (Object.keys(data).length === 0) {
     throw new InvalidChecklistChangeError("Tidak ada perubahan untuk item checklist.");
@@ -201,5 +232,5 @@ export async function moveChecklistItem(
 }
 
 function sameState(a: ItemState, b: ItemState): boolean {
-  return a.label === b.label && a.required === b.required && a.position === b.position && a.active === b.active;
+  return a.label === b.label && a.required === b.required && a.position === b.position && a.active === b.active && a.kind === b.kind;
 }

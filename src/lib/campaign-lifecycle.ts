@@ -457,6 +457,26 @@ export type ChecklistEntry = {
   ticked: boolean;
 };
 
+/**
+ * The active checklist a submission snapshots: the general ("Semua") items
+ * plus the Campaign Kind's own (PRD §7.1), in position order, none ticked.
+ * Shared by submissions from Draft/Rejected and by change requests on an
+ * Active Campaign, so both are judged against the same list.
+ */
+async function snapshotChecklist(tx: Tx, kind: Kind): Promise<ChecklistEntry[]> {
+  const items = await tx.verificationChecklistItem.findMany({
+    where: { active: true, OR: [{ kind: null }, { kind }] },
+    orderBy: { position: "asc" },
+  });
+  return items.map((item) => ({
+    id: item.id,
+    label: item.label,
+    required: item.required,
+    position: item.position,
+    ticked: false,
+  }));
+}
+
 export type VerificationRequestState = {
   id: string;
   campaignId: string;
@@ -475,8 +495,9 @@ export type SubmissionResult = LifecycleResult & { verificationRequest: Verifica
 /**
  * The Fundraiser submits their Draft or Rejected Campaign to a Verifier
  * (FFI-04, FFI-05). The Campaign becomes Submitted and a new PENDING
- * Verification Request opens, holding a snapshot of the checklist items
- * active right now, none ticked, so a later edit of the checklist never
+ * Verification Request opens, holding a snapshot of the active checklist
+ * items for its Kind (the "Semua" items plus its Kind's own, PRD §7.1),
+ * none ticked, so a later edit of the checklist never
  * changes what this request is judged against. A Draft's submission is the
  * Campaign's first request; a Rejected one's is a resubmission. A Campaign
  * whose Kind needs a deadline and has none is refused, and so is one that
@@ -511,17 +532,7 @@ export async function submitCampaign(
       if (collectingEntityId !== campaign.collectingEntityId) {
         await tx.campaign.update({ where: { id: campaign.id }, data: { collectingEntityId } });
       }
-      const items = await tx.verificationChecklistItem.findMany({
-        where: { active: true },
-        orderBy: { position: "asc" },
-      });
-      const checklist: ChecklistEntry[] = items.map((item) => ({
-        id: item.id,
-        label: item.label,
-        required: item.required,
-        position: item.position,
-        ticked: false,
-      }));
+      const checklist = await snapshotChecklist(tx, campaign.kind);
       const verificationRequest = await tx.verificationRequest.create({
         data: {
           campaignId: campaign.id,
@@ -577,7 +588,9 @@ export class VerificationRequestNotPendingError extends CampaignLifecycleError {
  * The PENDING request `requestId` of this Campaign, read under its row lock.
  * The request is judged before the Campaign's status, so a missing, decided
  * or withdrawn request answers as such whatever the Campaign's status; a
- * pending one is only acted on while the Campaign is Submitted.
+ * pending one is only acted on while the Campaign still holds the status it
+ * was opened from: Submitted for a submission, Active for a change request
+ * (ticket 12), which an Active Campaign keeps running throughout.
  */
 async function readPendingRequest(tx: Tx, campaignId: string, requestId: string, current: CampaignStatus) {
   const request = await tx.verificationRequest.findUnique({ where: { id: requestId } });
@@ -587,8 +600,35 @@ async function readPendingRequest(tx: Tx, campaignId: string, requestId: string,
   if (request.outcome !== VerificationOutcome.PENDING) {
     throw new VerificationRequestNotPendingError(request.outcome);
   }
-  if (current !== CampaignStatus.SUBMITTED) throw new InvalidTransitionError(current);
+  const openedFrom = isChangeRequest(request) ? CampaignStatus.ACTIVE : CampaignStatus.SUBMITTED;
+  if (current !== openedFrom) throw new InvalidTransitionError(current);
   return request;
+}
+
+/**
+ * A change request asks an Active Campaign's Verifier to approve a new target
+ * and/or deadline; the Campaign keeps running on its old values until then,
+ * and holds no other status for the request's life. A request with no
+ * proposal is a submission from Draft or Rejected.
+ */
+function isChangeRequest(request: { proposedChanges: unknown }): request is { proposedChanges: ProposedChanges } {
+  return request.proposedChanges !== null && request.proposedChanges !== undefined;
+}
+
+/**
+ * Writes an approved proposal onto the Active Campaign. Only the keys the
+ * Fundraiser named are written, so a deadline-only request leaves the target
+ * alone; a null deadline clears it, which the Kind's own rule about a
+ * required deadline was already checked against at request time.
+ */
+async function applyProposedChanges(tx: Tx, campaignId: string, proposed: ProposedChanges): Promise<void> {
+  const data: Prisma.CampaignUpdateManyMutationInput = {};
+  if (proposed.targetAmount !== undefined) data.targetAmount = proposed.targetAmount;
+  if (proposed.deadline !== undefined) {
+    data.deadline = proposed.deadline === null ? null : new Date(proposed.deadline);
+  }
+  if (Object.keys(data).length === 0) return;
+  await tx.campaign.updateMany({ where: { id: campaignId }, data });
 }
 
 /**
@@ -629,6 +669,22 @@ const VERIFICATION_DECISIONS = {
 } as const;
 
 export type VerificationDecision = keyof typeof VERIFICATION_DECISIONS;
+
+/** Which way a Verifier settled a request, as the change-request wording needs it. */
+function changeKey(outcome: VerificationOutcome): "approved" | "rejected" {
+  return outcome === VerificationOutcome.APPROVED ? "approved" : "rejected";
+}
+
+const CHANGE_TITLES = {
+  approved: "Perubahan Campaign Disetujui",
+  rejected: "Perubahan Campaign Ditolak",
+} as const;
+
+function changeMessage(key: "approved" | "rejected", title: string, reason: string | null): string {
+  return key === "approved"
+    ? `Perubahan target atau tenggat Campaign "${title}" disetujui Verifier dan sudah berlaku.`
+    : `Perubahan target atau tenggat Campaign "${title}" ditolak oleh Verifier. Campaign tetap berjalan dengan target dan tenggat sebelumnya. Alasan: ${reason}`;
+}
 
 export function isVerificationDecision(value: unknown): value is VerificationDecision {
   return typeof value === "string" && Object.hasOwn(VERIFICATION_DECISIONS, value);
@@ -743,7 +799,16 @@ export async function decideVerificationRequest(
         decidedAt: now,
       };
       await closeRequest(tx, requestId, decided);
-      await transition(decision.to, decision.action);
+      if (isChangeRequest(request)) {
+        // A change request never moves the Campaign: it stays Active on its
+        // old values either way, so approving only writes the proposal onto
+        // the row and logs no status change (ticket 12).
+        if (decision.outcome === VerificationOutcome.APPROVED) {
+          await applyProposedChanges(tx, campaign.id, request.proposedChanges);
+        }
+      } else {
+        await transition(decision.to, decision.action);
+      }
       let identityVerificationRecorded = false;
       if (decision.outcome === VerificationOutcome.APPROVED) {
         // Two Campaigns of one Fundraiser hold different row locks, so two
@@ -756,7 +821,13 @@ export async function decideVerificationRequest(
         });
         identityVerificationRecorded = created.count > 0;
       }
-      await notify({ title: decision.title, message: decision.message(campaign.title, reason) });
+      const changeRequest = isChangeRequest(request);
+      await notify({
+        title: changeRequest ? CHANGE_TITLES[changeKey(decision.outcome)] : decision.title,
+        message: changeRequest
+          ? changeMessage(changeKey(decision.outcome), campaign.title, reason)
+          : decision.message(campaign.title, reason),
+      });
       const fundraiser = await tx.user.findUniqueOrThrow({
         where: { id: campaign.creatorId },
         select: { email: true, name: true },
@@ -767,6 +838,7 @@ export async function decideVerificationRequest(
         fundraiserName: fundraiser.name,
         campaignTitle: campaign.title,
         campaignUrl: publicUrl(`/campaign/${campaign.slug}`),
+        ...(changeRequest ? { kind: "change" as const } : {}),
         ...(decision.outcome === VerificationOutcome.APPROVED
           ? { outcome: "approved" as const }
           : { outcome: "rejected" as const, reason: requireReason(reason) }),
@@ -822,8 +894,12 @@ export async function withdrawVerificationRequest(
         decidedAt: now,
       };
       await closeRequest(tx, requestId, withdrawn);
-      const to = request.isFirst ? CampaignStatus.DRAFT : CampaignStatus.REJECTED;
-      await transition(to, CampaignStatusChangeAction.SUBMISSION_WITHDRAWN);
+      // A withdrawn change request discards the proposal only: the Campaign
+      // keeps running Active on its old values, so no status change is
+      // logged (ticket 12). A withdrawn submission returns to Draft or
+      // Rejected, which is what the Fundraiser is told.
+      const to = isChangeRequest(request) ? null : request.isFirst ? CampaignStatus.DRAFT : CampaignStatus.REJECTED;
+      if (to !== null) await transition(to, CampaignStatusChangeAction.SUBMISSION_WITHDRAWN);
       // The spec's withdraw confirmation: the one lifecycle notice a
       // Fundraiser gets for their own action, so it bypasses `notify`.
       await tx.notification.create({
@@ -831,11 +907,124 @@ export async function withdrawVerificationRequest(
           type: "campaign_status",
           userId: campaign.creatorId,
           link: `/campaign/${campaign.slug}`,
-          title: "Pengajuan Ditarik",
-          message: `Pengajuan Campaign "${campaign.title}" ke Verifier telah ditarik. Campaign kini ${STATUS_LABEL[to]} dan dapat diedit lalu diajukan kembali.`,
+          title: to === null ? "Pengajuan Perubahan Ditarik" : "Pengajuan Ditarik",
+          message:
+            to === null
+              ? `Pengajuan perubahan Campaign "${campaign.title}" telah ditarik. Campaign tetap aktif dengan target dan tenggat sebelumnya.`
+              : `Pengajuan Campaign "${campaign.title}" ke Verifier telah ditarik. Campaign kini ${STATUS_LABEL[to]} dan dapat diedit lalu diajukan kembali.`,
         },
       });
       return { verificationRequest: { ...request, ...withdrawn } };
+    },
+  });
+}
+
+// ==================== Change requests on an Active Campaign (ticket 12) ====================
+
+/** A second change asked while an earlier request still waits for a Verifier. */
+export class ChangeRequestAlreadyPendingError extends CampaignLifecycleError {
+  readonly code = "CHANGE_REQUEST_ALREADY_PENDING";
+  constructor() {
+    super("Masih ada Verification Request yang menunggu keputusan Verifier untuk Campaign ini.");
+    this.name = "ChangeRequestAlreadyPendingError";
+  }
+}
+
+/**
+ * The new target and/or deadline an Active Campaign asks for (PRD FFI-05).
+ * Only the keys the Fundraiser named are present. The deadline is the ISO
+ * string the Fundraiser sent, so the request row shows exactly what was
+ * asked; approving parses it back onto the Campaign.
+ */
+export type ProposedChanges = {
+  targetAmount?: number;
+  deadline?: string | null;
+};
+
+const TARGET_AMOUNT: TextField = { field: "targetAmount", label: "Target donasi" };
+const DEADLINE: TextField = { field: "deadline", label: "Tenggat" };
+
+/** A target amount: a positive whole rupiah, like POST /api/campaigns asks. */
+function parseTargetAmount(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw <= 0) {
+    throw new LifecycleValidationError("Target donasi harus lebih dari 0.", TARGET_AMOUNT.field);
+  }
+  return raw;
+}
+
+/** A deadline: an ISO datetime string or Date, or null to clear it. */
+function parseDeadline(raw: unknown): Date | null {
+  if (raw === null) return null;
+  const date = typeof raw === "string" || raw instanceof Date ? new Date(raw) : null;
+  if (!date || Number.isNaN(date.getTime())) {
+    throw new LifecycleValidationError("Tenggat tidak valid.", DEADLINE.field);
+  }
+  return date;
+}
+
+function sameInstant(a: Date | null, b: Date | null): boolean {
+  return a?.getTime() === b?.getTime();
+}
+
+/**
+ * The Fundraiser of an Active Campaign asks for a new target and/or deadline
+ * (CONTEXT.md, Verification Request; PRD FFI-05). A new PENDING Verification
+ * Request opens, holding the per-Kind checklist snapshot and the proposed
+ * values; the Campaign itself is untouched, so it stays Active and keeps
+ * taking Donations on its old values until a Verifier approves. Refused
+ * while another request on the Campaign is still PENDING, and refused when
+ * the proposal changes nothing or leaves the Campaign's Kind without the
+ * deadline it needs. Only its Fundraiser may ask, always in that Capacity;
+ * nobody is notified, since the Fundraiser is the one acting.
+ */
+export async function requestCampaignChange(
+  prisma: PrismaClient,
+  params: {
+    campaignId: string;
+    actor: LifecycleActor;
+    changes: { targetAmount?: unknown; deadline?: unknown };
+    now?: Date;
+  }
+): Promise<SubmissionResult> {
+  const { changes } = params;
+  return runCommand(prisma, params, {
+    authority: {
+      capacity: StatusChangeCapacity.FUNDRAISER,
+      message: "Hanya Fundraiser pemilik Campaign yang dapat mengajukan perubahan.",
+    },
+    reasonPolicy: "none",
+    allowedFrom: [CampaignStatus.ACTIVE],
+    step: async ({ tx, campaign, actor, now }) => {
+      const targetAmount = changes.targetAmount !== undefined ? parseTargetAmount(changes.targetAmount) : undefined;
+      const deadline = changes.deadline !== undefined ? parseDeadline(changes.deadline) : undefined;
+      const afterDeadline = deadline !== undefined ? deadline : campaign.deadline;
+      if ((targetAmount === undefined || targetAmount === campaign.targetAmount) && sameInstant(afterDeadline, campaign.deadline)) {
+        throw new LifecycleValidationError("Tidak ada perubahan pada target atau tenggat yang diajukan.");
+      }
+      if (missingRequiredDeadline({ kind: campaign.kind, deadline: afterDeadline })) {
+        throw new DeadlineRequiredError(campaign.kind);
+      }
+      const pending = await tx.verificationRequest.count({
+        where: { campaignId: campaign.id, outcome: VerificationOutcome.PENDING },
+      });
+      if (pending > 0) throw new ChangeRequestAlreadyPendingError();
+      const checklist = await snapshotChecklist(tx, campaign.kind);
+      const proposedChanges: ProposedChanges = {
+        ...(targetAmount !== undefined && { targetAmount }),
+        ...(deadline !== undefined && { deadline: deadline?.toISOString() ?? null }),
+      };
+      const verificationRequest = await tx.verificationRequest.create({
+        data: {
+          campaignId: campaign.id,
+          submittedById: actor.userId,
+          submittedAt: now,
+          checklist,
+          isFirst: false,
+          collectingEntityId: campaign.collectingEntityId,
+          proposedChanges,
+        },
+      });
+      return { verificationRequest };
     },
   });
 }

@@ -10,6 +10,13 @@ export type VerificationOutcomeEmailInput = {
   fundraiserName: string;
   campaignTitle: string;
   campaignUrl: string;
+  /**
+   * What the Verifier settled. A `change` request approved a new target or
+   * deadline on a Campaign that never stopped running, which is a different
+   * thing from the Campaign itself being diloloskan (ticket 12); without it
+   * the Fundraiser reads a proposal as if their Campaign had been approved.
+   */
+  kind?: 'submission' | 'change';
 } & ({ outcome: 'approved' } | { outcome: 'rejected'; reason: string });
 
 function escapeHtml(value: string): string {
@@ -33,23 +40,41 @@ function oneLine(value: string): string {
  */
 export function verificationOutcomeEmail(input: VerificationOutcomeEmailInput): MailMessage {
   const title = oneLine(input.campaignTitle);
+  const isChange = input.kind === 'change';
   const paragraphs =
     input.outcome === 'approved'
-      ? {
-          subject: `Campaign "${title}" diloloskan`,
-          body: [
-            `Campaign "${input.campaignTitle}" diloloskan Verifier dan kini tampil untuk publik.`,
-            'Bagikan tautan Campaign Anda agar semakin banyak orang ikut membantu:',
-          ],
-        }
-      : {
-          subject: `Campaign "${title}" ditolak`,
-          body: [
-            `Campaign "${input.campaignTitle}" ditolak oleh Verifier.`,
-            `Alasan: ${input.reason}`,
-            'Perbaiki Campaign Anda sesuai alasan tersebut, lalu ajukan kembali lewat tautan ini:',
-          ],
-        };
+      ? isChange
+        ? {
+            subject: `Perubahan Campaign "${title}" disetujui`,
+            body: [
+              `Perubahan target atau tenggat Campaign "${input.campaignTitle}" disetujui Verifier dan sudah berlaku.`,
+              'Campaign tetap berjalan seperti sebelumnya, kini dengan nilai yang baru:',
+            ],
+          }
+        : {
+            subject: `Campaign "${title}" diloloskan`,
+            body: [
+              `Campaign "${input.campaignTitle}" diloloskan Verifier dan kini tampil untuk publik.`,
+              'Bagikan tautan Campaign Anda agar semakin banyak orang ikut membantu:',
+            ],
+          }
+      : isChange
+        ? {
+            subject: `Perubahan Campaign "${title}" ditolak`,
+            body: [
+              `Perubahan target atau tenggat Campaign "${input.campaignTitle}" ditolak oleh Verifier.`,
+              `Alasan: ${input.reason}`,
+              'Campaign tetap berjalan dengan target dan tenggat sebelumnya. Ajukan lagi lewat tautan ini:',
+            ],
+          }
+        : {
+            subject: `Campaign "${title}" ditolak`,
+            body: [
+              `Campaign "${input.campaignTitle}" ditolak oleh Verifier.`,
+              `Alasan: ${input.reason}`,
+              'Perbaiki Campaign Anda sesuai alasan tersebut, lalu ajukan kembali lewat tautan ini:',
+            ],
+          };
   const greeting = `Halo ${input.fundraiserName},`;
   const closing = 'Salam,\nTim Fund for Indonesia';
 

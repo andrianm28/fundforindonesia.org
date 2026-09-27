@@ -9,9 +9,9 @@ import AdminChecklistPage from './page';
  * file proves each control sends the right request and shows the result.
  */
 const ITEMS = [
-  { id: 'a', label: 'KTP Fundraiser', required: true, position: 1, active: true },
-  { id: 'b', label: 'Rencana anggaran', required: false, position: 2, active: true },
-  { id: 'c', label: 'Bukti lama', required: true, position: 3, active: false },
+  { id: 'a', label: 'KTP Fundraiser', required: true, position: 1, active: true, kind: null },
+  { id: 'b', label: 'Rencana anggaran', required: false, position: 2, active: true, kind: null },
+  { id: 'c', label: 'Bukti lama', required: true, position: 3, active: false, kind: 'ZAKAT' },
 ];
 
 function jsonResponse(body: unknown, ok = true) {
@@ -74,7 +74,37 @@ describe('AdminChecklistPage', () => {
     await waitFor(() => expect(callsTo('/api/admin/verification-checklist')).toHaveLength(1));
     const [, init] = callsTo('/api/admin/verification-checklist')[0];
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({ label: 'Surat keterangan RT', required: true });
+    expect(JSON.parse(init.body)).toEqual({ label: 'Surat keterangan RT', required: true, kind: null });
+  });
+
+  it('adds an item scoped to one Kind, and shows each row scope', async () => {
+    render(<AdminChecklistPage />);
+    await screen.findByDisplayValue('KTP Fundraiser');
+
+    const rows = screen.getAllByRole('listitem');
+    expect(within(rows[0]).getByText('Semua', { selector: 'span' })).toBeTruthy();
+    expect(within(rows[1]).getByText('Semua', { selector: 'span' })).toBeTruthy();
+    expect(within(rows[2]).getByText('Zakat', { selector: 'span' })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Item baru'), { target: { value: 'Dokumen lembaga amil' } });
+    fireEvent.change(screen.getByLabelText('Cakupan Kind item baru'), { target: { value: 'ZAKAT' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Tambah item' }));
+
+    await waitFor(() => expect(callsTo('/api/admin/verification-checklist')).toHaveLength(1));
+    expect(JSON.parse(callsTo('/api/admin/verification-checklist')[0][1].body)).toEqual({
+      label: 'Dokumen lembaga amil',
+      required: true,
+      kind: 'ZAKAT',
+    });
+  });
+
+  it('moves an item between Kinds from its row', async () => {
+    const row = await rowOf('Rencana anggaran');
+
+    fireEvent.change(within(row).getByLabelText('Cakupan Kind item 2'), { target: { value: 'WAKAF' } });
+
+    await waitFor(() => expect(callsTo('/api/admin/verification-checklist/b')).toHaveLength(1));
+    expect(JSON.parse(callsTo('/api/admin/verification-checklist/b')[0][1].body)).toEqual({ kind: 'WAKAF' });
   });
 
   it('saves a reworded label', async () => {
