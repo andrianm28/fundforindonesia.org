@@ -4,7 +4,7 @@
 
 **Blocked by:** 11, 21
 
-**Status:** in review (PR #54)
+**Status:** done (PR #54, 5002a92)
 
 - [x] Checkout on a wakaf Campaign carries an explicit ikrar confirmation, not an assumed one
 - [x] An Akad Wakaf is produced per Donation carrying the Wakif's name, the amount, the purpose and the nazhir
