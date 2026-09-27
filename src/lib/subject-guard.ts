@@ -34,7 +34,9 @@ import type { LedgerSubject } from "./money/ledger";
  *
  * It also owns which Campaigns public listings show
  * (`listableCampaignWhere`, `sitemapCampaignWhere`), next to
- * `effectiveStatus`, so the lists and the Campaign page cannot disagree.
+ * `effectiveStatus`, so the lists and the Campaign page cannot disagree, and
+ * so no listing can show a Demo Campaign (CONTEXT.md, Demo Campaign) that
+ * another listing hides.
  *
  * Checks that need nothing from the subject (an assignment, a reason, the
  * Payout or Refund row's own status) may run before `lockAndLoad`. Nothing
@@ -97,17 +99,44 @@ export function effectiveStatus(
 }
 
 /**
- * The Campaigns a public list shows (CONTEXT.md, Campaign Status): exactly
- * those `effectiveStatus` calls ACTIVE, i.e. stored ACTIVE with no deadline
- * or one not yet passed.
+ * The clause that keeps a Demo Campaign (CONTEXT.md, Demo Campaign) out of a
+ * list a visitor reads. Its data is fiction -- the `collectedAmount` on its
+ * row came from a seed file, not from a settled Payment -- so listing it
+ * would put invented numbers in front of someone deciding whether to give.
+ *
+ * It reads the column, never a list of Campaigns: which rows are fiction is
+ * a fact about the data, and the Campaigns an earlier migration happened to
+ * mark are not something a query should carry (prd-compliance 26). A
+ * Campaign's title, slug or id says nothing, so a newly seeded fiction is
+ * hidden by being flagged, not by being recognised.
+ *
+ * Exported because a public feed that reaches a Campaign through another
+ * record needs the same clause: a Prayer names the Campaign it was left on
+ * and links to it, so the platform-wide Prayer feed excludes them the same
+ * way (src/app/api/prayers/route.ts, src/app/page.tsx).
+ */
+export const NOT_A_DEMO_CAMPAIGN: Prisma.CampaignWhereInput = { isDemo: false };
+
+/**
+ * The Campaigns a public list shows (CONTEXT.md, Campaign Status; Demo
+ * Campaign): exactly those `effectiveStatus` calls ACTIVE, i.e. stored ACTIVE
+ * with no deadline or one not yet passed, and no Demo Campaign among them.
  *
  * The rule sits inside an AND so callers can spread it next to their own
  * filters, an OR of their own included, without overwriting it. Readers
  * only filter; lazy expiry is for commands.
+ *
+ * `includeDemo` is for a privileged screen that must still see them -- an
+ * Admin working on a Campaign the public cannot see. It is opt-in, so a
+ * listing cannot end up showing fiction by forgetting an argument.
  */
-export function listableCampaignWhere(now: Date): Prisma.CampaignWhereInput {
+export function listableCampaignWhere(
+  now: Date,
+  options: { includeDemo?: boolean } = {}
+): Prisma.CampaignWhereInput {
   return {
     AND: [
+      ...(options.includeDemo ? [] : [NOT_A_DEMO_CAMPAIGN]),
       {
         lifecycleStatus: CampaignStatus.ACTIVE,
         OR: [{ deadline: null }, { deadline: { gte: now } }],
@@ -129,10 +158,13 @@ const SITEMAP_STATUSES: readonly CampaignStatus[] = [
  * Cancelled, Submitted, Rejected and Draft are never listed.
  *
  * A stored ACTIVE Campaign is effectively ACTIVE or EXPIRED whatever its
- * deadline, and both are listed, so the rule needs no `now`.
+ * deadline, and both are listed, so the rule needs no `now`. A Demo Campaign
+ * is never listed: the sitemap exists to have a search engine send visitors
+ * to it, and there is nothing true to send them to (CONTEXT.md, Demo
+ * Campaign; prd-compliance 26).
  */
 export function sitemapCampaignWhere(): Prisma.CampaignWhereInput {
-  return { lifecycleStatus: { in: [...SITEMAP_STATUSES] } };
+  return { ...NOT_A_DEMO_CAMPAIGN, lifecycleStatus: { in: [...SITEMAP_STATUSES] } };
 }
 
 /**

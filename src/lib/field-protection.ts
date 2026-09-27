@@ -2,8 +2,9 @@ import type { PrismaClient } from '@/generated/prisma/client';
 import { loadFieldKeys, type FieldKeys } from './field-encryption';
 
 /**
- * Makes every User, BankAccount and Donation write carry the protected forms
- * of the contact details next to the plaintext, as ADR 0012 lays out:
+ * Makes every User, BankAccount, Donation and PartnershipInquiry write carry
+ * the protected forms of the contact details next to the plaintext, as ADR 0012
+ * lays out:
  *
  * - `email` also gets `emailHmac` (searchable, keyed HMAC of the normalized
  *   address) and `emailCiphertext` (randomized AES-256-GCM), each with a key id.
@@ -14,6 +15,9 @@ import { loadFieldKeys, type FieldKeys } from './field-encryption';
  * - `Donation.guestEmail`/`guestPhone` (a Guest Donor's contact details,
  *   CONTEXT.md Guest Donor; prd-compliance 18) follow the same rules as
  *   `email`/`phone` above; `guestName` stays plaintext like `name`.
+ * - `PartnershipInquiry.contactEmail`/`contactPhone` (the named person at a
+ *   company asking about a Program, CONTEXT.md, Partnership Inquiry) follow
+ *   `email`/`phone` the same way; `contactName` stays plaintext like `name`.
  *
  * This is the expand step: the plaintext is still written and still read.
  * Hooking the client rather than each route means the Auth.js adapter's
@@ -62,11 +66,13 @@ export function contactFieldWrites(keys: FieldKeys | null): {
   user: ModelHooks;
   bankAccount: ModelHooks;
   donation: ModelHooks;
+  partnershipInquiry: ModelHooks;
 } {
   return {
     user: hooksFor(keys ? (data) => protectUser(keys, data) : null),
     bankAccount: hooksFor(keys ? (data) => protectBankAccount(keys, data) : null),
     donation: hooksFor(keys ? (data) => protectDonation(keys, data) : null),
+    partnershipInquiry: hooksFor(keys ? (data) => protectPartnershipInquiry(keys, data) : null),
   };
 }
 
@@ -134,6 +140,30 @@ function protectDonation(keys: FieldKeys, data: Data): Data {
   }
 
   Object.assign(out, seal(keys, 'Donation.guestPhone', 'guestPhone', scalarWrite(data.guestPhone)));
+  return out;
+}
+
+/**
+ * The Sponsor-side contact on a Partnership Inquiry (CONTEXT.md, Partnership
+ * Inquiry; ticket csr-05). It is a named person at a company, so it is the same
+ * contact data the form already submits for a Donor and gets the same ADR 0012
+ * treatment: contactEmail like User.email (searchable HMAC + ciphertext),
+ * contactPhone like User.phone (ciphertext only -- it is never searched), and
+ * contactName plaintext with `User.name` and `guestName`, because it is what
+ * the partnership team reads to reply.
+ */
+function protectPartnershipInquiry(keys: FieldKeys, data: Data): Data {
+  const out: Data = { ...data };
+
+  const email = scalarWrite(data.contactEmail);
+  if (typeof email === 'string') {
+    const lookup = keys.emailLookup(email);
+    out.contactEmailHmac = lookup.hmac;
+    out.contactEmailHmacKeyId = lookup.keyId;
+    Object.assign(out, seal(keys, 'PartnershipInquiry.contactEmail', 'contactEmail', email));
+  }
+
+  Object.assign(out, seal(keys, 'PartnershipInquiry.contactPhone', 'contactPhone', scalarWrite(data.contactPhone)));
   return out;
 }
 

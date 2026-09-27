@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { NOT_A_DEMO_CAMPAIGN } from '@/lib/subject-guard';
 import { Prisma } from '@/generated/prisma/client';
 
 export async function GET(request: NextRequest) {
@@ -13,9 +14,15 @@ export async function GET(request: NextRequest) {
     const skip = (page - 1) * limit;
 
     // Build where clause - optionally filter by campaign slug
+    //
+    // Asked for one Campaign by slug, this answers about that Campaign alone,
+    // Demo or not: its own page is still open, and the badge there says
+    // plainly what it is. Asked for the whole platform, it names a Campaign
+    // to a visitor and links them to it, so it leaves out any Campaign no
+    // public list shows (CONTEXT.md, Demo Campaign; prd-compliance 26).
     const where: Prisma.PrayerWhereInput = campaignSlug
       ? { campaign: { slug: campaignSlug } }
-      : {};
+      : { campaign: NOT_A_DEMO_CAMPAIGN };
 
     const [prayers, total] = await Promise.all([
       prisma.prayer.findMany({

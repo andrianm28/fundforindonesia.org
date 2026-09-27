@@ -24,6 +24,8 @@ export type CampaignRow = {
   creatorId: string;
   lifecycleStatus: CampaignStatus;
   isUrgent: boolean;
+  /** A Demo Campaign's data is fixture data (CONTEXT.md, Demo Campaign). `false` as the column defaults. */
+  isDemo?: boolean;
   deadline: Date | null;
   /** Optional so the lifecycle tests need not name it; the list readers filter on it. */
   category?: string;
@@ -467,6 +469,7 @@ export function campaignRow(overrides: Partial<CampaignRow> = {}): CampaignRow {
     creatorId: 'creator-1',
     lifecycleStatus: 'SUBMITTED',
     isUrgent: false,
+    isDemo: false,
     deadline: null,
     kind: 'DONATION',
     targetAmount: 50_000_000,

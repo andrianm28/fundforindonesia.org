@@ -2,7 +2,35 @@ import { NextRequest, NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
 import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { prisma } from "@/lib/prisma";
-import { createProgram, programErrorToHttp, type ProgramCreateInput } from "@/lib/programs";
+import { createProgram, listProgramPortfolio, programErrorToHttp, type ProgramCreateInput } from "@/lib/programs";
+
+/**
+ * GET /api/programs: the public CSR portfolio (ticket csr-04; PRD FFI-09),
+ * every Program grouped by the four fixed Sectors, optionally narrowed to one
+ * with `?sector=`. Open to anyone -- the catalog is public, and a Program
+ * takes no money online (ADR 0002), so there is nothing here to gate.
+ *
+ * The answer is the module's, not this route's: the grouping, the fixed
+ * Sector order, and the fields a card may carry are all decided in
+ * src/lib/programs.ts, which is also where an unknown Sector becomes 400.
+ */
+export async function GET(req: NextRequest) {
+  const sector = new URL(req.url).searchParams.get("sector") ?? undefined;
+
+  try {
+    const portfolio = await listProgramPortfolio(prisma, { sector });
+    const response = NextResponse.json(portfolio);
+
+    // The same shared cache the Campaign list uses: a Program edit is a
+    // catalog edit an Admin makes rarely, and every visitor gets the same one.
+    response.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+    return response;
+  } catch (error) {
+    const refusal = programErrorToHttp(error);
+    if (refusal) return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+    throw error;
+  }
+}
 
 /**
  * POST /api/programs: an Admin creates a CSR Program (ticket csr-01). The

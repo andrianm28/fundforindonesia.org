@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { CampaignStatus } from '@/generated/prisma/client';
-import { campaignMatches, campaignRow } from '../../tests/support/in-memory-campaign-db';
+import {
+  campaignMatches,
+  campaignRow,
+  type CampaignRow,
+} from '../../tests/support/in-memory-campaign-db';
 import { effectiveStatus, listableCampaignWhere, sitemapCampaignWhere } from './subject-guard';
 
 /**
@@ -70,5 +74,63 @@ describe('which Campaigns public listings show', () => {
         effective === CampaignStatus.EXPIRED ||
         effective === CampaignStatus.COMPLETED
     );
+  });
+});
+
+/**
+ * A Demo Campaign (CONTEXT.md, Demo Campaign) is fixture data, so no public
+ * list shows one whatever status it is in: a visitor must not meet one
+ * through a listing, a search, or a link a crawler followed. Which rows those
+ * are comes from the `isDemo` column alone -- the Campaign's title, slug and
+ * id are not evidence of anything, and no list of them is written down
+ * anywhere (prd-compliance 26).
+ */
+const DEMO_ROWS: Array<[string, Partial<CampaignRow>]> = [
+  ['an Active Demo Campaign without a deadline', { isDemo: true }],
+  ['an Active Demo Campaign with a future deadline', { isDemo: true, deadline: DEADLINES['a future deadline'] }],
+  ['an Active Demo Campaign whose deadline passed', { isDemo: true, deadline: DEADLINES['a past deadline'] }],
+  ['a Suspended Demo Campaign', { isDemo: true, lifecycleStatus: CampaignStatus.SUSPENDED }],
+  ['an Expired Demo Campaign', { isDemo: true, lifecycleStatus: CampaignStatus.EXPIRED }],
+  ['a Completed Demo Campaign', { isDemo: true, lifecycleStatus: CampaignStatus.COMPLETED }],
+];
+
+function isListed(row: CampaignRow, options?: { includeDemo?: boolean }): boolean {
+  return campaignMatches(row, listableCampaignWhere(NOW, options));
+}
+
+function isInSitemap(row: CampaignRow): boolean {
+  return campaignMatches(row, sitemapCampaignWhere());
+}
+
+describe('which Demo Campaigns public listings show', () => {
+  it.each(DEMO_ROWS)('lists no %s', (_label, overrides) => {
+    expect(isListed(campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE, ...overrides }))).toBe(false);
+  });
+
+  it.each(DEMO_ROWS)('puts no %s in the sitemap', (_label, overrides) => {
+    expect(isInSitemap(campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE, ...overrides }))).toBe(false);
+  });
+
+  // The rule is the column, not a list of Campaigns: the same row is listed or
+  // not depending only on `isDemo`, whatever it is called.
+  it.each([
+    'Bantu korban bencana (contoh)',
+    'Beasiswa Anak Pesisir',
+    'demo-campaign',
+    'Campaign',
+  ])('decides by the isDemo column alone, so "%s" changes nothing', (title) => {
+    const demo = campaignRow({ title, lifecycleStatus: CampaignStatus.ACTIVE, isDemo: true });
+    const real = campaignRow({ title, lifecycleStatus: CampaignStatus.ACTIVE, isDemo: false });
+
+    expect(isListed(demo)).toBe(false);
+    expect(isInSitemap(demo)).toBe(false);
+    expect(isListed(real)).toBe(true);
+    expect(isInSitemap(real)).toBe(true);
+  });
+
+  it('still lists one for a privileged screen that asks for them, as an Admin does', () => {
+    const demo = campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE, isDemo: true });
+
+    expect(isListed(demo, { includeDemo: true })).toBe(true);
   });
 });

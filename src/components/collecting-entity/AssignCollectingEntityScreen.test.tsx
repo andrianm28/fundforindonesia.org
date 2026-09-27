@@ -10,6 +10,7 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 import { prisma } from '@/lib/prisma';
+import { campaignMatches, campaignRow } from '../../../tests/support/in-memory-campaign-db';
 import { AssignCollectingEntityScreen } from './AssignCollectingEntityScreen';
 
 /**
@@ -61,6 +62,17 @@ describe('AssignCollectingEntityScreen', () => {
     expect(own.value).toBe('yiem');
     const solo = screen.getByLabelText('Collecting Entity', { selector: '#entity-solo-campaign' }) as HTMLSelectElement;
     expect(Array.from(solo.options).map((o) => o.value)).toEqual(['', 'sponsor']);
+  });
+
+  it('still offers a Demo Campaign, which no public list shows (CONTEXT.md, Demo Campaign)', async () => {
+    // The exclusion is for visitors, not for the people who have to work on a
+    // Campaign: an Admin keeps every Campaign in front of them
+    // (prd-compliance 26).
+    const { where } = vi.mocked(prisma.campaign.findMany).mock.calls[0][0] as { where: Record<string, unknown> };
+    const demo = campaignRow({ lifecycleStatus: 'ACTIVE', isDemo: true, collectingEntityId: null });
+
+    expect(campaignMatches(demo, where)).toBe(true);
+    expect(campaignMatches(campaignRow({ lifecycleStatus: 'SUSPENDED', collectingEntityId: null }), where)).toBe(false);
   });
 
   it('assigns the chosen organisation with a reason', async () => {
