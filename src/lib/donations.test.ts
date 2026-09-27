@@ -108,4 +108,31 @@ describe('sandboxInProductionReason', () => {
 
     expect(sandboxInProductionReason()).toBeNull();
   });
+
+  it('refuses a PAYMENT_PROVIDER this build has no provider for, rather than passing an unknown one through', () => {
+    // The bug this closes: the guard compared the name against two string
+    // literals of its own, so a name the registry does not know matched
+    // neither and every donation was allowed. Its coverage came from a list
+    // separate from the one that says which providers exist, which is how
+    // adding a third one has to touch two places and forget this one.
+    //
+    // Refused rather than passed through, on the module's own rule: the safe
+    // reading of a misconfiguration on the money path is "do not take money".
+    // Nothing is lost by it -- getPaymentProvider throws on the same name a
+    // few lines later, so this route was already refusing, as a 500.
+    setEnv('NODE_ENV', 'production');
+    setEnv('PAYMENT_PROVIDER', 'xendit');
+
+    expect(sandboxInProductionReason()).toMatch(/xendit/);
+  });
+
+  it('refuses a PAYMENT_PROVIDER nobody can read at all, rather than assuming the default is live', () => {
+    // The same refusal for a name that is not a name: whatever the operator
+    // meant to write, this build cannot resolve it, so it cannot have judged
+    // its sandbox.
+    setEnv('NODE_ENV', 'production');
+    setEnv('PAYMENT_PROVIDER', '   ');
+
+    expect(sandboxInProductionReason()).not.toBeNull();
+  });
 });

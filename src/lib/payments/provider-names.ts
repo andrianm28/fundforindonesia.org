@@ -14,15 +14,18 @@
 
 /**
  * Every provider this build can speak to, by the name that appears in its
- * webhook URL. Adding one is a new name here plus a builder in index.ts, and
- * that builder map is keyed on the type below -- so a name with no adapter is
- * a compile error there rather than a name that resolves to nothing.
+ * webhook URL. Adding one is a new name here plus a builder in index.ts and a
+ * production rule in production-readiness.ts, and the latter two are both keyed
+ * on the type below -- so a name with no adapter, or a provider this build would
+ * charge money in production without having judged it, is a compile error rather
+ * than a gap.
  *
  * A list rather than the builder map itself, which is the point: the map holds
  * functions that construct adapters, and this module holds no functions that
- * construct anything.
+ * construct anything. Exported as a value as well as a type, so a test can walk
+ * the names themselves rather than a second list written beside them.
  */
-const PAYMENT_PROVIDER_NAMES = ['mock', 'sumopod'] as const;
+export const PAYMENT_PROVIDER_NAMES = ['mock', 'sumopod'] as const;
 
 export type PaymentProviderName = (typeof PAYMENT_PROVIDER_NAMES)[number];
 
