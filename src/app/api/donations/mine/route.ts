@@ -43,6 +43,12 @@ export async function GET(request: NextRequest) {
         receipt: {
           select: { token: true },
         },
+        // Only a settled Donation on a `wakaf` Campaign has one (CONTEXT.md,
+        // Akad Wakaf; ticket 22) -- null for every other Kind and for one
+        // not yet settled.
+        akadWakaf: {
+          select: { token: true },
+        },
       },
     }),
     prisma.donation.count({
@@ -53,9 +59,10 @@ export async function GET(request: NextRequest) {
   const totalPages = Math.ceil(total / limit);
 
   return NextResponse.json({
-    donations: donations.map(({ receipt, ...donation }) => ({
+    donations: donations.map(({ receipt, akadWakaf, ...donation }) => ({
       ...donation,
       receiptToken: receipt?.token ?? null,
+      akadWakafToken: akadWakaf?.token ?? null,
     })),
     total,
     page,

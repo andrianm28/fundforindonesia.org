@@ -19,6 +19,8 @@ import {
 } from '@/lib/volunteer/trip';
 import { generateReceiptToken } from '@/lib/receipt-token';
 import { receiptEmail, resolveReceiptRecipient } from '@/lib/mail/receipt';
+import { generateAkadWakafToken } from '@/lib/akad-wakaf-token';
+import { withAkadWakaf } from '@/lib/mail/akad-wakaf';
 import { sendReportingFailure } from '@/lib/mail';
 import { publicUrl } from '@/lib/public-url';
 
@@ -276,6 +278,7 @@ export async function POST(
         settled: boolean;
         registrationOutcome?: ConfirmRegistrationOutcome | null;
         receiptToken?: string;
+        akadWakafToken?: string;
       };
       try {
         settled = await prisma.$transaction(async (tx) => {
@@ -331,6 +334,7 @@ export async function POST(
 
         let registrationOutcome: ConfirmRegistrationOutcome | null = null;
         let receiptToken: string | undefined;
+        let akadWakafToken: string | undefined;
 
         if (isTripPayment) {
           const { registration } = payment;
@@ -392,6 +396,18 @@ export async function POST(
             data: { donationId: donation!.id, token: receiptToken, sentAt: paidAt, lastSentAt: paidAt },
           });
 
+          // Akad Wakaf (CONTEXT.md, Akad Wakaf; ADR 0010; ticket 22), created
+          // in the same transaction as the Receipt above and only for a
+          // `wakaf` Campaign -- same "created once, riding this win" reasoning:
+          // a retried delivery for an already-settled Donation never reaches
+          // this line twice, so a Donation never gets two Akad Wakaf either.
+          if (campaign.kind === 'WAKAF') {
+            akadWakafToken = generateAkadWakafToken();
+            await tx.akadWakaf.create({
+              data: { donationId: donation!.id, token: akadWakafToken },
+            });
+          }
+
           // The Platform Fee this Payment already froze at creation time
           // (resolvePlatformFeeBasis + computePlatformFee, POST
           // /api/donations, prd-compliance 17) -- read, never recomputed,
@@ -438,7 +454,7 @@ export async function POST(
           data: { processedAt: new Date() },
         });
 
-        return { settled: true as const, registrationOutcome, receiptToken };
+        return { settled: true as const, registrationOutcome, receiptToken, akadWakafToken };
         });
       } catch (err) {
         if (err instanceof SiblingPaymentAlreadySettledError) {
@@ -521,18 +537,34 @@ export async function POST(
               collectingEntityName: campaign.collectingEntity?.name ?? null,
             });
             if (resolved.ok) {
-              await sendReportingFailure(
-                receiptEmail({
-                  to: resolved.recipient.recipientEmail,
-                  donorName: resolved.recipient.donorName,
-                  campaignTitle: campaign.title,
-                  collectingEntityName: resolved.recipient.collectingEntityName,
+              let mail = receiptEmail({
+                to: resolved.recipient.recipientEmail,
+                donorName: resolved.recipient.donorName,
+                campaignTitle: campaign.title,
+                collectingEntityName: resolved.recipient.collectingEntityName,
+                amount: payment.amount,
+                paidAt,
+                printUrl: publicUrl(`/receipt/${settled.receiptToken}`),
+              });
+
+              // Akad Wakaf rides the same delivery as the Receipt (PRD:
+              // "Akad Wakaf terkirim bersama Receipt") rather than a second
+              // email with its own send failure to track.
+              if (settled.akadWakafToken) {
+                mail = withAkadWakaf(mail, {
+                  wakifName: resolved.recipient.donorName,
                   amount: payment.amount,
-                  paidAt,
-                  printUrl: publicUrl(`/receipt/${settled.receiptToken}`),
-                }),
-                { mail: 'receipt', donationId: donation!.id, paymentId: payment.id },
-              );
+                  purpose: campaign.title,
+                  nazhirName: resolved.recipient.collectingEntityName,
+                  printUrl: publicUrl(`/akad-wakaf/${settled.akadWakafToken}`),
+                });
+              }
+
+              await sendReportingFailure(mail, {
+                mail: 'receipt',
+                donationId: donation!.id,
+                paymentId: payment.id,
+              });
             } else {
               console.error(
                 `[webhooks/${providerParam}] settled payment ${payment.id} but could not send its Receipt: ${resolved.reason}`,

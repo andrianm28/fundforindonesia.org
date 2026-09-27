@@ -29,6 +29,7 @@ function donation(overrides: Record<string, unknown> = {}) {
     createdAt: '2026-09-26T00:00:00.000Z',
     campaign: { title: 'Test Campaign', slug: 'test-campaign', coverImage: '' },
     receiptToken: 'tok-1',
+    akadWakafToken: null,
     ...overrides,
   };
 }
@@ -74,6 +75,42 @@ describe('Donasi Saya', () => {
 
     await screen.findByText('Test Campaign');
     expect(screen.queryByRole('link', { name: /bukti donasi/i })).toBeNull();
+  });
+
+  it('links a confirmed Donation on a `wakaf` Campaign to its Akad Wakaf print page (CONTEXT.md, Akad Wakaf)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          donations: [donation({ akadWakafToken: 'akad-tok-1' })],
+          total: 1,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+        }),
+      }),
+    );
+
+    render(<DonasiSayaPage />);
+
+    const link = await screen.findByRole('link', { name: /akad wakaf/i });
+    expect(link.getAttribute('href')).toBe('/akad-wakaf/akad-tok-1');
+  });
+
+  it('shows no Akad Wakaf link for a Donation on a non-`wakaf` Campaign', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ donations: [donation()], total: 1, page: 1, limit: 10, totalPages: 1 }),
+      }),
+    );
+
+    render(<DonasiSayaPage />);
+
+    await screen.findByText('Test Campaign');
+    expect(screen.queryByRole('link', { name: /akad wakaf/i })).toBeNull();
   });
 
   it('still navigates to the Campaign when the card itself is clicked', async () => {
