@@ -233,7 +233,7 @@ Campaign Balance pada Campaign yang sudah Expired atau Completed dan tidak dicai
 _Avoid_: Saldo menganggur, dana nganggur, unclaimed
 
 **Bank Account**:
-Rekening tujuan uang keluar yang sudah diperiksa Verifier: milik Fundraiser untuk Payout, atau milik Donor untuk Refund.
+Rekening tujuan uang keluar yang sudah diperiksa Verifier: milik Fundraiser untuk Payout, atau milik Donor untuk Refund. Nomor rekeningnya disimpan terenkripsi dan tidak pernah dicari, jadi tidak ada apa pun yang menolak nomor yang sama tercatat dua kali -- satu orang bisa saja punya dua Bank Account dengan rekening yang sama dan tidak ada yang memberitahunya. Memulihkan jaminan keunikan berarti menambah pencarian terenkripsi untuk nomor rekening, yang memang tidak ada (ADR 0012).
 
 ### Kepercayaan
 

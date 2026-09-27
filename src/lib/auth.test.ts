@@ -4,6 +4,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       update: vi.fn(),
     },
   },
@@ -26,8 +27,10 @@ import type { CredentialsConfig } from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { PASSWORD_HASH_COST } from "@/lib/password-hash-cost";
+import { lookupUserEmail, sealUserEmail } from "@/lib/contact-fields";
 
 const mockFindUnique = prisma.user.findUnique as unknown as Mock;
+const mockFindFirst = prisma.user.findFirst as unknown as Mock;
 const mockUpdate = prisma.user.update as unknown as Mock;
 const mockCompare = bcrypt.compare as unknown as Mock;
 const mockHash = bcrypt.hash as unknown as Mock;
@@ -52,6 +55,35 @@ async function login(credentials: { email: string; password: string }) {
   // shape next-auth asks for is optional.
   return provider.options.authorize(credentials, {});
 }
+
+// The adapter the app installs. This is the wiring only -- src/lib/auth-adapter.test.ts
+// drives the real adapter and next-auth's own sign-in step, which is where the
+// row it finds here actually comes from.
+describe("authOptions.adapter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("finds a Donor by their sealed address, and asks for no column that is gone", async () => {
+    // A row as Prisma returns it: sealed, with no `email` -- the shape on which
+    // the adapter's own lookup threw on a Google sign-in.
+    mockFindFirst.mockResolvedValue({ id: "user-9", name: "Andi", ...sealUserEmail("Andi@Email.com") });
+
+    const found = await authOptions.adapter!.getUserByEmail!("Andi@Email.com");
+
+    expect(mockFindFirst).toHaveBeenCalledWith({ where: lookupUserEmail("Andi@Email.com") });
+    expect(mockFindUnique).not.toHaveBeenCalled();
+    // The address comes back decrypted, because it is what next-auth puts on
+    // the token and what the AppShell and the account page render.
+    expect(found?.email).toBe("Andi@Email.com");
+  });
+
+  it("returns nothing for an address with no account, rather than throwing", async () => {
+    mockFindFirst.mockResolvedValue(null);
+
+    expect(await authOptions.adapter!.getUserByEmail!("nobody@email.com")).toBeNull();
+  });
+});
 
 describe("authOptions.callbacks.jwt", () => {
   beforeEach(() => {
@@ -152,17 +184,20 @@ describe("authOptions.callbacks.session", () => {
 });
 
 describe("credentials login", () => {
+  // A row as `authorize` selects it: the sealed columns, no plaintext `email`
+  // (ADR 0012), and the lookup is the HMAC rather than a `findUnique` on the
+  // address -- see src/lib/auth-adapter.test.ts for the real adapter.
   const storedUser = {
     id: "user-1",
-    email: "test@test.com",
     name: "Test",
     avatar: null,
     password: "$2a$10$weakened",
+    ...sealUserEmail("test@test.com"),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFindUnique.mockResolvedValue(storedUser);
+    mockFindFirst.mockResolvedValue(storedUser);
     mockCompare.mockResolvedValue(true);
   });
 
@@ -234,7 +269,7 @@ describe("credentials login", () => {
   });
 
   it("leaves a Google-only account (no password) alone", async () => {
-    mockFindUnique.mockResolvedValue({ ...storedUser, password: null });
+    mockFindFirst.mockResolvedValue({ ...storedUser, password: null });
 
     await expect(
       login({ email: "test@test.com", password: "secret123" })

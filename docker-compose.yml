@@ -63,9 +63,13 @@ services:
       # The partnership team's mailbox, for Partnership Inquiry notifications.
       # No default: see .env.example.
       PARTNERSHIP_TEAM_EMAIL: ${PARTNERSHIP_TEAM_EMAIL:-}
-      # Field-level encryption keys (ADR 0012). No defaults: a default key is
-      # a published one. Empty means encryption is off and only plaintext is
-      # written; see .env.example.
+      # Field-level encryption keys (ADR 0012). No defaults, for the reason
+      # MOCK_MIDTRANS_SERVER_KEY above gives: a default key is a published one.
+      # Unlike that one these fall back to empty rather than refusing the
+      # container, because an unset key now fails at the first contact write
+      # (there is no plaintext column left to fall back on) rather than at boot,
+      # and a developer running the platform locally with no donations should
+      # still be able to start it. See .env.example.
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
       FIELD_ENCRYPTION_KEY_ID: ${FIELD_ENCRYPTION_KEY_ID:-}
       FIELD_HMAC_KEY: ${FIELD_HMAC_KEY:-}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readDonationGuestEmail, readUserEmail, SELECT_DONATION_GUEST_EMAIL, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { sendReportingFailure } from '@/lib/mail';
 import { receiptEmail, resolveReceiptRecipient } from '@/lib/mail/receipt';
@@ -25,7 +26,8 @@ export async function POST(
       donation: {
         include: {
           campaign: { include: { collectingEntity: true } },
-          donor: { select: { id: true, email: true, name: true } },
+          donor: { select: { id: true, name: true, ...SELECT_USER_EMAIL } },
+          ...SELECT_DONATION_GUEST_EMAIL,
         },
       },
     },
@@ -45,9 +47,15 @@ export async function POST(
 
   const { donation } = receipt;
   const { campaign } = donation;
+  // Decrypted for the address to send to; the stored form is the ciphertext
+  // (ADR 0012). A registered Donor's account address still wins over the one
+  // the Donation was made with, which is the fallback order resolveReceiptRecipient
+  // already encodes.
   const resolved = resolveReceiptRecipient({
-    donor: donation.donor,
-    guestEmail: donation.guestEmail,
+    donor: donation.donor
+      ? { name: donation.donor.name, email: readUserEmail(donation.donor) }
+      : null,
+    guestEmail: readDonationGuestEmail(donation),
     guestName: donation.guestName,
     collectingEntityName: campaign.collectingEntity?.name ?? null,
   });

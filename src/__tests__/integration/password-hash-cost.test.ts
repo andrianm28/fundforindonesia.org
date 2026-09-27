@@ -11,6 +11,10 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
       findUnique: vi.fn(),
+      // The register route's duplicate check goes through the lookup HMAC
+      // rather than a `findUnique` on the plaintext address (ADR 0012), so
+      // `findFirst` is the call it makes and this mock has to have it.
+      findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },
@@ -28,6 +32,7 @@ import { PATCH as changePassword } from "@/app/api/user/password/route";
 import { PASSWORD_HASH_COST, isHashAtCurrentCost } from "@/lib/password-hash-cost";
 
 const mockedUserFindUnique = vi.mocked(prisma.user.findUnique);
+const mockedUserFindFirst = vi.mocked(prisma.user.findFirst);
 const mockedUserCreate = vi.mocked(prisma.user.create);
 const mockedUserUpdate = vi.mocked(prisma.user.update);
 const mockedGetServerSession = vi.mocked(getServerSession);
@@ -50,7 +55,9 @@ function patch(url: string, body: unknown): NextRequest {
 
 /** The hash the register route would have stored for this account. */
 async function registerHashFor(password: string): Promise<string> {
-  mockedUserFindUnique.mockResolvedValue(null);
+  // No account on that address yet: the register route's duplicate check reads
+  // it through the lookup HMAC (ADR 0012).
+  mockedUserFindFirst.mockResolvedValue(null);
   mockedUserCreate.mockResolvedValue({ id: "user-1" } as never);
 
   const response = await register(

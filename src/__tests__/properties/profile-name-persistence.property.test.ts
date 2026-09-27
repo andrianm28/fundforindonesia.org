@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import * as fc from "fast-check";
 import { NextRequest } from "next/server";
+import { sealUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 
 // Feature: platform-polish, Property 2: Round trip consistency
 // **Validates: Requirements 2.2, 2.3**
@@ -61,12 +62,14 @@ describe("Feature: platform-polish, Property 2: Profile Name Persistence", () =>
 
         mockedGetServerSession.mockResolvedValue(mockAuthSession());
 
-        // Simulate prisma.user.update returning the updated user with the new name
+        // Simulate prisma.user.update returning the updated user with the new
+        // name. The address is sealed, as a row holds it (ADR 0012); the route
+        // decrypts it to answer.
         mockedPrisma.user.update.mockResolvedValue({
           id: "user-123",
           name: name,
-          email: "test@example.com",
           avatar: null,
+          ...sealUserEmail("test@example.com"),
         } as any);
 
         const request = new NextRequest(
@@ -89,15 +92,15 @@ describe("Feature: platform-polish, Property 2: Profile Name Persistence", () =>
         expect(body.user).toBeDefined();
         expect(body.user.name).toBe(name);
 
-        // prisma.user.update must have been called with the correct name
+        // prisma.user.update must have been called with the correct name, and
+        // asked for the two columns the address is read from rather than for a
+        // plaintext email column that no longer exists (ADR 0012).
         expect(mockedPrisma.user.update).toHaveBeenCalledTimes(1);
-        expect(mockedPrisma.user.update).toHaveBeenCalledWith(
-          expect.objectContaining({
-            where: { id: "user-123" },
-            data: { name },
-            select: { id: true, name: true, email: true, avatar: true },
-          })
-        );
+        expect(mockedPrisma.user.update).toHaveBeenCalledWith({
+          where: { id: "user-123" },
+          data: { name },
+          select: { id: true, name: true, avatar: true, ...SELECT_USER_EMAIL },
+        });
       }),
       { numRuns: 100 }
     );

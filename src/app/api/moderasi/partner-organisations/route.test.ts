@@ -19,6 +19,7 @@ vi.mock('@/lib/prisma', () => ({
 }));
 
 import { POST } from './route';
+import { sealUserEmail } from '@/lib/contact-fields';
 import { getServerSession } from '@/lib/auth';
 
 const mockSession = getServerSession as unknown as Mock;
@@ -34,7 +35,9 @@ describe('POST /api/moderasi/partner-organisations', () => {
     vi.clearAllMocks();
     state.db = makeCampaignDb({
       partnerOrganisations: [],
-      users: [{ id: 'yiem-account', email: 'yiem@example.org', name: 'YIEM' }],
+      // Sealed, as a row holds an address (ADR 0012): the Verifier's typed
+      // address is matched against the lookup HMAC.
+      users: [{ id: 'yiem-account', name: 'YIEM', ...sealUserEmail('yiem@example.org') }],
     });
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
   });

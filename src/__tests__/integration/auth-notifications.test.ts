@@ -5,7 +5,7 @@ import { NextRequest } from 'next/server';
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
-      findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
     },
     notification: {
@@ -35,6 +35,7 @@ vi.mock('@/lib/auth', () => ({
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
+import { sealUserEmail } from '@/lib/contact-fields';
 import { getServerSession } from '@/lib/auth';
 import { POST as registerPOST } from '@/app/api/auth/register/route';
 import { GET as notificationsGET } from '@/app/api/notifications/route';
@@ -47,7 +48,7 @@ import {
 } from '@/lib/notifications';
 
 const mockGetServerSession = getServerSession as unknown as Mock;
-const mockUserFindUnique = prisma.user.findUnique as unknown as Mock;
+const mockUserFindFirst = prisma.user.findFirst as unknown as Mock;
 const mockUserCreate = prisma.user.create as unknown as Mock;
 const mockNotificationFindMany = prisma.notification.findMany as unknown as Mock;
 const mockNotificationCount = prisma.notification.count as unknown as Mock;
@@ -70,17 +71,11 @@ describe('Auth & Notifications Integration Tests', () => {
 
   describe('Registration: POST /api/auth/register', () => {
     it('should create user with hashed password on successful registration', async () => {
-      mockUserFindUnique.mockResolvedValue(null);
+      mockUserFindFirst.mockResolvedValue(null);
       mockUserCreate.mockResolvedValue({
         id: 'user-1',
         name: 'John Doe',
-        email: 'john@example.com',
-        password: '$2a$12$hashed_password_value',
-        avatar: null,
-        phone: null,
-        donationBalance: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        ...sealUserEmail('john@example.com'),
       });
 
       const req = createRequest('/api/auth/register', {
@@ -104,28 +99,19 @@ describe('Auth & Notifications Integration Tests', () => {
       // Verify bcrypt was used to hash the password
       expect(mockBcryptHash).toHaveBeenCalledWith('securepass123', PASSWORD_HASH_COST);
 
-      // Verify user was created with hashed password (not plain text)
-      expect(mockUserCreate).toHaveBeenCalledWith({
-        data: {
-          name: 'John Doe',
-          email: 'john@example.com',
-          password: '$2a$12$hashed_password_value',
-        },
+      // Verify user was created with hashed password (not plain text), and
+      // with the address sealed rather than in the clear (ADR 0012).
+      const { data } = mockUserCreate.mock.calls[0]![0]!;
+      expect(data).toMatchObject({
+        name: 'John Doe',
+        password: '$2a$12$hashed_password_value',
       });
+      expect(data).not.toHaveProperty('email');
+      expect(data.emailHmac).toBeDefined();
     });
 
     it('should return 409 for duplicate email', async () => {
-      mockUserFindUnique.mockResolvedValue({
-        id: 'existing-user',
-        email: 'existing@example.com',
-        name: 'Existing User',
-        password: 'hashed',
-        avatar: null,
-        phone: null,
-        donationBalance: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      mockUserFindFirst.mockResolvedValue({ id: 'existing-user' } as never);
 
       const req = createRequest('/api/auth/register', {
         method: 'POST',

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Image from "next/image";
+import { readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
 import { effectiveStatus, type ChecklistEntry } from "@/lib/campaign-lifecycle";
 import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
@@ -57,7 +58,8 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
     where: { id },
     include: {
       creator: {
-        select: { name: true, email: true },
+        // Decrypted where it is shown (ADR 0012 stores a ciphertext).
+        select: { name: true, ...SELECT_USER_EMAIL },
       },
       collectingEntity: {
         select: {
@@ -151,7 +153,10 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
 
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <InfoItem label="Pembuat" value={campaign.creator.name} />
-            <InfoItem label="Email Pembuat" value={campaign.creator.email} />
+            <InfoItem
+              label="Email Pembuat"
+              value={readUserEmail(campaign.creator) ?? "Tidak tersedia"}
+            />
             <InfoItem
               label="Target Donasi"
               value={`Rp ${campaign.targetAmount.toLocaleString("id-ID")}`}

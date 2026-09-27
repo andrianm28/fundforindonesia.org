@@ -17,17 +17,27 @@ import {
   InvalidPartnershipInquiryInputError,
   type PartnershipInquiryCreateInput,
 } from './partnership-inquiries';
+import { readInquiryContactEmail, readInquiryContactPhone } from './contact-fields';
 import { MockMailer } from './mail/mock-mailer';
 import { MailerNotConfiguredError } from './mail';
 
 type ProgramRow = { id: string; title: string; slug: string; sector: string };
+
+/**
+ * What an Inquiry row holds now that the contact is a ciphertext (ADR 0012):
+ * the name and the company are plaintext, the contact details are not.
+ */
 type InquiryRow = {
   id: string;
   programId: string;
   companyName: string;
   contactName: string;
-  contactEmail: string;
-  contactPhone: string | null;
+  contactEmailHmac: string;
+  contactEmailHmacKeyId: string;
+  contactEmailCiphertext: string;
+  contactEmailKeyId: string;
+  contactPhoneCiphertext: string | null;
+  contactPhoneKeyId: string | null;
   needs: string;
   status: string;
   createdAt: Date;
@@ -47,13 +57,17 @@ function makeDb(programs: ProgramRow[] = [{ id: 'program-1', title: 'Klinik Keli
     },
     partnershipInquiry: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
+        // Stands in for the real columns: a write arrives already sealed, so the
+        // double holds the sealed columns and NOT NULL defaults rather than a
+        // plaintext contact the schema no longer has.
         const row = {
           id: `inquiry-${inquiries.length + 1}`,
-          contactPhone: null,
+          contactPhoneCiphertext: null,
+          contactPhoneKeyId: null,
           ...data,
           createdAt: new Date('2026-09-27T00:00:00Z'),
           updatedAt: new Date('2026-09-27T00:00:00Z'),
-        } as InquiryRow;
+        } as unknown as InquiryRow;
         inquiries.push(row);
         return { ...row };
       },
@@ -95,11 +109,13 @@ describe('createPartnershipInquiry', () => {
         programId: 'program-1',
         companyName: 'PT Sinar Abadi',
         contactName: 'Rina Wijaya',
-        contactEmail: 'rina@sinarabadi.test',
-        contactPhone: '+62 812 3456 7890',
         needs: VALID.needs,
       }),
     );
+    // The contact is read back through the same decrypt a reader uses, not
+    // asserted as a column (ADR 0012).
+    expect(readInquiryContactEmail(inquiry)).toBe('rina@sinarabadi.test');
+    expect(readInquiryContactPhone(inquiry)).toBe('+62 812 3456 7890');
     expect(inquiries).toHaveLength(1);
   });
 
@@ -286,7 +302,7 @@ describe('createPartnershipInquiry input', () => {
     );
 
     expect(inquiry.companyName).toBe('PT Sinar Abadi');
-    expect(inquiry.contactEmail).toBe('rina@sinarabadi.test');
+    expect(readInquiryContactEmail(inquiry)).toBe('rina@sinarabadi.test');
   });
 
   it('stores no phone at all when the company gave none', async () => {
@@ -294,7 +310,24 @@ describe('createPartnershipInquiry input', () => {
 
     const inquiry = await createPartnershipInquiry(db as never, { ...VALID, contactPhone: undefined }, mailer);
 
-    expect(inquiry.contactPhone).toBeNull();
+    expect(inquiry.contactPhoneCiphertext).toBeNull();
+    expect(readInquiryContactPhone(inquiry)).toBeNull();
+  });
+
+  // The contract step of ADR 0012: the plaintext columns are gone, so what the
+  // form submitted is only in the sealed form on the row.
+  it('stores the company contact only as protected columns', async () => {
+    const { db, inquiries } = makeDb();
+
+    await createPartnershipInquiry(db as never, { ...VALID, contactPhone: '+62 812 3456 7890' }, mailer);
+
+    const row = inquiries[0] as unknown as Record<string, unknown>;
+    expect(row).not.toHaveProperty('contactEmail');
+    expect(row).not.toHaveProperty('contactPhone');
+    expect(readInquiryContactEmail(inquiries[0] as never)).toBe('rina@sinarabadi.test');
+    expect(readInquiryContactPhone(inquiries[0] as never)).toBe('+62 812 3456 7890');
+    // The name stays plaintext: it is what the partnership team reads to reply.
+    expect(row.contactName).toBe('Rina Wijaya');
   });
 
   it('leaves an unknown error to its own caller', () => {

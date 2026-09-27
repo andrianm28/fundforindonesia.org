@@ -15,6 +15,7 @@ import {
   updatePartnerOrganisation,
 } from './partner-organisations';
 import { domainErrorToHttp } from './domain-errors';
+import { sealUserEmail } from './contact-fields';
 import {
   fundraisingPermitRow,
   kindAuthorisationRow,
@@ -30,9 +31,11 @@ import {
  * audited with who and when, before and after.
  */
 const NOW = new Date('2026-09-26T10:00:00Z');
+// Sealed addresses (ADR 0012): the Verifier's typed address is matched against
+// the lookup HMAC, and a double holding plaintext would test nothing.
 const USERS = [
-  { id: 'yiem-account', email: 'yiem@example.org', name: 'YIEM' },
-  { id: 'verifier-1', email: 'verifier@example.org', name: 'Verifier' },
+  { id: 'yiem-account', name: 'YIEM', ...sealUserEmail('yiem@example.org') },
+  { id: 'verifier-1', name: 'Verifier', ...sealUserEmail('verifier@example.org') },
 ];
 
 function db(seed: Parameters<typeof makeCampaignDb>[0] = {}) {

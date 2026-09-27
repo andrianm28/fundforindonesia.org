@@ -5,6 +5,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
+import { lookupUserEmail, sealBankAccountNumber, sealUserEmail } from '@/lib/contact-fields';
 import { withContactFieldProtection } from '@/lib/field-protection';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
@@ -253,17 +254,21 @@ async function main() {
   const password = await bcrypt.hash('password123', PASSWORD_HASH_COST);
   const users: User[] = [];
   for (const userData of USERS_DATA) {
-    const user = await prisma.user.upsert({
-      where: { email: userData.email },
-      update: {},
-      create: {
-        email: userData.email,
-        name: userData.name,
-        password,
-        avatar: userData.avatar,
-        donationBalance: userData.seededAs === 'donor' ? randomInt(50000, 500000) : 0,
-      },
-    });
+    // Through the lookup HMAC, so re-running the seed finds the account it made
+    // last time however the address is typed (ADR 0012). The create seals the
+    // address; there is no plaintext email column left to upsert on.
+    const existing = await prisma.user.findFirst({ where: lookupUserEmail(userData.email), select: { id: true } });
+    const user = existing
+      ? await prisma.user.findUniqueOrThrow({ where: { id: existing.id } })
+      : await prisma.user.create({
+          data: {
+            name: userData.name,
+            password,
+            avatar: userData.avatar,
+            donationBalance: userData.seededAs === 'donor' ? randomInt(50000, 500000) : 0,
+            ...sealUserEmail(userData.email),
+          },
+        });
     users.push(user);
   }
   const seededAs = (kind: SeededAs) => users.filter((_, i) => USERS_DATA[i].seededAs === kind);
@@ -442,9 +447,9 @@ async function main() {
       data: {
         ownerId: creator.id,
         bankCode: randomElement(BANK_CODES),
-        accountNumber: String(randomInt(1000000000, 9999999999)),
         accountName: creator.name,
         verifiedAt: daysAgo(randomInt(30, 90)),
+        ...sealBankAccountNumber(String(randomInt(1000000000, 9999999999))),
       },
     });
     bankAccountByCreatorId.set(creator.id, bankAccount);

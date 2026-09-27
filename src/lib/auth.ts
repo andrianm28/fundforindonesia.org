@@ -1,14 +1,19 @@
 import { NextAuthOptions, getServerSession as nextAuthGetServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
-import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { PASSWORD_HASH_COST, isHashAtCurrentCost } from "@/lib/password-hash-cost";
 import { Assignment } from "@/generated/prisma/client";
+import { buildAuthAdapter } from "@/lib/auth-adapter";
+import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
+  // Both halves of the adapter need the schema it cannot see: the write goes
+  // through the hooked client, so an OAuth sign-in's address is sealed on the
+  // way in, and the read is rewired onto the lookup HMAC, because the plaintext
+  // column this one used to ask for is gone (ADR 0012, src/lib/auth-adapter.ts).
+  adapter: buildAuthAdapter(prisma) as NextAuthOptions["adapter"],
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -25,8 +30,12 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Email dan password harus diisi");
         }
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
+        // Through the HMAC, never a scan over decrypted addresses (ADR 0012):
+        // the plaintext email column is gone, and decrypting every account to
+        // compare it would be the thing this scheme exists to prevent.
+        const user = await prisma.user.findFirst({
+          where: lookupUserEmail(credentials.email),
+          select: { ...SELECT_USER_EMAIL, id: true, password: true, name: true, avatar: true },
         });
 
         if (!user || !user.password) {
@@ -66,9 +75,14 @@ export const authOptions: NextAuthOptions = {
           }
         }
 
+        const email = readUserEmail(user);
+        if (!email) {
+          throw new Error("Email atau password salah");
+        }
+
         return {
           id: user.id,
-          email: user.email,
+          email,
           name: user.name,
           image: user.avatar,
         };

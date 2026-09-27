@@ -18,37 +18,40 @@
  */
 import { PrismaClient, Kind, CampaignStatus } from '../../src/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { sealDonationGuestEmail, sealUserEmail } from '../../src/lib/contact-fields';
 import { ACTIVE_SLUG, DRAFT_SLUG, RECEIPT_TOKEN, RECEIPT_AMOUNT } from './fixtures';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
+  // Keyed on the fixed id, not the address: the address is a ciphertext now
+  // (ADR 0012) and the id is what the specs assert against anyway.
   await prisma.user.upsert({
-    where: { email: 'e2e-fundraiser@example.org' },
+    where: { id: 'e2e-fundraiser' },
     update: {},
     create: {
       id: 'e2e-fundraiser',
-      email: 'e2e-fundraiser@example.org',
       name: 'E2E Fundraiser',
+      ...sealUserEmail('e2e-fundraiser@example.org'),
     },
   });
   await prisma.user.upsert({
-    where: { email: 'e2e-org-owner@example.org' },
+    where: { id: 'e2e-org-owner' },
     update: {},
     create: {
       id: 'e2e-org-owner',
-      email: 'e2e-org-owner@example.org',
       name: 'E2E Org Owner',
+      ...sealUserEmail('e2e-org-owner@example.org'),
     },
   });
   await prisma.user.upsert({
-    where: { email: 'e2e-registrar@example.org' },
+    where: { id: 'e2e-registrar' },
     update: {},
     create: {
       id: 'e2e-registrar',
-      email: 'e2e-registrar@example.org',
       name: 'E2E Registrar',
+      ...sealUserEmail('e2e-registrar@example.org'),
     },
   });
 
@@ -133,7 +136,7 @@ async function main() {
       paymentMethod: 'qris',
       paymentStatus: 'confirmed',
       campaignId: 'e2e-campaign-aktif',
-      guestEmail: 'e2e-donor@example.org',
+      ...sealDonationGuestEmail('e2e-donor@example.org'),
     },
   });
   await prisma.receipt.upsert({

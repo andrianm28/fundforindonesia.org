@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { decideVerificationRequest } from './campaign-lifecycle';
+import { sealUserEmail } from './contact-fields';
 import { MockMailer, type Mailer } from './mail';
 import {
   campaignRow,
@@ -23,7 +24,7 @@ function seeded() {
   return makeCampaignDb({
     campaigns: [campaignRow()],
     verificationRequests: [verificationRequestRow({ id: 'verification-open', checklist: CHECKLIST })],
-    users: [userRow({ id: 'creator-1', email: 'siti@example.test', name: 'Siti' })],
+    users: [userRow({ id: 'creator-1', ...sealUserEmail('siti@example.test'), name: 'Siti' })],
   });
 }
 

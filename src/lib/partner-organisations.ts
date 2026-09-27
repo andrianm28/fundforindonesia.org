@@ -10,6 +10,7 @@ import type {
 import { DomainError, type PartnerOrganisationErrorCode } from "./domain-errors";
 import { parseKind } from "./campaign-kind";
 import { requiresKindAuthorisation } from "./collecting-entity";
+import { lookupUserEmail } from "./contact-fields";
 
 /**
  * The Verifier's register of Partner Organisations, their Fundraising
@@ -252,7 +253,10 @@ export async function registerPartnerOrganisation(
 
   try {
     return await prisma.$transaction(async (tx) => {
-      const account = await tx.user.findUnique({ where: { email } });
+      // Through the lookup HMAC, so the Verifier's address finds the account
+      // however they typed it, and no account's address is decrypted to be
+      // compared (ADR 0012).
+      const account = await tx.user.findFirst({ where: lookupUserEmail(email), select: { id: true } });
       if (!account) {
         throw new InvalidPartnerOrganisationError("Tidak ada akun dengan email itu.", "fundraiserEmail");
       }

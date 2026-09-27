@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  readDonationGuestEmail,
+  readUserEmail,
+  SELECT_DONATION_GUEST_EMAIL,
+  SELECT_USER_EMAIL,
+} from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
 import { PaymentStatus, type Prisma } from '@/generated/prisma/client';
@@ -169,10 +175,11 @@ export async function POST(
           include: {
             // collectingEntity is who the Receipt (below) says received the
             // money; donor is who it is addressed to when the Donor has an
-            // account (a Guest Donor's address is Donation.guestEmail
-            // itself, already plaintext -- no extra include needed for it).
+            // account. Both addresses are ciphertexts now (ADR 0012) and are
+            // decrypted where the Receipt is addressed, not stored in the clear.
             campaign: { include: { collectingEntity: true } },
-            donor: { select: { id: true, email: true, name: true } },
+            donor: { select: { id: true, name: true, ...SELECT_USER_EMAIL } },
+            ...SELECT_DONATION_GUEST_EMAIL,
           },
         },
         registration: { include: { batch: { include: { trip: true } } } },
@@ -551,8 +558,10 @@ export async function POST(
           // it is logged for manual follow-up instead.
           if (settled.receiptToken) {
             const resolved = resolveReceiptRecipient({
-              donor: donation!.donor,
-              guestEmail: donation!.guestEmail,
+              donor: donation!.donor
+                ? { name: donation!.donor.name, email: readUserEmail(donation!.donor) }
+                : null,
+              guestEmail: readDonationGuestEmail(donation!),
               guestName: donation!.guestName,
               collectingEntityName: campaign.collectingEntity?.name ?? null,
             });

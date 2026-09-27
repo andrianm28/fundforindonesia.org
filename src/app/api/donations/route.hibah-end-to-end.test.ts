@@ -53,6 +53,7 @@ vi.mock('@/lib/payments', async () => {
 });
 
 import { POST } from './route';
+import { readDonationGuestEmail, readDonationGuestPhone } from '@/lib/contact-fields';
 import { getPaymentProvider } from '@/lib/payments';
 
 const FUTURE = new Date('2099-01-01T00:00:00Z');
@@ -225,16 +226,15 @@ describe('POST /api/donations, a Donor Hibah gets the same nominal, Receipt and 
     });
 
     expect(response.status).toBe(201);
-    expect(holder.donation.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          donorId: null,
-          guestEmail: 'donor-hibah@example.com',
-          guestName: 'Donor Hibah',
-          guestPhone: '081200000000',
-        }),
-      }),
-    );
+    // Sealed, not plaintext (ADR 0012): what a Receipt later decrypts to reach
+    // the Donor. The name stays in the clear, by decision.
+    const { data } = holder.donation.create.mock.calls[0]![0] as { data: Record<string, unknown> };
+    const sealed = data as unknown as Parameters<typeof readDonationGuestEmail>[0] &
+      Parameters<typeof readDonationGuestPhone>[0];
+    expect(data).toMatchObject({ donorId: null, guestName: 'Donor Hibah' });
+    expect(data).not.toHaveProperty('guestEmail');
+    expect(readDonationGuestEmail(sealed)).toBe('donor-hibah@example.com');
+    expect(readDonationGuestPhone(sealed)).toBe('081200000000');
   });
 
   it('refuses a Guest Donor Hibah who left no email, before anything is written', async () => {

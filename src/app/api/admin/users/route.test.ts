@@ -14,6 +14,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+import { sealUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { GET } from "./route";
@@ -56,7 +57,7 @@ describe("GET /api/admin/users", () => {
   });
 
   it("returns the user page when the Admin assignment is present", async () => {
-    mockFindMany.mockResolvedValue([{ id: "u1", name: "A", email: "a@test.com", createdAt: new Date(), assignments: [] }]);
+    mockFindMany.mockResolvedValue([{ id: "u1", name: "A", ...sealUserEmail("a@test.com"), createdAt: new Date(), assignments: [] }]);
     mockCount.mockResolvedValue(1);
 
     const response = await GET(createRequest());
@@ -73,14 +74,16 @@ describe("GET /api/admin/users", () => {
   it("lists each user's assignments, and no Role or self-claimed verification", async () => {
     const createdAt = new Date("2026-09-01T00:00:00.000Z");
     mockFindMany.mockResolvedValue([
-      { id: "u1", name: "Sari", email: "sari@test.com", createdAt, assignments: [{ assignment: "VERIFIER" }, { assignment: "ADMIN" }] },
-      { id: "u2", name: "Budi", email: "budi@test.com", createdAt, assignments: [] },
+      { id: "u1", name: "Sari", ...sealUserEmail("sari@test.com"), createdAt, assignments: [{ assignment: "VERIFIER" }, { assignment: "ADMIN" }] },
+      { id: "u2", name: "Budi", ...sealUserEmail("budi@test.com"), createdAt, assignments: [] },
     ]);
     mockCount.mockResolvedValue(2);
 
     const response = await GET(createRequest());
     const body = await response.json();
 
+    // The address comes back decrypted for the panel (ADR 0012 stores a
+    // ciphertext), and is not one of the columns the query asked for.
     expect(body.users).toEqual([
       { id: "u1", name: "Sari", email: "sari@test.com", createdAt: createdAt.toISOString(), assignments: ["VERIFIER", "ADMIN"] },
       { id: "u2", name: "Budi", email: "budi@test.com", createdAt: createdAt.toISOString(), assignments: [] },
@@ -88,9 +91,34 @@ describe("GET /api/admin/users", () => {
     expect(mockFindMany.mock.calls[0][0].select).toEqual({
       id: true,
       name: true,
-      email: true,
       createdAt: true,
+      ...SELECT_USER_EMAIL,
       assignments: { select: { assignment: true } },
+    });
+  });
+
+  // A ciphertext is a randomized value, so a substring match against it is
+  // meaningless -- the old `email contains` could not have matched anything
+  // useful. An address the Admin types is looked up whole, by its HMAC.
+  it("finds one account by the address an Admin types, through the HMAC", async () => {
+    mockFindMany.mockResolvedValue([]);
+    mockCount.mockResolvedValue(0);
+
+    await GET(createRequest("http://localhost:3000/api/admin/users?search=Sari@Test.com"));
+
+    const where = mockFindMany.mock.calls[0][0].where;
+    expect(Object.keys(where).sort()).toEqual(["emailHmac", "emailHmacKeyId"]);
+    expect(where.emailHmac).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("searches names, not addresses, for anything that is not an address", async () => {
+    mockFindMany.mockResolvedValue([]);
+    mockCount.mockResolvedValue(0);
+
+    await GET(createRequest("http://localhost:3000/api/admin/users?search=sari"));
+
+    expect(mockFindMany.mock.calls[0][0].where).toEqual({
+      name: { contains: "sari", mode: "insensitive" },
     });
   });
 });

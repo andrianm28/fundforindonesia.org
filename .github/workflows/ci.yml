@@ -23,6 +23,28 @@ jobs:
     name: test
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The drop migration's guard is run against a real Postgres rather than
+      # read as text (src/lib/drop-migration-guard.test.ts): a guard that is
+      # meant to refuse has to be seen refusing. Deliberately not DATABASE_URL:
+      # the unit tests must keep seeing no database at all, or src/lib/prisma.ts
+      # builds a real client and every test that touches it waits for a
+      # connection that is not the point.
+      TEST_DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -155,6 +177,15 @@ jobs:
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
       NEXTAUTH_SECRET: ci-placeholder-not-a-secret
       NEXTAUTH_URL: http://localhost:3000
+      # ADR 0012 field keys, as fixed throwaway values. The plaintext contact
+      # columns are dropped, so a deployment with no keys cannot write a contact
+      # detail at all: the app refuses rather than storing something it cannot
+      # read back. All-zero and all-one bytes, so they are obviously not real and
+      # obviously not the same key.
+      FIELD_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      FIELD_ENCRYPTION_KEY_ID: enc-ci-1
+      FIELD_HMAC_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+      FIELD_HMAC_KEY_ID: hmac-ci-1
       # Inlined into the client bundle at build time: the donate page shows
       # its form. The money itself stays stubbed in the specs: in
       # production `next start` the mock adapter is refused, so CI raises

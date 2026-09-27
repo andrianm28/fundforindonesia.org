@@ -1,4 +1,5 @@
 import type { PartnershipInquiry, PrismaClient, Program } from "@/generated/prisma/client";
+import { sealInquiryContactEmail, sealInquiryContactPhone } from "./contact-fields";
 import { MailerNotConfiguredError, sendReportingFailure, type Mailer } from "./mail";
 import { partnershipInquiryEmail } from "./mail/partnership-inquiry";
 import { publicUrl } from "./public-url";
@@ -205,8 +206,20 @@ export async function createPartnershipInquiry(
   const program = await db.program.findUnique({ where: { id: programId } });
   if (!program) throw new PartnershipInquiryProgramNotFoundError();
 
+  // The contact details are sealed here, and the plaintext is not part of the
+  // write at all: the columns are gone (ADR 0012, contract step). The email
+  // below is built from the same cleaned value, so the notification names the
+  // address the company typed.
   const inquiry = await db.partnershipInquiry.create({
-    data: { ...cleaned, status: INITIAL_INQUIRY_STATUS },
+    data: {
+      programId: cleaned.programId,
+      companyName: cleaned.companyName,
+      contactName: cleaned.contactName,
+      needs: cleaned.needs,
+      status: INITIAL_INQUIRY_STATUS,
+      ...sealInquiryContactEmail(cleaned.contactEmail),
+      ...sealInquiryContactPhone(cleaned.contactPhone),
+    },
   });
   const inquiryId = String(inquiry.id);
 
