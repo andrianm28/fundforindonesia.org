@@ -8,6 +8,7 @@ import {
   ManualContributionTargetError,
   ManualContributionProofRequiredError,
   ManualContributionAmountError,
+  ManualContributionInputError,
   ManualContributionNotPendingError,
   ManualContributionNotApprovedError,
   ManualContributionAlreadySpentError,
@@ -540,7 +541,7 @@ describe('rejectManualContribution', () => {
   });
 
   it('needs a reason: a refusal with no explanation teaches nobody anything', async () => {
-    const { tx } = makeTx();
+    const { tx, state } = makeTx();
 
     await expect(
       rejectManualContribution(makePrisma(tx, {}) as never, {
@@ -548,7 +549,24 @@ describe('rejectManualContribution', () => {
         decidedById: 'admin-2',
         reason: '   ',
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(ManualContributionInputError);
+    expect(state?.status).toBe('PENDING');
+  });
+
+  it('refuses a note that is not text, with its own code rather than the target one', async () => {
+    // A mistyped note is a different mistake from naming two targets, and a
+    // client fixing one should not be sent hunting for the other.
+    const { tx } = makeTx();
+
+    await expect(
+      recordManualContribution(tx as never, {
+        target: CAMPAIGN,
+        amount: 1_000,
+        proofReference: 'bukti.pdf',
+        note: 42 as never,
+        recordedById: 'admin-1',
+      }),
+    ).rejects.toThrow(ManualContributionInputError);
   });
 });
 

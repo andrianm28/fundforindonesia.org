@@ -166,6 +166,20 @@ export class ManualContributionTargetError extends MoneyError {
 }
 
 /**
+ * Some other field of the record is unusable: a note or a reason left blank,
+ * or longer than the column takes. Its own code rather than a reuse of the
+ * target's, so a client that sent a mistyped note is not told the target is
+ * wrong.
+ */
+export class ManualContributionInputError extends MoneyError {
+  readonly code = 'MANUAL_CONTRIBUTION_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'ManualContributionInputError';
+  }
+}
+
+/**
  * No proof of transfer. Required rather than optional because the entire point
  * of a Manual Contribution is that no provider confirms it: the evidence is
  * the only thing standing between a recorded number and a fabricated one, and

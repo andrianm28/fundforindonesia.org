@@ -37,7 +37,7 @@ import {
   SelfApprovalError,
   ManualContributionAlreadySpentError,
   ManualContributionNotPendingError,
-  ManualContributionTargetError,
+  ManualContributionInputError,
 } from '@/lib/money/manual-contributions';
 
 const mockSession = getServerSession as unknown as Mock;
@@ -137,13 +137,16 @@ describe('POST /api/admin/manual-contributions/[id]/decision', () => {
     });
   });
 
-  it('answers the refusal the service layer raises for a blank reason', async () => {
-    mockReject.mockRejectedValue(new ManualContributionTargetError('Alasan wajib diisi.'));
+  it('answers the refusal the service layer raises for a blank reason, with its own code', async () => {
+    // Not the target's code: a mistyped note is a different mistake from a
+    // contribution that names two targets, and a client fixing one should not
+    // be sent looking for the other.
+    mockReject.mockRejectedValue(new ManualContributionInputError('Alasan wajib diisi.'));
 
     const res = await post({ decision: 'reject' });
 
     expect(res.status).toBe(400);
-    expect((await res.json()).code).toBe('MANUAL_CONTRIBUTION_TARGET_INVALID');
+    expect((await res.json()).code).toBe('MANUAL_CONTRIBUTION_INVALID');
   });
 
   it('refuses a decision it does not know, rather than guessing at one', async () => {

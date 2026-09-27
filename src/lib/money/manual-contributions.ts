@@ -12,6 +12,7 @@ import { OwnSubjectConflictError } from '@/lib/capacity';
 import {
   ManualContributionAlreadySpentError,
   ManualContributionAmountError,
+  ManualContributionInputError,
   ManualContributionNotApprovedError,
   ManualContributionNotFoundError,
   ManualContributionNotPendingError,
@@ -76,6 +77,7 @@ import {
 export {
   ManualContributionAlreadySpentError,
   ManualContributionAmountError,
+  ManualContributionInputError,
   ManualContributionNotApprovedError,
   ManualContributionNotFoundError,
   ManualContributionNotPendingError,
@@ -110,25 +112,39 @@ export type ManualContributionTarget = {
  * the check that does, and it runs before anything is written rather than
  * after. A contribution with no target would be money belonging to nobody;
  * one with two targets would be a single amount in two balances.
+ *
+ * `neither` and `both` are parameters because the two callers mean different
+ * things by the refusal: a request that named nothing is an Admin who has not
+ * filled the form in, while a stored row that names nothing can only be
+ * corrupt data, and saying so is more use than repeating the first message.
  */
 function assertExactlyOneManualContributionSubject(
   target: ManualContributionTarget,
+  { neither, both }: { neither: string; both: string },
 ): ManualContributionSubject {
   const campaignId = typeof target.campaignId === 'string' ? target.campaignId.trim() : '';
   const programId = typeof target.programId === 'string' ? target.programId.trim() : '';
 
   if (campaignId && programId) {
-    throw new ManualContributionTargetError(
-      'Manual Contribution tidak boleh menunjuk Campaign dan Program sekaligus.',
-    );
+    throw new ManualContributionTargetError(both);
   }
   if (!campaignId && !programId) {
-    throw new ManualContributionTargetError('Campaign atau Program yang dituju wajib diisi.');
+    throw new ManualContributionTargetError(neither);
   }
   return campaignId
     ? { type: 'campaign', campaignId }
     : { type: 'program', programId };
 }
+
+const UNFILLED_TARGET = {
+  neither: 'Campaign atau Program yang dituju wajib diisi.',
+  both: 'Manual Contribution tidak boleh menunjuk Campaign dan Program sekaligus.',
+};
+
+const UNPOSTABLE_TARGET = {
+  neither: 'Manual Contribution ini tidak menunjuk Campaign maupun Program, sehingga tidak bisa dibukukan.',
+  both: 'Manual Contribution menunjuk Campaign dan Program sekaligus, sehingga tidak bisa dibukukan.',
+};
 
 function assertAmountIsRupiah(amount: unknown): asserts amount is number {
   if (typeof amount !== 'number' || !Number.isInteger(amount) || amount <= 0) {
@@ -138,17 +154,17 @@ function assertAmountIsRupiah(amount: unknown): asserts amount is number {
 
 function cleanText(value: unknown, { field, max, required }: { field: string; max: number; required: boolean }): string | null {
   if (value === undefined || value === null) {
-    if (required) throw new ManualContributionTargetError(`${field} wajib diisi.`);
+    if (required) throw new ManualContributionInputError(`${field} wajib diisi.`);
     return null;
   }
-  if (typeof value !== 'string') throw new ManualContributionTargetError(`${field} harus berupa teks.`);
+  if (typeof value !== 'string') throw new ManualContributionInputError(`${field} harus berupa teks.`);
   const trimmed = value.trim();
   if (trimmed === '') {
-    if (required) throw new ManualContributionTargetError(`${field} wajib diisi.`);
+    if (required) throw new ManualContributionInputError(`${field} wajib diisi.`);
     return null;
   }
   if (trimmed.length > max) {
-    throw new ManualContributionTargetError(`${field} paling panjang ${max} karakter.`);
+    throw new ManualContributionInputError(`${field} paling panjang ${max} karakter.`);
   }
   return trimmed;
 }
@@ -159,7 +175,7 @@ function cleanProofReference(value: unknown): string {
   }
   const trimmed = value.trim();
   if (trimmed.length > MAX_PROOF_REFERENCE_LENGTH) {
-    throw new ManualContributionTargetError(
+    throw new ManualContributionInputError(
       `Bukti transfer paling panjang ${MAX_PROOF_REFERENCE_LENGTH} karakter.`,
     );
   }
@@ -170,7 +186,7 @@ function cleanReason(value: unknown): string {
   const reason = cleanText(value, { field: 'Alasan', max: MAX_REASON_LENGTH, required: true });
   // cleanText's required branch already refused a blank; this states the
   // invariant rather than casting it away.
-  if (reason === null) throw new ManualContributionTargetError('Alasan wajib diisi.');
+  if (reason === null) throw new ManualContributionInputError('Alasan wajib diisi.');
   return reason;
 }
 
@@ -206,7 +222,7 @@ export async function recordManualContribution(
     recordedById: string;
   },
 ): Promise<ManualContribution> {
-  const subject = assertExactlyOneManualContributionSubject(params.target);
+  const subject = assertExactlyOneManualContributionSubject(params.target, UNFILLED_TARGET);
   assertAmountIsRupiah(params.amount);
   const proofReference = cleanProofReference(params.proofReference);
   const note = cleanText(params.note, { field: 'Catatan', max: MAX_NOTE_LENGTH, required: false });
@@ -235,26 +251,17 @@ export async function recordManualContribution(
 }
 
 /**
- * The target row of an already-recorded contribution, with the two id
- * columns narrowed to exactly one of them.
+ * The target of an already-recorded contribution, read back off its row.
  *
- * A row that somehow carries both or neither cannot be posted: there is no
- * account to post to, and guessing which one was meant is how money ends up
- * on the wrong side of the platform.
+ * A stored row that names both or neither is corrupt data rather than an
+ * unfilled form, and the refusal says so -- there is no account to post to, and
+ * guessing which one was meant is how money ends up on the wrong side of the
+ * platform.
  */
 function subjectOf(
   contribution: { campaignId: string | null; programId: string | null },
 ): ManualContributionSubject {
-  if (contribution.campaignId && contribution.programId) {
-    throw new ManualContributionTargetError(
-      'Manual Contribution menunjuk Campaign dan Program sekaligus, sehingga tidak bisa dibukukan.',
-    );
-  }
-  if (contribution.campaignId) return { type: 'campaign', campaignId: contribution.campaignId };
-  if (contribution.programId) return { type: 'program', programId: contribution.programId };
-  throw new ManualContributionTargetError(
-    'Manual Contribution ini tidak menunjuk Campaign maupun Program, sehingga tidak bisa dibukukan.',
-  );
+  return assertExactlyOneManualContributionSubject(contribution, UNPOSTABLE_TARGET);
 }
 
 /**
@@ -279,7 +286,7 @@ async function lockTargetAndJudge(
   tx: Prisma.TransactionClient,
   subject: ManualContributionSubject,
   actorId: string,
-): Promise<{ balance: number }> {
+): Promise<number> {
   if (subject.type === 'campaign') {
     // A null state cannot happen here, and is left alone rather than turned
     // into a refusal: ManualContribution.campaignId is a Restrict foreign key,
@@ -288,10 +295,10 @@ async function lockTargetAndJudge(
     // approvePayout gives for Payout.campaignId.
     const state = await lockAndLoad(tx, subject, new Date());
     if (state) requireNotOwnerAsAdmin(state, actorId);
-    return { balance: await campaignBalance(tx, subject.campaignId) };
+    return campaignBalance(tx, subject.campaignId);
   }
   await tx.$queryRaw`SELECT id FROM "Program" WHERE id = ${subject.programId} FOR UPDATE`;
-  return { balance: await programBalance(tx, subject.programId) };
+  return programBalance(tx, subject.programId);
 }
 
 /**
@@ -443,7 +450,7 @@ export async function reverseManualContribution(
     }
 
     const subject = subjectOf(contribution);
-    const { balance } = await lockTargetAndJudge(tx, subject, reversedById);
+    const balance = await lockTargetAndJudge(tx, subject, reversedById);
 
     // Read under the lock taken above, so this is current for as long as the
     // lock is held: if a Payout drained part of this money in the meantime, it
