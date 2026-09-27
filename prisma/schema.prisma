@@ -1254,8 +1254,35 @@ model Payment {
   /// proactively.
   registrationId String?       @unique
   registration   Registration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
-  provider    String // "midtrans" | "xendit" | ... kept a String: providers are added without a migration
-  method      String // "qris" | "va_bca" | ...
+  /// The Payment Provider this charge went through, in the name that appears
+  /// in its webhook URL, on this row and on the WebhookEvent for the same
+  /// delivery -- one spelling per provider so the Provider Balance, which is
+  /// split by exact string equality, cannot end up with two pots for one
+  /// provider (ADR 0006).
+  ///
+  /// A registered name, and the registered names are exactly "mock" |
+  /// "sumopod" -- PAYMENT_PROVIDER_NAMES in
+  /// src/lib/payments/provider-names.ts. Nothing else is a provider name in
+  /// this build: a Midtrans or Xendit adapter does not exist yet, so naming
+  /// one here would write a value no code can settle against.
+  ///
+  /// A plain String rather than an enum because that registry already is the
+  /// enum, and the schema deliberately does not keep a second copy of it: an
+  /// enum here would list the same names again, in this file and in the
+  /// generated client, while the gate every write already passes is
+  /// canonicalPaymentProviderName (./src/lib/payments/provider-names.ts), not
+  /// the column's type. Switching providers on from the Admin dashboard is
+  /// therefore a new name in that registry plus a builder in
+  /// src/lib/payments/index.ts, and nothing in this file.
+  provider    String
+  /// Which method the provider charged through, in its own vocabulary rather
+  /// than the donor's choice: PaymentMethod in src/lib/payments/types.ts,
+  /// "bank_transfer_va" | "qris_redirect". The donor-facing choices
+  /// ("bank_transfer", "qris", "ewallet", "credit_card") are mapped onto
+  /// those -- or onto nothing, for the two no adapter implements -- by
+  /// PROVIDER_METHOD_FOR in src/lib/money/payment-method-map.ts, before the
+  /// Payment is written, and never after.
+  method      String
   /// The provider's own id for this charge. Unique so a webhook replay cannot
   /// create a second Payment for the same upstream charge.
   providerRef String        @unique
@@ -1847,8 +1874,11 @@ model LedgerEntry {
   /// why the per-provider pot is a floor rather than the whole thing. See
   /// GATEWAY_CLEARING above and providerBalances in src/lib/money/ledger.ts.
   ///
-  /// A plain String, like Payment.provider, because providers are added
-  /// without a migration.
+  /// A plain String, like Payment.provider, and for Payment.provider's reason:
+  /// the registered names live in src/lib/payments/provider-names.ts, so the
+  /// schema stores the value without keeping a second list of it. This column
+  /// is read back by exact string equality and never canonicalized, so a name
+  /// an older row still carries keeps its own pot in providerBalances.
   provider String?
 
   /// Groups the entries of one balanced transaction. Every entry sharing a
