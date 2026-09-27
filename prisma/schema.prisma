@@ -1765,6 +1765,9 @@ model ProviderWithdrawal {
   recordedBy       User                  @relation("ProviderWithdrawalRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
   ledgerEntries    LedgerEntry[]
 
+  // The per-provider reconciliation reads every recorded sweep in recordedAt
+  // order, so this is the index that query wants.
+  @@index([provider, recordedAt])
 }
 
 /// Double-entry ledger. Append-only: rows are never updated or deleted, and a
