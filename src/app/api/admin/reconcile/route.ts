@@ -79,8 +79,8 @@ import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
  *    the subject guard's own isEscrowReleaseFrozen, asked without a row lock
  *    since this report only reads. An entry with no `cause` is unexplained
  *    exactly as before; Trip entries never carry one (ADR 0014).
- *  - stuckPayouts: two payout states nothing in this codebase currently
- *    drains. Surfaced, not fixed -- see the comments below for why.
+ *  - stuckPayouts: two payout states that are work rather than incidents --
+ *    see the comments there.
  *  - pendingRefunds: every Refund whose status is REQUESTED, Campaign-or-Trip
  *    both in one combined list -- the only place in this codebase a REQUESTED
  *    Refund becomes discoverable after it's created.
@@ -505,8 +505,8 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       });
     }
 
-    // Two payout states nothing in this codebase currently drains -- see the
-    // module doc comment above for why fixing either is out of scope here.
+    // Two payout states an Admin still has work to do -- see the module doc
+    // comment above and the notes on each key below.
     const processingPayouts = await tx.payout.findMany({
       where: { status: 'PROCESSING' },
       select: { id: true, campaignId: true, volunteerTripId: true, amount: true, providerRef: true, approvedAt: true },
@@ -547,14 +547,14 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       orphanedCancelledRegistrationPayments,
       stuckPayouts: {
         // Nothing in this codebase writes PROCESSING today -- approval stops
-        // at APPROVED, and only a provider with a disbursement API plus its
-        // webhook would ever set it. Kept because that provider is planned
-        // (FFI-18) and because any row appearing here now would mean
-        // something wrote a status no code path should be writing.
-        //
-        // Either way, nothing drains PAYOUT_CLEARING: that leg belongs to the
-        // completion step, which needs a LedgerAccount for money that has
-        // physically left and the enum has none.
+        // at APPROVED, and a second Admin then completes the Payout by hand
+        // (completePayout, ./payouts.ts), which only ever writes COMPLETED.
+        // Kept because that provider is planned (FFI-18) and because any row
+        // appearing here now would mean something wrote a status no code path
+        // should be writing. completePayout refuses a PROCESSING row for the
+        // same reason: it cannot show that the instructed legs were ever
+        // posted, so completing it would post the second half of a movement
+        // whose first half is unproven.
         processing: processingPayouts.map((p) => ({
           payoutId: p.id,
           campaignId: p.campaignId,
@@ -563,17 +563,19 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
           providerRef: p.providerRef,
           approvedAt: p.approvedAt,
         })),
-        // This is the NORMAL resting state of an approved payout today, not
-        // an incident: approvePayout (./payouts.ts) posts the instructed legs
-        // and stops at APPROVED without ever instructing a provider, because
-        // the withdrawal is performed by hand by a second admin (ADR 0006,
-        // FFI-07). So this list is the work queue for that second admin --
-        // "approved, money already committed out of CAMPAIGN_BALANCE, waiting
-        // for someone to actually transfer it and record proof".
+        // The work queue for the second Admin: "approved, money already
+        // committed out of CAMPAIGN_BALANCE, waiting for someone to actually
+        // transfer it and record proof" (POST .../payouts/[id]/complete). A
+        // row lingering here long after the transfer happened is a real
+        // incident -- the money is committed out of the balance and nobody
+        // has proved where it went.
         //
-        // It only becomes an anomaly list once a mark-completed-with-proof
-        // endpoint exists and a row still lingers here afterwards. Until
-        // then, expect every approved payout to appear.
+        // A COMPLETED payout cannot appear here: the query is on status
+        // APPROVED, so a transfer the second Admin has recorded stops being
+        // outstanding work. That is the whole of what completion changes in
+        // this report. There is no second list of PAYOUT_CLEARING balances to
+        // keep honest either, because completion drains that account in the
+        // same transaction (payoutCompletedLegs, ./ledger.ts).
         approvedWithoutProviderRef: approvedWithoutProviderRef.map((p) => ({
           payoutId: p.id,
           campaignId: p.campaignId,

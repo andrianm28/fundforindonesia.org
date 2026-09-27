@@ -738,6 +738,33 @@ describe('GET /api/admin/reconcile', () => {
     expect(data.stuckPayouts.processing).toEqual([]);
   });
 
+  it('stops listing a COMPLETED payout as outstanding work', async () => {
+    // A Payout the second Admin has already recorded with proof of transfer
+    // is finished. It used to be unlistable-in-principle only because
+    // nothing could write COMPLETED; now the endpoint exists, and a
+    // completed payout appearing in the work queue would be an operator
+    // chasing money that has already gone.
+    const tx = makeTx({
+      payouts: [
+        {
+          id: 'payout-3',
+          campaignId: 'campaign-1',
+          amount: 75_000,
+          status: 'COMPLETED',
+          providerRef: null,
+          approvedAt: new Date('2026-08-05'),
+        },
+      ],
+    });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(data.stuckPayouts.approvedWithoutProviderRef).toEqual([]);
+    expect(data.stuckPayouts.processing).toEqual([]);
+  });
+
   it('lists a Campaign-linked REQUESTED refund in pendingRefunds', async () => {
     const tx = makeTx({
       payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],

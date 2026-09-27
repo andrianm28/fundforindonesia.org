@@ -339,9 +339,12 @@ type ReasonFor<P extends ReasonPolicy> = P extends "required"
  * still open", Urgent. The same pattern the balance-touching Payout
  * operations use (src/lib/money/payouts.ts).
  *
- * The Payout guarantee is only as strong as its writer: nothing marks a
- * Payout COMPLETED yet, and the endpoint that will must take this same
- * Campaign row lock, or a Payout could complete between check and write.
+ * The Payout guarantee is only as strong as its writer, and its writer
+ * exists: completePayout (src/lib/money/payouts.ts) is what marks a Payout
+ * COMPLETED, and it takes this same Campaign row lock through the same
+ * guard before its status write. So the check below and that write cannot
+ * interleave -- no Payout can complete between "none completed" and
+ * CANCELLED.
  *
  * The lock is the subject guard's (./subject-guard.ts); the whole row, which
  * the steps need, is read after it, still under the lock.
