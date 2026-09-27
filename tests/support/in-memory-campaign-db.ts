@@ -28,6 +28,7 @@ export type CampaignRow = {
   /** Optional so the lifecycle tests need not name it; the list readers filter on it. */
   category?: string;
   kind: Kind;
+  targetAmount: number;
   /** The Partner Organisation it collects under; `partner-1` unless a test says otherwise. */
   collectingEntityId: string | null;
 };
@@ -157,6 +158,8 @@ export type ChecklistItemRow = {
   required: boolean;
   position: number;
   active: boolean;
+  /** Null is the "Semua" row: snapshotted for every Kind (PRD §7.1). */
+  kind: Kind | null;
 };
 
 export type VerificationRequestRow = {
@@ -171,6 +174,8 @@ export type VerificationRequestRow = {
   decidedAt: Date | null;
   isFirst: boolean;
   collectingEntityId?: string | null;
+  /** A change asked for an Active Campaign (target, deadline), or null. */
+  proposedChanges?: unknown;
 };
 
 export type ChecklistAuditRow = {
@@ -383,6 +388,7 @@ export function checklistItemRow(overrides: Partial<ChecklistItemRow> = {}): Che
     required: true,
     position: 1,
     active: true,
+    kind: null,
     ...overrides,
   };
 }
@@ -401,6 +407,7 @@ export function verificationRequestRow(
     decidedById: null,
     decidedAt: null,
     isFirst: true,
+    proposedChanges: null,
     ...overrides,
   };
 }
@@ -462,6 +469,7 @@ export function campaignRow(overrides: Partial<CampaignRow> = {}): CampaignRow {
     isUrgent: false,
     deadline: null,
     kind: 'DONATION',
+    targetAmount: 50_000_000,
     collectingEntityId: 'partner-1',
     ...overrides,
   };
@@ -690,8 +698,8 @@ export function makeCampaignDb(
           const row = getData().checklistItems.find((i) => matches(i, where));
           return row ? { ...row } : null;
         },
-        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active'> & { active?: boolean } }) => {
-          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, ...data };
+        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active' | 'kind'> & { active?: boolean; kind?: Kind | null } }) => {
+          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, kind: null, ...data };
           getData().checklistItems.push(row);
           return { ...row };
         },
@@ -711,7 +719,7 @@ export function makeCampaignDb(
         },
       },
       verificationRequest: {
-        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'submittedById' | 'checklist' | 'isFirst' | 'collectingEntityId'> & { submittedAt?: Date } }) => {
+        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'submittedById' | 'checklist' | 'isFirst' | 'collectingEntityId'> & { submittedAt?: Date; proposedChanges?: unknown } }) => {
           const row: VerificationRequestRow = {
             id: `verification-${nextId++}`,
             submittedAt: new Date(),
@@ -719,6 +727,7 @@ export function makeCampaignDb(
             reason: null,
             decidedById: null,
             decidedAt: null,
+            proposedChanges: null,
             ...data,
           };
           getData().verificationRequests.push(row);

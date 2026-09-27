@@ -69,6 +69,7 @@ describe('submitCampaign', () => {
         decidedAt: null,
         isFirst: true,
         collectingEntityId: 'partner-1',
+        proposedChanges: null,
       },
     ]);
     expect(db.statusChanges).toEqual([
@@ -443,6 +444,50 @@ describe('submitCampaign', () => {
       const error = await refusal(db, { userId: 'partner-fundraiser-1', assignments: [] });
 
       expect(error).toBeInstanceOf(FundraisingPermitRequiredError);
+    });
+  });
+
+  describe('the per-Kind checklist (PRD §7.1, ticket 12)', () => {
+    const PER_KIND_CHECKLIST = [
+      checklistItemRow({ id: 'general', label: 'Rencana anggaran', position: 1, kind: null }),
+      checklistItemRow({ id: 'zakat-amil', label: 'Dokumen lembaga amil', position: 2, kind: 'ZAKAT' }),
+      checklistItemRow({ id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', position: 3, kind: 'WAKAF' }),
+      checklistItemRow({ id: 'hibah-penerima', label: 'Dokumen lembaga nazhir', position: 4, kind: 'HIBAH' }),
+      checklistItemRow({ id: 'zakat-retired', label: 'Tidak dipakai lagi', position: 0, kind: 'ZAKAT', active: false }),
+    ];
+
+    it('snapshots the general items plus only the Campaign Kind items, in position order', async () => {
+      const db = makeCampaignDb({
+        campaigns: [
+          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
+        ],
+        checklistItems: PER_KIND_CHECKLIST,
+        kindAuthorisations: [kindAuthorisationRow()],
+      });
+
+      await submitCampaign(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: { userId: 'partner-fundraiser-1', assignments: [] },
+        now: NOW,
+      });
+
+      expect(db.verificationRequests[0].checklist).toEqual([
+        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
+        { id: 'zakat-amil', label: 'Dokumen lembaga amil', required: true, position: 2, ticked: false },
+      ]);
+    });
+
+    it('snapshots only the general items for a donation Campaign', async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', kind: 'DONATION', deadline: DEADLINE })],
+        checklistItems: PER_KIND_CHECKLIST,
+      });
+
+      await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
+
+      expect(db.verificationRequests[0].checklist).toEqual([
+        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
+      ]);
     });
   });
 });

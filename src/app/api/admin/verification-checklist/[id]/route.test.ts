@@ -56,8 +56,20 @@ describe('/api/admin/verification-checklist/[id]', () => {
     const res = await patch('b', { label: 'Kedua, revisi', required: false, active: false });
 
     expect(res.status).toBe(200);
-    expect((await res.json()).item).toEqual({ id: 'b', label: 'Kedua, revisi', required: false, position: 2, active: false });
+    expect((await res.json()).item).toEqual({ id: 'b', label: 'Kedua, revisi', required: false, position: 2, active: false, kind: null });
     expect(state.db.checklistAudits).toEqual([expect.objectContaining({ itemId: 'b', action: 'UPDATED', actedById: 'admin-1' })]);
+  });
+
+  it('PATCH scopes an item to one Kind and back to general, refusing an unknown Kind', async () => {
+    expect((await patch('b', { kind: 'ZAKAT' })).status).toBe(200);
+    expect(state.db.checklistItems.find((i) => i.id === 'b')).toMatchObject({ kind: 'ZAKAT' });
+
+    expect((await patch('b', { kind: null })).status).toBe(200);
+    expect(state.db.checklistItems.find((i) => i.id === 'b')).toMatchObject({ kind: null });
+
+    const res = await patch('b', { kind: 'SEDEKAH' });
+    expect(res.status).toBe(400);
+    expect(state.db.checklistItems.find((i) => i.id === 'b')).toMatchObject({ kind: null });
   });
 
   it('PATCH answers 404 for an unknown item and 400 for an empty change', async () => {
