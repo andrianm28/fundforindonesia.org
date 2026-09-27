@@ -1,0 +1,78 @@
+import { describe, it, expect, vi, type Mock } from 'vitest';
+import { NextRequest } from 'next/server';
+
+/**
+ * The Donor's own donation list carries the Receipt's token once one exists
+ * (CONTEXT.md, Receipt), so the dashboard can link straight to the print
+ * page -- never the full Receipt row, and never for a Donation that has not
+ * Settled and so has no Receipt at all.
+ */
+
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    donation: { findMany: vi.fn(), count: vi.fn() },
+  },
+}));
+
+vi.mock('@/lib/auth', () => ({
+  getServerSession: vi.fn(),
+}));
+
+import { prisma } from '@/lib/prisma';
+import { getServerSession } from '@/lib/auth';
+import { GET } from './route';
+
+const mockFindMany = prisma.donation.findMany as unknown as Mock;
+const mockCount = prisma.donation.count as unknown as Mock;
+const mockGetServerSession = getServerSession as unknown as Mock;
+
+function mineRequest(): NextRequest {
+  return new NextRequest('http://localhost:3000/api/donations/mine');
+}
+
+function makeRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'donation-1',
+    amount: 100_000,
+    paymentMethod: 'qris',
+    paymentStatus: 'confirmed',
+    isAnonymous: false,
+    message: null,
+    createdAt: new Date('2026-09-26T00:00:00.000Z'),
+    campaign: { title: 'Test Campaign', slug: 'test-campaign', coverImage: '' },
+    receipt: { token: 'tok-1' },
+    ...overrides,
+  };
+}
+
+describe('GET /api/donations/mine', () => {
+  it('requires a session', async () => {
+    mockGetServerSession.mockResolvedValue(null);
+
+    const response = await GET(mineRequest());
+
+    expect(response.status).toBe(401);
+  });
+
+  it("carries the Receipt's token for a settled Donation", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'donor-1' } });
+    mockFindMany.mockResolvedValue([makeRow()]);
+    mockCount.mockResolvedValue(1);
+
+    const response = await GET(mineRequest());
+    const data = await response.json();
+
+    expect(data.donations[0].receiptToken).toBe('tok-1');
+  });
+
+  it('carries no token for a Donation with no Receipt (not yet settled)', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'donor-1' } });
+    mockFindMany.mockResolvedValue([makeRow({ paymentStatus: 'pending', receipt: null })]);
+    mockCount.mockResolvedValue(1);
+
+    const response = await GET(mineRequest());
+    const data = await response.json();
+
+    expect(data.donations[0].receiptToken).toBeNull();
+  });
+});

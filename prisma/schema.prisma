@@ -654,12 +654,37 @@ model Donation {
   /// reach PAID -- enforced by a partial unique index in the migration
   /// (Payment_donationId_paid_key), not by this relation's shape.
   payments Payment[]
+  /// Created once, the moment this Donation's Payment settles (prd-compliance
+  /// 21) -- never before, since there is nothing to receipt until then.
+  receipt  Receipt?
 
   @@index([campaignId])
   @@index([donorId])
   @@index([paymentStatus])
   @@index([guestEmailHmac])
   @@index([createdAt])
+}
+
+/// The Donor's proof of a Donation (CONTEXT.md, Receipt), created once a
+/// Donation Settles. `token` names the print page to a Donor who may have no
+/// account (a Guest Donor) -- unguessable on purpose, since it is the only
+/// thing standing between the page and anyone who finds the link, so it is
+/// never derived from the Donation id or any other guessable value.
+model Receipt {
+  id          String    @id @default(cuid())
+  donationId  String    @unique
+  token       String    @unique
+  /// When the Settlement email was (last) attempted -- fires once at
+  /// Settlement, when both are set equal; a resend advances lastSentAt (and
+  /// resendCount) alone. Nullable only so a future writer that must create a
+  /// Receipt ahead of sending it is not forced to lie about when.
+  sentAt      DateTime?
+  lastSentAt  DateTime?
+  resendCount Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  // Relations
+  donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
 }
 
 // ==================== Prayer ====================

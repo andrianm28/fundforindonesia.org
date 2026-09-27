@@ -19,6 +19,8 @@ interface DonationItem {
     slug: string;
     coverImage: string;
   };
+  /** Set once this Donation has a Receipt (CONTEXT.md, Receipt) -- only after Settlement. */
+  receiptToken: string | null;
 }
 
 interface DonationsResponse {
@@ -112,27 +114,35 @@ function DonationCard({
   onClick: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className="w-full bg-white rounded-xl shadow-sm p-4 text-left hover:shadow-md transition-shadow"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="text-[#212121] text-sm font-semibold line-clamp-2">
-            {donation.campaign.title}
-          </p>
-          <p className="text-[#757575] text-xs mt-1">
-            {formatIndonesianDate(new Date(donation.createdAt))}
+    <div className="w-full bg-white rounded-xl shadow-sm p-4 hover:shadow-md transition-shadow">
+      <button onClick={onClick} className="w-full text-left" type="button">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-[#212121] text-sm font-semibold line-clamp-2">
+              {donation.campaign.title}
+            </p>
+            <p className="text-[#757575] text-xs mt-1">
+              {formatIndonesianDate(new Date(donation.createdAt))}
+            </p>
+          </div>
+          <PaymentStatusBadge status={donation.paymentStatus} />
+        </div>
+        <div className="mt-3 pt-3 border-t border-[#E0E0E0]">
+          <p className="text-[#0073E6] text-sm font-bold">
+            {formatRupiah(donation.amount)}
           </p>
         </div>
-        <PaymentStatusBadge status={donation.paymentStatus} />
-      </div>
-      <div className="mt-3 pt-3 border-t border-[#E0E0E0]">
-        <p className="text-[#0073E6] text-sm font-bold">
-          {formatRupiah(donation.amount)}
-        </p>
-      </div>
-    </button>
+      </button>
+      {donation.paymentStatus === 'confirmed' && donation.receiptToken && (
+        <a
+          href={`/receipt/${donation.receiptToken}`}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-2 inline-block text-[#0073E6] text-xs font-medium hover:underline"
+        >
+          Lihat &amp; Cetak Bukti Donasi
+        </a>
+      )}
+    </div>
   );
 }
 
