@@ -5,7 +5,7 @@ Partnership Inquiry's follow-up status.
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done (PR #84, sha 363ce4e)
 
 - [ ] `PATCH /api/admin/partnership-inquiries/[id]` moves the follow-up status
       forward (e.g. not-yet-followed-up → in-progress → done), Admin/partnership
