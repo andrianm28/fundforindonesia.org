@@ -59,15 +59,31 @@
   duplicated the money layer's own cap, and its docstring claimed it "never
   decides that an amount is affordable" while `disabled` + `role="alert"` made
   it decide. The cap is now `exceedsPayoutBalance`
-  (`src/lib/payout-balance-rule.ts`), asked of by `requestPayout` in
-  `src/lib/money/payouts.ts` and by the panel; the server is still the holder
-  of the decision. The comment now says what the code does. Separately,
+  (`src/lib/payout-balance-rule.ts`), asked of by `requestPayout` and
+  `approvePayout` in `src/lib/money/payouts.ts` and by the panel; the server
+  is still the holder of the decision. The comment now says what the code
+  does. Separately,
   `STATUS_LABEL` in the panel was a Payout-status map under a name that means
   the Campaign lifecycle's statuses everywhere else in the repo, and it was
   `Partial` with a `?? status` fallback -- so a Fundraiser could be shown
   `SUBMITTED`. It is now `PAYOUT_STATUS_LABEL`
   (`src/lib/payout-status-label.ts`), a total `Record`, next to
   `campaign-status-label.ts`.
+
+- 2026-09-27 (the rule existed in two places, not one): the "one rule, one
+  name" comment above was half true. `approvePayout` still compared
+  `payout.amount > balance` for itself, so the cap had three implementations
+  and the one left over was on the Admin path -- the one that spends the
+  balance under the subject's row lock, and the most authoritative of the
+  three. `payout-balance-rule.ts` is now the whole of it, asked of by both
+  places in the money layer and by the panel. Nothing about approval was
+  meant to be stricter than a request: the row lock changes WHEN the balance
+  is read, not by how much may be taken of it, and the two refusals are the
+  same error. `src/__tests__/payout-balance-rule-callers.test.tsx` pins it
+  from both sides -- the rule module is forced to answer something its own
+  comparison never would and every caller has to follow it, and all three are
+  then compared against it boundary rupiah by boundary rupiah -- so a fourth
+  caller or a second copy is a failing test rather than a quiet disagreement.
 
 - 2026-09-27 (NOT fixed here, and it makes two boxes above untrue):
   **`BankAccount` cannot be created by anyone in the product.**
