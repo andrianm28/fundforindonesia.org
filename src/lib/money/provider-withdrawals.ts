@@ -339,7 +339,9 @@ export async function reconcileProviderBalances(
 
   // Array.from rather than spreading the iterator: this repo's tsconfig target
   // predates downlevel iteration, the same reason findUnbalancedTransactions
-  // (./ledger.ts) does it this way. Keyed order, not a sort, so the caller gets
-  // the same report whatever order the database returned.
+  // (./ledger.ts) does it this way. Map preserves insertion order, so the
+  // providers come out in the order the sweeps were recorded, which is the
+  // order a reader wants -- and `withdrawals` within each one is in
+  // recordedAt order because the query asked for it.
   return Array.from(byProvider.values());
 }
