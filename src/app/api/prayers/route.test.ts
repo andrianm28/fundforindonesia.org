@@ -237,6 +237,33 @@ describe('GET /api/prayers', () => {
     );
   });
 
+  it('names no Demo Campaign when it answers for the whole platform', async () => {
+    mockFindMany.mockResolvedValue([]);
+    mockCount.mockResolvedValue(0);
+
+    const request = createRequest('http://localhost:3000/api/prayers');
+    await GET(request);
+
+    // Every entry in this feed links to the Campaign it names, so the feed
+    // may not name one that no public list shows (CONTEXT.md, Demo Campaign).
+    const { where } = mockFindMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    expect(where).toEqual({ campaign: { isDemo: false } });
+    expect(mockCount).toHaveBeenCalledWith({ where: { campaign: { isDemo: false } } });
+  });
+
+  it('answers about the one Campaign asked for by slug, Demo or not', async () => {
+    mockFindMany.mockResolvedValue([]);
+    mockCount.mockResolvedValue(0);
+
+    const request = createRequest('http://localhost:3000/api/prayers?campaignSlug=bantu-anak');
+    await GET(request);
+
+    // That Campaign's own page is still open and badges itself, so its
+    // Prayers stay where the page shows them.
+    const { where } = mockFindMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    expect(where).toEqual({ campaign: { slug: 'bantu-anak' } });
+  });
+
   it('returns 500 on database error', async () => {
     mockFindMany.mockRejectedValue(new Error('DB error'));
 

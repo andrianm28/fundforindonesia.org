@@ -60,6 +60,11 @@ beforeEach(() => {
       campaign('submitted', { lifecycleStatus: 'SUBMITTED' }),
       campaign('rejected', { lifecycleStatus: 'REJECTED' }),
       campaign('draft', { lifecycleStatus: 'DRAFT' }),
+      // Fiction is listed nowhere, so a crawler is never sent to one
+      // (CONTEXT.md, Demo Campaign; prd-compliance 26).
+      campaign('demo-active', { isDemo: true }),
+      campaign('demo-expired', { isDemo: true, lifecycleStatus: 'EXPIRED', deadline: YESTERDAY }),
+      campaign('demo-completed', { isDemo: true, lifecycleStatus: 'COMPLETED' }),
     ],
   });
 });
@@ -71,6 +76,11 @@ afterEach(() => {
 describe('sitemap Campaign pages', () => {
   it('includes Active, Expired and Completed Campaigns and excludes Suspended, Cancelled and unapproved ones', async () => {
     expect(await campaignSlugsInSitemap()).toEqual(['active', 'completed', 'expired', 'expired-unrecorded']);
+  });
+
+  it('sends a crawler to no Demo Campaign page, in any status', async () => {
+    const slugs = await campaignSlugsInSitemap();
+    expect(slugs.filter((slug) => slug.startsWith('demo-'))).toEqual([]);
   });
 });
 
