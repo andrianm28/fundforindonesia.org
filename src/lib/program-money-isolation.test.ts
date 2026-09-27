@@ -71,3 +71,43 @@ describe('Program money isolation (ticket 01)', () => {
     expect(blockOf('model', 'Campaign')).not.toMatch(/sector/i);
   });
 });
+
+/**
+ * The same invariant one step along (ticket 05): a Partnership Inquiry is a
+ * conversation about a Program, not an entity that can hold money or be paid.
+ * ADR 0002 says the whole of a Campaign's online money lives on the Campaign;
+ * an Inquiry is not a Campaign, so it must reach none of it either.
+ */
+describe('PartnershipInquiry money isolation (ticket 05)', () => {
+  it('points at exactly one Program, and that is its only relation', () => {
+    const inquiry = uncommented(blockOf('model', 'PartnershipInquiry'));
+
+    expect(inquiry).toMatch(/programId\s+String/);
+    expect(inquiry.match(/@relation/g)).toHaveLength(1);
+    expect(inquiry).toMatch(/program\s+Program\s+@relation/);
+  });
+
+  it.each(['Donation', 'Payment', 'Refund', 'Payout', 'LedgerEntry'])(
+    'is named by no %s',
+    (model) => {
+      expect(blockOf('model', model)).not.toMatch(/partnershipinquiry|partnershipInquiry/i);
+    },
+  );
+
+  it('carries no money column and no Kind of its own', () => {
+    const inquiry = uncommented(blockOf('model', 'PartnershipInquiry'));
+
+    expect(inquiry).not.toMatch(/amount|balance|kind|escrow|ledger/i);
+  });
+
+  it('starts every Inquiry at not-yet-followed-up', () => {
+    expect(blockOf('model', 'PartnershipInquiry')).toMatch(
+      /status\s+PartnershipInquiryStatus\s+@default\(NOT_YET_FOLLOWED_UP\)/,
+    );
+    expect(enumValues(blockOf('enum', 'PartnershipInquiryStatus'))).toEqual([
+      'NOT_YET_FOLLOWED_UP',
+      'IN_PROGRESS',
+      'DONE',
+    ]);
+  });
+});
