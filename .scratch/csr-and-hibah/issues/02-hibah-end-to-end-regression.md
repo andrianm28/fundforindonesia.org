@@ -14,7 +14,7 @@ rather than assuming the generic path already covers it.
 **Blocked by:** None (Kind, Kind Authorisation, and campaign-kind.ts already
 carry `HIBAH`)
 
-**Status:** ready-for-agent
+**Status:** done (PR #61, 65e3c8f)
 
 - [ ] A Fundraiser can create a Campaign of Kind `hibah` only when their
       Collecting Entity holds a valid, unexpired Kind Authorisation for
