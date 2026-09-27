@@ -4,7 +4,11 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** done (PR #90, sha b0da27f)
+**Status:** done (PR #90, sha 81a3053)
+
+The sha is the commit carrying the change, `81a3053`. Other tickets record
+their merge sha here instead; that one does not exist until the PR is merged,
+so it gets filled in at merge time.
 
 - [x] One cost factor is defined in a single place and used by every path that hashes a password
 - [x] Registration and password change produce hashes of the same strength
