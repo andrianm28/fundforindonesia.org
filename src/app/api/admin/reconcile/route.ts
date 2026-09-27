@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
-import { findUnbalancedTransactions } from '@/lib/money/ledger';
+import { findUnbalancedTransactions, providerBalances } from '@/lib/money/ledger';
+import { reconcileProviderBalances } from '@/lib/money/provider-withdrawals';
 import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/lib/money/escrow';
 import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
 
@@ -94,6 +95,10 @@ import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
  *  - orphanedCancelledRegistrationPayments: a PAID Trip Payment whose
  *    Registration is CANCELLED with no live Refund against it -- the safety
  *    net for the settlement webhook's own auto-refund failing silently.
+ *  - providerReconciliation: the Provider Balance per payment provider, against
+ *    the readings an Admin took in each provider's own dashboard either side of
+ *    a recorded sweep to the Collection Account (prd-compliance 35; ADR 0011).
+ *    See the long note on the block that builds it.
  */
 export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest) => {
   const report = await prisma.$transaction(async (tx) => {
@@ -614,6 +619,129 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       select: { id: true, campaignId: true, volunteerTripId: true, amount: true, approvedAt: true },
     });
 
+    // -----------------------------------------------------------------------
+    // The Provider Balance, per provider, against the banks (prd-compliance 35).
+    //
+    // Until this ticket the only movements crediting the Provider Balance paid
+    // money OUT to a Donor or a Fundraiser; nothing recorded the platform's own
+    // money moving from where the provider holds it to a bank account, so "the
+    // money reached the bank" was an assumption with nothing to check it
+    // against. recordProviderWithdrawal
+    // (src/lib/money/provider-withdrawals.ts) is that row, and this is what
+    // reads it back.
+    //
+    // WHAT IS COMPARED, AND WHY IT IS A COMPARISON RATHER THAN A SUBTRACTION
+    // OF TWO ARBITRARY MOMENTS. A ProviderWithdrawal records the balance the
+    // Admin read immediately BEFORE the sweep and immediately AFTER it, and the
+    // journal posts in the same transaction as the row. So the reading and the
+    // ledger movement describe the same instant on both sides, and
+    // (before - after) is comparable to the amount swept. Any other reading --
+    // the balance a Payout approval was checked against, for instance -- is a
+    // figure for a different moment than the pot it would be subtracted from, so
+    // it is not used here at all. Using it anyway would produce a number that
+    // looks like a reconciliation and is really two unrelated moments added
+    // together.
+    //
+    // WHY NOTHING IS CORRECTED. A divergence is reported per sweep and in total
+    // and left standing. A reconciliation job that fixes its own findings
+    // destroys the evidence of what went wrong, and in a money system that
+    // evidence is the only way to learn what broke -- the same rule every other
+    // key in this report follows.
+    // -----------------------------------------------------------------------
+    const providerPots = await providerBalances(tx);
+    const providerWithdrawals = await reconcileProviderBalances(tx);
+
+    // The Provider Balance as a whole, which is the account ADR 0011's
+    // invariant is stated over ("the Provider Balance equals GATEWAY_CLEARING
+    // less what an Admin has withdrawn") -- deliberately not per provider,
+    // because a completed Payout and a paid Refund credit GATEWAY_CLEARING
+    // without naming a provider and a per-provider total cannot claim to be the
+    // whole pot while that is true. `perProviderIsExact` says so out loud rather
+    // than leaving a reader to assume a slice is the total.
+    const providerBalanceTotal = providerPots.reduce((total, pot) => total + pot.balance, 0);
+    const unattributedProviderBalance =
+      providerPots.find((pot) => pot.provider === null)?.balance ?? 0;
+
+    // The Collection Account, which is the honest answer to "how much of the
+    // Donors' money has actually reached a bank" -- and which nothing in this
+    // codebase spends, because a Payout is paid out of the Provider Balance by
+    // hand in the provider's dashboard (ADR 0006). Credit-normal is NOT the
+    // right reading: the sweep DEBITS it, so it is debit-normal like the Provider
+    // Balance, and read the other way round it would print as money that has left
+    // the bank.
+    const collectionRows = await tx.ledgerEntry.groupBy({
+      by: ['direction'],
+      where: { account: 'COLLECTION_ACCOUNT' },
+      _sum: { amount: true },
+    });
+    const collectionDebits = collectionRows.find((r) => r.direction === 'DEBIT')?._sum.amount ?? 0;
+    const collectionCredits = collectionRows.find((r) => r.direction === 'CREDIT')?._sum.amount ?? 0;
+    const collectionAccountBalance = collectionDebits - collectionCredits;
+
+    // The licence axis (CONTEXT.md, Fundraising Permit; prd-compliance 10): what
+    // has been collected under each Kind. Joined Campaign -> Donation -> Payment
+    // rather than read off a Kind column on the ledger entry, for the reason
+    // ledger.ts's own doc comment gives about Campaign.collectedAmount: a
+    // second copy of a fact that cannot change is still a second copy, and one
+    // day it will be the one that is wrong with nothing to compare it against.
+    // Campaign.kind is immutable (KIND_IMMABLE refusal, prd-compliance 09), so
+    // the join is always in step with what the entry was posted for.
+    //
+    // Demo Campaigns are excluded before anything is counted, the same as
+    // everywhere else in this report: their figures are fixture data with no
+    // ledger behind them by design.
+    //
+    // This is the money that ARRIVED under each licence, not the money that
+    // left. Splitting the outbound side per Kind would need a completed Payout's
+    // ledger entry to name its Campaign, and it does not -- the same
+    // attribution gap as the provider above, and for the same reason.
+    const kindCampaigns = await tx.campaign.findMany({ select: { id: true, kind: true, isDemo: true } });
+    const liveCampaigns = kindCampaigns.filter((c) => !c.isDemo);
+    const kindByCampaign = new Map(liveCampaigns.map((c) => [c.id, c.kind]));
+    const kindDonations = await tx.donation.findMany({
+      where: { campaignId: { in: liveCampaigns.map((c) => c.id) } },
+      select: { id: true, campaignId: true },
+    });
+    const campaignByDonation = new Map(kindDonations.map((d) => [d.id, d.campaignId]));
+    const kindPayments = await tx.payment.findMany({
+      where: { donationId: { in: kindDonations.map((d) => d.id) } },
+      select: { id: true, donationId: true },
+    });
+    // Built by looking each one up rather than by asserting the lookup
+    // succeeds: a Payment whose Donation names a Campaign this report has
+    // excluded (a Demo one) is in no Kind's bucket, and an assertion here would
+    // put `undefined` into the map and let it reach a report as a Kind.
+    const kindByPayment = new Map<string, string>();
+    for (const payment of kindPayments) {
+      const campaignId = payment.donationId ? campaignByDonation.get(payment.donationId) : undefined;
+      const kind = campaignId ? kindByCampaign.get(campaignId) : undefined;
+      if (kind) kindByPayment.set(payment.id, kind);
+    }
+    const grossByKindRows = await tx.ledgerEntry.groupBy({
+      by: ['paymentId'],
+      where: {
+        account: 'GATEWAY_CLEARING',
+        direction: 'DEBIT',
+        paymentId: { in: kindPayments.map((p) => p.id) },
+      },
+      _sum: { amount: true },
+    });
+    // Keyed and then read, so the order this comes out in does not depend on
+    // what order the groupBy happened to answer in.
+    const grossByKind = new Map<string, number>();
+    for (const row of grossByKindRows) {
+      const kind = row.paymentId ? kindByPayment.get(row.paymentId) : undefined;
+      // A Trip Fee Payment has no Kind and no Donation, so it is in no bucket
+      // at all (ADR 0014): there is no Fundraising Permit to report it under.
+      if (!kind) continue;
+      grossByKind.set(kind, (grossByKind.get(kind) ?? 0) + (row._sum.amount ?? 0));
+    }
+
+    const providersWithDivergence = providerWithdrawals
+      .filter((r) => r.difference !== 0)
+      .map((r) => r.provider);
+    const totalDifference = providerWithdrawals.reduce((total, r) => total + r.difference, 0);
+
     return {
       generatedAt: reportNow.toISOString(),
       unbalancedTransactions,
@@ -644,6 +772,42 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       pendingRefunds,
       pendingManualContributions,
       orphanedCancelledRegistrationPayments,
+      providerReconciliation: {
+        /** The Provider Balance per provider, plus the movements that name none. */
+        pots: providerPots,
+        /** The whole account, which is what ADR 0011's invariant is stated over. */
+        providerBalanceTotal,
+        /**
+         * The pot that belongs to no named provider. Non-zero means the
+         * per-provider figures above are a FLOOR, not the whole money, and
+         * `perProviderIsExact` says the same thing as a boolean so a caller
+         * cannot read past it.
+         */
+        unattributedBalance: unattributedProviderBalance,
+        perProviderIsExact: unattributedProviderBalance === 0,
+        /** What has been swept to a bank account, and by how much the books and the dashboard disagree. */
+        withdrawals: providerWithdrawals,
+        /**
+         * What the books say left each provider for the bank, against what each
+         * provider's own dashboard said left it. A provider with money sitting
+         * at it and NO recorded sweep is absent from here -- that is "nobody has
+         * checked", not "checked and matched", and only one of those is a
+         * number this report is entitled to present.
+         */
+        divergence: {
+          /** providerMovedBy - withdrawn, summed over every recorded sweep. */
+          totalDifference,
+          providersWithDivergence,
+        },
+        /** Debit-normal: money that has arrived in a bank account. */
+        collectionAccountBalance,
+        /** Gross collected under each Kind -- the licence axis. Inbound only; see above. */
+        collectedByKind: Array.from(grossByKind.entries())
+          .map(([kind, settledGross]) => ({ kind, settledGross }))
+          .sort((a, b) => (a.kind < b.kind ? -1 : 1)),
+        caveat:
+          'Provider Balance pots are per payment provider, and any movement that names no provider is kept in its own bucket rather than folded into a named one. A completed Payout and a paid Refund both credit GATEWAY_CLEARING without recording which provider paid them, so until one of those paths records a provider the per-provider pots are a FLOOR, not the whole pot -- read perProviderIsExact and unattributedBalance before treating one as a total. divergence is what the providers dashboards said left them, against what the books recorded leaving, over the sweeps in withdrawals; it is reported and never corrected, because a reconciliation that fixes its own findings destroys the evidence of what went wrong. A provider absent from withdrawals has not been checked, not passed. collectedByKind counts the money that ARRIVED under each Fundraising Permit and excludes Demo Campaigns; a Trip Fee belongs to no Kind (ADR 0014) and so to no permit.',
+      },
       stuckPayouts: {
         // Nothing in this codebase writes PROCESSING today -- approval stops
         // at APPROVED, and a second Admin then completes the Payout by hand

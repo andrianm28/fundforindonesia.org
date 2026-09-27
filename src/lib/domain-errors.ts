@@ -70,7 +70,14 @@ export type MoneyErrorCode =
   | "MANUAL_CONTRIBUTION_AMOUNT_INVALID"
   | "MANUAL_CONTRIBUTION_NOT_PENDING"
   | "MANUAL_CONTRIBUTION_NOT_APPROVED"
-  | "MANUAL_CONTRIBUTION_ALREADY_SPENT";
+  | "MANUAL_CONTRIBUTION_ALREADY_SPENT"
+  | "PROVIDER_WITHDRAWAL_INVALID"
+  | "PROVIDER_WITHDRAWAL_AMOUNT_INVALID"
+  | "PROVIDER_WITHDRAWAL_PROOF_REQUIRED"
+  | "PROVIDER_WITHDRAWAL_DUPLICATE"
+  | "PROVIDER_WITHDRAWAL_ENTITY_NOT_FOUND"
+  | "PROVIDER_BALANCE_NOT_RECORDED"
+  | "PROVIDER_BALANCE_INSUFFICIENT";
 
 /**
  * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
@@ -212,6 +219,28 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   MANUAL_CONTRIBUTION_NOT_APPROVED: 409,
   // The money has already left through a Payout, so it cannot be taken back.
   MANUAL_CONTRIBUTION_ALREADY_SPENT: 409,
+  // Unmet preconditions the Admin can fix by filling the form in properly:
+  // the same shape as MANUAL_CONTRIBUTION_INVALID, and 400 rather than 422
+  // because there is no rule being breached, only a field left empty.
+  PROVIDER_WITHDRAWAL_INVALID: 400,
+  PROVIDER_WITHDRAWAL_AMOUNT_INVALID: 400,
+  PROVIDER_WITHDRAWAL_PROOF_REQUIRED: 400,
+  // The provider's own reference for this disbursement is already recorded, so
+  // the money has been claimed once and this is a second claim on it. A
+  // conflict with the row that holds the reference, like
+  // PARTNER_FUNDRAISER_ALREADY_LINKED.
+  PROVIDER_WITHDRAWAL_DUPLICATE: 409,
+  PROVIDER_WITHDRAWAL_ENTITY_NOT_FOUND: 404,
+  // FFI-07: there is no provider balance API, so the Admin has to read the
+  // dashboard and write the number down. An approval that supplies no reading
+  // is one this system cannot check, and it answers 422 -- an unmet
+  // precondition the actor can fix by opening the dashboard -- rather than
+  // 400, because the field is not wrong, it is absent on purpose.
+  PROVIDER_BALANCE_NOT_RECORDED: 422,
+  // The reading is there and it says the money is not there. Same 422: the
+  // Admin can fix it, either by finding the shortfall or by not approving this
+  // Payout yet.
+  PROVIDER_BALANCE_INSUFFICIENT: 422,
   TRIP_NOT_FOUND: 404,
   TRIP_NOT_EDITABLE: 409,
   TRIP_NOT_SUBMITTED: 409,

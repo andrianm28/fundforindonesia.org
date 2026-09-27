@@ -619,7 +619,12 @@ describe('approvePayout', () => {
       const { tx, rows, payoutState } = makeTx({ ledgerRows, payoutRow, lifecycleStatus, deadline });
       const prisma = makePrisma(tx, { ...payoutRow, status: 'APPROVED', approvedById: 'admin-1' });
 
-      const approval = approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' });
+      const approval = approvePayout(prisma as never, {
+        payoutId: 'payout-1',
+        approvedById: 'admin-1',
+        provider: 'sumopod',
+        providerBalance: 2_000_000,
+      });
 
       if (allowed) {
         await expect(approval).resolves.toMatchObject({ status: 'APPROVED' });
@@ -630,6 +635,148 @@ describe('approvePayout', () => {
       }
     },
   );
+
+  /**
+   * FFI-07 story 53: "record the provider's real balance when I approve, so
+   * that an approval is checked against money that actually exists."
+   *
+   * Sumopod has no balance API and no provider this platform talks to has one
+   * (ADR 0006), so the figure is a human reading a dashboard. The system cannot
+   * check that the reading is true. What it can do is refuse to let the reading
+   * be skipped, and refuse an approval the reading says the money is not there
+   * for -- which is the whole content of "an approval is checked against money
+   * that actually exists".
+   */
+  describe('the provider balance the approving Admin read (prd-compliance 35)', () => {
+    const fundedPayout = (overrides: Record<string, unknown> = {}) => {
+      const payoutRow = basePayoutRow({ campaignId: 'campaign-1', volunteerTripId: null, ...overrides });
+      const ledgerRows: LedgerRow[] = [
+        { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+      ];
+      const tx = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows, payoutRow });
+      // The row as it reads AFTER the transaction commits, mirroring how the
+      // other approvePayout tests in this file pass their final row.
+      const approved = (extra: Record<string, unknown> = {}) => ({
+        ...payoutRow,
+        status: 'APPROVED',
+        approvedById: 'admin-1',
+        approvedProvider: 'sumopod',
+        approvedProviderBalance: 2_000_000,
+        ...extra,
+      });
+      return { payoutRow, ...tx, prismaFor: (extra?: Record<string, unknown>) => makePrisma(tx.tx, approved(extra)) };
+    };
+
+    it('records the reading and which provider it came from, on the same write that approves', async () => {
+      const { payoutState, prismaFor } = fundedPayout();
+
+      await approvePayout(prismaFor() as never, {
+        payoutId: 'payout-1',
+        approvedById: 'admin-1',
+        provider: 'sumopod',
+        providerBalance: 2_000_000,
+      });
+
+      // Same predicated update, same transaction: a Payout approved without the
+      // reading beside it would leave nothing for a later audit to check the
+      // approval against.
+      expect(payoutState).toMatchObject({
+        status: 'APPROVED',
+        approvedProvider: 'sumopod',
+        approvedProviderBalance: 2_000_000,
+      });
+    });
+
+    it('approves when the reading covers the Payout, and does not require it to be exact', async () => {
+      // Equal is not the rule; "at least this much is there" is. A provider
+      // holding 2_000_000 for a 500_000 Payout is ordinary.
+      const { prismaFor } = fundedPayout();
+
+      await expect(
+        approvePayout(prismaFor() as never, {
+          payoutId: 'payout-1',
+          approvedById: 'admin-1',
+          provider: 'sumopod',
+          providerBalance: 2_000_000,
+        }),
+      ).resolves.toMatchObject({ status: 'APPROVED' });
+    });
+
+    it('refuses an approval the reading says is not covered, and leaves the Payout exactly as it was', async () => {
+      // The Campaign Balance says the Campaign is owed 500_000. The provider
+      // says it is holding 400_000. Those disagree, and approving on the first
+      // alone is how a Payout is approved against money that was never
+      // collected -- which no ledger check can catch, because the ledger only
+      // knows what it was told.
+      const { rows, payoutState, prismaFor } = fundedPayout();
+
+      await expect(
+        approvePayout(prismaFor() as never, {
+          payoutId: 'payout-1',
+          approvedById: 'admin-1',
+          provider: 'sumopod',
+          providerBalance: 400_000,
+        }),
+      ).rejects.toMatchObject({ code: 'PROVIDER_BALANCE_INSUFFICIENT', payoutAmount: 500_000, providerBalance: 400_000 });
+
+      // Untouched, right down to the reading: a refused approval leaves no trace
+      // of the figure that was refused, so the next Admin starts from the
+      // dashboard rather than from somebody else's number.
+      expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+      expect(payoutState).not.toHaveProperty('approvedProviderBalance');
+      expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
+    });
+
+    it('refuses an approval with no reading at all, rather than approving on the Campaign Balance alone', async () => {
+      const { rows, payoutState, prismaFor } = fundedPayout();
+
+      await expect(
+        approvePayout(prismaFor() as never, {
+          payoutId: 'payout-1',
+          approvedById: 'admin-1',
+          provider: '',
+          providerBalance: undefined as never,
+        }),
+      ).rejects.toMatchObject({ code: 'PROVIDER_BALANCE_NOT_RECORDED' });
+      expect(payoutState).toMatchObject({ status: 'DRAFT' });
+      expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
+    });
+
+    it('refuses a reading that is not whole rupiah above zero', async () => {
+      // A reading is a figure of money, not a claim about money: 1000.5 is
+      // neither, and storing it would make a later reconciliation compare two
+      // numbers that were never both real.
+      for (const providerBalance of [0, -1, 1000.5]) {
+        const { payoutState, prismaFor } = fundedPayout();
+        await expect(
+          approvePayout(prismaFor() as never, {
+            payoutId: 'payout-1',
+            approvedById: 'admin-1',
+            provider: 'sumopod',
+            providerBalance,
+          }),
+        ).rejects.toMatchObject({ code: 'PROVIDER_BALANCE_NOT_RECORDED' });
+        expect(payoutState).toMatchObject({ status: 'DRAFT' });
+      }
+    });
+
+    it('still refuses a self-approval, so a supplied reading never becomes a way past the two-person rule', async () => {
+      // The reading is checked before the transaction opens, because it is a
+      // property of the request rather than of any row. That means a caller who
+      // supplies a perfectly good reading still reaches every check inside, and
+      // a requester approving their own Payout is refused exactly as before.
+      const { prismaFor } = fundedPayout({ requestedById: 'admin-1' });
+
+      await expect(
+        approvePayout(prismaFor() as never, {
+          payoutId: 'payout-1',
+          approvedById: 'admin-1',
+          provider: 'sumopod',
+          providerBalance: 2_000_000,
+        }),
+      ).rejects.toMatchObject({ code: 'SELF_APPROVAL' });
+    });
+  });
 
   it('refuses approval when a Suspension was committed after the request and before the approval took its lock, leaving the Payout as it was', async () => {
     const payoutRow = basePayoutRow({ campaignId: 'campaign-1', volunteerTripId: null });
@@ -657,7 +804,7 @@ describe('approvePayout', () => {
     const prisma = makePrisma(tx, payoutRow);
 
     await expect(
-      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' }),
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
     ).rejects.toMatchObject({ code: 'PAYOUT_NOT_ALLOWED_FOR_STATUS' });
     expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
     expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
@@ -681,7 +828,7 @@ describe('approvePayout', () => {
       const prisma = makePrisma(tx, payoutRow);
 
       await expect(
-        approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' }),
+        approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
       ).rejects.toMatchObject({ code });
       expect(queryRawCalls.some((q) => q.includes('FOR UPDATE'))).toBe(true);
       expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
@@ -696,7 +843,7 @@ describe('approvePayout', () => {
     const { tx, rows, queryRawCalls } = makeTx({ ledgerRows, payoutRow: basePayoutRow() });
     const prisma = makePrisma(tx, { ...basePayoutRow(), status: 'APPROVED', approvedById: 'admin-1' });
 
-    const result = await approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' });
+    const result = await approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 });
 
     expect(result.status).toBe('APPROVED');
     expect(queryRawCalls.some((q) => q.includes('VolunteerTrip'))).toBe(true);
@@ -716,7 +863,7 @@ describe('approvePayout', () => {
     const { tx, rows, queryRawCalls } = makeTx({ ledgerRows, payoutRow });
     const prisma = makePrisma(tx, { ...payoutRow, status: 'APPROVED', approvedById: 'admin-1' });
 
-    const result = await approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' });
+    const result = await approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 });
 
     expect(result.status).toBe('APPROVED');
     expect(queryRawCalls.some((q) => q.includes('"Campaign"'))).toBe(true);
@@ -733,7 +880,7 @@ describe('approvePayout', () => {
     const { tx, rows } = makeTx({ ledgerRows, payoutRow: basePayoutRow({ amount: 500_000 }) });
     const prisma = makePrisma(tx, { ...basePayoutRow({ amount: 500_000 }), status: 'APPROVED' });
 
-    await approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' });
+    await approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 });
 
     const posted = rows.filter((r) => r.transactionId === 'payout-instructed-payout-1');
     expect(posted.every((r) => r.account !== 'CAMPAIGN_BALANCE')).toBe(true);
@@ -749,7 +896,7 @@ describe('approvePayout', () => {
     const { tx, rows } = makeTx({ ledgerRows, payoutRow });
     const prisma = makePrisma(tx, { ...payoutRow, status: 'APPROVED' });
 
-    await approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' });
+    await approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 });
 
     const posted = rows.filter((r) => r.transactionId === 'payout-instructed-payout-1');
     expect(posted.every((r) => r.account !== 'TRIP_BALANCE')).toBe(true);
@@ -761,7 +908,7 @@ describe('approvePayout', () => {
     const prisma = makePrisma(tx, basePayoutRow());
 
     await expect(
-      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'same-person' }),
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'same-person', provider: 'sumopod', providerBalance: 2_000_000 }),
     ).rejects.toThrow(SelfApprovalError);
   });
 
@@ -770,7 +917,7 @@ describe('approvePayout', () => {
     const prisma = makePrisma(tx, {});
 
     await expect(
-      approvePayout(prisma as never, { payoutId: 'missing', approvedById: 'admin-1' }),
+      approvePayout(prisma as never, { payoutId: 'missing', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
     ).rejects.toThrow(PayoutNotFoundError);
   });
 
@@ -779,7 +926,7 @@ describe('approvePayout', () => {
     const prisma = makePrisma(tx, basePayoutRow({ status: 'APPROVED' }));
 
     await expect(
-      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' }),
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
     ).rejects.toThrow(InvalidPayoutStatusError);
   });
 
@@ -788,7 +935,7 @@ describe('approvePayout', () => {
     const prisma = makePrisma(tx, basePayoutRow());
 
     await expect(
-      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' }),
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
     ).rejects.toThrow(BankAccountNotEligibleError);
   });
 
@@ -800,7 +947,7 @@ describe('approvePayout', () => {
     const prisma = makePrisma(tx, basePayoutRow({ amount: 500_000 }));
 
     await expect(
-      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' }),
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
     ).rejects.toThrow(InsufficientBalanceError);
   });
 
@@ -809,7 +956,7 @@ describe('approvePayout', () => {
     const prisma = makePrisma(tx, basePayoutRow({ campaignId: 'campaign-1', volunteerTripId: 'trip-1' }));
 
     await expect(
-      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1' }),
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
     ).rejects.toThrow(InvalidPayoutSubjectError);
   });
 });

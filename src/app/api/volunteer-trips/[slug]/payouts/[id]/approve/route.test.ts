@@ -134,8 +134,18 @@ function makeMutex() {
   };
 }
 
-function createRequest(): NextRequest {
-  return new NextRequest('http://localhost:3000/api/volunteer-trips/test-trip/payouts/payout-1/approve', { method: 'POST' });
+/**
+ * The provider balance the approving Admin read in the provider's dashboard
+ * (prd-compliance 35; FFI-07), required here exactly as on the Campaign route.
+ */
+const PROVIDER_READING = { provider: 'sumopod', providerBalance: 5_000_000 };
+
+function createRequest(body: Record<string, unknown> = PROVIDER_READING): NextRequest {
+  return new NextRequest('http://localhost:3000/api/volunteer-trips/test-trip/payouts/payout-1/approve', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 
 function routeContext(id = 'payout-1') {
