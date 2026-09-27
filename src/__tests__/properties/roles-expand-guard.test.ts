@@ -223,19 +223,19 @@ describe("roles expand scope", () => {
   });
 
   it("the middleware decides no route by Role rank", () => {
-    const source = readFileSync("src/middleware.ts", "utf8");
+    const source = readFileSync("src/proxy.ts", "utf8");
     expect(source).not.toContain("minimumRole");
     expect(source).not.toContain("ROLE_LEVELS");
   });
 
   it("the middleware gates /admin on the ADMIN assignment the session token carries", () => {
-    const source = readFileSync("src/middleware.ts", "utf8");
+    const source = readFileSync("src/proxy.ts", "utf8");
     expect(source).toMatch(/pattern:\s*"\/admin",\s*assignment:\s*"ADMIN"/);
     expect(source).toContain("token?.assignments");
   });
 
   it("the middleware gates /moderasi on the VERIFIER assignment, never on a Role rank", () => {
-    const source = readFileSync("src/middleware.ts", "utf8");
+    const source = readFileSync("src/proxy.ts", "utf8");
     expect(source).toMatch(/pattern:\s*"\/moderasi",\s*assignment:\s*"VERIFIER"/);
     expect(source).not.toMatch(/pattern:\s*"\/moderasi",\s*minimumRole:/);
   });

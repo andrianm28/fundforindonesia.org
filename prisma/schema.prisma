@@ -658,6 +658,12 @@ model Donation {
   guestPhoneCiphertext String?
   guestPhoneKeyId      String?
 
+  /// The `src` a shared link carried when the Donor arrived, sanitized by
+  /// src/lib/traffic-source.ts (ticket 24, "Traffic Source on Donation").
+  /// Null when absent or when nothing safe survived sanitizing -- this never
+  /// blocks a Donation.
+  trafficSource String? @db.VarChar(40)
+
   /// Whether the Wakif ticked the ikrar confirmation at checkout (CONTEXT.md,
   /// Akad Wakaf; PRD user story 17: "confirm the ikrar by checkbox ... so
   /// that the pledge is explicit rather than assumed"). Meaningless and left

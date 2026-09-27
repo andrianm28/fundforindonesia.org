@@ -7,8 +7,9 @@
  * whether an incoming "you were paid" is real, and it should be readable and
  * testable without a provider class around it.
  *
- * Built on Web Crypto rather than node:crypto so it runs unchanged in the
- * edge runtime, which this project already targets in middleware.
+ * Built on Web Crypto rather than node:crypto so it runs unchanged in an
+ * edge runtime, should one ever be needed here again (the proxy itself now
+ * runs on Node.js only; see src/proxy.ts).
  */
 
 /** Svix's own tolerance, and the reason the timestamp is inside the signed message. */

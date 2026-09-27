@@ -46,4 +46,18 @@ describe('ExploreAllPage Kind filter', () => {
     );
     expect(screen.getByRole('button', { name: 'Wakaf' }).getAttribute('aria-pressed')).toBe('true');
   });
+
+  // prd-compliance 02: Hibah is a fourth Kind, so its filter must appear
+  // alongside donation/zakat/wakaf's, labelled the same way (KIND_LABEL).
+  it('offers Hibah as a filter choice and asks only for that Kind once chosen', async () => {
+    renderPage();
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hibah' }));
+
+    await waitFor(() =>
+      expect(mockFetch.mock.calls.some(([url]) => String(url).includes('kind=HIBAH'))).toBe(true),
+    );
+    expect(screen.getByRole('button', { name: 'Hibah' }).getAttribute('aria-pressed')).toBe('true');
+  });
 });

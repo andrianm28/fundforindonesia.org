@@ -104,3 +104,21 @@ Ticket order, dispatched as blockers allow:
 - `domain-modeling`: new policy (Hibah, Escrow override) in `CONTEXT.md` and ADRs.
 - `wizard`: if Dri wants a guided script for the cutover or tickets 23/10.
 - `writing-for-agents`: edits to `CLAUDE.md` / `AGENTS.md`.
+
+## Appendix: opencode session on VPS (2026-09-27, merge time)
+
+Verified while resolving this branch against `main` (`65e3c8f`, which already
+contains #57, #58, #59, #60, #61, #62). Kept because the main-branch
+continuation stub (`#62`) is superseded by this merge; its fresh facts are
+folded in here instead.
+
+- `node -v` on the VPS → v22.23.2 (`.nvmrc` says 24; cloud sessions get 24
+  via the SessionStart hook). No action, VPS runs no builds.
+- `node_modules/` absent on the VPS checkout (Phase 4 slim);
+  `src/generated/prisma/` present.
+- opencode global config loads clean: `skills.paths` →
+  `/home/ubuntu/.agents/skills` (40 `SKILL.md`), specflow `PRIORITY.md`,
+  superpowers plugin. Vendored `.claude/skills/` intact for cloud sessions.
+- NOT run on the VPS per `docs/agents/verification.md`: no full `vitest`,
+  no `tsc`, no `next build`. CI is the gate; it runs on the push of this
+  merge.
