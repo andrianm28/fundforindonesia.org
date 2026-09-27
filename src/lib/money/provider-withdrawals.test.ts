@@ -124,6 +124,15 @@ function makePrisma(tx: ReturnType<typeof makeTx>) {
 
 const ADMIN = 'admin-1';
 
+/** A settlement at one provider, so the pot has something in it. */
+async function settleAt(tx: ReturnType<typeof makeTx>, provider: string, gross: number) {
+  await tx.ledgerEntry.createMany({
+    data: [
+      { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: gross, provider, providerWithdrawalId: null, transactionId: `w-${provider}-${gross}`, campaignId: 'c1', volunteerTripId: null, programId: null },
+    ],
+  });
+}
+
 function validInput(overrides: Record<string, unknown> = {}) {
   return {
     provider: 'sumopod',
@@ -238,6 +247,43 @@ describe('recordProviderWithdrawal', () => {
     expect(rows).toHaveLength(0);
   });
 
+  it('files the sweep under the same name the webhook stamped, whatever case the Admin typed', async () => {
+    // The regression this closes. providerBalances (./ledger.ts) splits the pot
+    // by exact string equality, and the webhook stamps the provider's own
+    // canonical name. An Admin copying "Sumopod" off the dashboard therefore
+    // put the sweep's CREDIT in a second bucket: the pot the reconciliation
+    // reports for sumopod kept the money that had already left it, the
+    // difference for Sumopod was 0 against a pot that never existed, and both
+    // numbers looked complete. Money was not lost -- it was just in two buckets,
+    // and the report said the two providers agreed.
+    const tx = makeTx();
+    const prisma = makePrisma(tx);
+    await settleAt(tx, 'sumopod', 1_200_000);
+
+    await recordProviderWithdrawal(prisma as never, validInput({ provider: 'Sumopod' }));
+
+    const report = await reconcileProviderBalances(tx as never);
+    // One provider, not two, and it is the name the ledger already used.
+    expect(report.map((r) => r.provider)).toEqual(['sumopod']);
+    expect(report[0].pot).toEqual({ provider: 'sumopod', debited: 1_200_000, credited: 750_000, balance: 450_000 });
+    expect(report[0].difference).toBe(0);
+    // And the row records the canonical name, so a reader of the table sees
+    // the same one the report grouped it under.
+    expect(rows[0].provider).toBe('sumopod');
+  });
+
+  it('refuses a provider this build has no adapter for, rather than filing the sweep under a name nothing else uses', async () => {
+    // A pot split by a name no code can settle, refund or reconcile against is
+    // the same split the case difference above caused, arrived at deliberately.
+    const tx = makePrisma(makeTx());
+
+    await expect(
+      recordProviderWithdrawal(tx as never, validInput({ provider: 'zendesk' })),
+    ).rejects.toThrow(ProviderWithdrawalInputError);
+    expect(rows).toHaveLength(0);
+    expect(ledgerRows).toHaveLength(0);
+  });
+
   it('refuses a sweep with no provider named, because a reading nobody can attribute to a provider is not a reading', async () => {
     const tx = makeTx();
 
@@ -306,15 +352,6 @@ describe('recordProviderWithdrawal', () => {
 });
 
 describe('reconcileProviderBalances', () => {
-  /** A settlement at Sumopod, so the pot has something in it. */
-  async function settleAt(tx: ReturnType<typeof makeTx>, provider: string, gross: number) {
-    await tx.ledgerEntry.createMany({
-      data: [
-        { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: gross, provider, providerWithdrawalId: null, transactionId: `w-${provider}-${gross}`, campaignId: 'c1', volunteerTripId: null, programId: null },
-      ],
-    });
-  }
-
   it('reports nothing to reconcile when no sweep has ever been recorded, rather than reporting a zero divergence as a clean bill of health', async () => {
     // A provider pot with no reading is not a provider pot that has been
     // checked. Reporting `difference: 0` here would be the quietest possible
@@ -398,21 +435,22 @@ describe('reconcileProviderBalances', () => {
 
   it('keeps the sweeps of each provider apart, and never nets one provider against another', async () => {
     // Two providers, one of which moved by more than it should. Reporting a
-    // single combined difference would let a gap at Xendit be cancelled by an
-    // exact match at Sumopod, and each provider's dashboard is a separate
-    // statement.
+    // single combined difference would let a gap at one be cancelled by an
+    // exact match at the other, and each provider's dashboard is a separate
+    // statement. Both are names this build can actually speak to, because a
+    // sweep of a provider it cannot is refused rather than recorded.
     const tx = makeTx();
     const prisma = makePrisma(tx);
     await settleAt(tx, 'sumopod', 2_000_000);
-    await settleAt(tx, 'xendit', 900_000);
+    await settleAt(tx, 'mock', 900_000);
     await recordProviderWithdrawal(prisma as never, validInput({ reference: 'SP-S', amount: 500_000, providerBalanceBefore: 2_000_000, providerBalanceAfter: 1_500_000 }));
-    await recordProviderWithdrawal(prisma as never, validInput({ reference: 'SP-X', provider: 'xendit', amount: 400_000, providerBalanceBefore: 900_000, providerBalanceAfter: 460_000 }));
+    await recordProviderWithdrawal(prisma as never, validInput({ reference: 'SP-M', provider: 'mock', amount: 400_000, providerBalanceBefore: 900_000, providerBalanceAfter: 460_000 }));
 
     const report = await reconcileProviderBalances(tx as never);
 
     expect(report.map((r) => [r.provider, r.difference])).toEqual([
       ['sumopod', 0],
-      ['xendit', 40_000],
+      ['mock', 40_000],
     ]);
   });
 
