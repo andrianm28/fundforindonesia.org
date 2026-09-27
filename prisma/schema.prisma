@@ -1036,18 +1036,29 @@ enum LedgerAccount {
   PLATFORM_FEE // retained by the platform
   PROVIDER_FEE // retained by the payment provider
   /// CONTEXT.md's Provider Balance: the Donors' money sitting at the payment
-  /// provider, debited with the full Gross of every settlement. Debit-normal
-  /// -- it grows when money arrives and shrinks when money is sent OUT. It is
-  /// credited by exactly two movements, both of them money physically leaving
-  /// the provider: a Payout completed by the second Admin (prd-compliance 27)
-  /// and a Refund paid to the Donor (refundPaidLegs, prd-compliance 28c,
-  /// whose COMPLETED transition is ticket 32). Nothing else credits it: the
-  /// fee accounts take their share out of this pot by ALLOCATION at
-  /// settlement, not by moving cash, and a Refund's approval is an internal
-  /// decision that moves none. What is left in here must be money some
-  /// account still claims: a pot holding more than the Campaign, the platform
-  /// and the provider are owed between them is the signal that one of those
-  /// two steps never ran.
+  /// provider under the Merchant Account, debited with the full Gross of
+  /// every settlement. Debit-normal -- it grows when money arrives and shrinks
+  /// when money physically leaves the provider. The balance it SHOULD hold is
+  /// the money still sitting there that the Campaign, the platform and the
+  /// provider are owed between them, and nothing else (ADR 0011).
+  ///
+  /// IT IS NOT CREDITED BY ANYTHING TODAY, and reading this comment as if it
+  /// were would be the single easiest way to be wrong about this ledger. The
+  /// two movements that ought to credit it are both absent:
+  ///
+  ///   - a Payout completed by the second Admin, which is prd-compliance 27
+  ///     (PR #73, still unmerged as of 2026-09-27), and
+  ///   - a Refund actually paid to the Donor, whose leg builder refundPaidLegs
+  ///     was added by prd-compliance 28c but has NO CALLER, because the
+  ///     COMPLETED transition that would call it is ticket 32.
+  ///
+  /// So the account is debit-only in this repository: it grows by every Gross
+  /// ever collected and is drained by nothing. Approval posts no credit either
+  /// -- the fee accounts take their share out of this pot by ALLOCATION at
+  /// settlement rather than by moving cash, and approving a Refund is an
+  /// internal decision that moves no money. Until both credits land, treat any
+  /// non-zero balance here as unsettled, not as a reconciliation signal, and
+  /// do not use it to tell a Donor or a Fundraiser what they are owed.
   GATEWAY_CLEARING
   PAYOUT_CLEARING // money instructed out, not yet confirmed
   /// The Donor's own claim once a Refund is approved, and the money the
