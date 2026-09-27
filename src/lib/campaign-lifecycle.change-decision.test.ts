@@ -40,6 +40,10 @@ function changeDb(overrides: Parameters<typeof makeCampaignDb>[0] = {}) {
         id: 'verification-change',
         isFirst: false,
         checklist: CHECKLIST,
+        // A change request is told apart by its kind, not by the presence of
+        // a proposal (prd-compliance 38); this is what the migration that
+        // added the column backfilled every existing proposal-carrying row to.
+        kind: 'CHANGE',
         proposedChanges: { targetAmount: 100_000_000, deadline: NEW_DEADLINE.toISOString() },
       }),
     ],

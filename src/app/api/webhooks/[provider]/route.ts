@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
 import { PaymentStatus, type Prisma } from '@/generated/prisma/client';
 import {
   getPaymentProvider,
@@ -20,6 +21,7 @@ import {
 import { generateReceiptToken } from '@/lib/receipt-token';
 import { receiptEmail, resolveReceiptRecipient } from '@/lib/mail/receipt';
 import { generateAkadWakafToken } from '@/lib/akad-wakaf-token';
+import { evaluateSettledDonationScrutiny } from '@/lib/scrutiny';
 import { withAkadWakaf } from '@/lib/mail/akad-wakaf';
 import { sendReportingFailure } from '@/lib/mail';
 import { publicUrl } from '@/lib/public-url';
@@ -42,15 +44,6 @@ import { publicUrl } from '@/lib/public-url';
  * donor's money arrives at the provider and this platform ends up with no
  * record of it.
  */
-
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code: unknown }).code === 'P2002'
-  );
-}
 
 /**
  * Thrown from inside the settlement transaction to unwind it cleanly when
@@ -148,7 +141,7 @@ export async function POST(
       });
       webhookEventId = created.id;
     } catch (err) {
-      if (!isUniqueConstraintViolation(err)) throw err;
+      if (!isPrismaUniqueConstraintViolation(err)) throw err;
 
       const existing = await prisma.webhookEvent.findUniqueOrThrow({
         where: {
@@ -317,7 +310,7 @@ export async function POST(
             },
           });
         } catch (err) {
-          if (isUniqueConstraintViolation(err)) {
+          if (isPrismaUniqueConstraintViolation(err)) {
             // Postgres has already put this transaction into an aborted
             // state -- no further statement on this connection can run, not
             // even to stamp WebhookEvent.processedAt. Rethrow a distinct
@@ -369,7 +362,10 @@ export async function POST(
 
           // Deriving the ledger transactionId from the provider event id makes
           // the ledger idempotent on the same key the WebhookEvent table is --
-          // the two cannot disagree about whether this event was posted.
+          // the two cannot disagree about whether this event was posted. The
+          // claim above means a retry never gets here; the ledger's claim
+          // index (prd-compliance 28b) is what makes the key a one-shot even
+          // for a caller that claims nothing.
           await postTransaction(
             tx,
             paymentSettledLegs({
@@ -433,9 +429,26 @@ export async function POST(
             data: { collectedAmount: { increment: payment.amount } },
           });
 
+          // What the money just collected is worth looking at (prd-compliance
+          // 38, PRD §"Anti penyalahgunaan"): a Donation above the
+          // single-Donation limit is marked for an Admin, a Campaign past an
+          // amount limit carries an audit marker and earns a Verifikasi
+          // Tambahan. Read here, in the settlement's own transaction and
+          // after the increment above, so the limits are judged against the
+          // Gross this Donation brought the Campaign to -- and skipped by
+          // nobody who would rather not be judged. Stamped with the
+          // provider's `paidAt`, like the Receipt above, rather than with
+          // webhook receipt time. Nothing here blocks or reverses anything
+          // (src/lib/scrutiny.ts); a failure writes nothing and settles
+          // nothing, the same bargain the Receipt and the ledger legs make.
+          await evaluateSettledDonationScrutiny(tx, { donationId: donation!.id, now: paidAt });
+
           // Deriving the ledger transactionId from the provider event id makes
           // the ledger idempotent on the same key the WebhookEvent table is --
-          // the two cannot disagree about whether this event was posted.
+          // the two cannot disagree about whether this event was posted. The
+          // claim above means a retry never gets here; the ledger's claim
+          // index (prd-compliance 28b) is what makes the key a one-shot even
+          // for a caller that claims nothing.
           await postTransaction(
             tx,
             paymentSettledLegs({

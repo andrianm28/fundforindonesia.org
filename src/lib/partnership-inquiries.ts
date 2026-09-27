@@ -18,17 +18,16 @@ import { publicUrl } from "./public-url";
 /** The env var naming where Partnership Inquiry notifications go. */
 export const PARTNERSHIP_TEAM_EMAIL_ENV = 'PARTNERSHIP_TEAM_EMAIL';
 
-/**
- * How far the partnership team has taken an Inquiry along, mirroring the
- * `PartnershipInquiryStatus` enum in the schema. Ticket 05 only ever writes
- * the first value; ticket 06 moves it forward and records who and when.
- */
-export const PARTNERSHIP_INQUIRY_STATUSES = ['NOT_YET_FOLLOWED_UP', 'IN_PROGRESS', 'DONE'] as const;
+// The follow-up vocabulary lives in its own leaf module, which the Admin
+// queue can import without dragging the Mailer (and nodemailer) into a browser
+// bundle. Re-exported here so this seam still says what it always said.
+export {
+  PARTNERSHIP_INQUIRY_STATUSES,
+  INITIAL_INQUIRY_STATUS,
+  type PartnershipInquiryStatusValue,
+} from './partnership-inquiry-status';
 
-export type PartnershipInquiryStatusValue = (typeof PARTNERSHIP_INQUIRY_STATUSES)[number];
-
-/** Every new Inquiry starts here, whatever the submitting body claims. */
-export const INITIAL_INQUIRY_STATUS: PartnershipInquiryStatusValue = 'NOT_YET_FOLLOWED_UP';
+import { INITIAL_INQUIRY_STATUS } from './partnership-inquiry-status';
 
 export class PartnershipInquiryProgramNotFoundError extends Error {
   constructor() {

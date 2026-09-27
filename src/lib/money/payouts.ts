@@ -305,6 +305,13 @@ export async function approvePayout(
     // lock closes the cross-payout balance race above, this closes a second
     // approval of THIS SAME row racing in with a stale read of its own. The
     // loser sees count 0 and never reaches the ledger post below.
+    //
+    // Kept rather than left to the ledger (prd-compliance 28b), even though
+    // the ledger now refuses a transactionId twice on its own: the index
+    // would stop the second posting only by aborting this whole transaction
+    // and reporting a duplicate, where the claim above reports what actually
+    // happened -- another approval got there first -- and stops the loser
+    // before it writes anything at all.
     const claimed = await tx.payout.updateMany({
       where: { id: payoutId, status: 'DRAFT' },
       data: { status: 'APPROVED', approvedById, approvedAt: new Date() },
@@ -319,9 +326,11 @@ export async function approvePayout(
 
     // Posted at approval, not at completion. Money promised to a bank must
     // stop being withdrawable immediately, or the same balance can be
-    // approved for payout twice. transactionId is keyed on the payout id so
-    // this post can never happen twice, on top of (not instead of) the
-    // updateMany guard above.
+    // approved for payout twice. transactionId is keyed on the payout id, and
+    // the ledger's claim index
+    // (LedgerEntry_transactionId_claim_key, prd-compliance 28b) makes that
+    // key a one-shot: this post can never happen twice, on top of (not
+    // instead of) the updateMany guard above.
     await postTransaction(
       tx,
       payoutInstructedLegs({ subject, amount: payout.amount }),

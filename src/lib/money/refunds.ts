@@ -183,6 +183,11 @@ export async function createRefund(
   // return this share too, not just the Provider Fee's.
   const platformFeePortion = platformFeePortionFor(payment, amount, priorAmounts);
   const providerFeePortion = providerFeePortionFor(payment, amount, priorAmounts);
+  // No claim on the Refund row here, unlike approveRefund: this Refund was
+  // created a statement ago, so its id has never been posted. That is what
+  // makes the transactionId below one-shot -- the ledger's claim index
+  // (LedgerEntry_transactionId_claim_key, prd-compliance 28b) refuses it if
+  // anything ever tries to freeze the same Refund twice.
   await postTransaction(
     tx,
     refundRequestedLegs({ subject, amount, source, platformFeePortion, providerFeePortion }),
@@ -271,6 +276,12 @@ export async function approveRefund(
     // this refund's net share), never a fee artifact.
     const shortfall = Math.min(Math.max(0, -poolBalance), netPortion);
 
+    // Kept, not replaced by the ledger's own one-claim-per-transaction index
+    // (prd-compliance 28b, LedgerEntry_transactionId_claim_key). That index
+    // would refuse this post a second time, but only by aborting the whole
+    // transaction on a duplicate; claiming the row first means the loser is
+    // told what actually happened -- another approval got there first -- and
+    // writes nothing at all.
     const claimed = await tx.refund.updateMany({
       where: { id: refundId, status: 'REQUESTED' },
       data: { status: 'APPROVED', approvedById },
