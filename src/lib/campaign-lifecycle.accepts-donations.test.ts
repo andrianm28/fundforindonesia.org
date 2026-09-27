@@ -111,4 +111,36 @@ describe('campaignAcceptsDonations, Kind Authorisation (prd-compliance 11, ADR 0
     const campaign = zakat({ collectingEntity: { permits: [], kindAuthorisations: [] } });
     expect(donationBlock(campaign, NOW)).toBe('NO_VALID_PERMIT');
   });
+
+  // ticket 02 (ADR 0013): hibah needs a Kind Authorisation exactly the same
+  // way zakat and wakaf already do -- requiresKindAuthorisation is
+  // `kind !== 'DONATION'`, not an enumerated list, but this pins the
+  // observable behaviour for hibah specifically rather than assuming the
+  // generic path covers it.
+  it.each(['ZAKAT', 'WAKAF', 'HIBAH'] as const)(
+    'accepts a %s Campaign while its Kind Authorisation is valid now, alongside a valid permit',
+    (kind) => {
+      const campaign = active({
+        kind,
+        collectingEntity: {
+          permits: [permit({ kinds: [kind] })],
+          kindAuthorisations: [kindAuthorisation({ kind })],
+        },
+      });
+      expect(campaignAcceptsDonations(campaign, NOW)).toBe(true);
+      expect(donationBlock(campaign, NOW)).toBeNull();
+    },
+  );
+
+  it.each(['ZAKAT', 'WAKAF', 'HIBAH'] as const)(
+    'refuses a %s Campaign holding a valid permit but no Kind Authorisation for it',
+    (kind) => {
+      const campaign = active({
+        kind,
+        collectingEntity: { permits: [permit({ kinds: [kind] })], kindAuthorisations: [] },
+      });
+      expect(campaignAcceptsDonations(campaign, NOW)).toBe(false);
+      expect(donationBlock(campaign, NOW)).toBe('NO_VALID_KIND_AUTHORISATION');
+    },
+  );
 });

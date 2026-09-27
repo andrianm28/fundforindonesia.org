@@ -144,6 +144,22 @@ describe('resolvePlatformFeeBasis', () => {
     expect(basis.percentBps).toBe(400);
   });
 
+  // ticket 03 (prd-compliance 17, ADR 0013): hibah's default is 0 because
+  // nothing has set a rule for it, exactly the same "no match resolves to
+  // 0" path zakat and wakaf already fall through -- not a hibah-specific
+  // case in the code.
+  it('resolves 0 percentBps for a hibah Campaign with no rule set, matching zakat/wakaf', async () => {
+    const db = makeDb();
+
+    const basis = await resolvePlatformFeeBasis(db as never, {
+      kind: 'HIBAH' as never,
+      category: 'kesehatan',
+      campaignId: 'campaign-1',
+    });
+
+    expect(basis.percentBps).toBe(0);
+  });
+
   it('reads the latest threshold', async () => {
     const db = makeDb({
       thresholds: [
@@ -190,6 +206,26 @@ describe('setPlatformFeeRule', () => {
     expect(db.rules).toHaveLength(2);
     expect(db.rules[0]).toMatchObject({ percentBps: 250, setById: 'admin-1' });
     expect(db.rules[1]).toMatchObject({ percentBps: 400, setById: 'admin-2' });
+  });
+
+  it('sets a KIND rule for hibah the same way as any other Kind, effective only afterwards', async () => {
+    const db = makeDb();
+
+    const before = await resolvePlatformFeeBasis(db as never, {
+      kind: 'HIBAH' as never,
+      category: 'kesehatan',
+      campaignId: 'campaign-1',
+    });
+    expect(before.percentBps).toBe(0);
+
+    await setPlatformFeeRule(db as never, { scope: 'KIND', kind: 'HIBAH' as never, percentBps: 150, actorId: 'admin-1' });
+
+    const after = await resolvePlatformFeeBasis(db as never, {
+      kind: 'HIBAH' as never,
+      category: 'kesehatan',
+      campaignId: 'campaign-1',
+    });
+    expect(after.percentBps).toBe(150);
   });
 
   it('refuses scope KIND with no kind', async () => {
