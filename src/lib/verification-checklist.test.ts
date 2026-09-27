@@ -196,10 +196,13 @@ describe('editChecklistItem', () => {
   });
 });
 
-// hibah starts as a copy of wakaf's documents (FFI-08b, ADR 0013) and
+// hibah began as a copy of wakaf's documents (FFI-08b, ADR 0013) and
 // separating the two is the Admin's call in the panel, so the rows have to be
 // independent: reworking or retiring hibah's item must leave wakaf's
-// untouched, or "diverge later" would already have cost wakaf a document.
+// untouched, or "diverge later" would already have cost wakaf a document. The
+// fixture below is that copy as it stands after hibah's akad row was retired
+// (PRD §4: no Akad Wakaf for a hibah Campaign) — retiring a hibah row is an
+// ordinary edit, and the one thing it may not do is reach wakaf's copy.
 describe("diverging hibah's checklist from wakaf's (csr-and-hibah 11)", () => {
   const COPIED = [
     checklistItemRow({ id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', position: 1, kind: 'WAKAF' }),

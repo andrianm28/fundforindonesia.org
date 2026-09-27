@@ -98,11 +98,13 @@ describe('AdminChecklistPage', () => {
     });
   });
 
-  // hibah ships with a copy of wakaf's documents (FFI-08b, ADR 0013) and the
+  // hibah began as a copy of wakaf's documents (FFI-08b, ADR 0013) and the
   // panel is where an Admin diverges the two afterwards, so the two copies are
   // separate rows here too: reworking hibah's row must send one request, for
-  // hibah's item, and leave wakaf's row alone. The copy is a stated
-  // placeholder pending the sharia review (pasal 14), not a settled list.
+  // hibah's item, and leave wakaf's row alone. The copy was a stated placeholder
+  // pending the sharia review (pasal 14) and the panels are where that kind of
+  // correction is made, so the two rows differing is the normal case, not an
+  // oddity to be tidied away.
   it('rewords hibah\'s copy of a document without touching wakaf\'s', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (url === '/api/admin/verification-checklist' && !init?.method) {
