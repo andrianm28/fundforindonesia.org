@@ -4,7 +4,7 @@
 
 **Blocked by:** 27
 
-**Status:** done (PR #93, a0f45e1)
+**Status:** done (PR #93, 9e3e6d6)
 
 - [x] A collection account exists in the ledger, distinct from the Merchant Account and able to belong to a different legal entity
 - [x] An Admin records a withdrawal from the provider to the collection account as a balanced journal
