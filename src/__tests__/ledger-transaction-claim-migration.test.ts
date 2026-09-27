@@ -71,6 +71,50 @@ function migrationsBeforeTheClaim(): string[] {
 
 const PRE_MIGRATION_DIRS = migrationsBeforeTheClaim();
 const CLAIM_SQL = migrationSql(readdirSync(MIGRATIONS_DIR).find((d) => d.endsWith(CLAIM_MIGRATION))!);
+const LATER_LEDGER_ENTRY_COLUMNS = laterLedgerEntryColumns();
+
+/**
+ * The `ALTER TABLE "LedgerEntry" ADD COLUMN` statements from migrations AFTER
+ * the claim one, and only those, replayed onto the scratch database.
+ *
+ * The Prisma client driving these tests is the CURRENT one, so it selects every
+ * column the current schema declares. A database deliberately stopped at the
+ * claim migration does not have the later ones, and the first real query
+ * against it fails with P2022 "column does not exist" before the assertion
+ * under test is reached. prd-compliance 35 added
+ * `LedgerEntry.provider` and `LedgerEntry.providerWithdrawalId` and hit exactly
+ * that.
+ *
+ * Only the column additions are taken, and that is narrow on purpose. The later
+ * migrations cannot simply be replayed whole: they build tables and foreign
+ * keys this historical database does not have -- the pre-claim history is
+ * trimmed back (see migrationsBeforeTheClaim), so `PartnerOrganisation` is not
+ * among it -- and one of them wants `pg_trgm`, which needs a superuser this
+ * test deliberately does not demand. Taking the column statement on its own is
+ * sound because every one of them is nullable and needs no backfill, so it
+ * changes nothing about the rows already seeded and nothing about what the
+ * claim migration does to them.
+ *
+ * A later migration that changed LedgerEntry in a way a nullable column-add
+ * cannot bridge would need this widened by a human, and would say so by
+ * failing with the same P2022.
+ */
+function laterLedgerEntryColumns(): string {
+  const dirs = readdirSync(MIGRATIONS_DIR).filter((d) => !d.startsWith("migration_lock")).sort();
+  const claimIndex = dirs.findIndex((d) => d.endsWith(CLAIM_MIGRATION));
+  const statements: string[] = [];
+  // Array.from rather than spreading or for-of over the match iterator: this
+  // repo's tsconfig target predates downlevel iteration, the same reason
+  // findUnbalancedTransactions (src/lib/money/ledger.ts) uses Array.from.
+  for (const dir of dirs.slice(claimIndex + 1)) {
+    const sql = migrationSql(dir);
+    if (!sql.includes('"LedgerEntry"')) continue;
+    for (const match of Array.from(sql.matchAll(/ALTER TABLE "LedgerEntry" ADD COLUMN[^;]*;/g))) {
+      statements.push(match[0]);
+    }
+  }
+  return statements.join("\n");
+}
 
 /**
  * The precheck this migration used to open with, verbatim from the draft the
@@ -160,6 +204,13 @@ async function withPreMigrationLedger(
   try {
     for (const dir of PRE_MIGRATION_DIRS) {
       await client.query(migrationSql(dir));
+    }
+    // Applied before the seed rather than inside the body, because the client
+    // has to be able to read the table from the first statement onward, and
+    // because a nullable column-add disturbs neither the seed nor anything the
+    // claim migration goes on to do.
+    if (LATER_LEDGER_ENTRY_COLUMNS) {
+      await client.query(LATER_LEDGER_ENTRY_COLUMNS);
     }
     await seedLedger(client);
     await body({ client, url });
