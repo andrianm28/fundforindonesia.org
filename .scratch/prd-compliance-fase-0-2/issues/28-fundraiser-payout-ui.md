@@ -13,6 +13,51 @@
 
 ## Comments
 
+- 2026-09-27 (the "fourth caller" claim below was false, and the guard that
+  would have caught it does not exist): the "the rule existed in two places,
+  not one" comment further down ends by saying
+  `payout-balance-rule-callers.test.tsx` makes "a fourth caller **or a second
+  copy** a failing test". One half of that is true and one half is not, so it
+  is the half that is not which is corrected here.
+
+  **What the test holds:** the three callers it names by name. Each is forced
+  to follow a rule module made to answer something its own comparison never
+  would, and all three are then compared against it boundary rupiah by
+  boundary rupiah. So a **second copy inside one of those three** is a failing
+  test, and that half of the claim stands.
+
+  **What it does not hold:** that a **fourth** caller is a failing test. It
+  names three and exercises those three. Checked rather than assumed: a
+  `previewPayout` added to `src/lib/money/payouts.ts` with a comparison of its
+  own left the whole suite green -- 280 files, 3657 passed, 13 skipped,
+  nothing failing. The comment in `src/lib/payout-balance-rule.ts` claimed the
+  same thing and is corrected in the same commit.
+
+  A guard was written to close that and **not shipped**, because neither shape
+  of it would be honest:
+
+  - scanning for *references* to `exceedsPayoutBalance`, resolved with the type
+    checker so a renamed import at the point of use would still count, finds
+    the same six references whether the fourth caller is there or not. A
+    caller that re-decides the cap for itself never names the function, and
+    that is the only kind of fourth caller worth catching. (It cost ~9s of a
+    ~126s suite, which was not the deciding problem; the blindness was.)
+  - scanning for the **COMPARISON** catches `amount > balance` and nothing
+    else -- not `balance < amount`, not a negated form, not one written
+    through a differently named local. That is a guard which passes for a
+    spelling rather than for the class, which `docs/agents/verification.md`
+    warns about, and the "a deny-list only holds back what its author thought
+    of" comment below happening again in another file.
+
+  So the claim is **deleted rather than narrowed to a promise nothing holds.**
+  The rule is one implementation, and the three named callers cannot drift
+  from it. A fourth place is caught by the test for that place, when somebody
+  writes one. The shape of a guard that would catch it already exists in this
+  repo -- `src/lib/money/manual-contribution-isolation.test.ts` pins an exact
+  set of readers by name -- but it works there because `programBalance` is a
+  name every reader must use. Nothing forces a fourth caller to name this
+  function, so no test here should imply otherwise.
+
 - 2026-09-27 (status corrected): this file said `done (PR #94, 43f7734)`.
   Wrong twice. `done` is this repo's CLOSING status, and
   `docs/agents/triage-labels.md` sets it only once the branch has merged to
