@@ -160,6 +160,52 @@ describe('DonationConfirmation', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
+  // Explicit ikrar confirmation (CONTEXT.md, Akad Wakaf; PRD user story 17:
+  // "confirm the ikrar by checkbox ... so that the pledge is explicit rather
+  // than assumed"), shown only on a `wakaf` Campaign.
+  describe('ikrar wakaf confirmation', () => {
+    const ikrarWakaf = {
+      confirmed: false,
+      onToggle: vi.fn(),
+      nazhirName: 'Yayasan Contoh',
+      purpose: 'Bantu Korban Banjir Jakarta',
+      error: undefined as string | undefined,
+    };
+
+    it('is absent when the Campaign is not `wakaf` (ikrarWakaf prop omitted)', () => {
+      render(<DonationConfirmation {...defaultProps} />);
+      expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+    });
+
+    it('shows the nazhir and purpose, unchecked by default', () => {
+      render(<DonationConfirmation {...defaultProps} ikrarWakaf={ikrarWakaf} />);
+      expect(screen.getByText(/berikrar mewakafkan donasi ini/i)).toBeInTheDocument();
+      // The purpose (the Campaign title) appears here and in the summary above.
+      expect(screen.getAllByText((_, node) => node?.textContent === 'Bantu Korban Banjir Jakarta').length).toBeGreaterThan(0);
+      const checkboxes = screen.getAllByRole('checkbox');
+      expect(checkboxes).toHaveLength(2);
+      expect(checkboxes[0]).not.toBeChecked();
+    });
+
+    it('calls onToggle when the ikrar checkbox changes', () => {
+      const onToggle = vi.fn();
+      render(<DonationConfirmation {...defaultProps} ikrarWakaf={{ ...ikrarWakaf, onToggle }} />);
+      const checkboxes = screen.getAllByRole('checkbox');
+      fireEvent.click(checkboxes[0]);
+      expect(onToggle).toHaveBeenCalledWith(true);
+    });
+
+    it('shows the error message when given one', () => {
+      render(
+        <DonationConfirmation
+          {...defaultProps}
+          ikrarWakaf={{ ...ikrarWakaf, error: 'Konfirmasi ikrar wakaf harus dicentang' }}
+        />,
+      );
+      expect(screen.getByText('Konfirmasi ikrar wakaf harus dicentang')).toBeInTheDocument();
+    });
+  });
+
   it('disables button when isSubmitting is true', () => {
     render(<DonationConfirmation {...defaultProps} isSubmitting={true} />);
     expect(screen.getByRole('button', { name: /donasi sekarang/i })).toBeDisabled();

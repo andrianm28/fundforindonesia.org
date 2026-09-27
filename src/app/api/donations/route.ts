@@ -34,6 +34,12 @@ const createDonationSchema = z.object({
   guestEmail: z.string().trim().email("Email tidak valid").optional(),
   guestName: z.string().trim().min(1).max(100, "Nama maksimal 100 karakter").optional(),
   guestPhone: z.string().trim().min(1).max(20, "Nomor telepon maksimal 20 karakter").optional(),
+  // Explicit ikrar confirmation (CONTEXT.md, Akad Wakaf; PRD user story 17:
+  // "confirm the ikrar by checkbox ... so that the pledge is explicit rather
+  // than assumed"). Meaningless outside a `wakaf` Campaign, where it is
+  // never required; defaults false rather than true so a caller that omits
+  // it is never treated as having confirmed anything.
+  ikrarConfirmed: z.boolean().optional().default(false),
 });
 
 export async function POST(request: NextRequest) {
@@ -66,7 +72,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { campaignId, amount, paymentMethod, message, isAnonymous, guestEmail, guestName, guestPhone } =
+    const { campaignId, amount, paymentMethod, message, isAnonymous, guestEmail, guestName, guestPhone, ikrarConfirmed } =
       result.data;
 
     // 2. Verify campaign exists and is active
@@ -142,6 +148,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // A Donation on a `wakaf` Campaign carries an explicit ikrar
+    // confirmation, never an assumed one (CONTEXT.md, Akad Wakaf; PRD user
+    // story 17): the checkbox default is false and the API refuses rather
+    // than defaulting it to true for a Wakif who never ticked it.
+    if (campaign.kind === 'WAKAF' && !ikrarConfirmed) {
+      return NextResponse.json(
+        {
+          error: 'Konfirmasi ikrar wakaf harus dicentang sebelum melanjutkan',
+          fieldErrors: { ikrarConfirmed: ['Konfirmasi ikrar wakaf harus dicentang'] },
+        },
+        { status: 400 },
+      );
+    }
+
     // 4. Build the provider before touching the database. If it is not
     // configured, nothing has been written yet -- there is no half-created
     // donation to clean up.
@@ -200,6 +220,7 @@ export async function POST(request: NextRequest) {
         message: message || null,
         campaignId,
         donorId,
+        ikrarConfirmed,
         // A signed-in Donor's contact details live on their User row; a
         // Guest Donor's live here instead, protected the same way
         // (src/lib/field-protection.ts, ADR 0012).
