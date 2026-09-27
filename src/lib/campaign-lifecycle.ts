@@ -997,7 +997,6 @@ export async function requestCampaignChange(
     step: async ({ tx, campaign, actor, now }) => {
       const targetAmount = changes.targetAmount !== undefined ? parseTargetAmount(changes.targetAmount) : undefined;
       const deadline = changes.deadline !== undefined ? parseDeadline(changes.deadline) : undefined;
-      const afterTarget = targetAmount ?? campaign.targetAmount;
       const afterDeadline = deadline !== undefined ? deadline : campaign.deadline;
       if ((targetAmount === undefined || targetAmount === campaign.targetAmount) && sameInstant(afterDeadline, campaign.deadline)) {
         throw new LifecycleValidationError("Tidak ada perubahan pada target atau tenggat yang diajukan.");
