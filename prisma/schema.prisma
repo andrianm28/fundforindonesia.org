@@ -94,6 +94,7 @@ model User {
   refundsApproved  Refund[]      @relation("RefundApprover")
   platformFeeRulesSet      PlatformFeeRule[]
   platformFeeThresholdsSet PlatformFeeThreshold[]
+  duplicateSimilarityThresholdsSet DuplicateSimilarityThreshold[]
 
   @@index([email])
   @@index([emailHmac])
@@ -281,6 +282,15 @@ model Campaign {
   /// location simply matches no location filter, which is honest rather
   /// than quietly counted as everywhere.
   location        String?
+  /// The beneficiary this Campaign names (PRD FFI-02, FFI-05). Plaintext,
+  /// never encrypted: ADR 0012 keeps names readable precisely so they can be
+  /// compared, and "identical beneficiary name" is one of the three matches
+  /// a Verifier's duplicate hints are built from (prd-compliance 14). A
+  /// ciphertext would make that question unanswerable. Nullable until a
+  /// Campaign form writes one; a Campaign that names no beneficiary matches
+  /// no other Campaign on this, which is what the statement in
+  /// src/lib/duplicate-hints.ts relies on.
+  beneficiaryName  String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -333,6 +343,11 @@ model Campaign {
   @@index([creatorId])
   @@index([collectingEntityId])
   @@index([location])
+  @@index([beneficiaryName])
+  // The trigram index behind duplicate hints (prd-compliance 14): the GIN
+  // index pg_trgm's `similarity()` can use as a search. The extension itself
+  // is created by the migration, never by the application.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([isUrgent, status])
   @@index([lifecycleStatus, deadline])
 }
@@ -1119,6 +1134,25 @@ model PlatformFeeThreshold {
   amount  Int
   setById String
   setAt   DateTime @default(now())
+
+  setBy User @relation(fields: [setById], references: [id], onDelete: Restrict)
+
+  @@index([setAt])
+}
+
+/// The title similarity above which two Campaigns count as alike, as an
+/// Admin sets it (PRD FFI-05: "ambang 0,6 diatur Admin"; prd-compliance 14).
+/// The same append-only pattern as PlatformFeeThreshold: the row with the
+/// latest setAt is in force, and setById/setAt on it are the "who and when".
+/// No row is seeded, so with none set the threshold is the PRD's 0.6, read
+/// from code the way an unset Platform Fee resolves to 0 bps
+/// (resolveDuplicateSimilarityThreshold, src/lib/duplicate-hints.ts).
+model DuplicateSimilarityThreshold {
+  id        String   @id @default(cuid())
+  /// A `similarity()` score from pg_trgm: above 0, at most 1, not a percent.
+  threshold Float
+  setById   String
+  setAt     DateTime @default(now())
 
   setBy User @relation(fields: [setById], references: [id], onDelete: Restrict)
 

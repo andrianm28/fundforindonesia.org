@@ -303,6 +303,29 @@ describe('POST /api/campaigns', () => {
     expect(data.lifecycleStatus).toBe('DRAFT');
   });
 
+  it('keeps the beneficiary name the duplicate hints are matched on (prd-compliance 14)', async () => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+    mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
+
+    const request = createPostRequest({ ...validBody, beneficiaryName: '  Keluarga Mahdi  ' });
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    expect(mockCreate.mock.calls[0][0].data.beneficiaryName).toBe('Keluarga Mahdi');
+  });
+
+  it('leaves the beneficiary name empty rather than storing a blank one', async () => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+    mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
+
+    const request = createPostRequest(validBody);
+    await POST(request);
+
+    // A blank name would match every other blank name, which is the one thing
+    // the duplicate hints must never do.
+    expect(mockCreate.mock.calls[0][0].data.beneficiaryName).toBeNull();
+  });
+
   it('returns 400 with field errors for invalid body', async () => {
     mockGetServerSession.mockResolvedValue(verifiedSession as never);
 
