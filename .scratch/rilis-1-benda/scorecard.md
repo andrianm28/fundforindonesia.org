@@ -259,12 +259,23 @@ three additions were already reachable. The count went up and the number went
 up too, which is the correct direction: a measure that only ever lowers is
 measuring the wrong thing.
 
-## Two more things needing a human
+## Both open questions are now answered
 
-- **Does a Tim CSR get an account?** An account means storing the company's
-  contact details and a per-company thread of follow-up. No account means the
-  acknowledgement is an email and nothing more. Rilis 1 has no answer.
-- **Should Volunteer be in Rilis 1 at all?** The PRD says no. But the glossary
-  described its flow as though it existed, and a Fundraiser can create a Trip
-  with a price today and a Verifier has no screen to approve it. Leaving it out
-  of scope is defensible; leaving a half-open loop in the code is not.
+**Does a Tim CSR get an account? Yes** — ticket 08. It is a term and not an
+`Assignment`, so the account carries no Campaign, no Payout and no
+Verification Request. Several people may share one company. Whether the account
+is anchored to the person or the company is still open, and so is whether a
+company is verified at all.
+
+**Should Volunteer be in Rilis 1? Yes** — ticket 09, with the rule that no
+half-open loop ships: a Trip that can be created must be approvable by a person,
+and a Volunteer who registers must reach a payment and a confirmation.
+
+This does not change the numbers in the table above, and it should not. The
+Volunteer score stays 0 of 5 — that is what the product does today. What
+changed is that those five zeros are now work in Release 1 rather than work
+deferred to release 3, which is the difference between a known gap and an
+accepted one. The four jobs left open in ticket 09 — the certificate, the quota
+warning, the Escrow Hold period for a Trip Fee, and whether the Volunteer
+lifecycle forks from the Campaign one — are each small enough to decide while
+building.

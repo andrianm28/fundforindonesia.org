@@ -39,7 +39,7 @@ Item katalog kolaborasi CSR per Sektor yang dibaca tim CSR perusahaan. Program t
 _Avoid_: Campaign CSR, proposal
 
 **Tim CSR**:
-Tim di perusahaan atau lembaga yang mencari program siap implementasi dan bukti dampaknya, lalu mengirim Partnership Inquiry. Ia membaca katalog Program, bukan Campaign, dan tidak memberi uang lewat Donation: Program tidak menerima uang daring. Berbeda dari Partner Organisation, yang juga bergerak di platform tetapi menjadi Fundraiser di atasnya. Belum diputuskan apakah ia memakai akun sendiri atau hanya korespondensi; yang sudah pasti, permintaannya masuk ke antrean Admin dan Tim CSR tidak diberi tahu hasilnya. Pekerjaan seorang Tim CSR: menelusuri portofolio Program per Sector; membaca anggaran dan KPI sebuah Program; mengirim Partnership Inquiry; dan mencari tahu apa yang terjadi atas permintaannya. Dua pertama ada, dua terakhir belum.
+Tim di perusahaan atau lembaga yang mencari program siap implementasi dan bukti dampaknya, lalu mengirim Partnership Inquiry. Ia membaca katalog Program, bukan Campaign, dan tidak memberi uang lewat Donation: Program tidak menerima uang daring. Berbeda dari Partner Organisation, yang juga bergerak di platform tetapi menjadi Fundraiser di atasnya. Ia memakai akun sendiri, diputuskan untuk Rilis 1, dan ia bukan Fundraiser: akunnya tidak membawa Campaign, Payout, atau Verification Request. Satu perusahaan boleh punya lebih dari satu Tim CSR. Permintaannya masuk ke antrean Admin, dan tanpa balasan ia tidak akan pernah tahu hasilnya. Pekerjaan seorang Tim CSR: menelusuri portofolio Program per Sector; membaca anggaran dan KPI sebuah Program; mengirim Partnership Inquiry; dan mencari tahu apa yang terjadi atas permintaannya. Dua pertama ada, dua terakhir belum.
 _Avoid_: Mitra (dipakai untuk Partner Organisation), penggalang dana, foundations
 
 **Sector**:
@@ -55,7 +55,7 @@ Pengajuan wakaf non-tunai (tanah, bangunan, barang) yang ditindaklanjuti nazhir 
 _Avoid_: Wakaf aset (di kode), donasi barang
 
 **Volunteer Trip**:
-Item katalog milik satu Fundraiser yang mengumpulkan Volunteer untuk ikut satu atau beberapa Volunteer Batch, dengan destinasi, itinerary, dan Trip Fee yang sama di semua Batch-nya. Bukan Campaign dan bukan Kind: uangnya bergerak sebagai Trip Fee, bukan Donation (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Dinamai "Trip", bukan "Program", supaya tidak tertukar dengan Program CSR di atas.
+Item katalog milik satu Fundraiser yang mengumpulkan Volunteer untuk ikut satu atau beberapa Volunteer Batch, dengan destinasi, itinerary, dan Trip Fee yang sama di semua Batch-nya. Bukan Campaign dan bukan Kind: uangnya bergerak sebagai Trip Fee, bukan Donation (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Dinamai "Trip", bukan "Program", supaya tidak tertukar dengan Program CSR di atas. Volunteer masuk Rilis 1, diputuskan 2026-09-27, sebelumnya hanya direncanakan untuk rilis 3.
 _Avoid_: Volunteer Event, Volunteer Program, Kegiatan, activity, trip package
 
 **Volunteer Batch**:

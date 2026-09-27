@@ -72,6 +72,16 @@ than the tracker:
   one uniform bound for `zakat` and `wakaf`, none for `hibah`, decided now —
   the number, the gate-or-observation question, and per-Kind configurability
   are all still open.
+- [08: Does a Tim CSR get an account of its own?](issues/08-tim-csr-account.md):
+  yes, and it is a term rather than an Assignment — no Campaign, no Payout, no
+  Verification Request. Several people may share one company. Whether the
+  account is anchored to the person or the company is still open, and so is
+  whether a company is verified at all.
+- [09: Is the Volunteer module in Release 1?](issues/09-volunteer-in-rilis-1.md):
+  yes, with the rule that no half-open loop ships — a Trip that can be created
+  must be approvable by a person, and a Volunteer who registers must reach a
+  payment and a confirmation. The certificate, the quota warning, the Escrow
+  Hold period and the lifecycle fork are all still open.
 
 ## Not yet specified
 
