@@ -23,9 +23,8 @@ interface PageProps {
  * than shown the read's refusal: without the guard that arrives on screen as
  * "Gagal memuat data pencairan.", a complaint about a screen they were never
  * signed in to see, on a URL that looks broken. The guard buys that, and
- * nothing else -- the read below refuses a signed-out visitor on its own,
- * server-side, and this is the sibling pages' guard because a Fundraiser
- * reaches this page from one of them.
+ * nothing else: it is settled before the panel below is rendered, so a
+ * signed-out visitor is sent to sign in without ever issuing the read.
  *
  * GUARDED HERE RATHER THAN WITH `useSession`, which is what the other pages
  * under /akun do (akun/page.tsx, pengaturan/page.tsx, kampanye-saya/page.tsx).
