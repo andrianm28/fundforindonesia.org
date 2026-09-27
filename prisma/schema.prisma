@@ -207,6 +207,13 @@ model Campaign {
   lifecycleStatus CampaignStatus @default(DRAFT)
   isUrgent        Boolean   @default(false)
   deadline        DateTime?
+  /// Stamped once the scheduled job (runScheduledJobs, ticket 20) sends the
+  /// deadline reminder to this Campaign's Fundraiser. Null until then, so the
+  /// same reminder is never sent twice -- claimed via a predicated
+  /// `updateMany` (WHERE deadlineReminderSentAt IS NULL) before sending,
+  /// mirroring Payment.escrowReleasedAt's own claim pattern, so two
+  /// overlapping scheduler runs still send exactly one reminder.
+  deadlineReminderSentAt DateTime?
   creatorId       String
   /// The Partner Organisation under whose Fundraising Permit this Campaign
   /// collects (CONTEXT.md, Collecting Entity; ADR 0010). Always a Partner
@@ -267,6 +274,7 @@ model Campaign {
   @@index([creatorId])
   @@index([collectingEntityId])
   @@index([isUrgent, status])
+  @@index([lifecycleStatus, deadline])
 }
 
 enum CampaignStatusChangeAction {
@@ -531,6 +539,12 @@ model KindAuthorisation {
   validTo               DateTime
   grantedById           String
   grantedAt             DateTime @default(now())
+  /// Stamped once the scheduled job (runScheduledJobs, ticket 20) sends the
+  /// 30-day expiry warning to this authorisation's Partner Organisation.
+  /// Null until then; claimed via a predicated `updateMany` (WHERE
+  /// expiryWarningSentAt IS NULL) before sending, same idempotency pattern as
+  /// Campaign.deadlineReminderSentAt.
+  expiryWarningSentAt   DateTime?
 
   // Relations
   partnerOrganisation PartnerOrganisation             @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
@@ -538,6 +552,7 @@ model KindAuthorisation {
   auditEntries        PartnerOrganisationAuditEntry[]
 
   @@index([partnerOrganisationId, validTo])
+  @@index([validTo, expiryWarningSentAt])
 }
 
 enum PartnerOrganisationAuditAction {
