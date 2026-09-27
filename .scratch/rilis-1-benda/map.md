@@ -82,6 +82,13 @@ than the tracker:
   must be approvable by a person, and a Volunteer who registers must reach a
   payment and a confirmation. The certificate, the quota warning, the Escrow
   Hold period and the lifecycle fork are all still open.
+- [01: How does a Fundraiser get a bank account, and who says it is theirs?](issues/01-bank-account-verification.md):
+  the owner adds it unverified on their own profile, and a Verification Request
+  references it by id — approval sets `verifiedAt`. Checked once, not per
+  Campaign; a Verifier may not check their own. Uniqueness stays unenforceable,
+  so the account a Payout points at is the thing verified, and a Donor's Refund
+  account uses the same flow. Two of the ticket's four questions turned out to be
+  already answered by `CONTEXT.md` and ADR 0006.
 
 ## Not yet specified
 
