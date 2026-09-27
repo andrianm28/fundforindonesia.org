@@ -1,3 +1,8 @@
+'use client';
+
+import { useSession } from 'next-auth/react';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import { CampaignPayoutPanel } from '@/components/campaign/CampaignPayoutPanel';
 
 /**
@@ -11,17 +16,37 @@ import { CampaignPayoutPanel } from '@/components/campaign/CampaignPayoutPanel';
  * keeps showing only COMPLETED Payouts, which is the public record
  * (GET /api/campaigns/[slug]/disbursements).
  *
+ * GUARDED ON THE SESSION, like every other page under /akun (akun/page.tsx,
+ * pengaturan/page.tsx, kampanye-saya/page.tsx). Nothing here is public, and
+ * a person who reaches this URL by typing it or by an old link has to be told
+ * where to sign in rather than shown the read's refusal: without the guard
+ * that arrives on screen as "Gagal memuat data pencairan.", a complaint about
+ * a screen they were never signed in to see, on a URL that looks broken.
+ * The guard buys that, and nothing else -- the read below refuses a signed-out
+ * visitor on its own, server-side, and this is the sibling pages' guard
+ * because a Fundraiser reaches this page from one of them.
+ *
  * The panel fetches for itself rather than receiving figures as props, so the
- * numbers on screen are read at the moment the Fundraiser is looking at them
- * -- the lazy escrow sweep in that read means a matured hold is already
- * released and the figure shown is the one a request would be judged against.
+ * numbers on screen are read at the moment the Fundraiser is looking at them.
+ * That read moves no money: escrow release is the scheduled job's business
+ * (runScheduledJobs) and the Payout request's own lazy sweep, never a page
+ * load -- see the route's own comment.
  */
-export default async function CampaignPayoutPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
-  const { slug } = await params;
+export default function CampaignPayoutPage() {
+  const { status } = useSession();
+  const router = useRouter();
+  const params = useParams();
+  const slug = typeof params.slug === 'string' ? params.slug : '';
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.replace('/login');
+    }
+  }, [status, router]);
+
+  if (status === 'loading' || status === 'unauthenticated') {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-[#F5F5F5] pb-20">
