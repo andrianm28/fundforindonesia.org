@@ -1186,9 +1186,8 @@ enum LedgerAccount {
   /// src/lib/money/ledger.ts), so the balance is read debits - credits -- the
   /// same convention as the Provider Balance a settlement debits, and the one
   /// collectionAccountBalance uses. Read credit-normal it would print 0 for a
-  /// million rupiah that had just reached a bank. That sweep is the only
-  /// movement that names this account, so a figure read this way rises by the
-  /// amount of every recorded withdrawal.
+  /// million rupiah that had just reached a bank. That is the only direction
+  /// this account is read in, and no sentence here describes a second one.
   ///
   /// No Payout appears here, and that is the shape of the flow rather than a
   /// modelling oversight: a Payout is paid out of the Provider Balance by hand
