@@ -13,7 +13,10 @@ import { AssignCollectingEntityForm, type AssignableCampaign } from "./AssignCol
 export async function AssignCollectingEntityScreen() {
   const [campaigns, organisations] = await Promise.all([
     prisma.campaign.findMany({
-      where: { ...listableCampaignWhere(new Date()), collectingEntityId: null },
+      // includeDemo: this screen is behind an assignment, and an Admin or
+      // Verifier works on every Campaign, not only the ones the public may
+      // see (CONTEXT.md, Demo Campaign; prd-compliance 26).
+      where: { ...listableCampaignWhere(new Date(), { includeDemo: true }), collectingEntityId: null },
       select: { slug: true, title: true, creatorId: true, creator: { select: { name: true } } },
       orderBy: { createdAt: "asc" },
     }),

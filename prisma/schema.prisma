@@ -231,7 +231,61 @@ model Program {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  /// The opposite end of every Partnership Inquiry about this Program. The
+  /// only way a Program is ever reached from the outside; it carries no money
+  /// either way, so a Program still cannot be given to or paid from.
+  partnershipInquiries PartnershipInquiry[]
+
   @@index([sector])
+}
+
+/// How far the partnership team has taken a Partnership Inquiry along
+/// (CONTEXT.md, Partnership Inquiry; ticket csr-05). A new Inquiry always
+/// starts at NOT_YET_FOLLOWED_UP; ticket csr-06 moves it forward and records
+/// who did so and when.
+enum PartnershipInquiryStatus {
+  NOT_YET_FOLLOWED_UP
+  IN_PROGRESS
+  DONE
+}
+
+/// One company's proposal to discuss a collaboration on a single Program
+/// (CONTEXT.md, Partnership Inquiry; ticket csr-05). Submitted by an
+/// unauthenticated public form and answered by the partnership team, so it
+/// carries contact details -- a named person, so ADR 0012 protects them the same
+/// way it protects a Donor's (see src/lib/field-protection.ts) -- and it moves
+/// no money: the Program itself never takes money online, and an Inquiry is not
+/// an entity that can hold any.
+model PartnershipInquiry {
+  id      String @id @default(cuid())
+  programId String
+  program Program @relation(fields: [programId], references: [id], onDelete: Restrict)
+  companyName  String
+  contactName  String
+  contactEmail String
+  /// Optional: plenty of counterparties have one number and no other.
+  contactPhone String?
+  /// The company's description of what it wants to discuss, in its words.
+  needs String @db.Text
+  /// Hex HMAC-SHA256 of the trimmed, lowercased contactEmail under FIELD_HMAC_KEY.
+  /// Searchable; lets the partnership team find every Inquiry from one company
+  /// contact without reading a ciphertext.
+  contactEmailHmac String?
+  contactEmailHmacKeyId String?
+  /// base64(iv | AES-256-GCM ciphertext | tag) of contactEmail under FIELD_ENCRYPTION_KEY.
+  contactEmailCiphertext String?
+  contactEmailKeyId String?
+  /// contactPhone is never searched, so ciphertext only -- no HMAC, same as
+  /// User.phone and Donation.guestPhone.
+  contactPhoneCiphertext String?
+  contactPhoneKeyId String?
+  status PartnershipInquiryStatus @default(NOT_YET_FOLLOWED_UP)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([programId])
+  @@index([status])
+  @@index([contactEmailHmac])
 }
 
 model Campaign {

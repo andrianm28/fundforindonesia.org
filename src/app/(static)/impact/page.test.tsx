@@ -175,6 +175,35 @@ describe('ImpactPage', () => {
     expect(screen.getByTestId('impact-location-filter').textContent).toContain('Bali');
   });
 
+  it('counts no Demo Campaign, so the totals here agree with a catalogue that shows none', async () => {
+    // The same exclusion the catalogue applies to what it lists
+    // (src/lib/subject-guard.ts) has to apply to what this page adds up, or
+    // the page would report money a visitor cannot find anywhere
+    // (CONTEXT.md, Demo Campaign; prd-compliance 26).
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-demo', campaignId: 'campaign-demo', gross: 25_000_000, providerFee: 0, platformFee: 0 });
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    holder.db = makeImpactDb({
+      campaigns: [
+        { id: 'campaign-demo', title: 'Bantu korban bencana (contoh)', isDemo: true, location: 'Jawa Barat' },
+        CAMPAIGN,
+      ],
+      payments: [
+        { id: 'payment-demo', campaignId: 'campaign-demo' },
+        { id: 'payment-1', campaignId: 'campaign-1' },
+      ],
+      ledgerEntries: ledger.rows,
+    });
+
+    await renderPage();
+
+    expect(screen.getByTestId('impact-collected').textContent).toContain('Rp100.000');
+    const rendered = screen
+      .getAllByTestId(/^impact-line-/)
+      .map((row) => Number((row.textContent ?? '').replace(/[^0-9]/g, '')));
+    expect(rendered.reduce((total, amount) => total + amount, 0)).toBe(100_000);
+  });
+
   it('shows no figures at all, loudly, when the six lines cannot be reconciled', async () => {
     // A Payout instructed out of a Campaign that never settled a Payment.
     const ledger = ledgerFixture();

@@ -15,6 +15,9 @@ import {
 
 const holder = vi.hoisted(() => ({
   db: null as unknown as ReturnType<typeof import('../../tests/support/in-memory-campaign-db').makeCampaignDb>,
+  // Typed with its argument so a test can read the `where` the page passed,
+  // the way the prayers route test reads its own mock.
+  prayerFindMany: vi.fn(async (_args: { where: Record<string, unknown> }) => []),
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -22,7 +25,7 @@ vi.mock('@/lib/prisma', () => ({
     {},
     {
       get(_target, key: string) {
-        if (key === 'prayer') return { findMany: async () => [] };
+        if (key === 'prayer') return { findMany: holder.prayerFindMany };
         return (holder.db.prisma as Record<string, unknown>)[key];
       },
     }
@@ -91,5 +94,33 @@ describe('home page Campaign lists', () => {
     await HomePage();
     expect(holder.db.campaigns).toEqual(before);
     expect(holder.db.statusChanges).toEqual([]);
+  });
+});
+
+describe('the home page and a Demo Campaign', () => {
+  // Whatever section a visitor lands on first, fiction is not in it
+  // (CONTEXT.md, Demo Campaign; prd-compliance 26).
+  beforeEach(() => {
+    holder.db = makeCampaignDb({
+      campaigns: [
+        campaign('active', { isUrgent: true }),
+        campaign('demo-newest', { isDemo: true }),
+        campaign('demo-urgent', { isDemo: true, isUrgent: true, deadline: TOMORROW }),
+        campaign('demo-biggest', { isDemo: true, targetAmount: 900_000_000 }),
+      ],
+    });
+  });
+
+  it('shows no Demo Campaign in the Urgent rail, in "Yang Baru" or in "Pilihan Kami"', async () => {
+    const page = await HomePage();
+    expect(campaignsPassedTo(page, UrgentCampaigns)).toEqual([['active']]);
+    expect(campaignsPassedTo(page, CampaignGrid)).toEqual([['active'], ['active']]);
+  });
+
+  it('names no Demo Campaign in the Prayer Wall, which links to the Campaign it names', async () => {
+    await HomePage();
+
+    const { where } = holder.prayerFindMany.mock.calls[0][0];
+    expect(where).toEqual({ campaign: { isDemo: false } });
   });
 });

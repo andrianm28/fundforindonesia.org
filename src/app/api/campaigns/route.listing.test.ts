@@ -111,6 +111,41 @@ describe('GET /api/campaigns lists only effectively Active Campaigns', () => {
   });
 });
 
+describe('GET /api/campaigns and a Demo Campaign', () => {
+  // CONTEXT.md, Demo Campaign: its data is fiction, so nothing here may show
+  // it -- the catalogue a visitor browses, the urgent list they scan, the
+  // search they run, or the count above their results (prd-compliance 26).
+  beforeEach(() => {
+    holder.db = makeCampaignDb({
+      campaigns: [
+        campaign('active', { title: 'Pemulihan Gudang' }),
+        campaign('demo-active', { isDemo: true, title: 'Bantu korban bencana (contoh)' }),
+        campaign('demo-urgent', { isDemo: true, isUrgent: true, title: 'Beasiswa Pesisir (contoh)' }),
+        campaign('demo-with-a-future-deadline', { isDemo: true, deadline: TOMORROW }),
+      ],
+    });
+  });
+
+  it('lists no Demo Campaign, in the catalogue or in the urgent list', async () => {
+    expect(await listSlugs()).toEqual(['active']);
+    expect(await listSlugs('?urgent=true')).toEqual([]);
+  });
+
+  it('counts only the Campaigns it lists', async () => {
+    const response = await GET(new NextRequest(new URL('http://localhost:3000/api/campaigns')));
+    expect((await response.json()).total).toBe(1);
+  });
+
+  it('finds a Demo Campaign by neither its title nor its slug', async () => {
+    expect(await listSlugs('?search=korban')).toEqual([]);
+    expect(await listSlugs('?search=contoh')).toEqual([]);
+    expect(await listSlugs('?search=demo')).toEqual([]);
+    // A search that matches nothing real still shows nothing, and the Demo
+    // Campaign is not the consolation prize.
+    expect(await listSlugs('?search=Pemulihan')).toEqual(['active']);
+  });
+});
+
 describe('GET /api/campaigns filters by Kind', () => {
   beforeEach(() => {
     holder.db = makeCampaignDb({
