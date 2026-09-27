@@ -248,11 +248,13 @@ describe('CampaignPayoutPanel', () => {
     expect(screen.getByText('Rp800.000')).toBeInTheDocument();
   });
 
-  it('asks the same list the money layer enforces, rather than a copy of the statuses', async () => {
-    // One list decides both: PAYOUT_REQUESTABLE_STATUSES is what
-    // requirePayoutAllowed is written against, and it is what the Campaign
-    // list hides the link on. A second copy here is how a status ends up
-    // offered by a screen and refused by the money.
+  it('offers the form for exactly Active, Expired and Completed, and withholds it for every other status', async () => {
+    // The two lists below ARE a third copy of PAYOUT_REQUESTABLE_STATUSES, and
+    // they stay one on purpose: this file is where someone changing that list
+    // has to look, because it is the one place the panel's own verdict is
+    // written out per status. A test that asked the module instead -- as the
+    // panel and requirePayoutAllowed already do -- could not tell a panel that
+    // drifted from one that did not.
     for (const status of ['SUSPENDED', 'CANCELLED', 'DRAFT', 'SUBMITTED', 'REJECTED'] as const) {
       mockFetch.mockImplementation(() => ok({ ...READ, lifecycleStatus: status }));
       const { unmount } = render(<CampaignPayoutPanel slug="sumur-desa" />);
