@@ -25,8 +25,7 @@ vi.mock("@/lib/prisma", () => ({
 // wall-clock time depending on production's cost or on machine load.
 const { TEST_HASH_COST } = vi.hoisted(() => ({ TEST_HASH_COST: 4 }));
 vi.mock("@/lib/password-hash-cost", () => ({
-  REGISTRATION_HASH_COST: TEST_HASH_COST,
-  PASSWORD_CHANGE_HASH_COST: TEST_HASH_COST,
+  PASSWORD_HASH_COST: TEST_HASH_COST,
 }));
 
 const fsMocks = vi.hoisted(() => ({

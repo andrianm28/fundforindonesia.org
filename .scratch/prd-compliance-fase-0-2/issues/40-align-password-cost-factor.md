@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** in progress
 
 - [ ] One cost factor is defined in a single place and used by every path that hashes a password
 - [ ] Registration and password change produce hashes of the same strength
@@ -16,3 +16,5 @@
 
 **Parent spec:** `.scratch/prd-compliance-fase-0-2/spec.md`
 - 2026-09-25: Both cost factors now live in `src/lib/password-hash-cost.ts` (registration 12, password change 10, unchanged), and the routes read them from there (flaky-tests ticket 01). This ticket still has to choose the one factor and re-hash accounts that were weakened.
+- 2026-09-27: Decided 12, recorded in ADR 0017. The two constants collapsed into `PASSWORD_HASH_COST`; `isHashAtCurrentCost` reads the factor off the stored hash's `$2a$NN$` prefix, and the credentials provider's `authorize` re-hashes a weakened account on a successful login (best-effort, never on the request path). The guarding test uses real bcryptjs, since the defect is the number in the prefix; it read `expected 10 to be 12` before the fix.
+- 2026-09-27: PR #46 (dependabot) bumped only `package.json` and `package-lock.json`; bcryptjs is untouched, so no hashing path appeared or changed there. The three production `bcrypt.hash` call sites are registration, password change, and the new login repair, plus the seed script.
