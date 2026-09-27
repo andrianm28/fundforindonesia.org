@@ -6,9 +6,33 @@ import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
 import { CampaignModerationActions } from "./CampaignModerationActions";
 import { holdsValidKindAuthorisation, holdsValidPermit, requiresKindAuthorisation } from "@/lib/collecting-entity";
 import { KIND_LABEL } from "@/lib/campaign-kind";
+import { STATUS_LABEL } from "@/lib/campaign-status-label";
+import {
+  findDuplicateCampaignHints,
+  resolveDuplicateSimilarityThreshold,
+  type DuplicateHintReason,
+} from "@/lib/duplicate-hints";
 
 interface PageProps {
   params: Promise<{ id: string }>;
+}
+
+/** What each match is called to the Verifier, in their own words. */
+const HINT_REASON: Record<DuplicateHintReason, string> = {
+  SAME_FUNDRAISER: "Fundraiser sama",
+  SIMILAR_TITLE: "Judul mirip",
+  SAME_BENEFICIARY: "Nama penerima manfaat sama",
+};
+
+/**
+ * A match as the Verifier reads it. The title match carries its score, since
+ * "mirip" on its own would not say how near it is; the other two are exact
+ * and need no number.
+ */
+function hintReasonLabel(reason: DuplicateHintReason, titleSimilarity: number): string {
+  return reason === "SIMILAR_TITLE"
+    ? `${HINT_REASON[reason]} ${Math.round(titleSimilarity * 100)}%`
+    : HINT_REASON[reason];
 }
 
 export default async function ModerasiCampaignDetailPage({ params }: PageProps) {
@@ -51,12 +75,17 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
       : false;
   // The one open request, if any: what the Verifier decides here. The
   // decision itself is judged on the request, never on this page's view.
-  const [openRequest, identity] = await Promise.all([
+  // The duplicate hints come with it: the up-to-five Campaigns this one most
+  // resembles, so a duplicate or a repeat fraud is caught before the Campaign
+  // is published rather than after (PRD FFI-05, prd-compliance 14).
+  const [openRequest, identity, hints, similarityThreshold] = await Promise.all([
     prisma.verificationRequest.findFirst({
       where: { campaignId: campaign.id, outcome: "PENDING" },
       orderBy: { submittedAt: "desc" },
     }),
     prisma.identityVerification.findUnique({ where: { userId: campaign.creatorId } }),
+    findDuplicateCampaignHints(prisma, { campaignId: campaign.id }),
+    resolveDuplicateSimilarityThreshold(prisma),
   ]);
 
   return (
@@ -149,6 +178,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
                 })}
               />
             )}
+            <InfoItem label="Penerima Manfaat" value={campaign.beneficiaryName || "Belum diisi"} />
           </div>
 
           {/* Description */}
@@ -172,6 +202,49 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
             />
           </div>
         </div>
+      </div>
+
+      {/* Duplicate hints: the Campaigns this one most resembles, and why. */}
+      <div className="mt-6 bg-white rounded-xl border border-[#E0E0E0] p-6">
+        <h2 className="text-sm font-semibold text-[#212121] mb-1">Campaign yang Mirip</h2>
+        <p className="text-xs text-[#757575] mb-4">
+          Paling banyak lima Campaign yang cocok pada salah satu dari tiga hal: Fundraiser
+          yang sama, kemiripan judul di atas {Math.round(similarityThreshold * 100)}%, atau nama
+          penerima manfaat yang sama persis. Centang &ldquo;Sudah dipastikan bukan duplikat Campaign
+          lain&rdquo; pada checklist di bawah hanya setelah Anda sudah melihat Campaign ini.
+        </p>
+        {hints.length === 0 ? (
+          <p className="text-sm text-[#757575]">
+            Tidak ada Campaign lain yang mirip dengan Campaign ini.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {hints.map((hint) => (
+              <li key={hint.campaignId} className="border border-[#E0E0E0] rounded-lg p-3">
+                <a
+                  href={`/moderasi/campaigns/${hint.campaignId}`}
+                  className="text-sm font-medium text-[#0073E6] hover:underline"
+                >
+                  {hint.title}
+                </a>
+                <ul className="mt-1 flex flex-wrap gap-2">
+                  {hint.reasons.map((reason) => (
+                    <li
+                      key={reason}
+                      className="text-xs rounded-full bg-[#FFF3E0] text-[#E65100] px-2 py-0.5"
+                    >
+                      {hintReasonLabel(reason, hint.titleSimilarity)}
+                    </li>
+                  ))}
+                  {/* Whether the duplicate is still live is half the question. */}
+                  <li className="text-xs rounded-full bg-[#F5F5F5] text-[#616161] px-2 py-0.5">
+                    {STATUS_LABEL[hint.lifecycleStatus]}
+                  </li>
+                </ul>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* Moderation Actions */}

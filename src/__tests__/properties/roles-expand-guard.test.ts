@@ -78,6 +78,11 @@ import { join } from "node:path";
  * Verifier's, so they are gated on ADMIN alone -- not on a rank, and not on
  * "an operator is good enough for this one".
  *
+ * NOTE (prd-compliance 14): POST /api/admin/duplicate-similarity lets an
+ * Admin set the title similarity a Verifier's duplicate hints are built on
+ * (PRD FFI-05), through withAssignmentCheck on the ADMIN assignment like
+ * every other Admin setting here -- growing this list by one.
+ *
  * NOTE (csr-04): the Program edit was keyed by id when csr-01 landed, and the
  * public portfolio read needed the same segment for the slug a public link can
  * carry. Next.js allows one dynamic segment per level, so the segment is the
@@ -89,6 +94,7 @@ import { join } from "node:path";
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
+  "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
   "src/app/api/admin/manual-contributions/route.ts",
   "src/app/api/admin/platform-fee/route.ts",

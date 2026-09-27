@@ -634,3 +634,76 @@ describe('decideVerificationRequest', () => {
     });
   });
 });
+
+/**
+ * The "bukan duplikat" item the migration seeds (prd-compliance 14, PRD
+ * FFI-05). It is an ordinary general checklist row, so it reaches a request
+ * the same way every other item does and the Verifier's tick is kept on the
+ * request: the decision that a Campaign is not a duplicate is recorded, not
+ * merely implied by the hints going unread. The seed itself is proved by
+ * src/__tests__/duplicate-hints-migration.test.ts.
+ */
+describe('the not-a-duplicate checklist item', () => {
+  const WITH_DUPLICATE_ITEM = [
+    { id: 'identitas-fundraiser', label: 'KTP Fundraiser', required: true, position: 1, ticked: false },
+    {
+      id: 'bukan-duplikat',
+      label: 'Sudah dipastikan bukan duplikat Campaign lain',
+      required: true,
+      position: 2,
+      ticked: false,
+    },
+  ];
+
+  const seededWithItem = () =>
+    makeCampaignDb({
+      campaigns: [campaignRow()],
+      verificationRequests: [verificationRequestRow({ id: 'verification-open', checklist: WITH_DUPLICATE_ITEM })],
+    });
+
+  it('will not pass a Campaign until the Verifier has ticked it, naming the item they left', async () => {
+    const db = seededWithItem();
+
+    await expect(
+      decideVerificationRequest(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'verification-open',
+        actor: verifier,
+        decision: 'approve',
+        ticked: ['identitas-fundraiser'],
+        now: NOW,
+      }),
+    ).rejects.toThrow(RequiredChecklistItemsUntickedError);
+    expect(db.campaign().lifecycleStatus).toBe('SUBMITTED');
+  });
+
+  it('keeps the tick beside the outcome, so the "not a duplicate" verdict travels with the request', async () => {
+    const db = seededWithItem();
+
+    await decideVerificationRequest(db.prisma as never, {
+      campaignId: 'campaign-1',
+      requestId: 'verification-open',
+      actor: verifier,
+      decision: 'approve',
+      ticked: ['identitas-fundraiser', 'bukan-duplikat'],
+      now: NOW,
+    });
+
+    expect(db.verificationRequests).toEqual([
+      expect.objectContaining({
+        id: 'verification-open',
+        outcome: 'APPROVED',
+        checklist: [
+          { id: 'identitas-fundraiser', label: 'KTP Fundraiser', required: true, position: 1, ticked: true },
+          {
+            id: 'bukan-duplikat',
+            label: 'Sudah dipastikan bukan duplikat Campaign lain',
+            required: true,
+            position: 2,
+            ticked: true,
+          },
+        ],
+      }),
+    ]);
+  });
+});
