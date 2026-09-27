@@ -8,6 +8,7 @@ import { CampaignModerationActions } from "./CampaignModerationActions";
 import { holdsValidKindAuthorisation, holdsValidPermit, requiresKindAuthorisation } from "@/lib/collecting-entity";
 import { KIND_LABEL } from "@/lib/campaign-kind";
 import { STATUS_LABEL } from "@/lib/campaign-status-label";
+import { formatRupiah } from "@/lib/utils/currency";
 import {
   findDuplicateCampaignHints,
   resolveDuplicateSimilarityThreshold,
@@ -18,8 +19,22 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-/** What each match is called to the Verifier, in their own words. */
-const HINT_REASON: Record<DuplicateHintReason, string> = {
+/**
+ * The Gross and the limit a Verifikasi Tambahan was raised at, read off the
+ * request's own record rather than recomputed: the Verifier judges the Campaign
+ * as it stood when the review opened, and a Donation since then would move the
+ * number under them. Null on a request raised before this column existed, or
+ * by anything but the amount rule.
+ */
+function amountReviewGross(
+  request: { raisedByAmount?: unknown } | null
+): { cumulativeGross: number; threshold: number } | null {
+  const raw = request?.raisedByAmount as { cumulativeGross?: unknown; threshold?: unknown } | null | undefined;
+  if (typeof raw?.cumulativeGross !== 'number' || typeof raw?.threshold !== 'number') return null;
+  return { cumulativeGross: raw.cumulativeGross, threshold: raw.threshold };
+}
+
+/** What each match is called to the Verifier, in their own words. */const HINT_REASON: Record<DuplicateHintReason, string> = {
   SAME_FUNDRAISER: "Fundraiser sama",
   SIMILAR_TITLE: "Judul mirip",
   SAME_BENEFICIARY: "Nama penerima manfaat sama",
@@ -208,6 +223,28 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
           </div>
         </div>
       </div>
+
+      {/* Why this request is open, when it is an amount review: the Gross
+          that earned it and the limit it passed (prd-compliance 38). */}
+      {openRequest?.kind === "AMOUNT_REVIEW" && (
+        <div className="mt-6 bg-[#FFF3E0] border border-[#FFB300] rounded-xl p-6">
+          <h2 className="text-sm font-semibold text-[#E65100] mb-1">Verifikasi Tambahan</h2>
+          <p className="text-xs text-[#8D6E63]">
+            Campaign ini sudah mengumpulkan lebih dari ambang yang berlaku, jadi Verifier
+            memeriksanya lagi. Menolaknya tidak membekukan Campaign dan tidak memblokir donasi baru;
+            bila ada yang mencurigakan, pasang Flag agar Admin memutuskan Suspension.
+          </p>
+          {(() => {
+            const gross = amountReviewGross(openRequest);
+            return gross ? (
+              <p className="text-sm text-[#424242] mt-2">
+                Dana terkumpul saat pengajuan ini dibuka: {formatRupiah(gross.cumulativeGross)}, di atas ambang{" "}
+                {formatRupiah(gross.threshold)}.
+              </p>
+            ) : null;
+          })()}
+        </div>
+      )}
 
       {/* Duplicate hints: the Campaigns this one most resembles, and why. */}
       <div className="mt-6 bg-white rounded-xl border border-[#E0E0E0] p-6">

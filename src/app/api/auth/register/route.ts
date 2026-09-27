@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
-import { REGISTRATION_HASH_COST } from '@/lib/password-hash-cost';
+import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import { lookupUserEmail, readUserEmail, sealUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(password, REGISTRATION_HASH_COST);
+    const hashedPassword = await bcrypt.hash(password, PASSWORD_HASH_COST);
 
     // Sealed at the call site rather than by the client hook: the plaintext
     // column is gone, so there is nothing for the hook to add it to. The hook

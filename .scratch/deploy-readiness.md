@@ -110,7 +110,7 @@ The 2026-09-20 backfill gave assignments to everyone who held those Roles then. 
 ## 6. Scheduled follow-ups tied to deploys
 
 - [ ] `legacy-status-contract` ticket 03 (drop `Campaign.status`): only after ticket 02 is **live in production**. It is ready-for-human for that reason.
-- [ ] prd-compliance ticket 40: pick one bcrypt cost factor. It now lives in `src/lib/password-hash-cost.ts`: registration 12, password change 10.
+- [x] prd-compliance ticket 40: one bcrypt cost factor, 12, in `src/lib/password-hash-cost.ts` (ADR 0017). Accounts weakened by the old cost-10 password change are repaired on their next successful login.
 
 ## 7. Open human tasks
 

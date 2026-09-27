@@ -79,11 +79,18 @@ import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
  *    the subject guard's own isEscrowReleaseFrozen, asked without a row lock
  *    since this report only reads. An entry with no `cause` is unexplained
  *    exactly as before; Trip entries never carry one (ADR 0014).
- *  - stuckPayouts: two payout states nothing in this codebase currently
- *    drains. Surfaced, not fixed -- see the comments below for why.
+ *  - stuckPayouts: two payout states that are work rather than incidents --
+ *    see the comments there.
  *  - pendingRefunds: every Refund whose status is REQUESTED, Campaign-or-Trip
  *    both in one combined list -- the only place in this codebase a REQUESTED
  *    Refund becomes discoverable after it's created.
+ *  - pendingManualContributions: every Manual Contribution still waiting for
+ *    the second Admin (prd-compliance 34), Campaign-or-Program both. The
+ *    approval queue for the two-person rule on money that arrived outside the
+ *    gateway. Also folded into `mismatches` above: a contribution's approval
+ *    moves collectedAmount and the ledger in one transaction, so comparing
+ *    collectedAmount against settled net and provider fee alone would report
+ *    every one of them as a permanent discrepancy.
  *  - orphanedCancelledRegistrationPayments: a PAID Trip Payment whose
  *    Registration is CANCELLED with no live Refund against it -- the safety
  *    net for the settlement webhook's own auto-refund failing silently.
@@ -192,6 +199,61 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       feeByCampaign.set(campaignId, (feeByCampaign.get(campaignId) ?? 0) + entry.amount);
     }
 
+    // Money that arrived outside the gateway (CONTEXT.md, Manual
+    // Contribution; prd-compliance 34) is a third thing the gross a Campaign
+    // has been credited with can be made of, alongside the settled net and
+    // its provider fee. Its approval increments collectedAmount in the same
+    // transaction as the ledger, so leaving it out here would report every
+    // Manual Contribution as a permanent mismatch.
+    //
+    // Credits minus debits, keyed on the CAMPAIGN_BALANCE account alone, so a
+    // reversed contribution nets back to zero and a Program's money -- which
+    // carries no campaignId and is never reconciled against a Campaign --
+    // cannot be counted here at all.
+    const manualRows = await tx.ledgerEntry.groupBy({
+      by: ['campaignId', 'direction'],
+      where: {
+        account: 'CAMPAIGN_BALANCE',
+        campaignId: { not: null },
+        manualContributionId: { not: null },
+      },
+      _sum: { amount: true },
+    });
+    const manualByCampaign = new Map<string, number>();
+    for (const row of manualRows) {
+      const campaignId = row.campaignId as string;
+      const signed = row.direction === 'CREDIT' ? (row._sum.amount ?? 0) : -(row._sum.amount ?? 0);
+      manualByCampaign.set(campaignId, (manualByCampaign.get(campaignId) ?? 0) + signed);
+    }
+
+    // Every recorded Manual Contribution still waiting for a second Admin --
+    // the two-person rule's work queue. Nothing else in this report makes a
+    // PENDING one discoverable, and a rule nobody can find the work for is a
+    // rule that quietly stops happening.
+    const pendingManualContributionRows = await tx.manualContribution.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        campaignId: true,
+        programId: true,
+        amount: true,
+        proofReference: true,
+        recordedById: true,
+        createdAt: true,
+      },
+    });
+
+    const pendingManualContributions = pendingManualContributionRows.map((m) => ({
+      manualContributionId: m.id,
+      campaignId: m.campaignId,
+      programId: m.programId,
+      amount: m.amount,
+      proofReference: m.proofReference,
+      recordedById: m.recordedById,
+      createdAt: m.createdAt,
+    }));
+
     const campaigns = await tx.campaign.findMany({
       select: { id: true, title: true, collectedAmount: true, isDemo: true },
     });
@@ -216,7 +278,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       if (campaign.isDemo) continue;
 
       const ledgerAmount =
-        (netEverCreditedByCampaign.get(campaign.id) ?? 0) + (feeByCampaign.get(campaign.id) ?? 0);
+        (netEverCreditedByCampaign.get(campaign.id) ?? 0) +
+        (feeByCampaign.get(campaign.id) ?? 0) +
+        (manualByCampaign.get(campaign.id) ?? 0);
       if (ledgerAmount === campaign.collectedAmount) continue;
 
       const row: CollectedAmountRow = {
@@ -231,7 +295,10 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       // nets to exactly 0 (fully refunded, say) must still land in
       // `mismatches` if collectedAmount disagrees, not be waved through as
       // pre-ledger.
-      const hasLedgerActivity = balances.has(campaign.id) || feeByCampaign.has(campaign.id);
+      const hasLedgerActivity =
+        balances.has(campaign.id) ||
+        feeByCampaign.has(campaign.id) ||
+        (manualByCampaign.get(campaign.id) ?? 0) !== 0;
       if (!hasLedgerActivity) {
         preLedger.push(row);
       } else {
@@ -505,8 +572,8 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       });
     }
 
-    // Two payout states nothing in this codebase currently drains -- see the
-    // module doc comment above for why fixing either is out of scope here.
+    // Two payout states an Admin still has work to do -- see the module doc
+    // comment above and the notes on each key below.
     const processingPayouts = await tx.payout.findMany({
       where: { status: 'PROCESSING' },
       select: { id: true, campaignId: true, volunteerTripId: true, amount: true, providerRef: true, approvedAt: true },
@@ -544,17 +611,18 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       // creation -- treat a non-empty result as a data-integrity incident.
       subjectlessPayments,
       pendingRefunds,
+      pendingManualContributions,
       orphanedCancelledRegistrationPayments,
       stuckPayouts: {
         // Nothing in this codebase writes PROCESSING today -- approval stops
-        // at APPROVED, and only a provider with a disbursement API plus its
-        // webhook would ever set it. Kept because that provider is planned
-        // (FFI-18) and because any row appearing here now would mean
-        // something wrote a status no code path should be writing.
-        //
-        // Either way, nothing drains PAYOUT_CLEARING: that leg belongs to the
-        // completion step, which needs a LedgerAccount for money that has
-        // physically left and the enum has none.
+        // at APPROVED, and a second Admin then completes the Payout by hand
+        // (completePayout, ./payouts.ts), which only ever writes COMPLETED.
+        // Kept because that provider is planned (FFI-18) and because any row
+        // appearing here now would mean something wrote a status no code path
+        // should be writing. completePayout refuses a PROCESSING row for the
+        // same reason: it cannot show that the instructed legs were ever
+        // posted, so completing it would post the second half of a movement
+        // whose first half is unproven.
         processing: processingPayouts.map((p) => ({
           payoutId: p.id,
           campaignId: p.campaignId,
@@ -563,17 +631,19 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
           providerRef: p.providerRef,
           approvedAt: p.approvedAt,
         })),
-        // This is the NORMAL resting state of an approved payout today, not
-        // an incident: approvePayout (./payouts.ts) posts the instructed legs
-        // and stops at APPROVED without ever instructing a provider, because
-        // the withdrawal is performed by hand by a second admin (ADR 0006,
-        // FFI-07). So this list is the work queue for that second admin --
-        // "approved, money already committed out of CAMPAIGN_BALANCE, waiting
-        // for someone to actually transfer it and record proof".
+        // The work queue for the second Admin: "approved, money already
+        // committed out of CAMPAIGN_BALANCE, waiting for someone to actually
+        // transfer it and record proof" (POST .../payouts/[id]/complete). A
+        // row lingering here long after the transfer happened is a real
+        // incident -- the money is committed out of the balance and nobody
+        // has proved where it went.
         //
-        // It only becomes an anomaly list once a mark-completed-with-proof
-        // endpoint exists and a row still lingers here afterwards. Until
-        // then, expect every approved payout to appear.
+        // A COMPLETED payout cannot appear here: the query is on status
+        // APPROVED, so a transfer the second Admin has recorded stops being
+        // outstanding work. That is the whole of what completion changes in
+        // this report. There is no second list of PAYOUT_CLEARING balances to
+        // keep honest either, because completion drains that account in the
+        // same transaction (payoutCompletedLegs, ./ledger.ts).
         approvedWithoutProviderRef: approvedWithoutProviderRef.map((p) => ({
           payoutId: p.id,
           campaignId: p.campaignId,

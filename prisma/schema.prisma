@@ -77,6 +77,7 @@ model User {
   assignmentAuditsAsActor   AssignmentAuditEntry[] @relation("AssignmentAuditActor")
   campaignStatusChanges     CampaignStatusChange[]
   tripStatusChanges         VolunteerTripStatusChange[]
+  partnershipInquiryStatusChanges PartnershipInquiryStatusChange[]
   cancellationRequestsMade    CancellationRequest[] @relation("CancellationRequester")
   cancellationRequestsDecided CancellationRequest[] @relation("CancellationDecider")
   campaignFlagsRaised         CampaignFlag[]        @relation("FlagVerifier")
@@ -96,11 +97,16 @@ model User {
   bankAccounts     BankAccount[]
   payoutsRequested Payout[]      @relation("PayoutRequester")
   payoutsApproved  Payout[]      @relation("PayoutApprover")
+  payoutsCompleted Payout[]      @relation("PayoutCompleter")
   refundsRequested Refund[]      @relation("RefundRequester")
   refundsApproved  Refund[]      @relation("RefundApprover")
   platformFeeRulesSet      PlatformFeeRule[]
   platformFeeThresholdsSet PlatformFeeThreshold[]
+  manualContributionsRecorded ManualContribution[] @relation("ManualContributionRecorder")
+  manualContributionsDecided  ManualContribution[] @relation("ManualContributionDecider")
+  manualContributionsReversed ManualContribution[] @relation("ManualContributionReverser")
   duplicateSimilarityThresholdsSet DuplicateSimilarityThreshold[]
+  abuseThresholdsSet               AbuseThreshold[]
 
   // One account per address, and it is the normalized address that counts: the
   // old `email @unique` was case-sensitive and would let one person hold
@@ -213,10 +219,13 @@ enum Sector {
 /// A CSR collaboration catalog item (CONTEXT.md, Program; ticket csr-01).
 /// Read by company CSR teams; it never takes money online, so it carries no
 /// Kind and no relation any Donation, Payment, Refund, Payout, or ledger code
-/// path can reach. Money the platform can account for arrives later as
-/// PROGRAM_BALANCE ledger postings (ticket csr-07); money that never crossed
-/// the platform's account is only the plain reportedAmount figure below, kept
-/// apart from the ledger on purpose (ticket csr-08).
+/// path can reach. Money the platform can account for arrives as a Manual
+/// Contribution naming this Program, credited to PROGRAM_BALANCE (FFI-07c,
+/// prd-compliance 34) -- the contribution row below is the only way a
+/// Program id reaches the money layer, and it is a write, never a read by
+/// online-money code. Money that never crossed the platform's account is only
+/// the plain reportedAmount figure below, kept apart from the ledger on
+/// purpose (ticket csr-08).
 model Program {
   id           String @id @default(cuid())
   slug         String @unique
@@ -242,6 +251,12 @@ model Program {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  /// Manual Contributions that name this Program. Inert on its own: nothing
+  /// in the Donation, Payment, Refund, Payout or escrow paths reads it, and
+  /// no back-relation onto a money model exists in the other direction --
+  /// LedgerEntry.programId is a bare scalar, deliberately, so the word
+  /// "ledger" never has to appear here (program-money-isolation.test.ts).
+  manualContributions ManualContribution[]
   /// The opposite end of every Partnership Inquiry about this Program. The
   /// only way a Program is ever reached from the outside; it carries no money
   /// either way, so a Program still cannot be given to or paid from.
@@ -291,12 +306,51 @@ model PartnershipInquiry {
   contactPhoneCiphertext String?
   contactPhoneKeyId String?
   status PartnershipInquiryStatus @default(NOT_YET_FOLLOWED_UP)
+  /// The follow-up steps taken on it, oldest first; written only by
+  /// src/lib/partnership-inquiry-followup.ts. The second relation this model
+  /// has, and the only one besides its Program: never money.
+  statusChanges PartnershipInquiryStatusChange[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([programId])
   @@index([status])
   @@index([contactEmailHmac])
+}
+
+/// One follow-up step of a Partnership Inquiry (CONTEXT.md, Partnership
+/// Inquiry; ticket csr-06): who moved it, from which status to which, and when.
+/// Append-only, in the same transaction as the move itself, like
+/// CampaignStatusChange: the queue's current status says where the
+/// conversation is, and this says who took it there.
+///
+/// `actedById` is named the way AssignmentAuditEntry and
+/// PartnerOrganisationAuditEntry name theirs, not the way CampaignStatusChange
+/// names its actor, because a follow-up is taken in no Capacity: whoever holds
+/// the ADMIN assignment moves the queue, and there is no Fundraiser to be.
+/// There is no `reason` here either, because nobody outside the partnership
+/// team is refused or told anything by a follow-up -- a Campaign's status
+/// change changes what a Donor may give, and this changes only the team's own
+/// queue.
+///
+/// onDelete: Restrict on both relations, as CampaignStatusChange does:
+/// deleting an Inquiry or a person must never erase who followed it up and
+/// when.
+model PartnershipInquiryStatusChange {
+  id         String   @id @default(cuid())
+  inquiryId  String
+  fromStatus PartnershipInquiryStatus
+  toStatus   PartnershipInquiryStatus
+  /// Never null: no job and no scheduled task moves an Inquiry forward, only
+  /// a member of the partnership team.
+  actedById  String
+  actedAt    DateTime @default(now())
+
+  // Relations
+  inquiry PartnershipInquiry @relation(fields: [inquiryId], references: [id], onDelete: Restrict)
+  actedBy User                 @relation(fields: [actedById], references: [id], onDelete: Restrict)
+
+  @@index([inquiryId, actedAt])
 }
 
 model Campaign {
@@ -399,6 +453,12 @@ model Campaign {
   flags                CampaignFlag[]
   verificationRequests VerificationRequest[]
   platformFeeRules     PlatformFeeRule[]
+  /// Money recorded by an Admin as arriving outside the payment gateway
+  /// (CONTEXT.md, Manual Contribution). Not a Donation: it has no Payment,
+  /// no Donor and no Refund, and it can be taken back out by a reversal.
+  manualContributions ManualContribution[]
+  auditMarker          CampaignAuditMarker?
+  donationReviewMarkers DonationReviewMarker[]
 
   @@index([slug])
   @@index([category])
@@ -564,10 +624,30 @@ enum VerificationOutcome {
 /// refusals survives; nothing is ever deleted. At most one is PENDING per
 /// Campaign: only a Draft or Rejected Campaign can be submitted, and
 /// submitting makes it Submitted, both under the Campaign row lock.
+/// What a Verification Request is for. Two of the three are asked for by a
+/// Fundraiser and decided by a Verifier; the third is raised by the System
+/// because a Campaign's money crossed a threshold (prd-compliance 38).
+enum VerificationRequestKind {
+  /// Submitted from a Draft or Rejected Campaign. The only kind that moves
+  /// the Campaign to Active or back to Rejected.
+  SUBMISSION
+  /// An Active Campaign asking for a new target or deadline; it keeps
+  /// running on its old values until the request is decided (ticket 12).
+  CHANGE
+  /// The extra Verifier review a Campaign earns by crossing the cumulative
+  /// Gross threshold (CONTEXT.md, Verifikasi Tambahan). Raised by the
+  /// System, so it moves no status either way and the Fundraiser cannot
+  /// withdraw it: a review the person under review could cancel is not a
+  /// review.
+  AMOUNT_REVIEW
+}
+
 model VerificationRequest {
   id            String              @id @default(cuid())
   campaignId    String
-  submittedById String
+  /// Null only on an AMOUNT_REVIEW, which the System raises and no person
+  /// submits (prd-compliance 38); `kind` is what says so.
+  submittedById String?
   submittedAt   DateTime            @default(now())
   /// The active checklist items as they stood at submission, with the
   /// Verifier's ticks: [{ id, label, required, position, ticked }].
@@ -583,9 +663,21 @@ model VerificationRequest {
   isFirst       Boolean
   /// A change asked for an Active Campaign (ticket 12, FFI-05): the new
   /// target and/or deadline the Campaign keeps running without until a
-  /// Verifier approves this request. Null on every submission from Draft or
-  /// Rejected. Approving applies it; rejecting or withdrawing discards it.
+  /// Verifier approves this request. Null on every SUBMISSION and on every
+  /// AMOUNT_REVIEW. Approving applies it; rejecting or withdrawing discards it.
   proposedChanges Json?
+  /// Which of the three kinds of request this is (prd-compliance 38).
+  /// Backfilled from `proposedChanges` by the migration that added it, so
+  /// every request already in the table says which kind it is instead of
+  /// being inferred from a nullable JSON column.
+  kind           VerificationRequestKind @default(SUBMISSION)
+  /// Why the System raised an AMOUNT_REVIEW: the Campaign's Cumulative Gross
+  /// and the threshold it had passed, as `{ cumulativeGross, threshold }`.
+  /// Null on the other two kinds. Kept on the request rather than re-derived
+  /// at read time, because the Verifier judges the Campaign as it stood when
+  /// the review was raised, and a later Donation would move the number under
+  /// them.
+  raisedByAmount Json?
   /// The Campaign's Collecting Entity when it was submitted: the one the
   /// Verifier confirms by approving (prd-compliance 10). Null on requests
   /// submitted before this column existed.
@@ -594,7 +686,7 @@ model VerificationRequest {
   // Relations
   campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   collectingEntity PartnerOrganisation? @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
-  submittedBy User     @relation("VerificationRequestSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  submittedBy User?    @relation("VerificationRequestSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
   decidedBy   User?    @relation("VerificationRequestDecider", fields: [decidedById], references: [id], onDelete: Restrict)
 
   @@index([outcome, submittedAt])
@@ -838,6 +930,11 @@ model Donation {
   /// Campaign (CONTEXT.md, Akad Wakaf; ticket 22).
   akadWakaf AkadWakaf?
 
+  /// Set once, the moment this Donation settles above the single-Donation
+  /// review threshold, and read by nobody but the Admin's scrutiny view
+  /// (prd-compliance 38). It marks the Donation; it does not change it.
+  reviewMarker DonationReviewMarker?
+
   @@index([campaignId])
   @@index([donorId])
   @@index([paymentStatus])
@@ -1039,6 +1136,11 @@ enum LedgerAccount {
   ESCROW_HOLD // settled at the provider, still inside the dispute window
   CAMPAIGN_BALANCE // owed to a specific campaign, withdrawable now
   TRIP_BALANCE
+  /// CSR money recorded against a Program (CONTEXT.md, Program Balance;
+  /// Manual Contribution). Withdrawable by no Payout, ever: a Program is not
+  /// a Campaign, Payout has no Program column, and nothing in this codebase
+  /// can set one -- asserted in manual-contribution-isolation.test.ts.
+  PROGRAM_BALANCE
   /// Money moved out of ESCROW_HOLD or the withdrawable balance the moment a
   /// Refund is created -- no longer visible as available, no longer eligible
   /// for a Payout, remaining the Donor's right until the (out-of-scope for
@@ -1046,12 +1148,52 @@ enum LedgerAccount {
   FROZEN_BALANCE
   PLATFORM_FEE // retained by the platform
   PROVIDER_FEE // retained by the payment provider
-  GATEWAY_CLEARING // money at the provider, not yet settled to us
+  /// CONTEXT.md's Provider Balance: the Donors' money sitting at the payment
+  /// provider under the Merchant Account, debited with the full Gross of
+  /// every settlement. Debit-normal -- it grows when money arrives and shrinks
+  /// when money physically leaves the provider. The balance it SHOULD hold is
+  /// the money still sitting there that the Campaign, the platform and the
+  /// provider are owed between them, and nothing else (ADR 0011).
+  ///
+  /// IT IS NOT CREDITED BY ANYTHING TODAY, and reading this comment as if it
+  /// were would be the single easiest way to be wrong about this ledger. The
+  /// two movements that ought to credit it are both absent:
+  ///
+  ///   - a Payout completed by the second Admin, which is prd-compliance 27
+  ///     (PR #73, still unmerged as of 2026-09-27), and
+  ///   - a Refund actually paid to the Donor, whose leg builder refundPaidLegs
+  ///     was added by prd-compliance 28c but has NO CALLER, because the
+  ///     COMPLETED transition that would call it is ticket 32.
+  ///
+  /// So the account is debit-only in this repository: it grows by every Gross
+  /// ever collected and is drained by nothing. Approval posts no credit either
+  /// -- the fee accounts take their share out of this pot by ALLOCATION at
+  /// settlement rather than by moving cash, and approving a Refund is an
+  /// internal decision that moves no money. Until both credits land, treat any
+  /// non-zero balance here as unsettled, not as a reconciliation signal, and
+  /// do not use it to tell a Donor or a Fundraiser what they are owed.
+  GATEWAY_CLEARING
   PAYOUT_CLEARING // money instructed out, not yet confirmed
+  /// The Donor's own claim once a Refund is approved, and the money the
+  /// platform owes that Donor until the transfer lands: credited the full
+  /// Gross at approval, debited when the Donor is actually paid
+  /// (refundPaidLegs). Every returned fee rides out of here rather than
+  /// staying behind in the Provider Balance, so nothing a Refund hands back
+  /// is left claimed as money owed to the platform or the provider.
   REFUND_CLEARING
+  /// Money that arrived outside the payment gateway -- a bank transfer or cash
+  /// handed over -- and is not yet attributed to a Campaign or a Program. The
+  /// other side of a Manual Contribution, and the account the money returns to
+  /// when that contribution is reversed. Platform-level on purpose: until a
+  /// contribution names its target, the money belongs to nobody in particular,
+  /// which is exactly why it cannot be read as any subject's balance.
+  MANUAL_INTAKE_CLEARING
   /// The platform's absorption of whatever a Refund's source didn't cover --
   /// the unrecoverable Provider Fee on every Gross refund (ADR 0007), and,
   /// when the subject's pool has gone negative, the uncovered shortfall too.
+  /// Debit-normal, and an expense rather than a pot: the balance is what the
+  /// platform has spent carrying Refunds, and it is the account that keeps
+  /// that difference named instead of silently absorbed.
   REFUND_COST
 }
 
@@ -1224,6 +1366,91 @@ model DuplicateSimilarityThreshold {
   @@index([setAt])
 }
 
+/// The four money-and-volume limits the platform watches itself against
+/// (PRD §"Anti penyalahgunaan"; CONTEXT.md, Verifikasi Tambahan, Penanda
+/// Audit, Penanda Donasi; prd-compliance 38).
+///
+/// A separate table from DuplicateSimilarityThreshold on purpose, though the
+/// pattern is the same one: both are Admin settings an append-only history
+/// answers, but that threshold is a trigram score compared between two
+/// Campaigns at review time, and these are rupiah amounts and a Campaign
+/// count compared against money that has actually arrived. One place per
+/// question, never one place per Admin who typed a number.
+enum AbuseThresholdKind {
+  /// Cumulative Gross on one Campaign above which a Verifier reviews it again.
+  CAMPAIGN_REVIEW_GROSS
+  /// Cumulative Gross on one Campaign above which the Campaign carries an audit marker.
+  CAMPAIGN_AUDIT_GROSS
+  /// One Donation above which an Admin is pointed at it. Never blocks it.
+  DONATION_REVIEW_AMOUNT
+  /// How many Active Campaigns one Fundraiser may run before their first Usage Report.
+  ACTIVE_CAMPAIGNS_PER_FUNDRAISER
+}
+
+/// One threshold in force, as an Admin set it: the row with the latest setAt
+/// for a kind is the current value, and setById/setAt on it are the "who and
+/// when". Nothing is seeded, so with no row set the PRD's own numbers apply,
+/// read from code (resolveAbuseThresholds, src/lib/abuse-thresholds.ts) the
+/// way an unset Platform Fee resolves to 0 bps.
+model AbuseThreshold {
+  id      String            @id @default(cuid())
+  kind    AbuseThresholdKind
+  /// Rupiah for the three money limits, a plain count for
+  /// ACTIVE_CAMPAIGNS_PER_FUNDRAISER. Int, like every amount in this schema.
+  value   Int
+  setById String
+  setAt   DateTime          @default(now())
+
+  setBy User @relation(fields: [setById], references: [id], onDelete: Restrict)
+
+  @@index([kind, setAt])
+}
+
+/// The audit marker a Campaign carries once its Cumulative Gross has passed
+/// the audit threshold (CONTEXT.md, Penanda Audit). One row per Campaign --
+/// the unique campaignId is what makes a second settlement above the
+/// threshold a no-op rather than a second marker -- carrying the Gross and the
+/// threshold in force at the moment it was placed, so the marker says why it
+/// is there without re-deriving anything.
+///
+/// A marker, not a decision: it changes no status, blocks no Donation and
+/// nobody is asked to do anything by it being written. It is the record that
+/// the platform noticed the size of a Campaign, which an audit reads later.
+model CampaignAuditMarker {
+  id               String   @id @default(cuid())
+  campaignId       String   @unique
+  cumulativeGross  Int
+  threshold        Int
+  placedAt         DateTime @default(now())
+
+  // Relations
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+}
+
+/// One Donation above the single-Donation threshold, pointed at for an Admin
+/// (CONTEXT.md, Penanda Donasi). One row per Donation, by the same unique
+/// donationId argument as the audit marker: the Donation is the thing being
+/// looked at, so a retried settlement must not turn it into several.
+///
+/// Nothing is blocked and no status moves. The Donation settled, the money is
+/// in the books, and an Admin is told it is unusual -- which is the whole
+/// point: the alternative, refusing the money, is what loses the platform the
+/// evidence.
+model DonationReviewMarker {
+  id         String   @id @default(cuid())
+  donationId String   @unique
+  campaignId String
+  amount     Int
+  threshold  Int
+  flaggedAt  DateTime @default(now())
+
+  // Relations
+  donation Donation @relation(fields: [donationId], references: [id], onDelete: Restrict)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+
+  @@index([campaignId, flaggedAt])
+}
+
 /// Every webhook the platform has accepted, by provider event id.
 ///
 /// Exists solely so a replayed or duplicated webhook is a no-op. Providers
@@ -1310,6 +1537,84 @@ model BankAccount {
 /// Replaces the previous Disbursement model, which had no status, no approver,
 /// and no destination -- it recorded that a payout had supposedly happened
 /// without any of the facts that make it checkable.
+/// Money that arrived outside the payment gateway (CONTEXT.md, Manual
+/// Contribution; PRD FFI-07c): a bank transfer, or cash handed over.
+///
+/// Two people, the same rule as a Payout. One Admin records it with the proof
+/// of transfer; a DIFFERENT Admin approves it, and only then does the money
+/// enter the books -- credited straight to the Campaign Balance, or to the
+/// Program Balance when it names a Program, with no Escrow Hold and neither
+/// fee, because none of that machinery describes money that never went near
+/// a provider.
+///
+/// `status` is the whole lifecycle, and no step deletes anything: a
+/// correction is a REVERSAL, a new balanced transaction that posts the mirror
+/// image of the credit, and the original rows stay where they are.
+///
+/// onDelete: Restrict on every relation of this table, like Payout and
+/// CampaignStatusChange: neither deleting the Campaign, the Program, nor the
+/// people involved may erase who recorded, who approved, or how much. The
+/// back-reference on LedgerEntry is the exception, onDelete: SetNull, because a
+/// ledger entry is the immutable record of the money and outlives the row it
+/// points at.
+model ManualContribution {
+  id       String @id @default(cuid())
+  amount   Int
+  /// Exactly one of campaignId/programId is set, guarded in the service
+  /// layer (assertExactlyOneManualContributionSubject,
+  /// src/lib/money/manual-contributions.ts) because Prisma cannot express a
+  /// conditional requirement on two nullable columns.
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  programId  String?
+  program    Program?  @relation(fields: [programId], references: [id], onDelete: Restrict)
+  /// The proof of transfer: a receipt image, a bank statement line, whatever
+  /// the Admin can point at. Required, not nullable -- an Admin recording
+  /// money on a word of mouth is exactly what the two-person rule is there to
+  /// catch, and a later column would not be evidence of anything.
+  proofReference String  @db.VarChar(500)
+  /// Free text: who handed it over, which bank, what for.
+  note            String?
+
+  status ManualContributionStatus @default(PENDING)
+  recordedById String
+  recordedBy   User    @relation("ManualContributionRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+  /// Two-person rule: never recordedById. The columns exist so the rule is
+  /// auditable after the fact, exactly as on Payout; the check is in the
+  /// service layer.
+  decidedById  String?
+  decidedBy    User?     @relation("ManualContributionDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt    DateTime?
+  decisionReason String?
+  /// Two-person rule, second half: never recordedById and never decidedById.
+  /// A reversal the pair that put the money in could do itself would make the
+  /// whole rule revocable by one person, so a THIRD Admin takes it back out.
+  /// The check is in the service layer, like the one above.
+  reversedById String?
+  reversedBy   User?     @relation("ManualContributionReverser", fields: [reversedById], references: [id], onDelete: Restrict)
+  reversedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([campaignId, status])
+  @@index([programId, status])
+  @@index([status, createdAt])
+}
+
+/// PENDING until a second Admin decides. APPROVED: the money is in the
+/// balance. REJECTED: the second Admin declined, and nothing was ever posted
+/// -- a decision, not a deletion, so the record and the proof survive.
+/// REVERSED: the money has been taken back out by an opposite journal.
+enum ManualContributionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVERSED
+}
+
 model Payout {
   id            String       @id @default(cuid())
   campaignId    String?
@@ -1337,6 +1642,13 @@ model Payout {
   approvedById    String?
   approvedBy      User?     @relation("PayoutApprover", fields: [approvedById], references: [id])
   approvedAt      DateTime?
+  /// The second person: the Admin who recorded the transfer with proof. The
+  /// two-person rule's other half (CONTEXT.md, Payout; ADR 0006) is enforced
+  /// in the service layer, and the column exists so it is auditable after the
+  /// fact -- approvedById alone cannot show that two people were involved,
+  /// only that one of them was.
+  completedById   String?
+  completedBy     User?     @relation("PayoutCompleter", fields: [completedById], references: [id])
   rejectionReason String?
 
   providerRef String?   @unique
@@ -1373,6 +1685,15 @@ model LedgerEntry {
   /// scalar, no @relation: VolunteerTrip doesn't exist yet -- Ticket 02
   /// adds the relation once it does.
   volunteerTripId String?
+  /// Program-scoped sibling of volunteerTripId, and deliberately a plain
+  /// scalar with no @relation like it. The one @relation that would have
+  /// carried a Program id into a money model is the one Program must not
+  /// have: a back-relation would put a ledger name on the Program row and
+  /// blur the line csr-01 drew (program-money-isolation.test.ts pins it).
+  /// The referential guarantee comes from ManualContribution.programId, a
+  /// real foreign key, written in the same transaction as the entries below
+  /// -- and the only writer of a programId here is that module.
+  programId String?
 
   /// Exactly one of these is set, naming what caused the movement.
   paymentId String?
@@ -1381,18 +1702,38 @@ model LedgerEntry {
   refund    Refund?  @relation(fields: [refundId], references: [id])
   payoutId  String?
   payout    Payout?  @relation(fields: [payoutId], references: [id])
+  /// Which Manual Contribution this movement belongs to -- set on both the
+  /// credit and its reversal, which is what lets a reader tell money that
+  /// arrived off-gateway apart from money that came through a Payment.
+  manualContributionId String?
+  manualContribution   ManualContribution? @relation(fields: [manualContributionId], references: [id])
 
   /// Groups the entries of one balanced transaction. Every entry sharing a
   /// transactionId must sum to zero; that invariant is asserted in tests and
   /// by a periodic check, since Prisma cannot express it as a constraint.
+  ///
+  /// A transactionId is also CLAIMED by exactly one entry, the one with
+  /// `legIndex` 0, and the database refuses a second claim -- see legIndex.
   transactionId String
+  /// Position of this entry inside its transaction, counting from 0.
+  ///
+  /// Leg 0 claims the transactionId, and the partial unique index
+  /// `LedgerEntry_transactionId_claim_key` (WHERE "legIndex" = 0) is what makes
+  /// that claim unrepeatable. Re-posting a transactionId is therefore refused
+  /// by the constraint itself rather than by a read that two concurrent
+  /// writers can both pass. The index is created in the migration, not here:
+  /// a partial index is something this schema language cannot express, the
+  /// same arrangement as Payment_donationId_paid_key.
+  legIndex      Int
   memo          String?
   createdAt     DateTime @default(now())
 
   @@index([transactionId])
   @@index([account, campaignId])
   @@index([account, volunteerTripId])
+  @@index([account, programId])
   @@index([campaignId, createdAt])
+  @@index([manualContributionId])
 }
 
 /// The old `Disbursement` table, renamed rather than dropped by the money-layer
