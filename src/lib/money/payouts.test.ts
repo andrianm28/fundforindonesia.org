@@ -688,6 +688,48 @@ describe('approvePayout', () => {
       }
     });
 
+    it('refuses a reading too large for the column it is stored in, rather than letting the write fail', async () => {
+      // approvedProviderBalance is an Int, so PostgreSQL's int4 ceiling is the
+      // real limit on what a reading can be -- and the one this function was
+      // missing. 5_000_000_000 passes every other check here, so it reached the
+      // INSERT and came back as a driver error: a 500 for a figure that is not
+      // a plausible reading anyway, and a 500 tells the Admin nothing about
+      // which field to fix. Same refusal as an absent reading, same 422, and
+      // the Payout stays in DRAFT.
+      for (const providerBalance of [2_147_483_648, 5_000_000_000]) {
+        const { payoutState, prismaFor } = fundedPayout();
+        await expect(
+          approvePayout(prismaFor() as never, {
+            payoutId: 'payout-1',
+            approvedById: 'admin-1',
+            provider: 'sumopod',
+            providerBalance,
+          }),
+        ).rejects.toMatchObject({ code: 'PROVIDER_BALANCE_NOT_RECORDED' });
+        expect(payoutState).toMatchObject({ status: 'DRAFT' });
+      }
+    });
+
+    it('accepts a reading at exactly the ceiling, because that is a real rupiah amount', async () => {
+      // The boundary, stated from the column rather than from this test: one
+      // rupiah above is refused and the ceiling itself is not, so the check
+      // refuses what the column cannot hold and nothing beside it. Asserted on
+      // the write, since that is where the figure lands.
+      const { prismaFor, tx, rows } = fundedPayout();
+
+      await approvePayout(prismaFor() as never, {
+        payoutId: 'payout-1',
+        approvedById: 'admin-1',
+        provider: 'sumopod',
+        providerBalance: 2_147_483_647,
+      });
+
+      expect(tx.payout.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ approvedProviderBalance: 2_147_483_647 }) }),
+      );
+      expect(rows.some((r) => r.transactionId === 'payout-instructed-payout-1')).toBe(true);
+    });
+
     it('still refuses a self-approval, so a supplied reading never becomes a way past the two-person rule', async () => {
       // The reading is checked before the transaction opens, because it is a
       // property of the request rather than of any row. That means a caller who
