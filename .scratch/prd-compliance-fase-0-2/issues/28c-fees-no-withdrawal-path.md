@@ -9,7 +9,7 @@ the clearing side keeps growing.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** done (PR #82, 1b2f9d4)
+**Status:** done (PR #83, 93d4c71)
 
 - [x] A refund that returns Platform Fee or Provider Fee takes it out of
       `GATEWAY_CLEARING` in the same transaction that returns the rest, or
@@ -34,7 +34,7 @@ the clearing side keeps growing.
   resolves. It does not make a Donor or Fundraiser wrong today, because no
   Refund has been taken through the system yet, which is exactly the reason
   to fix it before one is.
-- 2026-09-27 (PR #82): taken on the **second** branch of the first box, not
+- 2026-09-27 (PR #83): taken on the **second** branch of the first box, not
   the first, and the reason is worth recording because the first branch is
   the one that reads obvious. Crediting `GATEWAY_CLEARING` inside
   `refundApprovedLegs` is arithmetically impossible without retaking
