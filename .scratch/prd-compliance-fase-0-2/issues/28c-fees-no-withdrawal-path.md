@@ -9,18 +9,18 @@ the clearing side keeps growing.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (PR #83, 93d4c71)
 
-- [ ] A refund that returns Platform Fee or Provider Fee takes it out of
+- [x] A refund that returns Platform Fee or Provider Fee takes it out of
       `GATEWAY_CLEARING` in the same transaction that returns the rest, or
       lands it in an account whose name says what it is owed for
-- [ ] The Provider Balance still reconciles: the amount credited to the
+- [x] The Provider Balance still reconciles: the amount credited to the
       Campaign is unchanged, and the difference is accounted for rather
       than absorbed silently
-- [ ] Impact & Transparency still holds its invariant: the six lines still
+- [x] Impact & Transparency still holds its invariant: the six lines still
       total the collected figure after a refund, since a fee that was
       counted and then returned must leave the page the same way
-- [ ] Whatever account absorbs the remainder is named for its purpose, so a
+- [x] Whatever account absorbs the remainder is named for its purpose, so a
       later reader is not left guessing which side owns the balance
 
 ## Comments
@@ -34,3 +34,53 @@ the clearing side keeps growing.
   resolves. It does not make a Donor or Fundraiser wrong today, because no
   Refund has been taken through the system yet, which is exactly the reason
   to fix it before one is.
+- 2026-09-27 (PR #83): taken on the **second** branch of the first box, not
+  the first, and the reason is worth recording because the first branch is
+  the one that reads obvious. Crediting `GATEWAY_CLEARING` inside
+  `refundApprovedLegs` is arithmetically impossible without retaking
+  `REFUND_CLEARING`'s own credit, and it is wrong on the merits besides: a
+  Refund is approved by one Admin and completed by another (CONTEXT.md,
+  Refund), so approval moves no money and the Gross is still sitting at the
+  provider until somebody sends it. A Payout already encodes exactly this
+  split (instructed at approval, out of the Provider Balance at completion),
+  and the Refund side now has the same leg in `refundPaidLegs`. So the
+  returned fees do land on accounts named for their purpose -- `PLATFORM_FEE`
+  for the platform's revenue handed back, `REFUND_COST` for the Provider Fee
+  the provider will not return, `REFUND_CLEARING` for the Donor's own claim --
+  and the actual `GATEWAY_CLEARING` credit arrives with the COMPLETED
+  transition, which is ticket 32 and is the only remaining gap here.
+- 2026-09-27 (review of PR #83, verdict YAKINKAN with four items to clear):
+  two corrections to how this ticket's own claims read, both now fixed here.
+  **First, the schema comment on `GATEWAY_CLEARING` was telling an auditor
+  there were two credits when production has none.** "Credited by exactly two
+  movements" is true of what the ledger is *designed* to do and false of what
+  it does: the Payout-side credit is prd-compliance 27 (PR #73, still open),
+  and `refundPaidLegs` has no caller because the COMPLETED transition is
+  ticket 32. A reader with no access to this branch's history is misled by
+  that, so the comment now says the account is debit-only *today*, names both
+  absent credits with their ticket numbers, and says what its balance
+  therefore does and does not mean.
+  **Second, the Impact test claimed more than it could see.** The old version
+  asserted only that the page does not move when the Provider Balance is
+  drained, and a mutation that posts that credit to `PAYOUT_CLEARING` instead
+  of `GATEWAY_CLEARING` leaves all 16 Impact tests green — the reader filters
+  the disbursed line by `payoutId` and a refund's legs carry a `refundId`, so
+  no re-post on this pot can reach a line. `linesTotal === collected` is a
+  conservation law, and conservation is blind to a balanced misallocation: it
+  is not evidence that the right account was drained.
+  What the page *should* do when a fee is returned, worked out and now
+  asserted: the returned Platform Fee leaves `platformFeeRetained`, the
+  Provider Fee the provider will not return leaves `providerFeeKept`, and the
+  frozen pot grows by exactly those two amounts, so `heldInEscrowHold` rises
+  and the six lines still total an unmoved `collected`. The rewritten test
+  walks all four states of the Refund and asserts the *delta* between
+  consecutive states, not just each end state. That is mutation-sensitive in
+  the way the old one was not: routing the returned Platform Fee to the
+  Campaign's pool instead of `PLATFORM_FEE` keeps every total reconciling and
+  is caught immediately on the fee lines.
+  The test now also says plainly what it does **not** prove, and points at
+  `src/lib/money/ledger.test.ts` for the pot's own identity — where the
+  exact `refundPaidLegs` legs, and `GATEWAY_CLEARING + REFUND_COST` equal to
+  what the pot is owed, are asserted, and where the mutation above does fail
+  the build.
+

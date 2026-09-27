@@ -600,11 +600,31 @@ export function refundRequestedLegs(params: {
  * because refundRequestedLegs already removed exactly the net share from
  * the pool at freeze time, not a moment before.
  *
- *   DEBIT  FROZEN_BALANCE  amount     (always, closes the freeze)
  *   CREDIT REFUND_CLEARING amount     (always, full Gross to the donor)
+ *   DEBIT  FROZEN_BALANCE  amount     (always, closes the freeze)
  *   DEBIT  REFUND_COST     shortfall  (omitted when zero)
  *   CREDIT <source>        shortfall  (omitted when zero -- platform tops the
  *                                       pool back up for a genuine shortfall)
+ *
+ * WHY GATEWAY_CLEARING IS NOT CREDITED HERE (prd-compliance 28c). It is
+ * tempting to close this by crediting the Provider Balance with the Gross
+ * going back to the Donor, and it is wrong, for the same reason
+ * payoutInstructedLegs stops at PAYOUT_CLEARING: a Refund is approved by
+ * one Admin and *completed* by a different one (CONTEXT.md, Refund), so
+ * approval is an internal decision, not a movement of money. The Donor is
+ * paid when the Refund completes, and it is paid out of the Provider
+ * Balance -- which is what refundPaidLegs (below) posts. Crediting it here
+ * would claim the money had left the payment provider at a moment when
+ * nobody has sent it, and with no completion step in this codebase yet
+ * (ticket 32) nothing would ever correct the claim.
+ *
+ * The fees this Refund returns are not left behind in the Provider Balance
+ * as money owed to somebody, either. They left at freeze time, to accounts
+ * named for exactly what they are: the Platform Fee back to PLATFORM_FEE
+ * (the platform's own retained revenue, handed back), and the Provider Fee
+ * the provider will not return to REFUND_COST, the account named for the
+ * platform carrying it (ADR 0007). So the whole Gross is the Donor's claim
+ * by the time this runs, and the Campaign's own credit is untouched.
  */
 export function refundApprovedLegs(params: {
   subject: LedgerSubject;
@@ -644,5 +664,50 @@ export function payoutInstructedLegs(params: { subject: LedgerSubject; amount: n
   return [
     { account: balanceAccount(subject), direction: 'DEBIT', amount, ...subjectFk(subject) },
     { account: 'PAYOUT_CLEARING', direction: 'CREDIT', amount },
+  ];
+}
+
+/**
+ * A refund actually PAID to the Donor, by the third Admin who completes it.
+ *
+ *   DEBIT  REFUND_CLEARING   amount   the Donor is owed nothing further
+ *   CREDIT GATEWAY_CLEARING  amount   no longer at the payment provider
+ *
+ * The Refund-side twin of a Payout's completion leg, and the withdrawal path
+ * the returned fees ride out on. GATEWAY_CLEARING is CONTEXT.md's Provider
+ * Balance: debited with the full Gross of every settlement, and until a
+ * movement like this one existed nothing took a refunded Donation back out of
+ * it. The account then claimed a pot at the provider holding money that had
+ * already been handed to Donors, on top of every Gross ever received.
+ *
+ * The FULL Gross leaves, not just the Campaign's net share of it, and that is
+ * the whole point rather than a rounding. A Refund returns the Gross
+ * (CONTEXT.md, Refund; ADR 0007) while the Campaign only ever gave up
+ * `amount - platformFeePortion - providerFeePortion`, so the Provider Balance
+ * carried the difference and the Donor is paid out of it. The platform's own
+ * half of that difference is already on named accounts by the time this runs
+ * -- the returned Platform Fee on PLATFORM_FEE and the Provider Fee the
+ * provider will not return on REFUND_COST, both debited at freeze time by
+ * refundRequestedLegs -- so the money that leaves here is fully accounted for
+ * and none of it is silently absorbed.
+ *
+ * It takes no `subject`: both accounts are platform-level. A Trip Fee Refund
+ * drains the Provider Balance exactly the same way, because the money came
+ * from the same pot whatever it was collected for.
+ *
+ * NOT POSTED YET. No code moves a Refund past APPROVED today -- the
+ * COMPLETED transition is ticket 32 (CONTEXT.md, Refund: created by one
+ * Admin, approved by another, completed by a third, with proof of transfer).
+ * It belongs here rather than in refundApprovedLegs, because approval is an
+ * internal decision that moves no money: posting this at approval would
+ * claim the money had left the payment provider before anybody sent it, and
+ * with no completion step there is nothing that would ever correct it. This
+ * builder exists so that when ticket 32 writes that step it cannot assemble
+ * the legs by hand and credit the wrong account.
+ */
+export function refundPaidLegs(params: { amount: number }): LedgerLeg[] {
+  return [
+    { account: 'REFUND_CLEARING', direction: 'DEBIT', amount: params.amount },
+    { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: params.amount },
   ];
 }

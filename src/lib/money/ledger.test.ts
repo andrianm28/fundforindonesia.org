@@ -11,6 +11,7 @@ import {
   escrowReleaseLegs,
   refundRequestedLegs,
   refundApprovedLegs,
+  refundPaidLegs,
   payoutInstructedLegs,
   UnbalancedTransactionError,
   InvalidLedgerLegError,
@@ -119,6 +120,22 @@ const BALANCED: LedgerLeg[] = [
   { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 100_000 },
   { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 100_000, campaignId: 'c1' },
 ];
+
+/** Credits minus debits on one account -- the credit-normal balance, the way
+ *  ledger.ts's own accountBalance reads one. */
+function netOf(rows: Row[], account: string): number {
+  return rows
+    .filter((r) => r.account === account)
+    .reduce((total, r) => total + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+}
+
+/** Debits minus credits -- for the accounts that grow when they are debited:
+ *  the Provider Balance (money in the pot) and an expense like REFUND_COST
+ *  (money the platform has spent). Reading these with netOf would report a
+ *  pot of money as a negative pot, which is how a real one looks. */
+function heldOf(rows: Row[], account: string): number {
+  return -netOf(rows, account);
+}
 
 describe('postTransaction', () => {
   let tx: ReturnType<typeof makeTx>;
@@ -386,6 +403,168 @@ describe('paymentSettledLegs', () => {
   });
 });
 
+describe('a Refund and the fee money it returns (prd-compliance 28c)', () => {
+  it('takes the returned fees out to accounts named for what they are, and touches nothing unnamed', () => {
+    // Gross 100_000 refunded in full, Platform Fee 2_500, Provider Fee 5_000.
+    // The Donor gets their whole Gross back, so every rupiah of those fees
+    // leaves the Campaign's pool too -- and the ledger has to say where each
+    // one went rather than let it quietly reappear as somebody's balance.
+    const legs = refundRequestedLegs({
+      subject: { type: 'campaign', campaignId: 'c1' },
+      amount: 100_000,
+      source: 'ESCROW_HOLD',
+      platformFeePortion: 2_500,
+      providerFeePortion: 5_000,
+    });
+
+    expect(legs).toEqual([
+      { account: 'FROZEN_BALANCE', direction: 'CREDIT', amount: 100_000, campaignId: 'c1' },
+      { account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 92_500, campaignId: 'c1' },
+      // The platform's own retained revenue, handed back: not a loss, a return.
+      { account: 'PLATFORM_FEE', direction: 'DEBIT', amount: 2_500 },
+      // The Provider Fee the provider does not return, so the platform carries
+      // it (ADR 0007). The account is named for the absorption, so the 7_500
+      // the Campaign gave up and the Donor did not get back is accounted for.
+      { account: 'REFUND_COST', direction: 'DEBIT', amount: 5_000 },
+    ]);
+  });
+
+  it('does NOT credit GATEWAY_CLEARING at approval -- approving a Refund is not paying it', () => {
+    // CONTEXT.md, Refund: created by one Admin, approved by another, and
+    // completed by a third. Approval moves no money, so the Provider Balance
+    // still holds the Gross the Donor is owed. Crediting it here would claim
+    // the money had left the payment provider before anyone sent it, and
+    // with no completion step in this codebase yet (ticket 32) nothing would
+    // ever correct that claim.
+    const legs = refundApprovedLegs({
+      subject: { type: 'campaign', campaignId: 'c1' },
+      amount: 100_000,
+      source: 'ESCROW_HOLD',
+      shortfall: 0,
+    });
+
+    expect(legs.some((l) => l.account === 'GATEWAY_CLEARING')).toBe(false);
+    // The whole Gross is the Donor's claim by this point, in the account
+    // named for the money owed to a Donor.
+    expect(legs.find((l) => l.account === 'REFUND_CLEARING')).toEqual({
+      account: 'REFUND_CLEARING',
+      direction: 'CREDIT',
+      amount: 100_000,
+    });
+  });
+
+  it('refundPaidLegs takes the paid Gross out of the Provider Balance', () => {
+    // The withdrawal path the returned fees ride out on. The Donor is paid
+    // from the Provider Balance, so this is the credit GATEWAY_CLEARING has
+    // never had on the Refund side -- the exact twin of a Payout's completion
+    // leg, and the reason that account is no longer a pot that only ever
+    // grows.
+    expect(refundPaidLegs({ amount: 100_000 })).toEqual([
+      { account: 'REFUND_CLEARING', direction: 'DEBIT', amount: 100_000 },
+      { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 100_000 },
+    ]);
+  });
+
+  it('refundPaidLegs carries no subject: the Provider Balance is platform-level, and a Trip Fee refund drains it the same way', () => {
+    expect(refundPaidLegs({ amount: 40_000 }).every((l) => l.campaignId === undefined && l.volunteerTripId === undefined)).toBe(true);
+  });
+
+  it('lands the whole story on the arithmetic everyone expects, without the Campaign losing a rupiah extra', async () => {
+    const tx = makeTx();
+    // Rp 500.000 donated, Provider Fee 15.000 kept by the provider, Platform
+    // Fee 12.500 kept by the platform, so the Campaign is credited 472.500.
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000, platformFee: 12_500 }),
+    );
+    // The same 100.000 refund the lifecycle test below uses: its share of the
+    // two fees is 3.000 and 2.500, so the pool gives up 94.500.
+    await postTransaction(
+      tx as never,
+      refundRequestedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', platformFeePortion: 2_500, providerFeePortion: 3_000 }),
+    );
+    await postTransaction(
+      tx as never,
+      refundApprovedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', shortfall: 0 }),
+    );
+
+    // Approved but not yet paid: the 100.000 the Donor is owed is still at
+    // the provider, so the Provider Balance still counts it.
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(500_000);
+    expect(netOf(tx.rows, 'REFUND_CLEARING')).toBe(100_000);
+
+    // The platform has already given the Campaign's fee money back, and
+    // booked the Provider Fee it will never recover: both on named accounts,
+    // so the 5.500 the Donor did not get back is accounted for, not absorbed.
+    expect(netOf(tx.rows, 'PLATFORM_FEE')).toBe(10_000); // 12.500 charged, 2.500 returned
+    expect(heldOf(tx.rows, 'REFUND_COST')).toBe(3_000); // absorbed by the platform
+    expect(netOf(tx.rows, 'PROVIDER_FEE')).toBe(15_000); // the provider still holds all of it
+
+    // The Campaign's own credit is exactly what the settlement gave it --
+    // a Refund costs it its net share of this payment and not one rupiah more.
+    expect(tx.rows.filter((r) => r.account === 'ESCROW_HOLD' && r.direction === 'CREDIT')).toEqual([
+      expect.objectContaining({ amount: 472_500 }),
+    ]);
+    expect(await escrowBalance(tx as never, 'c1')).toBe(378_000); // 472.500 - 94.500
+
+    // Paid. The Provider Balance gives the 100.000 back, and the Donor is
+    // owed nothing further.
+    await postTransaction(tx as never, refundPaidLegs({ amount: 100_000 }));
+
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(400_000);
+    expect(netOf(tx.rows, 'REFUND_CLEARING')).toBe(0);
+
+    // The Provider Balance still reconciles, and this is the statement that
+    // says so: what sits in the pot, plus the 3.000 the platform has already
+    // put into the provider's fee out of its own pocket, is exactly what that
+    // pot is owed -- 378.000 still in the Campaign's escrow, 10.000 of
+    // Platform Fee the platform kept, 15.000 the provider kept. No part of it
+    // is a balance nobody is owed and nobody is holding.
+    const owedToThePot = [
+      netOf(tx.rows, 'ESCROW_HOLD'),
+      netOf(tx.rows, 'PLATFORM_FEE'),
+      netOf(tx.rows, 'PROVIDER_FEE'),
+    ].reduce((total, amount) => total + amount, 0);
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING') + heldOf(tx.rows, 'REFUND_COST')).toBe(owedToThePot);
+    expect(owedToThePot).toBe(403_000);
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+
+  it('books a shortfall on REFUND_COST, so the platform money covering it is named too', async () => {
+    // The pool was already paid out, so most of the 100.000 refund finds
+    // nothing to come from: the 92.500 net went out with the Payout, and the
+    // freeze then debited the pool that same 92.500. That shortfall is the
+    // platform's own money, and the account that says so is REFUND_COST --
+    // not a hole the Provider Balance absorbs.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 5_000, platformFee: 2_500 }),
+    );
+    await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 92_500 }));
+    await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 92_500 }));
+    await postTransaction(
+      tx as never,
+      refundRequestedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'CAMPAIGN_BALANCE', platformFeePortion: 2_500, providerFeePortion: 5_000 }),
+    );
+    await postTransaction(
+      tx as never,
+      refundApprovedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'CAMPAIGN_BALANCE', shortfall: 92_500 }),
+    );
+
+    // 5.000 the provider will not return, plus the 92.500 the Campaign could
+    // not cover: the whole 97.500 of platform money, on the one account named
+    // for it, and the Campaign's balance is put back to zero rather than left
+    // negative. The Provider Balance is untouched by any of it -- approval
+    // moves no money out of the pot.
+    expect(heldOf(tx.rows, 'REFUND_COST')).toBe(97_500);
+    expect(await campaignBalance(tx as never, 'c1')).toBe(0);
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(100_000);
+    expect(netOf(tx.rows, 'PLATFORM_FEE')).toBe(0); // 2.500 charged, 2.500 returned
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+});
+
 describe('ledger invariants (property-based)', () => {
   it('every builder produces a transaction that balances, for any amount, for both subject types', () => {
     fc.assert(
@@ -408,6 +587,7 @@ describe('ledger invariants (property-based)', () => {
             refundRequestedLegs({ subject, amount: gross, source: 'ESCROW_HOLD', platformFeePortion: 0, providerFeePortion: fee }),
             refundRequestedLegs({ subject, amount: gross, source: balanceAccount, platformFeePortion: 0, providerFeePortion: fee }),
             refundApprovedLegs({ subject, amount: gross, source: balanceAccount, shortfall }),
+            refundPaidLegs({ amount: gross }),
             payoutInstructedLegs({ subject, amount: gross }),
           ]) {
             const d = legs.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + l.amount, 0);
