@@ -4,7 +4,7 @@
 
 **Blocked by:** 27
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 - [x] Escrow Hold and Campaign Balance are shown separately and computed from the ledger
 - [x] A partial Payout may be requested while the Campaign is Active
@@ -51,9 +51,15 @@
   session guard, unlike every other page under `/akun`, so an anonymous
   visitor was shown "Gagal memuat data pencairan." No data leaked -- the read
   is refused server-side -- but the wrong person was told the wrong thing, and
-  a URL that looks broken is a dead end. It now uses the same `useSession`
-  guard as `akun/page.tsx`, `pengaturan/page.tsx` and `kampanye-saya/page.tsx`,
-  and reads its slug with `useParams`.
+  a URL that looks broken is a dead end. It first took the same `useSession`
+  guard as `akun/page.tsx`, `pengaturan/page.tsx` and `kampanye-saya/page.tsx`
+  -- which made the page a client page, and therefore left the server-rendered
+  HTML empty. A Fundraiser with JavaScript disabled or still loading saw a
+  blank page where they had seen a heading. It is now a server component using
+  `getServerSession()` and `redirect('/login')`, the pattern `admin/` and
+  `moderasi/` already use, so the shell renders on the server again while
+  anonymous visitors are turned away before anything renders. The figures are
+  still fetched in the browser, unchanged: no boundary moved.
 
 - 2026-09-27 (one rule, one name): the panel's `requested > campaignBalance`
   duplicated the money layer's own cap, and its docstring claimed it "never
