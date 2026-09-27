@@ -4,13 +4,13 @@
 
 **Blocked by:** 5
 
-**Status:** ready-for-agent
+**Status:** done (PR #73, 2e772fb)
 
-- [ ] A payout is marked Completed only with proof of transfer attached
-- [ ] The completing Admin must differ from the approving Admin, enforced not merely advised
-- [ ] Completion posts legs that debit payout clearing and credit the provider balance, closing the gap where that account is debited on every settlement and never credited
-- [ ] Approval still never contacts a payment provider, per ADR 0006
-- [ ] Reconciliation stops listing a completed payout as outstanding work
+- [x] A payout is marked Completed only with proof of transfer attached
+- [x] The completing Admin must differ from the approving Admin, enforced not merely advised
+- [x] Completion posts legs that debit payout clearing and credit the provider balance, closing the gap where that account is debited on every settlement and never credited
+- [x] Approval still never contacts a payment provider, per ADR 0006
+- [x] Reconciliation stops listing a completed payout as outstanding work
 
 ## Comments
 
