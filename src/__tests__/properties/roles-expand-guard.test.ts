@@ -67,6 +67,10 @@ import { join } from "node:path";
  * the upload route asks only for a signed-in user. usesHierarchy below now
  * matches nothing in src; src/__tests__/user-role-readers.test.ts pins
  * that no code names the User role column either.
+ *
+ * NOTE (csr-01): POST /api/programs and PATCH /api/programs/[id] let an
+ * Admin create and edit CSR Programs, each through withAssignmentCheck on
+ * the ADMIN assignment -- growing this list by two.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -81,6 +85,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/refunds/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/route.ts",
+  "src/app/api/programs/[id]/route.ts",
+  "src/app/api/programs/route.ts",
   "src/app/api/volunteer-trips/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/volunteer-trips/[slug]/refunds/[id]/approve/route.ts",
   "src/app/moderasi/layout.tsx",
