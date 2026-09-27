@@ -371,6 +371,27 @@ export class ProviderBalanceInsufficientError extends MoneyError {
   }
 }
 
+/**
+ * A provider name this build has no provider for.
+ *
+ * The same fault the withdrawal path refuses with a
+ * ProviderWithdrawalInputError, on the approval path instead: an Admin typed a
+ * name that names no registered provider, and storing it would put a value in a
+ * column a human reads at audit that resolves to nothing.
+ *
+ * `approvedProvider` is NOT a reconciliation datum -- nothing sums by it, and a
+ * sweep's reconciliation reads the ledger, not this column -- so what is
+ * claimed for it is narrow on purpose: one value per provider, so two spellings
+ * of one provider cannot sit side by side, and no name that means nothing.
+ */
+export class UnknownPaymentProviderNameError extends MoneyError {
+  readonly code = 'PROVIDER_NAME_UNKNOWN';
+  constructor(readonly provider: string) {
+    super(`Penyedia pembayaran tidak dikenal: ${provider}. Gunakan nama penyedia yang terdaftar.`);
+    this.name = 'UnknownPaymentProviderNameError';
+  }
+}
+
 /** A field of a recorded Provider Withdrawal is empty, of the wrong type, or too long. */
 export class ProviderWithdrawalInputError extends MoneyError {
   readonly code = 'PROVIDER_WITHDRAWAL_INVALID';

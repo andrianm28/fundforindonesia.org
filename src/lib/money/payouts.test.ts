@@ -537,6 +537,30 @@ describe('approvePayout', () => {
     ...overrides,
   });
 
+  /**
+   * A DRAFT Payout whose Campaign is owed exactly what it asks for, and an
+   * approval ready to go: the ordinary case both the reading and the name
+   * below are judged against.
+   */
+  const fundedPayout = (overrides: Record<string, unknown> = {}) => {
+    const payoutRow = basePayoutRow({ campaignId: 'campaign-1', volunteerTripId: null, ...overrides });
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+    ];
+    const tx = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows, payoutRow });
+    // The row as it reads AFTER the transaction commits, mirroring how the
+    // other approvePayout tests in this file pass their final row.
+    const approved = (extra: Record<string, unknown> = {}) => ({
+      ...payoutRow,
+      status: 'APPROVED',
+      approvedById: 'admin-1',
+      approvedProvider: 'sumopod',
+      approvedProviderBalance: 2_000_000,
+      ...extra,
+    });
+    return { payoutRow, ...tx, prismaFor: (extra?: Record<string, unknown>) => makePrisma(tx.tx, approved(extra)) };
+  };
+
   it.each(PAYOUT_BY_EFFECTIVE_STATUS)(
     'on a Campaign that is effectively $label: allowed=$allowed',
     async ({ lifecycleStatus, deadline, allowed }) => {
@@ -576,25 +600,6 @@ describe('approvePayout', () => {
    * that actually exists".
    */
   describe('the provider balance the approving Admin read (prd-compliance 35)', () => {
-    const fundedPayout = (overrides: Record<string, unknown> = {}) => {
-      const payoutRow = basePayoutRow({ campaignId: 'campaign-1', volunteerTripId: null, ...overrides });
-      const ledgerRows: LedgerRow[] = [
-        { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
-      ];
-      const tx = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows, payoutRow });
-      // The row as it reads AFTER the transaction commits, mirroring how the
-      // other approvePayout tests in this file pass their final row.
-      const approved = (extra: Record<string, unknown> = {}) => ({
-        ...payoutRow,
-        status: 'APPROVED',
-        approvedById: 'admin-1',
-        approvedProvider: 'sumopod',
-        approvedProviderBalance: 2_000_000,
-        ...extra,
-      });
-      return { payoutRow, ...tx, prismaFor: (extra?: Record<string, unknown>) => makePrisma(tx.tx, approved(extra)) };
-    };
-
     it('records the reading and which provider it came from, on the same write that approves', async () => {
       const { payoutState, prismaFor } = fundedPayout();
 
@@ -746,6 +751,72 @@ describe('approvePayout', () => {
           providerBalance: 2_000_000,
         }),
       ).rejects.toMatchObject({ code: 'SELF_APPROVAL' });
+    });
+  });
+
+  /**
+   * The provider NAME, which is a different rule from the reading above.
+   *
+   * `approvedProvider` is not a reconciliation datum: nothing sums by it, and
+   * the sweep's reconciliation is the ledger's own, not this column's. So the
+   * rule here is deliberately narrow -- one person must not be able to write
+   * the same provider down two ways, and a name this build has no provider for
+   * must not be written down at all. The column is read by a human at audit,
+   * which is exactly why "Sumopod" and "sumopod" in the same file is a
+   * finding rather than a cosmetic difference.
+   */
+  describe('the provider name the approving Admin typed', () => {
+    it.each(['Sumopod', 'sumopod', ' Sumopod '])(
+      'records %j as the one name the registry knows',
+      async (provider) => {
+        const { prismaFor, payoutState } = fundedPayout();
+
+        await approvePayout(prismaFor() as never, {
+          payoutId: 'payout-1',
+          approvedById: 'admin-1',
+          provider,
+          providerBalance: 2_000_000,
+        });
+
+        expect(payoutState).toMatchObject({ status: 'APPROVED', approvedProvider: 'sumopod' });
+      },
+    );
+
+    it('refuses a name this build has no provider for, rather than writing it on the row', async () => {
+      // Free text was the failure: two Admins approving against two providers'
+      // dashboards wrote two spellings of one provider, and a reader auditing
+      // the column could not tell a typo from a second provider.
+      const { rows, payoutState, prismaFor } = fundedPayout();
+
+      await expect(
+        approvePayout(prismaFor() as never, {
+          payoutId: 'payout-1',
+          approvedById: 'admin-1',
+          provider: 'zendesk',
+          providerBalance: 2_000_000,
+        }),
+      ).rejects.toMatchObject({ code: 'PROVIDER_NAME_UNKNOWN', provider: 'zendesk' });
+
+      // Refused before the transaction opens, like a missing reading: the
+      // Payout stays DRAFT, with nothing recorded and nothing posted.
+      expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+      expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
+    });
+
+    it('names the provider the same way when the reading is short, so the refusal cannot be read as a different provider', async () => {
+      // ProviderBalanceInsufficientError quotes the provider in its message.
+      // The Admin is sent back to a dashboard, and the name they are told to go
+      // to has to be the one the registry knows.
+      const { prismaFor } = fundedPayout();
+
+      await expect(
+        approvePayout(prismaFor() as never, {
+          payoutId: 'payout-1',
+          approvedById: 'admin-1',
+          provider: 'Sumopod',
+          providerBalance: 400_000,
+        }),
+      ).rejects.toMatchObject({ code: 'PROVIDER_BALANCE_INSUFFICIENT', provider: 'sumopod' });
     });
   });
 
