@@ -9,7 +9,7 @@ step no one has decided to skip.
 are still open, and as of this spec `VerificationChecklistItem` has no
 `kind` column at all — the checklist is not per-Kind for any Kind yet)
 
-**Status:** needs-info
+**Status:** ready-for-agent (sequencing decided 2026-09-27: per-Kind mechanism rides in prd-12; this ticket seeds hibah = wakaf's items after 12 is done)
 
 - [ ] `VerificationChecklistItem` (or its replacement) is scoped per Kind,
       built as the general per-Kind mechanism ticket 12 already owes
@@ -23,12 +23,4 @@ are still open, and as of this spec `VerificationChecklistItem` has no
 
 ## Comments
 
-- 2026-09-27 (needs-info): this ticket cannot be scoped tighter than "build
-  per-Kind checklists, then seed hibah = wakaf's items" without a decision on
-  how ticket 12's per-Kind checklist work gets sequenced against this feature
-  — whether it lands as part of closing out ticket 12 itself (making this
-  ticket redundant once 12 is fully done) or gets built here because 12 is
-  otherwise idle. Whoever picks this up should check ticket 12's current
-  status first and either fold this into it or confirm with the owner that
-  building the per-Kind mechanism here, for `wakaf` and `hibah` at once, is
-  the right split of work.
+- 2026-09-27 (needs-info resolved): owner chose "lipat ke tiket 12" — the per-Kind checklist mechanism is built in prd-compliance-12 (ready, unblocked); this ticket then seeds hibah's items identical to wakaf's. Do not dispatch before 12 is done.
