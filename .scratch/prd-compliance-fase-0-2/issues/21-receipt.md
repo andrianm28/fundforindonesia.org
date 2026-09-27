@@ -4,7 +4,7 @@
 
 **Blocked by:** 13, 18
 
-**Status:** done
+**Status:** done (PR #52, c3e98ef)
 
 - [x] A Receipt reaches the Donor's email after Settlement, including a Guest Donor
 - [x] A print page is reachable from the email and from the dashboard
