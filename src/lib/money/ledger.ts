@@ -356,16 +356,38 @@ export async function postTransaction(
   return transactionId;
 }
 
-async function accountBalance(
-  tx: Prisma.TransactionClient,
-  account: LedgerAccount,
-  subject: LedgerSubject,
-): Promise<number> {
-  const where =
-    subject.type === 'campaign'
-      ? { account, campaignId: subject.campaignId }
-      : { account, volunteerTripId: subject.tripId };
+/**
+ * Which way round one account's balance is read.
+ *
+ * Not a stylistic choice, and the reason it is a parameter rather than a shape
+ * each caller writes for itself: every account in this chart of accounts is
+ * either credit-normal (money lands in it) or debit-normal (money arrives
+ * because it was debited, and the balance is debits - credits), and reading
+ * one the other way round turns a pot of 750_000 into -750_000. A report that
+ * prints that says the platform is overdrawn when it is sitting on the money.
+ *
+ * It is named at every call site on purpose. Three copies of this query used to
+ * live in this file, and the Collection Account's copy was the one whose sign
+ * differs -- so schema.prisma ended up documenting the account as
+ * credit-normal while the code read it debit-normal, with both comments
+ * authoritative and neither derived from the other. Naming the sign at the one
+ * call site that owns it makes the disagreement impossible to state: a new
+ * account has to declare which way it reads, and a comment that contradicts
+ * the code is then visibly wrong rather than arguably right.
+ */
+type AccountNormal = 'credit' | 'debit';
 
+/**
+ * The one place a balance is summed from the ledger's own entries.
+ *
+ * Every balance here is derived, never stored: there is no row to fall out of
+ * step, and a second place to keep in step is a second thing that can go stale.
+ */
+async function accountTotal(
+  tx: Prisma.TransactionClient,
+  where: Prisma.LedgerEntryWhereInput,
+  normal: AccountNormal,
+): Promise<number> {
   const rows = await tx.ledgerEntry.groupBy({
     by: ['direction'],
     where,
@@ -378,7 +400,24 @@ async function accountBalance(
     if (row.direction === 'CREDIT') credits = row._sum.amount ?? 0;
     if (row.direction === 'DEBIT') debits = row._sum.amount ?? 0;
   }
-  return credits - debits;
+  return normal === 'credit' ? credits - debits : debits - credits;
+}
+
+/**
+ * A subject's withdrawable balance, credit-normal: the money that has been
+ * credited and not yet spent.
+ */
+async function accountBalance(
+  tx: Prisma.TransactionClient,
+  account: LedgerAccount,
+  subject: LedgerSubject,
+): Promise<number> {
+  const where =
+    subject.type === 'campaign'
+      ? { account, campaignId: subject.campaignId }
+      : { account, volunteerTripId: subject.tripId };
+
+  return accountTotal(tx, where, 'credit');
 }
 
 /**
@@ -444,46 +483,38 @@ export async function tripEscrowBalance(tx: Prisma.TransactionClient, tripId: st
  * figure exists to be reported and to gate a reversal, not to be spent.
  */
 export async function programBalance(tx: Prisma.TransactionClient, programId: string): Promise<number> {
-  const rows = await tx.ledgerEntry.groupBy({
-    by: ['direction'],
-    where: { account: 'PROGRAM_BALANCE', programId },
-    _sum: { amount: true },
-  });
-
-  let credits = 0;
-  let debits = 0;
-  for (const row of rows) {
-    if (row.direction === 'CREDIT') credits = row._sum.amount ?? 0;
-    if (row.direction === 'DEBIT') debits = row._sum.amount ?? 0;
-  }
-  return credits - debits;
+  return accountTotal(tx, { account: 'PROGRAM_BALANCE', programId }, 'credit');
 }
 
 /**
- * What has reached a bank account, in rupiah. Debit-normal, like the Provider
- * Balance, because collectionAccountWithdrawalLegs DEBITS the Collection
- * Account.
+ * What has reached a bank account, in rupiah. DEBIT-normal, and the `debit`
+ * below is the whole claim: the sign is not inferred from the account's name or
+ * from what the money sounds like it does, it is stated here, next to the legs
+ * that make it true.
  *
- * Credit-normal is the obvious reading of "the money that got to the bank" and
- * it is wrong: the account has no credits today, so a credit-normal reader
- * would print 0 on a system that had just moved a million rupiah to a bank, and
- * a negative number the moment anything else ever touched it. Read with the
- * wrong sign, a report puts the money on the wrong side of the world.
+ * collectionAccountWithdrawalLegs DEBITS this account. Debit-normal is the
+ * obvious reading of "the money that got to the bank" -- it is the same
+ * convention as the Provider Balance, which a settlement also DEBITS -- and it
+ * is the one this function uses, so a sweep of 750_000 reads as +750_000.
+ * Reading it credit-normal would print 0 on a system that had just moved a
+ * million rupiah to a bank, and a negative number the moment anything else
+ * ever touched the account. Read with the wrong sign, a report puts the money
+ * on the wrong side of the world.
+ *
+ * WHICH WAS THE DISAGREEMENT, AND WHY IT IS SETTLED BY THE CODE RATHER THAN BY
+ * A COMMENT. schema.prisma used to document this account as "Credit-normal,
+ * the one account that only ever grows", which reads as the opposite. It is
+ * wrong about the convention and right about the growth: the account is never
+ * debited from, so its figure only ever rises -- but the movement that puts the
+ * money there is a DEBIT, so the balance is debits - credits. "Only ever
+ * grows" and "credit-normal" are different claims, and the ledger is the only
+ * place that decides which one holds. The claim is now pinned by tests in
+ * ledger.test.ts, and accountTotal is the one place a balance is summed, so a
+ * new account has to declare its sign rather than copy a query and keep
+ * whichever comment was closest.
  */
 export async function collectionAccountBalance(tx: Prisma.TransactionClient): Promise<number> {
-  const rows = await tx.ledgerEntry.groupBy({
-    by: ['direction'],
-    where: { account: 'COLLECTION_ACCOUNT' },
-    _sum: { amount: true },
-  });
-
-  let credits = 0;
-  let debits = 0;
-  for (const row of rows) {
-    if (row.direction === 'CREDIT') credits = row._sum.amount ?? 0;
-    if (row.direction === 'DEBIT') debits = row._sum.amount ?? 0;
-  }
-  return debits - credits;
+  return accountTotal(tx, { account: 'COLLECTION_ACCOUNT' }, 'debit');
 }
 
 /**
