@@ -54,7 +54,7 @@ done and CI is green.
 
 ## What each CI job proves
 
-`.github/workflows/ci.yml` runs four jobs in parallel on every PR against
+`.github/workflows/ci.yml` runs five jobs in parallel on every PR against
 `main` and every push to `main`:
 
 - **test**: the full vitest suite passes. This is the full-suite step of
@@ -71,6 +71,13 @@ done and CI is green.
   view --log --job <job-id>`, the ID ending the ratchet URL in `gh pr checks`); if it says a count is below the
   baseline, lower `ci/baselines.json` to that count in the same PR, so the gain
   is locked in.
+- **e2e**: Playwright drives the production bundle (`next start`) against a
+  throwaway Postgres: the privileged not-found view, the QRIS donation path
+  through Receipt, and the pre-existing main flows. Fixtures come from
+  `tests/e2e/seed-e2e.ts`; answers that need no login are stubbed at the
+  network edge inside the specs, which say so. The deploy gate only names
+  the first four jobs, so this one gates deploys through the run's overall
+  success instead.
 
 `.github/workflows/cd.yml` adds one more job on every PR:
 
@@ -89,7 +96,9 @@ Merge to `main` only when every job is green.
 Production deploys only through `.github/workflows/deploy.yml`
 (`workflow_dispatch`, from main, with an optional commit SHA), split into two
 jobs. `gate` runs first, with no Environment: it refuses any commit that is
-not on main, has no green CI push run with all four jobs, or lacks cd.yml's
+not on main, has no green CI push run with all four jobs it names (test,
+build, migrations, ratchet; the e2e job gates through the run's overall
+success instead), or lacks cd.yml's
 app and migrate images in GHCR with matching provenance
 (`ci/deploy-gate.sh`). `deploy` runs `needs: gate`, in the `production`
 Environment, so it starts only once the owner approves it as that
