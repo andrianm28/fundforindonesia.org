@@ -7,6 +7,8 @@ vi.mock('@/lib/prisma', () => ({
     campaign: { findUnique: vi.fn() },
     verificationRequest: { findFirst: vi.fn() },
     identityVerification: { findUnique: vi.fn() },
+    duplicateSimilarityThreshold: { findFirst: vi.fn() },
+    $queryRaw: vi.fn(),
   },
 }));
 
@@ -52,11 +54,17 @@ const PENDING_REQUEST = {
 
 async function renderFor(
   row: ReturnType<typeof campaign>,
-  { request = null as typeof PENDING_REQUEST | null, identity = null as Record<string, unknown> | null } = {},
+  {
+    request = null as typeof PENDING_REQUEST | null,
+    identity = null as Record<string, unknown> | null,
+    hints = [] as Record<string, unknown>[],
+  } = {},
 ) {
   vi.mocked(prisma.campaign.findUnique).mockResolvedValue(row as any);
   vi.mocked(prisma.verificationRequest.findFirst).mockResolvedValue(request as any);
   vi.mocked(prisma.identityVerification.findUnique).mockResolvedValue(identity as any);
+  vi.mocked(prisma.duplicateSimilarityThreshold.findFirst).mockResolvedValue(null as never);
+  vi.mocked(prisma.$queryRaw).mockResolvedValue(hints as never);
   render(await ModerasiCampaignDetailPage({ params: Promise.resolve({ id: row.id }) }));
 }
 
@@ -274,5 +282,58 @@ describe('the moderation page of one Campaign', () => {
     await renderFor(campaign('ACTIVE', { deadline: new Date('2026-09-24T12:00:00Z') }));
 
     expect(screen.getByText('Berakhir')).toBeDefined();
+  });
+});
+
+/**
+ * The duplicate hints a Verifier reads before ticking "bukan duplikat"
+ * (prd-compliance 14, PRD FFI-05). Which Campaigns these are, and why each
+ * one matched, is the lib's business; the page's is to show both plainly.
+ */
+describe('the duplicate hints on the moderation page', () => {
+  it('names the Campaigns this one resembles, and why each one matched', async () => {
+    await renderFor(campaign('SUBMITTED', { kind: 'DONATION' }), {
+      request: PENDING_REQUEST,
+      hints: [
+        {
+          id: 'campaign-2',
+          slug: 'bantu-korban-banjir-jawa-barat',
+          title: 'Bantu Korban Banjir Jawa Barat',
+          lifecycleStatus: 'ACTIVE',
+          reasons: ['SAME_FUNDRAISER', 'SIMILAR_TITLE'],
+          titleSimilarity: 0.91,
+        },
+        {
+          id: 'campaign-3',
+          slug: 'rumah-sihat-untuk-mba-sari',
+          title: 'Rumah Sihat untuk Mbak Sari',
+          lifecycleStatus: 'ACTIVE',
+          reasons: ['SAME_BENEFICIARY'],
+          titleSimilarity: 0.12,
+        },
+      ],
+    });
+
+    expect(screen.getByText('Bantu Korban Banjir Jawa Barat')).toBeDefined();
+    expect(screen.getByText(/Fundraiser sama/)).toBeDefined();
+    expect(screen.getByText(/Judul mirip 91%/)).toBeDefined();
+    expect(screen.getByText('Rumah Sihat untuk Mbak Sari')).toBeDefined();
+    expect(screen.getByText(/Nama penerima manfaat sama/)).toBeDefined();
+    // The Verifier's other question: is the duplicate still live?
+    expect(screen.getAllByText('Active')).toHaveLength(2);
+  });
+
+  it('says nothing resembles it, rather than showing an empty box', async () => {
+    await renderFor(campaign('SUBMITTED', { kind: 'DONATION' }), { request: PENDING_REQUEST, hints: [] });
+
+    expect(screen.getByText(/Tidak ada Campaign lain yang mirip/)).toBeDefined();
+  });
+
+  it('shows the beneficiary name the hints are matched on', async () => {
+    await renderFor(campaign('SUBMITTED', { kind: 'DONATION', beneficiaryName: 'Keluarga Mahdi' }), {
+      request: PENDING_REQUEST,
+    });
+
+    expect(screen.getByText('Keluarga Mahdi')).toBeDefined();
   });
 });

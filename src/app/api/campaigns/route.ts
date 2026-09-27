@@ -17,6 +17,11 @@ const createCampaignSchema = z.object({
   category: z.string().min(1, "Kategori harus dipilih"),
   kind: z.enum(KINDS, { message: "Kind harus dipilih" }),
   deadline: z.string().datetime().optional(),
+  // The beneficiary this Campaign names, stored as typed (PRD FFI-02, and
+  // one of the three matches a Verifier's duplicate hints are built from,
+  // prd-compliance 14). Optional, and a blank one is stored as NULL: two
+  // Campaigns that both leave it out must not look alike.
+  beneficiaryName: z.string().max(200, "Nama penerima manfaat maksimal 200 karakter").optional(),
   // The sponsoring Partner Organisation an individual Fundraiser picks; an
   // organisation's linked account always gets its own (ADR 0010).
   collectingEntityId: z.string().min(1).optional(),
@@ -153,6 +158,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { title, description, story, coverImage, targetAmount, category, kind, deadline } = result.data;
+    const beneficiaryName = result.data.beneficiaryName?.trim() || null;
 
     // An individual Fundraiser may only run Kind donation (CONTEXT.md, Kind
     // Authorisation; ADR 0013); zakat, wakaf and hibah need an institution.
@@ -183,6 +189,7 @@ export async function POST(request: NextRequest) {
         category,
         kind,
         deadline: deadline ? new Date(deadline) : null,
+        beneficiaryName,
         creatorId: session.user.id,
         collectingEntityId,
         // A new campaign is a Draft: visible only to its Fundraiser, and not
