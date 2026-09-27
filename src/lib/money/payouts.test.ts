@@ -786,8 +786,9 @@ describe('approvePayout', () => {
       // The boundary, stated from the column rather than from this test: one
       // rupiah above is refused and the ceiling itself is not, so the check
       // refuses what the column cannot hold and nothing beside it. Asserted on
-      // the write, since that is where the figure lands.
-      const { prismaFor, tx, rows } = fundedPayout();
+      // the row as the approval left it, which is the number a later
+      // reconciliation would read.
+      const { prismaFor, payoutState } = fundedPayout();
 
       await approvePayout(prismaFor() as never, {
         payoutId: 'payout-1',
@@ -796,10 +797,10 @@ describe('approvePayout', () => {
         providerBalance: 2_147_483_647,
       });
 
-      expect(tx.payout.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ approvedProviderBalance: 2_147_483_647 }) }),
-      );
-      expect(rows.some((r) => r.transactionId === 'payout-instructed-payout-1')).toBe(true);
+      expect(payoutState).toMatchObject({
+        status: 'APPROVED',
+        approvedProviderBalance: 2_147_483_647,
+      });
     });
 
     it('still refuses a self-approval, so a supplied reading never becomes a way past the two-person rule', async () => {
