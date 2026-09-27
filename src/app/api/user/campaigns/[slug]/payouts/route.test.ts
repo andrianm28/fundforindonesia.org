@@ -5,79 +5,92 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 // and escrowBalance (neither mocked) compute actual numbers from actual rows
 // rather than being asserted on by call.
 /**
- * Every call made on the mocked Prisma client, recorded as `model.method`.
+ * A stand-in for the Prisma client that reports which `model.method` each call
+ * went through, WITHOUT owning the call.
  *
- * Through a Proxy, so a query shape nobody thought to list is still recorded:
- * a deny-list of the three methods a release used to be written with passes
- * for a release written with a different one, which is the whole failure this
- * has to survive. An allow-list of the reads a GET legitimately makes does
- * not -- anything new shows up by name.
+ * It hands back the real `vi.fn()`, and `calls()` reads that mock's own
+ * `.mock.calls`. That is the whole point. The obvious recorder -- a wrapper
+ * whose body does `calls.push(...)` -- records nothing here, because the push
+ * lives in the IMPLEMENTATION and `mockResolvedValue` / `mockImplementation`
+ * REPLACE the implementation, which every `beforeEach` in this file does. The
+ * wrapper's push stopped running the moment a test gave the mock an answer, so
+ * not one `prisma.*` call was ever recorded, and `prisma.payment.findMany` --
+ * the entry point of the sweep this file has to survive -- was invisible.
+ * Returning the real mock is also the passthrough shape the rest of this repo
+ * already uses (api/admin/verification-checklist/route.test.ts).
  */
-const recorder = vi.hoisted(() => {
-  const calls: string[] = [];
-  // Keyed on the object being wrapped, not on the path: every test builds its
-  // own fake transaction client, so a path-keyed table would hand a later
-  // test the earlier test's queries. Keyed on the object, the same client
-  // always yields the same wrapper -- so the handles this file asserts on are
-  // the ones the route actually calls -- and two clients never share one.
-  const wrapped = new WeakMap<object, Map<string, ReturnType<typeof vi.fn>>>();
+const fake = vi.hoisted(() => {
+  /** Enough of a vitest mock to ask whether it was called. */
+  type Tracked = { mock: { calls: unknown[][] } };
 
-  function wrap<T extends object>(target: T, path: string): T {
-    const table = wrapped.get(target) ?? new Map<string, ReturnType<typeof vi.fn>>();
-    wrapped.set(target, table);
+  function wrap<T extends object>(target: T, path: string) {
+    // `model.method` -> the real mock, overwritten on every access so a later
+    // test's own client replaces an earlier one's rather than sharing it.
+    const seen = new Map<string, Tracked>();
 
-    return new Proxy(target, {
-      get(t, prop, receiver) {
-        const value = Reflect.get(t, prop, receiver);
-        if (typeof value === 'function') {
-          const at = `${path}.${String(prop)}`;
-          const existing = table.get(at);
-          if (existing) return existing;
-          const wrapper = vi.fn((...args: unknown[]) => {
-            calls.push(at);
-            return (value as (...a: unknown[]) => unknown)(...args);
-          });
-          table.set(at, wrapper);
-          return wrapper;
-        }
-        if (value !== null && typeof value === 'object') {
-          return wrap(value, `${path}.${String(prop)}`);
-        }
-        return value;
-      },
-    });
+    const at = (object: object, prefix: string) =>
+      new Proxy(object, {
+        get(t, prop, receiver) {
+          const value = Reflect.get(t, prop, receiver);
+          if (typeof value === 'function') {
+            seen.set(`${prefix}.${String(prop)}`, value as Tracked);
+            // The real mock, not a wrapper around it: a test has to be able to
+            // answer it, and the record read back is that mock's own.
+            return value;
+          }
+          if (value !== null && typeof value === 'object') {
+            return at(value, `${prefix}.${String(prop)}`);
+          }
+          return value;
+        },
+      });
+
+    return {
+      proxy: at(target, path) as T,
+      /** Every `model.method` actually called, in the order it was first seen. */
+      calls: () => [...seen].filter(([, mock]) => mock.mock.calls.length > 0).map(([at]) => at),
+    };
   }
 
-  return { calls, wrap };
+  return {
+    wrap,
+    // No `payout` model: this GET's only Payout query is `tx.payout.findMany`,
+    // inside the transaction, so a `prisma.payout` here would be fixture
+    // plumbing rather than something the route could reach for.
+    prisma: wrap(
+      {
+        campaign: { findUnique: vi.fn() },
+        // The sweep's own entry point, answered but never reached from here.
+        // It is a real candidate a sweep could claim, which is what makes "the
+        // books did not move" a fact about this read and not about a fixture
+        // that quietly stopped being releasable.
+        payment: { findMany: vi.fn() },
+        bankAccount: { findMany: vi.fn() },
+        $transaction: vi.fn(),
+      },
+      'prisma',
+    ),
+  };
 });
 
-vi.mock('@/lib/prisma', () => ({
-  prisma: recorder.wrap(
-    {
-      campaign: { findUnique: vi.fn() },
-      payment: { findMany: vi.fn() },
-      payout: { findMany: vi.fn() },
-      bankAccount: { findMany: vi.fn() },
-      $transaction: vi.fn(),
-    },
-    'prisma',
-  ),
-}));
+vi.mock('@/lib/prisma', () => ({ prisma: fake.prisma.proxy }));
 
 vi.mock('@/lib/auth', () => ({
   getServerSession: vi.fn(),
 }));
 
-import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { GET } from './route';
 
-const mockCampaignFindUnique = prisma.campaign.findUnique as unknown as Mock;
-const mockPaymentFindMany = prisma.payment.findMany as unknown as Mock;
-const mockPayoutFindMany = prisma.payout.findMany as unknown as Mock;
-const mockBankAccountFindMany = prisma.bankAccount.findMany as unknown as Mock;
-const mockTransaction = prisma.$transaction as unknown as Mock;
+const mockCampaignFindUnique = fake.prisma.proxy.campaign.findUnique as unknown as Mock;
+const mockPaymentFindMany = fake.prisma.proxy.payment.findMany as unknown as Mock;
+const mockBankAccountFindMany = fake.prisma.proxy.bankAccount.findMany as unknown as Mock;
+const mockTransaction = fake.prisma.proxy.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
+
+/** The Payout rows a test wants this read to find. One source, so the fixture
+ *  the query answers with is the fixture the assertions read. */
+let payoutRows: Record<string, unknown>[] = [];
 
 type LedgerRow = {
   transactionId: string;
@@ -97,6 +110,14 @@ type PaymentRow = {
   escrowReleasedAt: Date | null;
   donationId: string | null;
   registrationId: string | null;
+  /**
+   * The relation `releaseMaturedEscrow` reads to find which Campaign a
+   * Payment's hold belongs to. Without it the sweep throws inside its
+   * per-payment try/catch, logs, and moves nothing -- so a fixture without it
+   * would leave "the books did not move" true for a read that DID sweep, which
+   * is the green-for-the-wrong-reason this control exists to rule out.
+   */
+  donation: { campaignId: string } | null;
 };
 
 /**
@@ -133,12 +154,13 @@ function makeTx(options: { ledgerRows?: LedgerRow[]; payments?: PaymentRow[] } =
   const tx = {
     campaign: { findUnique: vi.fn() },
     bankAccount: { findMany: vi.fn() },
-    // Delegates to the same module-level mock the route's sibling uses, so
-    // a test sets the Payout rows once and both the transaction client and
-    // the assertions about the query see the same thing.
+    // Answers from the same rows the payout assertions read, so a test sets
+    // the Payout history once. Deliberately NOT a delegate to a `prisma.payout`
+    // mock: that echo is fixture plumbing, and the recorder would name it as
+    // though the route had reached for it.
     payout: {
       findMany: vi.fn(async (args: { select?: Record<string, boolean> }) =>
-        ((await mockPayoutFindMany(args)) as Record<string, unknown>[]).map((row) => projected(row, args.select)),
+        payoutRows.map((row) => projected(row, args.select)),
       ),
     },
     payment: {
@@ -177,7 +199,8 @@ function makeTx(options: { ledgerRows?: LedgerRow[]; payments?: PaymentRow[] } =
       }),
     },
   };
-  return { tx: recorder.wrap(tx, 'tx'), rows, payments };
+  const tracked = fake.wrap(tx, 'tx');
+  return { tx: tracked.proxy, rows, payments, reads: tracked.calls };
 }
 
 /**
@@ -230,6 +253,7 @@ function maturedPayment(): PaymentRow {
     escrowReleasedAt: null,
     donationId: 'donation-1',
     registrationId: null,
+    donation: { campaignId: 'campaign-1' },
   };
 }
 
@@ -285,12 +309,10 @@ function campaign(overrides: Record<string, unknown> = {}) {
 describe("GET /api/user/campaigns/[slug]/payouts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Not a vi.fn, so clearAllMocks leaves it alone.
-    recorder.calls.length = 0;
+    payoutRows = [];
     mockGetServerSession.mockResolvedValue({ user: { id: 'creator-1', assignments: [] } });
     mockCampaignFindUnique.mockResolvedValue(campaign());
     mockPaymentFindMany.mockResolvedValue([]);
-    mockPayoutFindMany.mockResolvedValue([]);
     // Honours `where` and `select` the way the database and the real client
     // do, so "only the verified one comes back" is a property of the route's
     // query and not of a fake that returned whatever it liked.
@@ -326,7 +348,7 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
   });
 
   it("lists this Campaign's Payouts with the status each one is in, newest first, and nothing from another Campaign", async () => {
-    mockPayoutFindMany.mockResolvedValue([
+    payoutRows = [
       {
         id: 'payout-2',
         amount: 200_000,
@@ -345,7 +367,7 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
         approvedAt: new Date('2026-09-02T00:00:00.000Z'),
         completedAt: new Date('2026-09-03T00:00:00.000Z'),
       },
-    ]);
+    ];
     const { tx } = makeTx();
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -357,8 +379,9 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
     // already moved" are different facts, not one grey "submitted".
     expect(body.payouts.map((p: { status: string }) => p.status)).toEqual(['APPROVED', 'COMPLETED']);
     // Scoped to this Campaign's own Payouts, so one Fundraiser never sees
-    // another's money movements.
-    expect(mockPayoutFindMany).toHaveBeenCalledWith(
+    // another's money movements. Asserted on the query the route actually
+    // issued, not on an echo of it inside the fake.
+    expect(tx.payout.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { campaignId: 'campaign-1' } }),
     );
   });
@@ -438,7 +461,7 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
 
   it("moves no money: a screen the Fundraiser is only LOOKING at writes nothing to the ledger", async () => {
     const payment = maturedPayment();
-    const { tx, rows, payments } = makeTx({ ledgerRows: [HELD_ESCROW], payments: [payment] });
+    const { tx, rows, payments, reads } = makeTx({ ledgerRows: [HELD_ESCROW], payments: [payment] });
     // The sweep's candidate query returns the hold above, so a read that
     // released would find it, claim it and move it -- the negative control
     // that makes the assertions below a fact about this read.
@@ -469,7 +492,9 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
     // left open: it pinned three method names, so a release written with any
     // other one would have kept it green. Anything a future change reaches for
     // shows up here by name instead.
-    expect(recorder.calls.filter((call) => !READS_A_GET_MAY_MAKE.includes(call))).toEqual([]);
+    expect(
+      [...fake.prisma.calls(), ...reads()].filter((call) => !READS_A_GET_MAY_MAKE.includes(call)),
+    ).toEqual([]);
 
     // spec.md puts the release on a schedule (runScheduledJobs) and keeps the
     // lazy sweep as a SECOND path -- the one at the top of the Payout REQUEST
@@ -477,6 +502,25 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
     // asked for: it made how fast a Fundraiser's screen loaded a fact about
     // the books, and a read that can write cannot be replayed or reasoned
     // about as a read.
+  });
+
+  it("makes every read the allow-list names, so a recorder that had stopped recording would fail rather than pass", async () => {
+    const { tx, reads } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    await read();
+
+    // The other direction of the same contract the "moves no money" case
+    // states, and the exact set rather than a subset: filtering recorded calls
+    // against READS_A_GET_MAY_MAKE only proves something when the recorder is
+    // recording, because an empty list passes every filter. A recorder whose
+    // bodies stopped running turns that assertion into a green check that
+    // proves nothing. Naming the calls that must be there makes the blindness
+    // red instead -- and `prisma.*` are the names it is really about, since
+    // those are the ones a wrapper-based recorder lost the moment a test
+    // answered the mock. Exact, so a call left over from an earlier test is a
+    // failure here too.
+    expect([...fake.prisma.calls(), ...reads()].sort()).toEqual([...READS_A_GET_MAY_MAKE].sort());
   });
 
   it("answers 401 to an anonymous reader and 403 to a signed-in stranger, reading nothing either way", async () => {
@@ -495,7 +539,7 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
 
     expect(refused.status).toBe(403);
     expect((await refused.json()).code).toBe('NOT_AUTHORIZED');
-    expect(mockPayoutFindMany).not.toHaveBeenCalled();
+    expect(tx.payout.findMany).not.toHaveBeenCalled();
     expect(mockBankAccountFindMany).not.toHaveBeenCalled();
   });
 
