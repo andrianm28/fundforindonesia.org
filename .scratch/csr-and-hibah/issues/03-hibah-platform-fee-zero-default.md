@@ -9,7 +9,7 @@ resolves to zero until an Admin deliberately sets a rate for it — matching
 Campaign, Category, or Kind rule has been set — this is structural, not a
 `hibah`-specific case to add)
 
-**Status:** ready-for-agent
+**Status:** done (PR #61, 65e3c8f)
 
 - [ ] With no `PlatformFeeRule` row for Kind `hibah`, Category, or the
       Campaign, `resolvePlatformFeeBasisForCampaign` returns `percentBps: 0`
