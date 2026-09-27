@@ -88,7 +88,14 @@ test.describe('QRIS donation flow', () => {
 
     await page.getByRole('button', { name: 'Donasi Sekarang' }).click();
 
-    await expect(page.getByRole('alert')).toContainText('Email harus diisi');
+    // Scoped to the message the #guest-email input points at with
+    // aria-describedby. A bare getByRole('alert') matches two elements --
+    // this one and Next's own #__next-route-announcer__, which is a route
+    // announcement, not a field error -- so it cannot be asserted on alone.
+    await expect(page.locator('#guest-email-error')).toHaveText(
+      'Email harus diisi untuk donasi tanpa akun'
+    );
+    await expect(page.locator('#guest-email')).toHaveAttribute('aria-invalid', 'true');
     expect(posts).toBe(0);
   });
 });

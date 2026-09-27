@@ -7,7 +7,11 @@ export interface QuickActionTilesProps {
 
 export default function QuickActionTiles({ tiles }: QuickActionTilesProps) {
   return (
-    <section className="px-4 py-4">
+    // Named like its siblings (HeroBanner's "Hero banner carousel",
+    // BottomNavBar's "Bottom navigation", PrayerWall's "Prayer Wall"): a bare
+    // <section> is anonymous, and a screen reader reaching for the homepage's
+    // menu needs to be able to say which region it is in.
+    <section aria-label="Quick action tiles" className="px-4 py-4">
       <div className="grid grid-cols-5 gap-3 sm:gap-4">
         {tiles.map((tile) =>
           tile.comingSoon ? (
