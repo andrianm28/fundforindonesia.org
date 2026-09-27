@@ -4,7 +4,7 @@
 
 **Blocked by:** 12, 18
 
-**Status:** done (PR #83, 349acda)
+**Status:** done (PR #88, b3a34f1)
 
 - [x] Cumulative Gross above Rp100 juta on a Campaign triggers additional Verifier review
 - [x] Above Rp500 juta places an audit marker on the Campaign
@@ -86,4 +86,7 @@
   VerificationRequest kind column with its backfill, and `submittedById` made
   nullable because the System raises a request and is not a person. The
   `isChangeRequest` derivation moved from "has a proposal" to the kind column;
-  the backfill is exactly that rule, so no row changed meaning.
+  the backfill is exactly that rule, so no row changed meaning. Both enums are
+  created before the `ALTER TABLE` that names one of them -- the first CI run
+  failed on exactly that (42704, type does not exist) in all three jobs that
+  migrate a database.

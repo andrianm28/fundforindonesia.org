@@ -16,6 +16,15 @@
 --     submittedById becomes nullable for the same reason: the System raises
 --     an amount review and is not a person, so there is nobody to point at.
 
+-- CreateEnum
+-- Both enums are created before anything that uses them: the ALTER below
+-- names "VerificationRequestKind", and a type that does not exist yet is a
+-- 42704, not a deferred constraint.
+CREATE TYPE "VerificationRequestKind" AS ENUM ('SUBMISSION', 'CHANGE', 'AMOUNT_REVIEW');
+
+-- CreateEnum
+CREATE TYPE "AbuseThresholdKind" AS ENUM ('CAMPAIGN_REVIEW_GROSS', 'CAMPAIGN_AUDIT_GROSS', 'DONATION_REVIEW_AMOUNT', 'ACTIVE_CAMPAIGNS_PER_FUNDRAISER');
+
 -- AlterTable
 ALTER TABLE "VerificationRequest" ADD COLUMN     "kind" "VerificationRequestKind" NOT NULL DEFAULT 'SUBMISSION',
 ADD COLUMN     "raisedByAmount" JSONB,
@@ -25,9 +34,6 @@ ALTER COLUMN "submittedById" DROP NOT NULL;
 -- a request carrying a proposal is a CHANGE, everything else was submitted
 -- from Draft or Rejected. Deterministic, so no row is left to the default.
 UPDATE "VerificationRequest" SET "kind" = 'CHANGE' WHERE "proposedChanges" IS NOT NULL;
-
--- CreateEnum
-CREATE TYPE "AbuseThresholdKind" AS ENUM ('CAMPAIGN_REVIEW_GROSS', 'CAMPAIGN_AUDIT_GROSS', 'DONATION_REVIEW_AMOUNT', 'ACTIVE_CAMPAIGNS_PER_FUNDRAISER');
 
 -- CreateTable
 CREATE TABLE "AbuseThreshold" (
