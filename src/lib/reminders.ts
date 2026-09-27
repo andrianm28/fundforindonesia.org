@@ -1,3 +1,4 @@
+import { readUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { sendReportingFailure, type Mailer } from '@/lib/mail';
 import { campaignDeadlineReminderEmail, kindAuthorisationExpiryWarningEmail } from '@/lib/mail/reminders';
@@ -73,7 +74,7 @@ export async function sendCampaignDeadlineReminders(
       title: true,
       deadline: true,
       creatorId: true,
-      creator: { select: { email: true, name: true } },
+      creator: { select: { name: true, ...SELECT_USER_EMAIL } },
     },
     // Soonest deadline first, so a truncated sweep leaves the least urgent
     // reminders for the next call, never the other way round.
@@ -114,17 +115,28 @@ export async function sendCampaignDeadlineReminders(
       });
       if (!claimed) continue;
 
-      await sendReportingFailure(
-        campaignDeadlineReminderEmail({
-          to: campaign.creator.email,
-          fundraiserName: campaign.creator.name,
-          campaignTitle: campaign.title,
-          deadline,
-          campaignUrl: publicUrl(`/campaign/${campaign.slug}`),
-        }),
-        { mail: 'campaign_deadline_reminder', campaignId: campaign.id },
-        mailer,
-      );
+      // Decrypted for the address to send to (ADR 0012 stores a ciphertext). A
+      // Fundraiser with no readable address gets no email rather than one to
+      // nowhere: the in-app Notification above is already recorded, so they are
+      // not left un-notified.
+      const email = readUserEmail(campaign.creator);
+      if (!email) {
+        console.error(
+          `sendCampaignDeadlineReminders: campaign ${campaign.id} has no readable Fundraiser email; sent the in-app notification only (ADR 0012)`,
+        );
+      } else {
+        await sendReportingFailure(
+          campaignDeadlineReminderEmail({
+            to: email,
+            fundraiserName: campaign.creator.name,
+            campaignTitle: campaign.title,
+            deadline,
+            campaignUrl: publicUrl(`/campaign/${campaign.slug}`),
+          }),
+          { mail: 'campaign_deadline_reminder', campaignId: campaign.id },
+          mailer,
+        );
+      }
 
       sentCount++;
     } catch (err) {
@@ -163,7 +175,7 @@ export async function sendKindAuthorisationExpiryWarnings(
         select: {
           name: true,
           fundraiserId: true,
-          fundraiser: { select: { email: true, name: true } },
+          fundraiser: { select: { name: true, ...SELECT_USER_EMAIL } },
         },
       },
     },
@@ -208,17 +220,26 @@ export async function sendKindAuthorisationExpiryWarnings(
       });
       if (!claimed) continue;
 
-      await sendReportingFailure(
-        kindAuthorisationExpiryWarningEmail({
-          to: partnerOrganisation.fundraiser.email,
-          fundraiserName: partnerOrganisation.fundraiser.name,
-          organisationName: partnerOrganisation.name,
-          kindLabel,
-          validTo: authorisation.validTo,
-        }),
-        { mail: 'kind_authorisation_expiry_warning', kindAuthorisationId: authorisation.id },
-        mailer,
-      );
+      // As above: the in-app Notification is already recorded, so an
+      // unreadable address costs the email and nothing else.
+      const email = readUserEmail(partnerOrganisation.fundraiser);
+      if (!email) {
+        console.error(
+          `sendKindAuthorisationExpiryWarnings: ${partnerOrganisation.name} has no readable Fundraiser email; sent the in-app notification only (ADR 0012)`,
+        );
+      } else {
+        await sendReportingFailure(
+          kindAuthorisationExpiryWarningEmail({
+            to: email,
+            fundraiserName: partnerOrganisation.fundraiser.name,
+            organisationName: partnerOrganisation.name,
+            kindLabel,
+            validTo: authorisation.validTo,
+          }),
+          { mail: 'kind_authorisation_expiry_warning', kindAuthorisationId: authorisation.id },
+          mailer,
+        );
+      }
 
       sentCount++;
     } catch (err) {

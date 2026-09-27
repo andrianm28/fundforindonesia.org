@@ -19,6 +19,7 @@ vi.mock('@/lib/mail', () => ({
   sendReportingFailure: vi.fn().mockResolvedValue(true),
 }));
 
+import { sealDonationGuestEmail, sealUserEmail } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { sendReportingFailure } from '@/lib/mail';
 
@@ -46,9 +47,11 @@ function makeReceipt(overrides: Record<string, unknown> = {}) {
       id: 'donation-1',
       amount: 100_000,
       donorId: 'donor-1',
-      guestEmail: null,
       guestName: null,
-      donor: { id: 'donor-1', email: 'donor@example.test', name: 'Donor Test' },
+      // Sealed, not plaintext (ADR 0012): the route decrypts to address it.
+      guestEmailCiphertext: null,
+      guestEmailKeyId: null,
+      donor: { id: 'donor-1', name: 'Donor Test', ...sealUserEmail('donor@example.test') },
       createdAt: new Date('2026-09-26T09:55:00Z'),
       campaign: {
         id: 'campaign-1',
@@ -120,7 +123,7 @@ describe('POST /api/receipts/[token]/resend', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  it('sends to the Guest Donor plaintext guestEmail when there is no account', async () => {
+  it('sends to the Guest Donor at their sealed guest email when there is no account', async () => {
     mockFindUnique.mockResolvedValue(
       makeReceipt({
         lastSentAt: new Date('2026-09-26T09:00:00Z'),
@@ -129,8 +132,8 @@ describe('POST /api/receipts/[token]/resend', () => {
           amount: 100_000,
           donorId: null,
           donor: null,
-          guestEmail: 'guest@example.test',
           guestName: 'Guest Test',
+          ...sealDonationGuestEmail('guest@example.test'),
           createdAt: new Date('2026-09-26T09:55:00Z'),
           campaign: {
             id: 'campaign-1',

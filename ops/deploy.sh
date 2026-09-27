@@ -26,7 +26,9 @@
 #   2. pull both images by digest, tag them :<sha> and :<sha>-migrate locally
 #   3. start the database if needed, and pg_dump it into backups/, keeping 7
 #   4. run `prisma migrate deploy` from the migrate image; if it fails, stop:
-#      the running app was never touched
+#      the running app was never touched. The contact-field backfill (ADR 0012)
+#      is NOT part of this: it is run by hand beforehand, and the migration that
+#      drops the plaintext refuses to run without it. See the note at step 4.
 #   5. recreate the app on the new image
 #   6. poll /api/health for about 60 s; if it never answers 200, recreate the
 #      app on the release that was running (or, when that is this very
@@ -214,6 +216,29 @@ fi
 
 # --- 4. Migrate ---------------------------------------------------------------
 
+# The backfill is a SEPARATE step, run by hand before this script, and this
+# script does not run it. Two reasons, both about what a deploy may do to a
+# database that already holds a Donor's contact details:
+#
+#   - prisma/migrations/20260930010000_drop_contact_plaintext (ADR 0012,
+#     prd-compliance 16) drops the plaintext email, phone and bank account
+#     number columns. It refuses to run while any row still has a plaintext
+#     value with nothing sealed for it, naming the columns, so deploying
+#     without the backfill stops HERE with the old app still serving and
+#     nothing lost. That refusal is the guarantee; this script does not need to
+#     repeat it, and running the backfill itself would take the guard away.
+#   - The backfill needs FIELD_ENCRYPTION_KEY and FIELD_HMAC_KEY, which the
+#     migrate image has no reason to carry, and on a large database it is long
+#     enough that it belongs where a person can watch it, stop it and re-run it.
+#
+# Run it against the same DATABASE_URL, from a checkout of this release, with
+# the production .env loaded:
+#
+#   npx tsx prisma/backfill-contact-fields.ts
+#
+# It is safe to run more than once and safe to interrupt. ops/deploy.sh step 3
+# has already dumped the database by the time any of this matters, so a backfill
+# that goes wrong has a dump to go back to.
 step="migrating the database"
 log "Migrating the database"
 compose --profile migrate run --rm -T migrate

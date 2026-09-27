@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { REGISTRATION_HASH_COST } from '@/lib/password-hash-cost';
+import { lookupUserEmail, readUserEmail, sealUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 
 const registerSchema = z.object({
@@ -31,9 +32,12 @@ export async function POST(request: NextRequest) {
 
     const { name, email, password } = result.data;
 
-    // Check if email already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
+    // The duplicate check goes through the lookup HMAC, so it finds the address
+    // however it was typed -- including the case the old case-sensitive unique
+    // let a second account be created with (ADR 0012).
+    const existingUser = await prisma.user.findFirst({
+      where: lookupUserEmail(email),
+      select: { id: true },
     });
 
     if (existingUser) {
@@ -46,13 +50,16 @@ export async function POST(request: NextRequest) {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, REGISTRATION_HASH_COST);
 
-    // Create user
+    // Sealed at the call site rather than by the client hook: the plaintext
+    // column is gone, so there is nothing for the hook to add it to. The hook
+    // still catches any write that was not sealed here.
     const user = await prisma.user.create({
       data: {
         name,
-        email,
         password: hashedPassword,
+        ...sealUserEmail(email),
       },
+      select: { id: true, name: true, ...SELECT_USER_EMAIL },
     });
 
     return NextResponse.json(
@@ -61,7 +68,7 @@ export async function POST(request: NextRequest) {
         user: {
           id: user.id,
           name: user.name,
-          email: user.email,
+          email: readUserEmail(user),
         },
       },
       { status: 201 }

@@ -1,3 +1,4 @@
+import { readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { effectiveStatus } from "@/lib/campaign-lifecycle";
@@ -9,7 +10,9 @@ export default async function AdminCampaignsPage() {
     orderBy: { createdAt: "desc" },
     include: {
       creator: {
-        select: { name: true, email: true },
+        // Decrypted for display (ADR 0012 stores a ciphertext); the panel showing
+        // it is the case the ADR says this scheme does not defend against.
+        select: { name: true, ...SELECT_USER_EMAIL },
       },
     },
   });
@@ -81,7 +84,7 @@ export default async function AdminCampaignsPage() {
                           {campaign.creator.name}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {campaign.creator.email}
+                          {readUserEmail(campaign.creator)}
                         </p>
                       </div>
                     </td>

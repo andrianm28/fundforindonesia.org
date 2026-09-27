@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
 import { VerificationOutcome } from "@/generated/prisma/client";
 
@@ -11,7 +12,10 @@ export default async function ModerasiCampaignsPage() {
       campaign: {
         include: {
           creator: {
-            select: { name: true, email: true },
+            // Not read on this page; selected because the queue is the
+            // Verifier's, and a ciphertext is not something to hand out by
+            // accident either (ADR 0012).
+            select: { name: true, ...SELECT_USER_EMAIL },
           },
         },
       },

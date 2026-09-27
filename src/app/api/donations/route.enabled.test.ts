@@ -40,6 +40,7 @@ vi.mock('@/lib/payments', async () => {
 });
 
 import { POST } from './route';
+import { readDonationGuestEmail, readDonationGuestPhone } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider } from '@/lib/payments';
@@ -281,15 +282,19 @@ describe('POST /api/donations guards that must survive the gate opening', () => 
     expect(mockDonationCreate).not.toHaveBeenCalled();
   });
 
-  it('lets a guest donate without a session, keeping the guest email it left', async () => {
+  // The guest email is sealed on the way in and the plaintext column is gone
+  // (ADR 0012), so what the write carries is the protected form -- read back
+  // through the same decrypt a Receipt uses to address the Donor.
+  it('lets a guest donate without a session, keeping the guest email it left as a sealed form', async () => {
     mockGetServerSession.mockResolvedValue(null);
 
     const response = await POST(createRequest(QRIS_BODY));
 
     expect(response.status).toBe(201);
-    expect(mockDonationCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({ donorId: null, guestEmail: 'donor@example.com' }),
-    });
+    const { data } = mockDonationCreate.mock.calls[0]![0]!;
+    expect(data).toMatchObject({ donorId: null });
+    expect(data).not.toHaveProperty('guestEmail');
+    expect(readDonationGuestEmail(data)).toBe('donor@example.com');
   });
 
   it('records a prayer when the donor left a message', async () => {
@@ -409,23 +414,24 @@ describe('POST /api/donations Guest Donor contact details (prd-compliance 18)', 
     const response = await POST(createRequest(bodyWithoutEmail));
 
     expect(response.status).toBe(201);
-    expect(mockDonationCreate).toHaveBeenCalledWith({
-      data: expect.not.objectContaining({ guestEmail: expect.anything() }),
-    });
+    // A signed-in Donor's contact lives on their User row, so no guest contact
+    // is sealed onto the Donation at all.
+    const { data } = mockDonationCreate.mock.calls[0]![0]!;
+    expect(data).not.toHaveProperty('guestEmailHmac');
+    expect(data).not.toHaveProperty('guestEmailCiphertext');
   });
 
-  it('keeps optional guest name and phone alongside the required email', async () => {
+  it('keeps the optional guest name in the clear and the phone sealed, beside the sealed email', async () => {
     await POST(
       createRequest({ ...QRIS_BODY, guestName: 'Tamu Baik', guestPhone: '081200000000' }),
     );
 
-    expect(mockDonationCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        guestEmail: 'donor@example.com',
-        guestName: 'Tamu Baik',
-        guestPhone: '081200000000',
-      }),
-    });
+    const { data } = mockDonationCreate.mock.calls[0]![0]!;
+    // The name is plaintext by decision (ADR 0012, like User.name); the phone
+    // is a ciphertext, as it is everywhere.
+    expect(data.guestName).toBe('Tamu Baik');
+    expect(readDonationGuestEmail(data)).toBe('donor@example.com');
+    expect(readDonationGuestPhone(data)).toBe('081200000000');
   });
 });
 

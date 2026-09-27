@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { sealDonationGuestEmail, sealDonationGuestPhone } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
@@ -230,12 +231,18 @@ export async function POST(request: NextRequest) {
         donorId,
         trafficSource: sanitizedTrafficSource,
         ikrarConfirmed,
-        // A signed-in Donor's contact details live on their User row; a
-        // Guest Donor's live here instead, protected the same way
-        // (src/lib/field-protection.ts, ADR 0012).
+        // A signed-in Donor's contact details live on their User row; a Guest
+        // Donor's live here instead, sealed the same way (ADR 0012). The guest
+        // name stays plaintext by decision, like User.name.
         ...(donorId
           ? {}
-          : { guestEmail, guestName: guestName || null, guestPhone: guestPhone || null }),
+          : {
+              guestName: guestName || null,
+              // Checked non-null above: a Guest Donor with no email was
+              // refused before anything was written.
+              ...sealDonationGuestEmail(guestEmail as string),
+              ...sealDonationGuestPhone(guestPhone || null),
+            }),
       },
     });
 

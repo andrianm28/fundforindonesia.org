@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "@/lib/auth";
+import { readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
 
 const profileSchema = z.object({
@@ -39,10 +40,12 @@ export async function PATCH(request: NextRequest) {
     const user = await prisma.user.update({
       where: { id: session.user.id },
       data: { name: result.data.name },
-      select: { id: true, name: true, email: true, avatar: true },
+      select: { id: true, name: true, avatar: true, ...SELECT_USER_EMAIL },
     });
 
-    return NextResponse.json({ user });
+    return NextResponse.json({
+      user: { id: user.id, name: user.name, email: readUserEmail(user), avatar: user.avatar },
+    });
   } catch (error) {
     console.error("Error updating profile:", error);
     return NextResponse.json(

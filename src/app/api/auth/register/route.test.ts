@@ -6,7 +6,9 @@ import { NextRequest } from 'next/server';
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
-      findUnique: vi.fn(),
+      // The duplicate check goes through the lookup HMAC, so it is a findFirst
+      // and not a findUnique on a unique field (ADR 0012).
+      findFirst: vi.fn(),
       create: vi.fn(),
     },
   },
@@ -20,6 +22,7 @@ vi.mock('bcryptjs', () => ({
 }));
 
 import { prisma } from '@/lib/prisma';
+import { sealUserEmail } from '@/lib/contact-fields';
 
 function createRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/auth/register', {
@@ -28,16 +31,6 @@ function createRequest(body: unknown): NextRequest {
     body: JSON.stringify(body),
   });
 }
-
-// The ADR 0012 columns, NULL on rows written before the keys were set.
-const CONTACT_FIELDS_NOT_YET_PROTECTED = {
-  emailHmac: null,
-  emailHmacKeyId: null,
-  emailCiphertext: null,
-  emailKeyId: null,
-  phoneCiphertext: null,
-  phoneKeyId: null,
-};
 
 describe('POST /api/auth/register', () => {
   beforeEach(() => {
@@ -72,22 +65,7 @@ describe('POST /api/auth/register', () => {
   });
 
   it('should return 409 when email already exists', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({
-      id: 'existing-user',
-      email: 'test@example.com',
-      name: 'Existing',
-      password: 'hashed',
-      avatar: null,
-      phone: null,
-      // The retired columns, NULL on every new row until ticket 03 drops them.
-      isVerified: null,
-      verificationType: null,
-      role: null,
-      donationBalance: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      ...CONTACT_FIELDS_NOT_YET_PROTECTED,
-    });
+    vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: 'existing-user' } as never);
 
     const req = createRequest({ name: 'Test', email: 'test@example.com', password: '12345678' });
     const res = await POST(req);
@@ -98,23 +76,12 @@ describe('POST /api/auth/register', () => {
   });
 
   it('should return 201 on successful registration', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.user.create).mockResolvedValue({
       id: 'new-user-id',
-      email: 'new@example.com',
       name: 'New User',
-      password: '$2a$12$hashedpassword',
-      avatar: null,
-      phone: null,
-      // The retired columns, NULL on every new row until ticket 03 drops them.
-      isVerified: null,
-      verificationType: null,
-      role: null,
-      donationBalance: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      ...CONTACT_FIELDS_NOT_YET_PROTECTED,
-    });
+      ...sealUserEmail('new@example.com'),
+    } as never);
 
     const req = createRequest({ name: 'New User', email: 'new@example.com', password: '12345678' });
     const res = await POST(req);
@@ -126,34 +93,54 @@ describe('POST /api/auth/register', () => {
     expect(body.user.name).toBe('New User');
   });
 
-  it('should hash the password before storing', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+  // The contract step of ADR 0012: the plaintext column is gone, so the address
+  // is sealed on the way in and the response gets it back by decrypting.
+  it('stores the email only as its protected columns, and answers with the address the Donor gave', async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.user.create).mockResolvedValue({
       id: 'new-user-id',
-      email: 'new@example.com',
       name: 'New User',
-      password: '$2a$12$hashedpassword',
-      avatar: null,
-      phone: null,
-      // The retired columns, NULL on every new row until ticket 03 drops them.
-      isVerified: null,
-      verificationType: null,
-      role: null,
-      donationBalance: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      ...CONTACT_FIELDS_NOT_YET_PROTECTED,
-    });
+      ...sealUserEmail('New@Example.com'),
+    } as never);
+
+    const res = await POST(
+      createRequest({ name: 'New User', email: 'New@Example.com', password: '12345678' }),
+    );
+    const body = await res.json();
+
+    const written = vi.mocked(prisma.user.create).mock.calls[0][0].data as Record<string, unknown>;
+    expect(written).not.toHaveProperty('email');
+    expect(written.emailHmac).toBeDefined();
+    expect(body.user.email).toBe('New@Example.com');
+  });
+
+  it('looks the address up by its HMAC, so a duplicate is found however it was typed', async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: 'existing' } as never);
+
+    await POST(createRequest({ name: 'Test', email: 'TEST@Example.com', password: '12345678' }));
+
+    // A 64-hex HMAC and never the address itself, which is what closes the
+    // case-sensitivity gap the old case-sensitive `email @unique` had.
+    const where = vi.mocked(prisma.user.findFirst).mock.calls[0]![0]!.where as Record<string, unknown>;
+    expect(Object.keys(where).sort()).toEqual(['emailHmac', 'emailHmacKeyId']);
+    expect(where.emailHmac).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('should hash the password before storing', async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue({
+      id: 'new-user-id',
+      name: 'New User',
+      ...sealUserEmail('new@example.com'),
+    } as never);
 
     const req = createRequest({ name: 'New User', email: 'new@example.com', password: 'mypassword' });
     await POST(req);
 
-    expect(prisma.user.create).toHaveBeenCalledWith({
-      data: {
-        name: 'New User',
-        email: 'new@example.com',
-        password: '$2a$12$hashedpassword',
-      },
-    });
+    const { data } = vi.mocked(prisma.user.create).mock.calls[0][0];
+    expect(data).toMatchObject({ name: 'New User', password: '$2a$12$hashedpassword' });
+    // Sealed, not stored in the clear (ADR 0012).
+    expect(data).not.toHaveProperty('email');
+    expect(data.emailHmac).toBeDefined();
   });
 });

@@ -64,9 +64,11 @@ services:
       SUMOPOD_API_KEY: ${SUMOPOD_API_KEY:-}
       SUMOPOD_WEBHOOK_SECRET: ${SUMOPOD_WEBHOOK_SECRET:-}
       SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-}
-      # Field-level encryption keys (ADR 0012). No defaults: a default key is
-      # a published one. Empty means encryption is off and only plaintext is
-      # written; see .env.example.
+      # Field-level encryption keys (ADR 0012). No defaults, for the reason
+      # MOCK_MIDTRANS_SERVER_KEY above gives: a default key is a published one.
+      # These are also no longer optional in practice -- the plaintext contact
+      # columns are dropped, so a deployment without them cannot write a contact
+      # detail at all and fails at the first one. See .env.example.
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
       FIELD_ENCRYPTION_KEY_ID: ${FIELD_ENCRYPTION_KEY_ID:-}
       FIELD_HMAC_KEY: ${FIELD_HMAC_KEY:-}

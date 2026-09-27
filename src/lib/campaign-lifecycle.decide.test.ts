@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { sealUserEmail } from './contact-fields';
 import {
   CollectingEntityNotEligibleError,
   CollectingEntityRequiredError,
@@ -568,7 +569,14 @@ describe('decideVerificationRequest', () => {
         campaigns: [campaignRow({ kind: 'ZAKAT', creatorId: 'partner-fundraiser-1' })],
         fundraisingPermits: [fundraisingPermitRow({ kinds: ['ZAKAT'] })],
         kindAuthorisations: [kindAuthorisationRow()],
-        users: [userRow(), userRow({ id: 'partner-fundraiser-1', email: 'partner-fundraiser@example.test', name: 'Yayasan Contoh Peduli' })],
+        users: [
+          userRow(),
+          userRow({
+            id: 'partner-fundraiser-1',
+            ...sealUserEmail('partner-fundraiser@example.test'),
+            name: 'Yayasan Contoh Peduli',
+          }),
+        ],
         ...overrides,
       });
     }

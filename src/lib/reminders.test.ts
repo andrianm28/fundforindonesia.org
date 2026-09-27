@@ -18,6 +18,7 @@ vi.mock('@/lib/mail', () => ({
   sendReportingFailure: vi.fn().mockResolvedValue(true),
 }));
 
+import { sealUserEmail } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { sendReportingFailure } from '@/lib/mail';
 import {
@@ -43,10 +44,16 @@ type CampaignRow = {
   lifecycleStatus: string;
   creatorId: string;
   deadlineReminderSentAt: Date | null;
-  creator: { email: string; name: string };
+  // The Fundraiser's address is a ciphertext (ADR 0012), decrypted where the
+  // reminder is addressed.
+  creator: { emailCiphertext: string; emailKeyId: string; name: string };
 };
 
-function makeCampaign(overrides: Partial<CampaignRow> = {}): CampaignRow {
+/** A Campaign row whose Fundraiser has the given address, sealed as stored. */
+function makeCampaignWithFundraiser(
+  email: string,
+  overrides: Partial<CampaignRow> = {},
+): CampaignRow {
   return {
     id: 'campaign-1',
     slug: 'bantu-sekolah',
@@ -55,9 +62,13 @@ function makeCampaign(overrides: Partial<CampaignRow> = {}): CampaignRow {
     lifecycleStatus: 'ACTIVE',
     creatorId: 'fundraiser-1',
     deadlineReminderSentAt: null,
-    creator: { email: 'fundraiser@example.test', name: 'Budi' },
+    creator: { name: 'Budi', ...sealUserEmail(email) },
     ...overrides,
   };
+}
+
+function makeCampaign(overrides: Partial<CampaignRow> = {}): CampaignRow {
+  return makeCampaignWithFundraiser('fundraiser@example.test', overrides);
 }
 
 /**
@@ -204,7 +215,8 @@ type KindAuthorisationRow = {
   partnerOrganisation: {
     name: string;
     fundraiserId: string;
-    fundraiser: { email: string; name: string };
+    // Sealed, as stored (ADR 0012).
+    fundraiser: { emailCiphertext: string; emailKeyId: string; name: string };
   };
 };
 
@@ -218,7 +230,7 @@ function makeKindAuthorisation(overrides: Partial<KindAuthorisationRow> = {}): K
     partnerOrganisation: {
       name: 'Yayasan Contoh',
       fundraiserId: 'fundraiser-org-1',
-      fundraiser: { email: 'org@example.test', name: 'Siti' },
+      fundraiser: { name: 'Siti', ...sealUserEmail('org@example.test') },
     },
     ...overrides,
   };

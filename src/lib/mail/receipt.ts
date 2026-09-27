@@ -43,7 +43,10 @@ export type ReceiptRecipient = {
  * than guessing when either is missing, naming which.
  */
 export function resolveReceiptRecipient(input: {
-  donor: { email: string; name: string } | null;
+  // Null, not absent: an address comes out of a ciphertext, and one that will
+  // not decrypt is a real answer that the fallback below should see rather than
+  // a field the caller forgot.
+  donor: { email: string | null; name: string } | null;
   guestEmail: string | null;
   guestName: string | null;
   collectingEntityName: string | null;

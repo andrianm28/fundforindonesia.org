@@ -5,8 +5,11 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { Assignment } from "@/generated/prisma/client";
+import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 
 export const authOptions: NextAuthOptions = {
+  // The adapter writes through the same hooked client, so an OAuth sign-in's
+  // email is sealed on the way in like any other write (ADR 0012).
   adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
   providers: [
     GoogleProvider({
@@ -24,8 +27,12 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Email dan password harus diisi");
         }
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
+        // Through the HMAC, never a scan over decrypted addresses (ADR 0012):
+        // the plaintext email column is gone, and decrypting every account to
+        // compare it would be the thing this scheme exists to prevent.
+        const user = await prisma.user.findFirst({
+          where: lookupUserEmail(credentials.email),
+          select: { ...SELECT_USER_EMAIL, id: true, password: true, name: true, avatar: true },
         });
 
         if (!user || !user.password) {
@@ -41,9 +48,14 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Email atau password salah");
         }
 
+        const email = readUserEmail(user);
+        if (!email) {
+          throw new Error("Email atau password salah");
+        }
+
         return {
           id: user.id,
-          email: user.email,
+          email,
           name: user.name,
           image: user.avatar,
         };

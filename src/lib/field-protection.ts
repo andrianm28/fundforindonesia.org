@@ -1,48 +1,59 @@
 import type { PrismaClient } from '@/generated/prisma/client';
-import { loadFieldKeys, type FieldKeys } from './field-encryption';
+import {
+  requireFieldKeys,
+  sealBankAccountNumber,
+  sealDonationGuestEmail,
+  sealDonationGuestPhone,
+  sealInquiryContactEmail,
+  sealInquiryContactPhone,
+  sealUserEmail,
+  sealUserPhone,
+} from './contact-fields';
 
 /**
  * Makes every User, BankAccount, Donation and PartnershipInquiry write carry
- * the protected forms of the contact details next to the plaintext, as ADR 0012
- * lays out:
+ * only the protected form of a contact detail, as ADR 0012 lays out:
  *
  * - `email` also gets `emailHmac` (searchable, keyed HMAC of the normalized
  *   address) and `emailCiphertext` (randomized AES-256-GCM), each with a key id.
  * - `phone` and `BankAccount.accountNumber` get a randomized ciphertext and a
  *   key id. They are never searched, so they get no HMAC.
- * - `name` and `BankAccount.accountName` stay plaintext by decision: names are
- *   shown publicly and Refund compares the holder name.
+ * - `name`, `BankAccount.accountName` and `Donation.guestName` stay plaintext
+ *   by decision: names are shown publicly and Refund compares the holder name.
  * - `Donation.guestEmail`/`guestPhone` (a Guest Donor's contact details,
- *   CONTEXT.md Guest Donor; prd-compliance 18) follow the same rules as
- *   `email`/`phone` above; `guestName` stays plaintext like `name`.
- * - `PartnershipInquiry.contactEmail`/`contactPhone` (the named person at a
- *   company asking about a Program, CONTEXT.md, Partnership Inquiry) follow
- *   `email`/`phone` the same way; `contactName` stays plaintext like `name`.
+ *   CONTEXT.md Guest Donor) and `PartnershipInquiry.contactEmail`/
+ *   `contactPhone` (the named person at a company asking about a Program) are
+ *   the same contact data and get the same treatment.
  *
- * This is the expand step: the plaintext is still written and still read.
- * Hooking the client rather than each route means the Auth.js adapter's
- * `createUser`, the seed and any later writer are covered without knowing
- * about it. Nested writes (a BankAccount created inside a User write) are not
- * seen; none exist today.
+ * The plaintext columns are gone (prd-compliance 16, the contract step), so
+ * this hook no longer stores both forms: it seals the plaintext a caller hands
+ * it and drops the plaintext, which is what keeps a route, the seed or the
+ * Auth.js adapter from storing a contact detail in the clear even by accident.
+ * Application code seals at the call site instead, through
+ * src/lib/contact-fields.ts; this is the boundary that catches whatever is
+ * left, including the third-party adapter's `createUser`, which cannot be told
+ * about the schema.
+ *
+ * Nested writes are still not seen, and that is no longer a silent risk: a
+ * nested `create` that tried to pass a contact detail would name a column the
+ * database does not have, and Prisma would refuse it.
  */
 
 /**
- * The client with the hooks installed, keys read from env. Read at client
- * construction so a half-configured key set fails the boot, not the first
- * registration.
+ * The client with the hooks installed, keys read from env.
+ *
+ * The keys are resolved once, here, and a write that carries a contact detail
+ * is refused when there are none. That refusal is at the write rather than at
+ * the boot, because a deployment with no keys can still serve every page that
+ * touches no contact detail -- and with the plaintext columns gone it cannot
+ * serve one that does, which is the honest outcome rather than a silent NULL.
  */
 export function withContactFieldProtection(client: PrismaClient): PrismaClient {
-  const keys = loadFieldKeys(process.env);
-  if (!keys && process.env.NODE_ENV === 'production') {
-    console.warn(
-      'Field encryption is off: FIELD_ENCRYPTION_KEY and FIELD_HMAC_KEY are unset, so contact details are stored in plaintext only (ADR 0012).',
-    );
-  }
   return client.$extends({
     name: 'contactFieldProtection',
     // The hooks are typed loosely (they only touch `data`, `create` and
     // `update`); Prisma's per-model argument types add nothing here.
-    query: contactFieldWrites(keys) as never,
+    query: contactFieldWrites() as never,
   }) as unknown as PrismaClient;
 }
 
@@ -61,34 +72,48 @@ const DATA_OPERATIONS = [
 ] as const;
 type ModelHooks = Record<(typeof DATA_OPERATIONS)[number] | 'upsert', Hook>;
 
-/** Query-extension hooks for `client.$extends({ query })`. Null keys: pass-through. */
-export function contactFieldWrites(keys: FieldKeys | null): {
+/**
+ * Query-extension hooks for `client.$extends({ query })`.
+ *
+ * A null `keys` refuses a write that carries a contact detail instead of
+ * passing it through: the caller meant to store an address, and the only
+ * remaining way to do that is protected.
+ */
+export function contactFieldWrites(keys: ReturnType<typeof loadKeys> = loadKeys()): {
   user: ModelHooks;
   bankAccount: ModelHooks;
   donation: ModelHooks;
   partnershipInquiry: ModelHooks;
 } {
   return {
-    user: hooksFor(keys ? (data) => protectUser(keys, data) : null),
-    bankAccount: hooksFor(keys ? (data) => protectBankAccount(keys, data) : null),
-    donation: hooksFor(keys ? (data) => protectDonation(keys, data) : null),
-    partnershipInquiry: hooksFor(keys ? (data) => protectPartnershipInquiry(keys, data) : null),
+    user: hooksFor((data) => protect(keys, 'user', data)),
+    bankAccount: hooksFor((data) => protect(keys, 'bankAccount', data)),
+    donation: hooksFor((data) => protect(keys, 'donation', data)),
+    partnershipInquiry: hooksFor((data) => protect(keys, 'partnershipInquiry', data)),
   };
 }
 
-function hooksFor(protect: ((data: Data) => Data) | null): ModelHooks {
-  const pass: Hook = ({ args, query }) => query(args);
-  const withData: Hook = protect
-    ? ({ args, query }) => query({ ...args, data: protectEach(protect, args.data) })
-    : pass;
-  const upsert: Hook = protect
-    ? ({ args, query }) =>
-        query({
-          ...args,
-          create: protectEach(protect, args.create),
-          update: protectEach(protect, args.update),
-        })
-    : pass;
+/**
+ * The keys a write seals with, or null when the environment has none. Not
+ * `requireFieldKeys`: a write that carries no contact detail must still work on
+ * a deployment mid-migration, and the seal is where a missing key is refused.
+ */
+function loadKeys() {
+  try {
+    return requireFieldKeys();
+  } catch {
+    return null;
+  }
+}
+
+function hooksFor(protect: (data: Data) => Data): ModelHooks {
+  const withData: Hook = ({ args, query }) => query({ ...args, data: protectEach(protect, args.data) });
+  const upsert: Hook = ({ args, query }) =>
+    query({
+      ...args,
+      create: protectEach(protect, args.create),
+      update: protectEach(protect, args.update),
+    });
   const hooks = Object.fromEntries(DATA_OPERATIONS.map((op) => [op, withData]));
   return { ...hooks, upsert } as ModelHooks;
 }
@@ -99,80 +124,54 @@ function protectEach(protect: (data: Data) => Data, data: unknown): unknown {
   return data;
 }
 
-function protectUser(keys: FieldKeys, data: Data): Data {
-  const out: Data = { ...data };
-
-  const email = scalarWrite(data.email);
-  if (typeof email === 'string') {
-    const lookup = keys.emailLookup(email);
-    out.emailHmac = lookup.hmac;
-    out.emailHmacKeyId = lookup.keyId;
-    Object.assign(out, seal(keys, 'User.email', 'email', email));
-  }
-
-  Object.assign(out, seal(keys, 'User.phone', 'phone', scalarWrite(data.phone)));
-  return out;
-}
-
-function protectBankAccount(keys: FieldKeys, data: Data): Data {
-  return {
-    ...data,
-    ...seal(keys, 'BankAccount.accountNumber', 'accountNumber', scalarWrite(data.accountNumber)),
-  };
-}
-
 /**
- * A Guest Donor's contact details (CONTEXT.md, Guest Donor; prd-compliance
- * 18): guestEmail gets the same searchable HMAC + ciphertext treatment as
- * User.email, guestPhone the same ciphertext-only treatment as User.phone.
- * guestName stays plaintext, same as User.name -- it is what a non-anonymous
- * Donor's name shows as when there is no User account behind it.
+ * Which contact fields each model has, and the seal for each. The names are the
+ * columns those fields were written to while the plaintext existed, which is
+ * also the additional authenticated data they are encrypted under: a ciphertext
+ * already in the database decrypts only under the name it was sealed with, so
+ * these are fixed (see src/lib/contact-fields.ts, which readers use and which
+ * holds the same table).
  */
-function protectDonation(keys: FieldKeys, data: Data): Data {
-  const out: Data = { ...data };
+const FIELDS = {
+  user: {
+    email: sealUserEmail,
+    phone: sealUserPhone,
+  },
+  bankAccount: {
+    accountNumber: sealBankAccountNumber,
+  },
+  donation: {
+    guestEmail: sealDonationGuestEmail,
+    guestPhone: sealDonationGuestPhone,
+  },
+  partnershipInquiry: {
+    contactEmail: sealInquiryContactEmail,
+    contactPhone: sealInquiryContactPhone,
+  },
+} as const;
 
-  const guestEmail = scalarWrite(data.guestEmail);
-  if (typeof guestEmail === 'string') {
-    const lookup = keys.emailLookup(guestEmail);
-    out.guestEmailHmac = lookup.hmac;
-    out.guestEmailHmacKeyId = lookup.keyId;
-    Object.assign(out, seal(keys, 'Donation.guestEmail', 'guestEmail', guestEmail));
+type Model = keyof typeof FIELDS;
+
+/** Every seal in the table, as one callable shape: a plaintext in, columns out. */
+type Sealer = (value: string | null) => Data;
+
+function protect(keys: ReturnType<typeof loadKeys>, model: Model, data: Data): Data {
+  const out: Data = { ...data };
+  const fields = FIELDS[model] as Record<string, Sealer>;
+
+  for (const [column, seal] of Object.entries(fields)) {
+    if (!(column in data)) continue;
+    const value = scalarWrite(data[column]);
+    if (!keys) {
+      throw new Error(
+        `Cannot store ${model}.${column}: field encryption is not configured, and the plaintext column is gone (ADR 0012). Set FIELD_ENCRYPTION_KEY, FIELD_ENCRYPTION_KEY_ID, FIELD_HMAC_KEY and FIELD_HMAC_KEY_ID.`,
+      );
+    }
+    delete out[column];
+    Object.assign(out, seal(typeof value === 'string' ? value : null));
   }
 
-  Object.assign(out, seal(keys, 'Donation.guestPhone', 'guestPhone', scalarWrite(data.guestPhone)));
   return out;
-}
-
-/**
- * The Sponsor-side contact on a Partnership Inquiry (CONTEXT.md, Partnership
- * Inquiry; ticket csr-05). It is a named person at a company, so it is the same
- * contact data the form already submits for a Donor and gets the same ADR 0012
- * treatment: contactEmail like User.email (searchable HMAC + ciphertext),
- * contactPhone like User.phone (ciphertext only -- it is never searched), and
- * contactName plaintext with `User.name` and `guestName`, because it is what
- * the partnership team reads to reply.
- */
-function protectPartnershipInquiry(keys: FieldKeys, data: Data): Data {
-  const out: Data = { ...data };
-
-  const email = scalarWrite(data.contactEmail);
-  if (typeof email === 'string') {
-    const lookup = keys.emailLookup(email);
-    out.contactEmailHmac = lookup.hmac;
-    out.contactEmailHmacKeyId = lookup.keyId;
-    Object.assign(out, seal(keys, 'PartnershipInquiry.contactEmail', 'contactEmail', email));
-  }
-
-  Object.assign(out, seal(keys, 'PartnershipInquiry.contactPhone', 'contactPhone', scalarWrite(data.contactPhone)));
-  return out;
-}
-
-/** The ciphertext and key id columns for a field; clears both when the field is cleared. */
-function seal(keys: FieldKeys, field: string, column: string, value: unknown): Data {
-  if (value === null) return { [`${column}Ciphertext`]: null, [`${column}KeyId`]: null };
-  if (typeof value !== 'string') return {};
-  const sealed = keys.encrypt(field, value);
-  return { [`${column}Ciphertext`]: sealed.ciphertext, [`${column}KeyId`]: sealed.keyId };
 }
 
 /** The value a write sets, whether given bare or as Prisma's `{ set: value }`. */

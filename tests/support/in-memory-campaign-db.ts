@@ -1,4 +1,5 @@
 import type { CampaignStatus, Kind } from '@/generated/prisma/client';
+import { sealUserEmail } from '@/lib/contact-fields';
 
 /**
  * In-memory stand-in for the slice of PrismaClient that the Campaign
@@ -86,15 +87,26 @@ export type PartnerOrganisationAuditRow = {
 };
 
 
-/** The slice of a User the lifecycle reads: who a Fundraiser is, to write to them. */
+/**
+ * The slice of a User the lifecycle reads: who a Fundraiser is, to write to
+ * them. The address is a ciphertext and a key id (ADR 0012) rather than the
+ * plaintext the row used to carry, so a double that offers one cannot pretend a
+ * reader still sees it.
+ */
 export type UserRow = {
   id: string;
-  email: string;
+  emailCiphertext: string;
+  emailKeyId: string;
   name: string;
 };
 
 export function userRow(overrides: Partial<UserRow> = {}): UserRow {
-  return { id: 'creator-1', email: 'creator-1@example.test', name: 'Siti Fundraiser', ...overrides };
+  return {
+    id: 'creator-1',
+    name: 'Siti Fundraiser',
+    ...sealUserEmail('creator-1@example.test'),
+    ...overrides,
+  };
 }
 
 export type StatusChangeRow = {
@@ -870,6 +882,13 @@ export function makeCampaignDb(
           const row = users.find((u) => matches(u, where));
           if (!row) throw new Error('No User found');
           return { ...row };
+        },
+        // How an account is found by its address now: the lookup HMAC, never a
+        // unique field on the address (ADR 0012 dropped the plaintext column,
+        // and the HMAC is the only thing an equality search can use).
+        findFirst: async ({ where }: { where: Where }) => {
+          const row = users.find((u) => matches(u, where));
+          return row ? { ...row } : null;
         },
       },
       payout: {

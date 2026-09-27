@@ -17,6 +17,7 @@ import {
   type KindAuthorisationWindow,
   type PermitWindow,
 } from "./collecting-entity";
+import { readUserEmail, SELECT_USER_EMAIL } from "./contact-fields";
 
 /** What the donation gate reads of a Campaign (select COLLECTING_ENTITY_SELECT for the entity). */
 type DonationGateCampaign = {
@@ -830,11 +831,17 @@ export async function decideVerificationRequest(
       });
       const fundraiser = await tx.user.findUniqueOrThrow({
         where: { id: campaign.creatorId },
-        select: { email: true, name: true },
+        select: { name: true, ...SELECT_USER_EMAIL },
       });
+      const fundraiserEmail = readUserEmail(fundraiser);
+      if (!fundraiserEmail) {
+        throw new Error(
+          `Cannot email the verification outcome to the Fundraiser of ${campaign.slug}: their account has no readable email address (ADR 0012)`,
+        );
+      }
       outcome.fundraiserId = campaign.creatorId;
       outcome.email = verificationOutcomeEmail({
-        to: fundraiser.email,
+        to: fundraiserEmail,
         fundraiserName: fundraiser.name,
         campaignTitle: campaign.title,
         campaignUrl: publicUrl(`/campaign/${campaign.slug}`),

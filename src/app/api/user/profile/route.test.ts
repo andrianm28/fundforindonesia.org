@@ -15,6 +15,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+import { sealUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -95,8 +96,8 @@ describe("PATCH /api/user/profile", () => {
     mockedUserUpdate.mockResolvedValue({
       id: "user-1",
       name: "New Name",
-      email: "test@test.com",
       avatar: null,
+      ...sealUserEmail("test@test.com"),
     } as any);
 
     const response = await PATCH(createRequest({ name: "New Name" }));
@@ -105,11 +106,14 @@ describe("PATCH /api/user/profile", () => {
     expect(response.status).toBe(200);
     expect(data.user.name).toBe("New Name");
     expect(data.user.id).toBe("user-1");
+    // Decrypted for the response, from the two columns the query asked for
+    // (ADR 0012).
     expect(data.user.email).toBe("test@test.com");
+    expect(data.user.emailCiphertext).toBeUndefined();
     expect(mockedUserUpdate).toHaveBeenCalledWith({
       where: { id: "user-1" },
       data: { name: "New Name" },
-      select: { id: true, name: true, email: true, avatar: true },
+      select: { id: true, name: true, avatar: true, ...SELECT_USER_EMAIL },
     });
   });
 
@@ -122,8 +126,8 @@ describe("PATCH /api/user/profile", () => {
     mockedUserUpdate.mockResolvedValue({
       id: "user-1",
       name: "Ab",
-      email: "test@test.com",
       avatar: null,
+      ...sealUserEmail("test@test.com"),
     } as any);
 
     const response = await PATCH(createRequest({ name: "Ab" }));
@@ -143,8 +147,8 @@ describe("PATCH /api/user/profile", () => {
     mockedUserUpdate.mockResolvedValue({
       id: "user-1",
       name: exactName,
-      email: "test@test.com",
       avatar: null,
+      ...sealUserEmail("test@test.com"),
     } as any);
 
     const response = await PATCH(createRequest({ name: exactName }));

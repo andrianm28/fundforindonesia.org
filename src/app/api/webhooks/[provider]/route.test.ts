@@ -56,6 +56,7 @@ vi.mock('@/lib/mail', () => ({
   sendReportingFailure: vi.fn().mockResolvedValue(true),
 }));
 
+import { sealDonationGuestEmail, sealUserEmail } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import {
   getPaymentProvider,
@@ -142,9 +143,10 @@ function makePayment(overrides: Record<string, unknown> = {}) {
     donation: {
       id: 'donation-1',
       donorId: 'donor-1',
-      guestEmail: null,
+      guestEmailCiphertext: null,
+      guestEmailKeyId: null,
       guestName: null,
-      donor: { id: 'donor-1', email: 'donor@example.test', name: 'Donor Test' },
+      donor: { id: 'donor-1', name: 'Donor Test', ...sealUserEmail('donor@example.test') },
       campaign: {
         id: 'campaign-1',
         title: 'Test Campaign',
@@ -483,7 +485,7 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(report).toMatchObject({ mail: 'receipt', donationId: 'donation-1', paymentId: 'payment-1' });
   });
 
-  it('emails the Receipt to a Guest Donor at their plaintext guestEmail when there is no account', async () => {
+  it('emails the Receipt to a Guest Donor at their sealed guest email when there is no account', async () => {
     mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
     mockPaymentFindUnique.mockResolvedValue(
       makePayment({
@@ -491,8 +493,8 @@ describe('POST /api/webhooks/[provider]', () => {
           id: 'donation-1',
           donorId: null,
           donor: null,
-          guestEmail: 'guest@example.test',
           guestName: 'Guest Test',
+          ...sealDonationGuestEmail('guest@example.test'),
           campaign: {
             id: 'campaign-1',
             title: 'Test Campaign',
@@ -535,9 +537,10 @@ describe('POST /api/webhooks/[provider]', () => {
         donation: {
           id: 'donation-1',
           donorId: 'donor-1',
-          guestEmail: null,
+          guestEmailCiphertext: null,
+          guestEmailKeyId: null,
           guestName: null,
-          donor: { id: 'donor-1', email: 'donor@example.test', name: 'Wakif Test' },
+          donor: { id: 'donor-1', name: 'Wakif Test', ...sealUserEmail('donor@example.test') },
           campaign: {
             id: 'campaign-1',
             title: 'Wakaf Pembangunan Masjid Al-Ikhlas',
@@ -602,9 +605,10 @@ describe('POST /api/webhooks/[provider]', () => {
         donation: {
           id: 'donation-1',
           donorId: 'donor-1',
-          guestEmail: null,
+          guestEmailCiphertext: null,
+          guestEmailKeyId: null,
           guestName: null,
-          donor: { id: 'donor-1', email: 'donor@example.test', name: 'Donor Test' },
+          donor: { id: 'donor-1', name: 'Donor Test', ...sealUserEmail('donor@example.test') },
           campaign: {
             id: 'campaign-1',
             title: 'Test Campaign',

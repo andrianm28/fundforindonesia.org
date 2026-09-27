@@ -28,22 +28,28 @@ enum Role {
 
 model User {
   id               String   @id @default(cuid())
-  email            String   @unique
   name             String
   password         String?
   avatar           String?
-  phone            String?
-  // Field-level protection (ADR 0012), expand step: written next to the
-  // plaintext `email` and `phone` by the client hook in
-  // src/lib/field-protection.ts; nothing reads them yet. Null on rows written
-  // before the keys were configured, until the backfill. `name` stays
-  // plaintext by decision, not by omission.
+  // Field-level protection (ADR 0012), contract step (prd-compliance 16): the
+  // plaintext `email` and `phone` columns are gone, so a stolen database dump
+  // no longer hands over a Donor address. The columns below are written and
+  // read through src/lib/contact-fields.ts, and the client hook in
+  // src/lib/field-protection.ts seals any plaintext a caller hands it rather
+  // than letting it through. `name` stays plaintext by decision, not by
+  // omission: it is already shown publicly, and Refund compares it.
+  //
+  // What this is for, plainly: a dump of this database no longer contains a
+  // readable Donor address or phone number. What it is NOT for: an Admin with
+  // panel access can still read any of them, because the panel decrypts on the
+  // way out. There is no access log on the panel today, so that is a separate
+  // piece of work (ADR 0012, Consequences).
   /// Hex HMAC-SHA256 of the trimmed, lowercased email under FIELD_HMAC_KEY. Searchable.
-  emailHmac        String?
-  emailHmacKeyId   String?
+  emailHmac        String   @unique
+  emailHmacKeyId   String
   /// base64(iv | AES-256-GCM ciphertext | tag) of the email under FIELD_ENCRYPTION_KEY.
-  emailCiphertext  String?
-  emailKeyId       String?
+  emailCiphertext  String
+  emailKeyId       String
   phoneCiphertext  String?
   phoneKeyId       String?
   // Retired: the self-claimed verification and the Role hierarchy. No
@@ -96,8 +102,13 @@ model User {
   platformFeeThresholdsSet PlatformFeeThreshold[]
   duplicateSimilarityThresholdsSet DuplicateSimilarityThreshold[]
 
-  @@index([email])
-  @@index([emailHmac])
+  // One account per address, and it is the normalized address that counts: the
+  // old `email @unique` was case-sensitive and would let one person hold
+  // `Andi@x.id` and `andi@x.id` as two accounts. The lookup HMAC is computed
+  // from the lowercased address, so those two collide on the `@unique` above and
+  // cannot. That unique index is also the lookup index every `lookupUserEmail`
+  // query uses, so the plain `@@index([emailHmac])` the expand step added is
+  // dropped with it rather than left as a second index on one column.
 }
 
 /// Verifier and Admin are assignments a person holds, not ranks.
@@ -261,22 +272,22 @@ model PartnershipInquiry {
   programId String
   program Program @relation(fields: [programId], references: [id], onDelete: Restrict)
   companyName  String
+  /// Plaintext by decision (ADR 0012), same as User.name: it is what the
+  /// partnership team reads to reply.
   contactName  String
-  contactEmail String
-  /// Optional: plenty of counterparties have one number and no other.
-  contactPhone String?
   /// The company's description of what it wants to discuss, in its words.
   needs String @db.Text
-  /// Hex HMAC-SHA256 of the trimmed, lowercased contactEmail under FIELD_HMAC_KEY.
-  /// Searchable; lets the partnership team find every Inquiry from one company
-  /// contact without reading a ciphertext.
-  contactEmailHmac String?
-  contactEmailHmacKeyId String?
-  /// base64(iv | AES-256-GCM ciphertext | tag) of contactEmail under FIELD_ENCRYPTION_KEY.
-  contactEmailCiphertext String?
-  contactEmailKeyId String?
-  /// contactPhone is never searched, so ciphertext only -- no HMAC, same as
-  /// User.phone and Donation.guestPhone.
+  /// Hex HMAC-SHA256 of the trimmed, lowercased contact email under
+  /// FIELD_HMAC_KEY. Searchable; lets the partnership team find every Inquiry
+  /// from one company contact without reading a ciphertext.
+  contactEmailHmac String
+  contactEmailHmacKeyId String
+  /// base64(iv | AES-256-GCM ciphertext | tag) of the contact email under FIELD_ENCRYPTION_KEY.
+  contactEmailCiphertext String
+  contactEmailKeyId String
+  /// The contact phone is optional -- plenty of counterparties have one number
+  /// and no other -- and is never searched, so ciphertext only: no HMAC, same
+  /// as User.phone and Donation.guestPhone.
   contactPhoneCiphertext String?
   contactPhoneKeyId String?
   status PartnershipInquiryStatus @default(NOT_YET_FOLLOWED_UP)
@@ -779,19 +790,19 @@ model Donation {
   /// the API when donorId is null, kept only for Receipt -- never shown
   /// publicly or to the Fundraiser (guestName follows the same isAnonymous
   /// rule as a registered donor's name, prd-compliance 18). Protected the
-  /// same way User.email/phone are (ADR 0012, src/lib/field-protection.ts):
-  /// guestEmail/guestPhone stay plaintext for now (expand step) alongside
-  /// the sealed forms; guestName is plaintext by decision, same as
-  /// User.name and BankAccount.accountName.
-  guestEmail           String?
+  /// same way a registered Donor's are (ADR 0012, contract step
+  /// prd-compliance 16): the plaintext guestEmail and guestPhone columns are
+  /// gone and only the sealed forms below remain. guestName is plaintext by
+  /// decision, same as User.name and BankAccount.accountName.
   guestName            String?
-  guestPhone           String?
-  /// Hex HMAC-SHA256 of the trimmed, lowercased guestEmail under FIELD_HMAC_KEY. Searchable.
+  /// Hex HMAC-SHA256 of the trimmed, lowercased guest email under FIELD_HMAC_KEY.
+  /// Searchable, so a Guest Donor can be matched to their own giving history.
   guestEmailHmac       String?
   guestEmailHmacKeyId  String?
-  /// base64(iv | AES-256-GCM ciphertext | tag) of guestEmail under FIELD_ENCRYPTION_KEY.
+  /// base64(iv | AES-256-GCM ciphertext | tag) of the guest email under FIELD_ENCRYPTION_KEY.
   guestEmailCiphertext String?
   guestEmailKeyId      String?
+  /// Never searched, so ciphertext only: no HMAC, same as User.phone.
   guestPhoneCiphertext String?
   guestPhoneKeyId      String?
 
@@ -1264,14 +1275,15 @@ model BankAccount {
   ownerId       String
   owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   bankCode      String
-  /// Stored in full. This is a payout destination, not a card number -- it has
-  /// to be readable to instruct the transfer, and masking happens at the UI.
-  accountNumber String
-  /// ADR 0012 expand step: randomized AES-256-GCM of `accountNumber`, written
-  /// beside it by src/lib/field-protection.ts. Null until keys are set or the
-  /// backfill runs. `accountName` stays plaintext: Refund compares it.
-  accountNumberCiphertext String?
-  accountNumberKeyId      String?
+  /// ADR 0012 contract step (prd-compliance 16): a randomized AES-256-GCM of
+  /// the account number, and the only form stored. This is a payout
+  /// destination, not a card number, and it is still read in full to instruct
+  /// the transfer -- decrypted at the point of payout, with masking at the UI.
+  /// Never searched, so there is no HMAC for it, same as User.phone.
+  accountNumberCiphertext String
+  accountNumberKeyId      String
+  /// Plaintext by decision (ADR 0012): Refund compares the holder name against
+  /// the name on the Donation, which is impossible on a ciphertext.
   accountName   String
   /// Set only once the name has been checked against the bank's records.
   /// Payouts must refuse an unverified destination.
@@ -1280,7 +1292,13 @@ model BankAccount {
 
   payouts Payout[]
 
-  @@unique([ownerId, bankCode, accountNumber])
+  // The uniqueness that was `@@unique([ownerId, bankCode, accountNumber])`
+  // cannot survive the drop: the account number is a randomized ciphertext, and
+  // two encryptions of one number never match, so the constraint would never
+  // fire. The application check in src/lib/money/payouts.ts and the Bank
+  // Account form are what refuse a duplicate destination now. Reinstating a
+  // database-level guarantee needs a keyed lookup for the account number, which
+  // ADR 0012 deliberately does not have: it is never searched.
   @@index([ownerId])
 }
 

@@ -1,113 +1,103 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
-import { randomBytes } from 'node:crypto';
-import { loadFieldKeys, type FieldKeys } from './field-encryption';
 import { contactFieldWrites } from './field-protection';
+import { readBankAccountNumber, readDonationGuestEmail, readUserEmail, sealUserEmail } from './contact-fields';
 
-const keys = loadFieldKeys({
-  FIELD_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
-  FIELD_ENCRYPTION_KEY_ID: 'enc-test-1',
-  FIELD_HMAC_KEY: randomBytes(32).toString('base64'),
-  FIELD_HMAC_KEY_ID: 'hmac-test-1',
-}) as FieldKeys;
+/**
+ * The client hook, now that the plaintext columns are gone (prd-compliance 16,
+ * the contract step). The expand step added the protected forms beside the
+ * plaintext and let both through; this one seals the plaintext a caller hands
+ * it and does not let it reach the database, so a route, the seed or the
+ * Auth.js adapter cannot store a contact detail in the clear even by accident.
+ *
+ * The hook is the last line of that guard rather than the only one: application
+ * code seals at the call site with src/lib/contact-fields.ts, and the hook
+ * catches whatever is left. Both must produce the same protected columns, so
+ * the columns are compared rather than each side's idea of them restated.
+ */
 
-/** Runs one hooked operation and returns the args it forwarded to Prisma. */
 async function forwarded(
   model: 'user' | 'bankAccount' | 'donation' | 'partnershipInquiry',
   operation: string,
   args: Record<string, unknown>,
-  withKeys: FieldKeys | null = keys,
 ) {
   const query = vi.fn(async (a: unknown) => a);
-  const hooks = contactFieldWrites(withKeys) as unknown as Record<
+  const hooks = contactFieldWrites() as unknown as Record<
     string,
     Record<string, (p: { args: unknown; query: typeof query }) => Promise<unknown>>
   >;
   await hooks[model][operation]({ args, query });
-  expect(query).toHaveBeenCalledTimes(1);
   return query.mock.calls[0][0] as Record<string, Record<string, unknown>>;
 }
 
-describe('User writes keep the plaintext and add the protected forms', () => {
-  it('registering a Donor stores the email plaintext, its lookup HMAC and its ciphertext', async () => {
+describe('a write of a contact detail reaches Prisma as protected columns only', () => {
+  it('stores a Donor account email as its HMAC and its ciphertext, never as plaintext', async () => {
     const { data } = await forwarded('user', 'create', {
       data: { name: 'Andi Wijaya', email: 'Andi@Email.com', password: 'hash' },
     });
 
-    expect(data.email).toBe('Andi@Email.com');
-    expect(data).toMatchObject({
-      emailHmac: keys.emailLookup('andi@email.com').hmac,
-      emailHmacKeyId: 'hmac-test-1',
-      emailKeyId: 'enc-test-1',
-    });
-    expect(
-      keys.decrypt('User.email', {
-        ciphertext: data.emailCiphertext as string,
-        keyId: data.emailKeyId as string,
-      }),
-    ).toBe('Andi@Email.com');
+    expect(data).not.toHaveProperty('email');
+    expect(Object.keys(data).filter((name) => /^(email|phone)/.test(name)).sort()).toEqual([
+      'emailCiphertext',
+      'emailHmac',
+      'emailHmacKeyId',
+      'emailKeyId',
+    ]);
   });
 
-  it('leaves the name plaintext and adds nothing for it: ADR 0012 keeps it readable', async () => {
+  it('agrees with the call-site seal on every protected column it writes', async () => {
     const { data } = await forwarded('user', 'create', {
-      data: { name: 'Andi Wijaya', email: 'andi@email.com' },
+      data: { name: 'Andi', email: 'Andi@Email.com', phone: '0812' },
     });
+    const sealed = sealUserEmail('Andi@Email.com');
 
-    expect(data.name).toBe('Andi Wijaya');
-    expect(Object.keys(data).filter((k) => k.startsWith('name'))).toEqual(['name']);
+    expect(data.emailHmac).toBe(sealed.emailHmac);
+    expect(data.emailHmacKeyId).toBe(sealed.emailHmacKeyId);
+    expect(data.emailKeyId).toBe(sealed.emailKeyId);
+    // Read through the same function a reader uses, which is the point: what
+    // the hook wrote is what a reader gets back.
+    expect(readUserEmail(data as { emailCiphertext: string; emailKeyId: string })).toBe('Andi@Email.com');
   });
 
-  it('encrypts a phone number, and clears its ciphertext when the phone is cleared', async () => {
-    const set = await forwarded('user', 'update', {
-      where: { id: 'u1' },
-      data: { phone: '+6281234567890' },
+  it('protects a Bank Account number, a Guest Donor contact and a company contact the same way', async () => {
+    const account = await forwarded('bankAccount', 'create', {
+      data: { ownerId: 'u1', bankCode: 'BCA', accountNumber: '1234567890', accountName: 'Andi' },
     });
-    expect(set.data.phone).toBe('+6281234567890');
-    expect(set.data.phoneKeyId).toBe('enc-test-1');
+    const donation = await forwarded('donation', 'create', {
+      data: { amount: 50000, campaignId: 'c1', paymentMethod: 'qris', guestEmail: 'a@x.id', guestPhone: '0812' },
+    });
+    const inquiry = await forwarded('partnershipInquiry', 'create', {
+      data: { programId: 'p1', companyName: 'PT Sinar', contactEmail: 'a@x.id', contactPhone: '0812' },
+    });
+
+    expect(account.data).not.toHaveProperty('accountNumber');
+    expect(donation.data).not.toHaveProperty('guestEmail');
+    expect(inquiry.data).not.toHaveProperty('contactEmail');
+    expect(readBankAccountNumber(account.data as { accountNumberCiphertext: string; accountNumberKeyId: string })).toBe('1234567890');
     expect(
-      keys.decrypt('User.phone', {
-        ciphertext: set.data.phoneCiphertext as string,
-        keyId: 'enc-test-1',
-      }),
-    ).toBe('+6281234567890');
-
-    const cleared = await forwarded('user', 'update', { where: { id: 'u1' }, data: { phone: null } });
-    expect(cleared.data).toEqual({ phone: null, phoneCiphertext: null, phoneKeyId: null });
+      readDonationGuestEmail(donation.data as { guestEmailCiphertext: string; guestEmailKeyId: string }),
+    ).toBe('a@x.id');
   });
 
-  it('leaves an update that touches no contact field exactly as it was', async () => {
+  it('leaves a write that touches no contact detail exactly as it was', async () => {
     const args = { where: { id: 'u1' }, data: { name: 'Andi' }, select: { id: true } };
 
     expect(await forwarded('user', 'update', structuredClone(args))).toEqual(args);
   });
 
-  it('protects both branches of an upsert, and every row of a createMany', async () => {
-    const upsert = await forwarded('user', 'upsert', {
-      where: { email: 'a@x.id' },
-      create: { name: 'A', email: 'a@x.id' },
-      update: { email: 'b@x.id' },
+  it('leaves the names plaintext, because ADR 0012 keeps them readable', async () => {
+    const { data } = await forwarded('bankAccount', 'create', {
+      data: { ownerId: 'u1', bankCode: 'BCA', accountNumber: '1234567890', accountName: 'Andi' },
     });
-    expect(upsert.create.emailHmac).toBe(keys.emailLookup('a@x.id').hmac);
-    expect(upsert.update.emailHmac).toBe(keys.emailLookup('b@x.id').hmac);
-    expect(upsert.where).toEqual({ email: 'a@x.id' });
 
-    const many = await forwarded('user', 'createMany', {
-      data: [
-        { name: 'A', email: 'a@x.id' },
-        { name: 'B', email: 'b@x.id', phone: '0812' },
-      ],
-    });
-    const rows = many.data as unknown as Record<string, unknown>[];
-    expect(rows.map((r) => r.emailHmac)).toEqual([
-      keys.emailLookup('a@x.id').hmac,
-      keys.emailLookup('b@x.id').hmac,
-    ]);
-    expect(rows[1].phoneKeyId).toBe('enc-test-1');
+    expect(data.accountName).toBe('Andi');
+    expect(Object.keys(data).filter((name) => name.startsWith('accountName'))).toEqual(['accountName']);
+  });
 
-    for (const operation of ['createManyAndReturn', 'updateMany', 'updateManyAndReturn']) {
-      const { data } = await forwarded('user', operation, { data: { phone: '0812' } });
-      expect(data.phoneKeyId, operation).toBe('enc-test-1');
-    }
+  it('clears the protected columns when the contact detail is cleared', async () => {
+    const { data } = await forwarded('user', 'update', { where: { id: 'u1' }, data: { phone: null } });
+
+    expect(data).toEqual({ phoneCiphertext: null, phoneKeyId: null });
   });
 
   it('understands the { set } form of an update', async () => {
@@ -116,157 +106,46 @@ describe('User writes keep the plaintext and add the protected forms', () => {
       data: { email: { set: 'c@x.id' } },
     });
 
-    expect(data.emailHmac).toBe(keys.emailLookup('c@x.id').hmac);
+    expect(data).not.toHaveProperty('email');
+    expect(Object.keys(data).filter((name) => name.startsWith('email'))).toHaveLength(4);
   });
-});
 
-describe('BankAccount writes', () => {
-  it('keep the account number plaintext and add its ciphertext', async () => {
-    const { data } = await forwarded('bankAccount', 'create', {
-      data: { ownerId: 'u1', bankCode: 'BCA', accountNumber: '1234567890', accountName: 'Andi' },
+  it('protects every row of a createMany', async () => {
+    const { data } = await forwarded('user', 'createMany', {
+      data: [
+        { name: 'A', email: 'a@x.id' },
+        { name: 'B' },
+      ],
+    });
+    const rows = data as unknown as Record<string, unknown>[];
+
+    expect(rows[0]).not.toHaveProperty('email');
+    expect(rows[0].emailHmac).toBeDefined();
+    expect(rows[1]).toEqual({ name: 'B' });
+  });
+
+  it('protects both branches of an upsert, and leaves its where alone', async () => {
+    const { create, update, where } = await forwarded('user', 'upsert', {
+      where: { emailHmac: 'x' },
+      create: { name: 'A', email: 'a@x.id' },
+      update: { email: 'b@x.id' },
     });
 
-    expect(data.accountNumber).toBe('1234567890');
-    expect(data.accountName).toBe('Andi');
-    expect(data.accountNumberKeyId).toBe('enc-test-1');
-    expect(
-      keys.decrypt('BankAccount.accountNumber', {
-        ciphertext: data.accountNumberCiphertext as string,
-        keyId: 'enc-test-1',
-      }),
-    ).toBe('1234567890');
-  });
-});
-
-describe('Donation writes (Guest Donor contact details, prd-compliance 18)', () => {
-  it('stores a Guest Donor email plaintext, its lookup HMAC and its ciphertext', async () => {
-    const { data } = await forwarded('donation', 'create', {
-      data: {
-        amount: 50000,
-        campaignId: 'c1',
-        paymentMethod: 'qris',
-        guestEmail: 'Guest@Email.com',
-        guestName: 'Tamu Baik',
-      },
-    });
-
-    expect(data.guestEmail).toBe('Guest@Email.com');
-    expect(data.guestName).toBe('Tamu Baik');
-    expect(data).toMatchObject({
-      guestEmailHmac: keys.emailLookup('guest@email.com').hmac,
-      guestEmailHmacKeyId: 'hmac-test-1',
-      guestEmailKeyId: 'enc-test-1',
-    });
-    expect(
-      keys.decrypt('Donation.guestEmail', {
-        ciphertext: data.guestEmailCiphertext as string,
-        keyId: data.guestEmailKeyId as string,
-      }),
-    ).toBe('Guest@Email.com');
-  });
-
-  it('leaves guestName plaintext and adds nothing for it', async () => {
-    const { data } = await forwarded('donation', 'create', {
-      data: { amount: 50000, campaignId: 'c1', paymentMethod: 'qris', guestName: 'Tamu Baik' },
-    });
-
-    expect(data.guestName).toBe('Tamu Baik');
-    expect(Object.keys(data).filter((k) => k.startsWith('guestName'))).toEqual(['guestName']);
-  });
-
-  it('encrypts a Guest Donor phone number, and leaves it absent when none is given', async () => {
-    const { data } = await forwarded('donation', 'create', {
-      data: { amount: 50000, campaignId: 'c1', paymentMethod: 'qris', guestPhone: '081200000000' },
-    });
-
-    expect(data.guestPhone).toBe('081200000000');
-    expect(
-      keys.decrypt('Donation.guestPhone', {
-        ciphertext: data.guestPhoneCiphertext as string,
-        keyId: data.guestPhoneKeyId as string,
-      }),
-    ).toBe('081200000000');
-
-    const { data: withoutPhone } = await forwarded('donation', 'create', {
-      data: { amount: 50000, campaignId: 'c1', paymentMethod: 'qris' },
-    });
-    expect(withoutPhone.guestPhoneCiphertext).toBeUndefined();
-  });
-
-  it('leaves a registered Donor donation (no guest fields) untouched', async () => {
-    const args = { data: { amount: 50000, campaignId: 'c1', paymentMethod: 'qris', donorId: 'u1' } };
-    expect(await forwarded('donation', 'create', structuredClone(args))).toEqual(args);
-  });
-});
-
-describe('PartnershipInquiry writes (a company contact is contact data too, ADR 0012)', () => {
-  const INQUIRY = {
-    programId: 'p1',
-    companyName: 'PT SinarRIER',
-    contactName: 'Budi Santoso',
-    contactEmail: 'Budi@Sponsor.com',
-    needs: 'Kapasitas pelatihan kerja',
-  };
-
-  it('stores the contact email plaintext, its lookup HMAC and its ciphertext', async () => {
-    const { data } = await forwarded('partnershipInquiry', 'create', { data: INQUIRY });
-
-    expect(data.contactEmail).toBe('Budi@Sponsor.com');
-    expect(data).toMatchObject({
-      contactEmailHmac: keys.emailLookup('budi@sponsor.com').hmac,
-      contactEmailHmacKeyId: 'hmac-test-1',
-      contactEmailKeyId: 'enc-test-1',
-    });
-    expect(
-      keys.decrypt('PartnershipInquiry.contactEmail', {
-        ciphertext: data.contactEmailCiphertext as string,
-        keyId: data.contactEmailKeyId as string,
-      }),
-    ).toBe('Budi@Sponsor.com');
-  });
-
-  it('encrypts the contact phone, and leaves it absent when the company gave none', async () => {
-    const { data } = await forwarded('partnershipInquiry', 'create', {
-      data: { ...INQUIRY, contactPhone: '+622123456789' },
-    });
-
-    expect(data.contactPhone).toBe('+622123456789');
-    expect(
-      keys.decrypt('PartnershipInquiry.contactPhone', {
-        ciphertext: data.contactPhoneCiphertext as string,
-        keyId: data.contactPhoneKeyId as string,
-      }),
-    ).toBe('+622123456789');
-    // Never searched, so no HMAC -- same as User.phone and Donation.guestPhone.
-    expect(Object.keys(data).filter((k) => k.startsWith('contactPhone'))).toEqual([
-      'contactPhone',
-      'contactPhoneCiphertext',
-      'contactPhoneKeyId',
-    ]);
-
-    const { data: withoutPhone } = await forwarded('partnershipInquiry', 'create', { data: INQUIRY });
-    expect(withoutPhone.contactPhoneCiphertext).toBeUndefined();
-  });
-
-  it('leaves contactName plaintext and adds nothing for it, like User.name', async () => {
-    const { data } = await forwarded('partnershipInquiry', 'create', { data: INQUIRY });
-
-    expect(data.contactName).toBe('Budi Santoso');
-    expect(data.companyName).toBe('PT SinarRIER');
-    expect(Object.keys(data).filter((k) => k.startsWith('contactName'))).toEqual(['contactName']);
-  });
-
-  it('leaves an update that touches no contact field exactly as it was', async () => {
-    const args = { where: { id: 'i1' }, data: { status: 'IN_PROGRESS' }, select: { id: true } };
-
-    expect(await forwarded('partnershipInquiry', 'update', structuredClone(args))).toEqual(args);
+    expect(create).not.toHaveProperty('email');
+    expect(update).not.toHaveProperty('email');
+    expect(where).toEqual({ emailHmac: 'x' });
   });
 });
 
 describe('without keys', () => {
-  it('writes exactly what it was given, so a deployment without keys behaves as before', async () => {
-    const args = { data: { name: 'A', email: 'a@x.id', phone: '0812' } };
+  it('refuses the write rather than storing a contact detail in the clear', async () => {
+    const hooks = contactFieldWrites(null) as unknown as Record<
+      string,
+      Record<string, (p: { args: unknown; query: unknown }) => Promise<unknown>>
+    >;
 
-    expect(await forwarded('user', 'create', structuredClone(args), null)).toEqual(args);
+    expect(() =>
+      hooks.user.create({ args: { data: { name: 'A', email: 'a@x.id' } }, query: async () => ({}) }),
+    ).toThrow(/FIELD_ENCRYPTION_KEY/);
   });
 });
