@@ -1179,13 +1179,21 @@ enum LedgerAccount {
   GATEWAY_CLEARING
   /// CONTEXT.md's Collection Account: the rekening penghimpunan the money is
   /// swept to from the Merchant Account, and a DIFFERENT THING from it
-  /// (ADR 0011). Credit-normal, the one account that only ever grows in this
+  /// (ADR 0011). Debit-normal, the one account that only ever grows in this
   /// codebase: money arrives here from a recorded withdrawal and nothing
   /// spends it, because a Payout is paid out of the Provider Balance by hand in
   /// the provider's dashboard (ADR 0006) and never touches a bank balance
   /// here. That is not a modelling oversight -- it is the shape of the flow, and
   /// the reason this account's balance is the honest answer to "how much of the
   /// Donors' money has reached a bank" (prd-compliance 35).
+  ///
+  /// DEBIT-NORMAL, and the two halves of that sentence are not the same claim.
+  /// "Only ever grows" is about the movement: nothing debits this account, so
+  /// the figure only rises. "Debit-normal" is about the direction the sweep
+  /// itself is posted -- collectionAccountWithdrawalLegs (src/lib/money/ledger.ts)
+  /// DEBITS here -- so the balance is read debits - credits, the same convention
+  /// as the Provider Balance a settlement debits. Reading it credit-normal
+  /// would print 0 for a million rupiah that had just reached a bank.
   ///
   /// Platform-level, carrying no subject id: the Collection Account is the
   /// platform's or the Collecting Entity's bank account, not a Campaign's.

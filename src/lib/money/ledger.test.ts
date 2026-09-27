@@ -18,6 +18,7 @@ import {
   programBalance,
   payoutCompletedLegs,
   collectionAccountWithdrawalLegs,
+  collectionAccountBalance,
   providerBalances,
   UnbalancedTransactionError,
   InvalidLedgerLegError,
@@ -513,6 +514,56 @@ describe('collectionAccountWithdrawalLegs', () => {
 
   it('refuses a zero sweep: a zero-amount leg is rejected, and transferring nothing is not a transfer', async () => {
     await expect(postTransaction(makeTx() as never, collectionAccountWithdrawalLegs({ amount: 0 }))).rejects.toThrow(InvalidLedgerLegError);
+  });
+});
+
+describe('collectionAccountBalance', () => {
+  it('reads a sweep as a positive number, because the sweep DEBITS this account', async () => {
+    // The direction, pinned to what the code does rather than to what the
+    // account sounds like it should be. A sweep of 750_000 that read as
+    // -750_000 would put money that reached a bank on the wrong side of the
+    // world, and a reader that returns credits-minus-debits would print 0 on a
+    // system that had just moved a million rupiah out of the Provider Balance.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 1_000_000, providerFee: 0 }),
+      { provider: 'sumopod' },
+    );
+    expect(await collectionAccountBalance(tx as never)).toBe(0);
+
+    await postTransaction(tx as never, collectionAccountWithdrawalLegs({ amount: 750_000 }), { provider: 'sumopod' });
+
+    expect(await collectionAccountBalance(tx as never)).toBe(750_000);
+  });
+
+  it('is zero before any money has been swept, and never negative on that account alone', async () => {
+    // Settling is not sweeping. The Collection Account must not report money
+    // sitting at the provider as money that reached a bank.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 5_000_000, providerFee: 0 }),
+      { provider: 'sumopod' },
+    );
+
+    expect(await collectionAccountBalance(tx as never)).toBe(0);
+  });
+
+  it('nets a debit against a credit on the same account, rather than adding them', async () => {
+    // Every other balance here is credits-minus-debits, so this is the one
+    // reader whose sign has to be argued for. It is not a preference: the sweep
+    // DEBITS the account, the same way a settlement DEBITS the Provider Balance,
+    // so it is read debits-minus-credits like that account is. A credit can
+    // only reach this account by a movement that has no builder today, so it is
+    // seeded here rather than invented as a leg -- what is under test is the
+    // reader's arithmetic, not a movement the chart of accounts does not have.
+    const tx = makeTx([
+      { transactionId: 'sweep-1', legIndex: 0, direction: 'DEBIT', amount: 750_000, account: 'COLLECTION_ACCOUNT', campaignId: null, volunteerTripId: null, programId: null, provider: 'sumopod' },
+      { transactionId: 'other-1', legIndex: 0, direction: 'CREDIT', amount: 250_000, account: 'COLLECTION_ACCOUNT', campaignId: null, volunteerTripId: null, programId: null, provider: 'sumopod' },
+    ]);
+
+    expect(await collectionAccountBalance(tx as never)).toBe(500_000);
   });
 });
 
