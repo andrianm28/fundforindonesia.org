@@ -24,3 +24,17 @@
   runs on assignments (VERIFIER, ADMIN, FUNDRAISER), which is what ADR 0005
   requires, and never on rank ordering — so "no code infers a permission from
   rank" is not a precondition for building it.
+- 2026-09-27 (independent review, owner decision pending): the independent
+  reviewer accepted this PR and asked for two things recorded. First, the
+  scope call: this PR also adds a completion route for Volunteer Trip
+  Payouts, and FFI-11/FFI-12 sit in release 3, so that is outside Release 1
+  (`.scratch/percepatan-rilis-1/spec.md`). It is here because `main` already
+  shipped the Trip **approve** route, which credits `PAYOUT_CLEARING` with no
+  way to drain it, so the hole is open today and this PR closes it rather
+  than opening one. The core is Campaign-agnostic, so the Trip route reuses it
+  instead of building Volunteer Trip. Second, the `impact.ts` header comment
+  claiming no code writes a completion step is now stale and was corrected.
+- 2026-09-27 (independent review, residual): `PROVIDER_FEE` and
+  `PLATFORM_FEE` have no withdrawal path yet, so `GATEWAY_CLEARING` never
+  fully drains. Not a defect in this ticket, but it is the next hole of the
+  same shape and is filed as its own ticket.
