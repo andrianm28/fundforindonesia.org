@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { LedgerAccount, LedgerDirection, Prisma } from '@/generated/prisma/client';
+import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
 
 /**
  * Double-entry ledger.
@@ -30,8 +31,10 @@ export interface PostOptions {
   refundId?: string;
   payoutId?: string;
   /**
-   * Supply this to make posting idempotent across retries: the same id posts
-   * one set of entries, not two. Generated when omitted.
+   * The id that makes this posting happen once, ever. A second attempt with
+   * the same id is refused by the database (see postTransaction), not silently
+   * ignored. Generated when omitted, so a caller that never retries has
+   * nothing to think about.
    */
   transactionId?: string;
 }
@@ -77,6 +80,39 @@ export class InvalidLedgerLegError extends Error {
     this.name = 'InvalidLedgerLegError';
   }
 }
+
+/**
+ * Posting a transactionId that is already in the ledger.
+ *
+ * A distinct class rather than a raw constraint error, because the caller has
+ * to be able to tell this apart from a genuine write failure: "this movement
+ * is already recorded" needs no retry and no alert, while "the write failed"
+ * does. Refusing loudly is also the point -- the alternative this replaced
+ * (reading first, then writing only if absent) could not tell a duplicate
+ * from a first posting, and silently did nothing.
+ */
+export class DuplicateLedgerTransactionError extends Error {
+  constructor(readonly transactionId: string) {
+    super(
+      `Ledger transaction ${transactionId} is already posted. ` +
+        'Its transactionId is claimed by one entry, and the database refuses a second claim; ' +
+        'posting it again would count the same movement of money twice.',
+    );
+    this.name = 'DuplicateLedgerTransactionError';
+  }
+}
+
+/**
+ * Prisma's unique-constraint violation (P2002) is matched on the code alone,
+ * deliberately. The only unique constraint a createMany of ledger legs can
+ * reach is the claim index (`LedgerEntry_transactionId_claim_key`, WHERE
+ * "legIndex" = 0): the primary key is a cuid default this code never supplies,
+ * and no other unique index exists on the table. So P2002 here can only mean
+ * the transactionId is already claimed. Narrowing the test to a particular
+ * index name would make the duplicate depend on the exact shape Prisma reports
+ * in `meta.target`, which no test here can observe -- and getting that wrong
+ * would downgrade a duplicate back into an unrecognised crash.
+ */
 
 /**
  * Accounts that only make sense against a specific subject (a campaign or a
@@ -153,13 +189,28 @@ function assertBalanced(legs: LedgerLeg[]): void {
 }
 
 /**
- * Writes one balanced transaction.
+ * Writes one balanced transaction, once.
  *
  * Takes a transaction client rather than the global prisma instance: ledger
  * entries must be written in the same database transaction as whatever they
  * describe. Posting a payment's entries in a separate transaction from the
  * payment's own status update is how a ledger ends up describing a world that
  * never happened.
+ *
+ * A transactionId is claimed by the first leg (`legIndex` 0), and the
+ * database's partial unique index `LedgerEntry_transactionId_claim_key`
+ * (WHERE "legIndex" = 0) makes that claim unrepeatable: the second posting of
+ * an id fails on the constraint, whichever of two racing callers reaches the
+ * database second, and the whole statement is rolled back rather than
+ * half-applied. A second attempt therefore raises DuplicateLedgerTransactionError.
+ *
+ * What this deliberately does NOT do is read first and write only if the id is
+ * absent. That read-then-write is not a constraint: two callers can both read
+ * "absent" and both write, and whether a duplicate is stopped then depended
+ * entirely on each caller happening to claim its own row with an `updateMany`
+ * before getting here. The callers still do that -- it is what keeps a lost
+ * race a quiet no-op instead of an aborted transaction -- but it is a
+ * courtesy, not the guarantee. The guarantee is the index.
  */
 export async function postTransaction(
   tx: Prisma.TransactionClient,
@@ -171,27 +222,35 @@ export async function postTransaction(
 
   const transactionId = options.transactionId ?? randomUUID();
 
-  const existing = await tx.ledgerEntry.count({ where: { transactionId } });
-  if (existing > 0) {
-    // Idempotent by transactionId: a webhook retry that reuses the provider's
-    // event id posts nothing the second time.
-    return transactionId;
+  try {
+    await tx.ledgerEntry.createMany({
+      data: legs.map((leg, legIndex) => ({
+        account: leg.account,
+        direction: leg.direction,
+        amount: leg.amount,
+        campaignId: leg.campaignId ?? null,
+        volunteerTripId: leg.volunteerTripId ?? null,
+        memo: leg.memo ?? null,
+        paymentId: options.paymentId ?? null,
+        refundId: options.refundId ?? null,
+        payoutId: options.payoutId ?? null,
+        transactionId,
+        // 0 claims the transactionId; the rest are ordinary legs. The index
+        // is on the transactionId itself, not on a copy of it, so the claim
+        // cannot drift from the id it claims.
+        legIndex,
+      })),
+    });
+  } catch (err) {
+    // Postgres has put this transaction into an aborted state by now, so
+    // there is nothing to do here but name what happened: the caller has to
+    // roll its own transaction back, and it needs to know this was a
+    // duplicate rather than a failure worth retrying.
+    if (isPrismaUniqueConstraintViolation(err)) {
+      throw new DuplicateLedgerTransactionError(transactionId);
+    }
+    throw err;
   }
-
-  await tx.ledgerEntry.createMany({
-    data: legs.map((leg) => ({
-      account: leg.account,
-      direction: leg.direction,
-      amount: leg.amount,
-      campaignId: leg.campaignId ?? null,
-      volunteerTripId: leg.volunteerTripId ?? null,
-      memo: leg.memo ?? null,
-      paymentId: options.paymentId ?? null,
-      refundId: options.refundId ?? null,
-      payoutId: options.payoutId ?? null,
-      transactionId,
-    })),
-  });
 
   return transactionId;
 }

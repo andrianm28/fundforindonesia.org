@@ -1364,7 +1364,20 @@ model LedgerEntry {
   /// Groups the entries of one balanced transaction. Every entry sharing a
   /// transactionId must sum to zero; that invariant is asserted in tests and
   /// by a periodic check, since Prisma cannot express it as a constraint.
+  ///
+  /// A transactionId is also CLAIMED by exactly one entry, the one with
+  /// `legIndex` 0, and the database refuses a second claim -- see legIndex.
   transactionId String
+  /// Position of this entry inside its transaction, counting from 0.
+  ///
+  /// Leg 0 claims the transactionId, and the partial unique index
+  /// `LedgerEntry_transactionId_claim_key` (WHERE "legIndex" = 0) is what makes
+  /// that claim unrepeatable. Re-posting a transactionId is therefore refused
+  /// by the constraint itself rather than by a read that two concurrent
+  /// writers can both pass. The index is created in the migration, not here:
+  /// a partial index is something this schema language cannot express, the
+  /// same arrangement as Payment_donationId_paid_key.
+  legIndex      Int
   memo          String?
   createdAt     DateTime @default(now())
 
