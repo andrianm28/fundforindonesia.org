@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { LedgerAccount, LedgerDirection, Prisma } from '@/generated/prisma/client';
+import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
 
 /**
  * Double-entry ledger.
@@ -34,8 +35,10 @@ export interface PostOptions {
   /** Which Manual Contribution a movement belongs to, for the off-gateway accounts. */
   manualContributionId?: string;
   /**
-   * Supply this to make posting idempotent across retries: the same id posts
-   * one set of entries, not two. Generated when omitted.
+   * The id that makes this posting happen once, ever. A second attempt with
+   * the same id is refused by the database (see postTransaction), not silently
+   * ignored. Generated when omitted, so a caller that never retries has
+   * nothing to think about.
    */
   transactionId?: string;
 }
@@ -117,6 +120,44 @@ export class InvalidLedgerLegError extends Error {
     this.name = 'InvalidLedgerLegError';
   }
 }
+
+/**
+ * Posting a transactionId that is already in the ledger.
+ *
+ * A distinct class rather than a raw constraint error, because the caller has
+ * to be able to tell this apart from a genuine write failure: "this movement
+ * is already recorded" needs no retry and no alert, while "the write failed"
+ * does. Refusing loudly is also the point -- the alternative this replaced
+ * (reading first, then writing only if absent) could not tell a duplicate
+ * from a first posting, and silently did nothing.
+ */
+export class DuplicateLedgerTransactionError extends Error {
+  constructor(readonly transactionId: string) {
+    super(
+      `Ledger transaction ${transactionId} is already posted. ` +
+        'Its transactionId is claimed by one entry, and the database refuses a second claim; ' +
+        'posting it again would count the same movement of money twice.',
+    );
+    this.name = 'DuplicateLedgerTransactionError';
+  }
+}
+
+/**
+ * Prisma's unique-constraint violation (P2002) is matched on the code alone,
+ * deliberately. The only unique constraint a createMany of ledger legs can
+ * reach is the claim index (`LedgerEntry_transactionId_claim_key`, WHERE
+ * "legIndex" = 0): the primary key is a cuid default this code never supplies,
+ * and no other unique index exists on the table. So P2002 here can only mean
+ * the transactionId is already claimed.
+ *
+ * Matching the index name instead would narrow the guarantee to a shape that
+ * moves: against a real database (see the migration test, which runs this
+ * against Postgres) Prisma 7 over the pg driver adapter reports the constraint
+ * at `meta.driverAdapterError.cause.constraint.index` and puts no `target` or
+ * `field_name` in `meta` at all. `code` is the one part that is the same
+ * whatever a driver adapter decides to include, and the one part Prisma
+ * documents.
+ */
 
 /**
  * Accounts that only make sense against a specific subject (a campaign or a
@@ -211,13 +252,47 @@ function assertBalanced(legs: LedgerLeg[]): void {
 }
 
 /**
- * Writes one balanced transaction.
+ * Writes one balanced transaction, once.
  *
  * Takes a transaction client rather than the global prisma instance: ledger
  * entries must be written in the same database transaction as whatever they
  * describe. Posting a payment's entries in a separate transaction from the
  * payment's own status update is how a ledger ends up describing a world that
  * never happened.
+ *
+ * A transactionId is claimed by the first leg (`legIndex` 0), and the
+ * database's partial unique index `LedgerEntry_transactionId_claim_key`
+ * (WHERE "legIndex" = 0) makes that claim unrepeatable: the second posting of
+ * an id fails on the constraint, whichever of two racing callers reaches the
+ * database second, and the whole statement is rolled back rather than
+ * half-applied. A second attempt therefore raises DuplicateLedgerTransactionError.
+ *
+ * What this deliberately does NOT do is read first and write only if the id is
+ * absent. That read-then-write is not a constraint: two callers can both read
+ * "absent" and both write, and whether a duplicate is stopped then depended
+ * entirely on each caller happening to claim its own row with an `updateMany`
+ * before getting here. The callers still do that -- it is what keeps a lost
+ * race a quiet no-op instead of an aborted transaction -- but it is a
+ * courtesy, not the guarantee. The guarantee is the index.
+ *
+ * NO CALLER CATCHES DuplicateLedgerTransactionError, and that is a decision,
+ * not an oversight. Every caller keys its transactionId on a row it has
+ * already claimed -- WebhookEvent's unique (provider, providerEventId), Payout
+ * DRAFT -> APPROVED, Refund REQUESTED -> APPROVED, Payment.escrowReleasedAt
+ * IS NULL -- or, for createRefund, on a row it created a statement earlier,
+ * and nothing in src/ ever moves any of those back. So a second post of the
+ * same id is unreachable in normal operation, and a legitimate retry loses
+ * that claim first and is answered by the caller itself (settled: false from
+ * the webhook, InvalidPayoutStatusError, InvalidRefundStatusError, `false`
+ * from the sweep), never by this.
+ *
+ * What is left is the case where a caller's claim and the ledger disagree
+ * about money that has already moved. That stays loud: the webhook answers
+ * 500 with the event unprocessed, so the provider's retry resumes the
+ * settlement rather than believing it happened, and the sweep logs the one
+ * payment and carries on with the rest. Absorbing the error at either caller
+ * would put a twice-posted movement behind a handled path, which is the silent
+ * no-op the read-then-write used to be.
  */
 export async function postTransaction(
   tx: Prisma.TransactionClient,
@@ -229,29 +304,37 @@ export async function postTransaction(
 
   const transactionId = options.transactionId ?? randomUUID();
 
-  const existing = await tx.ledgerEntry.count({ where: { transactionId } });
-  if (existing > 0) {
-    // Idempotent by transactionId: a webhook retry that reuses the provider's
-    // event id posts nothing the second time.
-    return transactionId;
+  try {
+    await tx.ledgerEntry.createMany({
+      data: legs.map((leg, legIndex) => ({
+        account: leg.account,
+        direction: leg.direction,
+        amount: leg.amount,
+        campaignId: leg.campaignId ?? null,
+        volunteerTripId: leg.volunteerTripId ?? null,
+        programId: leg.programId ?? null,
+        memo: leg.memo ?? null,
+        paymentId: options.paymentId ?? null,
+        refundId: options.refundId ?? null,
+        payoutId: options.payoutId ?? null,
+        manualContributionId: options.manualContributionId ?? null,
+        transactionId,
+        // 0 claims the transactionId; the rest are ordinary legs. The index
+        // is on the transactionId itself, not on a copy of it, so the claim
+        // cannot drift from the id it claims.
+        legIndex,
+      })),
+    });
+  } catch (err) {
+    // Postgres has put this transaction into an aborted state by now, so
+    // there is nothing to do here but name what happened: the caller has to
+    // roll its own transaction back, and it needs to know this was a
+    // duplicate rather than a failure worth retrying.
+    if (isPrismaUniqueConstraintViolation(err)) {
+      throw new DuplicateLedgerTransactionError(transactionId);
+    }
+    throw err;
   }
-
-  await tx.ledgerEntry.createMany({
-    data: legs.map((leg) => ({
-      account: leg.account,
-      direction: leg.direction,
-      amount: leg.amount,
-      campaignId: leg.campaignId ?? null,
-      volunteerTripId: leg.volunteerTripId ?? null,
-      programId: leg.programId ?? null,
-      memo: leg.memo ?? null,
-      paymentId: options.paymentId ?? null,
-      refundId: options.refundId ?? null,
-      payoutId: options.payoutId ?? null,
-      manualContributionId: options.manualContributionId ?? null,
-      transactionId,
-    })),
-  });
 
   return transactionId;
 }
@@ -605,11 +688,31 @@ export function refundRequestedLegs(params: {
  * because refundRequestedLegs already removed exactly the net share from
  * the pool at freeze time, not a moment before.
  *
- *   DEBIT  FROZEN_BALANCE  amount     (always, closes the freeze)
  *   CREDIT REFUND_CLEARING amount     (always, full Gross to the donor)
+ *   DEBIT  FROZEN_BALANCE  amount     (always, closes the freeze)
  *   DEBIT  REFUND_COST     shortfall  (omitted when zero)
  *   CREDIT <source>        shortfall  (omitted when zero -- platform tops the
  *                                       pool back up for a genuine shortfall)
+ *
+ * WHY GATEWAY_CLEARING IS NOT CREDITED HERE (prd-compliance 28c). It is
+ * tempting to close this by crediting the Provider Balance with the Gross
+ * going back to the Donor, and it is wrong, for the same reason
+ * payoutInstructedLegs stops at PAYOUT_CLEARING: a Refund is approved by
+ * one Admin and *completed* by a different one (CONTEXT.md, Refund), so
+ * approval is an internal decision, not a movement of money. The Donor is
+ * paid when the Refund completes, and it is paid out of the Provider
+ * Balance -- which is what refundPaidLegs (below) posts. Crediting it here
+ * would claim the money had left the payment provider at a moment when
+ * nobody has sent it, and with no completion step in this codebase yet
+ * (ticket 32) nothing would ever correct the claim.
+ *
+ * The fees this Refund returns are not left behind in the Provider Balance
+ * as money owed to somebody, either. They left at freeze time, to accounts
+ * named for exactly what they are: the Platform Fee back to PLATFORM_FEE
+ * (the platform's own retained revenue, handed back), and the Provider Fee
+ * the provider will not return to REFUND_COST, the account named for the
+ * platform carrying it (ADR 0007). So the whole Gross is the Donor's claim
+ * by the time this runs, and the Campaign's own credit is untouched.
  */
 export function refundApprovedLegs(params: {
   subject: LedgerSubject;
@@ -689,6 +792,43 @@ export function manualContributionReceivedLegs(params: {
 }
 
 /**
+ * A payout's transfer confirmed out, recorded by the second Admin with
+ * proof of transfer.
+ *
+ *   DEBIT  PAYOUT_CLEARING   amount   no longer in flight
+ *   CREDIT GATEWAY_CLEARING  amount   no longer at the payment provider
+ *
+ * Posted at COMPLETION, not at approval, and it takes no `subject`: both
+ * accounts are platform-level. The money stops being anybody's the moment
+ * it is instructed (that is what stops a balance being paid twice), so what
+ * is left to record here is where it went -- out of the platform's own
+ * books entirely, and specifically out of the Provider Balance.
+ *
+ * GATEWAY_CLEARING is CONTEXT.md's Provider Balance: debited on every
+ * settlement by paymentSettledLegs (above), and credited only by the two
+ * withdrawal paths below -- this leg, and refundPaidLegs. Until those
+ * existed the account grew by the full gross of every Donation forever and
+ * the books claimed a pot at the provider larger than could ever exist.
+ * This is one of the two credits that closes it, and it is what finally
+ * makes ADR 0011's invariant statable: the Provider Balance equals
+ * GATEWAY_CLEARING less what an Admin has withdrawn.
+ *
+ * Why the provider at all, when the money went to a bank? Because the
+ * withdrawal is made by hand in the provider's dashboard, straight to the
+ * Fundraiser's verified Bank Account (ADR 0006: Sumopod has no
+ * disbursement API, and the two-person rule means the transfer happens on
+ * the second Admin's own action). So the money never lands in a platform
+ * bank account on its way out; it goes from the Provider Balance to the
+ * Fundraiser, and the Provider Balance is the account that shrinks.
+ */
+export function payoutCompletedLegs(params: { amount: number }): LedgerLeg[] {
+  return [
+    { account: 'PAYOUT_CLEARING', direction: 'DEBIT', amount: params.amount },
+    { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: params.amount },
+  ];
+}
+
+/**
  * The same movement taken back: an APPROVED Manual Contribution that turned
  * out to be wrong.
  *
@@ -712,5 +852,50 @@ export function manualContributionReversedLegs(params: {
   return [
     { account: manualContributionBalanceAccount(subject), direction: 'DEBIT', amount, ...manualContributionFk(subject) },
     { account: 'MANUAL_INTAKE_CLEARING', direction: 'CREDIT', amount },
+  ];
+}
+
+/**
+ * A refund actually PAID to the Donor, by the third Admin who completes it.
+ *
+ *   DEBIT  REFUND_CLEARING   amount   the Donor is owed nothing further
+ *   CREDIT GATEWAY_CLEARING  amount   no longer at the payment provider
+ *
+ * The Refund-side twin of a Payout's completion leg, and the withdrawal path
+ * the returned fees ride out on. GATEWAY_CLEARING is CONTEXT.md's Provider
+ * Balance: debited with the full Gross of every settlement, and until a
+ * movement like this one existed nothing took a refunded Donation back out of
+ * it. The account then claimed a pot at the provider holding money that had
+ * already been handed to Donors, on top of every Gross ever received.
+ *
+ * The FULL Gross leaves, not just the Campaign's net share of it, and that is
+ * the whole point rather than a rounding. A Refund returns the Gross
+ * (CONTEXT.md, Refund; ADR 0007) while the Campaign only ever gave up
+ * `amount - platformFeePortion - providerFeePortion`, so the Provider Balance
+ * carried the difference and the Donor is paid out of it. The platform's own
+ * half of that difference is already on named accounts by the time this runs
+ * -- the returned Platform Fee on PLATFORM_FEE and the Provider Fee the
+ * provider will not return on REFUND_COST, both debited at freeze time by
+ * refundRequestedLegs -- so the money that leaves here is fully accounted for
+ * and none of it is silently absorbed.
+ *
+ * It takes no `subject`: both accounts are platform-level. A Trip Fee Refund
+ * drains the Provider Balance exactly the same way, because the money came
+ * from the same pot whatever it was collected for.
+ *
+ * NOT POSTED YET. No code moves a Refund past APPROVED today -- the
+ * COMPLETED transition is ticket 32 (CONTEXT.md, Refund: created by one
+ * Admin, approved by another, completed by a third, with proof of transfer).
+ * It belongs here rather than in refundApprovedLegs, because approval is an
+ * internal decision that moves no money: posting this at approval would
+ * claim the money had left the payment provider before anybody sent it, and
+ * with no completion step there is nothing that would ever correct it. This
+ * builder exists so that when ticket 32 writes that step it cannot assemble
+ * the legs by hand and credit the wrong account.
+ */
+export function refundPaidLegs(params: { amount: number }): LedgerLeg[] {
+  return [
+    { account: 'REFUND_CLEARING', direction: 'DEBIT', amount: params.amount },
+    { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: params.amount },
   ];
 }

@@ -11,12 +11,15 @@ import {
   escrowReleaseLegs,
   refundRequestedLegs,
   refundApprovedLegs,
+  refundPaidLegs,
   payoutInstructedLegs,
   manualContributionReceivedLegs,
   manualContributionReversedLegs,
   programBalance,
+  payoutCompletedLegs,
   UnbalancedTransactionError,
   InvalidLedgerLegError,
+  DuplicateLedgerTransactionError,
   type LedgerLeg,
   type LedgerSubject,
   type ManualContributionSubject,
@@ -30,6 +33,8 @@ import {
 
 type Row = {
   transactionId: string;
+  /** Position of this leg inside its transaction. 0 is the claiming leg. */
+  legIndex: number;
   direction: 'DEBIT' | 'CREDIT';
   amount: number;
   account: string;
@@ -38,16 +43,61 @@ type Row = {
   programId: string | null;
 };
 
-/** Minimal in-memory stand-in for the Prisma transaction client. */
+/** The one unique index a ledger posting can reach; see makeTx below. */
+const CLAIM_INDEX = 'LedgerEntry_transactionId_claim_key';
+
+/**
+ * The unique violation Postgres raises, shaped the way Prisma reports it.
+ *
+ * Recorded from a real run against Postgres (Prisma 7 over the pg driver
+ * adapter): `code` P2002, and the index named under the driver adapter's own
+ * nesting -- there is no `meta.target` or `meta.field_name` in this shape. The
+ * fake below is that object, so the unit tests here meet the same error the
+ * database produces rather than one invented to suit them; the real one is
+ * checked against a real database in
+ * src/__tests__/ledger-transaction-claim-migration.test.ts.
+ */
+function uniqueViolation(): Error {
+  return Object.assign(
+    new Error('Unique constraint failed on the constraint: `LedgerEntry_transactionId_claim_key`'),
+    {
+      code: 'P2002',
+      meta: {
+        modelName: 'LedgerEntry',
+        driverAdapterError: {
+          cause: {
+            originalCode: '23505',
+            kind: 'UniqueConstraintViolation',
+            constraint: { index: CLAIM_INDEX },
+            table: 'LedgerEntry',
+          },
+        },
+      },
+    },
+  );
+}
+
+/**
+ * Minimal in-memory stand-in for the Prisma transaction client.
+ *
+ * `createMany` models the one thing the database does that no application code
+ * can: the partial unique index `LedgerEntry_transactionId_claim_key` (WHERE
+ * "legIndex" = 0), which makes a transactionId claimable by exactly one row
+ * ever. The whole statement fails when the claim is already taken, which is
+ * what Postgres does -- a multi-row INSERT either lands whole or not at all.
+ */
 function makeTx(seed: Row[] = []) {
   const rows: Row[] = [...seed];
   return {
     rows,
     ledgerEntry: {
-      count: vi.fn(async ({ where }: { where: { transactionId: string } }) =>
-        rows.filter((r) => r.transactionId === where.transactionId).length,
-      ),
       createMany: vi.fn(async ({ data }: { data: Row[] }) => {
+        for (const row of data) {
+          if (row.legIndex !== 0) continue;
+          if (rows.some((r) => r.legIndex === 0 && r.transactionId === row.transactionId)) {
+            throw uniqueViolation();
+          }
+        }
         rows.push(...data);
         return { count: data.length };
       }),
@@ -76,6 +126,22 @@ const BALANCED: LedgerLeg[] = [
   { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 100_000 },
   { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 100_000, campaignId: 'c1' },
 ];
+
+/** Credits minus debits on one account -- the credit-normal balance, the way
+ *  ledger.ts's own accountBalance reads one. */
+function netOf(rows: Row[], account: string): number {
+  return rows
+    .filter((r) => r.account === account)
+    .reduce((total, r) => total + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+}
+
+/** Debits minus credits -- for the accounts that grow when they are debited:
+ *  the Provider Balance (money in the pot) and an expense like REFUND_COST
+ *  (money the platform has spent). Reading these with netOf would report a
+ *  pot of money as a negative pot, which is how a real one looks. */
+function heldOf(rows: Row[], account: string): number {
+  return -netOf(rows, account);
+}
 
 describe('postTransaction', () => {
   let tx: ReturnType<typeof makeTx>;
@@ -217,10 +283,55 @@ describe('postTransaction', () => {
     ).rejects.toThrow(/cannot carry both campaignId and volunteerTripId/);
   });
 
-  it('is idempotent on transactionId, so a webhook retry posts once', async () => {
+  it('claims the transactionId with its first leg, so the database has one row to refuse the next attempt on', async () => {
     await postTransaction(tx as never, BALANCED, { transactionId: 'evt-1' });
+    // legIndex 0 is the claim the unique index is built on. A test asserting
+    // anything else about these rows is asserting the wrong thing.
+    expect(tx.rows.map((r) => [r.legIndex, r.direction])).toEqual([
+      [0, 'DEBIT'],
+      [1, 'CREDIT'],
+    ]);
+  });
+
+  it('refuses to post a transactionId twice, and says which one, as a duplicate', async () => {
     await postTransaction(tx as never, BALANCED, { transactionId: 'evt-1' });
+
+    // A webhook retry, a replayed admin action, anything that reaches here
+    // twice. The refusal names the duplicate so a caller can tell it apart
+    // from a genuine write failure -- and the first posting is untouched:
+    // refusing the retry must never mean posting it twice.
+    await expect(postTransaction(tx as never, BALANCED, { transactionId: 'evt-1' })).rejects.toThrow(
+      DuplicateLedgerTransactionError,
+    );
+    await expect(postTransaction(tx as never, BALANCED, { transactionId: 'evt-1' })).rejects.toMatchObject({
+      transactionId: 'evt-1',
+    });
     expect(tx.rows).toHaveLength(2);
+  });
+
+  it('leaves exactly one transaction behind when the same id is posted twice at once', async () => {
+    // Two callers racing, neither of them having claimed a row first -- the
+    // case the read-then-write this replaced could not see. A real database
+    // makes the second INSERT wait for the first to commit before refusing it;
+    // a fake cannot interleave statements, so what this pins is the refusal
+    // and that the loser writes nothing at all, not the blocking itself.
+    const [first, second] = await Promise.allSettled([
+      postTransaction(tx as never, BALANCED, { transactionId: 'race-1' }),
+      postTransaction(tx as never, BALANCED, { transactionId: 'race-1' }),
+    ]);
+
+    const outcomes = [first, second];
+    const winner = outcomes.find((o) => o.status === 'fulfilled');
+    const loser = outcomes.find((o) => o.status === 'rejected');
+    expect(winner?.status === 'fulfilled' ? winner.value : null).toBe('race-1');
+    expect(loser?.status === 'rejected' ? loser.reason : null).toBeInstanceOf(
+      DuplicateLedgerTransactionError,
+    );
+    expect(tx.rows).toHaveLength(2);
+    expect(tx.rows.every((r) => r.transactionId === 'race-1')).toBe(true);
+    // One balanced transaction, not two halves of one: the loser's statement
+    // wrote nothing at all.
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
   });
 });
 
@@ -310,6 +421,212 @@ describe('paymentSettledLegs', () => {
   });
 });
 
+describe('payoutCompletedLegs', () => {
+  it('drains PAYOUT_CLEARING and credits the Provider Balance, carrying no subject of its own', () => {
+    // Both legs are platform-level: the money is at the provider, so which
+    // Campaign it came from is not what the movement is about. A subject FK
+    // here would be rejected by assertLegsValid (ledger.ts) and would make
+    // the Provider Balance unreadable per campaign, which is not a question
+    // anyone asks.
+    expect(payoutCompletedLegs({ amount: 200_000 })).toEqual([
+      { account: 'PAYOUT_CLEARING', direction: 'DEBIT', amount: 200_000 },
+      { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 200_000 },
+    ]);
+  });
+
+  it('closes the Provider Balance gap: what settlement debits, a completed payout credits back', async () => {
+    // Before completion existed, GATEWAY_CLEARING was DEBITED on every
+    // settlement and credited by nothing, so the account grew by the full
+    // gross of every Donation forever and the books claimed a larger pot at
+    // the provider than could ever exist. ADR 0011 wanted to state the
+    // invariant "Provider Balance = GATEWAY_CLEARING less what an Admin has
+    // withdrawn"; the withdrawal leg is what makes it statable.
+    const tx = makeTx();
+    await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000 }));
+    await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 485_000 }));
+    await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 200_000 }));
+
+    // Instructed but not yet transferred: the money is in flight, so it is
+    // still at the provider.
+    expect(netOf(tx.rows, 'GATEWAY_CLEARING')).toBe(-500_000);
+    expect(netOf(tx.rows, 'PAYOUT_CLEARING')).toBe(200_000);
+
+    await postTransaction(tx as never, payoutCompletedLegs({ amount: 200_000 }));
+
+    // Transferred: PAYOUT_CLEARING is empty again and the Provider Balance
+    // is exactly the gross settled less what has left it.
+    expect(netOf(tx.rows, 'PAYOUT_CLEARING')).toBe(0);
+    expect(netOf(tx.rows, 'GATEWAY_CLEARING')).toBe(-300_000);
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+
+  it('refuses an amount of zero -- a zero-amount leg is rejected by postTransaction, and a zero transfer is not a transfer', async () => {
+    await expect(postTransaction(makeTx() as never, payoutCompletedLegs({ amount: 0 }))).rejects.toThrow(InvalidLedgerLegError);
+  });
+});
+
+describe('a Refund and the fee money it returns (prd-compliance 28c)', () => {
+  it('takes the returned fees out to accounts named for what they are, and touches nothing unnamed', () => {
+    // Gross 100_000 refunded in full, Platform Fee 2_500, Provider Fee 5_000.
+    // The Donor gets their whole Gross back, so every rupiah of those fees
+    // leaves the Campaign's pool too -- and the ledger has to say where each
+    // one went rather than let it quietly reappear as somebody's balance.
+    const legs = refundRequestedLegs({
+      subject: { type: 'campaign', campaignId: 'c1' },
+      amount: 100_000,
+      source: 'ESCROW_HOLD',
+      platformFeePortion: 2_500,
+      providerFeePortion: 5_000,
+    });
+
+    expect(legs).toEqual([
+      { account: 'FROZEN_BALANCE', direction: 'CREDIT', amount: 100_000, campaignId: 'c1' },
+      { account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 92_500, campaignId: 'c1' },
+      // The platform's own retained revenue, handed back: not a loss, a return.
+      { account: 'PLATFORM_FEE', direction: 'DEBIT', amount: 2_500 },
+      // The Provider Fee the provider does not return, so the platform carries
+      // it (ADR 0007). The account is named for the absorption, so the 7_500
+      // the Campaign gave up and the Donor did not get back is accounted for.
+      { account: 'REFUND_COST', direction: 'DEBIT', amount: 5_000 },
+    ]);
+  });
+
+  it('does NOT credit GATEWAY_CLEARING at approval -- approving a Refund is not paying it', () => {
+    // CONTEXT.md, Refund: created by one Admin, approved by another, and
+    // completed by a third. Approval moves no money, so the Provider Balance
+    // still holds the Gross the Donor is owed. Crediting it here would claim
+    // the money had left the payment provider before anyone sent it, and
+    // with no completion step in this codebase yet (ticket 32) nothing would
+    // ever correct that claim.
+    const legs = refundApprovedLegs({
+      subject: { type: 'campaign', campaignId: 'c1' },
+      amount: 100_000,
+      source: 'ESCROW_HOLD',
+      shortfall: 0,
+    });
+
+    expect(legs.some((l) => l.account === 'GATEWAY_CLEARING')).toBe(false);
+    // The whole Gross is the Donor's claim by this point, in the account
+    // named for the money owed to a Donor.
+    expect(legs.find((l) => l.account === 'REFUND_CLEARING')).toEqual({
+      account: 'REFUND_CLEARING',
+      direction: 'CREDIT',
+      amount: 100_000,
+    });
+  });
+
+  it('refundPaidLegs takes the paid Gross out of the Provider Balance', () => {
+    // The withdrawal path the returned fees ride out on. The Donor is paid
+    // from the Provider Balance, so this is the credit GATEWAY_CLEARING has
+    // never had on the Refund side -- the exact twin of a Payout's completion
+    // leg, and the reason that account is no longer a pot that only ever
+    // grows.
+    expect(refundPaidLegs({ amount: 100_000 })).toEqual([
+      { account: 'REFUND_CLEARING', direction: 'DEBIT', amount: 100_000 },
+      { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 100_000 },
+    ]);
+  });
+
+  it('refundPaidLegs carries no subject: the Provider Balance is platform-level, and a Trip Fee refund drains it the same way', () => {
+    expect(refundPaidLegs({ amount: 40_000 }).every((l) => l.campaignId === undefined && l.volunteerTripId === undefined)).toBe(true);
+  });
+
+  it('lands the whole story on the arithmetic everyone expects, without the Campaign losing a rupiah extra', async () => {
+    const tx = makeTx();
+    // Rp 500.000 donated, Provider Fee 15.000 kept by the provider, Platform
+    // Fee 12.500 kept by the platform, so the Campaign is credited 472.500.
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000, platformFee: 12_500 }),
+    );
+    // The same 100.000 refund the lifecycle test below uses: its share of the
+    // two fees is 3.000 and 2.500, so the pool gives up 94.500.
+    await postTransaction(
+      tx as never,
+      refundRequestedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', platformFeePortion: 2_500, providerFeePortion: 3_000 }),
+    );
+    await postTransaction(
+      tx as never,
+      refundApprovedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'ESCROW_HOLD', shortfall: 0 }),
+    );
+
+    // Approved but not yet paid: the 100.000 the Donor is owed is still at
+    // the provider, so the Provider Balance still counts it.
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(500_000);
+    expect(netOf(tx.rows, 'REFUND_CLEARING')).toBe(100_000);
+
+    // The platform has already given the Campaign's fee money back, and
+    // booked the Provider Fee it will never recover: both on named accounts,
+    // so the 5.500 the Donor did not get back is accounted for, not absorbed.
+    expect(netOf(tx.rows, 'PLATFORM_FEE')).toBe(10_000); // 12.500 charged, 2.500 returned
+    expect(heldOf(tx.rows, 'REFUND_COST')).toBe(3_000); // absorbed by the platform
+    expect(netOf(tx.rows, 'PROVIDER_FEE')).toBe(15_000); // the provider still holds all of it
+
+    // The Campaign's own credit is exactly what the settlement gave it --
+    // a Refund costs it its net share of this payment and not one rupiah more.
+    expect(tx.rows.filter((r) => r.account === 'ESCROW_HOLD' && r.direction === 'CREDIT')).toEqual([
+      expect.objectContaining({ amount: 472_500 }),
+    ]);
+    expect(await escrowBalance(tx as never, 'c1')).toBe(378_000); // 472.500 - 94.500
+
+    // Paid. The Provider Balance gives the 100.000 back, and the Donor is
+    // owed nothing further.
+    await postTransaction(tx as never, refundPaidLegs({ amount: 100_000 }));
+
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(400_000);
+    expect(netOf(tx.rows, 'REFUND_CLEARING')).toBe(0);
+
+    // The Provider Balance still reconciles, and this is the statement that
+    // says so: what sits in the pot, plus the 3.000 the platform has already
+    // put into the provider's fee out of its own pocket, is exactly what that
+    // pot is owed -- 378.000 still in the Campaign's escrow, 10.000 of
+    // Platform Fee the platform kept, 15.000 the provider kept. No part of it
+    // is a balance nobody is owed and nobody is holding.
+    const owedToThePot = [
+      netOf(tx.rows, 'ESCROW_HOLD'),
+      netOf(tx.rows, 'PLATFORM_FEE'),
+      netOf(tx.rows, 'PROVIDER_FEE'),
+    ].reduce((total, amount) => total + amount, 0);
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING') + heldOf(tx.rows, 'REFUND_COST')).toBe(owedToThePot);
+    expect(owedToThePot).toBe(403_000);
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+
+  it('books a shortfall on REFUND_COST, so the platform money covering it is named too', async () => {
+    // The pool was already paid out, so most of the 100.000 refund finds
+    // nothing to come from: the 92.500 net went out with the Payout, and the
+    // freeze then debited the pool that same 92.500. That shortfall is the
+    // platform's own money, and the account that says so is REFUND_COST --
+    // not a hole the Provider Balance absorbs.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 100_000, providerFee: 5_000, platformFee: 2_500 }),
+    );
+    await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 92_500 }));
+    await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 92_500 }));
+    await postTransaction(
+      tx as never,
+      refundRequestedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'CAMPAIGN_BALANCE', platformFeePortion: 2_500, providerFeePortion: 5_000 }),
+    );
+    await postTransaction(
+      tx as never,
+      refundApprovedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 100_000, source: 'CAMPAIGN_BALANCE', shortfall: 92_500 }),
+    );
+
+    // 5.000 the provider will not return, plus the 92.500 the Campaign could
+    // not cover: the whole 97.500 of platform money, on the one account named
+    // for it, and the Campaign's balance is put back to zero rather than left
+    // negative. The Provider Balance is untouched by any of it -- approval
+    // moves no money out of the pot.
+    expect(heldOf(tx.rows, 'REFUND_COST')).toBe(97_500);
+    expect(await campaignBalance(tx as never, 'c1')).toBe(0);
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(100_000);
+    expect(netOf(tx.rows, 'PLATFORM_FEE')).toBe(0); // 2.500 charged, 2.500 returned
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+});
+
 describe('ledger invariants (property-based)', () => {
   it('every builder produces a transaction that balances, for any amount, for both subject types', () => {
     fc.assert(
@@ -332,7 +649,9 @@ describe('ledger invariants (property-based)', () => {
             refundRequestedLegs({ subject, amount: gross, source: 'ESCROW_HOLD', platformFeePortion: 0, providerFeePortion: fee }),
             refundRequestedLegs({ subject, amount: gross, source: balanceAccount, platformFeePortion: 0, providerFeePortion: fee }),
             refundApprovedLegs({ subject, amount: gross, source: balanceAccount, shortfall }),
+            refundPaidLegs({ amount: gross }),
             payoutInstructedLegs({ subject, amount: gross }),
+            payoutCompletedLegs({ amount: gross }),
           ]) {
             const d = legs.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + l.amount, 0);
             const c = legs.filter((l) => l.direction === 'CREDIT').reduce((s, l) => s + l.amount, 0);
@@ -354,6 +673,7 @@ describe('ledger invariants (property-based)', () => {
       await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 10_000 }));
       if (i % 3 === 0) {
         await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 1_000 }));
+        await postTransaction(tx as never, payoutCompletedLegs({ amount: 1_000 }));
       }
     }
     expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
@@ -379,9 +699,16 @@ describe('ledger invariants (property-based)', () => {
     await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 388_000 }));
     // Rp 200.000 paid out.
     await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 200_000 }));
+    // ...and transferred. Completion moves money out of the platform's own
+    // books (PAYOUT_CLEARING -> the Provider Balance), so it cannot change
+    // what the Campaign may withdraw -- that was already spent at the
+    // instruction.
+    await postTransaction(tx as never, payoutCompletedLegs({ amount: 200_000 }));
 
     expect(await escrowBalance(tx as never, 'c1')).toBe(0);
     expect(await campaignBalance(tx as never, 'c1')).toBe(188_000);
+    expect(netOf(tx.rows, 'PAYOUT_CLEARING')).toBe(0);
+    expect(netOf(tx.rows, 'GATEWAY_CLEARING')).toBe(-300_000);
     expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
   });
 });
@@ -393,8 +720,8 @@ describe('findUnbalancedTransactions already covers trip-scoped entries', () => 
     // directly the way a real bug (not this plan's own code) would have
     // to reach the database to produce this state.
     tx.rows.push(
-      { transactionId: 'trip-tx-1', direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9', programId: null },
-      { transactionId: 'trip-tx-1', direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9', programId: null },
+      { transactionId: 'trip-tx-1', legIndex: 0, direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9', programId: null },
+      { transactionId: 'trip-tx-1', legIndex: 1, direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9', programId: null },
     );
 
     const result = await findUnbalancedTransactions(tx as never);
@@ -567,15 +894,24 @@ describe('manualContributionReceivedLegs / manualContributionReversedLegs', () =
   });
 
   it('is idempotent per Manual Contribution, so a retry cannot post the credit twice', async () => {
+    // The retry is refused by the database rather than silently ignored: the
+    // transactionId is claimed by one entry, and a second claim of the same id
+    // is a unique violation (prd-28b). The invariant this test is about is
+    // unchanged -- the credit is posted once and once only -- but it is now the
+    // partial unique index that enforces it, not postTransaction quietly
+    // writing nothing. The first posting is untouched by the refusal.
     const tx = makeTx();
-    await postTransaction(tx as never, manualContributionReceivedLegs({ subject: CAMPAIGN, amount: 10_000 }), {
+    const legs = manualContributionReceivedLegs({ subject: CAMPAIGN, amount: 10_000 });
+    await postTransaction(tx as never, legs, {
       manualContributionId: 'mc-1',
       transactionId: 'manual-contribution-mc-1',
     });
-    await postTransaction(tx as never, manualContributionReceivedLegs({ subject: CAMPAIGN, amount: 10_000 }), {
-      manualContributionId: 'mc-1',
-      transactionId: 'manual-contribution-mc-1',
-    });
+    await expect(
+      postTransaction(tx as never, legs, {
+        manualContributionId: 'mc-1',
+        transactionId: 'manual-contribution-mc-1',
+      }),
+    ).rejects.toThrow(DuplicateLedgerTransactionError);
 
     expect(tx.rows).toHaveLength(2);
     expect(await campaignBalance(tx as never, 'camp-1')).toBe(10_000);

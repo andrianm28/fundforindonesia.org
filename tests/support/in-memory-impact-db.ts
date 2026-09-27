@@ -5,6 +5,7 @@ import {
   paymentSettledLegs,
   payoutInstructedLegs,
   refundApprovedLegs,
+  refundPaidLegs,
   refundRequestedLegs,
   type LedgerLeg,
   type LedgerSubject,
@@ -220,6 +221,10 @@ export function ledgerFixture() {
         }),
         { refundId: opts.refundId },
       );
+    },
+    /** The Refund actually paid to the Donor, which is what drains the Provider Balance. */
+    refundPayment(opts: { refundId: string; amount: number }) {
+      post(refundPaidLegs({ amount: opts.amount }), { refundId: opts.refundId });
     },
     /** A Payout instructed out of the Campaign Balance. */
     payoutInstruction(opts: { payoutId: string; campaignId: string; amount: number }) {

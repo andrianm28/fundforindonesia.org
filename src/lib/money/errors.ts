@@ -105,6 +105,48 @@ export class InvalidPayoutStatusError extends MoneyError {
   }
 }
 
+/**
+ * A Payout completion with no proof of transfer attached (CONTEXT.md, Payout:
+ * "ditandai selesai dengan bukti transfer"; ADR 0006, where the mandatory
+ * proof is named as one of the two controls the two-person rule rests on).
+ *
+ * Refused rather than warned because a COMPLETED row with no proof is a
+ * claim that the money moved, not a record that it did -- and because the
+ * money has, by then, left the platform: nothing here can be checked
+ * afterwards from the books, only from the image an Admin was asked for
+ * and did not attach.
+ */
+export class PayoutProofRequiredError extends MoneyError {
+  readonly code = 'PAYOUT_PROOF_REQUIRED';
+  constructor() {
+    super('Payout hanya dapat ditandai selesai dengan bukti transfer yang terlampir.');
+    this.name = 'PayoutProofRequiredError';
+  }
+}
+
+/**
+ * The two-person rule on the SECOND action: the Admin recording the transfer
+ * is the Admin who approved it (or the Payout has no recorded approver at
+ * all, which cannot show two people either). Distinct from SelfApprovalError,
+ * which is the same rule on the first action -- the requester approving
+ * their own request.
+ *
+ * ContEXT.md, Payout: the Payout is "disetujui satu Admin, lalu ... ditandai
+ * selesai dengan bukti transfer oleh Admin yang berbeda". The rule is
+ * enforced here, not merely advised: an approver who marks their own
+ * approval done has performed one person's action and called it two, and
+ * nothing downstream of that write can tell the difference.
+ */
+export class TwoPersonRuleError extends MoneyError {
+  readonly code = 'TWO_PERSON_RULE';
+  constructor() {
+    super(
+      'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
+    );
+    this.name = 'TwoPersonRuleError';
+  }
+}
+
 /** The Refund is no longer REQUESTED, or another approval won the race. */
 export class InvalidRefundStatusError extends MoneyError {
   readonly code = 'INVALID_REFUND_STATUS';

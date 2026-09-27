@@ -72,6 +72,13 @@ import { join } from "node:path";
  * Admin create and edit CSR Programs, each through withAssignmentCheck on
  * the ADMIN assignment -- growing this list by two.
  *
+ * NOTE (csr-06): the partnership team's Inquiry queue and the one door that
+ * moves a follow-up forward -- `GET /api/admin/partnership-inquiries` and
+ * `PATCH /api/admin/partnership-inquiries/[id]` -- are Admin routes through
+ * `withAssignmentCheck` on the ADMIN assignment, like every other route here:
+ * a queue of companies and the people at them is nobody else's to read, and
+ * growing this list by two.
+ *
  * NOTE (prd-compliance 34): the two Manual Contribution routes ask for the
  * ADMIN assignment too. Recording money that arrived outside the gateway and
  * deciding it are both in the Admin's remit in CONTEXT.md and neither in the
@@ -82,6 +89,14 @@ import { join } from "node:path";
  * Admin set the title similarity a Verifier's duplicate hints are built on
  * (PRD FFI-05), through withAssignmentCheck on the ADMIN assignment like
  * every other Admin setting here -- growing this list by one.
+ *
+ * NOTE (prd-compliance 38): POST /api/admin/abuse-thresholds sets the money and
+ * volume limits the platform watches itself against, and GET
+ * /api/admin/scrutiny is the Admin's read on what those limits caught (PRD
+ * §"Anti penyalahgunaan"). Both through withAssignmentCheck on the ADMIN
+ * assignment, like every other Admin setting here -- growing this list by two.
+ * The Active Campaign limit itself is enforced in the lifecycle module
+ * (campaign-lifecycle.ts), which is a Capacity judgement, not a route gate.
  *
  * NOTE (csr-04): the Program edit was keyed by id when csr-01 landed, and the
  * public portfolio read needed the same segment for the slug a public link can
@@ -94,14 +109,19 @@ import { join } from "node:path";
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
+  "src/app/api/admin/abuse-thresholds/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
   "src/app/api/admin/manual-contributions/route.ts",
+  "src/app/api/admin/partnership-inquiries/[id]/route.ts",
+  "src/app/api/admin/partnership-inquiries/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/reconcile/route.ts",
+  "src/app/api/admin/scrutiny/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",
+  "src/app/api/campaigns/[slug]/payouts/[id]/complete/route.ts",
   "src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/refunds/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
@@ -109,6 +129,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/programs/[slug]/route.ts",
   "src/app/api/programs/route.ts",
   "src/app/api/volunteer-trips/[slug]/payouts/[id]/approve/route.ts",
+  "src/app/api/volunteer-trips/[slug]/payouts/[id]/complete/route.ts",
   "src/app/api/volunteer-trips/[slug]/refunds/[id]/approve/route.ts",
   "src/app/moderasi/layout.tsx",
   "src/app/moderasi/page.tsx",

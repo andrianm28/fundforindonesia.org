@@ -136,9 +136,9 @@ export class ImpactDoesNotReconcileError extends Error {
 /**
  * A Payout that has been instructed out of the Campaign Balance
  * (payoutInstructedLegs, ./ledger.ts) but not yet marked COMPLETED with proof
- * of transfer -- a step no code writes yet. Its money has already left, so it
- * belongs in the disbursed line; this is only here so the page can say how
- * much of that figure is still unconfirmed.
+ * of transfer (completePayout, ./payouts.ts; ticket 27). Its money has already
+ * left, so it belongs in the disbursed line; this is only here so the page can
+ * say how much of that figure is still unconfirmed.
  */
 const PAYOUT_AWAITING_COMPLETION = ['APPROVED', 'PROCESSING'];
 

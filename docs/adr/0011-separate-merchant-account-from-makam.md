@@ -14,5 +14,7 @@ The 18 September PRD asked whether payments would run through the same merchant 
 ## Consequences
 
 - Two provider onboardings, two API keys, two webhook secrets. The active provider and its credentials are per deployment, never shared between the two products.
-- Reconciliation can state a real invariant: the Provider Balance equals `GATEWAY_CLEARING` less what an Admin has withdrawn. Nothing credits `GATEWAY_CLEARING` today because no withdrawal is modelled, so that gap has to close before reconciliation asserts anything.
+- Reconciliation can state a real invariant: the Provider Balance equals `GATEWAY_CLEARING` less what an Admin has withdrawn.
+
+**Update, 27 September 2026 (prd-compliance 27):** the withdrawal is now modelled. `completePayout` (src/lib/money/payouts.ts) is the second Admin recording a transfer by hand, and it posts DEBIT `PAYOUT_CLEARING` / CREDIT `GATEWAY_CLEARING` — so the account that settlement debits is finally credited by something, and the invariant above can be asserted. What is still missing is the other half: `GATEWAY_CLEARING` is a single account, not one per provider, so a settlement against a second provider would still land in the same pot. That is a separate gap (a second provider, PRD FFI-18) and this paragraph is otherwise left unedited as the historical record.
 - Commingled funds cannot be unwound after the fact. A settled provider balance carries no record of which platform each rupiah arrived for, so this decision has to hold from the first real payment, not from the first audit.

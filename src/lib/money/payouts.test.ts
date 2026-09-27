@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   requestPayout,
   approvePayout,
+  completePayout,
   DemoCampaignError,
   BankAccountNotEligibleError,
   InsufficientBalanceError,
@@ -295,6 +296,231 @@ describe('requestPayout', () => {
       }),
     ).rejects.toThrow(InsufficientBalanceError);
     expect(payoutCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('completePayout', () => {
+  /**
+   * A Payout as it stands at the point a second Admin records the transfer:
+   * already APPROVED by one Admin, its instructed legs posted, the money
+   * debited from the Campaign's balance and sitting in PAYOUT_CLEARING.
+   */
+  const approvedPayoutRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 'payout-1',
+    campaignId: 'campaign-1',
+    volunteerTripId: null,
+    amount: 500_000,
+    status: 'APPROVED',
+    requestedById: 'requester-1',
+    approvedById: 'admin-1',
+    approvedAt: new Date('2026-02-01'),
+    proofImage: null,
+    completedById: null,
+    completedAt: null,
+    ...overrides,
+  });
+
+  const INSTRUCTED_ROWS: LedgerRow[] = [
+    // The instruction already posted at approval: the Campaign's balance is
+    // already short and PAYOUT_CLEARING is already holding the money.
+    { transactionId: 'payout-instructed-payout-1', direction: 'DEBIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+    { transactionId: 'payout-instructed-payout-1', direction: 'CREDIT', amount: 500_000, account: 'PAYOUT_CLEARING', campaignId: null, volunteerTripId: null },
+  ];
+
+  it('marks an APPROVED payout COMPLETED with the proof attached, and posts DEBIT PAYOUT_CLEARING / CREDIT GATEWAY_CLEARING', async () => {
+    const { tx, rows, payoutState } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
+    const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED', completedById: 'admin-2' });
+
+    const result = await completePayout(prisma as never, {
+      payoutId: 'payout-1',
+      completedById: 'admin-2',
+      proofImage: 'https://files.example/transfer-admin-2.png',
+    });
+
+    expect(result.status).toBe('COMPLETED');
+    expect(payoutState).toMatchObject({
+      status: 'COMPLETED',
+      completedById: 'admin-2',
+      completedAt: expect.any(Date),
+      proofImage: 'https://files.example/transfer-admin-2.png',
+    });
+
+    const posted = rows.filter((r) => r.transactionId === 'payout-completed-payout-1');
+    expect(posted).toEqual([
+      expect.objectContaining({ account: 'PAYOUT_CLEARING', direction: 'DEBIT', amount: 500_000, campaignId: null, volunteerTripId: null }),
+      expect.objectContaining({ account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 500_000, campaignId: null, volunteerTripId: null }),
+    ]);
+  });
+
+  it('drains PAYOUT_CLEARING exactly: the account is back to zero once the transfer is recorded', async () => {
+    const { tx, rows } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
+    const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED' });
+
+    await completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' });
+
+    const clearing = rows
+      .filter((r) => r.account === 'PAYOUT_CLEARING')
+      .reduce((sum, r) => (r.direction === 'CREDIT' ? sum + r.amount : sum - r.amount), 0);
+    expect(clearing).toBe(0);
+  });
+
+  it('refuses to complete without proof of transfer, writing nothing at all', async () => {
+    // The mandatory proof is the only evidence the money actually moved
+    // (ADR 0006). A COMPLETED row with no proof is a claim, not a record.
+    const { tx, rows, payoutState, queryRawCalls } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
+    const prisma = makePrisma(tx, {});
+
+    for (const proofImage of ['', '   ']) {
+      await expect(
+        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage }),
+      ).rejects.toMatchObject({ code: 'PAYOUT_PROOF_REQUIRED' });
+    }
+    expect(payoutState).toMatchObject({ status: 'APPROVED', completedById: null, proofImage: null });
+    expect(queryRawCalls).toEqual([]);
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+  });
+
+  it('refuses the Admin who approved it -- the second half of the two-person rule, and it leaves the Payout APPROVED', async () => {
+    const { tx, rows, payoutState } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
+    const prisma = makePrisma(tx, {});
+
+    await expect(
+      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-1', proofImage: 'proof-1' }),
+    ).rejects.toMatchObject({ code: 'TWO_PERSON_RULE' });
+    expect(payoutState).toMatchObject({ status: 'APPROVED', proofImage: null });
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+  });
+
+  it('refuses a Payout nobody approved, whatever the completer: an APPROVED row with no recorded approver cannot show two people', async () => {
+    const { tx, payoutState } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow({ approvedById: null }) });
+    const prisma = makePrisma(tx, {});
+
+    await expect(
+      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' }),
+    ).rejects.toMatchObject({ code: 'TWO_PERSON_RULE' });
+    expect(payoutState).toMatchObject({ status: 'APPROVED' });
+  });
+
+  it.each([
+    ['Campaign', { campaignId: 'campaign-1', volunteerTripId: null }, 'OWN_CAMPAIGN_CONFLICT'],
+    ['Volunteer Trip', { campaignId: null, volunteerTripId: 'trip-1' }, 'OWN_TRIP_CONFLICT'],
+  ] as const)(
+    'refuses an Admin who is the %s Fundraiser, even though they are not the approver',
+    async (_label, link, code) => {
+      // The owner is the requester, so "completer is not the approver" passes
+      // here on its own: without the ownership check, the Fundraiser who
+      // asked for the money could also record having sent it (CONTEXT.md,
+      // Admin: never an Admin over your own subject).
+      const { tx, rows, payoutState } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow({ ...link }) });
+      const prisma = makePrisma(tx, {});
+
+      await expect(
+        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'requester-1', proofImage: 'proof-1' }),
+      ).rejects.toMatchObject({ code });
+      expect(payoutState).toMatchObject({ status: 'APPROVED', proofImage: null });
+      expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+    },
+  );
+
+  it.each(PAYOUT_BY_EFFECTIVE_STATUS)(
+    'on a Campaign that is effectively $label: allowed=$allowed',
+    async ({ lifecycleStatus, deadline, allowed }) => {
+      // A Suspension landing between approval and completion still holds the
+      // Payout (CONTEXT.md, Payout): the money was never instructed to the
+      // bank, so completing it now would record a transfer that must not
+      // happen.
+      const { tx, rows, payoutState } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow(), lifecycleStatus, deadline });
+      const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED' });
+
+      const completion = completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' });
+
+      if (allowed) {
+        await expect(completion).resolves.toMatchObject({ status: 'COMPLETED' });
+        expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toHaveLength(2);
+      } else {
+        await expect(completion).rejects.toMatchObject({ code: 'PAYOUT_NOT_ALLOWED_FOR_STATUS' });
+        expect(payoutState).toMatchObject({ status: 'APPROVED', proofImage: null });
+        expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+      }
+    },
+  );
+
+  it('takes the same Campaign row lock the Cancellation approval takes, before its status write', async () => {
+    // Cancellation approval refuses while no Payout is COMPLETED, under the
+    // Campaign row lock (campaign-lifecycle.ts). Both sides must lock the
+    // same row, or a Payout could complete between that check and the
+    // Cancellation's write and break the rule that a Cancellation happens
+    // only while no Payout has completed.
+    const { tx, queryRawCalls } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
+    const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED' });
+
+    await completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' });
+
+    const lockIndex = queryRawCalls.findIndex((q) => q.includes('FOR UPDATE'));
+    expect(lockIndex).toBeGreaterThanOrEqual(0);
+    expect(queryRawCalls[lockIndex]).toContain('"Campaign"');
+    // The lock comes before the write, not after it.
+    expect(tx.payout.updateMany.mock.invocationCallOrder[0]).toBeGreaterThan(
+      tx.$queryRaw.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('locks VolunteerTrip, never Campaign, for a Trip-linked payout', async () => {
+    const { tx, queryRawCalls } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow({ campaignId: null, volunteerTripId: 'trip-1' }) });
+    const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED' });
+
+    await completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' });
+
+    expect(queryRawCalls.some((q) => q.includes('VolunteerTrip'))).toBe(true);
+    expect(queryRawCalls.some((q) => q.includes('"Campaign"'))).toBe(false);
+  });
+
+  it('refuses to complete a Payout that is not APPROVED, and never posts the completion legs', async () => {
+    for (const status of ['DRAFT', 'SUBMITTED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED']) {
+      const { tx, rows, queryRawCalls } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow({ status }) });
+      const prisma = makePrisma(tx, {});
+
+      await expect(
+        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' }),
+      ).rejects.toMatchObject({ code: 'INVALID_PAYOUT_STATUS' });
+      // Refused on the Payout's own row, before any lock: there is nothing
+      // for the subject's state to decide.
+      expect(queryRawCalls).toEqual([]);
+      expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+    }
+  });
+
+  it('refuses when another Admin completed the same Payout first, posting nothing', async () => {
+    const { tx, rows } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
+    // The predicated update finds no APPROVED row left to claim.
+    tx.payout.updateMany.mockResolvedValue({ count: 0 });
+    const prisma = makePrisma(tx, {});
+
+    await expect(
+      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' }),
+    ).rejects.toMatchObject({ code: 'INVALID_PAYOUT_STATUS' });
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+  });
+
+  it('throws PayoutNotFoundError for a Payout that does not exist', async () => {
+    const { tx } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: null });
+    const prisma = makePrisma(tx, {});
+
+    await expect(
+      completePayout(prisma as never, { payoutId: 'missing', completedById: 'admin-2', proofImage: 'proof-1' }),
+    ).rejects.toMatchObject({ code: 'PAYOUT_NOT_FOUND' });
+  });
+
+  it('throws for a malformed Payout row with both campaignId and volunteerTripId set', async () => {
+    const { tx } = makeTx({
+      ledgerRows: INSTRUCTED_ROWS,
+      payoutRow: approvedPayoutRow({ campaignId: 'campaign-1', volunteerTripId: 'trip-1' }),
+    });
+    const prisma = makePrisma(tx, {});
+
+    await expect(
+      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
   });
 });
 
