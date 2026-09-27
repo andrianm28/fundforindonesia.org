@@ -219,8 +219,16 @@
   recorder now hands back the real mock and reads that mock's own
   `.mock.calls`, the passthrough shape the rest of this repo already uses.
 
-  Proved by putting the sweep in the GET temporarily: the case goes red on
-  `prisma.payment.findMany`. The fixture's Payment row also had no `donation`
+  Proved by putting the sweep in the GET temporarily: the case goes red, and
+  the FIRST assertion to fail is the state one — the Payment row comes back
+  stamped with `escrowReleasedAt`, then `rows` has grown both legs
+  (`ESCROW_HOLD` DEBIT, `CAMPAIGN_BALANCE` CREDIT), and the allow-list fails
+  after that on `prisma.payment.findMany`. An earlier version of this entry said
+  the case goes red on `prisma.payment.findMany` alone, which had the order
+  backwards and understated what was actually caught. Each of the three was
+  relaxed in turn to confirm it bites on its own, not just the first.
+
+  The fixture's Payment row also had no `donation`
   relation, so the sweep threw inside its per-payment `try`/`catch`, logged and
   moved nothing — meaning "the books did not move" stayed true for a read that
   HAD swept. With the relation in the fixture, a sweep really claims the
@@ -234,3 +242,34 @@
   guard settles before the panel renders, so the read is never issued. Both
   claims are gone; comment only.
 
+
+- 2026-09-27 (one `groupBy` simulation, and what it cost): fixing the allow-list
+  above meant trusting `ledgerEntry.groupBy` fakes, and they had been copied
+  fifteen times across twelve files. They are now one helper,
+  `tests/support/ledger-group-by.ts`. The two callers whose `where` is richer
+  than equality keep their own predicate through the helper's `matches` option,
+  so nothing was flattened: fifteen copies became one, and the shared version is
+  the strongest of the fifteen, not the weakest.
+
+  This is a refactor of test scaffolding, not a Payout change, and it touched
+  files in five subsystems this ticket has nothing to do with — `admin/reconcile`,
+  `volunteer-trips`, `manual-contributions`, `refunds`, `ledger`. It is recorded
+  here because `docs/agents/issue-tracker.md` asks that the Comments ride in the
+  same PR as the work they describe, and a diff that reaches into five subsystems
+  on a ticket about one screen should be visible to whoever reads this next.
+  No production code changed.
+
+- 2026-09-27 (a claim withdrawn, and the narrower one available): the cap in
+  `src/lib/payout-balance-rule.ts` said a fourth caller would be a failing test.
+  It is not — the test exercises three callers by name, and a `previewPayout`
+  written beside them with a comparison of its own left the suite green. Two
+  guards were written to close it and thrown away rather than shipped: scanning
+  for references to the function cannot see a caller that re-decides the cap and
+  never names it, and scanning for the comparison would match one spelling of
+  `>` and no other. A narrower true claim is available — pin the set of files
+  that may ask the question, the way
+  `src/__tests__/manual-contribution-isolation.test.ts` already does — and it
+  would catch a fourth caller that REUSES the function, at roughly nine seconds
+  of suite. Not taken: the comment now states the honest scope, and pinning file
+  names is the same brittleness the rest of this work just removed. Reversible
+  if a fourth caller ever appears.
