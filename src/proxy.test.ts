@@ -1,13 +1,24 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { unstable_doesMiddlewareMatch } from 'next/experimental/testing/server';
 
 // withAuth only decodes the session cookie into req.nextauth.token before
 // calling our function; stand in for that so the real routing logic runs.
+// The `authorized` callback and `pages` option passed alongside it are what
+// actually turns an anonymous (no-token) request back, so stash them on the
+// returned function rather than discarding them.
 vi.mock('next-auth/middleware', () => ({
-  withAuth: (middleware: unknown) => middleware,
+  withAuth: (
+    middleware: object,
+    options: { callbacks: { authorized: (args: { token: unknown }) => boolean }; pages: { signIn: string } },
+  ) => Object.assign(middleware, { withAuthOptions: options }),
 }));
 
 import proxy from './proxy';
+
+const withAuthOptions = (proxy as unknown as {
+  withAuthOptions: { callbacks: { authorized: (args: { token: unknown }) => boolean }; pages: { signIn: string } };
+}).withAuthOptions;
 
 type TokenRole = 'DONOR' | 'CAMPAIGN_CREATOR' | 'MODERATOR' | 'ADMIN';
 type TokenAssignment = 'ADMIN' | 'VERIFIER';
@@ -35,6 +46,51 @@ describe('proxy', () => {
   it('still asks for sign-in on /campaign/create: it stays in the matcher and a token is required', async () => {
     const { config } = await import('./proxy');
     expect(config.matcher).toContain('/campaign/create/:path*');
+  });
+
+  describe('the matcher pins exactly the protected prefixes', () => {
+    it('lists exactly the six guarded prefixes, nothing more or less', async () => {
+      const { config } = await import('./proxy');
+      expect(config.matcher).toEqual([
+        '/donasi-saya/:path*',
+        '/inbox/:path*',
+        '/akun/:path*',
+        '/campaign/create/:path*',
+        '/admin/:path*',
+        '/moderasi/:path*',
+      ]);
+    });
+
+    it.each([
+      '/donasi-saya',
+      '/donasi-saya/123',
+      '/inbox',
+      '/inbox/456',
+      '/akun',
+      '/akun/settings',
+      '/campaign/create',
+      '/campaign/create/step-2',
+      '/admin',
+      '/admin/users',
+      '/moderasi',
+      '/moderasi/campaigns',
+    ])('an anonymous request to %s is turned back: the authorized callback requires a token', async (path) => {
+      const { config } = await import('./proxy');
+      expect(unstable_doesMiddlewareMatch({ config, url: `http://localhost:3000${path}` })).toBe(true);
+      expect(withAuthOptions.callbacks.authorized({ token: undefined })).toBe(false);
+    });
+
+    it('sends the turned-back anonymous request to /login', () => {
+      expect(withAuthOptions.pages.signIn).toBe('/login');
+    });
+
+    it.each(['/', '/login', '/register', '/explore/all', '/campaign/abc-123', '/search', '/faq', '/zakat'])(
+      'a public path like %s never reaches the guard: the matcher does not cover it',
+      async (path) => {
+        const { config } = await import('./proxy');
+        expect(unstable_doesMiddlewareMatch({ config, url: `http://localhost:3000${path}` })).toBe(false);
+      },
+    );
   });
 
   describe('the /admin gate asks for the ADMIN assignment (ADR 0005), not the Role', () => {
