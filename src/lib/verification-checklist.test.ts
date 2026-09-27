@@ -196,6 +196,54 @@ describe('editChecklistItem', () => {
   });
 });
 
+// hibah starts as a copy of wakaf's documents (FFI-08b, ADR 0013) and
+// separating the two is the Admin's call in the panel, so the rows have to be
+// independent: reworking or retiring hibah's item must leave wakaf's
+// untouched, or "diverge later" would already have cost wakaf a document.
+describe("diverging hibah's checklist from wakaf's (csr-and-hibah 11)", () => {
+  const COPIED = [
+    checklistItemRow({ id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', position: 1, kind: 'WAKAF' }),
+    checklistItemRow({ id: 'hibah-nazhir', label: 'Dokumen lembaga nazhir', position: 2, kind: 'HIBAH' }),
+  ];
+
+  it("rewords or retires one Kind's item without touching the other Kind's copy of it", async () => {
+    const db = makeCampaignDb({ checklistItems: structuredClone(COPIED) });
+
+    await editChecklistItem(db.prisma as never, {
+      actorId: admin,
+      itemId: 'hibah-nazhir',
+      changes: { label: 'Dokumen penerima hibah', active: false },
+      now: NOW,
+    });
+
+    expect(db.checklistItems.find((i) => i.id === 'hibah-nazhir')).toMatchObject({
+      label: 'Dokumen penerima hibah',
+      active: false,
+      kind: 'HIBAH',
+    });
+    expect(db.checklistItems.find((i) => i.id === 'wakaf-nazhir')).toEqual(COPIED[0]);
+    expect(db.checklistAudits.map((a) => a.itemId)).toEqual(['hibah-nazhir']);
+  });
+
+  it("adds a document to one Kind only, leaving the other Kind's checklist as it was", async () => {
+    const db = makeCampaignDb({ checklistItems: structuredClone(COPIED) });
+
+    await addChecklistItem(db.prisma as never, {
+      actorId: admin,
+      label: 'Dokumen penerima-manfaat',
+      required: true,
+      kind: 'HIBAH',
+      now: NOW,
+    });
+
+    expect(await listChecklistItems(db.prisma as never, { kind: 'HIBAH' })).toMatchObject([
+      { id: 'hibah-nazhir' },
+      { label: 'Dokumen penerima-manfaat', kind: 'HIBAH' },
+    ]);
+    expect((await listChecklistItems(db.prisma as never, { kind: 'WAKAF' })).map((i) => i.id)).toEqual(['wakaf-nazhir']);
+  });
+});
+
 describe('adding and moving lock the whole checklist', () => {
   // Both compute positions from every item. A row lock would lock nothing on
   // an empty checklist, letting two Admins adding the first item both take

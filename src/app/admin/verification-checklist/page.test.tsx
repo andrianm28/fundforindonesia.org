@@ -98,6 +98,35 @@ describe('AdminChecklistPage', () => {
     });
   });
 
+  // hibah ships with a copy of wakaf's documents (FFI-08b, ADR 0013) and the
+  // panel is where an Admin diverges the two afterwards, so the two copies are
+  // separate rows here too: reworking hibah's row must send one request, for
+  // hibah's item, and leave wakaf's row alone. The copy is a stated
+  // placeholder pending the sharia review (pasal 14), not a settled list.
+  it('rewords hibah\'s copy of a document without touching wakaf\'s', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/admin/verification-checklist' && !init?.method) {
+        return jsonResponse({
+          items: [
+            { id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 1, active: true, kind: 'WAKAF' },
+            { id: 'hibah-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 2, active: true, kind: 'HIBAH' },
+          ],
+        });
+      }
+      return jsonResponse({});
+    });
+    render(<AdminChecklistPage />);
+    const rows = await screen.findAllByRole('listitem');
+    expect(within(rows[0]).getByText('Wakaf', { selector: 'span' })).toBeTruthy();
+    expect(within(rows[1]).getByText('Hibah', { selector: 'span' })).toBeTruthy();
+
+    fireEvent.change(within(rows[1]).getByRole('textbox'), { target: { value: 'Dokumen penerima hibah' } });
+    fireEvent.click(within(rows[1]).getByRole('button', { name: 'Simpan' }));
+
+    await waitFor(() => expect(callsTo('/api/admin/verification-checklist/hibah-nazhir')).toHaveLength(1));
+    expect(callsTo('/api/admin/verification-checklist/wakaf-nazhir')).toEqual([]);
+  });
+
   it('moves an item between Kinds from its row', async () => {
     const row = await rowOf('Rencana anggaran');
 

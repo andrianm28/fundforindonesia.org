@@ -490,4 +490,69 @@ describe('submitCampaign', () => {
       ]);
     });
   });
+
+  // Hibah's checklist starts as a copy of wakaf's (FFI-08b, ADR 0013) and
+  // diverging the two is the Admin's call, so the snapshot has to come from
+  // hibah's own rows even while the two lists read the same. The copy is a
+  // stated placeholder pending a sharia review (pasal 14), not a settled rule:
+  // a reviewer who changes the expectations below is correcting a
+  // provisional decision, which is expected, not a regression.
+  describe("a hibah Campaign's checklist (csr-and-hibah 11, FFI-08b)", () => {
+    // Wakaf's and hibah's seeded documents: the same three, as separate rows
+    // per Kind, so one can change without the other.
+    const WAKAF_AND_HIBAH = [
+      checklistItemRow({ id: 'general', label: 'Rencana anggaran', position: 1, kind: null }),
+      checklistItemRow({ id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', position: 2, kind: 'WAKAF' }),
+      checklistItemRow({ id: 'hibah-nazhir', label: 'Dokumen lembaga nazhir', position: 3, kind: 'HIBAH' }),
+      checklistItemRow({ id: 'wakaf-akad', label: 'Draf akad wakaf', position: 4, kind: 'WAKAF' }),
+      checklistItemRow({ id: 'hibah-akad', label: 'Draf akad wakaf', position: 5, kind: 'HIBAH' }),
+    ];
+    const HIBAH = { lifecycleStatus: 'DRAFT' as const, kind: 'HIBAH' as const, deadline: DEADLINE, creatorId: 'partner-fundraiser-1' };
+    const WAKAF = { lifecycleStatus: 'DRAFT' as const, kind: 'WAKAF' as const, creatorId: 'partner-fundraiser-1' };
+
+    it("snapshots hibah's own items, never wakaf's, even while the two read the same", async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow(HIBAH)],
+        checklistItems: WAKAF_AND_HIBAH,
+        kindAuthorisations: [kindAuthorisationRow({ kind: 'HIBAH' })],
+      });
+
+      await submitCampaign(db.prisma as never, {
+        campaignId: 'campaign-1',
+        actor: { userId: 'partner-fundraiser-1', assignments: [] },
+        now: NOW,
+      });
+
+      expect(db.verificationRequests[0].checklist).toEqual([
+        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
+        { id: 'hibah-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 3, ticked: false },
+        { id: 'hibah-akad', label: 'Draf akad wakaf', required: true, position: 5, ticked: false },
+      ]);
+    });
+
+    it("leaves wakaf's submissions on wakaf's items when hibah's checklist has since diverged", async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ id: 'hibah-1', slug: 'hibah', ...HIBAH }), campaignRow({ id: 'wakaf-1', slug: 'wakaf', ...WAKAF })],
+        checklistItems: [
+          ...WAKAF_AND_HIBAH,
+          checklistItemRow({ id: 'hibah-pernyataan', label: 'Surat pernyataan hibah', position: 6, kind: 'HIBAH' }),
+        ],
+        partnerOrganisations: [partnerOrganisationRow()],
+        kindAuthorisations: [
+          kindAuthorisationRow({ kind: 'HIBAH' }),
+          kindAuthorisationRow({ id: 'kind-authorisation-2', kind: 'WAKAF' }),
+        ],
+      });
+
+      const partner = { userId: 'partner-fundraiser-1', assignments: [] };
+      await submitCampaign(db.prisma as never, { campaignId: 'hibah-1', actor: partner, now: NOW });
+      await submitCampaign(db.prisma as never, { campaignId: 'wakaf-1', actor: partner, now: NOW });
+
+      const byCampaign = Object.fromEntries(
+        db.verificationRequests.map((request) => [request.campaignId, (request.checklist as { id: string }[]).map((i) => i.id)]),
+      );
+      expect(byCampaign['hibah-1']).toEqual(['general', 'hibah-nazhir', 'hibah-akad', 'hibah-pernyataan']);
+      expect(byCampaign['wakaf-1']).toEqual(['general', 'wakaf-nazhir', 'wakaf-akad']);
+    });
+  });
 });
