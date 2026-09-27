@@ -287,6 +287,34 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
       expect(mockTransaction).not.toHaveBeenCalled();
     });
 
+    it('answers 422 PROVIDER_BALANCE_AMOUNT_INVALID for a reading the column cannot hold, rather than saying none was recorded', async () => {
+      // The reading IS on this body. Answering "not recorded" to an Admin who
+      // has just written it down sends them to the dashboard to be told the
+      // same thing again, and 5_000_000_000 is past what an Int column stores
+      // besides -- so the reason has to name the ceiling.
+      const response = await POST(
+        createRequest({ provider: 'sumopod', providerBalance: 5_000_000_000 }),
+        routeContext(),
+      );
+
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body.code).toBe('PROVIDER_BALANCE_AMOUNT_INVALID');
+      expect(body.error).toMatch(/2\.147\.483\.647/);
+      expect(mockTransaction).not.toHaveBeenCalled();
+    });
+
+    it('answers 400 PROVIDER_NAME_UNKNOWN when a reading arrived and the dashboard it came from did not', async () => {
+      // Same fault as an unregistered name, and it used to be answered as a
+      // missing reading -- which is false, the reading is on the body. What is
+      // missing is the provider to compare it against.
+      const response = await POST(createRequest({ providerBalance: 5_000_000 }), routeContext());
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).code).toBe('PROVIDER_NAME_UNKNOWN');
+      expect(mockTransaction).not.toHaveBeenCalled();
+    });
+
     it('records the reading on the Payout and answers 200 with it', async () => {
       const { tx, state } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
       mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));

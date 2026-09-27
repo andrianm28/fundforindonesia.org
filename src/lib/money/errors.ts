@@ -349,6 +349,34 @@ export class ProviderBalanceNotRecordedError extends MoneyError {
 }
 
 /**
+ * A provider balance was recorded, and it is not a figure that column can hold.
+ *
+ * Split from ProviderBalanceNotRecordedError because the two are different
+ * facts, and the Admin is told which one happened. This reading IS on the form:
+ * it is either not whole rupiah, not above zero, or past what an Int column
+ * stores -- 2_147_483_648 passes every other check and cannot be written down.
+ * Answering "belum dicatat" to it sends the Admin back to a dashboard to write
+ * down the number they just wrote, on a form that shows them it was recorded,
+ * which is how a person stops believing the rest of the page.
+ *
+ * The same split the withdrawal path makes, doing the same job its
+ * ProviderWithdrawalAmountError does: one error for a field nobody filled in,
+ * one for a field filled in with something that is not that field's kind of
+ * value. Which is also why this one names the ceiling -- the Admin can see how
+ * far over they are, and 2.147.483.647 is a number a dashboard does show.
+ */
+export class ProviderBalanceAmountError extends MoneyError {
+  readonly code = 'PROVIDER_BALANCE_AMOUNT_INVALID';
+  constructor(readonly providerBalance: number) {
+    super(
+      `Saldo penyedia (${providerBalance}) harus angka rupiah bulat antara 1 dan 2.147.483.647. ` +
+        'Buka dashboard penyedia, catat ulang saldo yang terlihat di sana, lalu setujui Payout ini.',
+    );
+    this.name = 'ProviderBalanceAmountError';
+  }
+}
+
+/**
  * The recorded provider balance is short of the Payout's own amount.
  *
  * The point of FFI-07: approving against a Campaign Balance says the Campaign is
@@ -387,7 +415,11 @@ export class ProviderBalanceInsufficientError extends MoneyError {
 export class UnknownPaymentProviderNameError extends MoneyError {
   readonly code = 'PROVIDER_NAME_UNKNOWN';
   constructor(readonly provider: string) {
-    super(`Penyedia pembayaran tidak dikenal: ${provider}. Gunakan nama penyedia yang terdaftar.`);
+    super(
+      provider.trim() === ''
+        ? 'Nama penyedia pembayaran wajib diisi. Saldo yang tercatat tidak bisa dibandingkan tanpa tahu dashboard mana yang dibaca.'
+        : `Penyedia pembayaran tidak dikenal: ${provider}. Gunakan nama penyedia yang terdaftar.`,
+    );
     this.name = 'UnknownPaymentProviderNameError';
   }
 }

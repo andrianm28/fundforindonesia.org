@@ -675,10 +675,17 @@ describe('approvePayout', () => {
       expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
     });
 
-    it('refuses a reading that is not whole rupiah above zero', async () => {
+    it('refuses a reading that is not whole rupiah above zero, as a figure that is not one', async () => {
       // A reading is a figure of money, not a claim about money: 1000.5 is
       // neither, and storing it would make a later reconciliation compare two
       // numbers that were never both real.
+      //
+      // Not "belum dicatat" -- these were recorded, and the Admin is told to
+      // write down a reading they HAVE written down, which sends them back to
+      // the dashboard to be told again the same thing. This is the same split
+      // the withdrawal path already made: a field nobody filled in is one
+      // error, a field filled in with something that is not that field's kind of
+      // value is another.
       for (const providerBalance of [0, -1, 1000.5]) {
         const { payoutState, prismaFor } = fundedPayout();
         await expect(
@@ -688,30 +695,65 @@ describe('approvePayout', () => {
             provider: 'sumopod',
             providerBalance,
           }),
-        ).rejects.toMatchObject({ code: 'PROVIDER_BALANCE_NOT_RECORDED' });
+        ).rejects.toMatchObject({ code: 'PROVIDER_BALANCE_AMOUNT_INVALID', providerBalance });
         expect(payoutState).toMatchObject({ status: 'DRAFT' });
       }
     });
 
-    it('refuses a reading too large for the column it is stored in, rather than letting the write fail', async () => {
+    it('refuses a reading too large for the column it is stored in, and says it does not fit rather than that nothing was recorded', async () => {
       // approvedProviderBalance is an Int, so PostgreSQL's int4 ceiling is the
       // real limit on what a reading can be -- and the one this function was
       // missing. 5_000_000_000 passes every other check here, so it reached the
       // INSERT and came back as a driver error: a 500 for a figure that is not
       // a plausible reading anyway, and a 500 tells the Admin nothing about
-      // which field to fix. Same refusal as an absent reading, same 422, and
-      // the Payout stays in DRAFT.
+      // which field to fix.
+      //
+      // The reading above is the harder half: this number WAS recorded, and it
+      // only does not fit. Answering "belum dicatat" to an Admin who has just
+      // written it down -- on a screen that also says it was recorded -- is the
+      // kind of message that makes a person distrust the rest of the page.
       for (const providerBalance of [2_147_483_648, 5_000_000_000]) {
         const { payoutState, prismaFor } = fundedPayout();
+        const error = await approvePayout(prismaFor() as never, {
+          payoutId: 'payout-1',
+          approvedById: 'admin-1',
+          provider: 'sumopod',
+          providerBalance,
+        }).catch((err: unknown) => err);
+
+        expect(error).toMatchObject({
+          code: 'PROVIDER_BALANCE_AMOUNT_INVALID',
+          providerBalance,
+        });
+        // The reason quotes the ceiling the column imposes, so the Admin is not
+        // left guessing how far over they are -- and does not claim the reading
+        // is missing.
+        expect((error as Error).message).toContain('2.147.483.647');
+        expect((error as Error).message).not.toMatch(/belum dicatat/i);
+        expect(payoutState).toMatchObject({ status: 'DRAFT' });
+      }
+    });
+
+    it('refuses a blank provider name as a name no provider answers to, not as a missing reading', async () => {
+      // A reading arrived and the name did not. The reading was recorded, so
+      // "belum dicatat" is false here too, and it is the same lie the new
+      // blank-name branch inherited when it was added. What is missing is the
+      // dashboard to compare the reading against, so this is the name's
+      // refusal, and the same 400 an unregistered name already answers.
+      for (const provider of ['', '   ']) {
+        const { rows, payoutState, prismaFor } = fundedPayout();
+
         await expect(
           approvePayout(prismaFor() as never, {
             payoutId: 'payout-1',
             approvedById: 'admin-1',
-            provider: 'sumopod',
-            providerBalance,
+            provider,
+            providerBalance: 2_000_000,
           }),
-        ).rejects.toMatchObject({ code: 'PROVIDER_BALANCE_NOT_RECORDED' });
-        expect(payoutState).toMatchObject({ status: 'DRAFT' });
+        ).rejects.toMatchObject({ code: 'PROVIDER_NAME_UNKNOWN' });
+
+        expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+        expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
       }
     });
 
