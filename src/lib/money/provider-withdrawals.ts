@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient, ProviderWithdrawal } from '@/generated/prisma/client';
 import { collectionAccountWithdrawalLegs, MAX_RUPIAH_AMOUNT, postTransaction, providerBalances, type ProviderBalance } from './ledger';
 import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
-import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments';
+import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 import {
   ProviderWithdrawalAmountError,
   ProviderWithdrawalDuplicateError,
