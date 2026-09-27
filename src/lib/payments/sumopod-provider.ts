@@ -40,6 +40,14 @@ export interface SumopodConfig {
 /** Sumopod's two QRIS products. `QRIS` settles T+2, `QRIS_INSTANT` T+0. */
 export type SumopodMethodCode = 'QRIS' | 'QRIS_INSTANT';
 
+/**
+ * Sumopod's documented QRIS settlement window (docs/integrasi-sumopod.md,
+ * "Waktu dan Escrow"). Used only as the fallback when a validly-signed event
+ * omits or mangles `settled_at` -- never as a substitute for the field when
+ * it parses correctly.
+ */
+const SUMOPOD_SETTLEMENT_FALLBACK_MS = 2 * 24 * 60 * 60 * 1000;
+
 interface SumopodChargeResponse {
   payment_id?: string;
   payment_link_url?: string;
@@ -57,6 +65,18 @@ interface SumopodChargeResponse {
  */
 function toRupiah(raw: unknown): number {
   return typeof raw === 'number' && Number.isFinite(raw) ? raw : NaN;
+}
+
+/**
+ * Parses one of the payload's own timestamp fields (`paid_at`, `settled_at`),
+ * or undefined if the field is missing or not a valid date -- never NaN or a
+ * guessed value, so the caller decides its own fallback explicitly rather
+ * than silently getting `Invalid Date`.
+ */
+function parseProviderTimestamp(raw: unknown): Date | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 /**
@@ -183,6 +203,25 @@ export class SumopodProvider implements PaymentProvider {
             ? 'expired'
             : 'ignored';
 
+    // Sumopod reports `paid_at` (when the donor actually paid) and
+    // `settled_at` (its own T+2-for-QRIS estimate of when the money clears)
+    // separately on every event (docs/integrasi-sumopod.md, "Waktu dan
+    // Escrow"). A missing or malformed `paid_at` falls back to receipt time,
+    // the same degrade-gracefully behaviour this route always had before
+    // either field existed. A missing or malformed `settled_at` falls back to
+    // `paidAt + T+2`, Sumopod's own documented QRIS settlement window, rather
+    // than `paidAt` itself (T+0): the signature already proved this event is
+    // really from Sumopod, so the Escrow Hold must not get shorter just
+    // because one field is missing. Sumopod always sends `settled_at` for a
+    // real `payment.completed`, so this only fires for a malformed payload or
+    // a status this adapter does not otherwise act on
+    // (`ignored`/`failed`/`expired`). A provider that never sends a
+    // settlement estimate at all (MockPaymentProvider) has no such fallback
+    // and stays at T+0.
+    const paidAt = parseProviderTimestamp(data.paid_at) ?? new Date();
+    const settledAt =
+      parseProviderTimestamp(data.settled_at) ?? new Date(paidAt.getTime() + SUMOPOD_SETTLEMENT_FALLBACK_MS);
+
     return {
       provider: 'sumopod',
       // The svix message id, not anything in the body: it is what the
@@ -194,6 +233,8 @@ export class SumopodProvider implements PaymentProvider {
       grossAmount: toRupiah(data.amount),
       providerFee: typeof data.fee === 'number' && Number.isFinite(data.fee) ? data.fee : undefined,
       rawPayload: payload,
+      paidAt,
+      settledAt,
     };
   }
 

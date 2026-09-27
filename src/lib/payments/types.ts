@@ -76,6 +76,30 @@ export interface WebhookEvent {
    */
   providerFee?: number;
   rawPayload: unknown;
+  /**
+   * When the provider says the donor actually paid, read from its signed
+   * payload. This becomes Payment.paidAt -- server receipt time is never
+   * used for it, so a delayed delivery cannot make a donation look like it
+   * arrived later than it did. A provider whose payload carries no such
+   * timestamp reports server receipt time here itself (prd-compliance 19):
+   * a display-only figure degrading gracefully, not a security-critical one
+   * worth failing the whole notification over.
+   */
+  paidAt: Date;
+  /**
+   * When the provider expects this payment's money to become a withdrawable
+   * balance -- an ESTIMATE, not proof of settlement (docs/integrasi-sumopod.md,
+   * "Waktu dan Escrow"): none of the providers this repo speaks to expose a
+   * balance API to confirm money has actually landed. Escrow release is
+   * computed from this, never from paidAt or server receipt time
+   * (prd-compliance 19) -- anchoring to receipt time would let a
+   * slow-settling provider's Escrow Hold lapse before the money has actually
+   * cleared. A provider whose payload carries no settlement estimate at all
+   * must set this equal to paidAt (T+0) itself -- decided here, in the
+   * adapter that knows it has no better number, never guessed downstream in
+   * the escrow layer.
+   */
+  settledAt: Date;
 }
 
 export interface PaymentStatusResult {

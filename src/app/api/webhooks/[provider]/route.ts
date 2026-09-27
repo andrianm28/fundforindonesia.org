@@ -265,12 +265,18 @@ export async function POST(
       // that stays invisible until the reconciliation report disagrees with
       // the bank.
       const providerFee = event.providerFee ?? 0;
-      const paidAt = new Date();
+      // The provider's own timestamps, never server receipt time
+      // (prd-compliance 19): paidAt is when the donor actually paid, and
+      // escrow anchors to settledAt -- the provider's settlement estimate,
+      // e.g. Sumopod's T+2 for QRIS -- not to paidAt or to whenever this
+      // webhook happened to arrive. A slow delivery must not move either
+      // figure.
+      const paidAt = event.paidAt;
       // The hold length THIS Payment froze at creation (prd-compliance 18),
       // never the live ESCROW_HOLD_DAYS constant -- an Admin shortening or
       // lengthening the default after this Payment was created must not move
       // when it releases.
-      const releaseAt = escrowReleaseAt(paidAt, payment.escrowHoldDays);
+      const releaseAt = escrowReleaseAt(event.settledAt, payment.escrowHoldDays);
 
       let settled: {
         settled: boolean;
@@ -303,6 +309,7 @@ export async function POST(
               providerFee,
               rawPayload: event.rawPayload as Prisma.InputJsonValue,
               paidAt,
+              settledAt: event.settledAt,
               escrowReleaseAt: releaseAt,
             },
           });

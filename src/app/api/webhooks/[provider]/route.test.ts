@@ -179,6 +179,13 @@ function makeRegistrationPayment(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// T+0 by default -- paidAt and settledAt equal, matching MockPaymentProvider's
+// own behaviour for a provider with no separate settlement estimate
+// (prd-compliance 19). Tests asserting escrowReleaseAt against paidAt below
+// rely on that equality; the dedicated test further down overrides settledAt
+// to prove escrow anchors to it, not to paidAt.
+const PROVIDER_PAID_AT = new Date('2026-09-20T10:00:00Z');
+
 const PAID_EVENT = {
   provider: 'mock',
   providerEventId: 'evt-1',
@@ -188,6 +195,8 @@ const PAID_EVENT = {
   // override this explicitly.
   grossAmount: 100_000,
   rawPayload: { order_id: 'donation-1', transaction_status: 'settlement' },
+  paidAt: PROVIDER_PAID_AT,
+  settledAt: PROVIDER_PAID_AT,
 };
 
 const REGISTRATION_PAID_EVENT = {
@@ -198,6 +207,8 @@ const REGISTRATION_PAID_EVENT = {
   // Matches makeRegistrationPayment()'s default amount.
   grossAmount: 250_000,
   rawPayload: { order_id: 'registration-1', transaction_status: 'settlement' },
+  paidAt: PROVIDER_PAID_AT,
+  settledAt: PROVIDER_PAID_AT,
 };
 
 describe('POST /api/webhooks/[provider]', () => {
@@ -557,6 +568,31 @@ describe('POST /api/webhooks/[provider]', () => {
     const paymentUpdateData = (tx.payment.updateMany as Mock).mock.calls[0][0].data;
     expect(paymentUpdateData.escrowReleaseAt.getTime() - paymentUpdateData.paidAt.getTime()).toBe(
       2 * 24 * 60 * 60 * 1000,
+    );
+  });
+
+  it('anchors the release to the provider settlement estimate, not to paidAt or receipt time (prd-compliance 19)', async () => {
+    // Sumopod's QRIS settles T+2: paidAt is when the donor paid, settledAt
+    // is two days later. If escrow anchored to paidAt (or, worse, to
+    // whenever this webhook happened to arrive) instead, the hold would
+    // release two days before the provider's own estimate says the money
+    // clears.
+    const paidAt = new Date('2026-09-20T10:00:00Z');
+    const settledAt = new Date('2026-09-22T10:00:00Z');
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, paidAt, settledAt }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    const paymentUpdateData = (tx.payment.updateMany as Mock).mock.calls[0][0].data;
+    expect(paymentUpdateData.paidAt).toEqual(paidAt);
+    expect(paymentUpdateData.settledAt).toEqual(settledAt);
+    expect(paymentUpdateData.escrowReleaseAt).toEqual(
+      new Date(settledAt.getTime() + 7 * 24 * 60 * 60 * 1000),
     );
   });
 

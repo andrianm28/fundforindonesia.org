@@ -192,7 +192,52 @@ describe('SumopodProvider.parseWebhook', () => {
       status: 'paid',
       grossAmount: 50000,
       providerFee: 650,
+      paidAt: new Date('2026-09-19T12:00:00Z'),
+      settledAt: new Date('2026-09-21T12:00:00Z'),
     });
+  });
+
+  it('falls back to paidAt + 2 days (T+2) when the payload reports no settlement estimate', async () => {
+    // Sumopod always sends settled_at on a real payment.completed. Per the
+    // owner's 2026-09-27 decision, a missing/malformed settled_at on a
+    // validly-signed Sumopod event must fall back to Sumopod's own documented
+    // QRIS settlement window (T+2), never T+0 -- the Escrow Hold must never
+    // get shorter just because data is missing.
+    const req = await signedRequest({
+      event_type: 'payment.completed',
+      data: { ...COMPLETED_PAYLOAD.data, settled_at: undefined },
+    });
+
+    const event = await provider().parseWebhook(req);
+
+    expect(event.paidAt).toEqual(new Date('2026-09-19T12:00:00Z'));
+    expect(event.settledAt).toEqual(new Date('2026-09-21T12:00:00Z'));
+  });
+
+  it('falls back to receipt time + 2 days when the payload reports no paid_at at all', async () => {
+    const before = new Date();
+    const req = await signedRequest({
+      event_type: 'payment.completed',
+      data: { ...COMPLETED_PAYLOAD.data, paid_at: undefined, settled_at: undefined },
+    });
+
+    const event = await provider().parseWebhook(req);
+    const after = new Date();
+
+    expect(event.paidAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    expect(event.paidAt.getTime()).toBeLessThanOrEqual(after.getTime());
+    expect(event.settledAt.getTime()).toEqual(event.paidAt.getTime() + 2 * 24 * 60 * 60 * 1000);
+  });
+
+  it('falls back to paidAt + 2 days rather than a malformed date when settled_at cannot be parsed', async () => {
+    const req = await signedRequest({
+      event_type: 'payment.completed',
+      data: { ...COMPLETED_PAYLOAD.data, settled_at: 'not-a-date' },
+    });
+
+    const event = await provider().parseWebhook(req);
+
+    expect(event.settledAt.getTime()).toEqual(event.paidAt.getTime() + 2 * 24 * 60 * 60 * 1000);
   });
 
   it('takes the event id from svix-id, not from the body', async () => {

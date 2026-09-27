@@ -905,6 +905,15 @@ model Payment {
   /// business logic -- the typed columns above are what the app reads.
   rawPayload  Json?
   paidAt      DateTime?
+  /// The provider's own settlement estimate for this Payment, read from its
+  /// webhook payload (docs/integrasi-sumopod.md, "Waktu dan Escrow";
+  /// prd-compliance 19) -- NOT proof the money has actually arrived, since
+  /// none of the providers this repo speaks to expose a balance API to
+  /// confirm that. escrowReleaseAt below is computed from this, never from
+  /// paidAt or server receipt time: anchoring to receipt time would let a
+  /// slow-settling provider's Escrow Hold lapse before the money has
+  /// actually cleared. Null while unpaid, same as paidAt.
+  settledAt   DateTime?
   expiresAt   DateTime?
 
   /// The Escrow Hold length (CONTEXT.md, Escrow Hold), frozen from
@@ -917,7 +926,8 @@ model Payment {
   escrowHoldDays Int @default(7)
 
   /// When this payment's money stops being escrow and becomes withdrawable.
-  /// Set on settlement to paidAt + the hold period; null while unpaid.
+  /// Set on settlement to settledAt + the hold period (prd-compliance 19);
+  /// null while unpaid.
   ///
   /// The hold exists so a refund or a dispute has somewhere to land. Without
   /// it, a donation can be paid out to the campaigner before the donor's bank
