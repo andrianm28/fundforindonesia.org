@@ -4,7 +4,7 @@
 
 **Blocked by:** 15
 
-**Status:** done (PR #89, 4e55f3b)
+**Status:** done (PR #89, 8b266b2)
 
 - [x] All readers of email, phone and bank account use the new form
 - [x] Donor matching and lookup go through the HMAC, never through a decrypted scan
