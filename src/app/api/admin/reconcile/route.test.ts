@@ -125,7 +125,11 @@ function makeTx(options: {
 
   return {
     ledgerEntry: {
-      groupBy: vi.fn(ledgerGroupBy(rows, { matches: (row, where) => matchesWhere(row as never as Record<string, unknown>, where) })),
+      groupBy: vi.fn(
+        ledgerGroupBy(rows, {
+          matches: (row, where) => matchesWhere(row as never as Record<string, unknown>, where),
+        }),
+      ),
       findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
         rows.filter((r) => matchesWhere(r as never as Record<string, unknown>, where)),
       ),
