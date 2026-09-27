@@ -10,6 +10,8 @@ import {
   InvalidPayoutStatusError,
   PayoutNotFoundError,
   PayoutProofRequiredError,
+  ProviderBalanceInsufficientError,
+  ProviderBalanceNotRecordedError,
   TwoPersonRuleError,
 } from './errors';
 
@@ -40,6 +42,8 @@ export {
   InvalidPayoutStatusError,
   PayoutNotFoundError,
   PayoutProofRequiredError,
+  ProviderBalanceInsufficientError,
+  ProviderBalanceNotRecordedError,
   TwoPersonRuleError,
 };
 
@@ -211,15 +215,53 @@ export async function requestPayout(
  * withdrawal by hand in the provider dashboard and marks the payout COMPLETED
  * with proof of transfer -- completePayout, below, which is the other half of
  * the two-person rule and takes the same subject row lock.
+ *
+ * WHY THE APPROVING ADMIN MUST ALSO HAND OVER THE PROVIDER'S REAL BALANCE
+ * (prd-compliance 35; FFI-07 story 53). Everything else this function checks
+ * asks whether the Campaign is owed the money; nothing above can ask whether the
+ * provider is holding it. That gap is not academic: a ledger only knows what it
+ * was told, so a Payout approved against a Campaign Balance the money never
+ * reached passes every check here and then fails at the bank. Since no provider
+ * this platform talks to exposes a balance API, the figure is a human reading a
+ * dashboard, and the only two things the system can do about that are insist it
+ * was written down and refuse an approval it says is not covered. It does not
+ * claim to verify the reading, because nothing here can.
  */
 export async function approvePayout(
   prisma: PrismaClient,
   params: {
     payoutId: string;
     approvedById: string;
+    /** Which Payment Provider's dashboard the reading below was taken from. */
+    provider: string;
+    /** What that dashboard showed, in rupiah, immediately before approving. */
+    providerBalance: number;
   },
 ): Promise<Payout> {
-  const { payoutId, approvedById } = params;
+  const { payoutId, approvedById, providerBalance } = params;
+
+  // Checked before the transaction opens, because the reading is a property of
+  // the request and not of any row: no amount of reading the database can turn
+  // a missing figure into a present one. Nothing below is reached, so nothing is
+  // written, and the Payout keeps waiting in DRAFT for an Admin who has looked.
+  //
+  // WHY IT IS REQUIRED (FFI-07; ADR 0006). Every other check in this function
+  // asks whether the CAMPAIGN is owed the money. None of them can ask whether
+  // the PROVIDER is holding it, and the difference is the whole risk: a ledger
+  // only knows what it was told, so a Payout approved against a Campaign Balance
+  // the money never reached would sail through every check here and be paid
+  // into a bank account that the transfer then fails against. No provider this
+  // platform talks to exposes a balance API, so a human has to read the
+  // dashboard and write the number down, and the only thing the system can do
+  // about that is insist it happened.
+  const provider = params.provider.trim();
+  if (
+    provider === '' ||
+    !Number.isInteger(providerBalance) ||
+    providerBalance <= 0
+  ) {
+    throw new ProviderBalanceNotRecordedError();
+  }
 
   await prisma.$transaction(async (tx) => {
     const payout = await tx.payout.findUnique({
@@ -301,6 +343,16 @@ export async function approvePayout(
       throw new InsufficientBalanceError(payout.amount, balance);
     }
 
+    // And the other half, which no ledger read can supply: the money has to be
+    // at the PROVIDER, not merely owed by the Campaign. A reading that says
+    // otherwise leaves the Payout in DRAFT with nothing posted, and the Admin
+    // either re-reads the dashboard or waits. Judged after every other check
+    // above, so a caller refused for a different reason is told that reason
+    // rather than being sent to a dashboard that was never the problem.
+    if (payout.amount > providerBalance) {
+      throw new ProviderBalanceInsufficientError(payout.amount, providerBalance, provider);
+    }
+
     // Still guarded on status too, even with the campaign lock held: the
     // lock closes the cross-payout balance race above, this closes a second
     // approval of THIS SAME row racing in with a stale read of its own. The
@@ -314,7 +366,13 @@ export async function approvePayout(
     // before it writes anything at all.
     const claimed = await tx.payout.updateMany({
       where: { id: payoutId, status: 'DRAFT' },
-      data: { status: 'APPROVED', approvedById, approvedAt: new Date() },
+      data: {
+        status: 'APPROVED',
+        approvedById,
+        approvedAt: new Date(),
+        approvedProvider: provider,
+        approvedProviderBalance: providerBalance,
+      },
     });
     if (claimed.count === 0) {
       // payout.status above is the pre-update read and is now stale -- some

@@ -322,3 +322,121 @@ export class ManualContributionAlreadySpentError extends MoneyError {
     this.name = 'ManualContributionAlreadySpentError';
   }
 }
+
+/**
+ * The sweep from a Payment Provider to the Collection Account
+ * (prd-compliance 35; PRD FFI-07; ADR 0011) carries one field with nothing
+ * else to check it against, because no provider this platform talks to exposes
+ * a balance API: the figure an Admin read in the provider's dashboard.
+ *
+ * So the two refusals below are about whether that figure was written down and
+ * whether it covers the money about to move. Neither of them decides whether the
+ * reading is TRUE -- nothing here can, and nothing pretends to. They make the
+ * reading exist, which is the whole of what FFI-07 asks the system to do.
+ */
+
+/** An approval arrived with no provider balance recorded against it. */
+export class ProviderBalanceNotRecordedError extends MoneyError {
+  readonly code = 'PROVIDER_BALANCE_NOT_RECORDED';
+  constructor() {
+    super(
+      'Saldo penyedia pembayaran belum dicatat. Buka dashboard penyedia, catat saldo yang terlihat ' +
+        'dan nama penyedia-nya, baru setujui Payout ini -- tanpa catatan itu sistem tidak bisa ' +
+        'memastikan uangnya benar-benar ada.',
+    );
+    this.name = 'ProviderBalanceNotRecordedError';
+  }
+}
+
+/**
+ * The recorded provider balance is short of the Payout's own amount.
+ *
+ * The point of FFI-07: approving against a Campaign Balance says the Campaign is
+ * owed money, and says nothing about whether the provider is holding it. This
+ * is the check that the money is there, and it is the only one that can be
+ * made -- the reading is a human's, taken by hand, from a dashboard.
+ */
+export class ProviderBalanceInsufficientError extends MoneyError {
+  readonly code = 'PROVIDER_BALANCE_INSUFFICIENT';
+  constructor(
+    readonly payoutAmount: number,
+    readonly providerBalance: number,
+    readonly provider: string,
+  ) {
+    super(
+      `Saldo yang tercatat di ${provider} adalah ${providerBalance}, lebih kecil daripada nominal Payout ${payoutAmount}. ` +
+        'Payout ini belum disetujui: cek ulang dashboard penyedia, atau tunggu sampai saldonya cukup.',
+    );
+    this.name = 'ProviderBalanceInsufficientError';
+  }
+}
+
+/** A field of a recorded Provider Withdrawal is empty, of the wrong type, or too long. */
+export class ProviderWithdrawalInputError extends MoneyError {
+  readonly code = 'PROVIDER_WITHDRAWAL_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProviderWithdrawalInputError';
+  }
+}
+
+/**
+ * A Provider Withdrawal amount or a dashboard reading is not whole rupiah, or
+ * not within what the columns can hold. A reading may be zero -- an empty
+ * provider balance is a real reading -- but never negative: a negative
+ * "balance" describes nothing and would reconcile against a pot as though the
+ * provider owed the platform money.
+ */
+export class ProviderWithdrawalAmountError extends MoneyError {
+  readonly code = 'PROVIDER_WITHDRAWAL_AMOUNT_INVALID';
+  constructor(
+    readonly field: string,
+    readonly rule: 'positive' | 'nonNegative',
+  ) {
+    super(
+      rule === 'positive'
+        ? `Nominal penarikan harus berupa angka rupiah bulat di atas nol dan tidak melebihi 2.147.483.647. Field: ${field}.`
+        : `Saldo penyedia (${field}) harus berupa angka rupiah bulat nol atau lebih besar dan tidak melebihi 2.147.483.647.`,
+    );
+    this.name = 'ProviderWithdrawalAmountError';
+  }
+}
+
+/** A withdrawal of the platform's own money with nothing standing behind it. */
+export class ProviderWithdrawalProofRequiredError extends MoneyError {
+  readonly code = 'PROVIDER_WITHDRAWAL_PROOF_REQUIRED';
+  constructor() {
+    super('Bukti penarikan wajib diisi untuk setiap penarikan dari penyedia pembayaran.');
+    this.name = 'ProviderWithdrawalProofRequiredError';
+  }
+}
+
+/**
+ * The provider's own reference for this disbursement is already recorded.
+ *
+ * Distinct from a write failure, and it has to be: "this sweep is already on
+ * the books" needs no retry and no alert, while "the write failed" does. The
+ * unique index on ProviderWithdrawal.reference is what decides it, not a read
+ * first -- two admins recording the same dashboard entry at the same moment
+ * would both read "absent" and both write, and the second one to reach the
+ * database would take the money out of the Provider Balance a second time.
+ */
+export class ProviderWithdrawalDuplicateError extends MoneyError {
+  readonly code = 'PROVIDER_WITHDRAWAL_DUPLICATE';
+  constructor(readonly reference: string) {
+    super(
+      `Penarikan dengan referensi ${reference} dari penyedia sudah tercatat. ` +
+        'Referensi itu diberikan satu kali per penarikan, jadi mencatatnya lagi berarti uang yang sama diklaim dua kali.',
+    );
+    this.name = 'ProviderWithdrawalDuplicateError';
+  }
+}
+
+/** The named Collecting Entity is not registered, so the row would name nothing. */
+export class ProviderWithdrawalNotFoundError extends MoneyError {
+  readonly code = 'PROVIDER_WITHDRAWAL_ENTITY_NOT_FOUND';
+  constructor(readonly collectingEntityId: string) {
+    super('Collecting Entity yang dituju tidak terdaftar.');
+    this.name = 'ProviderWithdrawalNotFoundError';
+  }
+}

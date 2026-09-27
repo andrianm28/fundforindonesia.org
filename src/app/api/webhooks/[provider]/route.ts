@@ -383,6 +383,11 @@ export async function POST(
             {
               paymentId: payment.id,
               transactionId: `webhook:${event.provider}:${event.providerEventId}`,
+              // A Trip Fee lands at the provider exactly as a Donation does, so
+              // the Provider Balance has to grow by it (prd-compliance 35). A
+              // Trip is not a Kind (ADR 0014); the provider is a separate fact
+              // and is recorded regardless.
+              provider: event.provider,
             },
           );
         } else {
@@ -467,6 +472,13 @@ export async function POST(
             {
               paymentId: payment.id,
               transactionId: `webhook:${event.provider}:${event.providerEventId}`,
+              // The provider this Gross arrived at, stamped on every leg of the
+              // settlement. This is the only thing that makes the Provider
+              // Balance readable per provider (prd-compliance 35,
+              // LedgerEntry.provider): a settlement is the one movement where
+              // the provider is known at the moment the money is booked, so it
+              // is the one movement that says so.
+              provider: event.provider,
             },
           );
         }

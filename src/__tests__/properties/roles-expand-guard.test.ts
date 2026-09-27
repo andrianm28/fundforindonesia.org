@@ -104,6 +104,15 @@ import { join } from "node:path";
  * slug, as it already is for a Campaign, and PATCH resolves it before calling
  * the module. The assignment guard is unaffected: GET is public by design (a
  * Program is a catalog entry with nothing to gate), and only PATCH is wrapped.
+ *
+ * NOTE (prd-compliance 35): `POST /api/admin/provider-withdrawals` records the
+ * platform's own money moving from a payment provider to a Collection Account,
+ * which is in the Admin's remit on the same grounds as a Payout approval and a
+ * Manual Contribution -- growing this list by one. It is NOT on the two-person
+ * rule, unlike those two, and the reason is recorded on the route: the money
+ * goes to a bank account of a named entity rather than to a person, so there is
+ * no individual for a second pair of hands to protect it from. Whether that is
+ * the right call is the owner's, and it is raised in the ticket's Comments.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -116,6 +125,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/partnership-inquiries/[id]/route.ts",
   "src/app/api/admin/partnership-inquiries/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
+  "src/app/api/admin/provider-withdrawals/route.ts",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/scrutiny/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",

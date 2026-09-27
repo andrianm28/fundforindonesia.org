@@ -161,9 +161,19 @@ function makeMutex() {
   };
 }
 
-function createRequest(): NextRequest {
+/**
+ * The provider balance the approving Admin read in the provider's dashboard
+ * (prd-compliance 35; FFI-07). Every approval now has to carry one, so it is
+ * part of what a well-formed request looks like here rather than something each
+ * test adds; the tests that are ABOUT the reading override it.
+ */
+const PROVIDER_READING = { provider: 'sumopod', providerBalance: 5_000_000 };
+
+function createRequest(body: Record<string, unknown> = PROVIDER_READING): NextRequest {
   return new NextRequest('http://localhost:3000/api/campaigns/test-campaign/payouts/payout-1/approve', {
     method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
   });
 }
 
@@ -219,6 +229,67 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/approve', () => {
     const response = await POST(createRequest(), routeContext());
     expect(response.status).toBe(404);
     expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  /**
+   * FFI-07: "before approving a Payout, the Admin must check the real balance
+   * in the provider dashboard and record the number on the Payout, because
+   * without a balance API the system cannot confirm it itself." These are the
+   * two answers to a request that skipped that step, and they are the only
+   * place the system's own books are asked whether the money is at the
+   * provider -- because they cannot be.
+   */
+  describe('the provider balance the Admin has to read first (prd-compliance 35)', () => {
+    it('answers 422 PROVIDER_BALANCE_NOT_RECORDED when the body carries no reading, and opens no transaction', async () => {
+      const response = await POST(createRequest({}), routeContext());
+
+      expect(response.status).toBe(422);
+      expect((await response.json()).code).toBe('PROVIDER_BALANCE_NOT_RECORDED');
+      // Refused before the transaction opens, so the Payout is untouched and
+      // nothing was posted for a request that had no reading behind it.
+      expect(mockTransaction).not.toHaveBeenCalled();
+    });
+
+    it('answers 422 PROVIDER_BALANCE_NOT_RECORDED when only a provider is named with no figure', async () => {
+      const response = await POST(createRequest({ provider: 'sumopod' }), routeContext());
+
+      expect(response.status).toBe(422);
+      expect((await response.json()).code).toBe('PROVIDER_BALANCE_NOT_RECORDED');
+    });
+
+    it('answers 422 PROVIDER_BALANCE_INSUFFICIENT when the reading is short of the Payout, and leaves it DRAFT', async () => {
+      const { tx, state, ledgerRows } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
+      mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+      // The Campaign Balance says 100_000 is owed. The provider says it is
+      // holding 40_000. Approving on the first alone is the failure this whole
+      // check exists for.
+      const response = await POST(createRequest({ provider: 'sumopod', providerBalance: 40_000 }), routeContext());
+
+      expect(response.status).toBe(422);
+      expect((await response.json()).code).toBe('PROVIDER_BALANCE_INSUFFICIENT');
+      expect(state).toMatchObject({ status: 'DRAFT', approvedById: null });
+      expect(ledgerRows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
+    });
+
+    it('records the reading on the Payout and answers 200 with it', async () => {
+      const { tx, state } = makeTx({ payout: makePayoutRow(), ledgerRows: FULL_BALANCE_ROWS });
+      mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+      mockPayoutFindUniqueOrThrow.mockResolvedValue(
+        makePayoutRow({ status: 'APPROVED', approvedById: 'admin-1', approvedProvider: 'sumopod', approvedProviderBalance: 5_000_000 }),
+      );
+
+      const response = await POST(createRequest(), routeContext());
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        approvedProvider: 'sumopod',
+        approvedProviderBalance: 5_000_000,
+      });
+      // Written by the same predicated update that approves, so there is no
+      // window in which a Payout is APPROVED without the figure beside it.
+      expect(state).toMatchObject({ approvedProvider: 'sumopod', approvedProviderBalance: 5_000_000 });
+    });
   });
 
   it.each(['SUSPENDED', 'CANCELLED'])(

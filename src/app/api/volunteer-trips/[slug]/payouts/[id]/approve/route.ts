@@ -19,8 +19,16 @@ import { approvePayout } from '@/lib/money/payouts';
  * campaignId/volunteerTripId the Payout row has set, so no Trip-specific
  * call is needed here beyond loading the row and checking it belongs to
  * this Trip.
+ *
+ * The provider balance is required here exactly as it is on the Campaign route,
+ * and for the same reason: a Trip Fee lands at the payment provider just as a
+ * Donation does (ADR 0014 keeps a Trip out of Campaign.Kind; it says nothing
+ * about which provider took the money), so the money a Trip Payout pays out has
+ * to be at the provider for the transfer to succeed -- and no provider this
+ * platform talks to exposes a balance API (ADR 0006). The reading is a human's,
+ * and approvePayout refuses both a missing one and one that is short.
  */
-export const POST = withAssignmentCheck(Assignment.ADMIN, async (_request: NextRequest, context: any) => {
+export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRequest, context: any) => {
   const { slug, id } = await context.params;
   const session = await getServerSession();
   const approvedById = session!.user!.id as string;
@@ -38,8 +46,18 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (_request: NextR
     return NextResponse.json({ error: 'Payout tidak ditemukan' }, { status: 404 });
   }
 
+  // Read after the Payout has been located, so a request for a Payout that does
+  // not exist still answers 404 rather than complaining about a provider
+  // balance the caller was never going to be allowed to use.
+  const body = (await request.json().catch(() => undefined)) as Record<string, unknown> | undefined;
+
   try {
-    const updated = await approvePayout(prisma, { payoutId: id, approvedById });
+    const updated = await approvePayout(prisma, {
+      payoutId: id,
+      approvedById,
+      provider: typeof body?.provider === 'string' ? body.provider : '',
+      providerBalance: body?.providerBalance as number,
+    });
 
     return NextResponse.json({
       id: updated.id,
@@ -48,6 +66,8 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (_request: NextR
       status: updated.status,
       approvedById: updated.approvedById,
       approvedAt: updated.approvedAt,
+      approvedProvider: updated.approvedProvider,
+      approvedProviderBalance: updated.approvedProviderBalance,
       providerRef: updated.providerRef,
     });
   } catch (error) {

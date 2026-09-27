@@ -17,6 +17,8 @@ import {
   manualContributionReversedLegs,
   programBalance,
   payoutCompletedLegs,
+  collectionAccountWithdrawalLegs,
+  providerBalances,
   UnbalancedTransactionError,
   InvalidLedgerLegError,
   DuplicateLedgerTransactionError,
@@ -41,6 +43,8 @@ type Row = {
   campaignId: string | null;
   volunteerTripId: string | null;
   programId: string | null;
+  /** Which provider this movement went through. Null where nobody recorded one. */
+  provider: string | null;
 };
 
 /** The one unique index a ledger posting can reach; see makeTx below. */
@@ -465,6 +469,142 @@ describe('payoutCompletedLegs', () => {
   });
 });
 
+describe('collectionAccountWithdrawalLegs', () => {
+  it('moves money from the Provider Balance to the Collection Account, which are two different things', () => {
+    // ADR 0011: the Merchant Account is PT Jaya Korpora Prima's and the
+    // collection account is a DIFFERENT account that may belong to a different
+    // legal entity. So the sweep is a real movement between two accounts, not a
+    // memo, and the two must not be the same row of the chart of accounts --
+    // collapsing them is what makes "the money reached the bank" invisible.
+    expect(collectionAccountWithdrawalLegs({ amount: 750_000 })).toEqual([
+      { account: 'COLLECTION_ACCOUNT', direction: 'DEBIT', amount: 750_000 },
+      { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 750_000 },
+    ]);
+  });
+
+  it('carries no subject: the collection account is a bank account, not a Campaign balance', () => {
+    expect(collectionAccountWithdrawalLegs({ amount: 1_000 }).every((l) => l.campaignId === undefined && l.volunteerTripId === undefined)).toBe(true);
+  });
+
+  it('leaves the money visible in exactly one place per side: out of the provider, in the bank', async () => {
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000 }),
+      { provider: 'sumopod' },
+    );
+
+    // Settled, never swept: the whole Gross is at the provider, and the
+    // Collection Account is empty -- an account nothing has ever credited
+    // reads as zero, not as "money that arrived".
+    //
+    // Read with heldOf, not netOf: the sweep DEBITS the Collection Account, so
+    // it is debit-normal the way the Provider Balance is, and money sitting in
+    // a bank is a positive number.
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(500_000);
+    expect(tx.rows.filter((r) => r.account === 'COLLECTION_ACCOUNT')).toHaveLength(0);
+
+    await postTransaction(tx as never, collectionAccountWithdrawalLegs({ amount: 750_000 }), { provider: 'sumopod' });
+
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(-250_000);
+    expect(heldOf(tx.rows, 'COLLECTION_ACCOUNT')).toBe(750_000);
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+
+  it('refuses a zero sweep: a zero-amount leg is rejected, and transferring nothing is not a transfer', async () => {
+    await expect(postTransaction(makeTx() as never, collectionAccountWithdrawalLegs({ amount: 0 }))).rejects.toThrow(InvalidLedgerLegError);
+  });
+});
+
+describe('providerBalances', () => {
+  it('reads the Provider Balance per provider, and shows the unnamed remainder as its own bucket', async () => {
+    // The shape the reconciliation needs. A completed Payout credits the
+    // Provider Balance WITHOUT naming a provider -- nothing records that today
+    // -- and folding those credits into whichever provider happens to be first
+    // would hand one provider's report a number that belongs to another. So the
+    // null bucket is returned, not resolved: it is the honest answer to "whose
+    // pot is this?", and it is what tells a reader the per-provider figures are
+    // a floor rather than the whole money.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 0 }),
+      { provider: 'sumopod' },
+    );
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c2' }, grossAmount: 200_000, providerFee: 0 }),
+      { provider: 'xendit' },
+    );
+    await postTransaction(tx as never, payoutCompletedLegs({ amount: 120_000 }));
+
+    expect(await providerBalances(tx as never)).toEqual([
+      { provider: 'sumopod', debited: 500_000, credited: 0, balance: 500_000 },
+      { provider: 'xendit', debited: 200_000, credited: 0, balance: 200_000 },
+      { provider: null, debited: 0, credited: 120_000, balance: -120_000 },
+    ]);
+  });
+
+  it('keeps a withdrawal against the provider it was drawn from, so the pot shrinks for that provider only', async () => {
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 0 }),
+      { provider: 'sumopod' },
+    );
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c2' }, grossAmount: 900_000, providerFee: 0 }),
+      { provider: 'xendit' },
+    );
+    await postTransaction(tx as never, collectionAccountWithdrawalLegs({ amount: 300_000 }), { provider: 'sumopod' });
+
+    const pots = await providerBalances(tx as never);
+    expect(pots.find((p) => p.provider === 'sumopod')).toEqual({
+      provider: 'sumopod',
+      debited: 500_000,
+      credited: 300_000,
+      balance: 200_000,
+    });
+    // The other provider's money is untouched by a sweep out of this one, which
+    // is the whole reason the column exists.
+    expect(pots.find((p) => p.provider === 'xendit')?.balance).toBe(900_000);
+  });
+
+  it('is debit-normal, like heldOf: a pot of money at a provider is a positive number', async () => {
+    // Read the wrong way round this reports a pot of 500_000 as -500_000, and
+    // a report that prints that looks like the platform is 500_000 overdrawn at
+    // the provider. The direction is not a detail of the reader.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 0 }),
+      { provider: 'sumopod' },
+    );
+    expect((await providerBalances(tx as never))[0].balance).toBe(500_000);
+  });
+
+  it('ignores accounts that are not the Provider Balance', async () => {
+    // A campaign's own ESCROW_HOLD is money that reached the provider and is
+    // still earmarked; it is not the platform's pot at the provider, and
+    // counting it here would report a pot larger than the money actually
+    // unencumbered. Only GATEWAY_CLEARING is the Provider Balance.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000 }),
+      { provider: 'sumopod' },
+    );
+    expect(await providerBalances(tx as never)).toEqual([
+      { provider: 'sumopod', debited: 500_000, credited: 0, balance: 500_000 },
+    ]);
+  });
+
+  it('is empty when the provider has never been touched, rather than reporting a zero pot as a finding', async () => {
+    expect(await providerBalances(makeTx() as never)).toEqual([]);
+  });
+});
+
 describe('a Refund and the fee money it returns (prd-compliance 28c)', () => {
   it('takes the returned fees out to accounts named for what they are, and touches nothing unnamed', () => {
     // Gross 100_000 refunded in full, Platform Fee 2_500, Provider Fee 5_000.
@@ -720,8 +860,8 @@ describe('findUnbalancedTransactions already covers trip-scoped entries', () => 
     // directly the way a real bug (not this plan's own code) would have
     // to reach the database to produce this state.
     tx.rows.push(
-      { transactionId: 'trip-tx-1', legIndex: 0, direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9', programId: null },
-      { transactionId: 'trip-tx-1', legIndex: 1, direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9', programId: null },
+      { transactionId: 'trip-tx-1', legIndex: 0, direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9', programId: null, provider: null },
+      { transactionId: 'trip-tx-1', legIndex: 1, direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9', programId: null, provider: null },
     );
 
     const result = await findUnbalancedTransactions(tx as never);
