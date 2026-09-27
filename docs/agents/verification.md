@@ -133,3 +133,21 @@ merge commits, so a merged HEAD is an ancestor of `origin/main`; if the check
 fails, treat the worktree as unmerged and leave it. If `remove` refuses
 because of uncommitted or untracked files, stop and report them; `--force`
 would destroy someone's unsaved work.
+
+### Merge from the newest base, every time
+
+Before merging a long-lived branch, merge the current `origin/main` into it
+and re-run the checks. A branch that was green days ago is not green now, and
+the failure lands on `main` rather than on the branch:
+
+- A branch carrying an older `ci/baselines.json` will put `main` above its own
+  baseline, turning the ratchet red. The count is a property of the *merged*
+  tree, not a sum across branches: each branch can be under the baseline on
+  its own and the union above it.
+- The ratchet is not the only thing. Every fix another branch merged — a
+  removed import, a renamed route segment — is missing from yours, so merging
+  it can put `main` back below a baseline it had already satisfied.
+
+`gh pr merge` reporting `CONFLICTING`, or a branch whose `git merge-base
+--is-ancestor origin/main <branch>` fails, is the cheap signal. Act on it
+before merging anything, not after `main` is red.
