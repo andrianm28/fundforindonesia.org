@@ -1,5 +1,11 @@
 import { prisma } from '@/lib/prisma';
-import { escrowReleaseLegs, postTransaction, providerFeePortionFor, type LedgerSubject } from './ledger';
+import {
+  escrowReleaseLegs,
+  platformFeePortionFor,
+  postTransaction,
+  providerFeePortionFor,
+  type LedgerSubject,
+} from './ledger';
 import { assertExactlyOnePaymentSubject } from './payment-subject';
 import { isEscrowReleaseFrozen, lockAndLoad } from '@/lib/subject-guard';
 
@@ -296,10 +302,19 @@ export async function releaseMaturedEscrow(
         const nonRejectedAmounts = refunds
           .filter((r) => r.status !== 'REJECTED' && r.status !== 'FAILED')
           .map((r) => r.amount);
+        // BOTH shares, not the Provider Fee's alone: the freeze debited
+        // ESCROW_HOLD by `amount - platformFeePortion - providerFeePortion`
+        // (./refunds.ts passes both to refundRequestedLegs; both come from the
+        // same cumulative-cap helper, so the two calls here reproduce that
+        // exact figure). Leaving the Platform Fee's out released less than was
+        // really held and stranded the difference for good, escrowReleasedAt
+        // having been stamped before this posts.
         let refundedNetAmount = 0;
         for (let i = 0; i < nonRejectedAmounts.length; i++) {
-          const feePortion = providerFeePortionFor(payment, nonRejectedAmounts[i], nonRejectedAmounts.slice(0, i));
-          refundedNetAmount += nonRejectedAmounts[i] - feePortion;
+          const priorAmounts = nonRejectedAmounts.slice(0, i);
+          const platformFeePortion = platformFeePortionFor(payment, nonRejectedAmounts[i], priorAmounts);
+          const providerFeePortion = providerFeePortionFor(payment, nonRejectedAmounts[i], priorAmounts);
+          refundedNetAmount += nonRejectedAmounts[i] - platformFeePortion - providerFeePortion;
         }
         const amountToRelease = Math.max(0, netAmount - refundedNetAmount);
 

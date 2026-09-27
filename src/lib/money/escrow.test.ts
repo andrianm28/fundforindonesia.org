@@ -369,6 +369,52 @@ describe('releaseMaturedEscrow', () => {
   );
 
   it(
+    'subtracts a refund\'s Platform Fee share as well as its Provider Fee share, releasing exactly what the ' +
+      "refund's freeze left behind in ESCROW_HOLD",
+    async () => {
+      // Gross 100_000, Provider Fee 5_000, Platform Fee 2_500, so Settlement
+      // credited ESCROW_HOLD exactly 92_500. A 50_000 refund made while the
+      // hold was still on splits BOTH fees out at freeze time
+      // (refundRequestedLegs, ./ledger.ts, netPortion = amount -
+      // platformFeePortion - providerFeePortion, called with both portions in
+      // createRefund):
+      //   platformFeePortion = ceilMulDiv(2_500, 50_000, 100_000) = 1_250
+      //   providerFeePortion = ceilMulDiv(5_000, 50_000, 100_000) = 2_500
+      //   -> ESCROW_HOLD debited 50_000 - 1_250 - 2_500 = 46_250, leaving
+      //      92_500 - 46_250 = 46_250 still held.
+      // Subtracting only the Provider Fee's share (as the sweep once did)
+      // releases 92_500 - 47_500 = 45_000: 1_250 short of what is really
+      // there. Nothing rejects that -- postTransaction never checks a
+      // per-account balance -- and escrowReleasedAt is stamped for good the
+      // moment the release posts, so those 1_250 sit in ESCROW_HOLD
+      // permanently, invisible to every future sweep.
+      const { rows } = makeDb(
+        [makePayment({ id: 'payment-1', amount: 100_000, providerFee: 5_000, platformFee: 2_500, campaignId: 'campaign-1' })],
+        [
+          { transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 92_500, campaignId: 'campaign-1' },
+          { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 46_250, campaignId: 'campaign-1' },
+          { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'PLATFORM_FEE', amount: 1_250, campaignId: null },
+          { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'REFUND_COST', amount: 2_500, campaignId: null },
+        ],
+        [{ paymentId: 'payment-1', amount: 50_000, status: 'COMPLETED' }],
+      );
+
+      const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+      expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+      const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
+      expect(releaseLegs.find((r) => r.direction === 'DEBIT')).toMatchObject({ account: 'ESCROW_HOLD', amount: 46_250 });
+      expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({ account: 'CAMPAIGN_BALANCE', amount: 46_250 });
+      // Nothing stranded: settled 92_500, minus the freeze's 46_250 net-share
+      // debit, minus this release's 46_250 -- exactly 0.
+      const escrowNet = rows
+        .filter((r) => r.account === 'ESCROW_HOLD' && r.campaignId === 'campaign-1')
+        .reduce((s, r) => s + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+      expect(escrowNet).toBe(0);
+    },
+  );
+
+  it(
     "releases exactly the NET Settlement credited -- Gross minus BOTH fees -- so a Platform Fee already " +
       'recorded as platform revenue never lands in withdrawable Campaign Balance',
     async () => {
