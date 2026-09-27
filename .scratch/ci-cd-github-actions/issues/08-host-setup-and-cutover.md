@@ -45,3 +45,30 @@
   - **Timeout or dropped SSH (exit 255):** the script keeps running on the host. Check `logs/deploy.log` before retrying.
   - **Domain:** set the repo var `NEXT_PUBLIC_BASE_URL=https://fundforindonesia.org`. Set `NEXTAUTH_URL` to the apex, or redirect galang to it.
   - **nginx:** remove the `/_next/image` stopgap block after the cutover. Backups are in `/etc/nginx/backup-ffi-20260926/`.
+
+- 2026-09-27, from prd-compliance 45 (ready-for-human, owner's step at the cutover):
+  - **The scheduled jobs need one more host step, or they never run.** The route
+    `POST /api/internal/jobs/run` is in the repo and is the only caller of
+    `runScheduledJobs`, but a route is not a schedule. Add `JOBS_SECRET` to the
+    production `.env` (generate with `openssl rand -base64 32`, never in git)
+    and install one cron entry. Until both are done, matured escrow is
+    released only when a Fundraiser happens to request a Payout, and the
+    Campaign deadline reminders and Kind Authorisation expiry warnings send
+    nothing at all -- that is the state production is in today.
+  - The cron entry, reading the secret from the `.env` rather than putting it
+    on the crontab line:
+
+    ```cron
+    */15 * * * * . "$DEPLOY_DIR/.env" && curl -fsS -X POST -H "x-jobs-secret: $JOBS_SECRET" http://127.0.0.1:8093/api/internal/jobs/run >> "$DEPLOY_DIR/logs/jobs.log" 2>&1
+    ```
+
+    127.0.0.1:8093 is the app container's port, the one `/api/health` (ci-cd 04)
+    is already polled on, so the call stays off the public internet.
+  - **Check it by hand after the first deploy** of the release that adds the
+    route: a 401 means the secret does not match, a 200 with per-phase counts
+    means it ran. Call it twice on purpose -- the second call reports zeros and
+    moves nothing, which is the idempotency the job relies on.
+  - A scheduled GitHub Actions workflow was the alternative and was not chosen;
+    the reasoning, and what would change it, is in prd-compliance 45's Comments.
+    If the owner prefers it, the secret moves to an Actions secret and the
+    workflow calls the same public URL.
