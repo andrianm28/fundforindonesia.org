@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
+import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
 import type { PaymentMethod } from '@/lib/payments';
 import { PaymentStatus } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
@@ -69,6 +70,17 @@ export async function POST(
       );
     }
 
+    // The name the Payment is recorded under, resolved through the registry
+    // here rather than read off the adapter where the row is written below.
+    // `Payment.provider` is a join key the Provider Balance groups by, not a
+    // label, and the registry locks its builder KEYS rather than the adapters'
+    // `name` -- so a misspelt `readonly name` compiled silently and "SumoPod"
+    // and "sumopod" became two pots for one provider, each reconciling exactly
+    // against nothing. Ahead of the charge for the same reason the method check
+    // is: an adapter naming no provider is a defect in the build, and a charge
+    // created and then abandoned is money a Volunteer can pay into nothing.
+    const providerName = canonicalPaymentProviderName(provider.name);
+
     let held;
     try {
       held = await holdRegistration(prisma, {
@@ -108,7 +120,7 @@ export async function POST(
     // loudly rather than write a Payment with no way to pay it.
     if (charge.method !== provider.method) {
       console.error(
-        `[registrations] provider ${provider.name} declared ${provider.method} but charged ${charge.method} for registration ${registration.id}`,
+        `[registrations] provider ${providerName} declared ${provider.method} but charged ${charge.method} for registration ${registration.id}`,
       );
       return NextResponse.json(
         { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
@@ -122,7 +134,7 @@ export async function POST(
       data: {
         donationId: undefined,
         registrationId: registration.id,
-        provider: provider.name,
+        provider: providerName,
         method: charge.method,
         providerRef: registration.id,
         amount: tripFeeAmount,

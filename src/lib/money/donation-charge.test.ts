@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { chargeDonation } from './donation-charge';
 import type { PaymentProvider } from '@/lib/payments';
+import { UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 
 function makeDb(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -144,5 +145,65 @@ describe('chargeDonation', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected ok');
     expect(result.platformFee).toBe(0);
+  });
+
+  it('records the provider under the one name the registry knows, whatever the adapter calls itself', async () => {
+    // `Payment.provider` is a join key, not a label: providerBalances groups by
+    // exact string equality, and the reconciliation report is read per provider.
+    // So an adapter that calls itself "SumoPod" and one that calls itself
+    // "sumopod" have to land as the same value, or the same provider's money is
+    // reported as two pots -- each reconciling exactly, against nothing.
+    //
+    // This was reachable because the registry locks the BUILDER KEYS, not the
+    // adapters' `name` property: `readonly name = 'SumoPod'` compiles, and the
+    // write took the string as it stood.
+    for (const name of ['SumoPod', 'sumopod', 'MOCK']) {
+      const db = makeDb();
+      const provider = makeProvider({ name });
+
+      const result = await chargeDonation({
+        db: db as never,
+        provider,
+        campaign: CAMPAIGN,
+        donationId: 'donation-1',
+        amount: 100_000,
+        orderId: 'donation-1',
+        paymentMethod: 'qris_redirect',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(db.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ provider: name.toLowerCase() }),
+      });
+    }
+  });
+
+  it('refuses an adapter whose name names no provider, before a charge exists at one', async () => {
+    // An adapter this build has no registered name for is a defect in the
+    // build, not a donor's mistake, so it is loud rather than an answer: there
+    // is no provider to name the row after, and a name that means nothing in
+    // this column becomes a Provider Balance bucket no code can settle against.
+    //
+    // Before the charge, not after it. A charge created and then abandoned at
+    // the provider is a live payment link a donor can still pay into with
+    // nothing on this side expecting the money -- the reason the method check
+    // below sits ahead of createCharge too.
+    const db = makeDb();
+    const provider = makeProvider({ name: 'zendesk' });
+
+    await expect(
+      chargeDonation({
+        db: db as never,
+        provider,
+        campaign: CAMPAIGN,
+        donationId: 'donation-1',
+        amount: 100_000,
+        orderId: 'donation-1',
+        paymentMethod: 'qris_redirect',
+      }),
+    ).rejects.toBeInstanceOf(UnknownPaymentProviderError);
+
+    expect(provider.createCharge).not.toHaveBeenCalled();
+    expect(db.payment.create).not.toHaveBeenCalled();
   });
 });
