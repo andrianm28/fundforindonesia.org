@@ -7,7 +7,7 @@ being invented.
 **Blocked by:** 01 (Mailer itself is already built: prd-compliance-fase-0-2
 ticket 13, done)
 
-**Status:** done (PR #71, sha d11b287)
+**Status:** done (PR #71, sha 3348ad5)
 
 - [ ] `PartnershipInquiry` carries company name, contact details, a needs
       description, a follow-up status field, and a reference to the Program
