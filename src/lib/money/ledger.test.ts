@@ -537,9 +537,19 @@ describe('collectionAccountBalance', () => {
     expect(await collectionAccountBalance(tx as never)).toBe(750_000);
   });
 
-  it('is zero before any money has been swept, and never negative on that account alone', async () => {
+  it('is zero before any money has been swept, because settling is not sweeping', async () => {
     // Settling is not sweeping. The Collection Account must not report money
     // sitting at the provider as money that reached a bank.
+    //
+    // The title used to promise the figure is "never negative" and the test
+    // never asserted that, so it said less than it appeared to. It is left out
+    // rather than added, because it is not a property of this reader: the only
+    // builder that names this account debits it (see the last test in this
+    // describe), so a reading below zero is a state no movement in this
+    // codebase can produce, and an assertion about it would guard nothing. The
+    // sign that IS a decision -- a sweep reading as a positive number -- is
+    // pinned by the test above, and the credit side of the same subtraction by
+    // the one below.
     const tx = makeTx();
     await postTransaction(
       tx as never,
@@ -550,20 +560,47 @@ describe('collectionAccountBalance', () => {
     expect(await collectionAccountBalance(tx as never)).toBe(0);
   });
 
-  it('nets a debit against a credit on the same account, rather than adding them', async () => {
+  it('nets a debit against a credit on the same account, rather than adding them, on a state no builder produces today', async () => {
     // Every other balance here is credits-minus-debits, so this is the one
     // reader whose sign has to be argued for. It is not a preference: the sweep
     // DEBITS the account, the same way a settlement DEBITS the Provider Balance,
-    // so it is read debits-minus-credits like that account is. A credit can
-    // only reach this account by a movement that has no builder today, so it is
-    // seeded here rather than invented as a leg -- what is under test is the
-    // reader's arithmetic, not a movement the chart of accounts does not have.
+    // so it is read debits-minus-credits like that account is.
+    //
+    // The credit is seeded rather than posted, and the title says so, because a
+    // movement that credits this account does not exist: the only builder that
+    // names it debits it, which the test below pins. What is under test is the
+    // reader's arithmetic on both sides of the subtraction -- the CREDIT branch
+    // of accountTotal, which no other test of this reader reaches -- and not a
+    // movement the chart of accounts does not have. If a builder ever does
+    // credit this account, that test fails and this one becomes a statement
+    // about behaviour instead of about arithmetic.
     const tx = makeTx([
       { transactionId: 'sweep-1', legIndex: 0, direction: 'DEBIT', amount: 750_000, account: 'COLLECTION_ACCOUNT', campaignId: null, volunteerTripId: null, programId: null, provider: 'sumopod' },
       { transactionId: 'other-1', legIndex: 0, direction: 'CREDIT', amount: 250_000, account: 'COLLECTION_ACCOUNT', campaignId: null, volunteerTripId: null, programId: null, provider: 'sumopod' },
     ]);
 
     expect(await collectionAccountBalance(tx as never)).toBe(500_000);
+  });
+
+  it('has no movement that can credit the Collection Account, which is what makes the test above a seeded state', async () => {
+    // The premise of the seeded-CREDIT test, asserted rather than left in a
+    // comment. A leg builder naming this account is the only way a row can
+    // reach it, and every one of them debits it, so "no builder produces a
+    // credit here" is checkable -- and when a movement that credits the account
+    // is ever added (a corrected sweep, a clawback), this fails and the seeded
+    // test's title has to be re-read rather than quietly left standing.
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const source = readFileSync(join(process.cwd(), 'src', 'lib', 'money', 'ledger.ts'), 'utf8');
+
+    const directions = [
+      ...source.matchAll(/account: 'COLLECTION_ACCOUNT',\s*direction: '(\w+)'/g),
+    ].map((match) => match[1]);
+
+    // Greater than zero, so a leg written in some other shape cannot make this
+    // pass by finding nothing to complain about.
+    expect(directions.length).toBeGreaterThan(0);
+    expect([...new Set(directions)]).toEqual(['DEBIT']);
   });
 });
 
