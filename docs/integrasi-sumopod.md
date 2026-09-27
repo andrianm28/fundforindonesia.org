@@ -62,6 +62,8 @@ Kode sekarang memakai waktu server sebagai `paidAt` dan menghitung Escrow Hold d
 
 Escrow Hold dihitung dari `settled_at`, bukan dari `paid_at`. Escrow Hold ada untuk memberi ruang Refund dan margin atas keterlambatan settlement, bukan untuk membuktikan dana sudah masuk: `settled_at` hanyalah perkiraan penyedia dan tanpa API saldo sistem tidak bisa memverifikasinya. Tujuh hari sejak perkiraan T+2 memberi margin lima hari, dan Admin tetap wajib memeriksa saldo nyata di dashboard sebelum menyetujui Payout. Pada penyedia dengan settlement lambat, penghitungan dari `paid_at` akan melepas dana yang belum masuk. `paid_at` dipakai untuk tampilan dan metrik waktu donasi. Penyedia yang tidak memberi perkiraan settlement diperlakukan sebagai T+0 dan angkanya dicatat di adapter, bukan ditebak di lapisan escrow.
 
+**Keputusan owner, 2026-09-27:** pada webhook Sumopod yang tanda tangannya valid tetapi `settled_at`-nya hilang atau tidak valid, fallback-nya adalah `paid_at` + T+2 (perkiraan settlement QRIS Sumopod di atas), bukan T+0, karena Escrow Hold tidak boleh memendek hanya karena data hilang.
+
 ## Pencairan
 
 Sumopod tidak punya API disbursement. Alurnya: Fundraiser mengajukan Payout, satu Admin menyetujui sehingga jurnal instruksi terbit, lalu Admin yang berbeda masuk ke dashboard Sumopod, menarik dana langsung ke rekening Fundraiser, kembali ke panel, dan menandai Payout selesai dengan bukti transfer. Dua orang berbeda itu wajib, bukan anjuran. Refund menempuh jalur manual yang sama. Tidak ada panggilan penyedia dalam alur ini, sehingga aturan dua orang dan bukti wajib adalah satu-satunya pengendali.
