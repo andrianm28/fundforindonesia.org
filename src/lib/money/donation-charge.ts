@@ -1,6 +1,7 @@
 import type { PrismaClient, Kind } from '@/generated/prisma/client';
 import { PaymentStatus } from '@/generated/prisma/client';
 import type { ChargeResult, PaymentMethod, PaymentProvider } from '@/lib/payments';
+import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
 import { resolvePlatformFeeBasisForCampaign } from './platform-fee-config';
 import { computePlatformFee } from './platform-fee';
 import { ESCROW_HOLD_DAYS } from './escrow';
@@ -20,7 +21,11 @@ import { ESCROW_HOLD_DAYS } from './escrow';
  *
  * Returns a discriminated result rather than throwing: every failure branch
  * here already has a Donation to mark `failed` and an HTTP answer to give,
- * which is the caller's job, not this function's.
+ * which is the caller's job, not this function's. The one exception is the
+ * provider NAME, resolved before any of that: an adapter whose own name names
+ * no registered provider is a defect in the build rather than an outcome this
+ * Donation has, so it throws rather than inventing a reason to fail a donor's
+ * Donation over.
  */
 export interface ChargeDonationParams {
   db: Pick<PrismaClient, 'payment' | 'platformFeeRule' | 'platformFeeThreshold'>;
@@ -40,6 +45,27 @@ export type ChargeDonationResult =
 
 export async function chargeDonation(params: ChargeDonationParams): Promise<ChargeDonationResult> {
   const { db, provider, campaign, donationId, amount, orderId, paymentMethod } = params;
+
+  // The name this Payment is recorded under, resolved through the registry
+  // before anything is charged and before anything is written.
+  //
+  // `Payment.provider` is a join key rather than a label: providerBalances
+  // groups by exact string equality and the reconciliation report is read per
+  // provider, so "SumoPod" and "sumopod" are two pots to the ledger -- each
+  // reconciling exactly, against nothing -- and a name no provider answers to is
+  // a bucket no code can ever settle against. The registry locks its builder
+  // KEYS, which is why a misspelt `readonly name` in an adapter compiled
+  // silently; taking the string through canonicalPaymentProviderName is what
+  // makes the column hold one value per provider whatever the adapter calls
+  // itself.
+  //
+  // Thrown rather than returned, unlike every branch below: an adapter whose own
+  // name names no provider is a defect in the build, not an outcome this Donation
+  // can be marked `failed` for, and the caller's uncaught 500 is the honest
+  // answer to it. Ahead of createCharge for the same reason the method check is:
+  // a charge created and then abandoned at the provider is a live payment link a
+  // donor can still pay into with nothing here expecting the money.
+  const providerName = canonicalPaymentProviderName(provider.name);
 
   // Ask the provider whether it can serve what was picked BEFORE anything is
   // written and before a charge exists anywhere. Checking afterwards would
@@ -62,7 +88,7 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
   // rather than write a Payment with no way to pay it.
   if (charge.method !== provider.method) {
     console.error(
-      `[donations] provider ${provider.name} declared ${provider.method} but charged ${charge.method} for donation ${donationId} (order ${orderId})`,
+      `[donations] provider ${providerName} declared ${provider.method} but charged ${charge.method} for donation ${donationId} (order ${orderId})`,
     );
     return { ok: false, reason: 'method_mismatch' };
   }
@@ -78,7 +104,7 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
   const payment = await db.payment.create({
     data: {
       donationId,
-      provider: provider.name,
+      provider: providerName,
       method: charge.method,
       providerRef: orderId,
       amount,
