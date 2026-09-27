@@ -19,12 +19,13 @@ Selalu isi `model` saat men-dispatch; subagent tidak pernah mewarisi model sesi.
 - Builder berjalan sebagai **subagent background** di sesi koordinator, dengan
   worktree sendiri (keputusan owner 2026-09-27); cloud session terpisah hanya
   bila owner memintanya.
-- owner's replacement of the earlier limit of 4 (2026-09-27): 20, dan angka itu
-  bukan hasil ukur. **Yang diukur tetap 4 vCPU.** Yang dibatasi CPU, bukan
-  jumlah agent: 20 agen baca-saja (review, sapuan, riset) tidak menyita kernel,
-  tapi 20 builder yang menjalankan `vitest run` bersamaan akan saling
-  menabrak dan menghasilkan test yang gagal karena timeout, lalu melaporkan
-  kegagalan palsu sebagai regression.
+- owner's replacement of the earlier limit of 4 (2026-09-27): 8 for now, and
+  the number is not a measurement. **What is measured is 4 vCPU.** What is
+  bounded is CPU, not agent count: read-only agents (review, sweep, research)
+  do not contend for it, but several builders running `vitest run` at once will
+  collide and produce tests that fail on timeout, then report a false regression.
+  Raise the number when read-only work is what is queued; lower it when builders
+  are, and never on the assumption that a number of agents is the constraint.
 - **Aturan praktis:** agent baca-saja boleh paralel. Full suite
   (`npx vitest run`) maksimal **satu** pada satu waktu; kalau lebih dari satu
   builder memerlukannya, jalankan berurutan. Kalau sebuah test gagal dengan
