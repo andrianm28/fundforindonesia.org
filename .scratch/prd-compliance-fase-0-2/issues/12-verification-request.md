@@ -13,6 +13,7 @@
 - [ ] Changing target, deadline or Bank Account on an Active Campaign creates a new request while the Campaign keeps running on its old values; if refused, the change is discarded and the Campaign stays Active
 - [ ] Identity of the Fundraiser is verified on their first request
 - [ ] Every decision records who, when and what
+- [ ] The checklist mechanism is per-Kind (general, not wakaf-only): `hibah` starts seeded identical to `wakaf`'s items, and the Admin editor can later diverge `hibah`'s checklist without touching `wakaf`'s (CSR-11 sequencing decision 2026-09-27)
 
 ## Comments
 
