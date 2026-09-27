@@ -21,6 +21,7 @@ vi.mock('@/lib/auth', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { ledgerGroupBy } from '../../../../../tests/support/ledger-group-by';
 
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
@@ -129,8 +130,9 @@ function matchesWhere(row: Record<string, unknown>, where: Record<string, unknow
 
 /**
  * Minimal in-memory stand-in for the transaction client the route wraps its
- * whole report in. groupBy is the same simulation used throughout the money
- * layer's tests (src/lib/money/ledger.test.ts and friends).
+ * whole report in. groupBy is the shared simulation
+ * (tests/support/ledger-group-by.ts), given this file's own `matchesWhere`
+ * because a reconcile report filters on `lte` and `in`, not just equality.
  */
 function makeTx(options: {
   ledgerRows?: LedgerRow[];
@@ -151,20 +153,7 @@ function makeTx(options: {
 
   return {
     ledgerEntry: {
-      groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
-        const filtered = rows.filter((r) => matchesWhere(r as never as Record<string, unknown>, args.where ?? {}));
-        const buckets = new Map<string, { row: Record<string, unknown>; sum: number }>();
-        for (const r of filtered) {
-          const key = args.by.map((k) => String((r as never as Record<string, unknown>)[k])).join('|');
-          const b = buckets.get(key) ?? {
-            row: Object.fromEntries(args.by.map((k) => [k, (r as never as Record<string, unknown>)[k]])),
-            sum: 0,
-          };
-          b.sum += r.amount;
-          buckets.set(key, b);
-        }
-        return Array.from(buckets.values()).map((b) => ({ ...b.row, _sum: { amount: b.sum } }));
-      }),
+      groupBy: vi.fn(ledgerGroupBy(rows, { matches: (row, where) => matchesWhere(row as never as Record<string, unknown>, where) })),
       findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
         rows.filter((r) => matchesWhere(r as never as Record<string, unknown>, where)),
       ),

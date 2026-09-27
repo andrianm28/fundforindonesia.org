@@ -12,6 +12,7 @@ import {
   type LedgerSubject,
   type ManualContributionSubject,
 } from '@/lib/money/ledger';
+import { ledgerGroupBy } from './ledger-group-by';
 
 /**
  * In-memory stand-in for the slice of PrismaClient the Impact breakdown reads
@@ -333,22 +334,9 @@ export function makeImpactDb(overrides: Partial<ImpactDbData> = {}) {
         data.payouts.filter((p) => matches(p as Row, args.where, (key) => (p as Row)[key])),
     },
     ledgerEntry: {
-      groupBy: async (args: { by: string[]; where?: Row; _sum: { amount: true } }) => {
-        const filtered = data.ledgerEntries.filter((e) =>
-          matches(e as Row, args.where, (key) => (e as Row)[key]),
-        );
-        const buckets = new Map<string, { row: Row; sum: number }>();
-        for (const entry of filtered) {
-          const key = args.by.map((k) => String((entry as Row)[k])).join('|');
-          const bucket = buckets.get(key) ?? {
-            row: Object.fromEntries(args.by.map((k) => [k, (entry as Row)[k]])),
-            sum: 0,
-          };
-          bucket.sum += entry.amount;
-          buckets.set(key, bucket);
-        }
-        return Array.from(buckets.values()).map((b) => ({ ...b.row, _sum: { amount: b.sum } }));
-      },
+      groupBy: ledgerGroupBy(data.ledgerEntries, {
+        matches: (row, where) => matches(row as Row, where, (key) => (row as Row)[key]),
+      }),
     },
   };
 
