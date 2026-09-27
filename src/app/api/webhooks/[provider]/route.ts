@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
 import { PaymentStatus, type Prisma } from '@/generated/prisma/client';
 import {
   getPaymentProvider,
@@ -43,15 +44,6 @@ import { publicUrl } from '@/lib/public-url';
  * donor's money arrives at the provider and this platform ends up with no
  * record of it.
  */
-
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code: unknown }).code === 'P2002'
-  );
-}
 
 /**
  * Thrown from inside the settlement transaction to unwind it cleanly when
@@ -149,7 +141,7 @@ export async function POST(
       });
       webhookEventId = created.id;
     } catch (err) {
-      if (!isUniqueConstraintViolation(err)) throw err;
+      if (!isPrismaUniqueConstraintViolation(err)) throw err;
 
       const existing = await prisma.webhookEvent.findUniqueOrThrow({
         where: {
@@ -318,7 +310,7 @@ export async function POST(
             },
           });
         } catch (err) {
-          if (isUniqueConstraintViolation(err)) {
+          if (isPrismaUniqueConstraintViolation(err)) {
             // Postgres has already put this transaction into an aborted
             // state -- no further statement on this connection can run, not
             // even to stamp WebhookEvent.processedAt. Rethrow a distinct
@@ -370,7 +362,10 @@ export async function POST(
 
           // Deriving the ledger transactionId from the provider event id makes
           // the ledger idempotent on the same key the WebhookEvent table is --
-          // the two cannot disagree about whether this event was posted.
+          // the two cannot disagree about whether this event was posted. The
+          // claim above means a retry never gets here; the ledger's claim
+          // index (prd-compliance 28b) is what makes the key a one-shot even
+          // for a caller that claims nothing.
           await postTransaction(
             tx,
             paymentSettledLegs({
@@ -450,7 +445,10 @@ export async function POST(
 
           // Deriving the ledger transactionId from the provider event id makes
           // the ledger idempotent on the same key the WebhookEvent table is --
-          // the two cannot disagree about whether this event was posted.
+          // the two cannot disagree about whether this event was posted. The
+          // claim above means a retry never gets here; the ledger's claim
+          // index (prd-compliance 28b) is what makes the key a one-shot even
+          // for a caller that claims nothing.
           await postTransaction(
             tx,
             paymentSettledLegs({

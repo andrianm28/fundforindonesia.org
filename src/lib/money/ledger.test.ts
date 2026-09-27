@@ -14,6 +14,7 @@ import {
   payoutInstructedLegs,
   UnbalancedTransactionError,
   InvalidLedgerLegError,
+  DuplicateLedgerTransactionError,
   type LedgerLeg,
   type LedgerSubject,
 } from './ledger';
@@ -26,6 +27,8 @@ import {
 
 type Row = {
   transactionId: string;
+  /** Position of this leg inside its transaction. 0 is the claiming leg. */
+  legIndex: number;
   direction: 'DEBIT' | 'CREDIT';
   amount: number;
   account: string;
@@ -33,16 +36,61 @@ type Row = {
   volunteerTripId: string | null;
 };
 
-/** Minimal in-memory stand-in for the Prisma transaction client. */
+/** The one unique index a ledger posting can reach; see makeTx below. */
+const CLAIM_INDEX = 'LedgerEntry_transactionId_claim_key';
+
+/**
+ * The unique violation Postgres raises, shaped the way Prisma reports it.
+ *
+ * Recorded from a real run against Postgres (Prisma 7 over the pg driver
+ * adapter): `code` P2002, and the index named under the driver adapter's own
+ * nesting -- there is no `meta.target` or `meta.field_name` in this shape. The
+ * fake below is that object, so the unit tests here meet the same error the
+ * database produces rather than one invented to suit them; the real one is
+ * checked against a real database in
+ * src/__tests__/ledger-transaction-claim-migration.test.ts.
+ */
+function uniqueViolation(): Error {
+  return Object.assign(
+    new Error('Unique constraint failed on the constraint: `LedgerEntry_transactionId_claim_key`'),
+    {
+      code: 'P2002',
+      meta: {
+        modelName: 'LedgerEntry',
+        driverAdapterError: {
+          cause: {
+            originalCode: '23505',
+            kind: 'UniqueConstraintViolation',
+            constraint: { index: CLAIM_INDEX },
+            table: 'LedgerEntry',
+          },
+        },
+      },
+    },
+  );
+}
+
+/**
+ * Minimal in-memory stand-in for the Prisma transaction client.
+ *
+ * `createMany` models the one thing the database does that no application code
+ * can: the partial unique index `LedgerEntry_transactionId_claim_key` (WHERE
+ * "legIndex" = 0), which makes a transactionId claimable by exactly one row
+ * ever. The whole statement fails when the claim is already taken, which is
+ * what Postgres does -- a multi-row INSERT either lands whole or not at all.
+ */
 function makeTx(seed: Row[] = []) {
   const rows: Row[] = [...seed];
   return {
     rows,
     ledgerEntry: {
-      count: vi.fn(async ({ where }: { where: { transactionId: string } }) =>
-        rows.filter((r) => r.transactionId === where.transactionId).length,
-      ),
       createMany: vi.fn(async ({ data }: { data: Row[] }) => {
+        for (const row of data) {
+          if (row.legIndex !== 0) continue;
+          if (rows.some((r) => r.legIndex === 0 && r.transactionId === row.transactionId)) {
+            throw uniqueViolation();
+          }
+        }
         rows.push(...data);
         return { count: data.length };
       }),
@@ -200,10 +248,55 @@ describe('postTransaction', () => {
     ).rejects.toThrow(/cannot carry both campaignId and volunteerTripId/);
   });
 
-  it('is idempotent on transactionId, so a webhook retry posts once', async () => {
+  it('claims the transactionId with its first leg, so the database has one row to refuse the next attempt on', async () => {
     await postTransaction(tx as never, BALANCED, { transactionId: 'evt-1' });
+    // legIndex 0 is the claim the unique index is built on. A test asserting
+    // anything else about these rows is asserting the wrong thing.
+    expect(tx.rows.map((r) => [r.legIndex, r.direction])).toEqual([
+      [0, 'DEBIT'],
+      [1, 'CREDIT'],
+    ]);
+  });
+
+  it('refuses to post a transactionId twice, and says which one, as a duplicate', async () => {
     await postTransaction(tx as never, BALANCED, { transactionId: 'evt-1' });
+
+    // A webhook retry, a replayed admin action, anything that reaches here
+    // twice. The refusal names the duplicate so a caller can tell it apart
+    // from a genuine write failure -- and the first posting is untouched:
+    // refusing the retry must never mean posting it twice.
+    await expect(postTransaction(tx as never, BALANCED, { transactionId: 'evt-1' })).rejects.toThrow(
+      DuplicateLedgerTransactionError,
+    );
+    await expect(postTransaction(tx as never, BALANCED, { transactionId: 'evt-1' })).rejects.toMatchObject({
+      transactionId: 'evt-1',
+    });
     expect(tx.rows).toHaveLength(2);
+  });
+
+  it('leaves exactly one transaction behind when the same id is posted twice at once', async () => {
+    // Two callers racing, neither of them having claimed a row first -- the
+    // case the read-then-write this replaced could not see. A real database
+    // makes the second INSERT wait for the first to commit before refusing it;
+    // a fake cannot interleave statements, so what this pins is the refusal
+    // and that the loser writes nothing at all, not the blocking itself.
+    const [first, second] = await Promise.allSettled([
+      postTransaction(tx as never, BALANCED, { transactionId: 'race-1' }),
+      postTransaction(tx as never, BALANCED, { transactionId: 'race-1' }),
+    ]);
+
+    const outcomes = [first, second];
+    const winner = outcomes.find((o) => o.status === 'fulfilled');
+    const loser = outcomes.find((o) => o.status === 'rejected');
+    expect(winner?.status === 'fulfilled' ? winner.value : null).toBe('race-1');
+    expect(loser?.status === 'rejected' ? loser.reason : null).toBeInstanceOf(
+      DuplicateLedgerTransactionError,
+    );
+    expect(tx.rows).toHaveLength(2);
+    expect(tx.rows.every((r) => r.transactionId === 'race-1')).toBe(true);
+    // One balanced transaction, not two halves of one: the loser's statement
+    // wrote nothing at all.
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
   });
 });
 
@@ -376,8 +469,8 @@ describe('findUnbalancedTransactions already covers trip-scoped entries', () => 
     // directly the way a real bug (not this plan's own code) would have
     // to reach the database to produce this state.
     tx.rows.push(
-      { transactionId: 'trip-tx-1', direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9' },
-      { transactionId: 'trip-tx-1', direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9' },
+      { transactionId: 'trip-tx-1', legIndex: 0, direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9' },
+      { transactionId: 'trip-tx-1', legIndex: 1, direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9' },
     );
 
     const result = await findUnbalancedTransactions(tx as never);

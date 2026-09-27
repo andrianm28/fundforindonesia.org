@@ -77,6 +77,11 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+      # The claim migration is the one that cannot be proved against an empty
+      # database, so the test that applies it to a database already holding
+      # ledger rows runs here. A separate variable, so that nothing else in the
+      # suite ever sees a live database.
+      LEDGER_CLAIM_TEST_DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -96,6 +101,14 @@ jobs:
             echo "::error::schema.prisma and prisma/migrations disagree; add or fix a migration."
             exit 1
           fi
+      # Migrating an EMPTY database proves the DDL is valid and nothing more.
+      # This step is the one that would have caught the precheck the claim
+      # migration used to carry, which refused to apply to any ledger holding
+      # a single posted transaction.
+      - name: The claim migration, applied to a database that already holds ledger rows
+        run: |
+          npx prisma generate
+          npx vitest run src/__tests__/ledger-transaction-claim-migration.test.ts
 
   ratchet:
     name: ratchet

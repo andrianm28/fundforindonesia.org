@@ -119,6 +119,13 @@ export interface ReleaseSweepSubject {
  * already on this branch (see approvePayout in ./payouts.ts for
  * the same pattern applied to payout approval).
  *
+ * The claim below is also why the ledger needs no guard of its own here:
+ * even a caller that skipped it could not double-post, because the ledger
+ * refuses a transactionId twice (prd-compliance 28b,
+ * LedgerEntry_transactionId_claim_key). It keeps the loser from reaching the
+ * ledger at all, which is a quiet no-op rather than an aborted transaction
+ * and an error in this sweep's log.
+ *
  * `now` defaults to the live clock; the scheduled job (./scheduled-jobs.ts)
  * passes its own injected `now` so it can be driven directly in tests,
  * never through timers, same as every other `now`-taking function in this
@@ -247,7 +254,10 @@ export async function releaseMaturedEscrow(
 
         // Claim this payment before doing anything else. Whichever of two
         // concurrent sweeps commits this update first wins; the other sees
-        // count 0 and stops here, before ever posting a ledger entry.
+        // count 0 and stops here, before ever posting a ledger entry. Kept
+        // rather than left to the ledger's claim index (prd-compliance 28b):
+        // the index would refuse the second post anyway, but only by failing
+        // this transaction, which a sweep would log as a broken payment.
         const claimed = await tx.payment.updateMany({
           where: { id: payment.id, escrowReleasedAt: null },
           data: { escrowReleasedAt: now },
