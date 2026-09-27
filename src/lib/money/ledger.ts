@@ -108,10 +108,15 @@ export class DuplicateLedgerTransactionError extends Error {
  * reach is the claim index (`LedgerEntry_transactionId_claim_key`, WHERE
  * "legIndex" = 0): the primary key is a cuid default this code never supplies,
  * and no other unique index exists on the table. So P2002 here can only mean
- * the transactionId is already claimed. Narrowing the test to a particular
- * index name would make the duplicate depend on the exact shape Prisma reports
- * in `meta.target`, which no test here can observe -- and getting that wrong
- * would downgrade a duplicate back into an unrecognised crash.
+ * the transactionId is already claimed.
+ *
+ * Matching the index name instead would narrow the guarantee to a shape that
+ * moves: against a real database (see the migration test, which runs this
+ * against Postgres) Prisma 7 over the pg driver adapter reports the constraint
+ * at `meta.driverAdapterError.cause.constraint.index` and puts no `target` or
+ * `field_name` in `meta` at all. `code` is the one part that is the same
+ * whatever a driver adapter decides to include, and the one part Prisma
+ * documents.
  */
 
 /**
@@ -211,6 +216,25 @@ function assertBalanced(legs: LedgerLeg[]): void {
  * before getting here. The callers still do that -- it is what keeps a lost
  * race a quiet no-op instead of an aborted transaction -- but it is a
  * courtesy, not the guarantee. The guarantee is the index.
+ *
+ * NO CALLER CATCHES DuplicateLedgerTransactionError, and that is a decision,
+ * not an oversight. Every caller keys its transactionId on a row it has
+ * already claimed -- WebhookEvent's unique (provider, providerEventId), Payout
+ * DRAFT -> APPROVED, Refund REQUESTED -> APPROVED, Payment.escrowReleasedAt
+ * IS NULL -- or, for createRefund, on a row it created a statement earlier,
+ * and nothing in src/ ever moves any of those back. So a second post of the
+ * same id is unreachable in normal operation, and a legitimate retry loses
+ * that claim first and is answered by the caller itself (settled: false from
+ * the webhook, InvalidPayoutStatusError, InvalidRefundStatusError, `false`
+ * from the sweep), never by this.
+ *
+ * What is left is the case where a caller's claim and the ledger disagree
+ * about money that has already moved. That stays loud: the webhook answers
+ * 500 with the event unprocessed, so the provider's retry resumes the
+ * settlement rather than believing it happened, and the sweep logs the one
+ * payment and carries on with the rest. Absorbing the error at either caller
+ * would put a twice-posted movement behind a handled path, which is the silent
+ * no-op the read-then-write used to be.
  */
 export async function postTransaction(
   tx: Prisma.TransactionClient,

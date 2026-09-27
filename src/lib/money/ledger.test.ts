@@ -40,14 +40,33 @@ type Row = {
 const CLAIM_INDEX = 'LedgerEntry_transactionId_claim_key';
 
 /**
- * The unique violation Postgres raises, shaped the way Prisma reports it: code
- * P2002, the index in `meta.target` and `field_name` (as Prisma 7 does for a
- * unique index).
+ * The unique violation Postgres raises, shaped the way Prisma reports it.
+ *
+ * Recorded from a real run against Postgres (Prisma 7 over the pg driver
+ * adapter): `code` P2002, and the index named under the driver adapter's own
+ * nesting -- there is no `meta.target` or `meta.field_name` in this shape. The
+ * fake below is that object, so the unit tests here meet the same error the
+ * database produces rather than one invented to suit them; the real one is
+ * checked against a real database in
+ * src/__tests__/ledger-transaction-claim-migration.test.ts.
  */
 function uniqueViolation(): Error {
   return Object.assign(
-    new Error('Unique constraint failed on the fields: (`transactionId`)'),
-    { code: 'P2002', meta: { target: [CLAIM_INDEX], field_name: CLAIM_INDEX } },
+    new Error('Unique constraint failed on the constraint: `LedgerEntry_transactionId_claim_key`'),
+    {
+      code: 'P2002',
+      meta: {
+        modelName: 'LedgerEntry',
+        driverAdapterError: {
+          cause: {
+            originalCode: '23505',
+            kind: 'UniqueConstraintViolation',
+            constraint: { index: CLAIM_INDEX },
+            table: 'LedgerEntry',
+          },
+        },
+      },
+    },
   );
 }
 

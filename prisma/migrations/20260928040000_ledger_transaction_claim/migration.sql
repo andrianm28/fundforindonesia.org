@@ -11,52 +11,52 @@
 -- transactionId. A partial unique index over the claiming legs is what makes
 -- that claim unrepeatable: the index, not a read, refuses the second posting.
 
--- Before any DDL. Prisma applies a migration in a single transaction, so
--- raising here leaves the table exactly as it was -- and names the ids, since
--- "duplicate key value violates unique constraint" tells an operator nothing
--- about which rows to look at. No ledger row is deleted to make this apply: a
--- transactionId posted twice is a fact about money that has already moved,
--- and which of the two sets is the real one is not this migration's to guess.
-DO $$
-DECLARE
-  duplicate_count BIGINT;
-  offenders TEXT;
-BEGIN
-  SELECT COUNT(*) INTO duplicate_count
-  FROM (
-    SELECT "transactionId"
-    FROM "LedgerEntry"
-    GROUP BY "transactionId"
-    HAVING COUNT(*) > 1
-  ) AS duplicates;
-
-  SELECT string_agg("transactionId", ', ') INTO offenders
-  FROM (
-    SELECT "transactionId"
-    FROM "LedgerEntry"
-    GROUP BY "transactionId"
-    HAVING COUNT(*) > 1
-    ORDER BY "transactionId"
-    LIMIT 20
-  ) AS some_offenders;
-
-  IF duplicate_count > 0 THEN
-    RAISE EXCEPTION
-      'LedgerEntry already holds % transactionId(s) posted more than once, e.g. %; this migration applies nothing. Settle which set of entries is the real one, then migrate.',
-      duplicate_count,
-      offenders;
-  END IF;
-END $$;
+-- There is deliberately NO precheck here, and the reason is worth recording
+-- because an earlier draft of this file had one.
+--
+-- The obvious precheck -- "does any transactionId already have more than one
+-- row?" -- cannot work, because every transaction has at least two legs by
+-- construction: assertLegsValid (src/lib/money/ledger.ts) rejects a
+-- single-leg set, so a healthy ledger is one where that count is NEVER 1.
+-- Such a check refuses to apply to every database holding a single posted
+-- transaction, which is every real one. ci/local.sh would not have caught
+-- that, because it migrates an empty database.
+--
+-- A precheck that counts something else does not become sound for free: before
+-- this migration a row carries no posting identity at all. "This
+-- transactionId was posted twice" and "one posting of a transaction that
+-- happens to have twice the legs" produce the exact same table -- the same
+-- transactionId, the same pairs of legs, the same sums -- and only a marker
+-- distinguishing one posting from the next could tell them apart, and there is
+-- none to read. So no statement in this file can decide that question, and a
+-- check that claimed to would be guessing about money that has already moved.
+--
+-- What IS decidable is the claim itself, and it is decided below rather than
+-- before: the backfill numbers the legs partitioned BY transactionId, so every
+-- transactionId that exists ends with exactly one leg 0 by construction, and
+-- the index the last statement creates therefore cannot fail to be built. The
+-- index is the check; it just has nothing left to catch.
+--
+-- Prisma does NOT wrap a PostgreSQL migration file in a transaction -- there
+-- is no BEGIN/COMMIT here and `prisma migrate deploy` does not add one -- so a
+-- failure part-way through would leave the earlier statements applied and this
+-- migration unrecorded. Every statement is therefore written to be re-runnable
+-- (IF NOT EXISTS, and a backfill that re-derives the same numbers from the
+-- same rows), and the ordering is the one that matters: column, then backfill,
+-- then NOT NULL, then the index, each of which depends only on the one above
+-- it having completed. A re-run after a partial application is a no-op.
 
 -- AlterTable: the position of an entry inside its transaction. Required,
 -- because "which leg am I" is now the question the uniqueness of a
 -- transactionId is built on, not a nicety of ordering.
-ALTER TABLE "LedgerEntry" ADD COLUMN "legIndex" INTEGER;
+ALTER TABLE "LedgerEntry" ADD COLUMN IF NOT EXISTS "legIndex" INTEGER;
 
 -- Number the legs of every transaction that already exists, oldest first. This
 -- is what keeps the index honest for history: without it the rows posted
 -- before this migration would hold no claim at all, and re-posting one of
--- their transactionIds would be free.
+-- their transactionIds would be free. Partitioned by transactionId, so each one
+-- gets exactly one 0; ordered by (createdAt, id) so a re-run reproduces the
+-- same numbers rather than reshuffling them.
 UPDATE "LedgerEntry" AS entry
 SET "legIndex" = numbered."legIndex"
 FROM (
@@ -74,4 +74,4 @@ ALTER TABLE "LedgerEntry" ALTER COLUMN "legIndex" SET NOT NULL;
 -- posting the same transactionId concurrently the loser's INSERT fails
 -- immediately, and takes its whole multi-row statement down with it: the loser
 -- posts nothing rather than half a transaction.
-CREATE UNIQUE INDEX "LedgerEntry_transactionId_claim_key" ON "LedgerEntry"("transactionId") WHERE "legIndex" = 0;
+CREATE UNIQUE INDEX IF NOT EXISTS "LedgerEntry_transactionId_claim_key" ON "LedgerEntry"("transactionId") WHERE "legIndex" = 0;
