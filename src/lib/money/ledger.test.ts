@@ -12,6 +12,7 @@ import {
   refundRequestedLegs,
   refundApprovedLegs,
   payoutInstructedLegs,
+  payoutCompletedLegs,
   UnbalancedTransactionError,
   InvalidLedgerLegError,
   type LedgerLeg,
@@ -293,6 +294,62 @@ describe('paymentSettledLegs', () => {
   });
 });
 
+/**
+ * Credits minus debits on a platform-level account, straight off the rows --
+ * the same convention accountBalance (./ledger) uses, so a negative figure
+ * is an account holding something: a negative GATEWAY_CLEARING is money
+ * sitting at the payment provider.
+ */
+function netOf(rows: Row[], account: string): number {
+  return rows
+    .filter((r) => r.account === account)
+    .reduce((sum, r) => (r.direction === 'CREDIT' ? sum + r.amount : sum - r.amount), 0);
+}
+
+describe('payoutCompletedLegs', () => {
+  it('drains PAYOUT_CLEARING and credits the Provider Balance, carrying no subject of its own', () => {
+    // Both legs are platform-level: the money is at the provider, so which
+    // Campaign it came from is not what the movement is about. A subject FK
+    // here would be rejected by assertLegsValid (ledger.ts) and would make
+    // the Provider Balance unreadable per campaign, which is not a question
+    // anyone asks.
+    expect(payoutCompletedLegs({ amount: 200_000 })).toEqual([
+      { account: 'PAYOUT_CLEARING', direction: 'DEBIT', amount: 200_000 },
+      { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 200_000 },
+    ]);
+  });
+
+  it('closes the Provider Balance gap: what settlement debits, a completed payout credits back', async () => {
+    // Before completion existed, GATEWAY_CLEARING was DEBITED on every
+    // settlement and credited by nothing, so the account grew by the full
+    // gross of every Donation forever and the books claimed a larger pot at
+    // the provider than could ever exist. ADR 0011 wanted to state the
+    // invariant "Provider Balance = GATEWAY_CLEARING less what an Admin has
+    // withdrawn"; the withdrawal leg is what makes it statable.
+    const tx = makeTx();
+    await postTransaction(tx as never, paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000 }));
+    await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 485_000 }));
+    await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 200_000 }));
+
+    // Instructed but not yet transferred: the money is in flight, so it is
+    // still at the provider.
+    expect(netOf(tx.rows, 'GATEWAY_CLEARING')).toBe(-500_000);
+    expect(netOf(tx.rows, 'PAYOUT_CLEARING')).toBe(200_000);
+
+    await postTransaction(tx as never, payoutCompletedLegs({ amount: 200_000 }));
+
+    // Transferred: PAYOUT_CLEARING is empty again and the Provider Balance
+    // is exactly the gross settled less what has left it.
+    expect(netOf(tx.rows, 'PAYOUT_CLEARING')).toBe(0);
+    expect(netOf(tx.rows, 'GATEWAY_CLEARING')).toBe(-300_000);
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+
+  it('refuses an amount of zero -- a zero-amount leg is rejected by postTransaction, and a zero transfer is not a transfer', async () => {
+    await expect(postTransaction(makeTx() as never, payoutCompletedLegs({ amount: 0 }))).rejects.toThrow(InvalidLedgerLegError);
+  });
+});
+
 describe('ledger invariants (property-based)', () => {
   it('every builder produces a transaction that balances, for any amount, for both subject types', () => {
     fc.assert(
@@ -316,6 +373,7 @@ describe('ledger invariants (property-based)', () => {
             refundRequestedLegs({ subject, amount: gross, source: balanceAccount, platformFeePortion: 0, providerFeePortion: fee }),
             refundApprovedLegs({ subject, amount: gross, source: balanceAccount, shortfall }),
             payoutInstructedLegs({ subject, amount: gross }),
+            payoutCompletedLegs({ amount: gross }),
           ]) {
             const d = legs.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + l.amount, 0);
             const c = legs.filter((l) => l.direction === 'CREDIT').reduce((s, l) => s + l.amount, 0);
@@ -337,6 +395,7 @@ describe('ledger invariants (property-based)', () => {
       await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 10_000 }));
       if (i % 3 === 0) {
         await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 1_000 }));
+        await postTransaction(tx as never, payoutCompletedLegs({ amount: 1_000 }));
       }
     }
     expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
@@ -362,9 +421,16 @@ describe('ledger invariants (property-based)', () => {
     await postTransaction(tx as never, escrowReleaseLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 388_000 }));
     // Rp 200.000 paid out.
     await postTransaction(tx as never, payoutInstructedLegs({ subject: { type: 'campaign', campaignId: 'c1' }, amount: 200_000 }));
+    // ...and transferred. Completion moves money out of the platform's own
+    // books (PAYOUT_CLEARING -> the Provider Balance), so it cannot change
+    // what the Campaign may withdraw -- that was already spent at the
+    // instruction.
+    await postTransaction(tx as never, payoutCompletedLegs({ amount: 200_000 }));
 
     expect(await escrowBalance(tx as never, 'c1')).toBe(0);
     expect(await campaignBalance(tx as never, 'c1')).toBe(188_000);
+    expect(netOf(tx.rows, 'PAYOUT_CLEARING')).toBe(0);
+    expect(netOf(tx.rows, 'GATEWAY_CLEARING')).toBe(-300_000);
     expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
   });
 });

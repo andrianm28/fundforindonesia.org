@@ -90,6 +90,7 @@ model User {
   bankAccounts     BankAccount[]
   payoutsRequested Payout[]      @relation("PayoutRequester")
   payoutsApproved  Payout[]      @relation("PayoutApprover")
+  payoutsCompleted Payout[]      @relation("PayoutCompleter")
   refundsRequested Refund[]      @relation("RefundRequester")
   refundsApproved  Refund[]      @relation("RefundApprover")
   platformFeeRulesSet      PlatformFeeRule[]
@@ -1228,6 +1229,13 @@ model Payout {
   approvedById    String?
   approvedBy      User?     @relation("PayoutApprover", fields: [approvedById], references: [id])
   approvedAt      DateTime?
+  /// The second person: the Admin who recorded the transfer with proof. The
+  /// two-person rule's other half (CONTEXT.md, Payout; ADR 0006) is enforced
+  /// in the service layer, and the column exists so it is auditable after the
+  /// fact -- approvedById alone cannot show that two people were involved,
+  /// only that one of them was.
+  completedById   String?
+  completedBy     User?     @relation("PayoutCompleter", fields: [completedById], references: [id])
   rejectionReason String?
 
   providerRef String?   @unique

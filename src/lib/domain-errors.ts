@@ -51,6 +51,8 @@ export type MoneyErrorCode =
   | "BANK_ACCOUNT_NOT_ELIGIBLE"
   | "INSUFFICIENT_BALANCE"
   | "SELF_APPROVAL"
+  | "TWO_PERSON_RULE"
+  | "PAYOUT_PROOF_REQUIRED"
   | "INVALID_PAYOUT_STATUS"
   | "INVALID_REFUND_STATUS"
   | "PAYOUT_NOT_FOUND"
@@ -163,6 +165,13 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   BANK_ACCOUNT_NOT_ELIGIBLE: 403,
   INSUFFICIENT_BALANCE: 400,
   SELF_APPROVAL: 403,
+  // The two-person control itself: the same Admin cannot both approve and
+  // record the transfer. Not something they can fix by resending, so 403
+  // like the other capacity refusals, not a 409 status conflict.
+  TWO_PERSON_RULE: 403,
+  // Unlike the rest: the Admin can fix this one, by attaching the proof the
+  // route asked for. Same shape as DEADLINE_REQUIRED.
+  PAYOUT_PROOF_REQUIRED: 422,
   INVALID_PAYOUT_STATUS: 409,
   INVALID_REFUND_STATUS: 409,
   PAYOUT_NOT_FOUND: 404,

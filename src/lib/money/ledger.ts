@@ -563,3 +563,39 @@ export function payoutInstructedLegs(params: { subject: LedgerSubject; amount: n
     { account: 'PAYOUT_CLEARING', direction: 'CREDIT', amount },
   ];
 }
+
+/**
+ * A payout's transfer confirmed out, recorded by the second Admin with
+ * proof of transfer.
+ *
+ *   DEBIT  PAYOUT_CLEARING   amount   no longer in flight
+ *   CREDIT GATEWAY_CLEARING  amount   no longer at the payment provider
+ *
+ * Posted at COMPLETION, not at approval, and it takes no `subject`: both
+ * accounts are platform-level. The money stops being anybody's the moment
+ * it is instructed (that is what stops a balance being paid twice), so what
+ * is left to record here is where it went -- out of the platform's own
+ * books entirely, and specifically out of the Provider Balance.
+ *
+ * GATEWAY_CLEARING is CONTEXT.md's Provider Balance: debited on every
+ * settlement by paymentSettledLegs (above) and, until this leg existed,
+ * credited by nothing at all. So the account grew by the full gross of
+ * every Donation forever and the books claimed a pot at the provider larger
+ * than could ever exist. This is the credit that closes it, and it is what
+ * finally makes ADR 0011's invariant statable: the Provider Balance equals
+ * GATEWAY_CLEARING less what an Admin has withdrawn.
+ *
+ * Why the provider at all, when the money went to a bank? Because the
+ * withdrawal is made by hand in the provider's dashboard, straight to the
+ * Fundraiser's verified Bank Account (ADR 0006: Sumopod has no
+ * disbursement API, and the two-person rule means the transfer happens on
+ * the second Admin's own action). So the money never lands in a platform
+ * bank account on its way out; it goes from the Provider Balance to the
+ * Fundraiser, and the Provider Balance is the account that shrinks.
+ */
+export function payoutCompletedLegs(params: { amount: number }): LedgerLeg[] {
+  return [
+    { account: 'PAYOUT_CLEARING', direction: 'DEBIT', amount: params.amount },
+    { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: params.amount },
+  ];
+}
