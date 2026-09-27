@@ -19,9 +19,20 @@
  *
  * The three callers are pinned against this module -- forced to answer
  * something this comparison never would, and compared to it boundary rupiah
- * by boundary rupiah -- by src/__tests__/payout-balance-rule-callers.test.tsx,
- * so a fourth caller, or a second copy, is a failing test rather than a
- * disagreement nobody sees.
+ * by boundary rupiah -- by src/__tests__/payout-balance-rule-callers.test.tsx.
+ *
+ * What that file holds is those three, by name, and NOT "there is no fourth".
+ * An earlier version of this comment claimed a fourth caller was a failing
+ * test. It is not: the test exercises the three it names, and a `previewPayout`
+ * written beside them with a comparison of its own left the whole suite green.
+ * A scan was written to close that and thrown away rather than claimed, for
+ * the reason the ticket records: scanning for references to this function
+ * cannot see a caller that re-decides the cap and never names it -- the only
+ * kind worth catching -- and scanning for the COMPARISON would match one
+ * spelling of `>` and no other, which is the green-for-the-wrong-reason
+ * docs/agents/verification.md is about. The honest scope: these three cannot
+ * drift from this module; a fourth place is caught by the test for that place,
+ * when somebody writes one.
  *
  * This asks ONE question and answers it. It does not decide that an amount is
  * a valid request, only that it is more than the balance; a caller wanting the
