@@ -4,7 +4,7 @@
 
 **Blocked by:** 19
 
-**Status:** in review (PR #58)
+**Status:** done (PR #58, 56deb20)
 
 - [x] A single scheduled entry point takes the current time as an argument and is driven directly in tests, never through timers
 - [x] Matured Escrow Hold releases to Campaign Balance on schedule, with the existing lazy sweep kept as a second path
@@ -24,7 +24,7 @@ own bounded, claim-via-predicated-`updateMany` idempotency pattern, so two
 overlapping scheduler runs send exactly one reminder per Campaign/
 authorisation, and isolate per-row failures the same way. New nullable
 columns `Campaign.deadlineReminderSentAt` / `KindAuthorisation.expiryWarningSentAt`
-track "already reminded" (migration `20260927060000_scheduled_job_reminders`).
+track "already reminded" (migration `20260927070000_scheduled_job_reminders`).
 The existing lazy sweep (payout request handlers) is untouched.
 
 Assumptions flagged for owner review:

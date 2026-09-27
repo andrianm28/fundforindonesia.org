@@ -4,7 +4,7 @@
 
 **Blocked by:** 18
 
-**Status:** done
+**Status:** done (PR #51, 72ff9c0)
 
 - [x] A settlement timestamp is stored on the Payment, read from the provider payload
 - [x] Escrow release is computed from provider settlement, not server receipt time

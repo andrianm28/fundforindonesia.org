@@ -19,7 +19,7 @@ the "GitHub Free, no environment approvals / no branch protection" reasoning.
 **Blocked by:** none (safe to merge before 23; until the environment exists the
 deploy job would run unprotected, so nobody dispatches before 23 is done)
 
-**Status:** ready-for-agent
+**Status:** done (PR #50, b361eed)
 
 - [ ] `deploy.yml` has `gate` then `deploy` (`environment: production`, `needs: gate`); dispatch, main-only, gate script and concurrency unchanged
 - [ ] `workflows.test.ts` pins the new shape; full suite and ratchet green
