@@ -18,6 +18,10 @@ const CAMPAIGN_WRITERS = [
   "src/app/api/campaigns/[slug]/route.ts",
   "src/app/api/webhooks/[provider]/route.ts",
   "src/lib/campaign-lifecycle.ts",
+  // The scheduled job (ticket 20): claims a Campaign for its one-time
+  // deadline reminder via a predicated updateMany on deadlineReminderSentAt
+  // alone -- it never touches status or lifecycleStatus.
+  "src/lib/reminders.ts",
 ];
 
 function walk(dir: string): string[] {

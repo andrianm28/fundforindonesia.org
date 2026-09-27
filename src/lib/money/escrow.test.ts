@@ -515,6 +515,46 @@ describe('releaseMaturedEscrow -- trip-linked payments', () => {
   });
 });
 
+describe('releaseMaturedEscrow -- injected now (ticket 20 scheduled job)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('releases a payment matured under an injected `now`, driven directly rather than through the real clock', async () => {
+    // escrowReleaseAt is in the future by the real clock, so this would not
+    // release if the sweep still read Date.now() internally -- only passing
+    // `now` explicitly makes it matured.
+    const injectedNow = new Date(Date.now() + 30 * MS_PER_DAY);
+    const { rows } = makeDb([
+      makePayment({
+        id: 'payment-1',
+        amount: 100_000,
+        escrowReleaseAt: new Date(Date.now() + 10 * MS_PER_DAY),
+        campaignId: 'campaign-1',
+      }),
+    ]);
+
+    const result = await releaseMaturedEscrow(undefined, injectedNow);
+
+    expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+    expect(rows.filter((r) => r.transactionId === 'escrow-release:payment-1')).toHaveLength(2);
+  });
+
+  it('does not release a payment matured by the real clock when the injected `now` is still before its hold matures', async () => {
+    const injectedNow = new Date(Date.now() - 30 * MS_PER_DAY);
+    const { rows } = makeDb([
+      // Matured "yesterday" by the real clock (makePayment's default), but
+      // injectedNow is 30 days in the past -- well before that.
+      makePayment({ id: 'payment-1', amount: 100_000, campaignId: 'campaign-1' }),
+    ]);
+
+    const result = await releaseMaturedEscrow(undefined, injectedNow);
+
+    expect(result).toEqual({ releasedCount: 0, consideredCount: 0 });
+    expect(rows).toHaveLength(0);
+  });
+});
+
 describe('releaseMaturedEscrow -- a Suspended Campaign', () => {
   beforeEach(() => {
     vi.clearAllMocks();
