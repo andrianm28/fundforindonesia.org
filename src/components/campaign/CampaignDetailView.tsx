@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -10,6 +10,8 @@ import { getRemainingDays } from '@/lib/utils/date';
 import { offersDonating } from '@/lib/campaign-page-status';
 import { useSuspensionReason } from '@/lib/hooks/useSuspensionReason';
 import { useWithdrawableSubmission } from '@/lib/hooks/useWithdrawableSubmission';
+import { useTrafficSources } from '@/lib/hooks/useTrafficSources';
+import { captureTrafficSource } from '@/lib/traffic-source-capture';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { formatFeePercent } from '@/lib/money/platform-fee';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
@@ -73,6 +75,15 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
 
   const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
   const withdrawal = useWithdrawableSubmission(campaign.slug, lifecycleStatus, setLifecycleStatus);
+  // Traffic Source (ticket 24): captured once on arrival, from whatever
+  // `src` this exact page load's URL carries -- before it is lost the
+  // moment the visitor navigates on to /donate. trafficSources stays null
+  // for anyone but this Campaign's own Fundraiser or an Admin (the API
+  // refuses everyone else), so the panel below renders nothing for a donor.
+  useEffect(() => {
+    captureTrafficSource(campaign.slug, window.location.href);
+  }, [campaign.slug]);
+  const trafficSources = useTrafficSources(campaign.slug);
 
   const remainingDays = campaign.deadline
     ? getRemainingDays(new Date(campaign.deadline))
@@ -252,6 +263,29 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
             <p className="text-xs text-text-secondary">
               Masa tahan dana: <span className="font-medium text-text">{campaign.escrowHoldDays} hari</span>
             </p>
+
+            {/* Traffic Source counts (ticket 24, "Counts per link are
+                visible to the Fundraiser"): trafficSources stays null for
+                anyone the API refused, which includes every non-owner
+                viewer, so this renders nothing for them. */}
+            {trafficSources && trafficSources.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-border">
+                <p className="text-xs font-semibold text-text-secondary mb-1">
+                  Sumber Kunjungan
+                </p>
+                <ul className="space-y-0.5">
+                  {trafficSources.map((row) => (
+                    <li
+                      key={row.source ?? '(tidak diketahui)'}
+                      className="flex justify-between text-xs text-text-secondary"
+                    >
+                      <span>{row.source ?? 'Langsung / tidak diketahui'}</span>
+                      <span className="font-medium text-text">{row.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -13,6 +13,7 @@ import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
 import { chargeDonation } from '@/lib/money/donation-charge';
 import { VALID_PAYMENT_METHODS, PROVIDER_METHOD_FOR } from '@/lib/money/payment-method-map';
+import { sanitizeTrafficSource } from '@/lib/traffic-source';
 
 /** CONTEXT.md, "Minimum Rp20.000, dengan nominal cepat dan nominal bebas" (prd-compliance 18). */
 const MIN_DONATION_AMOUNT = 20_000;
@@ -34,6 +35,12 @@ const createDonationSchema = z.object({
   guestEmail: z.string().trim().email("Email tidak valid").optional(),
   guestName: z.string().trim().min(1).max(100, "Nama maksimal 100 karakter").optional(),
   guestPhone: z.string().trim().min(1).max(20, "Nomor telepon maksimal 20 karakter").optional(),
+  // The `src` a shared link carried (ticket 24, "Traffic Source on
+  // Donation"): untrusted input from a visitor-controlled URL. Accepted as
+  // any shape here -- rejecting a malformed value would block the Donation,
+  // which the ticket rules out -- and reduced to a safe value or null by
+  // sanitizeTrafficSource below, never by this schema.
+  trafficSource: z.unknown().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -66,8 +73,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { campaignId, amount, paymentMethod, message, isAnonymous, guestEmail, guestName, guestPhone } =
+    const { campaignId, amount, paymentMethod, message, isAnonymous, guestEmail, guestName, guestPhone, trafficSource } =
       result.data;
+    const sanitizedTrafficSource = sanitizeTrafficSource(trafficSource);
 
     // 2. Verify campaign exists and is active
     const campaign = await prisma.campaign.findUnique({
@@ -200,6 +208,7 @@ export async function POST(request: NextRequest) {
         message: message || null,
         campaignId,
         donorId,
+        trafficSource: sanitizedTrafficSource,
         // A signed-in Donor's contact details live on their User row; a
         // Guest Donor's live here instead, protected the same way
         // (src/lib/field-protection.ts, ADR 0012).

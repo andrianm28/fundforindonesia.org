@@ -643,6 +643,12 @@ model Donation {
   guestPhoneCiphertext String?
   guestPhoneKeyId      String?
 
+  /// The `src` a shared link carried when the Donor arrived, sanitized by
+  /// src/lib/traffic-source.ts (ticket 24, "Traffic Source on Donation").
+  /// Null when absent or when nothing safe survived sanitizing -- this never
+  /// blocks a Donation.
+  trafficSource String? @db.VarChar(40)
+
   // Relations
   campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   donor    User?     @relation(fields: [donorId], references: [id], onDelete: SetNull)

@@ -56,12 +56,12 @@ describe('ShareModal', () => {
     expect(screen.getByText('Salin Link')).toBeInTheDocument();
   });
 
-  it('opens WhatsApp share link in new tab with correct URL', () => {
+  it('opens WhatsApp share link in new tab, tagged with its own Traffic Source (ticket 24)', () => {
     render(<ShareModal isOpen={true} onClose={onClose} campaign={mockCampaign} />);
     const whatsappBtn = screen.getByLabelText('Bagikan via WhatsApp');
     fireEvent.click(whatsappBtn);
 
-    const expectedUrl = `https://fundforindonesia.org/campaign/${mockCampaign.slug}`;
+    const expectedUrl = `https://fundforindonesia.org/campaign/${mockCampaign.slug}?src=whatsapp`;
     const expectedText = `Bantu donasi untuk: ${mockCampaign.title} - ${mockCampaign.description.slice(0, 100)}`;
     expect(mockOpen).toHaveBeenCalledWith(
       `https://wa.me/?text=${encodeURIComponent(expectedText + ' ' + expectedUrl)}`,
@@ -69,24 +69,24 @@ describe('ShareModal', () => {
     );
   });
 
-  it('opens Facebook share link in new tab with correct URL', () => {
+  it('opens Facebook share link in new tab, tagged with its own Traffic Source (ticket 24)', () => {
     render(<ShareModal isOpen={true} onClose={onClose} campaign={mockCampaign} />);
     const facebookBtn = screen.getByLabelText('Bagikan via Facebook');
     fireEvent.click(facebookBtn);
 
-    const expectedUrl = `https://fundforindonesia.org/campaign/${mockCampaign.slug}`;
+    const expectedUrl = `https://fundforindonesia.org/campaign/${mockCampaign.slug}?src=facebook`;
     expect(mockOpen).toHaveBeenCalledWith(
       `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(expectedUrl)}`,
       '_blank'
     );
   });
 
-  it('opens Twitter share link in new tab with correct URL and text', () => {
+  it('opens Twitter share link in new tab, tagged with its own Traffic Source (ticket 24)', () => {
     render(<ShareModal isOpen={true} onClose={onClose} campaign={mockCampaign} />);
     const twitterBtn = screen.getByLabelText('Bagikan via Twitter/X');
     fireEvent.click(twitterBtn);
 
-    const expectedUrl = `https://fundforindonesia.org/campaign/${mockCampaign.slug}`;
+    const expectedUrl = `https://fundforindonesia.org/campaign/${mockCampaign.slug}?src=twitter`;
     const expectedText = `Bantu donasi untuk: ${mockCampaign.title} - ${mockCampaign.description.slice(0, 100)}`;
     expect(mockOpen).toHaveBeenCalledWith(
       `https://twitter.com/intent/tweet?text=${encodeURIComponent(expectedText)}&url=${encodeURIComponent(expectedUrl)}`,
@@ -94,7 +94,7 @@ describe('ShareModal', () => {
     );
   });
 
-  it('copies campaign URL to clipboard and shows confirmation', async () => {
+  it('copies a campaign URL tagged with its own Traffic Source (ticket 24) and shows confirmation', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
 
@@ -102,7 +102,7 @@ describe('ShareModal', () => {
     const copyBtn = screen.getByLabelText('Bagikan via Salin Link');
     fireEvent.click(copyBtn);
 
-    const expectedUrl = `https://fundforindonesia.org/campaign/${mockCampaign.slug}`;
+    const expectedUrl = `https://fundforindonesia.org/campaign/${mockCampaign.slug}?src=copy`;
     expect(writeText).toHaveBeenCalledWith(expectedUrl);
 
     await waitFor(() => {

@@ -10,6 +10,7 @@ import { DonationConfirmation } from '@/components/donation/DonationConfirmation
 import { formatRupiah } from '@/lib/utils/currency';
 import { donationsEnabled, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 import { COLLECTING_ENTITY_REFUSAL, offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
+import { readCapturedTrafficSource } from '@/lib/traffic-source-capture';
 import type { PaymentMethod } from '@/types/donation';
 
 const PRESET_AMOUNTS = [20000, 50000, 100000, 250000, 500000];
@@ -83,6 +84,12 @@ export default function DonatePage() {
           paymentMethod: selectedPaymentMethod.type,
           message: prayer || undefined,
           isAnonymous,
+          // Traffic Source (ticket 24): whatever `src` this Donor's shared
+          // link carried, captured on the Campaign page and read back here
+          // since it is a separate route. Sanitized again at the API
+          // (src/lib/traffic-source.ts) either way -- this is convenience,
+          // never the trust boundary.
+          trafficSource: readCapturedTrafficSource(slug) ?? undefined,
           ...(isGuest && {
             guestEmail: guestEmail.trim(),
             guestName: guestName.trim() || undefined,
