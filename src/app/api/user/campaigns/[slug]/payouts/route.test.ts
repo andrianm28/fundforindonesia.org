@@ -28,7 +28,7 @@ const fake = vi.hoisted(() => {
     // test's own client replaces an earlier one's rather than sharing it.
     const seen = new Map<string, Tracked>();
 
-    const at = (object: object, prefix: string) =>
+    const proxyOver = (object: object, prefix: string) =>
       new Proxy(object, {
         get(t, prop, receiver) {
           const value = Reflect.get(t, prop, receiver);
@@ -39,16 +39,17 @@ const fake = vi.hoisted(() => {
             return value;
           }
           if (value !== null && typeof value === 'object') {
-            return at(value, `${prefix}.${String(prop)}`);
+            return proxyOver(value, `${prefix}.${String(prop)}`);
           }
           return value;
         },
       });
 
     return {
-      proxy: at(target, path) as T,
+      proxy: proxyOver(target, path) as T,
       /** Every `model.method` actually called, in the order it was first seen. */
-      calls: () => [...seen].filter(([, mock]) => mock.mock.calls.length > 0).map(([at]) => at),
+      calls: () =>
+        [...seen].filter(([, tracked]) => tracked.mock.calls.length > 0).map(([name]) => name),
     };
   }
 
