@@ -38,6 +38,33 @@ Docker Postgres there: push and let CI run them. In a fresh worktree, run
 `npx prisma generate` once after `npm install` (see
 [issue-tracker.md](issue-tracker.md#fresh-worktree-setup-gap)).
 
+### The one exception: a throwaway Postgres to develop a migration test
+
+Standing a `postgres:16-alpine` container up once, to **write** a test that
+applies a migration to a database that already holds rows, is allowed here.
+Tear the container down when the test passes, and say so in the PR body.
+
+This is the narrow exception, and it exists because the alternative was
+shipped once and it was worse than useless. PR #82's guard counted rows per
+`transactionId` and raised on anything `> 1` — which is **every** correct
+ledger, since `assertBalanced` forbids a single leg. The migration could not
+apply to any database holding one row. It passed CI because the `migrations`
+job migrates an empty database, and its own test asserted the guard with a
+**regex over the SQL text**, so nothing ever ran the SQL. A migration that
+cannot apply to a populated database is a deploy-time failure with no test
+that would have caught it.
+
+So: a migration's behaviour is a property of a database, and testing it
+without a database is not a weaker test, it is a different thing that
+happens to be green. Write the test against a real one.
+
+Two things keep this honest. The container is for *developing* the test; CI
+runs it, on a runner that is not this host, through a separate
+`LEDGER_CLAIM_TEST_DATABASE_URL` rather than the app's own `DATABASE_URL`.
+And the test must `skipIf` that variable is unset and print that it is being
+**skipped, not passing** — otherwise the skip is just a green check that
+lies. Every other Docker prohibition on this host stands.
+
 ## Push, open a PR, watch CI
 
 ```sh
