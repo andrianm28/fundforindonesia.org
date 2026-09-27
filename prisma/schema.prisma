@@ -71,6 +71,7 @@ model User {
   assignmentAuditsAsActor   AssignmentAuditEntry[] @relation("AssignmentAuditActor")
   campaignStatusChanges     CampaignStatusChange[]
   tripStatusChanges         VolunteerTripStatusChange[]
+  partnershipInquiryStatusChanges PartnershipInquiryStatusChange[]
   cancellationRequestsMade    CancellationRequest[] @relation("CancellationRequester")
   cancellationRequestsDecided CancellationRequest[] @relation("CancellationDecider")
   campaignFlagsRaised         CampaignFlag[]        @relation("FlagVerifier")
@@ -280,12 +281,51 @@ model PartnershipInquiry {
   contactPhoneCiphertext String?
   contactPhoneKeyId String?
   status PartnershipInquiryStatus @default(NOT_YET_FOLLOWED_UP)
+  /// The follow-up steps taken on it, oldest first; written only by
+  /// src/lib/partnership-inquiry-followup.ts. The second relation this model
+  /// has, and the only one besides its Program: never money.
+  statusChanges PartnershipInquiryStatusChange[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([programId])
   @@index([status])
   @@index([contactEmailHmac])
+}
+
+/// One follow-up step of a Partnership Inquiry (CONTEXT.md, Partnership
+/// Inquiry; ticket csr-06): who moved it, from which status to which, and when.
+/// Append-only, in the same transaction as the move itself, like
+/// CampaignStatusChange: the queue's current status says where the
+/// conversation is, and this says who took it there.
+///
+/// `actedById` is named the way AssignmentAuditEntry and
+/// PartnerOrganisationAuditEntry name theirs, not the way CampaignStatusChange
+/// names its actor, because a follow-up is taken in no Capacity: whoever holds
+/// the ADMIN assignment moves the queue, and there is no Fundraiser to be.
+/// There is no `reason` here either, because nobody outside the partnership
+/// team is refused or told anything by a follow-up -- a Campaign's status
+/// change changes what a Donor may give, and this changes only the team's own
+/// queue.
+///
+/// onDelete: Restrict on both relations, as CampaignStatusChange does:
+/// deleting an Inquiry or a person must never erase who followed it up and
+/// when.
+model PartnershipInquiryStatusChange {
+  id         String   @id @default(cuid())
+  inquiryId  String
+  fromStatus PartnershipInquiryStatus
+  toStatus   PartnershipInquiryStatus
+  /// Never null: no job and no scheduled task moves an Inquiry forward, only
+  /// a member of the partnership team.
+  actedById  String
+  actedAt    DateTime @default(now())
+
+  // Relations
+  inquiry PartnershipInquiry @relation(fields: [inquiryId], references: [id], onDelete: Restrict)
+  actedBy User                 @relation(fields: [actedById], references: [id], onDelete: Restrict)
+
+  @@index([inquiryId, actedAt])
 }
 
 model Campaign {

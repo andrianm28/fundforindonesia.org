@@ -79,12 +79,17 @@ describe('Program money isolation (ticket 01)', () => {
  * an Inquiry is not a Campaign, so it must reach none of it either.
  */
 describe('PartnershipInquiry money isolation (ticket 05)', () => {
-  it('points at exactly one Program, and that is its only relation', () => {
+  it('points at exactly one Program, plus the log of its own follow-up steps', () => {
     const inquiry = uncommented(blockOf('model', 'PartnershipInquiry'));
 
     expect(inquiry).toMatch(/programId\s+String/);
+    // The only @relation is the one naming the Program. Ticket 06 added a
+    // second, relation-shaped field -- the Inquiry's own follow-up trail --
+    // which is a list of its own log, not a foreign key to anything else, and
+    // so carries no @relation of its own.
     expect(inquiry.match(/@relation/g)).toHaveLength(1);
     expect(inquiry).toMatch(/program\s+Program\s+@relation/);
+    expect(inquiry).toMatch(/statusChanges\s+PartnershipInquiryStatusChange\[\]/);
   });
 
   it.each(['Donation', 'Payment', 'Refund', 'Payout', 'LedgerEntry'])(
@@ -109,5 +114,30 @@ describe('PartnershipInquiry money isolation (ticket 05)', () => {
       'IN_PROGRESS',
       'DONE',
     ]);
+  });
+});
+
+/**
+ * One step along (ticket 06): recording who followed an Inquiry up, and when,
+ * reaches no money either. A follow-up status says where the partnership
+ * team's conversation stands; it never says a Program may be given to, and
+ * nothing may turn a logged follow-up into money moved.
+ */
+describe('PartnershipInquiryStatusChange money isolation (ticket 06)', () => {
+  it('names only the Inquiry it belongs to and the person who moved it', () => {
+    const change = uncommented(blockOf('model', 'PartnershipInquiryStatusChange'));
+
+    expect(change).toMatch(/inquiry\s+PartnershipInquiry\s+@relation/);
+    expect(change).toMatch(/actedBy\s+User\s+@relation/);
+    expect(change.match(/@relation/g)).toHaveLength(2);
+    expect(change).not.toMatch(/amount|balance|escrow|ledger/i);
+    // A follow-up records who and when; it decides nothing on its own.
+    expect(change).not.toMatch(/kind|program|capacity|reason/i);
+  });
+
+  it('never loses a follow-up to a delete of the Inquiry or of the person', () => {
+    const change = blockOf('model', 'PartnershipInquiryStatusChange');
+
+    expect(change.match(/onDelete: Restrict/g)).toHaveLength(2);
   });
 });
