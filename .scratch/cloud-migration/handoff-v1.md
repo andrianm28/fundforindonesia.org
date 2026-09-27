@@ -37,19 +37,22 @@ spec and the deploy gate→approval split, #51 ticket 19 escrow anchor (Sumopod
 fallback T+2, owner decision recorded in `docs/integrasi-sumopod.md`),
 #52 ticket 21 Receipt.
 
-In flight (check each on arrival; none may be merged without Dri's "ya"):
+In flight at 03:05 UTC 2026-09-27. Check each one when you arrive; nothing
+merges without Dri's "ya".
 
-| Work | Where | Next step |
+| Work | Where | State / next step |
 | --- | --- | --- |
-| #56 AGENTS.md tiering + statuses 19/21/ci-cd 24 done | branch `claude/cool-shannon-t1rqdr` | CI, then ask to merge |
-| prd 22 Akad Wakaf | cloud session `session_01JdTy6p5bfGwiVXvu7WSHgt` | PR → CI → ask to merge |
+| #56 AGENTS.md tiering, this handoff, statuses 19/21/ci-cd 24 done | branch `claude/cool-shannon-t1rqdr` | CI → ask to merge |
+| #57 CSR + Hibah tickets 01–11 | `.scratch/csr-and-hibah/issues/` on branch `claude/csr-hibah-tickets` | CI green → ask to merge |
+| #59 prd 24 Traffic Source | branch `claude/traffic-source-24` | Sonnet review clean. Refunded Donations still count as `confirmed`; that is platform-wide and belongs to prd 31/32. CI → ask to merge |
+| prd 22 Akad Wakaf | cloud session `session_01JdTy6p5bfGwiVXvu7WSHgt` | PR → CI → ask |
 | prd 20 scheduled jobs | cloud session `session_01HCLXPf31tN9w4oorHg2jeQ` | PR → independent sonnet review (money/concurrency) → ask |
-| prd 24 Traffic Source | background subagent, branch `claude/traffic-source-24` | PR → sonnet review → ask |
-| prd 16 encryption migrate-contract | background subagent, branch `claude/encryption-migrate-contract-16` | PR → sonnet security review; the contract step needs an owner-run production backfill |
-| ci-cd 19 middleware→proxy | background subagent, branch `claude/middleware-to-proxy-19` | PR → review (auth) → ask |
-| CSR + Hibah tickets | background subagent, branch `claude/csr-hibah-tickets` | PR of `.scratch/csr-and-hibah/issues/` → Dri reviews the ticket list |
+| ci-cd 19 middleware→proxy | subagent, branch `claude/middleware-to-proxy-19` | PR → review (auth) → ask |
+| CSR 01 Program/Sector | subagent, branch `claude/csr-01-program-sector` | PR → sonnet review → ask |
+| Hibah 02+03 regression proofs | subagent, branch `claude/hibah-02-03` | PR → review → ask |
+| prd 16 encryption contract | **blocked on Dri** (see Open questions) | no branch; re-dispatch after the decision |
 
-Background subagents belong to the old session. If a branch has no PR when you
+The subagents belong to the old session. If a branch has no PR when you
 start, re-dispatch that ticket rather than waiting on the old agent.
 
 ## v1 path (definition: all six modules; Fase 1 gate = one real QRIS donation + Receipt)
@@ -58,7 +61,7 @@ Ticket order, dispatched as blockers allow:
 
 - **Donasi:** after 20, run 25 (Impact), then 26 (hide Demo). 23 (guest history) waits on 16.
 - **Wakaf:** 22 is in flight.
-- **Hibah / CSR:** from the tickets being drafted. Hibah documents wait on the syariah review (ADR 0013).
+- **Hibah / CSR:** tickets in #57. Unblocked: CSR 01, Hibah 02/03 (in flight). Then CSR 04/05 after 01, 06 after 05; CSR 07 waits on prd 34; Hibah 09/10 wait on prd 31/33. Hibah documents wait on the syariah review (ADR 0013).
 - **Volunteer / Galang Dana:** code done; verify after deploy.
 - **Deferred:** ci-cd 17, 18, 20–22 (lint rules, Tailwind 4, framer-motion, dotenv); Dependabot #11/#13/#14/#46; Escrow override for disaster Campaigns; rate limit on donation retry.
 
@@ -75,11 +78,22 @@ Ticket order, dispatched as blockers allow:
 
 ## Open questions for Dri
 
+- **prd 16 (blocks prd 23):** dropping plaintext `User.email` breaks Google
+  sign-in, because `@auth/prisma-adapter` queries `where: { email }`.
+  Recommended: a custom adapter that wraps PrismaAdapter, with lookup through
+  `emailHmac`, create writes `emailHmac`/`emailCiphertext`, and `@unique` moves
+  to `emailHmac`. Also recommended: drop `BankAccount`'s unique on
+  `(ownerId, bankCode, accountNumber)` (no live route creates BankAccounts)
+  rather than add an HMAC, which ADR 0012's reasoning argues against. Record
+  the decision as an ADR 0012 amendment (`domain-modeling`), then re-dispatch.
+- **CSR 05:** the partnership team's notification address. Store it as config,
+  not in the repo.
+- **Hibah 11:** recommended to build the per-Kind checklist while finishing
+  prd 12, rather than standalone.
 - Whether the plugin "Skills For Real Engineers" really loads in a fresh cloud
-  session. This session only ever saw the vendored `.claude/skills/`; keep the
-  vendored copy until that is proven (`CLAUDE.md`).
-- The Claude Docs "Roadmap FFI" artifact is stale (before #19). Refresh it only
-  if Dri asks.
+  session. This session only saw the vendored `.claude/skills/`, so keep that
+  until proven.
+- The Claude Docs "Roadmap FFI" artifact is stale; refresh it only if Dri asks.
 
 ## Suggested skills
 
