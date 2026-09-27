@@ -230,7 +230,7 @@ Dokumen ikrar per Donation pada Campaign `wakaf`, memuat nama Wakif, nominal, pe
 _Avoid_: Sertifikat wakaf, deed
 
 **Demo Campaign**:
-Campaign yang boleh dilihat tetapi ditolak menerima Donation dan Payout karena datanya fiktif.
+Campaign yang datanya fiktif. Tidak pernah dicantumkan di katalog, di hasil pencarian, maupun di sitemap, dan angkanya tidak masuk hitungan Impact, karena halaman Impact menjumlahkan Campaign yang bisa ditemukan di katalog. Halamannya sendiri tetap terbuka lewat tautannya dan tetap memakai lencana yang menyatakannya, dan tetap ditolak menerima Donation maupun Payout. Admin tetap melihatnya di layar mereka. Yang menentukan mana adalah kolom `isDemo` pada barisnya, bukan nama, slug, atau daftar Campaign tertentu.
 _Avoid_: Sample, test campaign, contoh (di kode)
 
 **Prayer**:
