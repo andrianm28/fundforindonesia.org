@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient, ProviderWithdrawal } from '@/generated/prisma/client';
-import { collectionAccountWithdrawalLegs, postTransaction, providerBalances, type ProviderBalance } from './ledger';
+import { collectionAccountWithdrawalLegs, MAX_RUPIAH_AMOUNT, postTransaction, providerBalances, type ProviderBalance } from './ledger';
 import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
 import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments';
 import {
@@ -66,13 +66,6 @@ export {
   ProviderWithdrawalNotFoundError,
   ProviderWithdrawalProofRequiredError,
 };
-
-/**
- * The most rupiah that fits an Int column. The real limit on any amount here is
- * PostgreSQL's int4 ceiling, so it is refused by name rather than becoming a
- * driver error no route can turn into a 400.
- */
-const MAX_RUPIAH_AMOUNT = 2_147_483_647;
 
 const MAX_TEXT_LENGTH = 500;
 

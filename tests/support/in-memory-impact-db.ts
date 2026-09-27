@@ -261,7 +261,8 @@ export function ledgerFixture() {
         providerWithdrawalId: opts.providerWithdrawalId,
       });
     },
-    /** Money an Admin recorded as arriving outside the gateway, into a Campaign. */    manualContribution(opts: { manualContributionId: string; campaignId: string; amount: number }) {
+    /** Money an Admin recorded as arriving outside the gateway, into a Campaign. */
+    manualContribution(opts: { manualContributionId: string; campaignId: string; amount: number }) {
       post(
         manualContributionReceivedLegs({
           subject: manualSubject(opts.campaignId),

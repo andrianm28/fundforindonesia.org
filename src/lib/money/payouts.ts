@@ -1,5 +1,5 @@
 import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
-import { campaignBalance, tripBalance, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
+import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
 import {
@@ -259,8 +259,20 @@ export async function approvePayout(
   // `params.provider.trim()` on a non-string would throw a TypeError that no
   // route can turn into a 422, and the caller would be told the server is
   // broken rather than that it forgot to read the dashboard.
+  // The ceiling is the column's, not a policy: Payout.approvedProviderBalance
+  // is an Int, so int4's maximum is the largest reading this row can hold. A
+  // figure above it is not a dashboard anyone read, and letting it through
+  // turns a bad field into a driver error the Admin sees as a 500 rather than
+  // as a reading to correct. Same refusal, same 422, and the Payout stays
+  // DRAFT -- for the same reason a missing reading does not approve anything:
+  // an approval has to be backed by a figure that can be written down.
   const provider = typeof params.provider === 'string' ? params.provider.trim() : '';
-  if (provider === '' || !Number.isInteger(providerBalance) || providerBalance <= 0) {
+  if (
+    provider === '' ||
+    !Number.isInteger(providerBalance) ||
+    providerBalance <= 0 ||
+    providerBalance > MAX_RUPIAH_AMOUNT
+  ) {
     throw new ProviderBalanceNotRecordedError();
   }
 

@@ -404,6 +404,23 @@ async function accountTotal(
 }
 
 /**
+ * The most rupiah that fits an Int column, which is what every money column in
+ * this schema is.
+ *
+ * The real limit on any amount the platform stores is PostgreSQL's int4 ceiling,
+ * not a business rule, so it is refused by name in the application layer rather
+ * than becoming a driver error no route can turn into a 400. Stated ONCE here
+ * because the alternative is a per-module literal, and a limit that is written
+ * down three times is a limit one of the three will forget: an amount above it
+ * passes every check in the code and then fails inside the INSERT, which is a
+ * 500 for a field the caller simply got wrong.
+ *
+ * Widening the columns instead is a repo-wide decision, not a per-call-site
+ * one, and it is not taken here.
+ */
+export const MAX_RUPIAH_AMOUNT = 2_147_483_647;
+
+/**
  * A subject's withdrawable balance, credit-normal: the money that has been
  * credited and not yet spent.
  */
