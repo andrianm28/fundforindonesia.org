@@ -194,6 +194,21 @@ describe('resolvePlatformFeeBasisForCampaign', () => {
 
     expect(basis.percentBps).toBe(250);
   });
+
+  // ticket 03: the exact function a hibah Campaign's own page calls
+  // (src/app/api/campaigns/[slug]/route.ts, src/app/campaign/[slug]/page.tsx)
+  // resolves 0 for it with no rule set, matching zakat/wakaf.
+  it('resolves 0 percentBps for a hibah Campaign with no rule set', async () => {
+    const db = makeDb();
+
+    const basis = await resolvePlatformFeeBasisForCampaign(db as never, {
+      id: 'campaign-1',
+      kind: 'HIBAH' as never,
+      category: 'kesehatan',
+    });
+
+    expect(basis.percentBps).toBe(0);
+  });
 });
 
 describe('setPlatformFeeRule', () => {
