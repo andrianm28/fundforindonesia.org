@@ -602,6 +602,36 @@ describe('collectionAccountBalance', () => {
     expect(directions.length).toBeGreaterThan(0);
     expect([...new Set(directions)]).toEqual(['DEBIT']);
   });
+
+  it('documents the one direction this account has, in the schema, with nothing left that argues with it', async () => {
+    // The disagreement this repo had about the Collection Account was never in
+    // the code -- it always DEBITS, read debits - credits, which is what
+    // collectionAccountBalance does and what the two tests above pin. It was in
+    // the comment on the enum member, which said the account was "only ever
+    // grows" and that "nothing debits this account" in the same breath as the
+    // sweep DEBITS it. Both halves cannot be true, and a reader who has to
+    // choose ends up choosing a half.
+    //
+    // So the claim is pinned where it is written rather than left to be
+    // resolved by whoever opens the file next: the doc may not deny the debit,
+    // and it must still say which way the figure is read, so deleting the
+    // false claim cannot pass by deleting the answer along with it.
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const schema = readFileSync(join(process.cwd(), 'prisma', 'schema.prisma'), 'utf8');
+
+    // The enum member's OWN doc block: every `///` line between the last
+    // non-comment line and the member, not one of the paragraphs on the way
+    // up to it. A bare `///` paragraph break is part of the block, so the
+    // run matches `///` with or without text after it.
+    const doc = /\n((?: {2}\/\/\/.*\n)+) {2}COLLECTION_ACCOUNT\n/.exec(schema);
+    expect(doc).not.toBeNull();
+    const comment = doc![1];
+
+    expect(comment).not.toMatch(/only ever grows/i);
+    expect(comment).not.toMatch(/nothing debits/i);
+    expect(comment).toMatch(/debits\s*-\s*credits/i);
+  });
 });
 
 describe('providerBalances', () => {
