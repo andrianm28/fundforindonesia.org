@@ -143,13 +143,31 @@ export type BankAccountErrorCode =
   | "BANK_ACCOUNT_DECISION_INVALID"
   | "OWN_BANK_ACCOUNT_CONFLICT";
 
+/**
+ * Refusals of granting and revoking VERIFIER and ADMIN (ticket 07/20;
+ * CONTEXT.md, Admin): a direct VERIFIER grant, the two-person ADMIN grant
+ * (propose, confirm, withdraw), and revoking either assignment.
+ */
+export type AssignmentErrorCode =
+  | "ASSIGNMENT_INVALID"
+  | "ASSIGNMENT_ALREADY_GRANTED"
+  | "ASSIGNMENT_GRANT_ALREADY_PENDING"
+  | "ASSIGNMENT_GRANT_REQUEST_NOT_FOUND"
+  | "ASSIGNMENT_GRANT_NOT_PENDING"
+  | "ASSIGNMENT_SELF_CONFIRMATION"
+  | "ASSIGNMENT_GRANT_NOT_OWN_PROPOSAL"
+  | "ASSIGNMENT_SELF_REVOKE"
+  | "LAST_ADMIN_ASSIGNMENT"
+  | "ASSIGNMENT_NOT_HELD";
+
 export type DomainErrorCode =
   | LifecycleErrorCode
   | MoneyErrorCode
   | TripErrorCode
   | CapacityErrorCode
   | PartnerOrganisationErrorCode
-  | BankAccountErrorCode;
+  | BankAccountErrorCode
+  | AssignmentErrorCode;
 
 const HTTP_STATUS: Record<DomainErrorCode, number> = {
   VALIDATION: 400,
@@ -317,6 +335,33 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // A Verifier tried to decide their own account (ADR 0018), the same shape
   // as OWN_CAMPAIGN_CONFLICT / OWN_TRIP_CONFLICT.
   OWN_BANK_ACCOUNT_CONFLICT: 403,
+  // A malformed or missing `assignment` value, fixable by resending.
+  ASSIGNMENT_INVALID: 400,
+  // The grantee already holds this assignment; proposing or granting again
+  // is a conflict with the row that already exists, like
+  // BANK_ACCOUNT_ALREADY_VERIFIED.
+  ASSIGNMENT_ALREADY_GRANTED: 409,
+  // One PENDING AssignmentGrantRequest per grantee (ticket 07/20 answer),
+  // the same shape as BANK_ACCOUNT_VERIFICATION_ALREADY_PENDING.
+  ASSIGNMENT_GRANT_ALREADY_PENDING: 409,
+  ASSIGNMENT_GRANT_REQUEST_NOT_FOUND: 404,
+  // The request was already confirmed or withdrawn, possibly by a
+  // concurrent request that committed first -- the same conditional-write
+  // race BANK_ACCOUNT_VERIFICATION_NOT_PENDING guards against.
+  ASSIGNMENT_GRANT_NOT_PENDING: 409,
+  // The two-person control itself (ticket 07/20 decision): the proposer or
+  // the grantee may not also be the confirming Admin. Not fixable by
+  // resending, so 403 like TWO_PERSON_RULE, not a 409 status conflict.
+  ASSIGNMENT_SELF_CONFIRMATION: 403,
+  // Only the proposer may withdraw their own pending proposal.
+  ASSIGNMENT_GRANT_NOT_OWN_PROPOSAL: 403,
+  // Nobody may revoke their own assignment, of either kind (ticket 07/20
+  // decision) -- the same shape as OWN_CAMPAIGN_CONFLICT / OWN_TRIP_CONFLICT.
+  ASSIGNMENT_SELF_REVOKE: 403,
+  // The last ADMIN cannot be revoked: a conflict with the platform's own
+  // state (headcount), not a bad input.
+  LAST_ADMIN_ASSIGNMENT: 409,
+  ASSIGNMENT_NOT_HELD: 404,
 };
 
 /**
