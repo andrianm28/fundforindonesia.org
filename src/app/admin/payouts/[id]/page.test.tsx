@@ -1,0 +1,170 @@
+import { render, screen, cleanup } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    payout: { findUnique: vi.fn() },
+    campaign: { findUnique: vi.fn() },
+    volunteerTrip: { findUnique: vi.fn() },
+  },
+}));
+
+vi.mock('@/lib/auth', () => ({
+  getServerSession: vi.fn(),
+}));
+
+vi.mock('next/navigation', () => ({
+  notFound: vi.fn(() => {
+    throw new Error('NEXT_NOT_FOUND');
+  }),
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+
+import { prisma } from '@/lib/prisma';
+import { getServerSession } from '@/lib/auth';
+import AdminPayoutDetailPage from './page';
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+const DRAFT_PAYOUT = {
+  id: 'payout-1',
+  campaignId: 'campaign-1',
+  volunteerTripId: null,
+  amount: 5_000_000,
+  description: 'Untuk material sumur',
+  status: 'DRAFT',
+  createdAt: new Date('2026-09-20T00:00:00.000Z'),
+  requestedById: 'fundraiser-1',
+  approvedById: null,
+  approvedAt: null,
+  approvedProvider: null,
+  approvedProviderBalance: null,
+  completedById: null,
+  completedAt: null,
+  proofImage: null,
+  requestedBy: { name: 'Budi' },
+  bankAccount: { bankCode: 'BCA', accountName: 'Budi Santoso' },
+};
+
+describe('AdminPayoutDetailPage', () => {
+  it('404s when the Payout does not exist', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } } as any);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue(null);
+
+    await expect(AdminPayoutDetailPage({ params: Promise.resolve({ id: 'nope' }) })).rejects.toThrow(
+      'NEXT_NOT_FOUND',
+    );
+  });
+
+  it('shows a DRAFT Campaign Payout with its Campaign, requester and bank account, and the approve form', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as any);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue(DRAFT_PAYOUT as any);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+      id: 'campaign-1',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+    } as any);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(screen.getByText('Sumur untuk Desa')).toBeDefined();
+    expect(screen.getByText('Budi')).toBeDefined();
+    expect(screen.getByText(/BCA.*Budi Santoso/)).toBeDefined();
+    expect(screen.getByText(/Rp5\.000\.000/)).toBeDefined();
+    // The approve form is rendered for a DRAFT payout when the viewer is a
+    // different Admin than the requester.
+    expect(screen.getByLabelText(/^penyedia pembayaran$/i)).toBeDefined();
+  });
+
+  it('never reads or shows the Bank Account number (ticket 12: not read at payout while Sumopod has no disbursement API)', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as any);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue(DRAFT_PAYOUT as any);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+      id: 'campaign-1',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+    } as any);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(prisma.payout.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          bankAccount: expect.objectContaining({
+            select: expect.not.objectContaining({ accountNumberCiphertext: true }),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('resolves a Volunteer Trip Payout through the Trip lookup, not the Campaign one', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as any);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+      ...DRAFT_PAYOUT,
+      campaignId: null,
+      volunteerTripId: 'trip-1',
+    } as any);
+    vi.mocked(prisma.volunteerTrip.findUnique).mockResolvedValue({
+      id: 'trip-1',
+      slug: 'trip-lombok',
+      title: 'Trip ke Lombok',
+    } as any);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(screen.getByText('Trip ke Lombok')).toBeDefined();
+    expect(prisma.campaign.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('shows the complete form, with the approving Admin, for an APPROVED Payout', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-3', assignments: ['ADMIN'] } } as any);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+      ...DRAFT_PAYOUT,
+      status: 'APPROVED',
+      approvedById: 'admin-2',
+      approvedAt: new Date('2026-09-21T00:00:00.000Z'),
+      approvedProvider: 'sumopod',
+      approvedProviderBalance: 8_000_000,
+      approvedBy: { name: 'Admin Dua' },
+    } as any);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+      id: 'campaign-1',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+    } as any);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(screen.getByText(/Admin Dua/)).toBeDefined();
+    expect(screen.getByLabelText(/referensi transaksi/i)).toBeDefined();
+  });
+
+  it('shows a read-only summary, no form, for a COMPLETED Payout', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-4', assignments: ['ADMIN'] } } as any);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+      ...DRAFT_PAYOUT,
+      status: 'COMPLETED',
+      approvedById: 'admin-2',
+      approvedAt: new Date('2026-09-21T00:00:00.000Z'),
+      completedById: 'admin-3',
+      completedAt: new Date('2026-09-22T00:00:00.000Z'),
+      proofImage: 'TRX-001 — Ditransfer via BCA',
+      approvedBy: { name: 'Admin Dua' },
+      completedBy: { name: 'Admin Tiga' },
+    } as any);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+      id: 'campaign-1',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+    } as any);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(screen.getByText(/TRX-001/)).toBeDefined();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+});

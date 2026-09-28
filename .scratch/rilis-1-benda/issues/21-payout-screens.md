@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** open
+**Status:** in-review
 
 **Blocked by:** 17 (resolved)
 
@@ -23,3 +23,22 @@ nya (tautan ke `/akun/rekening`, kalimat pembeda "belum pernah menambahkan"
 vs "ada yang ditolak"). Tiket ini menuntaskan sisanya: layar Admin approve +
 complete, dan Payout Volunteer Trip (rute sudah ada, panel Campaign tidak
 reusable langsung -- lihat ticket 17 poin 3, clone panel setelah #114 merge).
+
+## Implementation note (branch `claude/ticket-21-admin-payout-screens`)
+
+Dibangun: `/admin/payouts` (antrean DRAFT "menunggu persetujuan" dan APPROVED
+"menunggu penyelesaian"), `/admin/payouts/[id]` (form approve/complete),
+`AdminPayoutActionForm` (menangani subjek Campaign maupun Volunteer Trip),
+tautan nav Admin. Ticket 02's provider-balance gate sudah ada di
+`src/lib/money/payouts.ts` sebelum ticket ini (session lain); form approve
+memakainya langsung. Ticket 12's jawaban diikuti dengan tidak pernah membaca
+nomor rekening di layar mana pun.
+
+Ticket 13's jawaban (referensi transaksi + kalimat bebas, wajib) diterapkan
+di form (client-side, `src/lib/admin-payout-proof.ts`), digabung jadi satu
+string sebelum dikirim -- `completePayout`/route Zod schema-nya sendiri
+**belum** diubah (masih `min(1)`). Itu perubahan `src/lib/money/**`, dan
+brief ticket ini eksplisit minta stop-and-report alih-alih menebak. Layar
+Volunteer Trip yang dibangun di sini hanya sisi Admin (approve/complete);
+panel Fundraiser untuk MENGAJUKAN Payout Trip (clone CampaignPayoutPanel)
+tidak termasuk brief ini dan masih belum ada.

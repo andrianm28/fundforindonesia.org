@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 
 vi.mock("@/lib/auth", () => ({
   getServerSession: vi.fn(),
@@ -39,5 +40,21 @@ describe("AdminLayout", () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
     const result = await AdminLayout({ children: null });
     expect(result).toBeDefined();
+  });
+
+  describe("nav", () => {
+    afterEach(() => cleanup());
+
+    // Ticket 21 (map.md, "No Admin panel for Payouts"): a screen does not
+    // count unless something points a person at it -- a Payout queue with
+    // no nav link is unreachable the same way the routes it now uses
+    // already were.
+    it("links to the Payout queue", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: null }));
+
+      const link = screen.getByRole("link", { name: /payout|pencairan/i });
+      expect(link.getAttribute("href")).toBe("/admin/payouts");
+    });
   });
 });
