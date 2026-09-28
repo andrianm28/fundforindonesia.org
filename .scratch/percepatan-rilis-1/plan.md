@@ -70,10 +70,10 @@ tidak benar sampai ini dipasang.
 
 | Lajur | Isi, urut pemblokir | Gerbang |
 | --- | --- | --- |
-| **L1 Uang keluar** | tiket 17 (empty state picker) → #114 layar Payout → #95 layar admin Payout → Usage Report dan gating-nya | Fase 2 |
-| **L2 Admin** | pekerjaan Admin yang sudah ada kodenya tanpa layar (scorecard: 2 dari 13 terjangkau), satu layar per tiket | Fase 2 |
-| **L3 Volunteer** | Trip, Batch, dan Registration bisa dijangkau di kedua ujung → Trip Fee nyata → Refund Trip Fee → sertifikat | Fase 3 |
-| **L4 Research + audit** | tiket 18 penyedia kedua; `prd-audit` 01–04 | Fase 2 dan 3 |
+| **L1 Uang keluar** | `rilis-1-benda/issues/17` (resolved, empty state picker) → `rilis-1-benda/issues/21` (layar Payout, request+approve+complete) → `rilis-1-benda/issues/22` (Usage Report dan gating-nya) → `rilis-1-benda/issues/23` (Refund minimal) → `rilis-1-benda/issues/24` (laporan Dormant 60 hari) | Fase 2 |
+| **L2 Admin** | satu layar per tiket: `rilis-1-benda/issues/25` (Suspension/Cancellation), `26` (Manual Contribution), `27` (abuse-thresholds), `28` (pengingat Kind Authorisation) | Fase 2 |
+| **L3 Volunteer** | `rilis-1-benda/issues/29` (layar Trip/Batch/Registration/dashboard/moderasi, suspension, identity-verification) → Trip Fee nyata (`rilis-1-benda/issues/19`, done) → Refund Trip Fee → sertifikat (bentuknya di `prd-audit/issues/10`) | Fase 3 |
+| **L4 Research + audit** | `rilis-1-benda/issues/18` (resolved, Xendit) penyedia kedua; `prd-audit` 01–06 (resolved), 07–10 (open) | Fase 2 dan 3 |
 
 L1–L3 dimulai per tiket begitu keputusan grilling yang memblokirnya turun dan
 barisnya `Blocked by` semuanya `done`. L4 baca-saja dan bisa jalan sekarang.

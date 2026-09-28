@@ -37,6 +37,14 @@ picker alongside it, or #114 stays unreachable after 16 lands. Full
 derivation, and the seven-vs-eleven Admin-route count correction, are in
 `map.md` under *Corrections to the findings above*.
 
+## Addendum 2026-09-28 (2) — the agent-cap number below is stale, do not trust it
+
+Line 176 below ("At most 4 background subagents") is left as written, for the
+same reason as the addendum above: rewriting it would hide that it was once
+read as current. It is not current. `AGENTS.md` is the single source for the
+agent-cap rule (decided in `prd-audit/issues/06`, Q3); read the number there,
+not here.
+
 ## Prompt to open the next session with
 
 Copy the block below as the first message of a fresh session. It is

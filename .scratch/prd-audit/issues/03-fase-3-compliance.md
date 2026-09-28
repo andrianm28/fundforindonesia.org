@@ -2,7 +2,9 @@
 
 **Type:** research
 
-**Status:** open
+**Status:** resolved
+
+**Findings:** `.scratch/prd-audit/research/03-fase-3.md`
 
 **Blocked by:** —
 
@@ -22,3 +24,21 @@
 
 Keluaran ke `.scratch/prd-audit/research/03-fase-3.md` di branch
 `research/prd-audit-03`.
+
+## Answer
+
+Gerbang Fase 3 **🟡**: jalur uang Trip Fee (Registration, Batch, Refund Trip
+Fee, Trip Payout) sudah terpasang ujung-ke-ujung di lapisan API dengan
+kode+tes, tapi gerbangnya gagal pada dua hal independen — tidak ada satu
+layar pun yang menjangkau alur ini (Trip catalog, Batch picker, Registration,
+dashboard Volunteer semuanya tidak ada), dan sertifikat nol kode sama sekali
+(❌ murni). Item Fase 3 di luar gerbang (i18n, WhatsApp, tautan pendek, impor
+settlement otomatis, pengalihan Dormant Balance, Refund oleh Donor, anggota
+tim organisasi) semuanya belum dimulai (❌), ukuran S sampai M/L, jadi bahan
+keputusan per item di tiket ini masuk ke tiket 05. ⚠️ paling serius: rute
+Registration Trip Fee tidak punya sakelar `donationsEnabled()` maupun
+`sandboxInProductionReason()` seperti rute Donation — kill switch donasi
+global tidak menutup Trip Fee, dan interlock sandbox-di-produksi juga tidak
+berlaku di sana.
+
+Pointer: `.scratch/prd-audit/research/03-fase-3.md`.
