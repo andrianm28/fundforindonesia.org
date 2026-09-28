@@ -14,6 +14,7 @@ import { useTrafficSources } from '@/lib/hooks/useTrafficSources';
 import { captureTrafficSource } from '@/lib/traffic-source-capture';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { formatFeePercent } from '@/lib/money/platform-fee';
+import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
 
 export interface CampaignDetailData {
@@ -52,6 +53,132 @@ interface CampaignDetailViewProps {
   campaign: CampaignDetailData;
 }
 
+/** A Payout's Usage Report, as GET /api/campaigns/[slug]/disbursements exposes it publicly (ticket 22; PRD FFI-07a). */
+interface UsageReportSummary {
+  id: string;
+  narrative: string;
+  lineItems: Array<{ label: string; amount: number }>;
+  beneficiaryCount: number;
+  photos: string[];
+  /** Set together, by an Admin (CONTEXT.md, Usage Report): "dipertanyakan", public beside the report. */
+  disputedAt: string | null;
+  disputedReason: string | null;
+}
+
+interface DisbursementRow {
+  id: string;
+  amount: number;
+  description: string;
+  proofImage: string | null;
+  createdAt: string;
+  usageReport: UsageReportSummary | null;
+}
+
+/**
+ * A COMPLETED Payout and its Usage Report -- or the fact that none has been
+ * sent yet (ticket 22; PRD FFI-07a; CONTEXT.md, Usage Report). "tampil
+ * publik di halaman Campaign" is THIS page (src/app/campaign/[slug]/page.tsx
+ * renders CampaignDetailView, not CampaignDetail.tsx, which nothing in the
+ * app links to), so this is where the requirement has to actually be
+ * reachable, under the Pencairan Dana tab below.
+ */
+function DisbursementsTab({ slug }: { slug: string }) {
+  const [rows, setRows] = useState<DisbursementRow[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/campaigns/${slug}/disbursements`)
+      .then((res) => (res.ok ? res.json() : { disbursements: [] }))
+      .then((data) => {
+        if (!cancelled) setRows(Array.isArray(data?.disbursements) ? data.disbursements : []);
+      })
+      .catch(() => {
+        if (!cancelled) setRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  if (rows === null) {
+    return <p className="text-sm text-text-secondary">Memuat data pencairan...</p>;
+  }
+
+  if (rows.length === 0) {
+    return <p className="text-sm text-text-secondary">Belum ada pencairan dana untuk campaign ini.</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {rows.map((row) => {
+        const publicPhotos = row.usageReport?.photos.filter(isPublicPhotoUrl) ?? [];
+        return (
+        <div key={row.id} className="border-b border-border pb-4 last:border-b-0">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-sm font-semibold text-text">{formatRupiah(row.amount)}</p>
+          </div>
+          <p className="text-sm text-text-secondary">{row.description}</p>
+
+          {row.usageReport ? (
+            <div className="mt-3 rounded-lg border border-border bg-gray-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-text">Usage Report</p>
+                {row.usageReport.disputedAt && (
+                  <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-semibold text-danger">
+                    Dipertanyakan
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-text-secondary">{row.usageReport.narrative}</p>
+              <ul className="mt-2 space-y-0.5">
+                {row.usageReport.lineItems.map((item, idx) => (
+                  <li key={idx} className="flex justify-between text-xs text-text-secondary">
+                    <span>{item.label}</span>
+                    <span className="font-medium text-text">{formatRupiah(item.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-text-secondary">{row.usageReport.beneficiaryCount} penerima manfaat</p>
+              {publicPhotos.length > 0 && (
+                <ul className="mt-2 flex flex-wrap gap-2">
+                  {publicPhotos.map((photo, idx) => (
+                    <li key={idx}>
+                      <a
+                        href={photo}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block h-16 w-16 overflow-hidden rounded-lg border border-border"
+                      >
+                        {/* Fundraiser-supplied URL, so a plain <img>, not next/image -- the
+                            same choice CampaignUpdate's own images already make. */}
+                        <img
+                          src={photo}
+                          alt={`Foto bukti ${idx + 1}`}
+                          className="h-full w-full object-cover"
+                        />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {row.usageReport.disputedReason && (
+                <p role="alert" className="mt-2 text-xs text-danger">
+                  {row.usageReport.disputedReason}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-text-secondary italic">
+              Usage Report belum dikirim untuk pencairan ini.
+            </p>
+          )}
+        </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * CampaignDetailView renders the full campaign detail page.
  * This is a client component that receives pre-fetched campaign data
@@ -72,6 +199,10 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   // once this view is mounted (its caller renders it once per lookup), so
   // this is initial state, not state to keep synced with the prop.
   const [lifecycleStatus, setLifecycleStatus] = useState(campaign.lifecycleStatus);
+  // Ticket 22: which of the (so far) two live tabs is shown. "Kabar Terbaru"
+  // stays a plain, unwired button, exactly as all three were before this
+  // ticket -- adding it is a separate concern this ticket does not touch.
+  const [activeTab, setActiveTab] = useState<'story' | 'disbursements'>('story');
 
   const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
   const withdrawal = useWithdrawableSubmission(campaign.slug, lifecycleStatus, setLifecycleStatus);
@@ -322,28 +453,47 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           </div>
         </div>
 
-        {/* Tab navigation placeholder - will be replaced in task 14.2 */}
+        {/* Tab navigation. Only Cerita and Pencairan Dana are wired (ticket
+            22): Kabar Terbaru stays a plain button, as all three were
+            before this ticket -- wiring it is a separate concern. */}
         <div className="flex gap-4 border-b border-border mb-4">
-          <button className="pb-2 text-sm font-medium text-primary border-b-2 border-primary">
+          <button
+            onClick={() => setActiveTab('story')}
+            className={
+              activeTab === 'story'
+                ? 'pb-2 text-sm font-medium text-primary border-b-2 border-primary'
+                : 'pb-2 text-sm font-medium text-text-secondary hover:text-text transition-colors'
+            }
+          >
             Cerita
           </button>
           <button className="pb-2 text-sm font-medium text-text-secondary hover:text-text transition-colors">
             Kabar Terbaru
           </button>
-          <button className="pb-2 text-sm font-medium text-text-secondary hover:text-text transition-colors">
+          <button
+            onClick={() => setActiveTab('disbursements')}
+            className={
+              activeTab === 'disbursements'
+                ? 'pb-2 text-sm font-medium text-primary border-b-2 border-primary'
+                : 'pb-2 text-sm font-medium text-text-secondary hover:text-text transition-colors'
+            }
+          >
             Pencairan Dana
           </button>
         </div>
 
-        {/* Campaign Story */}
-        <div
-          className="prose prose-sm max-w-none text-text leading-relaxed
-            prose-headings:text-text prose-headings:font-semibold
-            prose-p:text-text prose-p:leading-relaxed
-            prose-img:rounded-lg prose-img:my-4
-            prose-a:text-primary prose-a:no-underline hover:prose-a:underline"
-          dangerouslySetInnerHTML={{ __html: campaign.story }}
-        />
+        {activeTab === 'story' ? (
+          <div
+            className="prose prose-sm max-w-none text-text leading-relaxed
+              prose-headings:text-text prose-headings:font-semibold
+              prose-p:text-text prose-p:leading-relaxed
+              prose-img:rounded-lg prose-img:my-4
+              prose-a:text-primary prose-a:no-underline hover:prose-a:underline"
+            dangerouslySetInnerHTML={{ __html: campaign.story }}
+          />
+        ) : (
+          <DisbursementsTab slug={campaign.slug} />
+        )}
       </div>
 
       {/* Fixed bottom CTA -- already visible on every viewport regardless of

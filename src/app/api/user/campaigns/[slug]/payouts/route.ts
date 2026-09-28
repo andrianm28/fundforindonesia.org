@@ -92,11 +92,33 @@ export async function GET(_request: Request, context: RouteContext) {
           createdAt: true,
           approvedAt: true,
           completedAt: true,
+          // Ticket 22 (PRD FFI-07a): only its id and whether it was marked
+          // disputed are needed to compute usageReportStatus below -- never
+          // the report's own content, which this Fundraiser already wrote
+          // and can read on the public Campaign page.
+          usageReport: { select: { id: true, disputedAt: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
     ]),
   );
+
+  // Whether each COMPLETED Payout still blocks the next one from being
+  // requested (CONTEXT.md, Usage Report; @/lib/usage-reports.ts,
+  // campaignBlockingUsageReport, which this mirrors read-only): 'missing' or
+  // 'disputed' both block, 'submitted' does not. Null for a Payout that is
+  // not yet COMPLETED -- the question does not apply to it yet.
+  const payoutsWithUsageReportStatus = payouts.map(({ usageReport, ...payout }) => ({
+    ...payout,
+    usageReportStatus:
+      payout.status !== 'COMPLETED'
+        ? null
+        : !usageReport
+          ? ('missing' as const)
+          : usageReport.disputedAt
+            ? ('disputed' as const)
+            : ('submitted' as const),
+  }));
 
   // The picker offers exactly what requestPayout will accept: this person's
   // own accounts, and only the verified ones. An account whose verification
@@ -146,7 +168,7 @@ export async function GET(_request: Request, context: RouteContext) {
     ),
     escrowHold,
     campaignBalance: available,
-    payouts,
+    payouts: payoutsWithUsageReportStatus,
     bankAccounts,
     hasUnverifiedBankAccount,
   });

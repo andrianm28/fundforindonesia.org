@@ -5,6 +5,8 @@ import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
 import { exceedsPayoutBalance } from '@/lib/payout-balance-rule';
 import { validateProofReference, validateProofNote, buildProofImage } from '@/lib/payout-proof';
+import { campaignBlockingUsageReport } from '@/lib/usage-reports';
+import { UsageReportRequiredError } from '@/lib/usage-report-errors';
 import {
   DemoCampaignError,
   BankAccountNotEligibleError,
@@ -53,6 +55,7 @@ export {
   TwoPersonRuleError,
   UnknownPaymentProviderNameError,
 };
+export { UsageReportRequiredError };
 
 /**
  * The subject a Payout's money is for, taken from its row and locked, in
@@ -155,6 +158,19 @@ export async function requestPayout(
   // and Payout.campaignId's foreign key refuses a Payout for a Campaign
   // that does not exist.
   if (subjectState) requirePayoutAllowed(subjectState);
+
+  // Usage Report gate (ticket 22; CONTEXT.md, Usage Report; PRD FFI-07):
+  // Campaign-only, and asked under the same lock as everything else above --
+  // campaignBlockingUsageReport issues no lock of its own, it reads under
+  // this one. A Volunteer Trip's Payout (Trip Fee, ADR 0014) has no
+  // equivalent requirement anywhere in the PRD or CONTEXT.md, so this is
+  // never asked for a trip subject.
+  if (subject.type === 'campaign') {
+    const blocking = await campaignBlockingUsageReport(tx, subject.campaignId);
+    if (blocking) {
+      throw new UsageReportRequiredError(blocking.id);
+    }
+  }
 
   const bankAccount = await tx.bankAccount.findUnique({ where: { id: bankAccountId } });
   if (!bankAccount || bankAccount.ownerId !== requestedById || !bankAccount.verifiedAt) {

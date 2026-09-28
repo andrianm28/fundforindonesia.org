@@ -167,4 +167,91 @@ describe('AdminPayoutDetailPage', () => {
     expect(screen.getByText(/TRX-001/)).toBeDefined();
     expect(screen.queryByRole('button')).toBeNull();
   });
+
+  it('says the Usage Report has not been sent yet, for a COMPLETED Campaign Payout with none', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-4', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+      ...DRAFT_PAYOUT,
+      status: 'COMPLETED',
+      approvedById: 'admin-2',
+      completedById: 'admin-3',
+      proofImage: 'TRX-001',
+      approvedBy: { name: 'Admin Dua' },
+      completedBy: { name: 'Admin Tiga' },
+      usageReport: null,
+    } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+      id: 'campaign-1',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+    } as never);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(screen.getByText(/belum mengirim Usage Report/)).toBeDefined();
+  });
+
+  it('shows the Usage Report and a way to mark it dipertanyakan, for a COMPLETED Campaign Payout that has one', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-4', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+      ...DRAFT_PAYOUT,
+      status: 'COMPLETED',
+      approvedById: 'admin-2',
+      completedById: 'admin-3',
+      proofImage: 'TRX-001',
+      approvedBy: { name: 'Admin Dua' },
+      completedBy: { name: 'Admin Tiga' },
+      usageReport: {
+        id: 'ur-1',
+        narrative: 'Dana dipakai untuk material sumur.',
+        lineItems: [{ label: 'Material', amount: 5_000_000 }],
+        beneficiaryCount: 30,
+        photos: ['https://example.com/bukti.jpg'],
+        disputedAt: null,
+        disputedReason: null,
+      },
+    } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+      id: 'campaign-1',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+    } as never);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(screen.getByText('Dana dipakai untuk material sumur.')).toBeDefined();
+    expect(screen.getByRole('button', { name: /Tandai dipertanyakan/ })).toBeDefined();
+  });
+
+  it('shows the dispute reason for an already-disputed Usage Report, with no button to dispute it again', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-4', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+      ...DRAFT_PAYOUT,
+      status: 'COMPLETED',
+      approvedById: 'admin-2',
+      completedById: 'admin-3',
+      proofImage: 'TRX-001',
+      approvedBy: { name: 'Admin Dua' },
+      completedBy: { name: 'Admin Tiga' },
+      usageReport: {
+        id: 'ur-1',
+        narrative: 'Dana dipakai untuk material sumur.',
+        lineItems: [{ label: 'Material', amount: 5_000_000 }],
+        beneficiaryCount: 30,
+        photos: ['https://example.com/bukti.jpg'],
+        disputedAt: new Date('2026-09-25T00:00:00.000Z'),
+        disputedReason: 'Foto tidak sesuai narasi.',
+      },
+    } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+      id: 'campaign-1',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+    } as never);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(screen.getByText(/Foto tidak sesuai narasi\./)).toBeDefined();
+    expect(screen.queryByRole('button', { name: /Tandai dipertanyakan/ })).toBeNull();
+  });
 });

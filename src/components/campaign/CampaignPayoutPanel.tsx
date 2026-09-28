@@ -75,6 +75,14 @@ interface PayoutRow {
   createdAt: string;
   approvedAt: string | null;
   completedAt: string | null;
+  /**
+   * Ticket 22 (PRD FFI-07a; CONTEXT.md, Usage Report): null for a Payout that
+   * is not yet COMPLETED, since the question does not apply to it yet.
+   * 'missing' and 'disputed' both block the next Payout on this Campaign
+   * (campaignBlockingUsageReport, @/lib/usage-reports.ts) and both leave the
+   * form offered below; 'submitted' hides it.
+   */
+  usageReportStatus: 'missing' | 'submitted' | 'disputed' | null;
 }
 
 interface BankAccountOption {
@@ -107,6 +115,202 @@ function formatDate(value: string): string {
   return new Date(value).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+interface UsageReportLineItemInput {
+  label: string;
+  amount: string;
+}
+
+/**
+ * The form for one COMPLETED Payout that still needs a Usage Report (ticket
+ * 22; PRD FFI-07a): a narrative, at least one line item, a beneficiary count,
+ * and at least one photo URL. Posts to
+ * POST /api/campaigns/[slug]/payouts/[id]/usage-report, which is where every
+ * rule about the report actually lives (@/lib/usage-reports.ts) -- this form
+ * only collects the fields and shows the server's own refusal when it says
+ * no, the same choice the Payout request form above makes.
+ *
+ * SEVERAL LINE ITEMS, ADDED AND REMOVED FREELY. The server accepts several
+ * ("rincian per pos") and requires their total to equal the Payout's own
+ * amount exactly, so this form lets a Fundraiser split a Payout across as
+ * many posts as their spending actually had, shows the running total against
+ * the Payout amount as they type, and disables submit until the two match --
+ * not because this form is the authority on the arithmetic (the server still
+ * checks it, the same as every other money rule here), but so a Fundraiser
+ * is told the mismatch before they submit rather than after. The first row is
+ * pre-filled with the Payout's own amount so the ordinary case (one Payout,
+ * one purpose) needs no arithmetic at all.
+ */
+function UsageReportForm({ slug, payout, onSubmitted }: { slug: string; payout: PayoutRow; onSubmitted: () => void }) {
+  const [narrative, setNarrative] = useState('');
+  const [lineItems, setLineItems] = useState<UsageReportLineItemInput[]>([
+    { label: '', amount: String(payout.amount) },
+  ]);
+  const [beneficiaryCount, setBeneficiaryCount] = useState('');
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+
+  function updateLineItem(index: number, patch: Partial<UsageReportLineItemInput>) {
+    setLineItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  }
+
+  function addLineItem() {
+    setLineItems((prev) => [...prev, { label: '', amount: '' }]);
+  }
+
+  function removeLineItem(index: number) {
+    setLineItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  const parsedAmounts = lineItems.map((item) => Number(item.amount));
+  const total = parsedAmounts.reduce((sum, n) => sum + (Number.isInteger(n) ? n : 0), 0);
+  const totalMatches = total === payout.amount;
+  const beneficiaries = Number(beneficiaryCount);
+  const allLineItemsValid = lineItems.every(
+    (item, i) => item.label.trim() !== '' && Number.isInteger(parsedAmounts[i]) && parsedAmounts[i] > 0,
+  );
+  const canSubmit =
+    narrative.trim() !== '' &&
+    lineItems.length > 0 &&
+    allLineItemsValid &&
+    totalMatches &&
+    Number.isInteger(beneficiaries) &&
+    beneficiaries > 0 &&
+    photoUrl.trim() !== '' &&
+    !submitting;
+
+  async function submit() {
+    if (!canSubmit || submitting) return;
+    setSubmitting(true);
+    setRefusal(null);
+    try {
+      const res = await fetch(`/api/campaigns/${slug}/payouts/${payout.id}/usage-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          narrative: narrative.trim(),
+          lineItems: lineItems.map((item, i) => ({ label: item.label.trim(), amount: parsedAmounts[i] })),
+          beneficiaryCount: beneficiaries,
+          photos: [photoUrl.trim()],
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setRefusal(typeof body.error === 'string' && body.error !== '' ? body.error : 'Gagal mengirim Usage Report.');
+        return;
+      }
+      onSubmitted();
+    } catch {
+      setRefusal('Gagal mengirim Usage Report.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-3 rounded-lg border border-border bg-gray-50 p-3">
+      <label className="block text-sm text-text">
+        Narasi pemakaian dana
+        <textarea
+          aria-label="Narasi pemakaian dana"
+          value={narrative}
+          onChange={(e) => setNarrative(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-border px-3 py-2"
+        />
+      </label>
+
+      <div className="space-y-2">
+        {lineItems.map((item, index) => (
+          <div key={index} className="flex gap-2">
+            <label className="block flex-1 text-sm text-text">
+              {index === 0 ? 'Nama pos' : `Nama pos ${index + 1}`}
+              <input
+                aria-label={`Nama pos ${index + 1}`}
+                value={item.label}
+                onChange={(e) => updateLineItem(index, { label: e.target.value })}
+                className="mt-1 w-full rounded-lg border border-border px-3 py-2"
+              />
+            </label>
+
+            <label className="block w-40 text-sm text-text">
+              {index === 0 ? 'Nominal pos (Rp)' : `Nominal pos (Rp) ${index + 1}`}
+              <input
+                aria-label={`Nominal pos (Rp) ${index + 1}`}
+                inputMode="numeric"
+                value={item.amount}
+                onChange={(e) => updateLineItem(index, { amount: e.target.value.replace(/\D/g, '') })}
+                className="mt-1 w-full rounded-lg border border-border px-3 py-2"
+              />
+            </label>
+
+            {lineItems.length > 1 && (
+              <button
+                type="button"
+                aria-label={`Hapus pos ${index + 1}`}
+                onClick={() => removeLineItem(index)}
+                className="mt-6 h-fit rounded-lg border border-border px-2 py-2 text-xs text-text-secondary"
+              >
+                Hapus
+              </button>
+            )}
+          </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={addLineItem}
+          className="text-xs font-medium text-primary underline"
+        >
+          + Tambah pos
+        </button>
+      </div>
+
+      <p className={`text-xs ${totalMatches ? 'text-text-secondary' : 'text-danger'}`} role={totalMatches ? undefined : 'alert'}>
+        Total rincian {formatRupiah(total)} dari nominal Payout {formatRupiah(payout.amount)}
+        {!totalMatches && ' -- harus sama persis sebelum bisa dikirim'}.
+      </p>
+
+      <label className="block text-sm text-text">
+        Jumlah penerima manfaat
+        <input
+          aria-label="Jumlah penerima manfaat"
+          inputMode="numeric"
+          value={beneficiaryCount}
+          onChange={(e) => setBeneficiaryCount(e.target.value.replace(/\D/g, ''))}
+          className="mt-1 w-full rounded-lg border border-border px-3 py-2"
+        />
+      </label>
+
+      <label className="block text-sm text-text">
+        URL foto bukti
+        <input
+          aria-label="URL foto bukti"
+          value={photoUrl}
+          onChange={(e) => setPhotoUrl(e.target.value)}
+          placeholder="https://..."
+          className="mt-1 w-full rounded-lg border border-border px-3 py-2"
+        />
+      </label>
+      <p className="text-xs text-text-secondary">Minimal satu foto bukti wajib dilampirkan.</p>
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={!canSubmit}
+        className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        Kirim
+      </button>
+
+      {refusal && (
+        <p role="alert" className="text-sm text-danger">
+          {refusal}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function CampaignPayoutPanel({ slug }: { slug: string }) {
   const router = useRouter();
   const [data, setData] = useState<PayoutRead | null>(null);
@@ -116,6 +320,10 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
   const [bankAccountId, setBankAccountId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  // Which COMPLETED Payout's Usage Report form is open, at most one at a
+  // time -- there is no reason to fill in two reports side by side, and a
+  // single id keeps the state as simple as the form itself.
+  const [openUsageReportFor, setOpenUsageReportFor] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -345,6 +553,34 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
                 <p className="mt-1 text-xs text-text-secondary">
                   {payout.description} - diajukan {formatDate(payout.createdAt)}
                 </p>
+
+                {payout.usageReportStatus === 'submitted' && (
+                  <p className="mt-2 text-xs text-text-secondary">Usage Report sudah dikirim untuk pencairan ini.</p>
+                )}
+                {payout.usageReportStatus === 'disputed' && (
+                  <p role="alert" className="mt-2 text-xs text-danger">
+                    Usage Report untuk pencairan ini ditandai dipertanyakan Admin.
+                  </p>
+                )}
+                {payout.usageReportStatus === 'missing' &&
+                  (openUsageReportFor === payout.id ? (
+                    <UsageReportForm
+                      slug={slug}
+                      payout={payout}
+                      onSubmitted={() => {
+                        setOpenUsageReportFor(null);
+                        load();
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setOpenUsageReportFor(payout.id)}
+                      className="mt-2 text-xs font-medium text-primary underline"
+                    >
+                      Kirim Usage Report
+                    </button>
+                  ))}
               </li>
             ))}
           </ul>

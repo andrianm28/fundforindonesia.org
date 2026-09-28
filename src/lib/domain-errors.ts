@@ -144,6 +144,20 @@ export type BankAccountErrorCode =
   | "OWN_BANK_ACCOUNT_CONFLICT";
 
 /**
+ * Refusals of a Usage Report -- a Fundraiser's account of one Payout's
+ * money (ticket 22; PRD FFI-07a; CONTEXT.md, Usage Report) -- and of the
+ * gate it puts on the next Payout on the same Campaign
+ * (src/lib/usage-reports.ts, src/lib/money/payouts.ts).
+ */
+export type UsageReportErrorCode =
+  | "USAGE_REPORT_REQUIRED"
+  | "USAGE_REPORT_NOT_FOUND"
+  | "USAGE_REPORT_ALREADY_EXISTS"
+  | "USAGE_REPORT_PAYOUT_NOT_COMPLETED"
+  | "USAGE_REPORT_INVALID"
+  | "USAGE_REPORT_ALREADY_DISPUTED";
+
+/**
  * Refusals of granting and revoking VERIFIER and ADMIN (ticket 07/20;
  * CONTEXT.md, Admin): a direct VERIFIER grant, the two-person ADMIN grant
  * (propose, confirm, withdraw), and revoking either assignment.
@@ -167,7 +181,8 @@ export type DomainErrorCode =
   | CapacityErrorCode
   | PartnerOrganisationErrorCode
   | BankAccountErrorCode
-  | AssignmentErrorCode;
+  | AssignmentErrorCode
+  | UsageReportErrorCode;
 
 const HTTP_STATUS: Record<DomainErrorCode, number> = {
   VALIDATION: 400,
@@ -364,6 +379,26 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // state (headcount), not a bad input.
   LAST_ADMIN_ASSIGNMENT: 409,
   ASSIGNMENT_NOT_HELD: 404,
+  // A conflict with the Campaign's own Payout history, like
+  // TOO_MANY_ACTIVE_CAMPAIGNS: it clears by itself once the blocking Payout
+  // gets an undisputed Usage Report, never by resending this same request.
+  USAGE_REPORT_REQUIRED: 409,
+  USAGE_REPORT_NOT_FOUND: 404,
+  // One Usage Report per Payout (the schema's own unique payoutId): a second
+  // submission is a conflict with the row that already exists, like
+  // BANK_ACCOUNT_ALREADY_VERIFIED.
+  USAGE_REPORT_ALREADY_EXISTS: 409,
+  // A Fundraiser can only report on money that has actually moved; this
+  // clears once the Payout reaches COMPLETED, not by resending.
+  USAGE_REPORT_PAYOUT_NOT_COMPLETED: 409,
+  // Malformed or missing fields the Fundraiser can fix by resending: narasi
+  // kosong, foto kurang dari satu, atau rincian yang tidak menjumlah ke
+  // nominal Payout -- the same shape as MANUAL_CONTRIBUTION_INVALID.
+  USAGE_REPORT_INVALID: 400,
+  // Already marked dipertanyakan; there is no code path that lifts a
+  // dispute, so a second one is a conflict with the row's own history, like
+  // BANK_ACCOUNT_ALREADY_VERIFIED.
+  USAGE_REPORT_ALREADY_DISPUTED: 409,
 };
 
 /**
