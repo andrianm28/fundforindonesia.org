@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
-import { Assignment, VerificationOutcome } from "@/generated/prisma/client";
+import { Assignment } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { readBankAccountNumber, SELECT_BANK_ACCOUNT_NUMBER } from "@/lib/contact-fields";
+import { readBankAccountNumber } from "@/lib/contact-fields";
 import { maskBankAccountNumber } from "@/lib/bank-account-mask";
+import { pendingBankAccountVerifications } from "@/lib/bank-account-verification";
 import { DecidePanel } from "./DecidePanel";
 
 /**
@@ -25,21 +26,7 @@ export default async function ModerasiRekeningPage() {
     redirect("/");
   }
 
-  const requests = await prisma.bankAccountVerificationRequest.findMany({
-    where: { outcome: VerificationOutcome.PENDING },
-    orderBy: { submittedAt: "asc" },
-    include: {
-      bankAccount: {
-        select: {
-          id: true,
-          bankCode: true,
-          accountName: true,
-          owner: { select: { name: true } },
-          ...SELECT_BANK_ACCOUNT_NUMBER,
-        },
-      },
-    },
-  });
+  const requests = await pendingBankAccountVerifications(prisma);
 
   return (
     <div className="space-y-6">
@@ -56,7 +43,7 @@ export default async function ModerasiRekeningPage() {
         return (
           <section key={request.id} className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-4">
             <div className="space-y-1">
-              <p className="text-sm text-[#212121] font-medium">Pemilik: {account.owner.name}</p>
+              <p className="text-sm text-[#212121] font-medium">Pemilik: {account.ownerName}</p>
               <p className="text-sm text-[#757575]">Bank (ditulis pemilik): {account.bankCode}</p>
               <p className="text-sm text-[#757575]">Nama pemilik rekening (ditulis pemilik): {account.accountName}</p>
               <p className="text-sm text-[#757575]">

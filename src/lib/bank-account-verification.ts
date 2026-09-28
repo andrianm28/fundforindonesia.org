@@ -1,6 +1,6 @@
 import { Prisma, VerificationOutcome } from "@/generated/prisma/client";
 import type { BankAccount, BankAccountVerificationRequest, PrismaClient } from "@/generated/prisma/client";
-import { sealBankAccountNumber } from "./contact-fields";
+import { sealBankAccountNumber, SELECT_BANK_ACCOUNT_NUMBER } from "./contact-fields";
 import {
   BankAccountAlreadyVerifiedError,
   BankAccountDecisionInvalidError,
@@ -33,6 +33,12 @@ import {
  * (see BankAccount's own schema comment): two accounts may share a number,
  * and the compensation is that a Payout is checked against the account
  * verified before it is approved (payouts.ts), unchanged by this module.
+ *
+ * Notification is in-app only, on submit and on decision. No email:
+ * `decideVerificationRequest` (campaign-lifecycle.ts) emails through a
+ * template built around `/campaign/[slug]`, and there is no bank-account
+ * template. Inventing one is not this ticket's work, so this is a stated
+ * choice, not an oversight.
  */
 
 type Tx = Prisma.TransactionClient;
@@ -298,4 +304,62 @@ export async function decideBankAccountVerification(
 /** A rejection's required reason (decision 2), written into the request's `note` column. */
 function cleanRejectionReason(raw: unknown): string {
   return cleanDecisionText(raw, "Alasan penolakan", "reason", 1000);
+}
+
+// ==================== The Verifier's queue (flow step 3) ====================
+
+/** One row of the Verifier queue: the request, its account, and the account's ciphertext (never decrypted here). */
+export type PendingBankAccountVerification = {
+  id: string;
+  submittedAt: Date;
+  bankAccount: {
+    id: string;
+    bankCode: string;
+    accountName: string;
+    ownerId: string;
+    ownerName: string;
+    accountNumberCiphertext: string;
+    accountNumberKeyId: string;
+  };
+};
+
+/**
+ * Every PENDING BankAccountVerificationRequest, oldest first (flow step 3).
+ * Shared by `GET /api/moderasi/bank-accounts` (which masks the number) and
+ * `/moderasi/rekening` (which additionally decrypts the full number,
+ * server-rendered, for the decide panel -- decision 6) so the two do not
+ * each hand-roll the same query and include shape.
+ */
+export async function pendingBankAccountVerifications(
+  prisma: Pick<PrismaClient, "bankAccountVerificationRequest">
+): Promise<PendingBankAccountVerification[]> {
+  const requests = await prisma.bankAccountVerificationRequest.findMany({
+    where: { outcome: VerificationOutcome.PENDING },
+    orderBy: { submittedAt: "asc" },
+    include: {
+      bankAccount: {
+        select: {
+          id: true,
+          bankCode: true,
+          accountName: true,
+          ownerId: true,
+          owner: { select: { name: true } },
+          ...SELECT_BANK_ACCOUNT_NUMBER,
+        },
+      },
+    },
+  });
+  return requests.map((request) => ({
+    id: request.id,
+    submittedAt: request.submittedAt,
+    bankAccount: {
+      id: request.bankAccount.id,
+      bankCode: request.bankAccount.bankCode,
+      accountName: request.bankAccount.accountName,
+      ownerId: request.bankAccount.ownerId,
+      ownerName: request.bankAccount.owner.name,
+      accountNumberCiphertext: request.bankAccount.accountNumberCiphertext,
+      accountNumberKeyId: request.bankAccount.accountNumberKeyId,
+    },
+  }));
 }
