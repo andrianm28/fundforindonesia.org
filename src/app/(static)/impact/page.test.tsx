@@ -76,7 +76,9 @@ describe('ImpactPage', () => {
     await renderPage();
 
     expect(screen.getByText(/Tersalurkan ke Fundraiser/)).toBeTruthy();
-    expect(screen.getByText(/Dikembalikan ke Donor/)).toBeTruthy();
+    // Matched on the leading verb, not the tail: this test is about every line
+    // being NAMED, and the returned line's name now opens with "Disediakan".
+    expect(screen.getByText(/^Disediakan untuk dikembalikan ke Donor/)).toBeTruthy();
     expect(screen.getByText(/Ditahan di Escrow Hold/)).toBeTruthy();
     expect(screen.getByText(/Tersedia di Campaign Balance/)).toBeTruthy();
     expect(screen.getByText(/Platform Fee yang tidak dikembalikan/)).toBeTruthy();
@@ -117,9 +119,12 @@ describe('ImpactPage', () => {
   it('tells a Donor that the returned line includes money not yet sent to them', async () => {
     // The returned line is REFUND_CLEARING plus the Frozen Balance of Refunds
     // nobody has approved yet, so at this moment none of the 100 000 has been
-    // transferred to anybody. "Dikembalikan ke Donor" on its own is a claim
-    // about the Donor's bank account that the ledger does not support, and it
-    // is the one claim on this page a Donor would notice being wrong.
+    // transferred to anybody. Any label that opens with a completed-tense verb
+    // is a claim about the Donor's bank account that the ledger does not
+    // support, and it is the one claim on this page a Donor would notice being
+    // wrong. The three assertions below are the regression guards, and they are
+    // about the WORDING rather than the figure, because the figure was already
+    // right and still misread.
     const ledger = ledgerFixture();
     ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
     ledger.refundRequest({
@@ -140,8 +145,18 @@ describe('ImpactPage', () => {
     await renderPage();
 
     expect(renderedLine('returnedToDonors')).toBe(100_000);
-    expect(screen.getByText(/Dikembalikan ke Donor/)).toBeTruthy();
-    expect(screen.getByText(/dikomit belum dikirim/)).toBeTruthy();
+    // The label itself: set aside for returning, and the pending part last, so
+    // it sits next to the number where the eye already is.
+    expect(screen.getByText('Disediakan untuk dikembalikan ke Donor, belum semuanya ditransfer')).toBeTruthy();
+    // No completed-tense verb in the opening position, and no dev jargon on a
+    // page that is not behind auth.
+    expect(screen.queryByText(/^Dikembalikan/)).toBeNull();
+    expect(screen.queryByText(/dikomit/)).toBeNull();
+    // And the disclosure is in the paragraph under the table and in the notes,
+    // which are the two places a Donor actually reads -- not only in a label
+    // too short to carry it.
+    expect(screen.getByText(/tidak berarti uangnya sudah sampai di rekening Donor/)).toBeTruthy();
+    expect(screen.getByText(/sudah disiapkan untuk dikembalikan tetapi belum ditransfer/)).toBeTruthy();
   });
 
   it('stops telling a Donor their refund is frozen inside a dispute window', async () => {

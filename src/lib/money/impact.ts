@@ -72,11 +72,28 @@ export const IMPACT_LINES = [
   },
   {
     key: 'returnedToDonors',
-    // The figure covers money already handed back AND money only committed to
-    // a Donor so far, so the label has to say both. "Dikembalikan ke Donor"
-    // alone is a claim about the Donor's bank account that is false for every
-    // Refund still waiting on its second and third Admin.
-    label: 'Dikembalikan ke Donor, termasuk yang sudah dikomit belum dikirim',
+    // This page has no auth, so the label is read by a Donor looking at their
+    // OWN money, and it is the one line whose figure is not a place money has
+    // ended up but money still in transit. Three rules, learned the hard way:
+    //
+    //   1. The first words must not be a completed-tense verb. "Dikembalikan
+    //      ke Donor" as the opening three words is a claim about the Donor's
+    //      bank account, and it is false for every Refund that has not been
+    //      transferred. "Disediakan" says the opposite -- set up, not delivered.
+    //   2. No dev jargon. "dikomit" was accurate (the money IS committed) and
+    //      meaningless to every reader of a public page; "disiapkan" says the
+    //      same thing to a Donor.
+    //   3. The pending part goes LAST, next to the number, because that is
+    //      where the eye lands -- not hidden after a comma behind the big
+    //      figure and the word "Dikembalikan".
+    //
+    // "belum semuanya ditransfer" is deliberately vague about HOW MANY are
+    // outstanding rather than quoting a split. Today nothing has been
+    // transferred at all (refundPaidLegs has no production caller, ticket 32),
+    // and the moment it gets one the split changes; a number there would be
+    // either wrong today or stale tomorrow. The sentence under the table and
+    // the `notes` entry carry the disclosure in words instead.
+    label: 'Disediakan untuk dikembalikan ke Donor, belum semuanya ditransfer',
   },
   {
     key: 'heldInEscrowHold',
@@ -122,7 +139,7 @@ export interface ImpactBreakdown {
     unrecoveredProviderFee: number;
     uncoveredRefunds: number;
   };
-  /** Disbursed but not yet marked COMPLETED (a later ticket adds that step). */
+  /** Disbursed but not yet marked COMPLETED (completePayout, ./payouts.ts). */
   disbursedNotYetCompleted: number;
   /**
    * Money that arrived outside the gateway and is counted in `collected`,
@@ -383,6 +400,18 @@ export async function impactBreakdown(
         'Penerima manfaat dihitung dari Usage Report; belum ada satu pun Usage Report, jadi angkanya nol.',
         'Manual Contribution adalah dana yang masuk di luar payment gateway, dicatat Admin dengan bukti dan disetujui Admin kedua; masuk ke terkumpul tanpa biaya provider maupun platform, dan yang sudah dibalikkan tidak dihitung.',
         'Platform Fee dan Provider Fee adalah uang platform dan penyedia, bukan bagian dari dana Campaign.',
+        // The disclosure the returned line cannot make for itself. The label has
+        // to stay short, and the table gives a visitor no place to put a
+        // sentence -- so this is the paragraph a Donor actually reads. Same
+        // shape as the Manual Contribution note above: what the figure
+        // INCLUDES, and what is deliberately not counted.
+        //
+        // Phrased state-agnostically on purpose. "Sebagian sudah ditransfer"
+        // would be false today -- refundPaidLegs has no production caller, so
+        // none of it has left -- and stale the moment ticket 32 wires it up.
+        // What is true in every state of a Refund's life is what the figure
+        // COVERS, which is what this says.
+        'Angka pengembalian ke Donor mencakup dua hal: uang yang sudah ditransfer ke rekening Donor, dan uang yang sudah disiapkan untuk dikembalikan tetapi belum ditransfer. Yang kedua belum sampai ke Donor dan tetap miliknya; platform tidak menahannya sebagai dana Campaign.',
       ],
     };
   });
