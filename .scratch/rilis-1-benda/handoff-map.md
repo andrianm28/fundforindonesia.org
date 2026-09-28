@@ -11,6 +11,32 @@ This session was **degraded** — see "Session health" below. The map, the
 scorecard and the glossary are all merged and correct; what needs a fresh
 window is the *judgement*, not the facts.
 
+## Addendum 2026-09-28 — one claim below is now known to be incomplete
+
+The body of this handoff is left as it was written: it is a snapshot of
+2026-09-27, and editing it would hide that these claims once looked settled.
+One of them no longer is, and a session reading this file will otherwise plan
+against it.
+
+**"#114 is blocked only by the absence of `bankAccount.create`" is wrong: it has
+two blockers.** Verified per-byte on `origin/main` at `a1889fe`. This affects
+the claims at line 69 ("the one that blocks real money") and line 170 ("the
+only ticket that blocks money from actually moving"), and the "nothing else
+unblocks first" reasoning behind both:
+
+- `Payout.bankAccountId` is **already required** (`prisma/schema.prisma:1684`,
+  no `?`), and the payout API already demands it
+  (`src/app/api/campaigns/[slug]/payouts/route.ts:10`,
+  `'Rekening bank harus dipilih'`). The schema and the API have been waiting
+  for a picker.
+- **No `.tsx` in `src/` names `bankAccount` at all.** So the account picker on
+  the Payout form does not exist either, and it is **not** ticket 16's work.
+
+Ticket 16 closes **one** of the two. Whoever schedules #114 must schedule the
+picker alongside it, or #114 stays unreachable after 16 lands. Full
+derivation, and the seven-vs-eleven Admin-route count correction, are in
+`map.md` under *Corrections to the findings above*.
+
 ## Prompt to open the next session with
 
 Copy the block below as the first message of a fresh session. It is
