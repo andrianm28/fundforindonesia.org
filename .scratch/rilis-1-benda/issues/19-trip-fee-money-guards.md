@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done -- merged in PR #123 (`af6567f`)
 
 **Blocked by:** —
 

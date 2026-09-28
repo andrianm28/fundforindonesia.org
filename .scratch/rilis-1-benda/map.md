@@ -174,6 +174,19 @@ question only Dri can settle. None is written up as a fix, deliberately.
   research. Rilis 1 now includes the Fase 2 gate, which needs Payments from two
   providers reconciled; no second provider is named anywhere.
 
+New from the 2026-09-28 triage round (`prd-audit/triage-2026-09-28.md` Bagian
+A), one line each:
+
+- [21: Payout screens -- Fundraiser request, Admin approve, Admin complete with proof](issues/21-payout-screens.md): lajur L1, blocked by 17 (resolved).
+- [22: Usage Report -- model, route, form, tampilan publik, gating Payout berikutnya](issues/22-usage-report.md): lajur L1.
+- [23: Refund -- siklus minimal (create -> approve) dan layarnya](issues/23-refund-minimal-lifecycle.md): lajur L1, cakupan dipersempit.
+- [24: Laporan Dormant Balance 60 hari](issues/24-dormant-60-day-report.md): lajur L1/L2, laporan saja, bukan pengalihannya.
+- [25: Layar Admin -- Suspension dan Cancellation](issues/25-admin-suspension-cancellation-screen.md): lajur L2.
+- [26: Layar Admin -- Manual Contribution](issues/26-admin-manual-contribution-screen.md): lajur L2.
+- [27: Layar Admin -- konfigurasi ambang penyalahgunaan (abuse-thresholds)](issues/27-admin-abuse-thresholds-screen.md): lajur L2.
+- [28: Permukaan pengingat Kind Authorisation](issues/28-admin-kind-authorisation-reminder-surface.md): lajur L2.
+- [29: Layar Volunteer Trip -- catalog, Batch, Registration, dashboard, moderasi](issues/29-volunteer-trip-screens.md): lajur L3, blocked by `prd-audit/issues/10` for the certificate part only.
+
 ## Not yet specified
 
 Fog, in coarse patches — sharp enough to know it is in scope, not yet sharp

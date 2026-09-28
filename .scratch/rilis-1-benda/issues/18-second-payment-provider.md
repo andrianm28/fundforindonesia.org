@@ -2,7 +2,7 @@
 
 **Type:** research
 
-**Status:** open
+**Status:** resolved
 
 **Findings:** `.scratch/rilis-1-benda/research/18-second-provider.md`
 
@@ -25,3 +25,17 @@ and anything that conflicts with ADRs on the Payment model.
 
 Output: a cited comparison on branch `research/second-provider`, with a
 recommendation the owner then decides on. The choice itself is Dri's.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch triage round
+(`prd-audit/triage-2026-09-28.md`, Bagian A Q6): **Xendit** -- confirmed
+Foundation/NPO onboarding, the widest VA/e-wallet coverage, Rp2.500/transaction
+disbursement, and automatic sandbox. DOKU stays the runner-up (stronger SNAP
+signature scheme, weaker confirmed NPO onboarding evidence).
+
+**Precondition before adapter work starts:** neither vendor's webhook payload
+was confirmed to carry the fee and settlement-estimate fields the way
+Sumopod's does. The first builder on this ticket verifies that directly
+against Xendit's own docs (not WebSearch) before writing the adapter --
+findings and the field mapping go in this ticket's Answer once checked.

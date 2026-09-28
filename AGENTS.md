@@ -46,3 +46,7 @@ Selalu isi `model` saat men-dispatch; subagent tidak pernah mewarisi model sesi.
 - Kode uang, keamanan, atau konkurensi selalu mendapat review independen
   `sonnet`; perubahan dokumen saja atau perbaikan kecil dengan CI hijau boleh
   tanpa reviewer tambahan.
+- Sebelum merge, posting ringkasan reviewer independen sebagai
+  `pull_request_review_write` atau `add_issue_comment` sungguhan di PR-nya
+  (pakai footer Claude Code), bukan hanya dirangkum ke pesan commit
+  (keputusan owner 2026-09-28, `prd-audit/issues/06`).

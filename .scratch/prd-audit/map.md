@@ -57,6 +57,20 @@ resolved, dan spec-nya bisa diserahkan ke `/to-spec`.
   ke PR — celahnya jejak audit, bukan review yang dilewati.
   `.scratch/prd-audit/issues/04-matt-workflow-compliance.md`, bukti
   `.scratch/prd-audit/research/04-workflow.md`.
+- **05** (resolved): Owner "ya semua triase" 2026-09-28 untuk seluruh Bagian A
+  (Q1–Q18) -- setiap celah gerbang mendapat tiket `prd-audit` (07–10) atau
+  `rilis-1-benda` (18, 21–29), dan tujuh item Fase 3 di luar gerbang (Q12–Q18)
+  diputuskan tidak masuk Rilis 1. Diresolve bersama tiket 06 karena keduanya
+  dijawab dalam satu pesan owner.
+  `.scratch/prd-audit/issues/05-triage-prd-gaps.md`, keputusan
+  `.scratch/prd-audit/triage-2026-09-28.md` Bagian A.
+- **06** (resolved): Owner "ya semua triase" 2026-09-28 untuk seluruh Bagian B
+  (Q1–Q6) -- review independen wajib diposting ke PR (aturan baru di
+  `AGENTS.md`), tiket 35 dikoreksi ke PR #108, `AGENTS.md` jadi satu-satunya
+  sumber batas agent, `CONTEXT.md` dibersihkan dari path/identifier kode, dua
+  temuan LOW/INFO diterima apa adanya. Diresolve bersama tiket 05.
+  `.scratch/prd-audit/issues/06-triage-workflow-gaps.md`, keputusan
+  `.scratch/prd-audit/triage-2026-09-28.md` Bagian B.
 
 ## Not yet specified
 
@@ -65,3 +79,14 @@ resolved, dan spec-nya bisa diserahkan ke `/to-spec`.
 ## Out of scope
 
 - Mengukur metrik PRD §5 terhadap angka nyata. Rilis 1 hanya menuntut metriknya *bisa diukur* (keputusan Q10.4); nilainya baru ada setelah Soft Launch.
+
+Tujuh item Fase 3 di luar gerbang, diputuskan tidak masuk Rilis 1 pada triase
+2026-09-28 (`triage-2026-09-28.md` Bagian A):
+
+- **Versi bahasa Inggris (i18n, Q12)** -- tidak ada gerbang yang menyebutnya, dan ukurannya paling besar dari semua item non-gate.
+- **Notifikasi WhatsApp (Q13)** -- tidak ada gerbang yang membutuhkannya; email transaksional sudah cukup untuk Fase 0/1/2.
+- **Tautan pendek (Q14)** -- FFI-06 sendiri menunda ke Fase 3, tidak ada gerbang yang menyebutnya.
+- **Impor settlement otomatis (Q15)** -- gerbang Fase 2 hanya menuntut rekonsiliasi, bukan otomatis; manual sudah cukup.
+- **Pengalihan Dormant Balance (Q16)** -- `CONTEXT.md` dan PRD sudah menaruh pengalihannya (bukan laporan 60 harinya) di luar rilis pertama.
+- **Refund yang diminta Donor (Q17)** -- konsisten dengan PRD §7.2 yang eksplisit menyatakan Donor tidak bisa memulai Refund sendiri hari ini.
+- **Anggota tim Fundraiser organisasi (Q18)** -- tidak ada gerbang yang membutuhkannya, dan satu akun per organisasi sudah cukup untuk Rilis 1.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 27
 
-**Status:** done (PR #93, 9e3e6d6)
+**Status:** done (PR #108, a1889fe) -- landed as `pr93-carried`, not PR #93/`9e3e6d6`; correction per `prd-audit/issues/06`, Q2.
 
 - [x] A collection account exists in the ledger, distinct from the Merchant Account and able to belong to a different legal entity
 - [x] An Admin records a withdrawal from the provider to the collection account as a balanced journal
