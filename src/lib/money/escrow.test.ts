@@ -115,17 +115,7 @@ function makeDb(
   const queryRawCalls: TemplateStringsArray[] = [];
 
   mockPaymentFindMany.mockImplementation(
-    async ({
-      where,
-      cursor,
-      skip,
-      take,
-    }: {
-      where: Record<string, unknown>;
-      cursor?: { id: string };
-      skip?: number;
-      take?: number;
-    }) => {
+    async ({ where, take }: { where: Record<string, unknown>; take?: number }) => {
       const now = (where.escrowReleaseAt as { lte: Date }).lte;
       const campaignFilter = (where.donation as { campaignId: string } | undefined)?.campaignId;
       const tripFilter = (where.registration as { batch: { tripId: string } } | undefined)?.batch?.tripId;
@@ -138,16 +128,16 @@ function makeDb(
           (!campaignFilter || p.campaignId === campaignFilter) &&
           (!tripFilter || p.tripId === tripFilter),
       );
-      // Mirrors releaseMaturedEscrow's own `orderBy: [{ escrowSweepDeferredAt:
-      // { sort: 'asc', nulls: 'first' } }, { escrowReleaseAt: 'asc' }, { id:
-      // 'asc' }]` (ticket 15) -- a stable, deterministic order the
-      // cursor/skip pagination below can rely on the same way the real query
-      // does. NOTE: this reimplements that ordering and the cursor/skip
-      // paging by hand over an in-memory array; it is an approximation of
-      // Prisma's actual `cursor`/`skip`/ORDER-BY-NULLS SQL semantics, not a
-      // test that exercises Prisma or Postgres themselves -- the migration
-      // itself is what proves the real index and column exist and apply
-      // cleanly (see `npm run ci:local -- migrations`).
+      // Mirrors releaseMaturedEscrow's own single-query `orderBy: [{
+      // escrowSweepDeferredAt: { sort: 'asc', nulls: 'first' } },
+      // { escrowReleaseAt: 'asc' }, { id: 'asc' }]` (ticket 15). NOTE: this
+      // reimplements that ordering by hand over an in-memory array -- an
+      // approximation of Prisma's actual ORDER-BY-NULLS SQL semantics, not a
+      // test that exercises Prisma or Postgres themselves. The rotation
+      // itself is proved against a real Postgres in
+      // src/__tests__/integration/escrow-sweep-rotation.test.ts; this file's
+      // job is everything else (guards, fee math, idempotency) that does not
+      // need a real database to prove.
       matches = matches.sort((a, b) => {
         const aDeferred = a.escrowSweepDeferredAt?.getTime() ?? null;
         const bDeferred = b.escrowSweepDeferredAt?.getTime() ?? null;
@@ -160,10 +150,6 @@ function makeDb(
         if (byMaturity !== 0) return byMaturity;
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       });
-      if (cursor?.id) {
-        const idx = matches.findIndex((p) => p.id === cursor.id);
-        matches = idx === -1 ? [] : matches.slice(idx + (skip ?? 0));
-      }
       return matches.slice(0, take ?? matches.length).map((p) =>
         p.campaignId != null
           ? {
@@ -827,11 +813,12 @@ describe('releaseMaturedEscrow -- a Suspended Campaign', () => {
       'instead of starving on that same window forever (ticket 15 regression)',
     async () => {
       // ESCROW_RELEASE_SWEEP_LIMIT + a margin of permanently-stuck, oldest
-      // rows -- comfortably more than one page's worth -- all belonging to
-      // one SUSPENDED Campaign, so the guard defers every one of them
+      // rows -- comfortably more than the release quota, though still well
+      // under ESCROW_RELEASE_SWEEP_SCAN_LIMIT's single read -- all belonging
+      // to one SUSPENDED Campaign, so the guard defers every one of them
       // without touching escrowReleaseAt or escrowReleasedAt. Before ticket
       // 15, `take: ESCROW_RELEASE_SWEEP_LIMIT` ordered oldest-first meant
-      // this query's one and only page WAS these rows -- payment-releasable,
+      // these rows WERE the query's entire read -- payment-releasable,
       // maturing after all of them, was never even read.
       const STUCK_COUNT = ESCROW_RELEASE_SWEEP_LIMIT + 5;
       const base = Date.now() - 30 * MS_PER_DAY;
@@ -874,7 +861,7 @@ describe('releaseMaturedEscrow -- a Suspended Campaign', () => {
       });
       expect(result.releasedCount).toBe(1);
       // It looked well past the first ESCROW_RELEASE_SWEEP_LIMIT rows to get
-      // there -- the paging this ticket adds, not a lucky single page.
+      // there, all within the one read this call issues.
       expect(result.consideredCount).toBeGreaterThan(ESCROW_RELEASE_SWEEP_LIMIT);
       expect(result.consideredCount).toBe(STUCK_COUNT + 1);
       // None of the stuck rows were released or touched.
@@ -891,20 +878,19 @@ describe('releaseMaturedEscrow -- escrowSweepDeferredAt rotation across calls (t
   });
 
   it(
-    'reaches a releasable Payment behind MORE permanently-stuck Payments than any single call\'s scan ' +
-      'budget, within a bounded number of calls -- proving the rotation, not merely the in-call cursor, ' +
-      'is what prevents starvation',
+    'reaches a releasable Payment behind MORE permanently-stuck Payments than any single call\'s read ' +
+      'limit, within a bounded number of calls -- proving the persisted rotation, not merely reading ' +
+      'more per call, is what prevents starvation',
     async () => {
       // More stuck rows than ESCROW_RELEASE_SWEEP_SCAN_LIMIT itself: no
-      // single call can even finish looking at all of them, let alone
-      // release past them in one pass. The old in-call-cursor-only design
-      // (this ticket's first draft) would starve here forever, the same way
-      // main starves at ESCROW_RELEASE_SWEEP_LIMIT -- just at a higher
-      // number. What is supposed to make this bounded now is
-      // escrowSweepDeferredAt: every row this call marks frozen rotates
-      // behind never-marked rows on the NEXT call's query, so the second
-      // call sees the remaining, never-yet-marked stuck rows and the
-      // releasable row first, not the same front-of-queue rows again.
+      // single call's one read can even reach all of them, let alone release
+      // past them in one pass. Main (no escrowSweepDeferredAt at all) would
+      // starve here forever, the same way it starves at
+      // ESCROW_RELEASE_SWEEP_LIMIT -- just at a higher number. What makes
+      // this bounded is escrowSweepDeferredAt: every row this call marks
+      // frozen rotates behind never-marked rows on the NEXT call's query, so
+      // the second call sees the remaining, never-yet-marked stuck rows and
+      // the releasable row first, not the same front-of-queue rows again.
       const STUCK_COUNT = ESCROW_RELEASE_SWEEP_SCAN_LIMIT + 50;
       const base = Date.now() - 60 * MS_PER_DAY;
       const stuckPayments = Array.from({ length: STUCK_COUNT }, (_, i) =>
@@ -1025,7 +1011,7 @@ describe('releaseMaturedEscrow -- warnings (ticket 15)', () => {
       expect(result).toEqual({ releasedCount: 0, consideredCount: ESCROW_RELEASE_SWEEP_SCAN_LIMIT });
       expect(warnSpy).toHaveBeenCalledTimes(1);
       const message = warnSpy.mock.calls[0][0] as string;
-      expect(message).toContain(`scanned ${ESCROW_RELEASE_SWEEP_SCAN_LIMIT} matured holds`);
+      expect(message).toContain(`read ${ESCROW_RELEASE_SWEEP_SCAN_LIMIT} matured holds`);
       expect(message).toContain(`${ESCROW_RELEASE_SWEEP_SCAN_LIMIT} were deferred by a permanent guard`);
       expect(message).toContain('The sweep is not reaching the rest of the backlog');
       expect(message).toContain('deferredEscrowWatchdog');

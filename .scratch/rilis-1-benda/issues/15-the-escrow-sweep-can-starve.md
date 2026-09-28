@@ -125,7 +125,7 @@ baris macet permanen. Bukan gerbang Fase 2 murni — boleh menyusul setelah
 
 ## Implementation note
 
-**Rework (2026-09-30), owner memilih opsi (b): penanda yang tersimpan lintas
+**Rework (2026-09-28), owner memilih opsi (b): penanda yang tersimpan lintas
 panggilan**, menggantikan draf pertama (cursor dalam-satu-panggilan saja,
 lihat riwayat git untuk draf itu) supaya perbaikan mengikuti teks jawaban
 secara literal, bukan hanya efeknya.
@@ -157,35 +157,69 @@ hanya ikut ditulis oleh pemenang klaim) -- pilihan: **dibersihkan**, bukan
 dibiarkan, supaya baris yang pernah macet lalu selesai terbaca identik
 dengan baris yang tak pernah macet sama sekali.
 
-Paging dalam-satu-panggilan (cursor `id`, `ESCROW_RELEASE_SWEEP_SCAN_LIMIT`)
-dari draf pertama **dipertahankan** di atas rotasi ini, bukan dihapus:
-keduanya menyelesaikan masalah berbeda. Rotasi lintas-panggilan adalah yang
-membuat kelaparan mustahil untuk **berapa pun** jumlah baris macet permanen
-(dibuktikan test baru: baris macet lebih banyak dari
-`ESCROW_RELEASE_SWEEP_SCAN_LIMIT` sendiri, baris releasable tetap tercapai
-dalam 2 panggilan). Paging dalam-panggilan adalah kenyamanan di atas itu --
-membiarkan satu panggilan mencapai baris releasable yang duduk tepat di
-belakang barisan macet, alih-alih menunggu rotasi bekerja lewat beberapa
-panggilan.
+`console.warn` membedakan dua kasus: kuota rilis terpenuhi
+(`releasedCount === ESCROW_RELEASE_SWEEP_LIMIT`, backlog normal) vs baca
+penuh (`matured.length === scanLimit`) tanpa kuota rilis terpenuhi (backlog
+didominasi baris macet permanen, pesan menyatakan eksplisit "the sweep is
+not reaching the rest of the backlog" dan menunjuk `deferredEscrowWatchdog`).
+Komentar presedensi (`if`/`else if`, bukan dua kondisi independen) ada tepat
+di atas cabang pertama.
 
-`console.warn` tetap membedakan dua kasus seperti draf pertama: kuota rilis
-terpenuhi (`releasedCount === ESCROW_RELEASE_SWEEP_LIMIT`, backlog normal)
-vs batas scan tercapai tanpa kuota rilis terpenuhi (backlog didominasi baris
-macet permanen, pesan menyatakan eksplisit "the sweep is not reaching the
-rest of the backlog" dan menunjuk `deferredEscrowWatchdog`). Ditambah
-komentar presedensi (`if`/`else if`, bukan dua kondisi independen) sesuai
-nit review.
+**Round 3 (2026-09-28), review independen menemukan cacat pada paging
+dalam-satu-panggilan draf sebelumnya**: draf itu memakai `cursor: { id },
+skip: 1` di atas kueri yang kunci urut pertamanya (`escrowSweepDeferredAt`)
+nullable dengan `nulls: 'first'`. Prisma menjangkarkan cursor pada nilai
+orderBy baris cursor itu sendiri; perbandingan NULL-vs-nilai di batas
+halaman bisa melompati atau mengulang baris -- dan itu **hanya** terverifikasi
+lewat mock JS di test, bukan Postgres sungguhan. Koordinator memutuskan:
+**hapus paging dalam-panggilan sepenuhnya** -- penanda persisten sudah jadi
+mekanisme keamanan-starvation-nya, paging tak lagi diperlukan untuk itu, dan
+kerumitannya (plus risikonya) tak lagi terbayar.
 
-Regresi diverifikasi: test baru "reaches a releasable Payment behind MORE
-permanently-stuck Payments than any single call's scan budget" (lebih dari
-`ESCROW_RELEASE_SWEEP_SCAN_LIMIT` baris macet) membuktikan rotasi lintas
-panggilan, bukan sekadar cursor dalam-panggilan, yang menutup starvation.
-Test warning menutup kedua cabang peringatan (backlog normal dan
-backlog-macet-dominan) plus kasus tanpa peringatan sama sekali. Mock test
-(`escrow.test.ts`) diberi catatan eksplisit: ia meniru urutan/cursor/nulls
-Prisma di atas array in-memory, bukan menjalankan Prisma/Postgres
-sungguhan -- migrasi sendiri (`npm run ci:local -- migrations`) yang
-membuktikan kolom dan indeks nyata berlaku bersih.
+`releaseMaturedEscrow` sekarang **satu** `findMany` (bukan loop halaman),
+`orderBy` sama, `take: scanLimit` (parameter baru, default
+`ESCROW_RELEASE_SWEEP_SCAN_LIMIT`; **konstanta itu sendiri tak pernah
+diubah** -- test memakai `options.scanLimit` kecil agar tak perlu men-seed
+ribuan baris ke Postgres sungguhan). Baris diproses berurutan sampai
+`ESCROW_RELEASE_SWEEP_LIMIT` benar-benar dirilis atau baris habis. Stempel
+`escrowSweepDeferredAt` tetap satu `updateMany` batch setelah loop selesai
+(alasan yang sama seperti draf sebelumnya, kini lebih jelas: tak ada lagi
+cursor yang bisa dirusak, tapi satu batch tetap lebih murah daripada
+menulis per-baris).
+
+**Test Postgres sungguhan ditambahkan**:
+`src/__tests__/integration/escrow-sweep-rotation.test.ts`, mengikuti pola
+`src/lib/drop-migration-guard.test.ts` /
+`src/__tests__/ledger-transaction-claim-migration.test.ts` (bukan
+`donation-flow.test.ts`, yang ternyata mem-mock prisma sepenuhnya dan tak
+pernah membuka koneksi -- disebutkan koordinator sebagai contoh tapi
+faktanya bukan; catatan ini ditulis untuk kejelasan, bukan koreksi ke
+siapa pun). Test membuat database sekali-pakai bernama unik, memutar ULANG
+setiap file `prisma/migrations/*/migration.sql` lewat `pg.Client` mentah
+(skema penuh, bukan sebagian -- sweep melintasi Payment/Donation/Campaign
+dan Registration/Batch/VolunteerTrip), lalu `vi.doMock('@/lib/prisma', ...)`
++ `import()` dinamis (kedua-duanya SETELAH database ada dan termigrasi)
+supaya `releaseMaturedEscrow` berjalan tanpa modifikasi di atas Postgres
+nyata. `TEST_DATABASE_URL` (bukan `DATABASE_URL`) adalah variabelnya --
+sama seperti `drop-migration-guard.test.ts` -- karena job `test` CI (yang
+punya service Postgres dan `npx vitest run`) hanya men-set env var itu,
+bukan `DATABASE_URL`. Tanpa itu, `describe.skipIf` melewati seluruh blok
+dengan `console.warn` yang bisa dilihat, sama seperti dua file precedent
+di atas. Database sekali-pakai selalu di-`DROP ... WITH (FORCE)` di
+`afterAll`.
+
+Kedua test di file itu: (1) baris macet lebih banyak dari `scanLimit`
+suntikan (5, bukan `ESCROW_RELEASE_SWEEP_SCAN_LIMIT` asli) tercapai dalam
+tepat 2 panggilan, dengan bukti langsung bahwa baris yang dilihat panggilan
+pertama benar-benar tertanda `escrowSweepDeferredAt` bukan hanya disimpulkan
+dari hasil panggilan kedua; (2) baris yang pernah macet lalu Suspensinya
+dicabut dan dirilis, `escrowSweepDeferredAt`-nya kembali `null`. Dijalankan
+lokal dengan `TEST_DATABASE_URL=postgresql://ci:ci@localhost:5432/ci` (role
+`ci` dan database `ci` sudah ada dari environment ini) -- **2/2 lolos**.
+
+Mock test (`escrow.test.ts`) disederhanakan sesuai: `cursor`/`skip` dihapus
+dari mock `payment.findMany`, komentarnya sekarang menunjuk test Postgres
+di atas untuk pembuktian urutan sungguhan.
 
 Tak ada perubahan pada `escrowReleaseAt`/`escrowReleasedAt` atau semantik
 guard mana pun; klaim `updateMany` berpredikat tetap satu-satunya penjaga
@@ -193,15 +227,20 @@ race-safety pelepasan. Kanari `platformFeePortionFor` tetap 3 pemanggilan,
 `requireRefundAllowedForKind` 3, `BankAccountNotEligibleError` 6. Tak ada
 `as any`.
 
-Verifikasi: `npx vitest run src/lib/money/escrow.test.ts
-src/lib/scheduled-jobs.test.ts src/app/api/admin/reconcile/route.test.ts`
-(93 lolos), `npx tsc --noEmit` (47, baseline, tak satu pun di file yang
-diubah), `node ci/ratchet.mjs` (lint 193 baseline, tsc 47 baseline, keduanya
-unchanged), `npm run ci:local -- migrations` (migrasi berlaku bersih dan
-cocok dengan schema.prisma; satu kegagalan lokal-saja yang sudah diketahui
-di `ledger-transaction-claim-migration.test.ts`, diabaikan sesuai arahan).
+Verifikasi (round 3): `npx vitest run src/lib/money/escrow.test.ts
+src/lib/scheduled-jobs.test.ts src/app/api/admin/reconcile/route.test.ts
+src/__tests__/integration/escrow-sweep-rotation.test.ts` dengan
+`TEST_DATABASE_URL` di-set -- 95 lolos (termasuk 2 test Postgres
+sungguhan, bukan skip); tanpa `TEST_DATABASE_URL` -- test Postgres itu
+skip dengan `console.warn`, sisanya tetap lolos. `npx tsc --noEmit` (47,
+baseline, tak satu pun di file yang diubah). `node ci/ratchet.mjs` (lint
+193 baseline, tsc 47 baseline, keduanya unchanged). `npm run ci:local --
+migrations` (migrasi berlaku bersih dan cocok dengan schema.prisma; satu
+kegagalan lokal-saja yang sudah diketahui di
+`ledger-transaction-claim-migration.test.ts`, diabaikan sesuai arahan).
 Full suite sengaja tidak dijalankan (builder lain memakainya).
 `git diff --name-only origin/main HEAD` menyentuh `prisma/schema.prisma`,
 `prisma/migrations/20260930090000_escrow_sweep_cursor/migration.sql`,
-`src/lib/money/escrow.ts`, `src/lib/money/escrow.test.ts`, dan file tiket
+`src/lib/money/escrow.ts`, `src/lib/money/escrow.test.ts`,
+`src/__tests__/integration/escrow-sweep-rotation.test.ts`, dan file tiket
 ini.
