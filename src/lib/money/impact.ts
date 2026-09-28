@@ -15,12 +15,23 @@ import type { PrismaClient } from '@/generated/prisma/client';
  * into exactly six destinations, which is what a visitor is shown:
  *
  *   1. disbursedToFundraisers     instructed out of the Campaign Balance
- *   2. returnedToDonors           handed back, at Gross
- *   3. heldInEscrowHold           still inside the dispute window, plus the
- *                                 Frozen Balance of Refunds not yet paid out
+ *   2. returnedToDonors           handed back, at Gross, PLUS the Frozen
+ *                                 Balance of Refunds committed to a Donor
+ *                                 but not yet paid out
+ *   3. heldInEscrowHold           still inside the waiting period that gives a
+ *                                 Refund room to happen (CONTEXT.md)
  *   4. availableInCampaignBalance withdrawable now
  *   5. platformFeeRetained        Platform Fee the platform kept
  *   6. providerFeeKept            Provider Fee the provider kept
+ *
+ * A refund counts as returned the moment it is created, not when it is
+ * approved. refundRequestedLegs moves the money out of the Campaign's pools
+ * and into the Frozen Balance in the same transaction, so from that instant it
+ * is the Donor's and never the Campaign's again; approval and payment are
+ * handovers between two accounts of the same line. So `returnedToDonors` is
+ * "money that is, or is about to be, the Donor's" -- which is why its label
+ * says so, and why the frozen part is not also counted as Escrow Hold: one
+ * rupiah, one line.
  *
  * They are not six independent figures stapled together; they are one
  * conservation law read six ways, and the reader asserts it rather than
@@ -61,11 +72,41 @@ export const IMPACT_LINES = [
   },
   {
     key: 'returnedToDonors',
-    label: 'Dikembalikan ke Donor',
+    // This page has no auth, so the label is read by a Donor looking at their
+    // OWN money, and it is the one line whose figure is not a place money has
+    // ended up but money still in transit. Three rules, learned the hard way:
+    //
+    //   1. The first words must not be a completed-tense verb. "Dikembalikan
+    //      ke Donor" as the opening three words is a claim about the Donor's
+    //      bank account, and it is false for every Refund that has not been
+    //      transferred. "Refund" is the noun and stops there: it names the
+    //      kind and asserts no stage at all.
+    //   2. No dev jargon. "dikomit" was accurate (the money IS committed) and
+    //      meaningless to every reader of a public page; "Refund" says the
+    //      same thing to a Donor.
+    //   3. The pending part goes LAST, next to the number, because that is
+    //      where the eye lands -- not hidden after a comma behind the big
+    //      figure and the word "Dikembalikan".
+    //
+    // Note there is no "belum semuanya ditransfer" tail in the label either:
+    // "Refund" is the whole of it. A stage word is deliberately left out of a
+    // cell that cannot hold a sentence, and the disclosure is carried by the
+    // paragraph under the table and the `notes` entry below -- the two places a
+    // Donor actually reads it, next to the figure rather than standing in for
+    // it. That tail is also deliberately vague about HOW MANY are outstanding:
+    // today nothing has been transferred at all (refundPaidLegs has no
+    // production caller, ticket 32), and the moment it gets one the split
+    // changes, so a number there would be either wrong today or stale
+    // tomorrow.
+    label: 'Refund',
   },
   {
     key: 'heldInEscrowHold',
-    label: 'Ditahan di Escrow Hold, termasuk yang dibekukan menunggu Refund',
+    // Only money still inside the Escrow Hold's waiting period: a Refund's
+    // freeze sits on the returned line, because it is the Donor's money, not
+    // money the Campaign is still holding (CONTEXT.md, Frozen Balance: "tetap
+    // menjadi hak Donor").
+    label: 'Ditahan di Escrow Hold, masih dalam masa tunggu',
   },
   {
     key: 'availableInCampaignBalance',
@@ -103,7 +144,7 @@ export interface ImpactBreakdown {
     unrecoveredProviderFee: number;
     uncoveredRefunds: number;
   };
-  /** Disbursed but not yet marked COMPLETED (a later ticket adds that step). */
+  /** Disbursed but not yet marked COMPLETED (completePayout, ./payouts.ts). */
   disbursedNotYetCompleted: number;
   /**
    * Money that arrived outside the gateway and is counted in `collected`,
@@ -308,13 +349,30 @@ export async function impactBreakdown(
       sum(refundShortfall, 'ESCROW_HOLD:CREDIT') + sum(refundShortfall, 'CAMPAIGN_BALANCE:CREDIT');
     const unrecoveredProviderFee = sum(byRefund, 'REFUND_COST:DEBIT') - uncoveredRefunds;
 
+    // Money a Refund has taken out of the Campaign's pools and set aside for a
+    // Donor: refundRequestedLegs credits it at REQUESTED and refundApprovedLegs
+    // debits it at APPROVED, so this balance is exactly the Gross of every Refund
+    // the platform owes a Donor but has not yet recognised as returned.
+    //
+    // It is the DONOR's money from the moment the Refund is created, so it is
+    // part of the returned line and not of the Escrow Hold one -- but only ONE
+    // of the two, or the same rupiah is counted twice and the six lines stop
+    // reconciling. The two lines below are one move, not two figures: whatever
+    // leaves `heldInEscrowHold` arrives in `returnedToDonors`, so the total
+    // across all six is unchanged and the conservation law above still holds by
+    // construction rather than by luck.
+    const frozenForDonors = balance(campaignPools, 'FROZEN_BALANCE');
+
     const amounts: Record<ImpactLineKey, number> = {
       disbursedToFundraisers: sum(byPayout, 'PAYOUT_CLEARING:CREDIT'),
       // A Refund is money that really went back, so it is shown at Gross --
-      // except for the part no Campaign money covered, which is the platform's
-      // loss rather than a return of collected funds (reported below).
-      returnedToDonors: returnedGross - uncoveredRefunds,
-      heldInEscrowHold: balance(campaignPools, 'ESCROW_HOLD') + balance(campaignPools, 'FROZEN_BALANCE'),
+      // including the part that is committed to a Donor but not yet paid out,
+      // which is the Donor's money all the same (see `frozenForDonors` above)
+      // -- except for the part no Campaign money covered, which is the
+      // platform's loss rather than a return of collected funds (reported
+      // below).
+      returnedToDonors: returnedGross + frozenForDonors - uncoveredRefunds,
+      heldInEscrowHold: balance(campaignPools, 'ESCROW_HOLD'),
       availableInCampaignBalance: balance(campaignPools, 'CAMPAIGN_BALANCE'),
       platformFeeRetained: platformFeeCharged - platformFeeReturned,
       providerFeeKept: providerFeeCharged - unrecoveredProviderFee,
@@ -347,6 +405,18 @@ export async function impactBreakdown(
         'Penerima manfaat dihitung dari Usage Report; belum ada satu pun Usage Report, jadi angkanya nol.',
         'Manual Contribution adalah dana yang masuk di luar payment gateway, dicatat Admin dengan bukti dan disetujui Admin kedua; masuk ke terkumpul tanpa biaya provider maupun platform, dan yang sudah dibalikkan tidak dihitung.',
         'Platform Fee dan Provider Fee adalah uang platform dan penyedia, bukan bagian dari dana Campaign.',
+        // The disclosure the returned line cannot make for itself. The label has
+        // to stay short, and the table gives a visitor no place to put a
+        // sentence -- so this is the paragraph a Donor actually reads. Same
+        // shape as the Manual Contribution note above: what the figure
+        // INCLUDES, and what is deliberately not counted.
+        //
+        // Phrased state-agnostically on purpose. "Sebagian sudah ditransfer"
+        // would be false today -- refundPaidLegs has no production caller, so
+        // none of it has left -- and stale the moment ticket 32 wires it up.
+        // What is true in every state of a Refund's life is what the figure
+        // COVERS, which is what this says.
+        'Angka pengembalian ke Donor mencakup dua hal: uang yang sudah ditransfer ke rekening Donor, dan uang yang sudah disiapkan untuk dikembalikan tetapi belum ditransfer. Yang kedua belum sampai ke Donor dan tetap miliknya; platform tidak menahannya sebagai dana Campaign.',
       ],
     };
   });

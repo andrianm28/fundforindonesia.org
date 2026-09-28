@@ -128,7 +128,13 @@ export default async function ImpactPage({ searchParams }: ImpactPageProps) {
       </table>
       <p className="text-sm text-text-secondary mb-8">
         Total enam baris sama dengan dana terkumpul: {formatRupiah(linesTotal)}.{' '}
-        {breakdown.disbursedNotYetCompleted > 0
+        {/* The one number on this page a Donor can misread about their OWN
+            money, so the correction sits in the paragraph under the table --
+            not in a footnote, and not in the label, which cannot hold a
+            sentence. Same position as the disbursed caveat beside it. */}
+        Baris pengembalian ke Donor tidak berarti uangnya sudah sampai di rekening Donor: angka itu
+        mencakup uang yang sudah ditransfer dan uang yang sudah disiapkan untuk dikembalikan tetapi
+        masih menunggu transfer. {breakdown.disbursedNotYetCompleted > 0
           ? `Sebesar ${formatRupiah(breakdown.disbursedNotYetCompleted)} sudah instructing dari saldo Campaign tetapi belum ditandai selesai oleh Admin.`
           : null}
       </p>
