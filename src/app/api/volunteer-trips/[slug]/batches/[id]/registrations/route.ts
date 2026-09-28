@@ -10,6 +10,11 @@ import { refusalResponse } from '@/lib/refusal-response';
 import { holdRegistration } from '@/lib/volunteer/trip';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
 import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
+import {
+  donationsEnabled,
+  sandboxInProductionReason,
+  DONATIONS_DISABLED_MESSAGE,
+} from '@/lib/donations';
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris'] as const;
 const PROVIDER_METHOD_FOR: Record<(typeof VALID_PAYMENT_METHODS)[number], PaymentMethod> = {
@@ -25,6 +30,24 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> },
 ) {
+  // The same switch that gates POST /api/donations. Owner decision
+  // 2026-09-28: Trip Fee is stopped by the SAME switch as Donation -- one
+  // emergency switch stops all incoming money, not two that can drift apart.
+  // Checked before the session, before the Trip is looked up, before
+  // anything is held or written -- see donationsEnabled (src/lib/donations.ts).
+  if (!donationsEnabled()) {
+    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+  }
+
+  // The interlock behind the switch. Sandbox credentials in production take
+  // real rupiah into an account that settles nowhere; see
+  // sandboxInProductionReason (src/lib/donations.ts).
+  const blocked = sandboxInProductionReason();
+  if (blocked) {
+    console.error(`[registrations] refusing every charge: ${blocked}`);
+    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+  }
+
   try {
     const session = await getServerSession();
     if (!session?.user) {

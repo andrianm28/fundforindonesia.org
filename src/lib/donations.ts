@@ -1,5 +1,13 @@
 /**
- * Whether POST /api/donations will take money, and the interlock behind it.
+ * Whether any route that takes money will run, and the interlock behind it.
+ *
+ * One emergency switch stops all incoming money, not one per route: owner
+ * decision 2026-09-28, after an audit found the Volunteer Trip Fee route
+ * charging through a provider with neither guard. POST /api/donations, POST
+ * /api/donations/[id]/retry, and POST on the Volunteer Trip registration
+ * route (Trip Fee) all gate on this pair before touching a provider or
+ * writing anything. A route that takes money and does not call both of these
+ * first is the defect this pair exists to prevent.
  *
  * This used to be a hardcoded `false`, because the only provider available
  * was a mock that fabricated a VA number no bank issued. That is no longer
@@ -14,7 +22,9 @@
 import { paymentProviderProductionRefusal } from '@/lib/payments/production-readiness';
 
 /**
- * The deliberate switch, off unless explicitly turned on.
+ * The deliberate switch, off unless explicitly turned on. Named for
+ * donations because that was the first route it gated; it now gates every
+ * route that takes money (see the module doc comment above).
  *
  * NEXT_PUBLIC_ because the donate page reads it too, to show the disabled
  * message before a donor fills in an amount rather than after they submit.
@@ -30,16 +40,17 @@ export function donationsEnabled(): boolean {
 }
 
 /**
- * Why donations must not run in this environment despite the switch, or null
- * if they may.
+ * Why no route that takes money may run in this environment despite the
+ * switch, or null if it may. Named for donations for the same reason
+ * donationsEnabled is; it gates every route that takes money.
  *
  * Server-side only: it reads variables that are not NEXT_PUBLIC_, so on the
  * client every check would see undefined. The donate page does not call it;
- * the API route does, and the API route is the authoritative gate.
+ * each API route does, and the API route is the authoritative gate.
  *
  * The case it exists for is not hypothetical. Sandbox credentials left in
  * production take real rupiah into an account that settles nowhere: the
- * donor pays, the webhook never comes, the ledger never moves, and the money
+ * payer pays, the webhook never comes, the ledger never moves, and the money
  * is simply gone as far as this platform can tell. There is no recovery
  * path, so it is refused here rather than remembered in a deploy checklist.
  *
