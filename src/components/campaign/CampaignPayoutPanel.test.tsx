@@ -37,6 +37,7 @@ const READ = {
   campaignBalance: 800_000,
   payouts: [],
   bankAccounts: [{ id: 'bank-1', bankCode: 'BCA', accountName: 'Creator One' }],
+  hasUnverifiedBankAccount: false,
 };
 
 afterEach(() => {
@@ -298,5 +299,44 @@ describe('CampaignPayoutPanel', () => {
 
     expect(await screen.findByText(/Campaign contoh/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Ajukan pencairan/ })).toBeNull();
+  });
+
+  // Ticket 17: an empty picker used to be a dead end for everyone, whatever
+  // the reason. Both branches below must still leave a Fundraiser somewhere
+  // to go -- a link to /akun/rekening -- and must say different things,
+  // because "you have never done this" and "you did this and it did not
+  // work" are not the same fact.
+  it('tells a Fundraiser who never added a Bank Account to go add one, and links them there', async () => {
+    mockFetch.mockImplementation(() =>
+      ok({ ...READ, bankAccounts: [], hasUnverifiedBankAccount: false }),
+    );
+
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+
+    expect(
+      await screen.findByText(/belum ada rekening terverifikasi atas nama Anda/),
+    ).toBeInTheDocument();
+    // Not the other sentence: this Fundraiser never submitted anything, so a
+    // sentence about a submission that failed would tell them something that
+    // did not happen.
+    expect(screen.queryByText(/sudah pernah mengajukan/)).toBeNull();
+    const link = screen.getByRole('link', { name: /Tambah rekening bank/ });
+    expect(link).toHaveAttribute('href', '/akun/rekening');
+  });
+
+  it('tells a Fundraiser with a submitted-but-unverified account to check its status, and links them there', async () => {
+    mockFetch.mockImplementation(() =>
+      ok({ ...READ, bankAccounts: [], hasUnverifiedBankAccount: true }),
+    );
+
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+
+    expect(await screen.findByText(/sudah pernah mengajukan/)).toBeInTheDocument();
+    // Not the other sentence: telling this Fundraiser "belum ada rekening
+    // terverifikasi atas nama Anda" and nothing else would read as though
+    // they had never tried, when a Verifier already looked at what they sent.
+    expect(screen.queryByText(/belum ada rekening terverifikasi atas nama Anda/)).toBeNull();
+    const link = screen.getByRole('link', { name: /Lihat status rekening/ });
+    expect(link).toHaveAttribute('href', '/akun/rekening');
   });
 });

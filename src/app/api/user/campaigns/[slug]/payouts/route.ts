@@ -116,6 +116,18 @@ export async function GET(_request: Request, context: RouteContext) {
     orderBy: { createdAt: 'asc' },
   });
 
+  // Ticket 17: the empty picker is one screen for two different people, and
+  // today's sentence cannot tell them apart -- someone who has never added a
+  // Bank Account, and someone who added one that is PENDING or was REJECTED
+  // (ticket 16 decision 5 makes REJECTED permanent, so this is not a passing
+  // state for them). Asked only when the picker is otherwise empty: a
+  // Fundraiser with a verified account has nothing this distinction would
+  // change, and the read would have no reader.
+  const hasUnverifiedBankAccount =
+    bankAccounts.length === 0
+      ? (await prisma.bankAccount.count({ where: { ownerId: userId, verifiedAt: null } })) > 0
+      : false;
+
   const response = NextResponse.json({
     // A Demo Campaign's numbers are fixture data with no ledger behind them
     // (CONTEXT.md, Demo Campaign). The screen needs to say so by name: a
@@ -136,6 +148,7 @@ export async function GET(_request: Request, context: RouteContext) {
     campaignBalance: available,
     payouts,
     bankAccounts,
+    hasUnverifiedBankAccount,
   });
   response.headers.set('Cache-Control', PRIVATE_CACHE_CONTROL);
   return response;

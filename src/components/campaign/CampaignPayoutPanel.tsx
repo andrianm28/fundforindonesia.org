@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { formatRupiah } from '@/lib/utils/currency';
 // STATUS_LABEL below is the CAMPAIGN lifecycle's status names -- this panel
@@ -90,6 +91,16 @@ interface PayoutRead {
   campaignBalance: number;
   payouts: PayoutRow[];
   bankAccounts: BankAccountOption[];
+  /**
+   * True only when `bankAccounts` is empty AND the Fundraiser has some other
+   * Bank Account on file that a Verifier has not approved -- PENDING, or
+   * REJECTED (ticket 16 decision 5 makes REJECTED permanent, so for that
+   * account this is not a state that will ever clear). Ticket 17: the same
+   * empty picker used to read as one sentence for two different people, and
+   * only this bit lets the screen tell "never added one" from "added one,
+   * still not verified" apart.
+   */
+  hasUnverifiedBankAccount: boolean;
 }
 
 function formatDate(value: string): string {
@@ -226,9 +237,30 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
             Campaign ini berstatus {STATUS_LABEL[data.lifecycleStatus]}, jadi pencairan tidak bisa diajukan.
           </p>
         ) : data.bankAccounts.length === 0 ? (
+          // Ticket 17: no dead end either way -- both sentences below link to
+          // the one place a Fundraiser can act, /akun/rekening, and which
+          // sentence is shown is the one bit (hasUnverifiedBankAccount) that
+          // tells apart someone who has never added an account from someone
+          // whose account is still PENDING or was REJECTED.
           <p className="mt-2 text-sm text-text-secondary">
-            Payout hanya bisa dikirim ke rekening bank yang sudah terverifikasi, dan belum ada rekening
-            terverifikasi atas nama Anda.
+            {data.hasUnverifiedBankAccount ? (
+              <>
+                Anda sudah pernah mengajukan rekening bank, tapi belum ada yang terverifikasi.{' '}
+                <Link href="/akun/rekening" className="font-medium text-primary underline">
+                  Lihat status rekening
+                </Link>
+                .
+              </>
+            ) : (
+              <>
+                Payout hanya bisa dikirim ke rekening bank yang sudah terverifikasi, dan belum ada rekening
+                terverifikasi atas nama Anda.{' '}
+                <Link href="/akun/rekening" className="font-medium text-primary underline">
+                  Tambah rekening bank
+                </Link>
+                .
+              </>
+            )}
           </p>
         ) : data.campaignBalance === 0 ? (
           <p className="mt-2 text-sm text-text-secondary">

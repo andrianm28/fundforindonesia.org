@@ -66,7 +66,13 @@ const fake = vi.hoisted(() => {
         // books did not move" a fact about this read and not about a fixture
         // that quietly stopped being releasable.
         payment: { findMany: vi.fn() },
-        bankAccount: { findMany: vi.fn() },
+        // `count` answers a second, narrower question than `findMany` above:
+        // not which accounts are offered, but whether one that is NOT offered
+        // exists at all, so the empty state can tell "never added one" from
+        // "added one, still not verified" (ticket 17). The route only asks it
+        // when the verified list is empty -- see the tests that assert it is
+        // NOT called otherwise.
+        bankAccount: { findMany: vi.fn(), count: vi.fn() },
         $transaction: vi.fn(),
       },
       'prisma',
@@ -87,6 +93,7 @@ import { ledgerGroupBy } from '../../../../../../../tests/support/ledger-group-b
 const mockCampaignFindUnique = fake.prisma.proxy.campaign.findUnique as unknown as Mock;
 const mockPaymentFindMany = fake.prisma.proxy.payment.findMany as unknown as Mock;
 const mockBankAccountFindMany = fake.prisma.proxy.bankAccount.findMany as unknown as Mock;
+const mockBankAccountCount = fake.prisma.proxy.bankAccount.count as unknown as Mock;
 const mockTransaction = fake.prisma.proxy.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 
@@ -306,6 +313,11 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
       async (args: { where?: Record<string, unknown>; select?: Record<string, boolean> }) =>
         BANK_ACCOUNTS.filter((row) => matches(row, args.where)).map((row) => projected(row, args.select)),
     );
+    // Defaults to "none", so a test that never touches this fixture is a test
+    // of the ordinary case (a verified account exists) where the route must
+    // not call this at all -- see "does not ask ... when a verified account
+    // already answers the question" below.
+    mockBankAccountCount.mockResolvedValue(0);
   });
 
   it("shows the Fundraiser their Escrow Hold and their Campaign Balance as two separate figures, both from the ledger", async () => {
@@ -391,6 +403,60 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
     expect(mockBankAccountFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { ownerId: 'creator-1', verifiedAt: { not: null } } }),
     );
+  });
+
+  // Ticket 17: the empty picker is one screen for two different people -- one
+  // who has never added an account, and one who added one that a Verifier has
+  // not (yet, or ever) approved. Both currently see the exact same sentence
+  // and neither is given a way out of it. `hasUnverifiedBankAccount` is the
+  // one bit that lets the screen tell them apart; it answers nothing about
+  // WHICH request failed or why, only "was there ever one to begin with".
+  it("does not ask whether an unverified account exists when a verified one already answers the picker", async () => {
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const body = await (await read()).json();
+
+    // The picker already has something to offer; asking a second question
+    // whose answer the screen would not even render is a read with no
+    // reader, and this is the query the allow-list tests above would not
+    // have room for anyway.
+    expect(mockBankAccountCount).not.toHaveBeenCalled();
+    expect(body.hasUnverifiedBankAccount).toBe(false);
+  });
+
+  it("tells the picker no account was ever added, when the verified list is empty and there is nothing else on file", async () => {
+    mockBankAccountFindMany.mockResolvedValue([]);
+    mockBankAccountCount.mockResolvedValue(0);
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const body = await (await read()).json();
+
+    expect(body.bankAccounts).toEqual([]);
+    expect(body.hasUnverifiedBankAccount).toBe(false);
+    // Asked of this owner alone, and of the accounts the picker itself is not
+    // already showing -- `verifiedAt: null` rather than "not verified", since
+    // a verified one would already be in `bankAccounts` and counting it twice
+    // would make an account that IS offered read as a reason not to trust it.
+    expect(mockBankAccountCount).toHaveBeenCalledWith({
+      where: { ownerId: 'creator-1', verifiedAt: null },
+    });
+  });
+
+  it("tells the picker an account was submitted but none is verified, when the verified list is empty but another exists", async () => {
+    mockBankAccountFindMany.mockResolvedValue([]);
+    mockBankAccountCount.mockResolvedValue(1);
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const body = await (await read()).json();
+
+    expect(body.bankAccounts).toEqual([]);
+    // This is the person a bare "belum ada rekening terverifikasi" sentence
+    // misleads: they DID something, and the sentence alone reads as though
+    // they had not.
+    expect(body.hasUnverifiedBankAccount).toBe(true);
   });
 
   it("tells the screen which Campaign status it is reading, so the screen can judge the request itself", async () => {
