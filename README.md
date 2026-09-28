@@ -20,6 +20,13 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Production setup (owner)
+
+The one-time production setup and the cutover from kibi-clone (Track A in
+`.scratch/percepatan-rilis-1/plan.md`) are a guided script, run on the owner's
+laptop: `bash scripts/wizard-track-a.sh`. It writes secrets only to a file
+outside the repository and GitHub secrets, never to git.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
