@@ -62,6 +62,7 @@ export type MoneyErrorCode =
   | "PAYMENT_NOT_FOUND"
   | "PAYMENT_SUBJECT_MISMATCH"
   | "REFUND_EXCEEDS_REMAINING"
+  | "REFUND_NOT_ALLOWED_FOR_KIND"
   | "MANUAL_CONTRIBUTION_NOT_FOUND"
   | "MANUAL_CONTRIBUTION_TARGET_INVALID"
   | "MANUAL_CONTRIBUTION_INVALID"
@@ -196,6 +197,10 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   PAYMENT_NOT_FOUND: 404,
   PAYMENT_SUBJECT_MISMATCH: 404,
   REFUND_EXCEEDS_REMAINING: 400,
+  // A policy refusal about the Campaign itself, not a malformed request: the
+  // Campaign's Kind is what forbids the Refund, and no resend of the same
+  // body changes that. 403 with the other policy refusals.
+  REFUND_NOT_ALLOWED_FOR_KIND: 403,
   MANUAL_CONTRIBUTION_NOT_FOUND: 404,
   // Unmet preconditions the Admin can fix by filling the form in properly,
   // like REFUND_EXCEEDS_REMAINING and DEADLINE_REQUIRED.

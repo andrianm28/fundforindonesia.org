@@ -1,4 +1,4 @@
-import type { Payment, Prisma, PrismaClient, Refund } from '@/generated/prisma/client';
+import { Kind, type Payment, type Prisma, type PrismaClient, type Refund } from '@/generated/prisma/client';
 import { OwnSubjectConflictError } from '@/lib/capacity';
 import { lockAndLoad, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
 import {
@@ -18,6 +18,7 @@ import {
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
   RefundExceedsRemainingError,
+  RefundNotAllowedForKindError,
   RefundNotFoundError,
   SelfApprovalError,
   InvalidRefundStatusError,
@@ -43,6 +44,7 @@ export {
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
   RefundExceedsRemainingError,
+  RefundNotAllowedForKindError,
   RefundNotFoundError,
   SelfApprovalError,
   InvalidRefundStatusError,
@@ -95,6 +97,78 @@ async function poolBalanceFor(
     return subject.type === 'campaign' ? escrowBalance(tx, subject.campaignId) : tripEscrowBalance(tx, subject.tripId);
   }
   return subject.type === 'campaign' ? campaignBalance(tx, subject.campaignId) : tripBalance(tx, subject.tripId);
+}
+
+/**
+ * What a Refund may be for, per Campaign Kind (PRD §196; ADR 0013).
+ *
+ * A total Record over Kind rather than a list of the restricted Kinds, so a
+ * fifth Kind cannot be added without someone deciding its refund rule here:
+ * the table IS the rule, and the compiler is what forces the decision. Zakat,
+ * Wakaf and Hibah read one and the same entry, because Hibah's rule is
+ * Wakaf's copied as a stated placeholder (ADR 0013), not a rule of its own.
+ * A Volunteer Trip is absent from the table on purpose: it has no Kind, and
+ * its Refunds are Batch cancellations, which is a different rule entirely
+ * (./volunteer/refunds.ts).
+ *
+ * A Kind that is somehow not in the table reads as undefined, which is not
+ * 'ordinary' and so is REFUSED. The column is not nullable, so this cannot
+ * happen through the database -- but the direction to fail in, if it ever
+ * did, is the one that keeps the money.
+ */
+const REFUND_ELIGIBILITY_BY_KIND: Record<Kind, 'ordinary' | 'technical failure only'> = {
+  [Kind.DONATION]: 'ordinary',
+  [Kind.ZAKAT]: 'technical failure only',
+  [Kind.WAKAF]: 'technical failure only',
+  [Kind.HIBAH]: 'technical failure only',
+};
+
+/**
+ * The three failures PRD §196 calls the only ones a Refund on a zakat, Wakaf
+ * or Hibah Campaign may be for, quoted from that sentence rather than phrased
+ * here: wrong payment, double payment, and funds that arrived after the
+ * Campaign closed. They are reasons, not a controlled vocabulary the caller
+ * picks from -- see the note on requireRefundAllowedForKind for what that
+ * costs, and what closing it would need.
+ */
+const TECHNICAL_FAILURE_REASONS = [
+  'salah bayar',
+  'bayar ganda',
+  'dana masuk setelah Campaign ditutup',
+] as const;
+
+/**
+ * Whether this Campaign's Kind returns a Donor their money on an ordinary
+ * request, or only when something technical went wrong (PRD §196; ADR 0013).
+ *
+ * The reason is compared as a whole, trimmed, ignoring case -- equality, never
+ * a substring, a keyword or a fuzzy match. That direction is the whole point:
+ * a gate that looks for a word *inside* free text is passed by any sentence
+ * that happens to contain it, a misspelling of it included, which is the class
+ * of bug this rule exists to stop. Equality can only refuse more, never let
+ * more through, and trimming/case are the only leniency, so that a capital
+ * letter or a stray space does not refuse a genuine technical failure.
+ *
+ * WHAT THIS IS NOT. `Refund.reason` is a free-text column, and the only actor
+ * who reaches this is an Admin typing into it, so these three phrases are a
+ * claim the Admin makes and the Platform believes, not a fact the Platform
+ * establishes: an Admin who wants a zakat refund can write "salah bayar" and
+ * pass. So this stops an ordinary request going through by accident, by
+ * copy-paste, or by a rule that was never implemented at all -- which is the
+ * state this repository was in -- and it does not stop one by intent. Closing
+ * that needs a structured reason: an enum the Admin chooses, or one derived
+ * from facts about the Payment itself (a second charge with the same
+ * providerRef, a settlement received after the Campaign closed). That is a
+ * design decision this fix does not make, because `reason` is free text in the
+ * schema, the API and any Admin screen, and turning it into one is a migration
+ * with its own open questions: what to do with the Refunds already recorded,
+ * which reason each carries today, and who is allowed to pick which.
+ */
+function requireRefundAllowedForKind(campaignKind: Kind, reason: string): void {
+  if (REFUND_ELIGIBILITY_BY_KIND[campaignKind] === 'ordinary') return;
+  const stated = reason.trim().toLowerCase();
+  if (TECHNICAL_FAILURE_REASONS.some((allowed) => allowed.toLowerCase() === stated)) return;
+  throw new RefundNotAllowedForKindError(campaignKind, TECHNICAL_FAILURE_REASONS);
 }
 
 /**
@@ -155,6 +229,11 @@ export async function createRefund(
     // as the Trip's Fundraiser (Batch cancellation), the Volunteer, or the
     // settlement webhook -- never in an Admin capacity.
     requireNotOwnerAsAdmin(subjectState, requestedById);
+    // The Kind's own Refund rule, judged on the row lockAndLoad already read:
+    // `kind` is one of its columns, so this costs no extra read and cannot be
+    // stepped around by a caller that simply forgets to ask -- a Trip-subject
+    // Refund never reaches here, and a Campaign-subject one cannot skip it.
+    requireRefundAllowedForKind(subjectState.campaignKind, reason);
   }
 
   const priorRefunds = await tx.refund.findMany({

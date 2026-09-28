@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
+import { Kind } from '@/generated/prisma/client';
 import { POST } from './route';
 
 vi.mock('@/lib/prisma', () => ({
@@ -31,7 +32,7 @@ type LedgerRow = {
   volunteerTripId: string | null;
 };
 
-function makeTx(options: { ledgerRows?: LedgerRow[]; isDemo?: boolean; campaignCreatorId?: string; priorRefunds?: Array<{ amount: number; status: string }> } = {}) {
+function makeTx(options: { ledgerRows?: LedgerRow[]; isDemo?: boolean; campaignCreatorId?: string; priorRefunds?: Array<{ amount: number; status: string }>; kind?: Kind } = {}) {
   const rows: LedgerRow[] = [...(options.ledgerRows ?? [])];
   const refundCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'refund-1', createdAt: new Date(), ...data }));
   return {
@@ -48,7 +49,19 @@ function makeTx(options: { ledgerRows?: LedgerRow[]; isDemo?: boolean; campaignC
         }),
       },
       campaign: {
-        findUnique: vi.fn().mockResolvedValue({ isDemo: options.isDemo ?? false, creatorId: options.campaignCreatorId ?? 'fundraiser-1' }),
+        // The Campaign row lockAndLoad reads (src/lib/subject-guard.ts). Every
+        // test that does not name a Kind gets DONATION explicitly, rather than
+        // leaving it undefined: `kind` is NOT NULL in the schema, so a row with
+        // no Kind can only ever mean a test mock that fell behind the select --
+        // and createRefund fails closed on it, refusing requests these tests
+        // expect to succeed. Defaulting it here is what makes those two tests
+        // green for the right reason, and the last two tests below pin that
+        // this field is what decides.
+        findUnique: vi.fn().mockResolvedValue({
+          isDemo: options.isDemo ?? false,
+          creatorId: options.campaignCreatorId ?? 'fundraiser-1',
+          kind: options.kind ?? Kind.DONATION,
+        }),
       },
       refund: { create: refundCreate, findMany: vi.fn().mockResolvedValue(options.priorRefunds ?? []) },
       ledgerEntry: {
@@ -174,5 +187,53 @@ describe('POST /api/campaigns/[slug]/refunds', () => {
     expect(response.status).toBe(400);
     expect(data.code).toBe('REFUND_EXCEEDS_REMAINING');
     expect(refundCreate).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The harness's own half of the per-Kind rule, which
+   * src/__tests__/integration/refund-kind-gate.test.ts cannot cover: that file
+   * mocks `createRefund` away, so it proves how the route maps the refusal
+   * without ever running the gate. Nothing else here pins that the Kind on
+   * these mocked rows is READ, and it was read by nothing until the two
+   * failures above: a mock missing `kind` failed closed and turned passing
+   * tests red, and the mirror risk -- a mock whose Kind no longer decides
+   * anything -- is silent either way. These two tests close both directions.
+   */
+  it('reads the Kind off the mocked Campaign row: the identical request is 201 on DONATION and 403 on zakat (PRD 196)', async () => {
+    // One request body, one reason, one Payment -- only the Campaign's Kind
+    // differs. Neither half can pass on its own, so the pair holds only if the
+    // gate is really being fed this mock's `kind`.
+    const donation = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(donation.tx));
+    const allowed = await POST(postRequest(VALID_BODY), routeContext());
+    expect(allowed.status).toBe(201);
+
+    const zakat = makeTx({ kind: Kind.ZAKAT });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(zakat.tx));
+    const refused = await POST(postRequest(VALID_BODY), routeContext());
+
+    // Refused before any Refund row and before any freeze leg, not after: the
+    // gate runs ahead of the refundable-cap check in createRefund.
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).code).toBe('REFUND_NOT_ALLOWED_FOR_KIND');
+    expect(zakat.refundCreate).not.toHaveBeenCalled();
+    expect(zakat.rows).toHaveLength(0);
+  });
+
+  it('refuses a Campaign row whose Kind went missing, rather than reading it as an ordinary Campaign', async () => {
+    // `kind` is NOT NULL, so this row can only come from a test mock that fell
+    // behind lockAndLoad's select -- the exact shape that made the two tests
+    // above fail. It must refuse loudly here, so the next mock to drop the
+    // field is a red test rather than a silently permitted Refund on a zakat.
+    const { tx, refundCreate, rows } = makeTx();
+    tx.campaign.findUnique.mockResolvedValue({ isDemo: false, creatorId: 'fundraiser-1' });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(postRequest(VALID_BODY), routeContext());
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('REFUND_NOT_ALLOWED_FOR_KIND');
+    expect(refundCreate).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
   });
 });

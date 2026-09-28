@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { Kind } from '@/generated/prisma/client';
 import {
   createRefund,
   approveRefund,
@@ -7,6 +8,7 @@ import {
   PaymentSubjectMismatchError,
   RefundExceedsRemainingError,
   RefundNotFoundError,
+  RefundNotAllowedForKindError,
   SelfApprovalError,
   InvalidRefundStatusError,
   OwnSubjectConflictError,
@@ -46,6 +48,19 @@ function makeTripPayment(overrides: Record<string, unknown> = {}) {
 }
 
 /**
+ * The three reasons PRD §196 names as the only ones a Refund on a zakat, Wakaf
+ * or Hibah Campaign may be for. Written out here as literals rather than
+ * imported from the module under test: a test that read the list out of the
+ * code it is checking would agree with it by construction and could never
+ * catch a wrong phrase.
+ */
+const PRD_TECHNICAL_FAILURES = [
+  'salah bayar',
+  'bayar ganda',
+  'dana masuk setelah Campaign ditutup',
+] as const;
+
+/**
  * Minimal in-memory stand-in for a Prisma transaction client, reusing the
  * same ledgerEntry.groupBy/createMany simulation as
  * src/lib/money/payouts.test.ts, so campaignBalance/tripBalance/
@@ -63,6 +78,8 @@ function makeTx(
     tripFundraiserId?: string;
     priorRefunds?: Array<{ amount: number; status: string }>;
     refundRow?: Record<string, unknown> | null;
+    /** The Campaign's Kind, which the per-Kind Refund rule reads. */
+    kind?: Kind;
   } = {},
 ) {
   const rows: LedgerRow[] = [...(options.ledgerRows ?? [])];
@@ -133,6 +150,10 @@ function makeTx(
           isDemo: options.isDemo ?? false,
           creatorId: options.campaignCreatorId ?? 'fundraiser-1',
           lifecycleStatus: options.lifecycleStatus ?? 'ACTIVE',
+          // Every test that does not name a Kind gets DONATION explicitly,
+          // rather than leaving it undefined: a missing Kind must never be
+          // what makes a per-Kind rule pass unnoticed.
+          kind: options.kind ?? Kind.DONATION,
           deadline: null,
         }),
       },
@@ -335,6 +356,156 @@ describe('createRefund', () => {
       createRefund(tx as never, { subject: { type: 'campaign', campaignId: 'campaign-1' }, paymentId: 'payment-1', amount: 1, reason: 'x', requestedById: 'admin-1' }),
     ).rejects.toThrow(DemoCampaignError);
     expect(refundCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses an ordinary donor request on a zakat Campaign, before any Refund row and before any freeze leg (PRD 196, ADR 0013)', async () => {
+    // The seeded reachability shape (prisma/seed.ts): an Active zakat Campaign
+    // with a settled Payment of real rupiah behind it, and an Admin -- the only
+    // actor who can reach this -- typing an ordinary request into a free-text
+    // reason. Before the per-Kind rule this froze Rp 1_000_000 out of the pool.
+    const { tx, refundCreate, rows } = makeTx({
+      kind: Kind.ZAKAT,
+      payment: makePayment({ amount: 1_000_000, escrowReleasedAt: null }),
+    });
+
+    const attempt = createRefund(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      paymentId: 'payment-1',
+      amount: 1_000_000,
+      reason: 'Permintaan donatur',
+      requestedById: 'admin-1',
+    });
+
+    await expect(attempt).rejects.toThrow(RefundNotAllowedForKindError);
+    expect(refundCreate).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it.each([Kind.WAKAF, Kind.HIBAH])(
+    'reads the same rule for %s: an ordinary donor request is refused there too (ADR 0013: one rule, not a rule each)',
+    async (kind) => {
+      const { tx, refundCreate, rows } = makeTx({
+        kind,
+        payment: makePayment({ amount: 1_000_000, escrowReleasedAt: null }),
+      });
+
+      await expect(
+        createRefund(tx as never, {
+          subject: { type: 'campaign', campaignId: 'campaign-1' },
+          paymentId: 'payment-1',
+          amount: 1_000_000,
+          reason: 'Permintaan donatur',
+          requestedById: 'admin-1',
+        }),
+      ).rejects.toThrow(RefundNotAllowedForKindError);
+      expect(refundCreate).not.toHaveBeenCalled();
+      expect(rows).toHaveLength(0);
+    },
+  );
+
+  it.each(
+    [Kind.ZAKAT, Kind.WAKAF, Kind.HIBAH].flatMap((kind) =>
+      PRD_TECHNICAL_FAILURES.map((reason) => [kind, reason] as const),
+    ),
+  )('permits a Refund on a %s Campaign whose reason is exactly the technical failure "%s" (PRD 196)', async (kind, reason) => {
+    const { tx, refundCreate, rows } = makeTx({
+      kind,
+      payment: makePayment({ amount: 1_000_000, escrowReleasedAt: null }),
+    });
+
+    const refund = await createRefund(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      paymentId: 'payment-1',
+      amount: 1_000_000,
+      reason,
+      requestedById: 'admin-1',
+    });
+
+    expect(refund.status).toBe('REQUESTED');
+    expect(refundCreate).toHaveBeenCalledTimes(1);
+    expect(rows.filter((r) => r.account === 'FROZEN_BALANCE')).toHaveLength(1);
+  });
+
+  it.each([
+    // A misspelling of a carve-out. The point of comparing whole phrases
+    // rather than looking for a word inside the text: a keyword search would
+    // read "salah byar" as close enough, and a gate that can be passed by
+    // misspelling is the same class of hole as no gate at all.
+    'salah byar',
+    'salahbayar',
+    'salah bay',
+    'bayar gande',
+    'dana masuk setelah campaign di*tutup',
+    // The same failure wrapped in a sentence, and the ordinary request with
+    // the magic words appended -- what a substring or "contains a keyword"
+    // match would wave through, and what a person trying to get a refund
+    // through would actually type.
+    'Donor salah bayar',
+    'Permintaan donatur, tetapi salah bayar',
+    'salah bayar (permintaan donatur)',
+    // Punctuation and doubled spaces are not a carve-out either.
+    'salah bayar.',
+    'salah  bayar',
+    // A truthful description of the double payment that is NOT PRD 196's
+    // wording -- and the phrasing this very file used before the rule
+    // existed. It is refused, which is the honest cost of a free-text
+    // reason: a real technical failure can be worded this way and still
+    // stopped. See the note on requireRefundAllowedForKind.
+    'Dibayar dua kali',
+  ])('refuses a zakat reason that only resembles a technical failure: "%s"', async (reason) => {
+    const { tx, refundCreate, rows } = makeTx({
+      kind: Kind.ZAKAT,
+      payment: makePayment({ amount: 1_000_000, escrowReleasedAt: null }),
+    });
+
+    await expect(
+      createRefund(tx as never, {
+        subject: { type: 'campaign', campaignId: 'campaign-1' },
+        paymentId: 'payment-1',
+        amount: 1_000_000,
+        reason,
+        requestedById: 'admin-1',
+      }),
+    ).rejects.toThrow(RefundNotAllowedForKindError);
+    expect(refundCreate).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('ignores capitalisation and surrounding spaces on a genuine technical failure, so the leniency never costs a real refund', async () => {
+    const { tx, refundCreate } = makeTx({
+      kind: Kind.ZAKAT,
+      payment: makePayment({ amount: 1_000_000, escrowReleasedAt: null }),
+    });
+
+    const refund = await createRefund(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      paymentId: 'payment-1',
+      amount: 1_000_000,
+      reason: '  Salah Bayar  ',
+      requestedById: 'admin-1',
+    });
+
+    expect(refund.status).toBe('REQUESTED');
+    expect(refundCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an ordinary donation Campaign alone: the rule is per-Kind, not a blanket freeze on refunds', async () => {
+    const { tx, refundCreate, rows } = makeTx({
+      kind: Kind.DONATION,
+      payment: makePayment({ amount: 1_000_000, escrowReleasedAt: null }),
+    });
+
+    const refund = await createRefund(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      paymentId: 'payment-1',
+      amount: 1_000_000,
+      reason: 'Permintaan donatur',
+      requestedById: 'admin-1',
+    });
+
+    expect(refund.status).toBe('REQUESTED');
+    expect(refundCreate).toHaveBeenCalledTimes(1);
+    expect(rows.filter((r) => r.account === 'FROZEN_BALANCE')).toHaveLength(1);
   });
 
   it('refuses an Admin who is the Campaign\'s own Fundraiser: no Refund row, no freeze legs', async () => {
@@ -731,7 +902,11 @@ function makeMultiPaymentTx(initialLedgerRows: LedgerRow[] = []) {
       findUniqueOrThrow: vi.fn(async ({ where }: { where: { id: string } }) => payments.get(where.id)),
     },
     campaign: {
-      findUnique: vi.fn().mockResolvedValue({ isDemo: false, creatorId: 'fundraiser-1', lifecycleStatus: 'ACTIVE', deadline: null }),
+      // DONATION explicitly, as in makeTx: this harness's scenarios are all
+      // ordinary-donation refunds, and leaving the Kind off the row would have
+      // the per-Kind rule refuse them for a reason that has nothing to do with
+      // what they are testing.
+      findUnique: vi.fn().mockResolvedValue({ isDemo: false, creatorId: 'fundraiser-1', lifecycleStatus: 'ACTIVE', kind: Kind.DONATION, deadline: null }),
     },
     refund: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {

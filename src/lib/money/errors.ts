@@ -1,4 +1,6 @@
 import { DomainError, type MoneyErrorCode } from '@/lib/domain-errors';
+import type { Kind } from '@/generated/prisma/client';
+import { KIND_LABEL } from '@/lib/campaign-kind';
 
 /**
  * The money layer's typed refusals, for Payouts and Refunds on both a
@@ -194,6 +196,34 @@ export class PaymentSubjectMismatchError extends MoneyError {
   constructor(readonly paymentId: string) {
     super('Payment tidak ditemukan untuk Campaign atau Volunteer Trip ini.');
     this.name = 'PaymentSubjectMismatchError';
+  }
+}
+
+/**
+ * A Refund on a zakat, Wakaf or Hibah Campaign for anything but a technical
+ * failure (PRD §196; ADR 0013): a fulfilled zakat obligation and a sworn waqf
+ * pledge do not return to the giver, so an ordinary "I changed my mind" must
+ * not become money out of the pool.
+ *
+ * It is refused by the Campaign's Kind, which is a fact about the Campaign and
+ * not about who asked, and the Admin cannot clear it by resending -- the only
+ * thing that would satisfy it is claiming one of the named failures. So it
+ * answers 403 with the other policy refusals (DEMO_CAMPAIGN, SELF_APPROVAL),
+ * not with the 4xx the fixable-input refusals use.
+ *
+ * `allowedReasons` names the failures that would pass, so the person refused
+ * is told what would be accepted rather than only what is not.
+ */
+export class RefundNotAllowedForKindError extends MoneyError {
+  readonly code = 'REFUND_NOT_ALLOWED_FOR_KIND';
+  constructor(
+    readonly campaignKind: Kind,
+    readonly allowedReasons: readonly string[],
+  ) {
+    super(
+      `Refund pada Campaign ber-Kind ${KIND_LABEL[campaignKind]} hanya sah untuk kegagalan teknis: ${allowedReasons.join(', ')}.`,
+    );
+    this.name = 'RefundNotAllowedForKindError';
   }
 }
 
