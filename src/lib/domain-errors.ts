@@ -54,7 +54,7 @@ export type MoneyErrorCode =
   | "INSUFFICIENT_BALANCE"
   | "SELF_APPROVAL"
   | "TWO_PERSON_RULE"
-  | "PAYOUT_PROOF_REQUIRED"
+  | "PAYOUT_PROOF_INVALID"
   | "INVALID_PAYOUT_STATUS"
   | "INVALID_REFUND_STATUS"
   | "PAYOUT_NOT_FOUND"
@@ -231,9 +231,11 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // record the transfer. Not something they can fix by resending, so 403
   // like the other capacity refusals, not a 409 status conflict.
   TWO_PERSON_RULE: 403,
-  // Unlike the rest: the Admin can fix this one, by attaching the proof the
-  // route asked for. Same shape as DEADLINE_REQUIRED.
-  PAYOUT_PROOF_REQUIRED: 422,
+  // The Admin can fix this one, by filling the reference or note field the
+  // message names -- the same shape as MANUAL_CONTRIBUTION_INVALID and
+  // PROVIDER_WITHDRAWAL_INVALID: a field left blank or too long, not a
+  // policy the request has no way to satisfy, so 400 rather than 422.
+  PAYOUT_PROOF_INVALID: 400,
   INVALID_PAYOUT_STATUS: 409,
   INVALID_REFUND_STATUS: 409,
   PAYOUT_NOT_FOUND: 404,

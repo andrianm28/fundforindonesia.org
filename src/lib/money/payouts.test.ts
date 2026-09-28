@@ -12,6 +12,13 @@ import {
 } from './payouts';
 import { InvalidPayoutSubjectError } from './payout-subject';
 import { PayoutNotAllowedForStatusError } from '@/lib/subject-guard';
+import {
+  validateProofReference,
+  validateProofNote,
+  buildProofImage,
+  MAX_PROOF_REFERENCE_LENGTH,
+  MAX_PROOF_NOTE_LENGTH,
+} from '@/lib/payout-proof';
 import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
 
 const PAST = new Date('2020-01-01');
@@ -322,7 +329,8 @@ describe('completePayout', () => {
     const result = await completePayout(prisma as never, {
       payoutId: 'payout-1',
       completedById: 'admin-2',
-      proofImage: 'https://files.example/transfer-admin-2.png',
+      proofReference: 'TRX-admin-2',
+      proofNote: 'Ditransfer via mobile banking BCA, dicocokkan dengan nominal dan rekening tujuan.',
     });
 
     expect(result.status).toBe('COMPLETED');
@@ -330,7 +338,10 @@ describe('completePayout', () => {
       status: 'COMPLETED',
       completedById: 'admin-2',
       completedAt: expect.any(Date),
-      proofImage: 'https://files.example/transfer-admin-2.png',
+      proofImage: buildProofImage(
+        'TRX-admin-2',
+        'Ditransfer via mobile banking BCA, dicocokkan dengan nominal dan rekening tujuan.',
+      ),
     });
 
     const posted = rows.filter((r) => r.transactionId === 'payout-completed-payout-1');
@@ -344,7 +355,7 @@ describe('completePayout', () => {
     const { tx, rows } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
     const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED' });
 
-    await completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' });
+    await completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' });
 
     const clearing = rows
       .filter((r) => r.account === 'PAYOUT_CLEARING')
@@ -367,7 +378,7 @@ describe('completePayout', () => {
     const refusal = await completePayout(prisma as never, {
       payoutId: 'payout-1',
       completedById: 'admin-2',
-      proofImage: 'proof-1',
+      proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA',
     }).then(
       () => null,
       (error: BankAccountNotEligibleError) => error,
@@ -396,7 +407,7 @@ describe('completePayout', () => {
     const prisma = makePrisma(tx, {});
 
     await expect(
-      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' }),
+      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' }),
     ).rejects.toThrow(BankAccountNotEligibleError);
     expect(payoutState).toMatchObject({ status: 'APPROVED', completedById: null });
     expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
@@ -412,7 +423,7 @@ describe('completePayout', () => {
     const result = await completePayout(prisma as never, {
       payoutId: 'payout-1',
       completedById: 'admin-2',
-      proofImage: 'proof-1',
+      proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA',
     });
 
     expect(result.status).toBe('COMPLETED');
@@ -420,20 +431,82 @@ describe('completePayout', () => {
     expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toHaveLength(2);
   });
 
-  it('refuses to complete without proof of transfer, writing nothing at all', async () => {
-    // The mandatory proof is the only evidence the money actually moved
-    // (ADR 0006). A COMPLETED row with no proof is a claim, not a record.
+  it('refuses to complete without a transaction reference, writing nothing at all', async () => {
+    // Ticket 13's answer: a reference and a note, not one typed character.
+    // Blank or whitespace-only fails the same rule the Admin's own form
+    // asks through @/lib/payout-proof's validateProofReference -- checked
+    // here against that exact function, so this test would fail if
+    // completePayout ever kept a copy of its own instead of importing it.
     const { tx, rows, payoutState, queryRawCalls } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
     const prisma = makePrisma(tx, {});
 
-    for (const proofImage of ['', '   ']) {
+    for (const proofReference of ['', '   ']) {
       await expect(
-        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage }),
-      ).rejects.toMatchObject({ code: 'PAYOUT_PROOF_REQUIRED' });
+        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference, proofNote: 'Ditransfer via BCA' }),
+      ).rejects.toMatchObject({ code: 'PAYOUT_PROOF_INVALID', message: validateProofReference(proofReference)! });
     }
     expect(payoutState).toMatchObject({ status: 'APPROVED', completedById: null, proofImage: null });
     expect(queryRawCalls).toEqual([]);
     expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+  });
+
+  it('refuses to complete without a note, writing nothing at all', async () => {
+    // The other half of the same rule: a reference alone is not proof
+    // either (FFI-07 asks for a note, not just a reference).
+    const { tx, rows, payoutState, queryRawCalls } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
+    const prisma = makePrisma(tx, {});
+
+    for (const proofNote of ['', '   ']) {
+      await expect(
+        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote }),
+      ).rejects.toMatchObject({ code: 'PAYOUT_PROOF_INVALID', message: validateProofNote(proofNote)! });
+    }
+    expect(payoutState).toMatchObject({ status: 'APPROVED', completedById: null, proofImage: null });
+    expect(queryRawCalls).toEqual([]);
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+  });
+
+  it('refuses a reference or note over the length limit, the same limits @/lib/payout-proof enforces', async () => {
+    const { tx, rows, payoutState } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
+    const prisma = makePrisma(tx, {});
+
+    const tooLongReference = 'a'.repeat(MAX_PROOF_REFERENCE_LENGTH + 1);
+    await expect(
+      completePayout(prisma as never, {
+        payoutId: 'payout-1',
+        completedById: 'admin-2',
+        proofReference: tooLongReference,
+        proofNote: 'Ditransfer via BCA',
+      }),
+    ).rejects.toMatchObject({ code: 'PAYOUT_PROOF_INVALID', message: validateProofReference(tooLongReference)! });
+
+    const tooLongNote = 'a'.repeat(MAX_PROOF_NOTE_LENGTH + 1);
+    await expect(
+      completePayout(prisma as never, {
+        payoutId: 'payout-1',
+        completedById: 'admin-2',
+        proofReference: 'TRX-1',
+        proofNote: tooLongNote,
+      }),
+    ).rejects.toMatchObject({ code: 'PAYOUT_PROOF_INVALID', message: validateProofNote(tooLongNote)! });
+
+    expect(payoutState).toMatchObject({ status: 'APPROVED', completedById: null, proofImage: null });
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
+  });
+
+  it('accepts a valid reference and note, storing them joined by buildProofImage -- the same function the form uses', async () => {
+    const { tx, payoutState } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
+    const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED' });
+
+    const result = await completePayout(prisma as never, {
+      payoutId: 'payout-1',
+      completedById: 'admin-2',
+      proofReference: 'TRX-1',
+      proofNote: 'Ditransfer via BCA',
+    });
+
+    expect(result.status).toBe('COMPLETED');
+    expect(payoutState).toMatchObject({ proofImage: buildProofImage('TRX-1', 'Ditransfer via BCA') });
   });
 
   it('refuses the Admin who approved it -- the second half of the two-person rule, and it leaves the Payout APPROVED', async () => {
@@ -441,7 +514,7 @@ describe('completePayout', () => {
     const prisma = makePrisma(tx, {});
 
     await expect(
-      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-1', proofImage: 'proof-1' }),
+      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-1', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' }),
     ).rejects.toMatchObject({ code: 'TWO_PERSON_RULE' });
     expect(payoutState).toMatchObject({ status: 'APPROVED', proofImage: null });
     expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
@@ -452,7 +525,7 @@ describe('completePayout', () => {
     const prisma = makePrisma(tx, {});
 
     await expect(
-      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' }),
+      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' }),
     ).rejects.toMatchObject({ code: 'TWO_PERSON_RULE' });
     expect(payoutState).toMatchObject({ status: 'APPROVED' });
   });
@@ -471,7 +544,7 @@ describe('completePayout', () => {
       const prisma = makePrisma(tx, {});
 
       await expect(
-        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'requester-1', proofImage: 'proof-1' }),
+        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'requester-1', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' }),
       ).rejects.toMatchObject({ code });
       expect(payoutState).toMatchObject({ status: 'APPROVED', proofImage: null });
       expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
@@ -488,7 +561,7 @@ describe('completePayout', () => {
       const { tx, rows, payoutState } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow(), lifecycleStatus, deadline });
       const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED' });
 
-      const completion = completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' });
+      const completion = completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' });
 
       if (allowed) {
         await expect(completion).resolves.toMatchObject({ status: 'COMPLETED' });
@@ -510,7 +583,7 @@ describe('completePayout', () => {
     const { tx, queryRawCalls } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow() });
     const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED' });
 
-    await completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' });
+    await completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' });
 
     const lockIndex = queryRawCalls.findIndex((q) => q.includes('FOR UPDATE'));
     expect(lockIndex).toBeGreaterThanOrEqual(0);
@@ -525,7 +598,7 @@ describe('completePayout', () => {
     const { tx, queryRawCalls } = makeTx({ ledgerRows: INSTRUCTED_ROWS, payoutRow: approvedPayoutRow({ campaignId: null, volunteerTripId: 'trip-1' }) });
     const prisma = makePrisma(tx, { ...approvedPayoutRow(), status: 'COMPLETED' });
 
-    await completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' });
+    await completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' });
 
     expect(queryRawCalls.some((q) => q.includes('VolunteerTrip'))).toBe(true);
     expect(queryRawCalls.some((q) => q.includes('"Campaign"'))).toBe(false);
@@ -537,7 +610,7 @@ describe('completePayout', () => {
       const prisma = makePrisma(tx, {});
 
       await expect(
-        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' }),
+        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' }),
       ).rejects.toMatchObject({ code: 'INVALID_PAYOUT_STATUS' });
       // Refused on the Payout's own row, before any lock: there is nothing
       // for the subject's state to decide.
@@ -553,7 +626,7 @@ describe('completePayout', () => {
     const prisma = makePrisma(tx, {});
 
     await expect(
-      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' }),
+      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' }),
     ).rejects.toMatchObject({ code: 'INVALID_PAYOUT_STATUS' });
     expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
   });
@@ -563,7 +636,7 @@ describe('completePayout', () => {
     const prisma = makePrisma(tx, {});
 
     await expect(
-      completePayout(prisma as never, { payoutId: 'missing', completedById: 'admin-2', proofImage: 'proof-1' }),
+      completePayout(prisma as never, { payoutId: 'missing', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' }),
     ).rejects.toMatchObject({ code: 'PAYOUT_NOT_FOUND' });
   });
 
@@ -575,7 +648,7 @@ describe('completePayout', () => {
     const prisma = makePrisma(tx, {});
 
     await expect(
-      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofImage: 'proof-1' }),
+      completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA' }),
     ).rejects.toThrow(InvalidPayoutSubjectError);
   });
 });

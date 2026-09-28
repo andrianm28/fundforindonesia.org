@@ -123,7 +123,9 @@ function makeTx(options: {
   };
 }
 
-function createRequest(body: unknown = { proofImage: 'https://files.example/transfer.png' }): NextRequest {
+function createRequest(
+  body: unknown = { proofReference: 'TRX-1', proofNote: 'Ditransfer via BCA, dicocokkan dengan nominal.' },
+): NextRequest {
   return new NextRequest('http://localhost:3000/api/campaigns/test-campaign/payouts/payout-1/complete', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -147,7 +149,7 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/complete', () => {
         status: 'COMPLETED',
         completedById: 'admin-2',
         completedAt: new Date('2026-03-01'),
-        proofImage: 'https://files.example/transfer.png',
+        proofImage: 'TRX-1 — Ditransfer via BCA, dicocokkan dengan nominal.',
       }),
     );
   });
@@ -187,12 +189,36 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/complete', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('returns 400 when the body carries no proof of transfer', async () => {
-    const response = await POST(createRequest({ proofImage: '' }), routeContext());
+  it('returns 400 PAYOUT_PROOF_INVALID when the reference is missing', async () => {
+    const response = await POST(
+      createRequest({ proofReference: '', proofNote: 'Ditransfer via BCA' }),
+      routeContext(),
+    );
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.fieldErrors.proofImage).toBeTruthy();
+    expect(data.code).toBe('PAYOUT_PROOF_INVALID');
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 PAYOUT_PROOF_INVALID when the note is missing', async () => {
+    const response = await POST(
+      createRequest({ proofReference: 'TRX-1', proofNote: '   ' }),
+      routeContext(),
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.code).toBe('PAYOUT_PROOF_INVALID');
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 Validasi gagal when a field is missing from the body entirely', async () => {
+    const response = await POST(createRequest({ proofReference: 'TRX-1' }), routeContext());
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.fieldErrors.proofNote).toBeTruthy();
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
@@ -211,9 +237,13 @@ describe('POST /api/campaigns/[slug]/payouts/[id]/complete', () => {
       status: 'COMPLETED',
       approvedById: 'admin-1',
       completedById: 'admin-2',
-      proofImage: 'https://files.example/transfer.png',
+      proofImage: 'TRX-1 — Ditransfer via BCA, dicocokkan dengan nominal.',
     });
-    expect(state).toMatchObject({ status: 'COMPLETED', completedById: 'admin-2', proofImage: 'https://files.example/transfer.png' });
+    expect(state).toMatchObject({
+      status: 'COMPLETED',
+      completedById: 'admin-2',
+      proofImage: 'TRX-1 — Ditransfer via BCA, dicocokkan dengan nominal.',
+    });
     expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([
       expect.objectContaining({ account: 'PAYOUT_CLEARING', direction: 'DEBIT', amount: 100_000 }),
       expect.objectContaining({ account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 100_000 }),
