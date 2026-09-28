@@ -9,6 +9,7 @@ import { PaymentStatus } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
 import { holdRegistration } from '@/lib/volunteer/trip';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
+import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris'] as const;
 const PROVIDER_METHOD_FOR: Record<(typeof VALID_PAYMENT_METHODS)[number], PaymentMethod> = {
@@ -138,6 +139,20 @@ export async function POST(
         method: charge.method,
         providerRef: registration.id,
         amount: tripFeeAmount,
+        // Trip Fee takes the same Escrow Hold as a Campaign Donation, minus
+        // the Platform Fee and the Kind (CONTEXT.md, Trip Fee; ADR 0014), so
+        // it freezes the SAME length here as chargeDonation does on the
+        // donation path. Naming the constant rather than letting the
+        // `escrowHoldDays Int @default(7)` in prisma/schema.prisma supply it
+        // is the whole point: that default is a second copy of the number
+        // that nothing in src/ can see, and the day that 7 is moved to
+        // configuration the two copies drift -- Trip Fee releasing after 7
+        // while Donation releases after N, with the settlement webhook
+        // reading whichever this row happens to carry. Naming it here is also
+        // what makes the frozen-per-Payment rule (prd-compliance 18) true of
+        // this Payment: its length is decided in code at creation, not
+        // inherited from a schema default nobody chose deliberately.
+        escrowHoldDays: ESCROW_HOLD_DAYS,
         status: PaymentStatus.PENDING,
         expiresAt: charge.expiresAt,
       },
