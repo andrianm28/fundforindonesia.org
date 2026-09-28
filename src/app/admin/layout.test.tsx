@@ -56,5 +56,16 @@ describe("AdminLayout", () => {
       const link = screen.getByRole("link", { name: /payout|pencairan/i });
       expect(link.getAttribute("href")).toBe("/admin/payouts");
     });
+
+    // ticket 25 (map.md FFI-07b: "Layar Admin menjatuhkan/mencabut
+    // Suspension" -- 0 hasil): the backend is built and tested, but with no
+    // nav link it stays as unreachable as the Payout queue was.
+    it("links to the Suspension & Cancellation queue", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: null }));
+
+      const link = screen.getByRole("link", { name: /suspension|cancellation/i });
+      expect(link.getAttribute("href")).toBe("/admin/campaigns/lifecycle");
+    });
   });
 });
