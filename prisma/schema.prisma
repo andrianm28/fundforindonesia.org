@@ -103,6 +103,7 @@ model User {
   payoutsRequested                  Payout[]                         @relation("PayoutRequester")
   payoutsApproved                   Payout[]                         @relation("PayoutApprover")
   payoutsCompleted                  Payout[]                         @relation("PayoutCompleter")
+  payoutBalanceChecksRecorded       PayoutBalanceCheck[]              @relation("PayoutBalanceCheckedBy")
   usageReportsSubmitted             UsageReport[]                    @relation("UsageReportSubmitter")
   usageReportsDisputed              UsageReport[]                    @relation("UsageReportDisputer")
   refundsRequested                  Refund[]                         @relation("RefundRequester")
@@ -1839,10 +1840,40 @@ model Payout {
 
   ledgerEntries LedgerEntry[]
   usageReport   UsageReport?
+  balanceChecks PayoutBalanceCheck[]
 
   @@index([campaignId, status])
   @@index([volunteerTripId, status])
   @@index([status])
+}
+
+/// One Admin's record that they read the provider's dashboard and found it
+/// short of a DRAFT Payout's amount (ticket 30; ticket 02's answer, second
+/// half; PRD FFI-07). Append-only check history, never a Payout status of
+/// its own: the Payout stays DRAFT/awaiting approval while this exists, and
+/// recording one never writes the Payout row. A Payout may collect several
+/// rows over time; none is ever edited or deleted, and none is removed once
+/// the Payout is later approved -- resolution is derived from the Payout's
+/// own status (APPROVED/COMPLETED means resolved), never from a column
+/// here, so these rows stay as a trail (owner decision 2026-09-28).
+model PayoutBalanceCheck {
+  id              String   @id @default(cuid())
+  payoutId        String
+  payout          Payout   @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  checkedById     String
+  checkedBy       User     @relation("PayoutBalanceCheckedBy", fields: [checkedById], references: [id])
+  /// The one name the provider registry knows, same as
+  /// Payout.approvedProvider -- resolved before the row is written so this
+  /// column cannot collect two spellings of one provider.
+  provider        String
+  /// What the dashboard showed, in rupiah. Always short of the Payout's own
+  /// amount at the moment it was recorded -- recordPayoutBalanceShort
+  /// refuses a reading that already covers it, since the Admin should
+  /// approve instead.
+  recordedBalance Int
+  checkedAt       DateTime @default(now())
+
+  @@index([payoutId])
 }
 
 /// A Fundraiser's account of how one Payout's money was used (CONTEXT.md,

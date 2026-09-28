@@ -58,6 +58,21 @@ import type { PayoutStatus } from '@/generated/prisma/client';
  * refuse (src/components/campaign/CampaignPayoutPanel.tsx): telling an
  * Admin why is better than a button that submits into a refusal it could
  * have named first.
+ *
+ * "CATAT: SALDO PENYEDIA KURANG" (ticket 30; ticket 02's answer, second
+ * half). FFI-07's other half: instead of a refused approval leaving no trace
+ * that anyone looked, an Admin who checked and found the provider genuinely
+ * short may record that reading as a pending decision, next to the same
+ * provider and balance fields the approve button reads -- one dashboard
+ * reading, two things it can become. This posts to a Payout-id-only route
+ * (POST /api/admin/payouts/[id]/balance-check), unlike approve/complete,
+ * because recordPayoutBalanceShort never touches the ledger or the subject's
+ * FK columns, so there is no Campaign/Trip slug this action needs.
+ * `recordPayoutBalanceShort` enforces the same two-person rule approve does
+ * (SelfApprovalError, OwnSubjectConflictError) and refuses a reading that
+ * is NOT short (ProviderBalanceNotShortError) -- this form does not
+ * duplicate that arithmetic, only requires the same two fields to be filled
+ * before enabling the button, exactly like `canApprove`.
  */
 
 interface PayoutSubject {
@@ -78,6 +93,16 @@ interface AdminPayoutActionFormProps {
 function actionUrl(subject: PayoutSubject, payoutId: string, action: 'approve' | 'complete'): string {
   const base = subject.type === 'campaign' ? '/api/campaigns' : '/api/volunteer-trips';
   return `${base}/${subject.slug}/payouts/${payoutId}/${action}`;
+}
+
+/**
+ * The "catat saldo kurang" route (ticket 30): Payout-id-only, unlike
+ * approve/complete, because recordPayoutBalanceShort never touches
+ * campaignId/volunteerTripId or the ledger -- there is no subject slug this
+ * action needs.
+ */
+function balanceCheckUrl(payoutId: string): string {
+  return `/api/admin/payouts/${payoutId}/balance-check`;
 }
 
 export function AdminPayoutActionForm({
@@ -187,6 +212,25 @@ export function AdminPayoutActionForm({
         >
           Setujui pencairan
         </button>
+
+        <button
+          type="button"
+          disabled={!canApprove}
+          onClick={() =>
+            post(
+              balanceCheckUrl(payoutId),
+              { provider, providerBalance: balance },
+              'Gagal mencatat saldo penyedia.',
+            )
+          }
+          className="w-full rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 disabled:opacity-50"
+        >
+          Catat: saldo penyedia kurang
+        </button>
+        <p className="text-xs text-gray-500">
+          Sudah cek dashboard dan angkanya di bawah nominal Payout? Catat di sini, bukan disetujui -- Payout tetap
+          menunggu persetujuan dan riwayat cek ini tercatat untuk Fundraiser dan Admin lain (ticket 30).
+        </p>
 
         {refusal && (
           <p role="alert" className="text-sm text-danger">

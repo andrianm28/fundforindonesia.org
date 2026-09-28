@@ -9,6 +9,16 @@ import { AdminUsageReportPanel } from '@/components/admin/AdminUsageReportPanel'
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+function formatCheckDate(date: Date): string {
+  return new Intl.DateTimeFormat('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(date));
+}
+
 /**
  * One Payout, for the Admin acting on it: request → approve → complete
  * (CONTEXT.md, Payout; ADR 0006). The form half of /admin/payouts, which
@@ -36,6 +46,14 @@ type RouteContext = { params: Promise<{ id: string }> };
  * ...) gets a read-only summary -- AdminPayoutActionForm makes that same
  * branch and renders nothing for a status it does not recognise as
  * actionable, so this page does not duplicate the list of active statuses.
+ *
+ * BALANCE CHECK HISTORY (ticket 30). `balanceChecks` is read and shown
+ * whatever the Payout's status is, ordered newest first: an append-only
+ * trail of every "sudah dicek, kurang" reading an Admin recorded, which
+ * owner decision 2026-09-28 keeps even after the Payout is later approved --
+ * resolution is read off the Payout's own status (DRAFT means still
+ * pending), never a column on the check rows, so nothing here marks a row
+ * "resolved" either.
  */
 export default async function AdminPayoutDetailPage({ params }: RouteContext) {
   const { id } = await params;
@@ -63,6 +81,18 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
           disputedReason: true,
         },
       },
+      // Ticket 30: every "sudah dicek, kurang" reading, newest first -- an
+      // append-only trail, never filtered by the Payout's current status.
+      balanceChecks: {
+        orderBy: { checkedAt: 'desc' },
+        select: {
+          id: true,
+          provider: true,
+          recordedBalance: true,
+          checkedAt: true,
+          checkedBy: { select: { name: true } },
+        },
+      },
     },
   });
   if (!payout) {
@@ -81,6 +111,13 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
         <h1 className="text-2xl font-bold text-gray-900">{subject.title}</h1>
         <p className="mt-1 text-sm text-gray-500">{PAYOUT_STATUS_LABEL[payout.status]}</p>
       </div>
+
+      {payout.status === 'DRAFT' && payout.balanceChecks.length > 0 && (
+        <p className="mb-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Menunggu saldo penyedia -- terakhir dicek {formatCheckDate(payout.balanceChecks[0].checkedAt)} oleh{' '}
+          {payout.balanceChecks[0].checkedBy.name}.
+        </p>
+      )}
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -140,6 +177,20 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
               }
             }
           />
+        </div>
+      )}
+
+      {payout.balanceChecks.length > 0 && (
+        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
+          <h2 className="mb-3 text-sm font-semibold text-gray-900">Riwayat cek saldo penyedia</h2>
+          <ul className="space-y-2">
+            {payout.balanceChecks.map((check) => (
+              <li key={check.id} className="text-sm text-gray-900">
+                {formatRupiah(check.recordedBalance)} di {check.provider} -- dicek {check.checkedBy.name},{' '}
+                {formatCheckDate(check.checkedAt)}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

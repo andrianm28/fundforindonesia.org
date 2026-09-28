@@ -97,6 +97,64 @@ describe('AdminPayoutActionForm -- approving a DRAFT Payout (ticket 02: provider
   });
 });
 
+describe('AdminPayoutActionForm -- recording "saldo penyedia kurang" (ticket 30)', () => {
+  const baseProps = {
+    payoutId: 'payout-1',
+    status: 'DRAFT' as const,
+    subject: { type: 'campaign' as const, slug: 'sumur-desa' },
+    actorId: 'admin-2',
+    requestedById: 'fundraiser-1',
+    approvedById: null,
+  };
+
+  it('posts the same provider and balance fields to the Payout-id-only balance-check route', async () => {
+    mockFetch.mockImplementation(() => ok({ id: 'check-1' }));
+
+    render(<AdminPayoutActionForm {...baseProps} />);
+
+    fireEvent.change(screen.getByLabelText(/^penyedia pembayaran$/i), { target: { value: 'sumopod' } });
+    fireEvent.change(screen.getByLabelText(/saldo/i), { target: { value: '300000' } });
+    fireEvent.click(screen.getByRole('button', { name: /catat.*kurang/i }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/admin/payouts/payout-1/balance-check');
+    expect(JSON.parse(init.body)).toEqual({ provider: 'sumopod', providerBalance: 300_000 });
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled());
+  });
+
+  it('keeps the button disabled until a provider is chosen and a balance is typed, same as Setujui', () => {
+    render(<AdminPayoutActionForm {...baseProps} />);
+    expect(screen.getByRole('button', { name: /catat.*kurang/i })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/^penyedia pembayaran$/i), { target: { value: 'sumopod' } });
+    fireEvent.change(screen.getByLabelText(/saldo/i), { target: { value: '300000' } });
+    expect(screen.getByRole('button', { name: /catat.*kurang/i })).not.toBeDisabled();
+  });
+
+  it('shows the server refusal when the reading is not actually short', async () => {
+    mockFetch.mockImplementation(() =>
+      refused(422, {
+        error: 'Saldo yang tercatat sudah mencukupi, gunakan Setujui pencairan.',
+        code: 'PROVIDER_BALANCE_NOT_SHORT',
+      }),
+    );
+
+    render(<AdminPayoutActionForm {...baseProps} />);
+    fireEvent.change(screen.getByLabelText(/^penyedia pembayaran$/i), { target: { value: 'sumopod' } });
+    fireEvent.change(screen.getByLabelText(/saldo/i), { target: { value: '5000000' } });
+    fireEvent.click(screen.getByRole('button', { name: /catat.*kurang/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('gunakan Setujui pencairan');
+  });
+
+  it('offers neither the approve nor the balance-check action to the requester (two-person rule)', () => {
+    render(<AdminPayoutActionForm {...baseProps} actorId="fundraiser-1" />);
+
+    expect(screen.queryByRole('button', { name: /catat.*kurang/i })).toBeNull();
+  });
+});
+
 describe('AdminPayoutActionForm -- completing an APPROVED Payout (ticket 13: structured proof)', () => {
   const baseProps = {
     payoutId: 'payout-1',

@@ -23,6 +23,12 @@ import type { Payout, PayoutStatus } from '@/generated/prisma/client';
  * this nor any other ticket has needed .include() through it yet"), so the
  * subject's title and slug are read in two batched queries rather than one
  * .include() -- the same shape the detail page repeats for one row.
+ *
+ * MARKER FOR AN UNRESOLVED SHORT CHECK (ticket 30). A DRAFT row in "Menunggu
+ * persetujuan" that has collected at least one PayoutBalanceCheck gets a
+ * small note beside it -- resolution is read off the Payout's own status
+ * (still DRAFT means still pending; owner decision 2026-09-28), so this is a
+ * plain existence check against `balanceChecks`, never a column of its own.
  */
 
 const QUEUE_STATUSES: PayoutStatus[] = ['DRAFT', 'APPROVED'];
@@ -33,6 +39,8 @@ type QueueRow = Pick<
 > & {
   requestedBy: { name: string | null };
   bankAccount: { bankCode: string; accountName: string };
+  /** ticket 30: true when a DRAFT row has at least one recorded short check. */
+  hasUnresolvedBalanceCheck: boolean;
 };
 
 function formatDate(date: Date): string {
@@ -81,6 +89,9 @@ function QueueTable({
                       <td className="px-6 py-4">
                         <p className="text-sm font-medium text-gray-900">{subject?.title ?? 'Tidak diketahui'}</p>
                         <p className="text-xs text-gray-500 truncate max-w-xs">{payout.description}</p>
+                        {payout.hasUnresolvedBalanceCheck && (
+                          <p className="mt-1 text-xs font-medium text-amber-700">Menunggu saldo penyedia</p>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{payout.requestedBy.name}</td>
                       <td className="px-6 py-4 text-sm text-gray-900">{formatRupiah(payout.amount)}</td>
@@ -109,14 +120,33 @@ function QueueTable({
 }
 
 export default async function AdminPayoutsPage() {
-  const payouts = (await prisma.payout.findMany({
+  const payoutRows = await prisma.payout.findMany({
     where: { status: { in: QUEUE_STATUSES } },
     orderBy: { createdAt: 'asc' },
     include: {
       requestedBy: { select: { name: true } },
       bankAccount: { select: { bankCode: true, accountName: true } },
     },
-  })) as QueueRow[];
+  });
+
+  // ticket 30: only the DRAFT rows can have anything unresolved -- an
+  // APPROVED row has already moved past this. One query for every DRAFT id
+  // at once, rather than one per row.
+  const draftIds = payoutRows.filter((p) => p.status === 'DRAFT').map((p) => p.id);
+  const checkedPayoutIds = new Set(
+    (
+      await prisma.payoutBalanceCheck.findMany({
+        where: { payoutId: { in: draftIds } },
+        select: { payoutId: true },
+        distinct: ['payoutId'],
+      })
+    ).map((c) => c.payoutId),
+  );
+
+  const payouts: QueueRow[] = payoutRows.map((payout) => ({
+    ...payout,
+    hasUnresolvedBalanceCheck: checkedPayoutIds.has(payout.id),
+  }));
 
   const subjects = await loadPayoutSubjects(prisma, payouts);
   const awaitingApproval = payouts.filter((p) => p.status === 'DRAFT');

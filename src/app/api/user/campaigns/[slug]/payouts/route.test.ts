@@ -410,6 +410,65 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
     });
   });
 
+  it('shows WHEN a still-DRAFT Payout was last checked short, never the provider or the balance (ticket 30)', async () => {
+    payoutRows = [
+      // DRAFT with an unresolved short check: the Fundraiser sees the date.
+      {
+        id: 'payout-1',
+        amount: 100_000,
+        description: 'x',
+        status: 'DRAFT',
+        createdAt: new Date('2026-09-01'),
+        approvedAt: null,
+        completedAt: null,
+        usageReport: null,
+        balanceChecks: [{ checkedAt: new Date('2026-09-05T00:00:00.000Z') }],
+      },
+      // DRAFT, never checked: nothing to show.
+      {
+        id: 'payout-2',
+        amount: 100_000,
+        description: 'x',
+        status: 'DRAFT',
+        createdAt: new Date('2026-09-02'),
+        approvedAt: null,
+        completedAt: null,
+        usageReport: null,
+        balanceChecks: [],
+      },
+      // APPROVED with a check in its history: resolved by the status change
+      // alone (owner decision 2026-09-28) -- shown as APPROVED, not as
+      // "menunggu saldo penyedia".
+      {
+        id: 'payout-3',
+        amount: 100_000,
+        description: 'x',
+        status: 'APPROVED',
+        createdAt: new Date('2026-09-03'),
+        approvedAt: new Date('2026-09-06'),
+        completedAt: null,
+        usageReport: null,
+        balanceChecks: [{ checkedAt: new Date('2026-09-04T00:00:00.000Z') }],
+      },
+    ];
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await read();
+    const body = await response.json();
+
+    const byId = Object.fromEntries(
+      body.payouts.map((p: { id: string; shortCheckedAt: string | null }) => [p.id, p.shortCheckedAt]),
+    );
+    expect(byId).toEqual({
+      'payout-1': '2026-09-05T00:00:00.000Z',
+      'payout-2': null,
+      'payout-3': null,
+    });
+    // Never the provider name or the recorded balance, anywhere in the body.
+    expect(JSON.stringify(body)).not.toMatch(/sumopod|recordedBalance|providerBalance/i);
+  });
+
   it("offers only this Fundraiser's own verified Bank Accounts as payout destinations", async () => {
     const { tx } = makeTx();
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));

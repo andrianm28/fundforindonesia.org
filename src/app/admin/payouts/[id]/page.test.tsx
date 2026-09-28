@@ -47,6 +47,13 @@ const DRAFT_PAYOUT = {
   proofImage: null,
   requestedBy: { name: 'Budi' },
   bankAccount: { bankCode: 'BCA', accountName: 'Budi Santoso' },
+  balanceChecks: [] as Array<{
+    id: string;
+    provider: string;
+    recordedBalance: number;
+    checkedAt: Date;
+    checkedBy: { name: string };
+  }>,
 };
 
 describe('AdminPayoutDetailPage', () => {
@@ -253,5 +260,88 @@ describe('AdminPayoutDetailPage', () => {
 
     expect(screen.getByText(/Foto tidak sesuai narasi\./)).toBeDefined();
     expect(screen.queryByRole('button', { name: /Tandai dipertanyakan/ })).toBeNull();
+  });
+
+  describe('balance check history (ticket 30)', () => {
+    it('shows the "menunggu saldo penyedia" marker and the check history for a DRAFT Payout with an unresolved short check', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+      vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+        ...DRAFT_PAYOUT,
+        balanceChecks: [
+          {
+            id: 'check-2',
+            provider: 'sumopod',
+            recordedBalance: 3_000_000,
+            checkedAt: new Date('2026-09-27T00:00:00.000Z'),
+            checkedBy: { name: 'Admin Dua' },
+          },
+          {
+            id: 'check-1',
+            provider: 'sumopod',
+            recordedBalance: 2_000_000,
+            checkedAt: new Date('2026-09-25T00:00:00.000Z'),
+            checkedBy: { name: 'Admin Dua' },
+          },
+        ],
+      } as never);
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+        id: 'campaign-1',
+        slug: 'sumur-desa',
+        title: 'Sumur untuk Desa',
+      } as never);
+
+      render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+      expect(screen.getByText(/Menunggu saldo penyedia/)).toBeDefined();
+      expect(screen.getByText(/Rp3\.000\.000/)).toBeDefined();
+      expect(screen.getByText(/Rp2\.000\.000/)).toBeDefined();
+    });
+
+    it('shows no marker or history for a Payout that has never been checked', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+      vi.mocked(prisma.payout.findUnique).mockResolvedValue(DRAFT_PAYOUT as never);
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+        id: 'campaign-1',
+        slug: 'sumur-desa',
+        title: 'Sumur untuk Desa',
+      } as never);
+
+      render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+      expect(screen.queryByText(/Menunggu saldo penyedia/)).toBeNull();
+      expect(screen.queryByText(/Riwayat cek saldo/)).toBeNull();
+    });
+
+    it('keeps the history visible once the Payout is APPROVED, but drops the "menunggu" marker -- resolution is read off the status', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-3', assignments: ['ADMIN'] } } as never);
+      vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+        ...DRAFT_PAYOUT,
+        status: 'APPROVED',
+        approvedById: 'admin-2',
+        approvedAt: new Date('2026-09-28T00:00:00.000Z'),
+        approvedProvider: 'sumopod',
+        approvedProviderBalance: 8_000_000,
+        approvedBy: { name: 'Admin Dua' },
+        balanceChecks: [
+          {
+            id: 'check-1',
+            provider: 'sumopod',
+            recordedBalance: 2_000_000,
+            checkedAt: new Date('2026-09-25T00:00:00.000Z'),
+            checkedBy: { name: 'Admin Dua' },
+          },
+        ],
+      } as never);
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+        id: 'campaign-1',
+        slug: 'sumur-desa',
+        title: 'Sumur untuk Desa',
+      } as never);
+
+      render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+      expect(screen.queryByText(/Menunggu saldo penyedia/)).toBeNull();
+      expect(screen.getByText(/Rp2\.000\.000/)).toBeDefined();
+    });
   });
 });

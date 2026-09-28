@@ -497,6 +497,58 @@ describe('CampaignPayoutPanel', () => {
     expect(screen.queryByRole('button', { name: /Kirim Usage Report/ })).toBeNull();
   });
 
+  it('shows WHEN a still-DRAFT Payout was checked short of the provider balance, never the provider or the figure (ticket 30)', async () => {
+    mockFetch.mockImplementation(() =>
+      ok({
+        ...READ,
+        payouts: [
+          {
+            id: 'payout-1',
+            amount: 100_000,
+            description: 'Upah pekerja',
+            status: 'DRAFT',
+            createdAt: '2026-09-01T00:00:00.000Z',
+            approvedAt: null,
+            completedAt: null,
+            usageReportStatus: null,
+            shortCheckedAt: '2026-09-05T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
+
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+
+    expect(await screen.findByText(/Menunggu saldo penyedia, dicek/)).toBeInTheDocument();
+    expect(screen.queryByText(/sumopod/i)).toBeNull();
+  });
+
+  it('says nothing extra for a DRAFT Payout that has never been checked', async () => {
+    mockFetch.mockImplementation(() =>
+      ok({
+        ...READ,
+        payouts: [
+          {
+            id: 'payout-1',
+            amount: 100_000,
+            description: 'Upah pekerja',
+            status: 'DRAFT',
+            createdAt: '2026-09-01T00:00:00.000Z',
+            approvedAt: null,
+            completedAt: null,
+            usageReportStatus: null,
+            shortCheckedAt: null,
+          },
+        ],
+      }),
+    );
+
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+
+    expect(await screen.findByText('Upah pekerja - diajukan 1 September 2026')).toBeInTheDocument();
+    expect(screen.queryByText(/Menunggu saldo penyedia/)).toBeNull();
+  });
+
   it('tells a Fundraiser with a submitted-but-unverified account to check its status, and links them there', async () => {
     mockFetch.mockImplementation(() =>
       ok({ ...READ, bankAccounts: [], hasUnverifiedBankAccount: true }),
