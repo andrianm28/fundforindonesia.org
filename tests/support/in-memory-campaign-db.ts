@@ -1,5 +1,5 @@
 import type { CampaignStatus, Kind } from '@/generated/prisma/client';
-import { sealUserEmail } from '@/lib/contact-fields';
+import { sealBankAccountNumber, sealUserEmail } from '@/lib/contact-fields';
 
 /**
  * In-memory stand-in for the slice of PrismaClient that the Campaign
@@ -215,6 +215,32 @@ export type IdentityVerificationRow = {
   note: string | null;
 };
 
+/** A Bank Account (ticket 16; ADR 0018). The number is sealed, like a User's email (ADR 0012). */
+export type BankAccountRow = {
+  id: string;
+  ownerId: string;
+  bankCode: string;
+  accountName: string;
+  accountNumberCiphertext: string;
+  accountNumberKeyId: string;
+  verifiedAt: Date | null;
+  createdAt: Date;
+};
+
+/** One submission of a Bank Account to a Verifier (ticket 16; ADR 0018). */
+export type BankAccountVerificationRequestRow = {
+  id: string;
+  bankAccountId: string;
+  outcome: 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN';
+  checkedBankCode: string | null;
+  documentedAccountName: string | null;
+  note: string | null;
+  submittedById: string;
+  submittedAt: Date;
+  decidedById: string | null;
+  decidedAt: Date | null;
+};
+
 /** Every table the stand-in holds; what the interleave hooks receive. */
 export type CampaignDbData = Data;
 
@@ -234,6 +260,8 @@ type Data = {
   fundraisingPermits: FundraisingPermitRow[];
   kindAuthorisations: KindAuthorisationRow[];
   partnerOrganisationAudits: PartnerOrganisationAuditRow[];
+  bankAccounts: BankAccountRow[];
+  bankAccountVerificationRequests: BankAccountVerificationRequestRow[];
 };
 
 type Where = Record<string, unknown>;
@@ -318,6 +346,8 @@ function clone(data: Data): Data {
     fundraisingPermits: data.fundraisingPermits.map((p) => ({ ...p, kinds: [...p.kinds] })),
     kindAuthorisations: data.kindAuthorisations.map((k) => ({ ...k })),
     partnerOrganisationAudits: data.partnerOrganisationAudits.map((a) => ({ ...a })),
+    bankAccounts: data.bankAccounts.map((a) => ({ ...a })),
+    bankAccountVerificationRequests: data.bankAccountVerificationRequests.map((r) => ({ ...r })),
   };
 }
 
@@ -435,6 +465,39 @@ export function verificationRequestRow(
   };
 }
 
+/** A Bank Account owned by `creator-1`, unverified, sealed with a fixed test number. */
+export function bankAccountRow(overrides: Partial<BankAccountRow> = {}): BankAccountRow {
+  return {
+    id: 'bank-account-1',
+    ownerId: 'owner-1',
+    bankCode: 'bca',
+    accountName: 'Siti Fundraiser',
+    verifiedAt: null,
+    createdAt: new Date('2026-09-24T08:00:00Z'),
+    ...sealBankAccountNumber('1234567890'),
+    ...overrides,
+  };
+}
+
+/** A PENDING BankAccountVerificationRequest on `bank-account-1`. */
+export function bankAccountVerificationRequestRow(
+  overrides: Partial<BankAccountVerificationRequestRow> = {},
+): BankAccountVerificationRequestRow {
+  return {
+    id: 'bank-account-verification-1',
+    bankAccountId: 'bank-account-1',
+    outcome: 'PENDING',
+    checkedBankCode: null,
+    documentedAccountName: null,
+    note: null,
+    submittedById: 'owner-1',
+    submittedAt: new Date('2026-09-24T08:00:00Z'),
+    decidedById: null,
+    decidedAt: null,
+    ...overrides,
+  };
+}
+
 /** Sorts rows by a single-field Prisma `orderBy`, keeping insertion order for ties. */
 function ordered<T>(rows: T[], orderBy?: Record<string, 'asc' | 'desc'>): T[] {
   if (!orderBy) return rows;
@@ -520,6 +583,10 @@ export function makeCampaignDb(
     abuseThresholds?: { kind: string; value: number; setAt: string }[];
     /** Read-only, so kept outside the transactional copy; defaults to the Fundraiser of campaignRow(). */
     users?: UserRow[];
+    /** Bank Accounts (ticket 16); defaults to none. */
+    bankAccounts?: BankAccountRow[];
+    /** BankAccountVerificationRequest rows (ticket 16); defaults to none. */
+    bankAccountVerificationRequests?: BankAccountVerificationRequestRow[];
   } = {},
 ) {
   const users = (seed.users ?? [userRow()]).map((u) => ({ ...u }));
@@ -539,6 +606,8 @@ export function makeCampaignDb(
     fundraisingPermits: (seed.fundraisingPermits ?? [fundraisingPermitRow()]).map((p) => ({ ...p, kinds: [...p.kinds] })),
     kindAuthorisations: (seed.kindAuthorisations ?? []).map((k) => ({ ...k })),
     partnerOrganisationAudits: [],
+    bankAccounts: (seed.bankAccounts ?? []).map((a) => ({ ...a })),
+    bankAccountVerificationRequests: (seed.bankAccountVerificationRequests ?? []).map((r) => ({ ...r })),
   };
   // The abuse threshold history is read-only here, like the Users below, so it
   // sits outside the transactional copy.
@@ -896,6 +965,95 @@ export function makeCampaignDb(
           return { ...row };
         },
       },
+      bankAccount: {
+        findUnique: async (
+          { where, select }: { where: Where; select?: Record<string, unknown> },
+        ) => {
+          const row = getData().bankAccounts.find((a) => matches(a, where));
+          if (!row) return null;
+          if (!select) return { ...row };
+          return Object.fromEntries(
+            Object.keys(select)
+              .filter((key) => select[key])
+              .map((key) => [
+                key,
+                key === 'owner'
+                  ? (() => {
+                      const owner = users.find((u) => u.id === row.ownerId);
+                      const ownerSelect = select.owner as Record<string, boolean> | true;
+                      if (!owner) return null;
+                      if (ownerSelect === true) return { ...owner };
+                      return Object.fromEntries(
+                        Object.keys(ownerSelect).filter((k) => ownerSelect[k]).map((k) => [k, owner[k as keyof UserRow]]),
+                      );
+                    })()
+                  : row[key as keyof BankAccountRow],
+              ]),
+          );
+        },
+        findMany: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'> } = {}) =>
+          ordered(getData().bankAccounts.filter((a) => matches(a, where)), orderBy).map((a) => ({ ...a })),
+        create: async ({ data }: { data: Omit<BankAccountRow, 'id' | 'verifiedAt' | 'createdAt'> & { verifiedAt?: Date | null; createdAt?: Date } }) => {
+          const row: BankAccountRow = { id: `bank-account-${nextId++}`, verifiedAt: null, createdAt: new Date(), ...data };
+          getData().bankAccounts.push(row);
+          return { ...row };
+        },
+        updateMany: async ({ where, data }: { where: Where; data: Partial<BankAccountRow> }) => {
+          const rows = getData().bankAccounts.filter((a) => matches(a, where));
+          for (const row of rows) Object.assign(row, data);
+          return { count: rows.length };
+        },
+        delete: async ({ where }: { where: { id: string } }) => {
+          const data = getData();
+          const index = data.bankAccounts.findIndex((a) => a.id === where.id);
+          if (index === -1) throw new Error('No BankAccount found');
+          const [row] = data.bankAccounts.splice(index, 1);
+          return { ...row };
+        },
+      },
+      bankAccountVerificationRequest: {
+        findUnique: async ({ where }: { where: Where }) => {
+          const row = getData().bankAccountVerificationRequests.find((r) => matches(r, where));
+          return row ? { ...row } : null;
+        },
+        findFirst: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'> } = {}) => {
+          const rows = ordered(getData().bankAccountVerificationRequests.filter((r) => matches(r, where)), orderBy);
+          return rows.length > 0 ? { ...rows[0] } : null;
+        },
+        findMany: async (
+          { where = {}, orderBy, include }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'>; include?: { bankAccount?: unknown } } = {},
+        ) =>
+          ordered(getData().bankAccountVerificationRequests.filter((r) => matches(r, where)), orderBy).map((r) => {
+            if (!include?.bankAccount) return { ...r };
+            const account = getData().bankAccounts.find((a) => a.id === r.bankAccountId);
+            const owner = account ? users.find((u) => u.id === account.ownerId) : undefined;
+            return { ...r, bankAccount: account ? { ...account, owner: owner ? { ...owner } : null } : null };
+          }),
+        count: async ({ where = {} }: { where?: Where } = {}) =>
+          getData().bankAccountVerificationRequests.filter((r) => matches(r, where)).length,
+        create: async (
+          { data }: { data: Pick<BankAccountVerificationRequestRow, 'bankAccountId' | 'submittedById'> & { submittedAt?: Date; outcome?: BankAccountVerificationRequestRow['outcome'] } },
+        ) => {
+          const row: BankAccountVerificationRequestRow = {
+            id: `bank-account-verification-${nextId++}`,
+            outcome: 'PENDING',
+            checkedBankCode: null,
+            documentedAccountName: null,
+            note: null,
+            submittedAt: new Date(),
+            decidedById: null,
+            decidedAt: null,
+            ...data,
+          };
+          getData().bankAccountVerificationRequests.push(row);
+          return { ...row };
+        },
+        updateMany: async ({ where, data }: { where: Where; data: Partial<BankAccountVerificationRequestRow> }) => {
+          const rows = getData().bankAccountVerificationRequests.filter((r) => matches(r, where));
+          for (const row of rows) Object.assign(row, data);
+          return { count: rows.length };
+        },
+      },
       user: {
         findUnique: async ({ where }: { where: Where }) => {
           const row = users.find((u) => matches(u, where));
@@ -1030,6 +1188,17 @@ export function makeCampaignDb(
     },
     get partnerOrganisationAudits() {
       return committed.partnerOrganisationAudits;
+    },
+    get bankAccounts() {
+      return committed.bankAccounts;
+    },
+    get bankAccountVerificationRequests() {
+      return committed.bankAccountVerificationRequests;
+    },
+    bankAccount(id = 'bank-account-1') {
+      const row = committed.bankAccounts.find((a) => a.id === id);
+      if (!row) throw new Error(`no bank account ${id}`);
+      return row;
     },
     campaignFlag(id = 'flag-1') {
       const row = committed.campaignFlags.find((f) => f.id === id);
