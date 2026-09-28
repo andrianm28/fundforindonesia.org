@@ -13,6 +13,7 @@ import {
   InvalidRefundStatusError,
   OwnSubjectConflictError,
 } from './refunds';
+import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
 
 type LedgerRow = {
   transactionId: string;
@@ -61,9 +62,9 @@ const PRD_TECHNICAL_FAILURES = [
 ] as const;
 
 /**
- * Minimal in-memory stand-in for a Prisma transaction client, reusing the
- * same ledgerEntry.groupBy/createMany simulation as
- * src/lib/money/payouts.test.ts, so campaignBalance/tripBalance/
+ * Minimal in-memory stand-in for a Prisma transaction client, using the shared
+ * ledgerEntry.groupBy/createMany simulation
+ * (tests/support/ledger-group-by.ts), so campaignBalance/tripBalance/
  * escrowBalance/tripEscrowBalance and postTransaction are exercised for
  * real rather than mocked away.
  */
@@ -173,23 +174,7 @@ function makeTx(
           rows.push(...data);
           return { count: data.length };
         }),
-        groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
-          const filtered = rows.filter((r) => {
-            const w = args.where ?? {};
-            return Object.entries(w).every(([k, v]) => (r as never as Record<string, unknown>)[k] === v);
-          });
-          const buckets = new Map<string, { row: Record<string, unknown>; sum: number }>();
-          for (const r of filtered) {
-            const key = args.by.map((k) => String((r as never as Record<string, unknown>)[k])).join('|');
-            const b = buckets.get(key) ?? {
-              row: Object.fromEntries(args.by.map((k) => [k, (r as never as Record<string, unknown>)[k]])),
-              sum: 0,
-            };
-            b.sum += r.amount;
-            buckets.set(key, b);
-          }
-          return Array.from(buckets.values()).map((b) => ({ ...b.row, _sum: { amount: b.sum } }));
-        }),
+        groupBy: vi.fn(ledgerGroupBy(rows)),
       },
     },
     refundCreate,
@@ -949,23 +934,7 @@ function makeMultiPaymentTx(initialLedgerRows: LedgerRow[] = []) {
         rows.push(...data);
         return { count: data.length };
       }),
-      groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
-        const filtered = rows.filter((r) => {
-          const w = args.where ?? {};
-          return Object.entries(w).every(([k, v]) => (r as never as Record<string, unknown>)[k] === v);
-        });
-        const buckets = new Map<string, { row: Record<string, unknown>; sum: number }>();
-        for (const r of filtered) {
-          const key = args.by.map((k) => String((r as never as Record<string, unknown>)[k])).join('|');
-          const b = buckets.get(key) ?? {
-            row: Object.fromEntries(args.by.map((k) => [k, (r as never as Record<string, unknown>)[k]])),
-            sum: 0,
-          };
-          b.sum += r.amount;
-          buckets.set(key, b);
-        }
-        return Array.from(buckets.values()).map((b) => ({ ...b.row, _sum: { amount: b.sum } }));
-      }),
+      groupBy: vi.fn(ledgerGroupBy(rows)),
     },
   };
 

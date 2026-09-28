@@ -10,6 +10,7 @@ import { formatRupiah } from '@/lib/utils/currency';
 import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { SUBMITTABLE_STATUSES, submitToVerifier, withdrawFromVerifier } from '@/lib/verification-submission';
+import { PAYOUT_REQUESTABLE_STATUSES } from '@/lib/payout-requestable-statuses';
 
 interface Campaign {
   id: string;
@@ -197,6 +198,22 @@ export default function MyCampaignsPage() {
                   </div>
                 </div>
               </Link>
+              {/*
+                The way to the Payout screen. A Payout may only be requested in
+                Active, Expired or Completed, so the link is not shown for the
+                statuses that would refuse one -- the request is refused under
+                the subject guard either way, but offering a button that always
+                turns into a refusal teaches the Fundraiser that the screen is
+                broken.
+              */}
+              {PAYOUT_REQUESTABLE_STATUSES.includes(campaign.lifecycleStatus) && (
+                <Link
+                  href={`/akun/kampanye-saya/${campaign.slug}/pencairan`}
+                  className="border-t border-[#E0E0E0] px-3 py-2 text-xs font-medium text-[#0073E6] hover:bg-[#F5F5F5] transition-colors"
+                >
+                  Cairkan dana
+                </Link>
+              )}
               {SUBMITTABLE_STATUSES.includes(campaign.lifecycleStatus) && (
                 <VerificationAction
                   label="Ajukan ke Verifier"

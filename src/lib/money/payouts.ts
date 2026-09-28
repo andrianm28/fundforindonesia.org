@@ -3,6 +3,7 @@ import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, 
 import { assertExactlyOnePayoutSubject } from './payout-subject';
 import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
+import { exceedsPayoutBalance } from '@/lib/payout-balance-rule';
 import {
   DemoCampaignError,
   BankAccountNotEligibleError,
@@ -170,7 +171,13 @@ export async function requestPayout(
     subject.type === 'campaign'
       ? await campaignBalance(tx, subject.campaignId)
       : await tripBalance(tx, subject.tripId);
-  if (amount > balance) {
+  // The cap itself is one named rule, asked of the same module a screen asks
+  // and the same module approvePayout asks below:
+  // exceedsPayoutBalance (@/lib/payout-balance-rule.ts). The server stays the
+  // holder of the decision -- this is where it is enforced, under the lock --
+  // but the question is written down once, so the screen warning about it
+  // cannot become a second opinion.
+  if (exceedsPayoutBalance(amount, balance)) {
     throw new InsufficientBalanceError(amount, balance);
   }
 
@@ -409,7 +416,14 @@ export async function approvePayout(
       subject.type === 'campaign'
         ? await campaignBalance(tx, subject.campaignId)
         : await tripBalance(tx, subject.tripId);
-    if (payout.amount > balance) {
+    // The same named rule requestPayout asks above, asked again because the
+    // balance it judged has moved: the cap is one comparison in
+    // (@/lib/payout-balance-rule.ts), so this path cannot become a second,
+    // stricter version of it without a test saying so
+    // (src/__tests__/payout-balance-rule-callers.test.tsx). Nothing here is
+    // stricter than requestPayout for any reason of its own -- the lock
+    // changes WHEN the balance is read, not by how much may be taken of it.
+    if (exceedsPayoutBalance(payout.amount, balance)) {
       throw new InsufficientBalanceError(payout.amount, balance);
     }
 
