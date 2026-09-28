@@ -107,7 +107,7 @@ describe('AdminPayoutActionForm -- completing an APPROVED Payout (ticket 13: str
     approvedById: 'admin-2',
   };
 
-  it('collects a transaction reference and a free-text note, and posts both joined as proofImage', async () => {
+  it('collects a transaction reference and a free-text note, and posts both as their own fields -- the server joins them', async () => {
     mockFetch.mockImplementation(() => ok({ id: 'payout-1', status: 'COMPLETED' }));
 
     render(<AdminPayoutActionForm {...baseProps} />);
@@ -119,7 +119,7 @@ describe('AdminPayoutActionForm -- completing an APPROVED Payout (ticket 13: str
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toBe('/api/campaigns/sumur-desa/payouts/payout-1/complete');
-    expect(JSON.parse(init.body)).toEqual({ proofImage: 'TRX-001 — Ditransfer via BCA mobile' });
+    expect(JSON.parse(init.body)).toEqual({ proofReference: 'TRX-001', proofNote: 'Ditransfer via BCA mobile' });
     await waitFor(() => expect(mockRefresh).toHaveBeenCalled());
   });
 

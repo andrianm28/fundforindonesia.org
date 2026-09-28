@@ -8,7 +8,13 @@ import { refusalResponse } from '@/lib/refusal-response';
 import { completePayout } from '@/lib/money/payouts';
 
 const completePayoutSchema = z.object({
-  proofImage: z.string().trim().min(1, 'Bukti transfer wajib dilampirkan'),
+  // Type-checked only: whether a reference or note is blank, whitespace-only
+  // or over length is `completePayout`'s own question, asked through the
+  // same validator (@/lib/payout-proof) the Admin's form asks before
+  // submitting -- so the rule is written down once, not once here and once
+  // there.
+  proofReference: z.string(),
+  proofNote: z.string(),
 });
 
 type RouteContext = { params: Promise<{ slug: string; id: string }> };
@@ -67,7 +73,8 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRe
     const updated = await completePayout(prisma, {
       payoutId: id,
       completedById,
-      proofImage: parsed.data.proofImage,
+      proofReference: parsed.data.proofReference,
+      proofNote: parsed.data.proofNote,
     });
 
     return NextResponse.json({

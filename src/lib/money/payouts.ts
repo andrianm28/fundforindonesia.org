@@ -4,6 +4,7 @@ import { assertExactlyOnePayoutSubject } from './payout-subject';
 import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
 import { exceedsPayoutBalance } from '@/lib/payout-balance-rule';
+import { validateProofReference, validateProofNote, buildProofImage } from '@/lib/payout-proof';
 import {
   DemoCampaignError,
   BankAccountNotEligibleError,
@@ -11,7 +12,7 @@ import {
   SelfApprovalError,
   InvalidPayoutStatusError,
   PayoutNotFoundError,
-  PayoutProofRequiredError,
+  PayoutProofInvalidError,
   ProviderBalanceInsufficientError,
   ProviderBalanceNotRecordedError,
   ProviderBalanceAmountError,
@@ -45,7 +46,7 @@ export {
   SelfApprovalError,
   InvalidPayoutStatusError,
   PayoutNotFoundError,
-  PayoutProofRequiredError,
+  PayoutProofInvalidError,
   ProviderBalanceInsufficientError,
   ProviderBalanceNotRecordedError,
   ProviderBalanceAmountError,
@@ -552,20 +553,40 @@ export async function completePayout(
   params: {
     payoutId: string;
     completedById: string;
-    /** Evidence of the transfer. Non-empty, or there is nothing to record. */
-    proofImage: string;
+    /**
+     * Evidence of the transfer: a transaction reference and a free-text
+     * note, ticket 13's answer to what "bukti transfer" means --
+     * `cleanProofReference`-style, the same shape a Manual Contribution's
+     * evidence has. Validated here by the exact functions
+     * AdminPayoutActionForm asks before it ever lets an Admin submit
+     * (@/lib/payout-proof), so the form's warning and this refusal can never
+     * disagree about what a valid proof looks like. Joined into the one
+     * string `Payout.proofImage` stores -- the column keeps its shape; only
+     * what fills it changed.
+     */
+    proofReference: string;
+    proofNote: string;
   },
 ): Promise<Payout> {
-  const { payoutId, completedById, proofImage } = params;
+  const { payoutId, completedById, proofReference, proofNote } = params;
 
   // Checked before the transaction opens, because it is a property of the
-  // request and not of any row: a blank proof can never become a good one
-  // by reading the database. Nothing below is reached, so nothing is
-  // written, and the payout keeps waiting in APPROVED for a second Admin who
-  // attaches the evidence.
-  if (proofImage.trim() === '') {
-    throw new PayoutProofRequiredError();
+  // request and not of any row: a blank or over-length field can never
+  // become a good one by reading the database. Nothing below is reached, so
+  // nothing is written, and the payout keeps waiting in APPROVED for a
+  // second Admin who attaches proper evidence. Each field is judged by its
+  // own function, so a bad reference is never reported as a bad note.
+  const referenceError = validateProofReference(
+    typeof proofReference === 'string' ? proofReference : '',
+  );
+  if (referenceError) {
+    throw new PayoutProofInvalidError(referenceError);
   }
+  const noteError = validateProofNote(typeof proofNote === 'string' ? proofNote : '');
+  if (noteError) {
+    throw new PayoutProofInvalidError(noteError);
+  }
+  const proofImage = buildProofImage(proofReference, proofNote);
 
   await prisma.$transaction(async (tx) => {
     const payout = await tx.payout.findUnique({ where: { id: payoutId }, include: { bankAccount: true } });

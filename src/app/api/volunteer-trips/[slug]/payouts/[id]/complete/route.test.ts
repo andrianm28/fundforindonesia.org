@@ -105,7 +105,9 @@ function makeTx(options: { payout: ReturnType<typeof makeApprovedTripPayout> | n
   };
 }
 
-function createRequest(body: unknown = { proofImage: 'https://files.example/trip-transfer.png' }): NextRequest {
+function createRequest(
+  body: unknown = { proofReference: 'TRX-trip-1', proofNote: 'Ditransfer via BCA, dicocokkan dengan nominal.' },
+): NextRequest {
   return new NextRequest('http://localhost:3000/api/volunteer-trips/test-trip/payouts/payout-1/complete', {
     method: 'POST',
     body: JSON.stringify(body),

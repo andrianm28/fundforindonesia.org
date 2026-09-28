@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PAYMENT_PROVIDER_NAMES } from '@/lib/payments/provider-names';
-import { validateProofReference, validateProofNote, buildProofImage } from '@/lib/admin-payout-proof';
+import { validateProofReference, validateProofNote } from '@/lib/payout-proof';
 import type { PayoutStatus } from '@/generated/prisma/client';
 
 /**
@@ -33,15 +33,13 @@ import type { PayoutStatus } from '@/generated/prisma/client';
  * Admin is not sent to the server to be told what an empty field already
  * says.
  *
- * PROOF IS A STRUCTURED NOTE (ticket 13). `completePayout` still only
- * refuses a blank `proofImage` string -- giving it the same
- * `cleanProofReference`-style shape as a Manual Contribution's evidence is
- * ticket 21's own money-lib change to make, and the ticket's brief says to
- * stop and report rather than guess at one (see the ticket 21 report). So
- * this form is where the structure the owner decided on actually lives
- * today: a transaction reference and a free sentence, both required
- * (src/lib/admin-payout-proof.ts), joined into the one string the route
- * still accepts.
+ * PROOF IS A STRUCTURED NOTE (ticket 13). `completePayout` refuses a
+ * reference or note that is blank, whitespace-only or over length, through
+ * the same `validateProofReference`/`validateProofNote` functions
+ * (@/lib/payout-proof) this form asks before enabling its own button -- one
+ * shared validator, not a rule this form enforces and the server merely
+ * trusts. The route sends both fields on their own; `completePayout` joins
+ * them into the one string `Payout.proofImage` stores.
  *
  * NO BANK ACCOUNT NUMBER ANYWHERE ON THIS FORM (ticket 12). Sumopod, the
  * only provider active before a disbursement API exists, is withdrawn from
@@ -247,7 +245,7 @@ export function AdminPayoutActionForm({
           onClick={() =>
             post(
               actionUrl(subject, payoutId, 'complete'),
-              { proofImage: buildProofImage(reference, note) },
+              { proofReference: reference, proofNote: note },
               'Gagal menandai pencairan selesai.',
             )
           }

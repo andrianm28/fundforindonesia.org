@@ -111,21 +111,30 @@ export class InvalidPayoutStatusError extends MoneyError {
 }
 
 /**
- * A Payout completion with no proof of transfer attached (CONTEXT.md, Payout:
- * "ditandai selesai dengan bukti transfer"; ADR 0006, where the mandatory
- * proof is named as one of the two controls the two-person rule rests on).
+ * A Payout completion whose proof of transfer does not have the shape
+ * ticket 13 decided it has to: a transaction reference and a free-text
+ * note, both present, trimmed, and within @/lib/payout-proof's length
+ * limits (CONTEXT.md, Payout: "ditandai selesai dengan bukti transfer";
+ * ADR 0006, where the mandatory proof is named as one of the two controls
+ * the two-person rule rests on).
  *
- * Refused rather than warned because a COMPLETED row with no proof is a
- * claim that the money moved, not a record that it did -- and because the
+ * Refused rather than warned, and refused HERE -- not only in the Admin's
+ * own form -- because a COMPLETED row with a blank or malformed proof is a
+ * claim that the money moved, not a record that it did, and because the
  * money has, by then, left the platform: nothing here can be checked
- * afterwards from the books, only from the image an Admin was asked for
- * and did not attach.
+ * afterwards from the books, only from the reference and note an Admin was
+ * asked for. `completePayout` (src/lib/money/payouts.ts) asks the same
+ * `validateProofReference`/`validateProofNote` functions the form asks
+ * (@/lib/payout-proof), so this error carries whichever field's own message
+ * those functions gave -- "Referensi transaksi wajib diisi.", "Catatan
+ * paling panjang 500 karakter.", and so on -- rather than a single generic
+ * sentence for every way the shape can be wrong.
  */
-export class PayoutProofRequiredError extends MoneyError {
-  readonly code = 'PAYOUT_PROOF_REQUIRED';
-  constructor() {
-    super('Payout hanya dapat ditandai selesai dengan bukti transfer yang terlampir.');
-    this.name = 'PayoutProofRequiredError';
+export class PayoutProofInvalidError extends MoneyError {
+  readonly code = 'PAYOUT_PROOF_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'PayoutProofInvalidError';
   }
 }
 

@@ -6,14 +6,21 @@
  * style", per the owner's 2026-09-28 answer
  * (.scratch/rilis-1-benda/issues/13-what-counts-as-proof-that-the-money-moved.md).
  *
- * `completePayout` (src/lib/money/payouts.ts) still only refuses a blank
- * `proofImage` string -- giving it the same shape as Manual Contribution's
- * validation is ticket 21's own money-lib change to make, and ticket 21's
- * brief says to stop and report rather than guess at one. So this module is
- * where the structure is actually asked for today: on the Admin's complete
- * form, which collects both fields separately and refuses to submit until
- * both pass, then joins them into the one string the API still accepts.
- * Nothing here changes what the server enforces.
+ * ONE VALIDATOR, TWO CALLERS. `completePayout` (src/lib/money/payouts.ts)
+ * imports these same three functions and refuses a Payout completion whose
+ * reference or note fails them, under the same subject row lock as every
+ * other completePayout check (@/lib/money/errors.ts's PayoutProofInvalidError,
+ * mapped to 400). The Admin's own form
+ * (src/components/admin/AdminPayoutActionForm.tsx) imports them too, to
+ * disable its submit button and show the same message before the request
+ * ever leaves the browser. Neither copies the other's rule: a screen that
+ * warned about one shape while the server enforced another is exactly what
+ * @/lib/payout-balance-rule.ts's own doc comment (`exceedsPayoutBalance`)
+ * warns against, and this module is that same arrangement for the proof
+ * instead of the amount. `buildProofImage` is the one place the two
+ * validated fields become the single string `Payout.proofImage` still
+ * stores (no migration; ticket 13's answer only asked for a structured
+ * value, not a new column).
  */
 
 export const MAX_PROOF_REFERENCE_LENGTH = 200;

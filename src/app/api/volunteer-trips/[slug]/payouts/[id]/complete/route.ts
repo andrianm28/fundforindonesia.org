@@ -8,7 +8,10 @@ import { refusalResponse } from '@/lib/refusal-response';
 import { completePayout } from '@/lib/money/payouts';
 
 const completePayoutSchema = z.object({
-  proofImage: z.string().trim().min(1, 'Bukti transfer wajib dilampirkan'),
+  // Type-checked only, exactly as the Campaign twin: the reference/note
+  // rule itself is completePayout's, asked through @/lib/payout-proof.
+  proofReference: z.string(),
+  proofNote: z.string(),
 });
 
 type RouteContext = { params: Promise<{ slug: string; id: string }> };
@@ -57,7 +60,8 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRe
     const updated = await completePayout(prisma, {
       payoutId: id,
       completedById,
-      proofImage: parsed.data.proofImage,
+      proofReference: parsed.data.proofReference,
+      proofNote: parsed.data.proofNote,
     });
 
     return NextResponse.json({
