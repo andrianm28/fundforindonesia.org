@@ -489,10 +489,13 @@ const LIVE_REGISTRATION_STATUSES: RegistrationStatus[] = [RegistrationStatus.HOL
 /**
  * Every HOLD on the Batch whose window has passed becomes EXPIRED, freeing
  * its seat. Called with the Batch lock held, so the seat count taken next
- * sees the freed seats. There is no scheduler: this runs at the start of
- * every hold on the Batch, as releaseMaturedEscrow runs at the start of a
- * payout request (src/lib/money/escrow.ts). The Payment of an expired hold
- * is left alone: a late settlement of it is the webhook's business.
+ * sees the freed seats. There is still no scheduler for this one: it runs
+ * at the start of every hold on the Batch, and nothing else calls it. The
+ * comparison to releaseMaturedEscrow (src/lib/money/escrow.ts) is the
+ * other way round now -- that sweep runs at the start of a payout request
+ * and is also a phase of `runScheduledJobs` (src/lib/scheduled-jobs.ts),
+ * which does not expire lapsed holds. The Payment of an expired hold is
+ * left alone: a late settlement of it is the webhook's business.
  */
 async function expireLapsedHolds(tx: Tx, batchId: string, now: Date): Promise<void> {
   await tx.registration.updateMany({
