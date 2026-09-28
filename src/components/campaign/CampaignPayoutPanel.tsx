@@ -129,29 +129,51 @@ interface UsageReportLineItemInput {
  * only collects the fields and shows the server's own refusal when it says
  * no, the same choice the Payout request form above makes.
  *
- * ONE LINE ITEM, TODAY. The server accepts several ("rincian per pos"); this
- * form offers exactly one because that is enough to satisfy the arithmetic
- * (its amount must equal the Payout's own) without asking a Fundraiser
- * reporting on a single expense to split it up. Nothing here stops the
- * amount being wrong -- the server is still the one that checks the sum --
- * only the field is pre-filled with the Payout's own amount so the ordinary
- * case (one Payout, one purpose) needs no arithmetic at all.
+ * SEVERAL LINE ITEMS, ADDED AND REMOVED FREELY. The server accepts several
+ * ("rincian per pos") and requires their total to equal the Payout's own
+ * amount exactly, so this form lets a Fundraiser split a Payout across as
+ * many posts as their spending actually had, shows the running total against
+ * the Payout amount as they type, and disables submit until the two match --
+ * not because this form is the authority on the arithmetic (the server still
+ * checks it, the same as every other money rule here), but so a Fundraiser
+ * is told the mismatch before they submit rather than after. The first row is
+ * pre-filled with the Payout's own amount so the ordinary case (one Payout,
+ * one purpose) needs no arithmetic at all.
  */
 function UsageReportForm({ slug, payout, onSubmitted }: { slug: string; payout: PayoutRow; onSubmitted: () => void }) {
   const [narrative, setNarrative] = useState('');
-  const [lineItem, setLineItem] = useState<UsageReportLineItemInput>({ label: '', amount: String(payout.amount) });
+  const [lineItems, setLineItems] = useState<UsageReportLineItemInput[]>([
+    { label: '', amount: String(payout.amount) },
+  ]);
   const [beneficiaryCount, setBeneficiaryCount] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  const amount = Number(lineItem.amount);
+  function updateLineItem(index: number, patch: Partial<UsageReportLineItemInput>) {
+    setLineItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  }
+
+  function addLineItem() {
+    setLineItems((prev) => [...prev, { label: '', amount: '' }]);
+  }
+
+  function removeLineItem(index: number) {
+    setLineItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  const parsedAmounts = lineItems.map((item) => Number(item.amount));
+  const total = parsedAmounts.reduce((sum, n) => sum + (Number.isInteger(n) ? n : 0), 0);
+  const totalMatches = total === payout.amount;
   const beneficiaries = Number(beneficiaryCount);
+  const allLineItemsValid = lineItems.every(
+    (item, i) => item.label.trim() !== '' && Number.isInteger(parsedAmounts[i]) && parsedAmounts[i] > 0,
+  );
   const canSubmit =
     narrative.trim() !== '' &&
-    lineItem.label.trim() !== '' &&
-    Number.isInteger(amount) &&
-    amount > 0 &&
+    lineItems.length > 0 &&
+    allLineItemsValid &&
+    totalMatches &&
     Number.isInteger(beneficiaries) &&
     beneficiaries > 0 &&
     photoUrl.trim() !== '' &&
@@ -167,7 +189,7 @@ function UsageReportForm({ slug, payout, onSubmitted }: { slug: string; payout: 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           narrative: narrative.trim(),
-          lineItems: [{ label: lineItem.label.trim(), amount }],
+          lineItems: lineItems.map((item, i) => ({ label: item.label.trim(), amount: parsedAmounts[i] })),
           beneficiaryCount: beneficiaries,
           photos: [photoUrl.trim()],
         }),
@@ -197,28 +219,55 @@ function UsageReportForm({ slug, payout, onSubmitted }: { slug: string; payout: 
         />
       </label>
 
-      <label className="block text-sm text-text">
-        Nama pos
-        <input
-          aria-label="Nama pos"
-          value={lineItem.label}
-          onChange={(e) => setLineItem((prev) => ({ ...prev, label: e.target.value }))}
-          className="mt-1 w-full rounded-lg border border-border px-3 py-2"
-        />
-      </label>
+      <div className="space-y-2">
+        {lineItems.map((item, index) => (
+          <div key={index} className="flex gap-2">
+            <label className="block flex-1 text-sm text-text">
+              {index === 0 ? 'Nama pos' : `Nama pos ${index + 1}`}
+              <input
+                aria-label={`Nama pos ${index + 1}`}
+                value={item.label}
+                onChange={(e) => updateLineItem(index, { label: e.target.value })}
+                className="mt-1 w-full rounded-lg border border-border px-3 py-2"
+              />
+            </label>
 
-      <label className="block text-sm text-text">
-        Nominal pos (Rp)
-        <input
-          aria-label="Nominal pos (Rp)"
-          inputMode="numeric"
-          value={lineItem.amount}
-          onChange={(e) => setLineItem((prev) => ({ ...prev, amount: e.target.value.replace(/\D/g, '') }))}
-          className="mt-1 w-full rounded-lg border border-border px-3 py-2"
-        />
-      </label>
-      <p className="text-xs text-text-secondary">
-        Total rincian harus sama persis dengan nominal Payout ({formatRupiah(payout.amount)}).
+            <label className="block w-40 text-sm text-text">
+              {index === 0 ? 'Nominal pos (Rp)' : `Nominal pos (Rp) ${index + 1}`}
+              <input
+                aria-label={`Nominal pos (Rp) ${index + 1}`}
+                inputMode="numeric"
+                value={item.amount}
+                onChange={(e) => updateLineItem(index, { amount: e.target.value.replace(/\D/g, '') })}
+                className="mt-1 w-full rounded-lg border border-border px-3 py-2"
+              />
+            </label>
+
+            {lineItems.length > 1 && (
+              <button
+                type="button"
+                aria-label={`Hapus pos ${index + 1}`}
+                onClick={() => removeLineItem(index)}
+                className="mt-6 h-fit rounded-lg border border-border px-2 py-2 text-xs text-text-secondary"
+              >
+                Hapus
+              </button>
+            )}
+          </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={addLineItem}
+          className="text-xs font-medium text-primary underline"
+        >
+          + Tambah pos
+        </button>
+      </div>
+
+      <p className={`text-xs ${totalMatches ? 'text-text-secondary' : 'text-danger'}`} role={totalMatches ? undefined : 'alert'}>
+        Total rincian {formatRupiah(total)} dari nominal Payout {formatRupiah(payout.amount)}
+        {!totalMatches && ' -- harus sama persis sebelum bisa dikirim'}.
       </p>
 
       <label className="block text-sm text-text">

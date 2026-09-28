@@ -1902,8 +1902,6 @@ model UsageReport {
   disputedReason String?
   disputedById   String?
   disputedBy     User?     @relation("UsageReportDisputer", fields: [disputedById], references: [id])
-
-  @@index([payoutId])
 }
 
 /// One withdrawal of money from a Payment Provider's Merchant Account to a

@@ -148,6 +148,17 @@ describe('submitUsageReport', () => {
     ).rejects.toBeInstanceOf(UsageReportInvalidError);
   });
 
+  it.each(['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>'])(
+    'refuses a photo URL with a non-http(s) scheme (%s) -- the route\'s z.string().url() alone would accept it',
+    async (photoUrl) => {
+      const { prisma } = makeSubmitTx(payoutRow());
+
+      await expect(
+        submitUsageReport(prisma as never, { ...VALID_SUBMIT_PARAMS, photos: [photoUrl] }),
+      ).rejects.toBeInstanceOf(UsageReportInvalidError);
+    },
+  );
+
   it.each([0, -1, 1.5])('refuses a beneficiaryCount of %s', async (beneficiaryCount) => {
     const { prisma } = makeSubmitTx(payoutRow());
 

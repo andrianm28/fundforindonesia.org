@@ -19,6 +19,17 @@ import { formatRupiah } from '@/lib/utils/currency';
  * 'campaign'`.
  */
 
+/**
+ * Only http(s) is a photo anyone can host as public evidence -- a
+ * `javascript:` URL is a link that would run when clicked, and `data:` is not
+ * evidence of anything hosted at all. The service layer
+ * (@/lib/usage-reports.ts) already refuses either at submission time; this is
+ * a second, independent check at render time.
+ */
+function isPublicPhotoUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
 interface UsageReportSummary {
   id: string;
   narrative: string;
@@ -86,6 +97,24 @@ export function AdminUsageReportPanel({
         ))}
       </ul>
       <p className="text-xs text-gray-600">{usageReport.beneficiaryCount} penerima manfaat</p>
+
+      {usageReport.photos.filter(isPublicPhotoUrl).length > 0 && (
+        <ul className="flex flex-wrap gap-2">
+          {usageReport.photos.filter(isPublicPhotoUrl).map((photo, idx) => (
+            <li key={photo}>
+              <a
+                href={photo}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block h-16 w-16 overflow-hidden rounded-lg border border-gray-300"
+              >
+                {/* Fundraiser-supplied URL, so a plain <img>, not next/image. */}
+                <img src={photo} alt={`Foto bukti ${idx + 1}`} className="h-full w-full object-cover" />
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {usageReport.disputedAt ? (
         <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">

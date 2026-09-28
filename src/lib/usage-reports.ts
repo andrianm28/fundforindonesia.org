@@ -102,6 +102,15 @@ export async function submitUsageReport(
   if (!Array.isArray(photos) || photos.length === 0 || photos.some((p) => typeof p !== 'string' || p.trim() === '')) {
     throw new UsageReportInvalidError('Minimal satu foto bukti harus dilampirkan.');
   }
+  // The route's z.string().url() accepts any URL scheme, including
+  // `javascript:` and `data:` -- neither is a photo anyone can host as public
+  // evidence, and a `javascript:` one would run when a public visitor clicks
+  // it. Enforced here, not only in the route, so the rule holds for every
+  // caller of this function, not just the one route that happens to validate
+  // it today.
+  if (photos.some((p) => !/^https?:\/\//i.test(p.trim()))) {
+    throw new UsageReportInvalidError('Setiap foto bukti harus berupa URL http atau https.');
+  }
   if (typeof beneficiaryCount !== 'number' || !Number.isInteger(beneficiaryCount) || beneficiaryCount < 1) {
     throw new UsageReportInvalidError('Jumlah penerima manfaat harus bilangan bulat minimal 1.');
   }

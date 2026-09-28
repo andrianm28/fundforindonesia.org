@@ -500,6 +500,84 @@ describe('CampaignDetailView -- Pencairan Dana tab (ticket 22)', () => {
     ).toBe(true);
   });
 
+  it('renders each http(s) photo as a link with rel="noopener noreferrer"', async () => {
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).includes('/disbursements')) {
+        return {
+          ok: true,
+          json: async () => ({
+            disbursements: [
+              {
+                id: 'payout-1',
+                amount: 300_000,
+                description: 'Pencairan pertama',
+                proofImage: null,
+                createdAt: '2026-09-01T00:00:00.000Z',
+                usageReport: {
+                  id: 'ur-1',
+                  narrative: 'Dana dipakai untuk sembako.',
+                  lineItems: [{ label: 'Sembako', amount: 300_000 }],
+                  beneficiaryCount: 15,
+                  photos: ['https://example.com/bukti-1.jpg', 'http://example.com/bukti-2.jpg'],
+                  disputedAt: null,
+                  disputedReason: null,
+                },
+              },
+            ],
+          }),
+        } as Response;
+      }
+      return { ok: false, status: 403 } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    fireEvent.click(screen.getByText('Pencairan Dana'));
+
+    const links = await screen.findAllByRole('link', { name: /foto bukti/i });
+    expect(links).toHaveLength(2);
+    links.forEach((link) => {
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    });
+    expect(links[0].getAttribute('href')).toBe('https://example.com/bukti-1.jpg');
+  });
+
+  it('does not render a javascript: photo URL as a link', async () => {
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).includes('/disbursements')) {
+        return {
+          ok: true,
+          json: async () => ({
+            disbursements: [
+              {
+                id: 'payout-1',
+                amount: 300_000,
+                description: 'Pencairan pertama',
+                proofImage: null,
+                createdAt: '2026-09-01T00:00:00.000Z',
+                usageReport: {
+                  id: 'ur-1',
+                  narrative: 'Dana dipakai untuk sembako.',
+                  lineItems: [{ label: 'Sembako', amount: 300_000 }],
+                  beneficiaryCount: 15,
+                  photos: ['javascript:alert(1)'],
+                  disputedAt: null,
+                  disputedReason: null,
+                },
+              },
+            ],
+          }),
+        } as Response;
+      }
+      return { ok: false, status: 403 } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    fireEvent.click(screen.getByText('Pencairan Dana'));
+
+    await screen.findByText('Dana dipakai untuk sembako.');
+    expect(screen.queryByRole('link', { name: /foto bukti/i })).toBeNull();
+  });
+
   it('says a Usage Report has not been sent yet for a Payout that has none, and hides the story while on this tab', async () => {
     global.fetch = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes('/disbursements')) {

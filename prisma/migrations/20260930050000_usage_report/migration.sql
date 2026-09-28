@@ -18,9 +18,6 @@ CREATE TABLE "UsageReport" (
 -- CreateIndex
 CREATE UNIQUE INDEX "UsageReport_payoutId_key" ON "UsageReport"("payoutId");
 
--- CreateIndex
-CREATE INDEX "UsageReport_payoutId_idx" ON "UsageReport"("payoutId");
-
 -- AddForeignKey
 ALTER TABLE "UsageReport" ADD CONSTRAINT "UsageReport_payoutId_fkey" FOREIGN KEY ("payoutId") REFERENCES "Payout"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 

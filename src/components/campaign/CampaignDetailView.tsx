@@ -64,6 +64,18 @@ interface UsageReportSummary {
   disputedReason: string | null;
 }
 
+/**
+ * Only http(s) is a photo anyone can host as public evidence -- a
+ * `javascript:` URL is a link that would run when a public visitor clicks it,
+ * and `data:` is not evidence of anything hosted at all. The service layer
+ * (@/lib/usage-reports.ts) already refuses either at submission time; this is
+ * a second, independent check at render time so a row written before that
+ * rule existed, or by any other path, is never turned into a clickable link.
+ */
+function isPublicPhotoUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
 interface DisbursementRow {
   id: string;
   amount: number;
@@ -136,6 +148,28 @@ function DisbursementsTab({ slug }: { slug: string }) {
                 ))}
               </ul>
               <p className="mt-2 text-xs text-text-secondary">{row.usageReport.beneficiaryCount} penerima manfaat</p>
+              {row.usageReport.photos.filter(isPublicPhotoUrl).length > 0 && (
+                <ul className="mt-2 flex flex-wrap gap-2">
+                  {row.usageReport.photos.filter(isPublicPhotoUrl).map((photo, idx) => (
+                    <li key={photo}>
+                      <a
+                        href={photo}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block h-16 w-16 overflow-hidden rounded-lg border border-border"
+                      >
+                        {/* Fundraiser-supplied URL, so a plain <img>, not next/image -- the
+                            same choice CampaignUpdate's own images already make. */}
+                        <img
+                          src={photo}
+                          alt={`Foto bukti ${idx + 1}`}
+                          className="h-full w-full object-cover"
+                        />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {row.usageReport.disputedReason && (
                 <p role="alert" className="mt-2 text-xs text-danger">
                   {row.usageReport.disputedReason}
