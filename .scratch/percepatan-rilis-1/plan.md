@@ -6,8 +6,8 @@ Source: `/grill-with-docs` 2026-09-27, plus `docs/PRD-fund-for-indonesia.md` §6
 
 > **Kenapa ditulis ulang, bukan diperbarui.** Versi sebelumnya disusun 2026-09-27
 > dan 14 item-nya sudah tidak berlaku. Yang paling berbahaya: ia mencantumkan
-> PR #93 dan #94 sebagai "hijau, tinggal merge" padahal keduanya **tertinggal
-> 4 dan 9 commit** dari `main` sekarang, dan PR #94 sudah berstatus `DIRTY`.
+> PR #93 dan #94 sebagai "hijau, tinggal merge" padahal keduanya **jauh
+> tertinggal** dari `main` sekarang, dan PR #94 sudah berstatus `DIRTY`.
 > Menjalankan plan versi itu berarti membangun di atas base yang salah. Semua
 > status di bawah diverifikasi terhadap `git log origin/main` dan `gh pr`, bukan
 > terhadap baris `Status:` di tiket — peta sudah memperingatkan bahwa `done`
@@ -59,7 +59,7 @@ Sudah ditulis dan ter-review, dan **tidak menyentuh kode uang** — empat fix di
 Tapi angka versi sebelumnya ("hijau, tinggal merge", "4 commit tertinggal")
 **salah**, dan cukup salah untuk menyesatkan. Branch ini dibuat jauh sebelum
 `main` bergerak, jadi tercatat **29 commit belum ter-merge** dengan `main`
-sudah 5 commit di depan. Rebase sederhana akan mengembalikan
+sudah 6 commit di depan. Rebase sederhana akan mengembalikan
 `prisma/schema.prisma` ke versi sebelum koreksi `GATEWAY_CLEARING`, karena
 kedua branch menyentuh baris yang sama dan yang pertama di-apply menang.
 
