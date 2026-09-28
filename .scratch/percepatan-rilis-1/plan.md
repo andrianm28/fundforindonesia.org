@@ -1,149 +1,184 @@
-# Plan: percepatan Rilis 1 (Fase 0-2 penuh)
+# Plan: percepatan Rilis 1
 
-Status: ready-for-agent
-Source: `/grill-with-docs` 2026-09-27, plus `docs/PRD-fund-for-indonesia.md`
-§6 (Ruang lingkup rilis pertama) dan §7 (FFI-01 sampai FFI-18). Keputusan
-owner ditulis di bagian "Decisions"; plan ini hanya menjadikannya urutan kerja.
+Status: **basi — ditulis ulang 2026-09-28, versi sebelumnya dibuang**
+Source: `/grill-with-docs` 2026-09-27, plus `docs/PRD-fund-for-indonesia.md` §6
+(halaman rilis pertama) dan §7 (FFI-01 sampai FFI-18).
+
+> **Kenapa ditulis ulang, bukan diperbarui.** Versi sebelumnya disusun 2026-09-27
+> dan 14 item-nya sudah tidak berlaku. Yang paling berbahaya: ia mencantumkan
+> PR #93 dan #94 sebagai "hijau, tinggal merge" padahal keduanya **tertinggal
+> 2 dan 9 commit** dari `main` sekarang, dan PR #94 sudah berstatus `DIRTY`.
+> Menjalankan plan versi itu berarti membangun di atas base yang salah. Semua
+> status di bawah diverifikasi terhadap `git log origin/main` dan `gh pr`, bukan
+> terhadap baris `Status:` di tiket — peta sudah memperingatkan bahwa `done`
+> pernah ditemukan pada tiket yang PR-nya belum merge.
 
 ## Ringkasan
 
-Rilis pertama = **Fase 0 sampai 2** PRD §6. Di luar scope: Volunteer Trip
-(FFI-11/12, kolom rilis 3), dwibahasa (FFI-15, kolom 3), Volunteer Trip,
-dompet dan AutoDonation (dikecualikan tanpa jadwal).
+Rilis pertama = Fase 0 sampai 2 PRD §6. Di luar scope: dwibahasa (FFI-15, kolom
+rilis 3), dompet dan AutoDonation (dihapus sengaja), mobile app, sertifikat
+blockchain.
 
-Kode Fase 0-1 sudah hampir utuh di `main`. Yang belum ada adalah dua hal
-yang **tidak bisa dikerjakan agent**: infra produksi (Track A) dan **jalur
-keluar uang** (Track B: Payout, Manual Contribution, Usage Report).
+Yang sudah untung: **empat bug uang tertutup dan merged pada 2026-09-27**, dan
+semuanya bisa dibuktikan:
 
-Jadi saat ini bukan "kurang fitur". Itu adalah **jawaban**: satu-satunya
-penghalang rilis adalah langkah manusia yang belum dijalankan, dan jalur
-keluar uang yang belum dibangun.
+| Commit | Yang ditutup |
+| --- | --- |
+| `f97c96e` | `runScheduledJobs` tidak punya pemanggil — escrow hanya lepas saat Payout diminta, reminder tidak pernah terkirim |
+| `703d692` | Sweep escrow memakai net tanpa Platform Fee — ESCROW_HOLD negatif, uang platform masuk saldo yang bisa di-Payout |
+| `fc2d256` | Gate Refund zakat/wakaf/hibah tidak ada sama sekali padahal ADR 0013 menyatakan sudah terverifikasi |
+| `a043455` | `completePayout` tidak mengecek `verifiedAt` — completion adalah uang yang benar-benar keluar |
 
-## Decisions (2026-09-27)
+Jadi penghalang rilis **bukan lagi "kurang fitur"**. Itu adalah jawabannya:
+penghalang yang tersisa adalah kode yang belum ditulis, keputusan yang belum
+diambil, dan langkah manusia.
 
-- **Q1 - definisi rilis 1**: PRD §6 penuh (Fase 0-2), bukan potongan
-  minimal. Payout dan Manual Contribution ikut di dalamnya.
-- **Q2 - PR #68** (Verification Request per-Kind + change request):
-  di-merge ke `main` sebagai `2c38a09`.
-- **Q3 - Payout adalah syarat cutover, bukan Fase 2 yang bisa menyusul.**
-  Platform yang menerima donasi publik tanpa jalur pencairanaduakan uang
-  yang masuk tidak bisa keluar. Payout (FFI-07), Manual Contribution
-  (FFI-07c) dan Usage Report (FFI-07a) adalah prasyarat menerima donasi
-  nyata. Refund (FFI-07d) boleh menyusul: selama belum ada Payout
-  otomatis, donasi bisa ditolak manual, dan itu berbeda dari money-out
-  normal yang tidak bisa ditunda.
-- **Q4 - dua lintasan paralel**: Track A (manusia, tanpa kode) dan Track B
-  (agent, kode). Track A tidak menunggu kode sama sekali, jadi bisa
-  dijalankan sekarang juga. Plan ini tidak menyerialkan keduanya.
-- **Q5 - dependabot**: tiga major ditutup sebelum produksi live
-  (framer-motion 13, tailwind 4, dotenv 18), karena tidak ada gunanya
-  membawa rewrite dependency ke produksi yang belum pernah live dan
-  menambah permukaan debugging saat cutover. #46 (minor/patch, 18 update)
-  di-merge: menurunkan `npm audit` dari 18 ke 13 (critical 3 ke 2,
-  moderate 7 ke 2). Sudah dilakukan, `de7de10`. Ini tidak bertentangan
-  dengan FFI-18, karena FFI-18 adalah fitur penyedia pembayaran kedua,
-  bukan upgrade dependency.
+## Track A — langkah manusia, tanpa kode
 
-## Track A - langkah manusia (tanpa kode)
+Tidak satu pun menunggu kode. Bisa dijalankan sekarang, paralel dengan Track B.
 
-Tidak ada satu pun langkah di sini yang menunggu kode. Semua bisa
-dikerjakan sekarang, paralel dengan Track B.
+- **A1** — kredensial Sumopod produksi (QRIS). `.scratch/percepatan-produksi/issues/01`
+- **A2** — SMTP Sumopod di production `.env`: `MAIL_PROVIDER=smtp`, `SMTP_HOST=smtp.sumopod.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`. Tanpa ini keputusan Verifier berjalan tetapi email tidak terkirim.
+- **A3** — repo secrets: `DEPLOY_HOST`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`. **`gh secret list` masih kosong** per 2026-09-28, jadi deploy tidak mungkin jalan.
+- **A4** — repo variables: `NEXT_PUBLIC_BASE_URL=https://fundforindonesia.org`, `NEXTAUTH_URL`. **`gh variable list` masih kosong.**
+- **A5** — **`JOBS_SECRET`** untuk `POST /api/internal/jobs/run`. Route-nya sudah ada di `main` (`f97c96e`) dan **fail-closed**: tanpa secret ia menjawab 503 dan menolak semua job. Sampai secret di-set, escrow masih macet dan reminder masih diam.
+- **A6** — **cron di host** yang memanggil route itu. Pertanyaan yang dijawab builder dan belum diserahkannya ke owner: schedule-nya **host cron, bukan GitHub Actions** — Actions punya uptime, GitHub mematikan schedule setelah 60 hari idle, dan run yang hilang menunda escrow yang sudah matang. Instruction persisnya ada di `.scratch/prd-compliance-fase-0-2/issues/45-scheduled-jobs-trigger.md` (`ready-for-human`).
+- **A7** — copy `ops/deploy.sh` dan `docker-compose.prod.yml` ke host sebelum dispatch pertama, kalau release mengubah salah satunya.
+- **A8** — daftar YIEM sebagai Collecting Entity beserta permit, **sebelum** deploy pertama. `.scratch/percepatan-produksi/issues/02`
+- **A9** — cutover. `.scratch/ci-cd-github-actions/issues/08` (`ready-for-human`), termasuk declare volume `kibi-clone_postgres_data` dan `kibi-clone_uploads` sebagai `external: true`, backup sebelum migration pertama, `kibi-clone-app:latest` (30a1c6dedfb9) sebagai target rollback yang tidak boleh di-prune, dan hentikan stack kibi-clone sebelum `up` karena nama container dan port bentrok.
 
-- **A1 - kredensial Sumopod untuk pembayaran.** QRIS nyata tidak bisa
-  terjadi tanpa ini, dan gate Fase 1 justru "satu donasi QRIS nyata plus
-  Receipt". Lihat `.scratch/percepatan-produksi/issues/01`.
-- **A2 - SMTP Sumopod di production `.env`**: `MAIL_PROVIDER=smtp`,
-  `SMTP_HOST=smtp.sumopod.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`,
-  `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`. Tanpa ini, keputusan Verifier
-  tetap berjalan tetapi email tidak terkirim dan `mail_not_configured`
-  muncul di log.
-- **A3 - repo secrets**: `DEPLOY_HOST`, `DEPLOY_SSH_KEY`,
-  `DEPLOY_KNOWN_HOSTS` (dari `ssh-keyscan`, diverifikasi out-of-band).
-  **Saat ini `gh secret list` kosong**, jadi deploy tidak mungkin jalan.
-- **A4 - repo variables**: `NEXT_PUBLIC_BASE_URL=https://fundforindonesia.org`
-  dan `NEXTAUTH_URL`. **Saat ini `gh variable list` kosong.**
-- **A5 - copy `ops/deploy.sh` dan `docker-compose.prod.yml`** ke host
-  (`DEPLOY_DIR`) dari commit yang akan dideploy. Deploy key tidak boleh
-  menulis file; kalau sebuah release mengubah salah satu dari dua berkas
-  itu, copy lebih dulu sebelum dispatch.
-- **A6 - cutover**: `.scratch/ci-cd-github-actions/issues/08`
-  (`ready-for-human`). Detail dan rollback ada di Comments tiket itu:
-  declare volume `kibi-clone_postgres_data` dan `kibi-clone_uploads`
-  sebagai `external: true`; backup wajib sebelum migration pertama;
-  `kibi-clone-app:latest` (30a1c6dedfb9) adalah target rollback dan tidak
-  boleh di-prune; hentikan stack kibi-clone sebelum `up` karena nama
-  container dan port bentrok; `DB_PASSWORD` sudah diverifikasi bukan
-  `changeme123`; cek Postgres local trust untuk `pg_dump`; hapus stopgap
-  nginx `/_next/image` setelah cutover.
-- **A7 - daftar YIEM** sebagai Collecting Entity beserta permit,
-  **sebelum** deploy pertama (`.scratch/percepatan-produksi/issues/02`).
-  Setelah deploy, setiap Campaign Active yang sudah ada menolak donasi
-  sampai punya Collecting Entity dengan permit, jadi YIEM harus lebih dulu.
-- **A8 - dispatch `deploy.yml`** setelah A1-A7 dan Track B Fase 2 selesai.
+## Track B — kode, urut berdasarkan pemblokir
 
-Setiap langkah dipecah jadi tiket di `track-a/` lewat `/to-tickets`.
+Urutan ini **berbeda dari versi sebelumnya** dan alasannya bisa diperiksa.
 
-## Risiko yang harus diketahui owner
+### 1. `prd 35` — reconcile (PR #93, terbuka, CLEAN)
 
-**The approval control does not exist on GitHub Free.**
-`.github/workflows/deploy.yml` dan `docs/agents/verification.md` menulis
-bahwa job `deploy` "runs only once the owner approves it as that
-environment's required reviewer", dan karena itu agent tidak akan pernah
-menyetujui deploynya sendiri. Tapi environment `production` punya
-`protection_rules: []` dan `reviewers: []`, dan GitHub Free tidak
-menyediakan required reviewer untuk environment. Plannednya juga
-sebenarnya "stay on GitHub Free, so the GitHub environment step is
-dropped" (plan 2026-09-26).
+Sudah ditulis dan ter-review. **Tidak menyentuh kode uang** — 2 commit di
+`src/lib/money/` sudah ter-merge dan tidak bersinggungan dengan diff-nya.
+Tinggal: rebase ke `main`, CI ulang, merge.
 
-Artinya: **siapa pun yang bisa menulis ke repo ini bisa dispatch
-`deploy.yml`, dan job `deploy` akan jalan tanpa approval apa pun** begitu
-gate hijau. Yang menjaganya hanya prosedur: hanya owner yang dispatch.
-`ci/deploy-gate.sh` tetap menahan commit yang bukan main, tanpa CI hijau,
-dan tanpa image GHCR yang cocok, jadi risikonya bukan malicious code
-menjalankan sendiri, melainkan deploy yang bukan hasil yang disetujui.
+### 2. Bank Account — kode yang belum ada sama sekali
 
-Pilihan owner ada di `track-a/`: menerima kontrol prosedural, atau pindah
-ke paket yang mendukung environment reviewer. Agent tidak akan mengubah
-setelan GitHub tanpa persetujuan.
+**Ini penghalang sebenarnya, dan versi plan sebelumnya tidak tahu.**
 
-## Track B - kode (agent), urut berdasarkan pemblokir
+`bankAccount.create` **tidak ada di `src/`**; satu-satunya penulisnya
+`prisma/seed.ts`. Keputusan desainnya sudah diambil pada 2026-09-27 — tiket 01,
+[ADR 0018](../../docs/adr/0018-bank-account-born-unverified-verified-by-request.md)
+— dan `CONTEXT.md` sudah memuat terminologinya. Yang belum ada adalah kode:
+membuat rekening tanpa `verifiedAt` di profil pemiliknya, dan me-referensikannya
+dari Verification Request.
 
-1. **prd 34** Manual Contribution (FFI-07c), pemblokir 8 (done). Mencatat
-   dana yang masuk di luar gateway, termasuk yang menunjuk Program dan
-   dikreditkan ke Program Balance.
-2. **prd 27** Payout completion (FFI-07), pemblokir 5 dan 8 (done). Aturan
-   dua orang: orang yang menyetujui bukan peminta, dan yang menandai
-   Completed harus berbeda dari yang menyetujui.
-3. **prd 28** Fundraiser Payout UI (FFI-07), pemblokir 27.
-4. **prd 29** Usage Report (FFI-07a), pemblokir 28. Wajib sebelum Payout
-   berikutnya.
-5. **prd 35** Collection account reconcile (FFI-07), pemblokir 27.
-6. **prd 32** Refund lifecycle (FFI-07d), pemblokir 13, 31, 8. Dijadwalkan
-   setelah Payout solid, sesuai Q3.
-7. **csr 04, 05, 06, 07, 08, 10, 11** - FFI-09 (Portofolio CSR) dan
-   FFI-10 (Diskusi kemitraan), plus checklist hibah. Pemblokir: prd-12
-   (done) dan prd 34.
-8. **prd 14** duplicate-campaign hints (FFI-05), pemblokir 12 (done).
-9. **prd 23** guest-donor history (FFI-13), pemblokir 16 dan 18.
-10. **prd 26** hide demo campaigns, pemblokir 25 (done).
+Sampai ini ada, **Payout tidak bisa membayar siapa pun.** PR #94 menulis layar
+yang tidak bisa dibuka siapa pun.
 
-Phase 2 lain (prd 36, 37, 40, 41, 42, 43, 44, 45) masih `ready-for-agent`
-dan tidak masuk urutan atas karena bukan pemblokir jalur uang.
+### 3. `prd 28` — Payout UI (PR #94, terbuka, DIRTY, tertinggal 9 commit)
 
-Volunteer Trip tidak masuk plan ini meski branch `feat/escrow-release`
-masih ada: FFI-11/12 kolom rilisnya 3, bukan 0-2.
+Menulis layar pencairan Fundraiser. **DIRTY**: harus rebase ke `main` dan CI
+ulang. Merge **setelah** Bank Account ada, kalau tidak yang ter-merge adalah
+layar mati.
+
+Ada satu konsekuensi yang harusAlongside dipertimbangkan: menghapus sweep escrow
+dari jalur baca membuat **halaman dengan saldo nol tidak merender form sama
+sekali**, sehingga tidak ada POST, sehingga sweep tidak jalan. Tickets 10 dan
+11 di `.scratch/rilis-1-benda/` menguraikannya.
+
+### 4. Panel Admin Payout (PR #95, CLEAN, draft)
+
+`approvePayout` dan `completePayout` ada dan menegakkan aturan dua orang, dan
+**tidak ada layar di `src/app/admin` yang memanggilnya** — hanya
+`/api/admin/reconcile` yang menyebutnya sebagai consumer. Payout yang dikirim
+melalui produk akan tetap `PENDING`. Enam route Admin lain juga tanpa layar:
+`reconcile`, `scrutiny`, `platform-fee`, `manual-contributions`,
+`abuse-thresholds`, `duplicate-similarity`.
+
+### 5. `prd 29` — Usage Report (belum ada)
+
+`model UsageReport` **tidak ada di `prisma/schema.prisma`**, dan tidak ada
+kodenya. Ini yang menahan **Payout kedua** — FFI-07a mewajibkannya sebelum
+Payout berikutnya boleh diajukan. Payout pertama bisa jalan tanpanya, jadi ini
+tidak memblokir gate Fase 1.
+
+### 6. `prd 32` — Refund lifecycle, setelah `prd 31` (Refund gross ledger)
+
+`prd 31` belum dimulai. Pemblokir "8" berstatus `wontfix`. Refund boleh
+menyusul: selama belum ada Payout otomatis, donasi bisa ditolak manual, dan itu
+berbeda dari money-out normal.
+
+## Keputusan yang belum diambil, dan memblokir
+
+Urutan Track B **tidak bisa difinalkan** tanpa ini:
+
+- **`rilis-1-benda/02`** — di mana saldo provider dicatat, dan apakah selisihnya
+  jadi gerbang atau hanya observasi. **Ini memblokir `approvePayout` secara
+  langsung**, jadi ia bukan antrean belakang.
+- **`rilis-1-benda/03`** — dokumen di mana dan siapa yang boleh melihatnya.
+  Memblokir checklist §7.1 dan foto Usage Report.baru saja diblokir oleh 01.
+- **`rilis-1-benda/05`** — apa yang dilihat orang yang memegang dua assignment.
+  Membentuk setiap halaman.
+- **`rilis-1-benda/11`** — apa yang mencabut verifikasi Bank Account. Ticket 11
+  ada karena keputusan 01 memilih memverifikasi rekening yang ditunjuk sebagai
+  kontrol kompensatorinya, dan kontrol yang hanya bisa dipakai satu arah bukan
+  kontrol.
+- **`rilis-1-benda/12`** — kapan nomor rekening didekripsi. ADR 0012 tidak punya
+  HMAC, jadi membaca nomor adalah kejadian satu arah yang tidak bisa dibuktikan
+  belakangan; kalau Sumopod tetap tanpa disbursement API, nomornya mungkin
+  tidak perlu sampai ke platform sama sekali.
 
 ## Gate
 
-- **Phase 0**: FFI-09, 10, 11, 13 sudah merged.
-- **Phase 1**: Track A A1-A7 selesai, satu donasi QRIS nyata, Receipt
-  diterima.
-- **Phase 2**: rantai Payout (27, 28, 29) dan Manual Contribution (34)
-  merged dan terverifikasi; Suspension (FFI-07b) sudah ada di
-  `subject-guard-and-suspension-money`.
+- **Fase 0** — FFI-09, 10 sudah merged. **FFI-13 belum** (prd 23 tidak punya PR;
+  pemblokir 16 dan 18 sudah merged, jadi tidak terhalang).
+- **Fase 1** — Track A A1–A8 selesai, satu donasi QRIS nyata, Receipt diterima.
+- **Fase 2** — rantai Payout merged dan terverifikasi, Bank Account bisa dibuat, panel Admin ada, `prd 29` merged.
+
+## Risiko yang harus diketahui owner
+
+**The approval control does not exist on GitHub Free.** `deploy.yml` dan
+`docs/agents/verification.md` menulis bahwa job `deploy` hanya jalan setelah
+owner menyetujuinya sebagai required reviewer environment, dan karena itu agent
+tidak akan pernah menyetujui deployment-nya sendiri. Tapi environment
+`production` punya `protection_rules: []` dan `reviewers: []`, dan GitHub Free
+tidak menyediakan required reviewer untuk environment.
+
+Artinya: **siapa pun yang bisa menulis ke repo ini bisa dispatch `deploy.yml`,
+dan job itu akan jalan tanpa approval apa pun** begitu gate hijau. Yang
+menjaganya hanya prosedur. `ci/deploy-gate.sh` tetap menahan commit yang bukan
+`main`, tanpa CI hijau, dan tanpa image GHCR yang cocok, jadi risikonya bukan
+malicious code menjalankan sendiri, melainkan deploy yang bukan hasil yang
+disetujui. Agent tidak akan mengubah setelan GitHub tanpa persetujuan.
+
+**Dan sekarang Route A5 menambah permukaan tanpa login.** `POST
+/api/internal/jobs/run` memindahkan uang dan mengirim email, dijaga
+`JOBS_SECRET` dengan perbandingan constant-time, dan menolak 503 bila secret
+tidak di-set. Itu benar. Tapi secret itu **bergantung pada satu header**,
+sehingga siapa pun yang mendapatkannya bisa memicu sweep kapan saja. Tidak
+bahaya besar — sweep-nya idempoten — tapi bukan otentikasi, dan tidak boleh
+dib gruesome seperti yang lain.
+
+## Yang masih salah di dokumen kita sendiri
+
+Empat dokumen menyatakan sesuatu yang tidak ada kodenya. Semuanya akan
+membingungkan pembaca, dan `Dormant Balance` yang paling berbahaya karena
+orang akan **berhenti mengejar saldo terlantar** tanpa melihat error:
+
+- `CONTEXT.md:240` **Dormant Balance** menulis present tense "Muncul di laporan
+  Admin sejak 60 hari" — nol baris `dormant` di `src/`, dan
+  `scheduled-jobs.ts:31-34` justru menyatakan belum dibangun.
+- `CONTEXT.md:205` menyatakan Provider Balance tercatat "**per penyedia**" —
+  `GATEWAY_CLEARING` satu enum member tanpa diskriminator. ADR 0006 dan 0011
+  justru menyatakan ini belum.
+- `ADR 0006:12` "the current webhook hardcodes a zero provider fee" — sudah
+  dibaca dari payload (`sumopod-provider.ts:234`).
+- `ADR 0005:7` "the code today ranks roles DONOR < CAMPAIGN_CREATOR < MODERATOR
+  < ADMIN" — `MODERATOR` sudah tidak memberi wewenang.
+
+Satu kontradiksi dokumen yang **belum** terselesaikan: ADR 0013 dan PRD §196
+menyatakan gate Refund zakat/wakaf/hibah sebagai fakta berjalan, sementara
+PRD §323 menundanya ke Fase 2. Kode sekarang sudah ada (`fc2d256`), jadi
+PRD §196 yang usang, bukan kodenya.
 
 ## Di luar scope
 
-- Branch `feat/escrow-release` dan `worktree-agent-*`: dibiarkan, tidak
-  dijadwalkan, tidak di-merge.
-- Refund yang diminta sendiri oleh Donor (PRD §6, dikecualikan).
+- Branch `feat/escrow-release` dan `worktree-agent-*`: tidak dijadwalkan.
+- Refund yang diminta sendiri oleh Donor (PRD §6).
+- Widget marketplace, integrasi sistem akuntansi, motion peng Incentif otomatis.
