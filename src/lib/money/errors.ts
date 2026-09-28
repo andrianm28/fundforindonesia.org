@@ -204,11 +204,10 @@ export class RefundProofInvalidError extends MoneyError {
 }
 
 /**
- * The Donor destination an Admin typed at Refund completion -- bank code,
- * account holder name, account number -- is missing or too long. There is
- * no saved BankAccount row for a Donor (CONTEXT.md, Bank Account: a Donor's
- * destination is typed fresh at completion, ticket 31), so this is the
- * completing Admin's own input, judged the same way ManualContribution's
+ * The Donor destination the approving Admin records -- bank code, account
+ * holder name, account number -- is missing or too long. There is no saved
+ * BankAccount row for a Donor (ADR 0018, Amendment 2026-09-28; ticket 31),
+ * so this is the approving Admin's own input, judged the same way ManualContribution's
  * hand-typed evidence is: a field left blank or over length, fixable by
  * filling the form in properly, not a policy the request has no way to
  * satisfy -- 400, like MANUAL_CONTRIBUTION_INVALID.

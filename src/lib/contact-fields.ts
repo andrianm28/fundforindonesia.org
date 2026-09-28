@@ -199,7 +199,7 @@ export const SELECT_BANK_ACCOUNT_NUMBER = {
   accountNumberKeyId: true,
 } as const;
 
-// --- Refund (a Donor's destination account, typed fresh at completion) --------
+// --- Refund (a Donor's destination account, recorded at approval) ------------
 
 /**
  * The Donor's destination account (ticket 31; CONTEXT.md, Refund; ADR
@@ -208,8 +208,9 @@ export const SELECT_BANK_ACCOUNT_NUMBER = {
  * ("Refund.donorAccountNumber") so a ciphertext copied from one column to
  * the other fails to decrypt rather than silently reading as the wrong
  * donor's number. There is no saved BankAccount row for a Donor -- the
- * completing Admin types the destination fresh -- so this is its own field,
- * not a reuse of BankAccount's.
+ * approving Admin records the destination, and the completing Admin re-types
+ * the number to be compared (ADR 0018, Amendment 2026-09-28) -- so this is
+ * its own field, not a reuse of BankAccount's.
  */
 export function sealRefundDonorAccountNumber(
   accountNumber: string,

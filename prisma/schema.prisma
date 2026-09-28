@@ -1619,11 +1619,11 @@ model Refund {
   /// now three callers (Payout, and this).
   proofImage    String?
 
-  /// The Donor's destination account, typed by the completing Admin --
-  /// there is no saved BankAccount row for a Donor, so this is recorded
-  /// fresh at completion, the same way ManualContribution records evidence
-  /// nobody else confirms. Nullable because every Refund before ticket 31
-  /// has none, and a Refund that never reaches COMPLETED never gets one.
+  /// The Donor's destination account, recorded by the approving Admin from
+  /// the Donor's written request -- there is no saved BankAccount row for a
+  /// Donor (ADR 0018, Amendment 2026-09-28). The completing Admin re-types
+  /// the number and the server compares it before any money moves. Nullable
+  /// because every Refund approved before ticket 31 has none.
   donorBankCode                String?
   /// Plaintext, like BankAccount.accountName: compared against the name on
   /// the Donation (ADR 0012's stated reason for leaving that field alone).
