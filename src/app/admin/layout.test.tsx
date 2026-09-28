@@ -56,5 +56,16 @@ describe("AdminLayout", () => {
       const link = screen.getByRole("link", { name: /payout|pencairan/i });
       expect(link.getAttribute("href")).toBe("/admin/payouts");
     });
+
+    // Ticket 24: the 60-day Dormant Balance report has nowhere else to be
+    // seen from either -- the same "no nav link, no screen" bar the Payout
+    // queue test above already holds this layout to.
+    it("links to the Dormant Balance report", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: null }));
+
+      const link = screen.getByRole("link", { name: /dormant/i });
+      expect(link.getAttribute("href")).toBe("/admin/dormant-balances");
+    });
   });
 });
