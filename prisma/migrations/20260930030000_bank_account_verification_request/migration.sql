@@ -31,6 +31,11 @@ CREATE INDEX "BankAccountVerificationRequest_outcome_submittedAt_idx" ON "BankAc
 -- CreateIndex: one account's own history.
 CREATE INDEX "BankAccountVerificationRequest_bankAccountId_submittedAt_idx" ON "BankAccountVerificationRequest"("bankAccountId", "submittedAt");
 
+-- CreateIndex: at most one PENDING request per account (flow step 2). Partial,
+-- so it lives here and not in schema.prisma, like "Payment_donationId_paid_key".
+-- Two submissions racing past the service's check cannot both land PENDING.
+CREATE UNIQUE INDEX "BankAccountVerificationRequest_bankAccountId_pending_key" ON "BankAccountVerificationRequest"("bankAccountId") WHERE "outcome" = 'PENDING';
+
 -- AddForeignKey
 ALTER TABLE "BankAccountVerificationRequest" ADD CONSTRAINT "BankAccountVerificationRequest_bankAccountId_fkey" FOREIGN KEY ("bankAccountId") REFERENCES "BankAccount"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

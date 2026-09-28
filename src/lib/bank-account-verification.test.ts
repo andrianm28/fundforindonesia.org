@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { Prisma } from "@/generated/prisma/client";
 import * as bankAccountVerification from "./bank-account-verification";
 import {
   createBankAccount,
@@ -97,6 +98,27 @@ describe("submitBankAccountVerification", () => {
     await expect(
       submitBankAccountVerification(store.prisma as never, { accountId: "bank-account-1", ownerId: "owner-1", now: NOW })
     ).rejects.toBeInstanceOf(BankAccountVerificationAlreadyPendingError);
+  });
+
+  it("refuses the loser of two racing submissions, whose create hits the one-PENDING index", async () => {
+    const store = db({ bankAccounts: [bankAccountRow()] });
+    // Both submissions passed the PENDING check; the database keeps the first.
+    const transaction = store.prisma.$transaction;
+    store.prisma.$transaction = (callback) =>
+      transaction((tx) => {
+        (tx as { bankAccountVerificationRequest: { create: () => Promise<never> } }).bankAccountVerificationRequest.create =
+          async () => {
+            throw new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+              code: "P2002",
+              clientVersion: "test",
+            });
+          };
+        return callback(tx);
+      });
+    await expect(
+      submitBankAccountVerification(store.prisma as never, { accountId: "bank-account-1", ownerId: "owner-1", now: NOW })
+    ).rejects.toBeInstanceOf(BankAccountVerificationAlreadyPendingError);
+    expect(store.notifications).toEqual([]);
   });
 
   it("allows resubmission after a REJECTED request, keeping the old row", async () => {

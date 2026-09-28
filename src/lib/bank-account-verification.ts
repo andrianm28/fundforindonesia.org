@@ -126,9 +126,18 @@ export async function submitBankAccountVerification(
       where: { bankAccountId: account.id, outcome: VerificationOutcome.PENDING },
     });
     if (pending) throw new BankAccountVerificationAlreadyPendingError();
-    const request = await tx.bankAccountVerificationRequest.create({
-      data: { bankAccountId: account.id, submittedById: params.ownerId, submittedAt: now },
-    });
+    // The findFirst above is the friendly refusal; the partial unique index
+    // "BankAccountVerificationRequest_bankAccountId_pending_key" is the rule.
+    // Two submissions racing past the check both reach this create, and the
+    // index keeps the first: the loser's P2002 is the same refusal.
+    const request = await tx.bankAccountVerificationRequest
+      .create({ data: { bankAccountId: account.id, submittedById: params.ownerId, submittedAt: now } })
+      .catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          throw new BankAccountVerificationAlreadyPendingError();
+        }
+        throw error;
+      });
     // The owner's own confirmation that their submission went through, the
     // same shape as the withdraw confirmation a Fundraiser gets for their own
     // action on a Campaign (campaign-lifecycle.ts): there is no per-Verifier
