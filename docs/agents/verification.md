@@ -65,6 +65,44 @@ And the test must `skipIf` that variable is unset and print that it is being
 **skipped, not passing** — otherwise the skip is just a green check that
 lies. Every other Docker prohibition on this host stands.
 
+### The same failure, in the text an agent writes
+
+The exception above is a green check that lies. A commit message that lies is
+the same failure in prose, and every job in CI passes it, because CI reads the
+tree and not the text.
+
+On 2026-09-28 a pass over recent commit messages found three claims that were
+false on the tree they described. `ef4a8a2` says `payoutCompletedLegs` "is
+called at payouts.ts:484 -- verified in this change, not assumed"; in that
+commit 484 is a blank line, and the call is at 513. The same commit says
+`verifiedAt` "is read at two places", twenty minutes after `a043455` had added a
+third. `fc2d256` pins "twelve" near-misses; the table holds eleven, and the
+mutation said to turn "eleven of the twelve" red turns two.
+
+None of these is a lint. Each is checkable by a reader holding the tree.
+
+1. **Name a symbol and a path, not a line number.** `payouts.ts` and
+   `payoutCompletedLegs` stay true. `payouts.ts:484` is a claim about a tree,
+   and it stops being true at the next commit that touches the file — so by the
+   time CI reads the message, the number is stale in a way nobody can see. A
+   `commit-msg` job that resolved the path and checked the line would report
+   the already-shifted truth as a failure on a correct claim, which is the same
+   failure inverted. When the number is the point, as in quoting a bug to
+   someone about to debug it, give the sha as well.
+2. **A claim of verification carries the command that repeats it.** "Verified by
+   mutating the gate to a prefix match" is not reproducible: nobody re-ran it,
+   and re-running it contradicts the sentence above it. Write the command, not
+   the conclusion. `rg -n 'payoutCompletedLegs' src/` is forty characters;
+   "eleven of the twelve go red" is a number with nothing behind it.
+3. **A claim about the state before the change names the tree it means.** "Still
+   says no scheduler" is true of a tree, and trees here move under the
+   sentence. Say which commit or which base, or write it as a condition rather
+   than a fact.
+
+Rule 1 only holds if someone reads it. Nothing in this repo enforces it, and
+nothing will; that is the same bargain as the rest of this file. What changed on
+2026-09-28 is only that the failure is named.
+
 ## Push, open a PR, watch CI
 
 ```sh
