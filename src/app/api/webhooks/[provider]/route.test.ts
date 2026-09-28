@@ -100,6 +100,8 @@ type LedgerRow = {
   campaignId: string | null;
   volunteerTripId?: string | null;
   transactionId: string;
+  /** Which provider this movement went through, stamped by postTransaction. */
+  provider?: string | null;
 };
 
 /**
@@ -322,6 +324,61 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
+
+  it('stamps the provider on every leg of a settlement, so the Provider Balance can be read per provider', async () => {
+    // CONTEXT.md, Provider Balance: "Tercatat sebagai akun buku besar
+    // tersendiri per penyedia". The provider is a fact right here -- it is in
+    // the path, and it is in the event -- so the settlement says which provider
+    // this Gross landed at.
+    //
+    // This is what makes providerBalances (src/lib/money/ledger.ts) able to
+    // answer "how much is at Sumopod" at all. Without it every settlement lands
+    // in the unnamed bucket and the per-provider report has nothing to report.
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, provider: 'sumopod' }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    const { tx, ledgerRows } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(
+      new NextRequest('http://localhost:3000/api/webhooks/sumopod', { method: 'POST', body: '{}' }),
+      { params: Promise.resolve({ provider: 'sumopod' }) },
+    );
+
+    expect(response.status).toBe(200);
+    // Every leg, not just the GATEWAY_CLEARING one: a transaction has one
+    // provider, and stamping it per-leg is what lets a groupBy split the
+    // Provider Balance without first re-deriving it from each leg's relations.
+    expect(ledgerRows.length).toBeGreaterThan(0);
+    expect(ledgerRows.every((r) => r.provider === 'sumopod')).toBe(true);
+    expect(ledgerRows).toContainEqual(
+      expect.objectContaining({ account: 'GATEWAY_CLEARING', direction: 'DEBIT', provider: 'sumopod' }),
+    );
+  });
+
+  it('stamps the provider on a Trip Fee settlement too -- a Trip is not a Kind, but its money came from a provider', async () => {
+    // ADR 0014 keeps a Volunteer Trip out of Campaign.Kind; it says nothing
+    // about which provider took the money. A Trip Fee lands at the provider
+    // exactly like a Donation does, so the pot has to grow by it.
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...REGISTRATION_PAID_EVENT, provider: 'sumopod' }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    mockConfirmRegistration.mockResolvedValue({ outcome: 'confirmed' });
+    const { tx, ledgerRows } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(
+      new NextRequest('http://localhost:3000/api/webhooks/sumopod', { method: 'POST', body: '{}' }),
+      { params: Promise.resolve({ provider: 'sumopod' }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(ledgerRows).toContainEqual(
+      expect.objectContaining({ account: 'GATEWAY_CLEARING', direction: 'DEBIT', provider: 'sumopod' }),
+    );
+  });
 
   it('asks the registry for the provider named in the URL, not a fixed one', async () => {
     // The route used to ignore its own path parameter and verify every

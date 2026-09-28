@@ -34,6 +34,21 @@ export interface PostOptions {
   payoutId?: string;
   /** Which Manual Contribution a movement belongs to, for the off-gateway accounts. */
   manualContributionId?: string;
+  /** Which ProviderWithdrawal a movement belongs to, for the sweep to the bank. */
+  providerWithdrawalId?: string;
+  /**
+   * Which Payment Provider this movement went through, stamped on every leg of
+   * the transaction.
+   *
+   * Omitted, and null on every row, wherever nobody records which provider a
+   * movement belongs to -- a Manual Contribution arrived off-gateway, and a
+   * completed Payout or a paid Refund drains the Provider Balance without
+   * anybody writing down which provider paid it. Omitting it is a fact about
+   * the data, not a gap to be filled in later: providerBalances below returns
+   * those rows as their own bucket rather than resolving them, so a per-provider
+   * figure can never be quietly wrong by being complete-looking.
+   */
+  provider?: string;
   /**
    * The id that makes this posting happen once, ever. A second attempt with
    * the same id is refused by the database (see postTransaction), not silently
@@ -318,6 +333,8 @@ export async function postTransaction(
         refundId: options.refundId ?? null,
         payoutId: options.payoutId ?? null,
         manualContributionId: options.manualContributionId ?? null,
+        providerWithdrawalId: options.providerWithdrawalId ?? null,
+        provider: options.provider ?? null,
         transactionId,
         // 0 claims the transactionId; the rest are ordinary legs. The index
         // is on the transactionId itself, not on a copy of it, so the claim
@@ -339,16 +356,38 @@ export async function postTransaction(
   return transactionId;
 }
 
-async function accountBalance(
-  tx: Prisma.TransactionClient,
-  account: LedgerAccount,
-  subject: LedgerSubject,
-): Promise<number> {
-  const where =
-    subject.type === 'campaign'
-      ? { account, campaignId: subject.campaignId }
-      : { account, volunteerTripId: subject.tripId };
+/**
+ * Which way round one account's balance is read.
+ *
+ * Not a stylistic choice, and the reason it is a parameter rather than a shape
+ * each caller writes for itself: every account in this chart of accounts is
+ * either credit-normal (money lands in it) or debit-normal (money arrives
+ * because it was debited, and the balance is debits - credits), and reading
+ * one the other way round turns a pot of 750_000 into -750_000. A report that
+ * prints that says the platform is overdrawn when it is sitting on the money.
+ *
+ * It is named at every call site on purpose. Three copies of this query used to
+ * live in this file, and the Collection Account's copy was the one whose sign
+ * differs -- so schema.prisma ended up documenting the account as
+ * credit-normal while the code read it debit-normal, with both comments
+ * authoritative and neither derived from the other. Naming the sign at the one
+ * call site that owns it makes the disagreement impossible to state: a new
+ * account has to declare which way it reads, and a comment that contradicts
+ * the code is then visibly wrong rather than arguably right.
+ */
+type AccountNormal = 'credit' | 'debit';
 
+/**
+ * The one place a balance is summed from the ledger's own entries.
+ *
+ * Every balance here is derived, never stored: there is no row to fall out of
+ * step, and a second place to keep in step is a second thing that can go stale.
+ */
+async function accountTotal(
+  tx: Prisma.TransactionClient,
+  where: Prisma.LedgerEntryWhereInput,
+  normal: AccountNormal,
+): Promise<number> {
   const rows = await tx.ledgerEntry.groupBy({
     by: ['direction'],
     where,
@@ -361,7 +400,41 @@ async function accountBalance(
     if (row.direction === 'CREDIT') credits = row._sum.amount ?? 0;
     if (row.direction === 'DEBIT') debits = row._sum.amount ?? 0;
   }
-  return credits - debits;
+  return normal === 'credit' ? credits - debits : debits - credits;
+}
+
+/**
+ * The most rupiah that fits an Int column, which is what every money column in
+ * this schema is.
+ *
+ * The real limit on any amount the platform stores is PostgreSQL's int4 ceiling,
+ * not a business rule, so it is refused by name in the application layer rather
+ * than becoming a driver error no route can turn into a 400. Stated ONCE here
+ * because the alternative is a per-module literal, and a limit that is written
+ * down three times is a limit one of the three will forget: an amount above it
+ * passes every check in the code and then fails inside the INSERT, which is a
+ * 500 for a field the caller simply got wrong.
+ *
+ * Widening the columns instead is a repo-wide decision, not a per-call-site
+ * one, and it is not taken here.
+ */
+export const MAX_RUPIAH_AMOUNT = 2_147_483_647;
+
+/**
+ * A subject's withdrawable balance, credit-normal: the money that has been
+ * credited and not yet spent.
+ */
+async function accountBalance(
+  tx: Prisma.TransactionClient,
+  account: LedgerAccount,
+  subject: LedgerSubject,
+): Promise<number> {
+  const where =
+    subject.type === 'campaign'
+      ? { account, campaignId: subject.campaignId }
+      : { account, volunteerTripId: subject.tripId };
+
+  return accountTotal(tx, where, 'credit');
 }
 
 /**
@@ -427,19 +500,38 @@ export async function tripEscrowBalance(tx: Prisma.TransactionClient, tripId: st
  * figure exists to be reported and to gate a reversal, not to be spent.
  */
 export async function programBalance(tx: Prisma.TransactionClient, programId: string): Promise<number> {
-  const rows = await tx.ledgerEntry.groupBy({
-    by: ['direction'],
-    where: { account: 'PROGRAM_BALANCE', programId },
-    _sum: { amount: true },
-  });
+  return accountTotal(tx, { account: 'PROGRAM_BALANCE', programId }, 'credit');
+}
 
-  let credits = 0;
-  let debits = 0;
-  for (const row of rows) {
-    if (row.direction === 'CREDIT') credits = row._sum.amount ?? 0;
-    if (row.direction === 'DEBIT') debits = row._sum.amount ?? 0;
-  }
-  return credits - debits;
+/**
+ * What has reached a bank account, in rupiah. DEBIT-normal, and the `debit`
+ * below is the whole claim: the sign is not inferred from the account's name or
+ * from what the money sounds like it does, it is stated here, next to the legs
+ * that make it true.
+ *
+ * collectionAccountWithdrawalLegs DEBITS this account. Debit-normal is the
+ * obvious reading of "the money that got to the bank" -- it is the same
+ * convention as the Provider Balance, which a settlement also DEBITS -- and it
+ * is the one this function uses, so a sweep of 750_000 reads as +750_000.
+ * Reading it credit-normal would print 0 on a system that had just moved a
+ * million rupiah to a bank, and a negative number the moment anything else
+ * ever touched the account. Read with the wrong sign, a report puts the money
+ * on the wrong side of the world.
+ *
+ * WHICH WAS THE DISAGREEMENT, AND WHY IT IS SETTLED BY THE CODE RATHER THAN BY
+ * A COMMENT. schema.prisma used to document this account as credit-normal, and
+ * a doc that says the opposite of the movement two paragraphs above it leaves a
+ * reader to adjudicate between them. So the sign is stated once, here, next to
+ * the legs that make it true: the sweep DEBITS this account, so the balance is
+ * debits - credits. That claim is written in two places -- the enum member in
+ * schema.prisma and this comment -- and it was left contradicting itself in
+ * both, so ledger.test.ts checks the same two rules against both files rather
+ * than against whichever one it was pointed at. And accountTotal is the one
+ * place a balance is summed, so a new account has to declare its sign rather
+ * than copy a query and keep whichever comment was closest.
+ */
+export async function collectionAccountBalance(tx: Prisma.TransactionClient): Promise<number> {
+  return accountTotal(tx, { account: 'COLLECTION_ACCOUNT' }, 'debit');
 }
 
 /**
@@ -898,4 +990,115 @@ export function refundPaidLegs(params: { amount: number }): LedgerLeg[] {
     { account: 'REFUND_CLEARING', direction: 'DEBIT', amount: params.amount },
     { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: params.amount },
   ];
+}
+
+/**
+ * A withdrawal of money from the Provider Balance to the Collection Account
+ * (prd-compliance 35; PRD FFI-07; ADR 0011).
+ *
+ *   DEBIT  COLLECTION_ACCOUNT  amount   the money reached a bank account
+ *   CREDIT GATEWAY_CLEARING    amount   no longer at the payment provider
+ *
+ * The third and last movement that credits the Provider Balance, and the only
+ * one of the three that takes money to a bank rather than to a Donor or a
+ * Fundraiser. The other two are withdrawals too, in the sense that money leaves
+ * the provider -- but they are paid OUT of the platform, to a third party, and
+ * leave nothing behind. This one moves the platform's own money from where the
+ * provider holds it to where the Collecting Entity can bank it, which is what
+ * makes the difference between "collected" and "in the bank" a number instead
+ * of an assumption.
+ *
+ * The two accounts are different things on purpose. The Merchant Account is
+ * PT Jaya Korpora Prima's at the payment provider; the Collection Account is
+ * the rekening penghimpunan and may belong to a different legal entity
+ * altogether (ADR 0011). Naming them as one account would make the sweep
+ * invisible, and an invisible sweep is indistinguishable from money that never
+ * left the provider.
+ *
+ * It takes no `subject`: the collection account is a bank account of an entity,
+ * not a Campaign's. Which entity's account received the money is recorded on
+ * the ProviderWithdrawal row that posts this, not on the entry, because one
+ * account can receive from several withdrawals and the answer can change
+ * between them.
+ */
+export function collectionAccountWithdrawalLegs(params: { amount: number }): LedgerLeg[] {
+  return [
+    { account: 'COLLECTION_ACCOUNT', direction: 'DEBIT', amount: params.amount },
+    { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: params.amount },
+  ];
+}
+
+/** One provider's pot at a payment provider, in rupiah. Debit-normal. */
+export interface ProviderBalance {
+  /**
+   * Which Payment Provider. `null` is a bucket, not a missing value: it holds
+   * the Provider Balance movements that name no provider, and it is reported
+   * beside the named ones rather than being resolved into one of them.
+   */
+  provider: string | null;
+  /** Gross of every settlement that landed here: money that arrived. */
+  debited: number;
+  /** What has left this pot: sweeps to the bank, completed Payouts, paid Refunds. */
+  credited: number;
+  /**
+   * debited - credited. POSITIVE means money is still sitting at the provider.
+   *
+   * Debit-normal, the same way the Provider Balance itself is: settlement
+   * DEBITS it. Read the other way round, a pot of 500_000 comes out as
+   * -500_000 and a report that prints that reads as an overdraft.
+   */
+  balance: number;
+}
+
+/**
+ * The Provider Balance, split by provider, one row per provider that appears
+ * plus one for every movement that names none (prd-compliance 35).
+ *
+ * One groupBy over GATEWAY_CLEARING by provider and direction, because the
+ * question "how much is at each provider" has to be answered from the ledger's
+ * own rows rather than from any stored figure, and a second place to keep in
+ * step is a second thing that can go stale.
+ *
+ * WHY THE NULL BUCKET IS RETURNED RATHER THAN ATTRIBUTED. Two of the three
+ * movements that credit the Provider Balance -- a completed Payout and a paid
+ * Refund -- are posted with no `provider`, because no code records which
+ * provider paid them. With one provider live that is untidy; with two it means
+ * a per-provider balance is a FLOOR, and attributing the unnamed credits
+ * proportionally or to the only provider that exists would produce a number
+ * that is complete-looking and wrong. So the caller is handed the remainder and
+ * asked to say so. See LedgerEntry.provider's own comment and the per-provider
+ * section of GET /api/admin/reconcile.
+ *
+ * Every account other than GATEWAY_CLEARING is excluded, including a
+ * Campaign's ESCROW_HOLD: that money is at the provider but earmarked, and the
+ * Provider Balance is the unencumbered pot.
+ */
+export async function providerBalances(tx: Prisma.TransactionClient): Promise<ProviderBalance[]> {
+  const rows = await tx.ledgerEntry.groupBy({
+    by: ['provider', 'direction'],
+    where: { account: 'GATEWAY_CLEARING' },
+    _sum: { amount: true },
+  });
+
+  // Keyed, not pushed in the order groupBy happens to answer: the report that
+  // reads this must not depend on an ordering the query does not promise.
+  const byProvider = new Map<string | null, { debited: number; credited: number }>();
+  for (const row of rows) {
+    const bucket = byProvider.get(row.provider) ?? { debited: 0, credited: 0 };
+    if (row.direction === 'DEBIT') bucket.debited += row._sum.amount ?? 0;
+    else bucket.credited += row._sum.amount ?? 0;
+    byProvider.set(row.provider, bucket);
+  }
+
+  // Array.from rather than spreading the iterator: this repo's tsconfig target
+  // predates downlevel iteration, the same reason findUnbalancedTransactions
+  // above does it this way.
+  return Array.from(byProvider.entries())
+    .map(([provider, bucket]) => ({ provider, ...bucket, balance: bucket.debited - bucket.credited }))
+    .sort((a, b) => {
+      // The unnamed bucket last, always: it is the one a reader must notice.
+      if (a.provider === null) return 1;
+      if (b.provider === null) return -1;
+      return a.provider < b.provider ? -1 : 1;
+    });
 }

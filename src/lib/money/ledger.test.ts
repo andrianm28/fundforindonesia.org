@@ -17,6 +17,9 @@ import {
   manualContributionReversedLegs,
   programBalance,
   payoutCompletedLegs,
+  collectionAccountWithdrawalLegs,
+  collectionAccountBalance,
+  providerBalances,
   UnbalancedTransactionError,
   InvalidLedgerLegError,
   DuplicateLedgerTransactionError,
@@ -24,6 +27,15 @@ import {
   type LedgerSubject,
   type ManualContributionSubject,
 } from './ledger';
+import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
+
+/**
+ * A Payment Provider name written onto something in this file, in any quote
+ * style. The backreference is what makes it safe to point at itself: the
+ * pattern's own text has no matching pair of quotes around a name, so the scan
+ * below never reads its own source.
+ */
+const STAMPED_PROVIDER = /provider:\s*(['"`])([^'"`]+)\1/g;
 
 /**
  * A ledger is the one place where "mostly right" is worthless, so these tests
@@ -41,6 +53,8 @@ type Row = {
   campaignId: string | null;
   volunteerTripId: string | null;
   programId: string | null;
+  /** Which provider this movement went through. Null where nobody recorded one. */
+  provider: string | null;
 };
 
 /** The one unique index a ledger posting can reach; see makeTx below. */
@@ -465,6 +479,436 @@ describe('payoutCompletedLegs', () => {
   });
 });
 
+describe('collectionAccountWithdrawalLegs', () => {
+  it('moves money from the Provider Balance to the Collection Account, which are two different things', () => {
+    // ADR 0011: the Merchant Account is PT Jaya Korpora Prima's and the
+    // collection account is a DIFFERENT account that may belong to a different
+    // legal entity. So the sweep is a real movement between two accounts, not a
+    // memo, and the two must not be the same row of the chart of accounts --
+    // collapsing them is what makes "the money reached the bank" invisible.
+    expect(collectionAccountWithdrawalLegs({ amount: 750_000 })).toEqual([
+      { account: 'COLLECTION_ACCOUNT', direction: 'DEBIT', amount: 750_000 },
+      { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 750_000 },
+    ]);
+  });
+
+  it('carries no subject: the collection account is a bank account, not a Campaign balance', () => {
+    expect(collectionAccountWithdrawalLegs({ amount: 1_000 }).every((l) => l.campaignId === undefined && l.volunteerTripId === undefined)).toBe(true);
+  });
+
+  it('leaves the money visible in exactly one place per side: out of the provider, in the bank', async () => {
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000 }),
+      { provider: 'sumopod' },
+    );
+
+    // Settled, never swept: the whole Gross is at the provider, and the
+    // Collection Account is empty -- an account nothing has ever credited
+    // reads as zero, not as "money that arrived".
+    //
+    // Read with heldOf, not netOf: the sweep DEBITS the Collection Account, so
+    // it is debit-normal the way the Provider Balance is, and money sitting in
+    // a bank is a positive number.
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(500_000);
+    expect(tx.rows.filter((r) => r.account === 'COLLECTION_ACCOUNT')).toHaveLength(0);
+
+    await postTransaction(tx as never, collectionAccountWithdrawalLegs({ amount: 750_000 }), { provider: 'sumopod' });
+
+    expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(-250_000);
+    expect(heldOf(tx.rows, 'COLLECTION_ACCOUNT')).toBe(750_000);
+    expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+
+  it('refuses a zero sweep: a zero-amount leg is rejected, and transferring nothing is not a transfer', async () => {
+    await expect(postTransaction(makeTx() as never, collectionAccountWithdrawalLegs({ amount: 0 }))).rejects.toThrow(InvalidLedgerLegError);
+  });
+});
+
+describe('collectionAccountBalance', () => {
+  it('reads a sweep as a positive number, because the sweep DEBITS this account', async () => {
+    // The direction, pinned to what the code does rather than to what the
+    // account sounds like it should be. A sweep of 750_000 that read as
+    // -750_000 would put money that reached a bank on the wrong side of the
+    // world, and a reader that returns credits-minus-debits would print 0 on a
+    // system that had just moved a million rupiah out of the Provider Balance.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 1_000_000, providerFee: 0 }),
+      { provider: 'sumopod' },
+    );
+    expect(await collectionAccountBalance(tx as never)).toBe(0);
+
+    await postTransaction(tx as never, collectionAccountWithdrawalLegs({ amount: 750_000 }), { provider: 'sumopod' });
+
+    expect(await collectionAccountBalance(tx as never)).toBe(750_000);
+  });
+
+  it('is zero before any money has been swept, because settling is not sweeping', async () => {
+    // Settling is not sweeping. The Collection Account must not report money
+    // sitting at the provider as money that reached a bank.
+    //
+    // The title used to promise the figure is "never negative" and the test
+    // never asserted that, so it said less than it appeared to. It is left out
+    // rather than added, because it is not a property of this reader: the only
+    // builder that names this account debits it (see the last test in this
+    // describe), so a reading below zero is a state no movement in this
+    // codebase can produce, and an assertion about it would guard nothing. The
+    // sign that IS a decision -- a sweep reading as a positive number -- is
+    // pinned by the test above, and the credit side of the same subtraction by
+    // the one below.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 5_000_000, providerFee: 0 }),
+      { provider: 'sumopod' },
+    );
+
+    expect(await collectionAccountBalance(tx as never)).toBe(0);
+  });
+
+  it('nets a debit against a credit on the same account, rather than adding them, on a state no builder produces today', async () => {
+    // Every other balance here is credits-minus-debits, so this is the one
+    // reader whose sign has to be argued for. It is not a preference: the sweep
+    // DEBITS the account, the same way a settlement DEBITS the Provider Balance,
+    // so it is read debits-minus-credits like that account is.
+    //
+    // The credit is seeded rather than posted, and the title says so, because a
+    // movement that credits this account does not exist: the only builder that
+    // names it debits it, which the test below pins. What is under test is the
+    // reader's arithmetic on both sides of the subtraction -- the CREDIT branch
+    // of accountTotal, which no other test of this reader reaches -- and not a
+    // movement the chart of accounts does not have. If a builder ever does
+    // credit this account, that test fails and this one becomes a statement
+    // about behaviour instead of about arithmetic.
+    const tx = makeTx([
+      { transactionId: 'sweep-1', legIndex: 0, direction: 'DEBIT', amount: 750_000, account: 'COLLECTION_ACCOUNT', campaignId: null, volunteerTripId: null, programId: null, provider: 'sumopod' },
+      { transactionId: 'other-1', legIndex: 0, direction: 'CREDIT', amount: 250_000, account: 'COLLECTION_ACCOUNT', campaignId: null, volunteerTripId: null, programId: null, provider: 'sumopod' },
+    ]);
+
+    expect(await collectionAccountBalance(tx as never)).toBe(500_000);
+  });
+
+  /**
+   * The direction every leg in a source gives the Collection Account.
+   *
+   * Paired by proximity, not by one literal shape, because a scan that only
+   * recognises the shape in use today reads every other shape as "nothing to
+   * complain about" -- and a leg it cannot read is a leg it cannot refuse.
+   *
+   * `amount:` is what tells a leg from a filter. Every leg has one
+   * (postTransaction refuses an amount that is not whole rupiah) and a filter
+   * has none, so `accountTotal(tx, { account: 'COLLECTION_ACCOUNT' }, 'debit')`
+   * is a reader and is left alone. A leg whose direction is not a literal --
+   * `{ account: 'COLLECTION_ACCOUNT', direction: dir, amount }` -- is reported
+   * as UNREADABLE rather than passed over, because the alternative is a claim
+   * of "nothing credits this account" resting on a scan that did not read it.
+   */
+  const UNREADABLE = 'UNREADABLE-DIRECTION';
+  const DIRECTION_LITERAL = /direction:\s*(['"])(\w+)\1/;
+  const AMOUNT_LITERAL = /\bamount\b\s*:/;
+
+  function collectionAccountDirections(source: string): string[] {
+    // Block comments go first: this account is named in prose in ledger.ts's own
+    // doc blocks, and prose is not a leg. Line comments are left alone on
+    // purpose -- a `//` inside a URL string would take the rest of the line with
+    // it, and a leg is never written on a line with a URL.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '');
+
+    return [...code.matchAll(/(['"])COLLECTION_ACCOUNT\1/g)].flatMap((account) => {
+      // The braces around the name are its own leg's: a leg literal is flat, so
+      // the nearest `{` before it and the nearest `}` after it are its edges.
+      const open = code.lastIndexOf('{', account.index);
+      const close = code.indexOf('}', account.index);
+      const leg = open === -1 || close === -1 ? '' : code.slice(open, close + 1);
+
+      const direction = DIRECTION_LITERAL.exec(leg);
+      if (direction) return [direction[2]];
+      return AMOUNT_LITERAL.test(leg) ? [UNREADABLE] : [];
+    });
+  }
+
+  it('has no movement that can credit the Collection Account, which is what makes the test above a seeded state', async () => {
+    // The premise of the seeded-CREDIT test, asserted rather than left in a
+    // comment. A leg builder naming this account is the only way a row can
+    // reach it, and every one of them debits it, so "no builder produces a
+    // credit here" is checkable -- and when a movement that credits the account
+    // is ever added (a corrected sweep, a clawback), this fails and the seeded
+    // test's title has to be re-read rather than quietly left standing.
+    //
+    // EVERY module of the money layer, not ledger.ts alone. The scan used to
+    // read one file, so a leg added to refunds.ts or provider-withdrawals.ts --
+    // exactly where a corrected sweep or a clawback would go -- was never read,
+    // and the claim above was reported as true because the scan had not looked.
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const dir = join(process.cwd(), 'src', 'lib', 'money');
+    const modules = readdirSync(dir).filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'));
+
+    const directions = modules.flatMap((name) =>
+      collectionAccountDirections(readFileSync(join(dir, name), 'utf8')),
+    );
+
+    // Greater than zero, so a leg written in some other shape cannot make this
+    // pass by finding nothing to complain about -- and with the shape check
+    // below, so a shape the scan cannot read cannot make it pass either.
+    expect(directions.length).toBeGreaterThan(0);
+    expect([...new Set(directions)]).toEqual(['DEBIT']);
+  });
+
+  it('reads a Collection Account leg in every shape the money layer writes one, so the scan above is not one literal deep', () => {
+    // The guard on the guard. The old pattern was
+    // `account: 'COLLECTION_ACCOUNT',\s*direction: '(\w+)'` over one file, and
+    // it had two holes this file proves: a leg in double quotes or with the
+    // direction written first was skipped rather than refused. Skipped is the
+    // dangerous direction -- the scan reports "no credit here" for a leg that
+    // does credit the account, and the test above stays green.
+    //
+    // Each shape below is one a contributor or a formatter can produce from the
+    // shape the repo uses today, and none of them is a leg the ledger must not
+    // have: all of them credit this account, so all of them must be read.
+    for (const credit of [
+      "{ account: 'COLLECTION_ACCOUNT', direction: 'CREDIT', amount: 1 }",
+      '{ account: "COLLECTION_ACCOUNT", direction: "CREDIT", amount: 1 }',
+      "{ direction: 'CREDIT', account: 'COLLECTION_ACCOUNT', amount: 1 }",
+      "{\n  account: 'COLLECTION_ACCOUNT',\n  direction: 'CREDIT',\n  amount: 1,\n}",
+      "function sweep() {\n  return [{ account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 1 }, { account: 'COLLECTION_ACCOUNT', direction: 'CREDIT', amount: 1 }];\n}",
+    ]) {
+      expect(collectionAccountDirections(credit)).toEqual(['CREDIT']);
+    }
+
+    // And a doc block that merely NAMES the account is not a leg. ledger.ts
+    // prints this account in a table in the sweep builder's comment, so the scan
+    // strips block comments first: without that, the prose is read as a leg and
+    // paired with whatever direction happened to follow it.
+    expect(
+      collectionAccountDirections(
+        "/**\n *   DEBIT  COLLECTION_ACCOUNT  amount   the money reached a bank\n */\n",
+      ),
+    ).toEqual([]);
+  });
+
+  /**
+   * The claim is written in TWO places -- the enum member in schema.prisma and
+   * the reader in ledger.ts -- and it was contradicted in BOTH. A guard that
+   * reads one of them is green while the other copy says the opposite, which is
+   * how "only ever grows" was deleted from the schema and survived two lines
+   * below a paragraph saying the sweep DEBITS the account. So both files are
+   * read here, from one table, against the same two rules: the doc may not deny
+   * the debit, and it must still say which way the figure is read, so deleting
+   * the false claim cannot pass by deleting the answer with it.
+   *
+   * One table rather than a per-file `it` block on purpose: a block per file
+   * can lose one file to an edit and leave the other passing, which is the
+   * failure this table exists to make impossible to overlook.
+   */
+  const DOC_BLOCKS = [
+    {
+      place: 'the enum member in prisma/schema.prisma',
+      source: `${process.cwd()}/prisma/schema.prisma`,
+      // The enum member's OWN doc block: every `///` line between the last
+      // non-comment line and the member, not one of the paragraphs on the way
+      // up to it. A bare `///` paragraph break is part of the block, so the
+      // run matches `///` with or without text after it.
+      pattern: /\n((?: {2}\/\/\/.*\n)+) {2}COLLECTION_ACCOUNT\n/,
+    },
+    {
+      place: 'collectionAccountBalance in src/lib/money/ledger.ts',
+      source: `${process.cwd()}/src/lib/money/ledger.ts`,
+      // The nearest `/** ... */` before the declaration, which is that
+      // function's own doc block rather than one of the paragraphs on the way
+      // up to it: `[\s\S]*?` is lazy, so it stops at the first `*/`.
+      pattern: /\/\*\*([\s\S]*?)\*\/\nexport async function collectionAccountBalance\b/,
+    },
+  ];
+
+  it.each(DOC_BLOCKS)(
+    'documents the one direction this account has, in $place, with nothing left that argues with it',
+    async ({ source, pattern }) => {
+      // The disagreement this repo had about the Collection Account was never in
+      // the code -- it always DEBITS, read debits - credits, which is what
+      // collectionAccountBalance does and what the two tests above pin. It was
+      // in the comments, which said the account was "only ever grows" and that
+      // "nothing debits this account" in the same breath as the sweep DEBITS
+      // it. Both halves cannot be true, and a reader who has to choose ends up
+      // choosing a half.
+      //
+      // So the claim is pinned where it is written rather than left to be
+      // resolved by whoever opens the file next. Every phrasing of the growth
+      // claim is named, not just the one that was there: the wording is what
+      // gets re-invented, and a guard against one string guards one string.
+      const { readFileSync } = await import('node:fs');
+      const doc = pattern.exec(readFileSync(source, 'utf8'));
+      expect(doc).not.toBeNull();
+      const comment = doc![1];
+
+      for (const denial of [
+        /only ever grows/i,
+        /only ever rises/i,
+        /nothing debits/i,
+        /never (?:is )?debited/i,
+      ]) {
+        expect(comment).not.toMatch(denial);
+      }
+      expect(comment).toMatch(/debits\s*-\s*credits/i);
+    },
+  );
+});
+
+describe('providerBalances', () => {
+  it('reads the Provider Balance per provider, and shows the unnamed remainder as its own bucket', async () => {
+    // The shape the reconciliation needs. A completed Payout credits the
+    // Provider Balance WITHOUT naming a provider -- nothing records that today
+    // -- and folding those credits into whichever provider happens to be first
+    // would hand one provider's report a number that belongs to another. So the
+    // null bucket is returned, not resolved: it is the honest answer to "whose
+    // pot is this?", and it is what tells a reader the per-provider figures are
+    // a floor rather than the whole money.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 0 }),
+      { provider: 'sumopod' },
+    );
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c2' }, grossAmount: 200_000, providerFee: 0 }),
+      { provider: 'mock' },
+    );
+    await postTransaction(tx as never, payoutCompletedLegs({ amount: 120_000 }));
+
+    // Named providers in name order, the unnamed bucket last -- which is the
+    // order providerBalances sorts to, so the expectation is the documented
+    // one and not the order the rows happen to be posted in.
+    expect(await providerBalances(tx as never)).toEqual([
+      { provider: 'mock', debited: 200_000, credited: 0, balance: 200_000 },
+      { provider: 'sumopod', debited: 500_000, credited: 0, balance: 500_000 },
+      { provider: null, debited: 0, credited: 120_000, balance: -120_000 },
+    ]);
+  });
+
+  it('keeps a withdrawal against the provider it was drawn from, so the pot shrinks for that provider only', async () => {
+    // `mock` is the other name this build has a provider for, which is what a
+    // second pot has to be: the split is by exact string equality, so the point
+    // of the test is two names, and only registered ones are states the
+    // platform can be in. The guard at the end of this describe says so.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 0 }),
+      { provider: 'sumopod' },
+    );
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c2' }, grossAmount: 900_000, providerFee: 0 }),
+      { provider: 'mock' },
+    );
+    await postTransaction(tx as never, collectionAccountWithdrawalLegs({ amount: 300_000 }), { provider: 'sumopod' });
+
+    const pots = await providerBalances(tx as never);
+    expect(pots.find((p) => p.provider === 'sumopod')).toEqual({
+      provider: 'sumopod',
+      debited: 500_000,
+      credited: 300_000,
+      balance: 200_000,
+    });
+    // The other provider's money is untouched by a sweep out of this one, which
+    // is the whole reason the column exists.
+    expect(pots.find((p) => p.provider === 'mock')?.balance).toBe(900_000);
+  });
+
+  it('is debit-normal, like heldOf: a pot of money at a provider is a positive number', async () => {
+    // Read the wrong way round this reports a pot of 500_000 as -500_000, and
+    // a report that prints that looks like the platform is 500_000 overdrawn at
+    // the provider. The direction is not a detail of the reader.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 0 }),
+      { provider: 'sumopod' },
+    );
+    expect((await providerBalances(tx as never))[0].balance).toBe(500_000);
+  });
+
+  it('ignores accounts that are not the Provider Balance', async () => {
+    // A campaign's own ESCROW_HOLD is money that reached the provider and is
+    // still earmarked; it is not the platform's pot at the provider, and
+    // counting it here would report a pot larger than the money actually
+    // unencumbered. Only GATEWAY_CLEARING is the Provider Balance.
+    const tx = makeTx();
+    await postTransaction(
+      tx as never,
+      paymentSettledLegs({ subject: { type: 'campaign', campaignId: 'c1' }, grossAmount: 500_000, providerFee: 15_000 }),
+      { provider: 'sumopod' },
+    );
+    expect(await providerBalances(tx as never)).toEqual([
+      { provider: 'sumopod', debited: 500_000, credited: 0, balance: 500_000 },
+    ]);
+  });
+
+  it('is empty when the provider has never been touched, rather than reporting a zero pot as a finding', async () => {
+    expect(await providerBalances(makeTx() as never)).toEqual([]);
+  });
+
+  it('stamps only names this build has a provider for, because a pot split by an unknown name is a pot nothing can settle', async () => {
+    // The fixtures above used to file money under a provider this build has no
+    // adapter for, which made this file disagree with payouts.test.ts and
+    // provider-withdrawals.test.ts about whether that name exists. The rule ADR
+    // 0006 gave us is a closed list (@/lib/payments/provider-names), and a test
+    // that quietly posts a name off the list is testing a state the platform
+    // cannot reach: the Provider Balance is split by exact string equality, so
+    // such a bucket reconciles perfectly against nothing and settles against
+    // no code path at all. Green tests, no evidence.
+    //
+    // A name can only reach a ledger entry through this file, so the fixtures
+    // are the whole surface, and they are checked against the registry rather
+    // than against a list written here. The two files that post an unregistered
+    // name on purpose -- to prove approvePayout and recordProviderWithdrawal
+    // refuse one -- are not this file's business; this file has no such claim
+    // to make.
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const source = readFileSync(join(process.cwd(), 'src', 'lib', 'money', 'ledger.test.ts'), 'utf8');
+
+    const stamped = [...new Set([...source.matchAll(STAMPED_PROVIDER)].map((m) => m[2]))];
+    // Greater than zero, so a rewrite of the pattern cannot make this pass by
+    // finding no provider name to complain about.
+    expect(stamped.length).toBeGreaterThan(0);
+
+    const unknown = stamped.filter((name) => {
+      try {
+        canonicalPaymentProviderName(name);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    expect(unknown).toEqual([]);
+  });
+
+  it('reads a stamped provider name in every quote style, so an unregistered one cannot be written in another', () => {
+    // The guard on the guard. The pattern used to read single quotes and
+    // nothing else, so a fixture that wrote the name in double quotes posted
+    // an unregistered name onto a ledger entry and the check above passed,
+    // because that name was not a name to it. A scan that cannot see a shape
+    // reports the shape as absent, which is the one answer always wrong here.
+    //
+    // The names below are registered ones on purpose. This file is its own
+    // input: the check above scans it, so an unregistered name written here as
+    // an example would be posted money filed under a provider this build has no
+    // adapter for -- and, more to the point, would make the two tests fail each
+    // other instead of saying anything about the pattern.
+    expect([...`{ provider: 'sumopod' }`.matchAll(STAMPED_PROVIDER)].map((m) => m[2])).toEqual(['sumopod']);
+    expect([...`{ provider: "sumopod" }`.matchAll(STAMPED_PROVIDER)].map((m) => m[2])).toEqual(['sumopod']);
+    expect([...'{ provider: `sumopod` }'.matchAll(STAMPED_PROVIDER)].map((m) => m[2])).toEqual(['sumopod']);
+    // And it still does not read its own source: the capture group is behind a
+    // backreference, so the text of the pattern in this file is not a name.
+    expect([...STAMPED_PROVIDER.source.matchAll(STAMPED_PROVIDER)]).toEqual([]);
+  });
+});
+
 describe('a Refund and the fee money it returns (prd-compliance 28c)', () => {
   it('takes the returned fees out to accounts named for what they are, and touches nothing unnamed', () => {
     // Gross 100_000 refunded in full, Platform Fee 2_500, Provider Fee 5_000.
@@ -720,8 +1164,8 @@ describe('findUnbalancedTransactions already covers trip-scoped entries', () => 
     // directly the way a real bug (not this plan's own code) would have
     // to reach the database to produce this state.
     tx.rows.push(
-      { transactionId: 'trip-tx-1', legIndex: 0, direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9', programId: null },
-      { transactionId: 'trip-tx-1', legIndex: 1, direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9', programId: null },
+      { transactionId: 'trip-tx-1', legIndex: 0, direction: 'DEBIT', amount: 10_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-9', programId: null, provider: null },
+      { transactionId: 'trip-tx-1', legIndex: 1, direction: 'CREDIT', amount: 9_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-9', programId: null, provider: null },
     );
 
     const result = await findUnbalancedTransactions(tx as never);

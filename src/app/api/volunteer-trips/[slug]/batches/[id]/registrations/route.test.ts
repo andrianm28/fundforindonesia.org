@@ -113,6 +113,58 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     expect(await response.json()).toMatchObject({ registrationId: 'registration-1', amount: 1_500_000 });
   });
 
+  it('records the provider under the one name the registry knows, whatever the adapter calls itself', async () => {
+    // The same column, the same rule as a Donation's Payment: it is a join key
+    // the Provider Balance groups by, so "SumoPod" and "sumopod" would file one
+    // provider's money as two pots, each reconciling exactly against nothing.
+    // The registry locks its builder keys, not the adapters' `name`, so the
+    // spelling has to be resolved where the row is written.
+    for (const name of ['SumoPod', 'sumopod']) {
+      vi.clearAllMocks();
+      mockGetServerSession.mockResolvedValue({ user: { id: 'volunteer-1' } });
+      mockTripFindUnique.mockResolvedValue({ id: 'trip-1' });
+      mockGetPaymentProvider.mockReturnValue({
+        name,
+        method: 'qris_redirect',
+        createCharge: vi.fn().mockResolvedValue({
+          method: 'qris_redirect',
+          redirectUrl: 'https://pay.example/x',
+          expiresAt: new Date('2026-12-01'),
+        }),
+      });
+      mockHoldRegistration.mockResolvedValue({
+        registration: { id: 'registration-1', volunteerId: 'volunteer-1', batchId: 'batch-1', status: 'HOLD' },
+        tripFeeAmount: 1_500_000,
+      });
+
+      await POST(createRequest(), routeContext());
+
+      expect(mockPaymentCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ provider: 'sumopod' }) }),
+      );
+    }
+  });
+
+  it('refuses an adapter whose name names no provider, before a charge exists at one', async () => {
+    // Ahead of createCharge, for the same reason as the method check below it: a
+    // charge created and then abandoned is a live payment link a Volunteer can
+    // still pay into with nothing here expecting the money. And it is a defect
+    // in the build rather than an outcome this Registration can be marked for,
+    // so it is the route's 500 rather than a refusal with a code.
+    const createCharge = vi.fn();
+    mockGetPaymentProvider.mockReturnValue({
+      name: 'zendesk',
+      method: 'qris_redirect',
+      createCharge,
+    });
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(500);
+    expect(createCharge).not.toHaveBeenCalled();
+    expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['BatchNotFoundError', new BatchNotFoundError('batch-1'), 404, 'BATCH_NOT_FOUND'],
     ['TripNotTakingRegistrationsError', new TripNotTakingRegistrationsError('SUSPENDED'), 400, 'TRIP_NOT_TAKING_REGISTRATIONS'],

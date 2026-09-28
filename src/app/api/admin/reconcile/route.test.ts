@@ -35,6 +35,9 @@ type LedgerRow = {
   paymentId?: string | null;
   refundId?: string | null;
   manualContributionId?: string | null;
+  /** Which payment provider this movement went through; null where unnamed. */
+  provider?: string | null;
+  providerWithdrawalId?: string | null;
 };
 
 type PayoutRow = {
@@ -82,7 +85,21 @@ type RefundRow = {
   createdAt?: Date;
 };
 
-type CampaignRow = { id: string; title: string; collectedAmount: number; isDemo?: boolean };
+type CampaignRow = { id: string; title: string; collectedAmount: number; isDemo?: boolean; kind?: string };
+
+type ProviderWithdrawalRow = {
+  id: string;
+  provider: string;
+  reference: string;
+  amount: number;
+  destinationName: string;
+  collectingEntityId: string | null;
+  providerBalanceBefore: number;
+  providerBalanceAfter: number;
+  proofReference: string;
+  recordedById: string;
+  recordedAt: Date;
+};
 
 type ManualContributionRow = {
   id: string;
@@ -122,6 +139,7 @@ function makeTx(options: {
   refunds?: RefundRow[];
   campaigns?: CampaignRow[];
   manualContributions?: ManualContributionRow[];
+  providerWithdrawals?: ProviderWithdrawalRow[];
 } = {}) {
   const rows = options.ledgerRows ?? [];
   const payouts = options.payouts ?? [];
@@ -129,6 +147,7 @@ function makeTx(options: {
   const refunds = options.refunds ?? [];
   const campaigns = options.campaigns ?? [];
   const manualContributions = options.manualContributions ?? [];
+  const providerWithdrawals = options.providerWithdrawals ?? [];
 
   return {
     ledgerEntry: {
@@ -250,7 +269,31 @@ function makeTx(options: {
       ),
     },
     campaign: {
-      findMany: vi.fn(async () => campaigns),
+      // Defaults `kind` to DONATION, as the column does, so a fixture that
+      // never mentions it is an ordinary social-fundraising Campaign rather than
+      // one whose `kind: 'DONATION'` predicate silently matches nothing.
+      findMany: vi.fn(async () => campaigns.map((c) => ({ ...c, kind: c.kind ?? 'DONATION' }))),
+    },
+    donation: {
+      // A Donation only ever exists as the subject of a Payment, so the fake
+      // derives them from the payments fixture using the same
+      // `donation-for-<paymentId>` convention payment.findMany above already
+      // uses, rather than asking every test to spell out a second fixture list.
+      findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
+        payments
+          .filter((p) => p.campaignId != null)
+          .map((p) => ({ id: `donation-for-${p.id}`, campaignId: p.campaignId }))
+          .filter((d) => matchesWhere(d as never as Record<string, unknown>, where)),
+      ),
+    },
+    providerWithdrawal: {
+      // `where` is optional the way it is in Prisma: the per-provider
+      // reconciliation asks for every recorded sweep and only supplies an
+      // orderBy, so the fake has to treat a missing filter as no filter rather
+      // than reaching for undefined.
+      findMany: vi.fn(async ({ where }: { where?: Record<string, unknown> } = {}) =>
+        providerWithdrawals.filter((w) => matchesWhere(w as never as Record<string, unknown>, where ?? {})),
+      ),
     },
     manualContribution: {
       findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
@@ -1590,5 +1633,261 @@ describe('GET /api/admin/reconcile -- subjectless payments (data-integrity safet
     const data = await response.json();
 
     expect(data.subjectlessPayments).toEqual([]);
+  });
+});
+
+/**
+ * The per-provider reconciliation (prd-compliance 35; PRD FFI-07; ADR 0011).
+ *
+ * This is the part of the report the ticket was filed for: the difference
+ * between money sitting at the payment provider and money in the bank, visible
+ * rather than assumed. The tests below are about the two ways a report like
+ * this can quietly lie -- by folding an unattributable movement into a named
+ * provider, and by reporting a provider nobody actually checked as reconciled.
+ */
+describe('GET /api/admin/reconcile -- the Provider Balance and the sweep to the bank (prd-compliance 35)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
+  });
+
+  /** A settlement at Sumopod, debiting the Provider Balance. */
+  const settlement = (overrides: Partial<LedgerRow> = {}): LedgerRow => ({
+    transactionId: 'webhook:sumopod:evt-1',
+    direction: 'DEBIT',
+    amount: 1_200_000,
+    account: 'GATEWAY_CLEARING',
+    campaignId: null,
+    paymentId: 'payment-1',
+    provider: 'sumopod',
+    ...overrides,
+  });
+
+  const sweep = (overrides: Partial<ProviderWithdrawalRow> = {}): ProviderWithdrawalRow => ({
+    id: 'pw-1',
+    provider: 'sumopod',
+    reference: 'SP-2026-09-30-001',
+    amount: 750_000,
+    destinationName: 'Yayasan Sehat Mandiri',
+    collectingEntityId: 'org-1',
+    providerBalanceBefore: 1_200_000,
+    providerBalanceAfter: 450_000,
+    proofReference: 'dokumen/sweep-001.pdf',
+    recordedById: 'admin-1',
+    recordedAt: new Date('2026-09-30T00:00:00.000Z'),
+    ...overrides,
+  });
+
+  async function reportFor(options: Parameters<typeof makeTx>[0]) {
+    const tx = makeTx(options);
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+    const response = await GET(createRequest());
+    expect(response.status).toBe(200);
+    return response.json();
+  }
+
+  it('reports the Provider Balance per provider, debit-normal', async () => {
+    const data = await reportFor({ ledgerRows: [settlement()] });
+
+    // Positive: money IS there. A pot of 1_200_000 printed as -1_200_000 reads
+    // as an overdraft and would send whoever reads it hunting the wrong thing.
+    expect(data.providerReconciliation.pots).toEqual([
+      { provider: 'sumopod', debited: 1_200_000, credited: 0, balance: 1_200_000 },
+    ]);
+  });
+
+  it('keeps the movements that name no provider as their own bucket rather than folding them into a named one', async () => {
+    // A completed Payout credits GATEWAY_CLEARING with no provider
+    // (payoutCompletedLegs, PR #73). Folding it into Sumopod would hand Sumopod
+    // a pot smaller than the money that actually left it, and the gap would then
+    // read as Sumopod's own discrepancy rather than as this known limitation.
+    const data = await reportFor({
+      ledgerRows: [
+        settlement(),
+        {
+          transactionId: 'payout-completed-payout-1',
+          direction: 'CREDIT',
+          amount: 120_000,
+          account: 'GATEWAY_CLEARING',
+          campaignId: null,
+          provider: null,
+        },
+      ],
+    });
+
+    expect(data.providerReconciliation.pots).toEqual([
+      { provider: 'sumopod', debited: 1_200_000, credited: 0, balance: 1_200_000 },
+      { provider: null, debited: 0, credited: 120_000, balance: -120_000 },
+    ]);
+    expect(data.providerReconciliation.unattributedBalance).toBe(-120_000);
+    expect(data.providerReconciliation.perProviderIsExact).toBe(false);
+  });
+
+  it('says the per-provider split is exact only when every Provider Balance movement names a provider', async () => {
+    const exact = await reportFor({ ledgerRows: [settlement()] });
+    expect(exact.providerReconciliation.perProviderIsExact).toBe(true);
+
+    const inexact = await reportFor({
+      ledgerRows: [
+        settlement(),
+        { transactionId: 'x', direction: 'CREDIT', amount: 1, account: 'GATEWAY_CLEARING', campaignId: null, provider: null },
+      ],
+    });
+    expect(inexact.providerReconciliation.perProviderIsExact).toBe(false);
+  });
+
+  it('reports the whole Provider Balance as well, which is the figure ADR 0011 states its invariant over', async () => {
+    const data = await reportFor({
+      ledgerRows: [
+        settlement(),
+        { transactionId: 'x', direction: 'CREDIT', amount: 120_000, account: 'GATEWAY_CLEARING', campaignId: null, provider: null },
+      ],
+    });
+
+    // 1_200_000 at Sumopod less 120_000 that left unnamed. The invariant
+    // "Provider Balance = GATEWAY_CLEARING less what an Admin has withdrawn" is
+    // stated over the whole account, not over one provider's slice of it.
+    expect(data.providerReconciliation.providerBalanceTotal).toBe(1_080_000);
+  });
+
+  it('reconciles a recorded sweep against the ledger and reports zero when the provider and the books agree', async () => {
+    const data = await reportFor({
+      ledgerRows: [
+        settlement(),
+        { transactionId: 'provider-withdrawal-pw-1', direction: 'CREDIT', amount: 750_000, account: 'GATEWAY_CLEARING', campaignId: null, provider: 'sumopod', providerWithdrawalId: 'pw-1' },
+        { transactionId: 'provider-withdrawal-pw-1', direction: 'DEBIT', amount: 750_000, account: 'COLLECTION_ACCOUNT', campaignId: null, provider: 'sumopod', providerWithdrawalId: 'pw-1' },
+      ],
+      providerWithdrawals: [sweep()],
+    });
+
+    expect(data.providerReconciliation.withdrawals).toEqual([
+      {
+        provider: 'sumopod',
+        pot: { provider: 'sumopod', debited: 1_200_000, credited: 750_000, balance: 450_000 },
+        withdrawn: 750_000,
+        providerMovedBy: 750_000,
+        difference: 0,
+        withdrawals: [
+          {
+            withdrawalId: 'pw-1',
+            provider: 'sumopod',
+            reference: 'SP-2026-09-30-001',
+            amount: 750_000,
+            destinationName: 'Yayasan Sehat Mandiri',
+            collectingEntityId: 'org-1',
+            providerBalanceBefore: 1_200_000,
+            providerBalanceAfter: 450_000,
+            providerMovedBy: 750_000,
+            difference: 0,
+            recordedAt: '2026-09-30T00:00:00.000Z',
+          },
+        ],
+      },
+    ]);
+    // And the sweep is the only thing that moved the money into the bank, which
+    // is the number the ticket exists to make visible.
+    expect(data.providerReconciliation.collectionAccountBalance).toBe(750_000);
+  });
+
+  it('reports a systematic divergence, per sweep and in total, and corrects nothing', async () => {
+    // The provider charged a fee on the transfer, so its own balance fell by
+    // 20_000 more than we swept. The books said 750_000 left; the dashboard said
+    // 770_000 did. That gap is the finding -- it is reported, and nothing in this
+    // report writes a journal to make it go away, because a reconciliation that
+    // fixes its own findings destroys the only evidence of what went wrong.
+    const data = await reportFor({
+      ledgerRows: [
+        settlement(),
+        { transactionId: 'provider-withdrawal-pw-1', direction: 'CREDIT', amount: 750_000, account: 'GATEWAY_CLEARING', campaignId: null, provider: 'sumopod', providerWithdrawalId: 'pw-1' },
+        { transactionId: 'provider-withdrawal-pw-1', direction: 'DEBIT', amount: 750_000, account: 'COLLECTION_ACCOUNT', campaignId: null, provider: 'sumopod', providerWithdrawalId: 'pw-1' },
+      ],
+      providerWithdrawals: [sweep({ providerBalanceAfter: 430_000 })],
+    });
+
+    expect(data.providerReconciliation.divergence.totalDifference).toBe(20_000);
+    expect(data.providerReconciliation.divergence.providersWithDivergence).toEqual(['sumopod']);
+    expect(data.providerReconciliation.withdrawals[0].withdrawals[0].difference).toBe(20_000);
+    // The ledger's own pot is untouched by the disagreement.
+    expect(data.providerReconciliation.withdrawals[0].pot.balance).toBe(450_000);
+  });
+
+  it('reports no withdrawal at all rather than a clean reconciliation when nothing has been swept', async () => {
+    // A pot nobody has read is not a pot that has been checked. An empty
+    // `withdrawals` says "no sweep recorded"; a `difference: 0` would say
+    // "checked and matched", and only one of those is true.
+    const data = await reportFor({ ledgerRows: [settlement()] });
+
+    expect(data.providerReconciliation.withdrawals).toEqual([]);
+    expect(data.providerReconciliation.divergence.totalDifference).toBe(0);
+    expect(data.providerReconciliation.divergence.providersWithDivergence).toEqual([]);
+  });
+
+  it('does not let a provider with a pot but no recorded sweep appear as reconciled', async () => {
+    const data = await reportFor({ ledgerRows: [settlement()] });
+
+    // It is in `pots`, because the money really is there and an Admin needs to
+    // see it. It is not in `withdrawals`, because nobody has checked it.
+    expect(data.providerReconciliation.pots.map((p: { provider: string | null }) => p.provider)).toEqual(['sumopod']);
+    expect(data.providerReconciliation.withdrawals).toEqual([]);
+  });
+
+  it('reports what was collected under each Kind, which is the licence axis of the report', async () => {
+    // Two Kinds under two different Fundraising Permits (prd-compliance 10), and
+    // the point is that a per-Kind figure is derivable at all. The Kind is read
+    // by joining Campaign -> Donation -> Payment, never from a stored copy on the
+    // ledger entry: a denormalised second source of truth for something that
+    // cannot change is still a second source of truth, and it is the drift this
+    // repo already has a name for (Campaign.collectedAmount).
+    const data = await reportFor({
+      campaigns: [
+        { id: 'campaign-1', title: 'Bantuan zakat', collectedAmount: 500_000, kind: 'ZAKAT' },
+        { id: 'campaign-2', title: 'Bantuan anak', collectedAmount: 300_000, kind: 'DONATION' },
+      ],
+      payments: [
+        { id: 'payment-1', campaignId: 'campaign-1', amount: 500_000 },
+        { id: 'payment-2', campaignId: 'campaign-2', amount: 300_000 },
+      ],
+      ledgerRows: [
+        settlement({ amount: 500_000, paymentId: 'payment-1' }),
+        settlement({ transactionId: 'webhook:sumopod:evt-2', amount: 300_000, paymentId: 'payment-2' }),
+      ],
+    });
+
+    // Keyed, so the order is the Kind's own and not whatever order a groupBy
+    // happened to answer in.
+    expect(data.providerReconciliation.collectedByKind).toEqual([
+      { kind: 'DONATION', settledGross: 300_000 },
+      { kind: 'ZAKAT', settledGross: 500_000 },
+    ]);
+  });
+
+  it('excludes a Demo Campaign from the per-Kind figures, whose data is fixture data with no ledger behind it', async () => {
+    const data = await reportFor({
+      campaigns: [{ id: 'campaign-1', title: 'Contoh', collectedAmount: 900_000, isDemo: true, kind: 'DONATION' }],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1', amount: 900_000 }],
+      ledgerRows: [settlement({ amount: 900_000, paymentId: 'payment-1' })],
+    });
+
+    expect(data.providerReconciliation.collectedByKind).toEqual([]);
+  });
+
+  it('says a Trip Fee settlement belongs to no Kind, rather than filing it under the nearest one', async () => {
+    // A Volunteer Trip is not a Kind (ADR 0014) and holds no Fundraising Permit,
+    // so its money cannot be counted under one. It is still in `pots`, because
+    // it is still sitting at the provider.
+    const data = await reportFor({
+      campaigns: [{ id: 'campaign-1', title: 'Kampanye', collectedAmount: 100_000, kind: 'DONATION' }],
+      payments: [
+        { id: 'payment-1', campaignId: 'campaign-1', amount: 100_000 },
+        { id: 'payment-trip', volunteerTripId: 'trip-1', amount: 250_000 },
+      ],
+      ledgerRows: [
+        settlement({ amount: 100_000, paymentId: 'payment-1' }),
+        settlement({ transactionId: 'webhook:sumopod:evt-trip', amount: 250_000, paymentId: 'payment-trip' }),
+      ],
+    });
+
+    expect(data.providerReconciliation.collectedByKind).toEqual([{ kind: 'DONATION', settledGross: 100_000 }]);
+    expect(data.providerReconciliation.pots[0].debited).toBe(350_000);
   });
 });

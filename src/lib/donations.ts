@@ -11,6 +11,8 @@
  * shut. One constant cannot be both.
  */
 
+import { paymentProviderProductionRefusal } from '@/lib/payments/production-readiness';
+
 /**
  * The deliberate switch, off unless explicitly turned on.
  *
@@ -40,36 +42,20 @@ export function donationsEnabled(): boolean {
  * donor pays, the webhook never comes, the ledger never moves, and the money
  * is simply gone as far as this platform can tell. There is no recovery
  * path, so it is refused here rather than remembered in a deploy checklist.
+ *
+ * WHICH PROVIDER, and whose knowledge that is. The per-provider rules live
+ * beside the registry (@/lib/payments/production-readiness), not here: they used
+ * to be two string literals compared in this file, a second list of the
+ * providers that exist, and this guard runs before getPaymentProvider is ever
+ * reached -- so a provider in the registry and not in those two was taking real
+ * rupiah with nothing checking whether it was a sandbox. What is left here is
+ * the environment half, which is this file's own business: the switch, and
+ * whether this is production at all.
  */
 export function sandboxInProductionReason(): string | null {
   if (process.env.NODE_ENV !== 'production') return null;
 
-  const provider = (process.env.PAYMENT_PROVIDER ?? 'mock').toLowerCase();
-
-  if (provider === 'mock') {
-    return (
-      'PAYMENT_PROVIDER is the mock adapter in production. It fabricates a virtual ' +
-      'account number no bank issued, so every donation would be unpayable.'
-    );
-  }
-
-  if (provider === 'sumopod') {
-    const baseUrl = process.env.SUMOPOD_BASE_URL;
-    // Missing is refused rather than assumed live: an unset url is a
-    // misconfiguration, and the safe reading of a misconfiguration on the
-    // money path is "do not take money".
-    if (!baseUrl) {
-      return 'SUMOPOD_BASE_URL is not set in production, so there is no way to tell sandbox from live.';
-    }
-    if (baseUrl.includes('sandbox')) {
-      return (
-        'SUMOPOD_BASE_URL points at the Sumopod sandbox in production. Donations would be ' +
-        'charged for real and settle nowhere.'
-      );
-    }
-  }
-
-  return null;
+  return paymentProviderProductionRefusal(process.env.PAYMENT_PROVIDER ?? 'mock');
 }
 
 /**

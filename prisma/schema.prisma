@@ -105,6 +105,7 @@ model User {
   manualContributionsRecorded ManualContribution[] @relation("ManualContributionRecorder")
   manualContributionsDecided  ManualContribution[] @relation("ManualContributionDecider")
   manualContributionsReversed ManualContribution[] @relation("ManualContributionReverser")
+  providerWithdrawalsRecorded ProviderWithdrawal[] @relation("ProviderWithdrawalRecorder")
   duplicateSimilarityThresholdsSet DuplicateSimilarityThreshold[]
   abuseThresholdsSet               AbuseThreshold[]
 
@@ -732,6 +733,7 @@ model PartnerOrganisation {
   permits              FundraisingPermit[]
   kindAuthorisations   KindAuthorisation[]
   campaigns            Campaign[]
+  providerWithdrawals  ProviderWithdrawal[]
   verificationRequests VerificationRequest[]
   auditEntries         PartnerOrganisationAuditEntry[]
 }
@@ -1155,20 +1157,51 @@ enum LedgerAccount {
   /// the money still sitting there that the Campaign, the platform and the
   /// provider are owed between them, and nothing else (ADR 0011).
   ///
-  /// PR #73 (prd-compliance 27) HAS since landed, and it credits this account:
-  /// payoutCompletedLegs (src/lib/money/payouts.ts) posts
-  /// DEBIT PAYOUT_CLEARING / CREDIT GATEWAY_CLEARING when the second Admin marks
-  /// a Payout completed. ledger.ts:807-815 is the current statement of the
-  /// rule; ADR 0011's 27 September update records the same. The Refund credit is
-  /// still absent: refundPaidLegs has no caller, because the COMPLETED
-  /// transition that would call it is ticket 32.
+  /// THREE MOVEMENTS CREDIT IT, and none of them may be skipped when reading
+  /// what a balance here means:
   ///
-  /// So the account is still debit-only in one direction: it grows by every Gross
-  /// ever collected, and the Payout path now drains it. What still drains it by
-  /// nothing is a paid Refund. Until that credit lands, treat any non-zero
-  /// balance here as unsettled, not as a reconciliation signal, and
-  /// do not use it to tell a Donor or a Fundraiser what they are owed.
+  ///   - a Payout completed by the second Admin (payoutCompletedLegs,
+  ///     prd-compliance 27, PR #73) -- the money went to the Fundraiser;
+  ///   - a Refund actually paid to the Donor (refundPaidLegs, prd-compliance
+  ///     28c, PR #83) -- BUILT BUT NOT YET POSTED: it has no production caller,
+  ///     because the COMPLETED transition that would call it is ticket 32, so
+  ///     nothing reaches this account that way today;
+  ///   - a withdrawal to the Collection Account
+  ///     (collectionAccountWithdrawalLegs, prd-compliance 35) -- THIS ONE IS IN
+  ///     THE CODE, and it does post: the money went to the bank, which is the
+  ///     third and last path out of the pot.
+  ///
+  /// Of those three, only the third names the provider it drew on
+  /// (LedgerEntry.provider), so a per-provider reading of this account is a
+  /// FLOOR rather than the whole pot for as long as a Payout can be completed
+  /// without recording which provider paid it. See
+  /// src/lib/money/ledger.ts's providerBalances, which reports the unnamed
+  /// remainder as its own bucket rather than folding it into a named one.
   GATEWAY_CLEARING
+  /// CONTEXT.md's Collection Account: the rekening penghimpunan the money is
+  /// swept to from the Merchant Account, and a DIFFERENT THING from it
+  /// (ADR 0011).
+  ///
+  /// DEBIT-NORMAL, and the sweep is the whole reason: the recorded withdrawal
+  /// DEBITS this account (collectionAccountWithdrawalLegs,
+  /// src/lib/money/ledger.ts), so the balance is read debits - credits -- the
+  /// same convention as the Provider Balance a settlement debits, and the one
+  /// collectionAccountBalance uses. Read credit-normal it would print 0 for a
+  /// million rupiah that had just reached a bank. That is the only direction
+  /// this account is read in, and no sentence here describes a second one.
+  ///
+  /// No Payout appears here, and that is the shape of the flow rather than a
+  /// modelling oversight: a Payout is paid out of the Provider Balance by hand
+  /// in the provider's dashboard (ADR 0006) and never reaches a bank balance.
+  /// Which is also why this account's balance is the honest answer to "how much
+  /// of the Donors' money has reached a bank" (prd-compliance 35).
+  ///
+  /// Platform-level, carrying no subject id: the Collection Account is the
+  /// platform's or the Collecting Entity's bank account, not a Campaign's.
+  /// Which entity owns the account is recorded on the ProviderWithdrawal row
+  /// that posted here, not on the entry, because one account can receive from
+  /// more than one withdrawal and the answer changes per withdrawal.
+  COLLECTION_ACCOUNT
   PAYOUT_CLEARING // money instructed out, not yet confirmed
   /// The Donor's own claim once a Refund is approved, and the money the
   /// platform owes that Donor until the transfer lands: credited the full
@@ -1222,8 +1255,35 @@ model Payment {
   /// proactively.
   registrationId String?       @unique
   registration   Registration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
-  provider    String // "midtrans" | "xendit" | ... kept a String: providers are added without a migration
-  method      String // "qris" | "va_bca" | ...
+  /// The Payment Provider this charge went through, in the name that appears
+  /// in its webhook URL, on this row and on the WebhookEvent for the same
+  /// delivery -- one spelling per provider so the Provider Balance, which is
+  /// split by exact string equality, cannot end up with two pots for one
+  /// provider (ADR 0006).
+  ///
+  /// A registered name, and the registered names are exactly "mock" |
+  /// "sumopod" -- PAYMENT_PROVIDER_NAMES in
+  /// src/lib/payments/provider-names.ts. Nothing else is a provider name in
+  /// this build: a Midtrans or Xendit adapter does not exist yet, so naming
+  /// one here would write a value no code can settle against.
+  ///
+  /// A plain String rather than an enum because that registry already is the
+  /// enum, and the schema deliberately does not keep a second copy of it: an
+  /// enum here would list the same names again, in this file and in the
+  /// generated client, while the gate every write already passes is
+  /// canonicalPaymentProviderName (./src/lib/payments/provider-names.ts), not
+  /// the column's type. Switching providers on from the Admin dashboard is
+  /// therefore a new name in that registry plus a builder in
+  /// src/lib/payments/index.ts, and nothing in this file.
+  provider    String
+  /// Which method the provider charged through, in its own vocabulary rather
+  /// than the donor's choice: PaymentMethod in src/lib/payments/types.ts,
+  /// "bank_transfer_va" | "qris_redirect". The donor-facing choices
+  /// ("bank_transfer", "qris", "ewallet", "credit_card") are mapped onto
+  /// those -- or onto nothing, for the two no adapter implements -- by
+  /// PROVIDER_METHOD_FOR in src/lib/money/payment-method-map.ts, before the
+  /// Payment is written, and never after.
+  method      String
   /// The provider's own id for this charge. Unique so a webhook replay cannot
   /// create a second Payment for the same upstream charge.
   providerRef String        @unique
@@ -1648,6 +1708,25 @@ model Payout {
   rejectionReason String?
 
   providerRef String?   @unique
+  /// FFI-07 story 53: the provider balance the approving Admin read in the
+  /// provider's dashboard, recorded BEFORE approving, and the provider it was
+  /// read from. Required of every approval from this ticket on -- Sumopod
+  /// exposes no balance API, so the system cannot check this itself and a
+  /// figure nobody wrote down proves nothing (ADR 0006).
+  ///
+  /// Both are nullable only so history stays: a Payout approved before this
+  /// column existed has no reading, and saying so is the honest record. The
+  /// service layer refuses an approval that supplies neither, and refuses one
+  /// whose reading is short of the Payout's own amount.
+  ///
+  /// NOT a reconciliation datum. This is a reading of one moment, and the
+  /// ledger's Provider Balance is a figure for a different moment, so the two
+  /// are never subtracted from each other. The reconciliation reads the
+  /// ProviderWithdrawal pair instead -- a reading taken either side of a
+  /// movement that has just been posted -- where both sides describe the same
+  /// instant. See src/lib/money/provider-withdrawals.ts.
+  approvedProvider        String?
+  approvedProviderBalance Int?
   completedAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -1657,6 +1736,74 @@ model Payout {
   @@index([campaignId, status])
   @@index([volunteerTripId, status])
   @@index([status])
+}
+
+/// One withdrawal of money from a Payment Provider's Merchant Account to a
+/// Collection Account (CONTEXT.md, Merchant Account; ADR 0011; PRD FFI-07).
+///
+/// The third and last movement that credits the Provider Balance, and the only
+/// one that takes money to a bank rather than to a Donor or a Fundraiser. It
+/// exists so the gap between "the money is at the provider" and "the money is
+/// in the bank" is a row somebody wrote rather than an assumption.
+model ProviderWithdrawal {
+  id     String @id @default(cuid())
+  /// Which Payment Provider the money was drawn from. The same plain String
+  /// Payment.provider holds, and stamped on the ledger entry this row posts
+  /// (LedgerEntry.provider) so the Provider Balance can be read per provider.
+  provider String
+  /// The provider's own reference for this disbursement, from its dashboard.
+  ///
+  /// UNIQUE, and that is the whole idempotency story for this table: recording
+  /// a withdrawal twice would take the money out of the pot twice, and the
+  /// provider issues one reference per disbursement, so the same reference
+  /// arriving twice is the same money being claimed twice. The service claims
+  /// on this index before it posts anything, which is the same shape as the
+  /// ledger's own claim on a transactionId (prd-compliance 28b) and is checked
+  /// for the same reason: a read-then-write would be no constraint at all.
+  reference String @unique
+  /// Whole rupiah taken out of the Provider Balance. Always positive; the
+  /// direction is what carries the sign (src/lib/money/ledger.ts).
+  amount Int
+  /// The account holder as the provider has it registered -- the entity whose
+  /// bank account received the money. Free text rather than a foreign key
+  /// because the collection account is a BANK account of a legal entity, and
+  /// this repo's BankAccount model is a Fundraiser's destination account, not
+  /// this.
+  destinationName String
+  /// Set when that holder is a registered Collecting Entity, which is the case
+  /// that matters for ADR 0011: the Merchant Account is PT Jaya Korpora
+  /// Prima's, and the collection account is allowed to belong to somebody else
+  /// entirely. Left null when it is not -- a withdrawal to the platform's own
+  /// bank, say, which is a real possibility and deliberately not modelled as a
+  /// Partner Organisation.
+  collectingEntityId String?
+  /// What the Admin read in the provider's dashboard immediately before and
+  /// immediately after the withdrawal. BOTH required, never optional: an
+  /// unread pot is the exact condition this ticket exists to stop being
+  /// invisible, and "the Admin did not look" is not a number.
+  ///
+  /// The two are NOT required to differ by `amount`. They legitimately do when
+  /// the provider moved money on its own across the same window -- a fee it
+  /// charged on the transfer, a chargeback that landed -- and forcing them to
+  /// agree would refuse an honest record of exactly the event this report
+  /// exists to surface. The gap is reported instead, per withdrawal and in
+  /// total, and nobody corrects it.
+  providerBalanceBefore Int
+  providerBalanceAfter  Int
+  /// Where the evidence lives. Required, like a Payout's proofImage and for the
+  /// same reason: an unevidenced movement of the platform's own money is not a
+  /// record.
+  proofReference String
+  recordedById   String
+  recordedAt     DateTime @default(now())
+
+  collectingEntity PartnerOrganisation? @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
+  recordedBy       User                  @relation("ProviderWithdrawalRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+  ledgerEntries    LedgerEntry[]
+
+  // The per-provider reconciliation reads every recorded sweep in recordedAt
+  // order, so this is the index that query wants.
+  @@index([provider, recordedAt])
 }
 
 /// Double-entry ledger. Append-only: rows are never updated or deleted, and a
@@ -1703,6 +1850,37 @@ model LedgerEntry {
   /// arrived off-gateway apart from money that came through a Payment.
   manualContributionId String?
   manualContribution   ManualContribution? @relation(fields: [manualContributionId], references: [id])
+  /// Which ProviderWithdrawal this movement belongs to (prd-compliance 35).
+  /// The attribution the per-withdrawal reconciliation needs: the GATEWAY_CLEARING
+  /// credit and the COLLECTION_ACCOUNT debit are the two legs of one recorded
+  /// sweep, and a report that cannot say which recorded sweep a given pot
+  /// movement was would have to reconcile a total against a set of readings and
+  /// guess which reading belonged to which movement.
+  providerWithdrawalId String?
+  providerWithdrawal   ProviderWithdrawal? @relation(fields: [providerWithdrawalId], references: [id])
+
+  /// Which Payment Provider this movement went through or was paid out of
+  /// (CONTEXT.md, Provider Balance, "Tercatat sebagai akun buku besar
+  /// tersendiri per penyedia"). Nullable, and a null is a real answer rather
+  /// than missing data: it means nobody recorded which provider this movement
+  /// belongs to, and a report that folds those rows into a named provider would
+  /// be reporting the wrong number for the wrong reason.
+  ///
+  /// Written on exactly two kinds of movement today, the two where the provider
+  /// is a fact at the moment the movement is posted: a Settlement (the
+  /// Payment's own provider) and a withdrawal to the Collection Account (the
+  /// ProviderWithdrawal's provider). Deliberately NOT written on the other two
+  /// movements that credit the Provider Balance -- a completed Payout and a
+  /// paid Refund, neither of which anyone records a provider for -- which is
+  /// why the per-provider pot is a floor rather than the whole thing. See
+  /// GATEWAY_CLEARING above and providerBalances in src/lib/money/ledger.ts.
+  ///
+  /// A plain String, like Payment.provider, and for Payment.provider's reason:
+  /// the registered names live in src/lib/payments/provider-names.ts, so the
+  /// schema stores the value without keeping a second list of it. This column
+  /// is read back by exact string equality and never canonicalized, so a name
+  /// an older row still carries keeps its own pot in providerBalances.
+  provider String?
 
   /// Groups the entries of one balanced transaction. Every entry sharing a
   /// transactionId must sum to zero; that invariant is asserted in tests and
@@ -1728,8 +1906,12 @@ model LedgerEntry {
   @@index([account, campaignId])
   @@index([account, volunteerTripId])
   @@index([account, programId])
+  // The Provider Balance is read grouped by provider and direction, so this
+  // is the index that query wants rather than one on provider alone.
+  @@index([account, provider])
   @@index([campaignId, createdAt])
   @@index([manualContributionId])
+  @@index([providerWithdrawalId])
 }
 
 /// The old `Disbursement` table, renamed rather than dropped by the money-layer

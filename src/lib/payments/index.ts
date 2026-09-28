@@ -1,7 +1,13 @@
 import { MockPaymentProvider } from './mock-provider';
 import { SumopodProvider } from './sumopod-provider';
 import type { PaymentProvider } from './types';
+import { canonicalPaymentProviderName, type PaymentProviderName } from './provider-names';
 
+export {
+  canonicalPaymentProviderName,
+  UnknownPaymentProviderError,
+  type PaymentProviderName,
+} from './provider-names';
 export { computeMidtransSignature, verifyMidtransSignature } from './signature';
 export {
   computeSumopodSignature,
@@ -38,24 +44,6 @@ export class PaymentProviderNotConfiguredError extends Error {
   }
 }
 
-/**
- * Raised when something asks for a provider this build does not have.
- *
- * Kept apart from PaymentProviderNotConfiguredError because the two deserve
- * different answers: an unconfigured provider is an outage worth retrying, an
- * unknown one never becomes valid no matter how often it is retried. The
- * distinction also stops the old behaviour, where the webhook route ignored
- * the provider in its URL and verified every delivery as if it were Midtrans
- * -- so any path under /api/webhooks/ reached a verifier that was never meant
- * to see it.
- */
-export class UnknownPaymentProviderError extends Error {
-  constructor(name: string) {
-    super(`No payment provider named ${JSON.stringify(name)} is registered.`);
-    this.name = 'UnknownPaymentProviderError';
-  }
-}
-
 function requireEnv(key: string): string {
   const value = process.env[key];
   if (!value) throw new PaymentProviderNotConfiguredError(key);
@@ -64,10 +52,24 @@ function requireEnv(key: string): string {
 
 /**
  * Every provider this build can speak to, keyed by the name that appears in
- * its webhook URL. Adding one is a new entry here plus an adapter; nothing
- * else in the app names a provider.
+ * its webhook URL. Adding one is a new name in provider-names.ts plus a
+ * builder here; nothing else in the app names a provider.
+ *
+ * AND THE ONE RULE ABOUT THE NAME, which is why that file exists separately
+ * from this one: every piece of code that names a provider goes through
+ * canonicalPaymentProviderName (./provider-names.ts), which is what makes this
+ * registry the one list rather than a convention. An Admin who writes "Sumopod"
+ * -- the spelling on the dashboard -- and a webhook that stamps "sumopod" are
+ * two pots to the ledger, and the sweep's credit lands in a bucket the pot that
+ * was checked never had. The name lives apart from the adapters so that code
+ * which only needs a name does not load one; the rule does not soften for that.
+ *
+ * Keyed on the names module's own union, so the registry and the list of
+ * registered names cannot drift: a name with no builder below, or a builder
+ * for a name that is not registered, is a compile error rather than a name
+ * that resolves to no adapter at all.
  */
-const BUILDERS: Record<string, () => PaymentProvider> = {
+const BUILDERS: Record<PaymentProviderName, () => PaymentProvider> = {
   mock: () => new MockPaymentProvider({ serverKey: requireEnv('MOCK_MIDTRANS_SERVER_KEY') }),
   sumopod: () =>
     new SumopodProvider({
@@ -91,7 +93,5 @@ const BUILDERS: Record<string, () => PaymentProvider> = {
  */
 export function getPaymentProvider(name?: string): PaymentProvider {
   const requested = name === undefined ? (process.env.PAYMENT_PROVIDER ?? 'mock') : name;
-  const build = BUILDERS[requested.toLowerCase()];
-  if (!build) throw new UnknownPaymentProviderError(requested);
-  return build();
+  return BUILDERS[canonicalPaymentProviderName(requested)]();
 }

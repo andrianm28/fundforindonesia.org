@@ -1,6 +1,7 @@
 import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
-import { campaignBalance, tripBalance, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
+import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
+import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
 import {
   DemoCampaignError,
@@ -10,7 +11,11 @@ import {
   InvalidPayoutStatusError,
   PayoutNotFoundError,
   PayoutProofRequiredError,
+  ProviderBalanceInsufficientError,
+  ProviderBalanceNotRecordedError,
+  ProviderBalanceAmountError,
   TwoPersonRuleError,
+  UnknownPaymentProviderNameError,
 } from './errors';
 
 /**
@@ -40,7 +45,11 @@ export {
   InvalidPayoutStatusError,
   PayoutNotFoundError,
   PayoutProofRequiredError,
+  ProviderBalanceInsufficientError,
+  ProviderBalanceNotRecordedError,
+  ProviderBalanceAmountError,
   TwoPersonRuleError,
+  UnknownPaymentProviderNameError,
 };
 
 /**
@@ -184,6 +193,34 @@ export async function requestPayout(
 }
 
 /**
+ * The one name the registry knows, or a refusal naming what was typed.
+ *
+ * `approvedProvider` is not a reconciliation datum -- nothing sums by it, and a
+ * sweep's reconciliation reads the ledger, not this column -- so what has to be
+ * true of it is narrow: one value per provider. It is read by a human at audit,
+ * and two Admins approving against the same provider's dashboard wrote "Sumopod"
+ * and "sumopod", which leaves a reader unable to tell a typo from a second
+ * provider. So the name goes through the same registry the webhook route stamps
+ * from (@/lib/payments/provider-names), which is also what refuses a name no
+ * provider answers to, rather than storing text that names nothing.
+ *
+ * Its own wrapper rather than a shared one with the withdrawal path's, because
+ * the two modules answer in their own error vocabulary: that path's code
+ * (PROVIDER_WITHDRAWAL_INVALID) is already wired into its route, and this
+ * module's code has to be wired into both of the approve routes.
+ */
+function canonicalProviderName(typed: string): string {
+  try {
+    return canonicalPaymentProviderName(typed);
+  } catch (err) {
+    if (err instanceof UnknownPaymentProviderError) {
+      throw new UnknownPaymentProviderNameError(typed);
+    }
+    throw err;
+  }
+}
+
+/**
  * ADMIN approves a DRAFT payout: posts the instructed legs and lands on
  * APPROVED. It does NOT contact the payment provider, and it never has.
  *
@@ -211,15 +248,88 @@ export async function requestPayout(
  * withdrawal by hand in the provider dashboard and marks the payout COMPLETED
  * with proof of transfer -- completePayout, below, which is the other half of
  * the two-person rule and takes the same subject row lock.
+ *
+ * WHY THE APPROVING ADMIN MUST ALSO HAND OVER THE PROVIDER'S REAL BALANCE
+ * (prd-compliance 35; FFI-07 story 53). Everything else this function checks
+ * asks whether the Campaign is owed the money; nothing above can ask whether the
+ * provider is holding it. That gap is not academic: a ledger only knows what it
+ * was told, so a Payout approved against a Campaign Balance the money never
+ * reached passes every check here and then fails at the bank. Since no provider
+ * this platform talks to exposes a balance API, the figure is a human reading a
+ * dashboard, and the only two things the system can do about that are insist it
+ * was written down and refuse an approval it says is not covered. It does not
+ * claim to verify the reading, because nothing here can.
  */
 export async function approvePayout(
   prisma: PrismaClient,
   params: {
     payoutId: string;
     approvedById: string;
+    /**
+     * Which Payment Provider's dashboard the reading below was taken from,
+     * however the Admin typed it: resolved to the one name the registry knows
+     * before it reaches the row, so this column holds one value per provider.
+     */
+    provider: string;
+    /** What that dashboard showed, in rupiah, immediately before approving. */
+    providerBalance: number;
   },
 ): Promise<Payout> {
-  const { payoutId, approvedById } = params;
+  const { payoutId, approvedById, providerBalance } = params;
+
+  // Checked before the transaction opens, because the reading is a property of
+  // the request and not of any row: no amount of reading the database can turn
+  // a missing figure into a present one. Nothing below is reached, so nothing is
+  // written, and the Payout keeps waiting in DRAFT for an Admin who has looked.
+  //
+  // WHY IT IS REQUIRED (FFI-07; ADR 0006). Every other check in this function
+  // asks whether the CAMPAIGN is owed the money. None of them can ask whether
+  // the PROVIDER is holding it, and the difference is the whole risk: a ledger
+  // only knows what it was told, so a Payout approved against a Campaign Balance
+  // the money never reached would sail through every check here and be paid
+  // into a bank account that the transfer then fails against. No provider this
+  // platform talks to exposes a balance API, so a human has to read the
+  // dashboard and write the number down, and the only thing the system can do
+  // about that is insist it happened.
+  // A typeof check on the provider as well as the arithmetic on the figure:
+  // this is a public seam that both routes call with whatever the body held, so
+  // `params.provider.trim()` on a non-string would throw a TypeError that no
+  // route can turn into a 422, and the caller would be told the server is
+  // broken rather than that it forgot to read the dashboard.
+  // The name that is there is then resolved through the registry, so the row
+  // cannot collect two spellings of one provider and cannot collect a name that
+  // resolves to no provider at all -- including a blank one, which resolves to
+  // no provider either and needs no branch of its own to say so.
+  //
+  // THE READING, IN THREE ANSWERS RATHER THAN ONE. What is missing, what is
+  // recorded but is not a figure of money, and what is recorded and is one are
+  // three different situations and the Admin is told which: "belum dicatat" is
+  // true only of the first, and answering it to the other two sends somebody to
+  // a dashboard to write down a number they have already written.
+  //  - nothing usable at all (absent, not a number, NaN): NOT RECORDED.
+  //  - a number this column cannot hold or that is not whole rupiah above zero:
+  //    AMOUNT INVALID, naming the ceiling. The ceiling is the column's, not a
+  //    policy: Payout.approvedProviderBalance is an Int, and a figure above it is
+  //    not a dashboard anyone read -- letting it through turned a bad field into
+  //    a driver error the Admin saw as a 500 rather than as a reading to correct.
+  //  - both fields there and usable: approved below, against the real Payout.
+  // Both readings answer 422 and leave the Payout in DRAFT, for the same reason
+  // a missing reading approves nothing: an approval has to be backed by a figure
+  // that can be written down.
+  if (typeof providerBalance !== 'number' || !Number.isFinite(providerBalance)) {
+    throw new ProviderBalanceNotRecordedError();
+  }
+  if (
+    !Number.isInteger(providerBalance) ||
+    providerBalance <= 0 ||
+    providerBalance > MAX_RUPIAH_AMOUNT
+  ) {
+    throw new ProviderBalanceAmountError(providerBalance);
+  }
+
+  const provider = canonicalProviderName(
+    typeof params.provider === 'string' ? params.provider.trim() : '',
+  );
 
   await prisma.$transaction(async (tx) => {
     const payout = await tx.payout.findUnique({
@@ -303,6 +413,16 @@ export async function approvePayout(
       throw new InsufficientBalanceError(payout.amount, balance);
     }
 
+    // And the other half, which no ledger read can supply: the money has to be
+    // at the PROVIDER, not merely owed by the Campaign. A reading that says
+    // otherwise leaves the Payout in DRAFT with nothing posted, and the Admin
+    // either re-reads the dashboard or waits. Judged after every other check
+    // above, so a caller refused for a different reason is told that reason
+    // rather than being sent to a dashboard that was never the problem.
+    if (payout.amount > providerBalance) {
+      throw new ProviderBalanceInsufficientError(payout.amount, providerBalance, provider);
+    }
+
     // Still guarded on status too, even with the campaign lock held: the
     // lock closes the cross-payout balance race above, this closes a second
     // approval of THIS SAME row racing in with a stale read of its own. The
@@ -316,7 +436,13 @@ export async function approvePayout(
     // before it writes anything at all.
     const claimed = await tx.payout.updateMany({
       where: { id: payoutId, status: 'DRAFT' },
-      data: { status: 'APPROVED', approvedById, approvedAt: new Date() },
+      data: {
+        status: 'APPROVED',
+        approvedById,
+        approvedAt: new Date(),
+        approvedProvider: provider,
+        approvedProviderBalance: providerBalance,
+      },
     });
     if (claimed.count === 0) {
       // payout.status above is the pre-update read and is now stale -- some

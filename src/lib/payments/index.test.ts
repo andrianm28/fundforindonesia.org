@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
+  canonicalPaymentProviderName,
   getPaymentProvider,
   PaymentProviderNotConfiguredError,
   UnknownPaymentProviderError,
@@ -74,6 +75,46 @@ describe('getPaymentProvider by name', () => {
 
   it('refuses an empty name rather than treating it as the default', () => {
     expect(() => getPaymentProvider('')).toThrow(UnknownPaymentProviderError);
+  });
+});
+
+describe('canonicalPaymentProviderName', () => {
+  it('returns the one name this build knows the provider by, whatever case it was typed in', () => {
+    // The name is not decoration: the Provider Balance is split by exact
+    // string equality, so "Sumopod" and "sumopod" are two pots to the ledger.
+    // Whatever writes a provider name onto money has to go through here.
+    expect(canonicalPaymentProviderName('SumoPod')).toBe('sumopod');
+    expect(canonicalPaymentProviderName('sumopod')).toBe('sumopod');
+    expect(canonicalPaymentProviderName('MOCK')).toBe('mock');
+  });
+
+  it('agrees with the name the adapter itself reports, so a stamp and a lookup cannot drift apart', () => {
+    expect(canonicalPaymentProviderName('Sumopod')).toBe(getPaymentProvider('sumopod').name);
+  });
+
+  it('refuses a name this build has no provider for, rather than handing back the text as given', () => {
+    expect(() => canonicalPaymentProviderName('zendesk')).toThrow(UnknownPaymentProviderError);
+  });
+
+  it('refuses a name that is only a property of Object.prototype, not a registered provider', () => {
+    // BUILDERS is an object literal, so `BUILDERS[name]` finds inherited keys.
+    // "constructor" and "__proto__" are therefore truthy lookups that resolve to
+    // Object's own members rather than to an adapter -- and for the money layer
+    // that is worse than a bad lookup, because the returned string is stamped
+    // on ledger entries and becomes a Provider Balance bucket of its own.
+    for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+      expect(() => canonicalPaymentProviderName(name)).toThrow(UnknownPaymentProviderError);
+    }
+  });
+
+  it('needs no adapter built, so naming a provider never depends on it being configured', () => {
+    // A recorded sweep is a human's account of a movement that already
+    // happened; refusing to file it because the provider is not configured
+    // would be refusing to record the past. Only the webhook path, which
+    // actually talks to the provider, needs it configured.
+    for (const k of ENV_KEYS) delete process.env[k];
+
+    expect(canonicalPaymentProviderName('sumopod')).toBe('sumopod');
   });
 });
 

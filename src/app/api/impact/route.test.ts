@@ -621,3 +621,44 @@ describe('GET /api/impact -- filtering by location', () => {
     expect(sumOf(lines(raw))).toBe(0);
   });
 });
+
+/**
+ * A withdrawal from the Provider Balance to the Collection Account
+ * (prd-compliance 35) must leave this page completely alone, and that is a
+ * claim about two subsystems agreeing rather than about either one working.
+ *
+ * The page's own assertion -- six lines summing exactly to `collected` -- is
+ * what catches it if they ever stop agreeing. Both legs of a sweep are
+ * platform-level and name no Payment, Refund, Payout or Campaign, so none of
+ * the six lines has anything to read them from and the conservation law still
+ * holds. If a future version of this movement acquired one of those, the sums
+ * would go wrong and impact.ts would throw ImpactDoesNotReconcileError rather
+ * than serving six numbers that do not add up.
+ */
+describe('GET /api/impact -- a sweep to the Collection Account (prd-compliance 35)', () => {
+  it('moves no line and leaves the collected figure alone, because both legs are platform money', async () => {
+    // The same page, built twice: `untouched` is what the page says before the
+    // sweep, so the delta below is about the sweep and nothing else.
+    holder.db = makeImpactDb(settledOnly());
+    const untouched = await getBreakdown();
+    expect(untouched.collected).toBe(100_000);
+
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    ledger.providerSweep({ providerWithdrawalId: 'pw-1', amount: 40_000 });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    const after = await getBreakdown();
+
+    expect(after.collected).toBe(100_000);
+    expect(diffOf(lines(untouched), lines(after))).toEqual(noLineMoved());
+    // And the conservation law still holds, which is the real assertion: the
+    // page would have thrown ImpactDoesNotReconcileError rather than answering
+    // if the sweep had leaked into a line.
+    expect(sumOf(lines(after))).toBe(100_000);
+  });
+});

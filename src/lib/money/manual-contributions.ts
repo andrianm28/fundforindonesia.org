@@ -3,6 +3,7 @@ import {
   campaignBalance,
   manualContributionReceivedLegs,
   manualContributionReversedLegs,
+  MAX_RUPIAH_AMOUNT,
   postTransaction,
   programBalance,
   type ManualContributionSubject,
@@ -173,14 +174,11 @@ const UNPOSTABLE_TARGET = {
 };
 
 /**
- * The most rupiah that fits the column: ManualContribution.amount is an Int,
- * so PostgreSQL's int4 ceiling is the real limit on what a contribution can
- * be. Refusing it here rather than letting the write fail means a too-large
- * amount is a 400 with a message about the amount, not a driver error no
- * route can turn into a 400.
+ * ManualContribution.amount is an Int, so MAX_RUPIAH_AMOUNT (./ledger) is the
+ * real limit on what a contribution can be. Refusing it here rather than letting
+ * the write fail means a too-large amount is a 400 with a message about the
+ * amount, not a driver error no route can turn into a 400.
  */
-const MAX_RUPIAH_AMOUNT = 2_147_483_647;
-
 function assertAmountIsRupiah(amount: unknown): asserts amount is number {
   if (
     typeof amount !== 'number' ||

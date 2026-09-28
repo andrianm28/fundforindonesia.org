@@ -134,8 +134,18 @@ function makeMutex() {
   };
 }
 
-function createRequest(): NextRequest {
-  return new NextRequest('http://localhost:3000/api/volunteer-trips/test-trip/payouts/payout-1/approve', { method: 'POST' });
+/**
+ * The provider balance the approving Admin read in the provider's dashboard
+ * (prd-compliance 35; FFI-07), required here exactly as on the Campaign route.
+ */
+const PROVIDER_READING = { provider: 'sumopod', providerBalance: 5_000_000 };
+
+function createRequest(body: Record<string, unknown> = PROVIDER_READING): NextRequest {
+  return new NextRequest('http://localhost:3000/api/volunteer-trips/test-trip/payouts/payout-1/approve', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 
 function routeContext(id = 'payout-1') {
@@ -199,6 +209,19 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
 
     expect(response.status).toBe(404);
     expect((await response.json()).code).toBe('PAYOUT_NOT_FOUND');
+  });
+
+  it('answers 400 PROVIDER_NAME_UNKNOWN for a name no provider answers to, exactly as the Campaign route does', async () => {
+    // The two approve routes are the same door with a different subject, so a
+    // free-text provider name is refused the same way on both.
+    const response = await POST(
+      createRequest({ provider: 'zendesk', providerBalance: 5_000_000 }),
+      routeContext(),
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe('PROVIDER_NAME_UNKNOWN');
+    expect(mockTransaction).not.toHaveBeenCalled();
   });
 
   it('refuses self-approval with 403 and leaves the payout completely untouched', async () => {
