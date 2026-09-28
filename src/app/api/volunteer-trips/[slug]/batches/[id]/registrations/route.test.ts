@@ -33,6 +33,7 @@ import {
   RegistrationDeadlinePassedError,
   TripNotTakingRegistrationsError,
 } from '@/lib/volunteer-trip-errors';
+import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
 import { POST } from './route';
 
 const mockTripFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
@@ -163,6 +164,20 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     expect(response.status).toBe(500);
     expect(createCharge).not.toHaveBeenCalled();
     expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('freezes the Escrow Hold length in force right now, the same one chargeDonation freezes on a Campaign Donation', async () => {
+    await POST(createRequest(), routeContext());
+    // Asserted against the shared constant rather than the literal 7, so that
+    // moving the number to configuration moves this Payment with it. A test
+    // pinning 7 here would still pass on the day Trip Fee silently starts
+    // releasing on a different schedule than Donation, which is the exact
+    // failure this guards against.
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ escrowHoldDays: ESCROW_HOLD_DAYS }),
+      }),
+    );
   });
 
   it.each([
