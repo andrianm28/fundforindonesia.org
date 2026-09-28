@@ -89,5 +89,15 @@ describe("AdminLayout", () => {
       const link = screen.getByRole("link", { name: /^refund$/i });
       expect(link.getAttribute("href")).toBe("/admin/refunds");
     });
+
+    // Ticket 27: the abuse-thresholds route.ts is built and tested, but stays
+    // as unreachable as the Payout queue was without a nav link.
+    it("links to the Abuse Thresholds screen", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: null }));
+
+      const link = screen.getByRole("link", { name: /ambang penyalahgunaan/i });
+      expect(link.getAttribute("href")).toBe("/admin/abuse-thresholds");
+    });
   });
 });
