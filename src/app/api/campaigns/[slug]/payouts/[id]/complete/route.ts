@@ -85,8 +85,9 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRe
     // Every refusal carries its own code and answers its own status:
     // TWO_PERSON_RULE when the approver tries to complete their own
     // approval, PAYOUT_NOT_ALLOWED_FOR_STATUS when a Suspension or
-    // Cancellation landed in between, INVALID_PAYOUT_STATUS when the Payout
-    // is not waiting.
+    // Cancellation landed in between, BANK_ACCOUNT_NOT_ELIGIBLE when the
+    // destination lost its verification after approval, and
+    // INVALID_PAYOUT_STATUS when the Payout is not waiting.
     const refusal = refusalResponse(error);
     if (refusal) return refusal;
     console.error('Error completing payout:', error);

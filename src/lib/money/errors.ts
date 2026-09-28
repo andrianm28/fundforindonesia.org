@@ -40,8 +40,11 @@ export class DemoCampaignError extends MoneyError {
 /**
  * The Bank Account does not exist, is not the requester's, or has no
  * verifiedAt. A Payout destination must be both owned and verified: either
- * gap alone would let money go to a stranger. Re-checked at approval,
- * because verification can be revoked between request and approval.
+ * gap alone would let money go to a stranger. Re-checked at every step after
+ * the request -- approval, and completion -- because verification can be
+ * revoked, and the window does not close at approval: nothing has been sent
+ * until a second Admin records the transfer. One error for all three, so the
+ * three gates cannot disagree about what an eligible destination is.
  */
 export class BankAccountNotEligibleError extends MoneyError {
   readonly code = 'BANK_ACCOUNT_NOT_ELIGIBLE';
