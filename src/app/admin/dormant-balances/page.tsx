@@ -3,6 +3,9 @@ import { prisma } from '@/lib/prisma';
 import { formatRupiah } from '@/lib/utils/currency';
 import { dormantBalanceReport, type DormantBalanceRow } from '@/lib/money/dormant-balances';
 
+// Rendered per request: it reads the ledger, which changes with every Payout.
+export const dynamic = 'force-dynamic';
+
 /**
  * The 60-day Dormant Balance report (ticket 24; PRD §7.3, CONTEXT.md
  * "Dormant Balance"). Read-only: an Admin sees which Expired/Completed
