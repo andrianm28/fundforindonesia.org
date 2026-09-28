@@ -48,13 +48,17 @@ export async function POST(request: NextRequest, context: any) {
 
   try {
     // Release every matured escrow hold for this campaign before checking
-    // whether it has enough to pay out. There is no scheduler anywhere in
-    // this repo, so this call is what makes the 7-day hold actually let go
-    // of money -- without it, a settled donation would sit in ESCROW_HOLD
-    // forever and campaignBalance() would never see it, no matter how long
-    // ago it matured. It owns its own transactions (one per payment) and
-    // runs before -- not inside -- requestPayout's transaction, so a
-    // release that fails for one payment cannot roll back the request.
+    // whether it has enough to pay out. Two paths sweep matured holds: this
+    // one, for the requesting Campaign alone, and `runScheduledJobs`
+    // (src/lib/scheduled-jobs.ts), the second, which sweeps every subject
+    // at once. Being callable is not being called: nothing invokes the
+    // scheduled path until an owner installs the scheduler (ticket 45), so
+    // today this request-time sweep is the only one that moves money --
+    // without it, a settled donation would sit in ESCROW_HOLD forever and
+    // campaignBalance() would never see it, no matter how long ago it
+    // matured. It owns its own transactions (one per payment) and runs
+    // before -- not inside -- requestPayout's transaction, so a release
+    // that fails for one payment cannot roll back the request.
     await releaseMaturedEscrow({ type: 'campaign', id: campaign.id });
 
     const payout = await prisma.$transaction((tx) =>

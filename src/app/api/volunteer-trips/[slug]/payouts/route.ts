@@ -49,9 +49,14 @@ export async function POST(request: NextRequest, context: any) {
   if (refusal) return refusal;
 
   try {
-    // No scheduler exists in this repo -- this is what makes a Trip's
-    // 7-day escrow hold actually let go of money before its balance is
-    // checked, the same reasoning the Campaign route already documents.
+    // Two paths sweep matured holds: this one, for the requesting Trip
+    // alone, and `runScheduledJobs` (src/lib/scheduled-jobs.ts), the
+    // second, which sweeps every subject at once. Being callable is not
+    // being called: nothing invokes the scheduled path until an owner
+    // installs the scheduler (ticket 45), so today this request-time sweep
+    // is the only one that moves money -- without it, a Trip's 7-day
+    // escrow hold would still be in ESCROW_HOLD when its balance is
+    // checked. The same reasoning the Campaign route documents.
     await releaseMaturedEscrow({ type: 'trip', id: trip.id });
 
     const payout = await prisma.$transaction((tx) =>

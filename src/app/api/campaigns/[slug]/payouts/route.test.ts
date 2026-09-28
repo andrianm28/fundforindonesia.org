@@ -306,8 +306,11 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
   });
 
   it('releases a matured escrow hold for this campaign before checking the withdrawable balance', async () => {
-    // There is no scheduler anywhere in this repo -- this is the test that
-    // proves releaseMaturedEscrow actually runs at the top of this handler.
+    // Two paths sweep matured holds, and this is the test for the
+    // request-time one: it proves releaseMaturedEscrow actually runs at the
+    // top of this handler. The scheduled path (`runScheduledJobs`,
+    // src/lib/scheduled-jobs.ts) is not what protects the balance here --
+    // nothing invokes it until an owner installs the scheduler (ticket 45).
     // Without the call in route.ts, this payout would be refused: the
     // campaign's only money is still sitting in ESCROW_HOLD, so
     // campaignBalance (CAMPAIGN_BALANCE only) would read 0.
