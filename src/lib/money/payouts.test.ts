@@ -3,15 +3,21 @@ import {
   requestPayout,
   approvePayout,
   completePayout,
+  recordPayoutBalanceShort,
   DemoCampaignError,
   BankAccountNotEligibleError,
   InsufficientBalanceError,
   SelfApprovalError,
   InvalidPayoutStatusError,
   PayoutNotFoundError,
+  ProviderBalanceNotRecordedError,
+  ProviderBalanceAmountError,
+  ProviderBalanceNotShortError,
+  UnknownPaymentProviderNameError,
 } from './payouts';
 import { InvalidPayoutSubjectError } from './payout-subject';
 import { PayoutNotAllowedForStatusError } from '@/lib/subject-guard';
+import { OwnSubjectConflictError } from '@/lib/capacity';
 import { UsageReportRequiredError } from '@/lib/usage-report-errors';
 import {
   validateProofReference,
@@ -105,6 +111,12 @@ function makeTx(
     },
   );
   const queryRawCalls: string[] = [];
+  const payoutBalanceChecks: Array<Record<string, unknown>> = [];
+  const payoutBalanceCheckCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    const row = { id: `check-${payoutBalanceChecks.length + 1}`, checkedAt: new Date(), ...data };
+    payoutBalanceChecks.push(row);
+    return row;
+  });
 
   return {
     tx: {
@@ -121,6 +133,7 @@ function makeTx(
       volunteerTrip: { findUnique: vi.fn().mockResolvedValue({ fundraiserId: 'requester-1', status: 'ACTIVE' }) },
       bankAccount: { findUnique: bankAccountFindUnique },
       payout: { create: payoutCreate, findUnique: payoutFindUnique, findFirst: payoutFindFirst, updateMany: payoutUpdateMany },
+      payoutBalanceCheck: { create: payoutBalanceCheckCreate },
       $queryRaw: vi.fn((strings: TemplateStringsArray) => {
         queryRawCalls.push(strings.join(''));
         return Promise.resolve([{ id: 'locked' }]);
@@ -137,6 +150,8 @@ function makeTx(
     bankAccountFindUnique,
     payoutCreate,
     payoutFindFirst,
+    payoutBalanceCheckCreate,
+    payoutBalanceChecks,
     rows,
     queryRawCalls,
     /** The Payout row as approvePayout left it. */
@@ -1238,5 +1253,170 @@ describe('approvePayout', () => {
     await expect(
       approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
     ).rejects.toThrow(InvalidPayoutSubjectError);
+  });
+});
+
+/**
+ * ticket 30 (ticket 02's answer, second half; FFI-07): an Admin explicitly
+ * records "sudah dicek, kurang" as a pending decision, instead of leaving
+ * only a refused approval with no trace that anyone looked. Nothing here
+ * touches the Payout row -- the assertions below lean on that by checking
+ * payoutUpdateMany/postTransaction-shaped effects are absent, the same way
+ * the approvePayout tests above check nothing was posted on a refusal.
+ */
+describe('recordPayoutBalanceShort', () => {
+  function draftPayoutRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'payout-1',
+      campaignId: 'campaign-1',
+      volunteerTripId: null,
+      amount: 500_000,
+      status: 'DRAFT',
+      requestedById: 'requester-1',
+      ...overrides,
+    };
+  }
+
+  function prismaFrom(tx: ReturnType<typeof makeTx>['tx']) {
+    return { $transaction: vi.fn((cb: (tx: unknown) => unknown) => cb(tx)) };
+  }
+
+  it('records the reading, who checked and when, leaving the Payout DRAFT and untouched', async () => {
+    const payoutRow = draftPayoutRow();
+    const { tx, payoutBalanceChecks, payoutState } = makeTx({ payoutRow });
+
+    const check = await recordPayoutBalanceShort(prismaFrom(tx) as never, {
+      payoutId: 'payout-1',
+      checkedById: 'admin-1',
+      provider: 'sumopod',
+      providerBalance: 300_000,
+    });
+
+    expect(check).toMatchObject({ payoutId: 'payout-1', checkedById: 'admin-1', provider: 'sumopod', recordedBalance: 300_000 });
+    expect(payoutBalanceChecks).toHaveLength(1);
+    // No write to the Payout row at all: still DRAFT, no approvedById.
+    expect(payoutState).toMatchObject({ status: 'DRAFT' });
+    expect(payoutState).not.toHaveProperty('approvedById');
+  });
+
+  it('refuses a reading that is not short of the Payout amount, and writes nothing', async () => {
+    const payoutRow = draftPayoutRow({ amount: 500_000 });
+    const { tx, payoutBalanceChecks } = makeTx({ payoutRow });
+
+    await expect(
+      recordPayoutBalanceShort(prismaFrom(tx) as never, {
+        payoutId: 'payout-1',
+        checkedById: 'admin-1',
+        provider: 'sumopod',
+        providerBalance: 500_000,
+      }),
+    ).rejects.toThrow(ProviderBalanceNotShortError);
+    expect(payoutBalanceChecks).toHaveLength(0);
+  });
+
+  it('refuses a Payout that is no longer DRAFT, the same refusal approvePayout raises', async () => {
+    const payoutRow = draftPayoutRow({ status: 'APPROVED' });
+    const { tx, payoutBalanceChecks } = makeTx({ payoutRow });
+
+    await expect(
+      recordPayoutBalanceShort(prismaFrom(tx) as never, {
+        payoutId: 'payout-1',
+        checkedById: 'admin-1',
+        provider: 'sumopod',
+        providerBalance: 100_000,
+      }),
+    ).rejects.toThrow(InvalidPayoutStatusError);
+    expect(payoutBalanceChecks).toHaveLength(0);
+  });
+
+  it('refuses the requester recording a check on their own Payout (same rule as who may approve)', async () => {
+    const payoutRow = draftPayoutRow({ requestedById: 'requester-1' });
+    const { tx, payoutBalanceChecks } = makeTx({ payoutRow });
+
+    const attempt = recordPayoutBalanceShort(prismaFrom(tx) as never, {
+      payoutId: 'payout-1',
+      checkedById: 'requester-1',
+      provider: 'sumopod',
+      providerBalance: 100_000,
+    });
+
+    await expect(attempt).rejects.toThrow(SelfApprovalError);
+    await expect(attempt).rejects.toMatchObject({ code: 'SELF_APPROVAL' });
+    expect(payoutBalanceChecks).toHaveLength(0);
+  });
+
+  it('refuses the Campaign\'s own Fundraiser acting as Admin over it, the same Capacity judgement approvePayout asks', async () => {
+    // The subject guard's default Campaign fixture is owned by 'requester-1'
+    // (see makeTx); a different requestedById lets the check ask whether the
+    // ACTING person, not the requester, owns the subject.
+    const payoutRow = draftPayoutRow({ requestedById: 'someone-else' });
+    const { tx, payoutBalanceChecks } = makeTx({ payoutRow });
+
+    await expect(
+      recordPayoutBalanceShort(prismaFrom(tx) as never, {
+        payoutId: 'payout-1',
+        checkedById: 'requester-1',
+        provider: 'sumopod',
+        providerBalance: 100_000,
+      }),
+    ).rejects.toThrow(OwnSubjectConflictError);
+    expect(payoutBalanceChecks).toHaveLength(0);
+  });
+
+  it('refuses a missing reading as NOT_RECORDED, without ever reaching the Payout row', async () => {
+    const payoutRow = draftPayoutRow();
+    const { tx } = makeTx({ payoutRow });
+    const payoutFindUniqueSpy = tx.payout.findUnique;
+
+    await expect(
+      recordPayoutBalanceShort(prismaFrom(tx) as never, {
+        payoutId: 'payout-1',
+        checkedById: 'admin-1',
+        provider: 'sumopod',
+        providerBalance: NaN,
+      }),
+    ).rejects.toThrow(ProviderBalanceNotRecordedError);
+    expect(payoutFindUniqueSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses a reading that is not whole rupiah above zero as AMOUNT_INVALID', async () => {
+    const payoutRow = draftPayoutRow();
+    const { tx } = makeTx({ payoutRow });
+
+    await expect(
+      recordPayoutBalanceShort(prismaFrom(tx) as never, {
+        payoutId: 'payout-1',
+        checkedById: 'admin-1',
+        provider: 'sumopod',
+        providerBalance: 100.5,
+      }),
+    ).rejects.toThrow(ProviderBalanceAmountError);
+  });
+
+  it('refuses a provider name no provider answers to', async () => {
+    const payoutRow = draftPayoutRow();
+    const { tx } = makeTx({ payoutRow });
+
+    await expect(
+      recordPayoutBalanceShort(prismaFrom(tx) as never, {
+        payoutId: 'payout-1',
+        checkedById: 'admin-1',
+        provider: 'not-a-real-provider',
+        providerBalance: 100_000,
+      }),
+    ).rejects.toThrow(UnknownPaymentProviderNameError);
+  });
+
+  it('throws PayoutNotFoundError for a Payout that does not exist', async () => {
+    const { tx } = makeTx({ payoutRow: null });
+
+    await expect(
+      recordPayoutBalanceShort(prismaFrom(tx) as never, {
+        payoutId: 'payout-1',
+        checkedById: 'admin-1',
+        provider: 'sumopod',
+        providerBalance: 100_000,
+      }),
+    ).rejects.toThrow(PayoutNotFoundError);
   });
 });

@@ -1,11 +1,12 @@
 import { render, screen, cleanup, within } from '@testing-library/react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     payout: { findMany: vi.fn() },
     campaign: { findMany: vi.fn() },
     volunteerTrip: { findMany: vi.fn() },
+    payoutBalanceCheck: { findMany: vi.fn() },
   },
 }));
 
@@ -15,6 +16,11 @@ import AdminPayoutsPage from './page';
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+beforeEach(() => {
+  // ticket 30: no unresolved short checks unless a test says otherwise.
+  vi.mocked(prisma.payoutBalanceCheck.findMany).mockResolvedValue([] as never);
 });
 
 /**
@@ -78,6 +84,32 @@ describe('AdminPayoutsPage', () => {
     expect(screen.getByText(/menunggu penyelesaian/i)).toBeDefined();
     const row = screen.getByText('Trip ke Lombok').closest('tr')!;
     expect(within(row).getByText('Siti')).toBeDefined();
+  });
+
+  it('marks a DRAFT Payout that has an unresolved short balance check (ticket 30)', async () => {
+    vi.mocked(prisma.payout.findMany).mockResolvedValue([
+      {
+        id: 'payout-1',
+        campaignId: 'campaign-1',
+        volunteerTripId: null,
+        amount: 5_000_000,
+        description: 'Untuk material sumur',
+        status: 'DRAFT',
+        createdAt: new Date('2026-09-20T00:00:00.000Z'),
+        requestedBy: { name: 'Budi' },
+        bankAccount: { bankCode: 'BCA', accountName: 'Budi Santoso' },
+      },
+    ] as never);
+    vi.mocked(prisma.campaign.findMany).mockResolvedValue([
+      { id: 'campaign-1', slug: 'sumur-desa', title: 'Sumur untuk Desa' },
+    ] as never);
+    vi.mocked(prisma.volunteerTrip.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.payoutBalanceCheck.findMany).mockResolvedValue([{ payoutId: 'payout-1' }] as never);
+
+    render(await AdminPayoutsPage());
+
+    const row = screen.getByText('Sumur untuk Desa').closest('tr')!;
+    expect(within(row).getByText(/menunggu saldo penyedia/i)).toBeDefined();
   });
 
   it('says so when a queue is empty rather than showing an empty table', async () => {

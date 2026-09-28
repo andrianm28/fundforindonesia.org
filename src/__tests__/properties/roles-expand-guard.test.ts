@@ -105,12 +105,18 @@ import { join } from "node:path";
  * the module. The assignment guard is unaffected: GET is public by design (a
  * Program is a catalog entry with nothing to gate), and only PATCH is wrapped.
  *
+ * NOTE (ticket 30): `POST /api/admin/payouts/[id]/balance-check` lets an Admin
+ * other than the Payout's requester record "sudah dicek, kurang" -- the
+ * provider balance they read, when it is short of the Payout's amount
+ * (ticket 02's answer, second half; PRD FFI-07) -- through
+ * withAssignmentCheck on the ADMIN assignment, like every other Admin money
+ * action here. Growing this list by one.
+ *
  * NOTE (ticket 31): adds
  * `POST /api/campaigns/[slug]/refunds/[id]/complete` and
  * `POST /api/volunteer-trips/[slug]/refunds/[id]/complete`, the third Admin
- * of the Refund two-person rule recording the transfer proof and Donor
- * destination -- both Admin-only on both ends, growing this list from
- * twelve to fourteen.
+ * of the Refund two-person rule recording the transfer proof -- both
+ * Admin-only on both ends, growing this list from thirteen to fifteen.
  *
  * NOTE (prd-compliance 35): `POST /api/admin/provider-withdrawals` records the
  * platform's own money moving from a payment provider to a Collection Account,
@@ -133,6 +139,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/manual-contributions/route.ts",
   "src/app/api/admin/partnership-inquiries/[id]/route.ts",
   "src/app/api/admin/partnership-inquiries/route.ts",
+  "src/app/api/admin/payouts/[id]/balance-check/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/provider-withdrawals/route.ts",
   "src/app/api/admin/reconcile/route.ts",
