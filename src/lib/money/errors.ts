@@ -76,23 +76,28 @@ export class InsufficientBalanceError extends MoneyError {
  * Manual Contribution.
  *
  * `action` names which half of the rule was breached, because the rule does
- * not stop at approval: a Manual Contribution can also be reversed, and the
- * two people who put the money in -- the one who recorded it and the one who
- * approved it -- may not be the one who takes it back out. The CODE is the
- * same either way (one rule, one code, one HTTP status); only the sentence
- * differs, so an Admin refused on a reversal is not told they may not approve
- * something they never approved.
+ * not stop at approval: a Manual Contribution can also be reversed, the
+ * pending-decision "saldo kurang" check (ticket 30) is the same rule asked
+ * before approval exists at all, and the two people who put the money in --
+ * the one who recorded it and the one who approved it -- may not be the one
+ * who takes it back out. The CODE is the same in every case (one rule, one
+ * code, one HTTP status); only the sentence differs, so an Admin refused on
+ * a reversal or a balance check is not told they may not approve something
+ * they never approved.
  */
 export class SelfApprovalError extends MoneyError {
   readonly code = 'SELF_APPROVAL';
   constructor(
     readonly what: 'Payout' | 'Refund' | 'Manual Contribution',
-    readonly action: 'approval' | 'reversal' = 'approval',
+    readonly action: 'approval' | 'reversal' | 'balance_check' = 'approval',
   ) {
     super(
       action === 'reversal'
         ? `${what} tidak dapat dibalikkan oleh orang yang mencatat atau menyetujuinya.`
-        : `${what} tidak dapat disetujui oleh orang yang mengajukannya.`,
+        : action === 'balance_check'
+          ? `${what} tidak dapat dicatat "saldo penyedia kurang" oleh orang yang mengajukannya -- ` +
+            'aturan yang sama dengan siapa yang boleh menyetujuinya.'
+          : `${what} tidak dapat disetujui oleh orang yang mengajukannya.`,
     );
     this.name = 'SelfApprovalError';
   }
@@ -533,5 +538,27 @@ export class ProviderWithdrawalNotFoundError extends MoneyError {
   constructor(readonly collectingEntityId: string) {
     super('Collecting Entity yang dituju tidak terdaftar.');
     this.name = 'ProviderWithdrawalNotFoundError';
+  }
+}
+
+/**
+ * A "saldo penyedia kurang" check (ticket 30; ticket 02's answer, second
+ * half) whose reading is NOT short of the Payout's own amount. This record
+ * exists only for a reading that genuinely disagrees with the Campaign's
+ * books; a reading that covers the Payout is exactly what approvePayout
+ * wants to see, so the Admin is sent there instead of being allowed to leave
+ * a "kurang" trail for a Payout that is, in fact, fundable right now.
+ */
+export class ProviderBalanceNotShortError extends MoneyError {
+  readonly code = 'PROVIDER_BALANCE_NOT_SHORT';
+  constructor(
+    readonly payoutAmount: number,
+    readonly providerBalance: number,
+  ) {
+    super(
+      `Saldo yang tercatat (${providerBalance}) sudah mencukupi nominal Payout (${payoutAmount}), jadi ini bukan ` +
+        'kekurangan untuk dicatat -- gunakan Setujui pencairan.',
+    );
+    this.name = 'ProviderBalanceNotShortError';
   }
 }

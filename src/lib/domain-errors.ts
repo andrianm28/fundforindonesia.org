@@ -79,6 +79,7 @@ export type MoneyErrorCode =
   | "PROVIDER_BALANCE_NOT_RECORDED"
   | "PROVIDER_BALANCE_AMOUNT_INVALID"
   | "PROVIDER_BALANCE_INSUFFICIENT"
+  | "PROVIDER_BALANCE_NOT_SHORT"
   | "PROVIDER_NAME_UNKNOWN";
 
 /**
@@ -300,6 +301,11 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // Admin can fix it, either by finding the shortfall or by not approving this
   // Payout yet.
   PROVIDER_BALANCE_INSUFFICIENT: 422,
+  // ticket 30: the reading is there and it is NOT short of the Payout's own
+  // amount, so there is nothing to record as a pending decision. The Admin
+  // can fix it -- by approving instead -- so 422 like the other two reading
+  // refusals, not a 409 status conflict.
+  PROVIDER_BALANCE_NOT_SHORT: 422,
   // A field the Admin got wrong rather than one they left out, so 400 like
   // PROVIDER_WITHDRAWAL_INVALID -- the same fault under the same shape on the
   // withdrawal path -- and not the 422 the two reading refusals answer. The

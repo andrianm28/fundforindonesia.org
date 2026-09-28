@@ -1,4 +1,4 @@
-import type { Payout, Prisma, PrismaClient } from '@/generated/prisma/client';
+import type { Payout, PayoutBalanceCheck, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
 import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
@@ -18,6 +18,7 @@ import {
   ProviderBalanceInsufficientError,
   ProviderBalanceNotRecordedError,
   ProviderBalanceAmountError,
+  ProviderBalanceNotShortError,
   TwoPersonRuleError,
   UnknownPaymentProviderNameError,
 } from './errors';
@@ -52,6 +53,7 @@ export {
   ProviderBalanceInsufficientError,
   ProviderBalanceNotRecordedError,
   ProviderBalanceAmountError,
+  ProviderBalanceNotShortError,
   TwoPersonRuleError,
   UnknownPaymentProviderNameError,
 };
@@ -498,6 +500,119 @@ export async function approvePayout(
   });
 
   return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
+}
+
+/**
+ * ADMIN records "sudah dicek, kurang": a check of the provider's dashboard
+ * that found it short of a DRAFT Payout's amount (ticket 30; ticket 02's
+ * answer, second half; FFI-07). This is the explicit alternative FFI-07 asks
+ * for next to a refused approval: instead of leaving no trace that anyone
+ * looked, an Admin who checked and found the money genuinely not there yet
+ * records that reading as a pending decision.
+ *
+ * IT NEVER TOUCHES THE PAYOUT ROW, AND NEVER CHANGES ITS STATUS. Owner
+ * decision 2026-09-28: the pending decision lives as its own append-only
+ * check history (PayoutBalanceCheck), one row per check, never edited or
+ * deleted -- not a new Payout status, and not a write folded into
+ * approvePayout's transaction. A refusal from approvePayout rolls its own
+ * transaction back; this function's write is a record of a look, not part of
+ * that refusal, so the two stay two separate calls even though an Admin
+ * typically makes them back to back on the same dashboard reading.
+ *
+ * RESOLUTION IS NEVER WRITTEN HERE OR ANYWHERE. Owner decision: a Payout's
+ * short-check history is "resolved" exactly when the Payout is later
+ * approved with a sufficient balance -- derived from Payout.status alone
+ * (DRAFT means still pending, anything else means resolved), never from a
+ * column on this table. The rows themselves are never deleted or marked:
+ * they stay as a trail once the Payout moves on.
+ *
+ * SAME RULE AS WHO MAY APPROVE (owner decision, Q2): the requester may never
+ * record this about their own Payout (SelfApprovalError, the same code
+ * approvePayout raises, with its own sentence for this action), and neither
+ * may an Admin acting over a Campaign or Trip they themselves own
+ * (requireNotOwnerAsAdmin) -- the same two judgements approvePayout makes,
+ * asked in the same order, under the same subject lock, because this is the
+ * same two-person rule applied one step earlier.
+ *
+ * ONLY A DRAFT PAYOUT, AND ONLY A READING THAT IS ACTUALLY SHORT. A Payout
+ * that has moved on (APPROVED, COMPLETED, ...) has nothing pending left to
+ * record (InvalidPayoutStatusError, the same refusal approvePayout raises
+ * for the same reason). And a reading that already covers the Payout is not
+ * a shortfall to record at all -- ProviderBalanceNotShortError sends the
+ * Admin to approvePayout instead, so this path can never become a second,
+ * looser way to approve a Payout without ever posting its ledger legs.
+ */
+export async function recordPayoutBalanceShort(
+  prisma: PrismaClient,
+  params: {
+    payoutId: string;
+    checkedById: string;
+    /** Which Payment Provider's dashboard the reading below was taken from. */
+    provider: string;
+    /** What that dashboard showed, in rupiah -- validated exactly as approvePayout validates it. */
+    providerBalance: number;
+  },
+): Promise<PayoutBalanceCheck> {
+  const { payoutId, checkedById, providerBalance } = params;
+
+  // Same three-way reading validation as approvePayout, checked before the
+  // transaction opens: a missing or malformed reading cannot become a real
+  // one by reading the database, and nothing below should be reached for it.
+  if (typeof providerBalance !== 'number' || !Number.isFinite(providerBalance)) {
+    throw new ProviderBalanceNotRecordedError();
+  }
+  if (
+    !Number.isInteger(providerBalance) ||
+    providerBalance <= 0 ||
+    providerBalance > MAX_RUPIAH_AMOUNT
+  ) {
+    throw new ProviderBalanceAmountError(providerBalance);
+  }
+
+  const provider = canonicalProviderName(
+    typeof params.provider === 'string' ? params.provider.trim() : '',
+  );
+
+  return prisma.$transaction(async (tx) => {
+    const payout = await tx.payout.findUnique({ where: { id: payoutId } });
+    if (!payout) {
+      throw new PayoutNotFoundError(payoutId);
+    }
+
+    // Only a Payout still waiting for its first Admin may collect a check:
+    // once it has moved on there is no pending decision left to record.
+    if (payout.status !== 'DRAFT') {
+      throw new InvalidPayoutStatusError(payout.status);
+    }
+
+    // The two-person rule's first half, checked before any write, exactly as
+    // approvePayout checks it: a self-check leaves the Payout and its check
+    // history completely untouched, because it is an error, not a decision
+    // this Payout has been through.
+    if (payout.requestedById === checkedById) {
+      throw new SelfApprovalError('Payout', 'balance_check');
+    }
+
+    // The subject is locked (not because this function spends its balance --
+    // it never posts to the ledger -- but because "may this Admin act here
+    // at all" is a Capacity judgement over the subject, and lockAndLoad is
+    // the only code that reads it safely).
+    const { state: subjectState } = await lockPayoutSubject(tx, payout);
+
+    // The two-person rule's other half: never the Campaign's or Trip's own
+    // Fundraiser acting as Admin over it, whoever requested this Payout.
+    if (subjectState) requireNotOwnerAsAdmin(subjectState, checkedById);
+
+    // The whole point of this record: the reading has to actually be short,
+    // or there is nothing pending to write down -- the Admin should approve.
+    if (providerBalance >= payout.amount) {
+      throw new ProviderBalanceNotShortError(payout.amount, providerBalance);
+    }
+
+    return tx.payoutBalanceCheck.create({
+      data: { payoutId, checkedById, provider, recordedBalance: providerBalance },
+    });
+  });
 }
 
 /**

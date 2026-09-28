@@ -97,6 +97,12 @@ export async function GET(_request: Request, context: RouteContext) {
           // the report's own content, which this Fundraiser already wrote
           // and can read on the public Campaign page.
           usageReport: { select: { id: true, disputedAt: true } },
+          // Ticket 30: only WHEN a DRAFT Payout was last checked, never the
+          // provider or the balance itself -- owner decision 2026-09-28
+          // says the Fundraiser sees "menunggu saldo penyedia, dicek
+          // [tanggal]" and nothing about the figure a provider's dashboard
+          // showed.
+          balanceChecks: { select: { checkedAt: true }, orderBy: { checkedAt: 'desc' }, take: 1 },
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -108,7 +114,7 @@ export async function GET(_request: Request, context: RouteContext) {
   // campaignBlockingUsageReport, which this mirrors read-only): 'missing' or
   // 'disputed' both block, 'submitted' does not. Null for a Payout that is
   // not yet COMPLETED -- the question does not apply to it yet.
-  const payoutsWithUsageReportStatus = payouts.map(({ usageReport, ...payout }) => ({
+  const payoutsWithUsageReportStatus = payouts.map(({ usageReport, balanceChecks, ...payout }) => ({
     ...payout,
     usageReportStatus:
       payout.status !== 'COMPLETED'
@@ -118,6 +124,14 @@ export async function GET(_request: Request, context: RouteContext) {
           : usageReport.disputedAt
             ? ('disputed' as const)
             : ('submitted' as const),
+    // ticket 30: resolved the moment the Payout leaves DRAFT (owner decision
+    // 2026-09-28) -- an APPROVED or COMPLETED Payout shows its ordinary
+    // status instead, whatever its check history holds, so this is null for
+    // anything but a still-DRAFT Payout with at least one recorded check.
+    shortCheckedAt:
+      payout.status === 'DRAFT' && balanceChecks && balanceChecks.length > 0
+        ? balanceChecks[0].checkedAt.toISOString()
+        : null,
   }));
 
   // The picker offers exactly what requestPayout will accept: this person's

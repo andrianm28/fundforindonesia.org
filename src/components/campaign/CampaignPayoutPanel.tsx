@@ -83,6 +83,13 @@ interface PayoutRow {
    * form offered below; 'submitted' hides it.
    */
   usageReportStatus: 'missing' | 'submitted' | 'disputed' | null;
+  /**
+   * ticket 30 (owner decision 2026-09-28): WHEN a still-DRAFT Payout was
+   * last checked short of the provider's real balance -- never the provider
+   * or the figure itself, which the Fundraiser never sees. Null once the
+   * Payout leaves DRAFT (resolved) or has never been checked.
+   */
+  shortCheckedAt: string | null;
 }
 
 interface BankAccountOption {
@@ -553,6 +560,16 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
                 <p className="mt-1 text-xs text-text-secondary">
                   {payout.description} - diajukan {formatDate(payout.createdAt)}
                 </p>
+
+                {payout.shortCheckedAt && (
+                  // ticket 30: the Admin checked and found the provider short,
+                  // and it is still unresolved (still DRAFT) -- shown by date
+                  // only. Never the provider name or the balance figure: that
+                  // reading is the Admin's, not something this Fundraiser sees.
+                  <p className="mt-2 text-xs text-amber-700">
+                    Menunggu saldo penyedia, dicek {formatDate(payout.shortCheckedAt)}.
+                  </p>
+                )}
 
                 {payout.usageReportStatus === 'submitted' && (
                   <p className="mt-2 text-xs text-text-secondary">Usage Report sudah dikirim untuk pencairan ini.</p>
