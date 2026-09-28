@@ -136,10 +136,12 @@ function releasable(sha = SHA) {
   gh(`repos/${REPO}/compare/main...${sha}`, { status: sha === MAIN_HEAD ? "identical" : "behind" });
   gh(`repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${sha}&branch=main&event=push&status=success`, {
     total_count: 1,
-    workflow_runs: [{ id: CI_RUN, head_sha: sha, conclusion: "success" }],
+    workflow_runs: [
+      { id: CI_RUN, head_sha: sha, head_branch: "main", event: "push", status: "completed", conclusion: "success" },
+    ],
   });
   gh(`repos/${REPO}/actions/runs/${CI_RUN}/jobs`, {
-    total_count: 4,
+    total_count: 5,
     jobs: ["test", "ratchet", "migrations", "build"].map((name) => ({ name, conclusion: "success" })),
   });
   gh(`repos/${REPO}/actions/runs/${BUILD_RUN}`, {
@@ -294,6 +296,79 @@ describe("ci/deploy-gate.sh", () => {
         workflow_runs: [],
       });
       expectRefused(gate(), /CI has not passed/);
+    });
+
+    // GitHub's runs endpoint ignores `conclusion=` and filters on `status=`
+    // alone, so it will not really hand back a failed run under a successful
+    // one. These are not claims about what the API returns; they are what keeps
+    // that from being the gate's only protection. If `status=` is renamed or
+    // dropped and the endpoint starts answering with everything, the run is
+    // still checked on its own fields here, and the gate has to refuse.
+    it.each<[string, string]>([
+      ["conclusion", "failure"],
+      ["conclusion", "cancelled"],
+    ])("a run whose own %s is %s, whatever the request filter said", (_, conclusion) => {
+      gh(`repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${SHA}&branch=main&event=push&status=success`, {
+        total_count: 1,
+        workflow_runs: [
+          { id: CI_RUN, head_sha: SHA, head_branch: "main", event: "push", status: "completed", conclusion },
+        ],
+      });
+      // Its jobs are green, so only the run's own conclusion can refuse this.
+      expectRefused(gate(), /CI has not passed/);
+    });
+
+    it("a run of another commit, served under this commit's filter", () => {
+      gh(`repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${SHA}&branch=main&event=push&status=success`, {
+        total_count: 1,
+        workflow_runs: [
+          { id: CI_RUN, head_sha: MAIN_HEAD, head_branch: "main", event: "push", status: "completed", conclusion: "success" },
+        ],
+      });
+      expectRefused(gate(), /CI has not passed/);
+    });
+
+    it.each<[string, { head_branch: string; event: string }]>([
+      ["a pull request", { head_branch: "main", event: "pull_request" }],
+      ["another branch", { head_branch: "feature", event: "push" }],
+    ])("a run of %s", (_, run) => {
+      gh(`repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${SHA}&branch=main&event=push&status=success`, {
+        total_count: 1,
+        workflow_runs: [{ id: CI_RUN, head_sha: SHA, status: "completed", conclusion: "success", ...run }],
+      });
+      expectRefused(gate(), /CI has not passed/);
+    });
+
+    it.each<[string, string]>([
+      ["skipped", "skipped"],
+      ["cancelled", "cancelled"],
+      ["failed", "failure"],
+    ])("a green CI run whose ratchet job is %s", (_, conclusion) => {
+      gh(`repos/${REPO}/actions/runs/${CI_RUN}/jobs`, {
+        total_count: 5,
+        jobs: [
+          { name: "test", conclusion: "success" },
+          { name: "ratchet", conclusion },
+          { name: "migrations", conclusion: "success" },
+          { name: "build", conclusion: "success" },
+          { name: "e2e", conclusion: "success" },
+        ],
+      });
+      expectRefused(gate(), /no green `ratchet` job/);
+    });
+
+    it("a green CI run whose ratchet job is still running", () => {
+      gh(`repos/${REPO}/actions/runs/${CI_RUN}/jobs`, {
+        total_count: 5,
+        jobs: [
+          { name: "test", conclusion: "success" },
+          { name: "ratchet", conclusion: null },
+          { name: "migrations", conclusion: "success" },
+          { name: "build", conclusion: "success" },
+          { name: "e2e", conclusion: "success" },
+        ],
+      });
+      expectRefused(gate(), /no green `ratchet` job/);
     });
 
     it("a green CI run that lacks one of test, build, migrations, ratchet", () => {
