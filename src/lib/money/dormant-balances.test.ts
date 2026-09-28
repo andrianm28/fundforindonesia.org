@@ -149,6 +149,44 @@ describe('dormantBalanceReport', () => {
     ]);
   });
 
+  it('uses the most recent entry into Expired, not the first, for a Campaign that re-entered it', async () => {
+    // Expired 200 days ago, Suspended, then lifted back into Expired 65 days
+    // ago: the balance has been dormant for 65 days, not 200.
+    tx.campaign.findMany.mockResolvedValue([
+      { id: 'campaign-8', slug: 'kembali', title: 'Kembali', lifecycleStatus: 'EXPIRED', deadline: daysAgo(200) },
+    ]);
+    tx.campaignStatusChange.findMany.mockResolvedValue([
+      { campaignId: 'campaign-8', toStatus: 'EXPIRED', createdAt: daysAgo(65) },
+      { campaignId: 'campaign-8', toStatus: 'EXPIRED', createdAt: daysAgo(200) },
+    ]);
+    tx.ledgerEntry.groupBy.mockResolvedValue(balanceRows('campaign-8', 1_000_000));
+
+    const rows = await dormantBalanceReport(prisma as never, NOW);
+
+    expect(tx.campaignStatusChange.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { createdAt: 'desc' } }),
+    );
+    expect(rows).toEqual([expect.objectContaining({ campaignId: 'campaign-8', since: daysAgo(65), daysSince: 65 })]);
+  });
+
+  it('never reports a Suspended or Cancelled Campaign, whatever its balance and deadline', async () => {
+    tx.campaign.findMany.mockResolvedValue([
+      { id: 'campaign-9', slug: 'ditangguhkan', title: 'Ditangguhkan', lifecycleStatus: 'SUSPENDED', deadline: daysAgo(120) },
+      { id: 'campaign-10', slug: 'dibatalkan', title: 'Dibatalkan', lifecycleStatus: 'CANCELLED', deadline: daysAgo(120) },
+    ]);
+    tx.ledgerEntry.groupBy.mockResolvedValue([
+      ...balanceRows('campaign-9', 1_000_000),
+      ...balanceRows('campaign-10', 1_000_000),
+    ]);
+
+    const rows = await dormantBalanceReport(prisma as never, NOW);
+
+    const where = tx.campaign.findMany.mock.calls[0][0].where;
+    expect(where.lifecycleStatus.in).not.toContain('SUSPENDED');
+    expect(where.lifecycleStatus.in).not.toContain('CANCELLED');
+    expect(rows).toEqual([]);
+  });
+
   it('never considers a Demo Campaign, even with a stale balance', async () => {
     tx.campaign.findMany.mockResolvedValue([]);
 
