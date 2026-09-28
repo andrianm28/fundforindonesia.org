@@ -93,7 +93,7 @@ export const IMPACT_LINES = [
     // and the moment it gets one the split changes; a number there would be
     // either wrong today or stale tomorrow. The sentence under the table and
     // the `notes` entry carry the disclosure in words instead.
-    label: 'Disediakan untuk dikembalikan ke Donor, belum semuanya ditransfer',
+    label: 'Refund',
   },
   {
     key: 'heldInEscrowHold',

@@ -78,7 +78,11 @@ describe('ImpactPage', () => {
     expect(screen.getByText(/Tersalurkan ke Fundraiser/)).toBeTruthy();
     // Matched on the leading verb, not the tail: this test is about every line
     // being NAMED, and the returned line's name now opens with "Disediakan".
-    expect(screen.getByText(/^Disediakan untuk dikembalikan ke Donor/)).toBeTruthy();
+    expect(screen.getByText(/^Refund/)).toBeTruthy();
+    // The label names the kind, not the stage: "Dikembalikan" would claim the
+    // money is home when refundPaidLegs has no production caller at all.
+    expect(screen.queryByText(/^Dikembalikan/)).toBeNull();
+    expect(screen.queryByText(/dikomit/)).toBeNull();
     expect(screen.getByText(/Ditahan di Escrow Hold/)).toBeTruthy();
     expect(screen.getByText(/Tersedia di Campaign Balance/)).toBeTruthy();
     expect(screen.getByText(/Platform Fee yang tidak dikembalikan/)).toBeTruthy();
@@ -145,11 +149,12 @@ describe('ImpactPage', () => {
     await renderPage();
 
     expect(renderedLine('returnedToDonors')).toBe(100_000);
-    // The label itself: set aside for returning, and the pending part last, so
-    // it sits next to the number where the eye already is.
-    expect(screen.getByText('Disediakan untuk dikembalikan ke Donor, belum semuanya ditransfer')).toBeTruthy();
-    // No completed-tense verb in the opening position, and no dev jargon on a
-    // page that is not behind auth.
+    // The label names the kind and stops there. A completed-tense verb
+    // ("Dikembalikan") is false for every rupiah in this line today:
+    // refundPaidLegs has no production caller, so nothing here has been
+    // transferred. The stage belongs in the sentence under the table, where it
+    // is read next to the number rather than standing in for it.
+    expect(screen.getByText(/^Refund/)).toBeTruthy();
     expect(screen.queryByText(/^Dikembalikan/)).toBeNull();
     expect(screen.queryByText(/dikomit/)).toBeNull();
     // And the disclosure is in the paragraph under the table and in the notes,
