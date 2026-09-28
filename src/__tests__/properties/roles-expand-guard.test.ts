@@ -134,6 +134,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/payouts/[id]/complete/route.ts",
   "src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/refunds/route.ts",
+  "src/app/api/moderasi/bank-accounts/[requestId]/route.ts",
+  "src/app/api/moderasi/bank-accounts/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/route.ts",
   "src/app/api/programs/[slug]/route.ts",
@@ -143,6 +145,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/volunteer-trips/[slug]/refunds/[id]/approve/route.ts",
   "src/app/moderasi/layout.tsx",
   "src/app/moderasi/page.tsx",
+  "src/app/moderasi/rekening/page.tsx",
   // Not a route: the Capacity judgement, which the lifecycle module, the
   // money operations and Trip moderation ask, because "owner or Admin" and
   // "never Admin on your own Campaign or Trip" are not single-assignment

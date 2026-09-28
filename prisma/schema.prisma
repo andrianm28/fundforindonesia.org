@@ -64,50 +64,52 @@ model User {
   updatedAt        DateTime @updatedAt
 
   // Relations
-  accounts        Account[]
-  campaigns       Campaign[]
-  volunteerTrips  VolunteerTrip[]
-  registrations   Registration[]
-  donations       Donation[]
-  prayers       Prayer[]
-  notifications Notification[]
-  autoDonations AutoDonation[]
-  assignments   UserAssignment[]
-  assignmentAuditsAsSubject AssignmentAuditEntry[] @relation("AssignmentAuditSubject")
-  assignmentAuditsAsActor   AssignmentAuditEntry[] @relation("AssignmentAuditActor")
-  campaignStatusChanges     CampaignStatusChange[]
-  tripStatusChanges         VolunteerTripStatusChange[]
+  accounts                        Account[]
+  campaigns                       Campaign[]
+  volunteerTrips                  VolunteerTrip[]
+  registrations                   Registration[]
+  donations                       Donation[]
+  prayers                         Prayer[]
+  notifications                   Notification[]
+  autoDonations                   AutoDonation[]
+  assignments                     UserAssignment[]
+  assignmentAuditsAsSubject       AssignmentAuditEntry[]            @relation("AssignmentAuditSubject")
+  assignmentAuditsAsActor         AssignmentAuditEntry[]            @relation("AssignmentAuditActor")
+  campaignStatusChanges           CampaignStatusChange[]
+  tripStatusChanges               VolunteerTripStatusChange[]
   partnershipInquiryStatusChanges PartnershipInquiryStatusChange[]
-  cancellationRequestsMade    CancellationRequest[] @relation("CancellationRequester")
-  cancellationRequestsDecided CancellationRequest[] @relation("CancellationDecider")
-  campaignFlagsRaised         CampaignFlag[]        @relation("FlagVerifier")
-  campaignFlagsResolved       CampaignFlag[]        @relation("FlagResolver")
-  verificationRequestsSubmitted VerificationRequest[]  @relation("VerificationRequestSubmitter")
-  verificationRequestsDecided   VerificationRequest[]  @relation("VerificationRequestDecider")
-  identityVerification          IdentityVerification?  @relation("IdentityVerificationSubject")
-  identityVerificationsMade     IdentityVerification[] @relation("IdentityVerificationVerifier")
-  checklistAuditEntries         VerificationChecklistAuditEntry[]
-  partnerOrganisation            PartnerOrganisation?            @relation("PartnerOrganisationFundraiser")
-  partnerOrganisationsRegistered PartnerOrganisation[]           @relation("PartnerOrganisationRegistrar")
-  fundraisingPermitsRecorded     FundraisingPermit[]
-  kindAuthorisationsGranted      KindAuthorisation[]
-  partnerOrganisationAudits      PartnerOrganisationAuditEntry[]
+  cancellationRequestsMade        CancellationRequest[]             @relation("CancellationRequester")
+  cancellationRequestsDecided     CancellationRequest[]             @relation("CancellationDecider")
+  campaignFlagsRaised             CampaignFlag[]                    @relation("FlagVerifier")
+  campaignFlagsResolved           CampaignFlag[]                    @relation("FlagResolver")
+  verificationRequestsSubmitted   VerificationRequest[]             @relation("VerificationRequestSubmitter")
+  verificationRequestsDecided     VerificationRequest[]             @relation("VerificationRequestDecider")
+  identityVerification            IdentityVerification?             @relation("IdentityVerificationSubject")
+  identityVerificationsMade       IdentityVerification[]            @relation("IdentityVerificationVerifier")
+  checklistAuditEntries           VerificationChecklistAuditEntry[]
+  partnerOrganisation             PartnerOrganisation?              @relation("PartnerOrganisationFundraiser")
+  partnerOrganisationsRegistered  PartnerOrganisation[]             @relation("PartnerOrganisationRegistrar")
+  fundraisingPermitsRecorded      FundraisingPermit[]
+  kindAuthorisationsGranted       KindAuthorisation[]
+  partnerOrganisationAudits       PartnerOrganisationAuditEntry[]
 
   // Money layer
-  bankAccounts     BankAccount[]
-  payoutsRequested Payout[]      @relation("PayoutRequester")
-  payoutsApproved  Payout[]      @relation("PayoutApprover")
-  payoutsCompleted Payout[]      @relation("PayoutCompleter")
-  refundsRequested Refund[]      @relation("RefundRequester")
-  refundsApproved  Refund[]      @relation("RefundApprover")
-  platformFeeRulesSet      PlatformFeeRule[]
-  platformFeeThresholdsSet PlatformFeeThreshold[]
-  manualContributionsRecorded ManualContribution[] @relation("ManualContributionRecorder")
-  manualContributionsDecided  ManualContribution[] @relation("ManualContributionDecider")
-  manualContributionsReversed ManualContribution[] @relation("ManualContributionReverser")
-  providerWithdrawalsRecorded ProviderWithdrawal[] @relation("ProviderWithdrawalRecorder")
-  duplicateSimilarityThresholdsSet DuplicateSimilarityThreshold[]
-  abuseThresholdsSet               AbuseThreshold[]
+  bankAccounts                      BankAccount[]
+  bankAccountVerificationsSubmitted BankAccountVerificationRequest[] @relation("BankAccountVerificationSubmitter")
+  bankAccountVerificationsDecided   BankAccountVerificationRequest[] @relation("BankAccountVerificationDecider")
+  payoutsRequested                  Payout[]                         @relation("PayoutRequester")
+  payoutsApproved                   Payout[]                         @relation("PayoutApprover")
+  payoutsCompleted                  Payout[]                         @relation("PayoutCompleter")
+  refundsRequested                  Refund[]                         @relation("RefundRequester")
+  refundsApproved                   Refund[]                         @relation("RefundApprover")
+  platformFeeRulesSet               PlatformFeeRule[]
+  platformFeeThresholdsSet          PlatformFeeThreshold[]
+  manualContributionsRecorded       ManualContribution[]             @relation("ManualContributionRecorder")
+  manualContributionsDecided        ManualContribution[]             @relation("ManualContributionDecider")
+  manualContributionsReversed       ManualContribution[]             @relation("ManualContributionReverser")
+  providerWithdrawalsRecorded       ProviderWithdrawal[]             @relation("ProviderWithdrawalRecorder")
+  duplicateSimilarityThresholdsSet  DuplicateSimilarityThreshold[]
+  abuseThresholdsSet                AbuseThreshold[]
 
   // One account per address, and it is the normalized address that counts: the
   // old `email @unique` was case-sensitive and would let one person hold
@@ -228,36 +230,36 @@ enum Sector {
 /// the plain reportedAmount figure below, kept apart from the ledger on
 /// purpose (ticket csr-08).
 model Program {
-  id           String @id @default(cuid())
-  slug         String @unique
-  title        String
-  sector       Sector
-  problem       String   @db.Text
-  beneficiaries String   @db.Text
-  location     String
-  activities   String   @db.Text
+  id             String    @id @default(cuid())
+  slug           String    @unique
+  title          String
+  sector         Sector
+  problem        String    @db.Text
+  beneficiaries  String    @db.Text
+  location       String
+  activities     String    @db.Text
   /// Planned need in rupiah (Int, like every other money figure here).
-  budget       Int
+  budget         Int
   /// Free-text schedule (e.g. "Jan–Des 2027"), not a deadline with rules.
-  timeline     String
-  kpis         String[]
-  documentation String[]
+  timeline       String
+  kpis           String[]
+  documentation  String[]
   /// Written once the work can show results; null until then.
-  impactReport String?  @db.Text
+  impactReport   String?   @db.Text
   /// Plain reported figure for CSR money that never crossed the platform's
   /// account: no ledger entry behind it, by design. Only an Admin writes it.
   reportedAmount Int       @default(0)
-  reportedAsOf  DateTime?
-  reportedNote  String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  reportedAsOf   DateTime?
+  reportedNote   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   /// Manual Contributions that name this Program. Inert on its own: nothing
   /// in the Donation, Payment, Refund, Payout or escrow paths reads it, and
   /// no back-relation onto a money model exists in the other direction --
   /// LedgerEntry.programId is a bare scalar, deliberately, so the word
   /// "ledger" never has to appear here (program-money-isolation.test.ts).
-  manualContributions ManualContribution[]
+  manualContributions  ManualContribution[]
   /// The opposite end of every Partnership Inquiry about this Program. The
   /// only way a Program is ever reached from the outside; it carries no money
   /// either way, so a Program still cannot be given to or paid from.
@@ -284,35 +286,35 @@ enum PartnershipInquiryStatus {
 /// no money: the Program itself never takes money online, and an Inquiry is not
 /// an entity that can hold any.
 model PartnershipInquiry {
-  id      String @id @default(cuid())
-  programId String
-  program Program @relation(fields: [programId], references: [id], onDelete: Restrict)
-  companyName  String
+  id                     String                           @id @default(cuid())
+  programId              String
+  program                Program                          @relation(fields: [programId], references: [id], onDelete: Restrict)
+  companyName            String
   /// Plaintext by decision (ADR 0012), same as User.name: it is what the
   /// partnership team reads to reply.
-  contactName  String
+  contactName            String
   /// The company's description of what it wants to discuss, in its words.
-  needs String @db.Text
+  needs                  String                           @db.Text
   /// Hex HMAC-SHA256 of the trimmed, lowercased contact email under
   /// FIELD_HMAC_KEY. Searchable; lets the partnership team find every Inquiry
   /// from one company contact without reading a ciphertext.
-  contactEmailHmac String
-  contactEmailHmacKeyId String
+  contactEmailHmac       String
+  contactEmailHmacKeyId  String
   /// base64(iv | AES-256-GCM ciphertext | tag) of the contact email under FIELD_ENCRYPTION_KEY.
   contactEmailCiphertext String
-  contactEmailKeyId String
+  contactEmailKeyId      String
   /// The contact phone is optional -- plenty of counterparties have one number
   /// and no other -- and is never searched, so ciphertext only: no HMAC, same
   /// as User.phone and Donation.guestPhone.
   contactPhoneCiphertext String?
-  contactPhoneKeyId String?
-  status PartnershipInquiryStatus @default(NOT_YET_FOLLOWED_UP)
+  contactPhoneKeyId      String?
+  status                 PartnershipInquiryStatus         @default(NOT_YET_FOLLOWED_UP)
   /// The follow-up steps taken on it, oldest first; written only by
   /// src/lib/partnership-inquiry-followup.ts. The second relation this model
   /// has, and the only one besides its Program: never money.
-  statusChanges PartnershipInquiryStatusChange[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  statusChanges          PartnershipInquiryStatusChange[]
+  createdAt              DateTime                         @default(now())
+  updatedAt              DateTime                         @updatedAt
 
   @@index([programId])
   @@index([status])
@@ -338,43 +340,43 @@ model PartnershipInquiry {
 /// deleting an Inquiry or a person must never erase who followed it up and
 /// when.
 model PartnershipInquiryStatusChange {
-  id         String   @id @default(cuid())
+  id         String                   @id @default(cuid())
   inquiryId  String
   fromStatus PartnershipInquiryStatus
   toStatus   PartnershipInquiryStatus
   /// Never null: no job and no scheduled task moves an Inquiry forward, only
   /// a member of the partnership team.
   actedById  String
-  actedAt    DateTime @default(now())
+  actedAt    DateTime                 @default(now())
 
   // Relations
   inquiry PartnershipInquiry @relation(fields: [inquiryId], references: [id], onDelete: Restrict)
-  actedBy User                 @relation(fields: [actedById], references: [id], onDelete: Restrict)
+  actedBy User               @relation(fields: [actedById], references: [id], onDelete: Restrict)
 
   @@index([inquiryId, actedAt])
 }
 
 model Campaign {
-  id              String    @id @default(cuid())
-  slug            String    @unique
-  title           String
-  description     String    @db.Text
-  story           String    @db.Text
-  coverImage      String
-  targetAmount    Int
-  collectedAmount Int       @default(0)
-  category        String
+  id                     String         @id @default(cuid())
+  slug                   String         @unique
+  title                  String
+  description            String         @db.Text
+  story                  String         @db.Text
+  coverImage             String
+  targetAmount           Int
+  collectedAmount        Int            @default(0)
+  category               String
   /// Existing Campaigns were backfilled to DONATION by the migration that
   /// added this column; POST /api/campaigns always writes it explicitly.
-  kind            Kind      @default(DONATION)
+  kind                   Kind           @default(DONATION)
   // Legacy status string: no application code or seed reads or writes it
   // (legacy-status-contract 02). Nullable and ignored until ticket 03 drops
   // it with its index.
-  status          String?
+  status                 String?
   // A new Campaign is a Draft until its Fundraiser submits it (FFI-04).
-  lifecycleStatus CampaignStatus @default(DRAFT)
-  isUrgent        Boolean   @default(false)
-  deadline        DateTime?
+  lifecycleStatus        CampaignStatus @default(DRAFT)
+  isUrgent               Boolean        @default(false)
+  deadline               DateTime?
   /// Stamped once the scheduled job (runScheduledJobs, ticket 20) sends the
   /// deadline reminder to this Campaign's Fundraiser. Null until then, so the
   /// same reminder is never sent twice -- claimed via a predicated
@@ -382,14 +384,14 @@ model Campaign {
   /// mirroring Payment.escrowReleasedAt's own claim pattern, so two
   /// overlapping scheduler runs still send exactly one reminder.
   deadlineReminderSentAt DateTime?
-  creatorId       String
+  creatorId              String
   /// The Partner Organisation under whose Fundraising Permit this Campaign
   /// collects (CONTEXT.md, Collecting Entity; ADR 0010). Always a Partner
   /// Organisation, so the Platform Operator can never be one. Null on a
   /// Draft that has not named one yet and on a Campaign that predates this
   /// column; neither accepts a Donation (campaignAcceptsDonations), and
   /// submitCampaign refuses a Campaign without one.
-  collectingEntityId String?
+  collectingEntityId     String?
   /// Where this Campaign happens, free text and nullable, the way
   /// `category` is (ticket 25, "Impact & Transparency"). One field rather
   /// than a province and a regency/city pair on purpose: nothing in this
@@ -401,7 +403,7 @@ model Campaign {
   /// Tengah. Null until a Campaign form writes one -- a Campaign with no
   /// location simply matches no location filter, which is honest rather
   /// than quietly counted as everywhere.
-  location        String?
+  location               String?
   /// The beneficiary this Campaign names (PRD FFI-02, FFI-05). Plaintext,
   /// never encrypted: ADR 0012 keeps names readable precisely so they can be
   /// compared, and "identical beneficiary name" is one of the three matches
@@ -410,9 +412,9 @@ model Campaign {
   /// Campaign form writes one; a Campaign that names no beneficiary matches
   /// no other Campaign on this, which is what the statement in
   /// src/lib/duplicate-hints.ts relies on.
-  beneficiaryName  String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  beneficiaryName        String?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
 
   /// Sample/demo content, not a real appeal. Set by a one-time migration for
   /// the 30 campaigns that existed before the money layer (task M9) -- every
@@ -437,28 +439,28 @@ model Campaign {
   /// block their donations. If a future environment needs its own demo data
   /// marked, write that environment a new migration with its own predicate
   /// -- do not point it at this one.
-  isDemo          Boolean   @default(false)
+  isDemo Boolean @default(false)
 
   // Relations
-  creator       User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  collectingEntity PartnerOrganisation? @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
-  donations     Donation[]
-  updates       CampaignUpdate[]
+  creator               User                   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  collectingEntity      PartnerOrganisation?   @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
+  donations             Donation[]
+  updates               CampaignUpdate[]
   // Disbursement is replaced by Payout, which carries status, an approver and
   // a destination account -- see the Money section.
-  payouts       Payout[]
-  ledgerEntries LedgerEntry[]
-  prayers       Prayer[]
-  statusChanges CampaignStatusChange[]
-  cancellationRequests CancellationRequest[]
-  flags                CampaignFlag[]
-  verificationRequests VerificationRequest[]
-  platformFeeRules     PlatformFeeRule[]
+  payouts               Payout[]
+  ledgerEntries         LedgerEntry[]
+  prayers               Prayer[]
+  statusChanges         CampaignStatusChange[]
+  cancellationRequests  CancellationRequest[]
+  flags                 CampaignFlag[]
+  verificationRequests  VerificationRequest[]
+  platformFeeRules      PlatformFeeRule[]
   /// Money recorded by an Admin as arriving outside the payment gateway
   /// (CONTEXT.md, Manual Contribution). Not a Donation: it has no Payment,
   /// no Donor and no Refund, and it can be taken back out by a reversal.
-  manualContributions ManualContribution[]
-  auditMarker          CampaignAuditMarker?
+  manualContributions   ManualContribution[]
+  auditMarker           CampaignAuditMarker?
   donationReviewMarkers DonationReviewMarker[]
 
   @@index([slug])
@@ -644,51 +646,51 @@ enum VerificationRequestKind {
 }
 
 model VerificationRequest {
-  id            String              @id @default(cuid())
-  campaignId    String
+  id                 String                  @id @default(cuid())
+  campaignId         String
   /// Null only on an AMOUNT_REVIEW, which the System raises and no person
   /// submits (prd-compliance 38); `kind` is what says so.
-  submittedById String?
-  submittedAt   DateTime            @default(now())
+  submittedById      String?
+  submittedAt        DateTime                @default(now())
   /// The active checklist items as they stood at submission, with the
   /// Verifier's ticks: [{ id, label, required, position, ticked }].
-  checklist     Json
-  outcome       VerificationOutcome @default(PENDING)
-  reason        String?
+  checklist          Json
+  outcome            VerificationOutcome     @default(PENDING)
+  reason             String?
   /// Who closed the request and when: the Verifier on APPROVED or REJECTED,
   /// the Fundraiser on WITHDRAWN. Null while PENDING.
-  decidedById   String?
-  decidedAt     DateTime?
+  decidedById        String?
+  decidedAt          DateTime?
   /// Submitted from Draft (the Campaign's first request) rather than from
   /// Rejected. A withdrawal returns the Campaign to Draft or Rejected by it.
-  isFirst       Boolean
+  isFirst            Boolean
   /// A change asked for an Active Campaign (ticket 12, FFI-05): the new
   /// target and/or deadline the Campaign keeps running without until a
   /// Verifier approves this request. Null on every SUBMISSION and on every
   /// AMOUNT_REVIEW. Approving applies it; rejecting or withdrawing discards it.
-  proposedChanges Json?
+  proposedChanges    Json?
   /// Which of the three kinds of request this is (prd-compliance 38).
   /// Backfilled from `proposedChanges` by the migration that added it, so
   /// every request already in the table says which kind it is instead of
   /// being inferred from a nullable JSON column.
-  kind           VerificationRequestKind @default(SUBMISSION)
+  kind               VerificationRequestKind @default(SUBMISSION)
   /// Why the System raised an AMOUNT_REVIEW: the Campaign's Cumulative Gross
   /// and the threshold it had passed, as `{ cumulativeGross, threshold }`.
   /// Null on the other two kinds. Kept on the request rather than re-derived
   /// at read time, because the Verifier judges the Campaign as it stood when
   /// the review was raised, and a later Donation would move the number under
   /// them.
-  raisedByAmount Json?
+  raisedByAmount     Json?
   /// The Campaign's Collecting Entity when it was submitted: the one the
   /// Verifier confirms by approving (prd-compliance 10). Null on requests
   /// submitted before this column existed.
   collectingEntityId String?
 
   // Relations
-  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  campaign         Campaign             @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   collectingEntity PartnerOrganisation? @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
-  submittedBy User?    @relation("VerificationRequestSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
-  decidedBy   User?    @relation("VerificationRequestDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  submittedBy      User?                @relation("VerificationRequestSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  decidedBy        User?                @relation("VerificationRequestDecider", fields: [decidedById], references: [id], onDelete: Restrict)
 
   @@index([outcome, submittedAt])
   @@index([campaignId, submittedAt])
@@ -770,14 +772,14 @@ model FundraisingPermit {
 /// Valid from `validFrom` to `validTo`, both inclusive. Never deleted; a
 /// renewal is a new authorisation or a later `validTo`.
 model KindAuthorisation {
-  id                    String   @id @default(cuid())
+  id                    String    @id @default(cuid())
   partnerOrganisationId String
   kind                  Kind
   documentReference     String
   validFrom             DateTime
   validTo               DateTime
   grantedById           String
-  grantedAt             DateTime @default(now())
+  grantedAt             DateTime  @default(now())
   /// Stamped once the scheduled job (runScheduledJobs, ticket 20) sends the
   /// 30-day expiry warning to this authorisation's Partner Organisation.
   /// Null until then; claimed via a predicated `updateMany` (WHERE
@@ -915,8 +917,8 @@ model Donation {
   ikrarConfirmed Boolean @default(false)
 
   // Relations
-  campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  donor    User?     @relation(fields: [donorId], references: [id], onDelete: SetNull)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  donor    User?    @relation(fields: [donorId], references: [id], onDelete: SetNull)
   prayer   Prayer?
 
   /// A retry creates a NEW Payment on the SAME Donation rather than mutating
@@ -924,10 +926,10 @@ model Donation {
   /// Payment?: history of every attempt survives, and at most one may ever
   /// reach PAID -- enforced by a partial unique index in the migration
   /// (Payment_donationId_paid_key), not by this relation's shape.
-  payments Payment[]
+  payments  Payment[]
   /// Created once, the moment this Donation's Payment settles (prd-compliance
   /// 21) -- never before, since there is nothing to receipt until then.
-  receipt  Receipt?
+  receipt   Receipt?
   /// Created alongside the Receipt, only for a Donation on a `wakaf`
   /// Campaign (CONTEXT.md, Akad Wakaf; ticket 22).
   akadWakaf AkadWakaf?
@@ -1235,7 +1237,7 @@ enum LedgerDirection {
 /// Payment; a retry creates a NEW Payment rather than mutating the old one, so
 /// the history of attempts survives.
 model Payment {
-  id          String        @id @default(cuid())
+  id             String        @id @default(cuid())
   /// Not unique: a retry after FAILED/EXPIRED creates a new Payment on the
   /// same Donation (prd-compliance 18). At most one Payment per Donation may
   /// ever reach PAID -- enforced in the migration by a partial unique index
@@ -1243,8 +1245,8 @@ model Payment {
   /// distinct webhook deliveries settling two different Payments of the same
   /// Donation, races the app-level `status: PENDING` guard alone cannot
   /// close.
-  donationId  String?
-  donation    Donation?     @relation(fields: [donationId], references: [id], onDelete: Restrict)
+  donationId     String?
+  donation       Donation?     @relation(fields: [donationId], references: [id], onDelete: Restrict)
   /// Set instead of donationId for a Trip Fee payment -- exactly one of the
   /// two is ever set, enforced by assertExactlyOnePaymentSubject
   /// (./src/lib/money/payment-subject.ts), not by a schema constraint
@@ -1275,7 +1277,7 @@ model Payment {
   /// the column's type. Switching providers on from the Admin dashboard is
   /// therefore a new name in that registry plus a builder in
   /// src/lib/payments/index.ts, and nothing in this file.
-  provider    String
+  provider       String
   /// Which method the provider charged through, in its own vocabulary rather
   /// than the donor's choice: PaymentMethod in src/lib/payments/types.ts,
   /// "bank_transfer_va" | "qris_redirect". The donor-facing choices
@@ -1283,14 +1285,14 @@ model Payment {
   /// those -- or onto nothing, for the two no adapter implements -- by
   /// PROVIDER_METHOD_FOR in src/lib/money/payment-method-map.ts, before the
   /// Payment is written, and never after.
-  method      String
+  method         String
   /// The provider's own id for this charge. Unique so a webhook replay cannot
   /// create a second Payment for the same upstream charge.
-  providerRef String        @unique
-  amount      Int
+  providerRef    String        @unique
+  amount         Int
   /// What the provider kept. Recorded separately so the campaign is credited
   /// the net, and the fee is visible rather than silently missing.
-  providerFee Int           @default(0)
+  providerFee    Int           @default(0)
   /// What the platform kept (CONTEXT.md, Platform Fee; prd-compliance 17).
   /// Resolved and frozen at POST /api/donations, per Campaign then per
   /// Category then per Kind default, waived below the Admin-set threshold,
@@ -1298,12 +1300,12 @@ model Payment {
   /// the rate cannot alter what this Payment already promised the Donor.
   /// Always 0 for a Trip Fee Payment (registrationId set): Trip Fee is not
   /// subject to Platform Fee (CONTEXT.md, Trip Fee).
-  platformFee Int           @default(0)
-  status      PaymentStatus @default(PENDING)
+  platformFee    Int           @default(0)
+  status         PaymentStatus @default(PENDING)
   /// Provider payload, kept verbatim for dispute resolution. Never parsed for
   /// business logic -- the typed columns above are what the app reads.
-  rawPayload  Json?
-  paidAt      DateTime?
+  rawPayload     Json?
+  paidAt         DateTime?
   /// The provider's own settlement estimate for this Payment, read from its
   /// webhook payload (docs/integrasi-sumopod.md, "Waktu dan Escrow";
   /// prd-compliance 19) -- NOT proof the money has actually arrived, since
@@ -1312,8 +1314,8 @@ model Payment {
   /// paidAt or server receipt time: anchoring to receipt time would let a
   /// slow-settling provider's Escrow Hold lapse before the money has
   /// actually cleared. Null while unpaid, same as paidAt.
-  settledAt   DateTime?
-  expiresAt   DateTime?
+  settledAt      DateTime?
+  expiresAt      DateTime?
 
   /// The Escrow Hold length (CONTEXT.md, Escrow Hold), frozen from
   /// ESCROW_HOLD_DAYS (src/lib/money/escrow.ts) at Payment creation and shown
@@ -1332,14 +1334,14 @@ model Payment {
   /// it, a donation can be paid out to the campaigner before the donor's bank
   /// has finished deciding whether the charge was theirs, and the platform is
   /// then chasing money it has already sent away.
-  escrowReleaseAt   DateTime?
+  escrowReleaseAt  DateTime?
   /// Stamped when the release entries are actually posted. Together with the
   /// field above this is the sweep's whole state: due is `escrowReleaseAt <=
   /// now AND escrowReleasedAt IS NULL`, which is also why they share an index.
-  escrowReleasedAt  DateTime?
+  escrowReleasedAt DateTime?
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   refunds       Refund[]
   ledgerEntries LedgerEntry[]
@@ -1449,13 +1451,13 @@ enum AbuseThresholdKind {
 /// read from code (resolveAbuseThresholds, src/lib/abuse-thresholds.ts) the
 /// way an unset Platform Fee resolves to 0 bps.
 model AbuseThreshold {
-  id      String            @id @default(cuid())
+  id      String             @id @default(cuid())
   kind    AbuseThresholdKind
   /// Rupiah for the three money limits, a plain count for
   /// ACTIVE_CAMPAIGNS_PER_FUNDRAISER. Int, like every amount in this schema.
   value   Int
   setById String
-  setAt   DateTime          @default(now())
+  setAt   DateTime           @default(now())
 
   setBy User @relation(fields: [setById], references: [id], onDelete: Restrict)
 
@@ -1473,11 +1475,11 @@ model AbuseThreshold {
 /// nobody is asked to do anything by it being written. It is the record that
 /// the platform noticed the size of a Campaign, which an audit reads later.
 model CampaignAuditMarker {
-  id               String   @id @default(cuid())
-  campaignId       String   @unique
-  cumulativeGross  Int
-  threshold        Int
-  placedAt         DateTime @default(now())
+  id              String   @id @default(cuid())
+  campaignId      String   @unique
+  cumulativeGross Int
+  threshold       Int
+  placedAt        DateTime @default(now())
 
   // Relations
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
@@ -1554,10 +1556,10 @@ model Refund {
 /// can be verified once and reused, and so changing it is an auditable event
 /// rather than an edit to the campaign row.
 model BankAccount {
-  id            String    @id @default(cuid())
-  ownerId       String
-  owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  bankCode      String
+  id                      String    @id @default(cuid())
+  ownerId                 String
+  owner                   User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  bankCode                String
   /// ADR 0012 contract step (prd-compliance 16): a randomized AES-256-GCM of
   /// the account number, and the only form stored. This is a payout
   /// destination, not a card number, and it is still read in full to instruct
@@ -1567,13 +1569,14 @@ model BankAccount {
   accountNumberKeyId      String
   /// Plaintext by decision (ADR 0012): Refund compares the holder name against
   /// the name on the Donation, which is impossible on a ciphertext.
-  accountName   String
+  accountName             String
   /// Set only once the name has been checked against the bank's records.
   /// Payouts must refuse an unverified destination.
-  verifiedAt    DateTime?
-  createdAt     DateTime  @default(now())
+  verifiedAt              DateTime?
+  createdAt               DateTime  @default(now())
 
-  payouts Payout[]
+  payouts              Payout[]
+  verificationRequests BankAccountVerificationRequest[]
 
   // What used to be `@@unique([ownerId, bankCode, accountNumber])` cannot
   // survive the drop: the account number is a randomized ciphertext, and two
@@ -1586,6 +1589,53 @@ model BankAccount {
   // under Bank Account, and whether that is acceptable for a payout
   // destination is the owner's call.
   @@index([ownerId])
+}
+
+/// One submission of a BankAccount to a Verifier (ticket 16, decisions 1, 2
+/// and 4; ADR 0018). A separate table, not VerificationRequest with a
+/// nullable campaignId: a BankAccount belongs to a User, who has no Campaign,
+/// and VerificationRequest.campaignId is required with onDelete: Restrict.
+/// Piggybacks on the same SUBMITTED/PENDING queue discipline and the same
+/// two-person rule as a Campaign's Verification Request and a Volunteer
+/// Trip's moderation, per ADR 0018's decision (though not its stated reason,
+/// which the ticket reverses: see the ticket file for why).
+///
+/// checkedBankCode and documentedAccountName are what the Verifier read off
+/// the document (decisions 1 and 2): both required to APPROVE, both null on
+/// a REJECTED row. "Rekening sesuai" is deliberately not a
+/// VerificationChecklistItem.kind value -- that enum is a template of
+/// campaign documents, and a bank account name/code check is not one.
+///
+/// note carries a REJECT's reason as well as an APPROVE's optional note: the
+/// model has one free-text column, not two, so a rejection's required reason
+/// is written into `note` rather than into a column this table does not have.
+///
+/// verifiedAt on BankAccount is written only by approving this request
+/// (ticket 16), never here, never by submitting one. No uniqueness is
+/// promised or invented on BankAccount.accountNumberCiphertext (see its own
+/// comment); this table does not change that.
+model BankAccountVerificationRequest {
+  id                    String              @id @default(cuid())
+  bankAccountId         String
+  bankAccount           BankAccount         @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  outcome               VerificationOutcome @default(PENDING)
+  checkedBankCode       String?
+  documentedAccountName String?
+  note                  String?
+  submittedById         String
+  submittedBy           User                @relation("BankAccountVerificationSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  submittedAt           DateTime            @default(now())
+  /// The Verifier who approved or rejected, or the owner who withdrew their
+  /// own PENDING request (the same "who closed it" shape
+  /// VerificationRequest.decidedById uses for a Fundraiser's withdrawal).
+  decidedById           String?
+  decidedBy             User?               @relation("BankAccountVerificationDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt             DateTime?
+
+  /// The Verifier queue: oldest PENDING first.
+  @@index([outcome, submittedAt])
+  /// One account's own history.
+  @@index([bankAccountId, submittedAt])
 }
 
 /// Money leaving the platform to a campaign's bank account.
@@ -1614,41 +1664,41 @@ model BankAccount {
 /// ledger entry is the immutable record of the money and outlives the row it
 /// points at.
 model ManualContribution {
-  id       String @id @default(cuid())
-  amount   Int
+  id             String    @id @default(cuid())
+  amount         Int
   /// Exactly one of campaignId/programId is set, guarded in the service
   /// layer (assertExactlyOneManualContributionSubject,
   /// src/lib/money/manual-contributions.ts) because Prisma cannot express a
   /// conditional requirement on two nullable columns.
-  campaignId String?
-  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: Restrict)
-  programId  String?
-  program    Program?  @relation(fields: [programId], references: [id], onDelete: Restrict)
+  campaignId     String?
+  campaign       Campaign? @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  programId      String?
+  program        Program?  @relation(fields: [programId], references: [id], onDelete: Restrict)
   /// The proof of transfer: a receipt image, a bank statement line, whatever
   /// the Admin can point at. Required, not nullable -- an Admin recording
   /// money on a word of mouth is exactly what the two-person rule is there to
   /// catch, and a later column would not be evidence of anything.
-  proofReference String  @db.VarChar(500)
+  proofReference String    @db.VarChar(500)
   /// Free text: who handed it over, which bank, what for.
-  note            String?
+  note           String?
 
-  status ManualContributionStatus @default(PENDING)
-  recordedById String
-  recordedBy   User    @relation("ManualContributionRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+  status         ManualContributionStatus @default(PENDING)
+  recordedById   String
+  recordedBy     User                     @relation("ManualContributionRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
   /// Two-person rule: never recordedById. The columns exist so the rule is
   /// auditable after the fact, exactly as on Payout; the check is in the
   /// service layer.
-  decidedById  String?
-  decidedBy    User?     @relation("ManualContributionDecider", fields: [decidedById], references: [id], onDelete: Restrict)
-  decidedAt    DateTime?
+  decidedById    String?
+  decidedBy      User?                    @relation("ManualContributionDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt      DateTime?
   decisionReason String?
   /// Two-person rule, second half: never recordedById and never decidedById.
   /// A reversal the pair that put the money in could do itself would make the
   /// whole rule revocable by one person, so a THIRD Admin takes it back out.
   /// The check is in the service layer, like the one above.
-  reversedById String?
-  reversedBy   User?     @relation("ManualContributionReverser", fields: [reversedById], references: [id], onDelete: Restrict)
-  reversedAt   DateTime?
+  reversedById   String?
+  reversedBy     User?                    @relation("ManualContributionReverser", fields: [reversedById], references: [id], onDelete: Restrict)
+  reversedAt     DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1672,24 +1722,24 @@ enum ManualContributionStatus {
 }
 
 model Payout {
-  id            String       @id @default(cuid())
-  campaignId    String?
-  campaign      Campaign?    @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  id              String       @id @default(cuid())
+  campaignId      String?
+  campaign        Campaign?    @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   /// Set instead of campaignId for a Volunteer Trip payout. Plain scalar,
   /// no @relation: neither this nor any other ticket has needed .include()
   /// through it yet (routes compare it as a plain scalar, same as
   /// campaignId's own comparisons). Add the relation whenever a caller
   /// actually needs it.
   volunteerTripId String?
-  bankAccountId String
-  bankAccount   BankAccount  @relation(fields: [bankAccountId], references: [id])
-  amount        Int
-  description   String
+  bankAccountId   String
+  bankAccount     BankAccount  @relation(fields: [bankAccountId], references: [id])
+  amount          Int
+  description     String
   /// Evidence of the transfer. Required before COMPLETED, enforced in the
   /// service layer rather than the schema because Prisma cannot express a
   /// conditional NOT NULL.
-  proofImage    String?
-  status        PayoutStatus @default(DRAFT)
+  proofImage      String?
+  status          PayoutStatus @default(DRAFT)
 
   requestedById   String
   requestedBy     User      @relation("PayoutRequester", fields: [requestedById], references: [id])
@@ -1707,7 +1757,7 @@ model Payout {
   completedBy     User?     @relation("PayoutCompleter", fields: [completedById], references: [id])
   rejectionReason String?
 
-  providerRef String?   @unique
+  providerRef             String?   @unique
   /// FFI-07 story 53: the provider balance the approving Admin read in the
   /// provider's dashboard, recorded BEFORE approving, and the provider it was
   /// read from. Required of every approval from this ticket on -- Sumopod
@@ -1727,9 +1777,9 @@ model Payout {
   /// instant. See src/lib/money/provider-withdrawals.ts.
   approvedProvider        String?
   approvedProviderBalance Int?
-  completedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  completedAt             DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
   ledgerEntries LedgerEntry[]
 
@@ -1746,11 +1796,11 @@ model Payout {
 /// exists so the gap between "the money is at the provider" and "the money is
 /// in the bank" is a row somebody wrote rather than an assumption.
 model ProviderWithdrawal {
-  id     String @id @default(cuid())
+  id                    String   @id @default(cuid())
   /// Which Payment Provider the money was drawn from. The same plain String
   /// Payment.provider holds, and stamped on the ledger entry this row posts
   /// (LedgerEntry.provider) so the Provider Balance can be read per provider.
-  provider String
+  provider              String
   /// The provider's own reference for this disbursement, from its dashboard.
   ///
   /// UNIQUE, and that is the whole idempotency story for this table: recording
@@ -1760,23 +1810,23 @@ model ProviderWithdrawal {
   /// on this index before it posts anything, which is the same shape as the
   /// ledger's own claim on a transactionId (prd-compliance 28b) and is checked
   /// for the same reason: a read-then-write would be no constraint at all.
-  reference String @unique
+  reference             String   @unique
   /// Whole rupiah taken out of the Provider Balance. Always positive; the
   /// direction is what carries the sign (src/lib/money/ledger.ts).
-  amount Int
+  amount                Int
   /// The account holder as the provider has it registered -- the entity whose
   /// bank account received the money. Free text rather than a foreign key
   /// because the collection account is a BANK account of a legal entity, and
   /// this repo's BankAccount model is a Fundraiser's destination account, not
   /// this.
-  destinationName String
+  destinationName       String
   /// Set when that holder is a registered Collecting Entity, which is the case
   /// that matters for ADR 0011: the Merchant Account is PT Jaya Korpora
   /// Prima's, and the collection account is allowed to belong to somebody else
   /// entirely. Left null when it is not -- a withdrawal to the platform's own
   /// bank, say, which is a real possibility and deliberately not modelled as a
   /// Partner Organisation.
-  collectingEntityId String?
+  collectingEntityId    String?
   /// What the Admin read in the provider's dashboard immediately before and
   /// immediately after the withdrawal. BOTH required, never optional: an
   /// unread pot is the exact condition this ticket exists to stop being
@@ -1793,12 +1843,12 @@ model ProviderWithdrawal {
   /// Where the evidence lives. Required, like a Payout's proofImage and for the
   /// same reason: an unevidenced movement of the platform's own money is not a
   /// record.
-  proofReference String
-  recordedById   String
-  recordedAt     DateTime @default(now())
+  proofReference        String
+  recordedById          String
+  recordedAt            DateTime @default(now())
 
   collectingEntity PartnerOrganisation? @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
-  recordedBy       User                  @relation("ProviderWithdrawalRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+  recordedBy       User                 @relation("ProviderWithdrawalRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
   ledgerEntries    LedgerEntry[]
 
   // The per-provider reconciliation reads every recorded sweep in recordedAt
@@ -1822,8 +1872,8 @@ model LedgerEntry {
 
   /// Which campaign this entry belongs to, where the account is
   /// campaign-scoped. Null for platform-level accounts.
-  campaignId String?
-  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+  campaignId      String?
+  campaign        Campaign? @relation(fields: [campaignId], references: [id])
   /// Trip-scoped sibling of campaignId, same optionality shape. Plain
   /// scalar, no @relation: VolunteerTrip doesn't exist yet -- Ticket 02
   /// adds the relation once it does.
@@ -1836,15 +1886,15 @@ model LedgerEntry {
   /// The referential guarantee comes from ManualContribution.programId, a
   /// real foreign key, written in the same transaction as the entries below
   /// -- and the only writer of a programId here is that module.
-  programId String?
+  programId       String?
 
   /// Exactly one of these is set, naming what caused the movement.
-  paymentId String?
-  payment   Payment? @relation(fields: [paymentId], references: [id])
-  refundId  String?
-  refund    Refund?  @relation(fields: [refundId], references: [id])
-  payoutId  String?
-  payout    Payout?  @relation(fields: [payoutId], references: [id])
+  paymentId            String?
+  payment              Payment?            @relation(fields: [paymentId], references: [id])
+  refundId             String?
+  refund               Refund?             @relation(fields: [refundId], references: [id])
+  payoutId             String?
+  payout               Payout?             @relation(fields: [payoutId], references: [id])
   /// Which Manual Contribution this movement belongs to -- set on both the
   /// credit and its reversal, which is what lets a reader tell money that
   /// arrived off-gateway apart from money that came through a Payment.
@@ -1972,7 +2022,7 @@ model VolunteerTrip {
   updatedAt     DateTime            @updatedAt
 
   // Relations
-  fundraiser    User             @relation(fields: [fundraiserId], references: [id], onDelete: Cascade)
+  fundraiser    User                        @relation(fields: [fundraiserId], references: [id], onDelete: Cascade)
   batches       VolunteerBatch[]
   statusChanges VolunteerTripStatusChange[]
 
@@ -2040,8 +2090,8 @@ model VolunteerBatch {
   updatedAt            DateTime             @updatedAt
 
   // Relations
-  trip           VolunteerTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  registrations  Registration[]
+  trip          VolunteerTrip  @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  registrations Registration[]
 
   @@index([tripId])
   @@index([status])

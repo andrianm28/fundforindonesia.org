@@ -127,12 +127,29 @@ export type PartnerOrganisationErrorCode =
   | "FUNDRAISER_ALREADY_LINKED"
   | "OWN_PARTNER_ORGANISATION_CONFLICT";
 
+/**
+ * Refusals of the Bank Account and its Verification Request (ticket 16;
+ * ADR 0018): creating, submitting, withdrawing and deleting a BankAccount,
+ * and a Verifier's decision on it.
+ */
+export type BankAccountErrorCode =
+  | "BANK_ACCOUNT_INVALID"
+  | "BANK_ACCOUNT_NOT_FOUND"
+  | "BANK_ACCOUNT_ALREADY_VERIFIED"
+  | "BANK_ACCOUNT_VERIFICATION_ALREADY_PENDING"
+  | "BANK_ACCOUNT_NOT_DELETABLE"
+  | "BANK_ACCOUNT_VERIFICATION_REQUEST_NOT_FOUND"
+  | "BANK_ACCOUNT_VERIFICATION_NOT_PENDING"
+  | "BANK_ACCOUNT_DECISION_INVALID"
+  | "OWN_BANK_ACCOUNT_CONFLICT";
+
 export type DomainErrorCode =
   | LifecycleErrorCode
   | MoneyErrorCode
   | TripErrorCode
   | CapacityErrorCode
-  | PartnerOrganisationErrorCode;
+  | PartnerOrganisationErrorCode
+  | BankAccountErrorCode;
 
 const HTTP_STATUS: Record<DomainErrorCode, number> = {
   VALIDATION: 400,
@@ -277,6 +294,29 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   KIND_AUTHORISATION_NOT_FOUND: 404,
   FUNDRAISER_ALREADY_LINKED: 409,
   OWN_PARTNER_ORGANISATION_CONFLICT: 403,
+  // A malformed or missing field the owner can fix by resending, like
+  // PARTNER_ORGANISATION_INVALID.
+  BANK_ACCOUNT_INVALID: 400,
+  BANK_ACCOUNT_NOT_FOUND: 404,
+  // Decision 1's "checked once": submitting an account that already has a
+  // verifiedAt is a conflict with the account's own state.
+  BANK_ACCOUNT_ALREADY_VERIFIED: 409,
+  // One PENDING request per account.
+  BANK_ACCOUNT_VERIFICATION_ALREADY_PENDING: 409,
+  // Decision 5: verifiedAt is not null, or a request row of any outcome
+  // already exists. A conflict with the row's own history, not a bad input.
+  BANK_ACCOUNT_NOT_DELETABLE: 409,
+  BANK_ACCOUNT_VERIFICATION_REQUEST_NOT_FOUND: 404,
+  // The request was decided or withdrawn by someone else since it was read
+  // (the same conditional-write race closeRequest guards against).
+  BANK_ACCOUNT_VERIFICATION_NOT_PENDING: 409,
+  // Approval is missing checkedBankCode or documentedAccountName, or a
+  // rejection is missing its reason (decision 2): the Verifier can fix it by
+  // filling the form in, like DEADLINE_REQUIRED.
+  BANK_ACCOUNT_DECISION_INVALID: 422,
+  // A Verifier tried to decide their own account (ADR 0018), the same shape
+  // as OWN_CAMPAIGN_CONFLICT / OWN_TRIP_CONFLICT.
+  OWN_BANK_ACCOUNT_CONFLICT: 403,
 };
 
 /**
