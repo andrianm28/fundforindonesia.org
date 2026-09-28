@@ -125,50 +125,83 @@ baris macet permanen. Bukan gerbang Fase 2 murni — boleh menyusul setelah
 
 ## Implementation note
 
-`releaseMaturedEscrow` (`src/lib/money/escrow.ts`) sekarang membaca kandidat
-lewat halaman-halaman (`take: ESCROW_RELEASE_SWEEP_LIMIT` per halaman),
-diurutkan `escrowReleaseAt asc, id asc` -- `id` sebagai kunci urut sekunder
-yang stabil -- dan memakai `id` halaman terakhir sebagai cursor
-(`cursor: { id }, skip: 1`) untuk halaman berikutnya. Sebuah halaman yang
-seluruhnya `frozen`/`deferred` (guard permanen) **tidak lagi menghentikan
-panggilan**: panggilan yang sama lanjut membaca halaman berikutnya, sampai
-benar-benar melepas `ESCROW_RELEASE_SWEEP_LIMIT` baris atau baris matang
-habis, dibatasi oleh `ESCROW_RELEASE_SWEEP_SCAN_LIMIT` (10x limit) baris yang
-dilihat per panggilan -- supaya backlog baris macet permanen tidak berubah
-jadi full-table scan.
+**Rework (2026-09-30), owner memilih opsi (b): penanda yang tersimpan lintas
+panggilan**, menggantikan draf pertama (cursor dalam-satu-panggilan saja,
+lihat riwayat git untuk draf itu) supaya perbaikan mengikuti teks jawaban
+secara literal, bukan hanya efeknya.
 
-Ini **beda mekanisme** dari bacaan literal jawaban owner: bukan penanda
-sekunder yang **tersimpan lintas panggilan** (mis. kolom baru "terakhir kali
-dilewati"), melainkan cursor **dalam satu panggilan yang sama** yang
-melangkahi baris macet untuk mencapai baris di belakangnya pada panggilan itu
-juga. Efeknya sama -- tak ada panggilan mana pun yang kelaparan di belakang
-baris macet permanen selama total baris macet + baris baru di bawah
-`ESCROW_RELEASE_SWEEP_SCAN_LIMIT` -- tapi dicapai **tanpa perubahan skema**,
-sesuai preferensi "Prefer no schema change" dari brief eksekusi. `id` sebagai
-kunci urut sekunder tetap dipakai persis seperti diminta ("urutan sekunder");
-yang berbeda hanya bahwa dorongannya terjadi di dalam satu panggilan, bukan
-lewat state yang disimpan ke baris. `escrowReleaseAt`/`escrowReleasedAt`
-sama sekali tidak disentuh oleh mekanisme ini -- tetap murni bacaan akuntansi
-seperti sebelumnya.
+Kolom baru `Payment.escrowSweepDeferredAt` (nullable `DateTime`, migrasi
+`20260930090000_escrow_sweep_cursor`, indeks
+`(escrowSweepDeferredAt, escrowReleaseAt, id)`) adalah penanda sekunder itu.
+`null` berarti "belum pernah dilewati guard permanen" -- keadaan setiap baris
+lama, tanpa backfill. `releaseMaturedEscrow` (`src/lib/money/escrow.ts`)
+mengurutkan kandidat `escrowSweepDeferredAt asc nulls first, escrowReleaseAt
+asc, id asc`: baris yang belum pernah dilewati selalu di depan; di antara
+baris yang pernah dilewati, yang paling lama dilewati di depan (rotasi adil).
+`escrowReleaseAt`/`escrowReleasedAt` sama sekali tidak disentuh oleh
+mekanisme ini -- tetap murni bacaan akuntansi seperti sebelumnya.
 
-`console.warn` di akhir fungsi sekarang membedakan dua kasus: kuota rilis
-terpenuhi (`releasedCount === ESCROW_RELEASE_SWEEP_LIMIT`, backlog normal,
-pesan lama dipertahankan) vs batas scan tercapai tanpa kuota rilis terpenuhi
-(`consideredCount >= ESCROW_RELEASE_SWEEP_SCAN_LIMIT`, backlog didominasi
-baris macet permanen) -- pesan baru menyebut jumlah yang dilewati guard
-permanen dan menyatakan eksplisit "the sweep is not reaching the rest of the
-backlog", menunjuk `deferredEscrowWatchdog` (`GET /api/admin/reconcile`)
-untuk daftar per-Payment.
+Saat guard permanen (`isEscrowReleaseFrozen`/`hasRefundInFlight`) melewatkan
+sebuah baris, id-nya dikumpulkan (`permanentlySkippedIds`), lalu **satu
+`updateMany` batch** menstempel `escrowSweepDeferredAt = now` untuk semuanya
+**setelah seluruh scan-baca panggilan itu selesai** -- bukan satu per satu di
+tengah scan. Alasannya konkret, bukan gaya: mengubah kolom yang JUGA jadi
+kunci urut di tengah scan yang sama akan mengubah urutan baris yang belum
+dibaca relatif terhadap cursor `id`, sehingga cursor bisa melompati baris
+yang justru belum diproses (bug ini ditangkap oleh test regresi lama sendiri
+saat draf ini pertama ditulis dengan stempel per-baris). Saat baris akhirnya
+benar-benar dirilis, `escrowSweepDeferredAt` dibersihkan kembali ke `null`
+dalam `updateMany` klaim yang sama (predikat `escrowReleasedAt IS NULL`
+tetap satu-satunya yang menjaga keamanan-race klaim; field tambahan ini
+hanya ikut ditulis oleh pemenang klaim) -- pilihan: **dibersihkan**, bukan
+dibiarkan, supaya baris yang pernah macet lalu selesai terbaca identik
+dengan baris yang tak pernah macet sama sekali.
 
-Regresi diverifikasi: test baru di `escrow.test.ts` ("reaches a releasable
-Payment sitting behind a full window...") gagal di `origin/main` (baris
-releasable tidak pernah tersentuh) dan lolos setelah perbaikan. Tak ada
-perubahan skema; kanari `platformFeePortionFor` tetap 3 pemanggilan.
+Paging dalam-satu-panggilan (cursor `id`, `ESCROW_RELEASE_SWEEP_SCAN_LIMIT`)
+dari draf pertama **dipertahankan** di atas rotasi ini, bukan dihapus:
+keduanya menyelesaikan masalah berbeda. Rotasi lintas-panggilan adalah yang
+membuat kelaparan mustahil untuk **berapa pun** jumlah baris macet permanen
+(dibuktikan test baru: baris macet lebih banyak dari
+`ESCROW_RELEASE_SWEEP_SCAN_LIMIT` sendiri, baris releasable tetap tercapai
+dalam 2 panggilan). Paging dalam-panggilan adalah kenyamanan di atas itu --
+membiarkan satu panggilan mencapai baris releasable yang duduk tepat di
+belakang barisan macet, alih-alih menunggu rotasi bekerja lewat beberapa
+panggilan.
+
+`console.warn` tetap membedakan dua kasus seperti draf pertama: kuota rilis
+terpenuhi (`releasedCount === ESCROW_RELEASE_SWEEP_LIMIT`, backlog normal)
+vs batas scan tercapai tanpa kuota rilis terpenuhi (backlog didominasi baris
+macet permanen, pesan menyatakan eksplisit "the sweep is not reaching the
+rest of the backlog" dan menunjuk `deferredEscrowWatchdog`). Ditambah
+komentar presedensi (`if`/`else if`, bukan dua kondisi independen) sesuai
+nit review.
+
+Regresi diverifikasi: test baru "reaches a releasable Payment behind MORE
+permanently-stuck Payments than any single call's scan budget" (lebih dari
+`ESCROW_RELEASE_SWEEP_SCAN_LIMIT` baris macet) membuktikan rotasi lintas
+panggilan, bukan sekadar cursor dalam-panggilan, yang menutup starvation.
+Test warning menutup kedua cabang peringatan (backlog normal dan
+backlog-macet-dominan) plus kasus tanpa peringatan sama sekali. Mock test
+(`escrow.test.ts`) diberi catatan eksplisit: ia meniru urutan/cursor/nulls
+Prisma di atas array in-memory, bukan menjalankan Prisma/Postgres
+sungguhan -- migrasi sendiri (`npm run ci:local -- migrations`) yang
+membuktikan kolom dan indeks nyata berlaku bersih.
+
+Tak ada perubahan pada `escrowReleaseAt`/`escrowReleasedAt` atau semantik
+guard mana pun; klaim `updateMany` berpredikat tetap satu-satunya penjaga
+race-safety pelepasan. Kanari `platformFeePortionFor` tetap 3 pemanggilan,
+`requireRefundAllowedForKind` 3, `BankAccountNotEligibleError` 6. Tak ada
+`as any`.
 
 Verifikasi: `npx vitest run src/lib/money/escrow.test.ts
 src/lib/scheduled-jobs.test.ts src/app/api/admin/reconcile/route.test.ts`
-(88 lolos), `npx vitest run src/__tests__` (338 lolos, 8 skip), `npx tsc
---noEmit` (47, baseline, tak satu pun di file yang diubah), `node
-ci/ratchet.mjs` (lint 193 baseline, tsc 47 baseline, keduanya unchanged).
-`git diff --name-only origin/main HEAD` hanya `src/lib/money/escrow.ts` dan
-`src/lib/money/escrow.test.ts`.
+(93 lolos), `npx tsc --noEmit` (47, baseline, tak satu pun di file yang
+diubah), `node ci/ratchet.mjs` (lint 193 baseline, tsc 47 baseline, keduanya
+unchanged), `npm run ci:local -- migrations` (migrasi berlaku bersih dan
+cocok dengan schema.prisma; satu kegagalan lokal-saja yang sudah diketahui
+di `ledger-transaction-claim-migration.test.ts`, diabaikan sesuai arahan).
+Full suite sengaja tidak dijalankan (builder lain memakainya).
+`git diff --name-only origin/main HEAD` menyentuh `prisma/schema.prisma`,
+`prisma/migrations/20260930090000_escrow_sweep_cursor/migration.sql`,
+`src/lib/money/escrow.ts`, `src/lib/money/escrow.test.ts`, dan file tiket
+ini.

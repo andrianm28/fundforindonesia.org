@@ -1398,6 +1398,27 @@ model Payment {
   /// now AND escrowReleasedAt IS NULL`, which is also why they share an index.
   escrowReleasedAt DateTime?
 
+  /// Ticket 15. Stamped with the sweep's `now` whenever releaseMaturedEscrow
+  /// (src/lib/money/escrow.ts) skips this Payment because a PERMANENT guard
+  /// holds it -- isEscrowReleaseFrozen (a SUSPENDED subject) or an in-flight
+  /// Refund -- never for a Payment that simply has not matured yet, and
+  /// never touched by the claim itself (updateMany only ever writes
+  /// escrowReleasedAt). Cleared back to null the moment a later sweep
+  /// finally releases this Payment, so a row that WAS stuck and later
+  /// resolved reads identically to one that was never stuck at all.
+  ///
+  /// Exists only to give the sweep's query a secondary sort key that moves
+  /// with each skip, because escrowReleaseAt deliberately does not: changing
+  /// escrowReleaseAt to push a stuck row back would be an accounting error
+  /// (CONTEXT.md, Escrow Hold -- it is the hold's own maturity date, not a
+  /// scheduling hint). Ordering `escrowSweepDeferredAt ASC NULLS FIRST,
+  /// escrowReleaseAt ASC, id ASC` puts every never-skipped row (the common
+  /// case) ahead of every previously-skipped one, and rotates previously-skipped
+  /// rows oldest-skipped-first among themselves -- so a backlog of
+  /// permanently-stuck rows, however large, can never again fill every
+  /// future call's page and starve the genuinely releasable rows behind it.
+  escrowSweepDeferredAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1408,6 +1429,12 @@ model Payment {
   @@index([provider, status])
   @@index([donationId, status])
   @@index([escrowReleaseAt, escrowReleasedAt])
+  /// The sweep's own paging order (ticket 15): releaseMaturedEscrow orders
+  /// candidates `escrowSweepDeferredAt ASC NULLS FIRST, escrowReleaseAt ASC,
+  /// id ASC`, and this index carries the same column order so that ordering
+  /// is served by an index scan rather than a sort over the whole matched
+  /// set.
+  @@index([escrowSweepDeferredAt, escrowReleaseAt, id])
 }
 
 enum PlatformFeeScope {

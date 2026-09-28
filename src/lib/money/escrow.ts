@@ -74,26 +74,22 @@ export const ESCROW_RELEASE_SWEEP_LIMIT = 200;
  * ESCROW_RELEASE_SWEEP_LIMIT`) was also its only page, so a backlog of
  * ESCROW_RELEASE_SWEEP_LIMIT Payments a permanent guard defers filled the
  * whole window and starved the sweep for everyone else -- see that
- * constant's own comment. The fix is not to raise
- * ESCROW_RELEASE_SWEEP_LIMIT itself (that only raises how many
- * permanently-stuck rows it takes to starve everyone again); it is to let
- * one call keep paging past a page that turned out to be entirely
- * permanently-skipped, using `escrowReleaseAt` + `id` as a stable secondary
- * sort/cursor (`escrowReleaseAt` alone ties across Payments that matured in
- * the same instant) so a later page never re-reads a row an earlier page in
- * this same call already looked at, and each successive page sorts the rows
- * this call has not yet examined -- effectively pushing what it already
- * knows is permanently stuck behind whatever it has not looked at yet,
- * without ever touching `escrowReleaseAt` itself.
+ * constant's own comment.
  *
- * This bound is what keeps that paging itself bounded: without it, a large
- * enough permanently-stuck backlog would turn every call into an unbounded
- * scan of every matured-but-frozen Payment in the database, every time. Set
- * well above ESCROW_RELEASE_SWEEP_LIMIT so an ordinary backlog of ordinary,
+ * The actual fix for starvation across CALLS is `escrowSweepDeferredAt`
+ * (schema.prisma, Payment) and the query's ordering on it below -- a
+ * permanently-stuck row rotates behind never-stuck rows on the very next
+ * call, so no number of stuck rows can starve a releasable one forever, no
+ * matter what this constant is set to. What THIS constant still does is
+ * let one call make more progress than a single page would, by paging past
+ * a page that turned out to be entirely `frozen`/`deferred` instead of
+ * stopping on it -- worthwhile on its own (why wait for a whole extra call
+ * when the rest of this one is free), and it bounds that paging so a large
+ * stuck backlog cannot turn one call into an unbounded scan. Set well above
+ * ESCROW_RELEASE_SWEEP_LIMIT so an ordinary backlog of ordinary,
  * eventually-releasable rows never comes close to it -- reaching it is
  * itself the signal (see the warning in releaseMaturedEscrow below) that a
- * permanently-stuck backlog, not an ordinary one, is now the reason a call
- * is not draining further.
+ * permanently-stuck backlog, not an ordinary one, dominated this call.
  */
 export const ESCROW_RELEASE_SWEEP_SCAN_LIMIT = ESCROW_RELEASE_SWEEP_LIMIT * 10;
 
@@ -154,12 +150,14 @@ export interface ReleaseSweepSubject {
  *
  * `frozen` and `deferred` are the two PERMANENT guards this ticket is about:
  * neither changes `escrowReleaseAt` or `escrowReleasedAt`, so the row is
- * still eligible and still just as old on the very next call. `raceLost` is
- * not permanent in the same sense -- the winner of that race already
- * stamped `escrowReleasedAt`, so this Payment drops out of every future
- * sweep's query on its own, guard or no guard -- but it is still not a
- * release this call gets credit for, so it is tracked separately from
- * `released` rather than folded into it.
+ * still eligible and still just as old on the very next call -- which is
+ * exactly why each one also stamps `escrowSweepDeferredAt` (see the
+ * transaction below and that column's own comment in schema.prisma).
+ * `raceLost` is not permanent in the same sense -- the winner of that race
+ * already stamped `escrowReleasedAt`, so this Payment drops out of every
+ * future sweep's query on its own, guard or no guard, and gets no deferral
+ * stamp either -- but it is still not a release this call gets credit for,
+ * so it is tracked separately from `released` rather than folded into it.
  */
 type SweepOutcome = 'released' | 'frozen' | 'deferred' | 'raceLost';
 
@@ -202,18 +200,36 @@ type SweepOutcome = 'released' | 'frozen' | 'deferred' | 'raceLost';
  * ledger at all, which is a quiet no-op rather than an aborted transaction
  * and an error in this sweep's log.
  *
- * PAGING (ticket 15). The candidate list is read a page at a time --
- * `ESCROW_RELEASE_SWEEP_LIMIT` rows per page, oldest-`escrowReleaseAt`-first
- * with `id` as a secondary sort key for a stable cursor -- and this call
+ * ROTATION ACROSS CALLS (ticket 15). The candidate query orders by
+ * `escrowSweepDeferredAt ASC NULLS FIRST, escrowReleaseAt ASC, id ASC`, not
+ * `escrowReleaseAt` alone. A Payment this or an earlier call found `frozen`
+ * or `deferred` has that column stamped with the `now` it was skipped at
+ * (see the transaction below), so it sorts BEHIND every Payment that has
+ * never been skipped, and, among skipped Payments, oldest-skipped-first.
+ * `escrowReleaseAt`/`escrowReleasedAt` are never touched by this -- doing so
+ * would be the accounting error the ticket explicitly rules out -- so the
+ * hold's real maturity date and release state stay exactly what they always
+ * were. The practical effect: no number of permanently-stuck Payments can
+ * ever again fill every future call's page and starve the genuinely
+ * releasable Payments behind them, because a stuck Payment keeps rotating
+ * to the back of the query on every call that finds it still stuck, rather
+ * than sitting at the very front forever.
+ *
+ * PAGING WITHIN ONE CALL. On top of that, the candidate list is read a page
+ * at a time -- `ESCROW_RELEASE_SWEEP_LIMIT` rows per page -- and this call
  * keeps asking for another page, up to `ESCROW_RELEASE_SWEEP_SCAN_LIMIT`
  * rows considered in total, until it has actually released
  * `ESCROW_RELEASE_SWEEP_LIMIT` Payments or run out of matured rows. A page
  * that turns out to be entirely `frozen`/`deferred` no longer ends the call:
- * the next page picks up exactly where this one left off (the cursor), so a
+ * the next page picks up exactly where this one left off (`id` as the
+ * paging cursor, a stable tiebreak the sort above needs regardless), so a
  * Payment this call already saw and could not release is never re-read
- * within the same call, and whatever matured rows sit behind a
- * permanently-stuck backlog get a chance to be seen and released in the
- * same call that found the backlog, rather than never.
+ * within the same call. This is a same-call convenience on top of the
+ * rotation above -- it lets one call reach a releasable Payment sitting
+ * right behind a stuck run instead of waiting for the rotation to sort
+ * itself out over several calls -- not what makes starvation across calls
+ * impossible; the rotation above is what does that, unconditionally on the
+ * size of the stuck backlog.
  *
  * `now` defaults to the live clock; the scheduled job (./scheduled-jobs.ts)
  * passes its own injected `now` so it can be driven directly in tests,
@@ -241,6 +257,17 @@ export async function releaseMaturedEscrow(
   let permanentlySkippedCount = 0;
   let cursorId: string | undefined;
   let exhausted = false;
+  // Payment ids this call found frozen/deferred, stamped in one batch AFTER
+  // the scan loop below finishes rather than one at a time as each is found
+  // (ticket 15). Doing it per-row, inside the scan, would rewrite the very
+  // column the scan is ordered by while the scan is still in progress --
+  // this call's own writes would reorder rows out from under its own
+  // cursor mid-page, silently skipping whatever the reorder moved past the
+  // cursor. Deferring every write to one pass after the read side is
+  // entirely done keeps the read-order this call observed stable for the
+  // whole scan, the same reason a for-loop does not mutate the array it is
+  // iterating.
+  const permanentlySkippedIds: string[] = [];
 
   while (
     releasedCount < ESCROW_RELEASE_SWEEP_LIMIT &&
@@ -268,12 +295,20 @@ export async function releaseMaturedEscrow(
         donation: { select: { campaignId: true } },
         registration: { select: { batch: { select: { tripId: true } } } },
       },
-      // Oldest hold first, id second to break ties deterministically -- the
-      // stable secondary sort this call's paging cursor below relies on
-      // (ticket 15). Without the tiebreak, two Payments that matured in the
-      // same instant have no fixed relative order across pages, and the
-      // cursor below could re-read or skip one of them.
-      orderBy: [{ escrowReleaseAt: 'asc' }, { id: 'asc' }],
+      // escrowSweepDeferredAt first (nulls -- never skipped -- first), so a
+      // Payment a permanent guard skipped on an earlier call rotates behind
+      // every Payment that has not been; escrowReleaseAt next, oldest hold
+      // first, exactly as before within each of those two groups; id last to
+      // break ties deterministically -- the stable secondary sort this
+      // call's own paging cursor below relies on (ticket 15). Without the
+      // final tiebreak, two Payments that matured in the same instant have
+      // no fixed relative order across pages, and the cursor below could
+      // re-read or skip one of them.
+      orderBy: [
+        { escrowSweepDeferredAt: { sort: 'asc', nulls: 'first' } },
+        { escrowReleaseAt: 'asc' },
+        { id: 'asc' },
+      ],
       // Resumes right after the last row the previous page in this call
       // looked at -- never re-reads a row this call already found
       // frozen/deferred, and never depends on escrowReleaseAt having moved.
@@ -330,7 +365,11 @@ export async function releaseMaturedEscrow(
           // with no manual step. Judged under the lock, so a Suspension
           // committed before it is seen. A missing subject is left to the
           // release below, as before. PERMANENT guard (ticket 15): this row
-          // is just as eligible, and just as old, on the very next call.
+          // is just as eligible, and just as old (escrowReleaseAt/
+          // escrowReleasedAt untouched), on the very next call -- the caller
+          // stamps escrowSweepDeferredAt for it (batched, after this whole
+          // scan; see the comment on permanentlySkippedIds above) so it
+          // rotates behind never-skipped rows in that next query.
           if (subjectState && isEscrowReleaseFrozen(subjectState)) return 'frozen';
 
           // Every refund against THIS payment, whatever its status. Refund.paymentId
@@ -359,7 +398,8 @@ export async function releaseMaturedEscrow(
           // posted, and escrowReleaseAt/escrowReleasedAt still say "not yet
           // resolved", which is exactly true -- a later sweep, after the
           // refund resolves, picks this payment up again. PERMANENT guard
-          // (ticket 15) for as long as the refund stays open.
+          // (ticket 15) for as long as the refund stays open -- stamped the
+          // same way and for the same reason as the frozen branch above.
           const hasRefundInFlight = refunds.some((r) => r.status === 'REQUESTED' || r.status === 'PROCESSING');
           if (hasRefundInFlight) return 'deferred';
 
@@ -369,9 +409,18 @@ export async function releaseMaturedEscrow(
           // rather than left to the ledger's claim index (prd-compliance 28b):
           // the index would refuse the second post anyway, but only by failing
           // this transaction, which a sweep would log as a broken payment.
+          // escrowSweepDeferredAt is cleared in the same write, not left
+          // stamped, so a Payment that WAS stuck and now finally releases
+          // reads identically to one that was never stuck at all -- nothing
+          // else in this codebase currently reads the column, but a Payment
+          // permanently marked "was once deferred" after it is done and
+          // released would be a false trail for whatever reads it next.
+          // Harmless to the claim's own race-safety: the predicate below is
+          // still `escrowReleasedAt IS NULL` alone, and this extra field is
+          // written only by whichever caller's updateMany actually matches.
           const claimed = await tx.payment.updateMany({
             where: { id: payment.id, escrowReleasedAt: null },
-            data: { escrowReleasedAt: now },
+            data: { escrowReleasedAt: now, escrowSweepDeferredAt: null },
           });
           if (claimed.count === 0) return 'raceLost';
 
@@ -435,6 +484,7 @@ export async function releaseMaturedEscrow(
           releasedCount++;
         } else if (outcome === 'frozen' || outcome === 'deferred') {
           permanentlySkippedCount++;
+          permanentlySkippedIds.push(payment.id);
         }
       } catch (err) {
         // One payment's failure must not stop the rest of the sweep -- a
@@ -451,6 +501,34 @@ export async function releaseMaturedEscrow(
     }
   }
 
+  // One batch write for every row this call found frozen/deferred, now that
+  // the read side above is entirely finished (see permanentlySkippedIds'
+  // own comment for why this has to wait until here). `escrowReleasedAt:
+  // null` in the predicate is belt-and-braces, not load-bearing for
+  // correctness: this marker's only reader is the query above, which never
+  // matches a Payment whose escrowReleasedAt is already set, so stamping
+  // one anyway would be inert either way -- but skipping it keeps the
+  // invariant "escrowSweepDeferredAt is only ever non-null on a currently
+  // unreleased Payment" true without relying on that downstream fact.
+  if (permanentlySkippedIds.length > 0) {
+    await prisma.payment.updateMany({
+      where: { id: { in: permanentlySkippedIds }, escrowReleasedAt: null },
+      data: { escrowSweepDeferredAt: now },
+    });
+  }
+
+  // PRECEDENCE, stated once here because it is easy to misread as two
+  // independent checks: the two branches below are `if` / `else if`, so a
+  // call that both filled its release quota AND happened to hit the scan
+  // bound getting there reports only the first branch (the ordinary-backlog
+  // message). That is deliberate, not an oversight -- `releasedCount ===
+  // ESCROW_RELEASE_SWEEP_LIMIT` on its own already answers "did this call do
+  // a full, healthy amount of release work", regardless of how much scanning
+  // (rotation past stuck rows) it took to get there, and that is the
+  // question an operator needs answered first. The second branch exists
+  // for exactly the case the first one does NOT cover: the scan bound was
+  // reached and the release quota was NOT filled, i.e. this call could not
+  // find enough releasable work behind the stuck rows.
   if (releasedCount === ESCROW_RELEASE_SWEEP_LIMIT) {
     // The ordinary backlog case, unchanged in spirit from before ticket 15:
     // this call filled its release quota with genuine releases, so more
