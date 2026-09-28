@@ -108,11 +108,9 @@ question only Dri can settle. None is written up as a fix, deliberately.
 - [12: Where is a Bank Account number decrypted, and what is the payout
   instruction?](issues/12-decrypting-a-bank-account-at-payout.md): whether the
   account number has to be readable at payout time at all, or whether the
-  transfer is made by hand in the provider dashboard.
-  [13: What counts as proof that the money actually
-  moved?](issues/13-what-counts-as-proof-that-the-money-moved.md) leans on the
-  answer: if the number never reaches the platform, proof-of-transfer becomes
-  the platform's only trace of the transfer.
+  transfer is made by hand in the provider dashboard. 13 leans on it: if the
+  number never reaches the platform, proof-of-transfer becomes the platform's
+  only trace of the transfer.
 - [13: What counts as proof that the money actually moved?](issues/13-what-counts-as-proof-that-the-money-moved.md):
   `{"proofImage": "x"}` closes a Payout today. The two-person rule is fully
   satisfied by two hands transferring nothing, and the repo never defines
