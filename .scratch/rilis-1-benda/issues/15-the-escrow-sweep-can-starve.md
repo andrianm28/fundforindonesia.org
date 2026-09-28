@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** resolved
+**Status:** in-review
 
 ## Question
 
@@ -122,3 +122,53 @@ itu salah akuntansi); naikkan limit atau ubah kueri agar baris macet tak
 memblokir yang lain; ubah teks peringatan agar membedakan backlog normal vs
 baris macet permanen. Bukan gerbang Fase 2 murni — boleh menyusul setelah
 02/11/12/13, tapi jangan didiamkan.
+
+## Implementation note
+
+`releaseMaturedEscrow` (`src/lib/money/escrow.ts`) sekarang membaca kandidat
+lewat halaman-halaman (`take: ESCROW_RELEASE_SWEEP_LIMIT` per halaman),
+diurutkan `escrowReleaseAt asc, id asc` -- `id` sebagai kunci urut sekunder
+yang stabil -- dan memakai `id` halaman terakhir sebagai cursor
+(`cursor: { id }, skip: 1`) untuk halaman berikutnya. Sebuah halaman yang
+seluruhnya `frozen`/`deferred` (guard permanen) **tidak lagi menghentikan
+panggilan**: panggilan yang sama lanjut membaca halaman berikutnya, sampai
+benar-benar melepas `ESCROW_RELEASE_SWEEP_LIMIT` baris atau baris matang
+habis, dibatasi oleh `ESCROW_RELEASE_SWEEP_SCAN_LIMIT` (10x limit) baris yang
+dilihat per panggilan -- supaya backlog baris macet permanen tidak berubah
+jadi full-table scan.
+
+Ini **beda mekanisme** dari bacaan literal jawaban owner: bukan penanda
+sekunder yang **tersimpan lintas panggilan** (mis. kolom baru "terakhir kali
+dilewati"), melainkan cursor **dalam satu panggilan yang sama** yang
+melangkahi baris macet untuk mencapai baris di belakangnya pada panggilan itu
+juga. Efeknya sama -- tak ada panggilan mana pun yang kelaparan di belakang
+baris macet permanen selama total baris macet + baris baru di bawah
+`ESCROW_RELEASE_SWEEP_SCAN_LIMIT` -- tapi dicapai **tanpa perubahan skema**,
+sesuai preferensi "Prefer no schema change" dari brief eksekusi. `id` sebagai
+kunci urut sekunder tetap dipakai persis seperti diminta ("urutan sekunder");
+yang berbeda hanya bahwa dorongannya terjadi di dalam satu panggilan, bukan
+lewat state yang disimpan ke baris. `escrowReleaseAt`/`escrowReleasedAt`
+sama sekali tidak disentuh oleh mekanisme ini -- tetap murni bacaan akuntansi
+seperti sebelumnya.
+
+`console.warn` di akhir fungsi sekarang membedakan dua kasus: kuota rilis
+terpenuhi (`releasedCount === ESCROW_RELEASE_SWEEP_LIMIT`, backlog normal,
+pesan lama dipertahankan) vs batas scan tercapai tanpa kuota rilis terpenuhi
+(`consideredCount >= ESCROW_RELEASE_SWEEP_SCAN_LIMIT`, backlog didominasi
+baris macet permanen) -- pesan baru menyebut jumlah yang dilewati guard
+permanen dan menyatakan eksplisit "the sweep is not reaching the rest of the
+backlog", menunjuk `deferredEscrowWatchdog` (`GET /api/admin/reconcile`)
+untuk daftar per-Payment.
+
+Regresi diverifikasi: test baru di `escrow.test.ts` ("reaches a releasable
+Payment sitting behind a full window...") gagal di `origin/main` (baris
+releasable tidak pernah tersentuh) dan lolos setelah perbaikan. Tak ada
+perubahan skema; kanari `platformFeePortionFor` tetap 3 pemanggilan.
+
+Verifikasi: `npx vitest run src/lib/money/escrow.test.ts
+src/lib/scheduled-jobs.test.ts src/app/api/admin/reconcile/route.test.ts`
+(88 lolos), `npx vitest run src/__tests__` (338 lolos, 8 skip), `npx tsc
+--noEmit` (47, baseline, tak satu pun di file yang diubah), `node
+ci/ratchet.mjs` (lint 193 baseline, tsc 47 baseline, keduanya unchanged).
+`git diff --name-only origin/main HEAD` hanya `src/lib/money/escrow.ts` dan
+`src/lib/money/escrow.test.ts`.

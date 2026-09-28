@@ -14,7 +14,7 @@ vi.mock('@/lib/prisma', () => ({
 }));
 
 import { prisma } from '@/lib/prisma';
-import { releaseMaturedEscrow, ESCROW_HOLD_DAYS } from './escrow';
+import { releaseMaturedEscrow, ESCROW_HOLD_DAYS, ESCROW_RELEASE_SWEEP_LIMIT } from './escrow';
 
 const mockPaymentFindMany = prisma.payment.findMany as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
@@ -105,11 +105,21 @@ function makeDb(
   const queryRawCalls: TemplateStringsArray[] = [];
 
   mockPaymentFindMany.mockImplementation(
-    async ({ where, take }: { where: Record<string, unknown>; take?: number }) => {
+    async ({
+      where,
+      cursor,
+      skip,
+      take,
+    }: {
+      where: Record<string, unknown>;
+      cursor?: { id: string };
+      skip?: number;
+      take?: number;
+    }) => {
       const now = (where.escrowReleaseAt as { lte: Date }).lte;
       const campaignFilter = (where.donation as { campaignId: string } | undefined)?.campaignId;
       const tripFilter = (where.registration as { batch: { tripId: string } } | undefined)?.batch?.tripId;
-      const matches = Array.from(paymentState.values()).filter(
+      let matches = Array.from(paymentState.values()).filter(
         (p) =>
           p.status === where.status &&
           p.escrowReleaseAt !== null &&
@@ -118,6 +128,19 @@ function makeDb(
           (!campaignFilter || p.campaignId === campaignFilter) &&
           (!tripFilter || p.tripId === tripFilter),
       );
+      // Mirrors releaseMaturedEscrow's own `orderBy: [{ escrowReleaseAt:
+      // 'asc' }, { id: 'asc' }]` -- a stable, deterministic order the
+      // cursor/skip pagination below (ticket 15) can rely on the same way
+      // the real query does.
+      matches = matches.sort((a, b) => {
+        const byMaturity = a.escrowReleaseAt!.getTime() - b.escrowReleaseAt!.getTime();
+        if (byMaturity !== 0) return byMaturity;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+      if (cursor?.id) {
+        const idx = matches.findIndex((p) => p.id === cursor.id);
+        matches = idx === -1 ? [] : matches.slice(idx + (skip ?? 0));
+      }
       return matches.slice(0, take ?? matches.length).map((p) =>
         p.campaignId != null
           ? {
@@ -758,4 +781,66 @@ describe('releaseMaturedEscrow -- a Suspended Campaign', () => {
       volunteerTripId: 'trip-1',
     });
   });
+
+  it(
+    'reaches a releasable Payment sitting behind a full window of Payments a permanent guard defers, ' +
+      'instead of starving on that same window forever (ticket 15 regression)',
+    async () => {
+      // ESCROW_RELEASE_SWEEP_LIMIT + a margin of permanently-stuck, oldest
+      // rows -- comfortably more than one page's worth -- all belonging to
+      // one SUSPENDED Campaign, so the guard defers every one of them
+      // without touching escrowReleaseAt or escrowReleasedAt. Before ticket
+      // 15, `take: ESCROW_RELEASE_SWEEP_LIMIT` ordered oldest-first meant
+      // this query's one and only page WAS these rows -- payment-releasable,
+      // maturing after all of them, was never even read.
+      const STUCK_COUNT = ESCROW_RELEASE_SWEEP_LIMIT + 5;
+      const base = Date.now() - 30 * MS_PER_DAY;
+      const stuckPayments = Array.from({ length: STUCK_COUNT }, (_, i) =>
+        makePayment({
+          id: `stuck-${i}`,
+          amount: 10_000,
+          escrowReleaseAt: new Date(base + i * 1000),
+          campaignId: 'campaign-suspended',
+        }),
+      );
+      const releasable = makePayment({
+        id: 'payment-releasable',
+        amount: 50_000,
+        // Matured strictly after every stuck row, but still safely in the
+        // past -- i.e. still eligible, and still genuinely releasable.
+        escrowReleaseAt: new Date(base + STUCK_COUNT * 1000),
+        campaignId: 'campaign-active',
+      });
+
+      const { rows, paymentState } = makeDb(
+        [...stuckPayments, releasable],
+        [],
+        [],
+        { campaigns: { 'campaign-suspended': SUSPENDED_CAMPAIGN } },
+      );
+
+      const result = await releaseMaturedEscrow();
+
+      // The whole point: the releasable row behind the stuck window is
+      // actually released in this same call, not merely eligible for some
+      // future one.
+      expect(paymentState.get('payment-releasable')!.escrowReleasedAt).not.toBeNull();
+      const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-releasable');
+      expect(releaseLegs).toHaveLength(2);
+      expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({
+        account: 'CAMPAIGN_BALANCE',
+        amount: 50_000,
+        campaignId: 'campaign-active',
+      });
+      expect(result.releasedCount).toBe(1);
+      // It looked well past the first ESCROW_RELEASE_SWEEP_LIMIT rows to get
+      // there -- the paging this ticket adds, not a lucky single page.
+      expect(result.consideredCount).toBeGreaterThan(ESCROW_RELEASE_SWEEP_LIMIT);
+      expect(result.consideredCount).toBe(STUCK_COUNT + 1);
+      // None of the stuck rows were released or touched.
+      for (const stuck of stuckPayments) {
+        expect(paymentState.get(stuck.id)!.escrowReleasedAt).toBeNull();
+      }
+    },
+  );
 });
