@@ -2,6 +2,9 @@ import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { CampaignStatus, CancellationRequestStatus } from '@/generated/prisma/client';
 
+// Rendered per request: Flags, Suspensions and Cancellation requests change.
+export const dynamic = 'force-dynamic';
+
 /**
  * The Admin queue ticket 25 asks for (map.md FFI-07b: "Layar Admin
  * menjatuhkan/mencabut Suspension" -- 0 hasil; the backend,
