@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done — merged 2026-09-28 in PR #121 (`c19f2eb`)
 
 **Blocked by:** nothing — 01 is `resolved` and this ticket is the code for it
 

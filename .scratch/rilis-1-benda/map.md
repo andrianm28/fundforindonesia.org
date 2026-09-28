@@ -186,7 +186,12 @@ question only Dri can settle. None is written up as a fix, deliberately.
   and a masked one in the list — a name can be checked without the number, a
   mistyped digit cannot. **This is #114's only blocker**: the account picker on the Payout form is
   already in that PR, along with the list it draws from.
-  `open`.
+  **`done`** — merged 2026-09-28 in PR #121 (`c19f2eb`), after independent
+  Standards and Spec review; the Spec review's double-submit race was closed
+  with a partial unique index (one PENDING request per account).
+- [18: Which second payment provider carries VA, e-wallet and disbursement?](issues/18-second-payment-provider.md):
+  research. Rilis 1 now includes the Fase 2 gate, which needs Payments from two
+  providers reconciled; no second provider is named anywhere.
 
 ## Not yet specified
 
