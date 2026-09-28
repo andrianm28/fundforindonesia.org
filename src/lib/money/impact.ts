@@ -79,20 +79,25 @@ export const IMPACT_LINES = [
     //   1. The first words must not be a completed-tense verb. "Dikembalikan
     //      ke Donor" as the opening three words is a claim about the Donor's
     //      bank account, and it is false for every Refund that has not been
-    //      transferred. "Disediakan" says the opposite -- set up, not delivered.
+    //      transferred. "Refund" is the noun and stops there: it names the
+    //      kind and asserts no stage at all.
     //   2. No dev jargon. "dikomit" was accurate (the money IS committed) and
-    //      meaningless to every reader of a public page; "disiapkan" says the
+    //      meaningless to every reader of a public page; "Refund" says the
     //      same thing to a Donor.
     //   3. The pending part goes LAST, next to the number, because that is
     //      where the eye lands -- not hidden after a comma behind the big
     //      figure and the word "Dikembalikan".
     //
-    // "belum semuanya ditransfer" is deliberately vague about HOW MANY are
-    // outstanding rather than quoting a split. Today nothing has been
-    // transferred at all (refundPaidLegs has no production caller, ticket 32),
-    // and the moment it gets one the split changes; a number there would be
-    // either wrong today or stale tomorrow. The sentence under the table and
-    // the `notes` entry carry the disclosure in words instead.
+    // Note there is no "belum semuanya ditransfer" tail in the label either:
+    // "Refund" is the whole of it. A stage word is deliberately left out of a
+    // cell that cannot hold a sentence, and the disclosure is carried by the
+    // paragraph under the table and the `notes` entry below -- the two places a
+    // Donor actually reads it, next to the figure rather than standing in for
+    // it. That tail is also deliberately vague about HOW MANY are outstanding:
+    // today nothing has been transferred at all (refundPaidLegs has no
+    // production caller, ticket 32), and the moment it gets one the split
+    // changes, so a number there would be either wrong today or stale
+    // tomorrow.
     label: 'Refund',
   },
   {

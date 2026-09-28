@@ -307,11 +307,18 @@ describe('GET /api/impact -- a refunded Donation', () => {
     expect(body.heldInEscrowHold).toBe(0);
   });
 
-  it('moves the page once per Refund, at the freeze, and never again', async () => {
+  it('moves the page once per Refund, at the freeze, and not again after -- unless the Campaign could not cover it', async () => {
     // prd-compliance 28c. This walks the page through all four states of one
     // Refund's life and asserts what each step does to the six lines, because
     // the step 28c added is a MOVEMENT and an end-state assertion alone would
     // not notice it happening.
+    //
+    // THIS TRACE HAS NO SHORTFALL, AND THAT IS THE POINT OF SAYING SO IN THE
+    // TITLE. The Campaign here can cover the Refund, so approval is a pure
+    // handover and the page freezes from step 2 on. A Refund the Campaign CANNOT
+    // cover moves the page again at approval -- the next test is that case, and
+    // it is the one that makes "not again" a qualified claim rather than a
+    // universal one.
     //
     // WHAT THE PAGE SHOULD DO, stated first because the numbers below only
     // mean something next to it. A fee that was counted into a line and then
@@ -322,19 +329,27 @@ describe('GET /api/impact -- a refunded Donation', () => {
     //     settlements, and a Refund does not un-collect a rupiah), and
     //   the six lines total it at EVERY step, not just at the end.
     //
-    // And the movement happens ONCE, at the freeze. refundRequestedLegs takes
-    // the Campaign's net share out of the pool and puts the WHOLE Gross into
-    // Frozen Balance, so from that instant the money is the Donor's: the
-    // returned Platform Fee leaves `platformFeeRetained` and the Provider Fee
-    // the provider will not return leaves `providerFeeKept`, while
-    // `heldInEscrowHold` falls by the net share the pool actually lost and
-    // `returnedToDonors` rises by the whole Gross. Steps 3 and 4 -- approval
-    // and payment -- move the same rupiah between two accounts that are BOTH
-    // inside the returned line, so the page must not move at all. A fee
-    // returned to the wrong account would leave the same total -- every ledger
-    // transaction balances, so the conservation law cannot tell -- and the
-    // wrong LINE. Which is why each step below asserts the delta and not only
-    // the figures.
+    // And the movement happens ONCE, at the freeze, FOR A REFUND THE CAMPAIGN
+    // COULD COVER. refundRequestedLegs takes the Campaign's net share out of the
+    // pool and puts the WHOLE Gross into Frozen Balance, so from that instant
+    // the money is the Donor's: the returned Platform Fee leaves
+    // `platformFeeRetained` and the Provider Fee the provider will not return
+    // leaves `providerFeeKept`, while `heldInEscrowHold` falls by the net share
+    // the pool actually lost and `returnedToDonors` rises by the whole Gross.
+    // Steps 3 and 4 -- approval and payment -- then move the same rupiah between
+    // two accounts that are BOTH inside the returned line, so in THIS trace the
+    // page does not move at all. A fee returned to the wrong account would
+    // leave the same total -- every ledger transaction balances, so the
+    // conservation law cannot tell -- and the wrong LINE. Which is why each step
+    // below asserts the delta and not only the figures.
+    //
+    // "Does not move at all" IS TRUE OF THIS TRACE BECAUSE ITS SHORTFALL IS
+    // ZERO, not because approval can never move the page. Approval credits
+    // REFUND_CLEARING with the full Gross and debits the freeze, so while the
+    // Campaign covered the Refund the two cancel inside the one line. When it
+    // did NOT cover it, refundApprovedLegs also credits the source pool by the
+    // shortfall, and the page moves by exactly that much -- the next test is
+    // that case, and it is the one this trace does not reach.
     const ledger = ledgerFixture();
     ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
     holder.db = makeImpactDb({
@@ -394,10 +409,12 @@ describe('GET /api/impact -- a refunded Donation', () => {
     // lines entirely and is reported beside them.
     expect(frozen.platformCost).toEqual({ unrecoveredProviderFee: 3_000, uncoveredRefunds: 0 });
 
-    // 3. A second Admin approves it, and the page must not move by a single
-    //    rupiah. Approval is a handover between two accounts of the SAME line:
-    //    Frozen Balance is debited as Refund Clearing is credited, and the
-    //    Donor was owed this money before this Admin touched anything.
+    // 3. A second Admin approves it, and -- because the Campaign covered this
+    //    Refund -- the page must not move by a single rupiah. Approval is a
+    //    handover between two accounts of the SAME line: Frozen Balance is
+    //    debited as Refund Clearing is credited, and the Donor was owed this
+    //    money before this Admin touched anything. With a shortfall it is NOT
+    //    the same line, and the page does move; see the test after this one.
     ledger.refundApproval({ refundId: 'refund-1', campaignId: 'campaign-1', amount: 100_000, source: 'ESCROW_HOLD', shortfall: 0 });
     const approved = await getBreakdown();
 
@@ -431,9 +448,9 @@ describe('GET /api/impact -- a refunded Donation', () => {
     //    refundId. The pot's own identity is pinned where it can be seen:
     //    src/lib/money/ledger.test.ts asserts refundPaidLegs' exact legs and
     //    that GATEWAY_CLEARING + REFUND_COST equals what the pot is owed.
-    //    Read this test as "the page is a conservation law, and a Refund
-    //    moves it exactly once", not as "the Provider Balance is drained
-    //    correctly".
+    //    Read this test as "the page is a conservation law, and a Refund this
+    //    Campaign could cover moves it exactly once", not as "the Provider
+    //    Balance is drained correctly".
     ledger.refundPayment({ refundId: 'refund-1', amount: 100_000 });
     const paid = await getBreakdown();
 
@@ -442,6 +459,101 @@ describe('GET /api/impact -- a refunded Donation', () => {
     expect(diffOf(lines(approved), lines(paid))).toEqual(noLineMoved());
     expect(sumOf(lines(paid))).toBe(100_000);
     expect(paid.platformCost).toEqual({ unrecoveredProviderFee: 3_000, uncoveredRefunds: 0 });
+  });
+
+  it('moves the page AGAIN at approval when the Campaign could not cover the Refund, by exactly the shortfall', async () => {
+    // The test above walks a Refund the Campaign could cover, where approval is
+    // a handover inside one line and the page does not move. THIS is the other
+    // case, and it is why that test's title says "not again" rather than
+    // "never": approval moves the page whenever the Campaign's own money did
+    // not cover the Refund.
+    //
+    // WHY THE PAGE MUST MOVE, since a test asserting movement is a strange
+    // thing to find on a transparency page. The freeze credits the WHOLE Gross
+    // to the Donor, but it debits the Campaign's pool only by the net share
+    // (Gross minus both fee portions) -- and here the pool is empty, so it is
+    // debited below zero. The shortfall is money the CAMPAIGN NEVER HELD, and
+    // at the freeze the page cannot know that yet: it is `impact.ts` that
+    // subtracts `uncoveredRefunds` at the moment approval tops the pool back
+    // up. So approval is a real movement of a real amount, from the returned
+    // line back to the Campaign's balance, and the two cancel -- the six lines
+    // total the same 100 000 before and after, which is exactly why an
+    // end-state-only assertion would never have caught the movement at all.
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    // Mature the escrow and pay the whole of it out, so the Campaign holds
+    // nothing when the Donor asks for all 100 000 back.
+    ledger.release({ paymentId: 'payment-1', campaignId: 'campaign-1', amount: 92_000 });
+    ledger.payoutInstruction({ payoutId: 'payout-1', campaignId: 'campaign-1', amount: 92_000 });
+    ledger.refundRequest({
+      refundId: 'refund-1',
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      source: 'CAMPAIGN_BALANCE',
+      platformFeePortion: 5_000,
+      providerFeePortion: 3_000,
+    });
+    const db = () =>
+      makeImpactDb({
+        campaigns: [CAMPAIGN],
+        payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+        refunds: [{ id: 'refund-1', paymentId: 'payment-1' }],
+        payouts: [{ id: 'payout-1', campaignId: 'campaign-1', amount: 92_000, status: 'APPROVED' }],
+        ledgerEntries: ledger.rows,
+      });
+
+    // At the freeze the page shows the whole 100 000 as the Donor's, and the
+    // Campaign's balance reads NEGATIVE: the freeze debited a pool that had
+    // already been paid out. Asserted because it is the state the shortfall is
+    // invisible in -- nothing on the page says "uncovered" yet.
+    holder.db = db();
+    const frozen = await getBreakdown();
+
+    expect(frozen.collected).toBe(100_000);
+    expect(lines(frozen)).toEqual({
+      disbursedToFundraisers: 92_000,
+      returnedToDonors: 100_000,
+      heldInEscrowHold: 0,
+      availableInCampaignBalance: -92_000,
+      platformFeeRetained: 0,
+      providerFeeKept: 0,
+    });
+    expect(sumOf(lines(frozen))).toBe(100_000);
+    expect(frozen.platformCost).toEqual({ unrecoveredProviderFee: 3_000, uncoveredRefunds: 0 });
+
+    // The second Admin approves, and the Campaign's pool cannot cover the net
+    // share it was already debited, so `impact.ts` posts a 92 000 shortfall: a
+    // credit to the Campaign's balance and a debit to Refund Cost. The page
+    // reads the credit as `availableInCampaignBalance` and the Debit as
+    // `uncoveredRefunds`, so the returned line gives back exactly 92 000 and
+    // the platform reports absorbing it.
+    ledger.refundApproval({
+      refundId: 'refund-1',
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      source: 'CAMPAIGN_BALANCE',
+      shortfall: 92_000,
+    });
+    holder.db = db();
+    const approved = await getBreakdown();
+
+    // THE DELTA, which is the whole point: the page DID move, and not by an
+    // amount this test guessed from the end state -- the same 92_000 leaves
+    // the returned line as the shortfall the ledger posted, so this assertion
+    // fails if the reader stops subtracting `uncoveredRefunds` from the line.
+    expect(diffOf(lines(frozen), lines(approved))).toEqual({
+      ...noLineMoved(),
+      returnedToDonors: -92_000,
+      availableInCampaignBalance: 92_000,
+    });
+    expect(lines(approved).returnedToDonors).toBe(8_000);
+    expect(lines(approved).availableInCampaignBalance).toBe(0);
+    // The movement is a REOUTFIT, not a leak: the same 100 000 is collected and
+    // the same 100 000 is in the six lines, and 92 000 of it is now named as
+    // the platform's own cost instead of as a return of the Donors' money.
+    expect(approved.collected).toBe(100_000);
+    expect(sumOf(lines(approved))).toBe(100_000);
+    expect(approved.platformCost).toEqual({ unrecoveredProviderFee: 3_000, uncoveredRefunds: 92_000 });
   });
 
   it('a Refund the Campaign could no longer cover does not shrink the disbursed line -- it is platform cost', async () => {

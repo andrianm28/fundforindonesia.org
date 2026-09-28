@@ -43,6 +43,21 @@ function renderedLine(label: string): number {
   return Number(digits);
 }
 
+/**
+ * The NAME the page prints for one of the six lines, read off the row's own
+ * header cell. `renderedLine` reads the figure; this reads the words beside it.
+ *
+ * Asserted exactly rather than by a `/^Refund/`-style prefix, because a prefix
+ * match is what let a stale test stay green through a rename: any label
+ * beginning with the right word passes, so the test cannot tell "Refund" from
+ * "Refund ke Donor yang sudah dicairkan" -- and the second of those is a
+ * completed-tense claim this page must never make.
+ */
+function renderedName(key: string): string {
+  const row = screen.getByTestId(`impact-line-${key}`).closest('tr');
+  return row?.querySelector('th')?.textContent?.trim() ?? '';
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -76,9 +91,11 @@ describe('ImpactPage', () => {
     await renderPage();
 
     expect(screen.getByText(/Tersalurkan ke Fundraiser/)).toBeTruthy();
-    // Matched on the leading verb, not the tail: this test is about every line
-    // being NAMED, and the returned line's name now opens with "Disediakan".
-    expect(screen.getByText(/^Refund/)).toBeTruthy();
+    // The returned line's shipped name is exactly "Refund" (IMPACT_LINES in
+    // src/lib/money/impact.ts). Asserted as the WHOLE label, not a prefix:
+    // /(^Refund)/ would also pass "Refund ke Donor yang sudah dikirim", which
+    // is precisely the completed-tense claim this page exists to avoid.
+    expect(renderedName('returnedToDonors')).toBe('Refund');
     // The label names the kind, not the stage: "Dikembalikan" would claim the
     // money is home when refundPaidLegs has no production caller at all.
     expect(screen.queryByText(/^Dikembalikan/)).toBeNull();
@@ -154,7 +171,14 @@ describe('ImpactPage', () => {
     // refundPaidLegs has no production caller, so nothing here has been
     // transferred. The stage belongs in the sentence under the table, where it
     // is read next to the number rather than standing in for it.
-    expect(screen.getByText(/^Refund/)).toBeTruthy();
+    //
+    // The whole label, exactly. An earlier version of this assertion was
+    // /(^Refund)/ against `getByText`, which passed on the shipped "Refund" and
+    // would have gone on passing through any rename that kept the first word --
+    // including a rename back to the completed tense this test exists to
+    // forbid. It was green without being right, which is the failure the
+    // project's own verification rules (docs/agents/verification.md) are about.
+    expect(renderedName('returnedToDonors')).toBe('Refund');
     expect(screen.queryByText(/^Dikembalikan/)).toBeNull();
     expect(screen.queryByText(/dikomit/)).toBeNull();
     // And the disclosure is in the paragraph under the table and in the notes,
