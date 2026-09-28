@@ -237,7 +237,7 @@ _Avoid_: Offline donation, donasi manual, top-up
 Pengembalian uang satu Payment ke Donor, penuh sebesar Gross atau sebagian darinya, tidak pernah dikurangi biaya apa pun. Dibuat satu Admin, disetujui Admin lain, dan diselesaikan Admin yang berbeda dari penyetujunya; Provider Fee yang tidak kembali ditanggung platform.
 
 **Dormant Balance**:
-Dirancang untuk Campaign Balance pada Campaign yang sudah Expired atau Completed dan tidak dicairkan lama, yang akhirnya dialihkan ke Campaign ber-Kind sama milik Partner Organisation yang sama. **Belum ada kodenya sama sekali** -- tidak ada model, laporan, ambang 60 atau 180 hari, maupun pengingat Fundraiser; yang ada hanya catatan bahwa fitur ini belum dibangun. Sampai ada, tidak ada langkah platform apa pun yang mengenali Dana terlantar: itu tetap Campaign Balance biasa dan hanya bisa ditemukan Admin secara manual. Angka 60 dan 180 hari, dan pengingat tiga kali, adalah rancangan dan bukan aturan yang berlaku. Laporan 60 hari sendiri (bukan pengalihannya) masuk Rilis 1 -- lihat `prd-audit/issues/05`.
+Dirancang untuk Campaign Balance pada Campaign yang sudah Expired atau Completed dan tidak dicairkan lama, yang akhirnya dialihkan ke Campaign ber-Kind sama milik Partner Organisation yang sama. Yang sudah ada hanya **laporan 60 hari** untuk Admin: Campaign Expired atau Completed yang Campaign Balance-nya belum dicairkan 60 hari atau lebih. Pengalihan 180 hari dan pengingat Fundraiser **belum ada** dan tidak masuk Rilis 1, jadi saldo itu tetap Campaign Balance biasa; laporan hanya membuatnya terlihat.
 _Avoid_: Saldo menganggur, dana nganggur, unclaimed
 
 **Bank Account**:
