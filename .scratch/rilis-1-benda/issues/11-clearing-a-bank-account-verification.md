@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** resolved
+**Status:** in-review
 
 ## Question
 
@@ -55,3 +55,39 @@ answered "ya semua": the recommendation stands as the decision.
 rekeningnya sendiri"; dua aksi terpisah (cabut verifikasi ≠ Suspension); yang
 sudah cair tidak disentuh; reversibel dengan alasan tercatat, pola yang sama
 dengan Flag/Suspension yang sudah ada.
+
+## Implementation
+
+Built on `claude/ticket-11-revoke-bank-verification`. New append-only history
+table `BankAccountRevocation` (`action` REVOKED/REINSTATED, `reason`,
+`actorId`, `createdAt`), the same shape `CampaignStatusChange` is for
+Suspension/lift: `BankAccount.verifiedAt` stays the single "eligible now"
+field, this table is only the "why"/"who" of the last change to it. Migration
+`20260930080000_bank_account_verification_revocation`.
+
+`revokeBankAccountVerification` / `reinstateBankAccountVerification`
+(`src/lib/bank-account-verification.ts`): a Verifier may revoke a verified
+account unless they are its owner or the Verifier who most recently approved
+it (`RevokerWasApproverError`); a different Verifier than the one who wrote
+the account's latest REVOKED row may reinstate it (`ReinstaterWasRevokerError`),
+also never the owner. Both require a reason, both write one
+`BankAccountRevocation` row and one in-app notification to the owner, and
+both use the same conditional `updateMany` guard on `verifiedAt` the existing
+decide command uses, so a race throws instead of double-writing.
+
+`payouts.ts` is unchanged, deliberately: `requestPayout`, `approvePayout` and
+`completePayout` already re-read `verifiedAt` fresh from the row at each step
+(not trusted from an earlier read), so a Payout DRAFT/APPROVED against a
+now-revoked account is refused through the existing `BankAccountNotEligibleError`
+path with no new check needed. A Payout already COMPLETED is untouched, since
+revoke/reinstate never reads or writes `Payout` or the ledger.
+
+UI: `/moderasi/rekening` (`export const dynamic = "force-dynamic"`, since it
+reads the DB with no request data) gained two sections below the existing
+decide queue — "Rekening Terverifikasi" (revoke, one `RevocationPanel` per
+currently-verified account) and "Rekening Dicabut" (reinstate, one panel per
+account whose latest revoke/reinstate row is REVOKED). Route:
+`POST /api/moderasi/bank-accounts/[id]/revocation` with
+`{ action: "revoke" | "reinstate", reason }`, VERIFIER-gated.
+
+Status: in-review.
