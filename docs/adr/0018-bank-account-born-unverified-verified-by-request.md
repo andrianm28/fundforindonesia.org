@@ -24,8 +24,15 @@ Admin, because money returned to the wrong account cannot be recalled.
   check would then be a statement by the same person who entered it, which is
   the shape the two-person rule exists to refuse everywhere else in the ledger.
 - A separate bank-account registration page with its own intake and its own
-  queue. Rejected: it is a second way to hand documents to a Verifier, and the
-  product has one. Verification Request is where a Verifier already looks.
+  queue. Rejected, though not for the reason first written here. The product does
+  **not** have one way to hand work to a Verifier: it has two, Verification
+  Request for Campaigns and Volunteer Trip moderation for Trips, each with its
+  own `SUBMITTED` queue and the same refusal to act on one's own. The real
+  reason is one queue per subject rather than one queue overall: a Bank Account
+  belongs to a subject that already has a queue, and a third intake would be a
+  third place to look, a third thing to staff, and a third place for the
+  subject-conflict rule to be forgotten. Piggybacking also inherits that rule
+  instead of re-deciding it.
 - A provider name check. Not available: ADR 0006 records that Sumopod has no
   disbursement API, so "verified through a name check at the provider where
   available" is false for the only provider before launch.

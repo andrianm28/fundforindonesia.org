@@ -19,8 +19,18 @@ Selalu isi `model` saat men-dispatch; subagent tidak pernah mewarisi model sesi.
 - Builder berjalan sebagai **subagent background** di sesi koordinator, dengan
   worktree sendiri (keputusan owner 2026-09-27); cloud session terpisah hanya
   bila owner memintanya.
-- Paling banyak 4 agent background sekaligus (keputusan owner 2026-09-27;
-  container 4 vCPU, jadi jangan menjalankan full suite di keempatnya bersamaan).
+- owner's replacement of the earlier limit of 4 (2026-09-27): 8 for now, and
+  the number is not a measurement. **What is measured is 4 vCPU.** What is
+  bounded is CPU, not agent count: read-only agents (review, sweep, research)
+  do not contend for it, but several builders running `vitest run` at once will
+  collide and produce tests that fail on timeout, then report a false regression.
+  Raise the number when read-only work is what is queued; lower it when builders
+  are, and never on the assumption that a number of agents is the constraint.
+- **Aturan praktis:** agent baca-saja boleh paralel. Full suite
+  (`npx vitest run`) maksimal **satu** pada satu waktu; kalau lebih dari satu
+  builder memerlukannya, jalankan berurutan. Kalau sebuah test gagal dengan
+  timeout atau flake, **periksa dulu** apakah itu kontensi CPU sebelum
+  mempercayainya sebagai regression.
 - Sebelum dispatch, cocokkan baris "Blocked by" tiket dengan `**Status:**`
   tiap pemblokir; dispatch hanya bila semuanya `done`.
 - Brief menunjuk path file, bukan menempel isi; minta laporan paling banyak
