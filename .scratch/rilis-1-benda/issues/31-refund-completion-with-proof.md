@@ -24,6 +24,31 @@ Admin records manually on completion.
 
 ## Decision / scope
 
+**Owner decision Q7(c), 2026-09-28** (rework of this ticket's first cut,
+PR #132; ADR 0018 Amendment 2026-09-28): ADR 0018 wants a Refund's
+destination to be a Verifier-checked Bank Account, same as a Payout's, but
+Rilis 1's Guest Donors have no profile to hold one on. The compensating
+control is two pairs of eyes on the account number instead of a Verifier's:
+
+- The Admin who **approves** the Refund (`approveRefund`, not
+  `completeRefund`) records the destination -- bank code, account holder
+  name, account number -- from the Donor's written request. An approval
+  with no destination is refused.
+- The Admin who **completes** the Refund, a third and different Admin,
+  re-types only the account number from the same written request.
+  `completeRefund` compares it against the one sealed at approval
+  (decrypted server-side, digits normalised, constant-time compare) and
+  refuses with a typed 400 error on mismatch, writing nothing -- no status
+  change, no ledger legs. `completeRefund` no longer accepts a destination
+  of its own.
+- Neither form ever renders the full account number back; both show only
+  the masked tail, reusing the Bank Account verification queue's existing
+  mask helper.
+
+This supersedes the "records the Donor destination the Admin typed by
+hand" bullet below, which described the ticket's first cut (destination
+captured at completion): that capture moved to approval.
+
 `completeRefund` in the money layer, APPROVED -> COMPLETED only, mirroring
 `completePayout`'s two-person discipline:
 

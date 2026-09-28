@@ -22,6 +22,7 @@ vi.mock('next/navigation', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { sealRefundDonorAccountNumber } from '@/lib/contact-fields';
 import AdminRefundDetailPage from './page';
 
 afterEach(() => {
@@ -125,6 +126,28 @@ describe('AdminRefundDetailPage', () => {
 
     expect(screen.getByText(/tidak bisa menandainya selesai sendiri/i)).toBeDefined();
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('shows the recorded destination masked -- bank code and name plaintext, only the account number tail (Q7(c))', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-3', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.refund.findUnique).mockResolvedValue({
+      ...REQUESTED_REFUND,
+      status: 'APPROVED',
+      approvedById: 'admin-2',
+      approvedBy: { name: 'Admin Dua' },
+      donorBankCode: 'BCA',
+      donorAccountName: 'Budi Santoso',
+      ...sealRefundDonorAccountNumber('1234567890'),
+    } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ slug: 'wakaf-sumur', title: 'Wakaf Sumur' } as never);
+
+    render(await AdminRefundDetailPage({ params: Promise.resolve({ id: 'refund-1' }) }));
+
+    expect(screen.getByText('BCA', { exact: false })).toBeDefined();
+    expect(screen.getByText('Budi Santoso', { exact: false })).toBeDefined();
+    expect(screen.getByText('****7890', { exact: false })).toBeDefined();
+    // The plaintext number never renders anywhere on the page.
+    expect(screen.queryByText('1234567890', { exact: false })).toBeNull();
   });
 
   it('shows a read-only summary with the completing Admin, no form, once COMPLETED', async () => {

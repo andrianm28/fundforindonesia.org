@@ -4,6 +4,8 @@ import { getServerSession } from '@/lib/auth';
 import { formatRupiah } from '@/lib/utils/currency';
 import { loadRefundSubject } from '@/lib/refund-subject-lookup';
 import { REFUND_STATUS_LABEL } from '@/lib/refund-status-label';
+import { readRefundDonorAccountNumber } from '@/lib/contact-fields';
+import { maskBankAccountNumber } from '@/lib/bank-account-mask';
 import { AdminRefundApproveForm } from '@/components/admin/AdminRefundApproveForm';
 import { AdminRefundCompleteForm } from '@/components/admin/AdminRefundCompleteForm';
 
@@ -28,6 +30,15 @@ type RouteContext = { params: Promise<{ id: string }> };
  * complete form (ticket 31, which itself refuses both the requester and
  * the approver); anything else (COMPLETED and, later, the rest of the
  * machine) gets a read-only summary.
+ *
+ * THE RECORDED DESTINATION IS SHOWN MASKED, NEVER IN FULL (Q7(c), ADR
+ * 0018 Amendment 2026-09-28): once an Admin has approved and recorded the
+ * Donor's destination, this page shows the bank code and account name
+ * plaintext (as CONTEXT.md, Bank Account already does for a Fundraiser's
+ * saved account) but only the account number's masked tail
+ * (maskBankAccountNumber, @/lib/bank-account-mask.ts) -- the completing
+ * Admin re-types the number from the Donor's own written request, not from
+ * this screen.
  */
 export default async function AdminRefundDetailPage({ params }: RouteContext) {
   const { id } = await params;
@@ -58,6 +69,14 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
   if (!subject) {
     notFound();
   }
+
+  // Decrypted only to mask (Q7(c)): the full number is never handed to the
+  // page's render, only the tail maskBankAccountNumber leaves visible.
+  const recordedAccountNumber = readRefundDonorAccountNumber({
+    donorAccountNumberCiphertext: refund.donorAccountNumberCiphertext,
+    donorAccountNumberKeyId: refund.donorAccountNumberKeyId,
+  });
+  const maskedDonorAccountNumber = recordedAccountNumber ? maskBankAccountNumber(recordedAccountNumber) : null;
 
   return (
     <div className="max-w-2xl">
@@ -93,6 +112,15 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
             <p className="text-sm font-medium text-gray-900">{refund.completedBy?.name}</p>
           </div>
         )}
+
+        {refund.donorBankCode && refund.donorAccountName && maskedDonorAccountNumber && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
+            <p className="text-xs text-gray-500">Rekening tujuan Donor (dicatat saat persetujuan)</p>
+            <p className="text-sm font-medium text-gray-900">
+              {refund.donorBankCode} -- {refund.donorAccountName} -- {maskedDonorAccountNumber}
+            </p>
+          </div>
+        )}
       </div>
 
       {refund.status === 'REQUESTED' && (
@@ -115,8 +143,9 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
           <h2 className="mb-3 text-sm font-semibold text-gray-900">Tandai selesai</h2>
           <p className="mb-3 text-xs text-gray-500">
             Aturan dua orang (CONTEXT.md, Refund; ticket 31): Admin yang menyelesaikan harus berbeda dari yang
-            mengajukan maupun yang menyetujui, dan mentransfer dana secara manual ke rekening Donor sebelum mencatat
-            bukti transfer di sini.
+            mengajukan maupun yang menyetujui, dan mentransfer dana secara manual ke rekening Donor -- yang sudah
+            dicatat Admin yang menyetujui -- sebelum mengetik ulang nomor rekening dan mencatat bukti transfer di
+            sini (Q7(c)).
           </p>
           <AdminRefundCompleteForm
             refundId={refund.id}

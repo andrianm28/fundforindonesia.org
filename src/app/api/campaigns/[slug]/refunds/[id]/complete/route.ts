@@ -10,13 +10,14 @@ import { completeRefund } from '@/lib/money/refunds';
 const completeRefundSchema = z.object({
   // Type-checked only, exactly like the Payout twin: whether a field is
   // blank, whitespace-only or over length is completeRefund's own question,
-  // asked through the same shared validators
-  // (@/lib/payout-proof, ./cleanDestinationText) the Admin's form asks
-  // before submitting.
+  // asked through the same shared validators (@/lib/payout-proof,
+  // ./cleanDestinationText) the Admin's form asks before submitting.
+  // donorAccountNumber (Q7(c)) is the completing Admin's RE-TYPED number,
+  // compared server-side against the one the approving Admin recorded --
+  // this route never accepts a bank code or account name of its own any
+  // more.
   proofReference: z.string(),
   proofNote: z.string(),
-  donorBankCode: z.string(),
-  donorAccountName: z.string(),
   donorAccountNumber: z.string(),
 });
 
@@ -26,7 +27,10 @@ type RouteContext = { params: Promise<{ slug: string; id: string }> };
  * POST /api/campaigns/[slug]/refunds/[id]/complete -- a third Admin, neither
  * the one who requested this Refund nor the one who approved it, records
  * that the Admin has transferred the money by hand to the Donor's account
- * (CONTEXT.md, Refund; PRD §7.2; ticket 31), typing that destination here.
+ * (CONTEXT.md, Refund; PRD §7.2; ticket 31), re-typing the account number
+ * the approving Admin already recorded as the second pair of eyes (Q7(c),
+ * ADR 0018 Amendment 2026-09-28) -- this route never accepts a destination
+ * of its own.
  *
  * Structural mirror of the Payout completion route
  * (src/app/api/campaigns/[slug]/payouts/[id]/complete/route.ts):
@@ -67,8 +71,6 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRe
       completedById,
       proofReference: parsed.data.proofReference,
       proofNote: parsed.data.proofNote,
-      donorBankCode: parsed.data.donorBankCode,
-      donorAccountName: parsed.data.donorAccountName,
       donorAccountNumber: parsed.data.donorAccountNumber,
     });
 
@@ -83,9 +85,11 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRe
   } catch (error) {
     // Every refusal carries its own code and answers its own status:
     // TWO_PERSON_RULE when the requester or the approver tries to complete
-    // their own Refund, REFUND_PROOF_INVALID / REFUND_DESTINATION_INVALID
-    // for a field the Admin left blank or over length, and
-    // INVALID_REFUND_STATUS when the Refund is not APPROVED.
+    // their own Refund, REFUND_PROOF_INVALID for a blank or over-length
+    // proof field, REFUND_DESTINATION_INVALID for a blank re-typed number,
+    // REFUND_DESTINATION_MISMATCH (Q7(c)) when it does not match what the
+    // approving Admin recorded, and INVALID_REFUND_STATUS when the Refund
+    // is not APPROVED.
     const refusal = refusalResponse(error);
     if (refusal) return refusal;
     console.error('Error completing refund:', error);

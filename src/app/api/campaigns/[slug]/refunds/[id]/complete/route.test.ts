@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 import { POST } from './route';
+import { sealRefundDonorAccountNumber } from '@/lib/contact-fields';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -53,6 +54,12 @@ function makeTx(options: { refundRow?: Record<string, unknown> | null; campaignC
   };
 }
 
+/**
+ * donorAccountNumberCiphertext/KeyId are populated as though approveRefund
+ * already recorded them (Q7(c), ADR 0018 Amendment 2026-09-28): the
+ * completion route no longer writes a destination of its own, only checks
+ * the re-typed number against what is already sealed on the row.
+ */
 function makeRefundRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'refund-1',
@@ -61,6 +68,9 @@ function makeRefundRow(overrides: Record<string, unknown> = {}) {
     status: 'APPROVED',
     requestedById: 'requester-1',
     approvedById: 'approver-1',
+    donorBankCode: 'BCA',
+    donorAccountName: 'Budi Santoso',
+    ...sealRefundDonorAccountNumber('1234567890'),
     payment: {
       amount: 100_000,
       providerFee: 5_000,
@@ -75,8 +85,6 @@ function makeRefundRow(overrides: Record<string, unknown> = {}) {
 const validBody = {
   proofReference: 'TRX-1',
   proofNote: 'Ditransfer via mobile banking BCA, dicocokkan dengan nama dan rekening Donor.',
-  donorBankCode: 'BCA',
-  donorAccountName: 'Budi Santoso',
   donorAccountNumber: '1234567890',
 };
 
@@ -121,6 +129,21 @@ describe('POST /api/campaigns/[slug]/refunds/[id]/complete', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
+  it('returns 400 when the body still carries donorBankCode/donorAccountName -- the schema no longer has them, but extra keys are simply ignored, never written', async () => {
+    const { tx } = makeTx({ refundRow: makeRefundRow() });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(
+      postRequest({ ...validBody, donorBankCode: 'MANDIRI', donorAccountName: 'Someone Else' }),
+      routeContext(),
+    );
+
+    expect(response.status).toBe(200);
+    const call = (tx.refund.updateMany as Mock).mock.calls[0][0];
+    expect(call.data).not.toHaveProperty('donorBankCode');
+    expect(call.data).not.toHaveProperty('donorAccountName');
+  });
+
   it('returns 404 when the campaign does not exist', async () => {
     mockCampaignFindUnique.mockResolvedValue(null);
     const response = await POST(postRequest(), routeContext());
@@ -141,7 +164,7 @@ describe('POST /api/campaigns/[slug]/refunds/[id]/complete', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('completes an APPROVED refund and returns 200 with the updated status', async () => {
+  it('completes an APPROVED refund with the matching re-typed number and returns 200 with the updated status', async () => {
     const { tx } = makeTx({ refundRow: makeRefundRow() });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -150,6 +173,26 @@ describe('POST /api/campaigns/[slug]/refunds/[id]/complete', () => {
 
     expect(response.status).toBe(200);
     expect(data.status).toBe('COMPLETED');
+  });
+
+  it('returns 400 REFUND_DESTINATION_MISMATCH for a re-typed number that does not match what was recorded at approval, writing nothing', async () => {
+    const { tx } = makeTx({ refundRow: makeRefundRow() });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(postRequest({ ...validBody, donorAccountNumber: '9999999999' }), routeContext());
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe('REFUND_DESTINATION_MISMATCH');
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('accepts a re-typed number with different punctuation around the same digits (normalised comparison)', async () => {
+    const { tx } = makeTx({ refundRow: makeRefundRow() });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(postRequest({ ...validBody, donorAccountNumber: '1234-5678-90' }), routeContext());
+
+    expect(response.status).toBe(200);
   });
 
   it('returns 403 TWO_PERSON_RULE when the completer is the Admin who requested it', async () => {
@@ -218,5 +261,15 @@ describe('POST /api/campaigns/[slug]/refunds/[id]/complete', () => {
     const response = await POST(postRequest({ ...validBody, donorAccountNumber: '' }), routeContext());
     expect(response.status).toBe(400);
     expect((await response.json()).code).toBe('REFUND_DESTINATION_INVALID');
+  });
+
+  it('never echoes the account number back in the success response', async () => {
+    const { tx } = makeTx({ refundRow: makeRefundRow() });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(postRequest(), routeContext());
+    const text = await response.text();
+
+    expect(text).not.toContain('1234567890');
   });
 });

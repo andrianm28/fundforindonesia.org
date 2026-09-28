@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PATCH } from './route';
+import { readRefundDonorAccountNumber } from '@/lib/contact-fields';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -74,8 +75,18 @@ function makeRefundRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function patchRequest(): NextRequest {
-  return new NextRequest('http://localhost:3000/api/campaigns/test-campaign/refunds/refund-1/approve', { method: 'PATCH' });
+const validDestination = {
+  donorBankCode: 'BCA',
+  donorAccountName: 'Budi Santoso',
+  donorAccountNumber: '1234567890',
+};
+
+function patchRequest(body: Record<string, unknown> = validDestination): NextRequest {
+  return new NextRequest('http://localhost:3000/api/campaigns/test-campaign/refunds/refund-1/approve', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }
 
 function routeContext(id = 'refund-1') {
@@ -105,6 +116,12 @@ describe('PATCH /api/campaigns/[slug]/refunds/[id]/approve', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
+  it('returns 400 when the body fails the schema (wrong types)', async () => {
+    const response = await PATCH(patchRequest({ donorBankCode: 1 } as never), routeContext());
+    expect(response.status).toBe(400);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
   it('returns 404 when the campaign does not exist', async () => {
     mockCampaignFindUnique.mockResolvedValue(null);
     const response = await PATCH(patchRequest(), routeContext());
@@ -125,7 +142,7 @@ describe('PATCH /api/campaigns/[slug]/refunds/[id]/approve', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('approves a REQUESTED refund and returns 200 with the updated status', async () => {
+  it('approves a REQUESTED refund with a destination and returns 200 with the updated status', async () => {
     const { tx } = makeTx({ refundRow: makeRefundRow() });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -134,6 +151,56 @@ describe('PATCH /api/campaigns/[slug]/refunds/[id]/approve', () => {
 
     expect(response.status).toBe(200);
     expect(data.status).toBe('APPROVED');
+  });
+
+  it('records the sealed donor account number on approval, decrypting back to what was typed', async () => {
+    const { tx } = makeTx({ refundRow: makeRefundRow() });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    await PATCH(patchRequest(), routeContext());
+
+    const call = (tx.refund.updateMany as Mock).mock.calls[0][0];
+    expect(call.data.donorBankCode).toBe('BCA');
+    expect(call.data.donorAccountName).toBe('Budi Santoso');
+    expect(call.data.donorAccountNumberCiphertext).not.toBe('1234567890');
+    expect(
+      readRefundDonorAccountNumber({
+        donorAccountNumberCiphertext: call.data.donorAccountNumberCiphertext,
+        donorAccountNumberKeyId: call.data.donorAccountNumberKeyId,
+      }),
+    ).toBe('1234567890');
+  });
+
+  it('returns 400 REFUND_DESTINATION_INVALID when approving without a destination, posting nothing', async () => {
+    const { tx } = makeTx({ refundRow: makeRefundRow() });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await PATCH(patchRequest({ ...validDestination, donorAccountNumber: '' }), routeContext());
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe('REFUND_DESTINATION_INVALID');
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 REFUND_DESTINATION_INVALID for a blank bank code, posting nothing', async () => {
+    const { tx } = makeTx({ refundRow: makeRefundRow() });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await PATCH(patchRequest({ ...validDestination, donorBankCode: '   ' }), routeContext());
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe('REFUND_DESTINATION_INVALID');
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('never echoes the account number back in the success response', async () => {
+    const { tx } = makeTx({ refundRow: makeRefundRow() });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await PATCH(patchRequest(), routeContext());
+    const text = await response.text();
+
+    expect(text).not.toContain('1234567890');
   });
 
   it('returns 403 when the approver is the same person who requested it', async () => {

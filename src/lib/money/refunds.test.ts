@@ -12,12 +12,13 @@ import {
   RefundNotAllowedForKindError,
   RefundProofInvalidError,
   RefundDestinationInvalidError,
+  RefundDestinationMismatchError,
   SelfApprovalError,
   InvalidRefundStatusError,
   TwoPersonRuleError,
   OwnSubjectConflictError,
 } from './refunds';
-import { readRefundDonorAccountNumber } from '@/lib/contact-fields';
+import { readRefundDonorAccountNumber, sealRefundDonorAccountNumber } from '@/lib/contact-fields';
 import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
 
 type LedgerRow = {
@@ -194,6 +195,18 @@ function makePrisma(tx: ReturnType<typeof makeTx>['tx'], finalRow: Record<string
     refund: { findUniqueOrThrow: vi.fn().mockResolvedValue(finalRow) },
   };
 }
+
+/**
+ * The Donor destination approveRefund now requires (Q7(c), ADR 0018
+ * Amendment 2026-09-28): every approveRefund call in this file spreads
+ * this in, unless a test is specifically exercising a missing or invalid
+ * destination.
+ */
+const validDestination = {
+  donorBankCode: 'BCA',
+  donorAccountName: 'Budi Santoso',
+  donorAccountNumber: '1234567890',
+};
 
 describe('createRefund', () => {
   it('freezes funds from ESCROW_HOLD when the Payment has not matured, crediting FROZEN_BALANCE and splitting out the Provider Fee share at freeze time', async () => {
@@ -627,7 +640,7 @@ describe('approveRefund', () => {
     const { tx, rows } = makeTx({ ledgerRows, refundRow });
     const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED', approvedById: 'admin-1' });
 
-    const result = await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+    const result = await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
 
     expect(result.status).toBe('APPROVED');
     const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
@@ -648,7 +661,7 @@ describe('approveRefund', () => {
     const { tx, rows } = makeTx({ ledgerRows, refundRow, lifecycleStatus: 'SUSPENDED' });
     const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED', approvedById: 'admin-1' });
 
-    const result = await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+    const result = await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
 
     expect(result.status).toBe('APPROVED');
     expect(rows.filter((r) => r.transactionId === 'refund-approved-refund-1')).toContainEqual(
@@ -672,7 +685,7 @@ describe('approveRefund', () => {
     const { tx, rows } = makeTx({ ledgerRows, refundRow });
     const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED' });
 
-    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
 
     const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
     expect(posted).toEqual([
@@ -704,7 +717,7 @@ describe('approveRefund', () => {
     const { tx, rows } = makeTx({ ledgerRows, refundRow });
     const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED' });
 
-    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
 
     const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
     expect(posted).toEqual([
@@ -732,7 +745,7 @@ describe('approveRefund', () => {
     const { tx, rows } = makeTx({ ledgerRows, refundRow });
     const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED' });
 
-    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
 
     const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
     expect(posted).toEqual([
@@ -768,7 +781,7 @@ describe('approveRefund', () => {
     const { tx, rows } = makeTx({ ledgerRows, refundRow });
     const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED' });
 
-    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
 
     const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
     expect(posted.find((r) => r.account === 'FROZEN_BALANCE')).toMatchObject({ amount: 100_000 });
@@ -786,7 +799,7 @@ describe('approveRefund', () => {
     const { tx, rows, queryRawCalls } = makeTx({ ledgerRows, refundRow });
     const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED' });
 
-    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
 
     const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-1');
     expect(posted.some((r) => r.campaignId)).toBe(false);
@@ -799,7 +812,7 @@ describe('approveRefund', () => {
     const { tx, rows } = makeTx({ refundRow: baseRefundRow({ requestedById: 'same-person' }) });
     const prisma = makePrisma(tx, baseRefundRow());
 
-    await expect(approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'same-person' })).rejects.toThrow(SelfApprovalError);
+    await expect(approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'same-person', ...validDestination })).rejects.toThrow(SelfApprovalError);
     expect(rows).toHaveLength(0);
   });
 
@@ -808,7 +821,7 @@ describe('approveRefund', () => {
     const { tx, rows } = makeTx({ refundRow, campaignCreatorId: 'admin-1' });
     const prisma = makePrisma(tx, refundRow);
 
-    const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+    const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
 
     await expect(attempt).rejects.toThrow(OwnSubjectConflictError);
     await expect(attempt).rejects.toMatchObject({ code: 'OWN_CAMPAIGN_CONFLICT', message: expect.stringContaining('harus dilakukan Admin lain') });
@@ -821,7 +834,7 @@ describe('approveRefund', () => {
     const { tx, rows } = makeTx({ refundRow, tripFundraiserId: 'admin-1' });
     const prisma = makePrisma(tx, refundRow);
 
-    const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' });
+    const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
 
     await expect(attempt).rejects.toThrow(OwnSubjectConflictError);
     await expect(attempt).rejects.toMatchObject({ code: 'OWN_TRIP_CONFLICT', message: expect.stringContaining('harus dilakukan Admin lain') });
@@ -833,7 +846,7 @@ describe('approveRefund', () => {
     const { tx, rows } = makeTx({ refundRow: null });
     const prisma = makePrisma(tx, {});
 
-    await expect(approveRefund(prisma as never, { refundId: 'missing', approvedById: 'admin-1' })).rejects.toThrow(RefundNotFoundError);
+    await expect(approveRefund(prisma as never, { refundId: 'missing', approvedById: 'admin-1', ...validDestination })).rejects.toThrow(RefundNotFoundError);
     expect(rows).toHaveLength(0);
   });
 
@@ -842,7 +855,7 @@ describe('approveRefund', () => {
       const { tx, rows } = makeTx({ refundRow: baseRefundRow({ status }) });
       const prisma = makePrisma(tx, baseRefundRow({ status }));
 
-      await expect(approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' })).rejects.toThrow(InvalidRefundStatusError);
+      await expect(approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination })).rejects.toThrow(InvalidRefundStatusError);
       expect(rows).toHaveLength(0);
     }
   });
@@ -858,8 +871,93 @@ describe('approveRefund', () => {
     tx.refund.updateMany = vi.fn().mockResolvedValue({ count: 0 });
     const prisma = makePrisma(tx, baseRefundRow());
 
-    await expect(approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1' })).rejects.toThrow(InvalidRefundStatusError);
+    await expect(approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination })).rejects.toThrow(InvalidRefundStatusError);
     expect(rows.filter((r) => r.transactionId === 'refund-approved-refund-1')).toHaveLength(0);
+  });
+
+  // Q7(c), ADR 0018 Amendment 2026-09-28: the destination moved here from
+  // completion -- an approval with no destination is refused, and the
+  // number is sealed, never written or returned plain.
+  it('refuses an approval with a blank donor bank code, naming the field, posting nothing', async () => {
+    const { tx, rows } = makeTx({ refundRow: baseRefundRow() });
+    const prisma = makePrisma(tx, baseRefundRow());
+
+    const attempt = approveRefund(prisma as never, {
+      refundId: 'refund-1',
+      approvedById: 'admin-1',
+      ...validDestination,
+      donorBankCode: '   ',
+    });
+
+    await expect(attempt).rejects.toThrow(RefundDestinationInvalidError);
+    await expect(attempt).rejects.toMatchObject({ field: 'donorBankCode' });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuses an approval with a blank donor account name, naming the field, posting nothing', async () => {
+    const { tx, rows } = makeTx({ refundRow: baseRefundRow() });
+    const prisma = makePrisma(tx, baseRefundRow());
+
+    const attempt = approveRefund(prisma as never, {
+      refundId: 'refund-1',
+      approvedById: 'admin-1',
+      ...validDestination,
+      donorAccountName: '',
+    });
+
+    await expect(attempt).rejects.toThrow(RefundDestinationInvalidError);
+    await expect(attempt).rejects.toMatchObject({ field: 'donorAccountName' });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuses an approval with a blank donor account number, naming the field, posting nothing (approval without a destination is refused)', async () => {
+    const { tx, rows } = makeTx({ refundRow: baseRefundRow() });
+    const prisma = makePrisma(tx, baseRefundRow());
+
+    const attempt = approveRefund(prisma as never, {
+      refundId: 'refund-1',
+      approvedById: 'admin-1',
+      ...validDestination,
+      donorAccountNumber: '',
+    });
+
+    await expect(attempt).rejects.toThrow(RefundDestinationInvalidError);
+    await expect(attempt).rejects.toMatchObject({ field: 'donorAccountNumber' });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('checks the destination before opening any transaction: a blank field never reaches the database read', async () => {
+    const { tx } = makeTx({ refundRow: baseRefundRow() });
+    const prisma = makePrisma(tx, baseRefundRow());
+
+    await expect(
+      approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination, donorAccountNumber: '' }),
+    ).rejects.toThrow(RefundDestinationInvalidError);
+    expect(tx.refund.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('records the sealed donor account number on approval, never the plaintext, decrypting back to what was typed', async () => {
+    const refundRow = baseRefundRow({ amount: 100_000, payment: makePayment({ amount: 100_000, providerFee: 0 }) });
+    const { tx } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED' });
+
+    await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
+
+    const call = (tx.refund.updateMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const written = call.data as Record<string, unknown>;
+    expect(written.donorBankCode).toBe('BCA');
+    expect(written.donorAccountName).toBe('Budi Santoso');
+    expect(written.donorAccountNumberCiphertext).toEqual(expect.any(String));
+    expect(written.donorAccountNumberCiphertext).not.toBe('1234567890');
+    expect(
+      readRefundDonorAccountNumber({
+        donorAccountNumberCiphertext: written.donorAccountNumberCiphertext as string,
+        donorAccountNumberKeyId: written.donorAccountNumberKeyId as string,
+      }),
+    ).toBe('1234567890');
   });
 });
 
@@ -992,8 +1090,8 @@ describe('settlement redesign regressions (freeze splits the fee, not settlement
     // exactly 0, not negative (190_000 credited - 95_000 - 95_000 debited).
     expect(escrowNetOf(rows, 'campaign-1')).toBe(0);
 
-    await approveRefund(prisma as never, { refundId: refundA.id, approvedById: 'admin-2' });
-    await approveRefund(prisma as never, { refundId: refundB.id, approvedById: 'admin-2' });
+    await approveRefund(prisma as never, { refundId: refundA.id, approvedById: 'admin-2', ...validDestination });
+    await approveRefund(prisma as never, { refundId: refundB.id, approvedById: 'admin-2', ...validDestination });
 
     // Neither settlement should have posted a phantom top-up: the pool was
     // never over-drawn by a fee in the first place, so there is nothing to
@@ -1042,6 +1140,13 @@ describe('settlement redesign regressions (freeze splits the fee, not settlement
 });
 
 describe('completeRefund', () => {
+  /**
+   * donorAccountNumberCiphertext/KeyId are populated as though approveRefund
+   * already recorded them (Q7(c), ADR 0018 Amendment 2026-09-28): this
+   * describe block never calls approveRefund itself, so the sealed number
+   * has to be seeded onto the row directly, the same way a real APPROVED
+   * Refund would already carry it by the time completeRefund reads it.
+   */
   const baseApprovedRefundRow = (overrides: Record<string, unknown> = {}) => ({
     id: 'refund-1',
     paymentId: 'payment-1',
@@ -1050,6 +1155,9 @@ describe('completeRefund', () => {
     status: 'APPROVED',
     requestedById: 'requester-1',
     approvedById: 'approver-1',
+    donorBankCode: 'BCA',
+    donorAccountName: 'Budi Santoso',
+    ...sealRefundDonorAccountNumber('1234567890'),
     payment: makePayment({ amount: 100_000, providerFee: 0 }),
     ...overrides,
   });
@@ -1058,9 +1166,10 @@ describe('completeRefund', () => {
     proofReference: 'TRX-refund-1',
     proofNote: 'Ditransfer via mobile banking BCA, dicocokkan dengan nama dan rekening Donor.',
   };
-  const validDestination = {
-    donorBankCode: 'BCA',
-    donorAccountName: 'Budi Santoso',
+  // The completing Admin's RE-TYPED number (Q7(c)): completeRefund no
+  // longer accepts a bank code or account name of its own -- those were
+  // moved to approveRefund -- so this is the only destination input left.
+  const validRetype = {
     donorAccountNumber: '1234567890',
   };
 
@@ -1073,7 +1182,7 @@ describe('completeRefund', () => {
       refundId: 'refund-1',
       completedById: 'completer-1',
       ...validProof,
-      ...validDestination,
+      ...validRetype,
     });
 
     expect(result.status).toBe('COMPLETED');
@@ -1084,7 +1193,7 @@ describe('completeRefund', () => {
     ]);
   });
 
-  it('records completedById, completedAt, the joined proof, the plaintext bank code/name, and a sealed donor account number that decrypts back to what was typed', async () => {
+  it('records completedById, completedAt and the joined proof, writing no destination fields of its own (Q7(c))', async () => {
     const refundRow = baseApprovedRefundRow();
     const { tx } = makeTx({ refundRow });
     const prisma = makePrisma(tx, { ...refundRow, status: 'COMPLETED' });
@@ -1093,7 +1202,7 @@ describe('completeRefund', () => {
       refundId: 'refund-1',
       completedById: 'completer-1',
       ...validProof,
-      ...validDestination,
+      ...validRetype,
     });
 
     expect(tx.refund.updateMany).toHaveBeenCalledWith(
@@ -1104,22 +1213,86 @@ describe('completeRefund', () => {
           completedById: 'completer-1',
           completedAt: expect.any(Date),
           proofImage: 'TRX-refund-1 — Ditransfer via mobile banking BCA, dicocokkan dengan nama dan rekening Donor.',
-          donorBankCode: 'BCA',
-          donorAccountName: 'Budi Santoso',
         }),
       }),
     );
     const call = (tx.refund.updateMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     const written = call.data as Record<string, unknown>;
-    // Sealed, never the plaintext number itself, on the row this writes.
-    expect(written.donorAccountNumberCiphertext).toEqual(expect.any(String));
-    expect(written.donorAccountNumberCiphertext).not.toBe('1234567890');
-    expect(
-      readRefundDonorAccountNumber({
-        donorAccountNumberCiphertext: written.donorAccountNumberCiphertext as string,
-        donorAccountNumberKeyId: written.donorAccountNumberKeyId as string,
-      }),
-    ).toBe('1234567890');
+    // No destination of its own any more: completion neither writes nor
+    // re-seals a bank code, account name, or account number -- the sealed
+    // number recorded at approval is left exactly as it was.
+    expect(written).not.toHaveProperty('donorBankCode');
+    expect(written).not.toHaveProperty('donorAccountName');
+    expect(written).not.toHaveProperty('donorAccountNumberCiphertext');
+    expect(written).not.toHaveProperty('donorAccountNumberKeyId');
+  });
+
+  it('accepts a re-typed number with different punctuation around the same digits (normalised, constant-time comparison)', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'COMPLETED' });
+
+    const result = await completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      donorAccountNumber: '1234-5678-90',
+    });
+
+    expect(result.status).toBe('COMPLETED');
+  });
+
+  it('refuses a re-typed number that does not match what was recorded at approval, posting nothing (REFUND_DESTINATION_MISMATCH)', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      donorAccountNumber: '9999999999',
+    });
+
+    await expect(attempt).rejects.toThrow(RefundDestinationMismatchError);
+    await expect(attempt).rejects.toMatchObject({ code: 'REFUND_DESTINATION_MISMATCH' });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuses completion when the Refund never got a sealed number recorded at all, posting nothing', async () => {
+    const refundRow = baseApprovedRefundRow({
+      donorAccountNumberCiphertext: null,
+      donorAccountNumberKeyId: null,
+    });
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validRetype,
+    });
+
+    await expect(attempt).rejects.toThrow(RefundDestinationMismatchError);
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('never puts the plaintext account number, typed or recorded, anywhere in what it returns', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'COMPLETED' });
+
+    const result = await completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validRetype,
+    });
+
+    expect(JSON.stringify(result)).not.toContain('1234567890');
   });
 
   it('refuses the Admin who REQUESTED this Refund, posting nothing', async () => {
@@ -1131,7 +1304,7 @@ describe('completeRefund', () => {
       refundId: 'refund-1',
       completedById: 'same-person',
       ...validProof,
-      ...validDestination,
+      ...validRetype,
     });
 
     await expect(attempt).rejects.toThrow(TwoPersonRuleError);
@@ -1149,7 +1322,7 @@ describe('completeRefund', () => {
       refundId: 'refund-1',
       completedById: 'same-person',
       ...validProof,
-      ...validDestination,
+      ...validRetype,
     });
 
     await expect(attempt).rejects.toThrow(TwoPersonRuleError);
@@ -1164,7 +1337,7 @@ describe('completeRefund', () => {
     const prisma = makePrisma(tx, refundRow);
 
     await expect(
-      completeRefund(prisma as never, { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validDestination }),
+      completeRefund(prisma as never, { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validRetype }),
     ).rejects.toThrow(InvalidRefundStatusError);
     expect(rows).toHaveLength(0);
   });
@@ -1178,7 +1351,7 @@ describe('completeRefund', () => {
       refundId: 'refund-1',
       completedById: 'completer-1',
       ...validProof,
-      ...validDestination,
+      ...validRetype,
     });
 
     await expect(attempt).rejects.toThrow(OwnSubjectConflictError);
@@ -1197,10 +1370,11 @@ describe('completeRefund', () => {
         completedById: 'completer-1',
         proofReference: '   ',
         proofNote: validProof.proofNote,
-        ...validDestination,
+        ...validRetype,
       }),
     ).rejects.toThrow(RefundProofInvalidError);
     expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(tx.refund.findUnique).not.toHaveBeenCalled();
   });
 
   it('refuses a blank proof note', async () => {
@@ -1214,13 +1388,13 @@ describe('completeRefund', () => {
         completedById: 'completer-1',
         proofReference: validProof.proofReference,
         proofNote: '',
-        ...validDestination,
+        ...validRetype,
       }),
     ).rejects.toThrow(RefundProofInvalidError);
     expect(tx.refund.updateMany).not.toHaveBeenCalled();
   });
 
-  it('refuses a blank donor bank code, naming the field', async () => {
+  it('refuses a blank re-typed donor account number, naming the field, before opening any transaction', async () => {
     const refundRow = baseApprovedRefundRow();
     const { tx } = makeTx({ refundRow });
     const prisma = makePrisma(tx, refundRow);
@@ -1229,49 +1403,13 @@ describe('completeRefund', () => {
       refundId: 'refund-1',
       completedById: 'completer-1',
       ...validProof,
-      ...validDestination,
-      donorBankCode: '  ',
-    });
-
-    await expect(attempt).rejects.toThrow(RefundDestinationInvalidError);
-    await expect(attempt).rejects.toMatchObject({ field: 'donorBankCode' });
-    expect(tx.refund.updateMany).not.toHaveBeenCalled();
-  });
-
-  it('refuses a blank donor account name, naming the field', async () => {
-    const refundRow = baseApprovedRefundRow();
-    const { tx } = makeTx({ refundRow });
-    const prisma = makePrisma(tx, refundRow);
-
-    const attempt = completeRefund(prisma as never, {
-      refundId: 'refund-1',
-      completedById: 'completer-1',
-      ...validProof,
-      ...validDestination,
-      donorAccountName: '',
-    });
-
-    await expect(attempt).rejects.toThrow(RefundDestinationInvalidError);
-    await expect(attempt).rejects.toMatchObject({ field: 'donorAccountName' });
-    expect(tx.refund.updateMany).not.toHaveBeenCalled();
-  });
-
-  it('refuses a blank donor account number, naming the field', async () => {
-    const refundRow = baseApprovedRefundRow();
-    const { tx } = makeTx({ refundRow });
-    const prisma = makePrisma(tx, refundRow);
-
-    const attempt = completeRefund(prisma as never, {
-      refundId: 'refund-1',
-      completedById: 'completer-1',
-      ...validProof,
-      ...validDestination,
       donorAccountNumber: '',
     });
 
     await expect(attempt).rejects.toThrow(RefundDestinationInvalidError);
     await expect(attempt).rejects.toMatchObject({ field: 'donorAccountNumber' });
     expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(tx.refund.findUnique).not.toHaveBeenCalled();
   });
 
   it('throws RefundNotFoundError for a nonexistent Refund, posting nothing', async () => {
@@ -1279,7 +1417,7 @@ describe('completeRefund', () => {
     const prisma = makePrisma(tx, {});
 
     await expect(
-      completeRefund(prisma as never, { refundId: 'missing', completedById: 'completer-1', ...validProof, ...validDestination }),
+      completeRefund(prisma as never, { refundId: 'missing', completedById: 'completer-1', ...validProof, ...validRetype }),
     ).rejects.toThrow(RefundNotFoundError);
     expect(rows).toHaveLength(0);
   });
@@ -1291,7 +1429,7 @@ describe('completeRefund', () => {
     const prisma = makePrisma(tx, refundRow);
 
     await expect(
-      completeRefund(prisma as never, { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validDestination }),
+      completeRefund(prisma as never, { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validRetype }),
     ).rejects.toThrow(InvalidRefundStatusError);
     expect(rows.filter((r) => r.transactionId === 'refund-completed-refund-1')).toHaveLength(0);
   });
@@ -1305,7 +1443,7 @@ describe('completeRefund', () => {
       refundId: 'refund-1',
       completedById: 'completer-1',
       ...validProof,
-      ...validDestination,
+      ...validRetype,
     });
 
     const posted = rows.filter((r) => r.transactionId === 'refund-completed-refund-1');
@@ -1321,7 +1459,7 @@ describe('completeRefund', () => {
       refundId: 'refund-1',
       completedById: 'completer-1',
       ...validProof,
-      ...validDestination,
+      ...validRetype,
     });
 
     await expect(attempt).rejects.toThrow(OwnSubjectConflictError);

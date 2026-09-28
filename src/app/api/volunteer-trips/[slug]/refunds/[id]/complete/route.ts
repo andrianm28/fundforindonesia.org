@@ -8,10 +8,12 @@ import { refusalResponse } from '@/lib/refusal-response';
 import { completeRefund } from '@/lib/money/refunds';
 
 const completeRefundSchema = z.object({
+  // donorAccountNumber (Q7(c)) is the completing Admin's RE-TYPED number,
+  // compared server-side against the one the approving Admin recorded --
+  // this route never accepts a bank code or account name of its own any
+  // more.
   proofReference: z.string(),
   proofNote: z.string(),
-  donorBankCode: z.string(),
-  donorAccountName: z.string(),
   donorAccountNumber: z.string(),
 });
 
@@ -56,8 +58,6 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRe
       completedById,
       proofReference: parsed.data.proofReference,
       proofNote: parsed.data.proofNote,
-      donorBankCode: parsed.data.donorBankCode,
-      donorAccountName: parsed.data.donorAccountName,
       donorAccountNumber: parsed.data.donorAccountNumber,
     });
 

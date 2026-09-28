@@ -224,6 +224,26 @@ export class RefundDestinationInvalidError extends MoneyError {
   }
 }
 
+/**
+ * The account number the completing Admin re-typed does not match the one
+ * the approving Admin recorded (Q7(c), ADR 0018 Amendment 2026-09-28): the
+ * two-pairs-of-eyes control Rilis 1 uses in place of Verifier checking, for
+ * a Guest Donor with no Bank Account of their own to be checked. This is a
+ * mistyped re-entry, not a policy the request has no way to satisfy --
+ * fixable by re-reading the Donor's written request and typing it again --
+ * so it answers 400, like RefundDestinationInvalidError. The message never
+ * repeats either number: neither one belongs in a client-visible string.
+ */
+export class RefundDestinationMismatchError extends MoneyError {
+  readonly code = 'REFUND_DESTINATION_MISMATCH';
+  constructor() {
+    super(
+      'Nomor rekening yang diketik tidak sama dengan yang dicatat saat persetujuan. Cocokkan kembali dengan permintaan tertulis Donor.',
+    );
+    this.name = 'RefundDestinationMismatchError';
+  }
+}
+
 export class PayoutNotFoundError extends MoneyError {
   readonly code = 'PAYOUT_NOT_FOUND';
   constructor(readonly payoutId: string) {

@@ -9,12 +9,14 @@ import { validateProofReference, validateProofNote } from '@/lib/payout-proof';
  * CONTEXT.md, Refund: "dibuat satu Admin, disetujui Admin lain, dan
  * diselesaikan Admin yang berbeda dari penyetujunya"). A third Admin --
  * neither the one who requested this Refund nor the one who approved it --
- * has transferred the money by hand to the Donor's account and comes back
- * here with proof and the destination they used.
+ * has transferred the money by hand to the Donor's account the approving
+ * Admin already recorded, and comes back here with proof and the same
+ * account number, re-typed from the Donor's written request.
  *
  * The server is the only holder of every rule this form asks about: both
  * complete routes re-check the two-person rule (against both the requester
- * AND the approver, unlike a Payout's single check) and the proof shape
+ * AND the approver, unlike a Payout's single check), the proof shape, and
+ * now the re-typed number against the sealed one recorded at approval,
  * under the subject's row lock. This form only asks for the right fields
  * before submitting and shows the server's own refusal, in its own words,
  * when it says no -- the same discipline AdminPayoutActionForm and
@@ -27,10 +29,12 @@ import { validateProofReference, validateProofNote } from '@/lib/payout-proof';
  * `validateProofReference`/`validateProofNote` functions (@/lib/payout-proof)
  * completePayout's form already asks -- one shared validator, three callers.
  *
- * THE DONOR ACCOUNT NUMBER IS TYPED HERE, NOT READ FROM A SAVED ROW
- * (CONTEXT.md, Bank Account: there is no saved BankAccount for a Donor).
- * The server seals it (ADR 0012) and this form never asks for it back --
- * once submitted, the number is gone from this screen's own state.
+ * NO DESTINATION OF ITS OWN (Q7(c), ADR 0018 Amendment 2026-09-28): the
+ * bank code and account name were already recorded at approval, by the
+ * other Admin. This form asks for the account number ONLY to re-type it as
+ * the second pair of eyes -- never to record a fresh one -- and never shows
+ * the recorded number back, masked or otherwise: a mismatch is answered
+ * with the server's own refusal, not with the number itself.
  */
 
 interface RefundSubject {
@@ -59,8 +63,6 @@ export function AdminRefundCompleteForm({ refundId, subject, actorId, requestedB
 
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
-  const [bankCode, setBankCode] = useState('');
-  const [accountName, setAccountName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
 
   if (actorId === requestedById) {
@@ -82,13 +84,7 @@ export function AdminRefundCompleteForm({ refundId, subject, actorId, requestedB
 
   const referenceError = validateProofReference(reference);
   const noteError = validateProofNote(note);
-  const canComplete =
-    referenceError === null &&
-    noteError === null &&
-    bankCode.trim() !== '' &&
-    accountName.trim() !== '' &&
-    accountNumber.trim() !== '' &&
-    !submitting;
+  const canComplete = referenceError === null && noteError === null && accountNumber.trim() !== '' && !submitting;
 
   async function complete() {
     setSubmitting(true);
@@ -100,8 +96,6 @@ export function AdminRefundCompleteForm({ refundId, subject, actorId, requestedB
         body: JSON.stringify({
           proofReference: reference,
           proofNote: note,
-          donorBankCode: bankCode,
-          donorAccountName: accountName,
           donorAccountNumber: accountNumber,
         }),
       });
@@ -121,36 +115,14 @@ export function AdminRefundCompleteForm({ refundId, subject, actorId, requestedB
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-500">
-        Rekening tujuan Donor (dicatat manual saat ini, ticket 31): tidak ada Bank Account tersimpan untuk Donor,
-        jadi Admin mengisinya di sini setelah mentransfer secara manual.
+        Aturan dua pasang mata (Q7(c)): kode bank dan nama pemilik rekening sudah dicatat Admin yang menyetujui.
+        Ketik ulang nomor rekening dari permintaan tertulis Donor yang sama -- server menolak bila tidak cocok.
       </p>
 
       <label className="block text-sm text-gray-700">
-        Kode bank
+        Nomor rekening (ketik ulang)
         <input
-          aria-label="Kode bank"
-          value={bankCode}
-          onChange={(e) => setBankCode(e.target.value)}
-          placeholder="mis. BCA"
-          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
-        />
-      </label>
-
-      <label className="block text-sm text-gray-700">
-        Nama pemilik rekening
-        <input
-          aria-label="Nama pemilik rekening"
-          value={accountName}
-          onChange={(e) => setAccountName(e.target.value)}
-          placeholder="Sesuai nama pada Donation"
-          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
-        />
-      </label>
-
-      <label className="block text-sm text-gray-700">
-        Nomor rekening
-        <input
-          aria-label="Nomor rekening"
+          aria-label="Nomor rekening (ketik ulang)"
           value={accountNumber}
           onChange={(e) => setAccountNumber(e.target.value)}
           placeholder="Nomor rekening tujuan Donor"
