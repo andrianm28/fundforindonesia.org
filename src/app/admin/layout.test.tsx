@@ -78,5 +78,16 @@ describe("AdminLayout", () => {
       const link = screen.getByRole("link", { name: /dormant/i });
       expect(link.getAttribute("href")).toBe("/admin/dormant-balances");
     });
+
+    // ticket 23 (Rilis 1, narrowed scope): the Refund create/approve queue
+    // is built and tested, but stays as unreachable as the Payout queue was
+    // without a nav link.
+    it("links to the Refund queue", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: null }));
+
+      const link = screen.getByRole("link", { name: /^refund$/i });
+      expect(link.getAttribute("href")).toBe("/admin/refunds");
+    });
   });
 });
