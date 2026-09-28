@@ -140,6 +140,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The ratchet measures this commit's ci/baselines.json against the
+          # one on the base branch, so it needs the history, not just the
+          # tested commit. Without it the job fails rather than pass.
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
@@ -147,6 +151,16 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - name: TypeScript and lint error counts may only go down
+        # The counts go against ci/baselines.json here, and that file goes
+        # against ci/baselines.json on the base branch, so a pull request that
+        # raises the baseline is caught instead of being measured against its
+        # own raise. Raising it is allowed, never silently: add
+        #
+        #   env:
+        #     RATCHET_ALLOW_BASELINE_BUMP: "1"
+        #
+        # to this step, in the same pull request as the raise, and take it
+        # back out in the next one. See ci/ratchet.mjs.
         run: node ci/ratchet.mjs
 
   e2e:
