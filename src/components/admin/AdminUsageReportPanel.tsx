@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatRupiah } from '@/lib/utils/currency';
+import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
 
 /**
  * A COMPLETED Campaign Payout's Usage Report, for the Admin looking at that
@@ -18,17 +19,6 @@ import { formatRupiah } from '@/lib/utils/currency';
  * (admin/payouts/[id]/page.tsx) renders this only for `subject.type ===
  * 'campaign'`.
  */
-
-/**
- * Only http(s) is a photo anyone can host as public evidence -- a
- * `javascript:` URL is a link that would run when clicked, and `data:` is not
- * evidence of anything hosted at all. The service layer
- * (@/lib/usage-reports.ts) already refuses either at submission time; this is
- * a second, independent check at render time.
- */
-function isPublicPhotoUrl(url: string): boolean {
-  return /^https?:\/\//i.test(url);
-}
 
 interface UsageReportSummary {
   id: string;
@@ -59,6 +49,8 @@ export function AdminUsageReportPanel({
       <p className="mt-2 text-sm text-gray-500">Fundraiser belum mengirim Usage Report untuk Payout ini.</p>
     );
   }
+
+  const publicPhotos = usageReport.photos.filter(isPublicPhotoUrl);
 
   async function dispute() {
     if (reason.trim() === '' || submitting) return;
@@ -98,10 +90,10 @@ export function AdminUsageReportPanel({
       </ul>
       <p className="text-xs text-gray-600">{usageReport.beneficiaryCount} penerima manfaat</p>
 
-      {usageReport.photos.filter(isPublicPhotoUrl).length > 0 && (
+      {publicPhotos.length > 0 && (
         <ul className="flex flex-wrap gap-2">
-          {usageReport.photos.filter(isPublicPhotoUrl).map((photo, idx) => (
-            <li key={photo}>
+          {publicPhotos.map((photo, idx) => (
+            <li key={idx}>
               <a
                 href={photo}
                 target="_blank"

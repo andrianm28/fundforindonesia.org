@@ -14,6 +14,7 @@ import { useTrafficSources } from '@/lib/hooks/useTrafficSources';
 import { captureTrafficSource } from '@/lib/traffic-source-capture';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { formatFeePercent } from '@/lib/money/platform-fee';
+import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
 
 export interface CampaignDetailData {
@@ -64,18 +65,6 @@ interface UsageReportSummary {
   disputedReason: string | null;
 }
 
-/**
- * Only http(s) is a photo anyone can host as public evidence -- a
- * `javascript:` URL is a link that would run when a public visitor clicks it,
- * and `data:` is not evidence of anything hosted at all. The service layer
- * (@/lib/usage-reports.ts) already refuses either at submission time; this is
- * a second, independent check at render time so a row written before that
- * rule existed, or by any other path, is never turned into a clickable link.
- */
-function isPublicPhotoUrl(url: string): boolean {
-  return /^https?:\/\//i.test(url);
-}
-
 interface DisbursementRow {
   id: string;
   amount: number;
@@ -121,7 +110,9 @@ function DisbursementsTab({ slug }: { slug: string }) {
 
   return (
     <div className="space-y-4">
-      {rows.map((row) => (
+      {rows.map((row) => {
+        const publicPhotos = row.usageReport?.photos.filter(isPublicPhotoUrl) ?? [];
+        return (
         <div key={row.id} className="border-b border-border pb-4 last:border-b-0">
           <div className="flex items-center justify-between mb-1">
             <p className="text-sm font-semibold text-text">{formatRupiah(row.amount)}</p>
@@ -148,10 +139,10 @@ function DisbursementsTab({ slug }: { slug: string }) {
                 ))}
               </ul>
               <p className="mt-2 text-xs text-text-secondary">{row.usageReport.beneficiaryCount} penerima manfaat</p>
-              {row.usageReport.photos.filter(isPublicPhotoUrl).length > 0 && (
+              {publicPhotos.length > 0 && (
                 <ul className="mt-2 flex flex-wrap gap-2">
-                  {row.usageReport.photos.filter(isPublicPhotoUrl).map((photo, idx) => (
-                    <li key={photo}>
+                  {publicPhotos.map((photo, idx) => (
+                    <li key={idx}>
                       <a
                         href={photo}
                         target="_blank"
@@ -182,7 +173,8 @@ function DisbursementsTab({ slug }: { slug: string }) {
             </p>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
