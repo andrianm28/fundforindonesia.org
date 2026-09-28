@@ -268,3 +268,13 @@ _Avoid_: Sample, test campaign, contoh (di kode)
 **Prayer**:
 Pesan dukungan singkat dari Donor yang tampil di halaman Campaign. Bukan jalur kontribusi.
 _Avoid_: Doa (di kode), comment
+
+### Rilis
+
+**Rilis 1**:
+Rilis yang dianggap selesai saat gerbang Fase 0, 1, 2, dan 3 PRD §11 semuanya lolos, termasuk Volunteer Trip dengan Trip Fee nyata, dan tidak ada langkahnya yang memerlukan akses basis data langsung. Isi Fase 3 di luar gerbangnya diputuskan per item, bukan ikut otomatis. Diputuskan 2026-09-28; sebelumnya Rilis 1 berarti Fase 0 sampai 2.
+_Avoid_: v1 (untuk ruang lingkupnya), MVP, rilis pertama (tanpa nama)
+
+**Soft Launch**:
+Saat platform mulai menerima uang publik sebelum Rilis 1 selesai, diizinkan begitu gerbang Fase 2 lolos: sebuah Donation bisa sampai ke rekening bank terverifikasi seorang Fundraiser lewat Payout tanpa akses basis data. Menerima uang publik sebelum gerbang Fase 2 tidak diizinkan, karena janji penyalurannya belum bisa ditepati di dalam produk.
+_Avoid_: go-live (untuk tahap ini), beta

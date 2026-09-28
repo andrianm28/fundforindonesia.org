@@ -43,6 +43,21 @@ function renderedLine(label: string): number {
   return Number(digits);
 }
 
+/**
+ * The NAME the page prints for one of the six lines, read off the row's own
+ * header cell. `renderedLine` reads the figure; this reads the words beside it.
+ *
+ * Asserted exactly rather than by a `/^Refund/`-style prefix, because a prefix
+ * match is what let a stale test stay green through a rename: any label
+ * beginning with the right word passes, so the test cannot tell "Refund" from
+ * "Refund ke Donor yang sudah dicairkan" -- and the second of those is a
+ * completed-tense claim this page must never make.
+ */
+function renderedName(key: string): string {
+  const row = screen.getByTestId(`impact-line-${key}`).closest('tr');
+  return row?.querySelector('th')?.textContent?.trim() ?? '';
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -76,7 +91,15 @@ describe('ImpactPage', () => {
     await renderPage();
 
     expect(screen.getByText(/Tersalurkan ke Fundraiser/)).toBeTruthy();
-    expect(screen.getByText(/Dikembalikan ke Donor/)).toBeTruthy();
+    // The returned line's shipped name is exactly "Refund" (IMPACT_LINES in
+    // src/lib/money/impact.ts). Asserted as the WHOLE label, not a prefix:
+    // /(^Refund)/ would also pass "Refund ke Donor yang sudah dikirim", which
+    // is precisely the completed-tense claim this page exists to avoid.
+    expect(renderedName('returnedToDonors')).toBe('Refund');
+    // The label names the kind, not the stage: "Dikembalikan" would claim the
+    // money is home when refundPaidLegs has no production caller at all.
+    expect(screen.queryByText(/^Dikembalikan/)).toBeNull();
+    expect(screen.queryByText(/dikomit/)).toBeNull();
     expect(screen.getByText(/Ditahan di Escrow Hold/)).toBeTruthy();
     expect(screen.getByText(/Tersedia di Campaign Balance/)).toBeTruthy();
     expect(screen.getByText(/Platform Fee yang tidak dikembalikan/)).toBeTruthy();
@@ -112,6 +135,86 @@ describe('ImpactPage', () => {
 
     expect(screen.getByTestId('impact-collected').textContent).toContain('Rp100.000');
     expect(renderedLine('returnedToDonors')).toBe(100_000);
+  });
+
+  it('tells a Donor that the returned line includes money not yet sent to them', async () => {
+    // The returned line is REFUND_CLEARING plus the Frozen Balance of Refunds
+    // nobody has approved yet, so at this moment none of the 100 000 has been
+    // transferred to anybody. Any label that opens with a completed-tense verb
+    // is a claim about the Donor's bank account that the ledger does not
+    // support, and it is the one claim on this page a Donor would notice being
+    // wrong. The three assertions below are the regression guards, and they are
+    // about the WORDING rather than the figure, because the figure was already
+    // right and still misread.
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    ledger.refundRequest({
+      refundId: 'refund-1',
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      source: 'ESCROW_HOLD',
+      platformFeePortion: 5_000,
+      providerFeePortion: 3_000,
+    });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    await renderPage();
+
+    expect(renderedLine('returnedToDonors')).toBe(100_000);
+    // The label names the kind and stops there. A completed-tense verb
+    // ("Dikembalikan") is false for every rupiah in this line today:
+    // refundPaidLegs has no production caller, so nothing here has been
+    // transferred. The stage belongs in the sentence under the table, where it
+    // is read next to the number rather than standing in for it.
+    //
+    // The whole label, exactly. An earlier version of this assertion was
+    // /(^Refund)/ against `getByText`, which passed on the shipped "Refund" and
+    // would have gone on passing through any rename that kept the first word --
+    // including a rename back to the completed tense this test exists to
+    // forbid. It was green without being right, which is the failure the
+    // project's own verification rules (docs/agents/verification.md) are about.
+    expect(renderedName('returnedToDonors')).toBe('Refund');
+    expect(screen.queryByText(/^Dikembalikan/)).toBeNull();
+    expect(screen.queryByText(/dikomit/)).toBeNull();
+    // And the disclosure is in the paragraph under the table and in the notes,
+    // which are the two places a Donor actually reads -- not only in a label
+    // too short to carry it.
+    expect(screen.getByText(/tidak berarti uangnya sudah sampai di rekening Donor/)).toBeTruthy();
+    expect(screen.getByText(/sudah disiapkan untuk dikembalikan tetapi belum ditransfer/)).toBeTruthy();
+  });
+
+  it('stops telling a Donor their refund is frozen inside a dispute window', async () => {
+    // The Escrow Hold line is now money still inside the waiting period and
+    // nothing else: a Refund's freeze has moved to the returned line, so the
+    // old label claimed a dispute window around money a Donor is simply owed.
+    // A Donor reading that would think their own refund was contested.
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    ledger.refundRequest({
+      refundId: 'refund-1',
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      source: 'ESCROW_HOLD',
+      platformFeePortion: 5_000,
+      providerFeePortion: 3_000,
+    });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    await renderPage();
+
+    expect(renderedLine('heldInEscrowHold')).toBe(0);
+    expect(screen.queryByText(/dibekukan menunggu Refund/)).toBeNull();
+    expect(screen.getByText(/Ditahan di Escrow Hold/)).toBeTruthy();
   });
 
   it('keeps the platform money the platform absorbs out of the collected lines and says so', async () => {

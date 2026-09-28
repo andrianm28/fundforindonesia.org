@@ -21,10 +21,18 @@ vi.mock('@/lib/volunteer/trip', () => ({
   holdRegistration: vi.fn(),
 }));
 
+vi.mock('@/lib/donations', () => ({
+  donationsEnabled: vi.fn(),
+  sandboxInProductionReason: vi.fn(),
+  DONATIONS_DISABLED_MESSAGE:
+    'Donasi sedang tidak tersedia karena sistem pembayaran sedang disiapkan.',
+}));
+
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider } from '@/lib/payments';
 import { holdRegistration } from '@/lib/volunteer/trip';
+import { donationsEnabled, sandboxInProductionReason } from '@/lib/donations';
 import {
   AlreadyRegisteredError,
   BatchFullError,
@@ -33,6 +41,7 @@ import {
   RegistrationDeadlinePassedError,
   TripNotTakingRegistrationsError,
 } from '@/lib/volunteer-trip-errors';
+import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
 import { POST } from './route';
 
 const mockTripFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
@@ -40,6 +49,8 @@ const mockPaymentCreate = prisma.payment.create as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 const mockHoldRegistration = holdRegistration as unknown as Mock;
+const mockDonationsEnabled = donationsEnabled as unknown as Mock;
+const mockSandboxInProductionReason = sandboxInProductionReason as unknown as Mock;
 
 function createRequest(body: unknown = { paymentMethod: 'qris' }): NextRequest {
   return new NextRequest('http://localhost:3000/api/volunteer-trips/some-slug/batches/batch-1/registrations', {
@@ -56,6 +67,8 @@ function routeContext(slug = 'some-slug', id = 'batch-1') {
 describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDonationsEnabled.mockReturnValue(true);
+    mockSandboxInProductionReason.mockReturnValue(null);
     mockGetServerSession.mockResolvedValue({ user: { id: 'volunteer-1' } });
     mockTripFindUnique.mockResolvedValue({ id: 'trip-1' });
     mockGetPaymentProvider.mockReturnValue({
@@ -71,6 +84,35 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
       registration: { id: 'registration-1', volunteerId: 'volunteer-1', batchId: 'batch-1', status: 'HOLD' },
       tripFeeAmount: 1_500_000,
     });
+  });
+
+  it('refuses to charge the Trip Fee when the money kill switch is off, holding nothing', async () => {
+    // Owner decision 2026-09-28: Trip Fee is stopped by the SAME switch as
+    // Donation -- one emergency switch stops all incoming money, not two
+    // switches that can drift out of sync.
+    mockDonationsEnabled.mockReturnValue(false);
+    const createCharge = vi.fn();
+    mockGetPaymentProvider.mockReturnValue({ name: 'sumopod', method: 'qris_redirect', createCharge });
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(mockHoldRegistration).not.toHaveBeenCalled();
+    expect(createCharge).not.toHaveBeenCalled();
+    expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses to charge the Trip Fee when sandbox-in-production blocks it, holding nothing', async () => {
+    mockSandboxInProductionReason.mockReturnValue('PAYMENT_PROVIDER=mock in production');
+    const createCharge = vi.fn();
+    mockGetPaymentProvider.mockReturnValue({ name: 'sumopod', method: 'qris_redirect', createCharge });
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(mockHoldRegistration).not.toHaveBeenCalled();
+    expect(createCharge).not.toHaveBeenCalled();
+    expect(mockPaymentCreate).not.toHaveBeenCalled();
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -163,6 +205,20 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     expect(response.status).toBe(500);
     expect(createCharge).not.toHaveBeenCalled();
     expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('freezes the Escrow Hold length in force right now, the same one chargeDonation freezes on a Campaign Donation', async () => {
+    await POST(createRequest(), routeContext());
+    // Asserted against the shared constant rather than the literal 7, so that
+    // moving the number to configuration moves this Payment with it. A test
+    // pinning 7 here would still pass on the day Trip Fee silently starts
+    // releasing on a different schedule than Donation, which is the exact
+    // failure this guards against.
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ escrowHoldDays: ESCROW_HOLD_DAYS }),
+      }),
+    );
   });
 
   it.each([

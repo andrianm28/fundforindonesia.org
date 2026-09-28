@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 ## Question
 
@@ -36,3 +36,16 @@ This is not a small thing to leave open: it shapes every page in the
 product, and every page is the thing this map is trying to make exist. It is
 listed under fog as well, because whether it is one rule or several is not
 yet sharp — but it is a question, so it is a ticket.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+Terima (1) — aturan dua-orang FFI-07 sudah menjaga uang lewat larangan
+per-transaksi "tidak atas subjek sendiri" (sudah ada di `payouts.ts`, dipakai
+lagi tiket 16). Tolak (2) — layar eksklusif menambah kompleksitas untuk
+masalah yang aturan per-transaksi sudah menutup. (3) gabungkan jadi satu
+navigasi, bagian tampil sesuai assignment yang dipegang — perubahan UI kecil.
+Bukan gerbang Fase 2, aman ditunda setelah 02/11/12/13.

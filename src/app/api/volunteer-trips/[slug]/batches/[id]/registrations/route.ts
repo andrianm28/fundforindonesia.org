@@ -9,6 +9,12 @@ import { PaymentStatus } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
 import { holdRegistration } from '@/lib/volunteer/trip';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
+import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
+import {
+  donationsEnabled,
+  sandboxInProductionReason,
+  DONATIONS_DISABLED_MESSAGE,
+} from '@/lib/donations';
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris'] as const;
 const PROVIDER_METHOD_FOR: Record<(typeof VALID_PAYMENT_METHODS)[number], PaymentMethod> = {
@@ -24,6 +30,24 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> },
 ) {
+  // The same switch that gates POST /api/donations. Owner decision
+  // 2026-09-28: Trip Fee is stopped by the SAME switch as Donation -- one
+  // emergency switch stops all incoming money, not two that can drift apart.
+  // Checked before the session, before the Trip is looked up, before
+  // anything is held or written -- see donationsEnabled (src/lib/donations.ts).
+  if (!donationsEnabled()) {
+    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+  }
+
+  // The interlock behind the switch. Sandbox credentials in production take
+  // real rupiah into an account that settles nowhere; see
+  // sandboxInProductionReason (src/lib/donations.ts).
+  const blocked = sandboxInProductionReason();
+  if (blocked) {
+    console.error(`[registrations] refusing every charge: ${blocked}`);
+    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+  }
+
   try {
     const session = await getServerSession();
     if (!session?.user) {
@@ -138,6 +162,20 @@ export async function POST(
         method: charge.method,
         providerRef: registration.id,
         amount: tripFeeAmount,
+        // Trip Fee takes the same Escrow Hold as a Campaign Donation, minus
+        // the Platform Fee and the Kind (CONTEXT.md, Trip Fee; ADR 0014), so
+        // it freezes the SAME length here as chargeDonation does on the
+        // donation path. Naming the constant rather than letting the
+        // `escrowHoldDays Int @default(7)` in prisma/schema.prisma supply it
+        // is the whole point: that default is a second copy of the number
+        // that nothing in src/ can see, and the day that 7 is moved to
+        // configuration the two copies drift -- Trip Fee releasing after 7
+        // while Donation releases after N, with the settlement webhook
+        // reading whichever this row happens to carry. Naming it here is also
+        // what makes the frozen-per-Payment rule (prd-compliance 18) true of
+        // this Payment: its length is decided in code at creation, not
+        // inherited from a schema default nobody chose deliberately.
+        escrowHoldDays: ESCROW_HOLD_DAYS,
         status: PaymentStatus.PENDING,
         expiresAt: charge.expiresAt,
       },

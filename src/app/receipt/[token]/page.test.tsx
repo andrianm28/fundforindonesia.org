@@ -84,6 +84,24 @@ describe('ReceiptPage', () => {
     expect(view.props).toMatchObject({ donorName: 'Budi' });
   });
 
+  it('dates the print page from when the Donor paid, not from when the Receipt row was written', async () => {
+    // A Sumopod QRIS Donation settles at T+2 (prd-compliance 19), so the
+    // Receipt row is written days after the Donor paid -- the date on the
+    // printed proof is the day they paid, the same one the email names
+    // (src/app/api/webhooks/[provider]/route.ts stamps sentAt with the
+    // provider's paidAt). Two distinct moments, deliberately.
+    mockFindUnique.mockResolvedValue(
+      makeReceipt({
+        sentAt: new Date('2026-09-26T10:00:00.000Z'),
+        createdAt: new Date('2026-09-28T03:14:00.000Z'),
+      }),
+    );
+
+    render(await ReceiptPage({ params: Promise.resolve({ token: 'tok-1' }) }));
+
+    expect(view.props).toMatchObject({ paidAt: '2026-09-26T10:00:00.000Z' });
+  });
+
   it('answers not found for a token that names no Receipt', async () => {
     mockFindUnique.mockResolvedValue(null);
 

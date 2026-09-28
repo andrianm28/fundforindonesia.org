@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 ## Question
 
@@ -44,3 +44,18 @@ Questions:
    shows a *percentage* and the Checkout shows neither. If the numbers are
    Admin-configurable, the Donor is being shown a promise that a config change
    can alter, and which number is the promise is a decision.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+Escrow Hold & threshold similarity tetap konstanta kode (jarang berubah,
+tak sepadan 2 halaman Admin sebelum Fase 2); Platform Fee tetap konfigurasi
+(mekanisme sudah ada, PRD minta override per Category/Campaign) — halaman
+Admin `platform-fee` diprioritaskan, dua lainnya ditunda ke Fase 3; freeze-at-
+creation yang berjalan sekarang dipertahankan; waiver jadi baris Admin (pakai
+mekanisme `PlatformFeeThreshold` yang ada); Checkout wajib tampilkan fee % dan
+lama Escrow Hold sebelum bayar — gerbang FFI-01 yang belum terpenuhi, murah
+ditutup begitu (1) diputuskan.

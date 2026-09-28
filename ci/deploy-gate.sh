@@ -69,10 +69,29 @@ esac
 
 # --- 2. CI ----------------------------------------------------------------------
 
+# Of this endpoint's filters only `status=` is real. `conclusion=` is accepted
+# and silently ignored, which is the whole reason this block does not just take
+# the first run: on 2026-09-28 against this repository, `conclusion=success` and
+# `conclusion=failure` each returned the same 350 runs with conclusions mixed
+# through them, while `status=success` returned 266 and every one of them was
+# concluded success. So `status=success` is the only thing narrowing the list,
+# and a filter that only one request parameter carries is one rename away from
+# carrying nothing at all. The run it yields is therefore re-checked here, on
+# its own fields, and the check fails closed: if `status=` is ever renamed,
+# dropped, or comes to mean something else, the gate refuses rather than
+# deploying whatever the endpoint hands back.
 ci_run="$(gh api "repos/$repo/actions/workflows/ci.yml/runs?head_sha=$sha&branch=main&event=push&status=success" |
-  jq -r '.workflow_runs[0].id // empty')" || refuse "could not list CI runs for $sha"
+  jq -r --arg sha "$sha" 'first(.workflow_runs[]? |
+    select(.conclusion == "success" and .head_sha == $sha and
+           .head_branch == "main" and .event == "push") |
+    .id) // empty')" || refuse "could not list CI runs for $sha"
 [ -n "$ci_run" ] || refuse "CI has not passed on $sha (no successful ci.yml run for a push to main)"
-# The run's latest attempt; every job ci.yml defines must be among its green ones.
+# The run's latest attempt, and what its jobs concluded rather than what the run
+# is called: a run the API counts as successful is not the same claim as the
+# jobs a deploy depends on having finished green. Each of them is matched on its
+# own `conclusion`, so a job that was skipped or cancelled is refused here even
+# though a run containing only such jobs still reads as successful. e2e is
+# deliberately not in the list (see ci.yml).
 green="$(gh api "repos/$repo/actions/runs/$ci_run/jobs" | jq -r '.jobs[] | select(.conclusion == "success") | .name')" ||
   refuse "could not read the jobs of CI run $ci_run"
 for job in test build migrations ratchet; do
