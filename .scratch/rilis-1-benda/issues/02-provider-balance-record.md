@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 ## Question
 
@@ -36,3 +36,14 @@ blocking:
 Decide these and the Admin Payout panel can be built honestly. It should not
 be built before: a screen with an empty field on it teaches operators that the
 check is a formality, which is the exact failure FFI-07 is trying to prevent.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+Gerbang: tolak approve bila saldo provider tercatat < Campaign Balance yang
+diminta, dengan opsi eksplisit Admin mencatat "sudah dicek, kurang" sebagai
+keputusan tertunda — FFI-07 menyebutnya pengganti API saldo yang tak ada;
+menjadikannya observasi menghapus satu-satunya kontrol yang PRD sediakan.

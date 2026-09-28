@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 ## Question
 
@@ -62,3 +62,16 @@ Admins grant VERIFIER; a Verifier does not.
   with real consequences for a small organisation.
 - Whether `AssignmentAuditEntry` needs a reason, the way
   `CampaignStatusChange` does. It records who and when, but not why.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+(a) pending-grant sederhana meniru pola `BankAccountVerificationRequest`
+yang baru dibangun tiket 16 — pola sudah ada, tak perlu desain baru; (b)
+perbaiki self-revoke agar menolak **kedua** assignment, perbaikan satu baris;
+organisasi satu-Admin: grant kedua boleh diajukan sendiri, menunggu Admin
+kedua menyetujui, dicatat sebagai kondisi bootstrap bukan jalan pintas permanen;
+tambah kolom alasan opsional sekarang, murah, konsisten `CampaignStatusChange`.
