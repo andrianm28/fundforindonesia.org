@@ -228,7 +228,13 @@ describe('GET /api/impact -- a refunded Donation', () => {
     expect(raw.platformCost).toEqual({ unrecoveredProviderFee: 3_000, uncoveredRefunds: 0 });
   });
 
-  it('holds a Refund that has not been paid out yet as frozen money, still inside collected', async () => {
+  it('already counts a Refund that has only been REQUESTED as the Donor money, and keeps it out of the dispute-window line', async () => {
+    // The freeze (refundRequestedLegs) credits FROZEN_BALANCE with the whole
+    // Gross in the same transaction that takes it out of the pool, so from that
+    // instant the money is the Donor's and never the Campaign's again. Calling
+    // it "held in Escrow Hold" told a Donor their own refund was frozen inside
+    // a dispute window they are not in -- money they are owed, counted as
+    // money the platform is sitting on.
     const ledger = ledgerFixture();
     ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
     ledger.refundRequest({
@@ -248,11 +254,60 @@ describe('GET /api/impact -- a refunded Donation', () => {
 
     const body = lines(await getBreakdown());
 
-    expect(body.heldInEscrowHold).toBe(100_000);
-    expect(body.returnedToDonors).toBe(0);
+    expect(body.returnedToDonors).toBe(100_000);
+    expect(body.heldInEscrowHold).toBe(0);
   });
 
-  it('moves the page when a Refund returns BOTH fees, and stops moving once the Donor is paid', async () => {
+  it('adds the two accounts of the returned line: money already handed back, and money committed to a Donor not yet paid', async () => {
+    // Two Refunds, deliberately at opposite ends of their life: one approved
+    // long ago and already paid, one requested seconds ago and untouched. The
+    // line is a single number to a visitor, so it has to be the sum of both
+    // accounts or one of the two Refunds simply disappears from the page.
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 200_000, providerFee: 6_000, platformFee: 10_000 });
+    // The Donation is settled and released, so the two Refunds below come out
+    // of the withdrawable balance rather than out of Escrow Hold.
+    ledger.release({ paymentId: 'payment-1', campaignId: 'campaign-1', amount: 184_000 });
+    ledger.refundRequest({
+      refundId: 'refund-settled',
+      campaignId: 'campaign-1',
+      amount: 60_000,
+      source: 'CAMPAIGN_BALANCE',
+      platformFeePortion: 3_000,
+      providerFeePortion: 1_800,
+    });
+    ledger.refundApproval({ refundId: 'refund-settled', campaignId: 'campaign-1', amount: 60_000, source: 'CAMPAIGN_BALANCE', shortfall: 0 });
+    ledger.refundPayment({ refundId: 'refund-settled', amount: 60_000 });
+    ledger.refundRequest({
+      refundId: 'refund-pending',
+      campaignId: 'campaign-1',
+      amount: 40_000,
+      source: 'CAMPAIGN_BALANCE',
+      platformFeePortion: 2_000,
+      providerFeePortion: 1_200,
+    });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      refunds: [
+        { id: 'refund-settled', paymentId: 'payment-1' },
+        { id: 'refund-pending', paymentId: 'payment-1' },
+      ],
+      ledgerEntries: ledger.rows,
+    });
+
+    const body = lines(await getBreakdown());
+
+    // 60 000 already back to the Donor (REFUND_CLEARING) + 40 000 frozen for a
+    // Donor and not yet sent (FROZEN_BALANCE). Reading only the clearing
+    // account would report 60 000 and lose the second Refund entirely.
+    expect(body.returnedToDonors).toBe(100_000);
+    // And the freeze is not money the platform is holding in escrow, so the
+    // 40 000 shows up once, not twice.
+    expect(body.heldInEscrowHold).toBe(0);
+  });
+
+  it('moves the page once per Refund, at the freeze, and never again', async () => {
     // prd-compliance 28c. This walks the page through all four states of one
     // Refund's life and asserts what each step does to the six lines, because
     // the step 28c added is a MOVEMENT and an end-state assertion alone would
@@ -267,15 +322,19 @@ describe('GET /api/impact -- a refunded Donation', () => {
     //     settlements, and a Refund does not un-collect a rupiah), and
     //   the six lines total it at EVERY step, not just at the end.
     //
-    // And the movement is real, not zero: freezing the Refund takes the
-    // Campaign's net share out of the pool and puts the WHOLE Gross into
-    // Frozen Balance, so the returned Platform Fee leaves
-    // `platformFeeRetained`, the Provider Fee the provider will not return
-    // leaves `providerFeeKept`, and `heldInEscrowHold` grows by exactly those
-    // two amounts. A fee returned to the wrong account would leave the same
-    // total -- every ledger transaction balances, so the conservation law
-    // cannot tell -- and the wrong LINE. Which is why each step below asserts
-    // the delta and not only the figures.
+    // And the movement happens ONCE, at the freeze. refundRequestedLegs takes
+    // the Campaign's net share out of the pool and puts the WHOLE Gross into
+    // Frozen Balance, so from that instant the money is the Donor's: the
+    // returned Platform Fee leaves `platformFeeRetained` and the Provider Fee
+    // the provider will not return leaves `providerFeeKept`, while
+    // `heldInEscrowHold` falls by the net share the pool actually lost and
+    // `returnedToDonors` rises by the whole Gross. Steps 3 and 4 -- approval
+    // and payment -- move the same rupiah between two accounts that are BOTH
+    // inside the returned line, so the page must not move at all. A fee
+    // returned to the wrong account would leave the same total -- every ledger
+    // transaction balances, so the conservation law cannot tell -- and the
+    // wrong LINE. Which is why each step below asserts the delta and not only
+    // the figures.
     const ledger = ledgerFixture();
     ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
     holder.db = makeImpactDb({
@@ -288,6 +347,7 @@ describe('GET /api/impact -- a refunded Donation', () => {
     // 1. Settled, untouched: the three-way split of the Gross.
     const settled = await getBreakdown();
     expect(settled.collected).toBe(100_000);
+    expect(sumOf(lines(settled))).toBe(100_000);
     expect(lines(settled)).toEqual({
       disbursedToFundraisers: 0,
       returnedToDonors: 0,
@@ -300,8 +360,9 @@ describe('GET /api/impact -- a refunded Donation', () => {
 
     // 2. The Refund is created and the money freezes. Both fees leave their
     //    lines -- 5 000 handed back to the Donor's benefit, 3 000 the provider
-    //    will not return and the platform carries -- and the frozen pot grows
-    //    by their 8 000, so the page still totals 100 000.
+    //    will not return and the platform carries -- the 92 000 net share leaves
+    //    Escrow Hold, and the whole 100 000 Gross becomes the returned line.
+    //    The page still totals 100 000.
     ledger.refundRequest({
       refundId: 'refund-1',
       campaignId: 'campaign-1',
@@ -316,14 +377,15 @@ describe('GET /api/impact -- a refunded Donation', () => {
     expect(sumOf(lines(frozen))).toBe(100_000);
     expect(diffOf(lines(settled), lines(frozen))).toEqual({
       ...noLineMoved(),
-      heldInEscrowHold: 8_000,
+      returnedToDonors: 100_000,
+      heldInEscrowHold: -92_000,
       platformFeeRetained: -5_000,
       providerFeeKept: -3_000,
     });
     expect(lines(frozen)).toEqual({
       disbursedToFundraisers: 0,
-      returnedToDonors: 0,
-      heldInEscrowHold: 100_000,
+      returnedToDonors: 100_000,
+      heldInEscrowHold: 0,
       availableInCampaignBalance: 0,
       platformFeeRetained: 0,
       providerFeeKept: 0,
@@ -332,18 +394,16 @@ describe('GET /api/impact -- a refunded Donation', () => {
     // lines entirely and is reported beside them.
     expect(frozen.platformCost).toEqual({ unrecoveredProviderFee: 3_000, uncoveredRefunds: 0 });
 
-    // 3. A second Admin approves it: the frozen Gross becomes a returned
-    //    line, a straight handover rather than anything new.
+    // 3. A second Admin approves it, and the page must not move by a single
+    //    rupiah. Approval is a handover between two accounts of the SAME line:
+    //    Frozen Balance is debited as Refund Clearing is credited, and the
+    //    Donor was owed this money before this Admin touched anything.
     ledger.refundApproval({ refundId: 'refund-1', campaignId: 'campaign-1', amount: 100_000, source: 'ESCROW_HOLD', shortfall: 0 });
     const approved = await getBreakdown();
 
     expect(approved.collected).toBe(100_000);
     expect(sumOf(lines(approved))).toBe(100_000);
-    expect(diffOf(lines(frozen), lines(approved))).toEqual({
-      ...noLineMoved(),
-      returnedToDonors: 100_000,
-      heldInEscrowHold: -100_000,
-    });
+    expect(diffOf(lines(frozen), lines(approved))).toEqual(noLineMoved());
     expect(lines(approved)).toEqual({
       disbursedToFundraisers: 0,
       returnedToDonors: 100_000,
@@ -355,9 +415,9 @@ describe('GET /api/impact -- a refunded Donation', () => {
     expect(approved.platformCost).toEqual({ unrecoveredProviderFee: 3_000, uncoveredRefunds: 0 });
 
     // 4. The third Admin pays the Donor, which drains the Provider Balance.
-    //    The page must not move by a single rupiah: the money was already
-    //    reported as returned when the Refund was approved, and the Donor is
-    //    being handed what the page has been showing since step 3.
+    //    The page must not move by a single rupiah: the money has been reported
+    //    as the Donor's since step 2, and the Donor is being handed what the
+    //    page has been showing since before this Refund was approved.
     //
     //    HONESTLY, WHY "MUST NOT MOVE" IS A REAL CLAIM AND NOT A WEAK ONE:
     //    the Provider Balance is in NONE of the six lines. Settlement splits
@@ -372,7 +432,7 @@ describe('GET /api/impact -- a refunded Donation', () => {
     //    src/lib/money/ledger.test.ts asserts refundPaidLegs' exact legs and
     //    that GATEWAY_CLEARING + REFUND_COST equals what the pot is owed.
     //    Read this test as "the page is a conservation law, and a Refund
-    //    moves it exactly twice", not as "the Provider Balance is drained
+    //    moves it exactly once", not as "the Provider Balance is drained
     //    correctly".
     ledger.refundPayment({ refundId: 'refund-1', amount: 100_000 });
     const paid = await getBreakdown();

@@ -15,12 +15,23 @@ import type { PrismaClient } from '@/generated/prisma/client';
  * into exactly six destinations, which is what a visitor is shown:
  *
  *   1. disbursedToFundraisers     instructed out of the Campaign Balance
- *   2. returnedToDonors           handed back, at Gross
- *   3. heldInEscrowHold           still inside the dispute window, plus the
- *                                 Frozen Balance of Refunds not yet paid out
+ *   2. returnedToDonors           handed back, at Gross, PLUS the Frozen
+ *                                 Balance of Refunds committed to a Donor
+ *                                 but not yet paid out
+ *   3. heldInEscrowHold           still inside the waiting period that gives a
+ *                                 Refund room to happen (CONTEXT.md)
  *   4. availableInCampaignBalance withdrawable now
  *   5. platformFeeRetained        Platform Fee the platform kept
  *   6. providerFeeKept            Provider Fee the provider kept
+ *
+ * A refund counts as returned the moment it is created, not when it is
+ * approved. refundRequestedLegs moves the money out of the Campaign's pools
+ * and into the Frozen Balance in the same transaction, so from that instant it
+ * is the Donor's and never the Campaign's again; approval and payment are
+ * handovers between two accounts of the same line. So `returnedToDonors` is
+ * "money that is, or is about to be, the Donor's" -- which is why its label
+ * says so, and why the frozen part is not also counted as Escrow Hold: one
+ * rupiah, one line.
  *
  * They are not six independent figures stapled together; they are one
  * conservation law read six ways, and the reader asserts it rather than
@@ -61,11 +72,19 @@ export const IMPACT_LINES = [
   },
   {
     key: 'returnedToDonors',
-    label: 'Dikembalikan ke Donor',
+    // The figure covers money already handed back AND money only committed to
+    // a Donor so far, so the label has to say both. "Dikembalikan ke Donor"
+    // alone is a claim about the Donor's bank account that is false for every
+    // Refund still waiting on its second and third Admin.
+    label: 'Dikembalikan ke Donor, termasuk yang sudah dikomit belum dikirim',
   },
   {
     key: 'heldInEscrowHold',
-    label: 'Ditahan di Escrow Hold, termasuk yang dibekukan menunggu Refund',
+    // Only money still inside the Escrow Hold's waiting period: a Refund's
+    // freeze sits on the returned line, because it is the Donor's money, not
+    // money the Campaign is still holding (CONTEXT.md, Frozen Balance: "tetap
+    // menjadi hak Donor").
+    label: 'Ditahan di Escrow Hold, masih dalam masa tunggu',
   },
   {
     key: 'availableInCampaignBalance',
@@ -308,13 +327,30 @@ export async function impactBreakdown(
       sum(refundShortfall, 'ESCROW_HOLD:CREDIT') + sum(refundShortfall, 'CAMPAIGN_BALANCE:CREDIT');
     const unrecoveredProviderFee = sum(byRefund, 'REFUND_COST:DEBIT') - uncoveredRefunds;
 
+    // Money a Refund has taken out of the Campaign's pools and set aside for a
+    // Donor: refundRequestedLegs credits it at REQUESTED and refundApprovedLegs
+    // debits it at APPROVED, so this balance is exactly the Gross of every Refund
+    // the platform owes a Donor but has not yet recognised as returned.
+    //
+    // It is the DONOR's money from the moment the Refund is created, so it is
+    // part of the returned line and not of the Escrow Hold one -- but only ONE
+    // of the two, or the same rupiah is counted twice and the six lines stop
+    // reconciling. The two lines below are one move, not two figures: whatever
+    // leaves `heldInEscrowHold` arrives in `returnedToDonors`, so the total
+    // across all six is unchanged and the conservation law above still holds by
+    // construction rather than by luck.
+    const frozenForDonors = balance(campaignPools, 'FROZEN_BALANCE');
+
     const amounts: Record<ImpactLineKey, number> = {
       disbursedToFundraisers: sum(byPayout, 'PAYOUT_CLEARING:CREDIT'),
       // A Refund is money that really went back, so it is shown at Gross --
-      // except for the part no Campaign money covered, which is the platform's
-      // loss rather than a return of collected funds (reported below).
-      returnedToDonors: returnedGross - uncoveredRefunds,
-      heldInEscrowHold: balance(campaignPools, 'ESCROW_HOLD') + balance(campaignPools, 'FROZEN_BALANCE'),
+      // including the part that is committed to a Donor but not yet paid out,
+      // which is the Donor's money all the same (see `frozenForDonors` above)
+      // -- except for the part no Campaign money covered, which is the
+      // platform's loss rather than a return of collected funds (reported
+      // below).
+      returnedToDonors: returnedGross + frozenForDonors - uncoveredRefunds,
+      heldInEscrowHold: balance(campaignPools, 'ESCROW_HOLD'),
       availableInCampaignBalance: balance(campaignPools, 'CAMPAIGN_BALANCE'),
       platformFeeRetained: platformFeeCharged - platformFeeReturned,
       providerFeeKept: providerFeeCharged - unrecoveredProviderFee,

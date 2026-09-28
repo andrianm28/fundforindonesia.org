@@ -114,6 +114,65 @@ describe('ImpactPage', () => {
     expect(renderedLine('returnedToDonors')).toBe(100_000);
   });
 
+  it('tells a Donor that the returned line includes money not yet sent to them', async () => {
+    // The returned line is REFUND_CLEARING plus the Frozen Balance of Refunds
+    // nobody has approved yet, so at this moment none of the 100 000 has been
+    // transferred to anybody. "Dikembalikan ke Donor" on its own is a claim
+    // about the Donor's bank account that the ledger does not support, and it
+    // is the one claim on this page a Donor would notice being wrong.
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    ledger.refundRequest({
+      refundId: 'refund-1',
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      source: 'ESCROW_HOLD',
+      platformFeePortion: 5_000,
+      providerFeePortion: 3_000,
+    });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    await renderPage();
+
+    expect(renderedLine('returnedToDonors')).toBe(100_000);
+    expect(screen.getByText(/Dikembalikan ke Donor/)).toBeTruthy();
+    expect(screen.getByText(/dikomit belum dikirim/)).toBeTruthy();
+  });
+
+  it('stops telling a Donor their refund is frozen inside a dispute window', async () => {
+    // The Escrow Hold line is now money still inside the waiting period and
+    // nothing else: a Refund's freeze has moved to the returned line, so the
+    // old label claimed a dispute window around money a Donor is simply owed.
+    // A Donor reading that would think their own refund was contested.
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    ledger.refundRequest({
+      refundId: 'refund-1',
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      source: 'ESCROW_HOLD',
+      platformFeePortion: 5_000,
+      providerFeePortion: 3_000,
+    });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    await renderPage();
+
+    expect(renderedLine('heldInEscrowHold')).toBe(0);
+    expect(screen.queryByText(/dibekukan menunggu Refund/)).toBeNull();
+    expect(screen.getByText(/Ditahan di Escrow Hold/)).toBeTruthy();
+  });
+
   it('keeps the platform money the platform absorbs out of the collected lines and says so', async () => {
     const ledger = ledgerFixture();
     ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
