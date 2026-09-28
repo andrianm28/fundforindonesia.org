@@ -1,6 +1,9 @@
+import { timingSafeEqual } from 'node:crypto';
 import { Kind, type Payment, type Prisma, type PrismaClient, type Refund } from '@/generated/prisma/client';
 import { OwnSubjectConflictError } from '@/lib/capacity';
 import { lockAndLoad, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
+import { validateProofReference, validateProofNote, buildProofImage } from '@/lib/payout-proof';
+import { sealRefundDonorAccountNumber, readRefundDonorAccountNumber } from '@/lib/contact-fields';
 import {
   campaignBalance,
   tripBalance,
@@ -9,6 +12,7 @@ import {
   postTransaction,
   refundRequestedLegs,
   refundApprovedLegs,
+  refundPaidLegs,
   providerFeePortionFor,
   platformFeePortionFor,
   type LedgerSubject,
@@ -20,22 +24,43 @@ import {
   RefundExceedsRemainingError,
   RefundNotAllowedForKindError,
   RefundNotFoundError,
+  RefundProofInvalidError,
+  RefundDestinationInvalidError,
+  RefundDestinationMismatchError,
   SelfApprovalError,
   InvalidRefundStatusError,
+  TwoPersonRuleError,
 } from './errors';
 
 /**
- * Refund: request, approve.
+ * Refund: request, approve, complete.
  *
  * Ported from the same two-person disbursement discipline as
  * src/lib/money/payouts.ts, generalized over subject: LedgerSubject from
  * day one (see the spec's own User Story 11) rather than forked into a
  * Trip-scoped sibling later.
  *
- * This ticket's own code only ever produces REQUESTED and APPROVED --
- * AWAITING_DONOR_DETAILS, PROCESSING, COMPLETED, REJECTED, FAILED stay in
- * the schema's enum for the donor-facing flow and the reject/cancel path,
- * neither of which this ticket builds a route for.
+ * Ticket 23's code only ever produced REQUESTED and APPROVED. Ticket 31
+ * adds `completeRefund`, APPROVED -> COMPLETED, with the transfer proof
+ * CONTEXT.md's Refund entry calls for. The remaining three statuses
+ * (AwaitingDonorDetails, Processing -- Processing is subsumed into this one
+ * completion step, same as Payout -- Rejected, Failed) and the signed
+ * 30-day donor-details link still stay in the schema's enum for a later
+ * rilis, deferred by the same owner decision that scoped ticket 23.
+ *
+ * OWNER DECISION Q7(c), 2026-09-28 (ADR 0018 Amendment 2026-09-28): ADR
+ * 0018 wants a Refund's destination to be a Verifier-checked Bank Account,
+ * same as a Payout's, but Rilis 1's Guest Donors have no account to hold
+ * one on. The compensating control is two pairs of eyes on the account
+ * number instead of a Verifier's: the Admin who APPROVES a Refund records
+ * the destination from the Donor's written request (moved here from
+ * completion, where ticket 31 first put it), and the different Admin who
+ * COMPLETES it re-types the account number, which the server compares
+ * against the sealed one recorded at approval -- never the bank code or
+ * the account name, only the number, because that is the one field a
+ * misread digit sends money to the wrong stranger. `completeRefund` no
+ * longer accepts a destination of its own, only the re-typed number to
+ * check.
  */
 
 export {
@@ -46,8 +71,12 @@ export {
   RefundExceedsRemainingError,
   RefundNotAllowedForKindError,
   RefundNotFoundError,
+  RefundProofInvalidError,
+  RefundDestinationInvalidError,
+  RefundDestinationMismatchError,
   SelfApprovalError,
   InvalidRefundStatusError,
+  TwoPersonRuleError,
 };
 
 type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt'> & {
@@ -276,18 +305,101 @@ export async function createRefund(
   return refund;
 }
 
+const MAX_DESTINATION_TEXT_LENGTH = 200;
+
+/**
+ * The Donor destination's own field rule (ticket 31; Q7(c)): required,
+ * trimmed, and bounded the same way createBankAccount's `cleanText`
+ * (src/lib/bank-account-verification.ts) already bounds a saved
+ * BankAccount's fields -- not a reuse of that function, because it throws
+ * InvalidBankAccountError for a row this is not one of, but the same rule,
+ * mirrored, so a Donor's hand-typed destination is judged no more loosely
+ * than a Fundraiser's saved one.
+ */
+function cleanDestinationText(
+  raw: unknown,
+  label: string,
+  field: 'donorBankCode' | 'donorAccountName' | 'donorAccountNumber',
+): string {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (text === '') {
+    throw new RefundDestinationInvalidError(`${label} wajib diisi.`, field);
+  }
+  if (text.length > MAX_DESTINATION_TEXT_LENGTH) {
+    throw new RefundDestinationInvalidError(`${label} maksimal ${MAX_DESTINATION_TEXT_LENGTH} karakter.`, field);
+  }
+  return text;
+}
+
+/**
+ * Everything but the digits, so "1234-5678" and "1234 5678" and "12345678"
+ * all compare equal: the Admin re-typing the number at completion is not
+ * asked to reproduce the exact punctuation the approving Admin happened to
+ * type, only the same digits (Q7(c)).
+ */
+function normalisedAccountDigits(raw: string): string {
+  return raw.replace(/\D+/g, '');
+}
+
+/**
+ * Constant-time comparison of two account numbers' digits (Q7(c)): the
+ * re-typed number at completion against the one decrypted from the sealed
+ * ciphertext recorded at approval. `timingSafeEqual` refuses two buffers of
+ * different length outright, so an early, non-constant-time length check
+ * would leak nothing a length-mismatch call does not already leak by
+ * throwing -- there is no secret in how many digits a bank account number
+ * has, only in which digits they are.
+ */
+function accountNumbersMatch(typed: string, recorded: string): boolean {
+  const a = Buffer.from(normalisedAccountDigits(typed), 'utf8');
+  const b = Buffer.from(normalisedAccountDigits(recorded), 'utf8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 /**
  * A different Admin approves a REQUESTED Refund: posts the gross-
- * recognition settlement and lands on APPROVED. See refundApprovedLegs
- * (./ledger.ts) for the exact debit/credit math -- it closes FROZEN_BALANCE
- * in full and, only for a genuine shortfall (the fee was already handled
- * at freeze time, never here), tops the pool back up.
+ * recognition settlement, records the Donor's destination, and lands on
+ * APPROVED. See refundApprovedLegs (./ledger.ts) for the exact debit/credit
+ * math -- it closes FROZEN_BALANCE in full and, only for a genuine
+ * shortfall (the fee was already handled at freeze time, never here), tops
+ * the pool back up.
+ *
+ * THE DESTINATION MOVES HERE FROM COMPLETION (Q7(c), ADR 0018 Amendment
+ * 2026-09-28). ADR 0018 wants a Refund's destination to be a
+ * Verifier-checked Bank Account, same as a Payout's; Rilis 1's Guest
+ * Donors have no account to hold one on, so the compensating control is
+ * two pairs of eyes on the account number. This Admin is the first pair:
+ * they read the Donor's written request and type the bank code, the
+ * account holder name, and the account number here, before any money has
+ * moved -- an approval with no destination is refused
+ * (RefundDestinationInvalidError), through the same `cleanDestinationText`
+ * completion used to ask for it in ticket 31's first cut. The number is
+ * sealed immediately (`sealRefundDonorAccountNumber`, @/lib/contact-
+ * fields.ts, ADR 0012) and never rendered back in full -- the completing
+ * Admin's job is to re-type it from the same written request, not to read
+ * it off this screen.
  */
 export async function approveRefund(
   prisma: PrismaClient,
-  params: { refundId: string; approvedById: string },
+  params: {
+    refundId: string;
+    approvedById: string;
+    donorBankCode: string;
+    donorAccountName: string;
+    donorAccountNumber: string;
+  },
 ): Promise<Refund> {
-  const { refundId, approvedById } = params;
+  const { refundId, approvedById, donorBankCode, donorAccountName, donorAccountNumber } = params;
+
+  // Checked before the transaction opens, mirroring completeRefund's own
+  // proof check: a blank or over-length field can never become a good one
+  // by reading the database, so an approval with no destination never
+  // reaches a write.
+  const cleanBankCode = cleanDestinationText(donorBankCode, 'Kode bank', 'donorBankCode');
+  const cleanAccountName = cleanDestinationText(donorAccountName, 'Nama pemilik rekening', 'donorAccountName');
+  const cleanAccountNumber = cleanDestinationText(donorAccountNumber, 'Nomor rekening', 'donorAccountNumber');
+  const sealedAccountNumber = sealRefundDonorAccountNumber(cleanAccountNumber);
 
   await prisma.$transaction(async (tx) => {
     const refund = await tx.refund.findUnique({
@@ -363,7 +475,13 @@ export async function approveRefund(
     // writes nothing at all.
     const claimed = await tx.refund.updateMany({
       where: { id: refundId, status: 'REQUESTED' },
-      data: { status: 'APPROVED', approvedById },
+      data: {
+        status: 'APPROVED',
+        approvedById,
+        donorBankCode: cleanBankCode,
+        donorAccountName: cleanAccountName,
+        ...sealedAccountNumber,
+      },
     });
     if (claimed.count === 0) {
       throw new InvalidRefundStatusError('unknown (changed concurrently)', 'lost the approval race');
@@ -373,6 +491,163 @@ export async function approveRefund(
       tx,
       refundApprovedLegs({ subject, amount: refund.amount, source, shortfall }),
       { refundId: refund.id, transactionId: `refund-approved-${refund.id}` },
+    );
+  });
+
+  return prisma.refund.findUniqueOrThrow({ where: { id: refundId } });
+}
+
+/**
+ * The third Admin completes an APPROVED Refund: transferred the money by
+ * hand to the Donor's account the approving Admin already recorded
+ * (CONTEXT.md, Refund; PRD §7.2), re-types that account number as the
+ * second pair of eyes (Q7(c)) rather than typing a destination of its own,
+ * and posts the withdrawal from the Provider Balance (refundPaidLegs,
+ * ./ledger.ts -- ADR 0007: the full Gross, not only the Campaign's net
+ * share, because that is what a Refund returns).
+ *
+ * TWO-PERSON RULE, THE REFUND VERSION (three people, not two pairs;
+ * CONTEXT.md, Refund: "dibuat satu Admin, disetujui Admin lain, dan
+ * diselesaikan Admin yang berbeda dari penyetujunya"). Unlike
+ * completePayout, which only refuses the approver, this refuses BOTH the
+ * Admin who requested the Refund and the Admin who approved it -- the same
+ * check completePayout makes on approvedById, done twice, because a Refund
+ * names a third distinct person where a Payout only ever named two.
+ *
+ * NO DESTINATION OF ITS OWN (Q7(c)). completeRefund no longer accepts
+ * `donorBankCode`/`donorAccountName`/a fresh `donorAccountNumber` to
+ * record -- those were moved to approveRefund. The only account input here
+ * is the re-typed number to CHECK, never to write: it is compared, inside
+ * the transaction, against the sealed number the approving Admin already
+ * recorded, and on any mismatch this throws RefundDestinationMismatchError
+ * (400) before the status update or the ledger post are reached, so a
+ * mistyped re-entry writes nothing at all -- not even a failed attempt on
+ * the row.
+ *
+ * PROOF IS CHECKED BEFORE THE TRANSACTION OPENS, exactly like completePayout
+ * checks it: a blank field can never become a good one by reading the
+ * database. The proof is judged by the exact `validateProofReference`/
+ * `validateProofNote` functions completePayout already asks (@/lib/payout-
+ * proof) -- ticket 13's one validator, now a third caller -- and joined
+ * into `proofImage` by the same `buildProofImage`. The re-typed account
+ * number is only shape-checked there (non-blank, bounded) through the same
+ * `cleanDestinationText`; the actual comparison against the sealed value
+ * needs the Refund row, so it happens inside the transaction, below.
+ *
+ * LEDGER LEGS: refundPaidLegs (./ledger.ts), the module's own
+ * `NOT POSTED YET` note names this exact function as the reason it exists.
+ * It takes no subject: both REFUND_CLEARING and GATEWAY_CLEARING are
+ * platform-level, the same way payoutCompletedLegs takes none. The
+ * subject is still locked below, for the same reason completePayout locks
+ * it at completion -- so requireNotOwnerAsAdmin is judged under a lock, not
+ * against a state that could have changed a moment before.
+ *
+ * THE DONOR ACCOUNT NUMBER IS DECRYPTED SERVER-SIDE ONLY TO COMPARE, NEVER
+ * TO RETURN (ADR 0012). `readRefundDonorAccountNumber` (@/lib/contact-
+ * fields.ts) reverses the exact seal approveRefund wrote; nothing this
+ * function returns, and nothing any route or screen built on it should
+ * return, ever includes the plaintext number in full -- an Admin's screen
+ * shows it masked (maskBankAccountNumber, @/lib/bank-account-mask.ts), the
+ * same way a Payout's destination is.
+ */
+export async function completeRefund(
+  prisma: PrismaClient,
+  params: {
+    refundId: string;
+    completedById: string;
+    proofReference: string;
+    proofNote: string;
+    donorAccountNumber: string;
+  },
+): Promise<Refund> {
+  const { refundId, completedById, proofReference, proofNote, donorAccountNumber } = params;
+
+  // Checked before the transaction opens, mirroring completePayout: a bad
+  // field can never become a good one by reading the database, so nothing
+  // below is reached and the Refund keeps waiting in APPROVED for a third
+  // Admin who supplies a proper proof and re-types the right number.
+  const referenceError = validateProofReference(typeof proofReference === 'string' ? proofReference : '');
+  if (referenceError) {
+    throw new RefundProofInvalidError(referenceError);
+  }
+  const noteError = validateProofNote(typeof proofNote === 'string' ? proofNote : '');
+  if (noteError) {
+    throw new RefundProofInvalidError(noteError);
+  }
+  const proofImage = buildProofImage(proofReference, proofNote);
+
+  const typedAccountNumber = cleanDestinationText(donorAccountNumber, 'Nomor rekening', 'donorAccountNumber');
+
+  await prisma.$transaction(async (tx) => {
+    const refund = await tx.refund.findUnique({
+      where: { id: refundId },
+      include: {
+        payment: { include: { donation: true, registration: { include: { batch: true } } } },
+      },
+    });
+    if (!refund) {
+      throw new RefundNotFoundError(refundId);
+    }
+
+    if (refund.status !== 'APPROVED') {
+      throw new InvalidRefundStatusError(refund.status);
+    }
+
+    // The whole two-person rule, before any write. A Refund names three
+    // people (CONTEXT.md, Refund), so this checks both of the other two --
+    // a self-completion, by either of them, leaves the Refund exactly as it
+    // was, a refusal rather than a decision this Refund has been through.
+    if (refund.requestedById === completedById || refund.approvedById === completedById) {
+      throw new TwoPersonRuleError('Refund');
+    }
+
+    // The second pair of eyes (Q7(c)): decrypt the number the approving
+    // Admin recorded and compare it, in constant time over normalised
+    // digits, against what this Admin just re-typed. A mismatch refuses
+    // before any write -- nothing about this Refund changes, and no ledger
+    // leg is posted, for a re-entry that does not match.
+    const recordedAccountNumber = readRefundDonorAccountNumber({
+      donorAccountNumberCiphertext: refund.donorAccountNumberCiphertext,
+      donorAccountNumberKeyId: refund.donorAccountNumberKeyId,
+    });
+    if (recordedAccountNumber === null || !accountNumbersMatch(typedAccountNumber, recordedAccountNumber)) {
+      throw new RefundDestinationMismatchError();
+    }
+
+    const payment = refund.payment as unknown as PaymentWithSubjectLinks;
+    const subject = paymentSubjectOf(payment);
+
+    // Locked for the same reason completePayout locks its subject at
+    // completion: requireNotOwnerAsAdmin is judged under the lock, not
+    // against a state that could have changed a moment before. Nothing
+    // here reads a balance -- refundPaidLegs takes no subject -- so the
+    // lock's only job is to make the ownership check safe.
+    const subjectState = await lockAndLoad(tx, subject, new Date());
+    if (subjectState) requireNotOwnerAsAdmin(subjectState, completedById);
+
+    const claimed = await tx.refund.updateMany({
+      where: { id: refundId, status: 'APPROVED' },
+      data: {
+        status: 'COMPLETED',
+        completedById,
+        completedAt: new Date(),
+        proofImage: proofImage.trim(),
+      },
+    });
+    if (claimed.count === 0) {
+      // refund.status above is the pre-update read and is now stale; some
+      // other write got here first.
+      throw new InvalidRefundStatusError('unknown (changed concurrently)', 'lost the completion race');
+    }
+
+    // Posted at completion, in the same transaction as the status write, so
+    // a COMPLETED Refund never exists a moment without the withdrawal that
+    // explains it. transactionId is keyed on the refund id, idempotent on
+    // top of (not instead of) the updateMany guard above.
+    await postTransaction(
+      tx,
+      refundPaidLegs({ amount: refund.amount }),
+      { refundId: refund.id, transactionId: `refund-completed-${refund.id}` },
     );
   });
 

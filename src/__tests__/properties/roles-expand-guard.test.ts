@@ -112,6 +112,12 @@ import { join } from "node:path";
  * withAssignmentCheck on the ADMIN assignment, like every other Admin money
  * action here. Growing this list by one.
  *
+ * NOTE (ticket 31): adds
+ * `POST /api/campaigns/[slug]/refunds/[id]/complete` and
+ * `POST /api/volunteer-trips/[slug]/refunds/[id]/complete`, the third Admin
+ * of the Refund two-person rule recording the transfer proof -- both
+ * Admin-only on both ends, growing this list from thirteen to fifteen.
+ *
  * NOTE (prd-compliance 35): `POST /api/admin/provider-withdrawals` records the
  * platform's own money moving from a payment provider to a Collection Account,
  * which is in the Admin's remit on the same grounds as a Payout approval and a
@@ -144,6 +150,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/payouts/[id]/complete/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/usage-report/route.ts",
   "src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts",
+  "src/app/api/campaigns/[slug]/refunds/[id]/complete/route.ts",
   "src/app/api/campaigns/[slug]/refunds/route.ts",
   "src/app/api/moderasi/bank-accounts/[requestId]/route.ts",
   "src/app/api/moderasi/bank-accounts/route.ts",
@@ -154,6 +161,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/volunteer-trips/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/volunteer-trips/[slug]/payouts/[id]/complete/route.ts",
   "src/app/api/volunteer-trips/[slug]/refunds/[id]/approve/route.ts",
+  "src/app/api/volunteer-trips/[slug]/refunds/[id]/complete/route.ts",
   "src/app/moderasi/layout.tsx",
   "src/app/moderasi/page.tsx",
   "src/app/moderasi/rekening/page.tsx",

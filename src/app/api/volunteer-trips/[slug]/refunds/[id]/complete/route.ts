@@ -5,32 +5,35 @@ import { getServerSession } from '@/lib/auth';
 import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
-import { approveRefund } from '@/lib/money/refunds';
+import { completeRefund } from '@/lib/money/refunds';
 
-const approveRefundSchema = z.object({
-  donorBankCode: z.string(),
-  donorAccountName: z.string(),
+const completeRefundSchema = z.object({
+  // donorAccountNumber (Q7(c)) is the completing Admin's RE-TYPED number,
+  // compared server-side against the one the approving Admin recorded --
+  // this route never accepts a bank code or account name of its own any
+  // more.
+  proofReference: z.string(),
+  proofNote: z.string(),
   donorAccountNumber: z.string(),
 });
 
+type RouteContext = { params: Promise<{ slug: string; id: string }> };
+
 /**
- * PATCH /api/volunteer-trips/[slug]/refunds/[id]/approve -- a different Admin
- * approves a REQUESTED Refund, records the Donor destination from their
- * written request, and posts the settlement in the same action.
- *
- * Structural mirror of the Campaign sibling route
- * (src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts): approveRefund
- * itself is already subject-agnostic and needs no Trip-specific logic at
- * all -- the only thing genuinely different here is this route's own
- * Trip-vs-Campaign scoping lookup.
+ * POST /api/volunteer-trips/[slug]/refunds/[id]/complete -- the Trip-scoped
+ * twin of the Campaign completion route
+ * (src/app/api/campaigns/[slug]/refunds/[id]/complete/route.ts).
+ * completeRefund itself is already subject-agnostic; the only thing
+ * genuinely different here is this route's own Trip-vs-Campaign scoping
+ * lookup, the same structural mirror the approve routes already are.
  */
-export const PATCH = withAssignmentCheck(Assignment.ADMIN, async (request: NextRequest, context: any) => {
+export const POST = withAssignmentCheck(Assignment.ADMIN, async (request: NextRequest, context: RouteContext) => {
   const { slug, id } = await context.params;
   const session = await getServerSession();
-  const approvedById = session!.user!.id as string;
+  const completedById = session!.user!.id as string;
 
   const body = await request.json().catch(() => null);
-  const parsed = approveRefundSchema.safeParse(body);
+  const parsed = completeRefundSchema.safeParse(body);
   if (!parsed.success) {
     const fieldErrors = parsed.error.flatten().fieldErrors;
     return NextResponse.json({ error: 'Validasi gagal', fieldErrors }, { status: 400 });
@@ -50,11 +53,11 @@ export const PATCH = withAssignmentCheck(Assignment.ADMIN, async (request: NextR
   }
 
   try {
-    const updated = await approveRefund(prisma, {
+    const updated = await completeRefund(prisma, {
       refundId: id,
-      approvedById,
-      donorBankCode: parsed.data.donorBankCode,
-      donorAccountName: parsed.data.donorAccountName,
+      completedById,
+      proofReference: parsed.data.proofReference,
+      proofNote: parsed.data.proofNote,
       donorAccountNumber: parsed.data.donorAccountNumber,
     });
 
@@ -63,13 +66,13 @@ export const PATCH = withAssignmentCheck(Assignment.ADMIN, async (request: NextR
       paymentId: updated.paymentId,
       amount: updated.amount,
       status: updated.status,
-      approvedById: updated.approvedById,
+      completedById: updated.completedById,
+      completedAt: updated.completedAt,
     });
   } catch (error) {
-    // Every refusal carries its own code and answers its own status.
     const refusal = refusalResponse(error);
     if (refusal) return refusal;
-    console.error('Error approving refund:', error);
-    return NextResponse.json({ error: 'Gagal menyetujui refund' }, { status: 500 });
+    console.error('Error completing refund:', error);
+    return NextResponse.json({ error: 'Gagal menandai refund selesai' }, { status: 500 });
   }
 });

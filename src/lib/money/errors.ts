@@ -145,22 +145,27 @@ export class PayoutProofInvalidError extends MoneyError {
 
 /**
  * The two-person rule on the SECOND action: the Admin recording the transfer
- * is the Admin who approved it (or the Payout has no recorded approver at
+ * is the Admin who approved it (or the subject has no recorded approver at
  * all, which cannot show two people either). Distinct from SelfApprovalError,
  * which is the same rule on the first action -- the requester approving
  * their own request.
  *
- * ContEXT.md, Payout: the Payout is "disetujui satu Admin, lalu ... ditandai
- * selesai dengan bukti transfer oleh Admin yang berbeda". The rule is
- * enforced here, not merely advised: an approver who marks their own
- * approval done has performed one person's action and called it two, and
- * nothing downstream of that write can tell the difference.
+ * CONTEXT.md, Payout: a Payout is "disetujui satu Admin, lalu ... ditandai
+ * selesai dengan bukti transfer oleh Admin yang berbeda". CONTEXT.md, Refund:
+ * a Refund is "dibuat satu Admin, disetujui Admin lain, dan diselesaikan
+ * Admin yang berbeda dari penyetujunya" -- three people, not two pairs, so
+ * `completeRefund` (ticket 31) refuses BOTH the requester and the approver,
+ * not only the approver. `what` names which one this refusal is about, the
+ * same shape SelfApprovalError already uses; the CODE is the same either
+ * way (one rule, one code, one HTTP status).
  */
 export class TwoPersonRuleError extends MoneyError {
   readonly code = 'TWO_PERSON_RULE';
-  constructor() {
+  constructor(readonly what: 'Payout' | 'Refund' = 'Payout') {
     super(
-      'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
+      what === 'Refund'
+        ? 'Refund harus diselesaikan oleh Admin yang berbeda dari yang mengajukan maupun yang menyetujuinya (aturan dua orang).'
+        : 'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
     );
     this.name = 'TwoPersonRuleError';
   }
@@ -175,6 +180,66 @@ export class InvalidRefundStatusError extends MoneyError {
   ) {
     super('Refund tidak lagi menunggu persetujuan.');
     this.name = 'InvalidRefundStatusError';
+  }
+}
+
+/**
+ * A Refund completion whose proof of transfer does not have the shape
+ * ticket 13 decided it has to (a transaction reference and a free-text
+ * note, both present, trimmed, within @/lib/payout-proof's length limits) --
+ * `completeRefund`'s own twin of PayoutProofInvalidError, asking the exact
+ * same `validateProofReference`/`validateProofNote` functions so a Payout's
+ * and a Refund's proof can never disagree about what "bukti transfer" means
+ * (CONTEXT.md, Refund; PRD §7.2; ticket 13; ticket 31). A distinct class
+ * from PayoutProofInvalidError, not a reuse of it renamed, because the two
+ * still answer for different rows and a caller catching one must not
+ * silently also catch the other.
+ */
+export class RefundProofInvalidError extends MoneyError {
+  readonly code = 'REFUND_PROOF_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'RefundProofInvalidError';
+  }
+}
+
+/**
+ * The Donor destination the approving Admin records -- bank code, account
+ * holder name, account number -- is missing or too long. There is no saved
+ * BankAccount row for a Donor (ADR 0018, Amendment 2026-09-28; ticket 31),
+ * so this is the approving Admin's own input, judged the same way ManualContribution's
+ * hand-typed evidence is: a field left blank or over length, fixable by
+ * filling the form in properly, not a policy the request has no way to
+ * satisfy -- 400, like MANUAL_CONTRIBUTION_INVALID.
+ */
+export class RefundDestinationInvalidError extends MoneyError {
+  readonly code = 'REFUND_DESTINATION_INVALID';
+  constructor(
+    message: string,
+    readonly field: 'donorBankCode' | 'donorAccountName' | 'donorAccountNumber',
+  ) {
+    super(message);
+    this.name = 'RefundDestinationInvalidError';
+  }
+}
+
+/**
+ * The account number the completing Admin re-typed does not match the one
+ * the approving Admin recorded (Q7(c), ADR 0018 Amendment 2026-09-28): the
+ * two-pairs-of-eyes control Rilis 1 uses in place of Verifier checking, for
+ * a Guest Donor with no Bank Account of their own to be checked. This is a
+ * mistyped re-entry, not a policy the request has no way to satisfy --
+ * fixable by re-reading the Donor's written request and typing it again --
+ * so it answers 400, like RefundDestinationInvalidError. The message never
+ * repeats either number: neither one belongs in a client-visible string.
+ */
+export class RefundDestinationMismatchError extends MoneyError {
+  readonly code = 'REFUND_DESTINATION_MISMATCH';
+  constructor() {
+    super(
+      'Nomor rekening yang diketik tidak sama dengan yang dicatat saat persetujuan. Cocokkan kembali dengan permintaan tertulis Donor.',
+    );
+    this.name = 'RefundDestinationMismatchError';
   }
 }
 

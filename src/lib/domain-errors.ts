@@ -55,6 +55,9 @@ export type MoneyErrorCode =
   | "SELF_APPROVAL"
   | "TWO_PERSON_RULE"
   | "PAYOUT_PROOF_INVALID"
+  | "REFUND_PROOF_INVALID"
+  | "REFUND_DESTINATION_INVALID"
+  | "REFUND_DESTINATION_MISMATCH"
   | "INVALID_PAYOUT_STATUS"
   | "INVALID_REFUND_STATUS"
   | "PAYOUT_NOT_FOUND"
@@ -252,6 +255,20 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // PROVIDER_WITHDRAWAL_INVALID: a field left blank or too long, not a
   // policy the request has no way to satisfy, so 400 rather than 422.
   PAYOUT_PROOF_INVALID: 400,
+  // completeRefund's own twin of PAYOUT_PROOF_INVALID, same reasoning, same
+  // status: the Admin fixes it by filling the reference or note field named.
+  REFUND_PROOF_INVALID: 400,
+  // The Donor destination an Admin typed at approval (Q7(c): bank code,
+  // account name, account number -- moved here from completion): a field
+  // left blank or over length, the same shape as
+  // MANUAL_CONTRIBUTION_INVALID -- fixable by filling the form in properly,
+  // not a policy the request has no way to satisfy.
+  REFUND_DESTINATION_INVALID: 400,
+  // The completing Admin's re-typed account number does not match the one
+  // the approving Admin recorded (Q7(c)): a mistyped re-entry, fixable by
+  // re-reading the Donor's written request, not a policy refusal -- same
+  // status as REFUND_DESTINATION_INVALID.
+  REFUND_DESTINATION_MISMATCH: 400,
   INVALID_PAYOUT_STATUS: 409,
   INVALID_REFUND_STATUS: 409,
   PAYOUT_NOT_FOUND: 404,
