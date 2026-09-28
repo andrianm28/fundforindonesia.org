@@ -23,3 +23,5 @@ Sejak 2026-09-26 (adopsi `/setup-matt-pocock-skills`), ukur terhadap `CLAUDE.md`
 
 Keluaran ke `.scratch/prd-audit/research/04-workflow.md` di branch
 `research/prd-audit-04`: temuan berperingkat, masing-masing dengan bukti.
+
+**Findings:** branch research/prd-audit-04, file .scratch/prd-audit/research/04-workflow.md
