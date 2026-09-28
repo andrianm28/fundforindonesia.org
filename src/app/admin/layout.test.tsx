@@ -57,6 +57,17 @@ describe("AdminLayout", () => {
       expect(link.getAttribute("href")).toBe("/admin/payouts");
     });
 
+    // ticket 25 (map.md FFI-07b: "Layar Admin menjatuhkan/mencabut
+    // Suspension" -- 0 hasil): the backend is built and tested, but with no
+    // nav link it stays as unreachable as the Payout queue was.
+    it("links to the Suspension & Cancellation queue", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: null }));
+
+      const link = screen.getByRole("link", { name: /suspension|cancellation/i });
+      expect(link.getAttribute("href")).toBe("/admin/campaigns/lifecycle");
+    });
+
     // Ticket 24: the 60-day Dormant Balance report has nowhere else to be
     // seen from either -- the same "no nav link, no screen" bar the Payout
     // queue test above already holds this layout to.
