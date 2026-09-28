@@ -39,7 +39,15 @@ export default async function ReceiptPage({ params }: ReceiptPageProps) {
       campaignTitle={campaign.title}
       collectingEntityName={campaign.collectingEntity?.name ?? ''}
       amount={donation.amount}
-      paidAt={receipt.createdAt.toISOString()}
+      // The same instant the email names (prd-compliance 19): the Receipt is
+      // written with sentAt set to the provider's paidAt, and the Donor paid
+      // then -- a Sumopod QRIS Donation settles at T+2, so Receipt.createdAt
+      // is days later and is not a date anyone paid on. Reading createdAt here
+      // is what made the printed proof disagree with the email it was
+      // reached from. createdAt stays the fallback only for a Receipt written
+      // before it was ever sent, which is the nullable case the column exists
+      // for -- and the one the resend route falls back on too.
+      paidAt={(receipt.sentAt ?? receipt.createdAt).toISOString()}
       donorName={donation.donor?.name ?? donation.guestName ?? null}
     />
   );
