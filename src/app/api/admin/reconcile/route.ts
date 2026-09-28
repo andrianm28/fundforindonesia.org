@@ -89,7 +89,7 @@ import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
  *    approval queue for the two-person rule on money that arrived outside the
  *    gateway. Also folded into `mismatches` above: a contribution's approval
  *    moves collectedAmount and the ledger in one transaction, so comparing
- *    collectedAmount against settled net and provider fee alone would report
+ *    collectedAmount against settled net and fees alone would report
  *    every one of them as a permanent discrepancy.
  *  - orphanedCancelledRegistrationPayments: a PAID Trip Payment whose
  *    Registration is CANCELLED with no live Refund against it -- the safety
@@ -159,13 +159,17 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
 
     // Campaign.collectedAmount is written, in the same transaction as the
     // ledger, as the payment's GROSS amount (see the webhook route). The
-    // ledger instead credits ESCROW_HOLD the NET and PROVIDER_FEE the fee
-    // (paymentSettledLegs, ./ledger.ts) -- PROVIDER_FEE is a platform-level
-    // account and carries no campaignId of its own (CAMPAIGN_SCOPED,
-    // ./ledger.ts), so its fee entries are attributed back to a campaign
-    // here, for this report only, via the Payment/Donation each entry
-    // names. net-ever-credited + fee reconstructs the gross the ledger saw
-    // for this campaign; that is what collectedAmount is compared against.
+    // ledger instead credits ESCROW_HOLD the NET and credits each fee to its
+    // own platform-level account (paymentSettledLegs, ./ledger.ts) --
+    // PROVIDER_FEE and PLATFORM_FEE both carry no campaignId of their own
+    // (CAMPAIGN_SCOPED, ./ledger.ts), so their entries are attributed back to
+    // a campaign here, for this report only, via the Payment/Donation each
+    // entry names. net-ever-credited + provider fee + platform fee
+    // reconstructs the gross the ledger saw for this campaign -- the same
+    // three-part reconstruction impact.ts (./impact.ts) reads a Campaign's
+    // collected figure from -- and that is what collectedAmount is compared
+    // against. Leaving the Platform Fee out reported every campaign that
+    // charged one as a permanent mismatch, off by exactly that fee.
     const escrowCreditRows = await tx.ledgerEntry.groupBy({
       by: ['campaignId'],
       where: { account: 'ESCROW_HOLD', direction: 'CREDIT', campaignId: { not: null } },
@@ -175,28 +179,39 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       escrowCreditRows.map((r) => [r.campaignId as string, r._sum.amount ?? 0]),
     );
 
-    const providerFeeEntries = await tx.ledgerEntry.findMany({
-      where: { account: 'PROVIDER_FEE', direction: 'CREDIT', paymentId: { not: null } },
-      select: { amount: true, paymentId: true },
+    // Both of Settlement's fee credits, and only those. A refund hands the
+    // Platform Fee back with a DEBIT leg carrying refundId
+    // (refundRequestedLegs, ./ledger.ts) -- excluded by direction, and never
+    // carrying a paymentId to attribute -- so nothing here double-counts a
+    // fee returned as part of a gross that was paid.
+    const settlementFeeEntries = await tx.ledgerEntry.findMany({
+      where: {
+        account: { in: ['PROVIDER_FEE', 'PLATFORM_FEE'] },
+        direction: 'CREDIT',
+        paymentId: { not: null },
+      },
+      select: { amount: true, paymentId: true, account: true },
     });
-    const feePaymentIds = Array.from(new Set(providerFeeEntries.map((e) => e.paymentId as string)));
+    const feePaymentIds = Array.from(new Set(settlementFeeEntries.map((e) => e.paymentId as string)));
     const feePayments = feePaymentIds.length
       ? await tx.payment.findMany({
           where: { id: { in: feePaymentIds } },
           select: { id: true, donation: { select: { campaignId: true } } },
         })
       : [];
-    // A Registration-linked Payment's PROVIDER_FEE leg has no campaign to
-    // attribute to -- filtered out here rather than crashing on p.donation
-    // being null; feeByCampaign is campaign-only by construction.
+    // A Registration-linked Payment's fee legs have no campaign to attribute
+    // to -- filtered out here rather than crashing on p.donation being null;
+    // both fee maps are campaign-only by construction.
     const campaignIdByPaymentId = new Map(
       feePayments.filter((p) => p.donation != null).map((p) => [p.id, p.donation!.campaignId]),
     );
     const feeByCampaign = new Map<string, number>();
-    for (const entry of providerFeeEntries) {
+    const platformFeeByCampaign = new Map<string, number>();
+    for (const entry of settlementFeeEntries) {
       const campaignId = campaignIdByPaymentId.get(entry.paymentId as string);
       if (!campaignId) continue;
-      feeByCampaign.set(campaignId, (feeByCampaign.get(campaignId) ?? 0) + entry.amount);
+      const bucket = entry.account === 'PLATFORM_FEE' ? platformFeeByCampaign : feeByCampaign;
+      bucket.set(campaignId, (bucket.get(campaignId) ?? 0) + entry.amount);
     }
 
     // Money that arrived outside the gateway (CONTEXT.md, Manual
@@ -280,6 +295,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       const ledgerAmount =
         (netEverCreditedByCampaign.get(campaign.id) ?? 0) +
         (feeByCampaign.get(campaign.id) ?? 0) +
+        (platformFeeByCampaign.get(campaign.id) ?? 0) +
         (manualByCampaign.get(campaign.id) ?? 0);
       if (ledgerAmount === campaign.collectedAmount) continue;
 
@@ -298,6 +314,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       const hasLedgerActivity =
         balances.has(campaign.id) ||
         feeByCampaign.has(campaign.id) ||
+        platformFeeByCampaign.has(campaign.id) ||
         (manualByCampaign.get(campaign.id) ?? 0) !== 0;
       if (!hasLedgerActivity) {
         preLedger.push(row);
@@ -309,19 +326,33 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // Every payment releaseMaturedEscrow (./escrow.ts) considers permanently
     // finished. For each, "what's left of its credited net" is computed two
     // independent ways and compared: the net it originally credited to
-    // ESCROW_HOLD (Payment.amount - Payment.providerFee, no query needed --
-    // these are the same two fields the release itself reads) minus (a) what
-    // has actually been released on its behalf, and (b) what a refund
-    // against it has actually debited. A nonzero remainder means this
-    // payment's own money is sitting in ESCROW_HOLD with nothing left able
-    // to ever move it, because escrowReleasedAt already took it out of the
-    // sweep's predicate.
+    // ESCROW_HOLD -- Gross minus BOTH fees, the same fields
+    // paymentSettledLegs credited it from and the same ones the release
+    // itself reads, so no query is needed -- minus (a) what has actually been
+    // released on its behalf, and (b) what a refund against it has actually
+    // debited. A nonzero remainder means this payment's own money is sitting
+    // in ESCROW_HOLD with nothing left able to ever move it, because
+    // escrowReleasedAt already took it out of the sweep's predicate.
+    //
+    // Reading only `amount - providerFee` here, as this did while the sweep
+    // subtracted no Platform Fee either, would have reported every released
+    // Payment that carried one as `strandedEscrow` with a residual of exactly
+    // its Platform Fee -- every such campaign, on every run, an alarm an admin
+    // could do nothing about. The two sides have to be fixed together for
+    // either to be true, which is why this and escrow.ts are one change.
     const releasedPayments = await tx.payment.findMany({
       where: { escrowReleasedAt: { not: null } },
       select: {
         id: true,
         amount: true,
         providerFee: true,
+        // Absent means "no Platform Fee", never NaN: the same absence
+        // platformFeePortionFor (./ledger.ts) documents for every other reader
+        // of this column, read as 0 below rather than left to poison the
+        // subtraction. A NaN residual compares unequal to 0 in both
+        // directions, so it could neither clear a payment that really did
+        // release in full nor put a number on one that genuinely never did.
+        platformFee: true,
         donationId: true,
         registrationId: true,
         donation: { select: { campaignId: true } },
@@ -396,7 +427,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       residual: number;
     }> = [];
     for (const payment of releasedPayments) {
-      const creditedNet = payment.amount - payment.providerFee;
+      const creditedNet = payment.amount - payment.providerFee - (payment.platformFee ?? 0);
       const releasedAmount = releasedAmountByPayment.get(payment.id) ?? 0;
       const refundedAmount = refundedAmountByPayment.get(payment.id) ?? 0;
       const residual = creditedNet - releasedAmount - refundedAmount;

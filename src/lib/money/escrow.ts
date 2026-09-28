@@ -1,5 +1,11 @@
 import { prisma } from '@/lib/prisma';
-import { escrowReleaseLegs, postTransaction, providerFeePortionFor, type LedgerSubject } from './ledger';
+import {
+  escrowReleaseLegs,
+  platformFeePortionFor,
+  postTransaction,
+  providerFeePortionFor,
+  type LedgerSubject,
+} from './ledger';
 import { assertExactlyOnePaymentSubject } from './payment-subject';
 import { isEscrowReleaseFrozen, lockAndLoad } from '@/lib/subject-guard';
 
@@ -33,15 +39,15 @@ export function escrowReleaseAt(settledAt: Date, holdDays: number = ESCROW_HOLD_
 /**
  * How many matured holds one call to `releaseMaturedEscrow` will process.
  *
- * There is no scheduler in this repo (see that function's doc comment), so
- * this sweep runs inline inside a user-facing request. Without a bound, a
- * backlog of matured holds -- built up while the sweep was never called, or
- * simply a platform with a lot of donations -- would turn one HTTP request
- * into a full-table sweep. Anything past this limit is left with
- * `escrowReleasedAt` still null and is picked up by the next call: the next
- * payout request for this or any other campaign, or a future scheduled
- * sweep. A request-time release only ever pays for a bounded slice of the
- * backlog; it does not promise to drain it in one call.
+ * Both of the sweep's callers are bounded by this for the same reason: it
+ * runs inside a user-facing request (the Payout request handlers) or
+ * inside a scheduled run (./scheduled-jobs.ts), and a backlog of matured
+ * holds -- built up between calls, or simply a platform with a lot of
+ * donations -- would otherwise turn either one into a full-table sweep.
+ * Anything past this limit is left with `escrowReleasedAt` still null and
+ * is picked up by the next call: the next payout request for any campaign
+ * or trip, or the next scheduled run. Either way a single call only ever
+ * pays for a bounded slice of the backlog; it does not promise to drain it.
  */
 export const ESCROW_RELEASE_SWEEP_LIMIT = 200;
 
@@ -100,11 +106,15 @@ export interface ReleaseSweepSubject {
  * across every subject. A Suspended Campaign's payments are skipped and
  * stay in ESCROW_HOLD until the Suspension is lifted (see the loop below).
  *
- * There is no scheduler anywhere in this repo, so this is what makes the
- * 7-day hold actually let go of money: it runs at the top of the payout
- * request handler, for the requesting campaign, so that a campaigner's
- * balance reflects every hold that has matured by the time they ask to
- * withdraw -- without a cron job existing at all.
+ * Two paths call this. The Payout request handlers call it for the
+ * requesting Campaign (or Trip) alone, so a hold releases when that
+ * Fundraiser asks to withdraw, and not otherwise. `runScheduledJobs`
+ * (./scheduled-jobs.ts) is the second: it sweeps every subject at once.
+ *
+ * Being callable is not being called. Nothing invokes the scheduled path
+ * until an owner installs the scheduler (ticket 45), so today this
+ * request-time sweep is the only one that moves money: a matured hold on a
+ * Campaign nobody has asked to pay out is still in ESCROW_HOLD.
  *
  * Idempotent by construction, so calling this twice concurrently -- two
  * payout requests for the same campaign landing at once, a request racing
@@ -152,6 +162,14 @@ export async function releaseMaturedEscrow(
       id: true,
       amount: true,
       providerFee: true,
+      // Read as 0 when absent, like every other reader of this column
+      // (platformFeePortionFor in ./ledger.ts, the settlement webhook): a
+      // Payment that predates the column, or a Trip Fee Payment, carries no
+      // Platform Fee. Selected here because the release has to move the same
+      // NET paymentSettledLegs credited -- not Gross minus the Provider Fee
+      // alone, which over-drew ESCROW_HOLD by the Platform Fee and paid it
+      // out again as withdrawable Campaign Balance.
+      platformFee: true,
       donationId: true,
       registrationId: true,
       donation: { select: { campaignId: true } },
@@ -267,9 +285,9 @@ export async function releaseMaturedEscrow(
         // Every refund above is now final (COMPLETED or REJECTED), so the
         // amount to release is knowable for good: the NET this payment
         // originally credited to ESCROW_HOLD (paymentSettledLegs credits
-        // amount - providerFee, never the gross), minus the NET share each
-        // non-REJECTED/FAILED refund actually removed from this same
-        // account at freeze time. Each such refund's freeze
+        // `gross - providerFee - platformFee`, never the gross), minus the NET
+        // share each non-REJECTED/FAILED refund actually removed from this
+        // same account at freeze time. Each such refund's freeze
         // (refundRequestedLegs, ./ledger.ts) debits ESCROW_HOLD only its own
         // net portion -- the fee portion went straight to REFUND_COST/
         // PLATFORM_FEE at freeze time, never out of this account -- so what
@@ -284,14 +302,23 @@ export async function releaseMaturedEscrow(
         // shared pot would let this payment's release "borrow" headroom
         // that in fact belongs to a sibling payment which has not matured
         // yet.
-        const netAmount = payment.amount - payment.providerFee;
+        const netAmount = payment.amount - payment.providerFee - (payment.platformFee ?? 0);
         const nonRejectedAmounts = refunds
           .filter((r) => r.status !== 'REJECTED' && r.status !== 'FAILED')
           .map((r) => r.amount);
+        // BOTH shares, not the Provider Fee's alone: the freeze debited
+        // ESCROW_HOLD by `amount - platformFeePortion - providerFeePortion`
+        // (./refunds.ts passes both to refundRequestedLegs; both come from the
+        // same cumulative-cap helper, so the two calls here reproduce that
+        // exact figure). Leaving the Platform Fee's out released less than was
+        // really held and stranded the difference for good, escrowReleasedAt
+        // having been stamped before this posts.
         let refundedNetAmount = 0;
         for (let i = 0; i < nonRejectedAmounts.length; i++) {
-          const feePortion = providerFeePortionFor(payment, nonRejectedAmounts[i], nonRejectedAmounts.slice(0, i));
-          refundedNetAmount += nonRejectedAmounts[i] - feePortion;
+          const priorAmounts = nonRejectedAmounts.slice(0, i);
+          const platformFeePortion = platformFeePortionFor(payment, nonRejectedAmounts[i], priorAmounts);
+          const providerFeePortion = providerFeePortionFor(payment, nonRejectedAmounts[i], priorAmounts);
+          refundedNetAmount += nonRejectedAmounts[i] - platformFeePortion - providerFeePortion;
         }
         const amountToRelease = Math.max(0, netAmount - refundedNetAmount);
 
