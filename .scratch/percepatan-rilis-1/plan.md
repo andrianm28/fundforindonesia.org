@@ -51,11 +51,22 @@ Tidak satu pun menunggu kode. Bisa dijalankan sekarang, paralel dengan Track B.
 
 Urutan ini **berbeda dari versi sebelumnya** dan alasannya bisa diperiksa.
 
-### 1. `prd 35` — reconcile (PR #93, terbuka, CLEAN)
+### 1. `prd 35` — reconcile (PR #93, terbuka, CLEAN, **29 commit belum ter-merge**)
 
-Sudah ditulis dan ter-review. **Tidak menyentuh kode uang** — 2 commit di
+Sudah ditulis dan ter-review, dan **tidak menyentuh kode uang** — empat fix di
 `src/lib/money/` sudah ter-merge dan tidak bersinggungan dengan diff-nya.
-Tinggal: rebase ke `main`, CI ulang, merge.
+
+Tapi angka versi sebelumnya ("hijau, tinggal merge", "4 commit tertinggal")
+**salah**, dan cukup salah untuk menyesatkan. Branch ini dibuat jauh sebelum
+`main` bergerak, jadi tercatat **29 commit belum ter-merge** dengan `main`
+sudah 5 commit di depan. Rebase sederhana akan mengembalikan
+`prisma/schema.prisma` ke versi sebelum koreksi `GATEWAY_CLEARING`, karena
+kedua branch menyentuh baris yang sama dan yang pertama di-apply menang.
+
+Cara yang benar sudah dicoba: cherry-pick 27 commit non-merge ke atas `main`
+berhasil **tanpa konflik**, menghasilkan 39 file / +4.387 / −138 yang identik
+dengan merge-base branch itu sendiri, dengan 29 berkas test hijau dan 8 skipped.
+Sisanya: rebase ke `main` **terbaru** (konflik di commit pertama), CI, merge.
 
 ### 2. Bank Account — kode yang belum ada sama sekali
 

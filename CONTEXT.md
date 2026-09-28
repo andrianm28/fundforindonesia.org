@@ -226,7 +226,7 @@ Permintaan Fundraiser untuk mengirim sebagian Campaign Balance ke Bank Account t
 _Avoid_: Pencairan (di kode), disbursement, withdrawal
 
 **Usage Report**:
-Laporan Fundraiser tentang pemakaian dana sebuah Payout, tampil publik di halaman Campaign. Syarat sebelum Payout berikutnya boleh diajukan.
+Laporan Fundraiser tentang pemakaian dana sebuah Payout, tampil publik di halaman Campaign, dan menjadi syarat sebelum Payout berikutnya boleh diajukan. **Belum ada kodenya** -- tidak ada model di `prisma/schema.prisma`, route, maupun halaman; satu-satunya penyebutan di `src/` adalah catatan di `src/lib/campaign-lifecycle.ts` dan `src/app/api/admin/scrutiny/route.ts` yang menyatakan fitur ini belum dibangun (prd-compliance 29). Sampai ada, Payout berikutnya **tidak** diblokir oleh Usage Report: tidak ada gerbang yang meninggalkannya. Batas Campaign Active di entri [Batas Campaign Active](#batas-campaign-active) menyebut fitur ini sebagai syarat, dan itu belum berlaku.
 _Avoid_: Laporan penggunaan dana (di kode), impact report (itu untuk Program CSR)
 
 **Manual Contribution**:
@@ -237,7 +237,7 @@ _Avoid_: Offline donation, donasi manual, top-up
 Pengembalian uang satu Payment ke Donor, penuh sebesar Gross atau sebagian darinya, tidak pernah dikurangi biaya apa pun. Dibuat satu Admin, disetujui Admin lain, dan diselesaikan Admin yang berbeda dari penyetujunya; Provider Fee yang tidak kembali ditanggung platform.
 
 **Dormant Balance**:
-Campaign Balance pada Campaign yang sudah Expired atau Completed dan tidak dicairkan lebih dari 180 hari meski Fundraiser sudah tiga kali diingatkan. Muncul di laporan Admin sejak 60 hari, dan baru disebut Dormant Balance setelah 180 hari. Pengalihannya ke Campaign ber-Kind sama milik Partner Organisation yang sama ada di roadmap; sampai itu ada, ditangani Admin kasus per kasus.
+Dirancang untuk Campaign Balance pada Campaign yang sudah Expired atau Completed dan tidak dicairkan lama, yang akhirnya dialihkan ke Campaign ber-Kind sama milik Partner Organisation yang sama. **Belum ada kodenya sama sekali** -- tidak ada model, laporan, ambang 60 atau 180 hari, maupun pengingat Fundraiser; satu-satunya penyebutan di `src/` adalah catatan di `src/lib/scheduled-jobs.ts` yang menyatakan fitur ini belum dibangun. Sampai ada, tidak ada langkah platform apa pun yang mengenali Dana terlantar: itu tetap Campaign Balance biasa dan hanya bisa ditemukan Admin secara manual. Angka 60 dan 180 hari, dan pengingat tiga kali, adalah rancangan dan bukan aturan yang berlaku.
 _Avoid_: Saldo menganggur, dana nganggur, unclaimed
 
 **Bank Account**:
