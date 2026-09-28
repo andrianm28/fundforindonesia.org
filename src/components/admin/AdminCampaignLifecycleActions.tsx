@@ -30,8 +30,6 @@ import type { CampaignStatus } from '@/generated/prisma/client';
  * AdminPayoutActionForm already do for their own two-person rules.
  */
 
-const SUSPENDABLE: readonly CampaignStatus[] = ['ACTIVE', 'EXPIRED', 'COMPLETED'];
-
 type OpenFlag = { id: string; reason: string };
 type PendingCancellationRequest = { id: string; reason: string; requestedByName: string | null };
 
@@ -39,6 +37,12 @@ interface AdminCampaignLifecycleActionsProps {
   campaignSlug: string;
   /** The Campaign's effective status (src/lib/subject-guard.ts effectiveStatus). */
   status: CampaignStatus;
+  /**
+   * Whether `status` is one an Admin may suspend from, decided server-side by
+   * the lifecycle module's own list (SUSPENDABLE, ADR 0015) so this form never
+   * keeps a second copy of it.
+   */
+  canSuspend: boolean;
   /** The signed-in Admin is this Campaign's Fundraiser (OwnSubjectConflictError). */
   isOwnCampaign: boolean;
   /** The signed-in Admin is the one who imposed the current Suspension (SameAdminLiftError). */
@@ -68,6 +72,7 @@ function Refusal({ message }: { message: string | null }) {
 export function AdminCampaignLifecycleActions({
   campaignSlug,
   status,
+  canSuspend,
   isOwnCampaign,
   suspendedBySameAdmin,
   openFlags,
@@ -82,7 +87,7 @@ export function AdminCampaignLifecycleActions({
           suspendedBySameAdmin={suspendedBySameAdmin}
         />
       ) : (
-        SUSPENDABLE.includes(status) && (
+        canSuspend && (
           <SuspendSection campaignSlug={campaignSlug} isOwnCampaign={isOwnCampaign} openFlags={openFlags} />
         )
       )}

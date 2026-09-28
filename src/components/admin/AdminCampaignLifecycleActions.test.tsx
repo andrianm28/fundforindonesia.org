@@ -35,6 +35,7 @@ describe('AdminCampaignLifecycleActions -- suspend (ACTIVE/EXPIRED/COMPLETED)', 
   const baseProps = {
     campaignSlug: 'sumur-desa',
     status: 'ACTIVE' as const,
+    canSuspend: true,
     isOwnCampaign: false,
     suspendedBySameAdmin: false,
     openFlags: [],
@@ -97,7 +98,7 @@ describe('AdminCampaignLifecycleActions -- suspend (ACTIVE/EXPIRED/COMPLETED)', 
   });
 
   it('renders nothing to suspend for a status that is not suspendable', () => {
-    render(<AdminCampaignLifecycleActions {...baseProps} status="DRAFT" />);
+    render(<AdminCampaignLifecycleActions {...baseProps} status="DRAFT" canSuspend={false} />);
     expect(screen.queryByLabelText(/alasan suspension/i)).toBeNull();
   });
 });
@@ -106,6 +107,7 @@ describe('AdminCampaignLifecycleActions -- lift (SUSPENDED)', () => {
   const baseProps = {
     campaignSlug: 'sumur-desa',
     status: 'SUSPENDED' as const,
+    canSuspend: false,
     isOwnCampaign: false,
     suspendedBySameAdmin: false,
     openFlags: [],
@@ -141,6 +143,7 @@ describe('AdminCampaignLifecycleActions -- Cancellation decision', () => {
   const baseProps = {
     campaignSlug: 'sumur-desa',
     status: 'ACTIVE' as const,
+    canSuspend: true,
     isOwnCampaign: false,
     suspendedBySameAdmin: false,
     openFlags: [],

@@ -1,10 +1,13 @@
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { effectiveStatus } from '@/lib/campaign-lifecycle';
+import { effectiveStatus, SUSPENDABLE } from '@/lib/campaign-lifecycle';
 import { CampaignStatusChangeAction, CancellationRequestStatus } from '@/generated/prisma/client';
 import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 import { AdminCampaignLifecycleActions } from '@/components/admin/AdminCampaignLifecycleActions';
+
+// Rendered per request: open Flags, Suspensions and Cancellation requests change.
+export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ slug: string }> };
 
@@ -81,6 +84,7 @@ export default async function AdminCampaignLifecyclePage({ params }: RouteContex
         <AdminCampaignLifecycleActions
           campaignSlug={campaign.slug}
           status={status}
+          canSuspend={SUSPENDABLE.includes(status)}
           isOwnCampaign={actorId === campaign.creatorId}
           suspendedBySameAdmin={latestSuspension?.actorId === actorId}
           openFlags={openFlags}
