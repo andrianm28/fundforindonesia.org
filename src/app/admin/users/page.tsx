@@ -7,6 +7,13 @@ import type { Assignment } from "@/generated/prisma/client";
 
 // Assignments are the only thing that grants power (ADR 0005): this page
 // shows and edits them, and nothing else about a user's authority.
+//
+// Granting ADMIN takes two Admins (ticket 07/20; CONTEXT.md, Admin): one
+// proposes, a DIFFERENT Admin confirms. Checking the Admin box does not
+// grant it outright -- it opens a pending request (POST .../assignments
+// answers 202, not 201) and the box stays unchecked until someone else
+// confirms it from the queue below. Granting VERIFIER stays a single
+// Admin's immediate grant.
 
 const ASSIGNMENTS: { value: Assignment; label: string }[] = [
   { value: "VERIFIER", label: "Verifier" },
@@ -28,9 +35,20 @@ interface Pagination {
   totalPages: number;
 }
 
+interface PendingGrantRequest {
+  id: string;
+  userId: string;
+  userName: string | null;
+  proposedById: string;
+  proposedByName: string | null;
+  proposedAt: string;
+  proposedReason: string | null;
+}
+
 export default function AdminUsersPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const currentUserId = session?.user?.id;
 
   const [users, setUsers] = useState<User[]>([]);
   const [pagination, setPagination] = useState<Pagination>({
@@ -43,6 +61,9 @@ export default function AdminUsersPage() {
   const [searchInput, setSearchInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const [pendingUserIds, setPendingUserIds] = useState<Set<string>>(new Set());
+  const [pendingRequests, setPendingRequests] = useState<PendingGrantRequest[]>([]);
+  const [decidingRequestId, setDecidingRequestId] = useState<string | null>(null);
 
   const fetchUsers = useCallback(async (page: number, searchQuery: string) => {
     setLoading(true);
@@ -70,11 +91,26 @@ export default function AdminUsersPage() {
     }
   }, []);
 
+  // The queue of pending ADMIN grants, so a different Admin can see what is
+  // waiting for them to confirm.
+  const fetchPendingRequests = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/assignment-grant-requests");
+      if (!res.ok) return;
+      const data = await res.json();
+      setPendingRequests(data.requests ?? []);
+      setPendingUserIds(new Set((data.requests ?? []).map((r: PendingGrantRequest) => r.userId)));
+    } catch (error) {
+      console.error("Error fetching pending grant requests:", error);
+    }
+  }, []);
+
   useEffect(() => {
     if (status === "authenticated") {
       fetchUsers(pagination.page, search);
+      fetchPendingRequests();
     }
-  }, [status, pagination.page, search, fetchUsers]);
+  }, [status, pagination.page, search, fetchUsers, fetchPendingRequests]);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -88,9 +124,12 @@ export default function AdminUsersPage() {
     setPagination((prev) => ({ ...prev, page: 1 }));
   };
 
-  // Grants or revokes one assignment. The assignments route records the
-  // change in the audit trail and refuses revoking your own ADMIN assignment
-  // or the last one anywhere; the box only changes once it has agreed.
+  // Grants or revokes one assignment. Granting VERIFIER and revoking either
+  // assignment are immediate: the assignments route records the change in
+  // the audit trail and refuses revoking your own assignment, of either
+  // kind, or the last ADMIN anywhere. Granting ADMIN is not immediate: the
+  // route answers 202 with a PENDING request instead, and the box stays
+  // unchecked until a different Admin confirms it below.
   const handleAssignmentChange = async (userId: string, assignment: Assignment, grant: boolean) => {
     setUpdatingUserId(userId);
     try {
@@ -100,9 +139,15 @@ export default function AdminUsersPage() {
         body: JSON.stringify({ assignment }),
       });
 
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         alert(data.error || "Gagal mengubah penugasan");
+        return;
+      }
+
+      if (grant && assignment === "ADMIN" && data.action === "PROPOSED") {
+        await fetchPendingRequests();
         return;
       }
 
@@ -126,6 +171,39 @@ export default function AdminUsersPage() {
     }
   };
 
+  // The second Admin's half of a pending grant: confirm it (granting ADMIN)
+  // or, for the Admin who proposed it, withdraw it.
+  const handleGrantDecision = async (requestId: string, decision: "confirm" | "withdraw") => {
+    setDecidingRequestId(requestId);
+    try {
+      const res = await fetch(`/api/admin/assignment-grant-requests/${requestId}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        alert(data.error || "Gagal memproses pengajuan");
+        return;
+      }
+
+      if (decision === "confirm") {
+        setUsers((prev) =>
+          prev.map((user) =>
+            user.id !== data.userId ? user : { ...user, assignments: [...user.assignments, "ADMIN" as Assignment] }
+          )
+        );
+      }
+      await fetchPendingRequests();
+    } catch (error) {
+      console.error("Error deciding grant request:", error);
+      alert("Gagal memproses pengajuan");
+    } finally {
+      setDecidingRequestId(null);
+    }
+  };
+
   const goToPage = (page: number) => {
     setPagination((prev) => ({ ...prev, page }));
   };
@@ -146,6 +224,56 @@ export default function AdminUsersPage() {
           Kelola penugasan Verifier dan Admin pengguna di platform
         </p>
       </div>
+
+      {pendingRequests.length > 0 && (
+        <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+          <div className="px-6 py-3 border-b border-amber-200">
+            <h2 className="text-sm font-semibold text-amber-900">
+              Menunggu konfirmasi grant ADMIN
+            </h2>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Grant ADMIN membutuhkan Admin lain yang bukan pengaju maupun penerimanya.
+            </p>
+          </div>
+          <ul className="divide-y divide-amber-100">
+            {pendingRequests.map((request) => {
+              const isProposer = request.proposedById === currentUserId;
+              const isGrantee = request.userId === currentUserId;
+              const deciding = decidingRequestId === request.id;
+              return (
+                <li key={request.id} className="px-6 py-3 flex items-center justify-between text-sm">
+                  <span className="text-gray-700">
+                    <strong>{request.userName || request.userId}</strong> diajukan oleh{" "}
+                    {request.proposedByName || request.proposedById}
+                  </span>
+                  <div className="flex gap-2">
+                    {isProposer && (
+                      <button
+                        type="button"
+                        disabled={deciding}
+                        onClick={() => handleGrantDecision(request.id, "withdraw")}
+                        className="px-3 py-1 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Tarik
+                      </button>
+                    )}
+                    {!isProposer && !isGrantee && (
+                      <button
+                        type="button"
+                        disabled={deciding}
+                        onClick={() => handleGrantDecision(request.id, "confirm")}
+                        className="px-3 py-1 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        Konfirmasi
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {/* Search Bar */}
       <form onSubmit={handleSearch} className="mb-6">
@@ -216,8 +344,9 @@ export default function AdminUsersPage() {
                   <UserRow
                     key={user.id}
                     user={user}
-                    currentUserId={session?.user?.id}
+                    currentUserId={currentUserId}
                     isUpdating={updatingUserId === user.id}
+                    isAdminGrantPending={pendingUserIds.has(user.id)}
                     onAssignmentChange={handleAssignmentChange}
                   />
                 ))
@@ -264,11 +393,13 @@ function UserRow({
   user,
   currentUserId,
   isUpdating,
+  isAdminGrantPending,
   onAssignmentChange,
 }: {
   user: User;
   currentUserId: string | undefined;
   isUpdating: boolean;
+  isAdminGrantPending: boolean;
   onAssignmentChange: (userId: string, assignment: Assignment, grant: boolean) => void;
 }) {
   const isSelf = user.id === currentUserId;
@@ -290,19 +421,28 @@ function UserRow({
         <div className="flex gap-4">
           {ASSIGNMENTS.map(({ value, label }) => {
             const held = user.assignments.includes(value);
-            // The route refuses an Admin revoking their own ADMIN assignment.
-            const locked = isSelf && value === "ADMIN" && held;
+            // Nobody may revoke their own assignment, of either kind
+            // (ticket 07/20 decision): the route refuses it, and the box
+            // only disables the case that would be a revoke -- one already
+            // held by the person looking at their own row.
+            const locked = isSelf && held;
+            // A pending ADMIN grant for this user: the box stays unchecked
+            // and disabled until a different Admin confirms it below.
+            const pending = value === "ADMIN" && !held && isAdminGrantPending;
             return (
-              <label key={value} className="inline-flex items-center gap-1.5 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={held}
-                  disabled={isUpdating || locked}
-                  onChange={(e) => onAssignmentChange(user.id, value, e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
-                />
-                {label}
-              </label>
+              <span key={value} className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                <label className="inline-flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={held}
+                    disabled={isUpdating || locked || pending}
+                    onChange={(e) => onAssignmentChange(user.id, value, e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+                  />
+                  {label}
+                </label>
+                {pending && <span className="text-xs text-amber-600">(menunggu konfirmasi)</span>}
+              </span>
             );
           })}
         </div>

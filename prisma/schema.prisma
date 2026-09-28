@@ -75,6 +75,9 @@ model User {
   assignments                     UserAssignment[]
   assignmentAuditsAsSubject       AssignmentAuditEntry[]            @relation("AssignmentAuditSubject")
   assignmentAuditsAsActor         AssignmentAuditEntry[]            @relation("AssignmentAuditActor")
+  assignmentGrantRequestsAsSubject  AssignmentGrantRequest[]        @relation("AssignmentGrantSubject")
+  assignmentGrantRequestsProposed   AssignmentGrantRequest[]        @relation("AssignmentGrantProposer")
+  assignmentGrantRequestsDecided    AssignmentGrantRequest[]        @relation("AssignmentGrantDecider")
   campaignStatusChanges           CampaignStatusChange[]
   tripStatusChanges               VolunteerTripStatusChange[]
   partnershipInquiryStatusChanges PartnershipInquiryStatusChange[]
@@ -140,6 +143,10 @@ model UserAssignment {
 enum AssignmentAuditAction {
   GRANTED
   REVOKED
+  /// An ADMIN grant proposed by one Admin, waiting on a different Admin to
+  /// confirm (ticket 07/20). Recorded so the audit trail shows that a second
+  /// person was asked, not only the finished grant.
+  PROPOSED
 }
 
 /// One row per grant or revoke event, kept even after the UserAssignment
@@ -154,6 +161,9 @@ model AssignmentAuditEntry {
   action     AssignmentAuditAction
   actedById  String
   actedAt    DateTime              @default(now())
+  /// Optional, consistent with CampaignStatusChange.reason (ticket 07/20
+  /// answer): why the grant or revoke was made, not required.
+  reason     String?
 
   // Relations
   user    User @relation("AssignmentAuditSubject", fields: [userId], references: [id], onDelete: Cascade)
@@ -161,6 +171,50 @@ model AssignmentAuditEntry {
 
   @@index([userId])
   @@index([assignment])
+}
+
+enum GrantRequestOutcome {
+  PENDING
+  CONFIRMED
+  WITHDRAWN
+}
+
+/// The two-person half of granting ADMIN (ticket 07/20; CONTEXT.md, Admin):
+/// one Admin proposes, a DIFFERENT Admin confirms, and the grantee may not
+/// confirm their own grant. Mirrors BankAccountVerificationRequest (ticket
+/// 16; ADR 0018) -- the same pending-request shape, a partial unique index
+/// for "at most one PENDING request per grantee" instead of inventing a new
+/// design. VERIFIER is not granted through this table: decision 07/20 keeps
+/// that a single Admin's direct grant.
+///
+/// No expiry: like BankAccountVerificationRequest, a PENDING row waits
+/// indefinitely for a second Admin, and a stale one can only be withdrawn by
+/// its own proposer or superseded by a fresh confirm. That is the smallest
+/// honest choice available now; an expiry was left open by the ticket and is
+/// not decided here.
+model AssignmentGrantRequest {
+  id            String              @id @default(cuid())
+  userId        String
+  outcome       GrantRequestOutcome @default(PENDING)
+  proposedById  String
+  proposedAt    DateTime            @default(now())
+  proposedReason String?
+  /// The Admin who confirmed, or the proposer who withdrew their own request
+  /// (the same "who closed it" shape BankAccountVerificationRequest.decidedById
+  /// uses).
+  decidedById   String?
+  decidedAt     DateTime?
+  decidedReason String?
+
+  // Relations
+  user       User @relation("AssignmentGrantSubject", fields: [userId], references: [id], onDelete: Cascade)
+  proposedBy User @relation("AssignmentGrantProposer", fields: [proposedById], references: [id], onDelete: Restrict)
+  decidedBy  User? @relation("AssignmentGrantDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  /// The Admin queue: oldest PENDING first.
+  @@index([outcome, proposedAt])
+  /// One grantee's own history.
+  @@index([userId, proposedAt])
 }
 
 model Account {

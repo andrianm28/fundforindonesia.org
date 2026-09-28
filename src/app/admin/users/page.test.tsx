@@ -17,6 +17,7 @@ import AdminUsersPage from './page';
 const USERS = [
   { id: 'admin-1', name: 'Saya', email: 'saya@test.com', createdAt: '2026-09-01T00:00:00.000Z', assignments: ['ADMIN'] },
   { id: 'u-1', name: 'Budi', email: 'budi@test.com', createdAt: '2026-09-01T00:00:00.000Z', assignments: ['VERIFIER'] },
+  { id: 'u-2', name: 'Cinta', email: 'cinta@test.com', createdAt: '2026-09-01T00:00:00.000Z', assignments: [] },
 ];
 
 function jsonResponse(body: unknown, ok = true) {
@@ -24,11 +25,16 @@ function jsonResponse(body: unknown, ok = true) {
 }
 
 let fetchMock: Mock;
+let pendingRequests: unknown[];
 
 beforeEach(() => {
+  pendingRequests = [];
   fetchMock = vi.fn(async (url: string) => {
     if (url.startsWith('/api/admin/users?')) {
-      return jsonResponse({ users: USERS, pagination: { page: 1, limit: 10, total: 2, totalPages: 1 } });
+      return jsonResponse({ users: USERS, pagination: { page: 1, limit: 10, total: 3, totalPages: 1 } });
+    }
+    if (url === '/api/admin/assignment-grant-requests') {
+      return jsonResponse({ requests: pendingRequests });
     }
     return jsonResponse({});
   });
@@ -66,18 +72,18 @@ describe('AdminUsersPage', () => {
     expect(screen.queryByRole('combobox')).toBeNull();
   });
 
-  it('grants an assignment through the assignments route', async () => {
-    const budi = await openAtRowOf('Budi');
+  it('grants VERIFIER immediately through the assignments route', async () => {
+    const cinta = await openAtRowOf('Cinta');
 
-    fireEvent.click(within(budi).getByLabelText('Admin'));
+    fireEvent.click(within(cinta).getByLabelText('Verifier'));
 
     await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith('/api/admin/users/u-1/assignments', expect.objectContaining({
+      expect(fetchMock).toHaveBeenCalledWith('/api/admin/users/u-2/assignments', expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ assignment: 'ADMIN' }),
+        body: JSON.stringify({ assignment: 'VERIFIER' }),
       })),
     );
-    await waitFor(() => expect((within(budi).getByLabelText('Admin') as HTMLInputElement).checked).toBe(true));
+    await waitFor(() => expect((within(cinta).getByLabelText('Verifier') as HTMLInputElement).checked).toBe(true));
   });
 
   it('revokes an assignment through the assignments route', async () => {
@@ -96,11 +102,15 @@ describe('AdminUsersPage', () => {
 
   it('keeps the box as it was and shows why when the route refuses', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
-    fetchMock.mockImplementation(async (url: string) =>
-      url.startsWith('/api/admin/users?')
-        ? jsonResponse({ users: USERS, pagination: { page: 1, limit: 10, total: 2, totalPages: 1 } })
-        : jsonResponse({ error: 'Cannot revoke the last ADMIN assignment' }, false),
-    );
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/admin/users?')) {
+        return jsonResponse({ users: USERS, pagination: { page: 1, limit: 10, total: 3, totalPages: 1 } });
+      }
+      if (url === '/api/admin/assignment-grant-requests') {
+        return jsonResponse({ requests: pendingRequests });
+      }
+      return jsonResponse({ error: 'Cannot revoke the last ADMIN assignment' }, false);
+    });
     const budi = await openAtRowOf('Budi');
 
     fireEvent.click(within(budi).getByLabelText('Verifier'));
@@ -110,12 +120,98 @@ describe('AdminUsersPage', () => {
     alertSpy.mockRestore();
   });
 
-  // The assignments route refuses an Admin revoking their own ADMIN
-  // assignment; the page does not offer it.
-  it("does not let the Admin revoke their own ADMIN assignment", async () => {
+  // Nobody may revoke their own assignment, of either kind (ticket 07/20
+  // decision); the page does not offer it, for VERIFIER or ADMIN alike.
+  it('does not let anyone revoke their own assignment, of either kind', async () => {
     const self = await openAtRowOf('Saya');
 
     expect((within(self).getByLabelText('Admin') as HTMLInputElement).disabled).toBe(true);
+    // "Saya" does not hold VERIFIER, so checking it would be a grant, not a
+    // self-revoke, and stays enabled.
     expect((within(self).getByLabelText('Verifier') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  // Granting ADMIN takes two Admins (ticket 07/20): checking the box opens a
+  // pending request instead of granting it outright, and the box stays
+  // unchecked until a different Admin confirms.
+  it('proposes an ADMIN grant instead of granting it outright, and shows it pending', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/admin/users?')) {
+        return jsonResponse({ users: USERS, pagination: { page: 1, limit: 10, total: 3, totalPages: 1 } });
+      }
+      if (url === '/api/admin/assignment-grant-requests') {
+        return jsonResponse({ requests: pendingRequests });
+      }
+      if (url === '/api/admin/users/u-2/assignments' && init?.method === 'POST') {
+        pendingRequests = [
+          {
+            id: 'req-9',
+            userId: 'u-2',
+            userName: 'Cinta',
+            proposedById: 'admin-1',
+            proposedByName: 'Saya',
+            proposedAt: '2026-09-28T00:00:00.000Z',
+            proposedReason: null,
+          },
+        ];
+        return jsonResponse({ userId: 'u-2', assignment: 'ADMIN', action: 'PROPOSED', requestId: 'req-9' }, true);
+      }
+      return jsonResponse({});
+    });
+    const cinta = await openAtRowOf('Cinta');
+
+    fireEvent.click(within(cinta).getByLabelText('Admin'));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/admin/users/u-2/assignments', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ assignment: 'ADMIN' }),
+      })),
+    );
+    await waitFor(() => expect((within(cinta).getByLabelText('Admin') as HTMLInputElement).checked).toBe(false));
+    expect(within(cinta).getByText(/menunggu konfirmasi/i)).toBeTruthy();
+  });
+
+  it('lets a different Admin confirm a pending ADMIN grant from the queue', async () => {
+    pendingRequests = [
+      {
+        id: 'req-1',
+        userId: 'u-2',
+        userName: 'Cinta',
+        proposedById: 'admin-2',
+        proposedByName: 'Admin Lain',
+        proposedAt: '2026-09-28T00:00:00.000Z',
+        proposedReason: null,
+      },
+    ];
+    render(<AdminUsersPage />);
+
+    const confirmButton = await screen.findByRole('button', { name: /konfirmasi/i });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/admin/assignment-grant-requests/req-1/decision', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ decision: 'confirm' }),
+      })),
+    );
+  });
+
+  it('offers withdraw, not confirm, to the Admin who proposed the pending grant', async () => {
+    pendingRequests = [
+      {
+        id: 'req-1',
+        userId: 'u-2',
+        userName: 'Cinta',
+        proposedById: 'admin-1',
+        proposedByName: 'Saya',
+        proposedAt: '2026-09-28T00:00:00.000Z',
+        proposedReason: null,
+      },
+    ];
+    render(<AdminUsersPage />);
+
+    expect(await screen.findByRole('button', { name: /tarik/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /konfirmasi/i })).toBeNull();
   });
 });
