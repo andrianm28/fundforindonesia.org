@@ -39,15 +39,15 @@ export function escrowReleaseAt(settledAt: Date, holdDays: number = ESCROW_HOLD_
 /**
  * How many matured holds one call to `releaseMaturedEscrow` will process.
  *
- * There is no scheduler in this repo (see that function's doc comment), so
- * this sweep runs inline inside a user-facing request. Without a bound, a
- * backlog of matured holds -- built up while the sweep was never called, or
- * simply a platform with a lot of donations -- would turn one HTTP request
- * into a full-table sweep. Anything past this limit is left with
- * `escrowReleasedAt` still null and is picked up by the next call: the next
- * payout request for this or any other campaign, or a future scheduled
- * sweep. A request-time release only ever pays for a bounded slice of the
- * backlog; it does not promise to drain it in one call.
+ * Both of the sweep's callers are bounded by this for the same reason: it
+ * runs inside a user-facing request (the Payout request handlers) or
+ * inside a scheduled run (./scheduled-jobs.ts), and a backlog of matured
+ * holds -- built up between calls, or simply a platform with a lot of
+ * donations -- would otherwise turn either one into a full-table sweep.
+ * Anything past this limit is left with `escrowReleasedAt` still null and
+ * is picked up by the next call: the next payout request for any campaign
+ * or trip, or the next scheduled run. Either way a single call only ever
+ * pays for a bounded slice of the backlog; it does not promise to drain it.
  */
 export const ESCROW_RELEASE_SWEEP_LIMIT = 200;
 
@@ -106,11 +106,15 @@ export interface ReleaseSweepSubject {
  * across every subject. A Suspended Campaign's payments are skipped and
  * stay in ESCROW_HOLD until the Suspension is lifted (see the loop below).
  *
- * There is no scheduler anywhere in this repo, so this is what makes the
- * 7-day hold actually let go of money: it runs at the top of the payout
- * request handler, for the requesting campaign, so that a campaigner's
- * balance reflects every hold that has matured by the time they ask to
- * withdraw -- without a cron job existing at all.
+ * Two paths call this. The Payout request handlers call it for the
+ * requesting Campaign (or Trip) alone, so a hold releases when that
+ * Fundraiser asks to withdraw, and not otherwise. `runScheduledJobs`
+ * (./scheduled-jobs.ts) is the second: it sweeps every subject at once.
+ *
+ * Being callable is not being called. Nothing invokes the scheduled path
+ * until an owner installs the scheduler (ticket 45), so today this
+ * request-time sweep is the only one that moves money: a matured hold on a
+ * Campaign nobody has asked to pay out is still in ESCROW_HOLD.
  *
  * Idempotent by construction, so calling this twice concurrently -- two
  * payout requests for the same campaign landing at once, a request racing
