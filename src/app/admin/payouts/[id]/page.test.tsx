@@ -51,7 +51,7 @@ const DRAFT_PAYOUT = {
 
 describe('AdminPayoutDetailPage', () => {
   it('404s when the Payout does not exist', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } } as any);
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } } as never);
     vi.mocked(prisma.payout.findUnique).mockResolvedValue(null);
 
     await expect(AdminPayoutDetailPage({ params: Promise.resolve({ id: 'nope' }) })).rejects.toThrow(
@@ -60,13 +60,13 @@ describe('AdminPayoutDetailPage', () => {
   });
 
   it('shows a DRAFT Campaign Payout with its Campaign, requester and bank account, and the approve form', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as any);
-    vi.mocked(prisma.payout.findUnique).mockResolvedValue(DRAFT_PAYOUT as any);
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue(DRAFT_PAYOUT as never);
     vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
       id: 'campaign-1',
       slug: 'sumur-desa',
       title: 'Sumur untuk Desa',
-    } as any);
+    } as never);
 
     render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
 
@@ -80,13 +80,13 @@ describe('AdminPayoutDetailPage', () => {
   });
 
   it('never reads or shows the Bank Account number (ticket 12: not read at payout while Sumopod has no disbursement API)', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as any);
-    vi.mocked(prisma.payout.findUnique).mockResolvedValue(DRAFT_PAYOUT as any);
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue(DRAFT_PAYOUT as never);
     vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
       id: 'campaign-1',
       slug: 'sumur-desa',
       title: 'Sumur untuk Desa',
-    } as any);
+    } as never);
 
     render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
 
@@ -102,17 +102,17 @@ describe('AdminPayoutDetailPage', () => {
   });
 
   it('resolves a Volunteer Trip Payout through the Trip lookup, not the Campaign one', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as any);
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
     vi.mocked(prisma.payout.findUnique).mockResolvedValue({
       ...DRAFT_PAYOUT,
       campaignId: null,
       volunteerTripId: 'trip-1',
-    } as any);
+    } as never);
     vi.mocked(prisma.volunteerTrip.findUnique).mockResolvedValue({
       id: 'trip-1',
       slug: 'trip-lombok',
       title: 'Trip ke Lombok',
-    } as any);
+    } as never);
 
     render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
 
@@ -121,7 +121,7 @@ describe('AdminPayoutDetailPage', () => {
   });
 
   it('shows the complete form, with the approving Admin, for an APPROVED Payout', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-3', assignments: ['ADMIN'] } } as any);
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-3', assignments: ['ADMIN'] } } as never);
     vi.mocked(prisma.payout.findUnique).mockResolvedValue({
       ...DRAFT_PAYOUT,
       status: 'APPROVED',
@@ -130,12 +130,12 @@ describe('AdminPayoutDetailPage', () => {
       approvedProvider: 'sumopod',
       approvedProviderBalance: 8_000_000,
       approvedBy: { name: 'Admin Dua' },
-    } as any);
+    } as never);
     vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
       id: 'campaign-1',
       slug: 'sumur-desa',
       title: 'Sumur untuk Desa',
-    } as any);
+    } as never);
 
     render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
 
@@ -144,7 +144,7 @@ describe('AdminPayoutDetailPage', () => {
   });
 
   it('shows a read-only summary, no form, for a COMPLETED Payout', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-4', assignments: ['ADMIN'] } } as any);
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-4', assignments: ['ADMIN'] } } as never);
     vi.mocked(prisma.payout.findUnique).mockResolvedValue({
       ...DRAFT_PAYOUT,
       status: 'COMPLETED',
@@ -155,12 +155,12 @@ describe('AdminPayoutDetailPage', () => {
       proofImage: 'TRX-001 — Ditransfer via BCA',
       approvedBy: { name: 'Admin Dua' },
       completedBy: { name: 'Admin Tiga' },
-    } as any);
+    } as never);
     vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
       id: 'campaign-1',
       slug: 'sumur-desa',
       title: 'Sumur untuk Desa',
-    } as any);
+    } as never);
 
     render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
 

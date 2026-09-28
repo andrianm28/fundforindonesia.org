@@ -38,11 +38,11 @@ describe('AdminPayoutsPage', () => {
         requestedBy: { name: 'Budi' },
         bankAccount: { bankCode: 'BCA', accountName: 'Budi Santoso' },
       },
-    ] as any);
+    ] as never);
     vi.mocked(prisma.campaign.findMany).mockResolvedValue([
       { id: 'campaign-1', slug: 'sumur-desa', title: 'Sumur untuk Desa' },
-    ] as any);
-    vi.mocked(prisma.volunteerTrip.findMany).mockResolvedValue([] as any);
+    ] as never);
+    vi.mocked(prisma.volunteerTrip.findMany).mockResolvedValue([] as never);
 
     render(await AdminPayoutsPage());
 
@@ -67,11 +67,11 @@ describe('AdminPayoutsPage', () => {
         requestedBy: { name: 'Siti' },
         bankAccount: { bankCode: 'BNI', accountName: 'Siti Aminah' },
       },
-    ] as any);
-    vi.mocked(prisma.campaign.findMany).mockResolvedValue([] as any);
+    ] as never);
+    vi.mocked(prisma.campaign.findMany).mockResolvedValue([] as never);
     vi.mocked(prisma.volunteerTrip.findMany).mockResolvedValue([
       { id: 'trip-1', slug: 'trip-lombok', title: 'Trip ke Lombok' },
-    ] as any);
+    ] as never);
 
     render(await AdminPayoutsPage());
 
@@ -81,9 +81,9 @@ describe('AdminPayoutsPage', () => {
   });
 
   it('says so when a queue is empty rather than showing an empty table', async () => {
-    vi.mocked(prisma.payout.findMany).mockResolvedValue([] as any);
-    vi.mocked(prisma.campaign.findMany).mockResolvedValue([] as any);
-    vi.mocked(prisma.volunteerTrip.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.payout.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.campaign.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.volunteerTrip.findMany).mockResolvedValue([] as never);
 
     render(await AdminPayoutsPage());
 

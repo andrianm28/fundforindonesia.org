@@ -8,12 +8,11 @@ import { loadPayoutSubject, loadPayoutSubjects, payoutSubjectKey } from './payou
  * Admin detail page need the same title+slug lookup; this is the one place
  * it is written.
  */
-function fakePrisma(overrides: Record<string, any> = {}) {
+function fakePrisma() {
   return {
     campaign: { findUnique: vi.fn(), findMany: vi.fn() },
     volunteerTrip: { findUnique: vi.fn(), findMany: vi.fn() },
-    ...overrides,
-  } as any;
+  };
 }
 
 describe('payoutSubjectKey', () => {
@@ -31,7 +30,7 @@ describe('loadPayoutSubject', () => {
     const prisma = fakePrisma();
     prisma.campaign.findUnique.mockResolvedValue({ slug: 'sumur-desa', title: 'Sumur untuk Desa' });
 
-    const subject = await loadPayoutSubject(prisma, { campaignId: 'campaign-1', volunteerTripId: null });
+    const subject = await loadPayoutSubject(prisma as never, { campaignId: 'campaign-1', volunteerTripId: null });
 
     expect(subject).toEqual({ type: 'campaign', slug: 'sumur-desa', title: 'Sumur untuk Desa' });
     expect(prisma.volunteerTrip.findUnique).not.toHaveBeenCalled();
@@ -41,7 +40,7 @@ describe('loadPayoutSubject', () => {
     const prisma = fakePrisma();
     prisma.volunteerTrip.findUnique.mockResolvedValue({ slug: 'trip-lombok', title: 'Trip ke Lombok' });
 
-    const subject = await loadPayoutSubject(prisma, { campaignId: null, volunteerTripId: 'trip-1' });
+    const subject = await loadPayoutSubject(prisma as never, { campaignId: null, volunteerTripId: 'trip-1' });
 
     expect(subject).toEqual({ type: 'trip', slug: 'trip-lombok', title: 'Trip ke Lombok' });
     expect(prisma.campaign.findUnique).not.toHaveBeenCalled();
@@ -51,7 +50,7 @@ describe('loadPayoutSubject', () => {
     const prisma = fakePrisma();
     prisma.campaign.findUnique.mockResolvedValue(null);
 
-    expect(await loadPayoutSubject(prisma, { campaignId: 'gone', volunteerTripId: null })).toBeNull();
+    expect(await loadPayoutSubject(prisma as never, { campaignId: 'gone', volunteerTripId: null })).toBeNull();
   });
 });
 
@@ -61,7 +60,7 @@ describe('loadPayoutSubjects', () => {
     prisma.campaign.findMany.mockResolvedValue([{ id: 'campaign-1', slug: 'sumur-desa', title: 'Sumur untuk Desa' }]);
     prisma.volunteerTrip.findMany.mockResolvedValue([{ id: 'trip-1', slug: 'trip-lombok', title: 'Trip ke Lombok' }]);
 
-    const subjects = await loadPayoutSubjects(prisma, [
+    const subjects = await loadPayoutSubjects(prisma as never, [
       { campaignId: 'campaign-1', volunteerTripId: null },
       { campaignId: null, volunteerTripId: 'trip-1' },
     ]);
@@ -73,7 +72,7 @@ describe('loadPayoutSubjects', () => {
   it('skips both lookups for an empty list', async () => {
     const prisma = fakePrisma();
 
-    const subjects = await loadPayoutSubjects(prisma, []);
+    const subjects = await loadPayoutSubjects(prisma as never, []);
 
     expect(subjects.size).toBe(0);
     expect(prisma.campaign.findMany).not.toHaveBeenCalled();
