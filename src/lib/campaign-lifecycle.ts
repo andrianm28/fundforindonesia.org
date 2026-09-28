@@ -1480,7 +1480,7 @@ export class UnrecordedSuspensionError extends InvalidTransitionError {
 }
 
 /** The statuses an Admin may suspend from (ADR 0015). */
-const SUSPENDABLE: readonly CampaignStatus[] = [
+export const SUSPENDABLE: readonly CampaignStatus[] = [
   CampaignStatus.ACTIVE,
   CampaignStatus.EXPIRED,
   CampaignStatus.COMPLETED,
