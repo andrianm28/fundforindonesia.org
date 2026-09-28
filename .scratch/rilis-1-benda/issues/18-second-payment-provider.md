@@ -4,6 +4,8 @@
 
 **Status:** open
 
+**Findings:** `.scratch/rilis-1-benda/research/18-second-provider.md`
+
 **Blocked by:** —
 
 ## Question

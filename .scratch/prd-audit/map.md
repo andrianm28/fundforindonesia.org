@@ -33,6 +33,31 @@ resolved, dan spec-nya bisa diserahkan ke `/to-spec`.
 
 <!-- satu baris per tiket resolved -->
 
+- **01** (resolved): Gerbang Fase 0 siap kode; Fase 1 🟡 siap kode karena Asset
+  Waqf Inquiry (❌ nol kode) dan Guest Donor claim-by-email via verifikasi
+  tautan (❌) belum ada. `.scratch/prd-audit/issues/01-fase-0-1-compliance.md`,
+  bukti `.scratch/prd-audit/research/01-fase-0-1.md`.
+- **02** (resolved): Gerbang Fase 2 tidak siap kode dan tidak siap luncur —
+  tidak ada layar Payout, Usage Report nol kode, hanya satu penyedia
+  pembayaran nyata. Dikoreksi: pengingat 30 hari Kind Authorisation adalah 🟡
+  (`expiringWindows` di `src/lib/collecting-entity.ts:136`, ada tes), bukan
+  ❌ seperti draf riset semula.
+  `.scratch/prd-audit/issues/02-fase-2-compliance.md`, bukti
+  `.scratch/prd-audit/research/02-fase-2.md`.
+- **03** (resolved): Gerbang Fase 3 🟡 — jalur uang Trip Fee lengkap di API
+  tapi tanpa satu layar pun dan sertifikat nol kode (❌); ⚠️ Trip Fee tidak
+  punya `donationsEnabled()`/`sandboxInProductionReason()` seperti Donation.
+  Item Fase 3 di luar gerbang semuanya belum dimulai, jadi bahan tiket 05.
+  `.scratch/prd-audit/issues/03-fase-3-compliance.md`, bukti
+  `.scratch/prd-audit/research/03-fase-3.md`.
+- **04** (resolved): Dua temuan HIGH (review independen tidak tercatat di
+  GitHub untuk 10 PR uang terakhir; tiket 35 mengklaim PR yang tidak pernah
+  merge) plus MEDIUM/LOW/INFO lain. Dikoreksi: untuk PR #121 review
+  independen memang dijalankan koordinator, hanya hasilnya tidak diposting
+  ke PR — celahnya jejak audit, bukan review yang dilewati.
+  `.scratch/prd-audit/issues/04-matt-workflow-compliance.md`, bukti
+  `.scratch/prd-audit/research/04-workflow.md`.
+
 ## Not yet specified
 
 - Bentuk akhir spec untuk `/to-spec`: satu spec per gerbang atau satu spec gabungan. Baru bisa dijawab setelah jumlah celahnya terlihat.
