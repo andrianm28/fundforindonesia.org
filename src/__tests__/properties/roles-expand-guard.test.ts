@@ -119,6 +119,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
   "src/app/api/admin/abuse-thresholds/route.ts",
+  "src/app/api/admin/assignment-grant-requests/[requestId]/decision/route.ts",
+  "src/app/api/admin/assignment-grant-requests/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
   "src/app/api/admin/manual-contributions/route.ts",
@@ -151,6 +153,10 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   // "never Admin on your own Campaign or Trip" are not single-assignment
   // checks a route wrapper can express.
   "src/lib/capacity.ts",
+  // Not a route: the Assignment rules themselves (ticket 07) -- who may grant,
+  // confirm or revoke ADMIN and VERIFIER, which is a question about assignments
+  // by definition. Its routes have already required ADMIN.
+  "src/lib/assignments.ts",
   // Not a route: requireNotOwnerAsAdmin asks the judgement for the money
   // operations, whose routes have already required ADMIN.
   "src/lib/subject-guard.ts",
