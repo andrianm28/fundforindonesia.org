@@ -5,7 +5,7 @@ import {
   bankAccountRow,
   bankAccountVerificationRequestRow,
   makeCampaignDb,
-} from "../../../../../../../tests/support/in-memory-campaign-db";
+} from "../../../../../../tests/support/in-memory-campaign-db";
 
 const state = vi.hoisted(() => ({ db: null as unknown as ReturnType<typeof makeCampaignDb> }));
 
@@ -18,7 +18,7 @@ import { POST } from "./route";
 import { getServerSession } from "@/lib/auth";
 
 const mockSession = getServerSession as unknown as Mock;
-const url = (id: string) => `http://localhost:3000/api/moderasi/bank-accounts/${id}/revocation`;
+const url = (id: string) => `http://localhost:3000/api/moderasi/bank-account-revocations/${id}`;
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 
 function post(id: string, body: unknown): Promise<Response> {
@@ -38,7 +38,7 @@ beforeEach(() => {
   mockSession.mockResolvedValue({ user: { id: "verifier-2", assignments: ["VERIFIER"] } });
 });
 
-describe("POST /api/moderasi/bank-accounts/[id]/revocation", () => {
+describe("POST /api/moderasi/bank-account-revocations/[id]", () => {
   it("answers 401 when signed out", async () => {
     mockSession.mockResolvedValue(null);
     expect((await post("bank-account-1", { action: "revoke", reason: "Alasan." })).status).toBe(401);

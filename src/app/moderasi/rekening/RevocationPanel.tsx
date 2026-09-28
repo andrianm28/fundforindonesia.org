@@ -32,7 +32,7 @@ export function RevocationPanel({
   async function submit() {
     setPending(true);
     setError("");
-    const response = await fetch(`/api/moderasi/bank-accounts/${accountId}/revocation`, {
+    const response = await fetch(`/api/moderasi/bank-account-revocations/${accountId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: revocationAction, reason }),

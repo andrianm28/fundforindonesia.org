@@ -87,7 +87,7 @@ reads the DB with no request data) gained two sections below the existing
 decide queue — "Rekening Terverifikasi" (revoke, one `RevocationPanel` per
 currently-verified account) and "Rekening Dicabut" (reinstate, one panel per
 account whose latest revoke/reinstate row is REVOKED). Route:
-`POST /api/moderasi/bank-accounts/[id]/revocation` with
+`POST /api/moderasi/bank-account-revocations/[id]` with
 `{ action: "revoke" | "reinstate", reason }`, VERIFIER-gated.
 
 Status: in-review.
