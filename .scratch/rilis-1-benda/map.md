@@ -56,13 +56,57 @@ than the tracker:
 - **There is no document upload.** §7.1 has eleven checklist rows and not one
   document behind them; a Verifier ticks a label. `/api/upload` accepts images
   only, writes to `public/uploads`, and has no access control.
-- **Eleven Admin routes have no screen at all**: `reconcile`, `scrutiny`,
-  `platform-fee`, `manual-contributions`, `abuse-thresholds`,
-  `duplicate-similarity`, and four more. The rules are enforced in code and
-  unreachable by a person.
+- **Seven Admin API route groups have no screen at all** (counted on
+  `origin/main` at `a1889fe`, 2026-09-28; the map previously said *eleven*,
+  and `scorecard.md:120` had already recorded that eleven was too many without
+  saying what the right number was): `reconcile`, `scrutiny`, `platform-fee`,
+  `manual-contributions` (with `[id]/decision`), `abuse-thresholds`,
+  `duplicate-similarity`, `provider-withdrawals`. The derivation, so the next
+  session does not have to redo it: `find src/app/api/admin -name route.ts`
+  returns 15 route files; `find src/app/admin -name page.tsx` returns 6 pages;
+  three of those pages (`users`, `verification-checklist`,
+  `partnership-inquiries`) are the only ones a route is called from, confirmed
+  by grepping each route path and each route's nine underlying
+  `src/lib/` functions for a non-test caller in `src/app` or `src/components`
+  and finding none. The other three pages — the dashboard, `campaigns` and
+  `collecting-entities` — are not callers of any of the seven. The rules are
+  enforced in code and unreachable by a person.
 - **Four components are complete, tested, and rendered nowhere**:
   `CampaignDetail.tsx` (with working Updates and Payout tabs), `ShareModal`,
   `CampaignPrayers`, `CampaignCTA`.
+
+### Corrections to the findings above
+
+Recorded because the map cites the findings as established. The findings are
+left as written — they were true when this map was chartered, and rewriting
+them would hide that they have to be re-checked.
+
+- **"The Payout screen is blocked only by the absence of `bankAccount.create`"
+  is incomplete. It has two blockers.** Verified per-byte on `origin/main` at
+  `a1889fe`, 2026-09-28:
+
+  - `Payout.bankAccountId` is **already required** — `prisma/schema.prisma:1684`,
+    `bankAccountId String` with no `?`. (The line 1624 quoted elsewhere belongs
+    to the coordinator's local `fe1983d`, which has not diverged from
+    `origin/main`; the fact holds on both, the line number does not travel.)
+  - The payout API **already demands it** —
+    `src/app/api/campaigns/[slug]/payouts/route.ts:10`,
+    `bankAccountId: z.string().min(1, 'Rekening bank harus dipilih')`, and the
+    same at `src/app/api/volunteer-trips/[slug]/payouts/route.ts:11`.
+  - But **no `.tsx` in `src/` names `bankAccount` at all** —
+    `grep -ril bankaccount --include="*.tsx" src/` returns 0 files. (Two files
+    match the Indonesian word `rekening`, both static copy:
+    `src/app/(static)/terms/page.tsx` and
+    `src/app/(static)/faq/faq-accordion.tsx`. Neither is a picker.)
+
+  So the schema and the API have long asked for a bank-account picker and no
+  screen provides one. **Ticket 16 closes one of the two blockers, not the
+  blocker.** Whoever schedules the Payout screen must schedule the picker too,
+  or #114 stays unreachable after 16 lands. Developed in
+  [16](issues/16-bank-account-create-and-verification.md).
+- **"Eleven Admin routes have no screen" was too many** — it is **seven** route
+  groups, derived above. `scorecard.md:120` had already flagged eleven as wrong
+  but did not give the replacement number.
 
 ## Decisions so far
 
@@ -134,13 +178,22 @@ question only Dri can settle. None is written up as a fix, deliberately.
   again, so 200 of them fill the window permanently and the sweep stops while
   still reporting success. `deferredEscrowWatchdog` sees the deferrals but
   reports per subject, never "the sweep is not reaching the rest".
+- [16: A person creates a Bank Account, and a Verifier is what verifies it](issues/16-bank-account-create-and-verification.md):
+  the code for 01, in a fourth table rather than on a nullable
+  `VerificationRequest.campaignId`. An unverified account with no request may be
+  deleted; **an account may never be edited**, because the number is what a
+  Payout points at. The Verifier sees the **full** number in the decide panel
+  and a masked one in the list — a name can be checked without the number, a
+  mistyped digit cannot. **This is #114's only blocker**: the account picker on the Payout form is
+  already in that PR, along with the list it draws from.
+  `open`.
 
 ## Not yet specified
 
 Fog, in coarse patches — sharp enough to know it is in scope, not yet sharp
 enough to be a ticket:
 
-- **Which of the eleven missing Admin screens are Rilis 1 and in what order.**
+- **Which of the seven missing Admin screens are Rilis 1 and in what order.**
   The list is known; the priority is not, and it depends on which decisions
   below land first.
 - **What a person holding two assignments sees.** ADR 0005 removed rank, so
