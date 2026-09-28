@@ -76,7 +76,10 @@ function makeTx(options: {
         }),
       },
       bankAccount: { findUnique: bankAccountFindUnique },
-      payout: { create: payoutCreate },
+      // findFirst backs campaignBlockingUsageReport's own query
+      // (@/lib/usage-reports.ts): null means no prior COMPLETED Payout is
+      // missing an undisputed Usage Report, unchanged from before ticket 22.
+      payout: { create: payoutCreate, findFirst: vi.fn().mockResolvedValue(null) },
       payment: {
         updateMany: vi.fn(async ({ where, data }: { where: { id: string; escrowReleasedAt: null }; data: Record<string, unknown> }) => {
           const row = paymentState.get(where.id);

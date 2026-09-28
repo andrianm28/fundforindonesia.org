@@ -5,6 +5,7 @@ import { formatRupiah } from '@/lib/utils/currency';
 import { PAYOUT_STATUS_LABEL } from '@/lib/payout-status-label';
 import { loadPayoutSubject } from '@/lib/payout-subject-lookup';
 import { AdminPayoutActionForm } from '@/components/admin/AdminPayoutActionForm';
+import { AdminUsageReportPanel } from '@/components/admin/AdminUsageReportPanel';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -49,6 +50,19 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
       approvedBy: { select: { name: true } },
       completedBy: { select: { name: true } },
       bankAccount: { select: { bankCode: true, accountName: true } },
+      // Ticket 22 (PRD FFI-07a): only reachable for a Campaign Payout below,
+      // never a Trip one -- Usage Report is scoped to Campaign (CONTEXT.md).
+      usageReport: {
+        select: {
+          id: true,
+          narrative: true,
+          lineItems: true,
+          beneficiaryCount: true,
+          photos: true,
+          disputedAt: true,
+          disputedReason: true,
+        },
+      },
     },
   });
   if (!payout) {
@@ -107,6 +121,27 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
           </div>
         )}
       </div>
+
+      {subject.type === 'campaign' && payout.status === 'COMPLETED' && (
+        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
+          <h2 className="mb-1 text-sm font-semibold text-gray-900">Usage Report</h2>
+          <AdminUsageReportPanel
+            slug={subject.slug}
+            payoutId={payout.id}
+            usageReport={
+              payout.usageReport && {
+                ...payout.usageReport,
+                // Stored as Json (prisma/schema.prisma, UsageReport.lineItems)
+                // because nothing else in the app sums or filters by a single
+                // line item; submitUsageReport (@/lib/usage-reports.ts) is the
+                // one writer, and it only ever writes this exact shape.
+                lineItems: payout.usageReport.lineItems as Array<{ label: string; amount: number }>,
+                disputedAt: payout.usageReport.disputedAt?.toISOString() ?? null,
+              }
+            }
+          />
+        </div>
+      )}
 
       <div className="rounded-xl border border-gray-200 bg-white p-4">
         <h2 className="mb-3 text-sm font-semibold text-gray-900">Tindakan</h2>

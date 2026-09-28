@@ -384,6 +384,32 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
     );
   });
 
+  it("tells the Fundraiser which of their COMPLETED Payouts still need a Usage Report, or have a disputed one (ticket 22)", async () => {
+    payoutRows = [
+      // No Usage Report at all: blocks the next Payout.
+      { id: 'payout-1', amount: 100_000, description: 'x', status: 'COMPLETED', createdAt: new Date('2026-09-01'), approvedAt: null, completedAt: new Date('2026-09-02'), usageReport: null },
+      // Submitted and undisputed.
+      { id: 'payout-2', amount: 100_000, description: 'x', status: 'COMPLETED', createdAt: new Date('2026-09-03'), approvedAt: null, completedAt: new Date('2026-09-04'), usageReport: { id: 'ur-2', disputedAt: null } },
+      // Submitted but disputed: still blocks the next Payout.
+      { id: 'payout-3', amount: 100_000, description: 'x', status: 'COMPLETED', createdAt: new Date('2026-09-05'), approvedAt: null, completedAt: new Date('2026-09-06'), usageReport: { id: 'ur-3', disputedAt: new Date('2026-09-07') } },
+      // Not COMPLETED yet: no Usage Report question applies.
+      { id: 'payout-4', amount: 100_000, description: 'x', status: 'APPROVED', createdAt: new Date('2026-09-08'), approvedAt: new Date('2026-09-08'), completedAt: null, usageReport: null },
+    ];
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await read();
+    const body = await response.json();
+
+    const byId = Object.fromEntries(body.payouts.map((p: { id: string; usageReportStatus: unknown }) => [p.id, p.usageReportStatus]));
+    expect(byId).toEqual({
+      'payout-1': 'missing',
+      'payout-2': 'submitted',
+      'payout-3': 'disputed',
+      'payout-4': null,
+    });
+  });
+
   it("offers only this Fundraiser's own verified Bank Accounts as payout destinations", async () => {
     const { tx } = makeTx();
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));

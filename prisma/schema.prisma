@@ -64,37 +64,37 @@ model User {
   updatedAt        DateTime @updatedAt
 
   // Relations
-  accounts                        Account[]
-  campaigns                       Campaign[]
-  volunteerTrips                  VolunteerTrip[]
-  registrations                   Registration[]
-  donations                       Donation[]
-  prayers                         Prayer[]
-  notifications                   Notification[]
-  autoDonations                   AutoDonation[]
-  assignments                     UserAssignment[]
-  assignmentAuditsAsSubject       AssignmentAuditEntry[]            @relation("AssignmentAuditSubject")
-  assignmentAuditsAsActor         AssignmentAuditEntry[]            @relation("AssignmentAuditActor")
-  assignmentGrantRequestsAsSubject  AssignmentGrantRequest[]        @relation("AssignmentGrantSubject")
-  assignmentGrantRequestsProposed   AssignmentGrantRequest[]        @relation("AssignmentGrantProposer")
-  assignmentGrantRequestsDecided    AssignmentGrantRequest[]        @relation("AssignmentGrantDecider")
-  campaignStatusChanges           CampaignStatusChange[]
-  tripStatusChanges               VolunteerTripStatusChange[]
-  partnershipInquiryStatusChanges PartnershipInquiryStatusChange[]
-  cancellationRequestsMade        CancellationRequest[]             @relation("CancellationRequester")
-  cancellationRequestsDecided     CancellationRequest[]             @relation("CancellationDecider")
-  campaignFlagsRaised             CampaignFlag[]                    @relation("FlagVerifier")
-  campaignFlagsResolved           CampaignFlag[]                    @relation("FlagResolver")
-  verificationRequestsSubmitted   VerificationRequest[]             @relation("VerificationRequestSubmitter")
-  verificationRequestsDecided     VerificationRequest[]             @relation("VerificationRequestDecider")
-  identityVerification            IdentityVerification?             @relation("IdentityVerificationSubject")
-  identityVerificationsMade       IdentityVerification[]            @relation("IdentityVerificationVerifier")
-  checklistAuditEntries           VerificationChecklistAuditEntry[]
-  partnerOrganisation             PartnerOrganisation?              @relation("PartnerOrganisationFundraiser")
-  partnerOrganisationsRegistered  PartnerOrganisation[]             @relation("PartnerOrganisationRegistrar")
-  fundraisingPermitsRecorded      FundraisingPermit[]
-  kindAuthorisationsGranted       KindAuthorisation[]
-  partnerOrganisationAudits       PartnerOrganisationAuditEntry[]
+  accounts                         Account[]
+  campaigns                        Campaign[]
+  volunteerTrips                   VolunteerTrip[]
+  registrations                    Registration[]
+  donations                        Donation[]
+  prayers                          Prayer[]
+  notifications                    Notification[]
+  autoDonations                    AutoDonation[]
+  assignments                      UserAssignment[]
+  assignmentAuditsAsSubject        AssignmentAuditEntry[]            @relation("AssignmentAuditSubject")
+  assignmentAuditsAsActor          AssignmentAuditEntry[]            @relation("AssignmentAuditActor")
+  assignmentGrantRequestsAsSubject AssignmentGrantRequest[]          @relation("AssignmentGrantSubject")
+  assignmentGrantRequestsProposed  AssignmentGrantRequest[]          @relation("AssignmentGrantProposer")
+  assignmentGrantRequestsDecided   AssignmentGrantRequest[]          @relation("AssignmentGrantDecider")
+  campaignStatusChanges            CampaignStatusChange[]
+  tripStatusChanges                VolunteerTripStatusChange[]
+  partnershipInquiryStatusChanges  PartnershipInquiryStatusChange[]
+  cancellationRequestsMade         CancellationRequest[]             @relation("CancellationRequester")
+  cancellationRequestsDecided      CancellationRequest[]             @relation("CancellationDecider")
+  campaignFlagsRaised              CampaignFlag[]                    @relation("FlagVerifier")
+  campaignFlagsResolved            CampaignFlag[]                    @relation("FlagResolver")
+  verificationRequestsSubmitted    VerificationRequest[]             @relation("VerificationRequestSubmitter")
+  verificationRequestsDecided      VerificationRequest[]             @relation("VerificationRequestDecider")
+  identityVerification             IdentityVerification?             @relation("IdentityVerificationSubject")
+  identityVerificationsMade        IdentityVerification[]            @relation("IdentityVerificationVerifier")
+  checklistAuditEntries            VerificationChecklistAuditEntry[]
+  partnerOrganisation              PartnerOrganisation?              @relation("PartnerOrganisationFundraiser")
+  partnerOrganisationsRegistered   PartnerOrganisation[]             @relation("PartnerOrganisationRegistrar")
+  fundraisingPermitsRecorded       FundraisingPermit[]
+  kindAuthorisationsGranted        KindAuthorisation[]
+  partnerOrganisationAudits        PartnerOrganisationAuditEntry[]
 
   // Money layer
   bankAccounts                      BankAccount[]
@@ -103,6 +103,8 @@ model User {
   payoutsRequested                  Payout[]                         @relation("PayoutRequester")
   payoutsApproved                   Payout[]                         @relation("PayoutApprover")
   payoutsCompleted                  Payout[]                         @relation("PayoutCompleter")
+  usageReportsSubmitted             UsageReport[]                    @relation("UsageReportSubmitter")
+  usageReportsDisputed              UsageReport[]                    @relation("UsageReportDisputer")
   refundsRequested                  Refund[]                         @relation("RefundRequester")
   refundsApproved                   Refund[]                         @relation("RefundApprover")
   platformFeeRulesSet               PlatformFeeRule[]
@@ -193,22 +195,22 @@ enum GrantRequestOutcome {
 /// honest choice available now; an expiry was left open by the ticket and is
 /// not decided here.
 model AssignmentGrantRequest {
-  id            String              @id @default(cuid())
-  userId        String
-  outcome       GrantRequestOutcome @default(PENDING)
-  proposedById  String
-  proposedAt    DateTime            @default(now())
+  id             String              @id @default(cuid())
+  userId         String
+  outcome        GrantRequestOutcome @default(PENDING)
+  proposedById   String
+  proposedAt     DateTime            @default(now())
   proposedReason String?
   /// The Admin who confirmed, or the proposer who withdrew their own request
   /// (the same "who closed it" shape BankAccountVerificationRequest.decidedById
   /// uses).
-  decidedById   String?
-  decidedAt     DateTime?
-  decidedReason String?
+  decidedById    String?
+  decidedAt      DateTime?
+  decidedReason  String?
 
   // Relations
-  user       User @relation("AssignmentGrantSubject", fields: [userId], references: [id], onDelete: Cascade)
-  proposedBy User @relation("AssignmentGrantProposer", fields: [proposedById], references: [id], onDelete: Restrict)
+  user       User  @relation("AssignmentGrantSubject", fields: [userId], references: [id], onDelete: Cascade)
+  proposedBy User  @relation("AssignmentGrantProposer", fields: [proposedById], references: [id], onDelete: Restrict)
   decidedBy  User? @relation("AssignmentGrantDecider", fields: [decidedById], references: [id], onDelete: Restrict)
 
   /// The Admin queue: oldest PENDING first.
@@ -1836,10 +1838,72 @@ model Payout {
   updatedAt               DateTime  @updatedAt
 
   ledgerEntries LedgerEntry[]
+  usageReport   UsageReport?
 
   @@index([campaignId, status])
   @@index([volunteerTripId, status])
   @@index([status])
+}
+
+/// A Fundraiser's account of how one Payout's money was used (CONTEXT.md,
+/// Usage Report; PRD FFI-07a). Exactly one per Payout -- payoutId is unique,
+/// so a second submission for the same Payout is a schema-level conflict, not
+/// just a service-layer one -- and only a COMPLETED Payout may carry one: a
+/// DRAFT or APPROVED Payout's money has not necessarily moved yet, so there
+/// would be nothing yet to report on (enforced in the service layer,
+/// src/lib/usage-reports.ts, since Prisma cannot express a conditional
+/// dependency on another row's status).
+///
+/// Public the moment it is submitted -- "tampil publik ... sejak dikirim,
+/// tanpa menunggu tinjauan" -- so nothing here is a draft state; the only
+/// state a report moves through afterwards is Admin marking it disputed.
+model UsageReport {
+  id       String @id @default(cuid())
+  payoutId String @unique
+  payout   Payout @relation(fields: [payoutId], references: [id])
+
+  /// Free narrative of how the money was used.
+  narrative String @db.Text
+
+  /// Per-post breakdown, `[{ label: string, amount: number }]`. Not
+  /// relational rows: nothing sums or filters by a single line item anywhere
+  /// else in the app, and a Json column keeps a report's shape wholly owned
+  /// by this one row rather than spread across a child table. The service
+  /// layer requires each amount to be a positive whole rupiah and the total
+  /// to equal the Payout's own `amount` exactly -- "rincian per pos yang
+  /// jumlahnya sama dengan nominal Payout" -- so this is validated data, not
+  /// merely stored data, even though Prisma cannot express that constraint
+  /// itself.
+  lineItems Json
+
+  /// "Jumlah penerima manfaat" (PRD FFI-07a): how many people this Payout's
+  /// spending reached, the same figure the Impact & Transparency page sums
+  /// across every Usage Report once that page is built (PRD FFI-14).
+  beneficiaryCount Int
+
+  /// "Minimal satu foto bukti": at least one URL, enforced in the service
+  /// layer the same way CampaignUpdate.images is (never in the schema, which
+  /// cannot express a minimum array length).
+  photos String[]
+
+  submittedById String
+  submittedBy   User     @relation("UsageReportSubmitter", fields: [submittedById], references: [id])
+  createdAt     DateTime @default(now())
+
+  /// Admin's "dipertanyakan" marker (PRD FFI-07a): set together, tampil
+  /// publik beside the report itself, and -- per the same story -- blocks
+  /// the Payout after this Usage Report's own Payout from being requested,
+  /// the same as a Usage Report that was never submitted at all (see
+  /// requestPayout, src/lib/money/payouts.ts). Nullable together because a
+  /// report is undisputed until an Admin acts; there is no code path that
+  /// clears a dispute once set, since nothing in the spec describes lifting
+  /// one.
+  disputedAt     DateTime?
+  disputedReason String?
+  disputedById   String?
+  disputedBy     User?     @relation("UsageReportDisputer", fields: [disputedById], references: [id])
+
+  @@index([payoutId])
 }
 
 /// One withdrawal of money from a Payment Provider's Merchant Account to a

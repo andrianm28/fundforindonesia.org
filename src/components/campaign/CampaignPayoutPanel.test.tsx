@@ -324,6 +324,104 @@ describe('CampaignPayoutPanel', () => {
     expect(link).toHaveAttribute('href', '/akun/rekening');
   });
 
+  it('offers to submit a Usage Report on a COMPLETED Payout that has none yet, and posts it (ticket 22)', async () => {
+    const post = vi.fn((url: string, init?: RequestInit) => {
+      void url;
+      void init;
+      return ok({ id: 'ur-1' });
+    });
+    mockFetch.mockImplementation((url: string, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? post(url, init)
+        : ok({
+            ...READ,
+            payouts: [
+              {
+                id: 'payout-1',
+                amount: 100_000,
+                description: 'Upah pekerja',
+                status: 'COMPLETED',
+                createdAt: '2026-09-01T00:00:00.000Z',
+                approvedAt: '2026-09-02T00:00:00.000Z',
+                completedAt: '2026-09-03T00:00:00.000Z',
+                usageReportStatus: 'missing',
+              },
+            ],
+          }),
+    );
+
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Kirim Usage Report/ }));
+    fireEvent.change(screen.getByLabelText(/Narasi/), { target: { value: 'Dana dipakai untuk upah pekerja.' } });
+    fireEvent.change(screen.getByLabelText(/Nama pos/), { target: { value: 'Upah' } });
+    fireEvent.change(screen.getByLabelText(/Nominal pos/), { target: { value: '100000' } });
+    fireEvent.change(screen.getByLabelText(/Jumlah penerima manfaat/), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/URL foto bukti/), { target: { value: 'https://example.com/bukti.jpg' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Kirim$/ }));
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [url, init] = post.mock.calls[0];
+    expect(url).toBe('/api/campaigns/sumur-desa/payouts/payout-1/usage-report');
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body).toEqual({
+      narrative: 'Dana dipakai untuk upah pekerja.',
+      lineItems: [{ label: 'Upah', amount: 100_000 }],
+      beneficiaryCount: 10,
+      photos: ['https://example.com/bukti.jpg'],
+    });
+  });
+
+  it('says a Usage Report was already sent for a COMPLETED Payout, without offering the form again', async () => {
+    mockFetch.mockImplementation(() =>
+      ok({
+        ...READ,
+        payouts: [
+          {
+            id: 'payout-1',
+            amount: 100_000,
+            description: 'Upah pekerja',
+            status: 'COMPLETED',
+            createdAt: '2026-09-01T00:00:00.000Z',
+            approvedAt: '2026-09-02T00:00:00.000Z',
+            completedAt: '2026-09-03T00:00:00.000Z',
+            usageReportStatus: 'submitted',
+          },
+        ],
+      }),
+    );
+
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+
+    expect(await screen.findByText(/Usage Report sudah dikirim/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Kirim Usage Report/ })).toBeNull();
+  });
+
+  it('tells the Fundraiser their Usage Report was marked dipertanyakan, without offering to send another', async () => {
+    mockFetch.mockImplementation(() =>
+      ok({
+        ...READ,
+        payouts: [
+          {
+            id: 'payout-1',
+            amount: 100_000,
+            description: 'Upah pekerja',
+            status: 'COMPLETED',
+            createdAt: '2026-09-01T00:00:00.000Z',
+            approvedAt: '2026-09-02T00:00:00.000Z',
+            completedAt: '2026-09-03T00:00:00.000Z',
+            usageReportStatus: 'disputed',
+          },
+        ],
+      }),
+    );
+
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+
+    expect(await screen.findByText(/dipertanyakan/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Kirim Usage Report/ })).toBeNull();
+  });
+
   it('tells a Fundraiser with a submitted-but-unverified account to check its status, and links them there', async () => {
     mockFetch.mockImplementation(() =>
       ok({ ...READ, bankAccounts: [], hasUnverifiedBankAccount: true }),

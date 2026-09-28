@@ -158,6 +158,10 @@ function makeMoney(balance: number, payoutAmount: number) {
         ...data,
       })),
       findUnique: vi.fn(async () => payoutRow),
+      // campaignBlockingUsageReport's own query (@/lib/usage-reports.ts):
+      // null means no prior COMPLETED Payout blocks the next one, unchanged
+      // from before ticket 22 -- nothing in this file is about that gate.
+      findFirst: vi.fn(async () => null),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     ledgerEntry: {

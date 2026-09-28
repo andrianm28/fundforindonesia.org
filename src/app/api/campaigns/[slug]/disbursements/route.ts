@@ -23,6 +23,11 @@ export async function GET(
     // moved -- a draft or pending payout is not something this page can
     // answer questions about, so it is filtered out here rather than left to
     // the client to hide.
+    //
+    // usageReport carries only the report's public fields (ticket 22; PRD
+    // FFI-07a: "tampil publik ... sejak dikirim"). Never submittedById or
+    // disputedById: those name a person, and this route answers to anyone,
+    // signed in or not.
     const payouts = await prisma.payout.findMany({
       where: { campaignId: campaign.id, status: 'COMPLETED' },
       select: {
@@ -31,6 +36,18 @@ export async function GET(
         description: true,
         proofImage: true,
         createdAt: true,
+        usageReport: {
+          select: {
+            id: true,
+            narrative: true,
+            lineItems: true,
+            beneficiaryCount: true,
+            photos: true,
+            createdAt: true,
+            disputedAt: true,
+            disputedReason: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });

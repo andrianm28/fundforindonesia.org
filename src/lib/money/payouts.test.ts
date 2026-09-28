@@ -12,6 +12,7 @@ import {
 } from './payouts';
 import { InvalidPayoutSubjectError } from './payout-subject';
 import { PayoutNotAllowedForStatusError } from '@/lib/subject-guard';
+import { UsageReportRequiredError } from '@/lib/usage-report-errors';
 import {
   validateProofReference,
   validateProofNote,
@@ -77,6 +78,13 @@ function makeTx(
     lifecycleStatus?: string;
     deadline?: Date | null;
     payoutRow?: Record<string, unknown> | null;
+    /**
+     * The row `campaignBlockingUsageReport` (@/lib/usage-reports.ts) should
+     * find via `tx.payout.findFirst` -- a prior COMPLETED Payout on this
+     * Campaign with no Usage Report, or a disputed one. Null (the default)
+     * means nothing blocks, unchanged from before this gate existed.
+     */
+    blockingPayout?: Record<string, unknown> | null;
   } = {},
 ) {
   const rows: LedgerRow[] = [...(options.ledgerRows ?? [])];
@@ -88,6 +96,7 @@ function makeTx(
   }));
   const state = options.payoutRow ? { ...options.payoutRow } : null;
   const payoutFindUnique = vi.fn().mockResolvedValue(state);
+  const payoutFindFirst = vi.fn().mockResolvedValue(options.blockingPayout ?? null);
   const payoutUpdateMany = vi.fn(
     async ({ where, data }: { where: { status: string }; data: Record<string, unknown> }) => {
       if (!state || state.status !== where.status) return { count: 0 };
@@ -111,7 +120,7 @@ function makeTx(
       // The Trip row the subject guard reads under its lock.
       volunteerTrip: { findUnique: vi.fn().mockResolvedValue({ fundraiserId: 'requester-1', status: 'ACTIVE' }) },
       bankAccount: { findUnique: bankAccountFindUnique },
-      payout: { create: payoutCreate, findUnique: payoutFindUnique, updateMany: payoutUpdateMany },
+      payout: { create: payoutCreate, findUnique: payoutFindUnique, findFirst: payoutFindFirst, updateMany: payoutUpdateMany },
       $queryRaw: vi.fn((strings: TemplateStringsArray) => {
         queryRawCalls.push(strings.join(''));
         return Promise.resolve([{ id: 'locked' }]);
@@ -127,6 +136,7 @@ function makeTx(
     },
     bankAccountFindUnique,
     payoutCreate,
+    payoutFindFirst,
     rows,
     queryRawCalls,
     /** The Payout row as approvePayout left it. */
@@ -287,6 +297,63 @@ describe('requestPayout', () => {
       }),
     ).rejects.toThrow(InsufficientBalanceError);
     expect(payoutCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a new Campaign Payout when a prior COMPLETED Payout on it has no Usage Report (or a disputed one)', async () => {
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+    ];
+    const { tx, payoutCreate, payoutFindFirst } = makeTx({
+      bankAccount: verifiedBankAccount(),
+      ledgerRows,
+      blockingPayout: { id: 'payout-old', campaignId: 'campaign-1', status: 'COMPLETED' },
+    });
+
+    const request = requestPayout(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      requestedById: 'requester-1',
+      bankAccountId: 'bank-1',
+      amount: 100_000,
+      description: 'x',
+    });
+
+    await expect(request).rejects.toBeInstanceOf(UsageReportRequiredError);
+    await expect(request).rejects.toMatchObject({ code: 'USAGE_REPORT_REQUIRED' });
+    expect(payoutCreate).not.toHaveBeenCalled();
+    expect(payoutFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ campaignId: 'campaign-1', status: 'COMPLETED' }) }),
+    );
+  });
+
+  it('allows a new Campaign Payout when no prior COMPLETED Payout is missing an undisputed Usage Report', async () => {
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+    ];
+    const { tx } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows, blockingPayout: null });
+
+    await expect(
+      requestPayout(tx as never, {
+        subject: { type: 'campaign', campaignId: 'campaign-1' },
+        requestedById: 'requester-1',
+        bankAccountId: 'bank-1',
+        amount: 100_000,
+        description: 'x',
+      }),
+    ).resolves.toMatchObject({ status: 'DRAFT' });
+  });
+
+  it('never runs the Usage Report gate for a Trip subject -- the requirement is Campaign-only (CONTEXT.md, Usage Report)', async () => {
+    const { tx, payoutFindFirst } = makeTx({ bankAccount: verifiedBankAccount() });
+
+    await requestPayout(tx as never, {
+      subject: { type: 'trip', tripId: 'trip-1' },
+      requestedById: 'requester-1',
+      bankAccountId: 'bank-1',
+      amount: 0,
+      description: 'x',
+    });
+
+    expect(payoutFindFirst).not.toHaveBeenCalled();
   });
 });
 

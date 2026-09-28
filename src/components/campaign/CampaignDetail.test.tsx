@@ -195,6 +195,87 @@ describe('CampaignDetail', () => {
     });
   });
 
+  it('shows a Usage Report on its Payout, and says none was sent yet when there is none (ticket 22; PRD FFI-07a)', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      json: () =>
+        Promise.resolve({
+          disbursements: [
+            {
+              id: 'payout-1',
+              amount: 300_000,
+              description: 'Pencairan pertama',
+              proofImage: null,
+              createdAt: '2026-09-01T00:00:00.000Z',
+              usageReport: null,
+            },
+            {
+              id: 'payout-2',
+              amount: 500_000,
+              description: 'Pencairan kedua',
+              proofImage: null,
+              createdAt: '2026-09-10T00:00:00.000Z',
+              usageReport: {
+                id: 'ur-1',
+                narrative: 'Dana dipakai untuk sembako dan transportasi.',
+                lineItems: [{ label: 'Sembako', amount: 500_000 }],
+                beneficiaryCount: 25,
+                photos: ['https://example.com/bukti.jpg'],
+                createdAt: '2026-09-11T00:00:00.000Z',
+                disputedAt: null,
+                disputedReason: null,
+              },
+            },
+          ],
+        }),
+    });
+
+    render(<CampaignDetail campaign={mockCampaign} onDonate={mockOnDonate} onShare={mockOnShare} />);
+
+    fireEvent.click(screen.getByText('Pencairan Dana'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Dana dipakai untuk sembako dan transportasi.')).toBeDefined();
+    });
+    expect(screen.getByText(/25 penerima manfaat/)).toBeDefined();
+    expect(screen.getByText('Usage Report belum dikirim untuk pencairan ini.')).toBeDefined();
+  });
+
+  it('shows the "dipertanyakan" marker and its reason on a disputed Usage Report', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      json: () =>
+        Promise.resolve({
+          disbursements: [
+            {
+              id: 'payout-1',
+              amount: 300_000,
+              description: 'Pencairan pertama',
+              proofImage: null,
+              createdAt: '2026-09-01T00:00:00.000Z',
+              usageReport: {
+                id: 'ur-1',
+                narrative: 'Dana dipakai untuk renovasi.',
+                lineItems: [{ label: 'Renovasi', amount: 300_000 }],
+                beneficiaryCount: 10,
+                photos: ['https://example.com/bukti.jpg'],
+                createdAt: '2026-09-02T00:00:00.000Z',
+                disputedAt: '2026-09-05T00:00:00.000Z',
+                disputedReason: 'Foto tidak sesuai narasi.',
+              },
+            },
+          ],
+        }),
+    });
+
+    render(<CampaignDetail campaign={mockCampaign} onDonate={mockOnDonate} onShare={mockOnShare} />);
+
+    fireEvent.click(screen.getByText('Pencairan Dana'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Dipertanyakan')).toBeDefined();
+    });
+    expect(screen.getByText('Foto tidak sesuai narasi.')).toBeDefined();
+  });
+
   it('renders Donasi sekarang button that calls onDonate', () => {
     render(
       <CampaignDetail campaign={mockCampaign} onDonate={mockOnDonate} onShare={mockOnShare} />
