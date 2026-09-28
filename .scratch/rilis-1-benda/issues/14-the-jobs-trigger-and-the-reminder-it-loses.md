@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 ## Question
 
@@ -87,3 +87,14 @@ This ticket is about a property of the code that shipped under it. Nor is it
 [10: If nobody requests a Payout, when is matured escrow
 released?](10-escrow-release-without-a-payout-request.md), which asks whether
 Rilis 1 ships a scheduler at all.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+Ganti nama field jadi `attemptedCount` (atau tambah `deliveredCount` dari
+boolean yang dibuang) — perubahan kecil, tak sentuh logika uang. Secret:
+terima risikonya, tak perlu rate limit sekarang — bukan gerbang Fase 2, murni
+kebersihan pelaporan.

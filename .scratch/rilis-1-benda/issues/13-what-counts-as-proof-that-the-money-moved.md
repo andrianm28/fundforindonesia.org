@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 **Blocked by:** 03
 
@@ -87,3 +87,14 @@ asks what the second Admin leaves behind when they come back. If the answer to
 in the provider dashboard by hand", that makes proof-of-transfer *more*
 important here, not less -- the platform's only trace of the transfer is the
 string.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+Catatan teks terstruktur wajib sekarang (referensi transaksi + kalimat
+bebas, aturan `cleanProofReference`-style), artefak upload menyusul setelah 03.
+Tidak diblokir 03 untuk bagian ini — murni perubahan Zod + fungsi validasi,
+aman dikerjakan sekarang, menutup gerbang Fase 2.

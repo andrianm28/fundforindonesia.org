@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -43,3 +43,18 @@ Questions:
 
 Decide this and the Fundraiser's create-campaign page, the Verifier's
 moderation page, and the document checklist all stop being a guess.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+Object storage dengan signed URL berumur pendek (bukan `public/uploads` —
+gerbang keamanan, layak diprioritaskan walau bukan Fase 2 murni); Verifier +
+Fundraiser pemilik + Admin saja yang melihat, tautan kedaluwarsa; dokumen dari
+pengajuan ditolak tetap disimpan tapi tak publik; baris checklist nonaktif
+sampai dokumen ada (opsi lain membuat verifikasi jadi formalitas — persis
+kritik tiket 02). Besar, layak jadi tiket implementasi terpisah begitu
+keputusan turun; tak memblokir gerbang Fase 2 (uang keluar) tapi memblokir
+soft launch yang jujur.

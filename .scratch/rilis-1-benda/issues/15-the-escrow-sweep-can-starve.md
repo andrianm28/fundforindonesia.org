@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 ## Question
 
@@ -109,3 +109,16 @@ runs does when its work list fills with rows it cannot act on — a property of
 the code that shipped under 10, and one that exists whether or not the host cron
 is ever installed. If the cron is never installed, this never fires, which is
 not a reason to defer the question: 45 is `ready-for-human` and this is not.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+Lewati baris yang gagal karena guard permanen dengan urutan sekunder yang
+mendorongnya ke belakang jendela berikutnya (jangan ubah `escrowReleaseAt` —
+itu salah akuntansi); naikkan limit atau ubah kueri agar baris macet tak
+memblokir yang lain; ubah teks peringatan agar membedakan backlog normal vs
+baris macet permanen. Bukan gerbang Fase 2 murni — boleh menyusul setelah
+02/11/12/13, tapi jangan didiamkan.

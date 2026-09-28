@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 ## Question
 
@@ -44,3 +44,14 @@ destination rather than paying one, but the same reasoning does: whoever clears
 a verification should not be the person who set it, and the person whose account
 it is should certainly not be. Whether that is a rule or a preference is part of
 question 1.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+(b) Verifier lain — simetris dengan aturan 16 "Verifier tak menilai
+rekeningnya sendiri"; dua aksi terpisah (cabut verifikasi ≠ Suspension); yang
+sudah cair tidak disentuh; reversibel dengan alasan tercatat, pola yang sama
+dengan Flag/Suspension yang sudah ada.

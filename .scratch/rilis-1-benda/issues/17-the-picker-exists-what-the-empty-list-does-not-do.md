@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 **Blocked by:** 16 — the two dead ends below are only fixable once
 `/akun/rekening` exists, and #16 is what builds it. Nothing here reopens #16's
@@ -154,3 +154,15 @@ Three things I checked rather than assumed, and one thing I could not:
 Documents only, like #12 and #13. No production code, no schema, no migration.
 `CONTEXT.md`, `AGENTS.md`, `docs/`, `prisma/schema.prisma` and
 `prd-compliance-fase-0-2` are untouched.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+(1) pasang tautan ke `/akun/rekening` di empty state sekarang, biaya rendah;
+(2) query pemilih tetap `verifiedAt: {not:null}`, tapi tambah kalimat pembeda
+di empty state ("belum pernah menambahkan" vs "ada yang ditolak, cek status di
+halaman rekening"); (3) jadwalkan tiket implementasi terpisah untuk payout
+Volunteer Trip, clone panel Campaign, setelah #114 merge.

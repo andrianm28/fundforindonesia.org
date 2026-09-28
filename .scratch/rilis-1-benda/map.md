@@ -139,6 +139,19 @@ them would hide that they have to be re-checked.
   its first caller. The residue is operational, not a decision: the secret and
   the host cron belong to the owner, in prd-compliance 45.
 
+Tickets 02–05, 07, 11–15 and 17 were resolved together on 2026-09-28 in one batch grilling round (the owner answered "ya semua"); each answer is recorded in its own ticket.
+- [02: Di mana saldo riil provider dicatat, apakah selisih itu gerbang?](issues/02-provider-balance-record.md): Gerbang: tolak approve bila saldo provider tercatat < Campaign Balance yang diminta, dengan opsi eksplisit Admin mencatat "sudah dicek, kurang" sebagai keputusan tertunda — FFI-07 menyebutnya pengganti API saldo yang…
+- [03: Di mana dokumen yang diajukan tersimpan, siapa yang boleh melihat?](issues/03-documents.md): Object storage dengan signed URL berumur pendek (bukan `public/uploads` — gerbang keamanan, layak diprioritaskan walau bukan Fase 2 murni); Verifier + Fundraiser pemilik + Admin saja yang melihat, tautan kedaluwarsa;…
+- [04: Apakah angka PRD default di kode, atau konfigurasi?](issues/04-numbers-code-or-config.md): Escrow Hold & threshold similarity tetap konstanta kode (jarang berubah, tak sepadan 2 halaman Admin sebelum Fase 2); Platform Fee tetap konfigurasi (mekanisme sudah ada, PRD minta override per Category/Campaign) —…
+- [05: Apa yang dilihat orang yang memegang dua assignment sekaligus?](issues/05-two-assignments-one-person.md): Terima (1) — aturan dua-orang FFI-07 sudah menjaga uang lewat larangan per-transaksi "tidak atas subjek sendiri" (sudah ada di `payouts.ts`, dipakai lagi tiket 16). Tolak (2) — layar eksklusif menambah kompleksitas…
+- [07: Siapa boleh memberi assignment ADMIN/VERIFIER, apakah dua-orang?](issues/07-granting-assignments.md): (a) pending-grant sederhana meniru pola `BankAccountVerificationRequest` yang baru dibangun tiket 16 — pola sudah ada, tak perlu desain baru; (b) perbaiki self-revoke agar menolak **kedua** assignment, perbaikan satu…
+- [11: Apa yang mencabut verifikasi Bank Account, dan siapa yang boleh?](issues/11-clearing-a-bank-account-verification.md): (b) Verifier lain — simetris dengan aturan 16 "Verifier tak menilai rekeningnya sendiri"; dua aksi terpisah (cabut verifikasi ≠ Suspension); yang sudah cair tidak disentuh; reversibel dengan alasan tercatat, pola…
+- [12: Di mana nomor Bank Account didekripsi, apa instruksi payout-nya?](issues/12-decrypting-a-bank-account-at-payout.md): Jawab (1) dulu: kalau provider aktif masih tanpa API pencairan, nyatakan eksplisit nomor tak pernah dibaca di payout, perbaiki komentar schema, tutup (2)-(3) sebagai "tidak berlaku sampai ada provider dengan API…
+- [13: Apa yang dianggap bukti bahwa uang benar-benar berpindah?](issues/13-what-counts-as-proof-that-the-money-moved.md): Catatan teks terstruktur wajib sekarang (referensi transaksi + kalimat bebas, aturan `cleanProofReference`-style), artefak upload menyusul setelah 03. Tidak diblokir 03 untuk bagian ini — murni perubahan Zod + fungsi…
+- [14: Sapuan melaporkan pengingat yang tak pernah terkirim?](issues/14-the-jobs-trigger-and-the-reminder-it-loses.md): Ganti nama field jadi `attemptedCount` (atau tambah `deliveredCount` dari boolean yang dibuang) — perubahan kecil, tak sentuh logika uang. Secret: terima risikonya, tak perlu rate limit sekarang — bukan gerbang Fase…
+- [15: Bisakah sapuan escrow kelaparan di belakang baris yang tak pernah dilepas?](issues/15-the-escrow-sweep-can-starve.md): Lewati baris yang gagal karena guard permanen dengan urutan sekunder yang mendorongnya ke belakang jendela berikutnya (jangan ubah `escrowReleaseAt` — itu salah akuntansi); naikkan limit atau ubah kueri agar baris…
+- [17: Pemilih rekening sudah ada di PR; daftar kosongnya tidak dimiliki siapa pun](issues/17-the-picker-exists-what-the-empty-list-does-not-do.md): (1) pasang tautan ke `/akun/rekening` di empty state sekarang, biaya rendah; (2) query pemilih tetap `verifiedAt: {not:null}`, tapi tambah kalimat pembeda di empty state ("belum pernah menambahkan" vs "ada yang…
+
 ## Open
 
 <!-- the unanswered half: one line per ticket still waiting on an owner -->
@@ -146,38 +159,6 @@ them would hide that they have to be re-checked.
 Every ticket below is a **decision**, not a defect list — each one asks a
 question only Dri can settle. None is written up as a fix, deliberately.
 
-- [11: What clears a Bank Account's verification, and who may do it?](issues/11-clearing-a-bank-account-verification.md):
-  the gate on every Payout is a `verifiedAt` nobody can set through the product,
-  so this decides who clears a destination and on what evidence.
-- [12: Where is a Bank Account number decrypted, and what is the payout
-  instruction?](issues/12-decrypting-a-bank-account-at-payout.md): whether the
-  account number has to be readable at payout time at all, or whether the
-  transfer is made by hand in the provider dashboard. 13 leans on it: if the
-  number never reaches the platform, proof-of-transfer becomes the platform's
-  only trace of the transfer.
-- [13: What counts as proof that the money actually moved?](issues/13-what-counts-as-proof-that-the-money-moved.md):
-  `{"proofImage": "x"}` closes a Payout today. The two-person rule is fully
-  satisfied by two hands transferring nothing, and the repo never defines
-  "bukti transfer" as an artefact or a note. `ManualContribution` already
-  validates its equivalent (`cleanProofReference`, trim + required +
-  max-length); `Payout` has only a tautology, so the asymmetry is in the code
-  and not just the columns. Blocked by
-  [03: Where do submitted documents live, and who may see one?](issues/03-documents.md).
-- [14: The sweep reports a reminder it never delivered?](issues/14-the-jobs-trigger-and-the-reminder-it-loses.md):
-  `sendReportingFailure` returns whether the provider accepted the message;
-  `reminders.ts:128` discards that boolean and `:141` runs `sentCount++`
-  unconditionally, so the sweep reports `sentCount: 500` and a 200 while 500
-  emails were refused. The Fundraiser *is* told — the in-app Notification
-  commits in the claim's own transaction — so the question is only whether the
-  reported number must mean "delivered" or may mean "attempted". Secondary: the
-  jobs route is a single unbounded bearer secret.
-- [15: Can the escrow sweep starve behind rows it will never release?](issues/15-the-escrow-sweep-can-starve.md):
-  the sweep takes 200 matured holds, oldest first, and skips some of them for
-  reasons that can be permanent (a SUSPENDED Campaign, a Refund stuck in
-  flight). Skipped rows keep `escrowReleasedAt` null and sort to the front
-  again, so 200 of them fill the window permanently and the sweep stops while
-  still reporting success. `deferredEscrowWatchdog` sees the deferrals but
-  reports per subject, never "the sweep is not reaching the rest".
 - [16: A person creates a Bank Account, and a Verifier is what verifies it](issues/16-bank-account-create-and-verification.md):
   the code for 01, in a fourth table rather than on a nullable
   `VerificationRequest.campaignId`. An unverified account with no request may be

@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 ## Question
 
@@ -48,3 +48,14 @@ holds.
 Related: ADR 0012 for the encryption scheme, and
 [01: How does a Fundraiser get a bank account, and who says it is theirs?](01-bank-account-verification.md)
 for who owns the account and who verifies it.
+
+## Answer
+
+Owner (Dri), 2026-09-28, in the batch grilling round
+([grilling-borongan-2026-09-28.md](../grilling-borongan-2026-09-28.md)),
+answered "ya semua": the recommendation stands as the decision.
+
+Jawab (1) dulu: kalau provider aktif masih tanpa API pencairan, nyatakan
+eksplisit nomor tak pernah dibaca di payout, perbaiki komentar schema, tutup
+(2)-(3) sebagai "tidak berlaku sampai ada provider dengan API pencairan" —
+keputusan satu kalimat, murah.
