@@ -89,6 +89,53 @@ than the tracker:
   so the account a Payout points at is the thing verified, and a Donor's Refund
   account uses the same flow. Two of the ticket's four questions turned out to be
   already answered by `CONTEXT.md` and ADR 0006.
+- [10: If nobody requests a Payout, when is matured escrow released?](issues/10-escrow-release-without-a-payout-request.md):
+  a non-question — Release 1 *does* ship a trigger, so the spec's wording about
+  a second path stands and does not change. `f97c96e` gave `runScheduledJobs`
+  its first caller. The residue is operational, not a decision: the secret and
+  the host cron belong to the owner, in prd-compliance 45.
+
+## Open
+
+<!-- the unanswered half: one line per ticket still waiting on an owner -->
+
+Every ticket below is a **decision**, not a defect list — each one asks a
+question only Dri can settle. None is written up as a fix, deliberately.
+
+- [11: What clears a Bank Account's verification, and who may do it?](issues/11-clearing-a-bank-account-verification.md):
+  the gate on every Payout is a `verifiedAt` nobody can set through the product,
+  so this decides who clears a destination and on what evidence.
+- [12: Where is a Bank Account number decrypted, and what is the payout
+  instruction?](issues/12-decrypting-a-bank-account-at-payout.md): whether the
+  account number has to be readable at payout time at all, or whether the
+  transfer is made by hand in the provider dashboard.
+  [13: What counts as proof that the money actually
+  moved?](issues/13-what-counts-as-proof-that-the-money-moved.md) leans on the
+  answer: if the number never reaches the platform, proof-of-transfer becomes
+  the platform's only trace of the transfer.
+- [13: What counts as proof that the money actually moved?](issues/13-what-counts-as-proof-that-the-money-moved.md):
+  `{"proofImage": "x"}` closes a Payout today. The two-person rule is fully
+  satisfied by two hands transferring nothing, and the repo never defines
+  "bukti transfer" as an artefact or a note. `ManualContribution` already
+  validates its equivalent (`cleanProofReference`, trim + required +
+  max-length); `Payout` has only a tautology, so the asymmetry is in the code
+  and not just the columns. Blocked by
+  [03: Where do submitted documents live, and who may see one?](issues/03-documents.md).
+- [14: The sweep reports a reminder it never delivered?](issues/14-the-jobs-trigger-and-the-reminder-it-loses.md):
+  `sendReportingFailure` returns whether the provider accepted the message;
+  `reminders.ts:128` discards that boolean and `:141` runs `sentCount++`
+  unconditionally, so the sweep reports `sentCount: 500` and a 200 while 500
+  emails were refused. The Fundraiser *is* told — the in-app Notification
+  commits in the claim's own transaction — so the question is only whether the
+  reported number must mean "delivered" or may mean "attempted". Secondary: the
+  jobs route is a single unbounded bearer secret.
+- [15: Can the escrow sweep starve behind rows it will never release?](issues/15-the-escrow-sweep-can-starve.md):
+  the sweep takes 200 matured holds, oldest first, and skips some of them for
+  reasons that can be permanent (a SUSPENDED Campaign, a Refund stuck in
+  flight). Skipped rows keep `escrowReleasedAt` null and sort to the front
+  again, so 200 of them fill the window permanently and the sweep stops while
+  still reporting success. `deferredEscrowWatchdog` sees the deferrals but
+  reports per subject, never "the sweep is not reaching the rest".
 
 ## Not yet specified
 

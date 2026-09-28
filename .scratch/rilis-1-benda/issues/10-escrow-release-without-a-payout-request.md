@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** open
+**Status:** resolved
 
 ## Question
 
@@ -52,3 +52,41 @@ balance cannot ask for it.
 
 Related: prd-compliance 35 (PR #93) touches the same report for the provider
 pot rather than the escrow sweep.
+
+## Answer
+
+Closed 2026-09-28. **The premise was already false when this ticket was
+written**, and this ticket's own grep is what caught it: the Note below cites
+`grep -rn "runScheduledJobs" src/` as evidence, and that command no longer
+returns what it returned on 2026-09-27.
+
+**"Is a scheduler in Release 1, or is the lazy sweep the whole of Release 1?"**
+Answered: Release 1 ships a trigger. `f97c96e` added
+`src/app/api/internal/jobs/run/route.ts`, the first and only caller
+`runScheduledJobs` has ever had — authenticated `POST`, secret compared in
+constant time, `force-dynamic` and `no-store`, and 503 when `JOBS_SECRET` is
+unset rather than running unauthenticated. Matured escrow has three release
+paths now, not two, so the lazy sweep is a real second path exactly as
+`spec.md:185` describes it. **The spec's wording is right and does not change.**
+
+**"Should the sweep also run on a read?"** Answered the same way, negatively,
+and the answer got stronger rather than weaker: the read-path release is not
+being re-added, and "a third path" is a better reason to leave it out now that
+a real trigger exists.
+
+**What is not code.** `JOBS_SECRET` is unset and the host cron is not
+installed, so in production `runScheduledJobs` is still called by nothing —
+`src/app/api/campaigns/[slug]/payouts/route.ts:52` says exactly this in its own
+comment. That is an owner step, and it is deliberately not tracked here. The
+scheduler choice (a VPS host cron; GitHub Actions rejected for three recorded
+reasons) and the cutover note live in **prd-compliance 45**, which is
+`ready-for-human`. **Do not close 45 because this ticket closed.**
+
+**"Who is told when a balance is late?"** The harm asked about is gone once the
+trigger runs: a matured hold is released on schedule, so the balance is not
+late. What remains is escrow *stranded* by a Suspension or a deferral, and the
+Admin reconcile report does surface that as `strandedEscrow` with a
+`subjectlessPayments` list — so "nothing surfaces it" is now wrong. What is
+still true is that reconcile has no screen, which is not a question this ticket
+owns; it is already a patch of fog in the map.
+
