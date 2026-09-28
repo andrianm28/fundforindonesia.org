@@ -23,3 +23,6 @@ and anything that conflicts with ADRs on the Payment model.
 
 Output: a cited comparison on branch `research/second-provider`, with a
 recommendation the owner then decides on. The choice itself is Dri's.
+
+**Findings:** branch research/second-provider, file
+.scratch/rilis-1-benda/research/18-second-provider.md
