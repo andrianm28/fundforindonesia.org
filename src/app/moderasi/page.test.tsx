@@ -15,6 +15,9 @@ vi.mock("@/lib/prisma", () => ({
     verificationRequest: {
       count: vi.fn(),
     },
+    bankAccountVerificationRequest: {
+      count: vi.fn(),
+    },
     partnerOrganisation: {
       findMany: vi.fn(),
     },
@@ -33,12 +36,14 @@ import ModerasiPage from "./page";
 
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockRequestCount = prisma.verificationRequest.count as unknown as Mock;
+const mockBankAccountRequestCount = prisma.bankAccountVerificationRequest.count as unknown as Mock;
 const mockOrganisationFindMany = prisma.partnerOrganisation.findMany as unknown as Mock;
 
 describe("ModerasiPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequestCount.mockResolvedValue(0);
+    mockBankAccountRequestCount.mockResolvedValue(0);
     mockOrganisationFindMany.mockResolvedValue([]);
   });
 
@@ -84,6 +89,17 @@ describe("ModerasiPage", () => {
 
     const card = screen.getByText("Kampanye Menunggu Review").parentElement!;
     expect(card.textContent).toContain("2");
+    cleanup();
+  });
+
+  it("counts the PENDING Bank Account verification requests on the fourth card (ticket 16)", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
+    mockBankAccountRequestCount.mockResolvedValue(3);
+
+    render(await ModerasiPage());
+
+    const card = screen.getByText("Rekening Menunggu Verifikasi").parentElement!;
+    expect(card.textContent).toContain("3");
     cleanup();
   });
 
