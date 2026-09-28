@@ -34,11 +34,17 @@ tautan nav Admin. Ticket 02's provider-balance gate sudah ada di
 memakainya langsung. Ticket 12's jawaban diikuti dengan tidak pernah membaca
 nomor rekening di layar mana pun.
 
-Ticket 13's jawaban (referensi transaksi + kalimat bebas, wajib) diterapkan
-di form (client-side, `src/lib/admin-payout-proof.ts`), digabung jadi satu
-string sebelum dikirim -- `completePayout`/route Zod schema-nya sendiri
-**belum** diubah (masih `min(1)`). Itu perubahan `src/lib/money/**`, dan
-brief ticket ini eksplisit minta stop-and-report alih-alih menebak. Layar
+Ticket 13's jawaban (referensi transaksi + kalimat bebas, wajib) ditegakkan
+di **server**: `completePayout` menerima `proofReference` dan `proofNote` dan
+memvalidasinya lewat `src/lib/payout-proof.ts`, modul yang sama dengan yang
+dipakai form. Route complete hanya memeriksa tipe; aturannya milik
+`completePayout` (`PayoutProofInvalidError`, 400). Layar
 Volunteer Trip yang dibangun di sini hanya sisi Admin (approve/complete);
 panel Fundraiser untuk MENGAJUKAN Payout Trip (clone CampaignPayoutPanel)
 tidak termasuk brief ini dan masih belum ada.
+
+**Belum:** opsi Admin mencatat "sudah dicek, kurang" sebagai keputusan
+tertunda (jawaban tiket 02, bagian kedua). Hari ini approve hanya ditolak
+dengan `ProviderBalanceInsufficientError`, tanpa jejak keputusan. Dipisah ke
+[30](30-provider-balance-pending-decision.md), karena butuh tempat menyimpan
+keputusan itu.
