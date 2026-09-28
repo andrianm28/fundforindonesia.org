@@ -446,3 +446,87 @@ describe('CampaignDetailView Traffic Source (ticket 24)', () => {
     expect(screen.getByText('5')).toBeDefined();
   });
 });
+
+describe('CampaignDetailView -- Pencairan Dana tab (ticket 22)', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  // This is the actual public Campaign page (src/app/campaign/[slug]/page.tsx
+  // renders this component, not CampaignDetail.tsx): the "tampil publik di
+  // halaman Campaign" requirement (CONTEXT.md, Usage Report; PRD FFI-07a) has
+  // to be reachable from here, or it is not reachable at all.
+  it('switches to the Pencairan Dana tab, fetches disbursements, and shows a Usage Report on its Payout', async () => {
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).includes('/disbursements')) {
+        return {
+          ok: true,
+          json: async () => ({
+            disbursements: [
+              {
+                id: 'payout-1',
+                amount: 300_000,
+                description: 'Pencairan pertama',
+                proofImage: null,
+                createdAt: '2026-09-01T00:00:00.000Z',
+                usageReport: {
+                  id: 'ur-1',
+                  narrative: 'Dana dipakai untuk sembako.',
+                  lineItems: [{ label: 'Sembako', amount: 300_000 }],
+                  beneficiaryCount: 15,
+                  photos: ['https://example.com/bukti.jpg'],
+                  createdAt: '2026-09-02T00:00:00.000Z',
+                  disputedAt: null,
+                  disputedReason: null,
+                },
+              },
+            ],
+          }),
+        } as Response;
+      }
+      return { ok: false, status: 403 } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={mockCampaign} />);
+
+    fireEvent.click(screen.getByText('Pencairan Dana'));
+
+    expect(await screen.findByText('Dana dipakai untuk sembako.')).toBeDefined();
+    expect(screen.getByText(/15 penerima manfaat/)).toBeDefined();
+    expect(
+      (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some((call) =>
+        String(call[0]).includes(`/api/campaigns/${mockCampaign.slug}/disbursements`),
+      ),
+    ).toBe(true);
+  });
+
+  it('says a Usage Report has not been sent yet for a Payout that has none, and hides the story while on this tab', async () => {
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).includes('/disbursements')) {
+        return {
+          ok: true,
+          json: async () => ({
+            disbursements: [
+              {
+                id: 'payout-1',
+                amount: 300_000,
+                description: 'Pencairan pertama',
+                proofImage: null,
+                createdAt: '2026-09-01T00:00:00.000Z',
+                usageReport: null,
+              },
+            ],
+          }),
+        } as Response;
+      }
+      return { ok: false, status: 403 } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<CampaignDetailView campaign={mockCampaign} />);
+
+    fireEvent.click(screen.getByText('Pencairan Dana'));
+
+    expect(await screen.findByText('Usage Report belum dikirim untuk pencairan ini.')).toBeDefined();
+    expect(screen.queryByText('Cerita lengkap')).toBeNull();
+  });
+});

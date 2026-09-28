@@ -47,27 +47,12 @@ interface CampaignUpdate {
   createdAt: string;
 }
 
-/** A Payout's Usage Report, as GET /api/campaigns/[slug]/disbursements exposes it publicly (ticket 22; PRD FFI-07a). */
-interface UsageReportSummary {
-  id: string;
-  narrative: string;
-  lineItems: Array<{ label: string; amount: number }>;
-  beneficiaryCount: number;
-  photos: string[];
-  createdAt: string;
-  /** Set together, by an Admin (CONTEXT.md, Usage Report): "dipertanyakan", public beside the report. */
-  disputedAt: string | null;
-  disputedReason: string | null;
-}
-
 interface Disbursement {
   id: string;
   amount: number;
   description: string;
   proofImage: string | null;
   createdAt: string;
-  /** Null until the Fundraiser sends one -- CONTEXT.md, Usage Report. */
-  usageReport: UsageReportSummary | null;
 }
 
 type TabKey = 'story' | 'updates' | 'disbursements';
@@ -491,70 +476,9 @@ function CampaignDisbursements({
                 className="mt-2 w-full max-h-40 object-cover rounded-lg"
               />
             )}
-            <UsageReportSection usageReport={record.usageReport} />
           </div>
         );
       })}
-    </div>
-  );
-}
-
-/**
- * A Usage Report on one Payout (ticket 22; PRD FFI-07a; CONTEXT.md, Usage
- * Report): "tampil publik di halaman Campaign", shown right below the Payout
- * it accounts for, sejak dikirim -- no review state to wait through.
- *
- * Says explicitly when none has been sent yet, rather than rendering
- * nothing: a Payout without a Usage Report is exactly the fact this ticket's
- * gate exists to fix, and a silent gap here would read as a missing feature
- * rather than as a Fundraiser who has not reported yet.
- */
-function UsageReportSection({ usageReport }: { usageReport: UsageReportSummary | null }) {
-  if (!usageReport) {
-    return (
-      <p className="mt-2 text-xs text-text-secondary italic">
-        Usage Report belum dikirim untuk pencairan ini.
-      </p>
-    );
-  }
-
-  return (
-    <div className="mt-3 rounded-lg border border-border bg-gray-50 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-text">Usage Report</p>
-        {usageReport.disputedAt && (
-          <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-semibold text-danger">
-            Dipertanyakan
-          </span>
-        )}
-      </div>
-      <p className="mt-1 text-sm text-text-secondary">{usageReport.narrative}</p>
-      <ul className="mt-2 space-y-0.5">
-        {usageReport.lineItems.map((item, idx) => (
-          <li key={idx} className="flex justify-between text-xs text-text-secondary">
-            <span>{item.label}</span>
-            <span className="font-medium text-text">{formatRupiah(item.amount)}</span>
-          </li>
-        ))}
-      </ul>
-      <p className="mt-2 text-xs text-text-secondary">{usageReport.beneficiaryCount} penerima manfaat</p>
-      {usageReport.photos.length > 0 && (
-        <div className="mt-2 flex gap-2 overflow-x-auto">
-          {usageReport.photos.map((photo, idx) => (
-            <img
-              key={idx}
-              src={photo}
-              alt={`Foto bukti pemakaian dana ${idx + 1}`}
-              className="w-24 h-20 object-cover rounded-lg flex-shrink-0"
-            />
-          ))}
-        </div>
-      )}
-      {usageReport.disputedReason && (
-        <p role="alert" className="mt-2 text-xs text-danger">
-          {usageReport.disputedReason}
-        </p>
-      )}
     </div>
   );
 }
