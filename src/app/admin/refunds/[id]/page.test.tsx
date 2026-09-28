@@ -95,7 +95,7 @@ describe('AdminRefundDetailPage', () => {
     expect(prisma.campaign.findUnique).not.toHaveBeenCalled();
   });
 
-  it('shows a read-only summary with the approving Admin, no form, once APPROVED', async () => {
+  it('shows the approving Admin and the complete form (ticket 31) for a third Admin, once APPROVED', async () => {
     vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-3', assignments: ['ADMIN'] } } as never);
     vi.mocked(prisma.refund.findUnique).mockResolvedValue({
       ...REQUESTED_REFUND,
@@ -108,6 +108,40 @@ describe('AdminRefundDetailPage', () => {
     render(await AdminRefundDetailPage({ params: Promise.resolve({ id: 'refund-1' }) }));
 
     expect(screen.getByText(/Admin Dua/)).toBeDefined();
+    expect(screen.getByRole('button', { name: /tandai refund selesai/i })).toBeDefined();
+  });
+
+  it('shows the two-person rule notice instead of the complete form when the viewer approved this Refund', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.refund.findUnique).mockResolvedValue({
+      ...REQUESTED_REFUND,
+      status: 'APPROVED',
+      approvedById: 'admin-2',
+      approvedBy: { name: 'Admin Dua' },
+    } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ slug: 'wakaf-sumur', title: 'Wakaf Sumur' } as never);
+
+    render(await AdminRefundDetailPage({ params: Promise.resolve({ id: 'refund-1' }) }));
+
+    expect(screen.getByText(/tidak bisa menandainya selesai sendiri/i)).toBeDefined();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('shows a read-only summary with the completing Admin, no form, once COMPLETED', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-4', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.refund.findUnique).mockResolvedValue({
+      ...REQUESTED_REFUND,
+      status: 'COMPLETED',
+      approvedById: 'admin-2',
+      approvedBy: { name: 'Admin Dua' },
+      completedById: 'admin-3',
+      completedBy: { name: 'Admin Tiga' },
+    } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ slug: 'wakaf-sumur', title: 'Wakaf Sumur' } as never);
+
+    render(await AdminRefundDetailPage({ params: Promise.resolve({ id: 'refund-1' }) }));
+
+    expect(screen.getByText(/Admin Tiga/)).toBeDefined();
     expect(screen.queryByRole('button')).toBeNull();
   });
 });

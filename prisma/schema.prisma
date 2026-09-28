@@ -107,6 +107,7 @@ model User {
   usageReportsDisputed              UsageReport[]                    @relation("UsageReportDisputer")
   refundsRequested                  Refund[]                         @relation("RefundRequester")
   refundsApproved                   Refund[]                         @relation("RefundApprover")
+  refundsCompleted                  Refund[]                         @relation("RefundCompleter")
   platformFeeRulesSet               PlatformFeeRule[]
   platformFeeThresholdsSet          PlatformFeeThreshold[]
   manualContributionsRecorded       ManualContribution[]             @relation("ManualContributionRecorder")
@@ -1601,6 +1602,39 @@ model Refund {
   providerRef   String?      @unique
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
+
+  /// The third Admin: completes an APPROVED Refund by recording that the
+  /// Admin has transferred the money by hand to the Donor's account
+  /// (CONTEXT.md, Refund; PRD §7.2; ticket 31). Two-person rule's second
+  /// half, enforced in the service layer exactly like Payout.completedById --
+  /// this Admin must be neither requestedBy nor approvedBy -- and the column
+  /// exists so it is auditable after the fact.
+  completedById String?
+  completedBy   User?     @relation("RefundCompleter", fields: [completedById], references: [id])
+  completedAt   DateTime?
+  /// Ticket 13's proof-of-transfer shape (transaction reference + free
+  /// sentence), joined into one string by the same `buildProofImage`
+  /// Payout.proofImage already uses (@/lib/payout-proof) -- one validator,
+  /// now three callers (Payout, and this).
+  proofImage    String?
+
+  /// The Donor's destination account, typed by the completing Admin --
+  /// there is no saved BankAccount row for a Donor, so this is recorded
+  /// fresh at completion, the same way ManualContribution records evidence
+  /// nobody else confirms. Nullable because every Refund before ticket 31
+  /// has none, and a Refund that never reaches COMPLETED never gets one.
+  donorBankCode                String?
+  /// Plaintext, like BankAccount.accountName: compared against the name on
+  /// the Donation (ADR 0012's stated reason for leaving that field alone).
+  donorAccountName             String?
+  /// Sealed with the same field encryption as BankAccount.accountNumber
+  /// (ADR 0012; @/lib/contact-fields.ts) -- a randomized AES-256-GCM
+  /// ciphertext, never searched, and never rendered back in full. Bound to
+  /// its own AAD ("Refund.donorAccountNumber"), not BankAccount's, so a
+  /// ciphertext copied from one column to the other fails to decrypt rather
+  /// than silently reading as the wrong donor's number.
+  donorAccountNumberCiphertext String?
+  donorAccountNumberKeyId      String?
 
   ledgerEntries LedgerEntry[]
 

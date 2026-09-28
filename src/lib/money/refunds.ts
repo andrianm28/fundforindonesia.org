@@ -1,6 +1,8 @@
 import { Kind, type Payment, type Prisma, type PrismaClient, type Refund } from '@/generated/prisma/client';
 import { OwnSubjectConflictError } from '@/lib/capacity';
 import { lockAndLoad, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
+import { validateProofReference, validateProofNote, buildProofImage } from '@/lib/payout-proof';
+import { sealRefundDonorAccountNumber } from '@/lib/contact-fields';
 import {
   campaignBalance,
   tripBalance,
@@ -9,6 +11,7 @@ import {
   postTransaction,
   refundRequestedLegs,
   refundApprovedLegs,
+  refundPaidLegs,
   providerFeePortionFor,
   platformFeePortionFor,
   type LedgerSubject,
@@ -20,22 +23,29 @@ import {
   RefundExceedsRemainingError,
   RefundNotAllowedForKindError,
   RefundNotFoundError,
+  RefundProofInvalidError,
+  RefundDestinationInvalidError,
   SelfApprovalError,
   InvalidRefundStatusError,
+  TwoPersonRuleError,
 } from './errors';
 
 /**
- * Refund: request, approve.
+ * Refund: request, approve, complete.
  *
  * Ported from the same two-person disbursement discipline as
  * src/lib/money/payouts.ts, generalized over subject: LedgerSubject from
  * day one (see the spec's own User Story 11) rather than forked into a
  * Trip-scoped sibling later.
  *
- * This ticket's own code only ever produces REQUESTED and APPROVED --
- * AWAITING_DONOR_DETAILS, PROCESSING, COMPLETED, REJECTED, FAILED stay in
- * the schema's enum for the donor-facing flow and the reject/cancel path,
- * neither of which this ticket builds a route for.
+ * Ticket 23's code only ever produced REQUESTED and APPROVED. Ticket 31
+ * adds `completeRefund`, APPROVED -> COMPLETED, with the transfer proof and
+ * the Donor destination CONTEXT.md's Refund entry calls for. The remaining
+ * three statuses (AwaitingDonorDetails, Processing -- Processing is
+ * subsumed into this one completion step, same as Payout -- Rejected,
+ * Failed) and the signed 30-day donor-details link still stay in the
+ * schema's enum for a later rilis, deferred by the same owner decision that
+ * scoped ticket 23.
  */
 
 export {
@@ -46,8 +56,11 @@ export {
   RefundExceedsRemainingError,
   RefundNotAllowedForKindError,
   RefundNotFoundError,
+  RefundProofInvalidError,
+  RefundDestinationInvalidError,
   SelfApprovalError,
   InvalidRefundStatusError,
+  TwoPersonRuleError,
 };
 
 type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt'> & {
@@ -373,6 +386,171 @@ export async function approveRefund(
       tx,
       refundApprovedLegs({ subject, amount: refund.amount, source, shortfall }),
       { refundId: refund.id, transactionId: `refund-approved-${refund.id}` },
+    );
+  });
+
+  return prisma.refund.findUniqueOrThrow({ where: { id: refundId } });
+}
+
+const MAX_DESTINATION_TEXT_LENGTH = 200;
+
+/**
+ * The Donor destination's own field rule, ticket 31's shape: required,
+ * trimmed, and bounded the same way createBankAccount's `cleanText`
+ * (src/lib/bank-account-verification.ts) already bounds a saved
+ * BankAccount's fields -- not a reuse of that function, because it throws
+ * InvalidBankAccountError for a row this is not one of, but the same rule,
+ * mirrored, so a Donor's hand-typed destination is judged no more loosely
+ * than a Fundraiser's saved one.
+ */
+function cleanDestinationText(
+  raw: unknown,
+  label: string,
+  field: 'donorBankCode' | 'donorAccountName' | 'donorAccountNumber',
+): string {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (text === '') {
+    throw new RefundDestinationInvalidError(`${label} wajib diisi.`, field);
+  }
+  if (text.length > MAX_DESTINATION_TEXT_LENGTH) {
+    throw new RefundDestinationInvalidError(`${label} maksimal ${MAX_DESTINATION_TEXT_LENGTH} karakter.`, field);
+  }
+  return text;
+}
+
+/**
+ * The third Admin completes an APPROVED Refund: transferred the money by
+ * hand to the Donor's account (CONTEXT.md, Refund; PRD §7.2), records the
+ * destination they typed, and posts the withdrawal from the Provider
+ * Balance (refundPaidLegs, ./ledger.ts -- ADR 0007: the full Gross, not
+ * only the Campaign's net share, because that is what a Refund returns).
+ *
+ * TWO-PERSON RULE, THE REFUND VERSION (three people, not two pairs;
+ * CONTEXT.md, Refund: "dibuat satu Admin, disetujui Admin lain, dan
+ * diselesaikan Admin yang berbeda dari penyetujunya"). Unlike
+ * completePayout, which only refuses the approver, this refuses BOTH the
+ * Admin who requested the Refund and the Admin who approved it -- the same
+ * check completePayout makes on approvedById, done twice, because a Refund
+ * names a third distinct person where a Payout only ever named two.
+ *
+ * PROOF AND DESTINATION ARE BOTH CHECKED BEFORE THE TRANSACTION OPENS,
+ * exactly like completePayout checks proof: neither is a property of any
+ * row, so no amount of reading the database turns a blank field into a
+ * good one. The proof is judged by the exact `validateProofReference`/
+ * `validateProofNote` functions completePayout already asks (@/lib/payout-
+ * proof) -- ticket 13's one validator, now a third caller -- and joined
+ * into `proofImage` by the same `buildProofImage`. The destination is
+ * judged by `cleanDestinationText`, above.
+ *
+ * LEDGER LEGS: refundPaidLegs (./ledger.ts), the module's own
+ * `NOT POSTED YET` note names this exact function as the reason it exists.
+ * It takes no subject: both REFUND_CLEARING and GATEWAY_CLEARING are
+ * platform-level, the same way payoutCompletedLegs takes none. The
+ * subject is still locked below, for the same reason completePayout locks
+ * it at completion -- so requireNotOwnerAsAdmin is judged under a lock, not
+ * against a state that could have changed a moment before.
+ *
+ * THE DONOR ACCOUNT NUMBER IS SEALED, NEVER STORED OR RETURNED PLAIN
+ * (ADR 0012). `sealRefundDonorAccountNumber` (@/lib/contact-fields.ts) is
+ * the same field encryption as BankAccount.accountNumber, under its own
+ * AAD, so the ciphertext only ever decrypts as this Refund's own donor
+ * number. Nothing this function returns, and nothing any route built on it
+ * should return, ever includes the plaintext number in full -- an Admin's
+ * screen shows it masked, the same way a Payout's destination is.
+ */
+export async function completeRefund(
+  prisma: PrismaClient,
+  params: {
+    refundId: string;
+    completedById: string;
+    proofReference: string;
+    proofNote: string;
+    donorBankCode: string;
+    donorAccountName: string;
+    donorAccountNumber: string;
+  },
+): Promise<Refund> {
+  const { refundId, completedById, proofReference, proofNote, donorBankCode, donorAccountName, donorAccountNumber } = params;
+
+  // Checked before the transaction opens, mirroring completePayout: a bad
+  // field can never become a good one by reading the database, so nothing
+  // below is reached and the Refund keeps waiting in APPROVED for a third
+  // Admin who supplies a proper proof and destination.
+  const referenceError = validateProofReference(typeof proofReference === 'string' ? proofReference : '');
+  if (referenceError) {
+    throw new RefundProofInvalidError(referenceError);
+  }
+  const noteError = validateProofNote(typeof proofNote === 'string' ? proofNote : '');
+  if (noteError) {
+    throw new RefundProofInvalidError(noteError);
+  }
+  const proofImage = buildProofImage(proofReference, proofNote);
+
+  const cleanBankCode = cleanDestinationText(donorBankCode, 'Kode bank', 'donorBankCode');
+  const cleanAccountName = cleanDestinationText(donorAccountName, 'Nama pemilik rekening', 'donorAccountName');
+  const cleanAccountNumber = cleanDestinationText(donorAccountNumber, 'Nomor rekening', 'donorAccountNumber');
+  const sealedAccountNumber = sealRefundDonorAccountNumber(cleanAccountNumber);
+
+  await prisma.$transaction(async (tx) => {
+    const refund = await tx.refund.findUnique({
+      where: { id: refundId },
+      include: {
+        payment: { include: { donation: true, registration: { include: { batch: true } } } },
+      },
+    });
+    if (!refund) {
+      throw new RefundNotFoundError(refundId);
+    }
+
+    if (refund.status !== 'APPROVED') {
+      throw new InvalidRefundStatusError(refund.status);
+    }
+
+    // The whole two-person rule, before any write. A Refund names three
+    // people (CONTEXT.md, Refund), so this checks both of the other two --
+    // a self-completion, by either of them, leaves the Refund exactly as it
+    // was, a refusal rather than a decision this Refund has been through.
+    if (refund.requestedById === completedById || refund.approvedById === completedById) {
+      throw new TwoPersonRuleError('Refund');
+    }
+
+    const payment = refund.payment as unknown as PaymentWithSubjectLinks;
+    const subject = paymentSubjectOf(payment);
+
+    // Locked for the same reason completePayout locks its subject at
+    // completion: requireNotOwnerAsAdmin is judged under the lock, not
+    // against a state that could have changed a moment before. Nothing
+    // here reads a balance -- refundPaidLegs takes no subject -- so the
+    // lock's only job is to make the ownership check safe.
+    const subjectState = await lockAndLoad(tx, subject, new Date());
+    if (subjectState) requireNotOwnerAsAdmin(subjectState, completedById);
+
+    const claimed = await tx.refund.updateMany({
+      where: { id: refundId, status: 'APPROVED' },
+      data: {
+        status: 'COMPLETED',
+        completedById,
+        completedAt: new Date(),
+        proofImage: proofImage.trim(),
+        donorBankCode: cleanBankCode,
+        donorAccountName: cleanAccountName,
+        ...sealedAccountNumber,
+      },
+    });
+    if (claimed.count === 0) {
+      // refund.status above is the pre-update read and is now stale; some
+      // other write got here first.
+      throw new InvalidRefundStatusError('unknown (changed concurrently)', 'lost the completion race');
+    }
+
+    // Posted at completion, in the same transaction as the status write, so
+    // a COMPLETED Refund never exists a moment without the withdrawal that
+    // explains it. transactionId is keyed on the refund id, idempotent on
+    // top of (not instead of) the updateMany guard above.
+    await postTransaction(
+      tx,
+      refundPaidLegs({ amount: refund.amount }),
+      { refundId: refund.id, transactionId: `refund-completed-${refund.id}` },
     );
   });
 

@@ -58,6 +58,12 @@ const BANK_ACCOUNT_NUMBER: ContactField = {
   sealed: 'accountNumberCiphertext',
   keyId: 'accountNumberKeyId',
 };
+const REFUND_DONOR_ACCOUNT_NUMBER: ContactField = {
+  model: 'Refund',
+  column: 'donorAccountNumber',
+  sealed: 'donorAccountNumberCiphertext',
+  keyId: 'donorAccountNumberKeyId',
+};
 const GUEST_EMAIL: ContactField = {
   model: 'Donation',
   column: 'guestEmail',
@@ -191,6 +197,33 @@ export function readBankAccountNumber(row: Sealed<'accountNumberCiphertext', 'ac
 export const SELECT_BANK_ACCOUNT_NUMBER = {
   accountNumberCiphertext: true,
   accountNumberKeyId: true,
+} as const;
+
+// --- Refund (a Donor's destination account, typed fresh at completion) --------
+
+/**
+ * The Donor's destination account (ticket 31; CONTEXT.md, Refund; ADR
+ * 0012): the same field encryption as BankAccount.accountNumber (same
+ * `seal`/`read` plumbing, same key material), sealed under its own AAD
+ * ("Refund.donorAccountNumber") so a ciphertext copied from one column to
+ * the other fails to decrypt rather than silently reading as the wrong
+ * donor's number. There is no saved BankAccount row for a Donor -- the
+ * completing Admin types the destination fresh -- so this is its own field,
+ * not a reuse of BankAccount's.
+ */
+export function sealRefundDonorAccountNumber(
+  accountNumber: string,
+): SealedRequired<'donorAccountNumberCiphertext', 'donorAccountNumberKeyId'> {
+  return seal(REFUND_DONOR_ACCOUNT_NUMBER, accountNumber) as ReturnType<typeof sealRefundDonorAccountNumber>;
+}
+export function readRefundDonorAccountNumber(
+  row: Sealed<'donorAccountNumberCiphertext', 'donorAccountNumberKeyId'>,
+): string | null {
+  return read(REFUND_DONOR_ACCOUNT_NUMBER, row);
+}
+export const SELECT_REFUND_DONOR_ACCOUNT_NUMBER = {
+  donorAccountNumberCiphertext: true,
+  donorAccountNumberKeyId: true,
 } as const;
 
 // --- Donation (a Guest Donor's contact details) --------------------------------

@@ -3,16 +3,21 @@ import { Kind } from '@/generated/prisma/client';
 import {
   createRefund,
   approveRefund,
+  completeRefund,
   DemoCampaignError,
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
   RefundExceedsRemainingError,
   RefundNotFoundError,
   RefundNotAllowedForKindError,
+  RefundProofInvalidError,
+  RefundDestinationInvalidError,
   SelfApprovalError,
   InvalidRefundStatusError,
+  TwoPersonRuleError,
   OwnSubjectConflictError,
 } from './refunds';
+import { readRefundDonorAccountNumber } from '@/lib/contact-fields';
 import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
 
 type LedgerRow = {
@@ -1033,5 +1038,294 @@ describe('settlement redesign regressions (freeze splits the fee, not settlement
       .filter((r) => r.account === 'REFUND_COST')
       .reduce((s, r) => s + r.amount, 0);
     expect(totalFeeRecognized).toBe(3_333); // exactly the Payment's real total fee, never 3_334
+  });
+});
+
+describe('completeRefund', () => {
+  const baseApprovedRefundRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 'refund-1',
+    paymentId: 'payment-1',
+    amount: 100_000,
+    reason: 'x',
+    status: 'APPROVED',
+    requestedById: 'requester-1',
+    approvedById: 'approver-1',
+    payment: makePayment({ amount: 100_000, providerFee: 0 }),
+    ...overrides,
+  });
+
+  const validProof = {
+    proofReference: 'TRX-refund-1',
+    proofNote: 'Ditransfer via mobile banking BCA, dicocokkan dengan nama dan rekening Donor.',
+  };
+  const validDestination = {
+    donorBankCode: 'BCA',
+    donorAccountName: 'Budi Santoso',
+    donorAccountNumber: '1234567890',
+  };
+
+  it('completes an APPROVED refund by a third Admin, posting DEBIT REFUND_CLEARING / CREDIT GATEWAY_CLEARING for the full Gross', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'COMPLETED', completedById: 'completer-1' });
+
+    const result = await completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validDestination,
+    });
+
+    expect(result.status).toBe('COMPLETED');
+    const posted = rows.filter((r) => r.transactionId === 'refund-completed-refund-1');
+    expect(posted).toEqual([
+      expect.objectContaining({ account: 'REFUND_CLEARING', direction: 'DEBIT', amount: 100_000, campaignId: null, volunteerTripId: null }),
+      expect.objectContaining({ account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 100_000, campaignId: null, volunteerTripId: null }),
+    ]);
+  });
+
+  it('records completedById, completedAt, the joined proof, the plaintext bank code/name, and a sealed donor account number that decrypts back to what was typed', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'COMPLETED' });
+
+    await completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validDestination,
+    });
+
+    expect(tx.refund.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'refund-1', status: 'APPROVED' },
+        data: expect.objectContaining({
+          status: 'COMPLETED',
+          completedById: 'completer-1',
+          completedAt: expect.any(Date),
+          proofImage: 'TRX-refund-1 — Ditransfer via mobile banking BCA, dicocokkan dengan nama dan rekening Donor.',
+          donorBankCode: 'BCA',
+          donorAccountName: 'Budi Santoso',
+        }),
+      }),
+    );
+    const call = (tx.refund.updateMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const written = call.data as Record<string, unknown>;
+    // Sealed, never the plaintext number itself, on the row this writes.
+    expect(written.donorAccountNumberCiphertext).toEqual(expect.any(String));
+    expect(written.donorAccountNumberCiphertext).not.toBe('1234567890');
+    expect(
+      readRefundDonorAccountNumber({
+        donorAccountNumberCiphertext: written.donorAccountNumberCiphertext as string,
+        donorAccountNumberKeyId: written.donorAccountNumberKeyId as string,
+      }),
+    ).toBe('1234567890');
+  });
+
+  it('refuses the Admin who REQUESTED this Refund, posting nothing', async () => {
+    const refundRow = baseApprovedRefundRow({ requestedById: 'same-person' });
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'same-person',
+      ...validProof,
+      ...validDestination,
+    });
+
+    await expect(attempt).rejects.toThrow(TwoPersonRuleError);
+    await expect(attempt).rejects.toMatchObject({ code: 'TWO_PERSON_RULE' });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuses the Admin who APPROVED this Refund, posting nothing (mirrors completePayout)', async () => {
+    const refundRow = baseApprovedRefundRow({ approvedById: 'same-person' });
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'same-person',
+      ...validProof,
+      ...validDestination,
+    });
+
+    await expect(attempt).rejects.toThrow(TwoPersonRuleError);
+    await expect(attempt).rejects.toMatchObject({ code: 'TWO_PERSON_RULE' });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuses a Refund that is not APPROVED (still REQUESTED), posting nothing', async () => {
+    const refundRow = baseApprovedRefundRow({ status: 'REQUESTED' });
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    await expect(
+      completeRefund(prisma as never, { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validDestination }),
+    ).rejects.toThrow(InvalidRefundStatusError);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("refuses an Admin who is the Campaign's own Fundraiser, posting nothing", async () => {
+    const refundRow = baseApprovedRefundRow({ payment: makePayment() });
+    const { tx, rows } = makeTx({ refundRow, campaignCreatorId: 'completer-1' });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validDestination,
+    });
+
+    await expect(attempt).rejects.toThrow(OwnSubjectConflictError);
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuses a blank proof reference before opening any transaction', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    await expect(
+      completeRefund(prisma as never, {
+        refundId: 'refund-1',
+        completedById: 'completer-1',
+        proofReference: '   ',
+        proofNote: validProof.proofNote,
+        ...validDestination,
+      }),
+    ).rejects.toThrow(RefundProofInvalidError);
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a blank proof note', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    await expect(
+      completeRefund(prisma as never, {
+        refundId: 'refund-1',
+        completedById: 'completer-1',
+        proofReference: validProof.proofReference,
+        proofNote: '',
+        ...validDestination,
+      }),
+    ).rejects.toThrow(RefundProofInvalidError);
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a blank donor bank code, naming the field', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validDestination,
+      donorBankCode: '  ',
+    });
+
+    await expect(attempt).rejects.toThrow(RefundDestinationInvalidError);
+    await expect(attempt).rejects.toMatchObject({ field: 'donorBankCode' });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a blank donor account name, naming the field', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validDestination,
+      donorAccountName: '',
+    });
+
+    await expect(attempt).rejects.toThrow(RefundDestinationInvalidError);
+    await expect(attempt).rejects.toMatchObject({ field: 'donorAccountName' });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a blank donor account number, naming the field', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validDestination,
+      donorAccountNumber: '',
+    });
+
+    await expect(attempt).rejects.toThrow(RefundDestinationInvalidError);
+    await expect(attempt).rejects.toMatchObject({ field: 'donorAccountNumber' });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('throws RefundNotFoundError for a nonexistent Refund, posting nothing', async () => {
+    const { tx, rows } = makeTx({ refundRow: null });
+    const prisma = makePrisma(tx, {});
+
+    await expect(
+      completeRefund(prisma as never, { refundId: 'missing', completedById: 'completer-1', ...validProof, ...validDestination }),
+    ).rejects.toThrow(RefundNotFoundError);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('REGRESSION: a second concurrent completion loses the race and posts nothing', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx, rows } = makeTx({ refundRow });
+    tx.refund.updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const prisma = makePrisma(tx, refundRow);
+
+    await expect(
+      completeRefund(prisma as never, { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validDestination }),
+    ).rejects.toThrow(InvalidRefundStatusError);
+    expect(rows.filter((r) => r.transactionId === 'refund-completed-refund-1')).toHaveLength(0);
+  });
+
+  it('completes a Trip-linked refund the same way, taking no subject on the posted legs', async () => {
+    const refundRow = baseApprovedRefundRow({ payment: makeTripPayment({ amount: 100_000, providerFee: 0 }) });
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'COMPLETED' });
+
+    await completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validDestination,
+    });
+
+    const posted = rows.filter((r) => r.transactionId === 'refund-completed-refund-1');
+    expect(posted.every((r) => r.campaignId === null && r.volunteerTripId === null)).toBe(true);
+  });
+
+  it("refuses an Admin who is the Volunteer Trip's own Fundraiser, posting nothing", async () => {
+    const refundRow = baseApprovedRefundRow({ payment: makeTripPayment() });
+    const { tx, rows } = makeTx({ refundRow, tripFundraiserId: 'completer-1' });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validDestination,
+    });
+
+    await expect(attempt).rejects.toThrow(OwnSubjectConflictError);
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
   });
 });

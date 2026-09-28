@@ -25,3 +25,9 @@ sama, tidak memblokir layar utama: Trip suspension
 pengajuan Trip pertama (`decideTripSubmission` membuat Identity
 Verification seperti jalur Campaign). Sertifikat menunggu bentuknya
 diputuskan di `prd-audit/issues/10`.
+
+Q6 (owner 2026-09-28, "ya semua" ke ticket 31): membuat Trip Fee Refund dari
+sebuah layar (bukan lewat API langsung) adalah bagian tiket ini, digerbangi
+Fase 3 seperti layar lain di atas -- `completeRefund` (ticket 31) sendiri
+tidak menunggu tiket ini, karena `/admin/refunds` sudah menjangkau subjek
+Trip lewat rute Trip-nya.

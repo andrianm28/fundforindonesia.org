@@ -5,6 +5,7 @@ import { formatRupiah } from '@/lib/utils/currency';
 import { loadRefundSubject } from '@/lib/refund-subject-lookup';
 import { REFUND_STATUS_LABEL } from '@/lib/refund-status-label';
 import { AdminRefundApproveForm } from '@/components/admin/AdminRefundApproveForm';
+import { AdminRefundCompleteForm } from '@/components/admin/AdminRefundCompleteForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,8 +24,10 @@ type RouteContext = { params: Promise<{ id: string }> };
  * single lookup -- the same shape the queue page repeats for many rows.
  *
  * STATUS DECIDES THE FORM, NOT A ROLE CHECK HERE. REQUESTED gets the
- * approve form (which itself refuses the requester); anything else
- * (APPROVED and, later, the rest of the machine) gets a read-only summary.
+ * approve form (which itself refuses the requester); APPROVED gets the
+ * complete form (ticket 31, which itself refuses both the requester and
+ * the approver); anything else (COMPLETED and, later, the rest of the
+ * machine) gets a read-only summary.
  */
 export default async function AdminRefundDetailPage({ params }: RouteContext) {
   const { id } = await params;
@@ -37,6 +40,7 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
     include: {
       requestedBy: { select: { name: true } },
       approvedBy: { select: { name: true } },
+      completedBy: { select: { name: true } },
       payment: {
         select: {
           amount: true,
@@ -82,6 +86,13 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
             <p className="text-sm font-medium text-gray-900">{refund.approvedBy?.name}</p>
           </div>
         )}
+
+        {refund.completedById && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
+            <p className="text-xs text-gray-500">Diselesaikan oleh</p>
+            <p className="text-sm font-medium text-gray-900">{refund.completedBy?.name}</p>
+          </div>
+        )}
       </div>
 
       {refund.status === 'REQUESTED' && (
@@ -95,6 +106,24 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
             subject={{ type: subject.type, slug: subject.slug }}
             actorId={actorId}
             requestedById={refund.requestedById}
+          />
+        </div>
+      )}
+
+      {refund.status === 'APPROVED' && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <h2 className="mb-3 text-sm font-semibold text-gray-900">Tandai selesai</h2>
+          <p className="mb-3 text-xs text-gray-500">
+            Aturan dua orang (CONTEXT.md, Refund; ticket 31): Admin yang menyelesaikan harus berbeda dari yang
+            mengajukan maupun yang menyetujui, dan mentransfer dana secara manual ke rekening Donor sebelum mencatat
+            bukti transfer di sini.
+          </p>
+          <AdminRefundCompleteForm
+            refundId={refund.id}
+            subject={{ type: subject.type, slug: subject.slug }}
+            actorId={actorId}
+            requestedById={refund.requestedById}
+            approvedById={refund.approvedById}
           />
         </div>
       )}
