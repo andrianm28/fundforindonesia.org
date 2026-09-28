@@ -18,3 +18,5 @@ dengan `rilis-1-benda/scorecard.md`, dan tandai baris scorecard yang sudah basi.
 
 Keluaran ke `.scratch/prd-audit/research/02-fase-2.md` di branch
 `research/prd-audit-02`.
+
+**Findings:** branch research/prd-audit-02, file .scratch/prd-audit/research/02-fase-2.md
