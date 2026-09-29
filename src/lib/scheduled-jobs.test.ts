@@ -27,8 +27,8 @@ describe('runScheduledJobs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockReleaseMaturedEscrow.mockResolvedValue({ releasedCount: 2, consideredCount: 2 });
-    mockSendCampaignDeadlineReminders.mockResolvedValue({ sentCount: 1, consideredCount: 1 });
-    mockSendKindAuthorisationExpiryWarnings.mockResolvedValue({ sentCount: 0, consideredCount: 0 });
+    mockSendCampaignDeadlineReminders.mockResolvedValue({ attemptedCount: 1, consideredCount: 1 });
+    mockSendKindAuthorisationExpiryWarnings.mockResolvedValue({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('takes the current time as an argument and drives every phase with it directly, never through a timer', async () => {
@@ -44,8 +44,8 @@ describe('runScheduledJobs', () => {
 
     expect(result).toEqual({
       escrowRelease: { releasedCount: 2, consideredCount: 2 },
-      campaignDeadlineReminders: { sentCount: 1, consideredCount: 1 },
-      kindAuthorisationExpiryWarnings: { sentCount: 0, consideredCount: 0 },
+      campaignDeadlineReminders: { attemptedCount: 1, consideredCount: 1 },
+      kindAuthorisationExpiryWarnings: { attemptedCount: 0, consideredCount: 0 },
     });
   });
 
@@ -55,8 +55,8 @@ describe('runScheduledJobs', () => {
     const result = await runScheduledJobs(NOW);
 
     expect(result.escrowRelease).toEqual({ releasedCount: 0, consideredCount: 0 });
-    expect(result.campaignDeadlineReminders).toEqual({ sentCount: 1, consideredCount: 1 });
-    expect(result.kindAuthorisationExpiryWarnings).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result.campaignDeadlineReminders).toEqual({ attemptedCount: 1, consideredCount: 1 });
+    expect(result.kindAuthorisationExpiryWarnings).toEqual({ attemptedCount: 0, consideredCount: 0 });
     expect(mockSendCampaignDeadlineReminders).toHaveBeenCalled();
     expect(mockSendKindAuthorisationExpiryWarnings).toHaveBeenCalled();
   });
@@ -66,8 +66,8 @@ describe('runScheduledJobs', () => {
 
     const result = await runScheduledJobs(NOW);
 
-    expect(result.campaignDeadlineReminders).toEqual({ sentCount: 0, consideredCount: 0 });
-    expect(result.kindAuthorisationExpiryWarnings).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result.campaignDeadlineReminders).toEqual({ attemptedCount: 0, consideredCount: 0 });
+    expect(result.kindAuthorisationExpiryWarnings).toEqual({ attemptedCount: 0, consideredCount: 0 });
     expect(mockSendKindAuthorisationExpiryWarnings).toHaveBeenCalled();
   });
 

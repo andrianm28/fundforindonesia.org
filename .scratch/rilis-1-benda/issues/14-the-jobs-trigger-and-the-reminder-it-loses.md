@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** resolved
+**Status:** in-review
 
 ## Question
 
@@ -98,3 +98,14 @@ Ganti nama field jadi `attemptedCount` (atau tambah `deliveredCount` dari
 boolean yang dibuang) — perubahan kecil, tak sentuh logika uang. Secret:
 terima risikonya, tak perlu rate limit sekarang — bukan gerbang Fase 2, murni
 kebersihan pelaporan.
+
+## Implementation note
+
+Dipilih opsi rename (lebih kecil): `ReminderSweepResult.sentCount` menjadi
+`attemptedCount` di `src/lib/reminders.ts` (kedua sweep), `src/lib/scheduled-jobs.ts`
+(fallback), dan tiga file tes (`reminders.test.ts`, `scheduled-jobs.test.ts`,
+`src/app/api/internal/jobs/run/route.test.ts`). Docstring field kini menyatakan
+bahwa ini hitungan percobaan, bukan pengiriman. Boolean `sendReportingFailure`
+tetap dibuang; `deliveredCount` bisa ditambah nanti. Tidak menyentuh logika uang
+atau `prisma/**`. Sebutan `sentCount` yang tersisa hanya di teks ticket dan
+catatan grilling sebagai riwayat.

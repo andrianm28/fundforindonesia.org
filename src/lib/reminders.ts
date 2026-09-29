@@ -38,8 +38,13 @@ export const KIND_AUTHORISATION_EXPIRY_WARNING_DAYS = 30;
 export const REMINDER_SWEEP_LIMIT = 500;
 
 export interface ReminderSweepResult {
-  /** Reminders this call actually sent. */
-  sentCount: number;
+  /**
+   * Reminders this call attempted: the claim and in-app Notification committed,
+   * and the email was handed to the mailer when the recipient has a readable
+   * address. Not a delivery count; the mailer's accept/refuse result is not
+   * tracked here (ticket 14).
+   */
+  attemptedCount: number;
   /** Reminders this call looked at, including ones it skipped or lost a race on. */
   consideredCount: number;
 }
@@ -88,7 +93,7 @@ export async function sendCampaignDeadlineReminders(
     );
   }
 
-  let sentCount = 0;
+  let attemptedCount = 0;
   for (const campaign of campaigns) {
     try {
       const deadline = campaign.deadline!;
@@ -138,14 +143,14 @@ export async function sendCampaignDeadlineReminders(
         );
       }
 
-      sentCount++;
+      attemptedCount++;
     } catch (err) {
       // One Campaign's failure must not stop the rest of the sweep.
       console.error(`sendCampaignDeadlineReminders: failed for campaign ${campaign.id}`, err);
     }
   }
 
-  return { sentCount, consideredCount: campaigns.length };
+  return { attemptedCount, consideredCount: campaigns.length };
 }
 
 /**
@@ -189,7 +194,7 @@ export async function sendKindAuthorisationExpiryWarnings(
     );
   }
 
-  let sentCount = 0;
+  let attemptedCount = 0;
   for (const authorisation of authorisations) {
     try {
       const kindLabel = KIND_LABEL[authorisation.kind];
@@ -241,12 +246,12 @@ export async function sendKindAuthorisationExpiryWarnings(
         );
       }
 
-      sentCount++;
+      attemptedCount++;
     } catch (err) {
       // One authorisation's failure must not stop the rest of the sweep.
       console.error(`sendKindAuthorisationExpiryWarnings: failed for kind authorisation ${authorisation.id}`, err);
     }
   }
 
-  return { sentCount, consideredCount: authorisations.length };
+  return { attemptedCount, consideredCount: authorisations.length };
 }
