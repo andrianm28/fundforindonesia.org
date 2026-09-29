@@ -10,6 +10,7 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
+import { render } from "@testing-library/react";
 import { getServerSession } from "@/lib/auth";
 import ModerasiLayout from "./layout";
 
@@ -34,5 +35,12 @@ describe("ModerasiLayout", () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
     const result = await ModerasiLayout({ children: null });
     expect(result).toBeDefined();
+  });
+
+  it("links the Kind Authorisation renewal list in both the sidebar and the mobile bar", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
+    const { container } = render(await ModerasiLayout({ children: null }));
+    const links = container.querySelectorAll('a[href="/moderasi/kind-authorisations"]');
+    expect(links).toHaveLength(2);
   });
 });
