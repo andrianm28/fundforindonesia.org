@@ -63,8 +63,12 @@ Satu jadwal bertanggal dari sebuah Volunteer Trip, dengan kuota maksimum sendiri
 _Avoid_: Jadwal, schedule, departure, cohort
 
 **Registration**:
-Pendaftaran satu Volunteer pada satu Volunteer Batch. Belum mengunci kuota sampai Trip Fee-nya Settlement; sebelum itu Registration hanya menahan kursi sementara dalam jendela waktu terbatas.
+Pendaftaran satu Volunteer pada satu Volunteer Batch. Belum mengunci kuota sampai Trip Fee-nya Settlement; sebelum itu Registration hanya menahan kursi sementara selama 30 menit. Volunteer yang membatalkan Registration miliknya yang sudah `CONFIRMED` mendapat Refund bertingkat (lihat Trip Fee). Setelah Batch-nya diselesaikan, Registration tidak bisa dibatalkan lagi, dan Fundraiser menandai siapa yang hadir; hanya yang hadir menerima Sertifikat Keikutsertaan.
 _Avoid_: Booking, sign-up
+
+**Sertifikat Keikutsertaan**:
+Bukti digital bahwa seorang Volunteer mengikuti sebuah Volunteer Batch, berbentuk halaman web publik dengan kode unik yang bisa dicetak, bukan berkas PDF buatan server (diputuskan 2026-09-29, `prd-audit/issues/10`). Terbit otomatis, satu per Registration, saat Fundraiser menyelesaikan Batch, hanya untuk Registration `CONFIRMED` yang ditandai hadir. Memuat nama Volunteer, Trip dan destinasi, tanggal Batch, penyelenggara, kode, dan tanggal terbit, dibekukan saat terbit; diterbitkan atas nama Fund for Indonesia (PT Jaya Korpora Prima) tanpa tanda tangan orang. Tidak bisa dikoreksi atau dicabut di Rilis 1. Bukan sertifikat wakaf.
+_Avoid_: Ijazah, diploma, sertifikat wakaf
 
 ### Orang dan peran
 
@@ -168,7 +172,7 @@ Niat memberi dari satu Donor ke satu Campaign dengan nominal tertentu. Donation 
 _Avoid_: Donasi (di kode), transaction, contribution
 
 **Trip Fee**:
-Nominal yang dibayar Volunteer untuk satu Registration pada Volunteer Batch, menutup biaya partisipasinya sendiri (transport, akomodasi, konsumsi). Bukan Donation dan bukan kontribusi untuk komunitas tujuan; memakai jalur Payment, Escrow Hold, dan Payout yang sama dengan Campaign tanpa menjadi Kind (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Tidak dipotong Platform Fee. Refund-nya bertingkat menurut jarak waktu ke keberangkatan saat Volunteer membatalkan, dan penuh tanpa syarat waktu saat Fundraiser membatalkan Batch — berbeda dari Refund Gross Campaign (ADR 0007), yang tidak berlaku untuk Trip Fee. Bila Trip Fee-nya justru settle setelah Registration-nya sudah dibatalkan (baik oleh Volunteer sendiri maupun oleh pembatalan Batch), sistem mengembalikan penuh secara otomatis begitu penyelesaian itu terdeteksi — aturan ketiga ini, terpisah dari kedua aturan Refund di atas.
+Nominal yang dibayar Volunteer untuk satu Registration pada Volunteer Batch, menutup biaya partisipasinya sendiri (transport, akomodasi, konsumsi). Bukan Donation dan bukan kontribusi untuk komunitas tujuan; memakai jalur Payment, Escrow Hold, dan Payout yang sama dengan Campaign tanpa menjadi Kind (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Tidak dipotong Platform Fee. Refund-nya bertingkat menurut jarak waktu ke keberangkatan saat Volunteer membatalkan (14 hari atau lebih: penuh; 3 sampai 13 hari: separuh; kurang dari 3 hari atau sesudah berangkat: tidak ada; diputuskan 2026-09-29, angkanya di `src/lib/volunteer/refunds.ts`), dan penuh tanpa syarat waktu saat Fundraiser membatalkan Batch — berbeda dari Refund Gross Campaign (ADR 0007), yang tidak berlaku untuk Trip Fee. Bila Trip Fee-nya justru settle setelah Registration-nya sudah dibatalkan (baik oleh Volunteer sendiri maupun oleh pembatalan Batch), sistem mengembalikan penuh secara otomatis begitu penyelesaian itu terdeteksi — aturan ketiga ini, terpisah dari kedua aturan Refund di atas. Aturan ketiga ini juga berlaku bila penahanan kursinya sudah kedaluwarsa sebelum Trip Fee settle (diputuskan 2026-09-29, `rilis-1-benda/issues/40`).
 _Avoid_: Donation, Program Fee, biaya trip (di kode), tiket
 
 **Payment**:
