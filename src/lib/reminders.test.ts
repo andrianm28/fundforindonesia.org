@@ -137,7 +137,7 @@ describe('sendCampaignDeadlineReminders', () => {
 
     const result = await sendCampaignDeadlineReminders(NOW);
 
-    expect(result).toEqual({ sentCount: 1, consideredCount: 1 });
+    expect(result).toEqual({ attemptedCount: 1, consideredCount: 1 });
     expect(state.get('campaign-1')!.deadlineReminderSentAt).toEqual(NOW);
     expect(notifications).toEqual([
       expect.objectContaining({
@@ -157,7 +157,7 @@ describe('sendCampaignDeadlineReminders', () => {
 
     const result = await sendCampaignDeadlineReminders(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
     expect(mockSendReportingFailure).not.toHaveBeenCalled();
   });
 
@@ -166,7 +166,7 @@ describe('sendCampaignDeadlineReminders', () => {
 
     const result = await sendCampaignDeadlineReminders(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('never reconsiders a Campaign that was already reminded', async () => {
@@ -174,7 +174,7 @@ describe('sendCampaignDeadlineReminders', () => {
 
     const result = await sendCampaignDeadlineReminders(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
     expect(mockSendReportingFailure).not.toHaveBeenCalled();
   });
 
@@ -183,7 +183,7 @@ describe('sendCampaignDeadlineReminders', () => {
 
     const [a, b] = await Promise.all([sendCampaignDeadlineReminders(NOW), sendCampaignDeadlineReminders(NOW)]);
 
-    expect(a.sentCount + b.sentCount).toBe(1);
+    expect(a.attemptedCount + b.attemptedCount).toBe(1);
     expect(notifications).toHaveLength(1);
     expect(mockSendReportingFailure).toHaveBeenCalledTimes(1);
   });
@@ -294,7 +294,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
 
     const result = await sendKindAuthorisationExpiryWarnings(NOW);
 
-    expect(result).toEqual({ sentCount: 1, consideredCount: 1 });
+    expect(result).toEqual({ attemptedCount: 1, consideredCount: 1 });
     expect(state.get('kind-auth-1')!.expiryWarningSentAt).toEqual(NOW);
     expect(notifications).toEqual([
       expect.objectContaining({ type: 'kind_authorisation_expiry_warning', userId: 'fundraiser-org-1' }),
@@ -309,7 +309,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
 
     const result = await sendKindAuthorisationExpiryWarnings(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('does not warn about an authorisation that has already lapsed', async () => {
@@ -322,7 +322,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
 
     const result = await sendKindAuthorisationExpiryWarnings(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('does not warn about an authorisation not valid yet', async () => {
@@ -335,7 +335,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
 
     const result = await sendKindAuthorisationExpiryWarnings(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('never reconsiders an authorisation already warned about', async () => {
@@ -343,7 +343,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
 
     const result = await sendKindAuthorisationExpiryWarnings(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('sends exactly one warning when two overlapping scheduler runs race for the same authorisation', async () => {
@@ -354,7 +354,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
       sendKindAuthorisationExpiryWarnings(NOW),
     ]);
 
-    expect(a.sentCount + b.sentCount).toBe(1);
+    expect(a.attemptedCount + b.attemptedCount).toBe(1);
     expect(notifications).toHaveLength(1);
   });
 });

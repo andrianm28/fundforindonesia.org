@@ -266,8 +266,8 @@ describe('POST /api/internal/jobs/run -- an authorised run', () => {
       ok: true,
       result: {
         escrowRelease: { releasedCount: 1, consideredCount: 1 },
-        campaignDeadlineReminders: { sentCount: 1, consideredCount: 1 },
-        kindAuthorisationExpiryWarnings: { sentCount: 1, consideredCount: 1 },
+        campaignDeadlineReminders: { attemptedCount: 1, consideredCount: 1 },
+        kindAuthorisationExpiryWarnings: { attemptedCount: 1, consideredCount: 1 },
       },
     });
   });
@@ -325,8 +325,8 @@ describe('POST /api/internal/jobs/run -- a repeated call', () => {
       ok: true,
       result: {
         escrowRelease: { releasedCount: 0, consideredCount: 0 },
-        campaignDeadlineReminders: { sentCount: 0, consideredCount: 0 },
-        kindAuthorisationExpiryWarnings: { sentCount: 0, consideredCount: 0 },
+        campaignDeadlineReminders: { attemptedCount: 0, consideredCount: 0 },
+        kindAuthorisationExpiryWarnings: { attemptedCount: 0, consideredCount: 0 },
       },
     });
     expect((await third.json()).result.escrowRelease.releasedCount).toBe(0);

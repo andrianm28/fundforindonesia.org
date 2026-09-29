@@ -9,7 +9,7 @@ export interface ScheduledJobsResult {
 }
 
 const FALLBACK_RELEASE_SWEEP: ReleaseSweepResult = { releasedCount: 0, consideredCount: 0 };
-const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { sentCount: 0, consideredCount: 0 };
+const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consideredCount: 0 };
 
 /**
  * The single scheduled entry point (ticket 20; spec.md "Notification and
