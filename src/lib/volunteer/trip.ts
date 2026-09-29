@@ -34,6 +34,7 @@ import {
   TripNotFoundError,
   TripNotSubmittedError,
   TripNotTakingRegistrationsError,
+  TripRejectionReasonInvalidError,
 } from '@/lib/volunteer-trip-errors';
 import { tripFeeRefund, type TripFeeRefundCase } from './refunds';
 
@@ -124,6 +125,7 @@ async function transition(
     actorId: string;
     capacity: StatusChangeCapacity;
     edits?: TripEdits;
+    reason?: string | null;
     onMiss: () => Error;
   },
   now: Date,
@@ -142,7 +144,7 @@ async function transition(
       toStatus: change.to,
       actorId: change.actorId,
       capacity: change.capacity,
-      reason: null,
+      reason: change.reason ?? null,
       createdAt: now,
     },
   });
@@ -205,12 +207,26 @@ export function isTripSubmissionDecision(value: unknown): value is TripSubmissio
   return typeof value === 'string' && Object.hasOwn(SUBMISSION_DECISIONS, value);
 }
 
+/** The longest rejection reason, the same bound as a Bank Account rejection's. */
+const MAX_REJECTION_REASON_LENGTH = 1000;
+
+/** A rejection's required reason: trimmed, non-blank, within the bound. */
+function cleanRejectionReason(raw: unknown): string {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (text === '') throw new TripRejectionReasonInvalidError('Alasan penolakan wajib diisi.');
+  if (text.length > MAX_REJECTION_REASON_LENGTH) {
+    throw new TripRejectionReasonInvalidError(`Alasan penolakan maksimal ${MAX_REJECTION_REASON_LENGTH} karakter.`);
+  }
+  return text;
+}
+
 const VERIFIER_ONLY = 'Hanya Verifier yang dapat menyetujui atau menolak Volunteer Trip.';
 
 /**
  * A Verifier approves (ACTIVE) or rejects (REJECTED) a Submitted Trip, and
  * the Fundraiser is told, in the same transaction. Recorded in the VERIFIER
- * Capacity, without a reason, as a Campaign decision is. Refusals:
+ * Capacity; a rejection requires a reason (`TripRejectionReasonInvalidError`, 422,
+ * before anything is locked) and logs it, an approval logs none. Refusals:
  * NotAuthorizedError (403) without the VERIFIER assignment, before anything
  * is locked; TripNotFoundError (404); OwnSubjectConflictError (403,
  * OWN_TRIP_CONFLICT) for a Verifier who owns the Trip; TripNotSubmittedError
@@ -219,11 +235,13 @@ const VERIFIER_ONLY = 'Hanya Verifier yang dapat menyetujui atau menolak Volunte
  */
 export async function decideTripSubmission(
   prisma: PrismaClient,
-  params: { tripId: string; actor: TripActor; decision: TripSubmissionDecision; now?: Date },
+  params: { tripId: string; actor: TripActor; decision: TripSubmissionDecision; reason?: unknown; now?: Date },
 ): Promise<TripResult> {
   const { tripId, actor, now = new Date() } = params;
   const decision = SUBMISSION_DECISIONS[params.decision];
   requireAssignmentFor(actor, StatusChangeCapacity.VERIFIER, VERIFIER_ONLY);
+  // A rejection carries its reason; an approval stores none, whatever was sent.
+  const reason = params.decision === 'reject' ? cleanRejectionReason(params.reason) : null;
   return prisma.$transaction(async (tx: Tx) => {
     const trip = await lockTrip(tx, tripId, now);
     const capacity = judgeCapacity(trip, actor, StatusChangeCapacity.VERIFIER, VERIFIER_ONLY);
@@ -236,6 +254,7 @@ export async function decideTripSubmission(
         action: decision.action,
         actorId: actor.userId,
         capacity,
+        reason,
         onMiss: () => new TripNotSubmittedError(),
       },
       now,

@@ -19,21 +19,37 @@ describe("TripDecisionPanel", () => {
     vi.unstubAllGlobals();
   });
 
-  // The route reads exactly `{ action }` and answers PATCH
-  // (src/app/api/moderasi/volunteer-trips/[id]/route.ts); nothing else is
-  // read, so nothing else is sent.
-  it.each([
-    ["Loloskan", "approve"],
-    ["Tolak", "reject"],
-  ])("%s PATCHes exactly { action: %s } to the Trip's route", async (label, action) => {
+  // The route reads `{ action, reason }` and answers PATCH
+  // (src/app/api/moderasi/volunteer-trips/[id]/route.ts); nothing else is read,
+  // so nothing else is sent.
+  it("Loloskan PATCHes { action: approve, reason } to the Trip's route", async () => {
     render(<TripDecisionPanel tripId="trip-9" />);
-    fireEvent.click(screen.getByRole("button", { name: new RegExp(label) }));
+    fireEvent.click(screen.getByRole("button", { name: /Loloskan/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/moderasi/volunteer-trips/trip-9");
     expect(init.method).toBe("PATCH");
     expect(init.headers).toEqual({ "Content-Type": "application/json" });
-    expect(JSON.parse(init.body)).toEqual({ action });
+    expect(JSON.parse(init.body)).toEqual({ action: "approve", reason: "" });
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+  });
+
+  it("keeps Tolak disabled until a reason is written, then posts { action: reject, reason }", async () => {
+    render(<TripDecisionPanel tripId="trip-9" />);
+    const reject = screen.getByRole("button", { name: /Tolak/ }) as HTMLButtonElement;
+    expect(reject.disabled).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: /Alasan penolakan/ }), { target: { value: "   " } });
+    expect(reject.disabled).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: /Alasan penolakan/ }), {
+      target: { value: "Itinerary belum jelas" },
+    });
+    expect(reject.disabled).toBe(false);
+    fireEvent.click(reject);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/moderasi/volunteer-trips/trip-9");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({ action: "reject", reason: "Itinerary belum jelas" });
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
