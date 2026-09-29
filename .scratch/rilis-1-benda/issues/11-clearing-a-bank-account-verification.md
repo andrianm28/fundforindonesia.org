@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** in-review
+**Status:** done
 
 ## Question
 
@@ -90,4 +90,4 @@ account whose latest revoke/reinstate row is REVOKED). Route:
 `POST /api/moderasi/bank-account-revocations/[id]` with
 `{ action: "revoke" | "reinstate", reason }`, VERIFIER-gated.
 
-Status: in-review.
+Status: done.
