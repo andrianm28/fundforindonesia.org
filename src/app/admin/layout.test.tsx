@@ -90,6 +90,16 @@ describe("AdminLayout", () => {
       expect(link.getAttribute("href")).toBe("/admin/refunds");
     });
 
+    // Ticket 38: Volunteer Trip Suspension has a route and a module, but no
+    // Admin can reach the page without a nav link.
+    it("links to the Volunteer Trip suspension page", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: null }));
+
+      const link = screen.getByRole("link", { name: /volunteer trip/i });
+      expect(link.getAttribute("href")).toBe("/admin/volunteer-trips");
+    });
+
     // Ticket 27: the abuse-thresholds route.ts is built and tested, but stays
     // as unreachable as the Payout queue was without a nav link.
     it("links to the Abuse Thresholds screen", async () => {

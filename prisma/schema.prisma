@@ -2290,11 +2290,14 @@ model VolunteerTrip {
 }
 
 /// What a Volunteer Trip status change was: the Fundraiser submitting it for
-/// review, or a Verifier approving or rejecting that submission.
+/// review, a Verifier approving or rejecting that submission, or an Admin
+/// suspending the Trip and lifting that Suspension (ticket 38).
 enum VolunteerTripStatusChangeAction {
   SUBMITTED
   SUBMISSION_APPROVED
   SUBMISSION_REJECTED
+  SUSPENDED
+  SUSPENSION_LIFTED
 }
 
 /// Append-only record of every Volunteer Trip status change, shaped like

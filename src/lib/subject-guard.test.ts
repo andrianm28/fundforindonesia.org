@@ -177,8 +177,24 @@ describe('requirePayoutAllowed', () => {
     });
   });
 
-  it.each(Object.values(VolunteerTripStatus))('leaves a %s Volunteer Trip to the rule it has today: no status check', (status) => {
+  const tripPasses = Object.values(VolunteerTripStatus).filter((s) => s !== VolunteerTripStatus.SUSPENDED);
+
+  it.each(tripPasses)('leaves a %s Volunteer Trip to the rule it has today: no status check', (status) => {
     expect(() => requirePayoutAllowed(tripState(status))).not.toThrow();
+  });
+
+  it('refuses a SUSPENDED Volunteer Trip with the same coded, Indonesian 409 as a Suspended Campaign', () => {
+    let caught: unknown;
+    try {
+      requirePayoutAllowed(tripState(VolunteerTripStatus.SUSPENDED));
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(PayoutNotAllowedForStatusError);
+    expect(domainErrorToHttp(caught)).toEqual({
+      status: 409,
+      body: { code: 'PAYOUT_NOT_ALLOWED_FOR_STATUS', error: expect.stringMatching(/Payout tidak dapat/) },
+    });
   });
 });
 

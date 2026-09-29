@@ -83,6 +83,8 @@ function makeTx(
     /** The Campaign's stored status and deadline, which the subject guard turns into its effective status. */
     lifecycleStatus?: string;
     deadline?: Date | null;
+    /** The Volunteer Trip's stored status (ticket 38); ACTIVE unless a test says otherwise. */
+    tripStatus?: string;
     payoutRow?: Record<string, unknown> | null;
     /**
      * The row `campaignBlockingUsageReport` (@/lib/usage-reports.ts) should
@@ -130,7 +132,9 @@ function makeTx(
         }),
       },
       // The Trip row the subject guard reads under its lock.
-      volunteerTrip: { findUnique: vi.fn().mockResolvedValue({ fundraiserId: 'requester-1', status: 'ACTIVE' }) },
+      volunteerTrip: {
+        findUnique: vi.fn().mockResolvedValue({ fundraiserId: 'requester-1', status: options.tripStatus ?? 'ACTIVE' }),
+      },
       bankAccount: { findUnique: bankAccountFindUnique },
       payout: { create: payoutCreate, findUnique: payoutFindUnique, findFirst: payoutFindFirst, updateMany: payoutUpdateMany },
       payoutBalanceCheck: { create: payoutBalanceCheckCreate },
@@ -798,6 +802,54 @@ describe('approvePayout', () => {
       }
     },
   );
+
+  describe('a Volunteer Trip Payout while the Trip is Suspended (ticket 38)', () => {
+    const tripLedger: LedgerRow[] = [
+      { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-1' },
+    ];
+
+    it.each(['ACTIVE', 'COMPLETED'])('approves a Trip Fee Payout on a %s Trip', async (tripStatus) => {
+      const payoutRow = basePayoutRow();
+      const { tx } = makeTx({ ledgerRows: tripLedger, payoutRow, tripStatus });
+      const prisma = makePrisma(tx, { ...payoutRow, status: 'APPROVED', approvedById: 'admin-1' });
+
+      await expect(
+        approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
+      ).resolves.toMatchObject({ status: 'APPROVED' });
+    });
+
+    it('refuses to approve a Trip Fee Payout on a SUSPENDED Trip: it stays DRAFT and posts nothing', async () => {
+      const payoutRow = basePayoutRow();
+      const { tx, rows, payoutState } = makeTx({ ledgerRows: tripLedger, payoutRow, tripStatus: 'SUSPENDED' });
+      const prisma = makePrisma(tx, { ...payoutRow, status: 'APPROVED', approvedById: 'admin-1' });
+
+      const approval = approvePayout(prisma as never, {
+        payoutId: 'payout-1',
+        approvedById: 'admin-1',
+        provider: 'sumopod',
+        providerBalance: 2_000_000,
+      });
+
+      await expect(approval).rejects.toMatchObject({ code: 'PAYOUT_NOT_ALLOWED_FOR_STATUS' });
+      expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+      expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
+    });
+
+    it('refuses to request a Trip Fee Payout on a SUSPENDED Trip', async () => {
+      const { tx, payoutCreate } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: tripLedger, tripStatus: 'SUSPENDED' });
+
+      await expect(
+        requestPayout(tx as never, {
+          subject: { type: 'trip', tripId: 'trip-1' },
+          requestedById: 'requester-1',
+          bankAccountId: 'bank-1',
+          amount: 500_000,
+          description: 'Pencairan Trip Fee',
+        }),
+      ).rejects.toBeInstanceOf(PayoutNotAllowedForStatusError);
+      expect(payoutCreate).not.toHaveBeenCalled();
+    });
+  });
 
   /**
    * FFI-07 story 53: "record the provider's real balance when I approve, so

@@ -57,6 +57,9 @@ function AdminSidebar() {
         <SidebarLink href="/admin/campaigns/lifecycle" icon="flag">
           Suspension &amp; Cancellation
         </SidebarLink>
+        <SidebarLink href="/admin/volunteer-trips" icon="flag">
+          Volunteer Trip
+        </SidebarLink>
         <SidebarLink href="/admin/dormant-balances" icon="dormant">
           Dormant Balance
         </SidebarLink>
