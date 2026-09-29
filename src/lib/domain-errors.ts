@@ -145,7 +145,11 @@ export type BankAccountErrorCode =
   | "BANK_ACCOUNT_VERIFICATION_REQUEST_NOT_FOUND"
   | "BANK_ACCOUNT_VERIFICATION_NOT_PENDING"
   | "BANK_ACCOUNT_DECISION_INVALID"
-  | "OWN_BANK_ACCOUNT_CONFLICT";
+  | "OWN_BANK_ACCOUNT_CONFLICT"
+  | "BANK_ACCOUNT_NOT_REVOCABLE"
+  | "BANK_ACCOUNT_NOT_REINSTATABLE"
+  | "BANK_ACCOUNT_REVOKED_BY_APPROVER"
+  | "BANK_ACCOUNT_REINSTATED_BY_REVOKER";
 
 /**
  * Refusals of a Usage Report -- a Fundraiser's account of one Payout's
@@ -375,6 +379,20 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // A Verifier tried to decide their own account (ADR 0018), the same shape
   // as OWN_CAMPAIGN_CONFLICT / OWN_TRIP_CONFLICT.
   OWN_BANK_ACCOUNT_CONFLICT: 403,
+  // Ticket 11: nothing to clear -- the account already has no verifiedAt,
+  // whether never verified or already revoked. A conflict with the
+  // account's own state, like BANK_ACCOUNT_ALREADY_VERIFIED.
+  BANK_ACCOUNT_NOT_REVOCABLE: 409,
+  // Ticket 11: nothing to restore -- the account's latest revoke/reinstate
+  // row is not a REVOKED one.
+  BANK_ACCOUNT_NOT_REINSTATABLE: 409,
+  // Ticket 11, owner decision (b): the Verifier who approved the account
+  // may not be the one who revokes it, the same shape as
+  // OWN_BANK_ACCOUNT_CONFLICT.
+  BANK_ACCOUNT_REVOKED_BY_APPROVER: 403,
+  // Ticket 11, owner decision (b): the Verifier who revoked the account may
+  // not be the one who reinstates it.
+  BANK_ACCOUNT_REINSTATED_BY_REVOKER: 403,
   // A malformed or missing `assignment` value, fixable by resending.
   ASSIGNMENT_INVALID: 400,
   // The grantee already holds this assignment; proposing or granting again

@@ -100,6 +100,7 @@ model User {
   bankAccounts                      BankAccount[]
   bankAccountVerificationsSubmitted BankAccountVerificationRequest[] @relation("BankAccountVerificationSubmitter")
   bankAccountVerificationsDecided   BankAccountVerificationRequest[] @relation("BankAccountVerificationDecider")
+  bankAccountRevocations            BankAccountRevocation[]          @relation("BankAccountRevocationActor")
   payoutsRequested                  Payout[]                         @relation("PayoutRequester")
   payoutsApproved                   Payout[]                         @relation("PayoutApprover")
   payoutsCompleted                  Payout[]                         @relation("PayoutCompleter")
@@ -1695,6 +1696,7 @@ model BankAccount {
 
   payouts              Payout[]
   verificationRequests BankAccountVerificationRequest[]
+  revocations          BankAccountRevocation[]
 
   // What used to be `@@unique([ownerId, bankCode, accountNumber])` cannot
   // survive the drop: the account number is a randomized ciphertext, and two
@@ -1754,6 +1756,54 @@ model BankAccountVerificationRequest {
   @@index([outcome, submittedAt])
   /// One account's own history.
   @@index([bankAccountId, submittedAt])
+}
+
+/// REVOKED clears BankAccount.verifiedAt; REINSTATED sets it again. A
+/// separate action from Suspension (ticket 11's answer): clearing a Bank
+/// Account's eligibility is not a judgement about a Campaign, and this row
+/// carries no CampaignStatusChangeAction.
+enum BankAccountRevocationAction {
+  REVOKED
+  REINSTATED
+}
+
+/// One row per revoke or reinstate of a Bank Account's `verifiedAt`
+/// (ticket 11; owner decision 2026-09-28, on top of ADR 0018). Same pattern
+/// as CampaignStatusChange for Suspension: an append-only action log, not a
+/// status column, so "was this ever revoked, and by whom" is answered by
+/// reading history rather than trusting a flag. The account's current state
+/// is `BankAccount.verifiedAt` itself (null = ineligible, whether never
+/// verified or revoked; set = eligible) -- this table is the "why" and
+/// "who", not a second source of the "whether".
+///
+/// Both halves are their own action, not Suspension's cousin: revoking an
+/// account's verification is not the same decision as suspending the
+/// Campaign a Payout was headed for, and doing one never does the other
+/// (ticket 11's answer, (b)). Payouts already paid are untouched by either
+/// action -- this table never reaches into Payout or the ledger, and
+/// `payouts.ts`'s existing `BankAccountNotEligibleError` checks (requestPayout,
+/// approvePayout, completePayout all re-read `verifiedAt` fresh) are what
+/// stop an unpaid Payout once `verifiedAt` is cleared.
+///
+/// `actorId` is the deciding Verifier for both actions -- never the account's
+/// owner (ADR 0018's "never a Verifier on their own account", checked in the
+/// command) and never, for a REVOKED row, the Verifier who most recently
+/// approved the account's verification, and never, for a REINSTATED row, the
+/// Verifier who wrote the REVOKED row it reverses. `reason` is required on
+/// both: a cleared or restored `verifiedAt` with no trace is the thing ADR
+/// 0018 already refuses for the original verification.
+model BankAccountRevocation {
+  id            String                      @id @default(cuid())
+  bankAccountId String
+  bankAccount   BankAccount                 @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  action        BankAccountRevocationAction
+  reason        String
+  actorId       String
+  actor         User                        @relation("BankAccountRevocationActor", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt     DateTime                    @default(now())
+
+  /// One account's own revoke/reinstate history, latest first.
+  @@index([bankAccountId, createdAt])
 }
 
 /// Money leaving the platform to a campaign's bank account.
