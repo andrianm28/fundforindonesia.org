@@ -45,3 +45,13 @@ atau sudah lewat tanggal.
 - No edits to `reminders.ts` or `scheduled-jobs.ts`, so no conflict with ticket
   14's `sentCount` rename.
 
+- **Who sees it (owner decision, 2026-09-29, review of PR 140).** Verifier
+  only, on purpose. The ticket's "Verifier/Admin" was read as the Verifier
+  side of the platform operator; an Admin-only person does not get a second
+  surface, since Admin and Verifier are independent assignments (ADR 0005) and
+  acting on a Kind Authorisation is the Verifier's job. Revisit only if an
+  Admin-only operator turns out to need the list.
+- **Review follow-ups.** The 30-day window is one constant
+  (`src/lib/kind-authorisation-window.ts`) shared with the reminder, and the
+  renewal rule has boundary tests (exactly 30 days is expiring; exactly now is
+  lapsed).
