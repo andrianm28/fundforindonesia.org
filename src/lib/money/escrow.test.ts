@@ -8,15 +8,19 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 // was called.
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    payment: { findMany: vi.fn() },
+    payment: { findMany: vi.fn(), updateMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
 
 import { prisma } from '@/lib/prisma';
-import { releaseMaturedEscrow, ESCROW_HOLD_DAYS } from './escrow';
+import { releaseMaturedEscrow, ESCROW_HOLD_DAYS, ESCROW_RELEASE_SWEEP_LIMIT, ESCROW_RELEASE_SWEEP_SCAN_LIMIT } from './escrow';
 
 const mockPaymentFindMany = prisma.payment.findMany as unknown as Mock;
+// Ticket 15's end-of-call batch stamp (prisma.payment.updateMany, top-level
+// -- distinct from the per-release tx.payment.updateMany claim inside each
+// payment's own transaction below).
+const mockPaymentUpdateMany = prisma.payment.updateMany as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -33,6 +37,11 @@ type PaymentRow = {
   status: string;
   escrowReleaseAt: Date | null;
   escrowReleasedAt: Date | null;
+  // Ticket 15: null means "never skipped by a permanent guard" -- the
+  // default every real Payment starts at, migration 20260930090000 adds no
+  // backfill either. Set only by releaseMaturedEscrow itself (frozen/
+  // deferred), cleared on release, never touched by a test's own setup.
+  escrowSweepDeferredAt: Date | null;
   // Exactly one of these is ever set -- mirrors Payment.donationId/registrationId
   // in the real schema, where the two are mutually exclusive.
   campaignId: string | null;
@@ -66,6 +75,7 @@ function makePayment(overrides: Partial<PaymentRow> = {}): PaymentRow {
     status: 'PAID',
     escrowReleaseAt: new Date(Date.now() - MS_PER_DAY), // matured yesterday
     escrowReleasedAt: null,
+    escrowSweepDeferredAt: null,
     campaignId: 'campaign-1',
     tripId: null,
     ...overrides,
@@ -109,7 +119,7 @@ function makeDb(
       const now = (where.escrowReleaseAt as { lte: Date }).lte;
       const campaignFilter = (where.donation as { campaignId: string } | undefined)?.campaignId;
       const tripFilter = (where.registration as { batch: { tripId: string } } | undefined)?.batch?.tripId;
-      const matches = Array.from(paymentState.values()).filter(
+      let matches = Array.from(paymentState.values()).filter(
         (p) =>
           p.status === where.status &&
           p.escrowReleaseAt !== null &&
@@ -118,6 +128,28 @@ function makeDb(
           (!campaignFilter || p.campaignId === campaignFilter) &&
           (!tripFilter || p.tripId === tripFilter),
       );
+      // Mirrors releaseMaturedEscrow's own single-query `orderBy: [{
+      // escrowSweepDeferredAt: { sort: 'asc', nulls: 'first' } },
+      // { escrowReleaseAt: 'asc' }, { id: 'asc' }]` (ticket 15). NOTE: this
+      // reimplements that ordering by hand over an in-memory array -- an
+      // approximation of Prisma's actual ORDER-BY-NULLS SQL semantics, not a
+      // test that exercises Prisma or Postgres themselves. The rotation
+      // itself is proved against a real Postgres in
+      // src/__tests__/integration/escrow-sweep-rotation.test.ts; this file's
+      // job is everything else (guards, fee math, idempotency) that does not
+      // need a real database to prove.
+      matches = matches.sort((a, b) => {
+        const aDeferred = a.escrowSweepDeferredAt?.getTime() ?? null;
+        const bDeferred = b.escrowSweepDeferredAt?.getTime() ?? null;
+        if (aDeferred !== bDeferred) {
+          if (aDeferred === null) return -1;
+          if (bDeferred === null) return 1;
+          return aDeferred - bDeferred;
+        }
+        const byMaturity = a.escrowReleaseAt!.getTime() - b.escrowReleaseAt!.getTime();
+        if (byMaturity !== 0) return byMaturity;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
       return matches.slice(0, take ?? matches.length).map((p) =>
         p.campaignId != null
           ? {
@@ -183,6 +215,23 @@ function makeDb(
   }
 
   mockTransaction.mockImplementation(async (cb: (tx: ReturnType<typeof makeTx>) => unknown) => cb(makeTx()));
+
+  // Ticket 15's end-of-call batch stamp -- see releaseMaturedEscrow's own
+  // comment on permanentlySkippedIds for why this is a plain top-level
+  // prisma.payment.updateMany rather than something inside a payment's own
+  // release transaction.
+  mockPaymentUpdateMany.mockImplementation(
+    async ({ where, data }: { where: { id: { in: string[] }; escrowReleasedAt: null }; data: Record<string, unknown> }) => {
+      let count = 0;
+      for (const id of where.id.in) {
+        const row = paymentState.get(id);
+        if (!row || row.escrowReleasedAt !== where.escrowReleasedAt) continue;
+        Object.assign(row, data);
+        count++;
+      }
+      return { count };
+    },
+  );
 
   return { paymentState, rows, queryRawCalls, campaigns };
 }
@@ -757,5 +806,227 @@ describe('releaseMaturedEscrow -- a Suspended Campaign', () => {
       amount: 50_000,
       volunteerTripId: 'trip-1',
     });
+  });
+
+  it(
+    'reaches a releasable Payment sitting behind a full window of Payments a permanent guard defers, ' +
+      'instead of starving on that same window forever (ticket 15 regression)',
+    async () => {
+      // ESCROW_RELEASE_SWEEP_LIMIT + a margin of permanently-stuck, oldest
+      // rows -- comfortably more than the release quota, though still well
+      // under ESCROW_RELEASE_SWEEP_SCAN_LIMIT's single read -- all belonging
+      // to one SUSPENDED Campaign, so the guard defers every one of them
+      // without touching escrowReleaseAt or escrowReleasedAt. Before ticket
+      // 15, `take: ESCROW_RELEASE_SWEEP_LIMIT` ordered oldest-first meant
+      // these rows WERE the query's entire read -- payment-releasable,
+      // maturing after all of them, was never even read.
+      const STUCK_COUNT = ESCROW_RELEASE_SWEEP_LIMIT + 5;
+      const base = Date.now() - 30 * MS_PER_DAY;
+      const stuckPayments = Array.from({ length: STUCK_COUNT }, (_, i) =>
+        makePayment({
+          id: `stuck-${i}`,
+          amount: 10_000,
+          escrowReleaseAt: new Date(base + i * 1000),
+          campaignId: 'campaign-suspended',
+        }),
+      );
+      const releasable = makePayment({
+        id: 'payment-releasable',
+        amount: 50_000,
+        // Matured strictly after every stuck row, but still safely in the
+        // past -- i.e. still eligible, and still genuinely releasable.
+        escrowReleaseAt: new Date(base + STUCK_COUNT * 1000),
+        campaignId: 'campaign-active',
+      });
+
+      const { rows, paymentState } = makeDb(
+        [...stuckPayments, releasable],
+        [],
+        [],
+        { campaigns: { 'campaign-suspended': SUSPENDED_CAMPAIGN } },
+      );
+
+      const result = await releaseMaturedEscrow();
+
+      // The whole point: the releasable row behind the stuck window is
+      // actually released in this same call, not merely eligible for some
+      // future one.
+      expect(paymentState.get('payment-releasable')!.escrowReleasedAt).not.toBeNull();
+      const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-releasable');
+      expect(releaseLegs).toHaveLength(2);
+      expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({
+        account: 'CAMPAIGN_BALANCE',
+        amount: 50_000,
+        campaignId: 'campaign-active',
+      });
+      expect(result.releasedCount).toBe(1);
+      // It looked well past the first ESCROW_RELEASE_SWEEP_LIMIT rows to get
+      // there, all within the one read this call issues.
+      expect(result.consideredCount).toBeGreaterThan(ESCROW_RELEASE_SWEEP_LIMIT);
+      expect(result.consideredCount).toBe(STUCK_COUNT + 1);
+      // None of the stuck rows were released or touched.
+      for (const stuck of stuckPayments) {
+        expect(paymentState.get(stuck.id)!.escrowReleasedAt).toBeNull();
+      }
+    },
+  );
+});
+
+describe('releaseMaturedEscrow -- escrowSweepDeferredAt rotation across calls (ticket 15 rework)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it(
+    'reaches a releasable Payment behind MORE permanently-stuck Payments than any single call\'s read ' +
+      'limit, within a bounded number of calls -- proving the persisted rotation, not merely reading ' +
+      'more per call, is what prevents starvation',
+    async () => {
+      // More stuck rows than ESCROW_RELEASE_SWEEP_SCAN_LIMIT itself: no
+      // single call's one read can even reach all of them, let alone release
+      // past them in one pass. Main (no escrowSweepDeferredAt at all) would
+      // starve here forever, the same way it starves at
+      // ESCROW_RELEASE_SWEEP_LIMIT -- just at a higher number. What makes
+      // this bounded is escrowSweepDeferredAt: every row this call marks
+      // frozen rotates behind never-marked rows on the NEXT call's query, so
+      // the second call sees the remaining, never-yet-marked stuck rows and
+      // the releasable row first, not the same front-of-queue rows again.
+      const STUCK_COUNT = ESCROW_RELEASE_SWEEP_SCAN_LIMIT + 50;
+      const base = Date.now() - 60 * MS_PER_DAY;
+      const stuckPayments = Array.from({ length: STUCK_COUNT }, (_, i) =>
+        makePayment({
+          id: `stuck-${i}`,
+          amount: 10_000,
+          escrowReleaseAt: new Date(base + i * 1000),
+          campaignId: 'campaign-suspended',
+        }),
+      );
+      const releasable = makePayment({
+        id: 'payment-releasable',
+        amount: 50_000,
+        escrowReleaseAt: new Date(base + STUCK_COUNT * 1000),
+        campaignId: 'campaign-active',
+      });
+
+      const { rows, paymentState } = makeDb(
+        [...stuckPayments, releasable],
+        [],
+        [],
+        { campaigns: { 'campaign-suspended': SUSPENDED_CAMPAIGN } },
+      );
+
+      // Call 1: the scan budget is entirely consumed by (a subset of) the
+      // stuck backlog -- it cannot even reach the releasable row yet.
+      const first = await releaseMaturedEscrow();
+      expect(first.releasedCount).toBe(0);
+      expect(first.consideredCount).toBe(ESCROW_RELEASE_SWEEP_SCAN_LIMIT);
+      expect(paymentState.get('payment-releasable')!.escrowReleasedAt).toBeNull();
+
+      // Call 2: every row call 1 marked now sorts behind the rows it never
+      // reached -- the remaining stuck rows and payment-releasable -- so
+      // this call's query starts with THOSE, not the same front-of-queue
+      // rows call 1 already looked at.
+      const second = await releaseMaturedEscrow();
+      expect(second.releasedCount).toBe(1);
+      expect(paymentState.get('payment-releasable')!.escrowReleasedAt).not.toBeNull();
+      const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-releasable');
+      expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({
+        account: 'CAMPAIGN_BALANCE',
+        amount: 50_000,
+        campaignId: 'campaign-active',
+      });
+
+      // A bounded number of calls (2, here), not "eventually, maybe" -- and
+      // still not one single stuck row released.
+      for (const stuck of stuckPayments) {
+        expect(paymentState.get(stuck.id)!.escrowReleasedAt).toBeNull();
+      }
+    },
+  );
+
+  it('leaves a released Payment\'s escrowSweepDeferredAt cleared, even though it was stuck on an earlier call', async () => {
+    // A payment that was frozen on one call and becomes releasable on a
+    // later one (the Suspension lifts) must not carry a stale
+    // escrowSweepDeferredAt afterwards -- see the claim's own comment on
+    // why that is cleared, not merely left stamped.
+    const { paymentState, campaigns } = makeDb(
+      [makePayment({ id: 'payment-1', amount: 100_000, campaignId: 'campaign-1' })],
+      [],
+      [],
+      { campaigns: { 'campaign-1': SUSPENDED_CAMPAIGN } },
+    );
+
+    await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+    expect(paymentState.get('payment-1')!.escrowSweepDeferredAt).not.toBeNull();
+
+    campaigns['campaign-1'] = { ...ACTIVE_CAMPAIGN, lifecycleStatus: 'COMPLETED' };
+    const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+    expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+    expect(paymentState.get('payment-1')!.escrowReleasedAt).not.toBeNull();
+    expect(paymentState.get('payment-1')!.escrowSweepDeferredAt).toBeNull();
+  });
+});
+
+describe('releaseMaturedEscrow -- warnings (ticket 15)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('warns the ordinary-backlog message when the release quota fills with genuine releases', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const base = Date.now() - 30 * MS_PER_DAY;
+    const payments = Array.from({ length: ESCROW_RELEASE_SWEEP_LIMIT }, (_, i) =>
+      makePayment({ id: `payment-${i}`, amount: 1_000, escrowReleaseAt: new Date(base + i * 1000), campaignId: 'campaign-1' }),
+    );
+    makeDb(payments);
+
+    const result = await releaseMaturedEscrow();
+
+    expect(result).toEqual({ releasedCount: ESCROW_RELEASE_SWEEP_LIMIT, consideredCount: ESCROW_RELEASE_SWEEP_LIMIT });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain(`hit the release limit of ${ESCROW_RELEASE_SWEEP_LIMIT}`);
+    expect(warnSpy.mock.calls[0][0]).toContain('more matured holds remain');
+    warnSpy.mockRestore();
+  });
+
+  it(
+    'warns the stuck-backlog message -- naming how many were permanently skipped, and that the sweep is ' +
+      'not reaching the rest -- when the scan bound stops the call before the release quota fills',
+    async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      // Comfortably more permanently-stuck rows than the scan bound, and
+      // nothing releasable within reach of it -- every row this call can
+      // possibly look at is frozen, so releasedCount stays 0 the entire
+      // call and the scan bound, not the release quota, is what stops it.
+      const STUCK_COUNT = ESCROW_RELEASE_SWEEP_SCAN_LIMIT + 10;
+      const base = Date.now() - 60 * MS_PER_DAY;
+      const stuckPayments = Array.from({ length: STUCK_COUNT }, (_, i) =>
+        makePayment({ id: `stuck-${i}`, amount: 1_000, escrowReleaseAt: new Date(base + i * 1000), campaignId: 'campaign-suspended' }),
+      );
+      makeDb(stuckPayments, [], [], { campaigns: { 'campaign-suspended': SUSPENDED_CAMPAIGN } });
+
+      const result = await releaseMaturedEscrow();
+
+      expect(result).toEqual({ releasedCount: 0, consideredCount: ESCROW_RELEASE_SWEEP_SCAN_LIMIT });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const message = warnSpy.mock.calls[0][0] as string;
+      expect(message).toContain(`read ${ESCROW_RELEASE_SWEEP_SCAN_LIMIT} matured holds`);
+      expect(message).toContain(`${ESCROW_RELEASE_SWEEP_SCAN_LIMIT} were deferred by a permanent guard`);
+      expect(message).toContain('The sweep is not reaching the rest of the backlog');
+      expect(message).toContain('deferredEscrowWatchdog');
+      warnSpy.mockRestore();
+    },
+  );
+
+  it('warns neither message when the sweep simply runs out of matured rows before either bound', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    makeDb([makePayment({ id: 'payment-1', campaignId: 'campaign-1' })]);
+
+    const result = await releaseMaturedEscrow();
+
+    expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });
