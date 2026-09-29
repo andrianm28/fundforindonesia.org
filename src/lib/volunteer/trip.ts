@@ -14,6 +14,7 @@ import {
   type VolunteerTrip,
 } from '@/generated/prisma/client';
 import { fundraiserOnlyRefusal, judgeCapacity, NotAuthorizedError, requireAssignmentFor } from '@/lib/capacity';
+import { recordIdentityVerification } from '@/lib/identity-verification';
 import { createRefund } from '@/lib/money/refunds';
 import { lockAndLoad, type SubjectState } from '@/lib/subject-guard';
 import {
@@ -240,6 +241,15 @@ export async function decideTripSubmission(
       },
       now,
     );
+    if (decision.to === VolunteerTripStatus.ACTIVE) {
+      // The Fundraiser's identity is checked once, on their first approved
+      // submission of either kind (CONTEXT.md, Fundraiser).
+      await recordIdentityVerification(tx, {
+        userId: updated.fundraiserId,
+        verifierId: actor.userId,
+        verifiedAt: now,
+      });
+    }
     await tx.notification.create({
       data: {
         type: 'volunteer_trip_moderation',
