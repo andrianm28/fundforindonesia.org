@@ -5,22 +5,36 @@ import {
   createBankAccount,
   decideBankAccountVerification,
   deleteBankAccount,
+  reinstateBankAccountVerification,
+  revokeBankAccountVerification,
+  revokedBankAccounts,
   submitBankAccountVerification,
+  verifiedBankAccounts,
   withdrawBankAccountVerification,
 } from "./bank-account-verification";
 import {
   BankAccountAlreadyVerifiedError,
+  BankAccountDecisionInvalidError,
   BankAccountNotDeletableError,
   BankAccountNotFoundError,
+  BankAccountNotReinstatableError,
+  BankAccountNotRevocableError,
   BankAccountVerificationAlreadyPendingError,
   BankAccountVerificationNotPendingError,
   BankAccountVerificationRequestNotFoundError,
-  BankAccountDecisionInvalidError,
   InvalidBankAccountError,
   OwnBankAccountVerificationError,
+  ReinstaterWasRevokerError,
+  RevokerWasApproverError,
 } from "./bank-account-verification-errors";
 import { readBankAccountNumber } from "./contact-fields";
-import { bankAccountRow, bankAccountVerificationRequestRow, makeCampaignDb, userRow } from "../../tests/support/in-memory-campaign-db";
+import {
+  bankAccountRevocationRow,
+  bankAccountRow,
+  bankAccountVerificationRequestRow,
+  makeCampaignDb,
+  userRow,
+} from "../../tests/support/in-memory-campaign-db";
 
 /**
  * A person creates their own Bank Account, submits it to a Verifier, and may
@@ -30,7 +44,11 @@ import { bankAccountRow, bankAccountVerificationRequestRow, makeCampaignDb, user
  * one, and edit is unreachable -- are marked below.
  */
 const NOW = new Date("2026-09-28T10:00:00Z");
-const USERS = [userRow({ id: "owner-1", name: "Siti Fundraiser" }), userRow({ id: "verifier-1", name: "Verifier" })];
+const USERS = [
+  userRow({ id: "owner-1", name: "Siti Fundraiser" }),
+  userRow({ id: "verifier-1", name: "Verifier" }),
+  userRow({ id: "verifier-2", name: "Verifier Kedua" }),
+];
 
 function db(seed: Parameters<typeof makeCampaignDb>[0] = {}) {
   return makeCampaignDb({ bankAccounts: [], bankAccountVerificationRequests: [], users: USERS, ...seed });
@@ -331,5 +349,262 @@ describe("decideBankAccountVerification", () => {
         now: NOW,
       })
     ).rejects.toBeInstanceOf(BankAccountVerificationRequestNotFoundError);
+  });
+});
+
+/**
+ * Ticket 11 (owner decision 2026-09-28, on top of ADR 0018): a Verifier who
+ * did not most recently approve the account, and is not its owner, may
+ * revoke its verification with a reason.
+ */
+describe("revokeBankAccountVerification", () => {
+  function seedVerified(overrides: Partial<Parameters<typeof bankAccountRow>[0]> = {}) {
+    return db({
+      bankAccounts: [bankAccountRow({ verifiedAt: NOW, ...overrides })],
+      bankAccountVerificationRequests: [
+        bankAccountVerificationRequestRow({ outcome: "APPROVED", decidedById: "verifier-1", decidedAt: NOW }),
+      ],
+    });
+  }
+
+  it("clears verifiedAt, writes a REVOKED row and notifies the owner, when a different Verifier revokes", async () => {
+    const store = seedVerified();
+
+    const revocation = await revokeBankAccountVerification(store.prisma as never, {
+      accountId: "bank-account-1",
+      verifierId: "verifier-2",
+      reason: "Rekening dilaporkan bermasalah.",
+      now: NOW,
+    });
+
+    expect(revocation.action).toBe("REVOKED");
+    expect(revocation.actorId).toBe("verifier-2");
+    expect(store.bankAccount("bank-account-1").verifiedAt).toBeNull();
+    expect(store.bankAccountRevocations).toEqual([
+      expect.objectContaining({ bankAccountId: "bank-account-1", action: "REVOKED", actorId: "verifier-2" }),
+    ]);
+    expect(store.notifications).toEqual([
+      expect.objectContaining({ userId: "owner-1", title: "Verifikasi Rekening Dicabut" }),
+    ]);
+  });
+
+  it("refuses when the account has no verifiedAt to clear", async () => {
+    const store = db({ bankAccounts: [bankAccountRow({ verifiedAt: null })] });
+    await expect(
+      revokeBankAccountVerification(store.prisma as never, {
+        accountId: "bank-account-1",
+        verifierId: "verifier-2",
+        reason: "Alasan.",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(BankAccountNotRevocableError);
+  });
+
+  it("refuses the account's own owner", async () => {
+    const store = seedVerified();
+    await expect(
+      revokeBankAccountVerification(store.prisma as never, {
+        accountId: "bank-account-1",
+        verifierId: "owner-1",
+        reason: "Alasan.",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(OwnBankAccountVerificationError);
+    expect(store.bankAccount("bank-account-1").verifiedAt).toEqual(NOW);
+  });
+
+  it("refuses the Verifier who most recently approved the account", async () => {
+    const store = seedVerified();
+    await expect(
+      revokeBankAccountVerification(store.prisma as never, {
+        accountId: "bank-account-1",
+        verifierId: "verifier-1",
+        reason: "Alasan.",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(RevokerWasApproverError);
+    expect(store.bankAccount("bank-account-1").verifiedAt).toEqual(NOW);
+  });
+
+  it("requires a reason", async () => {
+    const store = seedVerified();
+    await expect(
+      revokeBankAccountVerification(store.prisma as never, {
+        accountId: "bank-account-1",
+        verifierId: "verifier-2",
+        reason: "",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(BankAccountDecisionInvalidError);
+  });
+
+  it("throws when the account does not exist", async () => {
+    const store = db();
+    await expect(
+      revokeBankAccountVerification(store.prisma as never, {
+        accountId: "no-such-account",
+        verifierId: "verifier-2",
+        reason: "Alasan.",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(BankAccountNotFoundError);
+  });
+});
+
+/**
+ * Ticket 11: a different Verifier than the one who revoked the account, and
+ * not its owner, may reinstate it with a reason.
+ */
+describe("reinstateBankAccountVerification", () => {
+  function seedRevoked() {
+    return db({
+      bankAccounts: [bankAccountRow({ verifiedAt: null })],
+      bankAccountVerificationRequests: [
+        bankAccountVerificationRequestRow({ outcome: "APPROVED", decidedById: "verifier-1", decidedAt: NOW }),
+      ],
+      bankAccountRevocations: [bankAccountRevocationRow({ actorId: "verifier-2", createdAt: NOW })],
+    });
+  }
+
+  it("sets verifiedAt again, writes a REINSTATED row and notifies the owner", async () => {
+    const store = seedRevoked();
+
+    const revocation = await reinstateBankAccountVerification(store.prisma as never, {
+      accountId: "bank-account-1",
+      verifierId: "verifier-1",
+      reason: "Investigasi selesai, tidak ada masalah.",
+      now: NOW,
+    });
+
+    expect(revocation.action).toBe("REINSTATED");
+    expect(revocation.actorId).toBe("verifier-1");
+    expect(store.bankAccount("bank-account-1").verifiedAt).toEqual(NOW);
+    expect(store.bankAccountRevocations.map((r) => r.action)).toEqual(["REVOKED", "REINSTATED"]);
+    expect(store.notifications).toEqual([
+      expect.objectContaining({ userId: "owner-1", title: "Verifikasi Rekening Dipulihkan" }),
+    ]);
+  });
+
+  it("refuses an account that was never revoked", async () => {
+    const store = db({ bankAccounts: [bankAccountRow({ verifiedAt: null })] });
+    await expect(
+      reinstateBankAccountVerification(store.prisma as never, {
+        accountId: "bank-account-1",
+        verifierId: "verifier-1",
+        reason: "Alasan.",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(BankAccountNotReinstatableError);
+  });
+
+  it("refuses an account whose latest row is already REINSTATED", async () => {
+    const store = db({
+      bankAccounts: [bankAccountRow({ verifiedAt: NOW })],
+      bankAccountRevocations: [
+        bankAccountRevocationRow({ id: "rev-1", actorId: "verifier-2", createdAt: new Date("2026-09-27T00:00:00Z") }),
+        bankAccountRevocationRow({
+          id: "rev-2",
+          action: "REINSTATED",
+          actorId: "verifier-1",
+          createdAt: NOW,
+        }),
+      ],
+    });
+    await expect(
+      reinstateBankAccountVerification(store.prisma as never, {
+        accountId: "bank-account-1",
+        verifierId: "verifier-2",
+        reason: "Alasan.",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(BankAccountNotReinstatableError);
+  });
+
+  it("refuses the account's own owner", async () => {
+    const store = seedRevoked();
+    await expect(
+      reinstateBankAccountVerification(store.prisma as never, {
+        accountId: "bank-account-1",
+        verifierId: "owner-1",
+        reason: "Alasan.",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(OwnBankAccountVerificationError);
+    expect(store.bankAccount("bank-account-1").verifiedAt).toBeNull();
+  });
+
+  it("refuses the Verifier who revoked the account", async () => {
+    const store = seedRevoked();
+    await expect(
+      reinstateBankAccountVerification(store.prisma as never, {
+        accountId: "bank-account-1",
+        verifierId: "verifier-2",
+        reason: "Alasan.",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(ReinstaterWasRevokerError);
+    expect(store.bankAccount("bank-account-1").verifiedAt).toBeNull();
+  });
+
+  it("requires a reason", async () => {
+    const store = seedRevoked();
+    await expect(
+      reinstateBankAccountVerification(store.prisma as never, {
+        accountId: "bank-account-1",
+        verifierId: "verifier-1",
+        reason: "",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(BankAccountDecisionInvalidError);
+  });
+
+  it("throws when the account does not exist", async () => {
+    const store = db();
+    await expect(
+      reinstateBankAccountVerification(store.prisma as never, {
+        accountId: "no-such-account",
+        verifierId: "verifier-1",
+        reason: "Alasan.",
+        now: NOW,
+      })
+    ).rejects.toBeInstanceOf(BankAccountNotFoundError);
+  });
+});
+
+describe("verifiedBankAccounts and revokedBankAccounts", () => {
+  it("lists a currently-verified account for revoke, and nothing for reinstate", async () => {
+    const store = db({ bankAccounts: [bankAccountRow({ verifiedAt: NOW })] });
+
+    expect(await verifiedBankAccounts(store.prisma as never)).toEqual([
+      expect.objectContaining({ id: "bank-account-1", ownerName: "Siti Fundraiser" }),
+    ]);
+    expect(await revokedBankAccounts(store.prisma as never)).toEqual([]);
+  });
+
+  it("lists a revoked account for reinstate, and not for revoke", async () => {
+    const store = db({
+      bankAccounts: [bankAccountRow({ verifiedAt: null })],
+      bankAccountRevocations: [bankAccountRevocationRow()],
+    });
+
+    expect(await verifiedBankAccounts(store.prisma as never)).toEqual([]);
+    expect(await revokedBankAccounts(store.prisma as never)).toEqual([
+      expect.objectContaining({ id: "bank-account-1", ownerName: "Siti Fundraiser" }),
+    ]);
+  });
+
+  it("does not list an account whose revocation was already reinstated", async () => {
+    const store = db({
+      bankAccounts: [bankAccountRow({ verifiedAt: NOW })],
+      bankAccountRevocations: [
+        bankAccountRevocationRow({ id: "rev-1", createdAt: new Date("2026-09-27T00:00:00Z") }),
+        bankAccountRevocationRow({ id: "rev-2", action: "REINSTATED", createdAt: NOW }),
+      ],
+    });
+
+    expect(await revokedBankAccounts(store.prisma as never)).toEqual([]);
+    expect(await verifiedBankAccounts(store.prisma as never)).toEqual([
+      expect.objectContaining({ id: "bank-account-1" }),
+    ]);
   });
 });

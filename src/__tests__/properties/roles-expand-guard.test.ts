@@ -126,6 +126,11 @@ import { join } from "node:path";
  * goes to a bank account of a named entity rather than to a person, so there is
  * no individual for a second pair of hands to protect it from. Whether that is
  * the right call is the owner's, and it is raised in the ticket's Comments.
+ *
+ * NOTE (ticket 11): `POST /api/moderasi/bank-account-revocations/[id]` lets a
+ * Verifier revoke or reinstate a Bank Account's verification, through
+ * withAssignmentCheck on the VERIFIER assignment like the decide route above
+ * -- growing this list by one.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -152,6 +157,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/refunds/[id]/complete/route.ts",
   "src/app/api/campaigns/[slug]/refunds/route.ts",
+  "src/app/api/moderasi/bank-account-revocations/[id]/route.ts",
   "src/app/api/moderasi/bank-accounts/[requestId]/route.ts",
   "src/app/api/moderasi/bank-accounts/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
