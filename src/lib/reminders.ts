@@ -5,6 +5,7 @@ import { campaignDeadlineReminderEmail, kindAuthorisationExpiryWarningEmail } fr
 import { publicUrl } from '@/lib/public-url';
 import { KIND_LABEL } from '@/lib/campaign-kind';
 import { formatIndonesianDate } from '@/lib/utils/date';
+import { KIND_AUTHORISATION_EXPIRY_WARNING_DAYS } from '@/lib/kind-authorisation-window';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -20,14 +21,8 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  */
 export const CAMPAIGN_DEADLINE_REMINDER_DAYS = 3;
 
-/**
- * How many days before a Kind Authorisation's `validTo` its Partner
- * Organisation is warned (CONTEXT.md, Kind Authorisation). Per spec.md
- * ("Kind Authorisation expiry warnings at 30 days"), the same horizon the
- * Verifier dashboard's own "expiring soon" list already uses by default
- * (expiringWindows, ./collecting-entity.ts).
- */
-export const KIND_AUTHORISATION_EXPIRY_WARNING_DAYS = 30;
+// Defined in ./kind-authorisation-window.ts (shared with the Verifier's list); re-exported here.
+export { KIND_AUTHORISATION_EXPIRY_WARNING_DAYS };
 
 /**
  * How many reminders one call processes. Bounds the sweep the same way
