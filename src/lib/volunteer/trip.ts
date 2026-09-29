@@ -692,7 +692,8 @@ export async function cancelRegistration(
  *   - 'cancelled': it was cancelled before the Trip Fee settled, so the
  *     money is owed back in full (`refundLateSettlement`);
  *   - 'lapsed': its hold expired first; the money is collected with no
- *     seat, which is left for manual review.
+ *     seat, so it is owed back in full too (`refundLateSettlement`, ticket
+ *     40). The seat is not handed out, even if one is free.
  */
 export type ConfirmRegistrationOutcome = 'confirmed' | 'cancelled' | 'lapsed';
 
@@ -734,13 +735,18 @@ export async function expireRegistrationHold(tx: Tx, params: { registrationId: s
 }
 
 /**
- * A Trip Fee settled after its Registration was cancelled, by the Volunteer
- * or with its Batch: the Trip Fee Refund policy's 'late settlement' case
- * refunds it in full, requested in the Volunteer's name. Called by the
+ * A Trip Fee settled after its Registration was cancelled (by the Volunteer
+ * or with its Batch) or after its hold expired: the Trip Fee Refund
+ * policy's 'late settlement' and 'lapsed settlement' cases refund it in
+ * full, requested in the Volunteer's name. Called by the
  * webhook once its Settlement has committed, in a transaction of its own,
  * so the locks run in order: Trip → Registration → Payment (the last
  * inside `createRefund`). Refunds nothing unless the Registration, read
- * under its lock, is CANCELLED.
+ * under its lock, is CANCELLED or EXPIRED; a CONFIRMED one keeps its seat.
+ *
+ * Idempotent by `createRefund`, not by anything here: it counts every
+ * Refund on the Payment not REJECTED or FAILED, so a second full Refund
+ * throws RefundExceedsRemainingError instead of being written.
  */
 export async function refundLateSettlement(
   prisma: PrismaClient,
@@ -749,9 +755,15 @@ export async function refundLateSettlement(
   const { registrationId, now = new Date() } = params;
   return prisma.$transaction(async (tx: Tx) => {
     const { trip, registration } = await lockRegistration(tx, registrationId, now);
-    if (registration.status !== RegistrationStatus.CANCELLED || !registration.payment) return { refund: null };
+    const refundCase: TripFeeRefundCase | null =
+      registration.status === RegistrationStatus.CANCELLED
+        ? 'late settlement'
+        : registration.status === RegistrationStatus.EXPIRED
+          ? 'lapsed settlement'
+          : null;
+    if (!refundCase || !registration.payment) return { refund: null };
     const { batch, payment } = registration;
-    const refund = await refundTripFee(tx, trip, { batch, payment }, 'late settlement', registration.volunteerId, now);
+    const refund = await refundTripFee(tx, trip, { batch, payment }, refundCase, registration.volunteerId, now);
     return { refund };
   });
 }

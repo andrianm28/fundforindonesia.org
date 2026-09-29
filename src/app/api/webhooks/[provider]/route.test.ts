@@ -1177,16 +1177,25 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     });
   });
 
-  it('paid: still posts the ledger legs and settles the Payment when the hold had lapsed, but neither notifies nor refunds', async () => {
+  it('paid: still posts the ledger legs when the hold had lapsed, does not notify, and has the module refund it in full once the settlement has committed', async () => {
     // A hold can expire without its Payment being touched, and the Payment
     // can stay PENDING for up to VA_EXPIRY_MS after the 30-minute hold
     // window closed. If the charge clears in that window, the money
     // genuinely arrived at the provider -- settlement must not be refused --
-    // but there is no seat left to confirm, so the Volunteer must not be
-    // told registration succeeded.
+    // but there is no seat to confirm: the Volunteer must not be told
+    // registration succeeded, and is refunded instead (ticket 40).
     mockConfirmRegistration.mockResolvedValue({ outcome: 'lapsed' });
     const { tx, ledgerRows } = makeTx();
-    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    const order: string[] = [];
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => {
+      const result = await cb(tx);
+      order.push('settlement committed');
+      return result;
+    });
+    mockRefundLateSettlement.mockImplementation(async () => {
+      order.push('late-settlement refund');
+      return { refund: { id: 'refund-1' } };
+    });
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const response = await POST(createRequest(), routeContext());
@@ -1200,11 +1209,25 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
       expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 250_000, volunteerTripId: 'trip-1' }),
     );
     expect(mockNotificationCreate).not.toHaveBeenCalled();
-    expect(mockRefundLateSettlement).not.toHaveBeenCalled();
-    // Logged for manual review: money collected, no seat confirmed.
-    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('registration-1'));
+    expect(mockRefundLateSettlement).toHaveBeenCalledTimes(1);
+    expect(mockRefundLateSettlement).toHaveBeenCalledWith(prisma, { registrationId: 'registration-1' });
+    expect(order).toEqual(['settlement committed', 'late-settlement refund']);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('auto-refunding'));
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it('paid: a second delivery of the same settlement neither confirms nor refunds again', async () => {
+    mockConfirmRegistration.mockResolvedValue({ outcome: 'lapsed' });
+    // The loser of the PENDING -> PAID race: a real database returns count 0.
+    const { tx } = makeTx({ paymentUpdateManyCount: 0 });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(mockConfirmRegistration).not.toHaveBeenCalled();
+    expect(mockRefundLateSettlement).not.toHaveBeenCalled();
   });
 
   it('paid: has the module refund a Registration cancelled before the charge cleared, once the settlement has committed', async () => {

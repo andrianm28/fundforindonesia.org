@@ -346,8 +346,9 @@ export async function POST(
         if (isTripPayment) {
           const { registration } = payment;
           // The Volunteer Trip module confirms the seat, or reports why it
-          // could not: the Registration was cancelled first (refunded in
-          // full once this commits) or its hold lapsed.
+          // could not: the Registration was cancelled first or its hold
+          // lapsed. Either way the money is refunded in full once this
+          // commits.
           ({ outcome: registrationOutcome } = await confirmRegistration(tx, { registrationId: registration!.id }));
 
           if (registrationOutcome === 'cancelled') {
@@ -361,9 +362,11 @@ export async function POST(
             // charge clears in that window, the money genuinely arrived at
             // the provider -- the ledger legs below still post, same as any
             // other settlement -- but there is no longer a seat to confirm.
-            // Logged here for manual review: money collected, no seat held.
+            // Money collected, no seat held: refunded in full once this
+            // commits (ticket 40). The seat is not handed out, even if one
+            // is free.
             console.error(
-              `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was no longer HOLD (hold likely already expired) -- money collected, no seat confirmed, needs manual review`,
+              `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was no longer HOLD (hold already expired) -- auto-refunding the full amount`,
             );
           }
 
@@ -531,8 +534,9 @@ export async function POST(
               tripTitle: registration!.batch.trip.title,
               amount: payment.amount,
             });
-          } else if (settled.registrationOutcome === 'cancelled') {
-            // The Trip Fee Refund policy's late-settlement case, in the
+          } else if (settled.registrationOutcome === 'cancelled' || settled.registrationOutcome === 'lapsed') {
+            // The Trip Fee Refund policy's late-settlement cases (cancelled
+            // first, or the hold lapsed first), in the
             // module's own transaction -- never the settlement's `tx`, which
             // has already written the Payment: createRefund locks
             // VolunteerTrip-then-Payment, and calling it from inside would
@@ -544,7 +548,7 @@ export async function POST(
               await refundLateSettlement(prisma, { registrationId: registration!.id });
             } catch (err) {
               console.error(
-                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${payment.id} for cancelled registration ${registration!.id}`,
+                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${payment.id} for ${settled.registrationOutcome} registration ${registration!.id}`,
                 err,
               );
             }

@@ -36,9 +36,11 @@ export function tripFeeRefundAmount(params: {
  *   - 'batch cancel': the Fundraiser cancels the Batch, refunded in full
  *     whenever it happens;
  *   - 'late settlement': the Trip Fee settles after the Registration was
- *     already cancelled, refunded in full automatically.
+ *     already cancelled, refunded in full automatically;
+ *   - 'lapsed settlement': the Trip Fee settles after the seat hold had
+ *     already expired (ticket 40), refunded in full automatically.
  */
-export type TripFeeRefundCase = 'volunteer cancel' | 'batch cancel' | 'late settlement';
+export type TripFeeRefundCase = 'volunteer cancel' | 'batch cancel' | 'late settlement' | 'lapsed settlement';
 
 /**
  * The Trip Fee Refund policy: the amount and reason to refund a paid
@@ -65,6 +67,11 @@ export function tripFeeRefund(
       return {
         amount: paidAmount,
         reason: 'Trip Fee settlement arrived after the Registration was already cancelled -- refunded automatically',
+      };
+    case 'lapsed settlement':
+      return {
+        amount: paidAmount,
+        reason: 'Trip Fee settlement arrived after the seat hold had expired -- refunded automatically',
       };
   }
 }
