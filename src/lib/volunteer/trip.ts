@@ -390,7 +390,7 @@ export async function liftTripSuspension(
     if (current !== VolunteerTripStatus.SUSPENDED) throw new TripNotSuspendedError(current);
     const suspension = await tx.volunteerTripStatusChange.findFirst({
       where: { tripId: trip.id, action: VolunteerTripStatusChangeAction.SUSPENDED },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     if (!suspension) throw new TripSuspensionUnrecordedError();
     if (suspension.actorId === actor.userId) throw new SameAdminLiftError();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { holdRegistration, liftTripSuspension, suspendTrip } from './trip';
+import { confirmRegistration, expireRegistrationHold, holdRegistration, liftTripSuspension, suspendTrip } from './trip';
 import {
   TripNotFoundError,
   TripNotSuspendableError,
@@ -314,6 +314,25 @@ describe('liftTripSuspension', () => {
     expect(db.trip().status).toBe('SUSPENDED');
   });
 
+  it('breaks a timestamp tie between two SUSPENDED rows by id: the higher id is the latest Suspension', async () => {
+    const db = suspendedDb('admin-1');
+    const tie = new Date('2026-09-29T10:00:00Z');
+    db.statusChanges[0].id = 'change-a';
+    db.statusChanges.push({ ...db.statusChanges[0], id: 'change-b', actorId: 'admin-2', createdAt: tie });
+
+    // The latest (change-b) was imposed by admin-2, so admin-2 may not lift it and admin-1 may.
+    const refused = await liftTripSuspension(db.prisma as never, {
+      tripId: 'trip-1',
+      actor: otherAdmin,
+      reason: REASON,
+      now: NOW,
+    }).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(SameAdminLiftError);
+
+    await liftTripSuspension(db.prisma as never, { tripId: 'trip-1', actor: admin, reason: REASON, now: NOW });
+    expect(db.trip().status).toBe('ACTIVE');
+  });
+
   it('judges the latest Suspension: after suspend, lift, suspend again by admin-2, admin-1 may lift', async () => {
     const db = makeTripDb({ trips: [tripRow({ status: 'ACTIVE' })] });
     await suspendTrip(db.prisma as never, { tripId: 'trip-1', actor: admin, reason: REASON, now: new Date('2026-09-30T10:00:00Z') });
@@ -324,5 +343,39 @@ describe('liftTripSuspension', () => {
 
     expect(db.trip().status).toBe('ACTIVE');
     expect(db.statusChanges.map((c) => c.action)).toEqual(['SUSPENDED', 'SUSPENSION_LIFTED', 'SUSPENDED', 'SUSPENSION_LIFTED']);
+  });
+});
+
+// Owner decision 2026-09-29: a Suspension has no automatic effect on a
+// Registration that already exists. Pinned here so a later change to
+// confirmRegistration or hold expiry cannot quietly add one.
+describe('a Suspended Trip and its existing Registrations', () => {
+  function suspendedWithHold() {
+    const db = makeTripDb({
+      trips: [tripRow({ status: 'SUSPENDED' })],
+      batches: [batchRow()],
+      registrations: [registrationRow({ status: 'HOLD' })],
+    });
+    return db;
+  }
+
+  it('still confirms the seat when the Trip Fee settles while the Trip is Suspended, with no Refund', async () => {
+    const db = suspendedWithHold();
+
+    const result = await confirmRegistration(db.prisma as never, { registrationId: 'registration-1' });
+
+    expect(result).toEqual({ outcome: 'confirmed' });
+    expect(db.registrations[0].status).toBe('CONFIRMED');
+    expect(db.refunds).toEqual([]);
+    expect(db.trip().status).toBe('SUSPENDED');
+  });
+
+  it('still expires a HOLD whose payment lapses while the Trip is Suspended', async () => {
+    const db = suspendedWithHold();
+
+    await expireRegistrationHold(db.prisma as never, { registrationId: 'registration-1' });
+
+    expect(db.registrations[0].status).toBe('EXPIRED');
+    expect(db.refunds).toEqual([]);
   });
 });

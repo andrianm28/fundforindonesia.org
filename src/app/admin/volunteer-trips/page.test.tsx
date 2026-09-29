@@ -8,7 +8,12 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('@/lib/auth', () => ({ getServerSession: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+  redirect: vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  }),
+}));
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
@@ -37,6 +42,12 @@ function tripsByStatus(active: object[], suspended: object[]) {
 describe('AdminVolunteerTripsPage', () => {
   it('is rendered per request', () => {
     expect(dynamic).toBe('force-dynamic');
+  });
+
+  it('redirects home when there is no session user, reading nothing', async () => {
+    vi.mocked(getServerSession).mockResolvedValue(null as never);
+    await expect(AdminVolunteerTripsPage()).rejects.toThrow('NEXT_REDIRECT:/');
+    expect(prisma.volunteerTrip.findMany).not.toHaveBeenCalled();
   });
 
   it('lists an Active Trip with a suspend control', async () => {

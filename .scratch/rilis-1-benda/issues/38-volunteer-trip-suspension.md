@@ -75,3 +75,5 @@ src/app/api/admin/volunteer-trips src/__tests__/properties`; `node ci/ratchet.mj
 migrasi terhadap basis data berisi baris: migrasi hanya `ADD VALUE`, dan job
 `migrations` sudah menerapkannya dan membandingkan dengan `schema.prisma`; tes
 regex atas teks SQL justru yang dilarang `docs/agents/verification.md`.
+
+Rework setelah dua review sonnet: komentar Payout di `payouts.ts` diperbarui (hanya komentar); `liftTripSuspension` memakai tiebreak `id desc` (tes dengan dua baris SUSPENDED berstempel sama); halaman Admin me-redirect tanpa sesi; tes mengunci bahwa Trip Fee yang settle atas HOLD saat Trip Suspended tetap `confirmed` tanpa Refund dan hold expiry tetap berjalan; CONTEXT.md (Suspension, Payout, Registration) diperbarui.
