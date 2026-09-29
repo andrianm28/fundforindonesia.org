@@ -2,7 +2,7 @@
 
 **Type:** grilling
 
-**Status:** resolved
+**Status:** in-review
 
 ## Question
 
@@ -122,3 +122,125 @@ itu salah akuntansi); naikkan limit atau ubah kueri agar baris macet tak
 memblokir yang lain; ubah teks peringatan agar membedakan backlog normal vs
 baris macet permanen. Bukan gerbang Fase 2 murni — boleh menyusul setelah
 02/11/12/13, tapi jangan didiamkan.
+
+## Implementation note
+
+**Rework (2026-09-28), owner memilih opsi (b): penanda yang tersimpan lintas
+panggilan**, menggantikan draf pertama (cursor dalam-satu-panggilan saja,
+lihat riwayat git untuk draf itu) supaya perbaikan mengikuti teks jawaban
+secara literal, bukan hanya efeknya.
+
+Kolom baru `Payment.escrowSweepDeferredAt` (nullable `DateTime`, migrasi
+`20260930090000_escrow_sweep_cursor`, indeks
+`(escrowSweepDeferredAt, escrowReleaseAt, id)`) adalah penanda sekunder itu.
+`null` berarti "belum pernah dilewati guard permanen" -- keadaan setiap baris
+lama, tanpa backfill. `releaseMaturedEscrow` (`src/lib/money/escrow.ts`)
+mengurutkan kandidat `escrowSweepDeferredAt asc nulls first, escrowReleaseAt
+asc, id asc`: baris yang belum pernah dilewati selalu di depan; di antara
+baris yang pernah dilewati, yang paling lama dilewati di depan (rotasi adil).
+`escrowReleaseAt`/`escrowReleasedAt` sama sekali tidak disentuh oleh
+mekanisme ini -- tetap murni bacaan akuntansi seperti sebelumnya.
+
+Saat guard permanen (`isEscrowReleaseFrozen`/`hasRefundInFlight`) melewatkan
+sebuah baris, id-nya dikumpulkan (`permanentlySkippedIds`), lalu **satu
+`updateMany` batch** menstempel `escrowSweepDeferredAt = now` untuk semuanya
+**setelah seluruh scan-baca panggilan itu selesai** -- bukan satu per satu di
+tengah scan. Alasannya konkret, bukan gaya: mengubah kolom yang JUGA jadi
+kunci urut di tengah scan yang sama akan mengubah urutan baris yang belum
+dibaca relatif terhadap cursor `id`, sehingga cursor bisa melompati baris
+yang justru belum diproses (bug ini ditangkap oleh test regresi lama sendiri
+saat draf ini pertama ditulis dengan stempel per-baris). Saat baris akhirnya
+benar-benar dirilis, `escrowSweepDeferredAt` dibersihkan kembali ke `null`
+dalam `updateMany` klaim yang sama (predikat `escrowReleasedAt IS NULL`
+tetap satu-satunya yang menjaga keamanan-race klaim; field tambahan ini
+hanya ikut ditulis oleh pemenang klaim) -- pilihan: **dibersihkan**, bukan
+dibiarkan, supaya baris yang pernah macet lalu selesai terbaca identik
+dengan baris yang tak pernah macet sama sekali.
+
+`console.warn` membedakan dua kasus: kuota rilis terpenuhi
+(`releasedCount === ESCROW_RELEASE_SWEEP_LIMIT`, backlog normal) vs baca
+penuh (`matured.length === scanLimit`) tanpa kuota rilis terpenuhi (backlog
+didominasi baris macet permanen, pesan menyatakan eksplisit "the sweep is
+not reaching the rest of the backlog" dan menunjuk `deferredEscrowWatchdog`).
+Komentar presedensi (`if`/`else if`, bukan dua kondisi independen) ada tepat
+di atas cabang pertama.
+
+**Round 3 (2026-09-28), review independen menemukan cacat pada paging
+dalam-satu-panggilan draf sebelumnya**: draf itu memakai `cursor: { id },
+skip: 1` di atas kueri yang kunci urut pertamanya (`escrowSweepDeferredAt`)
+nullable dengan `nulls: 'first'`. Prisma menjangkarkan cursor pada nilai
+orderBy baris cursor itu sendiri; perbandingan NULL-vs-nilai di batas
+halaman bisa melompati atau mengulang baris -- dan itu **hanya** terverifikasi
+lewat mock JS di test, bukan Postgres sungguhan. Koordinator memutuskan:
+**hapus paging dalam-panggilan sepenuhnya** -- penanda persisten sudah jadi
+mekanisme keamanan-starvation-nya, paging tak lagi diperlukan untuk itu, dan
+kerumitannya (plus risikonya) tak lagi terbayar.
+
+`releaseMaturedEscrow` sekarang **satu** `findMany` (bukan loop halaman),
+`orderBy` sama, `take: scanLimit` (parameter baru, default
+`ESCROW_RELEASE_SWEEP_SCAN_LIMIT`; **konstanta itu sendiri tak pernah
+diubah** -- test memakai `options.scanLimit` kecil agar tak perlu men-seed
+ribuan baris ke Postgres sungguhan). Baris diproses berurutan sampai
+`ESCROW_RELEASE_SWEEP_LIMIT` benar-benar dirilis atau baris habis. Stempel
+`escrowSweepDeferredAt` tetap satu `updateMany` batch setelah loop selesai
+(alasan yang sama seperti draf sebelumnya, kini lebih jelas: tak ada lagi
+cursor yang bisa dirusak, tapi satu batch tetap lebih murah daripada
+menulis per-baris).
+
+**Test Postgres sungguhan ditambahkan**:
+`src/__tests__/integration/escrow-sweep-rotation.test.ts`, mengikuti pola
+`src/lib/drop-migration-guard.test.ts` /
+`src/__tests__/ledger-transaction-claim-migration.test.ts` (bukan
+`donation-flow.test.ts`, yang ternyata mem-mock prisma sepenuhnya dan tak
+pernah membuka koneksi -- disebutkan koordinator sebagai contoh tapi
+faktanya bukan; catatan ini ditulis untuk kejelasan, bukan koreksi ke
+siapa pun). Test membuat database sekali-pakai bernama unik, memutar ULANG
+setiap file `prisma/migrations/*/migration.sql` lewat `pg.Client` mentah
+(skema penuh, bukan sebagian -- sweep melintasi Payment/Donation/Campaign
+dan Registration/Batch/VolunteerTrip), lalu `vi.doMock('@/lib/prisma', ...)`
++ `import()` dinamis (kedua-duanya SETELAH database ada dan termigrasi)
+supaya `releaseMaturedEscrow` berjalan tanpa modifikasi di atas Postgres
+nyata. `TEST_DATABASE_URL` (bukan `DATABASE_URL`) adalah variabelnya --
+sama seperti `drop-migration-guard.test.ts` -- karena job `test` CI (yang
+punya service Postgres dan `npx vitest run`) hanya men-set env var itu,
+bukan `DATABASE_URL`. Tanpa itu, `describe.skipIf` melewati seluruh blok
+dengan `console.warn` yang bisa dilihat, sama seperti dua file precedent
+di atas. Database sekali-pakai selalu di-`DROP ... WITH (FORCE)` di
+`afterAll`.
+
+Kedua test di file itu: (1) baris macet lebih banyak dari `scanLimit`
+suntikan (5, bukan `ESCROW_RELEASE_SWEEP_SCAN_LIMIT` asli) tercapai dalam
+tepat 2 panggilan, dengan bukti langsung bahwa baris yang dilihat panggilan
+pertama benar-benar tertanda `escrowSweepDeferredAt` bukan hanya disimpulkan
+dari hasil panggilan kedua; (2) baris yang pernah macet lalu Suspensinya
+dicabut dan dirilis, `escrowSweepDeferredAt`-nya kembali `null`. Dijalankan
+lokal dengan `TEST_DATABASE_URL=postgresql://ci:ci@localhost:5432/ci` (role
+`ci` dan database `ci` sudah ada dari environment ini) -- **2/2 lolos**.
+
+Mock test (`escrow.test.ts`) disederhanakan sesuai: `cursor`/`skip` dihapus
+dari mock `payment.findMany`, komentarnya sekarang menunjuk test Postgres
+di atas untuk pembuktian urutan sungguhan.
+
+Tak ada perubahan pada `escrowReleaseAt`/`escrowReleasedAt` atau semantik
+guard mana pun; klaim `updateMany` berpredikat tetap satu-satunya penjaga
+race-safety pelepasan. Kanari `platformFeePortionFor` tetap 3 pemanggilan,
+`requireRefundAllowedForKind` 3, `BankAccountNotEligibleError` 6. Tak ada
+`as any`.
+
+Verifikasi (round 3): `npx vitest run src/lib/money/escrow.test.ts
+src/lib/scheduled-jobs.test.ts src/app/api/admin/reconcile/route.test.ts
+src/__tests__/integration/escrow-sweep-rotation.test.ts` dengan
+`TEST_DATABASE_URL` di-set -- 95 lolos (termasuk 2 test Postgres
+sungguhan, bukan skip); tanpa `TEST_DATABASE_URL` -- test Postgres itu
+skip dengan `console.warn`, sisanya tetap lolos. `npx tsc --noEmit` (47,
+baseline, tak satu pun di file yang diubah). `node ci/ratchet.mjs` (lint
+193 baseline, tsc 47 baseline, keduanya unchanged). `npm run ci:local --
+migrations` (migrasi berlaku bersih dan cocok dengan schema.prisma; satu
+kegagalan lokal-saja yang sudah diketahui di
+`ledger-transaction-claim-migration.test.ts`, diabaikan sesuai arahan).
+Full suite sengaja tidak dijalankan (builder lain memakainya).
+`git diff --name-only origin/main HEAD` menyentuh `prisma/schema.prisma`,
+`prisma/migrations/20260930090000_escrow_sweep_cursor/migration.sql`,
+`src/lib/money/escrow.ts`, `src/lib/money/escrow.test.ts`,
+`src/__tests__/integration/escrow-sweep-rotation.test.ts`, dan file tiket
+ini.
