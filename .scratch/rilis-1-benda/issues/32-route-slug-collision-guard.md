@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 **Blocked by:** none
 
@@ -37,3 +37,17 @@ directories.
   fails on `[id]` beside `[requestId]` and passes on `[id]` beside a static
   segment.
 - No app code changes; no migration.
+
+## Implementation note (branch `claude/ticket-32-route-slug-guard-impl`)
+
+`src/__tests__/properties/route-slug-collision-guard.test.ts` walks `src/app`
+and reports every directory holding two or more dynamic sibling segments
+(`[x]`, `[...x]`, `[[...x]]`); two such names can never be equal on disk, so
+any pair is a collision. The message names both paths. Six tests on temporary
+trees pin `[id]`/`[requestId]` (fail), `[id]` beside a static segment (pass),
+the same name under different parents (pass), catch-all and optional catch-all
+beside `[y]` (fail), and nested descent. To repeat the PR 137 check, create
+`src/app/api/moderasi/bank-accounts/[id]` and run
+`npx vitest run src/__tests__/properties/route-slug-collision-guard.test.ts`.
+Route groups `(x)` and parallel slots `@x` are not flattened; none collide
+today. No app code, migration, or ADR changed.
