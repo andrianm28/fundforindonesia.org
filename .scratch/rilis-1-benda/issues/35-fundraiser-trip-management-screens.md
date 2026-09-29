@@ -19,6 +19,11 @@ langsung"). Owner 2026-09-29, grilling tiket 29 dan `prd-audit/issues/10` (putar
 - Dashboard Fundraiser: buat dan sunting Draft Trip (judul, deskripsi, cerita,
   sampul, destinasi, itinerary, Trip Fee), ajukan untuk diperiksa, lihat status
   dan alasan penolakan.
+  Alasan penolakan dibaca dari `VolunteerTripStatusChange.reason` (baris
+  `SUBMISSION_REJECTED` terbaru untuk Trip itu); notifikasi penolakan dari
+  `decideTripSubmission` sengaja hanya berbunyi "Volunteer Trip Anda ditolak".
+  Tampilkan alasan sebagai teks React biasa (tanpa `dangerouslySetInnerHTML`),
+  karena isinya ditulis Verifier bebas (temuan review tiket 34).
 - Tambah dan ubah Batch (tanggal mulai dan selesai, tenggat pendaftaran, kuota
   maksimum, kuota minimum), selama Batch masih `OPEN`.
 - Batalkan Batch (`cancelBatch`, hanya bila kuota minimum tidak tercapai; Refund
