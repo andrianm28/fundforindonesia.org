@@ -52,7 +52,18 @@ const byStartDate = <T extends { startDate: Date }>(a: T, b: T) => a.startDate.g
 export async function listCatalogTrips(prisma: PrismaClient, now: Date): Promise<CatalogTripCard[]> {
   const trips = await prisma.volunteerTrip.findMany({
     where: { status: 'ACTIVE' },
-    include: { batches: { where: { status: 'OPEN' }, orderBy: { startDate: 'asc' } } },
+    select: {
+      slug: true,
+      title: true,
+      destination: true,
+      coverImage: true,
+      tripFeeAmount: true,
+      batches: {
+        where: { status: 'OPEN' },
+        orderBy: { startDate: 'asc' },
+        select: { startDate: true, registrationDeadline: true },
+      },
+    },
   });
 
   const cards: CatalogTripCard[] = [];
@@ -75,7 +86,22 @@ export async function listCatalogTrips(prisma: PrismaClient, now: Date): Promise
 export async function getTripDetail(prisma: PrismaClient, slug: string, now: Date): Promise<TripDetail | null> {
   const trip = await prisma.volunteerTrip.findUnique({
     where: { slug },
-    include: { batches: { where: { status: 'OPEN' }, orderBy: { startDate: 'asc' } } },
+    select: {
+      slug: true,
+      status: true,
+      title: true,
+      description: true,
+      story: true,
+      coverImage: true,
+      destination: true,
+      itinerary: true,
+      tripFeeAmount: true,
+      batches: {
+        where: { status: 'OPEN' },
+        orderBy: { startDate: 'asc' },
+        select: { id: true, startDate: true, endDate: true, registrationDeadline: true, maxQuota: true },
+      },
+    },
   });
   if (!trip || trip.status !== 'ACTIVE') return null;
 

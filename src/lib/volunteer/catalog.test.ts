@@ -21,6 +21,18 @@ const PAST_DEADLINE = new Date('2026-09-20T00:00:00Z');
 
 type BatchInclude = { batches: { where?: { status?: string } } };
 
+/** Prisma's `select`: keep only the named fields, recursing into `batches`. */
+function pick(row: Record<string, unknown>, select: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, spec] of Object.entries(select)) {
+    if (key === 'batches') {
+      const { select: inner } = spec as { select: Record<string, unknown> };
+      out.batches = (row.batches as Record<string, unknown>[]).map((b) => pick(b, inner));
+    } else if (spec) out[key] = row[key];
+  }
+  return out;
+}
+
 /** Just enough Prisma for the two reads: filters on status and id sets, as they ask. */
 function fakePrisma(seed: { trips?: TripRow[]; batches?: BatchRow[]; registrations?: RegistrationRow[] }) {
   const trips = seed.trips ?? [];
@@ -32,11 +44,11 @@ function fakePrisma(seed: { trips?: TripRow[]; batches?: BatchRow[]; registratio
   });
   return {
     volunteerTrip: {
-      findMany: async ({ where, include }: { where: { status: string }; include: BatchInclude }) =>
-        trips.filter((t) => t.status === where.status).map((t) => withBatches(t, include.batches.where)),
-      findUnique: async ({ where, include }: { where: { slug: string }; include: BatchInclude }) => {
+      findMany: async ({ where, select }: { where: { status: string }; select: Record<string, unknown> & BatchInclude }) =>
+        trips.filter((t) => t.status === where.status).map((t) => pick(withBatches(t, select.batches.where), select)),
+      findUnique: async ({ where, select }: { where: { slug: string }; select: Record<string, unknown> & BatchInclude }) => {
         const t = trips.find((x) => x.slug === where.slug);
-        return t ? withBatches(t, include.batches.where) : null;
+        return t ? pick(withBatches(t, select.batches.where), select) : null;
       },
     },
     registration: {

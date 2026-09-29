@@ -46,6 +46,10 @@ dipecah per layar (33 sampai 37) plus tiket kecil 38, 39, 40.
 - Signed-out visitors get a "Masuk" link with `?callbackUrl=`. The login page
   ignored `callbackUrl`, so it now follows it through `safeCallbackUrl`
   (`src/lib/safe-callback-url.ts`, same-site paths only).
+- Review rework: `safeCallbackUrl` was a prefix check that `/\t/evil.com` bypassed
+  (the URL parser strips tab/CR/LF); it now refuses control characters and
+  whitespace, then parses against a dummy origin and returns the parsed path.
+  `catalog.ts` reads use `select`, not `include`.
 - "Volunteer" link in the Footer "Informasi" list (the support menu; there is
   no other) points at `/volunteer-trip`. The Footer is desktop-only (`lg`), so
   mobile has no entry yet; the homepage tiles deliberately omit Volunteer.
