@@ -376,8 +376,9 @@ Masih terbuka, perlu ditinjau sebelum Kind `hibah` menerima donasi nyata:
 
 Masih terbuka, perlu ditinjau sebelum Volunteer Trip pertama menerima Trip Fee nyata:
 
-- [ ] Ambang hari tepat untuk setiap tingkat Refund Trip Fee menurut jarak waktu ke keberangkatan, dan nilai default kuota minimum Batch. Didorong ke penulisan spec (lihat ADR 0014); pasal ini hanya mengunci kebijakannya (bertingkat, bukan flat Gross), bukan angkanya.
-- [ ] Lama jendela penahanan kursi (Registration yang belum bayar) sebelum kembali terbuka untuk Volunteer lain.
+- [x] Ambang hari tepat untuk setiap tingkat Refund Trip Fee menurut jarak waktu ke keberangkatan: 14 hari atau lebih penuh, 3 sampai 13 hari separuh, kurang dari 3 hari nol (diputuskan 2026-09-29, lihat Trip Fee di CONTEXT.md).
+- [ ] Nilai default kuota minimum Batch. Belum diputuskan; sekarang tiap Batch memakai kuota yang diisi Fundraiser.
+- [x] Lama jendela penahanan kursi (Registration yang belum bayar) sebelum kembali terbuka untuk Volunteer lain: 30 menit (diputuskan 2026-09-29).
 
 Di luar dokumen ini: izin penghimpunan, lembaga amil untuk Kind `zakat`, nazhir untuk Kind `wakaf`, lembaga penerima untuk Kind `hibah`, dan pemilik rekening penghimpunan per Kind. Satu hal yang perlu diperiksa penasihat hukum sebelum rilis: ketentuan izin penghimpunan dana sosial mensyaratkan pemegang izin berbentuk yayasan atau perkumpulan, sedangkan Platform Operator berbentuk PT, sehingga dana kemungkinan harus dihimpun atas nama Partner Organisation meski akun merchant dipegang Platform Operator. Sistem sudah menyiapkan pemisahan itu lewat rekening penghimpunan yang dikonfigurasi terpisah dari akun merchant.
 
