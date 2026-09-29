@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { kindAuthorisationsNeedingRenewal } from "./kind-authorisation-renewal";
+import { KIND_AUTHORISATION_EXPIRY_WARNING_DAYS } from "./kind-authorisation-window";
 
 const NOW = new Date("2026-09-29T00:00:00.000Z");
 const day = (offset: number) => new Date(NOW.getTime() + offset * 24 * 60 * 60 * 1000);
@@ -76,5 +77,36 @@ describe("kindAuthorisationsNeedingRenewal", () => {
       NOW,
     );
     expect(items.map((item) => item.id)).toEqual(["lapsed", "sooner", "later"]);
+  });
+
+  it("counts a validTo exactly at the horizon (now + 30 days) as expiring", () => {
+    const items = kindAuthorisationsNeedingRenewal(
+      [organisation("o1", [{ id: "k1", kind: "ZAKAT", validFrom: day(-300), validTo: day(30) }])],
+      NOW,
+    );
+    expect(items).toEqual([expect.objectContaining({ id: "k1", status: "expiring" })]);
+  });
+
+  it("counts a validTo exactly at now as lapsed", () => {
+    const items = kindAuthorisationsNeedingRenewal(
+      [organisation("o1", [{ id: "k1", kind: "ZAKAT", validFrom: day(-300), validTo: NOW }])],
+      NOW,
+    );
+    expect(items).toEqual([expect.objectContaining({ id: "k1", status: "lapsed" })]);
+  });
+
+  it("defaults to the shared warning window, and not a day beyond it", () => {
+    const edge = day(KIND_AUTHORISATION_EXPIRY_WARNING_DAYS);
+    const beyond = new Date(edge.getTime() + 1);
+    const items = kindAuthorisationsNeedingRenewal(
+      [
+        organisation("o1", [
+          { id: "edge", kind: "ZAKAT", validFrom: day(-300), validTo: edge },
+          { id: "beyond", kind: "WAKAF", validFrom: day(-300), validTo: beyond },
+        ]),
+      ],
+      NOW,
+    );
+    expect(items.map((item) => item.id)).toEqual(["edge"]);
   });
 });

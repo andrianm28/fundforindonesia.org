@@ -1,4 +1,5 @@
 import type { Kind } from "@/generated/prisma/client";
+import { KIND_AUTHORISATION_EXPIRY_WARNING_DAYS } from "@/lib/kind-authorisation-window";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -15,8 +16,8 @@ export interface RenewalDueKindAuthorisation {
 
 /**
  * Every Kind Authorisation of `organisations` that is about to expire (within
- * the same 30 days as KIND_AUTHORISATION_EXPIRY_WARNING_DAYS in ./reminders.ts,
- * not imported here to keep this module free of the database client)
+ * KIND_AUTHORISATION_EXPIRY_WARNING_DAYS days, the same window as the scheduled
+ * warning)
  * or whose date has already passed (CONTEXT.md, Kind Authorisation: a Campaign
  * of that Kind stops receiving Donations until it is renewed).
  *
@@ -33,7 +34,7 @@ export function kindAuthorisationsNeedingRenewal(
     kindAuthorisations: readonly { id: string; kind: Kind; validFrom: Date; validTo: Date }[];
   }[],
   now: Date,
-  days = 30,
+  days = KIND_AUTHORISATION_EXPIRY_WARNING_DAYS,
 ): RenewalDueKindAuthorisation[] {
   const horizon = now.getTime() + days * MS_PER_DAY;
 
