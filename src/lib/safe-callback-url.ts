@@ -1,5 +1,13 @@
 const DUMMY_ORIGIN = 'http://localhost';
 
+/**
+ * Control characters, whitespace, backslash, NEL, soft hyphen, and the
+ * zero-width and bidi format characters: nothing a person can see, so nothing
+ * a real path holds. (`\s` covers U+00A0, U+2028/9, U+FEFF and most spaces.)
+ */
+const INVISIBLE_OR_UNSAFE =
+  /[\u0000-\u001f\u007f\u0085\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\s\\]/;
+
 /** Long enough for any real path here; anything longer is not a return address. */
 const MAX_LENGTH = 2000;
 
@@ -18,7 +26,7 @@ const MAX_LENGTH = 2000;
  */
 export function safeCallbackUrl(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > MAX_LENGTH) return '/';
-  if (/[\u0000-\u001f\u007f\s\\]/.test(value)) return '/';
+  if (INVISIBLE_OR_UNSAFE.test(value)) return '/';
   if (!value.startsWith('/') || value.startsWith('//')) return '/';
 
   let parsed: URL;

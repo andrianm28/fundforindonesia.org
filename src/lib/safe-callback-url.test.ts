@@ -6,6 +6,7 @@ describe('safeCallbackUrl', () => {
   it.each([
     '/volunteer-trip/mengajar?x=1',
     '/volunteer-trip/x?a=1#b',
+    '/volunteer-trip/x%20y?a=1#b',
     '/campaign/create',
     '/',
   ])('keeps the path on this site unchanged: %s', (value) => {
@@ -19,6 +20,15 @@ describe('safeCallbackUrl', () => {
     ['leading whitespace', ' /volunteer-trip'],
     ['trailing whitespace', '/volunteer-trip '],
     ['an interior space', '/volunteer trip'],
+    ['a NEL (U+0085)', '/\u0085/evil.com'],
+    ['a zero-width space (U+200B)', '/​/evil.com'],
+    ['a right-to-left override (U+202E)', '/‮/evil.com'],
+    ['a soft hyphen (U+00AD)', '/­/evil.com'],
+    ['a byte order mark (U+FEFF)', '/﻿/evil.com'],
+    ['a word joiner (U+2060)', '/⁠/evil.com'],
+    ['a bidi isolate (U+2066)', '/⁦/evil.com'],
+    ['three slashes', '///evil.com'],
+    ['a dot segment into a double slash', '/.//evil.com'],
     ['a NUL', '/a\u0000b'],
     ['a DEL', '/a\u007fb'],
     ['a protocol-relative URL', '//evil.com'],
