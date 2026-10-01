@@ -1420,6 +1420,14 @@ model Payment {
   /// future call's page and starve the genuinely releasable rows behind it.
   escrowSweepDeferredAt DateTime?
 
+  /// Ticket 43: when the stuck-late-settlement-refund sweep
+  /// (src/lib/volunteer/refund-sweep.ts) last FAILED to refund this Trip Fee
+  /// Payment. Only a sort key: the sweep orders `refundSweepFailedAt ASC NULLS
+  /// FIRST`, so a Registration that keeps failing rotates behind never-failed
+  /// ones and cannot fill every round's limit. Null for every Payment that
+  /// has never failed; never read for any money decision.
+  refundSweepFailedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

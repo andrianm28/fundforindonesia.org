@@ -1,19 +1,28 @@
 import { releaseMaturedEscrow, type ReleaseSweepResult } from '@/lib/money/escrow';
 import { sendCampaignDeadlineReminders, sendKindAuthorisationExpiryWarnings, type ReminderSweepResult } from '@/lib/reminders';
+import { sweepStuckLateSettlementRefunds, type RefundSweepResult } from '@/lib/volunteer/refund-sweep';
 import type { Mailer } from '@/lib/mail';
 
 export interface ScheduledJobsResult {
   escrowRelease: ReleaseSweepResult;
   campaignDeadlineReminders: ReminderSweepResult;
   kindAuthorisationExpiryWarnings: ReminderSweepResult;
+  lateSettlementRefunds: RefundSweepResult;
 }
 
 const FALLBACK_RELEASE_SWEEP: ReleaseSweepResult = { releasedCount: 0, consideredCount: 0 };
+const FALLBACK_REFUND_SWEEP: RefundSweepResult = {
+  consideredCount: 0,
+  attemptedCount: 0,
+  refundedCount: 0,
+  skippedCount: 0,
+  failedCount: 0,
+};
 const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consideredCount: 0 };
 
 /**
  * The single scheduled entry point (ticket 20; spec.md "Notification and
- * scheduling"). Three phases, each already bounded and idempotent on its
+ * scheduling"). Four phases, each already bounded and idempotent on its
  * own:
  *
  * 1. Releases every matured Escrow Hold into Campaign Balance / Trip
@@ -24,6 +33,11 @@ const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consid
  *    ./reminders.ts).
  * 3. Sends Kind Authorisation expiry warnings (sendKindAuthorisationExpiryWarnings,
  *    ./reminders.ts).
+ *
+ * 4. Refunds Trip Fees that settled after their Registration was cancelled or
+ *    its hold expired but whose automatic Refund never got made
+ *    (sweepStuckLateSettlementRefunds, ./volunteer/refund-sweep.ts; ticket 43).
+ *    Bounded per run; reports attemptedCount/refundedCount/failedCount.
  *
  * WHO ACTUALLY CALLS THIS, stated here because this file claimed otherwise
  * for a long time. As of ticket 45 exactly one thing does: the route
@@ -58,9 +72,9 @@ const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consid
  * drives it directly with a fixed `now` -- never through a fake or real
  * timer.
  *
- * The three phases are isolated from one another: one phase throwing (a
+ * The phases are isolated from one another: one phase throwing (a
  * database blip, a bug uncaught by its own per-row handling) is logged and
- * falls back to a zeroed result for that phase only, so the other two still
+ * falls back to a zeroed result for that phase only, so the others still
  * run and still report what they actually did. This is the same
  * one-bad-row-must-not-block-the-rest rule every phase already applies
  * internally (releaseMaturedEscrow to one Payment; the reminder sweeps to
@@ -79,8 +93,11 @@ export async function runScheduledJobs(now: Date = new Date(), mailer?: Mailer):
     FALLBACK_REMINDER_SWEEP,
     () => sendKindAuthorisationExpiryWarnings(now, mailer),
   );
+  const lateSettlementRefunds = await runPhase('lateSettlementRefunds', FALLBACK_REFUND_SWEEP, () =>
+    sweepStuckLateSettlementRefunds(now),
+  );
 
-  return { escrowRelease, campaignDeadlineReminders, kindAuthorisationExpiryWarnings };
+  return { escrowRelease, campaignDeadlineReminders, kindAuthorisationExpiryWarnings, lateSettlementRefunds };
 }
 
 async function runPhase<T>(name: string, fallback: T, run: () => Promise<T>): Promise<T> {
