@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 
 /**
@@ -12,6 +13,12 @@ import Link from "next/link";
  */
 export function AdminSidebar() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+
+  // The folded menu closes after navigating to another page.
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
 
   return (
     <div className="md:w-64 md:shrink-0">

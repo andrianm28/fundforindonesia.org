@@ -5,7 +5,10 @@ vi.mock("@/lib/auth", () => ({
   getServerSession: vi.fn(),
 }));
 
+const mockPathname = vi.hoisted(() => ({ value: "/admin" }));
+
 vi.mock("next/navigation", () => ({
+  usePathname: () => mockPathname.value,
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
   }),
@@ -47,6 +50,21 @@ describe("AdminLayout", () => {
   // page's own. The layout contributes exactly one <main> and no <h1>.
   describe("structure", () => {
     afterEach(() => cleanup());
+
+    it("closes the open menu after navigating to another page", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      mockPathname.value = "/admin";
+      const tree = await AdminLayout({ children: null });
+      const { rerender } = render(tree);
+
+      const button = screen.getByRole("button", { name: /buka menu/i });
+      fireEvent.click(button);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+
+      mockPathname.value = "/admin/payouts";
+      rerender(await AdminLayout({ children: null }));
+      expect(screen.getByRole("button", { name: /buka menu/i }).getAttribute("aria-expanded")).toBe("false");
+    });
 
     it("renders one main landmark and no h1 of its own", async () => {
       mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });

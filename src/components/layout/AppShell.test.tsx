@@ -25,7 +25,13 @@ describe('AppShell main landmark', () => {
     expect(screen.getAllByRole('main')).toHaveLength(1);
   });
 
-  it.each(['/admin/payouts', '/moderasi/campaigns'])('does not add a main around %s, whose layout has its own', (path) => {
+  it('still wraps /administrasi in a main: it is not under /admin', () => {
+    mockPathname.value = '/administrasi';
+    render(<AppShell>isi</AppShell>);
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+  });
+
+  it.each(['/admin', '/admin/payouts', '/moderasi/campaigns'])('does not add a main around %s, whose layout has its own', (path) => {
     mockPathname.value = path;
     render(<AppShell>isi</AppShell>);
     expect(screen.queryByRole('main')).toBeNull();

@@ -78,6 +78,11 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
   });
   const maskedDonorAccountNumber = recordedAccountNumber ? maskBankAccountNumber(recordedAccountNumber) : null;
 
+  const proofSeparator = ' — ';
+  const proofAt = refund.proofImage ? refund.proofImage.indexOf(proofSeparator) : -1;
+  const proofReference = proofAt > 0 && refund.proofImage ? refund.proofImage.slice(0, proofAt) : null;
+  const proofNote = proofAt > 0 && refund.proofImage ? refund.proofImage.slice(proofAt + proofSeparator.length) : null;
+
   return (
     <div className="max-w-2xl">
       <div className="mb-6">
@@ -112,8 +117,21 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
             <p className="text-sm font-medium text-gray-900">{refund.completedBy?.name}</p>
             {refund.proofImage && (
               <>
-                <p className="mt-1 text-xs text-gray-500">Bukti transfer</p>
-                <p className="text-sm text-gray-900">{refund.proofImage}</p>
+                {/* Stored as one string by buildProofImage ("reference — note");
+                    shown as plain text, never as a link or image source. */}
+                {proofReference ? (
+                  <>
+                    <p className="mt-1 text-xs text-gray-500">Referensi transaksi</p>
+                    <p className="text-sm text-gray-900">{proofReference}</p>
+                    <p className="mt-1 text-xs text-gray-500">Catatan</p>
+                    <p className="text-sm text-gray-900">{proofNote}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-xs text-gray-500">Bukti transfer</p>
+                    <p className="text-sm text-gray-900">{refund.proofImage}</p>
+                  </>
+                )}
               </>
             )}
           </div>

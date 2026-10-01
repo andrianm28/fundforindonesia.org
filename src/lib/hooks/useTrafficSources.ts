@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { hasAssignment } from '@/lib/withAssignmentCheck';
 
 export interface TrafficSourceCount {
   source: string | null;
@@ -27,7 +28,7 @@ export function useTrafficSources(slug: string, creatorId: string): TrafficSourc
   const { data: session } = useSession();
   const viewerId = session?.user?.id;
   const mayAsk =
-    !!viewerId && (viewerId === creatorId || (session?.user?.assignments ?? []).includes('ADMIN'));
+    !!viewerId && (viewerId === creatorId || hasAssignment(session?.user?.assignments, 'ADMIN'));
 
   useEffect(() => {
     if (!mayAsk) return;

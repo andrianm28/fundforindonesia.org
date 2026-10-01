@@ -167,8 +167,11 @@ describe('AdminRefundDetailPage', () => {
 
     expect(screen.getByText(/Admin Tiga/)).toBeDefined();
     // UAT round 2: the completion reference and note were stored but never shown.
-    expect(screen.getByText('Bukti transfer')).toBeDefined();
-    expect(screen.getByText('TRX-778899 — ditransfer ke rekening Donor')).toBeDefined();
+    expect(screen.getByText('Referensi transaksi')).toBeDefined();
+    expect(screen.getByText('TRX-778899')).toBeDefined();
+    expect(screen.getByText('Catatan')).toBeDefined();
+    expect(screen.getByText('ditransfer ke rekening Donor')).toBeDefined();
+    expect(document.querySelector('a[href], img[src]')).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
   });
 });

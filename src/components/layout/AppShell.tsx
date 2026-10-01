@@ -38,7 +38,10 @@ export function AppShell({ children }: AppShellProps) {
   const activeTab = getActiveTab(pathname);
   // /admin and /moderasi layouts render their own <main>; a second one here
   // would nest landmarks (UAT round 1), so this wrapper steps down to a div.
-  const ownsMain = pathname.startsWith('/admin') || pathname.startsWith('/moderasi');
+  const ownsMain = pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname === '/moderasi' ||
+    pathname.startsWith('/moderasi/');
   const Content = ownsMain ? 'div' : 'main';
 
   // Map session user to the User shape expected by DesktopHeader
