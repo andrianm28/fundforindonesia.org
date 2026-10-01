@@ -31,9 +31,11 @@ RUN npx prisma generate
 #   NEXTAUTH_URL                   the URL next-auth sees during the build; the
 #                                  running app takes it from the runtime env
 #   NEXT_PUBLIC_DONATIONS_ENABLED  "true" to take real donations, else off
+#   NEXT_PUBLIC_VOLUNTEER_ENABLED  "true" to open Volunteer Trip Registration, else off
 ARG NEXT_PUBLIC_BASE_URL="https://fundforindonesia.org"
 ARG NEXTAUTH_URL="https://galang.fundforindonesia.org"
 ARG NEXT_PUBLIC_DONATIONS_ENABLED="false"
+ARG NEXT_PUBLIC_VOLUNTEER_ENABLED="false"
 
 # Build Next.js. DATABASE_URL and NEXTAUTH_SECRET are placeholders, not
 # secrets: a "dummy" URL makes src/lib/prisma.ts use its build-time mock. They
@@ -46,6 +48,7 @@ ENV NEXTAUTH_SECRET="build-time-placeholder-not-a-secret"
 ENV NEXTAUTH_URL=$NEXTAUTH_URL
 ENV NEXT_PUBLIC_BASE_URL=$NEXT_PUBLIC_BASE_URL
 ENV NEXT_PUBLIC_DONATIONS_ENABLED=$NEXT_PUBLIC_DONATIONS_ENABLED
+ENV NEXT_PUBLIC_VOLUNTEER_ENABLED=$NEXT_PUBLIC_VOLUNTEER_ENABLED
 RUN npm run build
 
 # Assemble the whole runtime tree inside .next/standalone, so the runner takes

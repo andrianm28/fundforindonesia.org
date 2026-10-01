@@ -19,3 +19,20 @@ export const BATCH_STATUS_LABELS: Record<string, string> = {
   CANCELLED: 'Dibatalkan',
   COMPLETED: 'Selesai',
 };
+
+export const REGISTRATION_STATUS_LABELS = {
+  HOLD: 'Menunggu pembayaran',
+  CONFIRMED: 'Terkonfirmasi',
+  EXPIRED: 'Kedaluwarsa',
+  CANCELLED: 'Dibatalkan',
+} as const;
+
+export const REFUND_STATUS_LABELS: Record<string, string> = {
+  REQUESTED: 'Diajukan',
+  AWAITING_DONOR_DETAILS: 'Menunggu data rekening',
+  APPROVED: 'Disetujui',
+  PROCESSING: 'Diproses',
+  COMPLETED: 'Selesai dikembalikan',
+  REJECTED: 'Ditolak',
+  FAILED: 'Gagal',
+};

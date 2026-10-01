@@ -39,6 +39,7 @@ services:
       # Baked into the client bundle at build time, so changing it needs a
       # rebuild, not a restart. Defaults to off.
       NEXT_PUBLIC_DONATIONS_ENABLED: ${NEXT_PUBLIC_DONATIONS_ENABLED:-false}
+      NEXT_PUBLIC_VOLUNTEER_ENABLED: ${NEXT_PUBLIC_VOLUNTEER_ENABLED:-false}
       # These three do fall back to empty, unlike the key above, and that is
       # safe for the same reason the rule above exists: empty is not a
       # guessable default here, it is no provider at all. SumopodProvider

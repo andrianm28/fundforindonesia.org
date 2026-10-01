@@ -25,6 +25,7 @@
 #                                  canonical public domain (src/lib/public-url.ts)
 #   NEXTAUTH_URL                   default https://galang.fundforindonesia.org
 #   NEXT_PUBLIC_DONATIONS_ENABLED  default false
+#   NEXT_PUBLIC_VOLUNTEER_ENABLED  default false (Volunteer Trip Registration)
 name: CD
 
 on:
@@ -171,6 +172,7 @@ jobs:
             NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'https://fundforindonesia.org' }}
             NEXTAUTH_URL=${{ vars.NEXTAUTH_URL || 'https://galang.fundforindonesia.org' }}
             NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.NEXT_PUBLIC_DONATIONS_ENABLED || 'false' }}
+            NEXT_PUBLIC_VOLUNTEER_ENABLED=${{ vars.NEXT_PUBLIC_VOLUNTEER_ENABLED || 'false' }}
           cache-from: type=gha,scope=app
           cache-to: type=gha,mode=max,scope=app
 
