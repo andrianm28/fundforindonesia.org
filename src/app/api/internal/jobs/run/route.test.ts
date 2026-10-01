@@ -20,6 +20,7 @@ vi.mock('@/lib/prisma', () => ({
     campaign: { findMany: vi.fn() },
     kindAuthorisation: { findMany: vi.fn() },
     $transaction: vi.fn(),
+    $queryRaw: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -268,6 +269,7 @@ describe('POST /api/internal/jobs/run -- an authorised run', () => {
         escrowRelease: { releasedCount: 1, consideredCount: 1 },
         campaignDeadlineReminders: { attemptedCount: 1, consideredCount: 1 },
         kindAuthorisationExpiryWarnings: { attemptedCount: 1, consideredCount: 1 },
+        lateSettlementRefunds: { consideredCount: 0, attemptedCount: 0, refundedCount: 0, skippedCount: 0, failedCount: 0 },
       },
     });
   });
@@ -327,6 +329,7 @@ describe('POST /api/internal/jobs/run -- a repeated call', () => {
         escrowRelease: { releasedCount: 0, consideredCount: 0 },
         campaignDeadlineReminders: { attemptedCount: 0, consideredCount: 0 },
         kindAuthorisationExpiryWarnings: { attemptedCount: 0, consideredCount: 0 },
+        lateSettlementRefunds: { consideredCount: 0, attemptedCount: 0, refundedCount: 0, skippedCount: 0, failedCount: 0 },
       },
     });
     expect((await third.json()).result.escrowRelease.releasedCount).toBe(0);
