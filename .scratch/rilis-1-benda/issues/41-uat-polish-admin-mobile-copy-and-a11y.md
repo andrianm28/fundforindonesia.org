@@ -10,7 +10,7 @@
 
 UAT putaran 1 (2026-09-29, Chromium terhadap `main` commit `64447c7`, 62 foto
 layar) menemukan delapan cacat kecil sampai sedang; tak satu pun menghalangi
-alur inti. Owner 2026-09-29 ("ya semua"): dikerjakan sebagai satu tiket poles.
+alur inti. Owner 2026-09-29 ("ya semua"): dikerjakan sebagai satu tiket poles. Butir 8 sampai 10 berasal dari UAT putaran 2 dan digabungkan di sini atas persetujuan owner 2026-10-01.
 Bukan gerbang Fase mana pun, tetapi layar Admin adalah yang dipakai operator
 sehari-hari.
 
@@ -45,6 +45,22 @@ sehari-hari.
    komentarnya), jadi perbaikannya di sisi klien: `src/lib/hooks/useTrafficSources.ts`
    hanya memanggil rute itu bila pemakai adalah pemilik Campaign atau Admin. Jangan
    melonggarkan rutenya.
+
+8. **Bukti transfer di layar Refund yang sudah selesai** (UAT putaran 2).
+   `/admin/refunds/<id>` setelah Refund `COMPLETED` tidak menampilkan bukti
+   transfer, padahal tersimpan di `Refund.proofImage` (dan layar Payout
+   menampilkannya). Tampilkan referensi transaksi, catatan, dan bukti, dengan
+   gaya yang sama seperti layar Payout.
+9. **Angka mentah di penolakan saldo penyedia** (UAT putaran 2). Pesan
+   penolakan persetujuan Payout mencetak "100000 ... 300000"; format sebagai
+   rupiah (Rp 100.000) seperti angka lain di layar itu.
+10. **Urutan penolakan dan peringatan awal** (UAT putaran 2). (a) Admin pencatat
+    yang membalik Manual Contribution yang masih pending mendapat "tidak dapat
+    dibalikkan oleh orang yang mencatat", padahal alasan yang lebih dasar adalah
+    "belum disetujui": periksa status lebih dulu daripada pelaku, di lapisan
+    yang menjawab, tanpa melonggarkan aturan mana pun. (b) Form permintaan Payout
+    baru menampilkan blok Usage Report setelah submit; beri peringatan di awal
+    bila Campaign itu punya Payout Completed tanpa Usage Report.
 
 ## Acceptance
 
