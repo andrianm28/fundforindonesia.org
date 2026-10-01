@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { decideTripSubmission, isTripSubmissionDecision, submitTrip } from './trip';
-import { TripNotEditableError, TripNotFoundError, TripNotSubmittedError } from '@/lib/volunteer-trip-errors';
+import {
+  TripNotEditableError,
+  TripNotFoundError,
+  TripNotSubmittedError,
+  TripRejectionReasonInvalidError,
+} from '@/lib/volunteer-trip-errors';
 import { NotAuthorizedError, OwnSubjectConflictError } from '@/lib/capacity';
 import { domainErrorToHttp } from '@/lib/domain-errors';
 import { makeTripDb, tripRow } from '../../../tests/support/in-memory-trip-db';
@@ -141,9 +146,76 @@ describe('submitTrip', () => {
   });
 });
 
+const REASON = 'Dokumen kurang lengkap';
 const verifier = { userId: 'verifier-1', assignments: ['VERIFIER' as const] };
 
 describe('decideTripSubmission', () => {
+  describe('the rejection reason', () => {
+    it('is stored trimmed on the status change, in the same write as the change', async () => {
+      const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+
+      await decideTripSubmission(db.prisma as never, {
+        tripId: 'trip-1',
+        actor: verifier,
+        decision: 'reject',
+        reason: '  Itinerary belum jelas  ',
+        now: NOW,
+      });
+
+      expect(db.statusChanges).toEqual([expect.objectContaining({ toStatus: 'REJECTED', reason: 'Itinerary belum jelas' })]);
+    });
+
+    it.each([undefined, null, '', '   ', 42, 'x'.repeat(1001)])(
+      'refuses a reject with the reason %j as a 422, changing and telling nothing',
+      async (reason) => {
+        const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+
+        const error = await decideTripSubmission(db.prisma as never, {
+          tripId: 'trip-1',
+          actor: verifier,
+          decision: 'reject',
+          reason,
+          now: NOW,
+        }).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(TripRejectionReasonInvalidError);
+        expect(domainErrorToHttp(error)).toMatchObject({ status: 422, body: { code: 'TRIP_REJECTION_REASON_INVALID' } });
+        expect(db.trip().status).toBe('SUBMITTED');
+        expect(db.statusChanges).toEqual([]);
+        expect(db.notifications).toEqual([]);
+      },
+    );
+
+    it('accepts a reason of exactly the bound', async () => {
+      const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+      await decideTripSubmission(db.prisma as never, {
+        tripId: 'trip-1',
+        actor: verifier,
+        decision: 'reject',
+        reason: 'x'.repeat(1000),
+        now: NOW,
+      });
+      expect(db.trip().status).toBe('REJECTED');
+    });
+
+    it('is not needed for an approval, and one sent with it is not stored', async () => {
+      const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+
+      await decideTripSubmission(db.prisma as never, { tripId: 'trip-1', actor: verifier, decision: 'approve', now: NOW });
+      expect(db.statusChanges[0].reason).toBeNull();
+
+      const db2 = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+      await decideTripSubmission(db2.prisma as never, {
+        tripId: 'trip-1',
+        actor: verifier,
+        decision: 'approve',
+        reason: 'ignored',
+        now: NOW,
+      });
+      expect(db2.statusChanges[0].reason).toBeNull();
+    });
+  });
+
   it.each([
     ['approve', 'ACTIVE', 'SUBMISSION_APPROVED', 'Volunteer Trip Disetujui', 'Volunteer Trip Anda telah disetujui dan kini aktif'],
     ['reject', 'REJECTED', 'SUBMISSION_REJECTED', 'Volunteer Trip Ditolak', 'Volunteer Trip Anda ditolak'],
@@ -156,6 +228,7 @@ describe('decideTripSubmission', () => {
         tripId: 'trip-1',
         actor: verifier,
         decision,
+        reason: REASON,
         now: NOW,
       });
 
@@ -169,7 +242,7 @@ describe('decideTripSubmission', () => {
           toStatus: to,
           actorId: 'verifier-1',
           capacity: 'VERIFIER',
-          reason: null,
+          reason: decision === 'reject' ? REASON : null,
           createdAt: NOW,
         }),
       ]);
@@ -195,6 +268,7 @@ describe('decideTripSubmission', () => {
           tripId: 'trip-1',
           actor: verifier,
           decision,
+          reason: REASON,
           now: NOW,
         }).catch((e: unknown) => e);
 
@@ -216,6 +290,7 @@ describe('decideTripSubmission', () => {
         tripId: 'trip-1',
         actor: verifier,
         decision,
+        reason: REASON,
         now: NOW,
       }).catch((e: unknown) => e);
 
@@ -272,6 +347,7 @@ describe('decideTripSubmission', () => {
       tripId: 'trip-1',
       actor: verifier,
       decision: 'reject',
+      reason: REASON,
       now: NOW,
     }).catch((e: unknown) => e);
 
