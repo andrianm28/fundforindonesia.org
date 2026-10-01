@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done
 
 **Blocked by:** none (tiket 40 sudah di `main`)
 
