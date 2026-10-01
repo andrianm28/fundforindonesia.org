@@ -76,7 +76,7 @@ export class TripNotAcceptingBatchesError extends TripError {
 }
 
 /** The fields of a Volunteer Batch a refusal can name. */
-export type BatchField = 'endDate' | 'registrationDeadline' | 'minQuota';
+export type BatchField = 'endDate' | 'registrationDeadline' | 'minQuota' | 'attendedRegistrationIds';
 
 /**
  * A Batch's dates or quotas contradict each other, as sent or combined with

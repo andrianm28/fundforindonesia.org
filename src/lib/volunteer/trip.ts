@@ -579,20 +579,53 @@ export async function editBatch(
 }
 
 /**
- * The Trip's Fundraiser, or an Admin, marks an OPEN Batch COMPLETED once
- * its endDate has passed. Refusals: TripNotFoundError and BatchNotFoundError
- * (404); NotAuthorizedError (403); BatchNotOpenError (409), also for a
- * cancel or complete committed before this call got the lock;
- * BatchNotEndedError (400).
+ * Marks an OPEN Batch COMPLETED once its endDate has passed, recording who
+ * attended (ticket 35): `attendedRegistrationIds` are the CONFIRMED
+ * Registrations of this Batch marked present; every other Registration keeps
+ * `attended = false`, written once here and never changed after. Only the
+ * Trip's own Fundraiser may mark attendance (FUNDRAISER Capacity), so when a
+ * list is required (an empty one is a deliberate "nobody attended"), and an
+ * Admin who does not own the Trip is refused like anyone else.
+ *
+ * Moves no money: no Refund and no ledger row is written. Locks Trip, Batch,
+ * then the live Registrations, the order `cancelBatch` takes, so a
+ * settlement cannot confirm a seat between the check and the write.
+ *
+ * Refusals: TripNotFoundError and BatchNotFoundError (404);
+ * NotAuthorizedError (403); BatchNotOpenError (409), also for a cancel or
+ * complete committed before this call got the lock; BatchNotEndedError
+ * (400); BatchFieldsInvalidError on `attendedRegistrationIds` (400) for an id
+ * that is not a CONFIRMED Registration of this Batch.
  */
-export async function completeBatch(prisma: PrismaClient, params: BatchOperation): Promise<BatchResult> {
-  const { tripId, batchId, actor, now = new Date() } = params;
+export async function completeBatch(
+  prisma: PrismaClient,
+  params: BatchOperation & { attendedRegistrationIds: readonly string[] },
+): Promise<BatchResult> {
+  const { tripId, batchId, actor, attendedRegistrationIds, now = new Date() } = params;
   return prisma.$transaction(async (tx: Tx) => {
     const trip = await lockTrip(tx, tripId, now);
-    judgeBatchAuthority(trip, actor);
+    judgeCapacity(trip, actor, StatusChangeCapacity.FUNDRAISER);
     const batch = await lockOpenBatch(tx, trip, batchId);
     if (batch.endDate > now) throw new BatchNotEndedError();
-    return { batch: await writeOpenBatch(tx, batch, { status: VolunteerBatchStatus.COMPLETED }) };
+
+    const attended = [...new Set(attendedRegistrationIds)];
+    // Always taken, even for an empty list, as cancelBatch takes it.
+    const live = await lockLiveRegistrations(tx, batch.id);
+    const confirmed = new Set(live.filter((r) => r.status === RegistrationStatus.CONFIRMED).map((r) => r.id));
+    if (!attended.every((id) => confirmed.has(id))) {
+      throw new BatchFieldsInvalidError(
+        'attendedRegistrationIds',
+        'Daftar hadir hanya boleh berisi Registration CONFIRMED pada Batch ini',
+      );
+    }
+    const completed = await writeOpenBatch(tx, batch, { status: VolunteerBatchStatus.COMPLETED });
+    if (attended.length > 0) {
+      await tx.registration.updateMany({
+        where: { id: { in: attended }, batchId: batch.id, status: RegistrationStatus.CONFIRMED },
+        data: { attended: true },
+      });
+    }
+    return { batch: completed };
   });
 }
 

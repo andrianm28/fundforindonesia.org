@@ -82,6 +82,8 @@ export type RegistrationRow = {
   batchId: string;
   status: RegistrationStatus;
   holdExpiresAt: Date;
+  /** Set once, by completeBatch (ticket 35); false until then. */
+  attended: boolean;
 };
 
 /** A Trip Fee Payment: always a Registration's, never a Donation's. */
@@ -219,6 +221,7 @@ export function registrationRow(overrides: Partial<RegistrationRow> = {}): Regis
     batchId: 'batch-1',
     status: 'CONFIRMED',
     holdExpiresAt: new Date('2026-10-01T00:00:00Z'),
+    attended: false,
     ...overrides,
   };
 }
@@ -367,8 +370,8 @@ export function makeTripDb(seed: Seed = {}) {
             ...(include?.payment ? { payment: paymentOf(data, row.id) } : {}),
           };
         },
-        create: async ({ data }: { data: Omit<RegistrationRow, 'id'> }) => {
-          const row: RegistrationRow = { id: `registration-${nextId++}`, ...data };
+        create: async ({ data }: { data: Omit<RegistrationRow, 'id' | 'attended'> }) => {
+          const row: RegistrationRow = { id: `registration-${nextId++}`, attended: false, ...data };
           getData().registrations.push(row);
           return { ...row };
         },

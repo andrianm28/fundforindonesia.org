@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 **Blocked by:** 33 (komponen tampilan Trip dan Batch yang dipakai ulang); 34
 tidak memblokir kode tetapi Trip baru belum bisa aktif tanpanya.

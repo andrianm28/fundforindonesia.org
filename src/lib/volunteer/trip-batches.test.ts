@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cancelBatch, completeBatch, createBatch, editBatch } from './trip';
+import { cancelBatch, completeBatch, createBatch, editBatch, type TripActor } from './trip';
 import {
   BatchFieldsInvalidError,
   BatchMinQuotaMetError,
@@ -138,6 +138,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: fundraiser,
+      attendedRegistrationIds: [],
       now: NOW,
     });
 
@@ -146,12 +147,19 @@ describe('completeBatch', () => {
     expect(db.rowLocks).toEqual(['VolunteerTrip:trip-1', 'VolunteerBatch:batch-1']);
   });
 
-  it('lets an Admin who does not own the Trip complete a Batch', async () => {
+  it('refuses an Admin who does not own the Trip with a 403, leaving the Batch OPEN', async () => {
     const db = makeTripDb({ trips: [tripRow()], batches: [ended] });
 
-    await completeBatch(db.prisma as never, { tripId: 'trip-1', batchId: 'batch-1', actor: admin, now: NOW });
+    const error = await completeBatch(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      actor: admin,
+      attendedRegistrationIds: [],
+      now: NOW,
+    }).catch((e: unknown) => e);
 
-    expect(db.batch().status).toBe('COMPLETED');
+    expect(error).toBeInstanceOf(NotAuthorizedError);
+    expect(db.batch().status).toBe('OPEN');
   });
 
   it('refuses someone who is neither the Fundraiser nor an Admin with a 403, before locking the Batch', async () => {
@@ -161,6 +169,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: stranger,
+      attendedRegistrationIds: [],
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -179,6 +188,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: fundraiser,
+      attendedRegistrationIds: [],
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -195,6 +205,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: fundraiser,
+      attendedRegistrationIds: [],
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -210,6 +221,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: fundraiser,
+      attendedRegistrationIds: [],
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -228,11 +240,144 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: fundraiser,
+      attendedRegistrationIds: [],
       now: NOW,
     }).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(BatchNotOpenError);
     expect(db.batch().status).toBe('CANCELLED');
+  });
+});
+
+describe('completeBatch attendance (ticket 35)', () => {
+  const ended = batchRow({ endDate: new Date('2026-09-20T00:00:00Z') });
+  const confirmed = (id: string, overrides = {}) => registrationRow({ id, volunteerId: `v-${id}`, ...overrides });
+  const seed = () =>
+    makeTripDb({
+      trips: [tripRow({ status: 'ACTIVE' })],
+      batches: [ended],
+      registrations: [
+        confirmed('r1'),
+        confirmed('r2'),
+        confirmed('r3'),
+        confirmed('r4', { status: 'CANCELLED' }),
+      ],
+      payments: [paymentRow({ id: 'p1', registrationId: 'r1' })],
+    });
+  const complete = (db: ReturnType<typeof seed>, ids: string[], actor: TripActor = fundraiser) =>
+    completeBatch(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      actor,
+      attendedRegistrationIds: ids,
+      now: NOW,
+    });
+  const attendedIds = (db: ReturnType<typeof seed>) =>
+    db.registrations.filter((r) => r.attended).map((r) => r.id).sort();
+
+  it('marks only the listed CONFIRMED Registrations attended; the rest stay false', async () => {
+    const db = seed();
+    await complete(db, ['r1', 'r3']);
+    expect(attendedIds(db)).toEqual(['r1', 'r3']);
+    expect(db.batch().status).toBe('COMPLETED');
+  });
+
+  it('an empty list from the owner means nobody attended, and still locks the live Registrations', async () => {
+    const db = seed();
+    await complete(db, []);
+    expect(attendedIds(db)).toEqual([]);
+    expect(db.batch().status).toBe('COMPLETED');
+    expect(db.rowLocks).toEqual([
+      'VolunteerTrip:trip-1',
+      'VolunteerBatch:batch-1',
+      'Registration:r1',
+      'Registration:r2',
+      'Registration:r3',
+    ]);
+  });
+
+  it('locks the Trip, the Batch, then the live Registrations', async () => {
+    const db = seed();
+    await complete(db, ['r1']);
+    expect(db.rowLocks).toEqual([
+      'VolunteerTrip:trip-1',
+      'VolunteerBatch:batch-1',
+      'Registration:r1',
+      'Registration:r2',
+      'Registration:r3',
+    ]);
+  });
+
+  it('writes no Refund and no ledger row', async () => {
+    const db = seed();
+    await complete(db, ['r1', 'r2']);
+    expect(db.refunds).toEqual([]);
+    expect(db.ledgerEntries).toEqual([]);
+  });
+
+  it.each([
+    ['a cancelled Registration', 'r4'],
+    ['an unknown id', 'nope'],
+  ])('refuses %s in the list with a 400, changing nothing', async (_, id) => {
+    const db = seed();
+    const error = await complete(db, ['r1', id]).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BatchFieldsInvalidError);
+    expect((error as BatchFieldsInvalidError).field).toBe('attendedRegistrationIds');
+    expect(attendedIds(db)).toEqual([]);
+    expect(db.batch().status).toBe('OPEN');
+  });
+
+  it('refuses a Registration of another Batch', async () => {
+    const db = makeTripDb({
+      trips: [tripRow()],
+      batches: [ended, batchRow({ id: 'batch-2', endDate: ended.endDate })],
+      registrations: [confirmed('r1'), confirmed('x1', { batchId: 'batch-2' })],
+    });
+    const error = await complete(db as never, ['x1']).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BatchFieldsInvalidError);
+    expect(attendedIds(db as never)).toEqual([]);
+  });
+
+  it('lets only the Trip\'s own Fundraiser mark attendance: an Admin who does not own it is refused', async () => {
+    const db = seed();
+    const error = await complete(db, ['r1'], admin).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(NotAuthorizedError);
+    expect(attendedIds(db)).toEqual([]);
+    expect(db.batch().status).toBe('OPEN');
+  });
+
+  it('refuses a stranger and an Admin-owner mix-up the same way: a non-owner holding ADMIN is still refused', async () => {
+    const db = seed();
+    const error = await complete(db, [], stranger).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(NotAuthorizedError);
+  });
+
+  it('an Admin who owns the Trip marks attendance as its Fundraiser', async () => {
+    const db = makeTripDb({
+      trips: [tripRow({ fundraiserId: 'admin-1' })],
+      batches: [ended],
+      registrations: [confirmed('r1')],
+    });
+    await complete(db as never, ['r1'], admin);
+    expect(attendedIds(db as never)).toEqual(['r1']);
+  });
+
+  it('refuses before the endDate even with a list, marking no one', async () => {
+    const db = makeTripDb({ trips: [tripRow()], batches: [batchRow()], registrations: [confirmed('r1')] });
+    const error = await complete(db as never, ['r1']).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BatchNotEndedError);
+    expect(attendedIds(db as never)).toEqual([]);
+  });
+
+  it('does not change attendance on a Batch that is already COMPLETED', async () => {
+    const db = makeTripDb({
+      trips: [tripRow()],
+      batches: [{ ...ended, status: 'COMPLETED' }],
+      registrations: [confirmed('r1', { attended: true }), confirmed('r2')],
+    });
+    const error = await complete(db as never, ['r2']).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BatchNotOpenError);
+    expect(attendedIds(db as never)).toEqual(['r1']);
   });
 });
 
