@@ -306,4 +306,80 @@ describe.skipIf(!DATABASE_URL)('sweepStuckLateSettlementRefunds -- against real 
     );
     expect(await prisma.ledgerEntry.count({ where: { refundId: { in: refundIds }, legIndex: 0 } })).toBe(6);
   }, 60_000);
+
+  /** A Registration with a Payment and a real clock: nothing is back-dated. */
+  async function makeLive(ctx: { tripId: string; batchId: string }, status: 'HOLD' | 'CONFIRMED') {
+    const n = next();
+    const volunteerId = await makeUser();
+    const registration = await prisma.registration.create({
+      data: { volunteerId, batchId: ctx.batchId, status, holdExpiresAt: new Date(Date.now() + 30 * 60 * 1000) },
+    });
+    const payment = await prisma.payment.create({
+      data: {
+        registrationId: registration.id,
+        provider: 'mock',
+        method: 'bank_transfer',
+        providerRef: `live-${process.pid}-${n}`,
+        amount: 500_000,
+        status: status === 'CONFIRMED' ? 'PAID' : 'PENDING',
+      },
+    });
+    return { registrationId: registration.id, paymentId: payment.id, volunteerId };
+  }
+
+  async function settle(ctx: { tripId: string }, paymentId: string) {
+    await prisma.payment.update({ where: { id: paymentId }, data: { status: 'PAID', paidAt: new Date(), settledAt: new Date() } });
+    await prisma.$transaction(async (tx) => {
+      await postTransaction(
+        tx,
+        paymentSettledLegs({ subject: { type: 'trip', tripId: ctx.tripId }, grossAmount: 500_000, providerFee: 0 }),
+        { paymentId, transactionId: `settle-${paymentId}` },
+      );
+    });
+  }
+
+  it('real cancelRegistration inside 3 days: a paid Volunteer cancel with no refund is NOT swept; a cancelled HOLD that settles late IS', async () => {
+    await sweep(new Date(), { limit: 1000 });
+    const { cancelRegistration } = await import('@/lib/volunteer/trip');
+    const ctx = await makeBatch(1);
+
+    // Paid first, then the Volunteer cancels: tier owes 0, so no Refund by policy.
+    const paid = await makeLive(ctx, 'CONFIRMED');
+    await settle(ctx, paid.paymentId);
+    const cancelledPaid = await cancelRegistration(prisma, {
+      registrationId: paid.registrationId,
+      actor: { userId: paid.volunteerId },
+    });
+    expect(cancelledPaid.refund).toBeNull();
+
+    // Cancelled while still HOLD, then the Trip Fee settles late.
+    const held = await makeLive(ctx, 'HOLD');
+    await cancelRegistration(prisma, { registrationId: held.registrationId, actor: { userId: held.volunteerId } });
+    await settle(ctx, held.paymentId);
+
+    const result = await sweep(new Date(), { limit: 1000 });
+
+    expect(result).toMatchObject({ attemptedCount: 1, refundedCount: 1, failedCount: 0 });
+    expect(await refundsOf(paid.paymentId)).toHaveLength(0);
+    const refunds = await refundsOf(held.paymentId);
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0].amount).toBe(500_000);
+  }, 60_000);
+
+  it('two overlapping refundLateSettlement calls on one Registration create exactly one Refund', async () => {
+    const { refundLateSettlement } = await import('@/lib/volunteer/trip');
+    const stuck = await makeRegistration(await makeBatch(), 'EXPIRED');
+
+    const outcomes = await Promise.allSettled([
+      refundLateSettlement(prisma, { registrationId: stuck.registrationId }),
+      refundLateSettlement(prisma, { registrationId: stuck.registrationId }),
+    ]);
+
+    expect(await refundsOf(stuck.paymentId)).toHaveLength(1);
+    const fulfilled = outcomes.filter((o) => o.status === 'fulfilled');
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    for (const o of outcomes) {
+      if (o.status === 'rejected') expect(o.reason?.constructor?.name).toBe('RefundExceedsRemainingError');
+    }
+  }, 60_000);
 });
