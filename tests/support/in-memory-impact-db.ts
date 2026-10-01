@@ -51,6 +51,13 @@ export type PayoutRow = {
   status: string;
 };
 
+export type UsageReportRow = {
+  payoutId: string;
+  beneficiaryCount: number;
+  /** An Admin's "dipertanyakan" marker; the report is still a report. */
+  disputedAt?: Date | null;
+};
+
 export type LedgerRow = {
   transactionId: string;
   account: string;
@@ -121,6 +128,7 @@ export type ImpactDbData = {
   payments: PaymentRow[];
   refunds: RefundRow[];
   payouts: PayoutRow[];
+  usageReports: UsageReportRow[];
   ledgerEntries: LedgerRow[];
 };
 
@@ -291,6 +299,7 @@ export function makeImpactDb(overrides: Partial<ImpactDbData> = {}) {
     payments: [],
     refunds: [],
     payouts: [],
+    usageReports: [],
     ledgerEntries: [],
     ...overrides,
   };
@@ -332,6 +341,17 @@ export function makeImpactDb(overrides: Partial<ImpactDbData> = {}) {
     payout: {
       findMany: async (args: { where?: Row } = {}) =>
         data.payouts.filter((p) => matches(p as Row, args.where, (key) => (p as Row)[key])),
+    },
+    usageReport: {
+      // Only the aggregate the Impact reader asks for: the sum of
+      // beneficiaryCount and the number of reports behind it.
+      aggregate: async (args: { where?: Row } = {}) => {
+        const rows = data.usageReports.filter((r) => matches(r as Row, args.where, (key) => (r as Row)[key]));
+        return {
+          _count: { _all: rows.length },
+          _sum: { beneficiaryCount: rows.length === 0 ? null : rows.reduce((t, r) => t + r.beneficiaryCount, 0) },
+        };
+      },
     },
     ledgerEntry: {
       groupBy: ledgerGroupBy(data.ledgerEntries, {

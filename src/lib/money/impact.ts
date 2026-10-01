@@ -58,10 +58,14 @@ import type { PrismaClient } from '@/generated/prisma/client';
  *   no longer cover because its money had already been paid out. Per the PRD
  *   this does NOT reduce the disbursed line; it is reported here instead.
  *
- * And two figures read zero until the models behind them exist, rather than
- * being guessed at: `beneficiaries` (Usage Report, a later ticket) and
- * `manualContributions` (a Manual Contribution no Admin has recorded, or only
- * ones that have since been reversed). `notes` carries both caveats out to the
+ * `beneficiaries` is not money and joins no rupiah total: it is the sum of
+ * `UsageReport.beneficiaryCount` over the Usage Reports of the same
+ * (non-demo, location-filtered) Campaigns' Payouts (ticket 42). A report an
+ * Admin marked "dipertanyakan" still counts; it is shown publicly with its
+ * reason, and hiding its figure here would be a rule nobody asked for.
+ *
+ * `manualContributions` reads zero when no Admin has recorded one, or only
+ * ones that have since been reversed. `notes` carries the caveat out to the
  * page so a visitor is told why a number is zero.
  */
 
@@ -154,7 +158,7 @@ export interface ImpactBreakdown {
    * is a later ticket).
    */
   manualContributions: number;
-  /** Zero until Usage Report exists. */
+  /** Sum of beneficiaryCount over the Usage Reports in scope; zero while there are none. */
   beneficiaries: number;
   /** The location filter as asked for, or null for the whole platform. */
   location: string | null;
@@ -246,6 +250,18 @@ export async function impactBreakdown(
       select: { id: true, amount: true, status: true },
     });
     const payoutIds = payouts.map((p) => p.id);
+
+    // One Usage Report per Payout (UsageReport.payoutId is unique), so summing
+    // over the in-scope Payouts cannot count a report twice. Scoped through
+    // payoutIds so it follows the same demo and location filter as every other
+    // line on the page.
+    const usageReports = await tx.usageReport.aggregate({
+      where: { payoutId: { in: payoutIds } },
+      _sum: { beneficiaryCount: true },
+      _count: { _all: true },
+    });
+    const beneficiaries = usageReports._sum.beneficiaryCount ?? 0;
+    const hasUsageReport = usageReports._count._all > 0;
 
     // What each Campaign's own pools hold, and what a Refund put back into one.
     // The second query is the shortfall: refundApprovedLegs tops a drained
@@ -397,12 +413,12 @@ export async function impactBreakdown(
       // Program-targeted money is deliberately not here -- see the groupBy
       // above; it has no Campaign to be part of.
       manualContributions,
-      // Usage Report (CONTEXT.md) has no model yet either, so no beneficiary
-      // has ever been counted. The PRD expects zero here until Fase 2.
-      beneficiaries: 0,
+      beneficiaries,
       location,
       notes: [
-        'Penerima manfaat dihitung dari Usage Report; belum ada satu pun Usage Report, jadi angkanya nol.',
+        hasUsageReport
+          ? 'Penerima manfaat dihitung dari Usage Report yang sudah dikirim Fundraiser; Usage Report yang ditandai dipertanyakan tetap dihitung.'
+          : 'Penerima manfaat dihitung dari Usage Report; belum ada satu pun Usage Report, jadi angkanya nol.',
         'Manual Contribution adalah dana yang masuk di luar payment gateway, dicatat Admin dengan bukti dan disetujui Admin kedua; masuk ke terkumpul tanpa biaya provider maupun platform, dan yang sudah dibalikkan tidak dihitung.',
         'Platform Fee dan Provider Fee adalah uang platform dan penyedia, bukan bagian dari dana Campaign.',
         // The disclosure the returned line cannot make for itself. The label has
