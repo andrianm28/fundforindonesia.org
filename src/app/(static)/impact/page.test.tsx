@@ -21,13 +21,14 @@ import ImpactPage from './page';
 
 const CAMPAIGN = { id: 'campaign-1', title: 'Pemulihan Gudang', isDemo: false, location: 'Jawa Barat' };
 
-function settledOnly(): Partial<ImpactDbData> {
+function settledOnly(overrides: Partial<ImpactDbData> = {}): Partial<ImpactDbData> {
   const ledger = ledgerFixture();
   ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
   return {
     campaigns: [CAMPAIGN],
     payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
     ledgerEntries: ledger.rows,
+    ...overrides,
   };
 }
 
@@ -257,6 +258,20 @@ describe('ImpactPage', () => {
 
     expect(screen.getByTestId('impact-beneficiaries').textContent).toContain('0 orang');
     expect(screen.getAllByText(/Usage Report/).length).toBeGreaterThan(0);
+  });
+
+  it('shows the beneficiaries summed from Usage Reports', async () => {
+    holder.db = makeImpactDb(
+      settledOnly({
+        payouts: [{ id: 'payout-1', campaignId: 'campaign-1', amount: 50_000, status: 'COMPLETED' }],
+        usageReports: [{ payoutId: 'payout-1', beneficiaryCount: 150 }],
+      }),
+    );
+
+    await renderPage();
+
+    expect(screen.getByTestId('impact-beneficiaries').textContent).toContain('150 orang');
+    expect(screen.queryByText(/belum ada satu pun Usage Report/)).toBeNull();
   });
 
   it('filters by location, and says which location is being shown', async () => {

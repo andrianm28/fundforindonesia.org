@@ -620,13 +620,79 @@ describe('GET /api/impact -- who the money is for, and what the page must not cl
     expect(sumOf(lines(raw))).toBe(100_000);
   });
 
-  it('reads zero beneficiaries until Usage Reports exist, and says why in the payload', async () => {
+  it('reads zero beneficiaries with the old note while no Usage Report exists', async () => {
     holder.db = makeImpactDb(settledOnly());
 
     const body = await getBreakdown();
 
     expect(body.beneficiaries).toBe(0);
-    expect((body.notes as string[]).some((note) => note.includes('Usage Report'))).toBe(true);
+    expect((body.notes as string[]).some((note) => note.includes('belum ada satu pun Usage Report'))).toBe(true);
+  });
+
+  describe('beneficiaries from Usage Reports (ticket 42)', () => {
+    const OTHER = { id: 'campaign-2', title: 'Sumur Desa', isDemo: false, location: 'Nusa Tenggara' };
+    const payout = (id: string, campaignId: string) => ({ id, campaignId, amount: 50_000, status: 'COMPLETED' });
+
+    it('sums beneficiaryCount over every Usage Report and drops the "no report yet" note', async () => {
+      holder.db = makeImpactDb(
+        settledOnly({
+          payouts: [payout('payout-1', 'campaign-1'), payout('payout-2', 'campaign-1')],
+          usageReports: [
+            { payoutId: 'payout-1', beneficiaryCount: 150 },
+            { payoutId: 'payout-2', beneficiaryCount: 40 },
+          ],
+        }),
+      );
+
+      const body = await getBreakdown();
+
+      expect(body.beneficiaries).toBe(190);
+      const notes = body.notes as string[];
+      expect(notes.some((note) => note.includes('belum ada satu pun Usage Report'))).toBe(false);
+      expect(notes.some((note) => note.includes('Penerima manfaat dihitung dari Usage Report'))).toBe(true);
+    });
+
+    it('counts a Usage Report an Admin marked as disputed', async () => {
+      holder.db = makeImpactDb(
+        settledOnly({
+          payouts: [payout('payout-1', 'campaign-1')],
+          usageReports: [{ payoutId: 'payout-1', beneficiaryCount: 150, disputedAt: new Date('2026-09-30') }],
+        }),
+      );
+
+      expect((await getBreakdown()).beneficiaries).toBe(150);
+    });
+
+    it('leaves a Demo Campaign\'s Usage Reports out', async () => {
+      holder.db = makeImpactDb(
+        settledOnly({
+          campaigns: [CAMPAIGN, { id: 'campaign-demo', title: 'Contoh', isDemo: true, location: 'Jawa Barat' }],
+          payouts: [payout('payout-1', 'campaign-1'), payout('payout-demo', 'campaign-demo')],
+          usageReports: [
+            { payoutId: 'payout-1', beneficiaryCount: 150 },
+            { payoutId: 'payout-demo', beneficiaryCount: 9_999 },
+          ],
+        }),
+      );
+
+      expect((await getBreakdown()).beneficiaries).toBe(150);
+    });
+
+    it('follows the location filter', async () => {
+      holder.db = makeImpactDb(
+        settledOnly({
+          campaigns: [CAMPAIGN, OTHER],
+          payouts: [payout('payout-1', 'campaign-1'), payout('payout-2', 'campaign-2')],
+          usageReports: [
+            { payoutId: 'payout-1', beneficiaryCount: 150 },
+            { payoutId: 'payout-2', beneficiaryCount: 70 },
+          ],
+        }),
+      );
+
+      expect((await getBreakdown('?location=nusa')).beneficiaries).toBe(70);
+      expect((await getBreakdown()).beneficiaries).toBe(220);
+    });
   });
 
   it('fails loudly rather than answering with numbers that do not reconcile', async () => {
