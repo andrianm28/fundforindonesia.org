@@ -37,7 +37,11 @@ services:
       MOCK_MIDTRANS_SERVER_KEY: ${MOCK_MIDTRANS_SERVER_KEY:?set MOCK_MIDTRANS_SERVER_KEY in .env}
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
       # Baked into the client bundle at build time, so changing it needs a
-      # rebuild, not a restart. Defaults to off.
+      # rebuild, not a restart. NOTE: the `build:` above passes no args, so an
+      # image built through this compose file always has both flags off
+      # (Dockerfile ARG default "false"); the values here only reach the
+      # server process at runtime, where the inlined build value wins. Turn a
+      # flag on by building with --build-arg (cd.yml does, from repo variables).
       NEXT_PUBLIC_DONATIONS_ENABLED: ${NEXT_PUBLIC_DONATIONS_ENABLED:-false}
       NEXT_PUBLIC_VOLUNTEER_ENABLED: ${NEXT_PUBLIC_VOLUNTEER_ENABLED:-false}
       # These three do fall back to empty, unlike the key above, and that is

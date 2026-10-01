@@ -69,3 +69,25 @@ export async function getVolunteerRegistration(
     refunds: r.payment?.refunds ?? [],
   };
 }
+
+/**
+ * The Volunteer's own Registration on this Batch that still occupies a seat
+ * (CONFIRMED, or a HOLD whose window has not passed), or null. holdRegistration
+ * refuses a second one with AlreadyRegisteredError; the summary page uses this
+ * to point at the existing one instead of offering a button that ends there.
+ */
+export async function findOwnLiveRegistration(
+  prisma: PrismaClient,
+  params: { batchId: string; userId: string; now: Date },
+): Promise<{ id: string; status: 'HOLD' | 'CONFIRMED' } | null> {
+  const { batchId, userId, now } = params;
+  const found = await prisma.registration.findFirst({
+    where: {
+      batchId,
+      volunteerId: userId,
+      OR: [{ status: 'CONFIRMED' }, { status: 'HOLD', holdExpiresAt: { gt: now } }],
+    },
+    select: { id: true, status: true },
+  });
+  return found && (found.status === 'HOLD' || found.status === 'CONFIRMED') ? { id: found.id, status: found.status } : null;
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { refundTiers, formatBoundary } from './refund-table';
+import { refundTiers, formatBoundary, formatWibDate } from './refund-table';
 import { tripFeeRefundAmount } from './refunds';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -40,5 +40,17 @@ describe('refundTiers', () => {
 describe('formatBoundary', () => {
   it('renders in WIB, deterministic regardless of server timezone', () => {
     expect(formatBoundary(new Date('2026-12-31T20:30:00Z'))).toBe('1 Jan 2027 03.30 WIB');
+  });
+});
+
+describe('formatWibDate', () => {
+  it('shows the same WIB date as the tier boundary for a Batch starting at midnight WIB, in any process timezone', () => {
+    // 20 Okt 2026 00:00 WIB = 19 Okt 17:00 UTC: a process-timezone getDate() in UTC would say 19.
+    const start = new Date('2026-10-19T17:00:00Z');
+    expect(formatWibDate(start)).toBe('20 Okt 2026');
+    const [full] = refundTiers({ startDate: start, tripFee: 100_000 });
+    expect(full.window).toContain('Sampai 6 Okt 2026 00.00 WIB');
+    expect(formatWibDate(new Date(start.getTime() - 14 * DAY))).toBe('6 Okt 2026');
+    expect(formatWibDate(new Date('2026-12-31T20:30:00Z'))).toBe('1 Jan 2027');
   });
 });

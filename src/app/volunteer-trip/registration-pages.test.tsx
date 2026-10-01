@@ -9,7 +9,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 const catalog = vi.hoisted(() => ({ getTripDetail: vi.fn() }));
 vi.mock('@/lib/volunteer/catalog', () => catalog);
-const view = vi.hoisted(() => ({ getVolunteerRegistration: vi.fn() }));
+const view = vi.hoisted(() => ({ getVolunteerRegistration: vi.fn(), findOwnLiveRegistration: vi.fn() }));
 vi.mock('@/lib/volunteer/registration-view', () => view);
 const auth = vi.hoisted(() => ({ getServerSession: vi.fn() }));
 vi.mock('@/lib/auth', () => auth);
@@ -50,6 +50,8 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', 'true');
   catalog.getTripDetail.mockReset();
   view.getVolunteerRegistration.mockReset();
+  view.findOwnLiveRegistration.mockReset();
+  view.findOwnLiveRegistration.mockResolvedValue(null);
   auth.getServerSession.mockReset();
   auth.getServerSession.mockResolvedValue({ user: { id: 'v1' } });
 });
@@ -96,6 +98,27 @@ describe('Registration summary page', () => {
     const button = screen.getByRole('button', { name: 'Daftar dan bayar' });
     const table = screen.getByRole('table');
     expect(table.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('points a Volunteer who already holds a seat here to that Registration instead of the pay button', async () => {
+    catalog.getTripDetail.mockResolvedValue(trip());
+    view.findOwnLiveRegistration.mockResolvedValue({ id: 'reg-9', status: 'HOLD' });
+    render(await SummaryPage(summaryParams));
+    expect(screen.getByRole('link', { name: 'Lihat Registrasi' })).toHaveAttribute('href', '/volunteer-trip/registrasi/reg-9');
+    expect(screen.queryByRole('button', { name: /Daftar dan bayar/ })).toBeNull();
+    expect(view.findOwnLiveRegistration).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ batchId: 'b1', userId: 'v1' }),
+    );
+  });
+
+  it('shows Batch dates in WIB: a Batch starting at midnight WIB shows that WIB date', async () => {
+    const t = trip();
+    t.batches[0].startDate = new Date('2026-10-19T17:00:00Z');
+    catalog.getTripDetail.mockResolvedValue(t);
+    render(await SummaryPage(summaryParams));
+    expect(screen.getByText(/Batch 20 Okt 2026 -/)).toBeInTheDocument();
+    expect(screen.getAllByRole('row')[1].textContent).toContain('Sampai 6 Okt 2026 00.00 WIB');
   });
 
   it('offers no pay button for a full Batch', async () => {

@@ -5,7 +5,7 @@ import { getServerSession } from '@/lib/auth';
 import { REGISTRATION_STATUS_LABELS, REFUND_STATUS_LABELS } from '@/lib/volunteer/status-labels';
 import { getVolunteerRegistration } from '@/lib/volunteer/registration-view';
 import { formatRupiah } from '@/lib/utils/currency';
-import { formatIndonesianDate } from '@/lib/utils/date';
+import { formatWibDate } from '@/lib/volunteer/refund-table';
 import { HoldCountdown } from '../../_components/HoldCountdown';
 import { CancelRegistrationButton } from '../../_components/CancelRegistrationButton';
 
@@ -45,7 +45,7 @@ export default async function RegistrationPage({ params }: PageProps) {
         <p className="font-medium text-text">{view.trip.title}</p>
         <p className="text-sm text-text-secondary">{view.trip.destination}</p>
         <p className="text-sm text-text-secondary">
-          Batch {formatIndonesianDate(view.batch.startDate)} - {formatIndonesianDate(view.batch.endDate)}
+          Batch {formatWibDate(view.batch.startDate)} - {formatWibDate(view.batch.endDate)}
         </p>
         <p className="text-sm text-text-secondary">Trip Fee {formatRupiah(view.tripFee)}</p>
         <p className="text-sm">

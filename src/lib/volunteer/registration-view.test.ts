@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getVolunteerRegistration } from './registration-view';
+import { findOwnLiveRegistration, getVolunteerRegistration } from './registration-view';
 
 const NOW = new Date('2026-10-01T10:00:00Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -41,5 +41,23 @@ describe('getVolunteerRegistration', () => {
       cancelRefundAmount: 0,
       paidAmount: null,
     });
+  });
+});
+
+describe('findOwnLiveRegistration', () => {
+  it('asks only for the Volunteer own CONFIRMED or unexpired HOLD on the Batch, and returns its id', async () => {
+    const findFirst = vi.fn().mockResolvedValue({ id: 'reg-3', status: 'HOLD' });
+    const found = await findOwnLiveRegistration({ registration: { findFirst } } as never, { batchId: 'b1', userId: 'vol-1', now: NOW });
+    expect(found).toEqual({ id: 'reg-3', status: 'HOLD' });
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { batchId: 'b1', volunteerId: 'vol-1', OR: [{ status: 'CONFIRMED' }, { status: 'HOLD', holdExpiresAt: { gt: NOW } }] },
+      }),
+    );
+  });
+
+  it('returns null when there is none', async () => {
+    const findFirst = vi.fn().mockResolvedValue(null);
+    expect(await findOwnLiveRegistration({ registration: { findFirst } } as never, { batchId: 'b1', userId: 'v', now: NOW })).toBeNull();
   });
 });

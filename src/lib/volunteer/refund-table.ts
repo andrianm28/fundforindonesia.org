@@ -11,12 +11,18 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
 
+/** "6 Okt 2026": the WIB calendar date, whatever timezone the process runs in. */
+export function formatWibDate(date: Date): string {
+  const wib = new Date(date.getTime() + WIB_OFFSET_MS);
+  return `${wib.getUTCDate()} ${MONTHS[wib.getUTCMonth()]} ${wib.getUTCFullYear()}`;
+}
+
 /** "6 Okt 2026 07.00 WIB": always WIB, whatever timezone the server runs in. */
 export function formatBoundary(date: Date): string {
   const wib = new Date(date.getTime() + WIB_OFFSET_MS);
   const hh = String(wib.getUTCHours()).padStart(2, '0');
   const mm = String(wib.getUTCMinutes()).padStart(2, '0');
-  return `${wib.getUTCDate()} ${MONTHS[wib.getUTCMonth()]} ${wib.getUTCFullYear()} ${hh}.${mm} WIB`;
+  return `${formatWibDate(date)} ${hh}.${mm} WIB`;
 }
 
 export type RefundTierKey = 'FULL' | 'HALF' | 'NONE';
