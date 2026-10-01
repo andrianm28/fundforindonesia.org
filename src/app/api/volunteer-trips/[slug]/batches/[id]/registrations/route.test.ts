@@ -67,6 +67,7 @@ function routeContext(slug = 'some-slug', id = 'batch-1') {
 describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', 'true');
     mockDonationsEnabled.mockReturnValue(true);
     mockSandboxInProductionReason.mockReturnValue(null);
     mockGetServerSession.mockResolvedValue({ user: { id: 'volunteer-1' } });
@@ -85,6 +86,26 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
       tripFeeAmount: 1_500_000,
     });
   });
+
+  it.each([[undefined], ['false'], ['TRUE'], ['1']])(
+    'refuses with a clear message when NEXT_PUBLIC_VOLUNTEER_ENABLED is %s (ticket 36), before the session, the Trip or any hold',
+    async (value) => {
+      if (value === undefined) vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', '');
+      else vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', value);
+      const createCharge = vi.fn();
+      mockGetPaymentProvider.mockReturnValue({ name: 'sumopod', method: 'qris_redirect', createCharge });
+
+      const response = await POST(createRequest(), routeContext());
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error).toMatch(/Pendaftaran Volunteer Trip belum dibuka/);
+      expect(mockGetServerSession).not.toHaveBeenCalled();
+      expect(mockTripFindUnique).not.toHaveBeenCalled();
+      expect(mockHoldRegistration).not.toHaveBeenCalled();
+      expect(createCharge).not.toHaveBeenCalled();
+      expect(mockPaymentCreate).not.toHaveBeenCalled();
+    },
+  );
 
   it('refuses to charge the Trip Fee when the money kill switch is off, holding nothing', async () => {
     // Owner decision 2026-09-28: Trip Fee is stopped by the SAME switch as

@@ -56,7 +56,10 @@ beforeEach(() => {
   auth.getServerSession.mockReset();
   auth.getServerSession.mockResolvedValue(null);
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllEnvs();
+});
 
 describe('/volunteer-trip/[slug]', () => {
   it('is rendered per request, since it reads the database', () => {
@@ -108,12 +111,26 @@ describe('/volunteer-trip/[slug]', () => {
     expect(screen.getByText('Pendaftaran ditutup')).toBeInTheDocument();
   });
 
-  it('shows no Daftar button before ticket 36', async () => {
+  it('shows no Daftar button while NEXT_PUBLIC_VOLUNTEER_ENABLED is off (the default)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', '');
     catalog.getTripDetail.mockResolvedValue(detail([batch({})]));
 
     await renderPage();
 
     expect(screen.queryByText(/^Daftar/)).toBeNull();
+  });
+
+  it('with the flag on, links Daftar to the summary page of an OPEN Batch only', async () => {
+    vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', 'true');
+    catalog.getTripDetail.mockResolvedValue(
+      detail([batch({}), batch({ id: 'full', seatsLeft: 0, availability: 'FULL' })]),
+    );
+
+    await renderPage();
+
+    const links = screen.getAllByRole('link', { name: 'Daftar' });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', '/volunteer-trip/mengajar-di-pulau-terpencil/daftar/b1');
   });
 
   it('sends a signed-out visitor to the sign-in page, coming back to this page', async () => {

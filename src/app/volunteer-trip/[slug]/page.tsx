@@ -7,6 +7,7 @@ import { getTripDetail } from '@/lib/volunteer/catalog';
 import { LazyImage } from '@/components/ui/LazyImage';
 import { formatRupiah } from '@/lib/utils/currency';
 import { formatIndonesianDate } from '@/lib/utils/date';
+import { volunteerRegistrationEnabled } from '@/lib/volunteer/registration-flag';
 
 /**
  * A Volunteer Trip's public page (ticket 33), the route decideTripSubmission's
@@ -14,8 +15,9 @@ import { formatIndonesianDate } from '@/lib/utils/date';
  * 404 for everyone. Rendered per request: seats left and deadlines move, and
  * the page reads the session to offer a signed-out visitor the sign-in page.
  *
- * The Batch picker shows no "Daftar" button yet: the Registration flow is
- * ticket 36, and a button into nothing would lie.
+ * The Batch picker shows "Daftar" on an OPEN Batch only while
+ * NEXT_PUBLIC_VOLUNTEER_ENABLED is on (ticket 36); the registration route
+ * enforces the flag on the server too, this only keeps the button honest.
  */
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +40,7 @@ export default async function TripDetailPage({ params }: TripDetailPageProps) {
   if (!trip) notFound();
 
   const session = await getServerSession();
+  const canRegister = volunteerRegistrationEnabled();
   const loginHref = `/login?callbackUrl=${encodeURIComponent(`/volunteer-trip/${trip.slug}`)}`;
 
   return (
@@ -82,6 +85,14 @@ export default async function TripDetailPage({ params }: TripDetailPageProps) {
                 <p className="text-sm text-text-secondary">
                   Tenggat pendaftaran {formatIndonesianDate(batch.registrationDeadline)}
                 </p>
+                {canRegister && batch.availability === 'OPEN' && (
+                  <Link
+                    href={`/volunteer-trip/${trip.slug}/daftar/${batch.id}`}
+                    className="inline-block mt-2 px-4 py-2 rounded-md bg-primary text-white text-sm font-medium"
+                  >
+                    Daftar
+                  </Link>
+                )}
               </li>
             ))}
           </ul>

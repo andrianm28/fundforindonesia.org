@@ -15,6 +15,7 @@ import {
   sandboxInProductionReason,
   DONATIONS_DISABLED_MESSAGE,
 } from '@/lib/donations';
+import { volunteerRegistrationEnabled, VOLUNTEER_DISABLED_MESSAGE } from '@/lib/volunteer/registration-flag';
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris'] as const;
 const PROVIDER_METHOD_FOR: Record<(typeof VALID_PAYMENT_METHODS)[number], PaymentMethod> = {
@@ -30,6 +31,13 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> },
 ) {
+  // Ticket 36 (owner 2026-09-29): the Registration flow is off until a real
+  // payment provider exists. The server enforces it, not only the hidden
+  // "Daftar" button; first of all, before the session or anything is read.
+  if (!volunteerRegistrationEnabled()) {
+    return NextResponse.json({ error: VOLUNTEER_DISABLED_MESSAGE }, { status: 503 });
+  }
+
   // The same switch that gates POST /api/donations. Owner decision
   // 2026-09-28: Trip Fee is stopped by the SAME switch as Donation -- one
   // emergency switch stops all incoming money, not two that can drift apart.
@@ -187,7 +195,12 @@ export async function POST(
         : { type: 'bank_transfer' as const, vaNumber: charge.vaNumber, expiresAt: charge.expiresAt };
 
     return NextResponse.json(
-      { registrationId: registration.id, amount: tripFeeAmount, paymentInstructions },
+      {
+        registrationId: registration.id,
+        amount: tripFeeAmount,
+        holdExpiresAt: registration.holdExpiresAt,
+        paymentInstructions,
+      },
       { status: 201 },
     );
   } catch (error) {
