@@ -584,9 +584,8 @@ export async function editBatch(
  * Registrations of this Batch marked present; every other Registration keeps
  * `attended = false`, written once here and never changed after. Only the
  * Trip's own Fundraiser may mark attendance (FUNDRAISER Capacity), so when a
- * list is given, even an empty one, an Admin who does not own the Trip is
- * refused. Without a list the Batch is completed under the older rule, the
- * Fundraiser or an Admin, and nobody is marked.
+ * list is required (an empty one is a deliberate "nobody attended"), and an
+ * Admin who does not own the Trip is refused like anyone else.
  *
  * Moves no money: no Refund and no ledger row is written. Locks Trip, Batch,
  * then the live Registrations, the order `cancelBatch` takes, so a
@@ -600,26 +599,24 @@ export async function editBatch(
  */
 export async function completeBatch(
   prisma: PrismaClient,
-  params: BatchOperation & { attendedRegistrationIds?: readonly string[] },
+  params: BatchOperation & { attendedRegistrationIds: readonly string[] },
 ): Promise<BatchResult> {
   const { tripId, batchId, actor, attendedRegistrationIds, now = new Date() } = params;
   return prisma.$transaction(async (tx: Tx) => {
     const trip = await lockTrip(tx, tripId, now);
-    if (attendedRegistrationIds === undefined) judgeBatchAuthority(trip, actor);
-    else judgeCapacity(trip, actor, StatusChangeCapacity.FUNDRAISER);
+    judgeCapacity(trip, actor, StatusChangeCapacity.FUNDRAISER);
     const batch = await lockOpenBatch(tx, trip, batchId);
     if (batch.endDate > now) throw new BatchNotEndedError();
 
-    const attended = [...new Set(attendedRegistrationIds ?? [])];
-    if (attended.length > 0) {
-      const live = await lockLiveRegistrations(tx, batch.id);
-      const confirmed = new Set(live.filter((r) => r.status === RegistrationStatus.CONFIRMED).map((r) => r.id));
-      if (!attended.every((id) => confirmed.has(id))) {
-        throw new BatchFieldsInvalidError(
-          'attendedRegistrationIds',
-          'Daftar hadir hanya boleh berisi Registration CONFIRMED pada Batch ini',
-        );
-      }
+    const attended = [...new Set(attendedRegistrationIds)];
+    // Always taken, even for an empty list, as cancelBatch takes it.
+    const live = await lockLiveRegistrations(tx, batch.id);
+    const confirmed = new Set(live.filter((r) => r.status === RegistrationStatus.CONFIRMED).map((r) => r.id));
+    if (!attended.every((id) => confirmed.has(id))) {
+      throw new BatchFieldsInvalidError(
+        'attendedRegistrationIds',
+        'Daftar hadir hanya boleh berisi Registration CONFIRMED pada Batch ini',
+      );
     }
     const completed = await writeOpenBatch(tx, batch, { status: VolunteerBatchStatus.COMPLETED });
     if (attended.length > 0) {

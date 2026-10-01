@@ -138,6 +138,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: fundraiser,
+      attendedRegistrationIds: [],
       now: NOW,
     });
 
@@ -146,12 +147,19 @@ describe('completeBatch', () => {
     expect(db.rowLocks).toEqual(['VolunteerTrip:trip-1', 'VolunteerBatch:batch-1']);
   });
 
-  it('lets an Admin who does not own the Trip complete a Batch', async () => {
+  it('refuses an Admin who does not own the Trip with a 403, leaving the Batch OPEN', async () => {
     const db = makeTripDb({ trips: [tripRow()], batches: [ended] });
 
-    await completeBatch(db.prisma as never, { tripId: 'trip-1', batchId: 'batch-1', actor: admin, now: NOW });
+    const error = await completeBatch(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      actor: admin,
+      attendedRegistrationIds: [],
+      now: NOW,
+    }).catch((e: unknown) => e);
 
-    expect(db.batch().status).toBe('COMPLETED');
+    expect(error).toBeInstanceOf(NotAuthorizedError);
+    expect(db.batch().status).toBe('OPEN');
   });
 
   it('refuses someone who is neither the Fundraiser nor an Admin with a 403, before locking the Batch', async () => {
@@ -161,6 +169,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: stranger,
+      attendedRegistrationIds: [],
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -179,6 +188,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: fundraiser,
+      attendedRegistrationIds: [],
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -195,6 +205,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: fundraiser,
+      attendedRegistrationIds: [],
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -210,6 +221,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: fundraiser,
+      attendedRegistrationIds: [],
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -228,6 +240,7 @@ describe('completeBatch', () => {
       tripId: 'trip-1',
       batchId: 'batch-1',
       actor: fundraiser,
+      attendedRegistrationIds: [],
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -251,7 +264,7 @@ describe('completeBatch attendance (ticket 35)', () => {
       ],
       payments: [paymentRow({ id: 'p1', registrationId: 'r1' })],
     });
-  const complete = (db: ReturnType<typeof seed>, ids: string[] | undefined, actor: TripActor = fundraiser) =>
+  const complete = (db: ReturnType<typeof seed>, ids: string[], actor: TripActor = fundraiser) =>
     completeBatch(db.prisma as never, {
       tripId: 'trip-1',
       batchId: 'batch-1',
@@ -269,11 +282,18 @@ describe('completeBatch attendance (ticket 35)', () => {
     expect(db.batch().status).toBe('COMPLETED');
   });
 
-  it('an empty list means nobody attended', async () => {
+  it('an empty list from the owner means nobody attended, and still locks the live Registrations', async () => {
     const db = seed();
     await complete(db, []);
     expect(attendedIds(db)).toEqual([]);
     expect(db.batch().status).toBe('COMPLETED');
+    expect(db.rowLocks).toEqual([
+      'VolunteerTrip:trip-1',
+      'VolunteerBatch:batch-1',
+      'Registration:r1',
+      'Registration:r2',
+      'Registration:r3',
+    ]);
   });
 
   it('locks the Trip, the Batch, then the live Registrations', async () => {

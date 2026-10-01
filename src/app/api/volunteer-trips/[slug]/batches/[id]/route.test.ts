@@ -91,14 +91,20 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       },
     );
 
-    it('lets an Admin who does not own the Trip through, as themselves', async () => {
+    it('lets an Admin who does not own the Trip edit, as themselves', async () => {
       mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'DONOR', assignments: ['ADMIN'] } });
-      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+      const response = await PATCH(patchRequest({ maxQuota: 25 }), routeContext());
       expect(response.status).toBe(200);
-      expect(mockCompleteBatch).toHaveBeenCalledWith(prisma, {
-        ...OPERATION,
-        actor: { userId: 'admin-1', assignments: ['ADMIN'] },
-      });
+      expect(mockEditBatch).toHaveBeenCalled();
+    });
+
+    it('refuses an Admin who does not own the Trip completing a Batch with 403, with or without a list', async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'DONOR', assignments: ['ADMIN'] } });
+      for (const body of [{ action: 'complete' }, { action: 'complete', attendedRegistrationIds: [] }]) {
+        const response = await PATCH(patchRequest(body), routeContext());
+        expect(response.status).toBe(403);
+      }
+      expect(mockCompleteBatch).not.toHaveBeenCalled();
     });
 
     it('refuses someone with the ADMIN Role but no ADMIN assignment who does not own the Trip', async () => {
@@ -175,11 +181,18 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
 
   describe('complete action', () => {
     it('calls completeBatch and answers the Batch', async () => {
-      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+      const response = await PATCH(patchRequest({ action: 'complete', attendedRegistrationIds: [] }), routeContext());
 
       expect(response.status).toBe(200);
-      expect(mockCompleteBatch).toHaveBeenCalledWith(prisma, OPERATION);
+      expect(mockCompleteBatch).toHaveBeenCalledWith(prisma, { ...OPERATION, attendedRegistrationIds: [] });
       expect(await response.json()).toEqual({ batch: { id: 'batch-1', status: 'COMPLETED' } });
+    });
+
+    it('answers 400 for complete without an attendance list, completing nothing', async () => {
+      const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+
+      expect(response.status).toBe(400);
+      expect(mockCompleteBatch).not.toHaveBeenCalled();
     });
 
     it('passes the attended Registration ids to completeBatch', async () => {
@@ -232,7 +245,7 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
   it('answers 500 for anything that is not a refusal', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mockCompleteBatch.mockRejectedValue(new Error('db down'));
-    const response = await PATCH(patchRequest({ action: 'complete' }), routeContext());
+    const response = await PATCH(patchRequest({ action: 'complete', attendedRegistrationIds: [] }), routeContext());
     expect(response.status).toBe(500);
   });
 });

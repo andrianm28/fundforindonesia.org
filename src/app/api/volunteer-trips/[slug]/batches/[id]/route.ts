@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { batchRefusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
+import { batchRefusalResponse, refuseUnlessFundraiser, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
 import { cancelBatch, completeBatch, editBatch } from '@/lib/volunteer/trip';
 
 const editBatchSchema = z.object({
@@ -15,9 +15,9 @@ const editBatchSchema = z.object({
 
 const actionSchema = z.object({ action: z.enum(['cancel', 'complete']) });
 
-// Who attended (ticket 35). Optional so the older call without a list still
-// completes; completeBatch judges the ids and that only the owner marks them.
-const attendanceSchema = z.object({ attendedRegistrationIds: z.array(z.string().min(1)).max(1000).optional() });
+// Who attended (ticket 35). Required, an empty list being a deliberate
+// "nobody"; completeBatch judges the ids and that only the owner marks them.
+const attendanceSchema = z.object({ attendedRegistrationIds: z.array(z.string().min(1)).max(1000) });
 
 const toDate = (value: string | undefined) => (value === undefined ? undefined : new Date(value));
 
@@ -66,6 +66,9 @@ export async function PATCH(
       });
     }
     if (action.success && action.data.action === 'complete') {
+      // Marking attendance is the owner's alone: an Admin is refused whatever the body holds.
+      const notOwner = refuseUnlessFundraiser({ kind: 'trip', ownerId: trip.fundraiserId }, session.user);
+      if (notOwner) return notOwner;
       const attendance = attendanceSchema.safeParse(body);
       if (!attendance.success) {
         const fieldErrors = attendance.error.flatten().fieldErrors;
