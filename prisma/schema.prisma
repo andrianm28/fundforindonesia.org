@@ -2385,6 +2385,11 @@ model Registration {
   batchId       String
   status        RegistrationStatus @default(HOLD)
   holdExpiresAt DateTime
+  /// Whether the Fundraiser marked this Volunteer present when completing the
+  /// Batch (ticket 35). Written once, by completeBatch, and false for every
+  /// Registration until then; only an attended CONFIRMED Registration earns a
+  /// Sertifikat Keikutsertaan.
+  attended      Boolean            @default(false)
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 

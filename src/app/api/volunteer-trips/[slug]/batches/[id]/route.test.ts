@@ -181,6 +181,39 @@ describe('PATCH /api/volunteer-trips/[slug]/batches/[id]', () => {
       expect(mockCompleteBatch).toHaveBeenCalledWith(prisma, OPERATION);
       expect(await response.json()).toEqual({ batch: { id: 'batch-1', status: 'COMPLETED' } });
     });
+
+    it('passes the attended Registration ids to completeBatch', async () => {
+      const response = await PATCH(
+        patchRequest({ action: 'complete', attendedRegistrationIds: ['reg-a', 'reg-b'] }),
+        routeContext(),
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockCompleteBatch).toHaveBeenCalledWith(prisma, {
+        ...OPERATION,
+        attendedRegistrationIds: ['reg-a', 'reg-b'],
+      });
+    });
+
+    it('answers 400 for an attendance list that is not an array of ids, completing nothing', async () => {
+      const response = await PATCH(
+        patchRequest({ action: 'complete', attendedRegistrationIds: 'reg-a' }),
+        routeContext(),
+      );
+
+      expect(response.status).toBe(400);
+      expect(mockCompleteBatch).not.toHaveBeenCalled();
+    });
+
+    it('maps the Admin-not-owner refusal of attendance to 403', async () => {
+      mockCompleteBatch.mockRejectedValue(new NotAuthorizedError());
+      const response = await PATCH(
+        patchRequest({ action: 'complete', attendedRegistrationIds: [] }),
+        routeContext(),
+      );
+
+      expect(response.status).toBe(403);
+    });
   });
 
   it.each([

@@ -15,6 +15,10 @@ const editBatchSchema = z.object({
 
 const actionSchema = z.object({ action: z.enum(['cancel', 'complete']) });
 
+// Who attended (ticket 35). Optional so the older call without a list still
+// completes; completeBatch judges the ids and that only the owner marks them.
+const attendanceSchema = z.object({ attendedRegistrationIds: z.array(z.string().min(1)).max(1000).optional() });
+
 const toDate = (value: string | undefined) => (value === undefined ? undefined : new Date(value));
 
 /**
@@ -62,7 +66,15 @@ export async function PATCH(
       });
     }
     if (action.success && action.data.action === 'complete') {
-      const { batch } = await completeBatch(prisma, operation);
+      const attendance = attendanceSchema.safeParse(body);
+      if (!attendance.success) {
+        const fieldErrors = attendance.error.flatten().fieldErrors;
+        return NextResponse.json({ error: 'Validasi gagal', fieldErrors }, { status: 400 });
+      }
+      const { batch } = await completeBatch(prisma, {
+        ...operation,
+        attendedRegistrationIds: attendance.data.attendedRegistrationIds,
+      });
       return NextResponse.json({ batch: { id: batch.id, status: batch.status } });
     }
 
