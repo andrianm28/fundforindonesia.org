@@ -42,6 +42,18 @@ tidak punya kode sama sekali. Bentuknya diputuskan di `prd-audit/issues/10`
   kasusnya muncul saat Soft Launch, itu tiket tersendiri.
 - Tidak ada PDF dari server dan tidak ada penyimpanan file (menunggu tiket 03).
 
+## Syarat sebelum flag registrasi dinyalakan (review tiket 36, 2026-10-01)
+
+Tautan bayar sebuah Registration `HOLD` hanya hidup di state klien (`RegisterButton`);
+`redirectUrl` tidak disimpan di Payment, jadi halaman `/volunteer-trip/registrasi/[id]`
+tidak bisa menampilkannya ulang. Volunteer yang menutup atau memuat ulang halaman bayar
+kehilangan cara membayar dan kursinya tertahan 30 menit (ia bisa membatalkan lalu
+mendaftar ulang). Tidak memblokir merge tiket 36 karena flag
+`NEXT_PUBLIC_VOLUNTEER_ENABLED` default off, tetapi **wajib selesai sebelum flag
+dinyalakan**: simpan atau ambil ulang instruksi pembayaran dari Payment, dan tampilkan
+tombol "Lanjutkan pembayaran" pada kartu Registration `HOLD` di Dashboard dan di halaman
+Registration. Sertakan tesnya.
+
 ## Acceptance
 
 - Tes: terbit hanya untuk `CONFIRMED` dan hadir; tidak terbit untuk yang tidak
