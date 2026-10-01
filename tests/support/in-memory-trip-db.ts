@@ -113,6 +113,15 @@ export type LedgerEntryRow = {
   transactionId: string;
 };
 
+/** A Verifier's one-time identity check of a Fundraiser; `userId` is unique, as in the schema. */
+export type IdentityVerificationRow = {
+  id: string;
+  userId: string;
+  verifierId: string;
+  verifiedAt: Date;
+  note: string | null;
+};
+
 type Data = {
   trips: TripRow[];
   statusChanges: TripStatusChangeRow[];
@@ -122,6 +131,7 @@ type Data = {
   payments: PaymentRow[];
   refunds: RefundRow[];
   ledgerEntries: LedgerEntryRow[];
+  identityVerifications: IdentityVerificationRow[];
 };
 
 /** The tables `SELECT id FROM "<Table>" WHERE id = ... FOR UPDATE` may name. */
@@ -167,6 +177,7 @@ function clone(data: Data): Data {
     payments: data.payments.map((p) => ({ ...p })),
     refunds: data.refunds.map((r) => ({ ...r })),
     ledgerEntries: data.ledgerEntries.map((e) => ({ ...e })),
+    identityVerifications: data.identityVerifications.map((v) => ({ ...v })),
   };
 }
 
@@ -229,6 +240,7 @@ type Seed = {
   batches?: BatchRow[];
   registrations?: RegistrationRow[];
   payments?: PaymentRow[];
+  identityVerifications?: IdentityVerificationRow[];
 };
 
 export function makeTripDb(seed: Seed = {}) {
@@ -241,6 +253,7 @@ export function makeTripDb(seed: Seed = {}) {
     payments: (seed.payments ?? []).map((p) => ({ ...p })),
     refunds: [],
     ledgerEntries: [],
+    identityVerifications: (seed.identityVerifications ?? []).map((v) => ({ ...v })),
   };
   const rowLocks: string[] = [];
   let pendingLockInterleave: ((data: Data) => void) | null = null;
@@ -292,6 +305,27 @@ export function makeTripDb(seed: Seed = {}) {
           const row: TripNotificationRow = { id: `notification-${nextId++}`, link: null, ...data };
           getData().notifications.push(row);
           return { ...row };
+        },
+      },
+      identityVerification: {
+        // `skipDuplicates` is ON CONFLICT DO NOTHING on the unique userId.
+        createMany: async ({
+          data,
+          skipDuplicates,
+        }: {
+          data: Omit<IdentityVerificationRow, 'id'>[];
+          skipDuplicates?: boolean;
+        }) => {
+          let count = 0;
+          for (const input of data) {
+            if (getData().identityVerifications.some((v) => v.userId === input.userId)) {
+              if (skipDuplicates) continue;
+              throw new Error('Unique constraint failed on IdentityVerification.userId');
+            }
+            getData().identityVerifications.push({ id: `identity-${nextId++}`, ...input });
+            count += 1;
+          }
+          return { count };
         },
       },
       volunteerBatch: {
@@ -450,6 +484,9 @@ export function makeTripDb(seed: Seed = {}) {
     },
     get notifications() {
       return committed.notifications;
+    },
+    get identityVerifications() {
+      return committed.identityVerifications;
     },
     /** Every row lock taken, committed or not, as "<Table>:<id>", in order. */
     get rowLocks() {

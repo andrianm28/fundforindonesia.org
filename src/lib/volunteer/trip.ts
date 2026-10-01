@@ -15,6 +15,7 @@ import {
 } from '@/generated/prisma/client';
 import { LifecycleValidationError, SameAdminLiftError } from '@/lib/campaign-lifecycle-errors';
 import { fundraiserOnlyRefusal, judgeCapacity, NotAuthorizedError, requireAssignmentFor } from '@/lib/capacity';
+import { recordIdentityVerification } from '@/lib/identity-verification';
 import { createRefund } from '@/lib/money/refunds';
 import { lockAndLoad, type SubjectState } from '@/lib/subject-guard';
 import {
@@ -38,6 +39,7 @@ import {
   TripNotSuspendedError,
   TripSuspensionUnrecordedError,
   TripNotTakingRegistrationsError,
+  TripRejectionReasonInvalidError,
 } from '@/lib/volunteer-trip-errors';
 import { tripFeeRefund, type TripFeeRefundCase } from './refunds';
 
@@ -128,6 +130,7 @@ async function transition(
     actorId: string;
     capacity: StatusChangeCapacity;
     edits?: TripEdits;
+    reason?: string | null;
     onMiss: () => Error;
   },
   now: Date,
@@ -146,7 +149,7 @@ async function transition(
       toStatus: change.to,
       actorId: change.actorId,
       capacity: change.capacity,
-      reason: null,
+      reason: change.reason ?? null,
       createdAt: now,
     },
   });
@@ -209,12 +212,26 @@ export function isTripSubmissionDecision(value: unknown): value is TripSubmissio
   return typeof value === 'string' && Object.hasOwn(SUBMISSION_DECISIONS, value);
 }
 
+/** The longest rejection reason, the same bound as a Bank Account rejection's. */
+const MAX_REJECTION_REASON_LENGTH = 1000;
+
+/** A rejection's required reason: trimmed, non-blank, within the bound. */
+function cleanRejectionReason(raw: unknown): string {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (text === '') throw new TripRejectionReasonInvalidError('Alasan penolakan wajib diisi.');
+  if (text.length > MAX_REJECTION_REASON_LENGTH) {
+    throw new TripRejectionReasonInvalidError(`Alasan penolakan maksimal ${MAX_REJECTION_REASON_LENGTH} karakter.`);
+  }
+  return text;
+}
+
 const VERIFIER_ONLY = 'Hanya Verifier yang dapat menyetujui atau menolak Volunteer Trip.';
 
 /**
  * A Verifier approves (ACTIVE) or rejects (REJECTED) a Submitted Trip, and
  * the Fundraiser is told, in the same transaction. Recorded in the VERIFIER
- * Capacity, without a reason, as a Campaign decision is. Refusals:
+ * Capacity; a rejection requires a reason (`TripRejectionReasonInvalidError`, 422,
+ * before anything is locked) and logs it, an approval logs none. Refusals:
  * NotAuthorizedError (403) without the VERIFIER assignment, before anything
  * is locked; TripNotFoundError (404); OwnSubjectConflictError (403,
  * OWN_TRIP_CONFLICT) for a Verifier who owns the Trip; TripNotSubmittedError
@@ -223,11 +240,13 @@ const VERIFIER_ONLY = 'Hanya Verifier yang dapat menyetujui atau menolak Volunte
  */
 export async function decideTripSubmission(
   prisma: PrismaClient,
-  params: { tripId: string; actor: TripActor; decision: TripSubmissionDecision; now?: Date },
+  params: { tripId: string; actor: TripActor; decision: TripSubmissionDecision; reason?: unknown; now?: Date },
 ): Promise<TripResult> {
   const { tripId, actor, now = new Date() } = params;
   const decision = SUBMISSION_DECISIONS[params.decision];
   requireAssignmentFor(actor, StatusChangeCapacity.VERIFIER, VERIFIER_ONLY);
+  // A rejection carries its reason; an approval stores none, whatever was sent.
+  const reason = params.decision === 'reject' ? cleanRejectionReason(params.reason) : null;
   return prisma.$transaction(async (tx: Tx) => {
     const trip = await lockTrip(tx, tripId, now);
     const capacity = judgeCapacity(trip, actor, StatusChangeCapacity.VERIFIER, VERIFIER_ONLY);
@@ -240,10 +259,20 @@ export async function decideTripSubmission(
         action: decision.action,
         actorId: actor.userId,
         capacity,
+        reason,
         onMiss: () => new TripNotSubmittedError(),
       },
       now,
     );
+    if (decision.to === VolunteerTripStatus.ACTIVE) {
+      // The Fundraiser's identity is checked once, on their first approved
+      // submission of either kind (CONTEXT.md, Fundraiser).
+      await recordIdentityVerification(tx, {
+        userId: updated.fundraiserId,
+        verifierId: actor.userId,
+        verifiedAt: now,
+      });
+    }
     await tx.notification.create({
       data: {
         type: 'volunteer_trip_moderation',
@@ -851,7 +880,8 @@ export async function cancelRegistration(
  *   - 'cancelled': it was cancelled before the Trip Fee settled, so the
  *     money is owed back in full (`refundLateSettlement`);
  *   - 'lapsed': its hold expired first; the money is collected with no
- *     seat, which is left for manual review.
+ *     seat, so it is owed back in full too (`refundLateSettlement`, ticket
+ *     40). The seat is not handed out, even if one is free.
  */
 export type ConfirmRegistrationOutcome = 'confirmed' | 'cancelled' | 'lapsed';
 
@@ -893,13 +923,18 @@ export async function expireRegistrationHold(tx: Tx, params: { registrationId: s
 }
 
 /**
- * A Trip Fee settled after its Registration was cancelled, by the Volunteer
- * or with its Batch: the Trip Fee Refund policy's 'late settlement' case
- * refunds it in full, requested in the Volunteer's name. Called by the
+ * A Trip Fee settled after its Registration was cancelled (by the Volunteer
+ * or with its Batch) or after its hold expired: the Trip Fee Refund
+ * policy's 'late settlement' and 'lapsed settlement' cases refund it in
+ * full, requested in the Volunteer's name. Called by the
  * webhook once its Settlement has committed, in a transaction of its own,
  * so the locks run in order: Trip → Registration → Payment (the last
  * inside `createRefund`). Refunds nothing unless the Registration, read
- * under its lock, is CANCELLED.
+ * under its lock, is CANCELLED or EXPIRED; a CONFIRMED one keeps its seat.
+ *
+ * Idempotent by `createRefund`, not by anything here: it counts every
+ * Refund on the Payment not REJECTED or FAILED, so a second full Refund
+ * throws RefundExceedsRemainingError instead of being written.
  */
 export async function refundLateSettlement(
   prisma: PrismaClient,
@@ -908,9 +943,15 @@ export async function refundLateSettlement(
   const { registrationId, now = new Date() } = params;
   return prisma.$transaction(async (tx: Tx) => {
     const { trip, registration } = await lockRegistration(tx, registrationId, now);
-    if (registration.status !== RegistrationStatus.CANCELLED || !registration.payment) return { refund: null };
+    const refundCase: TripFeeRefundCase | null =
+      registration.status === RegistrationStatus.CANCELLED
+        ? 'late settlement'
+        : registration.status === RegistrationStatus.EXPIRED
+          ? 'lapsed settlement'
+          : null;
+    if (!refundCase || !registration.payment) return { refund: null };
     const { batch, payment } = registration;
-    const refund = await refundTripFee(tx, trip, { batch, payment }, 'late settlement', registration.volunteerId, now);
+    const refund = await refundTripFee(tx, trip, { batch, payment }, refundCase, registration.volunteerId, now);
     return { refund };
   });
 }

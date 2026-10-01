@@ -79,6 +79,7 @@ import { organisationOf, requireOpenable, resolveCollectingEntity } from "./coll
 import { activeCampaignCountsByFundraiser, resolveAbuseThresholds } from "./abuse-thresholds";
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
+import { recordIdentityVerification } from "./identity-verification";
 import { SUBMITTABLE_STATUSES } from "./verification-submission";
 import { sendReportingFailure, type Mailer, type MailMessage } from "./mail";
 import { verificationOutcomeEmail } from "./mail/verification-outcome";
@@ -943,13 +944,12 @@ export async function decideVerificationRequest(
       if (decision.outcome === VerificationOutcome.APPROVED) {
         // Two Campaigns of one Fundraiser hold different row locks, so two
         // approvals may race here; the unique userId keeps the first.
-        const created = await tx.identityVerification.createMany({
-          data: [
-            { userId: campaign.creatorId, verifierId: actor.userId, verifiedAt: now, note: identityNote },
-          ],
-          skipDuplicates: true,
+        identityVerificationRecorded = await recordIdentityVerification(tx, {
+          userId: campaign.creatorId,
+          verifierId: actor.userId,
+          verifiedAt: now,
+          note: identityNote,
         });
-        identityVerificationRecorded = created.count > 0;
       }
       const changeRequest = isChangeRequest(request);
       const amountReview = request.kind === VerificationRequestKind.AMOUNT_REVIEW;

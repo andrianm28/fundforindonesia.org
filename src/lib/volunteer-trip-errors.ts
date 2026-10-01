@@ -51,6 +51,19 @@ export class TripNotSubmittedError extends TripError {
 }
 
 /**
+ * A Verifier rejects a Submitted Volunteer Trip with a reason the Fundraiser
+ * can act on: blank, or longer than the bound, is refused. 422 through
+ * `domainErrorToHttp`: the Verifier fixes it by filling the field in.
+ */
+export class TripRejectionReasonInvalidError extends TripError {
+  readonly code = 'TRIP_REJECTION_REASON_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'TripRejectionReasonInvalidError';
+  }
+}
+
+/**
  * A Batch is added only to a Trip that can still run one: any status but
  * Cancelled or Completed. 400 through `domainErrorToHttp`.
  */

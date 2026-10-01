@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { decideTripSubmission, isTripSubmissionDecision, submitTrip } from './trip';
-import { TripNotEditableError, TripNotFoundError, TripNotSubmittedError } from '@/lib/volunteer-trip-errors';
+import {
+  TripNotEditableError,
+  TripNotFoundError,
+  TripNotSubmittedError,
+  TripRejectionReasonInvalidError,
+} from '@/lib/volunteer-trip-errors';
 import { NotAuthorizedError, OwnSubjectConflictError } from '@/lib/capacity';
 import { domainErrorToHttp } from '@/lib/domain-errors';
+import { decideVerificationRequest } from '@/lib/campaign-lifecycle';
+import { campaignRow, makeCampaignDb, userRow, verificationRequestRow } from '../../../tests/support/in-memory-campaign-db';
 import { makeTripDb, tripRow } from '../../../tests/support/in-memory-trip-db';
 
 const NOW = new Date('2026-09-26T10:00:00Z');
@@ -141,9 +148,76 @@ describe('submitTrip', () => {
   });
 });
 
+const REASON = 'Dokumen kurang lengkap';
 const verifier = { userId: 'verifier-1', assignments: ['VERIFIER' as const] };
 
 describe('decideTripSubmission', () => {
+  describe('the rejection reason', () => {
+    it('is stored trimmed on the status change, in the same write as the change', async () => {
+      const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+
+      await decideTripSubmission(db.prisma as never, {
+        tripId: 'trip-1',
+        actor: verifier,
+        decision: 'reject',
+        reason: '  Itinerary belum jelas  ',
+        now: NOW,
+      });
+
+      expect(db.statusChanges).toEqual([expect.objectContaining({ toStatus: 'REJECTED', reason: 'Itinerary belum jelas' })]);
+    });
+
+    it.each([undefined, null, '', '   ', 42, 'x'.repeat(1001)])(
+      'refuses a reject with the reason %j as a 422, changing and telling nothing',
+      async (reason) => {
+        const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+
+        const error = await decideTripSubmission(db.prisma as never, {
+          tripId: 'trip-1',
+          actor: verifier,
+          decision: 'reject',
+          reason,
+          now: NOW,
+        }).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(TripRejectionReasonInvalidError);
+        expect(domainErrorToHttp(error)).toMatchObject({ status: 422, body: { code: 'TRIP_REJECTION_REASON_INVALID' } });
+        expect(db.trip().status).toBe('SUBMITTED');
+        expect(db.statusChanges).toEqual([]);
+        expect(db.notifications).toEqual([]);
+      },
+    );
+
+    it('accepts a reason of exactly the bound', async () => {
+      const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+      await decideTripSubmission(db.prisma as never, {
+        tripId: 'trip-1',
+        actor: verifier,
+        decision: 'reject',
+        reason: 'x'.repeat(1000),
+        now: NOW,
+      });
+      expect(db.trip().status).toBe('REJECTED');
+    });
+
+    it('is not needed for an approval, and one sent with it is not stored', async () => {
+      const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+
+      await decideTripSubmission(db.prisma as never, { tripId: 'trip-1', actor: verifier, decision: 'approve', now: NOW });
+      expect(db.statusChanges[0].reason).toBeNull();
+
+      const db2 = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+      await decideTripSubmission(db2.prisma as never, {
+        tripId: 'trip-1',
+        actor: verifier,
+        decision: 'approve',
+        reason: 'ignored',
+        now: NOW,
+      });
+      expect(db2.statusChanges[0].reason).toBeNull();
+    });
+  });
+
   it.each([
     ['approve', 'ACTIVE', 'SUBMISSION_APPROVED', 'Volunteer Trip Disetujui', 'Volunteer Trip Anda telah disetujui dan kini aktif'],
     ['reject', 'REJECTED', 'SUBMISSION_REJECTED', 'Volunteer Trip Ditolak', 'Volunteer Trip Anda ditolak'],
@@ -156,6 +230,7 @@ describe('decideTripSubmission', () => {
         tripId: 'trip-1',
         actor: verifier,
         decision,
+        reason: REASON,
         now: NOW,
       });
 
@@ -169,7 +244,7 @@ describe('decideTripSubmission', () => {
           toStatus: to,
           actorId: 'verifier-1',
           capacity: 'VERIFIER',
-          reason: null,
+          reason: decision === 'reject' ? REASON : null,
           createdAt: NOW,
         }),
       ]);
@@ -195,6 +270,7 @@ describe('decideTripSubmission', () => {
           tripId: 'trip-1',
           actor: verifier,
           decision,
+          reason: REASON,
           now: NOW,
         }).catch((e: unknown) => e);
 
@@ -216,6 +292,7 @@ describe('decideTripSubmission', () => {
         tripId: 'trip-1',
         actor: verifier,
         decision,
+        reason: REASON,
         now: NOW,
       }).catch((e: unknown) => e);
 
@@ -272,6 +349,7 @@ describe('decideTripSubmission', () => {
       tripId: 'trip-1',
       actor: verifier,
       decision: 'reject',
+      reason: REASON,
       now: NOW,
     }).catch((e: unknown) => e);
 
@@ -288,5 +366,112 @@ describe('decideTripSubmission', () => {
     expect(isTripSubmissionDecision('suspend')).toBe(false);
     expect(isTripSubmissionDecision('toString')).toBe(false);
     expect(isTripSubmissionDecision(undefined)).toBe(false);
+  });
+});
+
+describe('decideTripSubmission: Identity Verification', () => {
+  const approve = (db: ReturnType<typeof makeTripDb>, actor = verifier) =>
+    decideTripSubmission(db.prisma as never, { tripId: 'trip-1', actor, decision: 'approve', now: NOW });
+
+  it("approving a Fundraiser's first Trip records their Identity Verification, by this Verifier, now", async () => {
+    const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+
+    await approve(db);
+
+    expect(db.identityVerifications).toEqual([
+      { id: expect.any(String), userId: 'fundraiser-1', verifierId: 'verifier-1', verifiedAt: NOW, note: null },
+    ]);
+  });
+
+  it('a rejection records none', async () => {
+    const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+
+    await decideTripSubmission(db.prisma as never, {
+      tripId: 'trip-1',
+      actor: verifier,
+      decision: 'reject',
+      reason: 'Dokumen belum lengkap',
+      now: NOW,
+    });
+
+    expect(db.identityVerifications).toEqual([]);
+  });
+
+  it('a refused approval records none', async () => {
+    const db = makeTripDb({ trips: [tripRow({ status: 'ACTIVE' })] });
+
+    await approve(db).catch(() => undefined);
+
+    expect(db.identityVerifications).toEqual([]);
+  });
+
+  it('a Fundraiser already verified keeps the existing row and gets no other', async () => {
+    const existing = {
+      id: 'identity-old',
+      userId: 'fundraiser-1',
+      verifierId: 'verifier-2',
+      verifiedAt: new Date('2026-08-01T00:00:00Z'),
+      note: 'Diperiksa lebih dulu.',
+    };
+    const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })], identityVerifications: [existing] });
+
+    await approve(db);
+
+    expect(db.trip().status).toBe('ACTIVE');
+    expect(db.identityVerifications).toEqual([existing]);
+  });
+
+  it('Trip then Campaign: the Campaign approval after a Trip approval creates no second row', async () => {
+    const tripDb = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
+    await approve(tripDb);
+    const campaignDb = makeCampaignDb({
+      campaigns: [campaignRow({ creatorId: 'fundraiser-1' })],
+      users: [userRow({ id: 'fundraiser-1' })],
+      verificationRequests: [verificationRequestRow({ id: 'verification-open', checklist: [] })],
+      identityVerifications: tripDb.identityVerifications,
+    });
+
+    const result = await decideVerificationRequest(campaignDb.prisma as never, {
+      campaignId: 'campaign-1',
+      requestId: 'verification-open',
+      actor: { userId: 'verifier-2', assignments: ['VERIFIER' as const] },
+      decision: 'approve',
+      ticked: [],
+      now: new Date('2026-09-27T10:00:00Z'),
+    });
+
+    expect(result.identityVerificationRecorded).toBe(false);
+    expect(campaignDb.identityVerifications).toEqual([
+      { id: expect.any(String), userId: 'fundraiser-1', verifierId: 'verifier-1', verifiedAt: NOW, note: null },
+    ]);
+  });
+
+  it('Campaign then Trip: the Trip approval after a Campaign approval creates no second row', async () => {
+    const campaignDb = makeCampaignDb({
+      campaigns: [campaignRow({ creatorId: 'fundraiser-1' })],
+      users: [userRow({ id: 'fundraiser-1' })],
+      verificationRequests: [verificationRequestRow({ id: 'verification-open', checklist: [] })],
+    });
+    await decideVerificationRequest(campaignDb.prisma as never, {
+      campaignId: 'campaign-1',
+      requestId: 'verification-open',
+      actor: verifier,
+      decision: 'approve',
+      ticked: [],
+      identityNote: 'KTP cocok.',
+      now: NOW,
+    });
+    expect(campaignDb.identityVerifications).toHaveLength(1);
+    const tripDb = makeTripDb({
+      trips: [tripRow({ status: 'SUBMITTED' })],
+      identityVerifications: campaignDb.identityVerifications,
+    });
+
+    await approve(tripDb, { userId: 'verifier-2', assignments: ['VERIFIER' as const] });
+
+    expect(tripDb.trip().status).toBe('ACTIVE');
+    expect(tripDb.identityVerifications).toEqual([
+      { id: expect.any(String), userId: 'fundraiser-1', verifierId: 'verifier-1', verifiedAt: NOW, note: 'KTP cocok.' },
+    ]);
   });
 });

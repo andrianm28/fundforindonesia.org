@@ -172,6 +172,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/moderasi/layout.tsx",
   "src/app/moderasi/page.tsx",
   "src/app/moderasi/rekening/page.tsx",
+  "src/app/moderasi/volunteer-trips/[id]/page.tsx",
+  "src/app/moderasi/volunteer-trips/page.tsx",
   // Not a route: the Capacity judgement, which the lifecycle module, the
   // money operations and Trip moderation ask, because "owner or Admin" and
   // "never Admin on your own Campaign or Trip" are not single-assignment
