@@ -43,4 +43,13 @@ describe("ModerasiLayout", () => {
     const links = container.querySelectorAll('a[href="/moderasi/kind-authorisations"]');
     expect(links).toHaveLength(2);
   });
+
+  it("links the Volunteer Trip queue in both the sidebar and the mobile bar, keeping the earlier links", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
+    const { container } = render(await ModerasiLayout({ children: null }));
+    expect(container.querySelectorAll('a[href="/moderasi/volunteer-trips"]')).toHaveLength(2);
+    for (const href of ["/moderasi/rekening", "/moderasi/kind-authorisations", "/moderasi/campaigns"]) {
+      expect(container.querySelectorAll(`a[href="${href}"]`)).toHaveLength(2);
+    }
+  });
 });
