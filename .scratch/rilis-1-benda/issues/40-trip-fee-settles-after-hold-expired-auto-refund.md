@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 **Blocked by:** none
 
@@ -27,3 +27,25 @@ untuk tinjauan itu, jadi uangnya tidak terlihat siapa pun. Owner 2026-09-29, gri
   ada Refund kedua), dan settle tepat sebelum kedaluwarsa (tetap `confirmed`).
 - Perubahan menyentuh kode uang di `src/lib/volunteer/trip.ts`: review independen
   `sonnet` wajib, dan ketiga canary carry-trap harus sama dengan `main`.
+
+## Implementation note (branch `claude/ticket-40-lapsed-auto-refund`)
+
+- `refundLateSettlement` (`src/lib/volunteer/trip.ts`) kini mengembalikan penuh
+  Registration yang, dibaca di bawah lock-nya, CANCELLED (`'late settlement'`)
+  atau EXPIRED (`'lapsed settlement'`, kasus dan alasan baru di
+  `src/lib/volunteer/refunds.ts`); CONFIRMED tetap tidak di-refund. Kursi tidak
+  diberikan.
+- Webhook settlement (`src/app/api/webhooks/[provider]/route.ts`) memanggilnya
+  untuk hasil `'lapsed'` seperti `'cancelled'`, sesudah settlement commit; log
+  tidak lagi menyebut "manual review". Doc `ConfirmRegistrationOutcome` diperbarui.
+- Idempotensi datang dari dua penjaga yang sudah ada, keduanya diuji: pengiriman
+  kedua kalah di balapan PENDING -> PAID (`updateMany` count 0) sehingga tak
+  pernah mencapai confirm/refund; pemanggilan ulang langsung
+  `refundLateSettlement` ditolak pengecekan sisa `createRefund`
+  (`RefundExceedsRemainingError`, ditangkap dan dilog webhook). Tidak ada baris
+  Refund kedua di kedua jalur.
+- Catatan: kedaluwarsa hold itu malas (`expireLapsedHolds` hanya jalan saat hold
+  berikutnya pada Batch), jadi HOLD yang lewat `holdExpiresAt` tetapi belum
+  disapu masih menjadi `confirmed`. Tidak diubah, di luar cakupan.
+- Self-review `code-review` dilakukan inline (subagent tidak bisa men-dispatch
+  subagent); review independen `sonnet` tetap wajib. Ratchet 193 / 47, canary 3 / 3 / 6.
