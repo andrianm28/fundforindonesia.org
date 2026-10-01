@@ -5,6 +5,12 @@ import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
+import { safeCallbackUrl } from '@/lib/safe-callback-url';
+
+/** Read on click, not render: the page is prerendered, so there is no query string until the browser. */
+function callbackUrlFromLocation(): string {
+  return safeCallbackUrl(new URLSearchParams(window.location.search).get('callbackUrl'));
+}
 
 function GoogleIcon() {
   return (
@@ -86,7 +92,7 @@ export default function LoginPage() {
           setError('Email atau password salah');
         }
       } else if (result?.ok) {
-        router.push('/');
+        router.push(callbackUrlFromLocation());
       }
     } catch {
       setError('Terjadi kesalahan. Silakan coba lagi.');
@@ -97,7 +103,7 @@ export default function LoginPage() {
 
   const handleGoogleSignIn = () => {
     setIsGoogleLoading(true);
-    signIn('google', { callbackUrl: '/' });
+    signIn('google', { callbackUrl: callbackUrlFromLocation() });
   };
 
   return (
