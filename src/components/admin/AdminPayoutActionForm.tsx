@@ -194,8 +194,8 @@ export function AdminPayoutActionForm({
           />
         </label>
         <p className="text-xs text-gray-500">
-          Wajib diisi (FFI-07): tidak ada API saldo, jadi ini satu-satunya kontrol yang memastikan uangnya benar
-          benar ada di penyedia sebelum disetujui.
+          Wajib diisi: tidak ada API saldo, jadi ini satu-satunya kontrol yang memastikan uangnya benar-benar ada
+          di penyedia sebelum disetujui.
         </p>
 
         <button
@@ -229,7 +229,7 @@ export function AdminPayoutActionForm({
         </button>
         <p className="text-xs text-gray-500">
           Sudah cek dashboard dan angkanya di bawah nominal Payout? Catat di sini, bukan disetujui -- Payout tetap
-          menunggu persetujuan dan riwayat cek ini tercatat untuk Fundraiser dan Admin lain (ticket 30).
+          menunggu persetujuan dan riwayat cek ini tercatat untuk Fundraiser dan Admin lain.
         </p>
 
         {refusal && (
@@ -279,7 +279,7 @@ export function AdminPayoutActionForm({
           />
         </label>
         <p className="text-xs text-gray-500">
-          Bukti transfer wajib (ticket 13): referensi transaksi dan catatan keduanya diisi, bukan satu karakter
+          Bukti transfer wajib: referensi transaksi dan catatan keduanya diisi, bukan satu karakter
           kosong.
         </p>
 

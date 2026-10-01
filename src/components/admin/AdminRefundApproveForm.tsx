@@ -97,7 +97,7 @@ export function AdminRefundApproveForm({ refundId, subject, actorId, requestedBy
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-500">
-        Rekening tujuan Donor (dicatat dari permintaan tertulis Donor, Q7(c)): tidak ada Bank Account tersimpan untuk
+        Rekening tujuan Donor (dicatat dari permintaan tertulis Donor): tidak ada Bank Account tersimpan untuk
         Donor, jadi Admin yang menyetujui mengisinya di sini. Admin yang menyelesaikan nanti mengetik ulang nomor
         rekening ini dari permintaan yang sama.
       </p>

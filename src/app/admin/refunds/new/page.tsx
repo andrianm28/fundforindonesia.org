@@ -128,7 +128,7 @@ export default async function AdminNewRefundPage({ searchParams }: RouteContext)
           {resolved.kind !== 'DONATION' && (
             <p className="mb-4 text-xs text-gray-500">
               Kind {resolved.kind}: Refund hanya untuk kegagalan teknis -- salah bayar, bayar ganda, atau dana masuk
-              setelah Campaign ditutup (ADR 0013). Diperiksa oleh server, ini hanya pengingat.
+              setelah Campaign ditutup. Diperiksa oleh server, ini hanya pengingat.
             </p>
           )}
 

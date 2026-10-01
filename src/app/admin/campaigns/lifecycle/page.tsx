@@ -104,7 +104,7 @@ export default async function AdminCampaignLifecycleQueuePage() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Suspension &amp; Cancellation</h1>
         <p className="text-gray-600 mt-1">
-          Suspension bisa dijatuhkan Admin dengan atau tanpa Flag Verifier, selama alasannya tercatat (ADR 0015).
+          Suspension bisa dijatuhkan Admin dengan atau tanpa Flag Verifier, selama alasannya tercatat.
           Cancellation adalah penarikan diri Fundraiser dari Campaign Active-nya sendiri, diputuskan Admin lain.
         </p>
       </div>

@@ -53,7 +53,7 @@ export function Footer() {
           </div>
         </div>
         <div className="border-t border-border mt-6 pt-4 text-center text-xs text-text-secondary">
-          © 2024 Fund for Indonesia. Semua hak dilindungi undang-undang.
+          © {new Date().getFullYear()} Fund for Indonesia. Semua hak dilindungi undang-undang.
         </div>
       </div>
     </footer>

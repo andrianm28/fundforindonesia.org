@@ -158,7 +158,7 @@ export default async function AdminPayoutsPage() {
         <h1 className="text-2xl font-bold text-gray-900">Pencairan Dana (Payout)</h1>
         <p className="text-gray-600 mt-1">
           Setiap Payout melewati dua orang berbeda: satu Admin menyetujui, Admin lain yang menandainya selesai
-          dengan bukti (FFI-07).
+          dengan bukti.
         </p>
       </div>
 

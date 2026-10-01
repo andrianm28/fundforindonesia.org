@@ -170,7 +170,7 @@ function SuspendSection({
           aria-label="Alasan Suspension"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Wajib diisi walau tanpa Flag, selama alasannya tercatat (ADR 0015)"
+          placeholder="Wajib diisi walau tanpa Flag, selama alasannya tercatat"
           className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
         />
       </label>
@@ -218,7 +218,7 @@ function LiftSuspensionSection({
         <h2 className="mb-3 text-sm font-semibold text-gray-900">Suspension</h2>
         <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Anda yang menjatuhkan Suspension ini, jadi tidak bisa mencabutnya sendiri -- pencabutan harus dilakukan
-          Admin lain (ADR 0015).
+          Admin lain.
         </p>
       </section>
     );

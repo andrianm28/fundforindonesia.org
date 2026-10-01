@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 
 export interface TrafficSourceCount {
   source: string | null;
@@ -13,11 +14,23 @@ export interface TrafficSourceCount {
  * to show" -- the Campaign page is cached for every visitor alike
  * (CampaignDetailView's caller), so a caller renders nothing rather than an
  * error when this stays null.
+ *
+ * The route stays owner-or-admin only on purpose; this hook just does not
+ * ask when the viewer cannot be answered (an anonymous visitor, or a
+ * signed-in stranger), so no 403 lands in the browser console on every
+ * Campaign page view (UAT round 1). Whether to ask is decided from the
+ * session: the Campaign's creator, or someone holding the ADMIN assignment.
+ * The server still decides what is answered.
  */
-export function useTrafficSources(slug: string): TrafficSourceCount[] | null {
+export function useTrafficSources(slug: string, creatorId: string): TrafficSourceCount[] | null {
   const [sources, setSources] = useState<TrafficSourceCount[] | null>(null);
+  const { data: session } = useSession();
+  const viewerId = session?.user?.id;
+  const mayAsk =
+    !!viewerId && (viewerId === creatorId || (session?.user?.assignments ?? []).includes('ADMIN'));
 
   useEffect(() => {
+    if (!mayAsk) return;
     let cancelled = false;
     try {
       fetch(`/api/campaigns/${slug}/traffic-sources`, { cache: 'no-store' })
@@ -36,7 +49,7 @@ export function useTrafficSources(slug: string): TrafficSourceCount[] | null {
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, mayAsk]);
 
   return sources;
 }

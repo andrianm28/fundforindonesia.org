@@ -57,7 +57,7 @@ export default async function AdminManualContributionsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Manual Contribution</h1>
           <p className="text-gray-600 mt-1">
             Uang yang masuk di luar payment gateway -- transfer bank, tunai di acara. Satu Admin mencatat dengan
-            bukti, Admin lain yang menyetujui sebelum uangnya masuk ke pembukuan (CONTEXT.md, Manual Contribution).
+            bukti, Admin lain yang menyetujui sebelum uangnya masuk ke pembukuan.
           </p>
         </div>
         <Link

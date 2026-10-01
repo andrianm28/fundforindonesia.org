@@ -47,12 +47,31 @@ const ROWS: { kind: AbuseThresholdKind; label: string; unit: 'rupiah' | 'count';
     kind: 'ACTIVE_CAMPAIGNS_PER_FUNDRAISER',
     label: 'Batas Campaign Active',
     unit: 'count',
-    description: 'Jumlah Campaign Active seorang Fundraiser boleh jalankan sebelum Usage Report pertamanya.',
+    description: 'Jumlah Campaign Active seorang Fundraiser boleh menjalankan sebelum Usage Report pertamanya.',
   },
 ];
 
 export default async function AdminAbuseThresholdsPage() {
   const thresholds = await resolveAbuseThresholds(prisma);
+
+  // Each row is append-only, so the newest row of a kind is the one in force
+  // and its setBy/setAt are the "who and when" (src/lib/abuse-thresholds.ts).
+  const history = await prisma.abuseThreshold.findMany({
+    orderBy: { setAt: 'desc' },
+    include: { setBy: { select: { name: true } } },
+  });
+  const lastChangeByKind = new Map<AbuseThresholdKind, { by: string; at: string }>();
+  for (const row of history) {
+    if (lastChangeByKind.has(row.kind)) continue;
+    lastChangeByKind.set(row.kind, {
+      by: row.setBy?.name ?? 'Admin',
+      at: new Date(row.setAt).toLocaleString('id-ID', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+        timeZone: 'Asia/Jakarta',
+      }) + ' WIB',
+    });
+  }
 
   const currentValueByKind: Record<AbuseThresholdKind, number> = {
     CAMPAIGN_REVIEW_GROSS: thresholds.campaignReviewGross,
@@ -66,7 +85,7 @@ export default async function AdminAbuseThresholdsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Ambang Penyalahgunaan</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Empat batas yang diawasi platform sendiri (PRD §&quot;Anti penyalahgunaan&quot;). Setiap perubahan tersimpan
+          Empat batas yang diawasi platform sendiri untuk mendeteksi penyalahgunaan. Setiap perubahan tersimpan
           sebagai baris baru -- nilai lama tetap terbaca untuk Donation atau Campaign yang sudah dinilai dengannya.
         </p>
       </div>
@@ -80,6 +99,7 @@ export default async function AdminAbuseThresholdsPage() {
               label={row.label}
               unit={row.unit}
               currentValue={currentValueByKind[row.kind]}
+              lastChange={lastChangeByKind.get(row.kind) ?? null}
             />
           </div>
         ))}

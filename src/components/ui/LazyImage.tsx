@@ -14,6 +14,12 @@ export interface LazyImageProps {
   priority?: boolean;
   onLoad?: () => void;
   fallback?: React.ReactNode;
+  /**
+   * Fill the parent instead of pinning the wrapper to `width` x `height`
+   * pixels. `width`/`height` still feed next/image's intrinsic ratio. Without
+   * this a 1200px wrapper left a grey strip beside it at 1280px.
+   */
+  fill?: boolean;
 }
 
 /**
@@ -33,6 +39,7 @@ export function LazyImage({
   priority = false,
   onLoad,
   fallback,
+  fill = false,
 }: LazyImageProps) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -55,7 +62,7 @@ export function LazyImage({
     return (
       <div
         className={`flex items-center justify-center bg-gray-100 ${className}`}
-        style={{ width, height }}
+        style={fill ? { width: '100%', height: '100%' } : { width, height }}
         role="img"
         aria-label={alt}
       >
@@ -82,7 +89,10 @@ export function LazyImage({
   }
 
   return (
-    <div className={`relative overflow-hidden ${className}`} style={{ width, height }}>
+    <div
+      className={`relative overflow-hidden ${className}`}
+      style={fill ? { width: '100%', height: '100%' } : { width, height }}
+    >
       {/* Skeleton placeholder shown while loading */}
       {!isLoaded && (
         <div className="absolute inset-0 z-10">

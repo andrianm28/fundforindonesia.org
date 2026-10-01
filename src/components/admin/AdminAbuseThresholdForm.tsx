@@ -23,13 +23,16 @@ interface AdminAbuseThresholdFormProps {
   label: string;
   unit: 'rupiah' | 'count';
   currentValue: number;
+  /** Who last changed this limit and when (already formatted); absent when nobody has, i.e. the PRD default is in force. */
+  lastChange?: { by: string; at: string } | null;
 }
 
-export function AdminAbuseThresholdForm({ kind, label, unit, currentValue }: AdminAbuseThresholdFormProps) {
+export function AdminAbuseThresholdForm({ kind, label, unit, currentValue, lastChange }: AdminAbuseThresholdFormProps) {
   const router = useRouter();
   const [value, setValue] = useState(String(currentValue));
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   const parsedValue = Number(value);
   const canSave =
@@ -42,6 +45,7 @@ export function AdminAbuseThresholdForm({ kind, label, unit, currentValue }: Adm
   async function save() {
     setSubmitting(true);
     setRefusal(null);
+    setSaved(false);
     try {
       const res = await fetch('/api/admin/abuse-thresholds', {
         method: 'POST',
@@ -53,6 +57,7 @@ export function AdminAbuseThresholdForm({ kind, label, unit, currentValue }: Adm
         setRefusal(typeof body.error === 'string' && body.error !== '' ? body.error : 'Gagal menyimpan ambang.');
         return;
       }
+      setSaved(true);
       router.refresh();
     } catch {
       setRefusal('Gagal menyimpan ambang.');
@@ -84,6 +89,18 @@ export function AdminAbuseThresholdForm({ kind, label, unit, currentValue }: Adm
       >
         Simpan
       </button>
+
+      {saved && (
+        <p role="status" className="w-full text-sm text-green-700">
+          Tersimpan. Ambang {label} sekarang {parsedValue.toLocaleString('id-ID')}.
+        </p>
+      )}
+
+      <p className="w-full text-xs text-gray-400">
+        {lastChange
+          ? `Terakhir diubah oleh ${lastChange.by} pada ${lastChange.at}.`
+          : 'Belum pernah diubah; memakai nilai bawaan.'}
+      </p>
 
       {refusal && (
         <p role="alert" className="w-full text-sm text-danger">

@@ -142,6 +142,7 @@ export function HeroBanner({ slides, autoPlayInterval = 5000 }: HeroBannerProps)
               width={1200}
               height={400}
               priority={currentIndex === 0}
+              fill
               className="w-full h-full"
             />
           </div>

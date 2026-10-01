@@ -125,9 +125,9 @@ export default async function AdminRefundsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Refund</h1>
           <p className="text-gray-600 mt-1">
-            Rilis 1: siklus REQUESTED → APPROVED → COMPLETED. Satu Admin membuat, Admin lain yang menyetujui, dan
+            Siklus Refund: diajukan → disetujui → selesai. Satu Admin membuat, Admin lain yang menyetujui, dan
             Admin ketiga yang menyelesaikan dengan bukti transfer (tiga orang berbeda) -- status lain
-            (AwaitingDonorDetails, Processing, Rejected, Failed) menyusul di rilis berikutnya.
+            (menunggu data rekening Donor, diproses, ditolak, gagal) belum tersedia.
           </p>
         </div>
         <Link

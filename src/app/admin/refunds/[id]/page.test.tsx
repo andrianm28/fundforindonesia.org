@@ -159,12 +159,16 @@ describe('AdminRefundDetailPage', () => {
       approvedBy: { name: 'Admin Dua' },
       completedById: 'admin-3',
       completedBy: { name: 'Admin Tiga' },
+      proofImage: 'TRX-778899 — ditransfer ke rekening Donor',
     } as never);
     vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ slug: 'wakaf-sumur', title: 'Wakaf Sumur' } as never);
 
     render(await AdminRefundDetailPage({ params: Promise.resolve({ id: 'refund-1' }) }));
 
     expect(screen.getByText(/Admin Tiga/)).toBeDefined();
+    // UAT round 2: the completion reference and note were stored but never shown.
+    expect(screen.getByText('Bukti transfer')).toBeDefined();
+    expect(screen.getByText('TRX-778899 — ditransfer ke rekening Donor')).toBeDefined();
     expect(screen.queryByRole('button')).toBeNull();
   });
 });

@@ -14,6 +14,9 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ back: vi.fn(), push: vi.fn() }),
 }));
 
+// CampaignDetailView reads the session (Traffic Source hook).
+vi.mock('next-auth/react', () => ({ useSession: () => ({ data: null }) }));
+
 import CampaignNotFound from './not-found';
 
 const draft = {

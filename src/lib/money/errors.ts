@@ -1,6 +1,7 @@
 import { DomainError, type MoneyErrorCode } from '@/lib/domain-errors';
 import type { Kind } from '@/generated/prisma/client';
 import { KIND_LABEL } from '@/lib/campaign-kind';
+import { formatRupiah } from '@/lib/utils/currency';
 
 /**
  * The money layer's typed refusals, for Payouts and Refunds on both a
@@ -504,7 +505,7 @@ export class ProviderBalanceInsufficientError extends MoneyError {
     readonly provider: string,
   ) {
     super(
-      `Saldo yang tercatat di ${provider} adalah ${providerBalance}, lebih kecil daripada nominal Payout ${payoutAmount}. ` +
+      `Saldo yang tercatat di ${provider} adalah ${formatRupiah(providerBalance)}, lebih kecil daripada nominal Payout ${formatRupiah(payoutAmount)}. ` +
         'Payout ini belum disetujui: cek ulang dashboard penyedia, atau tunggu sampai saldonya cukup.',
     );
     this.name = 'ProviderBalanceInsufficientError';
@@ -621,7 +622,7 @@ export class ProviderBalanceNotShortError extends MoneyError {
     readonly providerBalance: number,
   ) {
     super(
-      `Saldo yang tercatat (${providerBalance}) sudah mencukupi nominal Payout (${payoutAmount}), jadi ini bukan ` +
+      `Saldo yang tercatat (${formatRupiah(providerBalance)}) sudah mencukupi nominal Payout (${formatRupiah(payoutAmount)}), jadi ini bukan ` +
         'kekurangan untuk dicatat -- gunakan Setujui pencairan.',
     );
     this.name = 'ProviderBalanceNotShortError';

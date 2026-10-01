@@ -511,6 +511,15 @@ export async function reverseManualContribution(
     if (!contribution) {
       throw new ManualContributionNotFoundError(manualContributionId);
     }
+    // Status first: a contribution that is not APPROVED has nothing to take
+    // back, whoever asks, and that is the more basic thing to tell an Admin
+    // than who they are (UAT round 2: the recorder reversing a still-pending
+    // one was told "not by the person who recorded it"). No rule is loosened:
+    // everyone is refused here, and the check below still refuses the pair
+    // once it is APPROVED.
+    if (contribution.status !== 'APPROVED') {
+      throw new ManualContributionNotApprovedError(contribution.status);
+    }
     // The two-person rule, at the reversal as well as at the approval, and for
     // the same reason: the pair that created this money may not also be the one
     // that takes it back out. Otherwise the whole rule collapses into one
@@ -518,15 +527,12 @@ export async function reverseManualContribution(
     // end where they began with nothing on the record for anyone else to have
     // seen. Both halves of the pair are refused, and the refusal is the same
     // SelfApprovalError an approval of the wrong person gets, thrown before
-    // the status is even looked at, so this decision has no trace either.
+    // anything is written, so this decision has no trace either.
     if (
       reversedById === contribution.recordedById ||
       reversedById === contribution.decidedById
     ) {
       throw new SelfApprovalError('Manual Contribution', 'reversal');
-    }
-    if (contribution.status !== 'APPROVED') {
-      throw new ManualContributionNotApprovedError(contribution.status);
     }
 
     const subject = subjectOf(contribution);
