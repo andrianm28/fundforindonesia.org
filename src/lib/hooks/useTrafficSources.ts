@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { hasAssignment } from '@/lib/withAssignmentCheck';
 
 export interface TrafficSourceCount {
   source: string | null;
@@ -23,12 +22,13 @@ export interface TrafficSourceCount {
  * session: the Campaign's creator, or someone holding the ADMIN assignment.
  * The server still decides what is answered.
  */
+// Inline on purpose: withAssignmentCheck.ts imports server-only auth, which must not reach the browser bundle.
 export function useTrafficSources(slug: string, creatorId: string): TrafficSourceCount[] | null {
   const [sources, setSources] = useState<TrafficSourceCount[] | null>(null);
   const { data: session } = useSession();
   const viewerId = session?.user?.id;
   const mayAsk =
-    !!viewerId && (viewerId === creatorId || hasAssignment(session?.user?.assignments, 'ADMIN'));
+    !!viewerId && (viewerId === creatorId || (session?.user?.assignments ?? []).includes('ADMIN'));
 
   useEffect(() => {
     if (!mayAsk) return;
