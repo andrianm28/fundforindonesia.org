@@ -826,6 +826,22 @@ describe('reverseManualContribution', () => {
     expect(alreadyReversed.rows).toEqual([]);
   });
 
+  it('tells the recorder that a pending contribution is not approved yet, not that they may not reverse it (status before actor)', async () => {
+    // UAT round 2: the more basic reason comes first. The recorder is still
+    // refused -- the status check refuses everyone, and the two-person rule
+    // still refuses them once it is APPROVED (next test) -- only the wording
+    // changed.
+    const pending = makeTx();
+    await expect(
+      reverseManualContribution(makePrisma(pending.tx, {}) as never, {
+        manualContributionId: 'mc-1',
+        reversedById: 'admin-1',
+        reason: 'Salah rekening tujuan',
+      }),
+    ).rejects.toThrow(ManualContributionNotApprovedError);
+    expect(pending.rows).toEqual([]);
+  });
+
   it('refuses the Admin who recorded it, and the Admin who approved it', async () => {
     // The two-person rule has to hold at the reversal too, or it is worth
     // nothing: one person records a contribution, approves it themselves two

@@ -100,7 +100,7 @@ export function AdminManualContributionCreateForm({ target }: AdminManualContrib
       </label>
       <p className="text-xs text-gray-500">
         Wajib diisi -- tidak ada penyedia yang mengonfirmasi uang ini, jadi bukti ini satu-satunya yang berdiri di
-        belakang angkanya (CONTEXT.md, Manual Contribution).
+        belakang angkanya.
       </p>
 
       <label className="block text-sm text-gray-700">

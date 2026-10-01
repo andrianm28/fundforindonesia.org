@@ -376,6 +376,13 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
   // committed a moment ago is seen -- this only keeps the screen from
   // collecting one.
   const requestable = PAYOUT_REQUESTABLE_STATUSES.includes(data.lifecycleStatus);
+  // The same two states the server's own gate blocks a new request on
+  // (campaignBlockingUsageReport, @/lib/usage-reports.ts). Said BEFORE the
+  // form is filled in, as a warning only: the button stays as it was and the
+  // server still decides (UAT round 2: the block was first seen after Submit).
+  const blockedByUsageReport = data.payouts.some(
+    (p) => p.usageReportStatus === 'missing' || p.usageReportStatus === 'disputed',
+  );
   const canRequest =
     !data.isDemo &&
     requestable &&
@@ -483,6 +490,12 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
           </p>
         ) : (
           <div className="mt-3 space-y-3">
+            {blockedByUsageReport && (
+              <p role="note" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Ada pencairan selesai yang laporan penggunaan dananya belum beres. Pengajuan baru akan ditolak
+                sampai laporan itu beres -- kirim dulu lewat Riwayat pencairan di bawah.
+              </p>
+            )}
             <label className="block text-sm text-text">
               Rekening tujuan
               <select

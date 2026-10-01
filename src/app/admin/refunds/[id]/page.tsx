@@ -78,6 +78,11 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
   });
   const maskedDonorAccountNumber = recordedAccountNumber ? maskBankAccountNumber(recordedAccountNumber) : null;
 
+  const proofSeparator = ' — ';
+  const proofAt = refund.proofImage ? refund.proofImage.indexOf(proofSeparator) : -1;
+  const proofReference = proofAt > 0 && refund.proofImage ? refund.proofImage.slice(0, proofAt) : null;
+  const proofNote = proofAt > 0 && refund.proofImage ? refund.proofImage.slice(proofAt + proofSeparator.length) : null;
+
   return (
     <div className="max-w-2xl">
       <div className="mb-6">
@@ -110,6 +115,25 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
           <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
             <p className="text-xs text-gray-500">Diselesaikan oleh</p>
             <p className="text-sm font-medium text-gray-900">{refund.completedBy?.name}</p>
+            {refund.proofImage && (
+              <>
+                {/* Stored as one string by buildProofImage ("reference — note");
+                    shown as plain text, never as a link or image source. */}
+                {proofReference ? (
+                  <>
+                    <p className="mt-1 text-xs text-gray-500">Referensi transaksi</p>
+                    <p className="text-sm text-gray-900">{proofReference}</p>
+                    <p className="mt-1 text-xs text-gray-500">Catatan</p>
+                    <p className="text-sm text-gray-900">{proofNote}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-xs text-gray-500">Bukti transfer</p>
+                    <p className="text-sm text-gray-900">{refund.proofImage}</p>
+                  </>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -127,7 +151,7 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-semibold text-gray-900">Tindakan</h2>
           <p className="mb-3 text-xs text-gray-500">
-            Aturan dua orang (CONTEXT.md, Refund): Admin yang menyetujui harus berbeda dari yang mengajukan.
+            Aturan dua orang: Admin yang menyetujui harus berbeda dari yang mengajukan.
           </p>
           <AdminRefundApproveForm
             refundId={refund.id}
@@ -142,10 +166,10 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-semibold text-gray-900">Tandai selesai</h2>
           <p className="mb-3 text-xs text-gray-500">
-            Aturan dua orang (CONTEXT.md, Refund; ticket 31): Admin yang menyelesaikan harus berbeda dari yang
+            Aturan dua orang: Admin yang menyelesaikan harus berbeda dari yang
             mengajukan maupun yang menyetujui, dan mentransfer dana secara manual ke rekening Donor -- yang sudah
             dicatat Admin yang menyetujui -- sebelum mengetik ulang nomor rekening dan mencatat bukti transfer di
-            sini (Q7(c)).
+            sini.
           </p>
           <AdminRefundCompleteForm
             refundId={refund.id}

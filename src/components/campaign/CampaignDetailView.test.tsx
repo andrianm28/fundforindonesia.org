@@ -2,6 +2,13 @@ import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/re
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { CampaignDetailView, type CampaignDetailData } from './CampaignDetailView';
 
+// The Traffic Source hook asks the route only for the Campaign's own
+// Fundraiser or an Admin, so it reads the session. Default: the Fundraiser.
+const mockSession = vi.hoisted(() => ({
+  value: { data: { user: { id: 'user-1', assignments: [] as string[] } } } as { data: unknown },
+}));
+vi.mock('next-auth/react', () => ({ useSession: () => mockSession.value }));
+
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
@@ -418,13 +425,18 @@ describe('CampaignDetailView Traffic Source (ticket 24)', () => {
     expect(sessionStorage.getItem(`ffi:traffic-source:${mockCampaign.slug}`)).toBe('whatsapp');
   });
 
-  it('renders nothing extra when the viewer is not the Fundraiser (the API refuses)', async () => {
+  it('renders nothing extra, and never calls the owner-only route, for an anonymous visitor', async () => {
+    mockSession.value = { data: null };
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 }) as unknown as typeof fetch;
 
     render(<CampaignDetailView campaign={mockCampaign} />);
 
-    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      `/api/campaigns/${mockCampaign.slug}/traffic-sources`,
+      expect.anything(),
+    );
     expect(screen.queryByText(/Sumber Kunjungan/i)).toBeNull();
+    mockSession.value = { data: { user: { id: 'user-1', assignments: [] } } };
   });
 
   it("shows counts per source to the campaign's own Fundraiser", async () => {

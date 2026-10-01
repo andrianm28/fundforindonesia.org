@@ -67,6 +67,30 @@ describe('CampaignPayoutPanel', () => {
     expect(screen.getByText(/Bisa dicairkan/)).toBeInTheDocument();
   });
 
+  it('warns up front when a completed Payout still lacks its Usage Report, and not otherwise', async () => {
+    const completed = (usageReportStatus: 'missing' | 'submitted') => ({
+      id: 'payout-1',
+      amount: 100_000,
+      description: 'Tahap 1',
+      status: 'COMPLETED' as const,
+      createdAt: '2026-09-01T00:00:00.000Z',
+      approvedAt: '2026-09-02T00:00:00.000Z',
+      completedAt: '2026-09-03T00:00:00.000Z',
+      usageReportStatus,
+      shortCheckedAt: null,
+    });
+
+    mockFetch.mockImplementation(() => ok({ ...READ, payouts: [completed('missing')] }));
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+    expect(await screen.findByText(/laporan penggunaan dananya belum beres/)).toBeInTheDocument();
+    cleanup();
+
+    mockFetch.mockImplementation(() => ok({ ...READ, payouts: [completed('submitted')] }));
+    render(<CampaignPayoutPanel slug="sumur-desa" />);
+    await screen.findByLabelText('Jumlah pencairan');
+    expect(screen.queryByText(/laporan penggunaan dananya belum beres/)).toBeNull();
+  });
+
   it('lets the Fundraiser request part of their balance while the Campaign is still Active', async () => {
     // Records the arguments too, so the assertion below is about what the
     // panel actually sent rather than only that it sent something.

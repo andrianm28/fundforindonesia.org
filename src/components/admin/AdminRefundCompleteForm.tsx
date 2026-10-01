@@ -115,7 +115,7 @@ export function AdminRefundCompleteForm({ refundId, subject, actorId, requestedB
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-500">
-        Aturan dua pasang mata (Q7(c)): kode bank dan nama pemilik rekening sudah dicatat Admin yang menyetujui.
+        Aturan dua pasang mata: kode bank dan nama pemilik rekening sudah dicatat Admin yang menyetujui.
         Ketik ulang nomor rekening dari permintaan tertulis Donor yang sama -- server menolak bila tidak cocok.
       </p>
 
@@ -152,7 +152,7 @@ export function AdminRefundCompleteForm({ refundId, subject, actorId, requestedB
         />
       </label>
       <p className="text-xs text-gray-500">
-        Bukti transfer wajib (ticket 13): referensi transaksi dan catatan keduanya diisi, bukan satu karakter kosong.
+        Bukti transfer wajib: referensi transaksi dan catatan keduanya diisi, bukan satu karakter kosong.
       </p>
 
       <button

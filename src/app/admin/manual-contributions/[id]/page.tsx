@@ -110,7 +110,7 @@ export default async function AdminManualContributionDetailPage({ params }: Rout
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-semibold text-gray-900">Tindakan</h2>
           <p className="mb-3 text-xs text-gray-500">
-            Aturan dua orang (CONTEXT.md, Manual Contribution): Admin yang menyetujui atau menolak harus berbeda dari
+            Aturan dua orang: Admin yang menyetujui atau menolak harus berbeda dari
             yang mencatat, dan Admin yang membalikkan harus Admin ketiga -- bukan yang mencatat maupun yang
             menyetujui.
           </p>

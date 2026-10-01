@@ -42,7 +42,7 @@ export default async function ModerasiLayout({
           <div className="px-4 py-3">
             <h2 className="text-base font-semibold text-[#212121]">Moderasi</h2>
           </div>
-          <div className="flex border-t border-[#E0E0E0]">
+          <div className="flex overflow-x-auto border-t border-[#E0E0E0]">
             <MobileNavLink href="/moderasi" label="Dashboard" />
             <MobileNavLink href="/moderasi/campaigns" label="Kampanye" />
             <MobileNavLink href="/moderasi/reports" label="Laporan" />
@@ -85,7 +85,7 @@ function MobileNavLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="flex-1 text-center py-2.5 text-xs font-medium text-[#424242] hover:text-[#0073E6] hover:bg-[#F5F5F5] transition-colors"
+      className="flex-1 shrink-0 whitespace-nowrap px-3 text-center py-2.5 text-xs font-medium text-[#424242] hover:text-[#0073E6] hover:bg-[#F5F5F5] transition-colors"
     >
       {label}
     </Link>

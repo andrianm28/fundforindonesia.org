@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 **Blocked by:** none
 
@@ -70,3 +70,20 @@ sehari-hari.
 - Tidak ada perubahan skema atau kode uang.
 - Setelah selesai, jalankan ulang bagian UAT terkait (foto sebelum dan sesudah,
   di lebar 390px dan 1280px) dan lampirkan di laporan.
+
+## Implementation note
+
+Semua sepuluh butir dikerjakan; tes terarah hijau, ratchet di baseline (lint 193, tsc 47).
+
+1. Done. Sidebar dipindah ke `src/components/admin/AdminSidebar.tsx` (client): tersembunyi di bawah `md` dengan tombol "Buka menu"/"Tutup menu" (`aria-expanded`), semua tautan dipertahankan. Tab mobile Moderasi bisa digulir mendatar dan tidak berdempetan.
+2. Done. Pesan "Tersimpan" (`role=status`) dan baris "Terakhir diubah oleh ... pada ..." dari `setBy`/`setAt` (baris terbaru per jenis); tanpa baris: "Belum pernah diubah".
+3. Done. Istilah developer dibuang dari teks layar (komentar kode tidak diubah).
+4. Done. "benar-benar" dan "boleh menjalankan".
+5. Done. `AppShell` tidak membungkus `/admin` dan `/moderasi` dengan `<main>` kedua; judul sidebar menjadi `<p>`, jadi satu `main` dan satu `h1` per halaman.
+6. Done. `LazyImage` mendapat prop `fill` (HeroBanner memakainya, sebelumnya lebar inline 1200px mengalahkan `w-full`); footer memakai `new Date().getFullYear()`.
+7. Done. `useTrafficSources(slug, creatorId)` hanya memanggil rute bila sesi adalah pembuat Campaign atau ber-assignment ADMIN. Rute tidak diubah.
+8. Done. Layar Refund COMPLETED menampilkan "Bukti transfer" dari `Refund.proofImage` (referensi dan catatan, sudah tergabung oleh `buildProofImage`), gaya sama seperti layar Payout.
+9. Done. Pesan penolakan di `src/lib/money/errors.ts` (`ProviderBalanceInsufficientError`, `ProviderBalanceNotShortError`) memakai `formatRupiah`; hanya teks pesan, tanpa logika uang.
+10. Done. (a) `reverseManualContribution`: status dicek sebelum pelaku; semua orang tetap ditolak untuk yang belum APPROVED, dan pencatat/penyetuju tetap ditolak setelah APPROVED. (b) Panel Payout menampilkan peringatan sejak awal bila ada Payout selesai yang Usage Report-nya hilang atau dipertanyakan; tombol tidak diubah, server tetap penentu.
+
+Belum dilakukan: foto sebelum/sesudah UAT di 390px dan 1280px (tidak ada browser di sesi ini); perlu dijalankan ulang oleh koordinator atau owner.

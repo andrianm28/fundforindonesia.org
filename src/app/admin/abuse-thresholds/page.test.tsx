@@ -57,4 +57,29 @@ describe('AdminAbuseThresholdsPage', () => {
 
     expect(screen.getByLabelText(/penanda donasi/i)).toHaveValue('75000000');
   });
+
+  it('shows who last changed a limit and when, and says so for a limit nobody has changed', async () => {
+    vi.mocked(prisma.abuseThreshold.findMany).mockResolvedValue([
+      {
+        kind: 'DONATION_REVIEW_AMOUNT',
+        value: 75_000_000,
+        setById: 'admin-1',
+        setBy: { name: 'Admin Satu' },
+        setAt: new Date('2026-09-20T03:00:00.000Z'),
+      },
+      {
+        kind: 'DONATION_REVIEW_AMOUNT',
+        value: 60_000_000,
+        setById: 'admin-2',
+        setBy: { name: 'Admin Dua' },
+        setAt: new Date('2026-09-10T03:00:00.000Z'),
+      },
+    ] as never);
+
+    render(await AdminAbuseThresholdsPage());
+
+    expect(screen.getByText(/Terakhir diubah oleh Admin Satu pada .*2026/)).toBeDefined();
+    expect(screen.queryByText(/Admin Dua/)).toBeNull();
+    expect(screen.getAllByText(/Belum pernah diubah/).length).toBe(3);
+  });
 });

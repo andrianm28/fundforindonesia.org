@@ -83,4 +83,45 @@ describe('AdminAbuseThresholdForm', () => {
     fireEvent.change(screen.getByLabelText('Batas Campaign Active'), { target: { value: '4' } });
     expect(screen.getByRole('button', { name: /simpan/i })).not.toBeDisabled();
   });
+
+  it('confirms the save once it succeeds', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }) as unknown as typeof fetch;
+
+    render(
+      <AdminAbuseThresholdForm kind="DONATION_REVIEW_AMOUNT" label="Penanda Donasi" unit="rupiah" currentValue={50_000_000} />,
+    );
+    expect(screen.queryByRole('status')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Penanda Donasi'), { target: { value: '75000000' } });
+    fireEvent.click(screen.getByRole('button', { name: /simpan/i }));
+
+    const status = await screen.findByRole('status');
+    expect(status.textContent).toMatch(/tersimpan/i);
+  });
+
+  it('shows no confirmation when the server refuses', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'Harus positif.' }) }) as unknown as typeof fetch;
+
+    render(
+      <AdminAbuseThresholdForm kind="DONATION_REVIEW_AMOUNT" label="Penanda Donasi" unit="rupiah" currentValue={50_000_000} />,
+    );
+    fireEvent.change(screen.getByLabelText('Penanda Donasi'), { target: { value: '75000000' } });
+    fireEvent.click(screen.getByRole('button', { name: /simpan/i }));
+
+    await screen.findByRole('alert');
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('shows who last changed the limit and when', () => {
+    render(
+      <AdminAbuseThresholdForm
+        kind="DONATION_REVIEW_AMOUNT"
+        label="Penanda Donasi"
+        unit="rupiah"
+        currentValue={50_000_000}
+        lastChange={{ by: 'Admin Satu', at: '20 September 2026 10.00 WIB' }}
+      />,
+    );
+    expect(screen.getByText(/Terakhir diubah oleh Admin Satu pada 20 September 2026/)).toBeDefined();
+  });
 });

@@ -214,7 +214,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   useEffect(() => {
     captureTrafficSource(campaign.slug, window.location.href);
   }, [campaign.slug]);
-  const trafficSources = useTrafficSources(campaign.slug);
+  const trafficSources = useTrafficSources(campaign.slug, campaign.creator.id);
 
   const remainingDays = campaign.deadline
     ? getRemainingDays(new Date(campaign.deadline))
