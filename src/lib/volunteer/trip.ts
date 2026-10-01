@@ -13,6 +13,7 @@ import {
   type VolunteerBatch,
   type VolunteerTrip,
 } from '@/generated/prisma/client';
+import { LifecycleValidationError, SameAdminLiftError } from '@/lib/campaign-lifecycle-errors';
 import { fundraiserOnlyRefusal, judgeCapacity, NotAuthorizedError, requireAssignmentFor } from '@/lib/capacity';
 import { recordIdentityVerification } from '@/lib/identity-verification';
 import { createRefund } from '@/lib/money/refunds';
@@ -34,6 +35,9 @@ import {
   TripNotEditableError,
   TripNotFoundError,
   TripNotSubmittedError,
+  TripNotSuspendableError,
+  TripNotSuspendedError,
+  TripSuspensionUnrecordedError,
   TripNotTakingRegistrationsError,
   TripRejectionReasonInvalidError,
 } from '@/lib/volunteer-trip-errors';
@@ -278,6 +282,161 @@ export async function decideTripSubmission(
         link: `/volunteer-trip/${updated.slug}`,
       },
     });
+    return { trip: updated };
+  });
+}
+
+// ==================== Suspension (ticket 38) ====================
+
+const SUSPENSION_REASON_MAX_LENGTH = 1000;
+
+/** A Suspension's reason: trimmed, non-empty, at most 1000 characters, as a Campaign's is. */
+function requireSuspensionReason(raw: unknown): string {
+  const reason = typeof raw === 'string' ? raw.trim() : '';
+  if (reason === '') throw new LifecycleValidationError('Alasan wajib diisi.', 'reason');
+  if (reason.length > SUSPENSION_REASON_MAX_LENGTH) {
+    throw new LifecycleValidationError(`Alasan maksimal ${SUSPENSION_REASON_MAX_LENGTH} karakter.`, 'reason');
+  }
+  return reason;
+}
+
+const ADMIN_ONLY_SUSPEND = 'Hanya Admin yang dapat menangguhkan Volunteer Trip.';
+const ADMIN_ONLY_LIFT = 'Hanya Admin yang dapat mencabut penangguhan Volunteer Trip.';
+
+/**
+ * The status write of a Suspension or its lifting: predicated on the status
+ * judged under the lock, logged with its reason in the same transaction,
+ * and the Fundraiser told. Kept beside `transition` rather than inside it,
+ * which logs no reason (Verifier decisions carry none).
+ */
+async function writeSuspensionChange(
+  tx: Tx,
+  trip: LockedTrip,
+  change: {
+    to: VolunteerTripStatus;
+    action: VolunteerTripStatusChangeAction;
+    actorId: string;
+    reason: string;
+    onMiss: () => Error;
+    title: string;
+    message: string;
+  },
+  now: Date,
+): Promise<VolunteerTrip> {
+  const from = trip.effectiveStatus;
+  const written = await tx.volunteerTrip.updateMany({
+    where: { id: trip.id, status: from },
+    data: { status: change.to },
+  });
+  if (written.count === 0) throw change.onMiss();
+  await tx.volunteerTripStatusChange.create({
+    data: {
+      tripId: trip.id,
+      action: change.action,
+      fromStatus: from,
+      toStatus: change.to,
+      actorId: change.actorId,
+      capacity: StatusChangeCapacity.ADMIN,
+      reason: change.reason,
+      createdAt: now,
+    },
+  });
+  const updated = await tx.volunteerTrip.findUniqueOrThrow({ where: { id: trip.id } });
+  await tx.notification.create({
+    data: {
+      type: 'volunteer_trip_moderation',
+      title: change.title,
+      message: change.message,
+      userId: updated.fundraiserId,
+      link: `/volunteer-trip/${updated.slug}`,
+    },
+  });
+  return updated;
+}
+
+/**
+ * An Admin suspends an ACTIVE Trip with a required reason, never one they
+ * own (CONTEXT.md, Suspension, Capacity). While it is SUSPENDED
+ * `holdRegistration` refuses a new Registration and the Payout guard
+ * (`requirePayoutAllowed`, ./../subject-guard.ts) refuses to request,
+ * approve or complete a Trip Fee Payout. Nothing else moves: a CONFIRMED
+ * Registration is neither cancelled nor refunded (Batch cancellation stays
+ * a separate action). Refusals: NotAuthorizedError (403) without ADMIN,
+ * before anything is locked; LifecycleValidationError (400) for a missing
+ * reason; TripNotFoundError (404); OwnSubjectConflictError (403,
+ * OWN_TRIP_CONFLICT); TripNotSuspendableError (409) from any other status.
+ */
+export async function suspendTrip(
+  prisma: PrismaClient,
+  params: { tripId: string; actor: TripActor; reason: unknown; now?: Date },
+): Promise<TripResult> {
+  const { tripId, actor, now = new Date() } = params;
+  requireAssignmentFor(actor, StatusChangeCapacity.ADMIN, ADMIN_ONLY_SUSPEND);
+  const reason = requireSuspensionReason(params.reason);
+  return prisma.$transaction(async (tx: Tx) => {
+    const trip = await lockTrip(tx, tripId, now);
+    judgeCapacity(trip, actor, StatusChangeCapacity.ADMIN, ADMIN_ONLY_SUSPEND);
+    const current = trip.effectiveStatus;
+    if (current !== VolunteerTripStatus.ACTIVE) throw new TripNotSuspendableError(current);
+    const updated = await writeSuspensionChange(
+      tx,
+      trip,
+      {
+        to: VolunteerTripStatus.SUSPENDED,
+        action: VolunteerTripStatusChangeAction.SUSPENDED,
+        actorId: actor.userId,
+        reason,
+        onMiss: () => new TripNotSuspendableError(current),
+        title: 'Volunteer Trip Ditangguhkan',
+        message: `Volunteer Trip Anda ditangguhkan oleh Admin. Alasan: ${reason}`,
+      },
+      now,
+    );
+    return { trip: updated };
+  });
+}
+
+/**
+ * An Admin lifts a Suspension with a required reason, never on a Trip they
+ * own and never the Admin who imposed the latest Suspension, as for a
+ * Campaign (`liftSuspension`). The Trip returns to the status the log
+ * records before that Suspension. Refusals as `suspendTrip`, plus
+ * SameAdminLiftError (403), TripNotSuspendedError (409) from any other
+ * status, and TripSuspensionUnrecordedError (409) when no SUSPENDED log row
+ * exists to say where to return to.
+ */
+export async function liftTripSuspension(
+  prisma: PrismaClient,
+  params: { tripId: string; actor: TripActor; reason: unknown; now?: Date },
+): Promise<TripResult> {
+  const { tripId, actor, now = new Date() } = params;
+  requireAssignmentFor(actor, StatusChangeCapacity.ADMIN, ADMIN_ONLY_LIFT);
+  const reason = requireSuspensionReason(params.reason);
+  return prisma.$transaction(async (tx: Tx) => {
+    const trip = await lockTrip(tx, tripId, now);
+    judgeCapacity(trip, actor, StatusChangeCapacity.ADMIN, ADMIN_ONLY_LIFT);
+    const current = trip.effectiveStatus;
+    if (current !== VolunteerTripStatus.SUSPENDED) throw new TripNotSuspendedError(current);
+    const suspension = await tx.volunteerTripStatusChange.findFirst({
+      where: { tripId: trip.id, action: VolunteerTripStatusChangeAction.SUSPENDED },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    if (!suspension) throw new TripSuspensionUnrecordedError();
+    if (suspension.actorId === actor.userId) throw new SameAdminLiftError();
+    const updated = await writeSuspensionChange(
+      tx,
+      trip,
+      {
+        to: suspension.fromStatus,
+        action: VolunteerTripStatusChangeAction.SUSPENSION_LIFTED,
+        actorId: actor.userId,
+        reason,
+        onMiss: () => new TripNotSuspendedError(current),
+        title: 'Penangguhan Volunteer Trip Dicabut',
+        message: `Penangguhan Volunteer Trip Anda telah dicabut oleh Admin. Alasan: ${reason}`,
+      },
+      now,
+    );
     return { trip: updated };
   });
 }

@@ -283,6 +283,13 @@ export function makeTripDb(seed: Seed = {}) {
         },
       },
       volunteerTripStatusChange: {
+        // The newest row matching `where`, as liftTripSuspension reads the Suspension it undoes.
+        findFirst: async ({ where }: { where: Where; orderBy?: unknown }) => {
+          const rows = getData()
+            .statusChanges.filter((c) => matches(c, where))
+            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
+          return rows[0] ? { ...rows[0] } : null;
+        },
         create: async ({
           data,
         }: {

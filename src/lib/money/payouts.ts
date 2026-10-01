@@ -83,8 +83,9 @@ export { UsageReportRequiredError };
  * balance reads and the leg builders both need it and deriving it twice
  * would be the one thing that could drift. `state` is null when the subject
  * row does not exist; what that means belongs to the caller: the foreign
- * key keeps a Campaign alive behind a Payout, and a Trip has no status rule,
- * so both guards are skipped on null in practice.
+ * key keeps a Campaign alive behind a Payout, and a Trip's only status rule
+ * (refused while Suspended) needs the row, so both guards are skipped on null
+ * in practice.
  */
 async function lockPayoutSubject(
   tx: Prisma.TransactionClient,
@@ -153,7 +154,7 @@ export async function requestPayout(
   }
 
   // Only a Campaign that is effectively Active, Expired or Completed may pay
-  // out (CONTEXT.md, Payout); a Trip keeps its rule of today. Judged on the
+  // out (CONTEXT.md, Payout); a Trip is refused only while Suspended. Judged on the
   // state read under the lock, so a Suspension committed before this
   // transaction took it is seen. A missing subject (null) is left to the
   // checks below, as before: the route answers 404 before reaching here,
@@ -423,8 +424,9 @@ export async function approvePayout(
     // Cancellation committed between the request and this lock refuses the
     // approval, and the Payout stays DRAFT with nothing posted (CONTEXT.md,
     // Payout). A null state cannot happen for a Campaign, whose row
-    // Payout.campaignId's foreign key keeps alive, and a Trip has no status
-    // rule; either way it is left to the checks below, as before.
+    // Payout.campaignId's foreign key keeps alive, and a Trip's status rule
+    // (refused while Suspended) needs the row; either way a null state is
+    // left to the checks below, as before.
     if (subjectState) requirePayoutAllowed(subjectState);
 
     // Balance can have moved since the request -- a refund, another payout
@@ -770,8 +772,8 @@ export async function completePayout(
     // Payout (CONTEXT.md, Payout). Judged on the state read under the lock,
     // so a Suspension that committed first is seen. A null state cannot
     // happen for a Campaign, whose row Payout.campaignId's foreign key
-    // keeps alive, and a Trip has no status rule; either way it is left to
-    // the checks below, as before.
+    // keeps alive, and a Trip's status rule (refused while Suspended) needs
+    // the row; either way a null state is left to the checks below, as before.
     if (subjectState) requirePayoutAllowed(subjectState);
 
     // Predicated on the status, exactly as approvePayout is: the lock above
