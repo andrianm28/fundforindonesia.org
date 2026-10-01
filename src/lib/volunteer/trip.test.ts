@@ -386,7 +386,13 @@ describe('decideTripSubmission: Identity Verification', () => {
   it('a rejection records none', async () => {
     const db = makeTripDb({ trips: [tripRow({ status: 'SUBMITTED' })] });
 
-    await decideTripSubmission(db.prisma as never, { tripId: 'trip-1', actor: verifier, decision: 'reject', now: NOW });
+    await decideTripSubmission(db.prisma as never, {
+      tripId: 'trip-1',
+      actor: verifier,
+      decision: 'reject',
+      reason: 'Dokumen belum lengkap',
+      now: NOW,
+    });
 
     expect(db.identityVerifications).toEqual([]);
   });
