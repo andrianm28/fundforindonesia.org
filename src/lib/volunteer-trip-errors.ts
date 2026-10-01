@@ -225,3 +225,40 @@ export class BatchAlreadyCompletedError extends TripError {
     this.name = 'BatchAlreadyCompletedError';
   }
 }
+
+/**
+ * An Admin suspends only an ACTIVE Volunteer Trip. Raised when the Trip, read
+ * under its row lock, is in any other status, including one a competing
+ * Suspension already changed. 409 through `domainErrorToHttp`.
+ */
+export class TripNotSuspendableError extends TripError {
+  readonly code = 'TRIP_NOT_SUSPENDABLE';
+  constructor(readonly currentStatus: VolunteerTripStatus) {
+    super('Volunteer Trip ini tidak bisa ditangguhkan pada status ini. Muat ulang halaman lalu periksa kembali.');
+    this.name = 'TripNotSuspendableError';
+  }
+}
+
+/** An Admin lifts a Suspension only on a SUSPENDED Volunteer Trip. 409 through `domainErrorToHttp`. */
+export class TripNotSuspendedError extends TripError {
+  readonly code = 'TRIP_NOT_SUSPENDED';
+  constructor(readonly currentStatus: VolunteerTripStatus) {
+    super('Volunteer Trip ini tidak sedang ditangguhkan. Muat ulang halaman lalu periksa kembali.');
+    this.name = 'TripNotSuspendedError';
+  }
+}
+
+/**
+ * A SUSPENDED Trip with no SUSPENDED log row: the status to return to is
+ * unknown, so lifting is refused rather than guessed (the Campaign's
+ * UnrecordedSuspensionError, for a Trip). 409 through `domainErrorToHttp`.
+ */
+export class TripSuspensionUnrecordedError extends TripError {
+  readonly code = 'TRIP_SUSPENSION_UNRECORDED';
+  constructor() {
+    super(
+      'Penangguhan ini tidak tercatat di riwayat status, sehingga status Volunteer Trip sebelumnya tidak diketahui. Hubungi tim teknis untuk mencabutnya.',
+    );
+    this.name = 'TripSuspensionUnrecordedError';
+  }
+}

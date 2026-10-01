@@ -233,12 +233,15 @@ export async function lockAndLoad(
  */
 const PAYOUT_ALLOWED_FROM: readonly CampaignStatus[] = PAYOUT_REQUESTABLE_STATUSES;
 
-/** A Payout refused because of the Campaign's status (CONTEXT.md, Payout). */
+/**
+ * A Payout refused because of the subject's status (CONTEXT.md, Payout): a
+ * Campaign's, or a Volunteer Trip's while it is Suspended (ticket 38).
+ */
 export class PayoutNotAllowedForStatusError extends CampaignLifecycleError {
   readonly code = "PAYOUT_NOT_ALLOWED_FOR_STATUS";
-  constructor(readonly currentStatus: CampaignStatus) {
+  constructor(readonly currentStatus: CampaignStatus | VolunteerTripStatus) {
     super(
-      "Payout tidak dapat diajukan atau disetujui karena status Campaign tidak mengizinkannya."
+      "Payout tidak dapat diajukan atau disetujui karena status Campaign atau Volunteer Trip tidak mengizinkannya."
     );
     this.name = "PayoutNotAllowedForStatusError";
   }
@@ -247,10 +250,16 @@ export class PayoutNotAllowedForStatusError extends CampaignLifecycleError {
 /**
  * Passes only for a Campaign that is effectively Active, Expired or
  * Completed (keep-it-all, ADR 0004); Suspended and Cancelled refuse. A
- * Volunteer Trip keeps its rule of today, which has no status check.
+ * Volunteer Trip refuses only while it is Suspended (ticket 38) and
+ * otherwise keeps its rule of today, which has no status check.
  */
 export function requirePayoutAllowed(state: SubjectState): void {
-  if (state.kind === "trip") return;
+  if (state.kind === "trip") {
+    if (state.effectiveStatus === VolunteerTripStatus.SUSPENDED) {
+      throw new PayoutNotAllowedForStatusError(state.effectiveStatus);
+    }
+    return;
+  }
   if (!PAYOUT_ALLOWED_FROM.includes(state.effectiveStatus)) {
     throw new PayoutNotAllowedForStatusError(state.effectiveStatus);
   }

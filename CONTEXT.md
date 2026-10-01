@@ -63,7 +63,7 @@ Satu jadwal bertanggal dari sebuah Volunteer Trip, dengan kuota maksimum sendiri
 _Avoid_: Jadwal, schedule, departure, cohort
 
 **Registration**:
-Pendaftaran satu Volunteer pada satu Volunteer Batch. Belum mengunci kuota sampai Trip Fee-nya Settlement; sebelum itu Registration hanya menahan kursi sementara selama 30 menit. Volunteer yang membatalkan Registration miliknya yang sudah `CONFIRMED` mendapat Refund bertingkat (lihat Trip Fee). Setelah Batch-nya diselesaikan, Registration tidak bisa dibatalkan lagi, dan Fundraiser menandai siapa yang hadir; hanya yang hadir menerima Sertifikat Keikutsertaan.
+Pendaftaran satu Volunteer pada satu Volunteer Batch. Belum mengunci kuota sampai Trip Fee-nya Settlement; sebelum itu Registration hanya menahan kursi sementara selama 30 menit. Tidak ada Registration baru yang dibuka pada Volunteer Trip yang Suspended. Volunteer yang membatalkan Registration miliknya yang sudah `CONFIRMED` mendapat Refund bertingkat (lihat Trip Fee). Setelah Batch-nya diselesaikan, Registration tidak bisa dibatalkan lagi, dan Fundraiser menandai siapa yang hadir; hanya yang hadir menerima Sertifikat Keikutsertaan.
 _Avoid_: Booking, sign-up
 
 **Sertifikat Keikutsertaan**:
@@ -123,7 +123,7 @@ Penarikan diri Fundraiser atas Campaign Active-nya sendiri, diajukan Fundraiser 
 _Avoid_: Pembatalan, close, withdraw
 
 **Suspension**:
-Pembekuan Campaign yang Active, Expired, atau Completed oleh Admin, lazimnya atas Flag dari Verifier; tanpa Flag pun boleh selama alasannya tercatat (lihat [ADR 0015](./docs/adr/0015-suspension-reaches-closed-campaigns.md)). Donation berhenti, Escrow Hold dan Campaign Balance dibekukan, Payout ditolak, dan Refund bisa dimulai. Hanya Admin yang bukan pelaku Suspension itu yang boleh mencabutnya; saat dicabut Campaign kembali ke status sebelum Suspension, kecuali Campaign yang tadinya Active dan tenggatnya sudah lewat, yang langsung menjadi Expired.
+Pembekuan Campaign yang Active, Expired, atau Completed oleh Admin, lazimnya atas Flag dari Verifier; tanpa Flag pun boleh selama alasannya tercatat (lihat [ADR 0015](./docs/adr/0015-suspension-reaches-closed-campaigns.md)). Donation berhenti, Escrow Hold dan Campaign Balance dibekukan, Payout ditolak, dan Refund bisa dimulai. Hanya Admin yang bukan pelaku Suspension itu yang boleh mencabutnya; saat dicabut Campaign kembali ke status sebelum Suspension, kecuali Campaign yang tadinya Active dan tenggatnya sudah lewat, yang langsung menjadi Expired. Volunteer Trip yang Active juga bisa dibekukan Admin dengan alasan tercatat, bukan atas Flag, dan tidak pernah oleh Admin pemilik Trip itu. Selama Suspended, tidak ada Registration baru dan tidak ada Payout Trip Fee; Registration yang ada, termasuk yang Confirmed, tidak dibatalkan atau di-refund otomatis (pembatalan Batch tetap tindakan terpisah), dan Trip Fee yang settle atas penahanan kursi yang sudah ada tetap mengonfirmasi kursinya. Pencabutan mengikuti aturan Campaign: hanya Admin yang bukan pelaku Suspension itu.
 _Avoid_: Ban, takedown, blokir
 
 **Flag**:
@@ -226,7 +226,7 @@ Dana Net yang sudah lewat Escrow Hold dan belum dibayarkan lewat Payout. Selalu 
 _Avoid_: Collected amount, saldo, dana terkumpul (angka tampilan Gross)
 
 **Payout**:
-Permintaan Fundraiser untuk mengirim sebagian Campaign Balance ke Bank Account terverifikasinya, disetujui satu Admin, lalu ditarik dari dashboard penyedia dan ditandai selesai dengan bukti transfer oleh Admin yang berbeda. Hanya bisa diajukan dan disetujui selama Campaign Active, Expired, atau Completed; Suspended dan Cancelled menolaknya, termasuk bila Suspension jatuh di antara pengajuan dan persetujuan.
+Permintaan Fundraiser untuk mengirim sebagian Campaign Balance ke Bank Account terverifikasinya, disetujui satu Admin, lalu ditarik dari dashboard penyedia dan ditandai selesai dengan bukti transfer oleh Admin yang berbeda. Hanya bisa diajukan dan disetujui selama Campaign Active, Expired, atau Completed; Suspended dan Cancelled menolaknya, termasuk bila Suspension jatuh di antara pengajuan dan persetujuan. Payout Trip Fee ditolak untuk Volunteer Trip yang Suspended, sama seperti untuk Campaign yang Suspended.
 _Avoid_: Pencairan (di kode), disbursement, withdrawal
 
 **Usage Report**:
