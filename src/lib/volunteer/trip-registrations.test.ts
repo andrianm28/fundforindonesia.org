@@ -6,6 +6,7 @@ import {
   holdRegistration,
   refundLateSettlement,
 } from './trip';
+import { RefundExceedsRemainingError } from '@/lib/money/errors';
 import { domainErrorToHttp } from '@/lib/domain-errors';
 import { batchRow, makeTripDb, paymentRow, registrationRow, tripRow } from '../../../tests/support/in-memory-trip-db';
 
@@ -280,6 +281,19 @@ describe('confirmRegistration (inside the Settlement transaction)', () => {
     expect(db.registrations[0].status).toBe('CANCELLED');
   });
 
+  it('confirms a HOLD whose window has not yet closed when the Trip Fee settles', async () => {
+    const db = makeTripDb({
+      trips: [tripRow({ status: 'ACTIVE' })],
+      batches: [batchRow()],
+      registrations: [registrationRow({ status: 'HOLD', holdExpiresAt: new Date(NOW.getTime() + 1_000) })],
+    });
+
+    const result = await confirmRegistration(db.prisma as never, { registrationId: 'registration-1' });
+
+    expect(result).toEqual({ outcome: 'confirmed' });
+    expect(db.registrations[0].status).toBe('CONFIRMED');
+  });
+
   it('reports a hold that lapsed before its Trip Fee settled, leaving it expired', async () => {
     const db = withRegistration('EXPIRED');
 
@@ -338,8 +352,42 @@ describe('refundLateSettlement', () => {
     ]);
   });
 
-  it.each(['EXPIRED', 'CONFIRMED'] as const)('refunds nothing for a %s Registration', async (status) => {
-    const db = settledAfterCancel(status);
+  it('refunds the full Trip Fee of an expired Registration, whose hold lapsed before the fee settled', async () => {
+    const db = settledAfterCancel('EXPIRED');
+
+    const result = await refundLateSettlement(db.prisma as never, { registrationId: 'registration-1', now: NOW });
+
+    expect(db.refunds).toEqual([
+      expect.objectContaining({
+        paymentId: 'payment-1',
+        amount: 250_000,
+        reason: 'Trip Fee settlement arrived after the seat hold had expired -- refunded automatically',
+        requestedById: 'volunteer-1',
+        status: 'REQUESTED',
+      }),
+    ]);
+    expect(result.refund).toMatchObject({ id: db.refunds[0].id, amount: 250_000 });
+    // The seat is not handed out: the Registration stays EXPIRED.
+    expect(db.registrations[0].status).toBe('EXPIRED');
+  });
+
+  it.each(['CANCELLED', 'EXPIRED'] as const)(
+    'never refunds a %s Registration twice: a replay is refused by the remaining-amount guard',
+    async (status) => {
+      const db = settledAfterCancel(status);
+      await refundLateSettlement(db.prisma as never, { registrationId: 'registration-1', now: NOW });
+
+      await expect(
+        refundLateSettlement(db.prisma as never, { registrationId: 'registration-1', now: NOW }),
+      ).rejects.toBeInstanceOf(RefundExceedsRemainingError);
+
+      expect(db.refunds).toHaveLength(1);
+      expect(db.refunds[0].amount).toBe(250_000);
+    },
+  );
+
+  it('refunds nothing for a CONFIRMED Registration', async () => {
+    const db = settledAfterCancel('CONFIRMED');
 
     const result = await refundLateSettlement(db.prisma as never, { registrationId: 'registration-1', now: NOW });
 
