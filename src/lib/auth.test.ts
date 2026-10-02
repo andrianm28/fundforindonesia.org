@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import type { Session } from "next-auth";
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -155,7 +156,7 @@ describe("authOptions.callbacks.session", () => {
       trigger: "update",
     } as any);
 
-    expect(session.user.assignments).toEqual(["ADMIN", "VERIFIER"]);
+    expect((session as Session).user.assignments).toEqual(["ADMIN", "VERIFIER"]);
   });
 
   it("defaults assignments to an empty array when the token has none", async () => {
@@ -166,7 +167,7 @@ describe("authOptions.callbacks.session", () => {
       trigger: "update",
     } as any);
 
-    expect(session.user.assignments).toEqual([]);
+    expect((session as Session).user.assignments).toEqual([]);
   });
 
   // A token issued before the Role was retired still carries these fields

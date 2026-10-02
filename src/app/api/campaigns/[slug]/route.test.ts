@@ -705,7 +705,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('returns 404 if campaign does not exist', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'user-1', name: 'Admin', email: 'admin@test.com' },
+      user: { id: 'user-1', name: 'Admin', email: 'admin@test.com', assignments: [] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue(null);
@@ -745,7 +745,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('allows CAMPAIGN_CREATOR who is the owner to edit their campaign', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com', assignments: [] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({
@@ -770,7 +770,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('returns 403 for CAMPAIGN_CREATOR who is NOT the owner', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com', assignments: [] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({
@@ -837,7 +837,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('writes only the fields a Fundraiser may edit, dropping money, status, and ownership fields', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com', assignments: [] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'DRAFT', deadline: null } as any);
@@ -866,7 +866,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('drops category and isUrgent -- those change through a Verification Request or an Admin, not a direct edit', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com', assignments: [] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null } as any);
@@ -889,7 +889,7 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
   it('returns 400 and writes nothing when an editable field is invalid', async () => {
     mockGetServerSession.mockResolvedValue({
-      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com', assignments: [] },
       expires: '2099-01-01',
     });
     mockFindUnique.mockResolvedValue({ id: 'campaign-1', creatorId: 'creator-user', lifecycleStatus: 'ACTIVE', deadline: null } as any);

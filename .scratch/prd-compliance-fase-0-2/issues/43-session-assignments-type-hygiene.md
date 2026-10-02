@@ -4,7 +4,7 @@
 
 **Blocked by:** 7
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 - [ ] Every pre-existing test file that builds a session mock literal (`{ user: { id, role, isVerified, verificationType, ... } }`) without `assignments` gains it, matching this repo's established convention that `Session.user` fields are non-optional
 - [ ] No test's runtime assertions change — these are type-only fixes; `npx vitest run` was already fully green before this ticket and must stay that way
