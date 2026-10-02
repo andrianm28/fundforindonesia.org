@@ -260,6 +260,45 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(data).toEqual({ escrowHold: 300_000, tripBalance: 150_000 });
+    expect(data).toEqual({ escrowHold: 300_000, tripBalance: 150_000, withdrawable: 150_000 });
+  });
+
+  it('withdrawable is the Trip Balance less what a not-COMPLETED Batch still holds (ticket 49)', async () => {
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 't1', direction: 'CREDIT', amount: 150_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-1' },
+    ];
+    const { tx } = makeTx({ ledgerRows });
+    // The held figure comes back from Postgres as a bigint.
+    (tx.$queryRaw as Mock).mockResolvedValue([{ held: BigInt(40_000) }]);
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await GET(getRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ escrowHold: 0, tripBalance: 150_000, withdrawable: 110_000 });
+  });
+
+  it('withdrawable is 0, never negative, when held exceeds the balance', async () => {
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 't1', direction: 'CREDIT', amount: 30_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-1' },
+    ];
+    const { tx } = makeTx({ ledgerRows });
+    (tx.$queryRaw as Mock).mockResolvedValue([{ held: 30_000 }]);
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const data = await (await GET(getRequest(), routeContext())).json();
+
+    expect(data.withdrawable).toBe(0);
+  });
+
+  it('a non-Fundraiser never reaches the ledger, so withdrawable is not exposed to them', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'someone-else' } });
+
+    const response = await GET(getRequest(), routeContext());
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data).not.toHaveProperty('withdrawable');
+    expect(mockTransaction).not.toHaveBeenCalled();
   });
 });

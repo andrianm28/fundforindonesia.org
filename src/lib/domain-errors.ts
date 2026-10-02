@@ -114,7 +114,8 @@ export type TripErrorCode =
   | "BATCH_ALREADY_COMPLETED"
   | "TRIP_NOT_SUSPENDABLE"
   | "TRIP_NOT_SUSPENDED"
-  | "TRIP_SUSPENSION_UNRECORDED";
+  | "TRIP_SUSPENSION_UNRECORDED"
+  | "TRIP_PAYOUT_FUNDS_NOT_COMPLETED";
 
 /**
  * The Capacity judgement's refusals (./capacity.ts; CONTEXT.md, Capacity),
@@ -216,6 +217,9 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   FLAG_NOT_FOUND: 404,
   FLAG_ALREADY_RESOLVED: 409,
   PAYOUT_NOT_ALLOWED_FOR_STATUS: 409,
+  // Ticket 49: the money is there but still refundable, so it clears by itself
+  // when the Batch completes -- a conflict with state, not a bad input.
+  TRIP_PAYOUT_FUNDS_NOT_COMPLETED: 409,
   CAMPAIGN_NOT_EDITABLE: 409,
   // The Fundraiser could not fix it by resubmitting: a Verification Request
   // does not reopen title and description, only story and cover image stay

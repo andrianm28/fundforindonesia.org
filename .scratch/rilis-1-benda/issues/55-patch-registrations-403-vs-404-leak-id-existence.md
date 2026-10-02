@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, API quality)
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -49,3 +49,4 @@ menemukan dua celah pada endpoint registrasi:
 ## Comments
 
 - 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #175.
+- 2026-10-02: awaiting-merge. PR #175, commit 283aa99. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.

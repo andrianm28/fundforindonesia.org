@@ -222,7 +222,7 @@ describe('cancelRegistration', () => {
 
   it.each([
     ['a Registration that does not exist', { registrationId: 'nope' }, 'REGISTRATION_NOT_FOUND', 404],
-    ["another Volunteer's Registration", { actor: { userId: 'someone-else' } }, 'NOT_AUTHORIZED', 403],
+    ["another Volunteer's Registration", { actor: { userId: 'someone-else' } }, 'REGISTRATION_NOT_FOUND', 404],
     ['a CANCELLED Registration', { registration: registrationRow({ status: 'CANCELLED' }) }, 'REGISTRATION_NOT_CANCELLABLE', 400],
     ['an EXPIRED Registration', { registration: registrationRow({ status: 'EXPIRED' }) }, 'REGISTRATION_NOT_CANCELLABLE', 400],
     ['a Registration on a COMPLETED Batch', { batch: batchRow({ status: 'COMPLETED' }) }, 'BATCH_ALREADY_COMPLETED', 400],
@@ -249,6 +249,28 @@ describe('cancelRegistration', () => {
 
     expect(domainErrorToHttp(error)).toMatchObject({ status, body: { code } });
     expect(db.registrations[0].status).toBe(registration.status);
+    expect(db.refunds).toEqual([]);
+  });
+
+  it("answers another Volunteer's Registration exactly as one that does not exist (status and body), and cancels nothing", async () => {
+    const db = makeTripDb({
+      trips: [tripRow({ status: 'ACTIVE' })],
+      batches: [batchRow()],
+      registrations: [registrationRow()],
+      payments: [paymentRow()],
+    });
+    const refuse = (registrationId: string, userId: string) =>
+      cancelRegistration(db.prisma as never, { registrationId, actor: { userId }, now: NOW }).catch((e: unknown) =>
+        domainErrorToHttp(e),
+      );
+
+    const notOwner = await refuse('registration-1', 'someone-else');
+    const missing = await refuse('registration-nope', 'someone-else');
+
+    expect(notOwner).toEqual(missing);
+    expect(notOwner).toMatchObject({ status: 404 });
+    expect(JSON.stringify(notOwner)).not.toContain('registration-1');
+    expect(db.registrations[0].status).toBe('CONFIRMED');
     expect(db.refunds).toEqual([]);
   });
 
