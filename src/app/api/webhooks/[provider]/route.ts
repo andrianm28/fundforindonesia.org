@@ -574,7 +574,18 @@ export async function POST(
           // it is logged for manual follow-up instead.
           // A Donation anonymised before it settled (ticket 36) has no address
           // left to send to, by design: skip rather than log it as an anomaly.
-          if (settled.receiptToken && !donation!.anonymisedAt) {
+          // The `donation` above was loaded before the settlement transaction,
+          // so an anonymisation that landed since (the Donor opened the
+          // Receipt link in the meantime) is invisible to it: read the flag
+          // again right before sending, so the mail never goes to an address
+          // that has just been erased.
+          const freshDonation = settled.receiptToken
+            ? await prisma.donation.findUnique({
+                where: { id: donation!.id },
+                select: { anonymisedAt: true },
+              })
+            : null;
+          if (settled.receiptToken && !donation!.anonymisedAt && !freshDonation?.anonymisedAt) {
             const resolved = resolveReceiptRecipient({
               donor: donation!.donor
                 ? { name: donation!.donor.name, email: readUserEmail(donation!.donor) }

@@ -2,6 +2,10 @@ import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import { ReceiptView } from '@/components/receipt/ReceiptView';
 
+// Rendered per request: anonymisation (ticket 36) changes what this page may
+// show, so it must never be served from a cache.
+export const dynamic = 'force-dynamic';
+
 interface ReceiptPageProps {
   params: Promise<{ token: string }>;
 }

@@ -10,6 +10,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     webhookEvent: { create: vi.fn(), update: vi.fn(), findUniqueOrThrow: vi.fn() },
     payment: { findUnique: vi.fn() },
+    donation: { findUnique: vi.fn() },
     notification: { createMany: vi.fn(), create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -75,6 +76,7 @@ const mockWebhookEventCreate = prisma.webhookEvent.create as unknown as Mock;
 const mockWebhookEventUpdate = prisma.webhookEvent.update as unknown as Mock;
 const mockWebhookEventFindUniqueOrThrow = prisma.webhookEvent.findUniqueOrThrow as unknown as Mock;
 const mockPaymentFindUnique = prisma.payment.findUnique as unknown as Mock;
+const mockDonationFindUnique = prisma.donation.findUnique as unknown as Mock;
 const mockNotificationCreateMany = prisma.notification.createMany as unknown as Mock;
 const mockNotificationCreate = prisma.notification.create as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
@@ -293,6 +295,7 @@ describe('POST /api/webhooks/[provider]', () => {
     vi.clearAllMocks();
     mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
     mockWebhookEventUpdate.mockResolvedValue({});
+    mockDonationFindUnique.mockResolvedValue({ anonymisedAt: null });
     mockNotificationCreateMany.mockResolvedValue({ count: 0 });
     mockNotificationCreate.mockResolvedValue({});
     mockSendReportingFailure.mockResolvedValue(true);
@@ -664,6 +667,22 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(message.text).toContain('Yayasan Contoh');
     expect(message.text).toContain('/receipt/tok-fixed');
     expect(report).toMatchObject({ mail: 'receipt', donationId: 'donation-1', paymentId: 'payment-1' });
+  });
+
+  it('re-reads anonymisedAt right before sending, so a Donor anonymised after the Payment was loaded gets no Receipt email (ticket 36)', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    mockDonationFindUnique.mockResolvedValue({ anonymisedAt: new Date('2026-10-02T08:00:00.000Z') });
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(mockDonationFindUnique).toHaveBeenCalledWith({
+      where: { id: 'donation-1' },
+      select: { anonymisedAt: true },
+    });
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
   });
 
   it('emails the Receipt to a Guest Donor at their sealed guest email when there is no account', async () => {
