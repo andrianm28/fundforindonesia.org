@@ -140,6 +140,9 @@ function makeWebhookTx() {
 function makeWebhookPayment(overrides: Record<string, unknown> = {}) {
   return {
     id: 'payment-webhook-1',
+    // Must equal the provider the webhook event is verified by (the 'mock' route
+    // and WEBHOOK_EVENT below); the route refuses a Payment from another provider (ticket 51).
+    provider: 'mock',
     amount: 75_000,
     status: 'PENDING',
     donationId: 'donation-webhook-1',

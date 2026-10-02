@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { impactBreakdown, ImpactDoesNotReconcileError } from '@/lib/money/impact';
+import { impactBreakdown, ImpactDoesNotReconcileError, CsrDoesNotReconcileError } from '@/lib/money/impact';
 
 /**
  * GET /api/impact -- the Impact & Transparency breakdown (ticket 25; PRD
@@ -24,6 +24,12 @@ export async function GET(req: NextRequest) {
     response.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
     return response;
   } catch (error) {
+    if (error instanceof CsrDoesNotReconcileError) {
+      console.error(
+        `[impact] refusing to serve the breakdown: ${error.message} (booked ${error.booked}, explained ${error.explained})`,
+      );
+      return NextResponse.json({ error: 'impact-tidak-rekonsiliasi' }, { status: 500 });
+    }
     if (error instanceof ImpactDoesNotReconcileError) {
       // The delta goes to the log, never to the response: it is exactly the
       // number this page refuses to publish.

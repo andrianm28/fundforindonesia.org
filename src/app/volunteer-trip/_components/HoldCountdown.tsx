@@ -24,9 +24,13 @@ function format(ms: number): string {
  */
 export function HoldCountdown({ expiresAt }: { expiresAt: string }) {
   const router = useRouter();
-  const [ms, setMs] = useState(() => remaining(expiresAt));
+  // Null until mounted: the clock differs between the server render and the
+  // client's first render (a second or more), which is a hydration mismatch.
+  // Both draw the same placeholder, and the real time arrives with the effect.
+  const [ms, setMs] = useState<number | null>(null);
 
   useEffect(() => {
+    setMs(remaining(expiresAt));
     let sinceRefresh = 0;
     const tick = setInterval(() => {
       const left = remaining(expiresAt);
@@ -45,7 +49,7 @@ export function HoldCountdown({ expiresAt }: { expiresAt: string }) {
 
   return (
     <span role="timer" className="font-mono font-semibold">
-      {format(ms)}
+      {ms === null ? '--:--' : format(ms)}
     </span>
   );
 }

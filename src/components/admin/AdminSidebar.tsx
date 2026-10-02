@@ -3,6 +3,15 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { activeHref, NAV_ACTIVE, NAV_IDLE } from "@/lib/navActive";
+
+const ADMIN_HREFS = [
+  "/admin", "/admin/users", "/admin/campaigns", "/admin/payouts", "/admin/refunds",
+  "/admin/manual-contributions", "/admin/abuse-thresholds", "/admin/campaigns/lifecycle",
+  "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/verification-checklist",
+  "/admin/collecting-entities", "/admin/partnership-inquiries",
+] as const;
+const LINK_BASE = "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors";
 
 /**
  * The Admin navigation. From the `md` breakpoint up it is the always-visible
@@ -14,6 +23,7 @@ import Link from "next/link";
 export function AdminSidebar() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const current = activeHref(pathname, ADMIN_HREFS);
 
   // The folded menu closes after navigating to another page.
   useEffect(() => {
@@ -22,14 +32,14 @@ export function AdminSidebar() {
 
   return (
     <div className="md:w-64 md:shrink-0">
-      <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 md:hidden">
-        <p className="text-base font-bold text-gray-900">Admin Panel</p>
+      <div className="flex items-center justify-between border-b border-border bg-bg px-4 py-3 md:hidden">
+        <p className="text-base font-bold text-ink">Admin Panel</p>
         <button
           type="button"
           aria-expanded={open}
           aria-controls="admin-sidebar"
           onClick={() => setOpen((v) => !v)}
-          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700"
+          className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-text"
         >
           {open ? "Tutup menu" : "Buka menu"}
         </button>
@@ -37,59 +47,59 @@ export function AdminSidebar() {
 
       <aside
         id="admin-sidebar"
-        className={`${open ? "flex" : "hidden"} flex-col border-r border-gray-200 bg-white md:sticky md:top-0 md:flex md:min-h-screen`}
+        className={`${open ? "flex" : "hidden"} flex-col border-r border-border bg-bg md:sticky md:top-0 md:flex md:min-h-screen`}
       >
-      <div className="hidden border-b border-gray-200 p-6 md:block">
-        <p className="text-xl font-bold text-gray-900">Admin Panel</p>
-        <p className="text-sm text-gray-500 mt-1">Manajemen Platform</p>
+      <div className="hidden border-b border-border p-6 md:block">
+        <p className="text-xl font-bold text-ink">Admin Panel</p>
+        <p className="text-sm text-text-secondary mt-1">Manajemen Platform</p>
       </div>
 
       <nav className="flex-1 p-4 space-y-1">
-        <SidebarLink href="/admin" icon="dashboard">
+        <SidebarLink current={current} href="/admin" icon="dashboard">
           Dashboard
         </SidebarLink>
-        <SidebarLink href="/admin/users" icon="users">
+        <SidebarLink current={current} href="/admin/users" icon="users">
           Pengguna
         </SidebarLink>
-        <SidebarLink href="/admin/campaigns" icon="campaigns">
+        <SidebarLink current={current} href="/admin/campaigns" icon="campaigns">
           Kampanye
         </SidebarLink>
-        <SidebarLink href="/admin/payouts" icon="payouts">
+        <SidebarLink current={current} href="/admin/payouts" icon="payouts">
           Pencairan Dana
         </SidebarLink>
-        <SidebarLink href="/admin/refunds" icon="refund">
+        <SidebarLink current={current} href="/admin/refunds" icon="refund">
           Refund
         </SidebarLink>
-        <SidebarLink href="/admin/manual-contributions" icon="manual-contribution">
+        <SidebarLink current={current} href="/admin/manual-contributions" icon="manual-contribution">
           Manual Contribution
         </SidebarLink>
-        <SidebarLink href="/admin/abuse-thresholds" icon="threshold">
+        <SidebarLink current={current} href="/admin/abuse-thresholds" icon="threshold">
           Ambang Penyalahgunaan
         </SidebarLink>
-        <SidebarLink href="/admin/campaigns/lifecycle" icon="flag">
+        <SidebarLink current={current} href="/admin/campaigns/lifecycle" icon="flag">
           Suspension &amp; Cancellation
         </SidebarLink>
-        <SidebarLink href="/admin/volunteer-trips" icon="flag">
+        <SidebarLink current={current} href="/admin/volunteer-trips" icon="flag">
           Volunteer Trip
         </SidebarLink>
-        <SidebarLink href="/admin/dormant-balances" icon="dormant">
+        <SidebarLink current={current} href="/admin/dormant-balances" icon="dormant">
           Dormant Balance
         </SidebarLink>
-        <SidebarLink href="/admin/verification-checklist" icon="checklist">
+        <SidebarLink current={current} href="/admin/verification-checklist" icon="checklist">
           Checklist Verifikasi
         </SidebarLink>
-        <SidebarLink href="/admin/collecting-entities" icon="campaigns">
+        <SidebarLink current={current} href="/admin/collecting-entities" icon="campaigns">
           Collecting Entity
         </SidebarLink>
-        <SidebarLink href="/admin/partnership-inquiries" icon="campaigns">
+        <SidebarLink current={current} href="/admin/partnership-inquiries" icon="campaigns">
           Partnership Inquiry
         </SidebarLink>
       </nav>
 
-      <div className="p-4 border-t border-gray-200">
+      <div className="p-4 border-t border-border">
         <Link
           href="/"
-          className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+          className="flex items-center gap-2 text-sm text-text hover:text-primary transition-colors"
         >
           <svg
             className="w-4 h-4"
@@ -115,16 +125,19 @@ export function AdminSidebar() {
 function SidebarLink({
   href,
   icon,
+  current,
   children,
 }: {
   href: string;
+  current: string | null;
   icon: string;
   children: React.ReactNode;
 }) {
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+      aria-current={current === href ? "page" : undefined}
+      className={`${LINK_BASE} ${current === href ? NAV_ACTIVE : NAV_IDLE}`}
     >
       <SidebarIcon type={icon} />
       {children}

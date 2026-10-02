@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   readDonationGuestEmail,
   readUserEmail,
-  SELECT_DONATION_GUEST_EMAIL,
   SELECT_USER_EMAIL,
 } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
@@ -177,9 +176,11 @@ export async function POST(
             // money; donor is who it is addressed to when the Donor has an
             // account. Both addresses are ciphertexts now (ADR 0012) and are
             // decrypted where the Receipt is addressed, not stored in the clear.
+            // Donation's own scalars, guestEmailCiphertext and guestEmailKeyId
+            // among them, come with `include`; a scalar named inside an
+            // `include` is rejected by Prisma and answers every webhook 500.
             campaign: { include: { collectingEntity: true } },
             donor: { select: { id: true, name: true, ...SELECT_USER_EMAIL } },
-            ...SELECT_DONATION_GUEST_EMAIL,
           },
         },
         registration: { include: { batch: { include: { trip: true } } } },
@@ -197,6 +198,28 @@ export async function POST(
         where: { id: webhookEventId },
         data: { processedAt: new Date() },
       });
+      return NextResponse.json({ received: true }, { status: 200 });
+    }
+
+    // The provider that signed this event must be the provider that created
+    // this Payment. The signature proves the event came from whoever holds
+    // THAT provider's secret, not that it may speak for this charge: without
+    // this check a delivery verified by one provider could settle, fail or
+    // expire a Payment another provider charged. Checked before the status
+    // early-exit below so it is never mistaken for a harmless replay, and
+    // before anything is written to the Payment.
+    //
+    // Two deliberate choices. (1) The answer is the same 200 as an unknown
+    // providerRef, so a caller cannot probe which refs exist by telling the
+    // two apart. (2) processedAt is NOT stamped: the dedupe key is
+    // (provider, providerEventId), and marking a mismatched event processed
+    // would make a later genuine event with the same id look like a replay and
+    // be dropped. Left unprocessed, that later event picks the row up and is
+    // handled normally. The log carries ids only, no PII.
+    if (payment.provider !== event.provider) {
+      console.error(
+        `[webhooks/${providerParam}] REJECTED: event ${event.providerEventId} from provider ${event.provider} names payment ${payment.id}, which belongs to provider ${payment.provider}`,
+      );
       return NextResponse.json({ received: true }, { status: 200 });
     }
 

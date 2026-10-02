@@ -1,5 +1,5 @@
 import type { PrismaClient, VolunteerBatchStatus, VolunteerTripStatus } from '@/generated/prisma/client';
-import { TRIP_EDITABLE_STATUSES } from './trip';
+import { liveRegistrationWhere, TRIP_EDITABLE_STATUSES } from './trip';
 
 /**
  * The Fundraiser's own reads behind /akun/volunteer-trip (ticket 35): their
@@ -29,6 +29,12 @@ export type FundraiserBatch = {
   status: VolunteerBatchStatus;
   /** The CONFIRMED Registrations: who a completion marks present. */
   roster: FundraiserRosterEntry[];
+  /**
+   * Seats held or confirmed (a HOLD counts until its window lapses). Above
+   * zero, editBatch refuses to move the dates or cut the quota below it
+   * (ticket 48), so the screen shows those fields read-only.
+   */
+  seatsUsed: number;
   /** True once the endDate has passed: completeBatch refuses sooner. */
   ended: boolean;
 };
@@ -79,9 +85,9 @@ export async function getFundraiserTripDetail(
         orderBy: { startDate: 'asc' },
         include: {
           registrations: {
-            where: { status: 'CONFIRMED' },
+            where: liveRegistrationWhere(now),
             orderBy: { createdAt: 'asc' },
-            select: { id: true, attended: true, volunteer: { select: { name: true } } },
+            select: { id: true, status: true, attended: true, volunteer: { select: { name: true } } },
           },
         },
       },
@@ -117,7 +123,10 @@ export async function getFundraiserTripDetail(
       minQuota: b.minQuota,
       status: b.status,
       ended: b.endDate <= now,
-      roster: b.registrations.map((r) => ({ id: r.id, name: r.volunteer.name ?? 'Tanpa nama', attended: r.attended })),
+      seatsUsed: b.registrations.length,
+      roster: b.registrations
+        .filter((r) => r.status === 'CONFIRMED')
+        .map((r) => ({ id: r.id, name: r.volunteer.name ?? 'Tanpa nama', attended: r.attended })),
     })),
   };
 }

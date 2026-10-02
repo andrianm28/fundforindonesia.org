@@ -55,6 +55,7 @@ type LedgerRow = {
   account: string;
   campaignId: string | null;
   volunteerTripId: string | null;
+  programId?: string | null;
 };
 
 function verifiedBankAccount(overrides: Record<string, unknown> = {}) {
@@ -373,6 +374,54 @@ describe('requestPayout', () => {
     });
 
     expect(payoutFindFirst).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * csr-and-hibah 07: a Program Balance can never be the source of a Payout.
+ * LedgerSubject has no Program variant, so the type already refuses one; this
+ * is the same refusal at runtime, for a caller that got a Program-shaped
+ * subject past the compiler (a JSON body, a cast). The subject is built
+ * through `unknown` rather than `any`, which is exactly what such a caller
+ * would do.
+ */
+describe('requestPayout against a Program', () => {
+  const programSubject = { type: 'program', programId: 'prog-1' } as unknown as Parameters<
+    typeof requestPayout
+  >[1]['subject'];
+  const programMoney: LedgerRow[] = [
+    { transactionId: 'mc-1', direction: 'CREDIT', amount: 500_000, account: 'PROGRAM_BALANCE', campaignId: null, volunteerTripId: null, programId: 'prog-1' },
+  ];
+
+  it('refuses a Program subject and creates no Payout, though the Program holds money and the bank account is verified', async () => {
+    const { tx, payoutCreate } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: programMoney });
+
+    await expect(
+      requestPayout(tx as never, {
+        subject: programSubject,
+        requestedById: 'requester-1',
+        bankAccountId: 'bank-1',
+        amount: 500_000,
+        description: 'Pencairan Program',
+      }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
+    expect(payoutCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses before taking any lock or reading any balance', async () => {
+    const { tx, queryRawCalls } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: programMoney });
+
+    await expect(
+      requestPayout(tx as never, {
+        subject: programSubject,
+        requestedById: 'requester-1',
+        bankAccountId: 'bank-1',
+        amount: 1,
+        description: 'Pencairan Program',
+      }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
+    expect(queryRawCalls).toEqual([]);
+    expect(tx.ledgerEntry.groupBy).not.toHaveBeenCalled();
   });
 });
 
@@ -1248,6 +1297,28 @@ describe('approvePayout', () => {
     const posted = rows.filter((r) => r.transactionId === 'payout-instructed-payout-1');
     expect(posted.every((r) => r.account !== 'TRIP_BALANCE')).toBe(true);
     expect(posted.find((r) => r.direction === 'DEBIT')).toMatchObject({ account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1' });
+  });
+
+  it('refuses a Payout whose subject is a Program, reads no balance and posts nothing, though the Program holds money', async () => {
+    // A row that points at a Program and at neither a Campaign nor a Trip: the
+    // shape a hand-edited or future-migrated row would have. csr-and-hibah 07:
+    // PROGRAM_BALANCE is never a Payout source, so approval must refuse it
+    // before the ledger is read, whatever the Program holds.
+    const payoutRow = basePayoutRow({ campaignId: null, volunteerTripId: null, programId: 'prog-1' });
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 'mc-1', direction: 'CREDIT', amount: 500_000, account: 'PROGRAM_BALANCE', campaignId: null, volunteerTripId: null, programId: 'prog-1' },
+    ];
+    const { tx, rows, payoutState, queryRawCalls } = makeTx({ ledgerRows, payoutRow });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
+
+    expect(tx.ledgerEntry.groupBy).not.toHaveBeenCalled();
+    expect(queryRawCalls).toEqual([]);
+    expect(rows).toEqual(ledgerRows);
+    expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
   });
 
   it('refuses self-approval for a Trip-linked payout exactly as it already does for a Campaign-linked one', async () => {

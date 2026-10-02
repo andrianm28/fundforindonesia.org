@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 /**
@@ -13,6 +13,14 @@ const view = vi.hoisted(() => ({ getVolunteerRegistration: vi.fn(), findOwnLiveR
 vi.mock('@/lib/volunteer/registration-view', () => view);
 const auth = vi.hoisted(() => ({ getServerSession: vi.fn() }));
 vi.mock('@/lib/auth', () => auth);
+const payments = vi.hoisted(() => ({ override: null as null | (() => unknown) }));
+vi.mock('@/lib/payments', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/payments')>();
+  return {
+    ...actual,
+    getPaymentProvider: (name?: string) => (payments.override ? payments.override() : actual.getPaymentProvider(name)),
+  };
+});
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(() => {
     throw new Error('NEXT_NOT_FOUND');
@@ -56,6 +64,7 @@ beforeEach(() => {
   auth.getServerSession.mockResolvedValue({ user: { id: 'v1' } });
 });
 afterEach(() => {
+  payments.override = null;
   cleanup();
   vi.unstubAllEnvs();
 });
@@ -121,6 +130,47 @@ describe('Registration summary page', () => {
     expect(screen.getAllByRole('row')[1].textContent).toContain('Sampai 6 Okt 2026 00.00 WIB');
   });
 
+  it.each([
+    ['mock', 'bank_transfer'],
+    ['sumopod', 'qris'],
+  ])('charges through the method the %s provider supports (%s)', async (provider, method) => {
+    vi.stubEnv('PAYMENT_PROVIDER', provider);
+    vi.stubEnv('MOCK_MIDTRANS_SERVER_KEY', 'test-server-key');
+    vi.stubEnv('SUMOPOD_API_KEY', 'test-key');
+    vi.stubEnv('SUMOPOD_WEBHOOK_SECRET', 'test-secret');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: 'x' }) });
+    global.fetch = fetchMock as never;
+    catalog.getTripDetail.mockResolvedValue(trip());
+    render(await SummaryPage(summaryParams));
+    fireEvent.click(screen.getByRole('button', { name: 'Daftar dan bayar' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ paymentMethod: method });
+  });
+
+  it('falls back to QRIS only when the active provider is not configured; the API refuses on its own', async () => {
+    vi.stubEnv('PAYMENT_PROVIDER', 'sumopod');
+    vi.stubEnv('SUMOPOD_API_KEY', '');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: 'x' }) });
+    global.fetch = fetchMock as never;
+    catalog.getTripDetail.mockResolvedValue(trip());
+    render(await SummaryPage(summaryParams));
+    fireEvent.click(screen.getByRole('button', { name: 'Daftar dan bayar' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ paymentMethod: 'qris' });
+  });
+
+  it('does not swallow a provider method it does not know: the page throws instead of showing QRIS', async () => {
+    payments.override = () => ({ method: 'cash_on_delivery' });
+    catalog.getTripDetail.mockResolvedValue(trip());
+    await expect(SummaryPage(summaryParams)).rejects.toThrow(/tidak dikenal/);
+  });
+
+  it('does not swallow other provider errors either', async () => {
+    vi.stubEnv('PAYMENT_PROVIDER', 'nope');
+    catalog.getTripDetail.mockResolvedValue(trip());
+    await expect(SummaryPage(summaryParams)).rejects.toThrow();
+  });
+
   it('offers no pay button for a full Batch', async () => {
     catalog.getTripDetail.mockResolvedValue(trip('FULL'));
     render(await SummaryPage(summaryParams));
@@ -168,6 +218,15 @@ describe('Registration page', () => {
     expect(screen.getByText('Menunggu pembayaran')).toBeInTheDocument();
     expect(screen.getByRole('timer')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Batalkan Registrasi' })).toBeInTheDocument();
+  });
+
+  it('shows an EXPIRED Registration as expired: no waiting-for-payment label, countdown or cancel', async () => {
+    view.getVolunteerRegistration.mockResolvedValue(reg({ status: 'EXPIRED', paidAmount: null, cancelRefundAmount: 0 }));
+    render(await RegistrationPage(params));
+    expect(screen.getByText('Kedaluwarsa')).toBeInTheDocument();
+    expect(screen.queryByText(/Menunggu pembayaran/)).toBeNull();
+    expect(screen.queryByRole('timer')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Batalkan Registrasi' })).toBeNull();
   });
 
   it('shows Refund status for a cancelled Registration and offers no cancel', async () => {
