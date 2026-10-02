@@ -73,7 +73,9 @@ import { programBooks } from '@/lib/money/manual-contributions';
  *   It joins neither `collected` nor the six lines (those are Campaign money),
  *   but it has a reconciliation of its own: every Program balance entry must
  *   carry the Manual Contribution that put it there, or the page refuses to
- *   publish (CsrDoesNotReconcileError, same failure as the six lines).
+ *   publish the CSR block (CsrDoesNotReconcileError): `csr` is `null`, and
+ *   ONLY the CSR block is withheld -- the six lines are a separate set of
+ *   books and still answer (owner decision 2026-10-02).
  * - `outsideTheBooks`: the sum of the plain figures an Admin reported for CSR
  *   money that never crossed the platform's account. No ledger entry stands
  *   behind it by design, so nothing can reconcile it, and it is never added
@@ -176,8 +178,10 @@ export interface ImpactBreakdown {
   /**
    * CSR money, kept apart from `collected` and the six lines. The two figures
    * are never summed: one is backed by the ledger, the other is only reported.
+   * `null` when the Program books do not reconcile (CsrDoesNotReconcileError):
+   * the block is withheld, the six lines are unaffected.
    */
-  csr: {
+  csr: null | {
     /** Program balance across the Programs in scope; ledger-backed and reconciled. */
     inTheBooks: number;
     /** Reported by an Admin for money that never crossed the platform's account; no ledger entry behind it. */
@@ -407,8 +411,27 @@ export async function impactBreakdown(
     const programIds = programs.map((p) => p.id);
     // Read by the Manual Contribution module, the one place allowed to name a
     // Program's balance (manual-contribution-isolation.test.ts).
+    //
+    // A CSR block that does not reconcile hides the CSR block ONLY (owner
+    // decision 2026-10-02): the six lines are Campaign money, a different set
+    // of books, and their own failure (ImpactDoesNotReconcileError below)
+    // still refuses the whole breakdown. The delta goes to the log, never to
+    // the response.
+    let csr: ImpactBreakdown['csr'] = null;
     const { booked: programBooked, explained: programExplained } = await programBooks(tx, programIds);
-    assertCsrReconciles(programBooked, programExplained);
+    try {
+      assertCsrReconciles(programBooked, programExplained);
+      csr = {
+        inTheBooks: programBooked,
+        outsideTheBooks: programs.reduce((total, p) => total + p.reportedAmount, 0),
+        programCount: programs.length,
+      };
+    } catch (error) {
+      if (!(error instanceof CsrDoesNotReconcileError)) throw error;
+      console.error(
+        `[impact] hiding the CSR block: ${error.message} (booked ${error.booked}, explained ${error.explained})`,
+      );
+    }
 
     const netSettled = sum(byPayment, 'ESCROW_HOLD:CREDIT');
     const providerFeeCharged = sum(byPayment, 'PROVIDER_FEE:CREDIT');
@@ -481,11 +504,7 @@ export async function impactBreakdown(
       // Program-targeted money is deliberately not here -- see the groupBy
       // above; it is reported in `csr` instead.
       manualContributions,
-      csr: {
-        inTheBooks: programBooked,
-        outsideTheBooks: programs.reduce((total, p) => total + p.reportedAmount, 0),
-        programCount: programs.length,
-      },
+      csr,
       beneficiaries,
       location,
       notes: [

@@ -1014,22 +1014,34 @@ describe('GET /api/impact -- the CSR line (csr-08)', () => {
     expect(csrOf(await getBreakdown())).toEqual({ inTheBooks: 0, outsideTheBooks: 0, programCount: 0 });
   });
 
-  it('fails loudly when PROGRAM_BALANCE holds money no Manual Contribution put there', async () => {
-    // Nothing but a Manual Contribution may credit a Program, so a balance
-    // that exceeds what contributions explain is a broken book, and the page
-    // refuses to publish it, exactly as it does for the six lines.
+  // Owner decision 2026-10-02 (follow-up to csr-08): a CSR block that does not
+  // reconcile hides the CSR block ONLY. The six Campaign lines are a different
+  // set of books and keep answering.
+  it('answers 200 with the six lines and csr: null when PROGRAM_BALANCE holds money no Manual Contribution put there', async () => {
     const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
     ledger.raw(manualContributionReceivedLegs({ subject: { type: 'program', programId: 'program-1' }, amount: 500 }));
-    holder.db = makeImpactDb({ programs: [PROGRAM], ledgerEntries: ledger.rows });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      programs: [{ ...PROGRAM, reportedAmount: 80_000_000 }],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      ledgerEntries: ledger.rows,
+    });
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const response = await GET(request());
+    const body = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: 'impact-tidak-rekonsiliasi' });
+    expect(response.status).toBe(200);
+    expect(body.collected).toBe(100_000);
+    expect(sumOf(lines(body))).toBe(100_000);
+    expect(body.csr).toBeNull();
+    // No CSR figure of any kind leaks out beside the marker.
+    expect(JSON.stringify(body)).not.toContain('80000000');
+    expect(JSON.stringify(body)).not.toContain('outsideTheBooks');
   });
 
-  it('fails loudly when PROGRAM_BALANCE is negative, even if Manual Contributions explain it', async () => {
+  it('answers 200 with csr: null when PROGRAM_BALANCE is negative, even if Manual Contributions explain it', async () => {
     const ledger = ledgerFixture();
     ledger.programContribution({ manualContributionId: 'mc-1', programId: 'program-1', amount: 100 });
     ledger.programContributionReversal({ manualContributionId: 'mc-1', programId: 'program-1', amount: 300 });
@@ -1038,9 +1050,9 @@ describe('GET /api/impact -- the CSR line (csr-08)', () => {
 
     const response = await GET(request());
 
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: 'impact-tidak-rekonsiliasi' });
-    // The log names the two figures of the CSR check, not the six-lines ones.
+    expect(response.status).toBe(200);
+    expect((await response.json()).csr).toBeNull();
+    // The log, never the response, names the two figures of the CSR check.
     expect(String(logged.mock.calls[0]?.[0])).toContain('booked -200, explained -200');
   });
 
@@ -1053,6 +1065,29 @@ describe('GET /api/impact -- the CSR line (csr-08)', () => {
     await GET(request());
 
     expect(String(logged.mock.calls[0]?.[0])).toContain('booked 500, explained 0');
+  });
+
+  it('still refuses with 500 when the six lines do not reconcile, CSR healthy or not', async () => {
+    const ledger = ledgerFixture();
+    ledger.programContribution({ manualContributionId: 'mc-1', programId: 'program-1', amount: 100 });
+    // A Payout instructed out of a Campaign that never settled a Payment.
+    ledger.raw([
+      { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 500_000 },
+      { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 500_000, campaignId: 'campaign-1' },
+    ]);
+    ledger.payoutInstruction({ payoutId: 'payout-1', campaignId: 'campaign-1', amount: 500_000 });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      programs: [PROGRAM],
+      payouts: [{ id: 'payout-1', campaignId: 'campaign-1', amount: 500_000, status: 'APPROVED' }],
+      ledgerEntries: ledger.rows,
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'impact-tidak-rekonsiliasi' });
   });
 
   it('never carries the free-text note or any per-Program figure', async () => {
