@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, kode uang)
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -82,3 +82,7 @@ aman.
   memakai `Payment.escrowReleasedAt` terisi, sehingga Refund men-debit
   `TRIP_BALANCE`; pada race cancel, urutan cancel-dulu menolak dengan
   `InsufficientBalanceError`, request-dulu dengan `TripPayoutFundsNotCompletedError`.
+
+## Comments
+
+- 2026-10-02: awaiting-merge. PR #176, commit 7e2077b. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
