@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@/generated/prisma/client';
 import { tripFeeRefundAmount } from './refunds';
+import { safePaymentLink } from '@/lib/payments/payment-link';
 
 /**
  * What a Volunteer sees of one of their own Registrations (ticket 36): its
@@ -76,9 +77,6 @@ type RegistrationRowForView = {
   } | null;
 };
 
-/** Only an http(s) link is ever offered as a payment link. */
-const isWebLink = (url: string | null): url is string => url !== null && /^https?:\/\//i.test(url);
-
 function toView(r: RegistrationRowForView, now: Date): RegistrationView {
   const status = (r.status === 'HOLD' && r.holdExpiresAt <= now ? 'EXPIRED' : r.status) as RegistrationView['status'];
   const paidAmount = r.payment && r.payment.status === 'PAID' ? r.payment.amount : null;
@@ -93,7 +91,7 @@ function toView(r: RegistrationRowForView, now: Date): RegistrationView {
     payment !== null &&
     payment.status === 'PENDING' &&
     (payment.expiresAt === null || payment.expiresAt > now);
-  const redirectUrl = resumable && isWebLink(payment.redirectUrl) ? payment.redirectUrl : null;
+  const redirectUrl = resumable ? safePaymentLink(payment.redirectUrl) : null;
   const vaNumber = resumable ? payment.vaNumber : null;
 
   return {

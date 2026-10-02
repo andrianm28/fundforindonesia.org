@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import type { Prisma, PrismaClient } from '@/generated/prisma/client';
+import { RegistrationStatus, type Prisma, type PrismaClient } from '@/generated/prisma/client';
+import { CertificateNameMissingError } from '@/lib/volunteer-trip-errors';
 
 /**
  * Sertifikat Keikutsertaan (ticket 37; prd-audit/issues/10). The only place a
@@ -68,10 +69,16 @@ export async function getCertificateByCode(
 
 /**
  * Issue a certificate for each of `registrationIds`, which the caller has
- * already proved are CONFIRMED Registrations of `batch` marked attended.
- * Idempotent on the unique Registration: an existing certificate is left as
- * it was (name frozen at the first issue), never replaced or duplicated. Writes
- * no Refund and no ledger row.
+ * already proved are CONFIRMED Registrations of `batch` marked attended; it
+ * checks that itself too, and throws if any id is not a CONFIRMED
+ * Registration of the Batch, or if the rows written differ from the rows
+ * asked for. Idempotent on the unique Registration: an existing certificate
+ * is left as it was (name frozen at the first issue), never replaced or
+ * duplicated. Writes no Refund and no ledger row.
+ *
+ * A blank Volunteer or organizer name refuses with CertificateNameMissingError
+ * rather than freezing an empty name: a certificate cannot be corrected, and
+ * the throw rolls back the whole `completeBatch` so the Batch stays OPEN.
  */
 export async function issueCertificates(
   tx: Tx,
@@ -81,31 +88,54 @@ export async function issueCertificates(
     now: Date;
   },
 ): Promise<void> {
-  const { registrationIds, batch, now } = params;
+  const { batch, now } = params;
+  const registrationIds = [...new Set(params.registrationIds)];
   if (registrationIds.length === 0) return;
 
   const trip = await tx.volunteerTrip.findUniqueOrThrow({ where: { id: batch.tripId } });
   const registrations = await tx.registration.findMany({
-    where: { id: { in: [...registrationIds] }, batchId: batch.id },
+    where: { id: { in: registrationIds }, batchId: batch.id, status: RegistrationStatus.CONFIRMED },
   });
+  if (registrations.length !== registrationIds.length) {
+    throw new Error(
+      'Sertifikat tidak diterbitkan: daftar hadir memuat Registration yang bukan CONFIRMED pada Batch ini.',
+    );
+  }
+
   const people = await tx.user.findMany({
     where: { id: { in: [...new Set([trip.fundraiserId, ...registrations.map((r) => r.volunteerId)])] } },
     select: { id: true, name: true },
   });
-  const nameOf = new Map(people.map((p) => [p.id, p.name]));
+  const nameOf = new Map(people.map((p) => [p.id, p.name?.trim() ?? '']));
 
-  await tx.volunteerCertificate.createMany({
-    data: registrations.map((r) => ({
+  const organizerName = nameOf.get(trip.fundraiserId) ?? '';
+  if (organizerName === '') throw new CertificateNameMissingError('organizer');
+  for (const r of registrations) {
+    if ((nameOf.get(r.volunteerId) ?? '') === '') throw new CertificateNameMissingError('volunteer', r.id);
+  }
+
+  const existing = await tx.volunteerCertificate.findMany({
+    where: { registrationId: { in: registrationIds } },
+    select: { registrationId: true },
+  });
+  const issued = new Set(existing.map((c) => c.registrationId));
+  const toIssue = registrations.filter((r) => !issued.has(r.id));
+
+  const { count } = await tx.volunteerCertificate.createMany({
+    data: toIssue.map((r) => ({
       registrationId: r.id,
       code: generateCertificateCode(),
-      volunteerName: nameOf.get(r.volunteerId) ?? '',
+      volunteerName: nameOf.get(r.volunteerId) as string,
       tripTitle: trip.title,
       destination: trip.destination,
       batchStartDate: batch.startDate,
       batchEndDate: batch.endDate,
-      organizerName: nameOf.get(trip.fundraiserId) ?? '',
+      organizerName,
       issuedAt: now,
     })),
     skipDuplicates: true,
   });
+  if (count !== toIssue.length) {
+    throw new Error(`Sertifikat tidak lengkap: ${count} dari ${toIssue.length} baris terbit.`);
+  }
 }

@@ -316,6 +316,10 @@ export function makeTripDb(seed: Seed = {}) {
             .map((u) => ({ ...u })),
       },
       volunteerCertificate: {
+        findMany: async ({ where }: { where: Where }) =>
+          getData()
+            .certificates.filter((c) => matches(c, where))
+            .map((c) => ({ ...c })),
         // `skipDuplicates` is ON CONFLICT DO NOTHING on either unique column.
         createMany: async ({
           data,
@@ -535,6 +539,9 @@ export function makeTripDb(seed: Seed = {}) {
     },
     get ledgerEntries() {
       return committed.ledgerEntries;
+    },
+    get users() {
+      return committed.users;
     },
     get certificates() {
       return committed.certificates;

@@ -51,7 +51,7 @@ describe('AkunPage', () => {
 
     render(<AkunPage />);
 
-    expect(screen.getByRole('button', { name: /Registrasi Volunteer Saya/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Keikutsertaan Volunteer Saya/ })).toBeTruthy();
   });
 
   it('makes no identity claim: nothing records a Verifier-checked identity yet (gap C2)', () => {

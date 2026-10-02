@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
+import { safePaymentLink } from '@/lib/payments/payment-link';
 import type { PaymentMethod } from '@/lib/payments';
 import { PaymentStatus } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
@@ -162,6 +163,11 @@ export async function POST(
 
     assertExactlyOnePaymentSubject({ registrationId: registration.id });
 
+    // Only an https link on a payment-provider host is stored or handed back;
+    // anything else becomes null, and the HOLD falls back to "batalkan lalu
+    // daftar ulang" rather than sending a Volunteer to an arbitrary address.
+    const redirectUrl = charge.method === 'qris_redirect' ? safePaymentLink(charge.redirectUrl) : null;
+
     await prisma.payment.create({
       data: {
         donationId: undefined,
@@ -188,14 +194,14 @@ export async function POST(
         expiresAt: charge.expiresAt,
         // Kept so a Volunteer who closed the payment page can open it again
         // ("Lanjutkan pembayaran", ticket 37): the provider is not asked twice.
-        redirectUrl: charge.method === 'qris_redirect' ? charge.redirectUrl : null,
+        redirectUrl,
         vaNumber: charge.method === 'bank_transfer_va' ? charge.vaNumber : null,
       },
     });
 
     const paymentInstructions =
       charge.method === 'qris_redirect'
-        ? { type: 'qris' as const, redirectUrl: charge.redirectUrl, expiresAt: charge.expiresAt }
+        ? { type: 'qris' as const, redirectUrl, expiresAt: charge.expiresAt }
         : { type: 'bank_transfer' as const, vaNumber: charge.vaNumber, expiresAt: charge.expiresAt };
 
     return NextResponse.json(

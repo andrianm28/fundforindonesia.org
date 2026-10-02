@@ -131,6 +131,28 @@ export class BatchMinQuotaMetError extends TripError {
   }
 }
 
+/**
+ * A Sertifikat Keikutsertaan freezes the Volunteer's and the organizer's
+ * name and cannot be corrected afterwards (Release 1), so completing a Batch
+ * is refused while either name is blank. Rolls the whole completion back;
+ * fixed by filling the name in, then completing again. 422 through
+ * `domainErrorToHttp`.
+ */
+export class CertificateNameMissingError extends TripError {
+  readonly code = 'CERTIFICATE_NAME_MISSING';
+  constructor(
+    readonly subject: 'volunteer' | 'organizer',
+    readonly registrationId?: string,
+  ) {
+    super(
+      subject === 'volunteer'
+        ? `Nama Volunteer pada Registration ${registrationId} masih kosong. Sertifikat tidak bisa dikoreksi setelah terbit: minta Volunteer melengkapi nama di profilnya, lalu selesaikan Batch lagi.`
+        : 'Nama penyelenggara (Fundraiser) masih kosong. Sertifikat tidak bisa dikoreksi setelah terbit: lengkapi nama di profil Anda, lalu selesaikan Batch lagi.',
+    );
+    this.name = 'CertificateNameMissingError';
+  }
+}
+
 /** A Batch is completed only once its endDate has passed. 400 through `domainErrorToHttp`. */
 export class BatchNotEndedError extends TripError {
   readonly code = 'BATCH_NOT_ENDED';

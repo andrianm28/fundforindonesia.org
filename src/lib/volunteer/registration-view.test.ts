@@ -55,8 +55,8 @@ describe('payment instructions of a HOLD (ticket 37: Lanjutkan pembayaran)', () 
   const view = (r: unknown) => getVolunteerRegistration(db(r), { registrationId: 'reg-1', userId: 'vol-1', now: NOW });
 
   it('hands back the stored QRIS link of a live HOLD whose Payment is still PENDING', async () => {
-    const v = await view(live({ status: 'PENDING', expiresAt: later, redirectUrl: 'https://pay.example/abc', vaNumber: null }));
-    expect(v?.paymentInstructions).toEqual({ redirectUrl: 'https://pay.example/abc', vaNumber: null });
+    const v = await view(live({ status: 'PENDING', expiresAt: later, redirectUrl: 'https://pay.sumopod.com/abc', vaNumber: null }));
+    expect(v?.paymentInstructions).toEqual({ redirectUrl: 'https://pay.sumopod.com/abc', vaNumber: null });
   });
 
   it('hands back a stored Virtual Account number too', async () => {
@@ -67,9 +67,11 @@ describe('payment instructions of a HOLD (ticket 37: Lanjutkan pembayaran)', () 
   it.each([
     ['no Payment was ever written', null],
     ['the Payment predates stored instructions', { status: 'PENDING', expiresAt: later, redirectUrl: null, vaNumber: null }],
-    ['the Payment already expired', { status: 'PENDING', expiresAt: NOW, redirectUrl: 'https://pay.example/abc', vaNumber: null }],
-    ['the Payment failed', { status: 'FAILED', expiresAt: later, redirectUrl: 'https://pay.example/abc', vaNumber: null }],
+    ['the Payment already expired', { status: 'PENDING', expiresAt: NOW, redirectUrl: 'https://pay.sumopod.com/abc', vaNumber: null }],
+    ['the Payment failed', { status: 'FAILED', expiresAt: later, redirectUrl: 'https://pay.sumopod.com/abc', vaNumber: null }],
     ['the link is not http(s)', { status: 'PENDING', expiresAt: later, redirectUrl: 'javascript:alert(1)', vaNumber: null }],
+    ['the link is plain http', { status: 'PENDING', expiresAt: later, redirectUrl: 'http://pay.sumopod.com/abc', vaNumber: null }],
+    ['the link is on a foreign host', { status: 'PENDING', expiresAt: later, redirectUrl: 'https://evil.example/abc', vaNumber: null }],
   ])('offers nothing when %s', async (_, payment) => {
     expect((await view(live(payment)))?.paymentInstructions).toBeNull();
   });
@@ -78,7 +80,7 @@ describe('payment instructions of a HOLD (ticket 37: Lanjutkan pembayaran)', () 
     const lapsed = row({
       status: 'HOLD',
       holdExpiresAt: NOW,
-      payment: { amount: 1, status: 'PENDING', expiresAt: later, redirectUrl: 'https://pay.example/abc', vaNumber: null, refunds: [] },
+      payment: { amount: 1, status: 'PENDING', expiresAt: later, redirectUrl: 'https://pay.sumopod.com/abc', vaNumber: null, refunds: [] },
     });
     expect((await view(lapsed))?.paymentInstructions).toBeNull();
   });

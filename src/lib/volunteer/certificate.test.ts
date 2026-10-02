@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { completeBatch } from './trip';
+import { issueCertificates } from './certificate';
+import { CertificateNameMissingError } from '@/lib/volunteer-trip-errors';
+import { domainErrorToHttp } from '@/lib/domain-errors';
 import { generateCertificateCode, getCertificateByCode, isWellFormedCertificateCode } from './certificate';
 import { batchRow, makeTripDb, registrationRow, tripRow } from '../../../tests/support/in-memory-trip-db';
 
@@ -89,6 +92,78 @@ describe('Sertifikat Keikutsertaan issued by completeBatch (ticket 37)', () => {
     const [first] = db.certificates;
     await expect(complete(db, ['r1', 'r2'])).rejects.toThrow();
     expect(db.certificates).toEqual([first]);
+  });
+});
+
+describe('a certificate is never frozen with a blank name (ticket 37 review)', () => {
+  const seedWith = (volunteerName: string, organizerName = 'Yayasan Penyelenggara') => {
+    const db = seed();
+    for (const u of db.users) {
+      if (u.id === 'v-r1') u.name = volunteerName;
+      if (u.id === 'fundraiser-1') u.name = organizerName;
+    }
+    return db;
+  };
+
+  it.each([[''], ['   '], ['\t\n']])('refuses to complete the Batch when a Volunteer name is %j, naming the fix', async (name) => {
+    const db = seedWith(name);
+    const error = await complete(db, ['r1', 'r2']).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CertificateNameMissingError);
+    expect(domainErrorToHttp(error)?.status).toBe(422);
+    expect((error as Error).message).toMatch(/nama Volunteer/i);
+    expect((error as Error).message).toMatch(/lengkapi/i);
+    // All or nothing: no certificate for r2 either, and the Batch is still OPEN.
+    expect(db.certificates).toEqual([]);
+    expect(db.batches.find((b) => b.id === 'batch-1')?.status).toBe('OPEN');
+  });
+
+  it('refuses when the organizer (Fundraiser) name is blank', async () => {
+    const db = seedWith('Siti Aminah', '  ');
+    const error = await complete(db, ['r1']).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CertificateNameMissingError);
+    expect((error as Error).message).toMatch(/penyelenggara/i);
+    expect(db.certificates).toEqual([]);
+  });
+
+  it('does not mind a blank name of a Volunteer who did not attend', async () => {
+    const db = seedWith('');
+    await complete(db, ['r2']);
+    expect(db.certificates.map((c) => c.registrationId)).toEqual(['r2']);
+  });
+
+  it('freezes the name trimmed', async () => {
+    const db = seedWith('  Siti Aminah ');
+    await complete(db, ['r1']);
+    expect(db.certificates[0].volunteerName).toBe('Siti Aminah');
+  });
+});
+
+describe('issueCertificates defends itself (ticket 37 review)', () => {
+  const batch = { id: 'batch-1', tripId: 'trip-1', startDate: new Date('2026-09-15T00:00:00Z'), endDate: new Date('2026-09-20T00:00:00Z') };
+
+  it('throws for a Registration that is not CONFIRMED even if the caller let it through', async () => {
+    const db = seed();
+    await expect(
+      db.prisma.$transaction((tx) => issueCertificates(tx as never, { registrationIds: ['r1', 'r4'], batch, now: NOW })),
+    ).rejects.toThrow(/sertifikat/i);
+    expect(db.certificates).toEqual([]);
+  });
+
+  it('throws for an id that names no Registration of the Batch', async () => {
+    const db = seed();
+    await expect(
+      db.prisma.$transaction((tx) => issueCertificates(tx as never, { registrationIds: ['r1', 'nope'], batch, now: NOW })),
+    ).rejects.toThrow(/sertifikat/i);
+  });
+
+  it('is idempotent: a Registration that already has its certificate is skipped, not an error', async () => {
+    const db = seed();
+    const run = () =>
+      db.prisma.$transaction((tx) => issueCertificates(tx as never, { registrationIds: ['r1', 'r2'], batch, now: NOW }));
+    await run();
+    const first = db.certificates.map((c) => ({ ...c }));
+    await run();
+    expect(db.certificates).toEqual(first);
   });
 });
 

@@ -252,8 +252,11 @@ describe('completeBatch', () => {
 describe('completeBatch attendance (ticket 35)', () => {
   const ended = batchRow({ endDate: new Date('2026-09-20T00:00:00Z') });
   const confirmed = (id: string, overrides = {}) => registrationRow({ id, volunteerId: `v-${id}`, ...overrides });
+  // Names are required to issue a certificate (a blank one refuses the completion).
+  const users = ['fundraiser-1', 'admin-1', 'v-r1', 'v-r2', 'v-r3'].map((id) => ({ id, name: `Nama ${id}` }));
   const seed = () =>
     makeTripDb({
+      users,
       trips: [tripRow({ status: 'ACTIVE' })],
       batches: [ended],
       registrations: [
@@ -354,6 +357,7 @@ describe('completeBatch attendance (ticket 35)', () => {
 
   it('an Admin who owns the Trip marks attendance as its Fundraiser', async () => {
     const db = makeTripDb({
+      users,
       trips: [tripRow({ fundraiserId: 'admin-1' })],
       batches: [ended],
       registrations: [confirmed('r1')],

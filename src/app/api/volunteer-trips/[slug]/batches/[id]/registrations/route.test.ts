@@ -77,7 +77,7 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
       method: 'qris_redirect',
       createCharge: vi.fn().mockResolvedValue({
         method: 'qris_redirect',
-        redirectUrl: 'https://pay.example/x',
+        redirectUrl: 'https://pay.sumopod.com/x',
         expiresAt: new Date('2026-12-01'),
       }),
     });
@@ -180,9 +180,26 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     await POST(createRequest(), routeContext());
     expect(mockPaymentCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ redirectUrl: 'https://pay.example/x', vaNumber: null }),
+        data: expect.objectContaining({ redirectUrl: 'https://pay.sumopod.com/x', vaNumber: null }),
       }),
     );
+  });
+
+  it.each([
+    ['plain http', 'http://pay.sumopod.com/x'],
+    ['a foreign host', 'https://evil.example/x'],
+    ['javascript:', 'javascript:alert(1)'],
+  ])('stores no link when the provider answers %s, so the HOLD falls back to cancel-and-reregister', async (_, redirectUrl) => {
+    mockGetPaymentProvider.mockReturnValue({
+      name: 'sumopod',
+      method: 'qris_redirect',
+      createCharge: vi.fn().mockResolvedValue({ method: 'qris_redirect', redirectUrl, expiresAt: new Date('2026-12-01') }),
+    });
+    const response = await POST(createRequest(), routeContext());
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ redirectUrl: null }) }),
+    );
+    expect(JSON.stringify(await response.json())).not.toContain(redirectUrl);
   });
 
   it('stores the Virtual Account number on the Payment for a bank transfer charge (ticket 37)', async () => {
@@ -218,7 +235,7 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
         method: 'qris_redirect',
         createCharge: vi.fn().mockResolvedValue({
           method: 'qris_redirect',
-          redirectUrl: 'https://pay.example/x',
+          redirectUrl: 'https://pay.sumopod.com/x',
           expiresAt: new Date('2026-12-01'),
         }),
       });

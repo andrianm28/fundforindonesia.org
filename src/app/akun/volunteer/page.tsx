@@ -31,7 +31,7 @@ export default async function VolunteerDashboardPage() {
 
   return (
     <div className="max-w-xl mx-auto px-4 py-6 md:py-10 space-y-8">
-      <h1 className="text-2xl font-bold text-text">Registrasi Volunteer Saya</h1>
+      <h1 className="text-2xl font-bold text-text">Keikutsertaan Volunteer Saya</h1>
 
       <section aria-labelledby="registrations-heading" className="space-y-3">
         <h2 id="registrations-heading" className="text-lg font-semibold text-text">
