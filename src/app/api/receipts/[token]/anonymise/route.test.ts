@@ -9,12 +9,13 @@ import { NextRequest } from 'next/server';
  * src/__tests__/integration/donor-anonymisation.test.ts.
  */
 
-const limiter = vi.hoisted(() => ({ buckets: new Map<string, number>(), failure: null as Error | null }));
+const limiter = vi.hoisted(() => ({ buckets: new Map<string, number>(), failure: null as Error | null, seen: [] as unknown[][] }));
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     // consumeRateLimit's one atomic statement: bump the bucket, answer the count.
     $queryRaw: async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      limiter.seen.push(values);
       if (limiter.failure) throw limiter.failure;
       const key = `${values[0]}:${values[1]}`;
       const count = (limiter.buckets.get(key) ?? 0) + 1;
@@ -50,6 +51,7 @@ describe('POST /api/receipts/[token]/anonymise', () => {
     vi.clearAllMocks();
     limiter.buckets = new Map();
     limiter.failure = null;
+    limiter.seen = [];
   });
 
   it('anonymises by the token in the URL and the email in the body, and answers what changed', async () => {
@@ -134,6 +136,16 @@ describe('POST /api/receipts/[token]/anonymise', () => {
       expect((await call('tok-1')).status).toBe(429);
       expect((await call('tok-2')).status).toBe(403);
       expect((await call('tok-1', { email: 'donor@example.org' }, '198.51.100.7')).status).toBe(403);
+    });
+
+    it('never hands the raw token or client address to the limiter store', async () => {
+      anonymise.mockResolvedValue({ status: 'email-mismatch' });
+      await call('tok-secret-77', { email: 'donor@example.org' }, '203.0.113.99');
+
+      expect(limiter.seen.length).toBeGreaterThan(0);
+      const sent = JSON.stringify(limiter.seen);
+      expect(sent).not.toContain('tok-secret-77');
+      expect(sent).not.toContain('203.0.113.99');
     });
 
     it('does not count a request that has no email', async () => {

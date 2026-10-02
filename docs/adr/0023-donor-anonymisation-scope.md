@@ -5,8 +5,8 @@ status: accepted
 # What is removed when a Donor is anonymised, and what stays
 
 Status per decision: (a) to (d) are **Accepted (owner 2026-10-02)**. (e), the
-scope of the Receipt link, is also **Accepted (owner 2026-10-02)**; see "Scope: Guest and registered" and
-"Considered options".
+scope of the Receipt link, is also **Accepted (owner 2026-10-02)**; see "Scope: Guest and registered"
+and "Considered options".
 
 When a Donor requests their identity removed from their Donation(s), the
 decision to carry or drop each field follows a chain: fields that identify the
@@ -93,3 +93,11 @@ with the same email remain matchable by HMAC until anonymised one by one.
 - No audit log records what was deleted, because the values themselves are gone.
   `anonymisedAt` marks when it happened; Refund and Receipt records mark where
   the money went.
+
+## Implementation detail: guess limit on the Guest route
+
+The Receipt-link route bounds email guesses: 5 attempts per hour per Receipt
+token plus client address (`src/app/api/receipts/[token]/anonymise/route.ts`,
+limiter from `src/lib/rate-limit.ts`). Over the limit it answers 429. If the
+limiter store is unavailable it fails open, as the partnership form does (PR
+#161). This is an implementation detail, not a decision of this ADR.
