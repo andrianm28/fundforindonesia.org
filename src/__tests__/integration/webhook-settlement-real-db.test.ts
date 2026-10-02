@@ -262,6 +262,80 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     expect((await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).status).toBe('CONFIRMED');
   });
 
+  // Idempotency: the provider retries. The same signed event delivered twice
+  // answers 200 both times and changes nothing the second time.
+  it.each([
+    { label: 'account-holder Donation', guest: false },
+    { label: 'Guest Donation', guest: true },
+  ])('delivering the same settlement twice settles a $label once', async ({ guest }) => {
+    sentMail.length = 0;
+    const { donation, payment, expectedEmail } = await pendingDonationPayment(guest);
+
+    const first = await sendPaid(payment.providerRef, 100_000);
+    const afterFirst = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    const ledgerAfterFirst = await prisma.ledgerEntry.count({ where: { paymentId: payment.id } });
+    const second = await sendPaid(payment.providerRef, 100_000);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const afterSecond = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    expect(afterSecond.status).toBe('PAID');
+    expect(afterSecond.paidAt).toEqual(afterFirst.paidAt);
+    expect(afterSecond.updatedAt).toEqual(afterFirst.updatedAt);
+    expect((await prisma.donation.findUniqueOrThrow({ where: { id: donation.id } })).paymentStatus).toBe('confirmed');
+    expect(await prisma.receipt.count({ where: { donationId: donation.id } })).toBe(1);
+    expect(ledgerAfterFirst).toBeGreaterThan(0);
+    expect(await prisma.ledgerEntry.count({ where: { paymentId: payment.id } })).toBe(ledgerAfterFirst);
+    expect(await prisma.webhookEvent.count({ where: { providerEventId: `evt-${payment.providerRef}` } })).toBe(1);
+    expect(sentMail.filter((m) => m.to === expectedEmail)).toHaveLength(1);
+  });
+
+  it('delivering the same settlement twice settles a Trip Fee once', async () => {
+    sentMail.length = 0;
+    const { registration, payment } = await pendingTripFeePayment();
+
+    const first = await sendPaid(payment.providerRef, 500_000);
+    const ledgerAfterFirst = await prisma.ledgerEntry.count({ where: { paymentId: payment.id } });
+    const mailAfterFirst = sentMail.length;
+    const confirmedAt = (await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).updatedAt;
+    const second = await sendPaid(payment.providerRef, 500_000);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
+    const after = await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } });
+    expect(after.status).toBe('CONFIRMED');
+    expect(after.updatedAt).toEqual(confirmedAt);
+    expect(ledgerAfterFirst).toBeGreaterThan(0);
+    expect(await prisma.ledgerEntry.count({ where: { paymentId: payment.id } })).toBe(ledgerAfterFirst);
+    expect(await prisma.webhookEvent.count({ where: { providerEventId: `evt-${payment.providerRef}` } })).toBe(1);
+    expect(sentMail).toHaveLength(mailAfterFirst);
+  });
+
+  // A registered Donor's account address is where the Receipt goes; the
+  // Donation carries no guest ciphertext at all.
+  it('resends an account-holder Donation Receipt to the decrypted account email', async () => {
+    const { donation, expectedEmail } = await pendingDonationPayment(false);
+    const token = `tok-${process.pid}-${next()}`;
+    await prisma.receipt.create({
+      data: {
+        donationId: donation.id,
+        token,
+        sentAt: new Date(Date.now() - 10 * 60 * 1000),
+        lastSentAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    });
+    sentMail.length = 0;
+
+    const res = await resend(new NextRequest(`http://localhost/api/receipts/${token}/resend`, { method: 'POST' }), {
+      params: Promise.resolve({ token }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(sentMail.map((m) => m.to)).toEqual([expectedEmail]);
+    expect((await prisma.receipt.findUniqueOrThrow({ where: { token } })).resendCount).toBe(1);
+  });
+
   // The same spread sat in the Receipt resend route's `include` (4e55f3b).
   it('resends a Guest Donation Receipt to the guest email decrypted from its ciphertext', async () => {
     const { donation, expectedEmail } = await pendingDonationPayment(true);
