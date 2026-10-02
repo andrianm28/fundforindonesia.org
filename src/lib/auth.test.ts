@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import type { DefaultSession, Session } from "next-auth";
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -148,6 +149,18 @@ describe("authOptions.callbacks.jwt", () => {
   });
 });
 
+// `callbacks.session` is typed to return `Session | DefaultSession`, and only
+// `Session.user` carries `assignments` (and is non-optional). Narrow with the
+// `in` operator instead of casting: if the callback ever drops `user` or the
+// field, this throws and the test fails rather than the type being silenced.
+function assignmentsOf(session: Session | DefaultSession): unknown {
+  const user = session.user;
+  if (!user || !("assignments" in user)) {
+    throw new Error("session.user.assignments is missing");
+  }
+  return user.assignments;
+}
+
 describe("authOptions.callbacks.session", () => {
   it("copies the token's assignments onto session.user.assignments", async () => {
     const session = await authOptions.callbacks!.session!({
@@ -157,7 +170,7 @@ describe("authOptions.callbacks.session", () => {
       trigger: "update",
     } as any);
 
-    expect(session.user.assignments).toEqual(["ADMIN", "VERIFIER"]);
+    expect(assignmentsOf(session)).toEqual(["ADMIN", "VERIFIER"]);
   });
 
   it("defaults assignments to an empty array when the token has none", async () => {
@@ -168,7 +181,7 @@ describe("authOptions.callbacks.session", () => {
       trigger: "update",
     } as any);
 
-    expect(session.user.assignments).toEqual([]);
+    expect(assignmentsOf(session)).toEqual([]);
   });
 
   // A token issued before the Role was retired still carries these fields
