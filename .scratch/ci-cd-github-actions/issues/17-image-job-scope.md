@@ -16,3 +16,7 @@ minutes are free; this saves time, not money).
 - [x] A docs-only PR skips `image`; a PR touching any path above runs it; every push to `main` runs it
 - [x] Skipping never blocks a merge: a skipped `image` still reports a passing (or neutral) status
 - [x] The deploy path (CD on `main`) is unchanged
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #159 (cd404d5). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.

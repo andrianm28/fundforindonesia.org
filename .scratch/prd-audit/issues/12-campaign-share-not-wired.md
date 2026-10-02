@@ -35,3 +35,4 @@ sampul) ada di halaman Campaign.
   - The `CONTEXT.md` Fundraiser line now cites FFI-06.
   - Not done: the donate success screen (`donate/page.tsx`) still lacks X and `?src=`; orphaned `CampaignDetail` and `CampaignCTA` are kept.
   - Open Graph from the cover already exists in `generateMetadata` (`src/app/campaign/[slug]/page.tsx`).
+- 2026-10-02: done. Merged di PR #165 (c31d703). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.
