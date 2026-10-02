@@ -8,6 +8,7 @@ import {
 } from './trip';
 import { RefundExceedsRemainingError } from '@/lib/money/errors';
 import { domainErrorToHttp } from '@/lib/domain-errors';
+import { OwnTripRegistrationError } from '@/lib/volunteer-trip-errors';
 import { batchRow, makeTripDb, paymentRow, registrationRow, tripRow } from '../../../tests/support/in-memory-trip-db';
 
 const NOW = new Date('2026-09-26T10:00:00Z');
@@ -34,6 +35,21 @@ describe('holdRegistration', () => {
     expect(result.registration.holdExpiresAt).toEqual(new Date(NOW.getTime() + HOLD_WINDOW_MS));
     expect(db.registrations).toEqual([expect.objectContaining({ volunteerId: 'volunteer-9', status: 'HOLD' })]);
     expect(db.rowLocks).toEqual(['VolunteerTrip:trip-1', 'VolunteerBatch:batch-1']);
+  });
+
+  it('refuses the Trip\'s own Fundraiser with a typed 403, holding nothing', async () => {
+    const db = openTrip();
+
+    const error = await holdRegistration(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      volunteerId: 'fundraiser-1',
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(OwnTripRegistrationError);
+    expect(domainErrorToHttp(error)).toMatchObject({ status: 403, body: { code: 'OWN_TRIP_REGISTRATION' } });
+    expect(db.registrations).toEqual([]);
   });
 
   it('frees the seats of lapsed holds before counting, so a full Batch with an abandoned hold takes one more', async () => {
@@ -302,6 +318,27 @@ describe('confirmRegistration (inside the Settlement transaction)', () => {
     expect(result).toEqual({ outcome: 'lapsed' });
     expect(db.registrations[0].status).toBe('EXPIRED');
   });
+});
+
+describe('confirmRegistration on a finished Batch (ticket 53)', () => {
+  it.each([
+    ['COMPLETED', 'lapsed', 'EXPIRED'],
+    ['CANCELLED', 'cancelled', 'CANCELLED'],
+  ] as const)(
+    'does not confirm a HOLD left on a %s Batch: outcome %s, so the money is refunded in full',
+    async (batchStatus, outcome, finalStatus) => {
+      const db = makeTripDb({
+        trips: [tripRow({ status: 'ACTIVE' })],
+        batches: [batchRow({ status: batchStatus })],
+        registrations: [registrationRow({ status: 'HOLD' })],
+      });
+
+      const result = await confirmRegistration(db.prisma as never, { registrationId: 'registration-1' });
+
+      expect(result).toEqual({ outcome });
+      expect(db.registrations[0].status).toBe(finalStatus);
+    },
+  );
 });
 
 describe('expireRegistrationHold (inside the Payment-lapsed transaction)', () => {

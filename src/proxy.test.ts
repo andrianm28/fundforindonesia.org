@@ -54,7 +54,8 @@ describe('proxy', () => {
       expect(config.matcher).toEqual([
         '/donasi-saya/:path*',
         '/inbox/:path*',
-        '/akun/:path*',
+        '/akun',
+        '/akun/((?!verifikasi-email(?:/|$)).+)',
         '/campaign/create/:path*',
         '/admin/:path*',
         '/moderasi/:path*',
@@ -79,6 +80,22 @@ describe('proxy', () => {
       expect(unstable_doesMiddlewareMatch({ config, url: `http://localhost:3000${path}` })).toBe(true);
       expect(withAuthOptions.callbacks.authorized({ token: undefined })).toBe(false);
     });
+
+    it.each(['/akun/verifikasi-email', '/akun/verifikasi-email/'])(
+      'never reaches the guard for %s: no login redirect means the token never lands in a callbackUrl',
+      async (path) => {
+        const { config } = await import('./proxy');
+        expect(unstable_doesMiddlewareMatch({ config, url: `http://localhost:3000${path}?token=secret` })).toBe(false);
+      },
+    );
+
+    it.each(['/akun/verifikasi-email-lain', '/akun/pengaturan/verifikasi-email'])(
+      'still guards the lookalike %s',
+      async (path) => {
+        const { config } = await import('./proxy');
+        expect(unstable_doesMiddlewareMatch({ config, url: `http://localhost:3000${path}` })).toBe(true);
+      },
+    );
 
     it('sends the turned-back anonymous request to /login', () => {
       expect(withAuthOptions.pages.signIn).toBe('/login');

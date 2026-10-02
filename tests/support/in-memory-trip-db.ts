@@ -174,14 +174,16 @@ function matches(row: object, where: Where): boolean {
   const fields = row as Record<string, unknown>;
   return Object.entries(where).every(([key, filter]) => {
     if (filter === undefined) return true;
+    if (key === 'OR') return (filter as Where[]).some((branch) => matches(row, branch));
     if (filter !== null && typeof filter === 'object' && !(filter instanceof Date)) {
-      const { in: list, notIn, lte, ...rest } = filter as { in?: unknown[]; notIn?: unknown[]; lte?: Date };
-      if (Object.keys(rest).length > 0 || (!list && !notIn && !lte)) {
+      const { in: list, notIn, lte, gt, ...rest } = filter as { in?: unknown[]; notIn?: unknown[]; lte?: Date; gt?: Date };
+      if (Object.keys(rest).length > 0 || (!list && !notIn && !lte && !gt)) {
         throw new Error(`in-memory trip db does not understand the filter on ${key}`);
       }
       if (list && !list.includes(fields[key])) return false;
       if (notIn && notIn.includes(fields[key])) return false;
       if (lte && !(fields[key] instanceof Date && fields[key].getTime() <= lte.getTime())) return false;
+      if (gt && !(fields[key] instanceof Date && fields[key].getTime() > gt.getTime())) return false;
       return true;
     }
     return fields[key] === filter;

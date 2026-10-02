@@ -113,6 +113,40 @@ describe('Donasi Saya', () => {
     expect(screen.queryByRole('link', { name: /akad wakaf/i })).toBeNull();
   });
 
+  it('offers the confirmation link when the account email is not yet verified (prd-compliance 23)', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+      url === '/api/user/email-verification'
+        ? { ok: true, json: async () => ({ sent: true }) }
+        : {
+            ok: true,
+            json: async () => ({ donations: [], total: 0, emailVerified: false, page: 1, limit: 10, totalPages: 0 }),
+          },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DonasiSayaPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /kirim tautan konfirmasi/i }));
+
+    expect(await screen.findByText(/periksa email anda/i)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith('/api/user/email-verification', { method: 'POST' });
+  });
+
+  it('shows no confirmation prompt once the email is verified', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ donations: [donation()], total: 1, emailVerified: true, page: 1, limit: 10, totalPages: 1 }),
+      }),
+    );
+
+    render(<DonasiSayaPage />);
+
+    await screen.findByText('Test Campaign');
+    expect(screen.queryByRole('button', { name: /kirim tautan konfirmasi/i })).toBeNull();
+  });
+
   it('still navigates to the Campaign when the card itself is clicked', async () => {
     vi.stubGlobal(
       'fetch',

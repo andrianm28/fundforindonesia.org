@@ -5,7 +5,7 @@ import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * Ticket 37: the `20260930140000_volunteer_certificate` migration, executed
+ * Ticket 37: the `20261002160000_volunteer_certificate` migration, executed
  * against a database that already holds Registrations and Payments.
  *
  * It adds two NULLable columns to `Payment` (stored payment instructions) and
@@ -21,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const DATABASE_URL = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIR = 'prisma/migrations';
-const THIS_MIGRATION = '20260930140000_volunteer_certificate';
+const THIS_MIGRATION = '20261002160000_volunteer_certificate';
 
 const allDirs = () =>
   readdirSync(MIGRATIONS_DIR)

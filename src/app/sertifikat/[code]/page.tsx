@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { getCertificateByCode } from '@/lib/volunteer/certificate';
-import { formatWibDate } from '@/lib/volunteer/refund-table';
+import { formatWibDate } from '@/lib/volunteer/batch-dates';
 
 /**
  * Sertifikat Keikutsertaan (ticket 37; prd-audit/issues/10): public, no
