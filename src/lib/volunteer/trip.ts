@@ -587,6 +587,9 @@ export async function editBatch(
  * list is required (an empty one is a deliberate "nobody attended"), and an
  * Admin who does not own the Trip is refused like anyone else.
  *
+ * Every HOLD still on the Batch becomes EXPIRED (ticket 53): a Trip Fee
+ * that settles afterwards is refunded in full, never confirmed.
+ *
  * Moves no money: no Refund and no ledger row is written. Locks Trip, Batch,
  * then the live Registrations, the order `cancelBatch` takes, so a
  * settlement cannot confirm a seat between the check and the write.
@@ -625,6 +628,15 @@ export async function completeBatch(
         data: { attended: true },
       });
     }
+    // The Batch has finished: no seat is left to hold. Each HOLD lapses, as
+    // a hold past its window does, so a Trip Fee that settles later finds a
+    // lapsed Registration and is refunded in full (`refundLateSettlement`),
+    // never confirmed after departure. Under the Registration lock taken
+    // above, so a settlement cannot confirm one between the read and here.
+    await tx.registration.updateMany({
+      where: { id: { in: live.filter((r) => r.status === RegistrationStatus.HOLD).map((r) => r.id) } },
+      data: { status: RegistrationStatus.EXPIRED },
+    });
     return { batch: completed };
   });
 }
@@ -933,6 +945,21 @@ export async function confirmRegistration(
   params: { registrationId: string },
 ): Promise<{ outcome: ConfirmRegistrationOutcome }> {
   const { registrationId } = params;
+  // A HOLD on a Batch that is no longer OPEN (`completeBatch` expires these,
+  // so only a legacy row) is not confirmed: it lapses, and the money is
+  // refunded in full. The writes below still take the Registration's row
+  // lock, so they wait for a concurrent `completeBatch` and re-check status.
+  const found = await tx.registration.findUnique({
+    where: { id: registrationId },
+    include: { batch: { select: { status: true } } },
+  });
+  if (found?.status === RegistrationStatus.HOLD && found.batch.status !== VolunteerBatchStatus.OPEN) {
+    await tx.registration.updateMany({
+      where: { id: registrationId, status: RegistrationStatus.HOLD },
+      data: { status: RegistrationStatus.EXPIRED },
+    });
+    return { outcome: 'lapsed' };
+  }
   const confirmed = await tx.registration.updateMany({
     where: { id: registrationId, status: RegistrationStatus.HOLD },
     data: { status: RegistrationStatus.CONFIRMED },
