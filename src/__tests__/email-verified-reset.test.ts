@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 
 /**
- * ADR 0019: `User.emailVerifiedAt` confirms ONE address. Any write that sets
+ * ADR 0020: `User.emailVerifiedAt` confirms ONE address. Any write that sets
  * `email` or `emailHmac` on a User must set `emailVerifiedAt` in the same
  * `data`, or an account keeps a confirmation for an address it never proved
  * and can claim someone else's Guest Donor history.
@@ -50,7 +50,7 @@ function dataOf(arg: string): string {
     .join('\n');
 }
 
-describe('ADR 0019: a write that changes a User email resets emailVerifiedAt', () => {
+describe('ADR 0020: a write that changes a User email resets emailVerifiedAt', () => {
   it('no user.update in src/ writes email or emailHmac without emailVerifiedAt', () => {
     const offenders = sourceFiles('src')
       .filter((file) => !(file.replace(/\\/g, '/') in ALLOWLIST))
