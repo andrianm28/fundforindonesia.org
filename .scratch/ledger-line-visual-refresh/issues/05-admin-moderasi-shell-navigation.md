@@ -48,6 +48,25 @@ at the same time, for consistency.
     404. Tidak ada tautan `/admin*` di shell; `/admin` oleh Verifier
     dialihkan ke `/`.
   - Tidak ada entri yang rusak. Tangkapan layar tidak di-commit.
+- Rute yang dikecualikan dari nav (tidak punya halaman indeks sendiri, hanya
+  dicapai dari antrean halaman lain):
+  - `/admin/manual-contributions/new`, `/admin/refunds/new`: formulir yang
+    dibuka dari tombol di halaman daftarnya.
+  - `/admin/manual-contributions/[id]`, `/admin/payouts/[id]`,
+    `/admin/refunds/[id]`, `/admin/campaigns/lifecycle/[slug]`: detail per id
+    dari baris antrean induknya.
+  - `/moderasi/campaigns/[id]`, `/moderasi/volunteer-trips/[id]`: detail dari
+    antrean `/moderasi/campaigns` dan `/moderasi/volunteer-trips`.
+- Warna: semua hex/gray lama diganti token config (`border-border`, `bg-bg`,
+  `bg-bg-secondary`, `text-text`, `text-text-secondary`, `primary`, `ink`).
+  Hover dan state aktif sama di kedua shell (`bg-primary/10`, aktif
+  `text-primary font-semibold` plus `aria-current="page"` dari `usePathname`,
+  rute paling spesifik menang). Kontras `primary` pada tint 10%: 4,53:1 (AA).
+  Tanpa `ledger`.
+- Tipografi: spec tidak meminta perubahan untuk shell, jadi register sans
+  (Inter) tetap. Register Record (Newsreader/JetBrains Mono) dilarang di nav.
+- Verifikasi browser (kriteria 4): screenshot sudah dikirim ke owner, tidak
+  di-commit.
 
 ## Comments
 
