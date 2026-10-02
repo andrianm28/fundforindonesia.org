@@ -29,6 +29,9 @@ export async function claimGuestDonations(userId: string): Promise<{ verified: b
 
   const candidates = await prisma.donation.findMany({
     where: { donorId: null, guestEmailHmac: account.emailHmac, guestEmailHmacKeyId: account.emailHmacKeyId },
+    // Ids only: the read must not pull a guest's name, message or ciphertext
+    // into memory for a list the caller is not entitled to see yet.
+    select: { id: true },
   });
   const claimable = candidates.filter((row) => !isAnonymised(row));
   if (claimable.length === 0) return { verified: true, claimed: 0 };

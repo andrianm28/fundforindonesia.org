@@ -39,6 +39,12 @@ export type RequestEmailVerificationResult =
   | { status: 'send-failed' }
   | { status: 'not-found' };
 
+/** base64url of TOKEN_BYTES random bytes: 43 characters, no padding. */
+export const TOKEN_LENGTH = Math.ceil((TOKEN_BYTES * 4) / 3);
+const TOKEN_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${TOKEN_LENGTH}}$`);
+
+class ConfirmRefused extends Error {}
+
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
@@ -105,26 +111,36 @@ export async function confirmEmailVerification(
   token: string,
   now: Date = new Date(),
 ): Promise<ConfirmEmailVerificationResult> {
-  if (!token) return { ok: false };
+  if (!TOKEN_PATTERN.test(token)) return { ok: false };
 
   const row = await prisma.emailVerificationToken.findUnique({ where: { tokenHash: hashToken(token) } });
   if (!row || row.usedAt || row.expiresAt.getTime() <= now.getTime()) return { ok: false };
 
-  const account = await prisma.user.findUnique({
-    where: { id: row.userId },
-    select: { id: true, emailHmac: true },
-  });
-  if (!account || account.emailHmac !== row.emailHmac) return { ok: false };
+  // One transaction: the token is spent and the address marked verified
+  // together or not at all. Both writes carry their guard in the where, so of
+  // two concurrent opens of one link exactly one updates a row, and an address
+  // changed since issue (emailHmac no longer the token's) updates none. Any
+  // refusal throws to roll the other write back, and every refusal is the same
+  // `{ ok: false }`.
+  try {
+    await prisma.$transaction(async (tx) => {
+      const spent = await tx.emailVerificationToken.updateMany({
+        where: { id: row.id, usedAt: null, expiresAt: { gt: now } },
+        data: { usedAt: now },
+      });
+      if (spent.count !== 1) throw new ConfirmRefused();
 
-  // The where is the lock: of two concurrent opens of one link, one updates a
-  // row and the other updates none.
-  const spent = await prisma.emailVerificationToken.updateMany({
-    where: { id: row.id, usedAt: null },
-    data: { usedAt: now },
-  });
-  if (spent.count !== 1) return { ok: false };
+      const verified = await tx.user.updateMany({
+        where: { id: row.userId, emailHmac: row.emailHmac },
+        data: { emailVerifiedAt: now },
+      });
+      if (verified.count !== 1) throw new ConfirmRefused();
+    });
+  } catch (error) {
+    if (error instanceof ConfirmRefused) return { ok: false };
+    throw error;
+  }
 
-  await prisma.user.update({ where: { id: account.id }, data: { emailVerifiedAt: now } });
-  const { claimed } = await claimGuestDonations(account.id);
+  const { claimed } = await claimGuestDonations(row.userId);
   return { ok: true, claimed };
 }

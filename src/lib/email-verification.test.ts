@@ -12,8 +12,9 @@ import { createHash } from 'node:crypto';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    user: { findUnique: vi.fn(), update: vi.fn() },
+    user: { findUnique: vi.fn(), updateMany: vi.fn() },
     emailVerificationToken: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), delete: vi.fn(), updateMany: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 vi.mock('@/lib/mail', () => ({ sendReportingFailure: vi.fn() }));
@@ -26,7 +27,12 @@ import { sendReportingFailure } from '@/lib/mail';
 import { claimGuestDonations } from '@/lib/guest-donation-claim';
 
 const findUser = prisma.user.findUnique as unknown as Mock;
-const updateUser = prisma.user.update as unknown as Mock;
+const updateManyUser = prisma.user.updateMany as unknown as Mock;
+const transaction = prisma.$transaction as unknown as Mock;
+// The transaction stand-in runs the callback against the same mocks and records
+// whether it threw, which is what makes a real transaction roll back.
+let rollbackSeen = false;
+const rolledBack = () => rollbackSeen;
 const tokens = prisma.emailVerificationToken as unknown as Record<'findFirst' | 'findUnique' | 'create' | 'delete' | 'updateMany', Mock>;
 const send = sendReportingFailure as unknown as Mock;
 const claim = claimGuestDonations as unknown as Mock;
@@ -39,6 +45,15 @@ function account(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  rollbackSeen = false;
+  transaction.mockImplementation(async (fn: (tx: typeof prisma) => Promise<unknown>) => {
+    try {
+      return await fn(prisma);
+    } catch (error) {
+      rollbackSeen = true;
+      throw error;
+    }
+  });
   send.mockResolvedValue(true);
   tokens.findFirst.mockResolvedValue(null);
   tokens.create.mockResolvedValue({ id: 'tok-row' });
@@ -89,7 +104,7 @@ describe('requestEmailVerification', () => {
 });
 
 describe('confirmEmailVerification', () => {
-  const rawToken = 'raw-token-value';
+  const rawToken = 'T'.repeat(43);
   const hash = createHash('sha256').update(rawToken).digest('hex');
   const row = (overrides: Record<string, unknown> = {}) => ({
     id: 'tok-row',
@@ -100,20 +115,25 @@ describe('confirmEmailVerification', () => {
     ...overrides,
   });
 
-  it('marks the address verified, spends the token, and claims the guest history', async () => {
+  it('spends the token and marks the address verified in one transaction, then claims the guest history', async () => {
     tokens.findUnique.mockResolvedValue(row());
-    findUser.mockResolvedValue(account());
     tokens.updateMany.mockResolvedValue({ count: 1 });
+    updateManyUser.mockResolvedValue({ count: 1 });
     claim.mockResolvedValue({ claimed: 3 });
 
     const result = await confirmEmailVerification(rawToken, NOW);
 
     expect(tokens.findUnique).toHaveBeenCalledWith({ where: { tokenHash: hash } });
     expect(tokens.updateMany).toHaveBeenCalledWith({
-      where: { id: 'tok-row', usedAt: null },
+      where: { id: 'tok-row', usedAt: null, expiresAt: { gt: NOW } },
       data: { usedAt: NOW },
     });
-    expect(updateUser).toHaveBeenCalledWith({ where: { id: 'user-1' }, data: { emailVerifiedAt: NOW } });
+    // The where pins the address the token was issued for: an address changed
+    // since matches no row.
+    expect(updateManyUser).toHaveBeenCalledWith({
+      where: { id: 'user-1', emailHmac: account().emailHmac },
+      data: { emailVerifiedAt: NOW },
+    });
     expect(claim).toHaveBeenCalledWith('user-1');
     expect(result).toEqual({ ok: true, claimed: 3 });
   });
@@ -124,32 +144,46 @@ describe('confirmEmailVerification', () => {
     ['expired', row({ expiresAt: new Date('2026-10-02T09:59:59Z') })],
   ])('refuses a %s token and changes nothing', async (_label, found) => {
     tokens.findUnique.mockResolvedValue(found);
-    findUser.mockResolvedValue(account());
 
     expect(await confirmEmailVerification(rawToken, NOW)).toEqual({ ok: false });
-    expect(updateUser).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
     expect(claim).not.toHaveBeenCalled();
   });
 
-  it('refuses a token issued for an address the account no longer has', async () => {
+  it('refuses when the address changed since issue: the user write matches no row, so the spend rolls back', async () => {
     tokens.findUnique.mockResolvedValue(row({ emailHmac: 'hmac-of-an-older-address' }));
-    findUser.mockResolvedValue(account());
+    tokens.updateMany.mockResolvedValue({ count: 1 });
+    updateManyUser.mockResolvedValue({ count: 0 });
 
     expect(await confirmEmailVerification(rawToken, NOW)).toEqual({ ok: false });
-    expect(updateUser).not.toHaveBeenCalled();
+    expect(rolledBack()).toBe(true);
+    expect(claim).not.toHaveBeenCalled();
   });
 
-  it('loses the race cleanly when the token was spent between read and write', async () => {
+  it('loses the race cleanly when the token was spent between read and write, and never touches the user', async () => {
     tokens.findUnique.mockResolvedValue(row());
-    findUser.mockResolvedValue(account());
     tokens.updateMany.mockResolvedValue({ count: 0 });
 
     expect(await confirmEmailVerification(rawToken, NOW)).toEqual({ ok: false });
-    expect(updateUser).not.toHaveBeenCalled();
+    expect(updateManyUser).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
   });
 
-  it('refuses an empty token without touching the database', async () => {
-    expect(await confirmEmailVerification('', NOW)).toEqual({ ok: false });
-    expect(tokens.findUnique).not.toHaveBeenCalled();
+  it('lets an unexpected failure through instead of reporting it as a bad token, and claims nothing', async () => {
+    tokens.findUnique.mockResolvedValue(row());
+    tokens.updateMany.mockResolvedValue({ count: 1 });
+    updateManyUser.mockRejectedValue(new Error('connection lost'));
+
+    await expect(confirmEmailVerification(rawToken, NOW)).rejects.toThrow('connection lost');
+    expect(rolledBack()).toBe(true);
+    expect(claim).not.toHaveBeenCalled();
   });
+
+  it.each(['', 'short', 'T'.repeat(42), 'T'.repeat(44), `${'T'.repeat(42)}!`])(
+    'refuses the malformed token %j without touching the database',
+    async (bad) => {
+      expect(await confirmEmailVerification(bad, NOW)).toEqual({ ok: false });
+      expect(tokens.findUnique).not.toHaveBeenCalled();
+    },
+  );
 });

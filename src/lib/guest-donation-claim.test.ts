@@ -63,6 +63,8 @@ describe('claimGuestDonations', () => {
 
     expect(findDonations).toHaveBeenCalledWith({
       where: { donorId: null, guestEmailHmac: 'hmac-of-sari', guestEmailHmacKeyId: 'k1' },
+      // Ids only: no guest name, message or ciphertext is read for the claim.
+      select: { id: true },
     });
     expect(updateDonations).toHaveBeenCalledWith({
       where: { id: { in: ['d1', 'd2'] }, donorId: null, guestEmailHmac: 'hmac-of-sari' },

@@ -9,7 +9,9 @@ import { POST } from './route';
  * spend it.
  */
 
-vi.mock('@/lib/email-verification', () => ({ confirmEmailVerification: vi.fn() }));
+vi.mock('@/lib/email-verification', () => ({ confirmEmailVerification: vi.fn(), TOKEN_LENGTH: 43 }));
+
+const TOKEN = 'A'.repeat(43);
 
 import { confirmEmailVerification } from '@/lib/email-verification';
 
@@ -28,9 +30,9 @@ describe('POST /api/user/email-verification/confirm', () => {
   it('confirms a good token and reports how many gifts were claimed', async () => {
     confirm.mockResolvedValue({ ok: true, claimed: 2 });
 
-    const res = await POST(post({ token: 'abc' }));
+    const res = await POST(post({ token: TOKEN }));
 
-    expect(confirm).toHaveBeenCalledWith('abc');
+    expect(confirm).toHaveBeenCalledWith(TOKEN);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ verified: true, claimed: 2 });
   });
@@ -38,12 +40,12 @@ describe('POST /api/user/email-verification/confirm', () => {
   it('answers one 400 for any token that does not confirm', async () => {
     confirm.mockResolvedValue({ ok: false });
 
-    const res = await POST(post({ token: 'nope' }));
+    const res = await POST(post({ token: TOKEN }));
 
     expect(res.status).toBe(400);
   });
 
-  it.each([['not json'], [{}], [{ token: 7 }]])('answers 400 without confirming for %j', async (body) => {
+  it.each([['not json'], [{}], [{ token: 7 }], [{ token: '' }], [{ token: 'A'.repeat(42) }], [{ token: 'A'.repeat(44) }], [{ token: 'A'.repeat(200) }]])('answers 400 without confirming for %j', async (body) => {
     const res = await POST(post(body));
 
     expect(res.status).toBe(400);

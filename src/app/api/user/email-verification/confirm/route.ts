@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { confirmEmailVerification } from '@/lib/email-verification';
+import { confirmEmailVerification, TOKEN_LENGTH } from '@/lib/email-verification';
 
 /**
  * Spends a confirmation token (prd-compliance 23). The token is the proof, so
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Tautan konfirmasi tidak valid' }, { status: 400 });
   }
-  if (typeof token !== 'string' || token.length === 0 || token.length > 200) {
+  if (typeof token !== 'string' || token.length !== TOKEN_LENGTH) {
     return NextResponse.json({ error: 'Tautan konfirmasi tidak valid' }, { status: 400 });
   }
 
