@@ -5,6 +5,8 @@ import { getServerSession } from '@/lib/auth';
 import { getTripDetail } from '@/lib/volunteer/catalog';
 import { findOwnLiveRegistration } from '@/lib/volunteer/registration-view';
 import { volunteerRegistrationEnabled, VOLUNTEER_DISABLED_MESSAGE } from '@/lib/volunteer/registration-flag';
+import { getPaymentProvider } from '@/lib/payments';
+import { registrationMethodFor } from '@/lib/volunteer/payment-method';
 import { formatRupiah } from '@/lib/utils/currency';
 import { formatWibDate } from '@/lib/volunteer/refund-table';
 import { RefundTierTable } from '../../../_components/RefundTierTable';
@@ -21,6 +23,20 @@ export const dynamic = 'force-dynamic';
 
 interface PageProps {
   params: Promise<{ slug: string; batchId: string }>;
+}
+
+/**
+ * The Registration method the active provider charges, as the donation route
+ * checks it: a provider charges one method, so offering another would only
+ * lead to a 503. An unconfigured provider falls back to QRIS; the API refuses
+ * the Registration on its own in that case.
+ */
+function paymentMethodOfActiveProvider() {
+  try {
+    return registrationMethodFor(getPaymentProvider().method);
+  } catch {
+    return 'qris' as const;
+  }
 }
 
 export default async function RegistrationSummaryPage({ params }: PageProps) {
@@ -86,7 +102,11 @@ export default async function RegistrationSummaryPage({ params }: PageProps) {
             Setelah Anda mendaftar, kursi ditahan selama 30 menit sementara Anda membayar Trip Fee. Jika pembayaran
             tidak selesai dalam waktu itu, kursi dilepas.
           </p>
-          <RegisterButton slug={trip.slug} batchId={batch.id} />
+          <RegisterButton
+            slug={trip.slug}
+            batchId={batch.id}
+            paymentMethod={paymentMethodOfActiveProvider()}
+          />
         </>
       ) : (
         <p className="text-sm font-medium text-text">

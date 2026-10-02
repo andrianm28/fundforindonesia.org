@@ -75,6 +75,17 @@ describe('Volunteer Registration client components (ticket 36)', () => {
   });
 
   describe('HoldCountdown', () => {
+    it('draws the same text on the server and on the first client render, whatever the clock says', async () => {
+      const { renderToString } = await import('react-dom/server');
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-01T10:00:00Z'));
+      const server = renderToString(<HoldCountdown expiresAt="2026-10-01T10:30:00Z" />);
+      vi.setSystemTime(new Date('2026-10-01T10:00:01Z'));
+      const client = renderToString(<HoldCountdown expiresAt="2026-10-01T10:30:00Z" />);
+      expect(client).toBe(server);
+      expect(server).toContain('--:--');
+    });
+
     it('counts down, and refreshes the page once when the hold runs out', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-10-01T10:00:00Z'));

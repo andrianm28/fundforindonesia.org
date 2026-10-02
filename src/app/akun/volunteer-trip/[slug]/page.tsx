@@ -6,7 +6,7 @@ import { getFundraiserTripDetail } from '@/lib/volunteer/fundraiser';
 import { toWibDate } from '@/lib/volunteer/batch-dates';
 import { BATCH_STATUS_LABELS, TRIP_STATUS_LABELS } from '@/lib/volunteer/status-labels';
 import { formatRupiah } from '@/lib/utils/currency';
-import { formatIndonesianDate } from '@/lib/utils/date';
+import { formatWibDate } from '@/lib/volunteer/refund-table';
 import { BatchActions } from '../_components/BatchActions';
 import { BatchForm } from '../_components/BatchForm';
 import { SubmitTripButton } from '../_components/SubmitTripButton';
@@ -86,8 +86,8 @@ export default async function FundraiserTripPage({ params }: PageProps) {
         {trip.batches.map((batch) => (
           <div key={batch.id} className="bg-white rounded-xl border border-[#E0E0E0] p-4 space-y-3">
             <p className="text-sm text-[#424242]">
-              {formatIndonesianDate(batch.startDate)} sampai {formatIndonesianDate(batch.endDate)} · pendaftaran
-              sampai {formatIndonesianDate(batch.registrationDeadline)} · kuota {batch.minQuota} sampai{' '}
+              {formatWibDate(batch.startDate)} sampai {formatWibDate(batch.endDate)} · pendaftaran
+              sampai {formatWibDate(batch.registrationDeadline)} · kuota {batch.minQuota} sampai{' '}
               {batch.maxQuota} · {BATCH_STATUS_LABELS[batch.status] ?? batch.status}
             </p>
             {batch.status === 'OPEN' && (

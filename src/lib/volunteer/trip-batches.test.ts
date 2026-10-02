@@ -108,10 +108,15 @@ describe('createBatch', () => {
   });
 
   it.each([
-    ['minQuota above maxQuota', { minQuota: 25 }, 'minQuota'],
-    ['endDate before startDate', { endDate: new Date('2026-11-30T00:00:00Z') }, 'endDate'],
-    ['registrationDeadline after startDate', { registrationDeadline: new Date('2026-12-02T00:00:00Z') }, 'registrationDeadline'],
-  ])('refuses %s with a 400 naming the field, adding nothing', async (_, override, field) => {
+    ['minQuota above maxQuota', { minQuota: 25 }, 'minQuota', 'Kuota minimum tidak boleh melebihi kuota maksimum.'],
+    ['endDate before startDate', { endDate: new Date('2026-11-30T00:00:00Z') }, 'endDate', 'Tanggal selesai tidak boleh sebelum tanggal mulai.'],
+    [
+      'registrationDeadline after startDate',
+      { registrationDeadline: new Date('2026-12-02T00:00:00Z') },
+      'registrationDeadline',
+      'Tenggat pendaftaran tidak boleh setelah tanggal mulai.',
+    ],
+  ])('refuses %s with a 400 naming the field, in the form\'s own words, adding nothing', async (_, override, field, message) => {
     const db = makeTripDb({ trips: [tripRow()] });
 
     const error = await createBatch(db.prisma as never, {
@@ -123,6 +128,7 @@ describe('createBatch', () => {
 
     expect(error).toBeInstanceOf(BatchFieldsInvalidError);
     expect((error as BatchFieldsInvalidError).field).toBe(field);
+    expect((error as BatchFieldsInvalidError).message).toBe(message);
     expect(domainErrorToHttp(error)).toMatchObject({ status: 400, body: { code: 'BATCH_FIELDS_INVALID' } });
     expect(db.batches).toEqual([]);
   });

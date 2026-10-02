@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 /**
@@ -119,6 +119,23 @@ describe('Registration summary page', () => {
     render(await SummaryPage(summaryParams));
     expect(screen.getByText(/Batch 20 Okt 2026 -/)).toBeInTheDocument();
     expect(screen.getAllByRole('row')[1].textContent).toContain('Sampai 6 Okt 2026 00.00 WIB');
+  });
+
+  it.each([
+    ['mock', 'bank_transfer'],
+    ['sumopod', 'qris'],
+  ])('charges through the method the %s provider supports (%s)', async (provider, method) => {
+    vi.stubEnv('PAYMENT_PROVIDER', provider);
+    vi.stubEnv('MOCK_MIDTRANS_SERVER_KEY', 'test-server-key');
+    vi.stubEnv('SUMOPOD_API_KEY', 'test-key');
+    vi.stubEnv('SUMOPOD_WEBHOOK_SECRET', 'test-secret');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: 'x' }) });
+    global.fetch = fetchMock as never;
+    catalog.getTripDetail.mockResolvedValue(trip());
+    render(await SummaryPage(summaryParams));
+    fireEvent.click(screen.getByRole('button', { name: 'Daftar dan bayar' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ paymentMethod: method });
   });
 
   it('offers no pay button for a full Batch', async () => {

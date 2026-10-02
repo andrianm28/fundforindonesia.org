@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { sendJson } from '@/app/akun/volunteer-trip/_components/api';
+import type { RegistrationPaymentMethod } from '@/lib/volunteer/payment-method';
 import { HoldCountdown } from './HoldCountdown';
 
 type Held = { registrationId: string; holdExpiresAt: string; redirectUrl?: string; vaNumber?: string };
@@ -11,9 +12,19 @@ type Held = { registrationId: string; holdExpiresAt: string; redirectUrl?: strin
  * the flag, the money switch and the quota) and then shows the countdown and
  * the way to pay. Does not redirect on its own: the Volunteer keeps the
  * countdown in view and opens the payment page themselves. Client component:
- * talks to the API only. QRIS is the one method the provider charges.
+ * talks to the API only. The method is the one the active provider charges,
+ * chosen by the server page that renders this (QRIS for Sumopod, Virtual
+ * Account for the mock); the provider has exactly one, so there is nothing to ask.
  */
-export function RegisterButton({ slug, batchId }: { slug: string; batchId: string }) {
+export function RegisterButton({
+  slug,
+  batchId,
+  paymentMethod = 'qris',
+}: {
+  slug: string;
+  batchId: string;
+  paymentMethod?: RegistrationPaymentMethod;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [held, setHeld] = useState<Held | null>(null);
@@ -23,7 +34,7 @@ export function RegisterButton({ slug, batchId }: { slug: string; batchId: strin
     setPending(true);
     setError('');
     const result = await sendJson(`/api/volunteer-trips/${slug}/batches/${batchId}/registrations`, 'POST', {
-      paymentMethod: 'qris',
+      paymentMethod,
     });
     setPending(false);
     if (!result.ok) {
