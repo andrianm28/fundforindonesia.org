@@ -1,6 +1,6 @@
 import type { Payout, PayoutBalanceCheck, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
-import { assertExactlyOnePayoutSubject } from './payout-subject';
+import { assertExactlyOnePayoutSubject, InvalidPayoutSubjectError } from './payout-subject';
 import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
 import { exceedsPayoutBalance } from '@/lib/payout-balance-rule';
@@ -138,6 +138,15 @@ export async function requestPayout(
   },
 ): Promise<Payout> {
   const { subject, requestedById, bankAccountId, amount, description } = params;
+
+  // A Payout is for a Campaign or a Volunteer Trip and nothing else. The type
+  // says so already; this is the same refusal at runtime, before any lock or
+  // balance read, so a Program-shaped subject (csr-and-hibah 07) can never
+  // fall through to the Trip branch below and read some other account.
+  const subjectType: string = subject.type;
+  if (subjectType !== 'campaign' && subjectType !== 'trip') {
+    throw new InvalidPayoutSubjectError();
+  }
 
   // The subject is locked, then read, before anything else: its state is
   // what the checks below judge (src/lib/subject-guard.ts).

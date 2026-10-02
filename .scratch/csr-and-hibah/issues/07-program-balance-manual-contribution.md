@@ -8,7 +8,7 @@ Program is not a Campaign.
 **Blocked by:** 01, and cross-feature `prd-compliance-fase-0-2 34`
 (Manual Contribution does not exist yet as of this spec)
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 - [ ] New `LedgerAccount` value `PROGRAM_BALANCE`
 - [ ] Manual Contribution's target is generalised from "always a Campaign" to

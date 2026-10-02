@@ -55,6 +55,7 @@ type LedgerRow = {
   account: string;
   campaignId: string | null;
   volunteerTripId: string | null;
+  programId?: string | null;
 };
 
 function verifiedBankAccount(overrides: Record<string, unknown> = {}) {
@@ -373,6 +374,54 @@ describe('requestPayout', () => {
     });
 
     expect(payoutFindFirst).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * csr-and-hibah 07: a Program Balance can never be the source of a Payout.
+ * LedgerSubject has no Program variant, so the type already refuses one; this
+ * is the same refusal at runtime, for a caller that got a Program-shaped
+ * subject past the compiler (a JSON body, a cast). The subject is built
+ * through `unknown` rather than `any`, which is exactly what such a caller
+ * would do.
+ */
+describe('requestPayout against a Program', () => {
+  const programSubject = { type: 'program', programId: 'prog-1' } as unknown as Parameters<
+    typeof requestPayout
+  >[1]['subject'];
+  const programMoney: LedgerRow[] = [
+    { transactionId: 'mc-1', direction: 'CREDIT', amount: 500_000, account: 'PROGRAM_BALANCE', campaignId: null, volunteerTripId: null, programId: 'prog-1' },
+  ];
+
+  it('refuses a Program subject and creates no Payout, though the Program holds money and the bank account is verified', async () => {
+    const { tx, payoutCreate } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: programMoney });
+
+    await expect(
+      requestPayout(tx as never, {
+        subject: programSubject,
+        requestedById: 'requester-1',
+        bankAccountId: 'bank-1',
+        amount: 500_000,
+        description: 'Pencairan Program',
+      }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
+    expect(payoutCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses before taking any lock or reading any balance', async () => {
+    const { tx, queryRawCalls } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: programMoney });
+
+    await expect(
+      requestPayout(tx as never, {
+        subject: programSubject,
+        requestedById: 'requester-1',
+        bankAccountId: 'bank-1',
+        amount: 1,
+        description: 'Pencairan Program',
+      }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
+    expect(queryRawCalls).toEqual([]);
+    expect(tx.ledgerEntry.groupBy).not.toHaveBeenCalled();
   });
 });
 
