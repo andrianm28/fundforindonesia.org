@@ -8,6 +8,7 @@ function makeDb(overrides: Partial<Record<string, unknown>> = {}) {
     payment: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'payment-1', ...data })),
     },
+    chargeWriteFailure: { create: vi.fn().mockResolvedValue({}) },
     platformFeeRule: { findFirst: vi.fn().mockResolvedValue(null) },
     platformFeeThreshold: { findFirst: vi.fn().mockResolvedValue(null) },
     ...overrides,
@@ -98,6 +99,34 @@ describe('chargeDonation', () => {
 
     expect(result).toEqual({ ok: false, reason: 'provider_error' });
     expect(db.payment.create).not.toHaveBeenCalled();
+  });
+
+  it('logs a provider failure without the raw Error object or any email in it', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const provider = makeProvider({
+        createCharge: vi.fn().mockRejectedValue(new Error('rejected payer donor@example.com')),
+      });
+
+      await chargeDonation({
+        db: makeDb() as never,
+        provider,
+        campaign: CAMPAIGN,
+        donationId: 'donation-1',
+        amount: 100_000,
+        orderId: 'order-9',
+        paymentMethod: 'qris_redirect',
+      });
+
+      expect(spy).toHaveBeenCalled();
+      const args = spy.mock.calls.flat();
+      expect(args.some((a) => a instanceof Error)).toBe(false);
+      expect(args.some((a) => typeof a === 'string' && a.includes('@'))).toBe(false);
+      expect(args.join(' ')).toContain('donation-1');
+      expect(args.join(' ')).toContain('order-9');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('refuses a Payment whose method disagrees with what the provider actually charged', async () => {
@@ -205,5 +234,30 @@ describe('chargeDonation', () => {
 
     expect(provider.createCharge).not.toHaveBeenCalled();
     expect(db.payment.create).not.toHaveBeenCalled();
+  });
+
+  it('records a ChargeWriteFailure and returns payment_write_failed when the charge succeeded but the Payment write failed (ticket 52)', async () => {
+    const db = makeDb({ payment: { create: vi.fn().mockRejectedValue(new Error('connection reset')) } });
+
+    const result = await chargeDonation({
+      db: db as never,
+      provider: makeProvider(),
+      campaign: CAMPAIGN,
+      donationId: 'donation-1',
+      amount: 100_000,
+      orderId: 'order-1',
+      paymentMethod: 'qris_redirect',
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'payment_write_failed' });
+    expect(db.chargeWriteFailure.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        provider: 'mock',
+        providerRef: 'order-1',
+        subjectType: 'donation',
+        subjectId: 'donation-1',
+        amount: 100_000,
+      }),
+    });
   });
 });

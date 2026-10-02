@@ -4,12 +4,14 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
+import { safePaymentLink } from '@/lib/payments/payment-link';
 import { PROVIDER_METHOD_FOR } from '@/lib/volunteer/payment-method';
 import { PaymentStatus } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
 import { holdRegistration } from '@/lib/volunteer/trip';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
 import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
+import { recordChargeWriteFailure, sanitizeError } from '@/lib/money/payment-reconciliation';
 import {
   donationsEnabled,
   sandboxInProductionReason,
@@ -136,7 +138,7 @@ export async function POST(
         currency: 'IDR',
       });
     } catch (err) {
-      console.error(`[registrations] charge failed for registration ${registration.id}:`, err);
+      console.error(`[registrations] charge failed for registration ${registration.id}: ${sanitizeError(err)}`);
       return NextResponse.json(
         { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
         { status: 503 },
@@ -158,36 +160,63 @@ export async function POST(
 
     assertExactlyOnePaymentSubject({ registrationId: registration.id });
 
-    await prisma.payment.create({
-      data: {
-        donationId: undefined,
-        registrationId: registration.id,
+    // Only an https link on a payment-provider host is stored or handed back;
+    // anything else becomes null, and the HOLD falls back to "batalkan lalu
+    // daftar ulang" rather than sending a Volunteer to an arbitrary address.
+    const redirectUrl = charge.method === 'qris_redirect' ? safePaymentLink(charge.redirectUrl) : null;
+
+    // The charge now exists at the provider. A Payment write that fails here
+    // leaves money a Volunteer can still pay with no row expecting it, so it is
+    // recorded for reconciliation (ticket 52) before the 503.
+    try {
+      await prisma.payment.create({
+        data: {
+          donationId: undefined,
+          registrationId: registration.id,
+          provider: providerName,
+          method: charge.method,
+          providerRef: registration.id,
+          amount: tripFeeAmount,
+          // Trip Fee takes the same Escrow Hold as a Campaign Donation, minus
+          // the Platform Fee and the Kind (CONTEXT.md, Trip Fee; ADR 0014), so
+          // it freezes the SAME length here as chargeDonation does on the
+          // donation path. Naming the constant rather than letting the
+          // `escrowHoldDays Int @default(7)` in prisma/schema.prisma supply it
+          // is the whole point: that default is a second copy of the number
+          // that nothing in src/ can see, and the day that 7 is moved to
+          // configuration the two copies drift -- Trip Fee releasing after 7
+          // while Donation releases after N, with the settlement webhook
+          // reading whichever this row happens to carry. Naming it here is also
+          // what makes the frozen-per-Payment rule (prd-compliance 18) true of
+          // this Payment: its length is decided in code at creation, not
+          // inherited from a schema default nobody chose deliberately.
+          escrowHoldDays: ESCROW_HOLD_DAYS,
+          status: PaymentStatus.PENDING,
+          expiresAt: charge.expiresAt,
+          // Kept so a Volunteer who closed the payment page can open it again
+          // ("Lanjutkan pembayaran", ticket 37): the provider is not asked twice.
+          redirectUrl,
+          vaNumber: charge.method === 'bank_transfer_va' ? charge.vaNumber : null,
+        },
+      });
+    } catch (err) {
+      await recordChargeWriteFailure(prisma, {
         provider: providerName,
-        method: charge.method,
         providerRef: registration.id,
+        subjectType: 'registration',
+        subjectId: registration.id,
         amount: tripFeeAmount,
-        // Trip Fee takes the same Escrow Hold as a Campaign Donation, minus
-        // the Platform Fee and the Kind (CONTEXT.md, Trip Fee; ADR 0014), so
-        // it freezes the SAME length here as chargeDonation does on the
-        // donation path. Naming the constant rather than letting the
-        // `escrowHoldDays Int @default(7)` in prisma/schema.prisma supply it
-        // is the whole point: that default is a second copy of the number
-        // that nothing in src/ can see, and the day that 7 is moved to
-        // configuration the two copies drift -- Trip Fee releasing after 7
-        // while Donation releases after N, with the settlement webhook
-        // reading whichever this row happens to carry. Naming it here is also
-        // what makes the frozen-per-Payment rule (prd-compliance 18) true of
-        // this Payment: its length is decided in code at creation, not
-        // inherited from a schema default nobody chose deliberately.
-        escrowHoldDays: ESCROW_HOLD_DAYS,
-        status: PaymentStatus.PENDING,
-        expiresAt: charge.expiresAt,
-      },
-    });
+        error: err,
+      });
+      return NextResponse.json(
+        { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
+        { status: 503 },
+      );
+    }
 
     const paymentInstructions =
       charge.method === 'qris_redirect'
-        ? { type: 'qris' as const, redirectUrl: charge.redirectUrl, expiresAt: charge.expiresAt }
+        ? { type: 'qris' as const, redirectUrl, expiresAt: charge.expiresAt }
         : { type: 'bank_transfer' as const, vaNumber: charge.vaNumber, expiresAt: charge.expiresAt };
 
     return NextResponse.json(
@@ -200,7 +229,7 @@ export async function POST(
       { status: 201 },
     );
   } catch (error) {
-    console.error('Error creating registration:', error);
+    console.error(`Error creating registration: ${sanitizeError(error)}`);
     return NextResponse.json({ error: 'Gagal membuat registrasi' }, { status: 500 });
   }
 }

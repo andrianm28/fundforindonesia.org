@@ -176,6 +176,28 @@ export class BatchMinQuotaMetError extends TripError {
   }
 }
 
+/**
+ * A Sertifikat Keikutsertaan freezes the Volunteer's and the organizer's
+ * name and cannot be corrected afterwards (Release 1), so completing a Batch
+ * is refused while either name is blank. Rolls the whole completion back;
+ * fixed by filling the name in, then completing again. 422 through
+ * `domainErrorToHttp`.
+ */
+export class CertificateNameMissingError extends TripError {
+  readonly code = 'CERTIFICATE_NAME_MISSING';
+  constructor(
+    readonly subject: 'volunteer' | 'organizer',
+    readonly registrationId?: string,
+  ) {
+    super(
+      subject === 'volunteer'
+        ? `Nama Volunteer pada Registration ${registrationId} masih kosong. Sertifikat tidak bisa dikoreksi setelah terbit: minta Volunteer melengkapi nama di profilnya, lalu selesaikan Batch lagi.`
+        : 'Nama penyelenggara (Fundraiser) masih kosong. Sertifikat tidak bisa dikoreksi setelah terbit: lengkapi nama di profil Anda, lalu selesaikan Batch lagi.',
+    );
+    this.name = 'CertificateNameMissingError';
+  }
+}
+
 /** A Batch is completed only once its endDate has passed. 400 through `domainErrorToHttp`. */
 export class BatchNotEndedError extends TripError {
   readonly code = 'BATCH_NOT_ENDED';
@@ -305,5 +327,26 @@ export class TripSuspensionUnrecordedError extends TripError {
       'Penangguhan ini tidak tercatat di riwayat status, sehingga status Volunteer Trip sebelumnya tidak diketahui. Hubungi tim teknis untuk mencabutnya.',
     );
     this.name = 'TripSuspensionUnrecordedError';
+  }
+}
+
+/**
+ * A Trip Fee Payout asked for more than the money of Batches that are
+ * COMPLETED (ticket 49; CONTEXT.md, Payout). Trip Fee still sitting in a
+ * Batch that has not completed (open, closed, or cancelled with a residue)
+ * can still be refunded to a Volunteer, so it may not leave the platform.
+ * The message names the figure the Fundraiser may withdraw now, so the
+ * screen shows the reason and the way out. 409 through `domainErrorToHttp`.
+ */
+export class TripPayoutFundsNotCompletedError extends TripError {
+  readonly code = 'TRIP_PAYOUT_FUNDS_NOT_COMPLETED';
+  constructor(
+    readonly requested: number,
+    readonly withdrawable: number,
+  ) {
+    super(
+      `Pencairan Trip Fee hanya bisa dari dana Batch yang sudah Selesai. Yang bisa dicairkan saat ini Rp ${withdrawable.toLocaleString('id-ID')}, sedangkan diminta Rp ${requested.toLocaleString('id-ID')}. Sisanya masih tertahan di Batch yang belum selesai karena Volunteer-nya masih bisa meminta Refund; dana itu bisa dicairkan setelah Batch-nya diselesaikan.`,
+    );
+    this.name = 'TripPayoutFundsNotCompletedError';
   }
 }

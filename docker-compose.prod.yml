@@ -68,6 +68,7 @@ services:
       SUMOPOD_API_KEY: ${SUMOPOD_API_KEY:-}
       SUMOPOD_WEBHOOK_SECRET: ${SUMOPOD_WEBHOOK_SECRET:-}
       SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-}
+      PAYMENT_LINK_ALLOWED_HOSTS: ${PAYMENT_LINK_ALLOWED_HOSTS:-}
       # Field-level encryption keys (ADR 0012). No defaults, for the reason
       # MOCK_MIDTRANS_SERVER_KEY above gives: a default key is a published one.
       # These are also no longer optional in practice -- the plaintext contact

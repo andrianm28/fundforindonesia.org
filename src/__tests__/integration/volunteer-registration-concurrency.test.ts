@@ -52,6 +52,7 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
   let cancelBatch: typeof import('@/lib/volunteer/trip').cancelBatch;
   let completeBatch: typeof import('@/lib/volunteer/trip').completeBatch;
   let confirmRegistration: typeof import('@/lib/volunteer/trip').confirmRegistration;
+  let refundLateSettlement: typeof import('@/lib/volunteer/trip').refundLateSettlement;
 
   beforeAll(async () => {
     if (!DATABASE_URL) return;
@@ -75,7 +76,7 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
     const adapter = new PrismaPg({ connectionString: url });
     const { PrismaClient: RealPrismaClient } = await import('@/generated/prisma/client');
     prisma = new RealPrismaClient({ adapter });
-    ({ holdRegistration, cancelRegistration, editBatch, cancelBatch, completeBatch, confirmRegistration } = await import('@/lib/volunteer/trip'));
+    ({ holdRegistration, cancelRegistration, editBatch, cancelBatch, completeBatch, confirmRegistration, refundLateSettlement } = await import('@/lib/volunteer/trip'));
   }, 120_000);
 
   afterAll(async () => {
@@ -233,6 +234,125 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
     const none = await paidRegistration(2);
     await cancelRegistration(prisma, { registrationId: none.registrationId, actor: { userId: none.volunteerId } });
     expect(await prisma.refund.count({ where: { paymentId: none.paymentId } })).toBe(0);
+  });
+
+  // Ticket 53: completing a Batch must not leave a HOLD that a late
+  // settlement could still confirm.
+  async function heldWithPendingPayment() {
+    const { tripId, batchId, fundraiserId } = await makeBatch({ maxQuota: 5, departsInDays: -10 });
+    const volunteerId = await makeUser();
+    const registration = await prisma.registration.create({
+      data: { volunteerId, batchId, status: 'HOLD', holdExpiresAt: new Date(Date.now() + 60 * 60 * 1000) },
+    });
+    const payment = await prisma.payment.create({
+      data: {
+        registrationId: registration.id,
+        provider: 'mock',
+        method: 'bank_transfer',
+        providerRef: `ref-${process.pid}-${next()}`,
+        amount: 500_000,
+        status: 'PENDING',
+      },
+    });
+    return { tripId, batchId, volunteerId, registrationId: registration.id, paymentId: payment.id, actor: { userId: fundraiserId, assignments: [] } };
+  }
+
+  // The Settlement transaction as the webhook runs it: Payment PAID, then confirmRegistration.
+  const settle = (registrationId: string, paymentId: string) =>
+    prisma.$transaction(async (tx) => {
+      await tx.payment.update({ where: { id: paymentId }, data: { status: 'PAID', paidAt: new Date(), settledAt: new Date() } });
+      return confirmRegistration(tx as never, { registrationId });
+    });
+
+  it('expires a HOLD when its Batch completes; a payment settling afterwards is refunded in full, not confirmed', async () => {
+    const h = await heldWithPendingPayment();
+    await completeBatch(prisma, { tripId: h.tripId, batchId: h.batchId, actor: h.actor as never, attendedRegistrationIds: [] });
+    expect((await prisma.registration.findUniqueOrThrow({ where: { id: h.registrationId } })).status).toBe('EXPIRED');
+
+    const { outcome } = await settle(h.registrationId, h.paymentId);
+    expect(outcome).toBe('lapsed');
+    await refundLateSettlement(prisma, { registrationId: h.registrationId });
+
+    expect((await prisma.registration.findUniqueOrThrow({ where: { id: h.registrationId } })).status).toBe('EXPIRED');
+    const refunds = await prisma.refund.findMany({ where: { paymentId: h.paymentId } });
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0]).toMatchObject({ amount: 500_000, requestedById: h.volunteerId });
+  });
+
+  it('never leaves a settled Volunteer both without a refund and without a confirmed seat, racing completeBatch', async () => {
+    for (let i = 0; i < 5; i++) {
+      const h = await heldWithPendingPayment();
+      const [, settled] = await Promise.all([
+        completeBatch(prisma, { tripId: h.tripId, batchId: h.batchId, actor: h.actor as never, attendedRegistrationIds: [] }),
+        settle(h.registrationId, h.paymentId),
+      ]);
+      if (settled.outcome !== 'confirmed') await refundLateSettlement(prisma, { registrationId: h.registrationId });
+
+      const status = (await prisma.registration.findUniqueOrThrow({ where: { id: h.registrationId } })).status;
+      const refunds = await prisma.refund.findMany({ where: { paymentId: h.paymentId } });
+      expect(status).not.toBe('HOLD');
+      if (status === 'CONFIRMED') expect(refunds).toHaveLength(0);
+      else expect(refunds.map((r) => r.amount)).toEqual([500_000]);
+    }
+  });
+
+  // Deterministic: completeBatch is paused right after it has locked the
+  // Registrations (the lock order that matters), a settlement is started and
+  // proven to be waiting on that row lock, and only then is completeBatch let
+  // go. The settlement's CAS must re-evaluate after the commit and find EXPIRED.
+  it('settles to lapsed, with a full Refund and no CONFIRMED seat, when it waits on completeBatch\'s Registration lock', async () => {
+    const h = await heldWithPendingPayment();
+    let reached!: () => void;
+    let release!: () => void;
+    const lockHeld = new Promise<void>((resolve) => (reached = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let paused = false;
+
+    const pausing = {
+      $transaction: <T,>(fn: (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>) =>
+        prisma.$transaction((tx) =>
+          fn(
+            new Proxy(tx, {
+              get(target, prop) {
+                const value = Reflect.get(target, prop, target);
+                if (prop !== '$queryRaw' || typeof value !== 'function') return value;
+                return async (strings: TemplateStringsArray, ...rest: unknown[]) => {
+                  const rows = await value.call(target, strings, ...rest);
+                  if (!paused && strings.join('?').includes('FROM "Registration"')) {
+                    paused = true;
+                    reached();
+                    await gate;
+                  }
+                  return rows;
+                };
+              },
+            }),
+          ),
+        ),
+    };
+
+    const completing = completeBatch(pausing as never, { tripId: h.tripId, batchId: h.batchId, actor: h.actor as never, attendedRegistrationIds: [] });
+    await lockHeld;
+    const settling = settle(h.registrationId, h.paymentId);
+
+    // Wait until the settlement is provably blocked on a row lock.
+    for (let i = 0; i < 100; i++) {
+      const [{ n }] = await prisma.$queryRaw<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+      if (n > 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    release();
+    await completing;
+    const settled = await settling;
+
+    expect(settled.outcome).toBe('lapsed');
+    await refundLateSettlement(prisma, { registrationId: h.registrationId });
+    expect((await prisma.registration.findUniqueOrThrow({ where: { id: h.registrationId } })).status).toBe('EXPIRED');
+    expect(await prisma.registration.count({ where: { batchId: h.batchId, status: 'CONFIRMED' } })).toBe(0);
+    const refunds = await prisma.refund.findMany({ where: { paymentId: h.paymentId } });
+    expect(refunds.map((r) => r.amount)).toEqual([500_000]);
   });
 
   // Ticket 48: the edit judges "does the Batch have a live Registration" under
