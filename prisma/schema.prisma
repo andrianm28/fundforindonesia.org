@@ -104,7 +104,7 @@ model User {
   payoutsRequested                  Payout[]                         @relation("PayoutRequester")
   payoutsApproved                   Payout[]                         @relation("PayoutApprover")
   payoutsCompleted                  Payout[]                         @relation("PayoutCompleter")
-  payoutBalanceChecksRecorded       PayoutBalanceCheck[]             @relation("PayoutBalanceCheckedBy")
+  payoutBalanceChecksRecorded       PayoutBalanceCheck[]              @relation("PayoutBalanceCheckedBy")
   usageReportsSubmitted             UsageReport[]                    @relation("UsageReportSubmitter")
   usageReportsDisputed              UsageReport[]                    @relation("UsageReportDisputer")
   refundsRequested                  Refund[]                         @relation("RefundRequester")

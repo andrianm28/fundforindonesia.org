@@ -27,7 +27,7 @@ tidak punya kode sama sekali. Bentuknya diputuskan di `prd-audit/issues/10`
 - Model baru `VolunteerCertificate`: satu per Registration (unik), `code` unik dan
   tidak dapat ditebak, `issuedAt`, dan salinan beku dari nama Volunteer, judul
   Trip, destinasi, tanggal mulai dan selesai Batch, serta nama Fundraiser
-  penyelenggara. Migrasi memakai timestamp `20260930110000`.
+  penyelenggara. Migrasi memakai timestamp `20260930140000`.
 - Terbit otomatis, dalam transaksi yang sama dengan `completeBatch`, untuk setiap
   Registration `CONFIRMED` dengan `attended = true`. Tidak ada jalur lain yang
   menerbitkan.
@@ -64,3 +64,8 @@ Registration. Sertakan tesnya.
 ## Comments
 
 - 2026-10-02: awaiting-merge. PR #163, commit 61c3a75. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: scope tambahan dari code-review dua sumbu PR #163, **menunggu konfirmasi owner** (belum diputuskan):
+  1. `CertificateNameMissingError` membuat `completeBatch` gagal (rollback) bila nama Volunteer atau penyelenggara kosong, karena sertifikat tidak bisa dikoreksi setelah terbit.
+  2. Allowlist host tautan bayar (`safePaymentLink`): default `sumopod.com` plus subdomain, override lewat `PAYMENT_LINK_ALLOWED_HOSTS`. Bila host `payment_link_url` provider berbeda, tautan bayar diam-diam menjadi null.
+  3. Ada dua entri menu Volunteer di `/akun` ("Keikutsertaan Volunteer Saya" dan "Volunteer Trip Saya").
+- 2026-10-02: migrasi di-rename `20260930110000` menjadi `20260930140000_volunteer_certificate` (urutan setelah `20260930130000`); isi SQL tidak berubah.

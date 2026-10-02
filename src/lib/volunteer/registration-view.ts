@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@/generated/prisma/client';
+import type { Prisma, PrismaClient, RegistrationStatus } from '@/generated/prisma/client';
 import { tripFeeRefundAmount } from './refunds';
 import { safePaymentLink } from '@/lib/payments/payment-link';
 
@@ -10,7 +10,7 @@ import { safePaymentLink } from '@/lib/payments/payment-link';
 export type RegistrationView = {
   id: string;
   /** A HOLD whose window has passed reads EXPIRED, as the catalog counts it. */
-  status: 'HOLD' | 'CONFIRMED' | 'EXPIRED' | 'CANCELLED';
+  status: RegistrationStatus;
   holdExpiresAt: Date;
   trip: { slug: string; title: string; destination: string };
   batch: { startDate: Date; endDate: Date };
@@ -57,28 +57,10 @@ const REGISTRATION_SELECT = {
   },
 } as const;
 
-type RegistrationRowForView = {
-  id: string;
-  status: string;
-  holdExpiresAt: Date;
-  certificate: { code: string } | null;
-  batch: {
-    startDate: Date;
-    endDate: Date;
-    trip: { slug: string; title: string; destination: string; tripFeeAmount: number };
-  };
-  payment: {
-    amount: number;
-    status: string;
-    expiresAt: Date | null;
-    redirectUrl: string | null;
-    vaNumber: string | null;
-    refunds: { id: string; amount: number; status: string }[];
-  } | null;
-};
+type RegistrationRowForView = Prisma.RegistrationGetPayload<{ select: typeof REGISTRATION_SELECT }>;
 
 function toView(r: RegistrationRowForView, now: Date): RegistrationView {
-  const status = (r.status === 'HOLD' && r.holdExpiresAt <= now ? 'EXPIRED' : r.status) as RegistrationView['status'];
+  const status: RegistrationStatus = r.status === 'HOLD' && r.holdExpiresAt <= now ? 'EXPIRED' : r.status;
   const paidAmount = r.payment && r.payment.status === 'PAID' ? r.payment.amount : null;
   const cancelRefundAmount =
     r.status === 'CONFIRMED' && paidAmount !== null
