@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     volunteerTrip: { findUnique: vi.fn() },
+    paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     payment: { create: vi.fn() },
     chargeWriteFailure: { create: vi.fn() },
   },
@@ -67,6 +68,10 @@ function routeContext(slug = 'some-slug', id = 'batch-1') {
 }
 
 describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', 'true');
@@ -129,6 +134,28 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     mockSandboxInProductionReason.mockReturnValue('PAYMENT_PROVIDER=mock in production');
     const createCharge = vi.fn();
     mockGetPaymentProvider.mockReturnValue({ name: 'sumopod', method: 'qris_redirect', createCharge });
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(mockHoldRegistration).not.toHaveBeenCalled();
+    expect(createCharge).not.toHaveBeenCalled();
+    expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the mock', { provider: 'mock', methods: ['bank_transfer_va'] }, {}],
+    [
+      'a sandbox',
+      { provider: 'sumopod', methods: ['qris_redirect'] },
+      { SUMOPOD_BASE_URL: 'https://api-pay-sandbox.sumopod.com/api/v1' },
+    ],
+  ])('answers 503 in production, holding nothing, when the Admin chose %s (prd-compliance 39)', async (_label, row, env) => {
+    vi.stubEnv('NODE_ENV', 'production');
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    (prisma.paymentProviderSetting.findFirst as unknown as Mock).mockResolvedValueOnce(row);
+    const createCharge = vi.fn();
+    mockGetPaymentProvider.mockReturnValue({ name: row.provider, method: 'qris_redirect', createCharge });
 
     const response = await POST(createRequest(), routeContext());
 

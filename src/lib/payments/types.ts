@@ -11,13 +11,19 @@
  * new class implementing this interface, not a change to the webhook route.
  */
 
-export type PaymentMethod = 'bank_transfer_va' | 'qris_redirect';
+export type PaymentMethod = 'bank_transfer_va' | 'qris_redirect' | 'ewallet_redirect';
 
 export interface ChargeInput {
   /** Our reference, which the provider echoes back on every webhook. */
   orderId: string;
   grossAmount: number;
   currency: 'IDR';
+  /**
+   * Which of the provider's supported methods to charge through. Left out, the
+   * provider charges its default `method`. A provider that supports several
+   * (`supportedMethods`) must honour this and answer with the same method.
+   */
+  method?: PaymentMethod;
   /** Only meaningful for redirect-based methods; ignored by VA flows. */
   successReturnUrl?: string;
   cancelReturnUrl?: string;
@@ -33,6 +39,13 @@ export type ChargeResult =
   | {
       providerOrderId: string;
       method: 'qris_redirect';
+      redirectUrl: string;
+      expiresAt: Date;
+    }
+  | {
+      /** An e-wallet app opened through the provider's hosted link. */
+      providerOrderId: string;
+      method: 'ewallet_redirect';
       redirectUrl: string;
       expiresAt: Date;
     };
@@ -142,6 +155,13 @@ export interface PaymentProvider {
    * creating one and abandoning it.
    */
   readonly method: PaymentMethod;
+  /**
+   * Every method this provider can charge through, when more than `method`.
+   * Absent means exactly `[method]`. An Admin can only switch on methods named
+   * here (src/lib/payments/active-provider.ts), so a method no adapter
+   * implements can never be offered to a donor.
+   */
+  readonly supportedMethods?: readonly PaymentMethod[];
   createCharge(input: ChargeInput): Promise<ChargeResult>;
   /**
    * Verifies the signature and returns the event, or throws. It must never
