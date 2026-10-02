@@ -29,6 +29,11 @@ describe('coverImageSchema', () => {
     'data:image/png;base64,AAAA',
     'ftp://example.com/x.png',
     'not-a-url',
+    'https://user:pass@example.com/x.png',
+    'https://user@example.com/x.png',
+    ' https://example.com/x.png',
+    'https://example.com/x.png ',
+    '/uploads/x.png\n',
     '',
   ])('rejects the scheme or shape %s', (value) => {
     const result = coverImageSchema.safeParse(value);

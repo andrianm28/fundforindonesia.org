@@ -10,4 +10,8 @@ describe('registrationMethodFor', () => {
       expect(method).toBe(registrationMethodFor(providerMethod));
     }
   });
+
+  it('throws for a provider method it does not know instead of falling back to qris', () => {
+    expect(() => registrationMethodFor('cash' as never)).toThrow('tidak dikenal');
+  });
 });

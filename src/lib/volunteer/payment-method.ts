@@ -15,5 +15,14 @@ export const PROVIDER_METHOD_FOR: Record<RegistrationPaymentMethod, PaymentMetho
 
 /** The Registration method the active provider can charge. */
 export function registrationMethodFor(providerMethod: PaymentMethod): RegistrationPaymentMethod {
-  return providerMethod === 'bank_transfer_va' ? 'bank_transfer' : 'qris';
+  switch (providerMethod) {
+    case 'bank_transfer_va':
+      return 'bank_transfer';
+    case 'qris_redirect':
+      return 'qris';
+    default: {
+      const unknown: never = providerMethod;
+      throw new Error(`Metode pembayaran provider tidak dikenal: ${String(unknown)}`);
+    }
+  }
 }
