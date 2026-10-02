@@ -9,7 +9,7 @@ at the same time, for consistency.
 
 **Blocked by:** 01
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 - [ ] The real current admin/moderasi route set is audited first —
       `/admin/campaigns`, `/admin/users`, `/moderasi/campaigns`,
@@ -48,3 +48,7 @@ at the same time, for consistency.
     404. Tidak ada tautan `/admin*` di shell; `/admin` oleh Verifier
     dialihkan ke `/`.
   - Tidak ada entri yang rusak. Tangkapan layar tidak di-commit.
+
+## Comments
+
+- 2026-10-02: awaiting-merge. PR #183, commit 41ec5aa. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
