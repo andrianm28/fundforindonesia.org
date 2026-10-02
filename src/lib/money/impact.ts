@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@/generated/prisma/client';
+import { programBooks } from '@/lib/money/manual-contributions';
 
 /**
  * Impact & Transparency: where every rupiah a Donor handed over has ended up
@@ -67,10 +68,10 @@ import type { PrismaClient } from '@/generated/prisma/client';
  * **CSR is a separate block, not a seventh line** (ticket csr-08; owner
  * decision). `csr` carries two figures that are never added together:
  *
- * - `inTheBooks`: the PROGRAM_BALANCE the ledger holds across the Programs in
+ * - `inTheBooks`: the Program balance the ledger holds across the Programs in
  *   scope, i.e. Manual Contributions credited to a Program net of reversals.
  *   It joins neither `collected` nor the six lines (those are Campaign money),
- *   but it has a reconciliation of its own: every PROGRAM_BALANCE entry must
+ *   but it has a reconciliation of its own: every Program balance entry must
  *   carry the Manual Contribution that put it there, or the page refuses to
  *   publish (CsrDoesNotReconcileError, same failure as the six lines).
  * - `outsideTheBooks`: the sum of the plain figures an Admin reported for CSR
@@ -177,7 +178,7 @@ export interface ImpactBreakdown {
    * are never summed: one is backed by the ledger, the other is only reported.
    */
   csr: {
-    /** PROGRAM_BALANCE across the Programs in scope; ledger-backed and reconciled. */
+    /** Program balance across the Programs in scope; ledger-backed and reconciled. */
     inTheBooks: number;
     /** Reported by an Admin for money that never crossed the platform's account; no ledger entry behind it. */
     outsideTheBooks: number;
@@ -206,20 +207,34 @@ export class ImpactDoesNotReconcileError extends Error {
 }
 
 /**
- * PROGRAM_BALANCE holds money no Manual Contribution accounts for. A subclass
- * of ImpactDoesNotReconcileError so the page and the route refuse it the same
- * way, without a second error path to forget.
+ * A Program balance that cannot be vouched for: it holds money no Manual
+ * Contribution put there (`booked !== explained`), or it is negative (a
+ * Program cannot owe money; nothing debits it but a reversal). Not a subclass
+ * of ImpactDoesNotReconcileError, whose fields mean "six lines vs collected":
+ * the figures here are the booked balance and what contributions explain, so
+ * callers that refuse it (the /impact route and page) catch it by name.
  */
-export class CsrDoesNotReconcileError extends ImpactDoesNotReconcileError {
-  constructor(programBalance: number, explainedByContributions: number) {
+export class CsrDoesNotReconcileError extends Error {
+  constructor(
+    readonly booked: number,
+    readonly explained: number,
+  ) {
     super(
-      explainedByContributions,
-      programBalance,
-      `PROGRAM_BALANCE holds ${programBalance} but Manual Contributions explain ${explainedByContributions}. ` +
-        'Refusing to publish a CSR figure that does not add up.',
+      `Program balance holds ${booked} but Manual Contributions explain ${explained}` +
+        (booked < 0 ? ' and the balance is negative' : '') +
+        '. Refusing to publish a CSR figure that does not add up.',
     );
     this.name = 'CsrDoesNotReconcileError';
   }
+}
+
+/**
+ * The one CSR reconciliation rule, shared by /impact and the Program page so
+ * the two cannot disagree: the booked Program balance must equal what Manual
+ * Contributions explain, and must not be negative.
+ */
+export function assertCsrReconciles(booked: number, explained: number): void {
+  if (booked !== explained || booked < 0) throw new CsrDoesNotReconcileError(booked, explained);
 }
 
 /**
@@ -392,27 +407,10 @@ export async function impactBreakdown(
       select: { id: true, reportedAmount: true },
     });
     const programIds = programs.map((p) => p.id);
-    const programRows = await tx.ledgerEntry.groupBy({
-      by: ['account', 'direction'] as const,
-      where: { programId: { in: programIds }, account: 'PROGRAM_BALANCE' },
-      _sum: { amount: true },
-    });
-    const programBooked = balance(totalsOf(programRows), 'PROGRAM_BALANCE');
-    // The same balance read by the one thing allowed to move it. Both reads
-    // are the ledger, so this is a check on the books, not a second source.
-    const programExplainedRows = await tx.ledgerEntry.groupBy({
-      by: ['account', 'direction'] as const,
-      where: {
-        programId: { in: programIds },
-        account: 'PROGRAM_BALANCE',
-        manualContributionId: { not: null },
-      },
-      _sum: { amount: true },
-    });
-    const programExplained = balance(totalsOf(programExplainedRows), 'PROGRAM_BALANCE');
-    if (programBooked !== programExplained) {
-      throw new CsrDoesNotReconcileError(programBooked, programExplained);
-    }
+    // Read by the Manual Contribution module, the one place allowed to name a
+    // Program's balance (manual-contribution-isolation.test.ts).
+    const { booked: programBooked, explained: programExplained } = await programBooks(tx, programIds);
+    assertCsrReconciles(programBooked, programExplained);
 
     const netSettled = sum(byPayment, 'ESCROW_HOLD:CREDIT');
     const providerFeeCharged = sum(byPayment, 'PROVIDER_FEE:CREDIT');

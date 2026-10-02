@@ -174,32 +174,38 @@ export default async function ProgramDetailPage({ params }: ProgramDetailPagePro
         <h2 id="dana-csr-heading" className="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-3">
           Dana CSR pada Program ini
         </h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div data-testid="program-money-in-books" className="rounded-lg border border-border p-4">
-            <p className="text-sm font-medium text-text">Di dalam pembukuan platform</p>
-            <p className="text-2xl font-bold text-text">{formatRupiah(money.inTheBooks)}</p>
-            <p className="text-sm text-text-secondary mt-1">
-              Program Balance: dana yang masuk lewat rekening platform dan tercatat di buku besar.
-            </p>
-          </div>
-          <div data-testid="program-money-off-books" className="rounded-lg border border-dashed border-border p-4">
-            <p className="text-sm font-medium text-text">Di luar pembukuan platform</p>
-            {money.outsideTheBooks.amount > 0 ? (
-              <>
-                <p className="text-2xl font-bold text-text">{formatRupiah(money.outsideTheBooks.amount)}</p>
-                <p className="text-sm text-text-secondary mt-1">
-                  Angka yang dilaporkan{money.outsideTheBooks.asOf ? ` per ${formatDate(money.outsideTheBooks.asOf)}` : ''}{' '}
-                  untuk dana CSR yang tidak pernah melewati rekening platform. Tidak ada catatan buku besar di
-                  baliknya, jadi platform tidak dapat memverifikasinya.
-                </p>
-              </>
-            ) : (
+        {money.reconciled ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div data-testid="program-money-in-books" className="rounded-lg border border-border p-4">
+              <p className="text-sm font-medium text-text">Di dalam pembukuan platform</p>
+              <p className="text-2xl font-bold text-text">{formatRupiah(money.inTheBooks)}</p>
               <p className="text-sm text-text-secondary mt-1">
-                Belum ada dana di luar pembukuan yang dilaporkan untuk Program ini.
+                Program Balance: dana yang masuk lewat rekening platform dan tercatat di buku besar.
               </p>
-            )}
+            </div>
+            <div data-testid="program-money-off-books" className="rounded-lg border border-dashed border-border p-4">
+              <p className="text-sm font-medium text-text">Di luar pembukuan platform</p>
+              {money.outsideTheBooks.amount > 0 ? (
+                <>
+                  <p className="text-2xl font-bold text-text">{formatRupiah(money.outsideTheBooks.amount)}</p>
+                  <p className="text-sm text-text-secondary mt-1">
+                    Angka yang dilaporkan{money.outsideTheBooks.asOf ? ` per ${formatDate(money.outsideTheBooks.asOf)}` : ''}{' '}
+                    untuk dana CSR yang tidak pernah melewati rekening platform. Tidak ada catatan buku besar di
+                    baliknya, jadi platform tidak dapat memverifikasinya.
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-text-secondary mt-1">
+                  Belum ada dana di luar pembukuan yang dilaporkan untuk Program ini.
+                </p>
+              )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <p data-testid="program-money-unavailable" className="text-sm text-text-secondary">
+            Dana CSR untuk Program ini sedang tidak dapat ditampilkan karena pembukuannya sedang kami periksa.
+          </p>
+        )}
       </section>
 
       <section id="diskusi" aria-labelledby="diskusi-heading" className="mt-10 rounded-lg border border-border p-6">

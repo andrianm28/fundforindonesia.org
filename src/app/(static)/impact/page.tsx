@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
-import { impactBreakdown, ImpactDoesNotReconcileError } from '@/lib/money/impact';
+import { impactBreakdown, ImpactDoesNotReconcileError, CsrDoesNotReconcileError } from '@/lib/money/impact';
 import { formatRupiah } from '@/lib/utils/currency';
 
 /**
@@ -38,7 +38,7 @@ export default async function ImpactPage({ searchParams }: ImpactPageProps) {
   try {
     breakdown = await impactBreakdown(prisma, { location });
   } catch (error) {
-    if (!(error instanceof ImpactDoesNotReconcileError)) throw error;
+    if (!(error instanceof ImpactDoesNotReconcileError || error instanceof CsrDoesNotReconcileError)) throw error;
     console.error(`[impact] page refusing to render figures: ${error.message}`);
     return (
       <article>

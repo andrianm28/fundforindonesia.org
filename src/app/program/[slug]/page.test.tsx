@@ -1,6 +1,6 @@
 import { render, screen, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { makeProgramDb, programRow, programCredit } from '../../../../tests/support/in-memory-program-db';
+import { makeProgramDb, programRow, programCredit, programUnexplainedEntry } from '../../../../tests/support/in-memory-program-db';
 
 /**
  * The public Program detail page, /program/[slug] (ticket csr-04; PRD
@@ -215,5 +215,49 @@ describe('/program/[slug] surfaces nothing a Program cannot be', () => {
     await renderPage();
 
     expect(screen.getByTestId('program-money-off-books').textContent).toMatch(/belum ada/i);
+  });
+
+  describe('when the Program does not reconcile (same rule as /impact)', () => {
+    it('hides the CSR block and says why, but still renders the page', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      holder.db = makeProgramDb({
+        programs: [programRow({ id: 'program-1', slug: 'klinik-keliling', reportedAmount: 50_000_000 })],
+        ledgerEntries: programUnexplainedEntry('program-1', 500),
+      });
+
+      await renderPage();
+
+      expect(screen.queryByTestId('program-money-in-books')).toBeNull();
+      expect(screen.queryByTestId('program-money-off-books')).toBeNull();
+      expect(screen.getByTestId('program-money-unavailable').textContent).toMatch(/tidak dapat ditampilkan/i);
+      expect(valueFor('problem')).toContain('Akses layanan kesehatan dasar');
+    });
+
+    it('hides it for a negative balance even when contributions explain it', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      holder.db = makeProgramDb({
+        programs: [programRow({ id: 'program-1', slug: 'klinik-keliling' })],
+        ledgerEntries: [
+          ...programCredit('program-1', 100),
+          { account: 'PROGRAM_BALANCE', direction: 'DEBIT', amount: 300, programId: 'program-1', manualContributionId: 'manual-contribution-2' },
+        ],
+      });
+
+      await renderPage();
+
+      expect(screen.queryByTestId('program-money-in-books')).toBeNull();
+      expect(screen.getByTestId('program-money-unavailable')).toBeTruthy();
+    });
+
+    it('does not hide this Program\'s block because of a broken book elsewhere', async () => {
+      holder.db = makeProgramDb({
+        programs: [programRow({ id: 'program-1', slug: 'klinik-keliling' })],
+        ledgerEntries: programUnexplainedEntry('program-2', 500),
+      });
+
+      await renderPage();
+
+      expect(screen.getByTestId('program-money-in-books').textContent).toContain('Rp0');
+    });
   });
 });

@@ -112,11 +112,22 @@ export type ProgramLedgerRow = {
   direction: 'DEBIT' | 'CREDIT';
   amount: number;
   programId: string | null;
+  /** The Manual Contribution that put the entry there; null is money nothing explains. */
+  manualContributionId?: string | null;
 };
 
 /** One PROGRAM_BALANCE credit, the shape a Manual Contribution to a Program leaves. */
 export function programCredit(programId: string, amount: number): ProgramLedgerRow[] {
-  return [{ account: 'PROGRAM_BALANCE', direction: 'CREDIT', amount, programId }];
+  return [{ account: 'PROGRAM_BALANCE', direction: 'CREDIT', amount, programId, manualContributionId: 'manual-contribution-1' }];
+}
+
+/** A PROGRAM_BALANCE movement no Manual Contribution accounts for: a broken book. */
+export function programUnexplainedEntry(
+  programId: string,
+  amount: number,
+  direction: 'DEBIT' | 'CREDIT' = 'CREDIT',
+): ProgramLedgerRow[] {
+  return [{ account: 'PROGRAM_BALANCE', direction, amount, programId, manualContributionId: null }];
 }
 
 export function makeProgramDb(seed: { programs?: ProgramRow[]; ledgerEntries?: ProgramLedgerRow[] } = {}) {
@@ -124,7 +135,19 @@ export function makeProgramDb(seed: { programs?: ProgramRow[]; ledgerEntries?: P
   const rows = (seed.programs ?? []).map((p) => ({ ...p, kpis: [...p.kpis], documentation: [...p.documentation] }));
 
   const prisma = {
-    ledgerEntry: { groupBy: ledgerGroupBy(ledgerEntries) },
+    ledgerEntry: {
+      groupBy: ledgerGroupBy(ledgerEntries, {
+        // The page asks for `{ in: [...] }` (programId) and `{ not: null }` (manualContributionId).
+        matches: (row, where) =>
+          Object.entries(where).every(([key, value]) => {
+            if (value !== null && typeof value === 'object') {
+              if ('in' in value) return (value as { in: unknown[] }).in.includes(row[key]);
+              if ('not' in value) return row[key] !== (value as { not: unknown }).not;
+            }
+            return row[key] === value;
+          }),
+      }),
+    },
     program: {
       findMany: async ({
         where = {},

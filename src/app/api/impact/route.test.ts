@@ -1029,6 +1029,32 @@ describe('GET /api/impact -- the CSR line (csr-08)', () => {
     expect(await response.json()).toEqual({ error: 'impact-tidak-rekonsiliasi' });
   });
 
+  it('fails loudly when PROGRAM_BALANCE is negative, even if Manual Contributions explain it', async () => {
+    const ledger = ledgerFixture();
+    ledger.programContribution({ manualContributionId: 'mc-1', programId: 'program-1', amount: 100 });
+    ledger.programContributionReversal({ manualContributionId: 'mc-1', programId: 'program-1', amount: 300 });
+    holder.db = makeImpactDb({ programs: [PROGRAM], ledgerEntries: ledger.rows });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'impact-tidak-rekonsiliasi' });
+    // The log names the two figures of the CSR check, not the six-lines ones.
+    expect(String(logged.mock.calls[0]?.[0])).toContain('booked -200, explained -200');
+  });
+
+  it('logs booked and explained when PROGRAM_BALANCE holds unexplained money', async () => {
+    const ledger = ledgerFixture();
+    ledger.raw(manualContributionReceivedLegs({ subject: { type: 'program', programId: 'program-1' }, amount: 500 }));
+    holder.db = makeImpactDb({ programs: [PROGRAM], ledgerEntries: ledger.rows });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await GET(request());
+
+    expect(String(logged.mock.calls[0]?.[0])).toContain('booked 500, explained 0');
+  });
+
   it('never carries the free-text note or any per-Program figure', async () => {
     holder.db = makeImpactDb({ programs: [{ ...PROGRAM, reportedAmount: 5 }] });
 
