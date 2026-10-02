@@ -7,7 +7,7 @@ placeholder even though the image is on the row.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in-review (PR #166)
+**Status:** ready-for-agent
 
 - [ ] A user with a stored `avatar` has a picture in the session, so the
       picture renders wherever the session is the source

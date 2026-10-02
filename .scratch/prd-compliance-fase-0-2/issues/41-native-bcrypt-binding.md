@@ -4,8 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in-review
-branch claude/prd-41-native-bcrypt (8755d75), PR #167 closed accidentally; waiting for re-PR
+**Status:** ready-for-agent
 
 - [ ] Password hashing and verification no longer occupy the main thread
 - [ ] Existing stored hashes keep working with no password reset and no migration, because the hash format is unchanged
