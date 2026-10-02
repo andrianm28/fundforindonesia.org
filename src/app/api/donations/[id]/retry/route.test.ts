@@ -15,6 +15,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     donation: { findUnique: vi.fn() },
     payment: { updateMany: vi.fn(), create: vi.fn() },
+    chargeWriteFailure: { create: vi.fn() },
     platformFeeRule: { findFirst: vi.fn().mockResolvedValue(null) },
     platformFeeThreshold: { findFirst: vi.fn().mockResolvedValue(null) },
   },
@@ -35,6 +36,7 @@ import { getPaymentProvider } from '@/lib/payments';
 const mockDonationFindUnique = prisma.donation.findUnique as unknown as Mock;
 const mockPaymentUpdateMany = prisma.payment.updateMany as unknown as Mock;
 const mockPaymentCreate = prisma.payment.create as unknown as Mock;
+const mockChargeWriteFailureCreate = prisma.chargeWriteFailure.create as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 
@@ -76,6 +78,7 @@ beforeEach(() => {
   mockGetServerSession.mockResolvedValue(null);
   mockDonationFindUnique.mockResolvedValue(makeDonation());
   mockPaymentUpdateMany.mockResolvedValue({ count: 1 });
+  mockChargeWriteFailureCreate.mockResolvedValue({});
   mockPaymentCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: 'payment-2',
     ...data,
@@ -115,6 +118,29 @@ describe('POST /api/donations/[id]/retry', () => {
         amount: 50_000,
       }),
     });
+  });
+
+  it('records a ChargeWriteFailure and answers 503 when the retry charge succeeded but the Payment write failed (ticket 52)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockPaymentCreate.mockRejectedValue(new Error('connection reset by donor@example.com'));
+
+      const response = await POST(retryRequest(), routeContext());
+
+      expect(response.status).toBe(503);
+      expect(mockChargeWriteFailureCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          provider: 'sumopod',
+          providerRef: expect.stringMatching(/^donation-1-r[0-9a-f]{8}$/),
+          subjectType: 'donation',
+          subjectId: 'donation-1',
+          amount: 50_000,
+        }),
+      });
+      expect(JSON.stringify(mockChargeWriteFailureCreate.mock.calls)).not.toContain('donor@example.com');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('retries after EXPIRED the same way', async () => {

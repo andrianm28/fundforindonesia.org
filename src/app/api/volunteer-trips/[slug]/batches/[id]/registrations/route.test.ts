@@ -5,6 +5,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     volunteerTrip: { findUnique: vi.fn() },
     payment: { create: vi.fn() },
+    chargeWriteFailure: { create: vi.fn() },
   },
 }));
 
@@ -46,6 +47,7 @@ import { POST } from './route';
 
 const mockTripFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
 const mockPaymentCreate = prisma.payment.create as unknown as Mock;
+const mockChargeWriteFailureCreate = prisma.chargeWriteFailure.create as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 const mockHoldRegistration = holdRegistration as unknown as Mock;
@@ -315,5 +317,59 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     const response = await POST(createRequest({ paymentMethod: 'cash' }), routeContext());
     expect(response.status).toBe(400);
     expect(mockHoldRegistration).not.toHaveBeenCalled();
+  });
+
+  // Ticket 52: the provider holds a live charge, this database holds no Payment
+  // for it. The failure must be recorded so the charge can be reconciled.
+  it('records a ChargeWriteFailure when the charge succeeded but the Payment write failed', async () => {
+    mockPaymentCreate.mockRejectedValue(new Error('connection reset'));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(mockChargeWriteFailureCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        provider: 'sumopod',
+        providerRef: 'registration-1',
+        subjectType: 'registration',
+        subjectId: 'registration-1',
+        amount: 1_500_000,
+        errorMessage: expect.stringContaining('connection reset'),
+      }),
+    });
+  });
+
+  it('never logs a raw Error or an email when the charge or the route fails', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockGetPaymentProvider.mockReturnValue({
+        name: 'sumopod',
+        method: 'qris_redirect',
+        createCharge: vi.fn().mockRejectedValue(new Error('rejected payer volunteer@example.com')),
+      });
+      const charged = await POST(createRequest(), routeContext());
+      expect(charged.status).toBe(503);
+
+      mockHoldRegistration.mockRejectedValue(new Error('db failure for volunteer@example.com'));
+      const failed = await POST(createRequest(), routeContext());
+      expect(failed.status).toBe(500);
+
+      expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const args = spy.mock.calls.flat();
+      expect(args.some((a) => a instanceof Error)).toBe(false);
+      expect(args.some((a) => typeof a === 'string' && a.includes('@'))).toBe(false);
+      expect(args.join(' ')).toContain('registration-1');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('still answers 503 when recording the ChargeWriteFailure fails too', async () => {
+    mockPaymentCreate.mockRejectedValue(new Error('db down'));
+    mockChargeWriteFailureCreate.mockRejectedValue(new Error('db still down'));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(503);
   });
 });

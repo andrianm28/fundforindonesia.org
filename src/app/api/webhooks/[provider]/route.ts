@@ -17,6 +17,7 @@ import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { escrowReleaseAt } from '@/lib/money/escrow';
 import { notifyDonationConfirmed, notifyRegistrationConfirmed } from '@/lib/notifications';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
+import { lateSettlementOutcome, sanitizeError, WEBHOOK_OUTCOME } from '@/lib/money/payment-reconciliation';
 import {
   confirmRegistration,
   expireRegistrationHold,
@@ -196,7 +197,11 @@ export async function POST(
       );
       await prisma.webhookEvent.update({
         where: { id: webhookEventId },
-        data: { processedAt: new Date() },
+        // A `paid` here is money with no Payment (see ChargeWriteFailure).
+        data: {
+          processedAt: new Date(),
+          outcome: event.status === 'paid' ? WEBHOOK_OUTCOME.UNKNOWN_PAYMENT : WEBHOOK_OUTCOME.IGNORED_TERMINAL,
+        },
       });
       return NextResponse.json({ received: true }, { status: 200 });
     }
@@ -223,7 +228,12 @@ export async function POST(
       return NextResponse.json({ received: true }, { status: 200 });
     }
 
-    if (payment.status !== PaymentStatus.PENDING) {
+    // Ticket 52: a `paid` for a Payment already EXPIRED/FAILED is real money at
+    // the provider, so it settles below instead of exiting here. After the
+    // provider-match check above, so a mismatched event never settles late.
+    const lateOutcome = event.status === 'paid' ? lateSettlementOutcome(payment.status) : null;
+
+    if (payment.status !== PaymentStatus.PENDING && !lateOutcome) {
       // Already settled/failed/expired by an earlier delivery. Distinct from
       // the WebhookEvent unique constraint above: that one catches the exact
       // same event replayed, this one catches a different event (e.g. a
@@ -237,7 +247,7 @@ export async function POST(
       );
       await prisma.webhookEvent.update({
         where: { id: webhookEventId },
-        data: { processedAt: new Date() },
+        data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.IGNORED_TERMINAL },
       });
       return NextResponse.json({ received: true }, { status: 200 });
     }
@@ -277,7 +287,7 @@ export async function POST(
         );
         await prisma.webhookEvent.update({
           where: { id: webhookEventId },
-          data: { processedAt: new Date() },
+          data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.AMOUNT_MISMATCH },
         });
         return NextResponse.json({ received: true }, { status: 200 });
       }
@@ -329,7 +339,7 @@ export async function POST(
         let updated: { count: number };
         try {
           updated = await tx.payment.updateMany({
-            where: { id: payment.id, status: PaymentStatus.PENDING },
+            where: { id: payment.id, status: payment.status },
             data: {
               status: PaymentStatus.PAID,
               providerFee,
@@ -357,7 +367,7 @@ export async function POST(
           // so it still gets marked processed.
           await tx.webhookEvent.update({
             where: { id: webhookEventId },
-            data: { processedAt: new Date() },
+            data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.LOST_RACE },
           });
           return { settled: false as const };
         }
@@ -516,7 +526,7 @@ export async function POST(
         // resumes the settlement instead of being told it already happened.
         await tx.webhookEvent.update({
           where: { id: webhookEventId },
-          data: { processedAt: new Date() },
+          data: { processedAt: new Date(), outcome: lateOutcome ?? WEBHOOK_OUTCOME.SETTLED },
         });
 
         return { settled: true as const, registrationOutcome, receiptToken, akadWakafToken };
@@ -534,7 +544,7 @@ export async function POST(
           );
           await prisma.webhookEvent.update({
             where: { id: webhookEventId },
-            data: { processedAt: new Date() },
+            data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.SIBLING_ALREADY_PAID },
           });
           return NextResponse.json({ received: true }, { status: 200 });
         }
@@ -571,9 +581,21 @@ export async function POST(
               await refundLateSettlement(prisma, { registrationId: registration!.id });
             } catch (err) {
               console.error(
-                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${payment.id} for ${settled.registrationOutcome} registration ${registration!.id}`,
-                err,
+                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${payment.id} for ${settled.registrationOutcome} registration ${registration!.id}: ${sanitizeError(err)}`,
               );
+              // Leave a mark an Admin can search: the money is booked and owed
+              // back. The stuck-refund sweep also picks this Payment up. Still
+              // 200 -- the provider has nothing to retry.
+              try {
+                await prisma.webhookEvent.update({
+                  where: { id: webhookEventId },
+                  data: { outcome: WEBHOOK_OUTCOME.LATE_SETTLEMENT_REFUND_FAILED },
+                });
+              } catch (markErr) {
+                console.error(
+                  `[webhooks/${providerParam}] event ${event.providerEventId}: could not mark the failed auto-refund: ${sanitizeError(markErr)}`,
+                );
+              }
             }
           }
         } else {
@@ -666,7 +688,7 @@ export async function POST(
         if (updated.count === 0) {
           await tx.webhookEvent.update({
             where: { id: webhookEventId },
-            data: { processedAt: new Date() },
+            data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.LOST_RACE },
           });
           return;
         }
@@ -689,7 +711,7 @@ export async function POST(
 
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (error) {
-    console.error('Error processing payment webhook:', error);
+    console.error(`Error processing payment webhook: ${sanitizeError(error)}`);
     return NextResponse.json({ error: 'Gagal memproses webhook' }, { status: 500 });
   }
 }
