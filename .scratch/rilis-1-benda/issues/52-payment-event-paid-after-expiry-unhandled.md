@@ -66,8 +66,11 @@ Keputusan yang diambil builder (owner dapat membalik):
 - **`WebhookEvent.outcome`** (kolom baru) menamai tiap keputusan; nilainya di
   `WEBHOOK_OUTCOME` (`src/lib/money/payment-reconciliation.ts`): `SETTLED`,
   `PAID_AFTER_EXPIRED`, `PAID_AFTER_FAILED`, `LOST_RACE`, `IGNORED_TERMINAL`,
-  dan tiga yang berarti uang mungkin menggantung dan butuh Admin:
-  `AMOUNT_MISMATCH`, `SIBLING_ALREADY_PAID`, `UNKNOWN_PAYMENT`.
+  dan empat yang berarti uang mungkin menggantung dan butuh Admin:
+  `AMOUNT_MISMATCH`, `SIBLING_ALREADY_PAID`, `UNKNOWN_PAYMENT`, dan
+  `PAID_AFTER_EXPIRY_REFUND_FAILED` (Trip Fee sudah masuk ledger tetapi refund
+  otomatisnya gagal; webhook tetap 200). Kolom `outcome` bertipe `String`,
+  bukan enum Postgres, jadi nilai baru ini tidak memerlukan migrasi.
 - **`ChargeWriteFailure`** (tabel baru): bila `createCharge` sukses tetapi
   `payment.create` gagal (registrations dan `chargeDonation`), baris dicatat
   dengan provider, ref, subjek, nominal, galat. Interface `PaymentProvider`
@@ -77,12 +80,17 @@ Keputusan yang diambil builder (owner dapat membalik):
 ### Rekonsiliasi manual dana yang menggantung di provider
 
 1. Daftar kerja Admin (SQL, belum ada UI):
-   `SELECT * FROM "WebhookEvent" WHERE outcome IN ('AMOUNT_MISMATCH','SIBLING_ALREADY_PAID','UNKNOWN_PAYMENT') ORDER BY "receivedAt";`
+   `SELECT * FROM "WebhookEvent" WHERE outcome IN ('AMOUNT_MISMATCH','SIBLING_ALREADY_PAID','UNKNOWN_PAYMENT','PAID_AFTER_EXPIRY_REFUND_FAILED') ORDER BY "receivedAt";`
    dan `SELECT * FROM "ChargeWriteFailure" WHERE "resolvedAt" IS NULL;`
 2. `UNKNOWN_PAYMENT` yang `providerRef`-nya cocok dengan `ChargeWriteFailure`
    berarti charge yatim itu sudah dibayar: refund penuh di dashboard provider.
 3. `ChargeWriteFailure` tanpa event `paid`: batalkan charge di provider.
-4. Setelah selesai, isi `resolvedAt` dan `resolutionNote` pada barisnya.
+4. `PAID_AFTER_EXPIRY_REFUND_FAILED`: sweep refund yang sudah ada
+   (`sweepStuckLateSettlementRefunds`, tiket 43) memilih Payment PAID tanpa
+   Refund pada Registration EXPIRED/CANCELLED, jadi kasus ini diulang otomatis
+   (teruji di integrasi). Bila baris event masih ada setelah satu putaran sweep,
+   buat Refund penuh manual (`createRefund`) dan catat di dashboard provider.
+5. Setelah selesai, isi `resolvedAt` dan `resolutionNote` pada barisnya.
 
 Tes: `src/__tests__/integration/webhook-paid-after-expiry-real-db.test.ts`
 (Postgres sungguhan: race, idempotensi, refund Trip Fee, mismatch, unknown),

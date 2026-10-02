@@ -17,7 +17,7 @@ import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { escrowReleaseAt } from '@/lib/money/escrow';
 import { notifyDonationConfirmed, notifyRegistrationConfirmed } from '@/lib/notifications';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
-import { lateSettlementOutcome, WEBHOOK_OUTCOME } from '@/lib/money/payment-reconciliation';
+import { lateSettlementOutcome, sanitizeError, WEBHOOK_OUTCOME } from '@/lib/money/payment-reconciliation';
 import {
   confirmRegistration,
   expireRegistrationHold,
@@ -558,9 +558,21 @@ export async function POST(
               await refundLateSettlement(prisma, { registrationId: registration!.id });
             } catch (err) {
               console.error(
-                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${payment.id} for ${settled.registrationOutcome} registration ${registration!.id}`,
-                err,
+                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${payment.id} for ${settled.registrationOutcome} registration ${registration!.id}: ${sanitizeError(err)}`,
               );
+              // Leave a mark an Admin can search: the money is booked and owed
+              // back. The stuck-refund sweep also picks this Payment up. Still
+              // 200 -- the provider has nothing to retry.
+              try {
+                await prisma.webhookEvent.update({
+                  where: { id: webhookEventId },
+                  data: { outcome: WEBHOOK_OUTCOME.PAID_AFTER_EXPIRY_REFUND_FAILED },
+                });
+              } catch (markErr) {
+                console.error(
+                  `[webhooks/${providerParam}] event ${event.providerEventId}: could not mark the failed auto-refund: ${sanitizeError(markErr)}`,
+                );
+              }
             }
           }
         } else {

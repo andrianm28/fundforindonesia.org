@@ -176,7 +176,7 @@ describe.skipIf(!DATABASE_URL)('payment event paid after expiry -- against real 
     return { donation, payment, expectedEmail: email };
   }
 
-  async function pendingTripFeePayment() {
+  async function pendingTripFeePayment(registrationStatus: 'HOLD' | 'CANCELLED' = 'HOLD') {
     const fundraiserId = await makeUser();
     const volunteerId = await makeUser();
     const trip = await prisma.volunteerTrip.create({
@@ -204,7 +204,7 @@ describe.skipIf(!DATABASE_URL)('payment event paid after expiry -- against real 
       },
     });
     const registration = await prisma.registration.create({
-      data: { volunteerId, batchId: batch.id, status: 'HOLD', holdExpiresAt: new Date(Date.now() + 30 * 60 * 1000) },
+      data: { volunteerId, batchId: batch.id, status: registrationStatus, holdExpiresAt: new Date(Date.now() + 30 * 60 * 1000) },
     });
     const payment = await prisma.payment.create({
       data: {
@@ -271,6 +271,75 @@ describe.skipIf(!DATABASE_URL)('payment event paid after expiry -- against real 
     expect(refunds).toHaveLength(1);
     expect(refunds[0].amount).toBe(500_000);
     expect((await eventOf(`evt-${payment.providerRef}`)).outcome).toBe('PAID_AFTER_EXPIRED');
+  });
+
+  it('a Trip Fee paid after its Payment EXPIRED but with the Registration still on HOLD takes the seat: confirmed, ledgered, not refunded', async () => {
+    const { registration, payment } = await pendingTripFeePayment('HOLD');
+    await prisma.payment.update({ where: { id: payment.id }, data: { status: 'EXPIRED' } });
+
+    const res = await sendPaid(payment.providerRef, 500_000);
+
+    expect(res.status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
+    expect((await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).status).toBe('CONFIRMED');
+    expect(await prisma.ledgerEntry.count({ where: { paymentId: payment.id } })).toBeGreaterThan(0);
+    expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(0);
+    expect((await eventOf(`evt-${payment.providerRef}`)).outcome).toBe('PAID_AFTER_EXPIRED');
+  });
+
+  it('a Trip Fee paid after its Payment EXPIRED and the Registration was CANCELLED is ledgered and refunded in full', async () => {
+    const { registration, payment } = await pendingTripFeePayment('CANCELLED');
+    await prisma.payment.update({ where: { id: payment.id }, data: { status: 'EXPIRED' } });
+
+    const res = await sendPaid(payment.providerRef, 500_000);
+
+    expect(res.status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
+    expect((await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).status).toBe('CANCELLED');
+    expect(await prisma.ledgerEntry.count({ where: { paymentId: payment.id } })).toBeGreaterThan(0);
+    const refunds = await prisma.refund.findMany({ where: { paymentId: payment.id } });
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0].amount).toBe(500_000);
+    expect((await eventOf(`evt-${payment.providerRef}`)).outcome).toBe('PAID_AFTER_EXPIRED');
+  });
+
+  it('a failed automatic refund still answers 200, keeps the money booked, and marks the event for an Admin; the sweep then refunds it', async () => {
+    const { payment } = await pendingTripFeePayment('CANCELLED');
+    await prisma.payment.update({ where: { id: payment.id }, data: { status: 'EXPIRED' } });
+    // A real failure at the real write: Postgres refuses every Refund insert.
+    await prisma.$executeRawUnsafe(
+      `CREATE OR REPLACE FUNCTION test_refuse_refund() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'refund refused for test'; END $$ LANGUAGE plpgsql`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER test_refuse_refund BEFORE INSERT ON "Refund" FOR EACH ROW EXECUTE FUNCTION test_refuse_refund()`,
+    );
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let res: Response;
+    try {
+      res = await sendPaid(payment.providerRef, 500_000);
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER test_refuse_refund ON "Refund"`);
+      consoleErrorSpy.mockRestore();
+    }
+
+    expect(res.status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
+    expect(await prisma.ledgerEntry.count({ where: { paymentId: payment.id } })).toBeGreaterThan(0);
+    expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(0);
+    const event = await eventOf(`evt-${payment.providerRef}`);
+    expect(event.processedAt).not.toBeNull();
+    expect(event.outcome).toBe('PAID_AFTER_EXPIRY_REFUND_FAILED');
+    // The Admin's search: this outcome, and nothing else needs a code change.
+    expect(
+      await prisma.webhookEvent.count({ where: { outcome: 'PAID_AFTER_EXPIRY_REFUND_FAILED', providerEventId: event.providerEventId } }),
+    ).toBe(1);
+
+    // The existing stuck-refund sweep sees the same Registration and refunds it.
+    const { sweepStuckLateSettlementRefunds } = await import('@/lib/volunteer/refund-sweep');
+    await sweepStuckLateSettlementRefunds();
+    const refunds = await prisma.refund.findMany({ where: { paymentId: payment.id } });
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0].amount).toBe(500_000);
   });
 
   it('delivering the same late paid event twice books it once', async () => {

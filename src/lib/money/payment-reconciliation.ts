@@ -29,6 +29,14 @@ export const WEBHOOK_OUTCOME = {
   SIBLING_ALREADY_PAID: 'SIBLING_ALREADY_PAID',
   /** `paid` naming no Payment here (e.g. a ChargeWriteFailure): an Admin looks. */
   UNKNOWN_PAYMENT: 'UNKNOWN_PAYMENT',
+  /**
+   * A Trip Fee settled but its seat was gone and the automatic full refund
+   * (`refundLateSettlement`) threw. The money is booked in the ledger and the
+   * Volunteer is owed it back: an Admin searches this outcome. The stuck-refund
+   * sweep (src/lib/volunteer/refund-sweep.ts) retries the same Payment on its
+   * own; a row that stays here after a sweep round needs a manual Refund.
+   */
+  PAID_AFTER_EXPIRY_REFUND_FAILED: 'PAID_AFTER_EXPIRY_REFUND_FAILED',
   /** Anything else landing on a Payment that had already left PENDING; no money moved. */
   IGNORED_TERMINAL: 'IGNORED_TERMINAL',
 } as const;
@@ -40,7 +48,31 @@ export const WEBHOOK_OUTCOMES_NEEDING_REVIEW: readonly WebhookOutcome[] = [
   WEBHOOK_OUTCOME.AMOUNT_MISMATCH,
   WEBHOOK_OUTCOME.SIBLING_ALREADY_PAID,
   WEBHOOK_OUTCOME.UNKNOWN_PAYMENT,
+  WEBHOOK_OUTCOME.PAID_AFTER_EXPIRY_REFUND_FAILED,
 ];
+
+const MAX_SANITIZED_ERROR_LENGTH = 200;
+
+/**
+ * An error reduced to what is safe to log or store: its name, an optional code,
+ * and a message with emails, bearer tokens, `key=value` secrets, URL query
+ * strings and long opaque strings masked. Provider and database errors can echo
+ * request bodies, so the raw object or message must never be logged or stored.
+ */
+export function sanitizeError(error: unknown): string {
+  const name = error instanceof Error ? error.name : typeof error;
+  const rawCode = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
+  const code = typeof rawCode === 'string' || typeof rawCode === 'number' ? ` [${String(rawCode).slice(0, 40)}]` : '';
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  const message = raw
+    .replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '[email]')
+    .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/\b(token|secret|key|password|authorization|signature)(["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1$2[redacted]')
+    .replace(/(https?:\/\/[^\s?]+)\?\S*/gi, '$1?[redacted]')
+    .replace(/\b[A-Za-z0-9_\-+/=]{24,}\b/g, '[redacted]')
+    .slice(0, MAX_SANITIZED_ERROR_LENGTH);
+  return message ? `${name}${code}: ${message}` : `${name}${code}`;
+}
 
 /**
  * The outcome label for a `paid` event landing on a Payment in `status`, or
@@ -72,7 +104,7 @@ export async function recordChargeWriteFailure(
   db: Pick<PrismaClient, 'chargeWriteFailure'>,
   params: ChargeWriteFailureParams,
 ): Promise<void> {
-  const errorMessage = params.error instanceof Error ? params.error.message : String(params.error);
+  const errorMessage = sanitizeError(params.error);
   console.error(
     `[reconciliation] CHARGE WITHOUT PAYMENT: provider=${params.provider} ref=${params.providerRef} ${params.subjectType}=${params.subjectId} amount=${params.amount} -- cancel or refund at the provider: ${errorMessage}`,
   );
@@ -84,13 +116,12 @@ export async function recordChargeWriteFailure(
         subjectType: params.subjectType,
         subjectId: params.subjectId,
         amount: params.amount,
-        errorMessage: errorMessage.slice(0, 1000),
+        errorMessage,
       },
     });
   } catch (err) {
     console.error(
-      `[reconciliation] could not record the charge without a Payment (ref=${params.providerRef}); the line above is the only record:`,
-      err,
+      `[reconciliation] could not record the charge without a Payment (ref=${params.providerRef}); the line above is the only record: ${sanitizeError(err)}`,
     );
   }
 }
