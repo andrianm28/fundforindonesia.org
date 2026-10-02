@@ -1067,6 +1067,21 @@ describe('GET /api/impact -- the CSR line (csr-08)', () => {
     expect(String(logged.mock.calls[0]?.[0])).toContain('booked 500, explained 0');
   });
 
+  it('is cacheable when CSR is shown, and no-store when the CSR block is withheld', async () => {
+    holder.db = makeImpactDb({ programs: [PROGRAM] });
+    const healthy = await GET(request());
+    expect(healthy.headers.get('Cache-Control')).toContain('s-maxage=300');
+
+    const ledger = ledgerFixture();
+    ledger.raw(manualContributionReceivedLegs({ subject: { type: 'program', programId: 'program-1' }, amount: 500 }));
+    holder.db = makeImpactDb({ programs: [PROGRAM], ledgerEntries: ledger.rows });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const degraded = await GET(request());
+
+    expect(degraded.status).toBe(200);
+    expect(degraded.headers.get('Cache-Control')).toBe('no-store');
+  });
+
   it('still refuses with 500 when the six lines do not reconcile, CSR healthy or not', async () => {
     const ledger = ledgerFixture();
     ledger.programContribution({ manualContributionId: 'mc-1', programId: 'program-1', amount: 100 });

@@ -48,3 +48,4 @@
   so none was added; what was missing was Program-specific tests, which this
   ticket adds (equal balance, over-balance, lock, lost claim). There is no
   integration-test infrastructure, so the race is covered at the unit level.
+- 2026-10-02: awaiting-merge. PR #188.

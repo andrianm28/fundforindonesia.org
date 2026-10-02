@@ -156,11 +156,12 @@ export default async function ImpactPage({ searchParams }: ImpactPageProps) {
         <h2 id="csr-heading" className="text-lg font-semibold text-text mb-2">
           Dana CSR
         </h2>
-        <p className="text-sm text-text-secondary mb-3">
-          Dana CSR dipisah dari dana terkumpul di atas dan tidak termasuk di dalam enam baris itu. Dua angka di bawah
-          sengaja tidak dijumlahkan: yang pertama dapat dipertanggungjawabkan buku besar, yang kedua hanya dilaporkan.
-        </p>
         {breakdown.csr ? (
+          <>
+          <p className="text-sm text-text-secondary mb-3">
+            Dana CSR dipisah dari dana terkumpul di atas dan tidak termasuk di dalam enam baris itu. Dua angka di bawah
+            sengaja tidak dijumlahkan: yang pertama dapat dipertanggungjawabkan buku besar, yang kedua hanya dilaporkan.
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <div data-csr-line className="rounded-lg border border-border p-4">
               <p data-csr-label className="text-sm font-medium text-text">Di dalam pembukuan platform</p>
@@ -184,6 +185,7 @@ export default async function ImpactPage({ searchParams }: ImpactPageProps) {
               </p>
             </div>
           </div>
+          </>
         ) : (
           <p data-testid="impact-csr-unavailable" className="text-sm text-text-secondary">
             Dana CSR sedang tidak dapat ditampilkan karena pembukuannya sedang kami periksa. Enam baris di atas

@@ -240,6 +240,30 @@ export function assertCsrReconciles(booked: number, explained: number): void {
 }
 
 /**
+ * The CSR block, or `null` when the Program books do not reconcile (the delta
+ * goes to the log, never to the response).
+ */
+function csrBlockOrNull(
+  { booked, explained }: { booked: number; explained: number },
+  programs: { reportedAmount: number }[],
+): ImpactBreakdown['csr'] {
+  try {
+    assertCsrReconciles(booked, explained);
+  } catch (error) {
+    if (!(error instanceof CsrDoesNotReconcileError)) throw error;
+    console.error(
+      `[impact] hiding the CSR block: ${error.message} (booked ${error.booked}, explained ${error.explained})`,
+    );
+    return null;
+  }
+  return {
+    inTheBooks: booked,
+    outsideTheBooks: programs.reduce((total, p) => total + p.reportedAmount, 0),
+    programCount: programs.length,
+  };
+}
+
+/**
  * A Payout that has been instructed out of the Campaign Balance
  * (payoutInstructedLegs, ./ledger.ts) but not yet marked COMPLETED with proof
  * of transfer (completePayout, ./payouts.ts; ticket 27). Its money has already
@@ -417,21 +441,7 @@ export async function impactBreakdown(
     // of books, and their own failure (ImpactDoesNotReconcileError below)
     // still refuses the whole breakdown. The delta goes to the log, never to
     // the response.
-    let csr: ImpactBreakdown['csr'] = null;
-    const { booked: programBooked, explained: programExplained } = await programBooks(tx, programIds);
-    try {
-      assertCsrReconciles(programBooked, programExplained);
-      csr = {
-        inTheBooks: programBooked,
-        outsideTheBooks: programs.reduce((total, p) => total + p.reportedAmount, 0),
-        programCount: programs.length,
-      };
-    } catch (error) {
-      if (!(error instanceof CsrDoesNotReconcileError)) throw error;
-      console.error(
-        `[impact] hiding the CSR block: ${error.message} (booked ${error.booked}, explained ${error.explained})`,
-      );
-    }
+    const csr = csrBlockOrNull(await programBooks(tx, programIds), programs);
 
     const netSettled = sum(byPayment, 'ESCROW_HOLD:CREDIT');
     const providerFeeCharged = sum(byPayment, 'PROVIDER_FEE:CREDIT');

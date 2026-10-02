@@ -25,7 +25,12 @@ export async function GET(req: NextRequest) {
     const breakdown = await impactBreakdown(prisma, { location });
 
     const response = NextResponse.json(breakdown);
-    response.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    // A withheld CSR block is a fault being looked at: do not let a CDN keep
+    // serving the degraded answer for minutes after it is fixed.
+    response.headers.set(
+      'Cache-Control',
+      breakdown.csr ? 'public, s-maxage=300, stale-while-revalidate=600' : 'no-store',
+    );
     return response;
   } catch (error) {
     if (error instanceof ImpactDoesNotReconcileError) {

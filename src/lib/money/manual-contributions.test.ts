@@ -801,12 +801,21 @@ describe('reverseManualContribution', () => {
       expect(state?.status).toBe('APPROVED');
     });
 
-    it('reads the balance under the Program row lock, so two reversals cannot both pass', async () => {
-      const { tx, queryRawCalls } = programApproved([credit(250_000)]);
+    it('takes the Program row lock before it reads the balance', async () => {
+      // The lock is what serialises two reversals of one Program; it only does
+      // so if the balance is read after it is held, never before.
+      const { tx } = programApproved([credit(250_000)]);
 
       await reverse(tx);
 
-      expect(queryRawCalls.some((sql) => sql.includes('"Program"') && sql.includes('FOR UPDATE'))).toBe(true);
+      const lockCall = tx.$queryRaw.mock.calls.findIndex(([strings]) => {
+        const sql = (strings as TemplateStringsArray).join('');
+        return sql.includes('"Program"') && sql.includes('FOR UPDATE');
+      });
+      expect(lockCall).toBeGreaterThanOrEqual(0);
+      const lockOrder = tx.$queryRaw.mock.invocationCallOrder[lockCall];
+      const firstBalanceRead = Math.min(...tx.ledgerEntry.groupBy.mock.invocationCallOrder);
+      expect(lockOrder).toBeLessThan(firstBalanceRead);
     });
 
     it('loses the race to a concurrent reversal without posting a second journal', async () => {
