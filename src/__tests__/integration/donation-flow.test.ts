@@ -10,6 +10,9 @@ vi.mock('@/lib/prisma', () => ({
     },
     donation: {
       create: vi.fn(),
+      // The webhook re-reads anonymisedAt right before the Receipt email
+      // (ticket 36); an ordinary, non-anonymised Donation by default.
+      findUnique: vi.fn().mockResolvedValue({ anonymisedAt: null }),
     },
     prayer: {
       create: vi.fn(),
