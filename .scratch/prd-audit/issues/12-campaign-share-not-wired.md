@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** needs-triage
+**Status:** in-review
 
 **Blocked by:** —
 
@@ -26,3 +26,12 @@ yang tanpa X dan `?src=`), atau (2) owner memutuskan FFI-06 tidak masuk
 Rilis 1 dan PRD direvisi? Apa pun jawabannya, koreksi kalimat di
 `CONTEXT.md:83`. Periksa juga apakah gambar pratinjau (Open Graph dari
 sampul) ada di halaman Campaign.
+
+## Comments
+
+- 2026-10-02: option (1) done on `claude/prd-audit-12-campaign-share`.
+  - The "Bagikan" button in `CampaignDetailView` opens `ShareModal`.
+  - `ShareModal` builds URLs with `publicUrl()` (canonical domain, no longer `window.location.origin`), encodes the slug, and opens external targets with `noopener,noreferrer`.
+  - The `CONTEXT.md` Fundraiser line now cites FFI-06.
+  - Not done: the donate success screen (`donate/page.tsx`) still lacks X and `?src=`; orphaned `CampaignDetail` and `CampaignCTA` are kept.
+  - Open Graph from the cover already exists in `generateMetadata` (`src/app/campaign/[slug]/page.tsx`).
