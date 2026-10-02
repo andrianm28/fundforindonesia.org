@@ -4,6 +4,7 @@ import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 const MAX_PAGE = 10_000;
+const MAX_LIMIT = 50;
 
 const querySchema = z.object({
   page: z.preprocess(
@@ -12,7 +13,7 @@ const querySchema = z.object({
   ),
   limit: z.preprocess(
     (val) => (val === '' ? undefined : val),
-    z.coerce.number().int().min(1).transform((n) => Math.min(50, n)).default(10),
+    z.coerce.number().int().min(1).transform((n) => Math.min(MAX_LIMIT, n)).default(10),
   ),
 });
 

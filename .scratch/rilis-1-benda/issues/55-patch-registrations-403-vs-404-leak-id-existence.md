@@ -14,16 +14,8 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #175 untuk p
 
 ## Scope
 
-- **lockRegistration** di `src/lib/volunteer/trip.ts`:
-  - Update guard logic: jika Registration tidak ada OR tidak punya akses, throw
-    error yang di-handle sebagai 404 (bukan 403).
-  - Alternatif: tangkap exception dalam route dan convert semua auth/not-found error
-    ke 404 sebelum response.
-
-- **GET /api/registrations/mine** di `src/app/api/registrations/mine/route.ts`:
-  - Validasi `page` query parameter: gunakan `z.coerce.number().int().positive().default(1)`.
-  - Jika invalid, return 400 Bad Request dengan message deskriptif.
-  - Atau gunakan Zod schema untuk parse searchParams.
+- PATCH /api/registrations/[id] return 404 untuk semua kasus tak berizin atau tak ada (tidak membedakan kedua kasus)
+- GET /api/registrations/mine validasi query parameter dan return 400 untuk input tidak valid
 
 ## Acceptance
 

@@ -1,4 +1,4 @@
-# 49: Payout Trip Fee bisa ditarik sebelum Batch selesai atau jadwal keberangkatan lewat
+# 49: Payout Trip Fee ditarik sebelum Batch selesai atau keberangkatan tiba
 
 **Type:** implementation (keamanan, kode uang)
 
@@ -8,40 +8,17 @@
 
 ## Why
 
-Audit keamanan baca-saja alur Volunteer Trip (2026-10-02, `origin/main` 0f827b1)
-menemukan celah pada jalur uang Trip Fee dalam mekanisme payout. Payout Trip Fee
-hanya memeriksa apakah Batch/Trip bukan SUSPENDED (`src/lib/subject-guard.ts:257-258`,
-`requirePayoutAllowed`), tanpa memastikan Batch sudah COMPLETED atau tanggal 
-keberangkatan telah lewat.
+Audit keamanan menemukan celah pada payout Trip Fee: uang terkumpul bisa ditarik sebelum Batch selesai, sehingga Volunteer yang membatalkan kemudian dibayar refund dari pool platform bukan dari collected fees.
 
-Skenario masalah (Fundraiser nakal, Trip ACTIVE, Volunteer sudah bayar):
-
-1. Batch menerima Registration pembayaran Trip Fee.
-2. Setelah Escrow Hold 7 hari dari settlement, Fundraiser mengajukan Payout atas
-   `TRIP_BALANCE` (trip fee yang telah terkumpul).
-3. Payout berhasil karena hanya check `effectiveStatus !== SUSPENDED`.
-4. Volunteer yang membatalkan kemudian (dalam jendela refund) dibayar dari pool
-   yang sudah dikuras melalui `shortfall` (`src/lib/money/refunds.ts:approveRefund`),
-   yakni uang platform yang jadi pihak ketiga atas refund.
-
-Aliran dana menjadi: Volunteer bayar Trip Fee → Fundraiser payout seluruhnya →
-Volunteer cancel → Platform bayar refund dari shortfall (beban platform).
+Detail teknis disimpan owner di luar repo publik.
 
 ## Scope
 
-Putuskan dengan owner:
-- Apakah Payout Trip Fee harus menunggu Batch COMPLETED atau tanggal keberangkatan 
-  (`batch.startDate`) telah lewat sebelum diizinkan?
-- Apakah ada batasan lain, misal tidak boleh menguras pool selagi ada Registration 
-  CONFIRMED yang masih bisa di-refund?
-- Apakah diperlukan penanda (flag) pada Payment/Payout yang mencegah Payout sebelum 
-  kondisi terpenuhi?
-
-Jika ya, update `requirePayoutAllowed` (`src/lib/subject-guard.ts:257`) untuk 
-memeriksa state Batch tambahan.
+- Payout Trip Fee menunggu Batch COMPLETED atau keberangkatan telah lewat
+- Payout tidak menguras pool selagi ada registrasi aktif yang bisa direfund
 
 ## Acceptance
 
-- Owner memberikan keputusan tentang aturan kapan Payout Trip Fee boleh ditarik.
-- Jika ada aturan baru: tes payout menolak sebelum kondisi terpenuhi, lolos setelah.
-- Menyentuh kode uang di `src/lib/subject-guard.ts`: review independen `sonnet` wajib.
+- Tes: Payout menolak sebelum Batch selesai atau tanggal lewat
+- Tes: Payout berhasil setelah kondisi terpenuhi
+- Menyentuh kode uang: review independen `sonnet` wajib
