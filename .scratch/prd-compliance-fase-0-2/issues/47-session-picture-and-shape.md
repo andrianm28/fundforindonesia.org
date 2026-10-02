@@ -48,3 +48,21 @@ placeholder even though the image is on the row.
     `Unknown argument 'image'` if an Email credential provider were ever
     added. There is no EmailProvider today, so nothing reaches it. Worth
     closing before one is added, not after.
+
+- 2026-10-02 (follow-up to the two-axis code-review of PR #166):
+  - The mapping `avatar` <-> `image` now lives in the adapter only. The `jwt`
+    callback writes through `adapter.updateUser({ id, image })` rather than
+    `prisma.user.update`, and `isRemoteProviderPicture` / `providerPicture`
+    moved to `src/lib/provider-picture.ts` with their own tests.
+  - `updateUser` is closed by the `image` mapping (sibling finding above), and
+    `createUser` maps `image` to `avatar`, both tested. `session.user.image`
+    filling from `token.picture` is tested through next-auth's session route.
+  - **Awaiting owner confirmation**, two decisions beyond the spec:
+    1. The allowlist: a provider picture is accepted only as https on
+       `*.googleusercontent.com`.
+    2. A picture uploaded here (a local path) is not overwritten on re-login,
+       which differs from the literal spec text "signing in again with a
+       different picture updates the stored one". Only a missing or
+       provider-hosted stored picture is replaced.
+  - `getSessionAndUser` is still open (latent under the `jwt` strategy); the
+    unchecked box above stays unchecked.

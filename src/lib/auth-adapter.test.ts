@@ -360,3 +360,35 @@ describe('the picture on the user the adapter hands next-auth', () => {
     expect(updated.image).toBe('https://example.test/stored.png');
   });
 });
+
+describe('createUser through the adapter', () => {
+  it("maps NextAuth's `image` onto the row's `avatar`, and returns it as `image`", async () => {
+    const { client, users } = prismaDouble();
+
+    const created = await buildAuthAdapter(client).createUser!({
+      name: 'Andi',
+      email: 'andi@email.com',
+      emailVerified: null,
+      image: 'https://lh3.googleusercontent.com/a/new',
+    });
+
+    expect(users[0]!.avatar).toBe('https://lh3.googleusercontent.com/a/new');
+    expect('image' in users[0]!).toBe(false);
+    expect(created.image).toBe('https://lh3.googleusercontent.com/a/new');
+    expect('avatar' in created).toBe(false);
+  });
+
+  it('stores a null avatar when the sign-in carries no image', async () => {
+    const { client, users } = prismaDouble();
+
+    const created = await buildAuthAdapter(client).createUser!({
+      name: 'Andi',
+      email: 'andi@email.com',
+      emailVerified: null,
+      image: null,
+    });
+
+    expect(users[0]!.avatar).toBeNull();
+    expect(created.image).toBeNull();
+  });
+});

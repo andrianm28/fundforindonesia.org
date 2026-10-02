@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+import path from "node:path";
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
 vi.mock("@/lib/prisma", () => ({
@@ -298,6 +300,18 @@ describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFindUnique.mockResolvedValue({ assignments: [] });
+    // The write goes through the adapter, which hands the row back with its
+    // address decrypted, so the double returns a sealed row the way Prisma does.
+    mockUpdate.mockResolvedValue({ id: "user-1", name: "Andi", ...sealUserEmail("andi@email.com") });
+  });
+
+  it("writes the picture through the adapter's updateUser, not straight to the table", async () => {
+    const updateUser = vi.spyOn(authOptions.adapter!, "updateUser");
+
+    await signIn("https://lh3.googleusercontent.com/old.png", "https://lh3.googleusercontent.com/new.png");
+
+    expect(updateUser).toHaveBeenCalledWith({ id: "user-1", image: "https://lh3.googleusercontent.com/new.png" });
+    updateUser.mockRestore();
   });
 
   it("stores a different provider picture and puts it on the token", async () => {
@@ -402,5 +416,52 @@ describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
     expect(mockUpdate).not.toHaveBeenCalled();
     await signIn("https://lh3.googleusercontent.com/old", "https://lh3.googleusercontent.com/a");
     expect(mockUpdate).toHaveBeenCalledOnce();
+  });
+});
+
+// Ticket 47: the picture reaches `session.user.image`. next-auth's own session
+// route seeds `session.user.image` from `token.picture` and then hands the
+// session to our `session` callback, so the real route is driven here with the
+// real callbacks; the callback must not drop what the route put there.
+describe("session.user.image", () => {
+  // Not an exported entry point of next-auth, so it is loaded by path, the way
+  // src/lib/auth-adapter.test.ts loads the callback handler.
+  const nodeRequire = createRequire(import.meta.url);
+  const { default: sessionRoute } = nodeRequire(
+    path.join(path.dirname(nodeRequire.resolve("next-auth")), "core", "routes", "session.js"),
+  ) as { default: (params: Record<string, unknown>) => Promise<{ body: unknown }> };
+
+  async function sessionFor(token: Record<string, unknown>) {
+    const response = await sessionRoute({
+      options: {
+        adapter: undefined,
+        jwt: { decode: async () => token, encode: async () => "encoded" },
+        events: {},
+        callbacks: authOptions.callbacks,
+        logger: { error: () => {}, warn: () => {}, debug: () => {} },
+        session: { strategy: "jwt", maxAge: 60 },
+      },
+      sessionStore: { value: "cookie", chunk: () => [] },
+      isUpdate: false,
+    });
+    return response.body as { user?: { image?: string | null; id?: string } };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindUnique.mockResolvedValue({ assignments: [] });
+  });
+
+  it("is filled from the token's picture", async () => {
+    const body = await sessionFor({ id: "user-1", picture: "https://lh3.googleusercontent.com/a/new" });
+
+    expect(body.user?.image).toBe("https://lh3.googleusercontent.com/a/new");
+    expect(body.user?.id).toBe("user-1");
+  });
+
+  it("is empty, not a broken value, when the token has no picture", async () => {
+    const body = await sessionFor({ id: "user-1", picture: null });
+
+    expect(body.user?.image ?? null).toBeNull();
   });
 });

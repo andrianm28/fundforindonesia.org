@@ -6,40 +6,19 @@ import { prisma } from "@/lib/prisma";
 import { PASSWORD_HASH_COST, isHashAtCurrentCost } from "@/lib/password-hash-cost";
 import { Assignment } from "@/generated/prisma/client";
 import { buildAuthAdapter } from "@/lib/auth-adapter";
+import { isRemoteProviderPicture, providerPicture } from "@/lib/provider-picture";
 import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 
-/**
- * A picture URL that is the provider's to set: https, on Google's image host.
- * Anything else (http:, javascript:, data:, another host) is never stored or
- * rendered from a sign-in. Used both to accept an incoming picture and to
- * recognise a stored one as the provider's rather than uploaded here.
- */
-function isRemoteProviderPicture(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname.endsWith(".googleusercontent.com");
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The picture the identity provider reports on this sign-in, when it is one.
- * Google's raw profile calls it `picture`; next-auth's own type only knows
- * `image`, so the raw field is read as unknown and checked.
- */
-function providerPicture(profile: unknown): string | null {
-  if (typeof profile !== "object" || profile === null) return null;
-  const { picture } = profile as { picture?: unknown };
-  return typeof picture === "string" && isRemoteProviderPicture(picture) ? picture : null;
-}
+// Both halves of the adapter need the schema it cannot see: the write goes
+// through the hooked client, so an OAuth sign-in's address is sealed on the
+// way in, and the read is rewired onto the lookup HMAC, because the plaintext
+// column this one used to ask for is gone (ADR 0012, src/lib/auth-adapter.ts).
+// Held here as well as on `authOptions` because the `jwt` callback writes the
+// provider's picture through it, so `image` <-> `avatar` is mapped in one place.
+const adapter = buildAuthAdapter(prisma);
 
 export const authOptions: NextAuthOptions = {
-  // Both halves of the adapter need the schema it cannot see: the write goes
-  // through the hooked client, so an OAuth sign-in's address is sealed on the
-  // way in, and the read is rewired onto the lookup HMAC, because the plaintext
-  // column this one used to ask for is gone (ADR 0012, src/lib/auth-adapter.ts).
-  adapter: buildAuthAdapter(prisma) as NextAuthOptions["adapter"],
+  adapter: adapter as NextAuthOptions["adapter"],
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -131,7 +110,7 @@ export const authOptions: NextAuthOptions = {
         const stored = user.image ?? null;
         if (incoming && incoming !== stored && (!stored || isRemoteProviderPicture(stored))) {
           try {
-            await prisma.user.update({ where: { id: user.id }, data: { avatar: incoming } });
+            await adapter.updateUser!({ id: user.id, image: incoming });
             token.picture = incoming;
           } catch (error) {
             console.error(
