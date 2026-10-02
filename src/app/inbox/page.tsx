@@ -91,7 +91,7 @@ export default function InboxPage() {
   const hasUnread = notifications.some((n) => !n.isRead);
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       {/* Header */}
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <div className="flex items-center justify-between">
@@ -139,13 +139,13 @@ function NotificationCard({
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left rounded-xl shadow-sm p-4 transition-shadow hover:shadow-md ${
+      className={`w-full text-left rounded-xl shadow-xs p-4 transition-shadow hover:shadow-md ${
         notification.isRead ? 'bg-white' : 'bg-[#E3F2FD]'
       }`}
     >
       <div className="flex items-start gap-3">
         {/* Type icon */}
-        <div className="flex-shrink-0 mt-0.5">
+        <div className="shrink-0 mt-0.5">
           <NotificationIcon type={notification.type} />
         </div>
 
@@ -155,18 +155,18 @@ function NotificationCard({
             <p
               className={`text-sm line-clamp-1 ${
                 notification.isRead
-                  ? 'text-[#212121] font-medium'
-                  : 'text-[#212121] font-semibold'
+                  ? 'text-text font-medium'
+                  : 'text-text font-semibold'
               }`}
             >
               {notification.title}
             </p>
             {/* Unread indicator dot */}
             {!notification.isRead && (
-              <span className="flex-shrink-0 w-2 h-2 rounded-full bg-[#0073E6] mt-1.5" />
+              <span className="shrink-0 w-2 h-2 rounded-full bg-[#0073E6] mt-1.5" />
             )}
           </div>
-          <p className="text-[#757575] text-xs mt-1 line-clamp-2">
+          <p className="text-text-secondary text-xs mt-1 line-clamp-2">
             {notification.message}
           </p>
           <p className="text-[#9E9E9E] text-[10px] mt-1.5">
@@ -254,10 +254,10 @@ function EmptyState() {
           />
         </svg>
       </div>
-      <p className="text-[#212121] text-base font-semibold text-center">
+      <p className="text-text text-base font-semibold text-center">
         Tidak ada notifikasi baru
       </p>
-      <p className="text-[#757575] text-sm text-center mt-1">
+      <p className="text-text-secondary text-sm text-center mt-1">
         Notifikasi donasi dan update kampanye akan muncul di sini
       </p>
     </div>
@@ -266,7 +266,7 @@ function EmptyState() {
 
 function InboxSkeleton() {
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <div className="h-5 w-16 bg-white/20 rounded" />
       </div>
@@ -281,13 +281,13 @@ function NotificationListSkeleton() {
   return (
     <div className="space-y-2">
       {[...Array(5)].map((_, i) => (
-        <div key={i} className="bg-white rounded-xl shadow-sm p-4">
+        <div key={i} className="bg-white rounded-xl shadow-xs p-4">
           <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-full bg-[#E0E0E0] animate-pulse flex-shrink-0" />
+            <div className="w-9 h-9 rounded-full bg-border animate-pulse shrink-0" />
             <div className="flex-1 space-y-2">
-              <div className="h-4 w-3/4 bg-[#E0E0E0] rounded animate-pulse" />
-              <div className="h-3 w-full bg-[#E0E0E0] rounded animate-pulse" />
-              <div className="h-2.5 w-20 bg-[#E0E0E0] rounded animate-pulse" />
+              <div className="h-4 w-3/4 bg-border rounded animate-pulse" />
+              <div className="h-3 w-full bg-border rounded animate-pulse" />
+              <div className="h-2.5 w-20 bg-border rounded animate-pulse" />
             </div>
           </div>
         </div>

@@ -55,15 +55,15 @@ export default function AkunPage() {
   const user = session?.user;
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       {/* Header */}
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <h1 className="text-white text-lg font-semibold">Akun</h1>
       </div>
 
       {/* Profile Section */}
-      <div className="bg-white mx-4 -mt-2 rounded-xl shadow-sm p-4 flex items-center gap-4">
-        <div className="w-14 h-14 rounded-full bg-[#E0E0E0] overflow-hidden flex-shrink-0">
+      <div className="bg-white mx-4 -mt-2 rounded-xl shadow-xs p-4 flex items-center gap-4">
+        <div className="w-14 h-14 rounded-full bg-border overflow-hidden shrink-0">
           {user?.image ? (
             <Image
               src={user.image}
@@ -79,10 +79,10 @@ export default function AkunPage() {
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[#212121] font-semibold text-base truncate">
+          <p className="text-text font-semibold text-base truncate">
             {user?.name || 'Pengguna'}
           </p>
-          <p className="text-[#757575] text-sm truncate">{user?.email}</p>
+          <p className="text-text-secondary text-sm truncate">{user?.email}</p>
         </div>
       </div>
 
@@ -92,18 +92,18 @@ export default function AkunPage() {
           WALLET_DISABLED_MESSAGE is surfaced below the figure so a user
           holding a balance understands it is temporarily unspendable rather
           than concluding it is gone. */}
-      <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm p-4">
+      <div className="bg-white mx-4 mt-3 rounded-xl shadow-xs p-4">
         <div>
-          <p className="text-[#757575] text-xs">Saldo Kantong Donasi</p>
+          <p className="text-text-secondary text-xs">Saldo Kantong Donasi</p>
           {balanceLoading ? (
-            <div className="h-6 w-28 bg-[#E0E0E0] rounded animate-pulse mt-1" />
+            <div className="h-6 w-28 bg-border rounded animate-pulse mt-1" />
           ) : (
             <>
-              <p className="text-[#212121] text-lg font-bold mt-0.5">
+              <p className="text-text text-lg font-bold mt-0.5">
                 {formatRupiah(balance ?? 0)}
               </p>
               {(balance ?? 0) > 0 && (
-                <p className="text-[#757575] text-xs mt-1">{WALLET_DISABLED_MESSAGE}</p>
+                <p className="text-text-secondary text-xs mt-1">{WALLET_DISABLED_MESSAGE}</p>
               )}
             </>
           )}
@@ -111,7 +111,7 @@ export default function AkunPage() {
       </div>
 
       {/* Settings Links */}
-      <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white mx-4 mt-3 rounded-xl shadow-xs overflow-hidden">
         <SettingsLink label="Donasi Saya" href="/donasi-saya" />
         <SettingsLink label="Galang Dana Saya" href="/akun/kampanye-saya" />
         <SettingsLink label="Volunteer Trip Saya" href="/akun/volunteer-trip" />
@@ -123,7 +123,7 @@ export default function AkunPage() {
       <div className="mx-4 mt-4">
         <button
           onClick={handleLogout}
-          className="w-full bg-white border border-[#D50000] text-[#D50000] py-3 rounded-xl font-medium text-sm hover:bg-red-50 transition-colors"
+          className="w-full bg-white border border-danger text-danger py-3 rounded-xl font-medium text-sm hover:bg-red-50 transition-colors"
         >
           Keluar
         </button>
@@ -146,13 +146,13 @@ function SettingsLink({
   return (
     <button
       onClick={() => router.push(href)}
-      className={`w-full flex items-center justify-between px-4 py-3.5 text-left hover:bg-[#F5F5F5] transition-colors ${
-        !isLast ? 'border-b border-[#E0E0E0]' : ''
+      className={`w-full flex items-center justify-between px-4 py-3.5 text-left hover:bg-bg-secondary transition-colors ${
+        !isLast ? 'border-b border-border' : ''
       }`}
     >
-      <span className="text-[#212121] text-sm">{label}</span>
+      <span className="text-text text-sm">{label}</span>
       <svg
-        className="w-4 h-4 text-[#757575]"
+        className="w-4 h-4 text-text-secondary"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -165,43 +165,43 @@ function SettingsLink({
 
 function AccountSkeleton() {
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       {/* Header skeleton */}
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <div className="h-5 w-16 bg-white/20 rounded" />
       </div>
 
       {/* Profile skeleton */}
-      <div className="bg-white mx-4 -mt-2 rounded-xl shadow-sm p-4 flex items-center gap-4">
-        <div className="w-14 h-14 rounded-full bg-[#E0E0E0] animate-pulse" />
+      <div className="bg-white mx-4 -mt-2 rounded-xl shadow-xs p-4 flex items-center gap-4">
+        <div className="w-14 h-14 rounded-full bg-border animate-pulse" />
         <div className="flex-1 space-y-2">
-          <div className="h-4 w-32 bg-[#E0E0E0] rounded animate-pulse" />
-          <div className="h-3 w-48 bg-[#E0E0E0] rounded animate-pulse" />
+          <div className="h-4 w-32 bg-border rounded animate-pulse" />
+          <div className="h-3 w-48 bg-border rounded animate-pulse" />
         </div>
       </div>
 
       {/* Balance skeleton */}
-      <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm p-4">
+      <div className="bg-white mx-4 mt-3 rounded-xl shadow-xs p-4">
         <div className="flex items-center justify-between">
           <div className="space-y-2">
-            <div className="h-3 w-28 bg-[#E0E0E0] rounded animate-pulse" />
-            <div className="h-6 w-24 bg-[#E0E0E0] rounded animate-pulse" />
+            <div className="h-3 w-28 bg-border rounded animate-pulse" />
+            <div className="h-6 w-24 bg-border rounded animate-pulse" />
           </div>
-          <div className="h-9 w-16 bg-[#E0E0E0] rounded-lg animate-pulse" />
+          <div className="h-9 w-16 bg-border rounded-lg animate-pulse" />
         </div>
       </div>
 
       {/* Settings skeleton */}
-      <div className="bg-white mx-4 mt-3 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white mx-4 mt-3 rounded-xl shadow-xs overflow-hidden">
         {[...Array(4)].map((_, i) => (
           <div
             key={i}
             className={`px-4 py-3.5 flex items-center justify-between ${
-              i < 3 ? 'border-b border-[#E0E0E0]' : ''
+              i < 3 ? 'border-b border-border' : ''
             }`}
           >
-            <div className="h-4 w-28 bg-[#E0E0E0] rounded animate-pulse" />
-            <div className="h-4 w-4 bg-[#E0E0E0] rounded animate-pulse" />
+            <div className="h-4 w-28 bg-border rounded animate-pulse" />
+            <div className="h-4 w-4 bg-border rounded animate-pulse" />
           </div>
         ))}
       </div>

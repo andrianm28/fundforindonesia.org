@@ -78,8 +78,8 @@ export function TripForm({ slug, initial }: { slug?: string; initial?: TripFormV
     router.push(created.slug ? `/akun/volunteer-trip/${created.slug}` : '/akun/volunteer-trip');
   }
 
-  const field = 'w-full rounded-lg border border-[#E0E0E0] p-2 text-sm';
-  const label = 'block text-sm font-medium text-[#212121] mb-1';
+  const field = 'w-full rounded-lg border border-border p-2 text-sm';
+  const label = 'block text-sm font-medium text-text mb-1';
 
   return (
     <form
@@ -185,7 +185,7 @@ export function TripForm({ slug, initial }: { slug?: string; initial?: TripFormV
             if (file) void uploadCover(file);
           }}
         />
-        {values.coverImage && <p className="text-xs text-[#757575] mt-1 break-all">Sampul terpasang: {values.coverImage}</p>}
+        {values.coverImage && <p className="text-xs text-text-secondary mt-1 break-all">Sampul terpasang: {values.coverImage}</p>}
       </div>
       <div className="flex flex-wrap gap-3">
         <button

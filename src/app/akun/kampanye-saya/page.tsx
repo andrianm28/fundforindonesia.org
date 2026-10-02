@@ -69,7 +69,7 @@ export default function MyCampaignsPage() {
   // Empty state
   if (!isLoading && campaigns.length === 0 && page === 1) {
     return (
-      <div className="min-h-screen bg-[#F5F5F5] pb-20">
+      <div className="min-h-screen bg-bg-secondary pb-20">
         {/* Header */}
         <div className="bg-[#0073E6] px-4 pt-8 pb-6">
           <div className="flex items-center gap-3">
@@ -88,12 +88,12 @@ export default function MyCampaignsPage() {
 
         {/* Empty State */}
         <div className="flex flex-col items-center justify-center px-6 py-16">
-          <div className="w-20 h-20 bg-[#E0E0E0] rounded-full flex items-center justify-center mb-4">
-            <svg className="w-10 h-10 text-[#757575]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-20 h-20 bg-border rounded-full flex items-center justify-center mb-4">
+            <svg className="w-10 h-10 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
           </div>
-          <p className="text-[#757575] text-center text-sm mb-4">
+          <p className="text-text-secondary text-center text-sm mb-4">
             Anda belum membuat kampanye galang dana
           </p>
           <Link
@@ -108,7 +108,7 @@ export default function MyCampaignsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       {/* Header */}
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <div className="flex items-center gap-3">
@@ -137,12 +137,12 @@ export default function MyCampaignsPage() {
             <div
               key={campaign.id}
               data-testid={`campaign-${campaign.slug}`}
-              className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+              className="bg-white rounded-xl shadow-xs overflow-hidden hover:shadow-md transition-shadow"
             >
               <Link href={`/campaign/${campaign.slug}`} className="block">
                 <div className="flex">
                   {/* Cover Image */}
-                  <div className="w-28 h-28 flex-shrink-0 relative bg-[#E0E0E0]">
+                  <div className="w-28 h-28 shrink-0 relative bg-border">
                     {campaign.coverImage ? (
                       <Image
                         src={campaign.coverImage}
@@ -153,7 +153,7 @@ export default function MyCampaignsPage() {
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <svg className="w-8 h-8 text-[#757575]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-8 h-8 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
                       </div>
@@ -164,7 +164,7 @@ export default function MyCampaignsPage() {
                   <div className="flex-1 p-3 flex flex-col justify-between min-w-0">
                     <div>
                       <div className="flex items-start justify-between gap-2">
-                        <h3 className="text-[#212121] text-sm font-medium line-clamp-2 flex-1">
+                        <h3 className="text-text text-sm font-medium line-clamp-2 flex-1">
                           {campaign.title}
                         </h3>
                         <CampaignStatusBadge status={campaign.lifecycleStatus} />
@@ -173,7 +173,7 @@ export default function MyCampaignsPage() {
 
                     <div className="mt-2">
                       {/* Progress Bar */}
-                      <div className="w-full bg-[#E0E0E0] rounded-full h-1.5 mb-1.5">
+                      <div className="w-full bg-border rounded-full h-1.5 mb-1.5">
                         <div
                           className="bg-[#0073E6] h-1.5 rounded-full transition-all"
                           style={{ width: `${progress}%` }}
@@ -183,14 +183,14 @@ export default function MyCampaignsPage() {
                       {/* Amount Info */}
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-[#212121] text-xs font-semibold">
+                          <p className="text-text text-xs font-semibold">
                             {formatRupiah(campaign.collectedAmount)}
                           </p>
-                          <p className="text-[#757575] text-[10px]">
+                          <p className="text-text-secondary text-[10px]">
                             dari {formatRupiah(campaign.targetAmount)}
                           </p>
                         </div>
-                        <p className="text-[#757575] text-xs font-medium">
+                        <p className="text-text-secondary text-xs font-medium">
                           {progress}%
                         </p>
                       </div>
@@ -209,7 +209,7 @@ export default function MyCampaignsPage() {
               {PAYOUT_REQUESTABLE_STATUSES.includes(campaign.lifecycleStatus) && (
                 <Link
                   href={`/akun/kampanye-saya/${campaign.slug}/pencairan`}
-                  className="border-t border-[#E0E0E0] px-3 py-2 text-xs font-medium text-[#0073E6] hover:bg-[#F5F5F5] transition-colors"
+                  className="border-t border-border px-3 py-2 text-xs font-medium text-[#0073E6] hover:bg-bg-secondary transition-colors"
                 >
                   Cairkan dana
                 </Link>
@@ -251,7 +251,7 @@ export default function MyCampaignsPage() {
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
-              className="px-3 py-1.5 text-sm rounded-lg border border-[#E0E0E0] bg-white text-[#212121] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#F5F5F5] transition-colors"
+              className="px-3 py-1.5 text-sm rounded-lg border border-border bg-white text-text disabled:opacity-50 disabled:cursor-not-allowed hover:bg-bg-secondary transition-colors"
             >
               Sebelumnya
             </button>
@@ -276,7 +276,7 @@ export default function MyCampaignsPage() {
               }, [])
               .map((item, idx) =>
                 item === 'ellipsis' ? (
-                  <span key={`ellipsis-${idx}`} className="px-2 text-[#757575] text-sm">
+                  <span key={`ellipsis-${idx}`} className="px-2 text-text-secondary text-sm">
                     ...
                   </span>
                 ) : (
@@ -286,7 +286,7 @@ export default function MyCampaignsPage() {
                     className={`w-8 h-8 text-sm rounded-lg transition-colors ${
                       page === item
                         ? 'bg-[#0073E6] text-white font-medium'
-                        : 'border border-[#E0E0E0] bg-white text-[#212121] hover:bg-[#F5F5F5]'
+                        : 'border border-border bg-white text-text hover:bg-bg-secondary'
                     }`}
                   >
                     {item}
@@ -297,14 +297,14 @@ export default function MyCampaignsPage() {
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page >= totalPages}
-              className="px-3 py-1.5 text-sm rounded-lg border border-[#E0E0E0] bg-white text-[#212121] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#F5F5F5] transition-colors"
+              className="px-3 py-1.5 text-sm rounded-lg border border-border bg-white text-text disabled:opacity-50 disabled:cursor-not-allowed hover:bg-bg-secondary transition-colors"
             >
               Selanjutnya
             </button>
           </div>
 
           {/* Page info */}
-          <p className="text-center text-[#757575] text-xs mt-2">
+          <p className="text-center text-text-secondary text-xs mt-2">
             Halaman {page} dari {totalPages} ({total} kampanye)
           </p>
         </div>
@@ -345,10 +345,10 @@ function VerificationAction({
   const look =
     variant === 'primary'
       ? 'text-white bg-[#0073E6] hover:bg-[#005BB5]'
-      : 'text-[#0073E6] bg-white border border-[#0073E6] hover:bg-[#F5F5F5]';
+      : 'text-[#0073E6] bg-white border border-[#0073E6] hover:bg-bg-secondary';
 
   return (
-    <div className="border-t border-[#E0E0E0] px-3 py-2 flex items-center justify-between gap-2">
+    <div className="border-t border-border px-3 py-2 flex items-center justify-between gap-2">
       <p className="text-xs text-danger">{refusal}</p>
       <button
         type="button"
@@ -364,7 +364,7 @@ function VerificationAction({
 
 function CampaignsSkeleton() {
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       {/* Header skeleton */}
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <div className="flex items-center gap-3">
@@ -376,19 +376,19 @@ function CampaignsSkeleton() {
       {/* Campaign cards skeleton */}
       <div className="px-4 mt-4 space-y-3">
         {[...Array(3)].map((_, i) => (
-          <div key={i} className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div key={i} className="bg-white rounded-xl shadow-xs overflow-hidden">
             <div className="flex">
-              <div className="w-28 h-28 bg-[#E0E0E0] animate-pulse flex-shrink-0" />
+              <div className="w-28 h-28 bg-border animate-pulse shrink-0" />
               <div className="flex-1 p-3 space-y-3">
                 <div className="flex items-start justify-between">
-                  <div className="h-4 w-3/4 bg-[#E0E0E0] rounded animate-pulse" />
-                  <div className="h-5 w-12 bg-[#E0E0E0] rounded-full animate-pulse" />
+                  <div className="h-4 w-3/4 bg-border rounded animate-pulse" />
+                  <div className="h-5 w-12 bg-border rounded-full animate-pulse" />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="h-1.5 w-full bg-[#E0E0E0] rounded-full animate-pulse" />
+                  <div className="h-1.5 w-full bg-border rounded-full animate-pulse" />
                   <div className="flex justify-between">
-                    <div className="h-3 w-20 bg-[#E0E0E0] rounded animate-pulse" />
-                    <div className="h-3 w-8 bg-[#E0E0E0] rounded animate-pulse" />
+                    <div className="h-3 w-20 bg-border rounded animate-pulse" />
+                    <div className="h-3 w-8 bg-border rounded animate-pulse" />
                   </div>
                 </div>
               </div>

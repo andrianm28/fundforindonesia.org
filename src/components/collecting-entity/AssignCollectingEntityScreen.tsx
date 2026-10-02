@@ -39,13 +39,13 @@ export async function AssignCollectingEntityScreen() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-[#212121]">Collecting Entity</h1>
+      <h1 className="text-lg font-semibold text-text">Collecting Entity</h1>
       <p className="text-sm text-[#424242]">
         Campaign Aktif berikut belum menyebutkan Collecting Entity, sehingga tidak menerima donasi sampai
         Collecting Entity ditetapkan dan Partner Organisation itu memegang Fundraising Permit yang berlaku.
       </p>
       {assignable.length === 0 ? (
-        <p className="text-sm text-[#757575]">Semua Campaign Aktif sudah memiliki Collecting Entity.</p>
+        <p className="text-sm text-text-secondary">Semua Campaign Aktif sudah memiliki Collecting Entity.</p>
       ) : (
         assignable.map((campaign) => <AssignCollectingEntityForm key={campaign.slug} campaign={campaign} />)
       )}

@@ -63,7 +63,7 @@ export function CampaignCard({
     ? getRemainingDays(new Date(campaign.deadline))
     : null;
 
-  const widthClass = variant === 'compact' ? 'w-[280px] flex-shrink-0' : 'w-full';
+  const widthClass = variant === 'compact' ? 'w-[280px] shrink-0' : 'w-full';
 
   return (
     <motion.div

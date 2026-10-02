@@ -42,18 +42,18 @@ export default async function KindAuthorisationsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-[#212121]">Kind Authorisation</h1>
-        <p className="text-sm text-[#757575] mt-1">
+        <h1 className="text-xl font-semibold text-text">Kind Authorisation</h1>
+        <p className="text-sm text-text-secondary mt-1">
           Yang akan berakhir dalam 30 hari atau sudah lewat tanggalnya. Diurutkan dari yang paling dulu.
         </p>
       </div>
 
       {items.length === 0 ? (
-        <p className="text-sm text-[#757575]">
+        <p className="text-sm text-text-secondary">
           Tidak ada Kind Authorisation yang akan berakhir atau sudah lewat.
         </p>
       ) : (
-        <ul className="bg-white rounded-xl border border-[#E0E0E0] p-5 space-y-2 text-sm text-[#424242]">
+        <ul className="bg-white rounded-xl border border-border p-5 space-y-2 text-sm text-[#424242]">
           {items.map((item) => (
             <li key={item.id}>
               {item.organisationName} · {KIND_LABEL[item.kind]} ·{" "}

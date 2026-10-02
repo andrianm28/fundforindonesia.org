@@ -1,23 +1,140 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --breakpoint-*: initial;
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1025px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+
+  --color-primary: #2f7a5f;
+  --color-primary-dark: #255f4a;
+
+  --color-accent: #d97748;
+  --color-ink: #1c1a15;
+  --color-paper: #fdfbf8;
+  --color-ledger: #b8862e;
+  --color-success: #00c853;
+  --color-warning: #ffb300;
+  --color-danger: #d50000;
+
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f5f5f5;
+
+  --color-text: #212121;
+  --color-text-secondary: #757575;
+
+  --color-border: #e0e0e0;
+
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: var(--font-newsreader), Georgia, serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.12);
+
+  --transition-duration-fast: 150ms;
+  --transition-duration-normal: 200ms;
+  --transition-duration-slow: 300ms;
+
+  --ease-ease-out: ease-out;
+  --ease-ease-in-out: ease-in-out;
+
+  --animate-shimmer: shimmer 1.5s infinite linear;
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+/*
+  Two more Tailwind 3 preflight behaviours that v4 dropped: buttons keep the
+  pointer cursor, and placeholders keep the gray-400 colour.
+*/
+@layer base {
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-gray-400);
+  }
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility text-balance {
+  text-wrap: balance;
+}
+
+@utility scrollbar-hide {
+  /* Hide scrollbar but keep scroll behavior */
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+  &::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+}
+
+@utility container-app {
+  /* Responsive container with max-width for desktop */
+  width: 100%;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@utility pb-safe {
+  /* Safe area padding for bottom nav on iOS notch devices */
+  padding-bottom: var(--safe-area-bottom);
+}
 
 :root {
   /* Colors */
-  --color-primary: #2F7A5F;
-  --color-primary-dark: #255F4A;
-  --color-accent: #D97748;
-  --color-ink: #1C1A15;
-  --color-paper: #FDFBF8;
-  --color-ledger: #B8862E;
-  --color-success: #00C853;
-  --color-warning: #FFB300;
-  --color-danger: #D50000;
-  --color-bg: #FFFFFF;
-  --color-bg-secondary: #F5F5F5;
+  --color-primary: #2f7a5f;
+  --color-primary-dark: #255f4a;
+  --color-accent: #d97748;
+  --color-ink: #1c1a15;
+  --color-paper: #fdfbf8;
+  --color-ledger: #b8862e;
+  --color-success: #00c853;
+  --color-warning: #ffb300;
+  --color-danger: #d50000;
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f5f5f5;
   --color-text: #212121;
   --color-text-secondary: #757575;
-  --color-border: #E0E0E0;
+  --color-border: #e0e0e0;
 
   /* Typography */
   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -48,36 +165,6 @@
     background-color: var(--color-bg);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-  }
-}
-
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
-
-  /* Hide scrollbar but keep scroll behavior */
-  .scrollbar-hide {
-    -ms-overflow-style: none; /* IE and Edge */
-    scrollbar-width: none; /* Firefox */
-  }
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none; /* Chrome, Safari, Opera */
-  }
-
-  /* Responsive container with max-width for desktop */
-  .container-app {
-    width: 100%;
-    max-width: 1200px;
-    margin-left: auto;
-    margin-right: auto;
-    padding-left: 1rem;
-    padding-right: 1rem;
-  }
-
-  /* Safe area padding for bottom nav on iOS notch devices */
-  .pb-safe {
-    padding-bottom: var(--safe-area-bottom);
   }
 }
 

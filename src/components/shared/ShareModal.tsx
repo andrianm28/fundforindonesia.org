@@ -121,7 +121,7 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
             className={`flex items-center gap-3 px-4 py-3 rounded-lg text-white transition-colors duration-150 ${option.color}`}
             aria-label={`Bagikan via ${option.label}`}
           >
-            <span className="flex-shrink-0">{option.icon}</span>
+            <span className="shrink-0">{option.icon}</span>
             <span className="text-sm font-medium">{option.label}</span>
           </button>
         ))}

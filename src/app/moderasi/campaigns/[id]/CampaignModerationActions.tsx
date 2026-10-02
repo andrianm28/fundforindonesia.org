@@ -109,8 +109,8 @@ export function CampaignModerationActions({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-[#E0E0E0] p-6">
-      <h2 className="text-sm font-semibold text-[#212121] mb-4">
+    <div className="bg-white rounded-xl border border-border p-6">
+      <h2 className="text-sm font-semibold text-text mb-4">
         Verification Request
       </h2>
 
@@ -128,21 +128,21 @@ export function CampaignModerationActions({
       )}
 
       {!request && (
-        <p className="text-sm text-[#757575]">
+        <p className="text-sm text-text-secondary">
           Tidak ada Verification Request yang menunggu keputusan.
         </p>
       )}
 
       {request && (
         <>
-          <p className="text-xs text-[#757575] mb-3">
+          <p className="text-xs text-text-secondary mb-3">
             {request.isFirst ? "Pengajuan pertama" : "Pengajuan ulang"}
           </p>
 
           <fieldset className="mb-4">
-            <legend className="text-sm font-medium text-[#212121] mb-2">Checklist dokumen</legend>
+            <legend className="text-sm font-medium text-text mb-2">Checklist dokumen</legend>
             {request.checklist.length === 0 ? (
-              <p className="text-sm text-[#757575]">Checklist kosong saat Campaign diajukan.</p>
+              <p className="text-sm text-text-secondary">Checklist kosong saat Campaign diajukan.</p>
             ) : (
               <ul className="space-y-2">
                 {request.checklist.map((entry) => (
@@ -180,10 +180,10 @@ export function CampaignModerationActions({
             </p>
           ) : (
             <div className="mb-4">
-              <label htmlFor="identity-note" className="block text-sm font-medium text-[#212121] mb-1">
+              <label htmlFor="identity-note" className="block text-sm font-medium text-text mb-1">
                 Catatan verifikasi identitas (opsional)
               </label>
-              <p className="text-xs text-[#757575] mb-2">
+              <p className="text-xs text-text-secondary mb-2">
                 Identitas Fundraiser ini belum pernah diverifikasi. Menyetujui pengajuan ini mencatat
                 Identity Verification atas nama Anda.
               </p>
@@ -194,13 +194,13 @@ export function CampaignModerationActions({
                 maxLength={1000}
                 rows={2}
                 disabled={loading !== null}
-                className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+                className="w-full rounded-lg border border-border p-2 text-sm"
               />
             </div>
           )}
 
           <div className="mb-4">
-            <label htmlFor="reject-reason" className="block text-sm font-medium text-[#212121] mb-1">
+            <label htmlFor="reject-reason" className="block text-sm font-medium text-text mb-1">
               Alasan penolakan (wajib bila menolak)
             </label>
             <textarea
@@ -210,7 +210,7 @@ export function CampaignModerationActions({
               maxLength={1000}
               rows={3}
               disabled={loading !== null}
-              className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+              className="w-full rounded-lg border border-border p-2 text-sm"
             />
           </div>
 
@@ -221,7 +221,7 @@ export function CampaignModerationActions({
           </p>
 
           {untickedRequired.length > 0 && (
-            <p id="approve-blocked" className="mb-3 text-sm text-[#757575]">
+            <p id="approve-blocked" className="mb-3 text-sm text-text-secondary">
               Centang semua butir wajib untuk meloloskan: {untickedRequired.join(", ")}.
             </p>
           )}

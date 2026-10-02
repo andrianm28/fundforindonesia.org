@@ -41,26 +41,26 @@ export function AnonymiseDonationsSection() {
   const open = state.status === 'confirming' || state.status === 'sending' || state.status === 'error';
 
   return (
-    <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-      <h2 className="text-[#212121] font-semibold text-sm">Privasi donasi</h2>
+    <div className="bg-white rounded-xl shadow-xs p-4 space-y-3">
+      <h2 className="text-text font-semibold text-sm">Privasi donasi</h2>
       {state.status === 'done' ? (
         <p className="text-[#2E7D32] text-sm">{state.message}</p>
       ) : !open ? (
         <>
-          <p className="text-[#757575] text-sm">
+          <p className="text-text-secondary text-sm">
             Hapus nama dan tautan akun Anda dari semua donasi yang pernah Anda berikan.
           </p>
           <button
             type="button"
             onClick={() => setState({ status: 'confirming' })}
-            className="text-[#D50000] text-sm underline"
+            className="text-danger text-sm underline"
           >
             Hapus identitas dari donasi saya
           </button>
         </>
       ) : (
         <div className="space-y-3 text-sm">
-          <p className="text-[#212121]">
+          <p className="text-text">
             Donasi Anda dilepas dari akun ini dan tampil sebagai anonim bagi publik dan Fundraiser. Nominal dan catatan
             keuangan tetap tersimpan. Tindakan ini tidak dapat dibatalkan, donasi yang sudah dianonimkan tidak dapat
             di-refund lewat sistem, dan Anda tidak lagi melihatnya di riwayat. Akun Anda tidak dihapus. Bila ada Refund
@@ -71,7 +71,7 @@ export function AnonymiseDonationsSection() {
               type="button"
               onClick={confirm}
               disabled={state.status === 'sending'}
-              className="flex-1 bg-[#D50000] text-white font-medium px-4 py-2.5 rounded-lg disabled:opacity-50"
+              className="flex-1 bg-danger text-white font-medium px-4 py-2.5 rounded-lg disabled:opacity-50"
             >
               Ya, anonimkan
             </button>
@@ -79,12 +79,12 @@ export function AnonymiseDonationsSection() {
               type="button"
               onClick={() => setState({ status: 'idle' })}
               disabled={state.status === 'sending'}
-              className="flex-1 border border-[#BDBDBD] text-[#212121] font-medium px-4 py-2.5 rounded-lg disabled:opacity-50"
+              className="flex-1 border border-[#BDBDBD] text-text font-medium px-4 py-2.5 rounded-lg disabled:opacity-50"
             >
               Batal
             </button>
           </div>
-          {state.status === 'error' && <p className="text-[#D50000]">{state.message}</p>}
+          {state.status === 'error' && <p className="text-danger">{state.message}</p>}
         </div>
       )}
     </div>

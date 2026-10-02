@@ -38,41 +38,41 @@ export function DecidePanel({ requestId }: { requestId: string }) {
   }
 
   return (
-    <div className="space-y-3 border-t border-[#E0E0E0] pt-4">
+    <div className="space-y-3 border-t border-border pt-4">
       {error && (
         <p role="alert" className="text-sm text-[#C62828]">
           {error}
         </p>
       )}
       <div>
-        <label className="block text-xs text-[#757575] mb-1" htmlFor={`checked-bank-code-${requestId}`}>
+        <label className="block text-xs text-text-secondary mb-1" htmlFor={`checked-bank-code-${requestId}`}>
           Kode bank pada dokumen
         </label>
         <input
           id={`checked-bank-code-${requestId}`}
-          className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+          className="w-full rounded-lg border border-border p-2 text-sm"
           value={checkedBankCode}
           onChange={(e) => setCheckedBankCode(e.target.value)}
         />
       </div>
       <div>
-        <label className="block text-xs text-[#757575] mb-1" htmlFor={`documented-name-${requestId}`}>
+        <label className="block text-xs text-text-secondary mb-1" htmlFor={`documented-name-${requestId}`}>
           Nama pada dokumen
         </label>
         <input
           id={`documented-name-${requestId}`}
-          className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+          className="w-full rounded-lg border border-border p-2 text-sm"
           value={documentedAccountName}
           onChange={(e) => setDocumentedAccountName(e.target.value)}
         />
       </div>
       <div>
-        <label className="block text-xs text-[#757575] mb-1" htmlFor={`note-${requestId}`}>
+        <label className="block text-xs text-text-secondary mb-1" htmlFor={`note-${requestId}`}>
           Catatan (opsional)
         </label>
         <input
           id={`note-${requestId}`}
-          className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+          className="w-full rounded-lg border border-border p-2 text-sm"
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
@@ -87,12 +87,12 @@ export function DecidePanel({ requestId }: { requestId: string }) {
       </button>
 
       <div className="pt-2">
-        <label className="block text-xs text-[#757575] mb-1" htmlFor={`reason-${requestId}`}>
+        <label className="block text-xs text-text-secondary mb-1" htmlFor={`reason-${requestId}`}>
           Alasan penolakan
         </label>
         <input
           id={`reason-${requestId}`}
-          className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+          className="w-full rounded-lg border border-border p-2 text-sm"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
         />

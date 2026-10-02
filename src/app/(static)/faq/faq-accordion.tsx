@@ -60,7 +60,7 @@ function AccordionItem({
       >
         <span className="font-medium text-text pr-4">{question}</span>
         <svg
-          className={`w-5 h-5 text-text-secondary flex-shrink-0 transition-transform ${
+          className={`w-5 h-5 text-text-secondary shrink-0 transition-transform ${
             isOpen ? 'rotate-180' : ''
           }`}
           fill="none"
