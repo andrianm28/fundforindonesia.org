@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import type { PaymentProviderName } from '@/lib/payments/provider-names';
+import type { PaymentMethod } from '@/lib/payments/types';
 
 /**
  * Switches one Payment Provider on, with the methods an Admin picks for it
@@ -13,11 +15,11 @@ import { useRouter } from 'next/navigation';
  */
 
 interface AdminPaymentProviderFormProps {
-  provider: string;
-  /** Methods this provider supports: [value, label]. */
-  methods: { value: string; label: string }[];
+  provider: PaymentProviderName;
+  /** Methods this provider supports. */
+  methods: { value: PaymentMethod; label: string }[];
   /** Methods currently enabled when this provider is the one in force. */
-  enabled: string[];
+  enabled: PaymentMethod[];
   active: boolean;
   /** Why this provider cannot be switched on here, or null. */
   unavailableReason: string | null;
@@ -31,14 +33,14 @@ export function AdminPaymentProviderForm({
   unavailableReason,
 }: AdminPaymentProviderFormProps) {
   const router = useRouter();
-  const [selected, setSelected] = useState<string[]>(enabled.length > 0 ? enabled : methods.map((m) => m.value));
+  const [selected, setSelected] = useState<PaymentMethod[]>(enabled.length > 0 ? enabled : methods.map((m) => m.value));
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   const canSave = unavailableReason === null && selected.length > 0 && !submitting;
 
-  function toggle(value: string) {
+  function toggle(value: PaymentMethod) {
     setSaved(false);
     setSelected((current) => (current.includes(value) ? current.filter((m) => m !== value) : [...current, value]));
   }

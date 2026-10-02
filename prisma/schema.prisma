@@ -1580,11 +1580,6 @@ enum AbuseThresholdKind {
   ACTIVE_CAMPAIGNS_PER_FUNDRAISER
 }
 
-/// One threshold in force, as an Admin set it: the row with the latest setAt
-/// for a kind is the current value, and setById/setAt on it are the "who and
-/// when". Nothing is seeded, so with no row set the PRD's own numbers apply,
-/// read from code (resolveAbuseThresholds, src/lib/abuse-thresholds.ts) the
-/// way an unset Platform Fee resolves to 0 bps.
 /// Which Payment Provider takes new charges, and through which methods, as an
 /// Admin set it from the dashboard (prd-compliance 39). Append-only like every
 /// other setting here: the latest row is in force, older rows are who chose what
@@ -1612,6 +1607,11 @@ model PaymentProviderSetting {
   @@index([setAt])
 }
 
+/// One threshold in force, as an Admin set it: the row with the latest setAt
+/// for a kind is the current value, and setById/setAt on it are the "who and
+/// when". Nothing is seeded, so with no row set the PRD's own numbers apply,
+/// read from code (resolveAbuseThresholds, src/lib/abuse-thresholds.ts) the
+/// way an unset Platform Fee resolves to 0 bps.
 model AbuseThreshold {
   id      String             @id @default(cuid())
   kind    AbuseThresholdKind

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 
 /**
@@ -272,6 +272,33 @@ describe('POST /api/donations through a provider an Admin switched on (prd-compl
     const response = await POST(createRequest(QRIS_BODY));
 
     expect(response.status).toBe(503);
+    expect(mockDonationCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/donations in production with an Admin choice that may not take money (prd-compliance 39)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    ['the mock', { provider: 'mock', methods: ['bank_transfer_va'] }, {}],
+    [
+      'a sandbox',
+      { provider: 'sumopod', methods: ['qris_redirect'] },
+      { SUMOPOD_BASE_URL: 'https://api-pay-sandbox.sumopod.com/api/v1' },
+    ],
+  ])('answers 503, writing nothing and charging nothing, when the Admin chose %s', async (_label, row, env) => {
+    vi.stubEnv('NODE_ENV', 'production');
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    (prisma.paymentProviderSetting.findFirst as unknown as Mock).mockResolvedValue(row);
+    const provider = sumopodLike();
+    mockGetPaymentProvider.mockReturnValue(provider);
+
+    const response = await POST(createRequest(QRIS_BODY));
+
+    expect(response.status).toBe(503);
+    expect(provider.createCharge).not.toHaveBeenCalled();
     expect(mockDonationCreate).not.toHaveBeenCalled();
   });
 });

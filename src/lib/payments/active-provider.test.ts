@@ -43,7 +43,7 @@ beforeEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
   process.env.MOCK_MIDTRANS_SERVER_KEY = 'SB-Mid-server-TEST';
   process.env.SUMOPOD_API_KEY = 'sumopod-key';
-  process.env.SUMOPOD_WEBHOOK_SECRET = 'whsec_OkjY4nDqKbBxbBRPcHjT5ZvpXeWTm6J2';
+  process.env.SUMOPOD_WEBHOOK_SECRET = 'test-webhook-secret';
   process.env.SUMOPOD_BASE_URL = 'https://api-pay.sumopod.com/api/v1';
 });
 afterEach(() => {
@@ -136,15 +136,6 @@ describe('setPaymentProviderSetting', () => {
     }).catch((e) => e);
     expect(paymentProviderSettingErrorToHttp(sandbox)?.status).toBe(409);
     expect(createMock(db)).not.toHaveBeenCalled();
-  });
-});
-
-describe('the webhook path never reads the Admin choice', () => {
-  it('verifies by the provider in its own URL, so a switch cannot strand a Payment made before it', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync('src/app/api/webhooks/[provider]/route.ts', 'utf8');
-    expect(source).not.toMatch(/active-provider|resolveActivePaymentProvider|paymentProviderSetting/);
-    expect(source).toMatch(/getPaymentProvider\(providerParam\)/);
   });
 });
 

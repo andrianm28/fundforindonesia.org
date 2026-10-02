@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.stubEnv('PAYMENT_PROVIDER', 'sumopod');
   vi.stubEnv('MOCK_MIDTRANS_SERVER_KEY', 'mock-key');
   vi.stubEnv('SUMOPOD_API_KEY', 'k');
-  vi.stubEnv('SUMOPOD_WEBHOOK_SECRET', 'whsec_OkjY4nDqKbBxbBRPcHjT5ZvpXeWTm6J2');
+  vi.stubEnv('SUMOPOD_WEBHOOK_SECRET', 'test-webhook-secret');
   vi.stubEnv('SUMOPOD_BASE_URL', 'https://api-pay.sumopod.com/api/v1');
   vi.mocked(prisma.paymentProviderSetting.findFirst).mockResolvedValue(null);
   vi.mocked(prisma.paymentProviderSetting.findMany).mockResolvedValue([] as never);

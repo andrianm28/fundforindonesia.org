@@ -35,7 +35,7 @@
     charge time. The existing env-based `sandboxInProductionReason` still runs
     first, so in production `PAYMENT_PROVIDER` must itself be a live provider.
   - Webhook is untouched: provider comes from the URL (#179 mismatch check) and
-    late settlement (#180) stays; a test pins that the route never reads the
+    late settlement (#180) stays; route tests pin that, with the setting naming A, a webhook to B still settles and a mismatch is still refused; the route never reads the
     setting, so a switch cannot strand a Payment made before it.
   - Credentials stay env-only; `.env.example` has no new values. The route stores
     only provider, methods and the Admin (test).

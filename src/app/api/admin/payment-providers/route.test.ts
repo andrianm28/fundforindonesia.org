@@ -28,7 +28,7 @@ describe('POST /api/admin/payment-providers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('SUMOPOD_API_KEY', 'k');
-    vi.stubEnv('SUMOPOD_WEBHOOK_SECRET', 'whsec_OkjY4nDqKbBxbBRPcHjT5ZvpXeWTm6J2');
+    vi.stubEnv('SUMOPOD_WEBHOOK_SECRET', 'test-webhook-secret');
     vi.stubEnv('SUMOPOD_BASE_URL', 'https://api-pay.sumopod.com/api/v1');
     mockSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
     mockCreate.mockImplementation(async ({ data }) => ({ id: 'setting-1', ...data }));
