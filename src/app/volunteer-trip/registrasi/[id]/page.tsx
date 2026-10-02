@@ -5,7 +5,7 @@ import { getServerSession } from '@/lib/auth';
 import { REGISTRATION_STATUS_LABELS, REFUND_STATUS_LABELS } from '@/lib/volunteer/status-labels';
 import { getVolunteerRegistration } from '@/lib/volunteer/registration-view';
 import { formatRupiah } from '@/lib/utils/currency';
-import { formatWibDate } from '@/lib/volunteer/refund-table';
+import { formatWibDate } from '@/lib/volunteer/batch-dates';
 import { HoldCountdown } from '../../_components/HoldCountdown';
 import { CancelRegistrationButton } from '../../_components/CancelRegistrationButton';
 

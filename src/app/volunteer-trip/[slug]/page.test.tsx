@@ -91,10 +91,28 @@ describe('/volunteer-trip/[slug]', () => {
     await renderPage();
 
     const item = screen.getByRole('listitem');
-    expect(within(item).getByText(/01 Des 2026/)).toBeInTheDocument();
-    expect(within(item).getByText(/07 Des 2026/)).toBeInTheDocument();
+    expect(within(item).getByText(/1 Des 2026/)).toBeInTheDocument();
+    expect(within(item).getByText(/7 Des 2026/)).toBeInTheDocument();
     expect(within(item).getByText('12 dari 20 kursi tersisa')).toBeInTheDocument();
     expect(within(item).getByText(/20 Nov 2026/)).toBeInTheDocument();
+  });
+
+  it('shows Batch range and deadline as WIB dates across the UTC day boundary', async () => {
+    catalog.getTripDetail.mockResolvedValue(
+      detail([
+        batch({
+          startDate: new Date('2026-11-30T17:00:00Z'), // 1 Des 00:00 WIB
+          endDate: new Date('2026-12-07T16:59:59Z'), // 7 Des 23:59 WIB
+          registrationDeadline: new Date('2026-11-19T17:00:00Z'), // 20 Nov 00:00 WIB
+        }),
+      ]),
+    );
+
+    await renderPage();
+
+    const item = screen.getByRole('listitem');
+    expect(within(item).getByText('1 Des 2026 - 7 Des 2026')).toBeInTheDocument();
+    expect(within(item).getByText('Tenggat pendaftaran 20 Nov 2026')).toBeInTheDocument();
   });
 
   it('marks a full Batch and a Batch past its deadline', async () => {

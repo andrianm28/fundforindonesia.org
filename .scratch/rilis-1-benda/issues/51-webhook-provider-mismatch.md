@@ -8,14 +8,23 @@
 
 ## Why
 
-Audit keamanan baca-saja alur Volunteer Trip (2026-10-02) menemukan dua celah pada webhook payment: (1) provider yang memverifikasi event (`event.provider`, diisi adapter, yaitu provider pada URL, bukan dari body) tidak dicocokkan dengan provider yang tercatat pada Payment, dan (2) provider mock tidak cukup dijaga dari aktif di lingkungan produksi.
+Audit keamanan baca-saja alur Volunteer Trip (2026-10-02, `origin/main` 0f827b1)
+menemukan dua celah pada webhook payment:
 
-Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #179 untuk perbaikan.
+1. **Provider mismatch**: Route `/api/webhooks/[provider]` menerima URL parameter
+   `[provider]` tetapi tidak memvalidasi bahwa `event.provider` dalam body payload
+   cocok dengan `[provider]` di URL (`src/app/api/webhooks/[provider]/route.ts:171`, `:393`).
+   Webhook yang tidak cocok dengan provider pembayaran sebenarnya bisa diterima.
+
+2. **Mock provider aktif di produksi**: Jalur `/api/webhooks/mock` aktif selama
+   `MOCK_MIDTRANS_SERVER_KEY` ada di lingkungan (`src/lib/payments/index.ts:73`).
+   Jika konfigurasi ini terbawa ke produksi, jalur mock yang tanpa verifikasi
+   signature ikut aktif.
 
 ## Scope
 
-- Update route webhook (`src/app/api/webhooks/[provider]/route.ts`):
-  - Ekstrak `payment.provider` dari database setelah Payment ditemukan.
+- Update route webhook di `src/app/api/webhooks/[provider]/route.ts`:
+  - Ekstrak `payment.provider` dari database (setelah `findUnique`, baris 171).
   - Bandingkan `payment.provider === [provider]` (dari URL). Jika tidak cocok, tolak
     dengan 400 atau 404.
   
@@ -70,4 +79,5 @@ Kriteria:
 
 ## Comments
 
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #179.
 - 2026-10-02: awaiting-merge. PR #179, commit e2c9bd9. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
