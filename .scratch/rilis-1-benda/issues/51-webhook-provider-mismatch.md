@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan)
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -56,3 +56,7 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #179 untuk p
   `docker-compose.prod.yml` tidak lagi mewajibkan `MOCK_MIDTRANS_SERVER_KEY`.
   `docker-compose.yml` (dev) dan smoke test `cd.yml` (hanya /api/health)
   dibiarkan.
+
+## Comments
+
+- 2026-10-02: awaiting-merge. PR #179, commit e2c9bd9. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
