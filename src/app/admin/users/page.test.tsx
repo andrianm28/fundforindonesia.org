@@ -243,4 +243,63 @@ describe('AdminUsersPage', () => {
     fireEvent.click(within(budi).getByRole('button', { name: 'Riwayat' }));
     expect(await screen.findByText('Belum ada riwayat penugasan.')).toBeTruthy();
   });
+
+  it('alerts and keeps the trail closed when the audit trail cannot be loaded', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) =>
+      url === '/api/admin/users/u-1/assignments' ? jsonResponse({ error: 'Terlarang' }, false) : base(url, init),
+    );
+    const budi = await openAtRowOf('Budi');
+
+    fireEvent.click(within(budi).getByRole('button', { name: 'Riwayat' }));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Terlarang'));
+    expect(screen.queryByRole('list', { name: /riwayat penugasan/i })).toBeNull();
+    expect(within(budi).getByRole('button', { name: 'Riwayat' })).toBeTruthy();
+    alertSpy.mockRestore();
+  });
+
+  it('does not let a slow response for one user overwrite the trail of the user opened after it', async () => {
+    let resolveBudi!: (value: unknown) => void;
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/admin/users/u-1/assignments') {
+        return new Promise((resolve) => { resolveBudi = resolve; });
+      }
+      if (url === '/api/admin/users/u-2/assignments') {
+        return jsonResponse({
+          entries: [{ id: 'c-1', assignment: 'VERIFIER', action: 'GRANTED', actedById: 'admin-1', actedByName: 'Cinta Admin', actedAt: '2026-09-29T00:00:00.000Z', reason: null }],
+        });
+      }
+      return base(url, init);
+    });
+    const budi = await openAtRowOf('Budi');
+    fireEvent.click(within(budi).getByRole('button', { name: 'Riwayat' }));
+    const cinta = screen.getByText('Cinta').closest('tr') as HTMLElement;
+    fireEvent.click(within(cinta).getByRole('button', { name: 'Riwayat' }));
+    await screen.findByRole('list', { name: /riwayat penugasan cinta/i });
+
+    resolveBudi(jsonResponse({
+      entries: [{ id: 'b-1', assignment: 'VERIFIER', action: 'REVOKED', actedById: 'admin-2', actedByName: 'Budi Admin', actedAt: '2026-09-30T00:00:00.000Z', reason: null }],
+    }));
+    await new Promise((r) => setTimeout(r, 20));
+
+    const list = screen.getByRole('list', { name: /riwayat penugasan cinta/i });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+    expect(list.textContent).toContain('Cinta Admin');
+    expect(list.textContent).not.toContain('Budi Admin');
+  });
+
+  it('shows "Pengguna tidak dikenal" when the actor has no name', async () => {
+    auditEntries = [
+      { id: 'a-1', assignment: 'VERIFIER', action: 'GRANTED', actedById: 'admin-1', actedByName: null, actedAt: '2026-09-29T00:00:00.000Z', reason: null },
+    ];
+    const budi = await openAtRowOf('Budi');
+    fireEvent.click(within(budi).getByRole('button', { name: 'Riwayat' }));
+
+    const list = await screen.findByRole('list', { name: /riwayat penugasan budi/i });
+    expect(list.textContent).toContain('Pengguna tidak dikenal');
+    expect(list.textContent).not.toContain('admin-1');
+  });
 });

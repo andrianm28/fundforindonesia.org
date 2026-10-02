@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import type { Assignment } from "@/generated/prisma/client";
+import type { AssignmentAuditTrailEntry } from "@/lib/assignments";
 
 // Assignments are the only thing that grants power (ADR 0005): this page
 // shows and edits them, and nothing else about a user's authority.
@@ -35,15 +36,8 @@ interface Pagination {
   totalPages: number;
 }
 
-interface AuditEntry {
-  id: string;
-  assignment: Assignment;
-  action: "PROPOSED" | "GRANTED" | "REVOKED";
-  actedById: string;
-  actedByName: string | null;
-  actedAt: string;
-  reason: string | null;
-}
+// The route's JSON: the service's entry with its Date serialised to a string.
+type AuditEntry = Omit<AssignmentAuditTrailEntry, "actedAt"> & { actedAt: string };
 
 const AUDIT_ACTION_LABELS: Record<AuditEntry["action"], string> = {
   PROPOSED: "Diajukan",
@@ -86,7 +80,12 @@ export default function AdminUsersPage() {
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
+  // Only the latest open's response may write: a slower response for a user
+  // opened earlier must not overwrite the trail of the one opened after it.
+  const auditRequestId = useRef(0);
+
   const toggleAudit = async (userId: string) => {
+    const requestId = ++auditRequestId.current;
     if (auditUserId === userId) {
       setAuditUserId(null);
       return;
@@ -97,6 +96,7 @@ export default function AdminUsersPage() {
     try {
       const res = await fetch(`/api/admin/users/${userId}/assignments`);
       const data = await res.json().catch(() => ({}));
+      if (requestId !== auditRequestId.current) return;
       if (!res.ok) {
         alert(data.error || "Gagal memuat riwayat penugasan");
         setAuditUserId(null);
@@ -104,11 +104,12 @@ export default function AdminUsersPage() {
       }
       setAuditEntries(data.entries ?? []);
     } catch (error) {
+      if (requestId !== auditRequestId.current) return;
       console.error("Error fetching assignment audit trail:", error);
       alert("Gagal memuat riwayat penugasan");
       setAuditUserId(null);
     } finally {
-      setAuditLoading(false);
+      if (requestId === auditRequestId.current) setAuditLoading(false);
     }
   };
 
@@ -394,10 +395,12 @@ export default function AdminUsersPage() {
                   <UserRow
                     key={user.id}
                     user={user}
-                    auditOpen={auditUserId === user.id}
-                    auditLoading={auditLoading}
-                    auditEntries={auditEntries}
-                    onToggleAudit={toggleAudit}
+                    audit={{
+                      open: auditUserId === user.id,
+                      loading: auditLoading,
+                      entries: auditEntries,
+                      onToggle: toggleAudit,
+                    }}
                     currentUserId={currentUserId}
                     isUpdating={updatingUserId === user.id}
                     isAdminGrantPending={pendingUserIds.has(user.id)}
@@ -445,20 +448,14 @@ export default function AdminUsersPage() {
 
 function UserRow({
   user,
-  auditOpen,
-  auditLoading,
-  auditEntries,
-  onToggleAudit,
+  audit,
   currentUserId,
   isUpdating,
   isAdminGrantPending,
   onAssignmentChange,
 }: {
   user: User;
-  auditOpen: boolean;
-  auditLoading: boolean;
-  auditEntries: AuditEntry[];
-  onToggleAudit: (userId: string) => void;
+  audit: { open: boolean; loading: boolean; entries: AuditEntry[]; onToggle: (userId: string) => void };
   currentUserId: string | undefined;
   isUpdating: boolean;
   isAdminGrantPending: boolean;
@@ -468,80 +465,80 @@ function UserRow({
 
   return (
     <>
-    <tr className="hover:bg-gray-50 transition-colors">
-      <td className="px-6 py-4 font-medium text-gray-900">
-        {user.name || "—"}
-      </td>
-      <td className="px-6 py-4 text-gray-600">{user.email}</td>
-      <td className="px-6 py-4 text-gray-600">
-        {new Date(user.createdAt).toLocaleDateString("id-ID", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        })}
-      </td>
-      <td className="px-6 py-4">
-        <div className="flex gap-4">
-          {ASSIGNMENTS.map(({ value, label }) => {
-            const held = user.assignments.includes(value);
-            // Nobody may revoke their own assignment, of either kind
-            // (ticket 07/20 decision): the route refuses it, and the box
-            // only disables the case that would be a revoke -- one already
-            // held by the person looking at their own row.
-            const locked = isSelf && held;
-            // A pending ADMIN grant for this user: the box stays unchecked
-            // and disabled until a different Admin confirms it below.
-            const pending = value === "ADMIN" && !held && isAdminGrantPending;
-            return (
-              <span key={value} className="inline-flex items-center gap-1.5 text-sm text-gray-700">
-                <label className="inline-flex items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={held}
-                    disabled={isUpdating || locked || pending}
-                    onChange={(e) => onAssignmentChange(user.id, value, e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
-                  />
-                  {label}
-                </label>
-                {pending && <span className="text-xs text-amber-600">(menunggu konfirmasi)</span>}
-              </span>
-            );
+      <tr className="hover:bg-gray-50 transition-colors">
+        <td className="px-6 py-4 font-medium text-gray-900">
+          {user.name || "—"}
+        </td>
+        <td className="px-6 py-4 text-gray-600">{user.email}</td>
+        <td className="px-6 py-4 text-gray-600">
+          {new Date(user.createdAt).toLocaleDateString("id-ID", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
           })}
-        </div>
-      </td>
-      <td className="px-6 py-4">
-        <button
-          type="button"
-          onClick={() => onToggleAudit(user.id)}
-          className="text-xs font-medium text-blue-600 hover:underline"
-        >
-          {auditOpen ? "Tutup riwayat" : "Riwayat"}
-        </button>
-      </td>
-    </tr>
-    {auditOpen && (
-      <tr className="bg-gray-50">
-        <td colSpan={5} className="px-6 py-3">
-          {auditLoading ? (
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
-          ) : auditEntries.length === 0 ? (
-            <p className="text-xs text-gray-500">Belum ada riwayat penugasan.</p>
-          ) : (
-            <ul aria-label={`Riwayat penugasan ${user.name || user.email}`} className="space-y-1 text-xs text-gray-700">
-              {auditEntries.map((entry) => (
-                <li key={entry.id}>
-                  <strong>{AUDIT_ACTION_LABELS[entry.action]}</strong> {entry.assignment} oleh{" "}
-                  {entry.actedByName || entry.actedById} pada{" "}
-                  {new Date(entry.actedAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}
-                  {entry.reason ? ` (${entry.reason})` : ""}
-                </li>
-              ))}
-            </ul>
-          )}
+        </td>
+        <td className="px-6 py-4">
+          <div className="flex gap-4">
+            {ASSIGNMENTS.map(({ value, label }) => {
+              const held = user.assignments.includes(value);
+              // Nobody may revoke their own assignment, of either kind
+              // (ticket 07/20 decision): the route refuses it, and the box
+              // only disables the case that would be a revoke -- one already
+              // held by the person looking at their own row.
+              const locked = isSelf && held;
+              // A pending ADMIN grant for this user: the box stays unchecked
+              // and disabled until a different Admin confirms it below.
+              const pending = value === "ADMIN" && !held && isAdminGrantPending;
+              return (
+                <span key={value} className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                  <label className="inline-flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={held}
+                      disabled={isUpdating || locked || pending}
+                      onChange={(e) => onAssignmentChange(user.id, value, e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+                    />
+                    {label}
+                  </label>
+                  {pending && <span className="text-xs text-amber-600">(menunggu konfirmasi)</span>}
+                </span>
+              );
+            })}
+          </div>
+        </td>
+        <td className="px-6 py-4">
+          <button
+            type="button"
+            onClick={() => audit.onToggle(user.id)}
+            className="text-xs font-medium text-blue-600 hover:underline"
+          >
+            {audit.open ? "Tutup riwayat" : "Riwayat"}
+          </button>
         </td>
       </tr>
-    )}
+      {audit.open && (
+        <tr className="bg-gray-50">
+          <td colSpan={5} className="px-6 py-3">
+            {audit.loading ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
+            ) : audit.entries.length === 0 ? (
+              <p className="text-xs text-gray-500">Belum ada riwayat penugasan.</p>
+            ) : (
+              <ul aria-label={`Riwayat penugasan ${user.name || user.email}`} className="space-y-1 text-xs text-gray-700">
+                {audit.entries.map((entry) => (
+                  <li key={entry.id}>
+                    <strong>{AUDIT_ACTION_LABELS[entry.action]}</strong> {entry.assignment} oleh{" "}
+                    {entry.actedByName || "Pengguna tidak dikenal"} pada{" "}
+                    {new Date(entry.actedAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}
+                    {entry.reason ? ` (${entry.reason})` : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </td>
+        </tr>
+      )}
     </>
   );
 }
