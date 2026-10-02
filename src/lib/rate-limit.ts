@@ -11,6 +11,11 @@ import { hashSubject } from './client-ip';
  * Built for Partnership Inquiries first, but nothing here is specific to them:
  * the next public endpoint (guest Donation submission) takes a new `scope`.
  * Every attempt counts, allowed or not, so a flood stays refused.
+ *
+ * Fixed windows: a client can spend its limit at the end of one window and
+ * again at the start of the next, so the real burst bound is up to 2x the
+ * limit across a window boundary. Acceptable for spam control; a sliding
+ * window would cost a read per request.
  */
 export type RateLimitInput = {
   scope: string;
@@ -38,9 +43,21 @@ export async function consumeRateLimit(prisma: PrismaClient, input: RateLimitInp
   const count = Number(rows[0].count);
   if (count === 1) {
     // A new bucket: the cheap moment to drop this scope's long-past windows.
-    await prisma.$executeRaw`
-      DELETE FROM "RateLimitBucket"
-      WHERE "scope" = ${input.scope} AND "windowStart" < ${new Date(now.getTime() - RETENTION_MS)}`;
+    // Best-effort: the count is already settled, and a failed cleanup must
+    // not turn a counted request into an error. The next new bucket retries.
+    try {
+      await prisma.$executeRaw`
+        DELETE FROM "RateLimitBucket"
+        WHERE "scope" = ${input.scope} AND "windowStart" < ${new Date(now.getTime() - RETENTION_MS)}`;
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: 'rate_limit_cleanup_failed',
+          scope: input.scope,
+          error: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
+    }
   }
   const retryAfterSeconds = Math.max(1, Math.ceil((windowStart.getTime() + windowMs - now.getTime()) / 1000));
   return { allowed: count <= input.limit, count, retryAfterSeconds };

@@ -20,6 +20,25 @@ describe('clientAddress', () => {
   });
 });
 
+describe('clientAddress, IPv6 and mapped IPv4', () => {
+  it('maps an IPv4-mapped IPv6 address to its IPv4 form', () => {
+    expect(clientAddress(h('::ffff:203.0.113.9'))).toBe('203.0.113.9');
+    expect(clientAddress(h('::FFFF:203.0.113.9'))).toBe('203.0.113.9');
+  });
+  it('keys an IPv6 client by its /64 prefix, so rotating the host part does not dodge the limit', () => {
+    const a = clientAddress(h('2001:db8:1:2:aaaa:bbbb:cccc:dddd'));
+    const b = clientAddress(h('2001:DB8:1:2::1'));
+    const c = clientAddress(h('2001:db8:1:3::1'));
+    expect(a).toBe('2001:db8:1:2::/64');
+    expect(b).toBe(a);
+    expect(c).not.toBe(a);
+  });
+  it('expands :: correctly when it falls inside the prefix', () => {
+    expect(clientAddress(h('2001:db8::1'))).toBe('2001:db8:0:0::/64');
+    expect(clientAddress(h('::1'))).toBe('0:0:0:0::/64');
+  });
+});
+
 describe('hashSubject', () => {
   it('is a stable keyed hash that does not contain the address', () => {
     vi.stubEnv('RATE_LIMIT_SECRET', 'secret-one');
@@ -29,6 +48,12 @@ describe('hashSubject', () => {
     expect(a).not.toContain('203');
     vi.stubEnv('RATE_LIMIT_SECRET', 'secret-two');
     expect(hashSubject('203.0.113.9')).not.toBe(a);
+  });
+  it('derives a key rather than using the raw secret as the HMAC key', async () => {
+    const { createHmac } = await import('node:crypto');
+    vi.stubEnv('RATE_LIMIT_SECRET', 'secret-one');
+    const direct = createHmac('sha256', 'secret-one').update('rate-limit:203.0.113.9').digest('hex');
+    expect(hashSubject('203.0.113.9')).not.toBe(direct);
   });
   it('refuses to hash in production with no secret configured', () => {
     vi.stubEnv('NODE_ENV', 'production');

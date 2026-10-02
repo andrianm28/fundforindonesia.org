@@ -42,6 +42,6 @@ team cannot tell a real partner from noise.
   route: `src/lib/rate-limit.ts` (`consumeRateLimit`, atomic upsert on
   `RateLimitBucket`) and `src/lib/client-ip.ts`. Donation submission only needs
   a new `scope`. Limits here: 10 per client and 300 overall per hour, honeypot
-  field `website` answered as a 201 no-op. Client address is the last (trusted
+  field `fax_ref` (neutral name, autofill-proof) answered as a 201 no-op; fail-open if the limiter breaks; the 300 global counts only valid, non-trapped submissions. Client address is the last (trusted
   hop) `X-Forwarded-For` entry, stored only as an HMAC; assumes nginx appends
   that header, which the owner must confirm (its config is not in this repo).
