@@ -1643,9 +1643,42 @@ model WebhookEvent {
   payload         Json
   receivedAt      DateTime  @default(now())
   processedAt     DateTime?
+  /// What the handler decided this event was, stamped with processedAt (ticket
+  /// 52). Null on rows written before the column existed and while an event is
+  /// unfinished. A plain String, not an enum: the values live in
+  /// WEBHOOK_OUTCOME (src/lib/money/payment-reconciliation.ts), and the ones
+  /// that mean money needs a human are listed in WEBHOOK_OUTCOMES_NEEDING_REVIEW.
+  outcome         String?
 
   @@unique([provider, providerEventId])
   @@index([provider, receivedAt])
+  @@index([outcome])
+}
+
+/// A charge that exists at the payment provider while this database holds no
+/// Payment for it (ticket 52): provider.createCharge succeeded and the
+/// payment.create that should have recorded it failed. The provider's order id
+/// is the Donation id or the Registration id, so a later `paid` event for it
+/// matches no Payment; this row is how an Admin finds that money and either
+/// cancels the charge at the provider or refunds what was paid. Written outside
+/// any transaction the failure could have rolled back.
+model ChargeWriteFailure {
+  id             String    @id @default(cuid())
+  provider       String
+  /// The order id the charge was created under: Donation id or Registration id.
+  providerRef    String
+  /// "donation" | "registration"
+  subjectType    String
+  subjectId      String
+  amount         Int
+  errorMessage   String
+  createdAt      DateTime  @default(now())
+  /// Set by whoever reconciled it at the provider.
+  resolvedAt     DateTime?
+  resolutionNote String?
+
+  @@index([resolvedAt, createdAt])
+  @@index([providerRef])
 }
 
 model Refund {
