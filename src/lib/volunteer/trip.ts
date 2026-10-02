@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   RegistrationStatus,
   StatusChangeCapacity,
@@ -46,6 +47,16 @@ import {
   TripRejectionReasonInvalidError,
 } from '@/lib/volunteer-trip-errors';
 import { tripFeeRefund, type TripFeeRefundCase } from './refunds';
+
+/** Upper bound of a Trip Fee per Volunteer, Rp10.000.000 (owner decision 2026-10-02). */
+export const MAX_TRIP_FEE_AMOUNT = 10_000_000;
+
+/** Whole Rupiah only, positive, at most MAX_TRIP_FEE_AMOUNT; shared by create and update. */
+export const tripFeeAmountSchema = z
+  .number()
+  .int('Trip Fee harus bilangan bulat Rupiah')
+  .positive('Trip Fee harus lebih dari 0')
+  .max(MAX_TRIP_FEE_AMOUNT, 'Trip Fee maksimal Rp10.000.000 per Volunteer');
 
 /**
  * The Volunteer Trip operations module: the one place a Volunteer Trip's,

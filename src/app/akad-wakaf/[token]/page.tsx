@@ -2,6 +2,10 @@ import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import { AkadWakafView } from '@/components/akad-wakaf/AkadWakafView';
 
+// Rendered per request: the pledge shows a Wakif's identity, which anonymisation
+// (ticket 36) can remove at any moment, so it must never be served from a cache.
+export const dynamic = 'force-dynamic';
+
 interface AkadWakafPageProps {
   params: Promise<{ token: string }>;
 }
@@ -36,7 +40,11 @@ export default async function AkadWakafPage({ params }: AkadWakafPageProps) {
 
   return (
     <AkadWakafView
-      wakifName={donation.donor?.name ?? donation.guestName ?? null}
+      // Once anonymised (ticket 36) there is no name left; the pledge says so
+      // instead of printing an empty Wakif.
+      wakifName={
+        donation.anonymisedAt ? 'Wakif anonim' : (donation.donor?.name ?? donation.guestName ?? null)
+      }
       amount={donation.amount}
       purpose={campaign.title}
       nazhirName={campaign.collectingEntity?.name ?? ''}

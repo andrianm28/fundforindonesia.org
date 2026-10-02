@@ -968,6 +968,15 @@ model Donation {
   guestPhoneCiphertext String?
   guestPhoneKeyId      String?
 
+  /// Set once, when this Donation's Donor had their identity removed (PRD
+  /// FFI-16; ticket 36; src/lib/donor-anonymisation.ts). From then on the
+  /// name, email and phone columns above are NULL, donorId is NULL,
+  /// isAnonymous is true, and createRefund refuses this Donation (the Refund
+  /// design says an anonymised Donation is refunded outside the system).
+  /// Amount, Payment and ledger rows are untouched: the Donation stays a
+  /// money row. Never cleared -- anonymisation cannot be undone.
+  anonymisedAt DateTime?
+
   /// The `src` a shared link carried when the Donor arrived, sanitized by
   /// src/lib/traffic-source.ts (ticket 24, "Traffic Source on Donation").
   /// Null when absent or when nothing safe survived sanitizing -- this never

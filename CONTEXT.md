@@ -55,7 +55,7 @@ Pengajuan wakaf non-tunai (tanah, bangunan, barang) yang ditindaklanjuti nazhir 
 _Avoid_: Wakaf aset (di kode), donasi barang
 
 **Volunteer Trip**:
-Item katalog milik satu Fundraiser yang mengumpulkan Volunteer untuk ikut satu atau beberapa Volunteer Batch, dengan destinasi, itinerary, dan Trip Fee yang sama di semua Batch-nya. Bukan Campaign dan bukan Kind: uangnya bergerak sebagai Trip Fee, bukan Donation (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Dinamai "Trip", bukan "Program", supaya tidak tertukar dengan Program CSR di atas. Volunteer masuk Rilis 1, diputuskan 2026-09-27, sebelumnya hanya direncanakan untuk rilis 3.
+Item katalog milik satu Fundraiser yang mengumpulkan Volunteer untuk ikut satu atau beberapa Volunteer Batch, dengan destinasi, itinerary, dan Trip Fee yang sama di semua Batch-nya. Bukan Campaign dan bukan Kind: uangnya bergerak sebagai Trip Fee, bukan Donation (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Dinamai "Trip", bukan "Program", supaya tidak tertukar dengan Program CSR di atas. Volunteer masuk Rilis 1, diputuskan 2026-09-27, sebelumnya hanya direncanakan untuk rilis 3. Yang boleh dilihat publik dari sebuah Volunteer Trip hanyalah judul, slug, deskripsi, cerita, itinerary, gambar sampul, destinasi, Trip Fee, status, dan tanggal dibuat; dari sebuah Volunteer Batch hanyalah tanggal mulai dan selesai, tenggat pendaftaran, kuota maksimum, status, dan sisa kuota. Identitas pemilik, kuota minimum, dan waktu perubahan terakhir tidak pernah tampil publik; kolom baru tetap tertutup sampai didaftarkan di `src/lib/volunteer/trip-public.ts`.
 _Avoid_: Volunteer Event, Volunteer Program, Kegiatan, activity, trip package
 
 **Volunteer Batch**:
@@ -172,7 +172,7 @@ Niat memberi dari satu Donor ke satu Campaign dengan nominal tertentu. Donation 
 _Avoid_: Donasi (di kode), transaction, contribution
 
 **Trip Fee**:
-Nominal yang dibayar Volunteer untuk satu Registration pada Volunteer Batch, menutup biaya partisipasinya sendiri (transport, akomodasi, konsumsi). Bukan Donation dan bukan kontribusi untuk komunitas tujuan; memakai jalur Payment, Escrow Hold, dan Payout yang sama dengan Campaign tanpa menjadi Kind (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Tidak dipotong Platform Fee. Refund-nya bertingkat menurut jarak waktu ke keberangkatan saat Volunteer membatalkan (14 hari atau lebih: penuh; 3 sampai 13 hari: separuh; kurang dari 3 hari atau sesudah berangkat: tidak ada; diputuskan 2026-09-29, angkanya di `src/lib/volunteer/refunds.ts`), dan penuh tanpa syarat waktu saat Fundraiser membatalkan Batch — berbeda dari Refund Gross Campaign (ADR 0007), yang tidak berlaku untuk Trip Fee. Bila Trip Fee-nya justru settle setelah Registration-nya sudah dibatalkan (baik oleh Volunteer sendiri maupun oleh pembatalan Batch), sistem mengembalikan penuh secara otomatis begitu penyelesaian itu terdeteksi — aturan ketiga ini, terpisah dari kedua aturan Refund di atas. Aturan ketiga ini juga berlaku bila penahanan kursinya sudah kedaluwarsa sebelum Trip Fee settle (diputuskan 2026-09-29, `rilis-1-benda/issues/40`), dan bila kursinya sudah hilang saat Payment-nya dibayar setelah `EXPIRED` atau `FAILED` (diputuskan 2026-10-02, `rilis-1-benda/issues/52`). Bila Payment-nya `EXPIRED` tetapi Registration-nya masih `HOLD`, kursinya masih ada, jadi Trip Fee tetap dikonfirmasi dan tidak di-refund. Berbeda dengan Donation, yang tidak di-refund dalam keadaan serupa (lihat Settlement dan [ADR 0021](./docs/adr/0021-donation-paid-after-expiry-still-settles.md)).
+Nominal yang dibayar Volunteer untuk satu Registration pada Volunteer Batch, menutup biaya partisipasinya sendiri (transport, akomodasi, konsumsi). Bukan Donation dan bukan kontribusi untuk komunitas tujuan; memakai jalur Payment, Escrow Hold, dan Payout yang sama dengan Campaign tanpa menjadi Kind (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Tidak dipotong Platform Fee. Batas atas Trip Fee per Volunteer adalah Rp10.000.000 (diputuskan owner 2026-10-02, `rilis-1-benda/issues/54`; konstanta `MAX_TRIP_FEE_AMOUNT` di `src/lib/volunteer/trip.ts`, dipakai bersama oleh pembuatan dan pengubahan Trip). Refund-nya bertingkat menurut jarak waktu ke keberangkatan saat Volunteer membatalkan (14 hari atau lebih: penuh; 3 sampai 13 hari: separuh; kurang dari 3 hari atau sesudah berangkat: tidak ada; diputuskan 2026-09-29, angkanya di `src/lib/volunteer/refunds.ts`), dan penuh tanpa syarat waktu saat Fundraiser membatalkan Batch — berbeda dari Refund Gross Campaign (ADR 0007), yang tidak berlaku untuk Trip Fee. Bila Trip Fee-nya justru settle setelah Registration-nya sudah dibatalkan (baik oleh Volunteer sendiri maupun oleh pembatalan Batch), sistem mengembalikan penuh secara otomatis begitu penyelesaian itu terdeteksi — aturan ketiga ini, terpisah dari kedua aturan Refund di atas. Aturan ketiga ini juga berlaku bila penahanan kursinya sudah kedaluwarsa sebelum Trip Fee settle (diputuskan 2026-09-29, `rilis-1-benda/issues/40`), dan bila kursinya sudah hilang saat Payment-nya dibayar setelah `EXPIRED` atau `FAILED` (diputuskan 2026-10-02, `rilis-1-benda/issues/52`). Bila Payment-nya `EXPIRED` tetapi Registration-nya masih `HOLD`, kursinya masih ada, jadi Trip Fee tetap dikonfirmasi dan tidak di-refund. Berbeda dengan Donation, yang tidak di-refund dalam keadaan serupa (lihat Settlement dan [ADR 0021](./docs/adr/0021-donation-paid-after-expiry-still-settles.md)).
 _Avoid_: Donation, Program Fee, biaya trip (di kode), tiket
 
 **Payment**:
@@ -214,7 +214,7 @@ Dana sebuah Payment yang dipindahkan keluar dari Escrow Hold atau Campaign Balan
 _Avoid_: Dana beku, hold, freeze
 
 **Program Balance**:
-Dana CSR yang tercatat pada sebuah Program, bukan Campaign. Tidak pernah bisa dicairkan lewat Payout karena Program tidak menerima uang daring.
+Dana CSR yang tercatat pada sebuah Program, bukan Campaign. Tidak pernah bisa dicairkan lewat Payout karena Program tidak menerima uang daring. Tidak pernah negatif: reversal Manual Contribution ditolak bila saldonya tidak lagi menutup nominalnya. Bila Program Balance tidak dapat dijelaskan oleh Manual Contribution, halaman `/impact` dan `GET /api/impact` menyembunyikan blok CSR saja (`csr: null`); enam baris Campaign tetap tampil.
 _Avoid_: Saldo CSR, dana program
 
 **Escrow Hold**:
@@ -260,6 +260,10 @@ _Avoid_: UTM, referrer, analytics
 **Receipt**:
 Bukti Donation yang dikirim ke email Donor setelah Settlement, dengan halaman cetak yang bisa dibuka ulang dari email atau dashboard.
 _Avoid_: Invoice, tanda terima (di kode), kwitansi
+
+**Anonimisasi Donor**:
+Penghapusan identitas Donor dari Donation-nya atas permintaan Donor sendiri (FFI-16, tiket 36). Nama, email HMAC, telepon, dan tautan `donorId` dihapus; Donation row, Payment, Receipt, dan jurnal buku besar tetap, sebagai bukti keuangan (lihat [ADR 0023](./docs/adr/0023-donor-anonymisation-scope.md)). Ditunda selama masih ada Refund yang belum selesai. Tautan Receipt hanya menganonimkan Donation milik Receipt itu sendiri, dan Guest harus mengetik email donasi itu sebagai bukti (keputusan e, ADR 0023, Accepted owner 2026-10-02). Donation lain dengan email yang sama tetap utuh dan tetap bisa dicocokkan lewat HMAC sampai dianonimkan sendiri-sendiri.
+_Avoid_: hapus akun, delete donor
 
 **Akad Wakaf**:
 Dokumen ikrar per Donation pada Campaign `wakaf`, memuat nama Wakif, nominal, peruntukan, dan nazhir, dikirim bersama Receipt.

@@ -84,6 +84,26 @@ describe('ReceiptPage', () => {
     expect(view.props).toMatchObject({ donorName: 'Budi' });
   });
 
+  it('tells the view whether the Donation is anonymised, owned by an account, and never carries a name for an anonymised one', async () => {
+    mockFindUnique.mockResolvedValue(makeReceipt());
+    render(await ReceiptPage({ params: Promise.resolve({ token: 'tok-1' }) }));
+    expect(view.props).toMatchObject({ anonymised: false, accountOwned: true });
+
+    mockFindUnique.mockResolvedValue(
+      makeReceipt({
+        donation: {
+          ...makeReceipt().donation,
+          donorId: null,
+          donor: null,
+          guestName: null,
+          anonymisedAt: new Date('2026-10-01T00:00:00.000Z'),
+        },
+      }),
+    );
+    render(await ReceiptPage({ params: Promise.resolve({ token: 'tok-1' }) }));
+    expect(view.props).toMatchObject({ anonymised: true, accountOwned: false, donorName: null });
+  });
+
   it('dates the print page from when the Donor paid, not from when the Receipt row was written', async () => {
     // A Sumopod QRIS Donation settles at T+2 (prd-compliance 19), so the
     // Receipt row is written days after the Donor paid -- the date on the
