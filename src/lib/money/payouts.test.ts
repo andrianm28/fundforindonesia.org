@@ -1598,17 +1598,8 @@ describe('Trip Fee Payout only from COMPLETED Batches (ticket 49)', () => {
         proofNote: 'Ditransfer via BCA, dicocokkan dengan nominal dan rekening tujuan.',
       });
 
-    it('refuses to complete when what is left of the balance no longer covers the money still held', async () => {
-      // 800k in, 500k instructed out: 300k left, but 400k is held.
-      const { tx, rows, payoutState } = makeTx({ ledgerRows: afterApproval, payoutRow: approved(), held: 400_000 });
-
-      await expect(complete(tx)).rejects.toThrow(TripPayoutFundsNotCompletedError);
-      expect(payoutState).toMatchObject({ status: 'APPROVED', completedById: null });
-      expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toEqual([]);
-    });
-
-    it('completes when the balance left still covers what is held', async () => {
-      const { tx, payoutState } = makeTx({ ledgerRows: afterApproval, payoutRow: approved(), held: 300_000 });
+    it('completes whatever is held: the ceiling was judged at approval, the money is already out', async () => {
+      const { tx, payoutState } = makeTx({ ledgerRows: afterApproval, payoutRow: approved(), held: 400_000 });
       await complete(tx);
       expect(payoutState).toMatchObject({ status: 'COMPLETED', completedById: 'admin-2' });
     });

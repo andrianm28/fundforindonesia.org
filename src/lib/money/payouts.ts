@@ -778,7 +778,7 @@ export async function completePayout(
 
     // Same guard, same order, as approvePayout: the subject this Payout is
     // for, locked before it is read.
-    const { subject, state: subjectState } = await lockPayoutSubject(tx, payout);
+    const { state: subjectState } = await lockPayoutSubject(tx, payout);
 
     // Never the Fundraiser of this Campaign or Trip, whoever approved it.
     if (subjectState) requireNotOwnerAsAdmin(subjectState, completedById);
@@ -791,13 +791,10 @@ export async function completePayout(
     // the row; either way a null state is left to the checks below, as before.
     if (subjectState) requirePayoutAllowed(subjectState);
 
-    // Ticket 49: what is left of TRIP_BALANCE after this Payout's debit (posted
-    // at approval) must still cover the money of Batches that are not
-    // COMPLETED, so asked with 0. Catches a Payout approved before the rule
-    // existed, or whose Batch's money moved since. Trip only.
-    if (subject.type === 'trip') {
-      await requireTripFundsFromCompletedBatches(tx, subject.tripId, 0);
-    }
+    // Ticket 49: deliberately NO Trip Fee ceiling check here. The Payout's debit
+    // was posted at approval, where the ceiling was judged; the money is already
+    // out of TRIP_BALANCE, so a check now could only block recording the
+    // transfer proof for money that has left.
 
     // Predicated on the status, exactly as approvePayout is: the lock above
     // serialises operations on the Campaign's money, not two admins racing

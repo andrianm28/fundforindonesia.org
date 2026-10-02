@@ -39,7 +39,12 @@ export async function tripHeldBalance(tx: Prisma.TransactionClient, tripId: stri
       AND b."status" <> 'COMPLETED'
   `;
   const held = Number(rows[0]?.held ?? 0);
-  return Number.isFinite(held) ? held : 0;
+  // A figure that is not a finite number is a broken read, not "nothing held":
+  // rounding it to 0 would lift the ceiling on money that may still be refunded.
+  if (!Number.isFinite(held)) {
+    throw new Error(`tripHeldBalance: non-finite held balance for trip ${tripId}: ${String(rows[0]?.held)}`);
+  }
+  return held;
 }
 
 /** What a Trip may pay out now: its balance less the part still refundable. Never above the balance. */
@@ -51,15 +56,19 @@ export async function tripWithdrawableBalance(tx: Prisma.TransactionClient, trip
 
 /**
  * Refuses a Payout of `amount` that reaches into money of a Batch that is not
- * COMPLETED. At completion the Payout's own amount is already debited from
- * TRIP_BALANCE (at approval), so it is asked with 0: the balance left must
- * still cover what is held.
+ * COMPLETED. Asked when a Payout is requested and again when it is approved,
+ * the moment its amount is debited from TRIP_BALANCE. Not asked at completion
+ * (ticket 49): by then the money has already left the balance, so a check
+ * there would only block recording the transfer proof for money already gone.
  */
 export async function requireTripFundsFromCompletedBatches(
   tx: Prisma.TransactionClient,
   tripId: string,
   amount: number,
 ): Promise<void> {
+  if (!Number.isFinite(amount)) {
+    throw new Error(`requireTripFundsFromCompletedBatches: non-finite amount ${String(amount)}`);
+  }
   const withdrawable = await tripWithdrawableBalance(tx, tripId);
   if (amount > withdrawable) {
     throw new TripPayoutFundsNotCompletedError(amount, Math.max(withdrawable, 0));

@@ -71,9 +71,13 @@ aman.
 
 - Kode: `src/lib/money/trip-payout-funds.ts` (`tripHeldBalance`,
   `tripWithdrawableBalance`, `requireTripFundsFromCompletedBatches`), dipanggil
-  dari `requestPayout`, `approvePayout`, `completePayout` hanya untuk subject Trip.
-  Saat completion Payout sendiri sudah di-debit (saat approval), jadi diminta
-  dengan jumlah 0: sisa saldo harus tetap menutup dana yang tertahan.
+  dari `requestPayout` dan `approvePayout` saja, hanya untuk subject Trip.
+  **`completePayout` sengaja tanpa cek ini** (temuan review PR #176, 2026-10-02):
+  debit Payout sudah terjadi saat approve, jadi uangnya sudah keluar dari
+  `TRIP_BALANCE`. Cek di completion tidak menambah proteksi; ia hanya bisa
+  memblokir pencatatan bukti transfer untuk uang yang sudah keluar. Nilai
+  `NaN` atau tak-finite dari pembacaan dana tertahan melempar error, tidak
+  dibulatkan menjadi 0.
 - Error baru `TripPayoutFundsNotCompletedError` (`TRIP_PAYOUT_FUNDS_NOT_COMPLETED`,
   409) dengan pesan Indonesia yang menyebut jumlah yang bisa dicairkan.
   `requirePayoutAllowed` (status SUSPENDED) tidak diubah.
@@ -87,4 +91,9 @@ aman.
   `src/__tests__/integration/trip-payout-after-completion.test.ts` (Postgres
   sungguhan: sebelum/sesudah complete, Batch campuran, sisa Refund sebagian,
   race Payout vs `cancelBatch`, race Payout vs `completeBatch`, dua approval
-  bersamaan).
+  bersamaan), plus Batch CANCELLED (termasuk sisa Refund sebagian) dan CLOSED
+  yang tertahan, approve setelah `cancelBatch`, dan Payout APPROVED yang tetap
+  bisa di-complete walau Batch lain OPEN atau CANCELLED menahan dana. Seed
+  memakai `Payment.escrowReleasedAt` terisi, sehingga Refund men-debit
+  `TRIP_BALANCE`; pada race cancel, urutan cancel-dulu menolak dengan
+  `InsufficientBalanceError`, request-dulu dengan `TripPayoutFundsNotCompletedError`.
