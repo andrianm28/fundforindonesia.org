@@ -8,32 +8,20 @@
 
 ## Why
 
-Audit keamanan baca-saja alur Volunteer Trip (2026-10-02, `origin/main` 0f827b1)
-menemukan celah pada finalisasi Batch dan registrasi yang memungkinkan settlement
-terlambat:
+Audit keamanan baca-saja alur Volunteer Trip (2026-10-02) menemukan celah pada finalisasi Batch: Registration HOLD tidak ditangani saat Batch diselesaikan, dan settlement terlambat bisa mengonfirmasi Registration pada Batch yang sudah selesai, menciptakan inkonsistensi.
 
-1. **completeBatch tidak mengubah HOLD**: Ketika `completeBatch` dipanggil
-   (`src/lib/volunteer/trip.ts:613-621`), hanya Registration CONFIRMED yang
-   diubah status ke COMPLETED. Registration HOLD tetap HOLD, tidak pernah
-   otomatis di-release atau di-confirm. Ini menyebabkan Volunteer dengan HOLD
-   tidak jelas nasibnya dan tidak bisa melakukan aksi lebih lanjut.
-
-2. **confirmRegistration tidak memeriksa status Batch**: Fungsi `confirmRegistration`
-   (`src/lib/volunteer/trip.ts:936` area `updateMany`) tidak memeriksa apakah Batch
-   sudah COMPLETED. Jika `confirmRegistration` dipanggil setelah `completeBatch`,
-   settlement terlambat bisa mengubah HOLD menjadi CONFIRMED setelah tanggal
-   keberangkatan, menciptakan inkonsistensi.
+Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #178 untuk perbaikan.
 
 ## Scope
 
-- **completeBatch** (`src/lib/volunteer/trip.ts:613-621`):
+- **completeBatch** (`src/lib/volunteer/trip.ts`):
   - Setelah menyelesaikan Registration CONFIRMED, handle Registration HOLD:
     - Opsi 1: Release (delete) HOLD yang sudah hangus atau belum dibayar.
     - Opsi 2: Reject (set status ke REJECTED dengan alasan "Batch selesai, hold hangus").
     - Pilih dengan owner.
   - Gunakan `updateMany` untuk batch update, bukan loop.
 
-- **confirmRegistration** (`src/lib/volunteer/trip.ts:936`):
+- **confirmRegistration** (`src/lib/volunteer/trip.ts`):
   - Tambahkan guard: jika Batch sudah COMPLETED, tolak dengan error deskriptif.
   - Check dilakukan di bawah lock, sebelum `updateMany`.
 
