@@ -307,3 +307,24 @@ export class TripSuspensionUnrecordedError extends TripError {
     this.name = 'TripSuspensionUnrecordedError';
   }
 }
+
+/**
+ * A Trip Fee Payout asked for more than the money of Batches that are
+ * COMPLETED (ticket 49; CONTEXT.md, Payout). Trip Fee still sitting in a
+ * Batch that has not completed (open, closed, or cancelled with a residue)
+ * can still be refunded to a Volunteer, so it may not leave the platform.
+ * The message names the figure the Fundraiser may withdraw now, so the
+ * screen shows the reason and the way out. 409 through `domainErrorToHttp`.
+ */
+export class TripPayoutFundsNotCompletedError extends TripError {
+  readonly code = 'TRIP_PAYOUT_FUNDS_NOT_COMPLETED';
+  constructor(
+    readonly requested: number,
+    readonly withdrawable: number,
+  ) {
+    super(
+      `Pencairan Trip Fee hanya bisa dari dana Batch yang sudah Selesai. Yang bisa dicairkan saat ini Rp ${withdrawable.toLocaleString('id-ID')}, sedangkan diminta Rp ${requested.toLocaleString('id-ID')}. Sisanya masih tertahan di Batch yang belum selesai karena Volunteer-nya masih bisa meminta Refund; dana itu bisa dicairkan setelah Batch-nya diselesaikan.`,
+    );
+    this.name = 'TripPayoutFundsNotCompletedError';
+  }
+}
