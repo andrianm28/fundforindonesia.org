@@ -8,26 +8,14 @@
 
 ## Why
 
-Audit keamanan baca-saja alur Volunteer Trip (2026-10-02, `origin/main` 0f827b1)
-menemukan dua celah pada webhook payment:
+Audit keamanan baca-saja alur Volunteer Trip (2026-10-02) menemukan dua celah pada webhook payment: (1) provider pada URL webhook tidak divalidasi terhadap provider yang tercatat pada Payment, dan (2) provider mock tidak cukup dijaga dari aktif di lingkungan produksi.
 
-1. **Provider mismatch**: Route `/api/webhooks/[provider]` menerima URL parameter
-   `[provider]` tetapi tidak memvalidasi bahwa `event.provider` dalam body payload
-   cocok dengan `[provider]` di URL (`src/app/api/webhooks/[provider]/route.ts:171`, `:393`).
-   Attacker bisa mengirim webhook ke `/api/webhooks/mock` dengan `payment.provider = "midtrans"`
-   untuk memperdaya sistem.
-
-2. **Mock provider aktif di produksi**: Jalur `/api/webhooks/mock` aktif selama
-   `MOCK_MIDTRANS_SERVER_KEY` ada di lingkungan (`src/lib/payments/index.ts:73`).
-   Jika env var ini tidak dihapus saat deploy ke produksi, attacker bisa mengirim
-   event palsu melalui `/api/webhooks/mock` dengan signature yang valid, karena mock
-   provider memverifikasi HMAC `serverKey` (`mock-provider.ts:120-130`) dan siapa pun yang
-   memegang key itu bisa memalsukan event.
+Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #179 untuk perbaikan.
 
 ## Scope
 
-- Update route webhook di `src/app/api/webhooks/[provider]/route.ts`:
-  - Ekstrak `payment.provider` dari database (setelah `findUnique`, baris 171).
+- Update route webhook (`src/app/api/webhooks/[provider]/route.ts`):
+  - Ekstrak `payment.provider` dari database setelah Payment ditemukan.
   - Bandingkan `payment.provider === [provider]` (dari URL). Jika tidak cocok, tolak
     dengan 400 atau 404.
   
@@ -42,7 +30,7 @@ menemukan dua celah pada webhook payment:
 
 - Tes: Webhook dengan `[provider]` di URL tidak cocok dengan `payment.provider` di
   database ditolak dengan 400/404.
-- Tes: Webhook ke `/api/webhooks/mock` ditolak atau diabaikan di lingkungan non-test.
+- Tes: provider mock ditolak atau diabaikan di lingkungan produksi.
 - Dokumentasi: .env produksi tidak boleh menyertakan `MOCK_MIDTRANS_SERVER_KEY`.
 
 ## Keputusan implementasi
@@ -68,6 +56,3 @@ menemukan dua celah pada webhook payment:
   `docker-compose.prod.yml` tidak lagi mewajibkan `MOCK_MIDTRANS_SERVER_KEY`.
   `docker-compose.yml` (dev) dan smoke test `cd.yml` (hanya /api/health)
   dibiarkan.
-- **Perhatian owner**: deployment produksi yang saat ini masih
-  `PAYMENT_PROVIDER=mock` akan menjawab 503 di webhook mock dan donasi/payout
-  mock sampai provider sungguhan dipasang atau flag di-opt-in.
