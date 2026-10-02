@@ -9,6 +9,8 @@ import {
   BatchFullError,
   AlreadyRegisteredError,
   BatchLockedByRegistrationsError,
+  BatchNotOpenError,
+  BatchQuotaBelowSeatsError,
   OwnTripRegistrationError,
   RegistrationNotCancellableError,
 } from '@/lib/volunteer-trip-errors';
@@ -47,6 +49,9 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
   let holdRegistration: typeof import('@/lib/volunteer/trip').holdRegistration;
   let cancelRegistration: typeof import('@/lib/volunteer/trip').cancelRegistration;
   let editBatch: typeof import('@/lib/volunteer/trip').editBatch;
+  let cancelBatch: typeof import('@/lib/volunteer/trip').cancelBatch;
+  let completeBatch: typeof import('@/lib/volunteer/trip').completeBatch;
+  let confirmRegistration: typeof import('@/lib/volunteer/trip').confirmRegistration;
 
   beforeAll(async () => {
     if (!DATABASE_URL) return;
@@ -70,7 +75,7 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
     const adapter = new PrismaPg({ connectionString: url });
     const { PrismaClient: RealPrismaClient } = await import('@/generated/prisma/client');
     prisma = new RealPrismaClient({ adapter });
-    ({ holdRegistration, cancelRegistration, editBatch } = await import('@/lib/volunteer/trip'));
+    ({ holdRegistration, cancelRegistration, editBatch, cancelBatch, completeBatch, confirmRegistration } = await import('@/lib/volunteer/trip'));
   }, 120_000);
 
   afterAll(async () => {
@@ -263,17 +268,212 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
     }
   });
 
+  // The loop above only shows the orders the scheduler happens to pick. This
+  // one FORCES the interleaving that breaks an edit without its locks: a
+  // statement-level trigger makes the edit's own UPDATE of the Batch sleep,
+  // which is after it counted the seats (none) and before it writes. A hold
+  // started inside that gap commits first when the edit holds no lock; with
+  // the Trip -> Batch -> Registrations locks the hold waits for the edit.
+  it('forces a hold into the gap between an edit\'s seat count and its write: the hold must wait and see the new date', async () => {
+    const GAP_MS = 900;
+    const dba = new Client({ connectionString: databaseUrlFor(databaseName) });
+    await dba.connect();
+    await dba.query(`
+      CREATE FUNCTION ffi_test_edit_gap() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN PERFORM pg_sleep(${GAP_MS / 1000}); RETURN NULL; END $$;
+      CREATE TRIGGER ffi_test_edit_gap BEFORE UPDATE ON "VolunteerBatch"
+        FOR EACH STATEMENT EXECUTE FUNCTION ffi_test_edit_gap();
+    `);
+    try {
+      const { tripId, batchId, fundraiserId } = await makeBatch({ maxQuota: 5, departsInDays: 30 });
+      const volunteerId = await makeUser();
+      const before = await prisma.volunteerBatch.findUniqueOrThrow({ where: { id: batchId } });
+      const newStart = new Date(before.startDate.getTime() + 2 * MS_PER_DAY);
+      const newEnd = new Date(before.endDate.getTime() + 2 * MS_PER_DAY);
+
+      const edit = editBatch(prisma, {
+        tripId,
+        batchId,
+        actor: { userId: fundraiserId, assignments: [] },
+        edits: { startDate: newStart, endDate: newEnd },
+      }).then((r) => ({ r, at: Date.now() }));
+      await new Promise((resolve) => setTimeout(resolve, GAP_MS / 3));
+      const hold = holdRegistration(prisma, { tripId, batchId, volunteerId }).then((r) => ({ r, at: Date.now() }));
+
+      const [editDone, holdDone] = await Promise.all([edit, hold]);
+
+      // Invariant: a live Registration never sits on a Batch whose dates
+      // moved after it was taken, i.e. if the dates moved, the hold finished
+      // after the edit did and so saw them.
+      const after = await prisma.volunteerBatch.findUniqueOrThrow({ where: { id: batchId } });
+      expect(await prisma.registration.count({ where: { batchId, status: { in: ['HOLD', 'CONFIRMED'] } } })).toBe(1);
+      expect(after.startDate).toEqual(newStart);
+      expect(holdDone.at).toBeGreaterThanOrEqual(editDone.at);
+    } finally {
+      await dba.query('DROP TRIGGER ffi_test_edit_gap ON "VolunteerBatch"; DROP FUNCTION ffi_test_edit_gap();');
+      await dba.end();
+    }
+  }, 30_000);
+
+  // Ticket 48 review: an edit racing the other writers that take the same
+  // locks. Each must settle (no deadlock: the vitest timeout is the detector)
+  // and leave a state no interleaving could produce wrongly.
+  async function batchWithRegistration(opts: { departsInDays: number; status: 'HOLD' | 'CONFIRMED'; minQuota: number }) {
+    const made = await makeBatch({ maxQuota: 5, departsInDays: opts.departsInDays });
+    await prisma.volunteerBatch.update({ where: { id: made.batchId }, data: { minQuota: opts.minQuota } });
+    const volunteerId = await makeUser();
+    const registration = await prisma.registration.create({
+      data: {
+        volunteerId,
+        batchId: made.batchId,
+        status: opts.status,
+        holdExpiresAt: new Date(Date.now() + (opts.status === 'HOLD' ? 30 * 60 * 1000 : -60 * 60 * 1000)),
+      },
+    });
+    const payment = await prisma.payment.create({
+      data: {
+        registrationId: registration.id,
+        provider: 'mock',
+        method: 'bank_transfer',
+        providerRef: `ref-${process.pid}-${next()}`,
+        amount: 500_000,
+        status: opts.status === 'CONFIRMED' ? 'PAID' : 'PENDING',
+        ...(opts.status === 'CONFIRMED' ? { paidAt: new Date(), settledAt: new Date() } : {}),
+      },
+    });
+    return { ...made, registrationId: registration.id, paymentId: payment.id };
+  }
+
+  it('settles an edit racing a settlement (confirmRegistration): the seat is confirmed, dates stay locked, the quota edit lands', async () => {
+    for (let round = 0; round < 6; round++) {
+      const { tripId, batchId, fundraiserId, registrationId } = await batchWithRegistration({
+        departsInDays: 30,
+        status: 'HOLD',
+        minQuota: 1,
+      });
+      const before = await prisma.volunteerBatch.findUniqueOrThrow({ where: { id: batchId } });
+      const actor = { userId: fundraiserId, assignments: [] };
+
+      const [edit, confirm, dateEdit] = await Promise.allSettled([
+        editBatch(prisma, { tripId, batchId, actor, edits: { maxQuota: 2 } }),
+        prisma.$transaction((tx) => confirmRegistration(tx, { registrationId })),
+        editBatch(prisma, {
+          tripId,
+          batchId,
+          actor,
+          edits: { startDate: new Date(before.startDate.getTime() + MS_PER_DAY) },
+        }),
+      ]);
+
+      expect(confirm).toMatchObject({ status: 'fulfilled', value: { outcome: 'confirmed' } });
+      expect(edit.status).toBe('fulfilled');
+      // HOLD or CONFIRMED, the seat is live either way: the dates stay locked.
+      expect(dateEdit.status).toBe('rejected');
+      expect((dateEdit as PromiseRejectedResult).reason).toBeInstanceOf(BatchLockedByRegistrationsError);
+      const after = await prisma.volunteerBatch.findUniqueOrThrow({ where: { id: batchId } });
+      expect(after).toMatchObject({ maxQuota: 2, minQuota: 1, startDate: before.startDate, status: 'OPEN' });
+      expect((await prisma.registration.findUniqueOrThrow({ where: { id: registrationId } })).status).toBe('CONFIRMED');
+    }
+  }, 30_000);
+
+  it('refuses a minQuota raise above the CONFIRMED count whichever way it races a settlement', async () => {
+    for (let round = 0; round < 4; round++) {
+      const { tripId, batchId, fundraiserId, registrationId } = await batchWithRegistration({
+        departsInDays: 30,
+        status: 'HOLD',
+        minQuota: 1,
+      });
+      const [edit, confirm] = await Promise.allSettled([
+        editBatch(prisma, { tripId, batchId, actor: { userId: fundraiserId, assignments: [] }, edits: { minQuota: 2 } }),
+        prisma.$transaction((tx) => confirmRegistration(tx, { registrationId })),
+      ]);
+      expect(confirm.status).toBe('fulfilled');
+      expect(edit.status).toBe('rejected');
+      expect((edit as PromiseRejectedResult).reason).toBeInstanceOf(BatchQuotaBelowSeatsError);
+      expect((await prisma.volunteerBatch.findUniqueOrThrow({ where: { id: batchId } })).minQuota).toBe(1);
+    }
+  }, 30_000);
+
+  it('settles an edit racing cancelBatch: the Batch ends CANCELLED with one Refund, and the edit landed first or was refused as not OPEN', async () => {
+    for (let round = 0; round < 6; round++) {
+      const { tripId, batchId, fundraiserId, registrationId, paymentId } = await batchWithRegistration({
+        departsInDays: 30,
+        status: 'CONFIRMED',
+        minQuota: 2,
+      });
+      const actor = { userId: fundraiserId, assignments: [] };
+
+      const [edit, cancel] = await Promise.allSettled([
+        editBatch(prisma, { tripId, batchId, actor, edits: { maxQuota: 4 } }),
+        cancelBatch(prisma, { tripId, batchId, actor }),
+      ]);
+
+      expect(cancel.status).toBe('fulfilled');
+      const after = await prisma.volunteerBatch.findUniqueOrThrow({ where: { id: batchId } });
+      expect(after.status).toBe('CANCELLED');
+      if (edit.status === 'fulfilled') {
+        expect(after.maxQuota).toBe(4);
+      } else {
+        expect(edit.reason).toBeInstanceOf(BatchNotOpenError);
+        expect(after.maxQuota).toBe(5);
+      }
+      expect((await prisma.registration.findUniqueOrThrow({ where: { id: registrationId } })).status).toBe('CANCELLED');
+      expect(await prisma.refund.count({ where: { paymentId } })).toBe(1);
+    }
+  }, 30_000);
+
+  it('settles an edit racing completeBatch: the Batch ends COMPLETED with attendance recorded, and the edit landed first or was refused as not OPEN', async () => {
+    for (let round = 0; round < 6; round++) {
+      // Ended a week ago, so it may be completed.
+      const { tripId, batchId, fundraiserId, registrationId } = await batchWithRegistration({
+        departsInDays: -10,
+        status: 'CONFIRMED',
+        minQuota: 1,
+      });
+      const actor = { userId: fundraiserId, assignments: [] };
+
+      const [edit, complete] = await Promise.allSettled([
+        editBatch(prisma, { tripId, batchId, actor, edits: { maxQuota: 4 } }),
+        completeBatch(prisma, { tripId, batchId, actor, attendedRegistrationIds: [registrationId] }),
+      ]);
+
+      expect(complete.status).toBe('fulfilled');
+      const after = await prisma.volunteerBatch.findUniqueOrThrow({ where: { id: batchId } });
+      expect(after.status).toBe('COMPLETED');
+      if (edit.status === 'fulfilled') {
+        expect(after.maxQuota).toBe(4);
+      } else {
+        expect(edit.reason).toBeInstanceOf(BatchNotOpenError);
+        expect(after.maxQuota).toBe(5);
+      }
+      expect((await prisma.registration.findUniqueOrThrow({ where: { id: registrationId } })).attended).toBe(true);
+    }
+  }, 30_000);
+
   it('refuses a date edit once a Volunteer holds a seat, and a past date on an empty Batch', async () => {
     const { tripId, batchId, fundraiserId } = await makeBatch({ maxQuota: 5, departsInDays: 30 });
     const actor = { userId: fundraiserId, assignments: [] };
     const past = new Date(Date.now() - MS_PER_DAY);
     await expect(editBatch(prisma, { tripId, batchId, actor, edits: { startDate: past, registrationDeadline: past } })).rejects.toThrow(
-      /masa depan/,
+      /startDate harus di masa depan/,
+    );
+    // The message names the field that is wrong, not always startDate.
+    const later = new Date(Date.now() + 90 * MS_PER_DAY);
+    await expect(editBatch(prisma, { tripId, batchId, actor, edits: { startDate: later, endDate: past } })).rejects.toThrow(
+      /endDate harus di masa depan/,
+    );
+    await expect(editBatch(prisma, { tripId, batchId, actor, edits: { registrationDeadline: past } })).rejects.toThrow(
+      /registrationDeadline harus di masa depan/,
     );
     await holdRegistration(prisma, { tripId, batchId, volunteerId: await makeUser() });
-    await expect(
-      editBatch(prisma, { tripId, batchId, actor, edits: { startDate: new Date(Date.now() + MS_PER_DAY) } }),
-    ).rejects.toBeInstanceOf(BatchLockedByRegistrationsError);
+    const locked = await editBatch(prisma, {
+      tripId,
+      batchId,
+      actor,
+      edits: { startDate: new Date(Date.now() + MS_PER_DAY), endDate: new Date(Date.now() + 5 * MS_PER_DAY) },
+    }).catch((e: unknown) => e);
+    expect(locked).toBeInstanceOf(BatchLockedByRegistrationsError);
+    expect((locked as BatchLockedByRegistrationsError).message).toContain('startDate, endDate');
   });
 
   it('refuses the Trip\'s own Fundraiser as a Volunteer', async () => {

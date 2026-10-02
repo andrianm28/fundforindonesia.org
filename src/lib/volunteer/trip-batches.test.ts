@@ -499,6 +499,14 @@ describe('editBatch with Registrations (ticket 48)', () => {
     expect(db.batch()).toEqual(batchRow());
   });
 
+  it('names every locked field in the message, not just the first', async () => {
+    const db = withRegistration('CONFIRMED');
+    const error = await edit(db, { startDate: PAST, endDate: new Date('2026-12-30T00:00:00Z') });
+    expect(error).toBeInstanceOf(BatchLockedByRegistrationsError);
+    expect((error as BatchLockedByRegistrationsError).fields).toEqual(['startDate', 'endDate']);
+    expect((error as BatchLockedByRegistrationsError).message).toContain('startDate, endDate');
+  });
+
   it('also locks the dates for a HOLD that has not lapsed', async () => {
     const db = withRegistration('HOLD');
     expect(await edit(db, { startDate: SOON })).toBeInstanceOf(BatchLockedByRegistrationsError);

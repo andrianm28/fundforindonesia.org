@@ -615,7 +615,8 @@ export async function editBatch(
       (field) => changed[field] !== undefined && changed[field].getTime() !== batch[field].getTime(),
     );
     if (seats > 0) {
-      if (moved.length > 0) throw new BatchLockedByRegistrationsError(moved[0]);
+      const [firstMoved, ...otherMoved] = moved;
+      if (firstMoved) throw new BatchLockedByRegistrationsError([firstMoved, ...otherMoved]);
       if (changed.maxQuota !== undefined && changed.maxQuota < seats) {
         throw new BatchQuotaBelowSeatsError('maxQuota', `maxQuota tidak boleh di bawah jumlah kursi terpakai (${seats})`);
       }
