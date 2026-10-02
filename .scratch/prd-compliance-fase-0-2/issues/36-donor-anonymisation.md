@@ -4,7 +4,7 @@
 
 **Blocked by:** 16
 
-**Status:** ready-for-agent
+**Status:** in-review (PR #172)
 
 - [ ] Name, email and phone are anonymised on request, including the HMAC and ciphertext
 - [ ] Amounts and ledger entries are untouched

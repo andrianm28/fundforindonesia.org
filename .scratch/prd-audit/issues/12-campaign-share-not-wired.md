@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** in-review
+**Status:** done (PR #165, c31d703)
 
 **Blocked by:** —
 

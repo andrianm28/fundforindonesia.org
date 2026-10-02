@@ -7,7 +7,7 @@ of this one.
 
 **Blocked by:** 15 (React 19 comes with the Next 16 upgrade; framer-motion 13 targets it)
 
-**Status:** ready-for-agent
+**Status:** in-review (PR #168)
 
 - [ ] `framer-motion` 13.x (or the successor package the changelog names), one copy in `npm ls`
 - [ ] Every animated component still renders; the tests that mount them pass

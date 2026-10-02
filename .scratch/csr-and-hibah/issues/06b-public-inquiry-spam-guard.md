@@ -8,7 +8,7 @@ team cannot tell a real partner from noise.
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** in-review (PR #161)
 
 - [ ] A submission from one client is bounded: repeat posts from the same
       source are refused, and the refusal is a plain refusal rather than a

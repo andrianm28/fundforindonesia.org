@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done (PR #156, 40081bc)
 
 **Blocked by:** 33 (pemilih Batch), 35 (Trip dan Batch bisa dibuat lewat UI),
 40 (aturan settle terlambat, agar layar ini tidak menjanjikan hal yang salah).

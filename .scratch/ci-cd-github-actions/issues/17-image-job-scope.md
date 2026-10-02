@@ -11,7 +11,7 @@ minutes are free; this saves time, not money).
 
 **Blocked by:** 15 (avoid conflicting edits to `cd.yml` and `.trivyignore`)
 
-**Status:** in-review
+**Status:** done (PR #159, cd404d5)
 
 - [x] A docs-only PR skips `image`; a PR touching any path above runs it; every push to `main` runs it
 - [x] Skipping never blocks a merge: a skipped `image` still reports a passing (or neutral) status

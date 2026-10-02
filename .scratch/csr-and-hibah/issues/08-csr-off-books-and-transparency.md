@@ -9,7 +9,7 @@ never confused with money the ledger can account for.
 (Impact & Transparency's six-line breakdown does not exist yet as of this
 spec)
 
-**Status:** ready-for-agent
+**Status:** in-review (PR #174)
 
 - [ ] The Program detail page shows the off-books reported figure (ticket 01)
       next to, and visually distinct from, the ledger-backed Program Balance

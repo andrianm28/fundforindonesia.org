@@ -8,7 +8,7 @@ green and nothing else changes).
 
 **Blocked by:** none
 
-**Status:** in-review
+**Status:** done (PR #160, 40ff86b)
 
 - [ ] `dotenv` 18.x; `npx prisma generate` and the `migrations` CI job still read `DATABASE_URL`
 - [ ] Nothing in seed or Prisma config output leaks environment values

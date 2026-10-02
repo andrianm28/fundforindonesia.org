@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** ready-for-agent
+**Status:** in-review (PR #163)
 
 **Blocked by:** 35 (kolom `attended` dan penyelesaian Batch), 36 (Registration
 yang bisa dibuat lewat UI).
