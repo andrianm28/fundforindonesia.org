@@ -66,6 +66,8 @@ export type MoneyErrorCode =
   | "PAYMENT_SUBJECT_MISMATCH"
   | "REFUND_EXCEEDS_REMAINING"
   | "REFUND_NOT_ALLOWED_FOR_KIND"
+  | "DONATION_ANONYMISED"
+  | "ANONYMISATION_BLOCKED_BY_OPEN_REFUND"
   | "MANUAL_CONTRIBUTION_NOT_FOUND"
   | "MANUAL_CONTRIBUTION_TARGET_INVALID"
   | "MANUAL_CONTRIBUTION_INVALID"
@@ -296,6 +298,10 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // Campaign's Kind is what forbids the Refund, and no resend of the same
   // body changes that. 403 with the other policy refusals.
   REFUND_NOT_ALLOWED_FOR_KIND: 403,
+  // Both are states the request cannot change by being resent: the Donation
+  // was anonymised (ticket 36), or a Refund on it has not finished yet.
+  DONATION_ANONYMISED: 409,
+  ANONYMISATION_BLOCKED_BY_OPEN_REFUND: 409,
   MANUAL_CONTRIBUTION_NOT_FOUND: 404,
   // Unmet preconditions the Admin can fix by filling the form in properly,
   // like REFUND_EXCEEDS_REMAINING and DEADLINE_REQUIRED.

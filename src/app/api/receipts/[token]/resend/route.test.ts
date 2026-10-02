@@ -79,6 +79,23 @@ describe('POST /api/receipts/[token]/resend', () => {
     expect(mockSendReportingFailure).not.toHaveBeenCalled();
   });
 
+  it('answers 409 and sends nothing once the Donor has been anonymised (ticket 36)', async () => {
+    // The address is gone by design; a 500 "cannot resend" would read as a
+    // fault to fix, and a resend to a stale address would be worse.
+    mockFindUnique.mockResolvedValue(
+      makeReceipt({
+        lastSentAt: new Date('2026-09-26T09:00:00Z'),
+        donation: { ...makeReceipt().donation, donorId: null, donor: null, anonymisedAt: new Date('2026-10-01') },
+      }),
+    );
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(409);
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it('resends the email, bumps resendCount, and answers 200 once the cooldown has passed', async () => {
     mockFindUnique.mockResolvedValue(
       makeReceipt({ lastSentAt: new Date('2026-09-26T09:00:00Z'), resendCount: 1 }),
