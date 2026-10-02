@@ -226,7 +226,7 @@ Dana Net yang sudah lewat Escrow Hold dan belum dibayarkan lewat Payout. Selalu 
 _Avoid_: Collected amount, saldo, dana terkumpul (angka tampilan Gross)
 
 **Payout**:
-Permintaan Fundraiser untuk mengirim sebagian Campaign Balance ke Bank Account terverifikasinya, disetujui satu Admin, lalu ditarik dari dashboard penyedia dan ditandai selesai dengan bukti transfer oleh Admin yang berbeda. Hanya bisa diajukan dan disetujui selama Campaign Active, Expired, atau Completed; Suspended dan Cancelled menolaknya, termasuk bila Suspension jatuh di antara pengajuan dan persetujuan. Payout Trip Fee ditolak untuk Volunteer Trip yang Suspended, sama seperti untuk Campaign yang Suspended.
+Permintaan Fundraiser untuk mengirim sebagian Campaign Balance ke Bank Account terverifikasinya, disetujui satu Admin, lalu ditarik dari dashboard penyedia dan ditandai selesai dengan bukti transfer oleh Admin yang berbeda. Hanya bisa diajukan dan disetujui selama Campaign Active, Expired, atau Completed; Suspended dan Cancelled menolaknya, termasuk bila Suspension jatuh di antara pengajuan dan persetujuan. Payout Trip Fee ditolak untuk Volunteer Trip yang Suspended, sama seperti untuk Campaign yang Suspended. Payout Trip Fee juga hanya boleh atas dana dari Volunteer Batch yang sudah `COMPLETED` (diputuskan 2026-10-02, `rilis-1-benda/issues/49`): dana Batch yang belum selesai masih bisa di-refund ke Volunteer, jadi tidak boleh keluar. Saldo Trip dipegang per Trip, jadi batasnya berupa plafon: jumlah Payout paling banyak Trip Balance dikurangi dana Batch yang bukan `COMPLETED`, ditegakkan saat diminta, disetujui, dan diselesaikan.
 _Avoid_: Pencairan (di kode), disbursement, withdrawal
 
 **Usage Report**:

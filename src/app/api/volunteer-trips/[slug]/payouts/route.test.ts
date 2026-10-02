@@ -260,6 +260,6 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(data).toEqual({ escrowHold: 300_000, tripBalance: 150_000 });
+    expect(data).toEqual({ escrowHold: 300_000, tripBalance: 150_000, withdrawable: 150_000 });
   });
 });

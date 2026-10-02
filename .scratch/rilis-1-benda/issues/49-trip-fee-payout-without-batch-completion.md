@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, kode uang)
 
-**Status:** needs-info
+**Status:** in-review
 
 **Blocked by:** none
 
@@ -45,3 +45,46 @@ memeriksa state Batch tambahan.
 - Owner memberikan keputusan tentang aturan kapan Payout Trip Fee boleh ditarik.
 - Jika ada aturan baru: tes payout menolak sebelum kondisi terpenuhi, lolos setelah.
 - Menyentuh kode uang di `src/lib/subject-guard.ts`: review independen `sonnet` wajib.
+
+## Keputusan owner (Dri, 2026-10-02)
+
+Payout Trip Fee hanya boleh untuk dana dari Batch yang sudah `COMPLETED`.
+Ditegakkan saat Payout diminta, disetujui, dan diselesaikan, di bawah lock
+Trip yang sudah ada. Tanpa flag baru pada Payment/Payout dan tanpa skema baru.
+
+### Pilihan desain dan alasannya
+
+Saldo dipegang **per Trip** (`TRIP_BALANCE`, `ESCROW_HOLD` ber-`volunteerTripId`),
+bukan per Batch. Tetapi tiap entri buku besar Trip Fee bisa ditelusuri ke Batch
+lewat `Payment.registrationId -> Registration.batchId` (untuk leg Refund lewat
+`Refund.paymentId`). Karena itu dipilih opsi **plafon**, bukan larangan seluruh Trip:
+
+    dapat dicairkan = TRIP_BALANCE - max(0, saldo bersih TRIP_BALANCE Batch yang bukan COMPLETED)
+
+Leg Payout tidak milik Batch mana pun, jadi tidak ikut bagian "tertahan"; itu
+yang membuat pengurangan benar. Alasan tidak memilih "tidak boleh ada Batch OPEN
+dengan Registration live": Trip dengan Batch kedua yang masih terbuka akan
+mengunci dana Batch pertama yang sudah selesai, padahal tidak ada Volunteer yang
+bisa me-refund-nya. Plafon juga otomatis menahan sisa Batch `CANCELLED` (Batch
+itu tidak pernah `COMPLETED`; sisanya nol bila semua Refund penuh dibayar), sisi
+aman.
+
+- Kode: `src/lib/money/trip-payout-funds.ts` (`tripHeldBalance`,
+  `tripWithdrawableBalance`, `requireTripFundsFromCompletedBatches`), dipanggil
+  dari `requestPayout`, `approvePayout`, `completePayout` hanya untuk subject Trip.
+  Saat completion Payout sendiri sudah di-debit (saat approval), jadi diminta
+  dengan jumlah 0: sisa saldo harus tetap menutup dana yang tertahan.
+- Error baru `TripPayoutFundsNotCompletedError` (`TRIP_PAYOUT_FUNDS_NOT_COMPLETED`,
+  409) dengan pesan Indonesia yang menyebut jumlah yang bisa dicairkan.
+  `requirePayoutAllowed` (status SUSPENDED) tidak diubah.
+- `GET /api/volunteer-trips/[slug]/payouts` kini juga mengembalikan `withdrawable`.
+  Catatan: belum ada layar Payout Fundraiser untuk Trip (hanya API dan layar
+  Campaign); pesan alasan penolakan tampil lewat respons error API. Layar Trip
+  masih perlu tiket sendiri.
+- Canary tidak disentuh: `BankAccountNotEligibleError` di `payouts.ts` tetap 6,
+  `platformFeePortionFor` 3, `requireRefundAllowedForKind` 3. Jalur Campaign tidak berubah.
+- Tes: `src/lib/money/payouts.test.ts` (blok ticket 49),
+  `src/__tests__/integration/trip-payout-after-completion.test.ts` (Postgres
+  sungguhan: sebelum/sesudah complete, Batch campuran, sisa Refund sebagian,
+  race Payout vs `cancelBatch`, race Payout vs `completeBatch`, dua approval
+  bersamaan).

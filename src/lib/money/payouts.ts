@@ -1,5 +1,6 @@
 import type { Payout, PayoutBalanceCheck, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
+import { requireTripFundsFromCompletedBatches } from './trip-payout-funds';
 import { assertExactlyOnePayoutSubject } from './payout-subject';
 import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
@@ -199,6 +200,13 @@ export async function requestPayout(
   // cannot become a second opinion.
   if (exceedsPayoutBalance(amount, balance)) {
     throw new InsufficientBalanceError(amount, balance);
+  }
+
+  // Trip Fee only from COMPLETED Batches (ticket 49; CONTEXT.md, Payout): a
+  // different question from the cap above -- the money is there but may still
+  // be refunded. Asked under the same Trip lock; never for a Campaign.
+  if (subject.type === 'trip') {
+    await requireTripFundsFromCompletedBatches(tx, subject.tripId, amount);
   }
 
   const subjectFk =
@@ -446,6 +454,13 @@ export async function approvePayout(
     // changes WHEN the balance is read, not by how much may be taken of it.
     if (exceedsPayoutBalance(payout.amount, balance)) {
       throw new InsufficientBalanceError(payout.amount, balance);
+    }
+
+    // Re-judged at approval for the same reason as the status above: a Batch
+    // can have been cancelled, or its Refunds paid, since the request (ticket
+    // 49). Trip only.
+    if (subject.type === 'trip') {
+      await requireTripFundsFromCompletedBatches(tx, subject.tripId, payout.amount);
     }
 
     // And the other half, which no ledger read can supply: the money has to be
@@ -763,7 +778,7 @@ export async function completePayout(
 
     // Same guard, same order, as approvePayout: the subject this Payout is
     // for, locked before it is read.
-    const { state: subjectState } = await lockPayoutSubject(tx, payout);
+    const { subject, state: subjectState } = await lockPayoutSubject(tx, payout);
 
     // Never the Fundraiser of this Campaign or Trip, whoever approved it.
     if (subjectState) requireNotOwnerAsAdmin(subjectState, completedById);
@@ -775,6 +790,14 @@ export async function completePayout(
     // keeps alive, and a Trip's status rule (refused while Suspended) needs
     // the row; either way a null state is left to the checks below, as before.
     if (subjectState) requirePayoutAllowed(subjectState);
+
+    // Ticket 49: what is left of TRIP_BALANCE after this Payout's debit (posted
+    // at approval) must still cover the money of Batches that are not
+    // COMPLETED, so asked with 0. Catches a Payout approved before the rule
+    // existed, or whose Batch's money moved since. Trip only.
+    if (subject.type === 'trip') {
+      await requireTripFundsFromCompletedBatches(tx, subject.tripId, 0);
+    }
 
     // Predicated on the status, exactly as approvePayout is: the lock above
     // serialises operations on the Campaign's money, not two admins racing
