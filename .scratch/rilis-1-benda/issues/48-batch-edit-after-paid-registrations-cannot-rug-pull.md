@@ -8,41 +8,9 @@
 
 ## Why
 
-Audit keamanan baca-saja alur Volunteer Trip (2026-10-02, `origin/main` 0f827b1)
-menemukan celah severity **high** pada jalur uang Trip Fee. Tidak ada tiket lain
-yang menutupnya.
+Audit keamanan baca-saja alur Volunteer Trip (2026-10-02) menemukan celah severity **high** pada jalur uang Trip Fee: Batch yang sudah punya Registration berbayar masih bisa diubah tanggal dan kuotanya, sehingga hak Volunteer atas refund dan Payout Trip Fee tidak terjaga. Tidak ada tiket lain yang menutupnya.
 
-`editBatch` (`src/lib/volunteer/trip.ts:564-579`) mengubah `startDate`, `endDate`,
-`registrationDeadline`, `maxQuota`, `minQuota` pada Batch OPEN tanpa melihat
-apakah sudah ada Registration CONFIRMED, dan tanpa membandingkan tanggal dengan
-`now`. Satu-satunya aturan adalah `requireConsistentBatch` (`trip.ts:479-489`):
-`minQuota <= maxQuota`, `endDate >= startDate`, `registrationDeadline <= startDate`.
-Skema `editBatchSchema` (`src/app/api/volunteer-trips/[slug]/batches/[id]/route.ts:8-14`)
-hanya memeriksa bentuk. Pemilik Trip (atau Admin) boleh memanggilnya
-(`route.ts:50`).
-
-Skenario serangan (Fundraiser nakal, Trip ACTIVE, Volunteer sudah bayar):
-
-1. Fundraiser `PATCH` Batch: `startDate` dan `endDate` ke masa lalu (atau `startDate`
-   ke < 3 hari dari sekarang), `registrationDeadline` disesuaikan.
-2. Tabel refund Volunteer dihitung dari `batch.startDate`
-   (`src/lib/volunteer/refunds.ts:33-37`, dipakai `cancelRegistration`,
-   `trip.ts:905`): `daysToDeparture < 3` berarti refund 0. Volunteer yang
-   membatalkan tidak mendapat apa-apa.
-3. Karena `endDate` sudah lewat, Fundraiser memanggil `complete` (`trip.ts:609`
-   lolos), Batch menjadi COMPLETED, dan `cancelRegistration` menolak dengan
-   `BatchAlreadyCompletedError` (`trip.ts:894`). Volunteer tak punya jalan keluar;
-   `cancelBatch` pun tertutup karena Batch bukan OPEN.
-4. Trip Fee tidak punya syarat apa pun untuk Payout selain "bukan Suspended"
-   (`src/lib/money/payouts.ts:157-160`, `src/lib/subject-guard.ts:257-258`), jadi
-   setelah Escrow Hold 7 hari dari settlement Fundraiser mengajukan Payout atas
-   `TRIP_BALANCE`. Sebelum itu pun, Volunteer yang membatalkan di jendela 3-13 hari
-   lalu dibayar dari pool yang sudah dikuras Payout lewat `shortfall`
-   (`src/lib/money/refunds.ts:approveRefund`), yakni uang platform.
-
-Variasi yang lebih ringan: `maxQuota` bisa diturunkan di bawah jumlah Registration
-CONFIRMED, dan `minQuota` dinaikkan di atas jumlah CONFIRMED agar `cancelBatch`
-(`trip.ts:678`) lolos untuk membatalkan Batch sesuka hati.
+Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #170 untuk perbaikan.
 
 ## Scope
 
