@@ -7,6 +7,7 @@ import {
   MockPaymentProvider,
 } from './index';
 import { SumopodProvider } from './sumopod-provider';
+import { mutableEnv, setEnv } from '../../../tests/support/mutable-env';
 
 /**
  * The registry decides which adapter answers a given webhook URL, which makes
@@ -36,12 +37,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // NODE_ENV is typed read-only on process.env; a plain record view is not.
-  const env = process.env as Record<string, string | undefined>;
-  for (const k of ENV_KEYS) {
-    if (saved[k] === undefined) delete env[k];
-    else env[k] = saved[k];
-  }
+  for (const k of ENV_KEYS) setEnv(k, saved[k]);
 });
 
 describe('getPaymentProvider with no name', () => {
@@ -159,8 +155,7 @@ describe('getPaymentProvider when a named provider is not configured', () => {
 });
 
 describe('the mock provider outside tests (ticket 51)', () => {
-  // process.env.NODE_ENV is typed read-only; a plain record view lets a test set it.
-  const env = process.env as Record<string, string | undefined>;
+  const env = mutableEnv;
 
   it('refuses to build in production, even with its key set, and says why', () => {
     env.NODE_ENV = 'production';

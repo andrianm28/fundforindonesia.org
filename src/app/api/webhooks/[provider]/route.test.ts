@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 import { POST } from './route';
 
@@ -67,6 +67,8 @@ import {
 import { confirmRegistration, expireRegistrationHold, refundLateSettlement } from '@/lib/volunteer/trip';
 import { sendReportingFailure } from '@/lib/mail';
 import { formatRupiah } from '@/lib/utils/currency';
+import { MockPaymentProvider } from '@/lib/payments';
+import { setEnv } from '../../../../../tests/support/mutable-env';
 
 const mockConfirmRegistration = confirmRegistration as unknown as Mock;
 const mockExpireRegistrationHold = expireRegistrationHold as unknown as Mock;
@@ -1393,5 +1395,72 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     const debits = ledgerRows.filter((r) => r.direction === 'DEBIT').reduce((s, r) => s + r.amount, 0);
     const credits = ledgerRows.filter((r) => r.direction === 'CREDIT').reduce((s, r) => s + r.amount, 0);
     expect(debits).toBe(credits);
+  });
+});
+
+// Ticket 51. The adapter's own gate is covered in src/lib/payments/index.test.ts;
+// this is the route seam: with the REAL registry behind it (not the stubbed
+// getPaymentProvider the other tests use), a mock webhook in production
+// without the opt-in must be refused before anything is written.
+describe('POST /api/webhooks/mock in production (ticket 51)', () => {
+  const ENV_KEYS = ['NODE_ENV', 'ALLOW_MOCK_PAYMENT_PROVIDER', 'MOCK_MIDTRANS_SERVER_KEY'] as const;
+  const SERVER_KEY = 'test-mock-server-key';
+  let saved: Record<string, string | undefined>;
+
+  async function signedRequest(): Promise<NextRequest> {
+    const body = await new MockPaymentProvider({ serverKey: SERVER_KEY }).simulateWebhookPayload(
+      'order-unknown',
+      100_000,
+      'settlement',
+      'evt-prod-gate',
+    );
+    return createRequest(body);
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    setEnv('MOCK_MIDTRANS_SERVER_KEY', SERVER_KEY);
+    setEnv('NODE_ENV', 'production');
+    setEnv('ALLOW_MOCK_PAYMENT_PROVIDER', undefined);
+    const actual = await vi.importActual<typeof import('@/lib/payments')>('@/lib/payments');
+    mockGetPaymentProvider.mockImplementation(actual.getPaymentProvider);
+    mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
+    mockWebhookEventUpdate.mockResolvedValue({});
+    mockPaymentFindUnique.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    for (const k of ENV_KEYS) setEnv(k, saved[k]);
+  });
+
+  it('answers 503 and writes nothing, even for a validly signed event', async () => {
+    const response = await POST(await signedRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+    expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
+    expect(mockPaymentFindUnique).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('still answers 503 when ALLOW_MOCK_PAYMENT_PROVIDER is anything but exactly "true"', async () => {
+    for (const value of ['1', 'yes', 'TRUE', ' true']) {
+      setEnv('ALLOW_MOCK_PAYMENT_PROVIDER', value);
+      const response = await POST(await signedRequest(), routeContext());
+      expect(response.status).toBe(503);
+    }
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('runs as usual when ALLOW_MOCK_PAYMENT_PROVIDER is "true": the event is recorded and the Payment looked up', async () => {
+    setEnv('ALLOW_MOCK_PAYMENT_PROVIDER', 'true');
+
+    const response = await POST(await signedRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(mockWebhookEventCreate).toHaveBeenCalledTimes(1);
+    expect(mockPaymentFindUnique).toHaveBeenCalledTimes(1);
   });
 });

@@ -269,7 +269,7 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
   it.each([
     { label: 'Donation', trip: false },
     { label: 'Trip Fee', trip: true },
-  ])('refuses a mock-signed settlement for a sumopod $label Payment: 400, answered like an unknown ref, WebhookEvent kept unprocessed, nothing else written', async ({ trip }) => {
+  ])('refuses a mock-signed settlement for a sumopod $label Payment: 200, answered like an unknown ref, WebhookEvent kept unprocessed, nothing else written', async ({ trip }) => {
     sentMail.length = 0;
     const { payment } = trip ? await pendingTripFeePayment() : await pendingDonationPayment(false);
     await prisma.payment.update({ where: { id: payment.id }, data: { provider: 'sumopod' } });
