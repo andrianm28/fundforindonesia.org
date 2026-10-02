@@ -13,13 +13,12 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * How many days before a Campaign's deadline its Fundraiser is reminded, so
  * it does not lapse to Expired unattended (CONTEXT.md, Campaign Status).
  *
- * ASSUMPTION: ticket 20 does not name a lead time, and none is written down
- * in spec.md or CONTEXT.md either. Three days (a single reminder per
- * Campaign, never repeated -- see Campaign.deadlineReminderSentAt) is this
- * change's own choice, kept in one place so the owner can adjust it without
- * touching the sweep itself.
+ * Seven days, per PRD FFI-03 ("pengingat email saat tenggat tinggal tujuh
+ * hari"). One reminder per Campaign, never repeated -- see
+ * Campaign.deadlineReminderSentAt, which is independent of this number, so a
+ * Campaign already reminded under an earlier lead time is not reminded again.
  */
-export const CAMPAIGN_DEADLINE_REMINDER_DAYS = 3;
+export const CAMPAIGN_DEADLINE_REMINDER_DAYS = 7;
 
 // Defined in ./kind-authorisation-window.ts (shared with the Verifier's list); re-exported here.
 export { KIND_AUTHORISATION_EXPIRY_WARNING_DAYS };
