@@ -6,7 +6,7 @@ import { getFundraiserTripDetail } from '@/lib/volunteer/fundraiser';
 import { toWibDate } from '@/lib/volunteer/batch-dates';
 import { BATCH_STATUS_LABELS, TRIP_STATUS_LABELS } from '@/lib/volunteer/status-labels';
 import { formatRupiah } from '@/lib/utils/currency';
-import { formatWibDate } from '@/lib/volunteer/refund-table';
+import { formatWibDate } from '@/lib/volunteer/batch-dates';
 import { BatchActions } from '../_components/BatchActions';
 import { BatchForm } from '../_components/BatchForm';
 import { SubmitTripButton } from '../_components/SubmitTripButton';

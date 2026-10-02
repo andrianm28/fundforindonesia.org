@@ -5,10 +5,10 @@ import { getServerSession } from '@/lib/auth';
 import { getTripDetail } from '@/lib/volunteer/catalog';
 import { findOwnLiveRegistration } from '@/lib/volunteer/registration-view';
 import { volunteerRegistrationEnabled, VOLUNTEER_DISABLED_MESSAGE } from '@/lib/volunteer/registration-flag';
-import { getPaymentProvider } from '@/lib/payments';
+import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { registrationMethodFor } from '@/lib/volunteer/payment-method';
 import { formatRupiah } from '@/lib/utils/currency';
-import { formatWibDate } from '@/lib/volunteer/refund-table';
+import { formatWibDate } from '@/lib/volunteer/batch-dates';
 import { RefundTierTable } from '../../../_components/RefundTierTable';
 import { RegisterButton } from '../../../_components/RegisterButton';
 
@@ -28,14 +28,16 @@ interface PageProps {
 /**
  * The Registration method the active provider charges, as the donation route
  * checks it: a provider charges one method, so offering another would only
- * lead to a 503. An unconfigured provider falls back to QRIS; the API refuses
- * the Registration on its own in that case.
+ * lead to a 503. Only an unconfigured provider falls back to QRIS (the API
+ * refuses the Registration on its own in that case); a method or provider the
+ * app does not know is a bug and is thrown, never shown as QRIS.
  */
 function paymentMethodOfActiveProvider() {
   try {
     return registrationMethodFor(getPaymentProvider().method);
-  } catch {
-    return 'qris' as const;
+  } catch (error) {
+    if (error instanceof PaymentProviderNotConfiguredError) return 'qris' as const;
+    throw error;
   }
 }
 

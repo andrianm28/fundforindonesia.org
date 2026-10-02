@@ -8,8 +8,25 @@
 
 ## Konteks
 
-UAT lokal alur Volunteer Trip menemukan lima defect. Tiket ini dan PR-nya
-dibuat setelah pekerjaan selesai.
+UAT lokal alur Volunteer Trip menemukan lima defect. Tiket ini ditulis
+retroaktif setelah pekerjaan selesai, dan **gejala UAT tidak tercatat**: PR #173
+(deskripsi) dan commit 59ff8ba hanya mencatat perbaikannya, bukan apa yang
+diamati penguji (layar, langkah, pesan error). Jangan membaca daftar di bawah
+sebagai laporan gejala.
+
+Yang bisa dilacak ke sumbernya, sebagai penyebab menurut kode dan bukan gejala
+yang diamati:
+
+- Cover image: `z.string().url()` menolak path relatif `/uploads/...` yang
+  dikembalikan `/api/upload` (komentar `src/lib/cover-image.ts`, PR #173).
+- `HoldCountdown`: jam server dan klien berbeda pada render pertama, yang
+  menimbulkan hydration mismatch (komentar `HoldCountdown.tsx`).
+- Tiga defect lain (metode pembayaran, tanggal WIB, pesan Batch): hanya
+  perbaikannya yang tercatat (commit 59ff8ba).
+
+Kriteria penerimaan di bawah awalnya mengikuti kode, sehingga dua celah lolos:
+tanggal WIB baru diterapkan di halaman akun, dan halaman pendaftaran masih
+jatuh diam-diam ke `qris` (code-review PR #173). Keduanya kini tercakup.
 
 ## Cakupan
 
@@ -38,6 +55,8 @@ placeholder atau blob URL yang kini ditolak server).
 - [x] Route Trip dan Campaign (POST dan PATCH) memakai `coverImageSchema`, dengan tes.
 - [x] Metode Registration mengikuti provider aktif; provider tak dikenal tidak jatuh diam-diam ke `qris`.
 - [x] Tanggal Batch tampil sebagai tanggal WIB.
+- [x] Tanggal WIB juga berlaku di halaman publik: rentang Batch dan tenggat di `volunteer-trip/[slug]`, serta `nearestBatchStart` di katalog `volunteer-trip`, dengan tes untuk tanggal yang melewati batas hari UTC/WIB. Helper tanggal WIB ada di satu modul (`src/lib/volunteer/batch-dates.ts`).
+- [x] Fallback `qris` di halaman `daftar/[batchId]` hanya berlaku untuk provider yang tidak terkonfigurasi (`PaymentProviderNotConfiguredError`); metode atau provider yang tidak dikenal dilempar, dengan tes. Prop `paymentMethod` di `RegisterButton` wajib.
 - [x] `HoldCountdown` tidak menyebabkan hydration mismatch.
 - [x] Penolakan Batch menampilkan satu pesan Indonesia dengan label form.
 - [x] Upload cover gagal menghentikan submit tanpa POST, dengan tes komponen.

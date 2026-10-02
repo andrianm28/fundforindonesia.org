@@ -19,11 +19,11 @@ type Held = { registrationId: string; holdExpiresAt: string; redirectUrl?: strin
 export function RegisterButton({
   slug,
   batchId,
-  paymentMethod = 'qris',
+  paymentMethod,
 }: {
   slug: string;
   batchId: string;
-  paymentMethod?: RegistrationPaymentMethod;
+  paymentMethod: RegistrationPaymentMethod;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');

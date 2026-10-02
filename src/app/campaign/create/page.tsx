@@ -225,19 +225,18 @@ export default function CampaignCreatePage() {
     const uploadFormData = new FormData();
     uploadFormData.append('file', formData.coverImage);
 
-    let coverImageUrl: string;
+    let uploaded: { url?: string } | null = null;
     try {
       const uploadRes = await fetch('/api/upload', {
         method: 'POST',
         body: uploadFormData,
       });
-      if (!uploadRes.ok) throw new Error(uploadError);
-      const uploadData = (await uploadRes.json()) as { url?: string };
-      if (!uploadData.url) throw new Error(uploadError);
-      coverImageUrl = uploadData.url;
+      if (uploadRes.ok) uploaded = (await uploadRes.json()) as { url?: string };
     } catch {
-      throw new Error(uploadError);
+      uploaded = null;
     }
+    if (!uploaded?.url) throw new Error(uploadError);
+    const coverImageUrl = uploaded.url;
 
     const amount = parseInt(formData.targetAmount.replace(/\D/g, ''), 10);
     const payload = {

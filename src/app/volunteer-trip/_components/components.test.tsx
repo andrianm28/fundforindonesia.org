@@ -45,7 +45,7 @@ describe('Volunteer Registration client components (ticket 36)', () => {
         holdExpiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
         paymentInstructions: { type: 'qris', redirectUrl: 'https://pay.example/x' },
       });
-      render(<RegisterButton slug="sumba" batchId="b1" />);
+      render(<RegisterButton slug="sumba" batchId="b1" paymentMethod="qris" />);
       fireEvent.click(screen.getByRole('button', { name: /Daftar dan bayar/ }));
       await waitFor(() => expect(screen.getByRole('link', { name: /Bayar sekarang/ })).toBeTruthy());
       expect(fetchMock.mock.calls[0][0]).toBe('/api/volunteer-trips/sumba/batches/b1/registrations');
@@ -57,7 +57,7 @@ describe('Volunteer Registration client components (ticket 36)', () => {
 
     it('shows the server refusal as it comes, and offers no pay link', async () => {
       answer(503, { error: 'Pendaftaran Volunteer Trip belum dibuka. Silakan kembali lagi nanti.' });
-      render(<RegisterButton slug="sumba" batchId="b1" />);
+      render(<RegisterButton slug="sumba" batchId="b1" paymentMethod="qris" />);
       fireEvent.click(screen.getByRole('button', { name: /Daftar dan bayar/ }));
       await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/belum dibuka/));
       expect(screen.queryByRole('link', { name: /Bayar sekarang/ })).toBeNull();
@@ -65,7 +65,7 @@ describe('Volunteer Registration client components (ticket 36)', () => {
 
     it('does not post twice on a double click', async () => {
       answer(400, { error: 'x' });
-      render(<RegisterButton slug="sumba" batchId="b1" />);
+      render(<RegisterButton slug="sumba" batchId="b1" paymentMethod="qris" />);
       const button = screen.getByRole('button', { name: /Daftar dan bayar/ });
       fireEvent.click(button);
       fireEvent.click(button);
@@ -84,6 +84,26 @@ describe('Volunteer Registration client components (ticket 36)', () => {
       const client = renderToString(<HoldCountdown expiresAt="2026-10-01T10:30:00Z" />);
       expect(client).toBe(server);
       expect(server).toContain('--:--');
+    });
+
+    it('hydrates the server markup showing --:--, then shows the time once mounted', async () => {
+      const { renderToString } = await import('react-dom/server');
+      const { hydrateRoot } = await import('react-dom/client');
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-01T10:00:00Z'));
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      container.innerHTML = renderToString(<HoldCountdown expiresAt="2026-10-01T10:30:00Z" />);
+      expect(container.textContent).toBe('--:--');
+      const onRecoverableError = vi.fn();
+      let root: ReturnType<typeof hydrateRoot> | undefined;
+      act(() => {
+        root = hydrateRoot(container, <HoldCountdown expiresAt="2026-10-01T10:30:00Z" />, { onRecoverableError });
+      });
+      expect(onRecoverableError).not.toHaveBeenCalled();
+      expect(container.textContent).toBe('30:00');
+      act(() => root?.unmount());
+      container.remove();
     });
 
     it('counts down, and refreshes the page once when the hold runs out', () => {

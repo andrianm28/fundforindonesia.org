@@ -6,7 +6,7 @@ import { getServerSession } from '@/lib/auth';
 import { getTripDetail } from '@/lib/volunteer/catalog';
 import { LazyImage } from '@/components/ui/LazyImage';
 import { formatRupiah } from '@/lib/utils/currency';
-import { formatIndonesianDate } from '@/lib/utils/date';
+import { formatWibDate } from '@/lib/volunteer/batch-dates';
 import { volunteerRegistrationEnabled } from '@/lib/volunteer/registration-flag';
 
 /**
@@ -73,7 +73,7 @@ export default async function TripDetailPage({ params }: TripDetailPageProps) {
             {trip.batches.map((batch) => (
               <li key={batch.id} className="rounded-lg border border-border p-4">
                 <p className="font-medium text-text">
-                  {formatIndonesianDate(batch.startDate)} - {formatIndonesianDate(batch.endDate)}
+                  {formatWibDate(batch.startDate)} - {formatWibDate(batch.endDate)}
                 </p>
                 {batch.availability === 'OPEN' ? (
                   <p className="text-sm text-text-secondary">
@@ -83,7 +83,7 @@ export default async function TripDetailPage({ params }: TripDetailPageProps) {
                   <p className="text-sm font-medium text-text">{AVAILABILITY_LABEL[batch.availability]}</p>
                 )}
                 <p className="text-sm text-text-secondary">
-                  Tenggat pendaftaran {formatIndonesianDate(batch.registrationDeadline)}
+                  Tenggat pendaftaran {formatWibDate(batch.registrationDeadline)}
                 </p>
                 {canRegister && batch.availability === 'OPEN' && (
                   <Link

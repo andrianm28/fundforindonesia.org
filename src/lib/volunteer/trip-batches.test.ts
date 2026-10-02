@@ -404,6 +404,32 @@ describe('editBatch', () => {
     expect(db.rowLocks).toEqual(['VolunteerTrip:trip-1', 'VolunteerBatch:batch-1']);
   });
 
+  it.each([
+    ['minQuota above maxQuota', { minQuota: 99 }, 'minQuota', 'Kuota minimum tidak boleh melebihi kuota maksimum.'],
+    ['endDate before startDate', { endDate: new Date('2026-11-30T00:00:00Z') }, 'endDate', 'Tanggal selesai tidak boleh sebelum tanggal mulai.'],
+    [
+      'registrationDeadline after startDate',
+      { registrationDeadline: new Date('2026-12-02T00:00:00Z') },
+      'registrationDeadline',
+      'Tenggat pendaftaran tidak boleh setelah tanggal mulai.',
+    ],
+  ])('refuses an edit leaving %s, in Indonesian words with no field identifiers', async (_, edits, field, message) => {
+    const db = makeTripDb({ trips: [tripRow({ status: 'ACTIVE' })], batches: [batchRow()] });
+
+    const error = await editBatch(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      actor: fundraiser,
+      edits,
+      now: NOW,
+    }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(BatchFieldsInvalidError);
+    expect((error as BatchFieldsInvalidError).field).toBe(field);
+    expect((error as BatchFieldsInvalidError).message).toBe(message);
+    expect((error as BatchFieldsInvalidError).message).not.toMatch(/minQuota|maxQuota|startDate|endDate|registrationDeadline/);
+  });
+
   it('lets an Admin who does not own the Trip edit a Batch', async () => {
     const db = makeTripDb({ trips: [tripRow()], batches: [batchRow()] });
 
