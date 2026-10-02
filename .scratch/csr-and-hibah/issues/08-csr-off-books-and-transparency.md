@@ -43,5 +43,4 @@ spec)
   figures); the Program page reads both figures via
   `src/lib/program-money.ts`.
 
-- 2026-10-02: awaiting-merge. PR #182, commit 89205f1. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
 - 2026-10-02: awaiting-merge. PR #174, commit 850f211. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
