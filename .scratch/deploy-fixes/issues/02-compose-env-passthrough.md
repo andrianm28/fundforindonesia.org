@@ -2,7 +2,7 @@
 
 **Type:** bug (ditulis retroaktif)
 
-**Status:** awaiting-merge
+**Status:** done (PR #185, 993fdbb)
 
 **Blocked by:** none
 
@@ -73,3 +73,4 @@ Salin `docker-compose.prod.yml` terbaru ke host sebelum deploy.
 ## Comments
 
 - 2026-10-02: tiket ditulis retroaktif oleh koordinator; pekerjaan dibangun sebelum tiket ada (gap alur). PR #185, commit ee85078.
+- 2026-10-02: done. Merge ke main sebagai 993fdbb.

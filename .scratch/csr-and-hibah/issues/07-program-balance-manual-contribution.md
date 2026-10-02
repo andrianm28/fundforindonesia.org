@@ -8,7 +8,7 @@ Program is not a Campaign.
 **Blocked by:** 01, and cross-feature `prd-compliance-fase-0-2 34`
 (Manual Contribution does not exist yet as of this spec)
 
-**Status:** awaiting-merge
+**Status:** done (PR #182, 05d7292)
 
 - [x] New `LedgerAccount` value `PROGRAM_BALANCE`
 - [x] Manual Contribution's target is generalised from "always a Campaign" to
@@ -53,3 +53,4 @@ Program is not a Campaign.
   wajib dan self-approval baru diuji pada jalur Campaign, belum pada target
   Program; dan reversal tidak punya guard saldo untuk Program (mungkin
   over-reversal), menunggu keputusan owner.
+- 2026-10-02: done. Merge ke main sebagai 05d7292.

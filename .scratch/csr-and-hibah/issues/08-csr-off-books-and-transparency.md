@@ -9,7 +9,7 @@ never confused with money the ledger can account for.
 (Impact & Transparency's six-line breakdown does not exist yet as of this
 spec)
 
-**Status:** awaiting-merge
+**Status:** done (PR #174, d0540fe)
 
 - [x] The Program detail page shows the off-books reported figure (ticket 01)
       next to, and visually distinct from, the ledger-backed Program Balance
@@ -44,3 +44,4 @@ spec)
   `src/lib/program-money.ts`.
 
 - 2026-10-02: awaiting-merge. PR #174, commit 850f211. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: done. Merge ke main sebagai d0540fe.

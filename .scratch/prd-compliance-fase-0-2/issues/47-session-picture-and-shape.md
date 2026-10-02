@@ -7,7 +7,7 @@ placeholder even though the image is on the row.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** awaiting-merge
+**Status:** done (PR #166, 7a0c394)
 
 - [x] A user with a stored `avatar` has a picture in the session, so the
       picture renders wherever the session is the source
@@ -66,3 +66,4 @@ placeholder even though the image is on the row.
        provider-hosted stored picture is replaced.
   - `getSessionAndUser` is still open (latent under the `jwt` strategy); the
     unchecked box above stays unchecked.
+- 2026-10-02: done. Merge ke main sebagai 7a0c394.

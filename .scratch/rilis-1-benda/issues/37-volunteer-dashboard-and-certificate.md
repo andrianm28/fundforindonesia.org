@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** awaiting-merge
+**Status:** done (PR #163, 9333503)
 
 **Blocked by:** 35 (kolom `attended` dan penyelesaian Batch), 36 (Registration
 yang bisa dibuat lewat UI).
@@ -69,3 +69,4 @@ Registration. Sertakan tesnya.
   2. Allowlist host tautan bayar (`safePaymentLink`): default `sumopod.com` plus subdomain, override lewat `PAYMENT_LINK_ALLOWED_HOSTS`. Bila host `payment_link_url` provider berbeda, tautan bayar diam-diam menjadi null.
   3. Ada dua entri menu Volunteer di `/akun` ("Keikutsertaan Volunteer Saya" dan "Volunteer Trip Saya").
 - 2026-10-02: migrasi di-rename `20260930110000` menjadi `20261002180000_volunteer_certificate` (urutan setelah `20260930130000`); isi SQL tidak berubah.
+- 2026-10-02: done. Merge ke main sebagai 9333503.

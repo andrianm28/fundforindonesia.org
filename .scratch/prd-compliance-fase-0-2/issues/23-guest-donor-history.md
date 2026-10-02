@@ -4,7 +4,7 @@
 
 **Blocked by:** 16, 18
 
-**Status:** awaiting-merge
+**Status:** done (PR #186, 7aed972)
 
 - [x] History appears only after the account's email is verified by confirmation link
 - [x] Matching goes through the email HMAC, never a decrypted scan
@@ -40,3 +40,4 @@
 
 - 2026-10-02, builder (tindak lanjut code-review PR #186): `claimGuestDonations` kini memfilter `donorId: null`, `guestEmailHmac`, dan `guestEmailHmacKeyId` pada baca dan tulis; `isAnonymised` dihapus (tidak pernah efektif karena `select: { id: true }`). PR ini tidak merujuk `Donation.anonymisedAt`: Donation teranonimkan tidak bisa cocok karena #172 mengosongkan HMAC (dites di unit dan Postgres sungguhan). Rotasi kunci gagal-aman: donasi tamu dengan key id lama tidak diklaim akun dengan key id baru (ADR 0020, dites).
   **Tindak lanjut wajib setelah #172 merge:** tambahkan `anonymisedAt: null` ke `where` pada `findMany` dan `updateMany` di `src/lib/guest-donation-claim.ts`, dan tambahkan kasus tes Postgres sungguhan untuk Donation dengan `anonymisedAt` terisi. Tes Postgres yang ada sudah gagal bila Donation ber-HMAC kosong ikut diklaim.
+- 2026-10-02: done. Merge ke main sebagai 7aed972.

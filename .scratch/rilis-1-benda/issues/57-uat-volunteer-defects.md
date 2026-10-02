@@ -2,7 +2,7 @@
 
 **Type:** bug (ditulis retroaktif)
 
-**Status:** awaiting-merge
+**Status:** done (PR #173, 737bec5)
 
 **Blocked by:** none
 
@@ -71,3 +71,4 @@ form tidak lagi mengirimnya.
 ## Comments
 
 - 2026-10-02: tiket ditulis retroaktif oleh koordinator; pekerjaan dibangun sebelum tiket ada (gap alur). PR #173, commit 49f95dd.
+- 2026-10-02: done. Merge ke main sebagai 737bec5.

@@ -7,7 +7,7 @@ of this one.
 
 **Blocked by:** 15 (React 19 comes with the Next 16 upgrade; framer-motion 13 targets it)
 
-**Status:** awaiting-merge
+**Status:** done (PR #168, b501d70)
 
 - [x] `framer-motion` 13.x (or the successor package the changelog names), one copy in `npm ls`
 - [x] Every animated component still renders; the tests that mount them pass
@@ -28,3 +28,4 @@ perubahan kode. Upgrade ke ^13.5.0 (lockfile via `npm install`, satu salinan di
 perilaku reduced-motion tidak berubah; tindak lanjut terpisah bila diinginkan.
 Branch `claude/ci-cd-21-framer-motion`, PR belum dibuka. Dependabot #14 ditutup
 setelah PR ini merge.
+- 2026-10-02: done. Merge ke main sebagai b501d70.

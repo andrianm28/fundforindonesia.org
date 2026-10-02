@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, kode uang)
 
-**Status:** awaiting-merge
+**Status:** done (PR #170, 2c67348)
 
 **Blocked by:** none
 
@@ -60,3 +60,4 @@ disengaja tidak ditulis di sini.
 - 2026-10-02: scope tambahan: OwnTripRegistrationError (pemilik Trip tidak boleh mendaftar di Trip sendiri), endDate harus di masa depan, dan form Batch read-only saat terkunci; berasal dari audit, menunggu konfirmasi owner.
 - 2026-10-02: pilihan implementasi: tanggal Batch berisi Registration live dilarang berubah sama sekali (termasuk memundurkan); menunggu konfirmasi owner. Payout menunggu COMPLETED ditangani tiket 49 (PR #176).
 - 2026-10-02: awaiting-merge. PR #170. Status sebelumnya `in-review` (tidak sah), dikoreksi koordinator.
+- 2026-10-02: done. Merge ke main sebagai 2c67348.

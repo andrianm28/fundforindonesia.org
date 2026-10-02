@@ -4,7 +4,7 @@
 
 **Blocked by:** 7
 
-**Status:** awaiting-merge
+**Status:** done (PR #184, 6e6a2ab)
 
 - [ ] Every pre-existing test file that builds a session mock literal (`{ user: { id, role, isVerified, verificationType, ... } }`) without `assignments` gains it, matching this repo's established convention that `Session.user` fields are non-optional
 - [ ] No test's runtime assertions change — these are type-only fixes; `npx vitest run` was already fully green before this ticket and must stay that way
@@ -22,3 +22,4 @@ Deliberately not fixed inline during ticket 07's merge: 61 errors across roughly
   - **Cast dihapus.** `(session as Session)` di `src/lib/auth.test.ts` diganti helper `assignmentsOf(session: Session | DefaultSession)`. `callbacks.session` bertipe kembali `Session | DefaultSession`, dan hanya `Session.user` yang punya `assignments`; helper menyempitkan dengan operator `in` (tanpa cast, tanpa `as any`) dan melempar bila `user`/`assignments` hilang. Asersi `toEqual` tidak berubah. `vitest run src/lib/auth.test.ts`: 14 lulus. Jumlah tsc tetap 19, jadi `ci/baselines.json` tidak diubah (sudah 19).
   - **Kenapa 19, bukan 25.** Ukuran ulang `tsc --noEmit` pada commit merge tiket 07 (`c4620ae`) = 47 (sama dengan baseline main sebelum PR ini); angka 86/61/25 di tiket tidak bisa direproduksi, jadi "25 pre-existing" adalah perkiraan, bukan hitungan. Dari 47 itu, PR ini menghapus 28 error karena literal sesi tanpa `assignments` atau tipe sesi: `api-validation.property` 4, `profile-name-persistence.property` 3, `balance/route` 2, `campaigns/[slug]/route` 6, `user/profile/route` 6, `lib/auth.test` 4 (termasuk dua `session.user` possibly undefined), `useUnreadCount` 3. Sisa 19 tidak berhubungan dengan `assignments`: 17 error tipe mock Prisma (`mockResolvedValue`/`mock` tidak ada: search-filter-intersection 12, api-validation 4, profile-name-persistence 1) dan 2 `RequestInit` (auth-notifications 1, campaigns/[slug]/route 1). Tiket menyebut tiga berkas `RequestInit` termasuk role-management; role-management tidak punya error tsc di `c4620ae` maupun sekarang, jadi 25 vs 19 tidak lebih dari selisih perkiraan itu.
   - **Cakupan literal mock.** Tidak ada error tsc yang menyebut `assignments`/`session.user` tersisa; seluruh 19 error ada di daftar di atas. Berkas tes lain yang memakai `user: {` tanpa `assignments` (mis. donations, bank-accounts, password) tidak menghasilkan error karena `getServerSession` di sana di-mock tanpa tipe `Session`, jadi tidak ada literal yang perlu ditambah.
+- 2026-10-02: done. Merge ke main sebagai 6e6a2ab.
