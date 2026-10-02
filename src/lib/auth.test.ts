@@ -301,42 +301,106 @@ describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
   });
 
   it("stores a different provider picture and puts it on the token", async () => {
-    const token = await signIn("https://example.test/old.png", "https://example.test/new.png");
+    const token = await signIn("https://lh3.googleusercontent.com/old.png", "https://lh3.googleusercontent.com/new.png");
 
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: "user-1" },
-      data: { avatar: "https://example.test/new.png" },
+      data: { avatar: "https://lh3.googleusercontent.com/new.png" },
     });
-    expect(token.picture).toBe("https://example.test/new.png");
+    expect(token.picture).toBe("https://lh3.googleusercontent.com/new.png");
   });
 
   it("stores the provider picture for an account that had none", async () => {
-    await signIn(null, "https://example.test/new.png");
+    await signIn(null, "https://lh3.googleusercontent.com/new.png");
 
     expect(mockUpdate).toHaveBeenCalledOnce();
   });
 
   it("writes nothing when the picture is unchanged, or the provider sent none", async () => {
-    await signIn("https://example.test/same.png", "https://example.test/same.png");
-    await signIn("https://example.test/same.png", undefined);
+    await signIn("https://lh3.googleusercontent.com/same.png", "https://lh3.googleusercontent.com/same.png");
+    await signIn("https://lh3.googleusercontent.com/same.png", undefined);
 
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it("does not overwrite a picture the user uploaded here", async () => {
-    const token = await signIn("/uploads/me.jpg", "https://example.test/new.png");
+    const token = await signIn("/uploads/me.jpg", "https://lh3.googleusercontent.com/new.png");
 
     expect(mockUpdate).not.toHaveBeenCalled();
     expect(token.picture).toBe("/uploads/me.jpg");
   });
 
-  it("still signs in when the write fails, and puts nothing but id, picture and assignments on the token", async () => {
+  it("still signs in when the write fails, and logs only the message", async () => {
     mockUpdate.mockRejectedValueOnce(new Error("db down"));
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const token = await signIn("https://example.test/old.png", "https://example.test/new.png");
+    const token = await signIn("https://lh3.googleusercontent.com/old.png", "https://lh3.googleusercontent.com/new.png");
 
-    expect(token.picture).toBe("https://example.test/old.png");
-    expect(Object.keys(token).sort()).toEqual(["assignments", "id", "picture"]);
+    expect(token.picture).toBe("https://lh3.googleusercontent.com/old.png");
+    expect(logged).toHaveBeenCalledOnce();
+    expect(logged.mock.calls[0]!.some((arg) => arg instanceof Error)).toBe(false);
+    expect(logged.mock.calls[0]).toContain("db down");
+    logged.mockRestore();
+  });
+
+  it("adds only id, picture and assignments to what next-auth already put on the token", async () => {
+    const seeded = { name: "Andi", email: "andi@email.com", sub: "g-1", picture: "https://lh3.googleusercontent.com/old.png" };
+    const args = {
+      token: { ...seeded },
+      user: { id: "user-1", email: "andi@email.com", image: seeded.picture },
+      account: { type: "oauth", provider: "google", providerAccountId: "g-1" },
+      profile: { sub: "g-1", picture: "https://lh3.googleusercontent.com/new" },
+      trigger: "signIn",
+    } as unknown as JwtArgs;
+
+    const token = await authOptions.callbacks!.jwt!(args);
+
+    expect(token).toEqual({
+      ...seeded,
+      id: "user-1",
+      picture: "https://lh3.googleusercontent.com/new",
+      assignments: [],
+    });
+  });
+
+  it("writes no avatar for a Credentials login, whatever the profile says", async () => {
+    const token = await authOptions.callbacks!.jwt!({
+      token: { picture: null },
+      user: { id: "user-1", email: "andi@email.com", image: null },
+      account: { type: "credentials", provider: "credentials", providerAccountId: "user-1" },
+      profile: { picture: "https://lh3.googleusercontent.com/new" },
+      trigger: "signIn",
+    } as unknown as JwtArgs);
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(token.picture).toBeNull();
+  });
+
+  it.each([
+    ["http:", "http://lh3.googleusercontent.com/a"],
+    ["javascript:", "javascript:alert(1)"],
+    ["data:", "data:image/png;base64,AAAA"],
+    ["a host outside googleusercontent.com", "https://evil.example/a.png"],
+    ["a look-alike host", "https://googleusercontent.com.evil.example/a.png"],
+    ["a bare googleusercontent.com", "https://googleusercontent.com/a.png"],
+    ["a non-string", 42],
+  ])("rejects a provider picture that is %s", async (_label, picture) => {
+    const token = await signIn(null, picture);
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(token.picture).toBeNull();
+  });
+
+  it("accepts an https picture on a googleusercontent.com subdomain", async () => {
+    await signIn(null, "https://lh3.googleusercontent.com/a/abc=s96-c");
+
+    expect(mockUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("overwrites a stored picture only when it is a remote provider one", async () => {
+    await signIn("http://old.example/a.png", "https://lh3.googleusercontent.com/a");
+    expect(mockUpdate).not.toHaveBeenCalled();
+    await signIn("https://lh3.googleusercontent.com/old", "https://lh3.googleusercontent.com/a");
+    expect(mockUpdate).toHaveBeenCalledOnce();
   });
 });

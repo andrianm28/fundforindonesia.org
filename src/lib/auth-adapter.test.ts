@@ -348,4 +348,15 @@ describe('the picture on the user the adapter hands next-auth', () => {
     expect(updated.image).toBe('https://example.test/new.png');
     expect('avatar' in updated).toBe(false);
   });
+
+  it('leaves the stored avatar alone when updateUser is not given an image', async () => {
+    const { client, users } = prismaDouble({ users: [withAvatar('https://example.test/stored.png')] });
+    const adapter = buildAuthAdapter(client);
+
+    const updated = await adapter.updateUser!({ id: 'u1', name: 'Andi B' });
+
+    expect(users[0]!.avatar).toBe('https://example.test/stored.png');
+    expect(users[0]!.name).toBe('Andi B');
+    expect(updated.image).toBe('https://example.test/stored.png');
+  });
 });

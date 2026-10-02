@@ -19,6 +19,9 @@ placeholder even though the image is on the row.
 - [x] Signing in again with a different picture updates the stored one, and
       the session reflects the new one
 
+- [ ] `getSessionAndUser` is wrapped so a `database` session strategy would
+      not see a blank address (not handled by PR #166; still open, latent)
+
 ## Comments
 
 - 2026-09-27 (independent re-review of PR #89): the encryption contract
