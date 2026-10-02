@@ -8,24 +8,9 @@
 
 ## Why
 
-Audit keamanan baca-saja alur Volunteer Trip (2026-10-02, `origin/main` 0f827b1)
-menemukan tiga celah pada API responses dan validasi input:
+Audit keamanan baca-saja alur Volunteer Trip (2026-10-02) menemukan tiga celah pada respons API dan validasi input: (1) respons GET publik memuat field internal Trip, (2) `tripFeeAmount` kurang divalidasi, dan (3) `coverImage` kurang divalidasi.
 
-1. **fundraiserId terekspos**: Routes `/api/volunteer-trips` dan `/api/volunteer-trips/[slug]`
-   mengembalikan seluruh baris Trip termasuk `fundraiserId` di responses
-   (`src/app/api/volunteer-trips/[slug]/route.ts:95`,
-   `src/app/api/volunteer-trips/route.ts:77`). ID internal Fundraiser seharusnya
-   tidak visible ke public atau Volunteer untuk mencegah ID enumeration.
-
-2. **tripFeeAmount menerima desimal tanpa batas atas**: Validasi schema
-   (`src/app/api/volunteer-trips/route.ts:13`) hanya check `positive()` tanpa batas
-   atas maksimum, padahal kolom database adalah `Int` dengan presisi terbatas.
-   Attacker bisa submit `tripFeeAmount: 999999999.99` untuk overflow atau
-   calculation error.
-
-3. **coverImage menerima skema URL apa pun**: Route tidak memvalidasi bahwa
-   `coverImage` adalah URL HTTPS. Bisa menerima HTTP, `file://`, `data:`, atau
-   URL pihak ketiga yang tidak terpercaya.
+Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #177 untuk perbaikan.
 
 ## Scope
 
