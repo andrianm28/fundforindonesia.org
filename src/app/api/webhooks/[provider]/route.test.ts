@@ -203,6 +203,7 @@ function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
 function makePayment(overrides: Record<string, unknown> = {}) {
   return {
     id: 'payment-1',
+    provider: 'mock',
     amount: 100_000,
     status: 'PENDING',
     escrowHoldDays: 7,
@@ -233,6 +234,7 @@ function makePayment(overrides: Record<string, unknown> = {}) {
 function makeRegistrationPayment(overrides: Record<string, unknown> = {}) {
   return {
     id: 'payment-1',
+    provider: 'mock',
     amount: 250_000,
     status: 'PENDING',
     escrowHoldDays: 7,
@@ -337,7 +339,7 @@ describe('POST /api/webhooks/[provider]', () => {
     mockGetPaymentProvider.mockReturnValue({
       parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, provider: 'sumopod' }),
     });
-    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
     const { tx, ledgerRows } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -364,7 +366,7 @@ describe('POST /api/webhooks/[provider]', () => {
     mockGetPaymentProvider.mockReturnValue({
       parseWebhook: vi.fn().mockResolvedValue({ ...REGISTRATION_PAID_EVENT, provider: 'sumopod' }),
     });
-    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment({ provider: 'sumopod' }));
     mockConfirmRegistration.mockResolvedValue({ outcome: 'confirmed' });
     const { tx, ledgerRows } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
@@ -387,7 +389,7 @@ describe('POST /api/webhooks/[provider]', () => {
     mockGetPaymentProvider.mockReturnValue({
       parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, provider: 'sumopod' }),
     });
-    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
     const { tx } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -1100,6 +1102,48 @@ describe('POST /api/webhooks/[provider]', () => {
       where: { id: 'we-1' },
       data: { processedAt: expect.any(Date) },
     });
+  });
+
+  it('rejects an event whose verified provider is not the provider that created the Payment: 400, recorded, Payment untouched (ticket 51)', async () => {
+    // Signed and genuine for /api/webhooks/mock, but the Payment it names was
+    // charged through sumopod. Whoever holds one provider's secret must not be
+    // able to settle another provider's charge.
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(400);
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockWebhookEventCreate).toHaveBeenCalledTimes(1);
+    expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
+      where: { id: 'we-1' },
+      data: { processedAt: expect.any(Date) },
+    });
+    expect(mockConfirmRegistration).not.toHaveBeenCalled();
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
+  });
+
+  it('rejects a provider mismatch on a Trip Fee Payment too', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment({ provider: 'sumopod' }));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(400);
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockConfirmRegistration).not.toHaveBeenCalled();
+  });
+
+  it('rejects a provider mismatch before the terminal-status early exit, so it is never mistaken for a replay', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod', status: 'PAID' }));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(400);
   });
 
   it('rejects an event for a Payment already in a terminal status, without reprocessing it', async () => {

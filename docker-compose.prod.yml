@@ -57,8 +57,12 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       # No default, for the reason given in docker-compose.yml: a default
-      # webhook secret is a published one.
-      MOCK_MIDTRANS_SERVER_KEY: ${MOCK_MIDTRANS_SERVER_KEY:?set MOCK_MIDTRANS_SERVER_KEY in .env}
+      # webhook secret is a published one. Not required here (ticket 51): the
+      # mock adapter is disabled under NODE_ENV=production unless
+      # ALLOW_MOCK_PAYMENT_PROVIDER=true, so a production .env should carry
+      # neither variable.
+      MOCK_MIDTRANS_SERVER_KEY: ${MOCK_MIDTRANS_SERVER_KEY:-}
+      ALLOW_MOCK_PAYMENT_PROVIDER: ${ALLOW_MOCK_PAYMENT_PROVIDER:-}
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
       # Empty means "no Sumopod", which fails closed (see docker-compose.yml).
       SUMOPOD_API_KEY: ${SUMOPOD_API_KEY:-}

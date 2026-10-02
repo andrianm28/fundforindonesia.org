@@ -51,6 +51,24 @@ function requireEnv(key: string): string {
 }
 
 /**
+ * The mock adapter's own gate (ticket 51). It does no signature check a
+ * stranger could not pass with the key, and the key is the kind of variable
+ * that survives a copied .env into production unnoticed, so "the key is set"
+ * must not be what turns it on. Outside production it is always available
+ * (dev, vitest, CI e2e). In production it needs a deliberate, separate
+ * ALLOW_MOCK_PAYMENT_PROVIDER=true -- exactly that string, as with the other
+ * switches in this repo -- and otherwise answers as unconfigured, which the
+ * webhook route turns into a 503 and no route into a settlement.
+ */
+function requireMockAllowed(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+  if (process.env.ALLOW_MOCK_PAYMENT_PROVIDER === 'true') return;
+  throw new PaymentProviderNotConfiguredError(
+    'ALLOW_MOCK_PAYMENT_PROVIDER (the mock payment provider is disabled when NODE_ENV=production)',
+  );
+}
+
+/**
  * Every provider this build can speak to, keyed by the name that appears in
  * its webhook URL. Adding one is a new name in provider-names.ts plus a
  * builder here; nothing else in the app names a provider.
@@ -70,7 +88,10 @@ function requireEnv(key: string): string {
  * that resolves to no adapter at all.
  */
 const BUILDERS: Record<PaymentProviderName, () => PaymentProvider> = {
-  mock: () => new MockPaymentProvider({ serverKey: requireEnv('MOCK_MIDTRANS_SERVER_KEY') }),
+  mock: () => {
+    requireMockAllowed();
+    return new MockPaymentProvider({ serverKey: requireEnv('MOCK_MIDTRANS_SERVER_KEY') });
+  },
   sumopod: () =>
     new SumopodProvider({
       apiKey: requireEnv('SUMOPOD_API_KEY'),

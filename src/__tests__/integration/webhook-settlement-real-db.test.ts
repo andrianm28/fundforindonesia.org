@@ -21,7 +21,9 @@ import type { PrismaClient } from '@/generated/prisma/client';
  * The route is called end to end with a validly signed MockPaymentProvider
  * `settlement` event for (a) a Donation by an account holder, (b) a Guest
  * Donation whose email exists only as a ciphertext (ADR 0012), and (c) a Trip
- * Fee Registration. Skipped visibly, not passed, when TEST_DATABASE_URL is
+ * Fee Registration. Ticket 51 adds the provider-match rule: an event verified
+ * by one provider is refused, and leaves the Payment alone, when the Payment
+ * was charged through another. Skipped visibly, not passed, when TEST_DATABASE_URL is
  * unset.
  */
 
@@ -260,6 +262,47 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     expect(res.status).toBe(200);
     expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
     expect((await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).status).toBe('CONFIRMED');
+  });
+
+  // Ticket 51. The mock's signature is valid here -- the event is genuine for
+  // /api/webhooks/mock -- but the Payment was charged through sumopod.
+  it.each([
+    { label: 'Donation', trip: false },
+    { label: 'Trip Fee', trip: true },
+  ])('refuses a mock-signed settlement for a sumopod $label Payment: 400, WebhookEvent kept as processed, nothing else written', async ({ trip }) => {
+    sentMail.length = 0;
+    const { payment } = trip ? await pendingTripFeePayment() : await pendingDonationPayment(false);
+    await prisma.payment.update({ where: { id: payment.id }, data: { provider: 'sumopod' } });
+    const before = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+
+    const res = await sendPaid(payment.providerRef, payment.amount);
+
+    expect(res.status).toBe(400);
+    const after = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    expect(after.status).toBe('PENDING');
+    expect(after.paidAt).toBeNull();
+    expect(after.updatedAt).toEqual(before.updatedAt);
+    expect(await prisma.ledgerEntry.count({ where: { paymentId: payment.id } })).toBe(0);
+    expect(await prisma.receipt.count({ where: { donation: { payments: { some: { id: payment.id } } } } })).toBe(0);
+    expect(sentMail).toHaveLength(0);
+    const events = await prisma.webhookEvent.findMany({ where: { providerEventId: `evt-${payment.providerRef}` } });
+    expect(events).toHaveLength(1);
+    expect(events[0].provider).toBe('mock');
+    expect(events[0].processedAt).not.toBeNull();
+    if (trip) {
+      const registrationId = (await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).registrationId!;
+      expect((await prisma.registration.findUniqueOrThrow({ where: { id: registrationId } })).status).toBe('HOLD');
+    }
+  });
+
+  it('a mock-signed settlement for a sumopod Payment stays refused on redelivery', async () => {
+    const { payment } = await pendingDonationPayment(false);
+    await prisma.payment.update({ where: { id: payment.id }, data: { provider: 'sumopod' } });
+
+    expect((await sendPaid(payment.providerRef, 100_000)).status).toBe(400);
+    // Redelivery hits the processed WebhookEvent: an idempotent no-op, never a settlement.
+    expect((await sendPaid(payment.providerRef, 100_000)).status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PENDING');
   });
 
   // Idempotency: the provider retries. The same signed event delivered twice
