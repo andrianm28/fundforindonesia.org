@@ -261,6 +261,10 @@ _Avoid_: UTM, referrer, analytics
 Bukti Donation yang dikirim ke email Donor setelah Settlement, dengan halaman cetak yang bisa dibuka ulang dari email atau dashboard.
 _Avoid_: Invoice, tanda terima (di kode), kwitansi
 
+**Anonimisasi Donor**:
+Penghapusan identitas Donor dari Donation-nya atas permintaan Donor sendiri (FFI-16, tiket 36); bukan menyembunyikan nama di tampilan, itu opsi anonim per Donation. Yang dihapus pada tiap Donation: nama, email (HMAC dan ciphertext), telepon, dan tautan `donorId` ke akun; `isAnonymous` menjadi true dan `anonymisedAt` terisi. HMAC ikut dihapus karena deterministik: bila disimpan, baris itu tetap bisa dicocokkan dengan alamat yang sama. Yang dipertahankan: baris Donation (nominal, Campaign, tanggal), Payment, Receipt (halaman cetak menampilkan "Donor anonim"), dan seluruh jurnal buku besar, karena data keuangan disimpan sepuluh tahun; tidak ada angka ledger, Escrow, atau rekonsiliasi yang berubah. Guest Donor memintanya dari tautan di Receipt dan semua Donation tamu dengan HMAC email yang sama ikut dihapus; pengguna terdaftar dari pengaturan akun, untuk Donation yang tertaut ke akunnya, dan akunnya sendiri tidak dihapus. Idempoten dan tidak bisa dibatalkan, karena nilai aslinya sudah hilang. Ditunda selama masih ada Refund yang belum selesai pada Donation itu (selain COMPLETED, REJECTED, FAILED); sesudahnya, Donation yang sudah dianonimkan tidak bisa di-Refund lewat sistem (`createRefund` menolaknya) dan ditangani di luar. Tujuan Refund yang sudah selesai (bank, nama pemilik rekening, nomor tersegel) tidak disentuh, sebagai bukti ke mana uang kembali dikirim.
+_Avoid_: hapus akun, delete donor
+
 **Akad Wakaf**:
 Dokumen ikrar per Donation pada Campaign `wakaf`, memuat nama Wakif, nominal, peruntukan, dan nazhir, dikirim bersama Receipt.
 _Avoid_: Sertifikat wakaf, deed

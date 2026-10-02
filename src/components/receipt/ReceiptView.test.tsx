@@ -16,6 +16,8 @@ function baseProps() {
     amount: 250_000,
     paidAt: '2026-09-26T10:00:00.000Z',
     donorName: 'Sari',
+    anonymised: false,
+    accountOwned: false,
   };
 }
 
@@ -68,5 +70,58 @@ describe('ReceiptView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Kirim ulang ke email' }));
 
     await waitFor(() => expect(screen.getByText('Mohon tunggu')).toBeTruthy());
+  });
+});
+
+describe('ReceiptView, anonymisation (ticket 36)', () => {
+  it('asks for confirmation first, and sends nothing until the Donor confirms', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ReceiptView {...baseProps()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hapus identitas saya' }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/tidak dapat dibatalkan/i)).toBeTruthy();
+    expect(screen.getByText(/tidak dapat di-refund lewat sistem/i)).toBeTruthy();
+  });
+
+  it('posts to the anonymise route on confirm and shows the result', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'anonymised' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ReceiptView {...baseProps()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hapus identitas saya' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ya, anonimkan' }));
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/receipts/tok-1/anonymise', { method: 'POST' });
+    await waitFor(() => expect(screen.getByText(/sudah dianonimkan/i)).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Kirim ulang ke email' })).toBeNull();
+  });
+
+  it('shows the refusal, for instance an open Refund', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'Ada Refund yang belum selesai' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ReceiptView {...baseProps()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hapus identitas saya' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ya, anonimkan' }));
+
+    await waitFor(() => expect(screen.getByText('Ada Refund yang belum selesai')).toBeTruthy());
+  });
+
+  it('for an already anonymised Donation shows "Donor anonim", no name, and no way to resend or ask again', () => {
+    render(<ReceiptView {...baseProps()} anonymised donorName={null} />);
+
+    expect(screen.getByText('Donor anonim')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Hapus identitas saya' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Kirim ulang ke email' })).toBeNull();
+  });
+
+  it('for a Donation on an account points to account settings instead of offering the token route', () => {
+    render(<ReceiptView {...baseProps()} accountOwned />);
+
+    expect(screen.queryByRole('button', { name: 'Hapus identitas saya' })).toBeNull();
+    expect(screen.getByRole('link', { name: /Pengaturan/ }).getAttribute('href')).toBe('/akun/pengaturan');
   });
 });

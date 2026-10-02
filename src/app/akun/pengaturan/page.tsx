@@ -4,6 +4,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useRef } from 'react';
 import Image from 'next/image';
+import { AnonymiseDonationsSection } from '@/components/account/AnonymiseDonationsSection';
 
 export default function SettingsPage() {
   const { data: session, status, update } = useSession();
@@ -56,6 +57,9 @@ export default function SettingsPage() {
 
         {/* Password Section */}
         <PasswordSection />
+
+        {/* Donor anonymisation (PRD FFI-16, ticket 36) */}
+        <AnonymiseDonationsSection />
       </div>
     </div>
   );

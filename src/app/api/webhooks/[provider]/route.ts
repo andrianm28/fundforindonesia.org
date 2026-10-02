@@ -572,7 +572,9 @@ export async function POST(
           // (no second query); either missing is an anomaly this webhook
           // does not fail over, since the Payment has already settled --
           // it is logged for manual follow-up instead.
-          if (settled.receiptToken) {
+          // A Donation anonymised before it settled (ticket 36) has no address
+          // left to send to, by design: skip rather than log it as an anomaly.
+          if (settled.receiptToken && !donation!.anonymisedAt) {
             const resolved = resolveReceiptRecipient({
               donor: donation!.donor
                 ? { name: donation!.donor.name, email: readUserEmail(donation!.donor) }

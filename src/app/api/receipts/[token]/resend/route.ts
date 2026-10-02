@@ -37,6 +37,15 @@ export async function POST(
     return NextResponse.json({ error: 'Bukti donasi tidak ditemukan' }, { status: 404 });
   }
 
+  // Ticket 36: the address is gone by design. Say so, rather than a 500 that
+  // reads as a fault, and never reach for a stale one.
+  if (receipt.donation.anonymisedAt) {
+    return NextResponse.json(
+      { error: 'Identitas Donor sudah dianonimkan, bukti donasi tidak dapat dikirim ulang ke email' },
+      { status: 409 },
+    );
+  }
+
   const lastSent = receipt.lastSentAt ?? receipt.sentAt;
   if (lastSent && Date.now() - lastSent.getTime() < RESEND_COOLDOWN_MS) {
     return NextResponse.json(
