@@ -38,5 +38,13 @@ at the same time, for consistency.
 - Sisa yang dikerjakan: shell masih memakai abu-abu polos (admin) dan hex biru
   lama `#0073E6` (moderasi). Kini memakai token `primary`/`ink`; tanpa
   `ledger`. Tes: `AdminSidebar.test.tsx`, `moderasi/layout.test.tsx`.
-- Belum: verifikasi in-browser sebagai Admin dan Verifier (kriteria 4); akses
-  per peran dijaga layout (ADMIN / VERIFIER), bukan nav.
+- Kriteria 4 terverifikasi in-browser pada 2026-10-02 (Chromium headless,
+  build produksi `next build` + `next start`, Postgres lokal dengan data seed
+  dan kredensial dummy lokal). Akses per peran dijaga layout (ADMIN /
+  VERIFIER), bukan nav.
+  - Admin, `/admin`, 1280px dan 390px (menu "Buka menu" terbuka): 13 entri
+    sidebar terlihat, semuanya HTTP 200 tanpa 404 dan tanpa redirect.
+  - Verifier, `/moderasi`, 1280px dan 390px: 8 entri, semuanya HTTP 200 tanpa
+    404. Tidak ada tautan `/admin*` di shell; `/admin` oleh Verifier
+    dialihkan ke `/`.
+  - Tidak ada entri yang rusak. Tangkapan layar tidak di-commit.
