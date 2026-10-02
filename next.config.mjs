@@ -12,6 +12,9 @@ const nextConfig = {
   // allowlist would not do: campaign and trip cover images accept any https
   // URL, and even same-origin /uploads files only have their MIME type
   // checked by the client's claim.
+  // Native addon (ADR 0019): keep it out of the webpack bundle so Node loads the
+  // prebuilt .node binary at runtime; Next's standalone trace still copies it.
+  serverExternalPackages: ['@node-rs/bcrypt'],
   images: {
     unoptimized: true,
   },

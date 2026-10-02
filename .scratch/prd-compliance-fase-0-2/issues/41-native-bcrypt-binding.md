@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 - [ ] Password hashing and verification no longer occupy the main thread
 - [ ] Existing stored hashes keep working with no password reset and no migration, because the hash format is unchanged
@@ -26,3 +26,5 @@ Cross-compatibility was verified in both directions: the native implementation r
 **Why this matters beyond speed:** PRD section 9 requires the platform to hold 500 concurrent donations without failure and states that the payment queue must not block the page. A ten-second event-loop stall from a login burst violates both, and it would present as the whole site hanging rather than as a slow login, which makes it hard to diagnose in production.
 
 **Parent spec:** `.scratch/prd-compliance-fase-0-2/spec.md`
+
+- 2026-10-02: `@node-rs/bcrypt` via `src/lib/password-hash.ts`, ADR 0019. Compat tested both directions with real hashes (cost 4 and 12). Event-loop lag 5184ms -> 142ms (4 vCPU, shared). Threadpool left at default. Docker image build NOT run (no daemon could pull node:24-alpine, registry 429); musl binary checked statically only, so the first Docker build in CI/cd is the proof.

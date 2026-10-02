@@ -12,17 +12,15 @@ vi.mock("@/lib/prisma", () => ({
 
 // The credentials login is exercised through the module under test, so bcrypt
 // is stubbed here rather than run at the production cost factor. The factor
-// itself is verified against real bcryptjs in
-// `src/__tests__/integration/password-hash-cost.test.ts`.
-vi.mock("bcryptjs", () => ({
-  default: {
-    compare: vi.fn(),
-    hash: vi.fn(),
-    getRounds: vi.fn(),
-  },
+// itself is verified against real hashes in
+// `src/__tests__/integration/password-hash-cost.test.ts`; the cost is read off
+// the stored hash's prefix, so these tests set it through the stored string.
+vi.mock("@/lib/password-hash", () => ({
+  verifyPassword: vi.fn(),
+  hashPassword: vi.fn(),
 }));
 
-import bcrypt from "bcryptjs";
+import { hashPassword, verifyPassword } from "@/lib/password-hash";
 import type { CredentialsConfig } from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
@@ -32,9 +30,11 @@ import { lookupUserEmail, sealUserEmail } from "@/lib/contact-fields";
 const mockFindUnique = prisma.user.findUnique as unknown as Mock;
 const mockFindFirst = prisma.user.findFirst as unknown as Mock;
 const mockUpdate = prisma.user.update as unknown as Mock;
-const mockCompare = bcrypt.compare as unknown as Mock;
-const mockHash = bcrypt.hash as unknown as Mock;
-const mockGetRounds = bcrypt.getRounds as unknown as Mock;
+const mockCompare = verifyPassword as unknown as Mock;
+const mockHash = hashPassword as unknown as Mock;
+
+const HASH_AT_CURRENT_COST = `$2b$${PASSWORD_HASH_COST}$` + "x".repeat(53);
+const HASH_BELOW_CURRENT_COST = `$2b$${PASSWORD_HASH_COST - 2}$` + "x".repeat(53);
 
 /**
  * The credentials provider's `authorize`, which is where login lives.
@@ -191,7 +191,7 @@ describe("credentials login", () => {
     id: "user-1",
     name: "Test",
     avatar: null,
-    password: "$2a$10$weakened",
+    password: HASH_BELOW_CURRENT_COST,
     ...sealUserEmail("test@test.com"),
   };
 
@@ -202,7 +202,7 @@ describe("credentials login", () => {
   });
 
   it("returns the user on a correct password", async () => {
-    mockGetRounds.mockReturnValue(PASSWORD_HASH_COST);
+    mockFindFirst.mockResolvedValue({ ...storedUser, password: HASH_AT_CURRENT_COST });
 
     const result = await login({ email: "test@test.com", password: "secret123" });
 
@@ -210,7 +210,7 @@ describe("credentials login", () => {
   });
 
   it("rejects a wrong password", async () => {
-    mockGetRounds.mockReturnValue(PASSWORD_HASH_COST);
+    mockFindFirst.mockResolvedValue({ ...storedUser, password: HASH_AT_CURRENT_COST });
     mockCompare.mockResolvedValue(false);
 
     await expect(
@@ -224,7 +224,6 @@ describe("credentials login", () => {
   // cost is read off the stored hash's own prefix, so no second source of truth
   // has to be kept in sync and no row needs migrating.
   it("re-hashes at the current factor when the stored hash is weaker, without asking the user", async () => {
-    mockGetRounds.mockReturnValue(PASSWORD_HASH_COST - 2);
     mockHash.mockResolvedValue("$2a$12$rehashed");
 
     const result = await login({
@@ -245,7 +244,7 @@ describe("credentials login", () => {
   // the stored hash is actually below the current factor, so not on every login
   // and never on the request path.
   it("writes nothing when the stored hash is already at the current factor", async () => {
-    mockGetRounds.mockReturnValue(PASSWORD_HASH_COST);
+    mockFindFirst.mockResolvedValue({ ...storedUser, password: HASH_AT_CURRENT_COST });
 
     await login({ email: "test@test.com", password: "secret123" });
 
@@ -254,7 +253,6 @@ describe("credentials login", () => {
   });
 
   it("still signs the user in when the re-hash fails", async () => {
-    mockGetRounds.mockReturnValue(PASSWORD_HASH_COST - 2);
     mockHash.mockRejectedValue(new Error("database unavailable"));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 

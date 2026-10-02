@@ -20,11 +20,9 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-// Mock bcryptjs
-vi.mock('bcryptjs', () => ({
-  default: {
-    hash: vi.fn().mockResolvedValue('$2a$12$hashed_password_value'),
-  },
+// Mock the hashing wrapper (real cost/compat is covered in password-hash.test.ts)
+vi.mock('@/lib/password-hash', () => ({
+  hashPassword: vi.fn().mockResolvedValue('$2a$12$hashed_password_value'),
 }));
 
 // Mock auth
@@ -33,7 +31,7 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 import { prisma } from '@/lib/prisma';
-import bcrypt from 'bcryptjs';
+import { hashPassword } from '@/lib/password-hash';
 import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import { sealUserEmail } from '@/lib/contact-fields';
 import { getServerSession } from '@/lib/auth';
@@ -55,7 +53,7 @@ const mockNotificationCount = prisma.notification.count as unknown as Mock;
 const mockNotificationUpdateMany = prisma.notification.updateMany as unknown as Mock;
 const mockNotificationCreateMany = prisma.notification.createMany as unknown as Mock;
 const mockDonationFindMany = prisma.donation.findMany as unknown as Mock;
-const mockBcryptHash = bcrypt.hash as unknown as Mock;
+const mockBcryptHash = hashPassword as unknown as Mock;
 
 function createRequest(url: string, options?: RequestInit): NextRequest {
   return new NextRequest(`http://localhost:3000${url}`, options);

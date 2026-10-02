@@ -1,5 +1,3 @@
-import bcrypt from "bcryptjs";
-
 /**
  * The bcrypt cost factor every password on this platform is hashed at, in one
  * place, so no route hard-codes its own and tests can lower it without mocking
@@ -29,13 +27,7 @@ export const PASSWORD_HASH_COST = 12;
  * holds the plaintext rather than leaving it weak forever.
  */
 export function isHashAtCurrentCost(storedHash: string): boolean {
-  let rounds: number;
+  const match = /^\$2[abxy]\$(\d{2})\$/.exec(storedHash);
 
-  try {
-    rounds = bcrypt.getRounds(storedHash);
-  } catch {
-    return false;
-  }
-
-  return rounds === PASSWORD_HASH_COST;
+  return match !== null && Number(match[1]) === PASSWORD_HASH_COST;
 }
