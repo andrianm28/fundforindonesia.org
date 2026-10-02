@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, kode uang)
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -85,3 +85,5 @@ plus kasus baru di `donation-charge.test.ts` dan test registrations route.
 ## Comments
 
 - 2026-10-02: keputusan owner (Dri): Donation yang dibayar setelah Payment EXPIRED/FAILED tetap di-settle, tidak di-refund; Trip Fee yang kursinya hilang tetap di-refund penuh. Dicatat di ADR 0021 dan CONTEXT.md.
+
+- 2026-10-02: awaiting-merge. PR #180, commit 3b045ff. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
