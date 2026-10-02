@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done (PR #128, 8a65e3f)
 
 **Blocked by:** —
 
@@ -18,3 +18,7 @@ builder paralel begitu lajur L1 sibuk dengan Payout.
 
 Layar Admin untuk memutuskan Suspension (dengan atau tanpa Flag) dan
 menyetujui/menolak Cancellation.
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #128 (8a65e3f). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.
