@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, API quality)
 
-**Status:** awaiting-merge
+**Status:** done (PR #175, 314e2df)
 
 **Blocked by:** none
 
@@ -50,3 +50,4 @@ menemukan dua celah pada endpoint registrasi:
 
 - 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #175.
 - 2026-10-02: awaiting-merge. PR #175, commit 283aa99. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: done. Merge ke main sebagai 314e2df.

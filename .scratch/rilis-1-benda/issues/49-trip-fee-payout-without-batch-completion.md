@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, kode uang)
 
-**Status:** awaiting-merge
+**Status:** done (PR #176, 71b0408)
 
 **Blocked by:** none
 
@@ -98,3 +98,4 @@ aman.
 
 - 2026-10-02: awaiting-merge. PR #176, commit eba566a (kode dan dokumen tindak lanjut review dua sumbu; sebelumnya 7e2077b). Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
 - 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #176.
+- 2026-10-02: done. Merge ke main sebagai 71b0408.

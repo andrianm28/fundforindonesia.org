@@ -9,7 +9,7 @@ at the same time, for consistency.
 
 **Blocked by:** 01
 
-**Status:** awaiting-merge
+**Status:** done (PR #183, 0ad4aa7)
 
 - [ ] The real current admin/moderasi route set is audited first —
       `/admin/campaigns`, `/admin/users`, `/moderasi/campaigns`,
@@ -71,3 +71,4 @@ at the same time, for consistency.
 ## Comments
 
 - 2026-10-02: awaiting-merge. PR #183, commit 41ec5aa. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: done. Merge ke main sebagai 0ad4aa7.

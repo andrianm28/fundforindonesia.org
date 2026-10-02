@@ -2,7 +2,7 @@
 
 **Type:** bug (ditulis retroaktif)
 
-**Status:** awaiting-merge
+**Status:** done (PR #171, ec362df)
 
 **Blocked by:** none
 
@@ -51,3 +51,4 @@ apa pun dari `main`.
 ## Comments
 
 - 2026-10-02: tiket ditulis retroaktif oleh koordinator; pekerjaan dibangun sebelum tiket ada (gap alur). PR #171, commit 9d7f5f1.
+- 2026-10-02: done. Merge ke main sebagai ec362df.

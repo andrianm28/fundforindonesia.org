@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan)
 
-**Status:** awaiting-merge
+**Status:** done (PR #179, 7021205)
 
 **Blocked by:** none
 
@@ -81,3 +81,4 @@ Kriteria:
 
 - 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #179.
 - 2026-10-02: awaiting-merge. PR #179, commit e2c9bd9. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: done. Merge ke main sebagai 7021205.

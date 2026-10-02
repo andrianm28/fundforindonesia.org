@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, kode uang)
 
-**Status:** awaiting-merge
+**Status:** done (PR #180, fe3504b)
 
 **Blocked by:** none
 
@@ -76,3 +76,4 @@ donations, route retry, dan route registrations, serta test webhook route.
 - 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #180.
 - 2026-10-02: keputusan owner (Dri): Donation yang dibayar setelah Payment EXPIRED/FAILED tetap di-settle, tidak di-refund; Trip Fee yang kursinya hilang tetap di-refund penuh. Dicatat di ADR 0021 dan CONTEXT.md.
 - 2026-10-02: awaiting-merge. PR #180, commit 3b045ff. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: done. Merge ke main sebagai fe3504b.

@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan)
 
-**Status:** awaiting-merge
+**Status:** done (PR #178, 7f71c49)
 
 **Blocked by:** none
 
@@ -59,3 +59,4 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #178 untuk p
 
 - 2026-10-02: awaiting-merge. PR #178, commit d3a2ece. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
 - 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #178.
+- 2026-10-02: done. Merge ke main sebagai 7f71c49.
