@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 /**
  * Guards docker-compose.prod.yml, the file the host deploys from
@@ -99,5 +99,48 @@ describe("docker-compose.prod.yml", () => {
       'app - "127.0.0.1:8093:3000"',
       'db - "127.0.0.1:18093:5432"',
     ]);
+  });
+});
+
+/**
+ * Compose passes env to the app container by listing it (ops/deploy.sh only
+ * hands .env to compose for interpolation), so a variable the server code reads
+ * but the app service does not list never reaches the container: the jobs
+ * endpoint answers 503 and mail is never sent.
+ */
+describe("docker-compose.prod.yml env passthrough", () => {
+  // Read by code under src/ but deliberately not passed to the app container.
+  const NOT_PASSED = new Set([
+    "NODE_ENV", // set by the image
+    "TEST_DATABASE_URL", // tests only
+    "LEDGER_CLAIM_TEST_DATABASE_URL", // tests only
+  ]);
+
+  function walk(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) return walk(p);
+      const isSource = /\.(ts|tsx)$/.test(e.name) && !/\.test\.(ts|tsx)$/.test(e.name);
+      return isSource && !p.includes("__tests__") ? [p] : [];
+    });
+  }
+
+  it("lists every env variable the server code reads", () => {
+    const used = new Set<string>();
+    for (const file of walk(resolve("src"))) {
+      const text = readFileSync(file, "utf8");
+      for (const m of text.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) used.add(m[1]);
+      for (const m of text.matchAll(/requireEnv\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*\)/g)) used.add(m[1]);
+      for (const m of text.matchAll(/_ENV\s*=\s*['"]([A-Z][A-Z0-9_]*)['"]/g)) used.add(m[1]);
+    }
+    const passed = new Set(
+      service("app")
+        .map((l) => l.match(/^ {6}([A-Z][A-Z0-9_]*):/)?.[1])
+        .filter((n): n is string => Boolean(n)),
+    );
+    const missing = [...used]
+      .filter((n) => !n.startsWith("NEXT_PUBLIC_") && !NOT_PASSED.has(n) && !passed.has(n))
+      .sort();
+    expect(missing, "add to the app environment: block, or to NOT_PASSED with a reason").toEqual([]);
   });
 });
