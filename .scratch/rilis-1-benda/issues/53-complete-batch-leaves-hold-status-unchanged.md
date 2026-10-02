@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan)
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -54,3 +54,5 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #178 untuk p
 ## Comments
 
 - 2026-10-02: keputusan owner (Dri): HOLD yang tersisa saat Batch COMPLETED menjadi EXPIRED, saat CANCELLED menjadi CANCELLED; pembayaran susulan di-refund penuh lewat late settlement; REJECTED tidak dipakai karena tidak ada di enum Registration. Dicatat di CONTEXT.md.
+
+- 2026-10-02: awaiting-merge. PR #178, commit d3a2ece. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
