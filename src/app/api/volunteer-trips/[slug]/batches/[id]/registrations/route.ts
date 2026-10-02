@@ -186,6 +186,10 @@ export async function POST(
         escrowHoldDays: ESCROW_HOLD_DAYS,
         status: PaymentStatus.PENDING,
         expiresAt: charge.expiresAt,
+        // Kept so a Volunteer who closed the payment page can open it again
+        // ("Lanjutkan pembayaran", ticket 37): the provider is not asked twice.
+        redirectUrl: charge.method === 'qris_redirect' ? charge.redirectUrl : null,
+        vaNumber: charge.method === 'bank_transfer_va' ? charge.vaNumber : null,
       },
     });
 

@@ -176,6 +176,33 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     expect(await response.json()).toMatchObject({ registrationId: 'registration-1', amount: 1_500_000 });
   });
 
+  it('stores the QRIS link on the Payment so "Lanjutkan pembayaran" can show it again (ticket 37)', async () => {
+    await POST(createRequest(), routeContext());
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ redirectUrl: 'https://pay.example/x', vaNumber: null }),
+      }),
+    );
+  });
+
+  it('stores the Virtual Account number on the Payment for a bank transfer charge (ticket 37)', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      name: 'sumopod',
+      method: 'bank_transfer_va',
+      createCharge: vi.fn().mockResolvedValue({
+        method: 'bank_transfer_va',
+        vaNumber: '8808123456',
+        expiresAt: new Date('2026-12-01'),
+      }),
+    });
+    await POST(createRequest({ paymentMethod: 'bank_transfer' }), routeContext());
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ redirectUrl: null, vaNumber: '8808123456' }),
+      }),
+    );
+  });
+
   it('records the provider under the one name the registry knows, whatever the adapter calls itself', async () => {
     // The same column, the same rule as a Donation's Payment: it is a join key
     // the Provider Balance groups by, so "SumoPod" and "sumopod" would file one

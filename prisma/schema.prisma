@@ -104,7 +104,7 @@ model User {
   payoutsRequested                  Payout[]                         @relation("PayoutRequester")
   payoutsApproved                   Payout[]                         @relation("PayoutApprover")
   payoutsCompleted                  Payout[]                         @relation("PayoutCompleter")
-  payoutBalanceChecksRecorded       PayoutBalanceCheck[]              @relation("PayoutBalanceCheckedBy")
+  payoutBalanceChecksRecorded       PayoutBalanceCheck[]             @relation("PayoutBalanceCheckedBy")
   usageReportsSubmitted             UsageReport[]                    @relation("UsageReportSubmitter")
   usageReportsDisputed              UsageReport[]                    @relation("UsageReportDisputer")
   refundsRequested                  Refund[]                         @relation("RefundRequester")
@@ -1316,6 +1316,12 @@ model Payment {
   /// proactively.
   registrationId String?       @unique
   registration   Registration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  /// How to pay this charge, kept so a Volunteer who closed the payment page
+  /// can open it again (ticket 37). Set only for a Trip Fee charge: the QRIS
+  /// link or the Virtual Account number the provider returned; null on every
+  /// Donation Payment and on rows created before this column existed.
+  redirectUrl    String?
+  vaNumber       String?
   /// The Payment Provider this charge went through, in the name that appears
   /// in its webhook URL, on this row and on the WebhookEvent for the same
   /// delivery -- one spelling per provider so the Provider Balance, which is
@@ -2394,12 +2400,37 @@ model Registration {
   updatedAt     DateTime           @updatedAt
 
   // Relations
-  volunteer User           @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
-  batch     VolunteerBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  payment   Payment?
+  volunteer   User                  @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  batch       VolunteerBatch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  payment     Payment?
+  certificate VolunteerCertificate?
 
   @@index([volunteerId])
   @@index([batchId])
   @@index([status])
   @@index([holdExpiresAt])
+}
+
+/// Sertifikat Keikutsertaan (ticket 37; prd-audit/issues/10). One per
+/// Registration, written only by completeBatch in the same transaction that
+/// completes the Batch, for a CONFIRMED Registration marked attended. The
+/// public page /sertifikat/[code] reads nothing but this row: every field
+/// below is a copy frozen at issue, so a later rename or Trip edit never
+/// changes an issued certificate. `code` is a cryptographically random,
+/// unguessable bearer reference (src/lib/volunteer/certificate.ts). No
+/// correction or revocation exists in Rilis 1, so there is no such column.
+/// onDelete: Restrict, as on VolunteerTripStatusChange.
+model VolunteerCertificate {
+  id             String   @id @default(cuid())
+  registrationId String   @unique
+  code           String   @unique
+  volunteerName  String
+  tripTitle      String
+  destination    String
+  batchStartDate DateTime
+  batchEndDate   DateTime
+  organizerName  String
+  issuedAt       DateTime @default(now())
+
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
 }

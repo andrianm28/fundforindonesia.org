@@ -124,7 +124,26 @@ export type IdentityVerificationRow = {
   note: string | null;
 };
 
+/** Only what the Sertifikat Keikutsertaan copies: a person's display name. */
+export type UserRow = { id: string; name: string };
+
+/** A Sertifikat Keikutsertaan; `registrationId` and `code` are unique, as in the schema. */
+export type CertificateRow = {
+  id: string;
+  registrationId: string;
+  code: string;
+  volunteerName: string;
+  tripTitle: string;
+  destination: string;
+  batchStartDate: Date;
+  batchEndDate: Date;
+  organizerName: string;
+  issuedAt: Date;
+};
+
 type Data = {
+  users: UserRow[];
+  certificates: CertificateRow[];
   trips: TripRow[];
   statusChanges: TripStatusChangeRow[];
   notifications: TripNotificationRow[];
@@ -171,6 +190,8 @@ function matches(row: object, where: Where): boolean {
 
 function clone(data: Data): Data {
   return {
+    users: data.users.map((u) => ({ ...u })),
+    certificates: data.certificates.map((c) => ({ ...c })),
     trips: data.trips.map((t) => ({ ...t })),
     statusChanges: data.statusChanges.map((s) => ({ ...s })),
     notifications: data.notifications.map((n) => ({ ...n })),
@@ -239,6 +260,7 @@ export function paymentRow(overrides: Partial<PaymentRow> = {}): PaymentRow {
 }
 
 type Seed = {
+  users?: UserRow[];
   trips?: TripRow[];
   batches?: BatchRow[];
   registrations?: RegistrationRow[];
@@ -248,6 +270,8 @@ type Seed = {
 
 export function makeTripDb(seed: Seed = {}) {
   let committed: Data = {
+    users: (seed.users ?? []).map((u) => ({ ...u })),
+    certificates: [],
     trips: (seed.trips ?? []).map((t) => ({ ...t })),
     statusChanges: [],
     notifications: [],
@@ -283,6 +307,36 @@ export function makeTripDb(seed: Seed = {}) {
           const rows = getData().trips.filter((t) => matches(t, where));
           for (const row of rows) Object.assign(row, data);
           return { count: rows.length };
+        },
+      },
+      user: {
+        findMany: async ({ where }: { where: Where }) =>
+          getData()
+            .users.filter((u) => matches(u, where))
+            .map((u) => ({ ...u })),
+      },
+      volunteerCertificate: {
+        // `skipDuplicates` is ON CONFLICT DO NOTHING on either unique column.
+        createMany: async ({
+          data,
+          skipDuplicates,
+        }: {
+          data: Array<Omit<CertificateRow, 'id' | 'issuedAt'> & { issuedAt?: Date }>;
+          skipDuplicates?: boolean;
+        }) => {
+          let count = 0;
+          for (const input of data) {
+            const clash = getData().certificates.some(
+              (c) => c.registrationId === input.registrationId || c.code === input.code,
+            );
+            if (clash) {
+              if (skipDuplicates) continue;
+              throw new Error('Unique constraint failed on VolunteerCertificate');
+            }
+            getData().certificates.push({ id: `certificate-${nextId++}`, issuedAt: new Date(), ...input });
+            count += 1;
+          }
+          return { count };
         },
       },
       volunteerTripStatusChange: {
@@ -481,6 +535,9 @@ export function makeTripDb(seed: Seed = {}) {
     },
     get ledgerEntries() {
       return committed.ledgerEntries;
+    },
+    get certificates() {
+      return committed.certificates;
     },
     get statusChanges() {
       return committed.statusChanges;

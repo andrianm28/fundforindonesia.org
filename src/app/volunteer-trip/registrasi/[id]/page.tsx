@@ -8,6 +8,7 @@ import { formatRupiah } from '@/lib/utils/currency';
 import { formatWibDate } from '@/lib/volunteer/refund-table';
 import { HoldCountdown } from '../../_components/HoldCountdown';
 import { CancelRegistrationButton } from '../../_components/CancelRegistrationButton';
+import { ContinuePayment } from '../../_components/ContinuePayment';
 
 /**
  * One of the signed-in Volunteer's own Registrations (ticket 36): its status,
@@ -59,11 +60,17 @@ export default async function RegistrationPage({ params }: PageProps) {
           diperbarui otomatis begitu pembayaran Trip Fee kami terima.
         </p>
       )}
+      {view.status === 'HOLD' && <ContinuePayment instructions={view.paymentInstructions} />}
       {view.status === 'CONFIRMED' && (
         <p className="text-sm text-text">
           Pembayaran Trip Fee {formatRupiah(view.paidAmount ?? view.tripFee)} sudah kami terima dan kursi Anda
           dipastikan.
         </p>
+      )}
+      {view.certificateCode && (
+        <Link href={`/sertifikat/${view.certificateCode}`} className="inline-block text-primary font-medium text-sm">
+          Lihat sertifikat
+        </Link>
       )}
       {view.status === 'EXPIRED' && (
         <p className="text-sm text-text-secondary">

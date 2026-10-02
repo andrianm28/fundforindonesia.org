@@ -170,6 +170,43 @@ describe('Registration page', () => {
     expect(screen.getByRole('button', { name: 'Batalkan Registrasi' })).toBeInTheDocument();
   });
 
+  it('offers "Lanjutkan pembayaran" on a HOLD with the stored link (ticket 37)', async () => {
+    view.getVolunteerRegistration.mockResolvedValue(
+      reg({
+        status: 'HOLD',
+        paidAmount: null,
+        cancelRefundAmount: 0,
+        paymentInstructions: { redirectUrl: 'https://pay.example/abc', vaNumber: null },
+      }),
+    );
+    render(await RegistrationPage(params));
+    expect(screen.getByRole('link', { name: 'Lanjutkan pembayaran' })).toHaveAttribute('href', 'https://pay.example/abc');
+  });
+
+  it('shows the stored Virtual Account number on a HOLD (ticket 37)', async () => {
+    view.getVolunteerRegistration.mockResolvedValue(
+      reg({ status: 'HOLD', paidAmount: null, paymentInstructions: { redirectUrl: null, vaNumber: '8808123' } }),
+    );
+    render(await RegistrationPage(params));
+    expect(screen.getByText('8808123')).toBeInTheDocument();
+  });
+
+  it('says how to recover when a HOLD has no stored instructions, and never shows a pay link', async () => {
+    view.getVolunteerRegistration.mockResolvedValue(
+      reg({ status: 'HOLD', paidAmount: null, cancelRefundAmount: 0, paymentInstructions: null }),
+    );
+    render(await RegistrationPage(params));
+    expect(screen.queryByRole('link', { name: 'Lanjutkan pembayaran' })).toBeNull();
+    expect(screen.getByText(/Petunjuk pembayaran tidak tersedia/)).toBeInTheDocument();
+  });
+
+  it('shows no "Lanjutkan pembayaran" on a CONFIRMED Registration, and links its certificate (ticket 37)', async () => {
+    view.getVolunteerRegistration.mockResolvedValue(reg({ paymentInstructions: null, certificateCode: 'abcdefghijklmnopqrstuv' }));
+    render(await RegistrationPage(params));
+    expect(screen.queryByRole('link', { name: 'Lanjutkan pembayaran' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Lihat sertifikat' })).toHaveAttribute('href', '/sertifikat/abcdefghijklmnopqrstuv');
+  });
+
   it('shows Refund status for a cancelled Registration and offers no cancel', async () => {
     view.getVolunteerRegistration.mockResolvedValue(
       reg({ status: 'CANCELLED', refunds: [{ id: 'rf', amount: 1_250_000, status: 'REQUESTED' }] }),

@@ -46,6 +46,14 @@ describe('AkunPage', () => {
     expect(screen.queryByText('Menjadi Fundraiser')).toBeNull();
   });
 
+  it('links to the Volunteer dashboard (ticket 37)', () => {
+    mockUseSession.mockReturnValue(signedIn());
+
+    render(<AkunPage />);
+
+    expect(screen.getByRole('button', { name: /Registrasi Volunteer Saya/ })).toBeTruthy();
+  });
+
   it('makes no identity claim: nothing records a Verifier-checked identity yet (gap C2)', () => {
     mockUseSession.mockReturnValue(signedIn());
 
