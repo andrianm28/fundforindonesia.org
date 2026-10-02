@@ -685,6 +685,24 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(mockSendReportingFailure).not.toHaveBeenCalled();
   });
 
+  it('still answers 200, records the settlement and sends no Receipt when the anonymisedAt re-read throws (ticket 36)', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    mockDonationFindUnique.mockRejectedValue(new Error('connection lost'));
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(tx.payment.updateMany).toHaveBeenCalled();
+    expect(tx.receipt.create).toHaveBeenCalled();
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('payment-1'), expect.any(Error));
+    expect(JSON.stringify(error.mock.calls)).not.toContain('donor@example.test');
+  });
+
   it('emails the Receipt to a Guest Donor at their sealed guest email when there is no account', async () => {
     mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
     mockPaymentFindUnique.mockResolvedValue(

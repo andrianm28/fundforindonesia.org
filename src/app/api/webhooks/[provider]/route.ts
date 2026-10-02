@@ -579,55 +579,67 @@ export async function POST(
           // Receipt link in the meantime) is invisible to it: read the flag
           // again right before sending, so the mail never goes to an address
           // that has just been erased.
-          const freshDonation = settled.receiptToken
-            ? await prisma.donation.findUnique({
-                where: { id: donation!.id },
-                select: { anonymisedAt: true },
-              })
-            : null;
-          if (settled.receiptToken && !donation!.anonymisedAt && !freshDonation?.anonymisedAt) {
-            const resolved = resolveReceiptRecipient({
-              donor: donation!.donor
-                ? { name: donation!.donor.name, email: readUserEmail(donation!.donor) }
-                : null,
-              guestEmail: readDonationGuestEmail(donation!),
-              guestName: donation!.guestName,
-              collectingEntityName: campaign.collectingEntity?.name ?? null,
-            });
-            if (resolved.ok) {
-              let mail = receiptEmail({
-                to: resolved.recipient.recipientEmail,
-                donorName: resolved.recipient.donorName,
-                campaignTitle: campaign.title,
-                collectingEntityName: resolved.recipient.collectingEntityName,
-                amount: payment.amount,
-                paidAt,
-                printUrl: publicUrl(`/receipt/${settled.receiptToken}`),
+          // The re-read and the send share one try/catch: the settlement has
+          // already committed, so neither may turn this webhook into a 500. If
+          // the re-read itself fails we cannot tell whether the Donor was
+          // anonymised meanwhile, so fail safe: log (ids only, no PII) and send
+          // nothing rather than mail an address that may have been erased.
+          try {
+            const freshDonation = settled.receiptToken
+              ? await prisma.donation.findUnique({
+                  where: { id: donation!.id },
+                  select: { anonymisedAt: true },
+                })
+              : null;
+            if (settled.receiptToken && !donation!.anonymisedAt && !freshDonation?.anonymisedAt) {
+              const resolved = resolveReceiptRecipient({
+                donor: donation!.donor
+                  ? { name: donation!.donor.name, email: readUserEmail(donation!.donor) }
+                  : null,
+                guestEmail: readDonationGuestEmail(donation!),
+                guestName: donation!.guestName,
+                collectingEntityName: campaign.collectingEntity?.name ?? null,
               });
-
-              // Akad Wakaf rides the same delivery as the Receipt (PRD:
-              // "Akad Wakaf terkirim bersama Receipt") rather than a second
-              // email with its own send failure to track.
-              if (settled.akadWakafToken) {
-                mail = withAkadWakaf(mail, {
-                  wakifName: resolved.recipient.donorName,
+              if (resolved.ok) {
+                let mail = receiptEmail({
+                  to: resolved.recipient.recipientEmail,
+                  donorName: resolved.recipient.donorName,
+                  campaignTitle: campaign.title,
+                  collectingEntityName: resolved.recipient.collectingEntityName,
                   amount: payment.amount,
-                  purpose: campaign.title,
-                  nazhirName: resolved.recipient.collectingEntityName,
-                  printUrl: publicUrl(`/akad-wakaf/${settled.akadWakafToken}`),
+                  paidAt,
+                  printUrl: publicUrl(`/receipt/${settled.receiptToken}`),
                 });
-              }
 
-              await sendReportingFailure(mail, {
-                mail: 'receipt',
-                donationId: donation!.id,
-                paymentId: payment.id,
-              });
-            } else {
-              console.error(
-                `[webhooks/${providerParam}] settled payment ${payment.id} but could not send its Receipt: ${resolved.reason}`,
-              );
+                // Akad Wakaf rides the same delivery as the Receipt (PRD:
+                // "Akad Wakaf terkirim bersama Receipt") rather than a second
+                // email with its own send failure to track.
+                if (settled.akadWakafToken) {
+                  mail = withAkadWakaf(mail, {
+                    wakifName: resolved.recipient.donorName,
+                    amount: payment.amount,
+                    purpose: campaign.title,
+                    nazhirName: resolved.recipient.collectingEntityName,
+                    printUrl: publicUrl(`/akad-wakaf/${settled.akadWakafToken}`),
+                  });
+                }
+
+                await sendReportingFailure(mail, {
+                  mail: 'receipt',
+                  donationId: donation!.id,
+                  paymentId: payment.id,
+                });
+              } else {
+                console.error(
+                  `[webhooks/${providerParam}] settled payment ${payment.id} but could not send its Receipt: ${resolved.reason}`,
+                );
+              }
             }
+          } catch (err) {
+            console.error(
+              `[webhooks/${providerParam}] settled payment ${payment.id} (donation ${donation!.id}) but the Receipt email was not sent: re-read of anonymisedAt or send failed`,
+              err,
+            );
           }
         }
       } else {
