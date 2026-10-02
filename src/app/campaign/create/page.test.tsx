@@ -48,11 +48,13 @@ describe('CampaignCreatePage access', () => {
  */
 describe('CampaignCreatePage review step', () => {
   const calls: Array<{ url: string; method: string; body?: unknown }> = [];
+  let uploadAnswer: () => Response | Promise<Response>;
   let submission: { status: number; body: unknown };
   let sponsorOptions: { own: { id: string; name: string } | null; sponsors: { id: string; name: string }[] };
 
   beforeEach(() => {
     calls.length = 0;
+    uploadAnswer = () => Response.json({ url: 'https://cdn.test/cover.jpg' });
     submission = { status: 201, body: { campaign: { lifecycleStatus: 'SUBMITTED' } } };
     sponsorOptions = { own: null, sponsors: [{ id: 'sponsor', name: 'Yayasan Penaung' }] };
     mockUseSession.mockReturnValue(signedIn());
@@ -66,7 +68,7 @@ describe('CampaignCreatePage review step', () => {
           body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
         });
         if (url === '/api/partner-organisations/sponsors') return Response.json(sponsorOptions);
-        if (url === '/api/upload') return Response.json({ url: 'https://cdn.test/cover.jpg' });
+        if (url === '/api/upload') return uploadAnswer();
         if (url === '/api/campaigns') return Response.json({ slug: 'bantu-banjir-abc123' }, { status: 201 });
         return Response.json(submission.body, { status: submission.status });
       }),
@@ -128,6 +130,21 @@ describe('CampaignCreatePage review step', () => {
       '/api/campaigns',
       '/api/campaigns/bantu-banjir-abc123/verification-requests',
     ]);
+  });
+
+  it.each([
+    ['the upload answers an error', () => Response.json({ error: 'x' }, { status: 500 })],
+    ['the upload answers without a url', () => Response.json({})],
+    ['the upload request fails', () => Promise.reject(new Error('network'))],
+  ])('stops without creating the Campaign when %s', async (_name, answer) => {
+    uploadAnswer = answer;
+    await fillInToReview();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
+
+    expect(await screen.findByText('Gagal mengunggah gambar sampul. Silakan coba lagi.')).toBeDefined();
+    expect(calls.filter((c) => c.url === '/api/campaigns')).toHaveLength(0);
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it('keeps the Draft when submitting fails, and a retry submits it without creating another', async () => {

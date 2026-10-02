@@ -6,6 +6,7 @@ import { refusalResponse, refuseUnlessFundraiser } from '@/lib/refusal-response'
 import { requestPayout } from '@/lib/money/payouts';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 import { tripBalance, tripEscrowBalance } from '@/lib/money/ledger';
+import { tripWithdrawableBalance } from '@/lib/money/trip-payout-funds';
 
 const requestPayoutSchema = z.object({
   bankAccountId: z.string().min(1, 'Rekening bank harus dipilih'),
@@ -116,9 +117,14 @@ export async function GET(_request: NextRequest, context: any) {
   const refusal = refuseUnlessFundraiser({ kind: 'trip', ownerId: trip.fundraiserId }, session.user);
   if (refusal) return refusal;
 
-  const [escrowHold, tripBalanceAmount] = await prisma.$transaction((tx) =>
-    Promise.all([tripEscrowBalance(tx, trip.id), tripBalance(tx, trip.id)]),
-  );
+  // `withdrawable` is what a Payout may ask for now (ticket 49): the Trip
+  // Balance less the part still in a Batch that has not completed, which a
+  // Volunteer can still have refunded.
+  const { escrowHold, tripBalanceAmount, withdrawable } = await prisma.$transaction(async (tx) => ({
+    escrowHold: await tripEscrowBalance(tx, trip.id),
+    tripBalanceAmount: await tripBalance(tx, trip.id),
+    withdrawable: await tripWithdrawableBalance(tx, trip.id),
+  }));
 
-  return NextResponse.json({ escrowHold, tripBalance: tripBalanceAmount });
+  return NextResponse.json({ escrowHold, tripBalance: tripBalanceAmount, withdrawable });
 }

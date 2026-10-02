@@ -18,6 +18,7 @@ import {
 import { InvalidPayoutSubjectError } from './payout-subject';
 import { PayoutNotAllowedForStatusError } from '@/lib/subject-guard';
 import { OwnSubjectConflictError } from '@/lib/capacity';
+import { TripPayoutFundsNotCompletedError } from '@/lib/volunteer-trip-errors';
 import { UsageReportRequiredError } from '@/lib/usage-report-errors';
 import {
   validateProofReference,
@@ -55,6 +56,7 @@ type LedgerRow = {
   account: string;
   campaignId: string | null;
   volunteerTripId: string | null;
+  programId?: string | null;
 };
 
 function verifiedBankAccount(overrides: Record<string, unknown> = {}) {
@@ -86,6 +88,11 @@ function makeTx(
     /** The Volunteer Trip's stored status (ticket 38); ACTIVE unless a test says otherwise. */
     tripStatus?: string;
     payoutRow?: Record<string, unknown> | null;
+    /**
+     * Net TRIP_BALANCE still held by Batches that are not COMPLETED (ticket
+     * 49): what the `tripHeldBalance` read answers. Zero unless a test says so.
+     */
+    held?: number;
     /**
      * The row `campaignBlockingUsageReport` (@/lib/usage-reports.ts) should
      * find via `tx.payout.findFirst` -- a prior COMPLETED Payout on this
@@ -140,7 +147,7 @@ function makeTx(
       payoutBalanceCheck: { create: payoutBalanceCheckCreate },
       $queryRaw: vi.fn((strings: TemplateStringsArray) => {
         queryRawCalls.push(strings.join(''));
-        return Promise.resolve([{ id: 'locked' }]);
+        return Promise.resolve([{ id: 'locked', held: BigInt(options.held ?? 0) }]);
       }),
       ledgerEntry: {
         count: vi.fn(async () => 0),
@@ -373,6 +380,54 @@ describe('requestPayout', () => {
     });
 
     expect(payoutFindFirst).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * csr-and-hibah 07: a Program Balance can never be the source of a Payout.
+ * LedgerSubject has no Program variant, so the type already refuses one; this
+ * is the same refusal at runtime, for a caller that got a Program-shaped
+ * subject past the compiler (a JSON body, a cast). The subject is built
+ * through `unknown` rather than `any`, which is exactly what such a caller
+ * would do.
+ */
+describe('requestPayout against a Program', () => {
+  const programSubject = { type: 'program', programId: 'prog-1' } as unknown as Parameters<
+    typeof requestPayout
+  >[1]['subject'];
+  const programMoney: LedgerRow[] = [
+    { transactionId: 'mc-1', direction: 'CREDIT', amount: 500_000, account: 'PROGRAM_BALANCE', campaignId: null, volunteerTripId: null, programId: 'prog-1' },
+  ];
+
+  it('refuses a Program subject and creates no Payout, though the Program holds money and the bank account is verified', async () => {
+    const { tx, payoutCreate } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: programMoney });
+
+    await expect(
+      requestPayout(tx as never, {
+        subject: programSubject,
+        requestedById: 'requester-1',
+        bankAccountId: 'bank-1',
+        amount: 500_000,
+        description: 'Pencairan Program',
+      }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
+    expect(payoutCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses before taking any lock or reading any balance', async () => {
+    const { tx, queryRawCalls } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: programMoney });
+
+    await expect(
+      requestPayout(tx as never, {
+        subject: programSubject,
+        requestedById: 'requester-1',
+        bankAccountId: 'bank-1',
+        amount: 1,
+        description: 'Pencairan Program',
+      }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
+    expect(queryRawCalls).toEqual([]);
+    expect(tx.ledgerEntry.groupBy).not.toHaveBeenCalled();
   });
 });
 
@@ -1250,6 +1305,28 @@ describe('approvePayout', () => {
     expect(posted.find((r) => r.direction === 'DEBIT')).toMatchObject({ account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1' });
   });
 
+  it('refuses a Payout whose subject is a Program, reads no balance and posts nothing, though the Program holds money', async () => {
+    // A row that points at a Program and at neither a Campaign nor a Trip: the
+    // shape a hand-edited or future-migrated row would have. csr-and-hibah 07:
+    // PROGRAM_BALANCE is never a Payout source, so approval must refuse it
+    // before the ledger is read, whatever the Program holds.
+    const payoutRow = basePayoutRow({ campaignId: null, volunteerTripId: null, programId: 'prog-1' });
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 'mc-1', direction: 'CREDIT', amount: 500_000, account: 'PROGRAM_BALANCE', campaignId: null, volunteerTripId: null, programId: 'prog-1' },
+    ];
+    const { tx, rows, payoutState, queryRawCalls } = makeTx({ ledgerRows, payoutRow });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
+
+    expect(tx.ledgerEntry.groupBy).not.toHaveBeenCalled();
+    expect(queryRawCalls).toEqual([]);
+    expect(rows).toEqual(ledgerRows);
+    expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+  });
+
   it('refuses self-approval for a Trip-linked payout exactly as it already does for a Campaign-linked one', async () => {
     const { tx } = makeTx({ payoutRow: basePayoutRow({ requestedById: 'same-person' }) });
     const prisma = makePrisma(tx, basePayoutRow());
@@ -1470,5 +1547,132 @@ describe('recordPayoutBalanceShort', () => {
         providerBalance: 100_000,
       }),
     ).rejects.toThrow(PayoutNotFoundError);
+  });
+});
+
+/**
+ * Ticket 49 (owner decision 2026-10-02): a Trip Fee Payout may only spend
+ * money of COMPLETED Batches. TRIP_BALANCE is per Trip, so the rule is a
+ * ceiling -- balance less what Batches that are not COMPLETED still hold --
+ * enforced at request, approval and completion, under the Trip lock.
+ */
+describe('Trip Fee Payout only from COMPLETED Batches (ticket 49)', () => {
+  const tripRows = (credit: number): LedgerRow[] => [
+    { transactionId: 't1', direction: 'CREDIT', amount: credit, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-1' },
+  ];
+  const request = (tx: unknown, amount: number) =>
+    requestPayout(tx as never, {
+      subject: { type: 'trip', tripId: 'trip-1' },
+      requestedById: 'requester-1',
+      bankAccountId: 'bank-1',
+      amount,
+      description: 'Pencairan Trip',
+    });
+  const draft = (overrides: Record<string, unknown> = {}) => ({
+    id: 'payout-1',
+    campaignId: null,
+    volunteerTripId: 'trip-1',
+    amount: 500_000,
+    status: 'DRAFT',
+    requestedById: 'requester-1',
+    approvedById: null,
+    bankAccount: verifiedBankAccount(),
+    ...overrides,
+  });
+
+  it('refuses a request when all the balance is still held by a Batch that is not COMPLETED, in Indonesian, creating nothing', async () => {
+    const { tx, payoutCreate } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: tripRows(500_000), held: 500_000 });
+
+    const error = await request(tx, 100_000).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TripPayoutFundsNotCompletedError);
+    expect(error).toMatchObject({ code: 'TRIP_PAYOUT_FUNDS_NOT_COMPLETED', requested: 100_000, withdrawable: 0 });
+    expect((error as Error).message).toMatch(/Batch yang sudah Selesai/);
+    expect(payoutCreate).not.toHaveBeenCalled();
+  });
+
+  it('allows up to the COMPLETED Batches share and refuses one rupiah above it (a Trip with one finished and one open Batch)', async () => {
+    const ok = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: tripRows(800_000), held: 300_000 });
+    await expect(request(ok.tx, 500_000)).resolves.toMatchObject({ status: 'DRAFT', amount: 500_000 });
+
+    const over = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: tripRows(800_000), held: 300_000 });
+    await expect(request(over.tx, 500_001)).rejects.toMatchObject({ code: 'TRIP_PAYOUT_FUNDS_NOT_COMPLETED', withdrawable: 500_000 });
+  });
+
+  it('lets everything through once no Batch holds money (all Batches COMPLETED)', async () => {
+    const { tx } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: tripRows(800_000), held: 0 });
+    await expect(request(tx, 800_000)).resolves.toMatchObject({ amount: 800_000 });
+  });
+
+  it('reads the held figure under the Trip lock, after it', async () => {
+    const { tx, queryRawCalls } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: tripRows(800_000), held: 0 });
+    await request(tx, 100_000);
+    const lock = queryRawCalls.findIndex((q) => q.includes('FOR UPDATE'));
+    const held = queryRawCalls.findIndex((q) => q.includes('"VolunteerBatch"'));
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(held).toBeGreaterThan(lock);
+  });
+
+  it('never asks the Batch question for a Campaign Payout', async () => {
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+    ];
+    const { tx, queryRawCalls } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows, held: 500_000 });
+    await requestPayout(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      requestedById: 'requester-1',
+      bankAccountId: 'bank-1',
+      amount: 500_000,
+      description: 'x',
+    });
+    expect(queryRawCalls.some((q) => q.includes('"VolunteerBatch"'))).toBe(false);
+  });
+
+  it('keeps InsufficientBalanceError for an amount above the whole balance', async () => {
+    const { tx } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows: tripRows(100_000), held: 0 });
+    await expect(request(tx, 100_001)).rejects.toThrow(InsufficientBalanceError);
+  });
+
+  it('refuses approval when the money became held since the request, posting nothing and leaving the Payout DRAFT', async () => {
+    const payoutRow = draft();
+    const { tx, rows, payoutState } = makeTx({ ledgerRows: tripRows(500_000), payoutRow, held: 200_000 });
+    const prisma = makePrisma(tx, { ...payoutRow, status: 'APPROVED' });
+
+    await expect(
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
+    ).rejects.toMatchObject({ code: 'TRIP_PAYOUT_FUNDS_NOT_COMPLETED', withdrawable: 300_000 });
+    expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+    expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
+  });
+
+  it('approves when the amount is within the COMPLETED Batches share', async () => {
+    const payoutRow = draft();
+    const { tx, payoutState } = makeTx({ ledgerRows: tripRows(800_000), payoutRow, held: 300_000 });
+    const prisma = makePrisma(tx, { ...payoutRow, status: 'APPROVED' });
+
+    await approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 });
+    expect(payoutState).toMatchObject({ status: 'APPROVED' });
+  });
+
+  describe('completion', () => {
+    const approved = () => draft({ status: 'APPROVED', approvedById: 'admin-1', approvedAt: new Date('2026-02-01'), proofImage: null, completedById: null, completedAt: null });
+    const afterApproval: LedgerRow[] = [
+      ...tripRows(800_000),
+      { transactionId: 'payout-instructed-payout-1', direction: 'DEBIT', amount: 500_000, account: 'TRIP_BALANCE', campaignId: null, volunteerTripId: 'trip-1' },
+      { transactionId: 'payout-instructed-payout-1', direction: 'CREDIT', amount: 500_000, account: 'PAYOUT_CLEARING', campaignId: null, volunteerTripId: null },
+    ];
+    const complete = (tx: ReturnType<typeof makeTx>['tx']) =>
+      completePayout(makePrisma(tx, { ...approved(), status: 'COMPLETED' }) as never, {
+        payoutId: 'payout-1',
+        completedById: 'admin-2',
+        proofReference: 'TRX-1',
+        proofNote: 'Ditransfer via BCA, dicocokkan dengan nominal dan rekening tujuan.',
+      });
+
+    it('completes whatever is held: the ceiling was judged at approval, the money is already out', async () => {
+      const { tx, payoutState } = makeTx({ ledgerRows: afterApproval, payoutRow: approved(), held: 400_000 });
+      await complete(tx);
+      expect(payoutState).toMatchObject({ status: 'COMPLETED', completedById: 'admin-2' });
+    });
   });
 });

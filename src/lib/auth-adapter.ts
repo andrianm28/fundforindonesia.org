@@ -43,7 +43,13 @@ import { lookupUserEmail, readUserEmail } from './contact-fields';
  */
 
 /** A User row as the adapter sees it now: sealed columns, no plaintext. */
-type SealedUser = { id: string; name: string; emailCiphertext: string; emailKeyId: string };
+type SealedUser = {
+  id: string;
+  name: string;
+  emailCiphertext: string;
+  emailKeyId: string;
+  avatar?: string | null;
+};
 
 /**
  * The adapter methods this module calls. `Adapter` declares them all optional --
@@ -67,7 +73,12 @@ type AdapterUserMethods = Required<
  * is an empty address, not a wrong one.
  */
 function withAddress(user: SealedUser, known?: string): AdapterUser {
-  return { ...user, email: known ?? readUserEmail(user) } as unknown as AdapterUser;
+  // The picture is stored as `avatar` and next-auth reads it as `image` (it
+  // builds the token's `picture`, and so the session's `image`, from that), so
+  // it is renamed here rather than copied: one field, in the shape the reader
+  // asks for, and none left under the name it does not know (ticket 47).
+  const { avatar, ...row } = user;
+  return { ...row, email: known ?? readUserEmail(user), image: avatar ?? null } as unknown as AdapterUser;
 }
 
 export function buildAuthAdapter(prisma: PrismaClient): Adapter {
@@ -93,7 +104,13 @@ export function buildAuthAdapter(prisma: PrismaClient): Adapter {
     },
 
     async updateUser(user) {
-      const updated = await base.updateUser(user);
+      // NextAuth's `image` is the row's `avatar`; the rest passes through.
+      const { image, ...rest } = user;
+      // `avatar` is Prisma's name, which the adapter's own type does not know.
+      const data = (image === undefined ? rest : { ...rest, avatar: image }) as unknown as Parameters<
+        typeof base.updateUser
+      >[0];
+      const updated = await base.updateUser(data);
       return withAddress(updated as unknown as SealedUser);
     },
 

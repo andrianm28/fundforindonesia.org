@@ -32,6 +32,7 @@ function mockAuthSession(overrides?: Record<string, unknown>) {
       id: "user-123",
       name: "Original Name",
       email: "test@example.com",
+      assignments: [],
       ...overrides,
     },
     expires: new Date(Date.now() + 86400000).toISOString(),

@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done (PR #130, 931e681)
 
 **Blocked by:** —
 
@@ -22,3 +22,7 @@ Fase 2 tanpa perlu.
 Layar create (Admin) + approve (Admin lain) saja untuk Rilis 1. State
 machine `RefundStatus` yang lebih luas tetap ada di skema untuk rilis
 berikutnya, tidak dibongkar.
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #130 (931e681). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.

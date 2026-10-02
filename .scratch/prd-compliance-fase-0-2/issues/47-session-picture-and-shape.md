@@ -7,19 +7,24 @@ placeholder even though the image is on the row.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (PR #166, 7a0c394)
 
-- [ ] A user with a stored `avatar` has a picture in the session, so the
+- [x] A user with a stored `avatar` has a picture in the session, so the
       picture renders wherever the session is the source
-- [ ] The mapping goes one way only if it has to: `image` in, `avatar` on
+- [x] The mapping goes one way only if it has to: `image` in, `avatar` on
       the row, and back out to whatever the session calls it. A second
       field holding the same value is not the answer
-- [ ] A user with no picture still gets the same placeholder as before, not
+- [x] A user with no picture still gets the same placeholder as before, not
       a broken image
-- [ ] Signing in again with a different picture updates the stored one, and
+- [x] Signing in again with a different picture updates the stored one, and
       the session reflects the new one
 
+- [ ] `getSessionAndUser` is wrapped so a `database` session strategy would
+      not see a blank address (not handled by PR #166; still open, latent)
+
 ## Comments
+
+- 2026-10-02: awaiting-merge. PR #166, commit 8cb4ffe. Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.
 
 - 2026-09-27 (independent re-review of PR #89): the encryption contract
   made this visible. `getUserByEmail` and friends now return an address, so
@@ -43,3 +48,22 @@ placeholder even though the image is on the row.
     `Unknown argument 'image'` if an Email credential provider were ever
     added. There is no EmailProvider today, so nothing reaches it. Worth
     closing before one is added, not after.
+
+- 2026-10-02 (follow-up to the two-axis code-review of PR #166):
+  - The mapping `avatar` <-> `image` now lives in the adapter only. The `jwt`
+    callback writes through `adapter.updateUser({ id, image })` rather than
+    `prisma.user.update`, and `isRemoteProviderPicture` / `providerPicture`
+    moved to `src/lib/provider-picture.ts` with their own tests.
+  - `updateUser` is closed by the `image` mapping (sibling finding above), and
+    `createUser` maps `image` to `avatar`, both tested. `session.user.image`
+    filling from `token.picture` is tested through next-auth's session route.
+  - **Awaiting owner confirmation**, two decisions beyond the spec:
+    1. The allowlist: a provider picture is accepted only as https on
+       `*.googleusercontent.com`.
+    2. A picture uploaded here (a local path) is not overwritten on re-login,
+       which differs from the literal spec text "signing in again with a
+       different picture updates the stored one". Only a missing or
+       provider-hosted stored picture is replaced.
+  - `getSessionAndUser` is still open (latent under the `jwt` strategy); the
+    unchecked box above stays unchecked.
+- 2026-10-02: done. Merge ke main sebagai 7a0c394.

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDonationGuestEmail, readUserEmail, SELECT_DONATION_GUEST_EMAIL, SELECT_USER_EMAIL } from '@/lib/contact-fields';
+import { readDonationGuestEmail, readUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { sendReportingFailure } from '@/lib/mail';
 import { receiptEmail, resolveReceiptRecipient } from '@/lib/mail/receipt';
@@ -25,9 +25,10 @@ export async function POST(
     include: {
       donation: {
         include: {
+          // Donation's own scalars (the guest email ciphertext and key id)
+          // come with `include`; naming scalars inside it is a Prisma error.
           campaign: { include: { collectingEntity: true } },
           donor: { select: { id: true, name: true, ...SELECT_USER_EMAIL } },
-          ...SELECT_DONATION_GUEST_EMAIL,
         },
       },
     },
