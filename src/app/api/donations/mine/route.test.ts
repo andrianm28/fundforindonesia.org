@@ -18,9 +18,18 @@ vi.mock('@/lib/auth', () => ({
   getServerSession: vi.fn(),
 }));
 
+// Guest Donor history (prd-compliance 23): the claim has its own tests in
+// src/lib/guest-donation-claim.test.ts; here only that this list asks for it.
+vi.mock('@/lib/guest-donation-claim', () => ({
+  claimGuestDonations: vi.fn().mockResolvedValue({ verified: true, claimed: 0 }),
+}));
+
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { claimGuestDonations } from '@/lib/guest-donation-claim';
 import { GET } from './route';
+
+const mockClaim = claimGuestDonations as unknown as Mock;
 
 const mockFindMany = prisma.donation.findMany as unknown as Mock;
 const mockCount = prisma.donation.count as unknown as Mock;
@@ -86,6 +95,31 @@ describe('GET /api/donations/mine', () => {
     const data = await response.json();
 
     expect(data.donations[0].akadWakafToken).toBe('akad-tok-1');
+  });
+
+  it("claims the account's guest history before listing, and says whether the address is verified", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'donor-1' } });
+    mockClaim.mockResolvedValue({ verified: true, claimed: 2 });
+    mockFindMany.mockResolvedValue([]);
+    mockCount.mockResolvedValue(0);
+
+    const response = await GET(mineRequest());
+    const data = await response.json();
+
+    expect(mockClaim).toHaveBeenCalledWith('donor-1');
+    expect(mockClaim.mock.invocationCallOrder[0]).toBeLessThan(mockFindMany.mock.invocationCallOrder[0]);
+    expect(data.emailVerified).toBe(true);
+  });
+
+  it('reports an unverified address so the page can offer the confirmation link', async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'donor-1' } });
+    mockClaim.mockResolvedValue({ verified: false, claimed: 0 });
+    mockFindMany.mockResolvedValue([]);
+    mockCount.mockResolvedValue(0);
+
+    const response = await GET(mineRequest());
+
+    expect((await response.json()).emailVerified).toBe(false);
   });
 
   it('carries no Akad Wakaf token for a Donation on a non-`wakaf` Campaign', async () => {

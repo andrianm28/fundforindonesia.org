@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
-import type { PaymentMethod } from '@/lib/payments';
+import { PROVIDER_METHOD_FOR } from '@/lib/volunteer/payment-method';
 import { PaymentStatus } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
 import { holdRegistration } from '@/lib/volunteer/trip';
@@ -18,10 +18,6 @@ import {
 import { volunteerRegistrationEnabled, VOLUNTEER_DISABLED_MESSAGE } from '@/lib/volunteer/registration-flag';
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris'] as const;
-const PROVIDER_METHOD_FOR: Record<(typeof VALID_PAYMENT_METHODS)[number], PaymentMethod> = {
-  bank_transfer: 'bank_transfer_va',
-  qris: 'qris_redirect',
-};
 
 const registerSchema = z.object({
   paymentMethod: z.enum(VALID_PAYMENT_METHODS, { error: 'Metode pembayaran tidak valid.' }),
