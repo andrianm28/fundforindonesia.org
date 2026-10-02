@@ -55,6 +55,19 @@ describe("native bcrypt binding stays compatible with bcryptjs (ADR 0019)", () =
     expect(isHashAtCurrentCost(fromNative)).toBe(true);
   }, 30_000);
 
+  it("verifies hashes stored at older, lower costs and reports them as below current (ADR 0017)", async () => {
+    // Accounts created before the cost was unified keep their old factor in
+    // the hash's own prefix; they must still log in and be flagged for rehash.
+    for (const oldCost of [4, 8, 10]) {
+      const pw = secret();
+      const stored = await bcryptjs.hash(pw, oldCost);
+      expect(bcryptjs.getRounds(stored)).toBe(oldCost);
+      expect(await verifyPassword(pw, stored)).toBe(true);
+      expect(await verifyPassword(secret(), stored)).toBe(false);
+      expect(isHashAtCurrentCost(stored)).toBe(false);
+    }
+  }, 30_000);
+
   it("reads the cost off the prefix", async () => {
     const weak = await bcryptjs.hash(secret(), COST);
     expect(isHashAtCurrentCost(weak)).toBe(false);
