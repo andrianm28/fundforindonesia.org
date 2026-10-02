@@ -15,21 +15,23 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #178 untuk p
 ## Scope
 
 - **completeBatch** (`src/lib/volunteer/trip.ts`):
-  - Setelah menyelesaikan Registration CONFIRMED, handle Registration HOLD:
-    - Opsi 1: Release (delete) HOLD yang sudah hangus atau belum dibayar.
-    - Opsi 2: Reject (set status ke REJECTED dengan alasan "Batch selesai, hold hangus").
-    - Pilih dengan owner.
-  - Gunakan `updateMany` untuk batch update, bukan loop.
+  - Setelah menyelesaikan Registration CONFIRMED, setiap Registration HOLD pada Batch menjadi EXPIRED lewat satu `updateMany` (bukan loop), dilewati bila tidak ada HOLD. Pembayaran susulan di-refund penuh lewat `refundLateSettlement`.
+  - ~~Opsi 1: delete HOLD~~ (superseded).
+  - ~~Opsi 2: set status ke REJECTED~~ (superseded; status itu tidak ada di enum Registration).
 
 - **confirmRegistration** (`src/lib/volunteer/trip.ts`):
-  - Tambahkan guard: jika Batch sudah COMPLETED, tolak dengan error deskriptif.
-  - Check dilakukan di bawah lock, sebelum `updateMany`.
+  - Tidak menolak dengan error dan tidak mengambil lock sendiri. Hasilnya `outcome`: `'lapsed'` (Registration sudah EXPIRED, atau HOLD lama di Batch COMPLETED) atau `'cancelled'` (sudah CANCELLED, atau HOLD lama di Batch CANCELLED); keduanya di-refund penuh.
+  - Penjaga race dengan `completeBatch` adalah CAS `updateMany WHERE status = HOLD`, yang WHERE-nya dievaluasi ulang setelah menunggu row lock. Cek status Batch hanya defense-in-depth untuk baris lama.
+  - ~~Tolak dengan error deskriptif di bawah lock bila Batch COMPLETED~~ (superseded).
+
+- Batch CANCELLED tercakup: HOLD lama di Batch itu menjadi CANCELLED dengan outcome `cancelled`, sama seperti `cancelBatch`.
 
 ## Acceptance
 
-- Tes: `completeBatch` mengubah atau menghapus HOLD sesuai aturan yang ditentukan.
-- Tes: `confirmRegistration` ditolak jika Batch COMPLETED.
-- Tes: Workflow normal (HOLD → CONFIRMED → COMPLETED) tidak terpengaruh.
+- Tes: `completeBatch` mengubah setiap HOLD menjadi EXPIRED dan tidak menyentuh CONFIRMED/CANCELLED; tanpa HOLD, tidak ada `updateMany` yang dijalankan.
+- Tes: `confirmRegistration` mengembalikan `lapsed` untuk Batch COMPLETED dan `cancelled` untuk Batch CANCELLED, tanpa error, dan pembayarannya di-refund penuh.
+- Tes: race `completeBatch` vs settlement deterministik (settlement menunggu row lock, lalu mendapati EXPIRED dan mengembalikan `lapsed`).
+- Tes: Workflow normal (HOLD -> CONFIRMED -> COMPLETED) tidak terpengaruh.
 - Menyentuh kode uang di `src/lib/volunteer/trip.ts`: review independen `sonnet` wajib.
 
 ## Implementation notes

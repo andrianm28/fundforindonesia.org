@@ -262,7 +262,7 @@ describe('completeBatch leaves no HOLD behind (ticket 53)', () => {
       ],
     });
 
-  it('expires every HOLD, so a later settlement finds a lapsed seat and is refunded in full', async () => {
+  it('expires every HOLD and leaves CONFIRMED and CANCELLED Registrations as they were', async () => {
     const db = seed();
 
     await completeBatch(db.prisma as never, {

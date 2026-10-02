@@ -633,10 +633,13 @@ export async function completeBatch(
     // lapsed Registration and is refunded in full (`refundLateSettlement`),
     // never confirmed after departure. Under the Registration lock taken
     // above, so a settlement cannot confirm one between the read and here.
-    await tx.registration.updateMany({
-      where: { id: { in: live.filter((r) => r.status === RegistrationStatus.HOLD).map((r) => r.id) } },
-      data: { status: RegistrationStatus.EXPIRED },
-    });
+    const holdIds = live.filter((r) => r.status === RegistrationStatus.HOLD).map((r) => r.id);
+    if (holdIds.length > 0) {
+      await tx.registration.updateMany({
+        where: { id: { in: holdIds } },
+        data: { status: RegistrationStatus.EXPIRED },
+      });
+    }
     return { batch: completed };
   });
 }
@@ -922,13 +925,29 @@ export async function cancelRegistration(
 /**
  * What a Trip Fee Settlement found its Registration in:
  *   - 'confirmed': it was HOLD and now holds its seat;
- *   - 'cancelled': it was cancelled before the Trip Fee settled, so the
- *     money is owed back in full (`refundLateSettlement`);
- *   - 'lapsed': its hold expired first; the money is collected with no
- *     seat, so it is owed back in full too (`refundLateSettlement`, ticket
- *     40). The seat is not handed out, even if one is free.
+ *   - 'cancelled': it was cancelled before the Trip Fee settled (by the
+ *     Volunteer, or as a legacy HOLD on a CANCELLED Batch), so the money is
+ *     owed back in full (`refundLateSettlement`);
+ *   - 'lapsed': its hold expired first (or it is a legacy HOLD on a
+ *     COMPLETED Batch); the money is collected with no seat, so it is owed
+ *     back in full too (`refundLateSettlement`, ticket 40). The seat is not
+ *     handed out, even if one is free.
  */
 export type ConfirmRegistrationOutcome = 'confirmed' | 'cancelled' | 'lapsed';
+
+/**
+ * What becomes of a legacy HOLD found on a non-OPEN Batch: on a CANCELLED
+ * Batch it is cancelled, as `cancelBatch` would have, so its Refund reads
+ * 'late settlement'; on a COMPLETED Batch it lapses.
+ */
+function legacyHoldFate(batchStatus: VolunteerBatchStatus): {
+  registrationStatus: RegistrationStatus;
+  outcome: Exclude<ConfirmRegistrationOutcome, 'confirmed'>;
+} {
+  return batchStatus === VolunteerBatchStatus.CANCELLED
+    ? { registrationStatus: RegistrationStatus.CANCELLED, outcome: 'cancelled' }
+    : { registrationStatus: RegistrationStatus.EXPIRED, outcome: 'lapsed' };
+}
 
 /**
  * Settlement confirms a HOLD Registration. Runs inside the webhook's own
@@ -939,6 +958,12 @@ export type ConfirmRegistrationOutcome = 'confirmed' | 'cancelled' | 'lapsed';
  * for a CONFIRMED Registration, whose Payment is already PAID and so is
  * never written by a Settlement; the Payment a Settlement writes belongs to
  * a HOLD, which those writers lock but never follow to its Payment.
+ *
+ * It reads the Registration (`findUnique`) before the compare-and-set, and
+ * that read is not the race guard: the CAS `updateMany WHERE status = HOLD`
+ * is. Its WHERE is re-evaluated after waiting on the Registration row lock a
+ * concurrent `completeBatch` holds, so it finds EXPIRED and reports 'lapsed'.
+ * The read only routes a legacy HOLD on a non-OPEN Batch (see `legacyHoldFate`).
  */
 export async function confirmRegistration(
   tx: Tx,
@@ -948,20 +973,18 @@ export async function confirmRegistration(
   // Defense-in-depth for legacy rows only: `completeBatch` and `cancelBatch`
   // now leave no HOLD on a finished Batch. This check is NOT what guards the
   // race with a concurrent `completeBatch`; the CAS below is (its WHERE is
-  // re-evaluated after waiting on the Registration row lock). A legacy HOLD
-  // on a CANCELLED Batch is cancelled, as `cancelBatch` would have, so its
-  // Refund reads 'late settlement'; on a COMPLETED Batch it lapses.
-  const found = await tx.registration.findUnique({
+  // re-evaluated after waiting on the Registration row lock).
+  const existing = await tx.registration.findUnique({
     where: { id: registrationId },
     include: { batch: { select: { status: true } } },
   });
-  if (found?.status === RegistrationStatus.HOLD && found.batch.status !== VolunteerBatchStatus.OPEN) {
-    const cancelled = found.batch.status === VolunteerBatchStatus.CANCELLED;
+  if (existing?.status === RegistrationStatus.HOLD && existing.batch.status !== VolunteerBatchStatus.OPEN) {
+    const fate = legacyHoldFate(existing.batch.status);
     await tx.registration.updateMany({
       where: { id: registrationId, status: RegistrationStatus.HOLD },
-      data: { status: cancelled ? RegistrationStatus.CANCELLED : RegistrationStatus.EXPIRED },
+      data: { status: fate.registrationStatus },
     });
-    return { outcome: cancelled ? 'cancelled' : 'lapsed' };
+    return { outcome: fate.outcome };
   }
   const confirmed = await tx.registration.updateMany({
     where: { id: registrationId, status: RegistrationStatus.HOLD },
