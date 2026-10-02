@@ -8,7 +8,7 @@ team cannot tell a real partner from noise.
 
 **Blocked by:** 05
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 - [ ] A submission from one client is bounded: repeat posts from the same
       source are refused, and the refusal is a plain refusal rather than a
@@ -45,3 +45,5 @@ team cannot tell a real partner from noise.
   field `fax_ref` (neutral name, autofill-proof) answered as a 201 no-op; fail-open if the limiter breaks; the 300 global counts only valid, non-trapped submissions. Client address is the last (trusted
   hop) `X-Forwarded-For` entry, stored only as an HMAC; assumes nginx appends
   that header, which the owner must confirm (its config is not in this repo).
+
+- 2026-10-02: awaiting-merge. PR #161, commit be1ca61. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
