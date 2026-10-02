@@ -14,7 +14,7 @@ import {
   type VolunteerTrip,
 } from '@/generated/prisma/client';
 import { LifecycleValidationError, SameAdminLiftError } from '@/lib/campaign-lifecycle-errors';
-import { fundraiserOnlyRefusal, judgeCapacity, NotAuthorizedError, requireAssignmentFor } from '@/lib/capacity';
+import { fundraiserOnlyRefusal, judgeCapacity, requireAssignmentFor } from '@/lib/capacity';
 import { recordIdentityVerification } from '@/lib/identity-verification';
 import { createRefund } from '@/lib/money/refunds';
 import { lockAndLoad, type SubjectState } from '@/lib/subject-guard';
@@ -946,8 +946,6 @@ async function refundTripFee(
   });
 }
 
-const NOT_OWN_REGISTRATION = 'Hanya Volunteer pemilik Registrasi ini yang dapat membatalkannya.';
-
 export type CancelRegistrationResult = { registration: Registration; refund: Refund | null };
 
 /**
@@ -958,8 +956,9 @@ export type CancelRegistrationResult = { registration: Registration; refund: Ref
  *
  * Locks Trip → Registration → Payment (the last inside `createRefund`).
  *
- * Refusals: RegistrationNotFoundError (404); NotAuthorizedError (403) for
- * anyone but the Registration's Volunteer, before anything is locked;
+ * Refusals: RegistrationNotFoundError (404), also for anyone but the
+ * Registration's Volunteer (refused before anything is locked, and
+ * indistinguishable from a missing id);
  * RegistrationNotCancellableError (400) from any other status, including a
  * cancel or expiry committed before this call got the lock, so nothing is
  * refunded twice; BatchAlreadyCompletedError (400).
@@ -971,7 +970,9 @@ export async function cancelRegistration(
   const { registrationId, actor, now = new Date() } = params;
   return prisma.$transaction(async (tx: Tx) => {
     const { trip, registration } = await lockRegistration(tx, registrationId, now, (found) => {
-      if (found.volunteerId !== actor.userId) throw new NotAuthorizedError(NOT_OWN_REGISTRATION);
+      // Not the caller's own reads as not existing: a 403 here would tell
+      // anyone probing ids which ones exist.
+      if (found.volunteerId !== actor.userId) throw new RegistrationNotFoundError(registrationId);
     });
     const current = registration.status;
     if (!LIVE_REGISTRATION_STATUSES.includes(current)) throw new RegistrationNotCancellableError(current);

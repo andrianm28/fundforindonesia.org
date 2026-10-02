@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+
+const MAX_PAGE = 10_000;
+const MAX_LIMIT = 50;
+
+const querySchema = z.object({
+  page: z.preprocess(
+    (val) => (val === '' ? undefined : val),
+    z.coerce.number().int().min(1).max(MAX_PAGE).default(1),
+  ),
+  limit: z.preprocess(
+    (val) => (val === '' ? undefined : val),
+    z.coerce.number().int().min(1).transform((n) => Math.min(MAX_LIMIT, n)).default(10),
+  ),
+});
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession();
@@ -10,8 +25,17 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
-  const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '10', 10)));
+  const parsed = querySchema.safeParse({
+    page: searchParams.get('page') ?? undefined,
+    limit: searchParams.get('limit') ?? undefined,
+  });
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Parameter page harus bilangan bulat 1-10000 dan limit bilangan bulat positif' },
+      { status: 400 },
+    );
+  }
+  const { page, limit } = parsed.data;
   const skip = (page - 1) * limit;
 
   const where = { volunteerId: session.user.id as string };
