@@ -17,6 +17,7 @@ const editVolunteerTripSchema = z.object({
   action: z.enum(['submit']).optional(),
 });
 
+// Full row data (including fundraiserId) returned to owner only.
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> },

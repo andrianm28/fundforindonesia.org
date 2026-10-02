@@ -28,7 +28,7 @@ function generateSlug(title: string): string {
 
 // Anyone registered may create a Volunteer Trip (PRD FFI-04): no Role is
 // asked for. The Verifier's approval, not who created it, decides whether it
-// is published.
+// is published. Full row data (including fundraiserId) returned to owner only.
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession();

@@ -17,6 +17,7 @@ vi.mock('@/lib/auth', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { PUBLIC_TRIP_LIST_SELECT } from '@/lib/volunteer/trip-public';
 import { POST, GET } from './route';
 
 const mockCreate = prisma.volunteerTrip.create as unknown as Mock;
@@ -66,6 +67,16 @@ describe('POST /api/volunteer-trips', () => {
   it('creates a DRAFT Trip owned by the requester', async () => {
     const response = await POST(createRequest(VALID_BODY));
     expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body).toEqual(
+      expect.objectContaining({
+        id: 'trip-1',
+        slug: expect.any(String),
+        status: 'DRAFT',
+        fundraiserId: 'user-1',
+        ...VALID_BODY,
+      }),
+    );
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -120,6 +131,18 @@ describe('POST /api/volunteer-trips tripFeeAmount', () => {
     const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount: 2_147_483_647 }));
     expect(response.status).toBe(201);
   });
+
+  it('rejects -1 as tripFeeAmount', async () => {
+    const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount: -1 }));
+    expect(response.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('accepts 2147483647 as maximum tripFeeAmount', async () => {
+    mockCreate.mockResolvedValue({ id: 'trip-1', slug: 'x', ...VALID_BODY, tripFeeAmount: 2_147_483_647, status: 'DRAFT', fundraiserId: 'user-1' });
+    const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount: 2_147_483_647 }));
+    expect(response.status).toBe(201);
+  });
 });
 
 function listRequest(query = ''): NextRequest {
@@ -157,7 +180,7 @@ describe('GET /api/volunteer-trips', () => {
     await GET(listRequest());
     const args = mockFindMany.mock.calls[0][0];
     expect(args.include).toBeUndefined();
-    expect(args.select).toEqual(expect.objectContaining({ slug: true, title: true, tripFeeAmount: true }));
+    expect(args.select).toEqual(PUBLIC_TRIP_LIST_SELECT);
     expect(args.select.fundraiserId).toBeUndefined();
     expect(args.select.fundraiser).toBeUndefined();
     expect(args.select.status).toBeUndefined();

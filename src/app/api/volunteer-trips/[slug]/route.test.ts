@@ -33,6 +33,7 @@ import { getServerSession } from '@/lib/auth';
 import { submitTrip } from '@/lib/volunteer/trip';
 import { NotAuthorizedError } from '@/lib/capacity';
 import { TripNotEditableError, TripNotFoundError } from '@/lib/volunteer-trip-errors';
+import { PUBLIC_TRIP_DETAIL_SELECT, PUBLIC_BATCH_SELECT } from '@/lib/volunteer/trip-public';
 import { PATCH, GET } from './route';
 
 const mockSubmitTrip = submitTrip as unknown as Mock;
@@ -262,11 +263,11 @@ describe('GET /api/volunteer-trips/[slug]', () => {
     await GET(getRequest(), routeContext());
     const tripArgs = mockFindUnique.mock.calls[0][0];
     expect(tripArgs.include).toBeUndefined();
-    expect(tripArgs.select).toEqual(expect.objectContaining({ id: true, slug: true, status: true }));
+    expect(tripArgs.select).toEqual(PUBLIC_TRIP_DETAIL_SELECT);
     expect(tripArgs.select.fundraiserId).toBeUndefined();
     expect(tripArgs.select.fundraiser).toBeUndefined();
     const batchArgs = mockBatchFindMany.mock.calls[0][0];
-    expect(batchArgs.select).toEqual(expect.objectContaining({ id: true, maxQuota: true }));
+    expect(batchArgs.select).toEqual(PUBLIC_BATCH_SELECT);
     expect(batchArgs.select.minQuota).toBeUndefined();
   });
 
@@ -296,10 +297,28 @@ describe('PATCH tripFeeAmount bounds', () => {
     vi.clearAllMocks();
     mockGetServerSession.mockResolvedValue({ user: { id: 'owner-1' } });
     mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', status: 'DRAFT' });
+    mockUpdate.mockResolvedValue({ count: 1 });
   });
 
   it.each([999999999.99, 1500.5, 2_147_483_648, 0])('rejects %s', async (tripFeeAmount) => {
     const response = await PATCH(patchRequest({ tripFeeAmount }), routeContext());
     expect(response.status).toBe(400);
+  });
+
+  it('rejects -1 as tripFeeAmount', async () => {
+    const response = await PATCH(patchRequest({ tripFeeAmount: -1 }), routeContext());
+    expect(response.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('accepts 2147483647 as maximum tripFeeAmount', async () => {
+    mockUpdate.mockResolvedValue({ count: 1 });
+    const response = await PATCH(patchRequest({ tripFeeAmount: 2_147_483_647 }), routeContext());
+    expect(response.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tripFeeAmount: 2_147_483_647 }),
+      }),
+    );
   });
 });
