@@ -688,7 +688,7 @@ export async function POST(
 
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (error) {
-    console.error('Error processing payment webhook:', error);
+    console.error(`Error processing payment webhook: ${sanitizeError(error)}`);
     return NextResponse.json({ error: 'Gagal memproses webhook' }, { status: 500 });
   }
 }

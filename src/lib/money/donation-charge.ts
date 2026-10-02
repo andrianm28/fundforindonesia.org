@@ -5,7 +5,7 @@ import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
 import { resolvePlatformFeeBasisForCampaign } from './platform-fee-config';
 import { computePlatformFee } from './platform-fee';
 import { ESCROW_HOLD_DAYS } from './escrow';
-import { recordChargeWriteFailure } from './payment-reconciliation';
+import { recordChargeWriteFailure, sanitizeError } from './payment-reconciliation';
 
 /**
  * One attempt at charging a Donation: resolves and freezes the Platform Fee
@@ -81,7 +81,7 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
   try {
     charge = await provider.createCharge({ orderId, grossAmount: amount, currency: 'IDR' });
   } catch (err) {
-    console.error(`[donations] charge failed for donation ${donationId} (order ${orderId}):`, err);
+    console.error(`[donations] charge failed for donation ${donationId} (order ${orderId}): ${sanitizeError(err)}`);
     return { ok: false, reason: 'provider_error' };
   }
 

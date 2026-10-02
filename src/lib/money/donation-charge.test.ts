@@ -101,6 +101,34 @@ describe('chargeDonation', () => {
     expect(db.payment.create).not.toHaveBeenCalled();
   });
 
+  it('logs a provider failure without the raw Error object or any email in it', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const provider = makeProvider({
+        createCharge: vi.fn().mockRejectedValue(new Error('rejected payer donor@example.com')),
+      });
+
+      await chargeDonation({
+        db: makeDb() as never,
+        provider,
+        campaign: CAMPAIGN,
+        donationId: 'donation-1',
+        amount: 100_000,
+        orderId: 'order-9',
+        paymentMethod: 'qris_redirect',
+      });
+
+      expect(spy).toHaveBeenCalled();
+      const args = spy.mock.calls.flat();
+      expect(args.some((a) => a instanceof Error)).toBe(false);
+      expect(args.some((a) => typeof a === 'string' && a.includes('@'))).toBe(false);
+      expect(args.join(' ')).toContain('donation-1');
+      expect(args.join(' ')).toContain('order-9');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('refuses a Payment whose method disagrees with what the provider actually charged', async () => {
     const db = makeDb();
     const provider = makeProvider({

@@ -1004,6 +1004,24 @@ describe('POST /api/webhooks/[provider]', () => {
     },
   );
 
+  it('logs an unexpected failure without the raw Error object or any email in it', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+      mockWebhookEventCreate.mockRejectedValue(new Error('insert failed for donor@example.com'));
+
+      const response = await POST(createRequest(), routeContext());
+
+      expect(response.status).toBe(500);
+      expect(spy).toHaveBeenCalled();
+      const args = spy.mock.calls.flat();
+      expect(args.some((a) => a instanceof Error)).toBe(false);
+      expect(args.some((a) => typeof a === 'string' && a.includes('@'))).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('is idempotent on a replayed event that already finished: the existing processed row short-circuits before any Payment lookup', async () => {
     mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
     // Simulates the @@unique([provider, providerEventId]) constraint firing

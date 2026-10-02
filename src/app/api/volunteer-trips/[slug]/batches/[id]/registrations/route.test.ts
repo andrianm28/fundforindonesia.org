@@ -295,6 +295,31 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     });
   });
 
+  it('never logs a raw Error or an email when the charge or the route fails', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockGetPaymentProvider.mockReturnValue({
+        name: 'sumopod',
+        method: 'qris_redirect',
+        createCharge: vi.fn().mockRejectedValue(new Error('rejected payer volunteer@example.com')),
+      });
+      const charged = await POST(createRequest(), routeContext());
+      expect(charged.status).toBe(503);
+
+      mockHoldRegistration.mockRejectedValue(new Error('db failure for volunteer@example.com'));
+      const failed = await POST(createRequest(), routeContext());
+      expect(failed.status).toBe(500);
+
+      expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const args = spy.mock.calls.flat();
+      expect(args.some((a) => a instanceof Error)).toBe(false);
+      expect(args.some((a) => typeof a === 'string' && a.includes('@'))).toBe(false);
+      expect(args.join(' ')).toContain('registration-1');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('still answers 503 when recording the ChargeWriteFailure fails too', async () => {
     mockPaymentCreate.mockRejectedValue(new Error('db down'));
     mockChargeWriteFailureCreate.mockRejectedValue(new Error('db still down'));

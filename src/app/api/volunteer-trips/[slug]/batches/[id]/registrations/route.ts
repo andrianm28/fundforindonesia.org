@@ -10,7 +10,7 @@ import { refusalResponse } from '@/lib/refusal-response';
 import { holdRegistration } from '@/lib/volunteer/trip';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
 import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
-import { recordChargeWriteFailure } from '@/lib/money/payment-reconciliation';
+import { recordChargeWriteFailure, sanitizeError } from '@/lib/money/payment-reconciliation';
 import {
   donationsEnabled,
   sandboxInProductionReason,
@@ -141,7 +141,7 @@ export async function POST(
         currency: 'IDR',
       });
     } catch (err) {
-      console.error(`[registrations] charge failed for registration ${registration.id}:`, err);
+      console.error(`[registrations] charge failed for registration ${registration.id}: ${sanitizeError(err)}`);
       return NextResponse.json(
         { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
         { status: 503 },
@@ -231,7 +231,7 @@ export async function POST(
       { status: 201 },
     );
   } catch (error) {
-    console.error('Error creating registration:', error);
+    console.error(`Error creating registration: ${sanitizeError(error)}`);
     return NextResponse.json({ error: 'Gagal membuat registrasi' }, { status: 500 });
   }
 }
