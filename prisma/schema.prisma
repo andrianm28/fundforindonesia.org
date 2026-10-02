@@ -2403,3 +2403,16 @@ model Registration {
   @@index([status])
   @@index([holdExpiresAt])
 }
+
+/// Shared fixed-window counters for public endpoints (ticket csr-06b;
+/// src/lib/rate-limit.ts). subjectHash is a keyed HMAC of the caller's
+/// address, never the address. Rows are deleted a day after their window.
+model RateLimitBucket {
+  scope       String
+  subjectHash String
+  windowStart DateTime
+  count       Int
+
+  @@id([scope, subjectHash, windowStart])
+  @@index([windowStart])
+}

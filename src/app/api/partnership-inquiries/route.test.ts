@@ -11,11 +11,22 @@ import { NextRequest } from 'next/server';
  */
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
+  /** hits per `${scope}:${subjectHash}` bucket; the stand-in for the shared table. */
+  buckets: new Map<string, number>(),
   programs: [{ id: 'program-1', title: 'Klinik Keliling Pesisir', slug: 'klinik-keliling-pesisir', sector: 'HEALTH' }],
 }));
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    // consumeRateLimit's one atomic statement: bump the bucket, answer the count.
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      void strings;
+      const key = `${values[0]}:${values[1]}`;
+      const count = (state.buckets.get(key) ?? 0) + 1;
+      state.buckets.set(key, count);
+      return [{ count }];
+    },
+    $executeRaw: async () => 0,
     program: {
       findUnique: async ({ where }: { where: Record<string, unknown> }) => {
         const row = state.programs.find((p) => p.id === where.id);
@@ -45,12 +56,16 @@ const VALID = {
   needs: 'Kami ingin mendanai logistic dan mobilitas tim kesehatan untuk 12 bulan.',
 };
 
-function post(body: unknown): Promise<Response> {
-  return POST(new NextRequest(URL, { method: 'POST', body: JSON.stringify(body) }));
+function post(body: unknown, ip = '203.0.113.9'): Promise<Response> {
+  return POST(
+    new NextRequest(URL, { method: 'POST', body: JSON.stringify(body), headers: { 'x-forwarded-for': ip } }),
+  );
 }
 
 beforeEach(() => {
   state.rows = [];
+  state.buckets = new Map();
+  vi.stubEnv('RATE_LIMIT_SECRET', 'test-secret');
   vi.stubEnv('PARTNERSHIP_TEAM_EMAIL', 'kemitraan@contoh.test');
   vi.stubEnv('NODE_ENV', 'test');
 });
@@ -128,5 +143,66 @@ describe('POST /api/partnership-inquiries', () => {
     expect(res.status).toBe(201);
     expect(state.rows).toHaveLength(1);
     expect(lines.join('\n')).toContain('mail_not_configured');
+  });
+
+  describe('spam guard (csr-06b)', () => {
+    it('refuses a client past its limit with a friendly 429, writing nothing and mailing no one', async () => {
+      let refused: Response | undefined;
+      for (let i = 0; i < 12 && !refused; i++) {
+        const res = await post(VALID);
+        if (res.status === 429) refused = res;
+      }
+
+      expect(refused).toBeDefined();
+      expect(state.rows.length).toBeLessThan(12);
+      const written = state.rows.length;
+      const body = (await refused!.json()) as { error: string };
+      expect(body.error).toMatch(/coba lagi/i);
+      expect(refused!.headers.get('retry-after')).toMatch(/^\d+$/);
+      await post(VALID);
+      expect(state.rows).toHaveLength(written);
+    });
+
+    it('does not lock out a legitimate partner who fills the form twice', async () => {
+      expect((await post(VALID)).status).toBe(201);
+      expect((await post({ ...VALID, needs: 'Tambahan informasi untuk diskusi kami.' })).status).toBe(201);
+      expect(state.rows).toHaveLength(2);
+    });
+
+    it('limits per client: another address is unaffected', async () => {
+      for (let i = 0; i < 12; i++) await post(VALID, '198.51.100.1');
+      expect((await post(VALID, '198.51.100.2')).status).toBe(201);
+    });
+
+    it('does not let a client dodge the limit by forging the front of X-Forwarded-For', async () => {
+      let refused = false;
+      for (let i = 0; i < 12; i++) {
+        const res = await post(VALID, `10.0.0.${i}, 198.51.100.7`);
+        if (res.status === 429) refused = true;
+      }
+      expect(refused).toBe(true);
+    });
+
+    it('answers a filled honeypot exactly like success, but writes nothing', async () => {
+      const res = await post({ ...VALID, website: 'http://spam.example' });
+
+      expect(res.status).toBe(201);
+      expect(state.rows).toHaveLength(0);
+      const body = JSON.stringify(await res.json());
+      expect(body).not.toMatch(/website|honeypot|spam|bot/i);
+    });
+
+    it('never says whether a company or email was already recorded', async () => {
+      await post(VALID);
+      const again = await post(VALID);
+
+      expect(again.status).toBe(201);
+    });
+
+    it('stores no raw address in the bucket key', async () => {
+      await post(VALID, '203.0.113.9');
+
+      for (const key of state.buckets.keys()) expect(key).not.toContain('203.0.113.9');
+    });
   });
 });

@@ -69,6 +69,11 @@ services:
       # These are also no longer optional in practice -- the plaintext contact
       # columns are dropped, so a deployment without them cannot write a contact
       # detail at all and fails at the first one. See .env.example.
+      # Public-endpoint rate limit (csr-06b). The secret keys the hash of the
+      # caller's address and falls back to NEXTAUTH_SECRET; HOPS is how many
+      # reverse proxies append to X-Forwarded-For (1 = nginx alone).
+      RATE_LIMIT_SECRET: ${RATE_LIMIT_SECRET:-}
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
       FIELD_ENCRYPTION_KEY_ID: ${FIELD_ENCRYPTION_KEY_ID:-}
       FIELD_HMAC_KEY: ${FIELD_HMAC_KEY:-}

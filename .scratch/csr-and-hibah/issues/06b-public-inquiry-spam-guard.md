@@ -8,7 +8,7 @@ team cannot tell a real partner from noise.
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 - [ ] A submission from one client is bounded: repeat posts from the same
       source are refused, and the refusal is a plain refusal rather than a
@@ -38,3 +38,10 @@ team cannot tell a real partner from noise.
   half-configured deployment already produces `mail_not_configured`. A spam
   flood makes that noise worse, which is one more reason this is worth doing
   before the first real enquiry arrives.
+- 2026-10-02 (implementation): the limiter is generic, not specific to this
+  route: `src/lib/rate-limit.ts` (`consumeRateLimit`, atomic upsert on
+  `RateLimitBucket`) and `src/lib/client-ip.ts`. Donation submission only needs
+  a new `scope`. Limits here: 10 per client and 300 overall per hour, honeypot
+  field `website` answered as a 201 no-op. Client address is the last (trusted
+  hop) `X-Forwarded-For` entry, stored only as an HMAC; assumes nginx appends
+  that header, which the owner must confirm (its config is not in this repo).

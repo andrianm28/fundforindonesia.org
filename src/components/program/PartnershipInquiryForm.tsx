@@ -57,6 +57,12 @@ export function PartnershipInquiryForm({ programId, programSlug }: { programId: 
     <form onSubmit={submit} data-program-slug={programSlug} className="grid gap-4 max-w-xl">
       <input type="hidden" name="programId" value={programId} readOnly />
 
+      {/* Honeypot (csr-06b): invisible and unreachable for a person, filled by a bot. */}
+      <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
+        <label htmlFor="website">Jangan diisi</label>
+        <input id="website" name="website" tabIndex={-1} autoComplete="off" defaultValue="" />
+      </div>
+
       <div>
         <label htmlFor="companyName" className="block text-sm font-medium text-text mb-1">
           Nama perusahaan
