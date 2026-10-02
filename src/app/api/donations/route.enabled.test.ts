@@ -24,6 +24,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     campaign: { findUnique: vi.fn() },
     donation: { create: vi.fn(), update: vi.fn() },
+    paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     payment: { create: vi.fn() },
     chargeWriteFailure: { create: vi.fn() },
     prayer: { create: vi.fn() },
@@ -44,7 +45,7 @@ import { POST } from './route';
 import { readDonationGuestEmail, readDonationGuestPhone } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { getPaymentProvider } from '@/lib/payments';
+import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { CampaignStatus } from '@/generated/prisma/client';
 
 const mockCampaignFindUnique = prisma.campaign.findUnique as unknown as Mock;
@@ -132,7 +133,9 @@ beforeEach(() => {
   });
   mockPrayerCreate.mockResolvedValue({});
   mockChargeWriteFailureCreate.mockResolvedValue({});
+  mockGetPaymentProvider.mockReset();
   mockGetPaymentProvider.mockReturnValue(sumopodLike());
+  (prisma.paymentProviderSetting.findFirst as unknown as Mock).mockResolvedValue(null);
   // No Platform Fee rule or threshold configured by default -- resolves to
   // 0 bps / 0 threshold (prd-compliance 17), never an invented rate.
   mockPlatformFeeRuleFindFirst.mockResolvedValue(null);
@@ -210,6 +213,63 @@ describe('POST /api/donations when the provider cannot serve the chosen method',
 
   it('still refuses methods no provider implements at all', async () => {
     const response = await POST(createRequest({ ...QRIS_BODY, paymentMethod: 'credit_card' }));
+
+    expect(response.status).toBe(503);
+    expect(mockDonationCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/donations through a provider an Admin switched on (prd-compliance 39)', () => {
+  const mockSettingFindFirst = prisma.paymentProviderSetting.findFirst as unknown as Mock;
+
+  function twoMethodProvider() {
+    return sumopodLike({
+      name: 'sumopod',
+      supportedMethods: ['qris_redirect', 'ewallet_redirect'],
+      createCharge: vi.fn(async (input: { method?: string }) => ({
+        providerOrderId: 'donation-1',
+        method: input.method,
+        redirectUrl: 'https://pay.sumopod.com/pay/abc',
+        expiresAt: new Date('2026-09-20T12:00:00.000Z'),
+      })),
+    });
+  }
+
+  it('charges an e-wallet when the Admin enabled it, recording the provider and method on the Payment', async () => {
+    const provider = twoMethodProvider();
+    mockGetPaymentProvider.mockReturnValue(provider);
+    mockSettingFindFirst.mockResolvedValue({ provider: 'sumopod', methods: ['qris_redirect', 'ewallet_redirect'] });
+
+    const response = await POST(createRequest({ ...QRIS_BODY, paymentMethod: 'ewallet' }));
+
+    expect(response.status).toBe(201);
+    expect(mockGetPaymentProvider).toHaveBeenCalledWith('sumopod');
+    expect(provider.createCharge).toHaveBeenCalledWith(expect.objectContaining({ method: 'ewallet_redirect' }));
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ provider: 'sumopod', method: 'ewallet_redirect', providerRef: 'donation-1' }),
+    });
+    expect((await response.json()).paymentInstructions).toMatchObject({ type: 'ewallet' });
+  });
+
+  it('refuses a method the provider supports but the Admin left off, before any charge exists', async () => {
+    const provider = twoMethodProvider();
+    mockGetPaymentProvider.mockReturnValue(provider);
+    mockSettingFindFirst.mockResolvedValue({ provider: 'sumopod', methods: ['qris_redirect'] });
+
+    const response = await POST(createRequest({ ...QRIS_BODY, paymentMethod: 'ewallet' }));
+
+    expect(response.status).toBe(503);
+    expect(provider.createCharge).not.toHaveBeenCalled();
+    expect(mockDonationCreate).not.toHaveBeenCalled();
+  });
+
+  it('answers 503, writing nothing, when the Admin chose a provider this server has no credentials for', async () => {
+    mockSettingFindFirst.mockResolvedValue({ provider: 'sumopod', methods: ['qris_redirect'] });
+    mockGetPaymentProvider.mockImplementation(() => {
+      throw new PaymentProviderNotConfiguredError('SUMOPOD_API_KEY');
+    });
+
+    const response = await POST(createRequest(QRIS_BODY));
 
     expect(response.status).toBe(503);
     expect(mockDonationCreate).not.toHaveBeenCalled();

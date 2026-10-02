@@ -1167,6 +1167,12 @@ export function makeCampaignDb(
       platformFeeThreshold: {
         findFirst: async () => null,
       },
+      // No Admin provider choice is seeded (prd-compliance 39): with none, the
+      // deployment's PAYMENT_PROVIDER applies, which is what every test that is
+      // not about the choice needs.
+      paymentProviderSetting: {
+        findFirst: async () => null,
+      },
       // No abuse threshold is seeded unless a test says so (prd-compliance
       // 38); with none, resolveAbuseThresholds answers the PRD's own numbers,
       // which is what every test that is not about the thresholds needs. Same

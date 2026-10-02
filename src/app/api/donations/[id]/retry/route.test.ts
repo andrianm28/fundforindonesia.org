@@ -14,6 +14,7 @@ vi.mock('@/lib/donations', async () => {
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     donation: { findUnique: vi.fn() },
+    paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     payment: { updateMany: vi.fn(), create: vi.fn() },
     chargeWriteFailure: { create: vi.fn() },
     platformFeeRule: { findFirst: vi.fn().mockResolvedValue(null) },
