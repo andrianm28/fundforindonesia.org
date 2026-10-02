@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, API quality)
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -45,3 +45,7 @@ menemukan dua celah pada endpoint registrasi:
   tidak 403.
 - Tes: GET /api/registrations/mine?page=abc return 400 dengan error message, tidak 500.
 - Tes: Workflow normal (page=1, page=2, dll.) tetap bekerja.
+
+## Comments
+
+- 2026-10-02: awaiting-merge. PR #175, commit 283aa99. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
