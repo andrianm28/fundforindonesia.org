@@ -4,7 +4,8 @@
 
 **Blocked by:** 17
 
-**Status:** done (sudah ada akun REFUND_COST di ledger)
+**Status:** done
+PR #132, migration add_refund_ledger_accounts
 
 - [ ] A refund-cost ledger account exists
 - [ ] The cap rises from Net to Gross; the existing Net cap and the comment defending it are corrected

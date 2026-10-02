@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** done (PR #126)
+**Status:** done (PR #126, 8ffabdd)
 
 **Blocked by:** 17 (resolved)
 
@@ -48,3 +48,7 @@ tertunda (jawaban tiket 02, bagian kedua). Hari ini approve hanya ditolak
 dengan `ProviderBalanceInsufficientError`, tanpa jejak keputusan. Dipisah ke
 [30](30-provider-balance-pending-decision.md), karena butuh tempat menyimpan
 keputusan itu.
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #126 (8ffabdd). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.

@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** done (PR #129)
+**Status:** done (PR #129, 028e690)
 
 **Blocked by:** —
 
@@ -20,3 +20,7 @@ Model, route submit, form Fundraiser, tampilan publik di halaman Campaign,
 dan gating: Payout berikutnya menuntut Usage Report Payout sebelumnya sudah
 ada. `CONTEXT.md`'s Usage Report entry menyatakan belum ada kodenya sampai
 tiket ini selesai.
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #129 (028e690). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.

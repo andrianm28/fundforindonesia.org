@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** done (PR #125)
+**Status:** done (PR #125, c4620ae)
 
 **Blocked by:** nothing — `07` is `resolved` and this ticket is the code for it
 
@@ -42,3 +42,7 @@ Admin confirm, or lets the proposer withdraw their own.
   every PENDING request with a Confirm button (for anyone but the proposer
   or grantee) or a Withdraw button (for the proposer only). No separate
   admin-grant screen was built beyond that.
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #125 (c4620ae). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.
