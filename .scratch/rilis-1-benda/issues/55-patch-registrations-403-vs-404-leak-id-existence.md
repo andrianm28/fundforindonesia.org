@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, API quality)
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 **Blocked by:** none
 
@@ -18,8 +18,8 @@ menemukan dua celah pada endpoint registrasi:
    dengan mengamati perbedaan response code: 403 = ID ada tapi tidak punya akses,
    404 = ID tidak ada (atau bukan milik endpoint).
    
-   Aturan API security: selalu return 404 untuk resource yang tidak ada atau tidak
-   punya akses (dari sudut pandang Volunteer yang sedang login), jangan bedakan.
+   Aturan umum: resource yang tidak ada dan yang tidak boleh diakses harus
+   tampak sama bagi Volunteer.
 
 2. **registrations/mine crash untuk input tidak valid**: Route `GET /api/registrations/mine`
    dengan parameter `page=abc` (non-numeric) mengembalikan 500
@@ -45,3 +45,7 @@ menemukan dua celah pada endpoint registrasi:
   tidak 403.
 - Tes: GET /api/registrations/mine?page=abc return 400 dengan error message, tidak 500.
 - Tes: Workflow normal (page=1, page=2, dll.) tetap bekerja.
+
+## Comments
+
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #175.

@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, data integrity)
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 **Blocked by:** none
 
@@ -20,8 +20,7 @@ menemukan tiga celah pada API responses dan validasi input:
 2. **tripFeeAmount menerima desimal tanpa batas atas**: Validasi schema
    (`src/app/api/volunteer-trips/route.ts:13`) hanya check `positive()` tanpa batas
    atas maksimum, padahal kolom database adalah `Int` dengan presisi terbatas.
-   Attacker bisa submit `tripFeeAmount: 999999999.99` untuk overflow atau
-   calculation error.
+   Nilai ekstrem atau non-integer bisa lolos validasi.
 
 3. **coverImage menerima skema URL apa pun**: Route tidak memvalidasi bahwa
    `coverImage` adalah URL HTTPS. Bisa menerima HTTP, `file://`, `data:`, atau
@@ -48,3 +47,7 @@ menemukan tiga celah pada API responses dan validasi input:
 - Tes: POST/PATCH menolak `tripFeeAmount` > batas maksimum atau non-integer.
 - Tes: POST/PATCH menolak `coverImage` HTTP, `file://`, atau non-URL.
 - Dokumentasi: field mana saja yang safe untuk di-expose ke public vs authenticated.
+
+## Comments
+
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #177.

@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, kode uang)
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 **Blocked by:** none
 
@@ -21,28 +21,10 @@ Skema `editBatchSchema` (`src/app/api/volunteer-trips/[slug]/batches/[id]/route.
 hanya memeriksa bentuk. Pemilik Trip (atau Admin) boleh memanggilnya
 (`route.ts:50`).
 
-Skenario serangan (Fundraiser nakal, Trip ACTIVE, Volunteer sudah bayar):
-
-1. Fundraiser `PATCH` Batch: `startDate` dan `endDate` ke masa lalu (atau `startDate`
-   ke < 3 hari dari sekarang), `registrationDeadline` disesuaikan.
-2. Tabel refund Volunteer dihitung dari `batch.startDate`
-   (`src/lib/volunteer/refunds.ts:33-37`, dipakai `cancelRegistration`,
-   `trip.ts:905`): `daysToDeparture < 3` berarti refund 0. Volunteer yang
-   membatalkan tidak mendapat apa-apa.
-3. Karena `endDate` sudah lewat, Fundraiser memanggil `complete` (`trip.ts:609`
-   lolos), Batch menjadi COMPLETED, dan `cancelRegistration` menolak dengan
-   `BatchAlreadyCompletedError` (`trip.ts:894`). Volunteer tak punya jalan keluar;
-   `cancelBatch` pun tertutup karena Batch bukan OPEN.
-4. Trip Fee tidak punya syarat apa pun untuk Payout selain "bukan Suspended"
-   (`src/lib/money/payouts.ts:157-160`, `src/lib/subject-guard.ts:257-258`), jadi
-   setelah Escrow Hold 7 hari dari settlement Fundraiser mengajukan Payout atas
-   `TRIP_BALANCE`. Sebelum itu pun, Volunteer yang membatalkan di jendela 3-13 hari
-   lalu dibayar dari pool yang sudah dikuras Payout lewat `shortfall`
-   (`src/lib/money/refunds.ts:approveRefund`), yakni uang platform.
-
-Variasi yang lebih ringan: `maxQuota` bisa diturunkan di bawah jumlah Registration
-CONFIRMED, dan `minQuota` dinaikkan di atas jumlah CONFIRMED agar `cancelBatch`
-(`trip.ts:678`) lolos untuk membatalkan Batch sesuka hati.
+Dampak (setingkat peran): Pemilik Trip dapat mengubah jadwal dan kuota Batch
+yang sudah punya Volunteer berbayar sehingga hak refund Volunteer hilang atau
+terkunci, dan platform menanggung selisihnya. Detail rangkaian langkah
+disengaja tidak ditulis di sini.
 
 ## Scope
 
@@ -71,3 +53,7 @@ CONFIRMED, dan `minQuota` dinaikkan di atas jumlah CONFIRMED agar `cancelBatch`
   melewati penjagaan di atas.
 - Menyentuh kode uang di `src/lib/volunteer/trip.ts`: review independen `sonnet`
   wajib dan ketiga canary carry-trap harus sama dengan `main`.
+
+## Comments
+
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #170.

@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan)
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 **Blocked by:** none
 
@@ -43,3 +43,7 @@ terlambat:
 - Tes: `confirmRegistration` ditolak jika Batch COMPLETED.
 - Tes: Workflow normal (HOLD → CONFIRMED → COMPLETED) tidak terpengaruh.
 - Menyentuh kode uang di `src/lib/volunteer/trip.ts`: review independen `sonnet` wajib.
+
+## Comments
+
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #178.

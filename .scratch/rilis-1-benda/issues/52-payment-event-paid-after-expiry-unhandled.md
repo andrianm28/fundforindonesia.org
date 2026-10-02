@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, kode uang)
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 **Blocked by:** none
 
@@ -23,8 +23,7 @@ ada jalur refund di aplikasi:
    (Prisma write) gagal atau koneksi putus, uang sudah di provider tetapi tidak ada
    Payment record di database. Tidak ada cara untuk refund atau rekonsiliasi.
 
-Aliran uang yang tidak tercatat: Provider terima pembayaran → DB tidak tercatat →
-Tidak ada jalur refund → Dana hang indefinitely.
+Dampak: dana bisa tertahan di provider tanpa catatan dan tanpa jalur refund.
 
 ## Scope
 
@@ -51,3 +50,7 @@ Tidak ada jalur refund → Dana hang indefinitely.
   di-refund otomatis; jika tidak bisa, error-nya tercatat untuk manual intervention.
 - Menyentuh kode uang di `src/app/api/webhooks/[provider]/route.ts` dan registrations:
   review independen `sonnet` wajib.
+
+## Comments
+
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #180.

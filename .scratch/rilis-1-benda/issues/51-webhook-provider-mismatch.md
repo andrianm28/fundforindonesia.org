@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan)
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 **Blocked by:** none
 
@@ -14,14 +14,12 @@ menemukan dua celah pada webhook payment:
 1. **Provider mismatch**: Route `/api/webhooks/[provider]` menerima URL parameter
    `[provider]` tetapi tidak memvalidasi bahwa `event.provider` dalam body payload
    cocok dengan `[provider]` di URL (`src/app/api/webhooks/[provider]/route.ts:171`, `:393`).
-   Attacker bisa mengirim webhook ke `/api/webhooks/mock` dengan `payment.provider = "midtrans"`
-   untuk memperdaya sistem.
+   Webhook yang tidak cocok dengan provider pembayaran sebenarnya bisa diterima.
 
 2. **Mock provider aktif di produksi**: Jalur `/api/webhooks/mock` aktif selama
    `MOCK_MIDTRANS_SERVER_KEY` ada di lingkungan (`src/lib/payments/index.ts:73`).
-   Jika env var ini tidak dihapus saat deploy ke produksi, attacker bisa mengirim
-   event palsu melalui `/api/webhooks/mock` tanpa signature validation, karena mock
-   provider tidak melakukan verifikasi.
+   Jika konfigurasi ini terbawa ke produksi, jalur mock yang tanpa verifikasi
+   signature ikut aktif.
 
 ## Scope
 
@@ -43,3 +41,7 @@ menemukan dua celah pada webhook payment:
   database ditolak dengan 400/404.
 - Tes: Webhook ke `/api/webhooks/mock` ditolak atau diabaikan di lingkungan non-test.
 - Dokumentasi: .env produksi tidak boleh menyertakan `MOCK_MIDTRANS_SERVER_KEY`.
+
+## Comments
+
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #179.

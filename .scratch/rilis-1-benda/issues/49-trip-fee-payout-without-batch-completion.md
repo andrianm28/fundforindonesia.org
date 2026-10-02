@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, kode uang)
 
-**Status:** needs-info
+**Status:** ready-for-agent
 
 **Blocked by:** none
 
@@ -14,18 +14,9 @@ hanya memeriksa apakah Batch/Trip bukan SUSPENDED (`src/lib/subject-guard.ts:257
 `requirePayoutAllowed`), tanpa memastikan Batch sudah COMPLETED atau tanggal 
 keberangkatan telah lewat.
 
-Skenario masalah (Fundraiser nakal, Trip ACTIVE, Volunteer sudah bayar):
-
-1. Batch menerima Registration pembayaran Trip Fee.
-2. Setelah Escrow Hold 7 hari dari settlement, Fundraiser mengajukan Payout atas
-   `TRIP_BALANCE` (trip fee yang telah terkumpul).
-3. Payout berhasil karena hanya check `effectiveStatus !== SUSPENDED`.
-4. Volunteer yang membatalkan kemudian (dalam jendela refund) dibayar dari pool
-   yang sudah dikuras melalui `shortfall` (`src/lib/money/refunds.ts:approveRefund`),
-   yakni uang platform yang jadi pihak ketiga atas refund.
-
-Aliran dana menjadi: Volunteer bayar Trip Fee → Fundraiser payout seluruhnya →
-Volunteer cancel → Platform bayar refund dari shortfall (beban platform).
+Dampak (setingkat peran): dana Trip Fee dapat ditarik Fundraiser sebelum Batch
+selesai, sehingga refund Volunteer yang batal belakangan ditanggung platform.
+Rincian alur langkah demi langkah tidak ditulis di sini.
 
 ## Scope
 
@@ -45,3 +36,7 @@ memeriksa state Batch tambahan.
 - Owner memberikan keputusan tentang aturan kapan Payout Trip Fee boleh ditarik.
 - Jika ada aturan baru: tes payout menolak sebelum kondisi terpenuhi, lolos setelah.
 - Menyentuh kode uang di `src/lib/subject-guard.ts`: review independen `sonnet` wajib.
+
+## Comments
+
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #176.
