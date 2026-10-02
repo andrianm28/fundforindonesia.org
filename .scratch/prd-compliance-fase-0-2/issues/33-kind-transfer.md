@@ -72,3 +72,31 @@
      yang sama. Tujuan cukup Active, bukan Demo, Kind (dan Category wakaf) sama.
   4. Belum ada layar Admin untuk transfer; hanya API. Antrean transfer PENDING
      juga belum muncul di `/api/admin/reconcile` seperti Manual Contribution.
+- 2026-10-02 (perbaikan review PR #191), centang acceptance dan buktinya:
+  - [x] Zakat/wakaf tidak bisa di-refund atas keputusan manajemen: sudah
+    ditegakkan `REFUND_ELIGIBILITY_BY_KIND` dan diuji `refund-kind-gate.test.ts`
+    sejak tiket 31; tiket ini tidak mengubahnya.
+  - [x] Transfer ke Kind sama (wakaf sekategori): `campaign-transfers.test.ts`
+    dan tes real-DB `campaign-transfer-real-db.test.ts`.
+  - [x] Lintas Kind ditolak mentah-mentah: tes tabel di service (403
+    `CAMPAIGN_TRANSFER_CROSS_KIND`) dan di route.
+  - [x] Jurnal seimbang dengan aturan dua orang: tes service; dua approval
+    paralel dari sumber yang sama lolos tepat satu, dan transfer paralel dengan
+    Refund tidak deadlock dan buku tetap seimbang (real-DB, dijalankan lokal
+    terhadap Postgres, CI menjalankannya dengan `TEST_DATABASE_URL`).
+  - [x] Donor diberi tahu: tes Notification dan email Donor Tamu.
+  - Tambahan: Escrow Hold dan dana beku Refund terbukti tidak ikut pindah;
+    perubahan Kind/Category setelah request menolak approval (alur edit nyata
+    menolak Kind setelah Draft lewat `requireKindAndDeadlineEditable`; Category
+    hanya bisa lewat Admin, diuji langsung di DB); body bertipe salah di kedua
+    route menjawab 400. Payout paralel tidak diuji: Payout butuh Bank Account
+    terverifikasi terenkripsi, dan Refund sudah membuktikan serialisasi lewat
+    kunci subjek yang sama.
+  - Akar kegagalan CI `test` di a0e8379: `campaign-status-readers.test.ts`
+    ("legacy Campaign status column is named by no src file"). Detektornya
+    mengatribusikan tipe Prisma berdasarkan awalan nama `Campaign`, sehingga
+    kolom `status` milik model baru `CampaignTransfer` terhitung sebagai kolom
+    `status` lama Campaign. Diperbaiki dengan parameter `excludeModels` di
+    `tests/support/prisma-field-references.ts`, bukan dengan menonaktifkan tes.
+  - Keputusan [OWNER] (nominal parsial, persetujuan tujuan, Escrow Hold matang
+    setelah transfer) tidak diubah.

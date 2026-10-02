@@ -148,7 +148,7 @@ function cleanId(value: unknown, field: string): string {
 type Judged = {
   source: TransferParty;
   target: TransferParty;
-  titles: { source: string; target: string; targetSlug: string };
+  targets: { sourceTitle: string; targetTitle: string; targetSlug: string };
   balance: number;
 };
 
@@ -216,7 +216,7 @@ async function lockAndJudge(
   return {
     source,
     target,
-    titles: { source: sourceRow.title, target: targetRow.title, targetSlug: targetRow.slug },
+    targets: { sourceTitle: sourceRow.title, targetTitle: targetRow.title, targetSlug: targetRow.slug },
     balance,
   };
 }
@@ -315,11 +315,11 @@ export async function approveCampaignTransfer(
     });
     const message = (audience: 'donor' | 'fundraiser') =>
       audience === 'donor'
-        ? `Campaign "${judged.titles.source}" yang Anda dukung sedang Suspended. Dana yang terkumpul tidak dikembalikan, ` +
-          `melainkan dialihkan ke Campaign "${judged.titles.target}" dengan Kind yang sama.`
-        : `${formatRupiah(record.amount)} dari Campaign "${judged.titles.source}" dialihkan ke Campaign ` +
-          `"${judged.titles.target}" karena Campaign asal sedang Suspended.`;
-    const link = `/campaign/${judged.titles.targetSlug}`;
+        ? `Campaign "${judged.targets.sourceTitle}" yang Anda dukung sedang Suspended. Dana yang terkumpul tidak dikembalikan, ` +
+          `melainkan dialihkan ke Campaign "${judged.targets.targetTitle}" dengan Kind yang sama.`
+        : `${formatRupiah(record.amount)} dari Campaign "${judged.targets.sourceTitle}" dialihkan ke Campaign ` +
+          `"${judged.targets.targetTitle}" karena Campaign asal sedang Suspended.`;
+    const link = `/campaign/${judged.targets.targetSlug}`;
     const recipients = new Map<string, 'donor' | 'fundraiser'>();
     for (const d of donors) if (d.donorId) recipients.set(d.donorId, 'donor');
     recipients.set(judged.source.state.ownerId, 'fundraiser');
@@ -338,17 +338,17 @@ export async function approveCampaignTransfer(
       where: { campaignId: record.sourceId, paymentStatus: 'confirmed', donorId: null },
       select: SELECT_DONATION_GUEST_EMAIL,
     });
-    return { titles: judged.titles, guests: guests as GuestEmailRow[] };
+    return { targets: judged.targets, guests: guests as GuestEmailRow[] };
   });
 
-  await emailGuestDonors(outcome.guests, outcome.titles, deps);
+  await emailGuestDonors(outcome.guests, outcome.targets, deps);
 
   return prisma.campaignTransfer.findUniqueOrThrow({ where: { id: campaignTransferId } });
 }
 
 async function emailGuestDonors(
   guests: GuestEmailRow[],
-  titles: { source: string; target: string; targetSlug: string },
+  targets: { sourceTitle: string; targetTitle: string; targetSlug: string },
   deps: CampaignTransferNotifyDeps,
 ): Promise<void> {
   const read = deps.readGuestEmail ?? readDonationGuestEmail;
@@ -366,9 +366,9 @@ async function emailGuestDonors(
       await mailer.send(
         campaignTransferEmail({
           to,
-          sourceTitle: titles.source,
-          targetTitle: titles.target,
-          targetUrl: publicUrl(`/campaign/${titles.targetSlug}`),
+          sourceTitle: targets.sourceTitle,
+          targetTitle: targets.targetTitle,
+          targetUrl: publicUrl(`/campaign/${targets.targetSlug}`),
         }),
       );
     } catch (error) {
@@ -380,6 +380,13 @@ async function emailGuestDonors(
 /**
  * A second Admin declines. Nothing is posted, because nothing was ever
  * posted; the record stays, because closing a queue entry is a decision.
+ *
+ * DELIBERATELY NO SUBJECT LOCK. Rejecting moves no money and reads no balance
+ * or Campaign state, so there is nothing a Campaign lock would protect. The
+ * only race is two decisions on one transfer, and that is settled by the
+ * predicated `updateMany` on `status: 'PENDING'` below: exactly one claim wins
+ * and the loser gets CampaignTransferNotPendingError, whichever way the other
+ * decision (approve or reject) went. Approval takes the locks because it spends.
  */
 export async function rejectCampaignTransfer(
   prisma: PrismaClient,

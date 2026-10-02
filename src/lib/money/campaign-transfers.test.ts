@@ -16,6 +16,7 @@ import {
   OwnSubjectConflictError,
   SelfApprovalError,
 } from './campaign-transfers';
+import { requireKindAndDeadlineEditable, KindImmutableError } from '../subject-guard';
 import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
 
 /**
@@ -95,6 +96,8 @@ function makeTx(
     sourceBalance?: number;
     donors?: Array<{ donorId: string | null }>;
     guests?: Array<Record<string, unknown>>;
+    /** Other money the source holds: Escrow Hold, money frozen for a Refund. */
+    extraRows?: Array<{ account: string; direction: 'DEBIT' | 'CREDIT'; amount: number }>;
   } = {},
 ) {
   const campaigns: Record<string, CampaignFixture> = {
@@ -111,6 +114,9 @@ function makeTx(
       campaignId: SOURCE,
       campaignTransferId: null,
     });
+  }
+  for (const extra of options.extraRows ?? []) {
+    rows.push({ transactionId: 'seed-extra', campaignId: SOURCE, campaignTransferId: null, ...extra });
   }
   const state = options.row === undefined ? transfer() : options.row ? { ...options.row } : null;
   const lockOrder: string[] = [];
@@ -381,6 +387,72 @@ describe('approveCampaignTransfer', () => {
     await expect(
       approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' }),
     ).rejects.toBeInstanceOf(CampaignTransferCrossKindError);
+    expect(rows.length).toBe(before);
+  });
+
+  it('moves only the withdrawable balance: Escrow Hold and money frozen for a Refund stay with the source', async () => {
+    const { tx, rows } = makeTx({
+      sourceBalance: 1_000_000,
+      extraRows: [
+        { account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 300_000 },
+        { account: 'FROZEN_BALANCE', direction: 'CREDIT', amount: 120_000 },
+      ],
+    });
+    const net = (account: string, campaignId: string) =>
+      rows
+        .filter((r) => r.account === account && r.campaignId === campaignId)
+        .reduce((n, r) => n + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+
+    await approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' });
+
+    expect(net('CAMPAIGN_BALANCE', SOURCE)).toBe(600_000);
+    expect(net('CAMPAIGN_BALANCE', TARGET)).toBe(400_000);
+    expect(net('ESCROW_HOLD', SOURCE)).toBe(300_000);
+    expect(net('FROZEN_BALANCE', SOURCE)).toBe(120_000);
+    expect(net('ESCROW_HOLD', TARGET)).toBe(0);
+    expect(net('FROZEN_BALANCE', TARGET)).toBe(0);
+    // The transfer's own journal touches CAMPAIGN_BALANCE and nothing else.
+    expect(rows.filter((r) => r.campaignTransferId === 'ct-1').map((r) => r.account)).toEqual([
+      'CAMPAIGN_BALANCE',
+      'CAMPAIGN_BALANCE',
+    ]);
+  });
+
+  it('does not count Escrow Hold towards what may be transferred', async () => {
+    const { tx } = makeTx({
+      sourceBalance: 100_000,
+      extraRows: [{ account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 900_000 }],
+    });
+    await expect(
+      approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' }),
+    ).rejects.toBeInstanceOf(InsufficientBalanceError);
+  });
+
+  it('a Kind changed after the request stops the approval; the real edit rules would not allow one past Draft', async () => {
+    // The real flow first: once a Campaign has left Draft, no edit changes its Kind.
+    const activeState = { kind: 'campaign', effectiveStatus: 'ACTIVE', campaignKind: 'ZAKAT', deadline: null } as never;
+    expect(() => requireKindAndDeadlineEditable(activeState, { kind: 'WAKAF' })).toThrow(KindImmutableError);
+
+    // Defence in depth: were it changed anyway, approval re-judges and refuses.
+    const { tx, rows, campaigns } = makeTx();
+    campaigns[TARGET].kind = 'WAKAF';
+    const before = rows.length;
+    await expect(
+      approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' }),
+    ).rejects.toBeInstanceOf(CampaignTransferCrossKindError);
+    expect(rows.length).toBe(before);
+  });
+
+  it('a wakaf Category changed after the request stops the approval', async () => {
+    const { tx, rows, campaigns } = makeTx({
+      source: { kind: 'WAKAF', category: 'Wakaf Pendidikan' },
+      target: { kind: 'WAKAF', category: 'Wakaf Pendidikan' },
+    });
+    campaigns[TARGET].category = 'Wakaf Kesehatan';
+    const before = rows.length;
+    await expect(
+      approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' }),
+    ).rejects.toBeInstanceOf(CampaignTransferCategoryMismatchError);
     expect(rows.length).toBe(before);
   });
 

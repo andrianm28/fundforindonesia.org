@@ -56,6 +56,8 @@ function decide(body: unknown): Promise<Response> {
 
 const BODY = { sourceId: 'a', targetId: 'b', amount: 1000, reason: 'Suspended' };
 
+const actual = await vi.importActual<typeof import('@/lib/money/campaign-transfers')>('@/lib/money/campaign-transfers');
+
 describe('POST /api/admin/campaign-transfers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -120,5 +122,42 @@ describe('POST /api/admin/campaign-transfers', () => {
   it('refuses a decision it does not enumerate', async () => {
     expect((await decide({ decision: 'delete' })).status).toBe(400);
     expect(mockApprove).not.toHaveBeenCalled();
+  });
+
+  describe('a body of the wrong type', () => {
+    it.each([['an array', []], ['a string', 'x'], ['null', null]])(
+      'answers 400 on both routes when the body is %s, and calls no command',
+      async (_name, body) => {
+        expect((await request(body)).status).toBe(400);
+        expect((await decide(body)).status).toBe(400);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(mockApprove).not.toHaveBeenCalled();
+        expect(mockReject).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ['sourceId is a number', { ...BODY, sourceId: 5 }],
+      ['targetId is missing', { ...BODY, targetId: undefined }],
+      ['amount is a string', { ...BODY, amount: '1000' }],
+      ['amount is fractional', { ...BODY, amount: 10.5 }],
+      ['reason is an object', { ...BODY, reason: { text: 'x' } }],
+    ])('answers 400 CAMPAIGN_TRANSFER_INVALID, through the real service, when %s', async (_name, body) => {
+      mockRequest.mockImplementation(actual.requestCampaignTransfer);
+      const res = await request(body);
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe('CAMPAIGN_TRANSFER_INVALID');
+    });
+
+    it('answers 400 CAMPAIGN_TRANSFER_INVALID when a reject carries a non-string reason, and a decision of the wrong type is refused', async () => {
+      mockSession.mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } });
+      mockReject.mockImplementation(actual.rejectCampaignTransfer);
+      const res = await decide({ decision: 'reject', reason: 42 });
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe('CAMPAIGN_TRANSFER_INVALID');
+
+      expect((await decide({ decision: ['approve'] })).status).toBe(400);
+      expect(mockApprove).not.toHaveBeenCalled();
+    });
   });
 });
