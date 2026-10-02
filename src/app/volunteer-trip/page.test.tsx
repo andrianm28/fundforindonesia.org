@@ -39,9 +39,18 @@ describe('/volunteer-trip', () => {
     expect(screen.getByText('Mengajar di Pulau Terpencil')).toBeInTheDocument();
     expect(screen.getByText('Pulau Sebatik')).toBeInTheDocument();
     expect(screen.getByText('Rp2.500.000')).toBeInTheDocument();
-    expect(screen.getByText(/01 Des 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/1 Des 2026/)).toBeInTheDocument();
     const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual(['/volunteer-trip/mengajar-di-pulau-terpencil']);
+  });
+
+  it('shows the nearest Batch start as its WIB date across the UTC day boundary', async () => {
+    // 1 Des 2026 00:00 WIB is still 30 Nov in UTC.
+    catalog.listCatalogTrips.mockResolvedValue([{ ...card, nearestBatchStart: new Date('2026-11-30T17:00:00Z') }]);
+
+    render(await VolunteerCatalogPage());
+
+    expect(screen.getByText('Batch terdekat: 1 Des 2026')).toBeInTheDocument();
   });
 
   it('says so when no Trip is taking Registrations', async () => {

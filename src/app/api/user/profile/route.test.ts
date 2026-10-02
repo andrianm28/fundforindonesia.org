@@ -47,7 +47,7 @@ describe("PATCH /api/user/profile", () => {
 
   it("returns 400 when name is too short (less than 2 chars)", async () => {
     mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
+      user: { id: "user-1", name: "Test", email: "test@test.com", assignments: [] },
       expires: "2099-01-01",
     });
 
@@ -61,7 +61,7 @@ describe("PATCH /api/user/profile", () => {
 
   it("returns 400 when name exceeds 50 characters", async () => {
     mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
+      user: { id: "user-1", name: "Test", email: "test@test.com", assignments: [] },
       expires: "2099-01-01",
     });
 
@@ -76,7 +76,7 @@ describe("PATCH /api/user/profile", () => {
 
   it("returns 400 when name field is missing", async () => {
     mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
+      user: { id: "user-1", name: "Test", email: "test@test.com", assignments: [] },
       expires: "2099-01-01",
     });
 
@@ -89,7 +89,7 @@ describe("PATCH /api/user/profile", () => {
 
   it("updates user name and returns updated user on valid input", async () => {
     mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Old Name", email: "test@test.com" },
+      user: { id: "user-1", name: "Old Name", email: "test@test.com", assignments: [] },
       expires: "2099-01-01",
     });
 
@@ -119,7 +119,7 @@ describe("PATCH /api/user/profile", () => {
 
   it("accepts name with exactly 2 characters", async () => {
     mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
+      user: { id: "user-1", name: "Test", email: "test@test.com", assignments: [] },
       expires: "2099-01-01",
     });
 
@@ -139,7 +139,7 @@ describe("PATCH /api/user/profile", () => {
 
   it("accepts name with exactly 50 characters", async () => {
     mockedGetServerSession.mockResolvedValue({
-      user: { id: "user-1", name: "Test", email: "test@test.com" },
+      user: { id: "user-1", name: "Test", email: "test@test.com", assignments: [] },
       expires: "2099-01-01",
     });
 

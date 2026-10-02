@@ -115,6 +115,7 @@ export default function AkunPage() {
         <SettingsLink label="Donasi Saya" href="/donasi-saya" />
         <SettingsLink label="Galang Dana Saya" href="/akun/kampanye-saya" />
         <SettingsLink label="Volunteer Trip Saya" href="/akun/volunteer-trip" />
+        <SettingsLink label="Keikutsertaan Volunteer Saya" href="/akun/volunteer" />
         <SettingsLink label="Pengaturan" href="/akun/pengaturan" isLast />
       </div>
 

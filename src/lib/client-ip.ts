@@ -1,5 +1,3 @@
-import { createHmac, randomBytes } from 'node:crypto';
-
 /**
  * Who is calling a public endpoint, as far as the rate limit (csr-06b) needs.
  *
@@ -58,30 +56,4 @@ function expandIpv6(address: string): string[] | null {
   const all = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill('0'), ...tail];
   if (all.length !== 8 || !all.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return null;
   return all.map((g) => g.replace(/^0+(?=.)/, ''));
-}
-
-// Outside production with no secret configured, a per-process random one: the
-// buckets still work for a dev server, and no constant is committed.
-let ephemeralSecret: string | undefined;
-
-function hashSecret(): string {
-  const configured = process.env.RATE_LIMIT_SECRET || process.env.NEXTAUTH_SECRET;
-  if (configured) return configured;
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('RATE_LIMIT_SECRET (or NEXTAUTH_SECRET) is not set');
-  }
-  ephemeralSecret ??= randomBytes(32).toString('hex');
-  return ephemeralSecret;
-}
-
-/**
- * Keyed hash of a subject (an address). The raw address is never stored: a
- * dump of the bucket table shows 64 hex characters that cannot be reversed
- * without the secret, and the rows are deleted a day after their window.
- */
-export function hashSubject(subject: string): string {
-  // The configured secret is also used elsewhere (NEXTAUTH_SECRET), so it is
-  // not the HMAC key itself: a purpose-bound key is derived from it first.
-  const key = createHmac('sha256', hashSecret()).update('rate-limit-v1').digest();
-  return createHmac('sha256', key).update(`rate-limit:${subject}`).digest('hex');
 }

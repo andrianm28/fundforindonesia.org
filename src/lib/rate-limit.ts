@@ -1,5 +1,5 @@
+import { createHmac, randomBytes } from 'node:crypto';
 import type { PrismaClient } from '@/generated/prisma/client';
-import { hashSubject } from './client-ip';
 
 /**
  * A fixed-window counter in Postgres, shared by every replica (csr-06b). One
@@ -61,4 +61,30 @@ export async function consumeRateLimit(prisma: PrismaClient, input: RateLimitInp
   }
   const retryAfterSeconds = Math.max(1, Math.ceil((windowStart.getTime() + windowMs - now.getTime()) / 1000));
   return { allowed: count <= input.limit, count, retryAfterSeconds };
+}
+
+// Outside production with no secret configured, a per-process random one: the
+// buckets still work for a dev server, and no constant is committed.
+let ephemeralSecret: string | undefined;
+
+function hashSecret(): string {
+  const configured = process.env.RATE_LIMIT_SECRET || process.env.NEXTAUTH_SECRET;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('RATE_LIMIT_SECRET (or NEXTAUTH_SECRET) is not set');
+  }
+  ephemeralSecret ??= randomBytes(32).toString('hex');
+  return ephemeralSecret;
+}
+
+/**
+ * Keyed hash of a subject (an address). The raw address is never stored: a
+ * dump of the bucket table shows 64 hex characters that cannot be reversed
+ * without the secret, and the rows are deleted a day after their window.
+ */
+export function hashSubject(subject: string): string {
+  // The configured secret is also used elsewhere (NEXTAUTH_SECRET), so it is
+  // not the HMAC key itself: a purpose-bound key is derived from it first.
+  const key = createHmac('sha256', hashSecret()).update('rate-limit-v1').digest();
+  return createHmac('sha256', key).update(`rate-limit:${subject}`).digest('hex');
 }

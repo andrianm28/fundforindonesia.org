@@ -57,13 +57,18 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       # No default, for the reason given in docker-compose.yml: a default
-      # webhook secret is a published one.
-      MOCK_MIDTRANS_SERVER_KEY: ${MOCK_MIDTRANS_SERVER_KEY:?set MOCK_MIDTRANS_SERVER_KEY in .env}
+      # webhook secret is a published one. Not required here (ticket 51): the
+      # mock adapter is disabled under NODE_ENV=production unless
+      # ALLOW_MOCK_PAYMENT_PROVIDER=true, so a production .env should carry
+      # neither variable.
+      MOCK_MIDTRANS_SERVER_KEY: ${MOCK_MIDTRANS_SERVER_KEY:-}
+      ALLOW_MOCK_PAYMENT_PROVIDER: ${ALLOW_MOCK_PAYMENT_PROVIDER:-}
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
       # Empty means "no Sumopod", which fails closed (see docker-compose.yml).
       SUMOPOD_API_KEY: ${SUMOPOD_API_KEY:-}
       SUMOPOD_WEBHOOK_SECRET: ${SUMOPOD_WEBHOOK_SECRET:-}
       SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-}
+      PAYMENT_LINK_ALLOWED_HOSTS: ${PAYMENT_LINK_ALLOWED_HOSTS:-}
       # Field-level encryption keys (ADR 0012). No defaults, for the reason
       # MOCK_MIDTRANS_SERVER_KEY above gives: a default key is a published one.
       # These are also no longer optional in practice -- the plaintext contact
@@ -78,6 +83,19 @@ services:
       FIELD_ENCRYPTION_KEY_ID: ${FIELD_ENCRYPTION_KEY_ID:-}
       FIELD_HMAC_KEY: ${FIELD_HMAC_KEY:-}
       FIELD_HMAC_KEY_ID: ${FIELD_HMAC_KEY_ID:-}
+      # Scheduled jobs trigger. Empty means the endpoint answers 503 to
+      # everything, never an unauthenticated run (see .env.example).
+      JOBS_SECRET: ${JOBS_SECRET:-}
+      # Mailer. Unset in production, mail is logged as mail_not_configured and
+      # not sent; the SMTP_PORT default matches the smtps relay in .env.example.
+      MAIL_PROVIDER: ${MAIL_PROVIDER:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      PARTNERSHIP_TEAM_EMAIL: ${PARTNERSHIP_TEAM_EMAIL:-}
       # NEXT_PUBLIC_DONATIONS_ENABLED and NEXT_PUBLIC_BASE_URL are deliberately
       # absent. Next inlines NEXT_PUBLIC_* into the server and client bundles at
       # build time, so a value here would be ignored while looking

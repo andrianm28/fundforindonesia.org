@@ -328,7 +328,9 @@ describe('POST /api/volunteer-trips/[slug]/payouts/[id]/approve', () => {
           },
         ),
       },
-      $queryRaw: vi.fn(async () => {
+      $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
+        // Only the row lock queues; the held-balance read (ticket 49) runs under it.
+        if (!strings.join('').includes('FOR UPDATE')) return [{ held: 0 }];
         lockBox.release = await mutex.enter();
         return [{ id: 'trip-1' }];
       }),

@@ -193,6 +193,19 @@ describe('POST /api/partnership-inquiries', () => {
       expect(refused).toBe(true);
     });
 
+    it('with TRUSTED_PROXY_HOPS=2, counts the entry two from the end and ignores a forged front', async () => {
+      vi.stubEnv('TRUSTED_PROXY_HOPS', '2');
+      let refused = false;
+      for (let i = 0; i < 12; i++) {
+        // client-sent forgery, the real client (added by the outer proxy), the outer proxy (added by the inner one)
+        const res = await post(VALID, `10.0.0.${i}, 198.51.100.7, 192.0.2.50`);
+        if (res.status === 429) refused = true;
+      }
+      expect(refused).toBe(true);
+      // Same outer proxy, a different real client: its own bucket, not the proxy's.
+      expect((await post(VALID, '10.0.0.1, 198.51.100.8, 192.0.2.50')).status).toBe(201);
+    });
+
     it('answers a filled honeypot exactly like success, but writes nothing', async () => {
       const res = await post({ ...VALID, fax_ref: 'http://spam.example' });
 

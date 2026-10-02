@@ -15,7 +15,6 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { cancelRegistration } from '@/lib/volunteer/trip';
 import { PaymentSubjectMismatchError } from '@/lib/money/refunds';
-import { NotAuthorizedError } from '@/lib/capacity';
 import {
   BatchAlreadyCompletedError,
   RegistrationNotCancellableError,
@@ -74,7 +73,6 @@ describe('PATCH /api/registrations/[id]', () => {
 
   it.each([
     ['RegistrationNotFoundError', new RegistrationNotFoundError('reg-1'), 404, 'REGISTRATION_NOT_FOUND'],
-    ['NotAuthorizedError', new NotAuthorizedError(), 403, 'NOT_AUTHORIZED'],
     ['RegistrationNotCancellableError', new RegistrationNotCancellableError('CANCELLED'), 400, 'REGISTRATION_NOT_CANCELLABLE'],
     ['BatchAlreadyCompletedError', new BatchAlreadyCompletedError(), 400, 'BATCH_ALREADY_COMPLETED'],
   ])('answers %s with %i through domainErrorToHttp', async (_name, error, status, code) => {

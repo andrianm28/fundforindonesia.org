@@ -52,6 +52,12 @@ model User {
   emailKeyId       String
   phoneCiphertext  String?
   phoneKeyId       String?
+  /// Set once, when the owner of this address opened the confirmation link
+  /// emailed to it (prd-compliance 23; src/lib/email-verification.ts). Until
+  /// then the account has proven nothing about the address: it may have been
+  /// typed by anyone, so it matches no Guest Donor history. Never set by
+  /// registering, by signing in, or by an address merely matching.
+  emailVerifiedAt  DateTime?
   // Retired: the self-claimed verification and the Role hierarchy. No
   // application code or seed reads or writes them (retire-role-hierarchy
   // 02); authority comes only from assignments (ADR 0005). Nullable and
@@ -69,6 +75,7 @@ model User {
   volunteerTrips                   VolunteerTrip[]
   registrations                    Registration[]
   donations                        Donation[]
+  emailVerificationTokens          EmailVerificationToken[]
   prayers                          Prayer[]
   notifications                    Notification[]
   autoDonations                    AutoDonation[]
@@ -1005,6 +1012,24 @@ model Donation {
   @@index([createdAt])
 }
 
+/// A one-use confirmation link sent to an account's own email address
+/// (prd-compliance 23). Only a SHA-256 of the token is stored, so a dump
+/// holds nothing that can be replayed. `emailHmac` is the account's address
+/// at the time of issue: a token confirms that address and no later one.
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  emailHmac String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
 /// The Donor's proof of a Donation (CONTEXT.md, Receipt), created once a
 /// Donation Settles. `token` names the print page to a Donor who may have no
 /// account (a Guest Donor) -- unguessable on purpose, since it is the only
@@ -1316,6 +1341,12 @@ model Payment {
   /// proactively.
   registrationId String?       @unique
   registration   Registration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  /// How to pay this charge, kept so a Volunteer who closed the payment page
+  /// can open it again (ticket 37). Set only for a Trip Fee charge: the QRIS
+  /// link or the Virtual Account number the provider returned; null on every
+  /// Donation Payment and on rows created before this column existed.
+  redirectUrl    String?
+  vaNumber       String?
   /// The Payment Provider this charge went through, in the name that appears
   /// in its webhook URL, on this row and on the WebhookEvent for the same
   /// delivery -- one spelling per provider so the Provider Balance, which is
@@ -1618,9 +1649,42 @@ model WebhookEvent {
   payload         Json
   receivedAt      DateTime  @default(now())
   processedAt     DateTime?
+  /// What the handler decided this event was, stamped with processedAt (ticket
+  /// 52). Null on rows written before the column existed and while an event is
+  /// unfinished. A plain String, not an enum: the values live in
+  /// WEBHOOK_OUTCOME (src/lib/money/payment-reconciliation.ts), and the ones
+  /// that mean money needs a human are listed in WEBHOOK_OUTCOMES_NEEDING_REVIEW.
+  outcome         String?
 
   @@unique([provider, providerEventId])
   @@index([provider, receivedAt])
+  @@index([outcome])
+}
+
+/// A charge that exists at the payment provider while this database holds no
+/// Payment for it (ticket 52): provider.createCharge succeeded and the
+/// payment.create that should have recorded it failed. The provider's order id
+/// is the Donation id or the Registration id, so a later `paid` event for it
+/// matches no Payment; this row is how an Admin finds that money and either
+/// cancels the charge at the provider or refunds what was paid. Written outside
+/// any transaction the failure could have rolled back.
+model ChargeWriteFailure {
+  id             String    @id @default(cuid())
+  provider       String
+  /// The order id the charge was created under: Donation id or Registration id.
+  providerRef    String
+  /// "donation" | "registration"
+  subjectType    String
+  subjectId      String
+  amount         Int
+  errorMessage   String
+  createdAt      DateTime  @default(now())
+  /// Set by whoever reconciled it at the provider.
+  resolvedAt     DateTime?
+  resolutionNote String?
+
+  @@index([resolvedAt, createdAt])
+  @@index([providerRef])
 }
 
 model Refund {
@@ -2394,9 +2458,10 @@ model Registration {
   updatedAt     DateTime           @updatedAt
 
   // Relations
-  volunteer User           @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
-  batch     VolunteerBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  payment   Payment?
+  volunteer   User                  @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  batch       VolunteerBatch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  payment     Payment?
+  certificate VolunteerCertificate?
 
   @@index([volunteerId])
   @@index([batchId])
@@ -2415,4 +2480,28 @@ model RateLimitBucket {
 
   @@id([scope, subjectHash, windowStart])
   @@index([windowStart])
+}
+
+/// Sertifikat Keikutsertaan (ticket 37; prd-audit/issues/10). One per
+/// Registration, written only by completeBatch in the same transaction that
+/// completes the Batch, for a CONFIRMED Registration marked attended. The
+/// public page /sertifikat/[code] reads nothing but this row: every field
+/// below is a copy frozen at issue, so a later rename or Trip edit never
+/// changes an issued certificate. `code` is a cryptographically random,
+/// unguessable bearer reference (src/lib/volunteer/certificate.ts). No
+/// correction or revocation exists in Rilis 1, so there is no such column.
+/// onDelete: Restrict, as on VolunteerTripStatusChange.
+model VolunteerCertificate {
+  id             String   @id @default(cuid())
+  registrationId String   @unique
+  code           String   @unique
+  volunteerName  String
+  tripTitle      String
+  destination    String
+  batchStartDate DateTime
+  batchEndDate   DateTime
+  organizerName  String
+  issuedAt       DateTime @default(now())
+
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
 }

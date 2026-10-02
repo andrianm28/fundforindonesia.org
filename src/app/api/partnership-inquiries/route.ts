@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { clientAddress } from "@/lib/client-ip";
-import { consumeRateLimit, type RateLimitResult } from "@/lib/rate-limit";
+import { consumeRateLimit, type RateLimitInput, type RateLimitResult } from "@/lib/rate-limit";
 import {
   createPartnershipInquiry,
   partnershipInquiryErrorToHttp,
@@ -51,7 +51,7 @@ class GlobalLimitReachedError extends Error {
  * rather than turned into a 500 on the partnership form (decision on PR #161).
  * The failure is logged by error class only: no address, no form content.
  */
-async function consumeOrOpen(input: Parameters<typeof consumeRateLimit>[1]): Promise<RateLimitResult | null> {
+async function consumeOrOpen(input: RateLimitInput): Promise<RateLimitResult | null> {
   try {
     return await consumeRateLimit(prisma, input);
   } catch (error) {

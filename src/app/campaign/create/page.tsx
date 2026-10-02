@@ -218,28 +218,25 @@ export default function CampaignCreatePage() {
   async function createDraft(): Promise<string> {
     if (draftSlug) return draftSlug;
 
-    // Upload image first (simulate with a data URL for now)
-    let coverImageUrl = formData.coverImagePreview;
+    // Upload the cover first. A failed upload stops the submit: a placeholder
+    // or a blob/data URL would be refused by the API (coverImageSchema).
+    const uploadError = 'Gagal mengunggah gambar sampul. Silakan coba lagi.';
+    if (!formData.coverImage) throw new Error('Gambar sampul wajib diunggah.');
+    const uploadFormData = new FormData();
+    uploadFormData.append('file', formData.coverImage);
 
-    if (formData.coverImage) {
-      const uploadFormData = new FormData();
-      uploadFormData.append('file', formData.coverImage);
-
-      try {
-        const uploadRes = await fetch('/api/upload', {
-          method: 'POST',
-          body: uploadFormData,
-        });
-
-        if (uploadRes.ok) {
-          const uploadData = await uploadRes.json();
-          coverImageUrl = uploadData.url;
-        }
-      } catch {
-        // If upload API doesn't exist, use placeholder
-        coverImageUrl = '/images/placeholder-campaign.jpg';
-      }
+    let uploaded: { url?: string } | null = null;
+    try {
+      const uploadRes = await fetch('/api/upload', {
+        method: 'POST',
+        body: uploadFormData,
+      });
+      if (uploadRes.ok) uploaded = (await uploadRes.json()) as { url?: string };
+    } catch {
+      uploaded = null;
     }
+    if (!uploaded?.url) throw new Error(uploadError);
+    const coverImageUrl = uploaded.url;
 
     const amount = parseInt(formData.targetAmount.replace(/\D/g, ''), 10);
     const payload = {

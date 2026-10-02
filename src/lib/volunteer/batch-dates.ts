@@ -16,5 +16,16 @@ export function fromWibDate(value: string, edge: DateEdge): string {
 
 /** An instant to its WIB calendar date, `YYYY-MM-DD`. */
 export function toWibDate(instant: Date | string): string {
-  return new Date(new Date(instant).getTime() + 7 * 3600_000).toISOString().slice(0, 10);
+  return new Date(new Date(instant).getTime() + WIB_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+/** The WIB offset (UTC+7, no daylight saving) in milliseconds. */
+export const WIB_OFFSET_MS = 7 * 3600_000;
+
+/** "6 Okt 2026": the WIB calendar date, whatever timezone the process runs in. */
+export function formatWibDate(date: Date): string {
+  const wib = new Date(date.getTime() + WIB_OFFSET_MS);
+  return `${wib.getUTCDate()} ${MONTHS[wib.getUTCMonth()]} ${wib.getUTCFullYear()}`;
 }

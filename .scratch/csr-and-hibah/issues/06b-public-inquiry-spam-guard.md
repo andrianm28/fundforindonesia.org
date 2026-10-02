@@ -47,3 +47,5 @@ team cannot tell a real partner from noise.
   that header, which the owner must confirm (its config is not in this repo).
 
 - 2026-10-02: awaiting-merge. PR #161, commit be1ca61. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+
+- 2026-10-02: keputusan owner: limiter tetap fail-open saat runtime, tetapi produksi tanpa `RATE_LIMIT_SECRET` maupun `NEXTAUTH_SECRET` kini gagal boot (`src/instrumentation.ts` -> `src/lib/env-check.ts`); topologi dicatat di `.env.example` (nginx tanpa CDN, `TRUSTED_PROXY_HOPS=1`); tes `TRUSTED_PROXY_HOPS=2` lewat POST ditambahkan; migrasi diganti nama menjadi `20261002200000_rate_limit_bucket` (bentrok urutan dengan PR #172). Status tetap awaiting-merge.
