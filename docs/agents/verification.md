@@ -144,7 +144,12 @@ done and CI is green.
   the first four jobs, so this one gates deploys through the run's overall
   success instead.
 
-`.github/workflows/cd.yml` adds one more job on every PR:
+`.github/workflows/cd.yml` adds one more job. On a PR it runs only when the
+Dockerfile, `.dockerignore`, `package.json`, `package-lock.json`, `prisma/`,
+`prisma.config.ts`, `next.config.mjs`, `.trivyignore` or a workflow changes;
+otherwise `image` is skipped and shows as skipped, which counts as passing
+(decided by the small `image scope` job, not a workflow `paths:` filter, which
+would leave the check missing). Every push to `main` always builds it:
 
 - **image**: the production Docker image builds (the `runner` and `migrate`
   targets), the run summary reports both image sizes, sharp loads and encodes

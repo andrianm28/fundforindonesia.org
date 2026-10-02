@@ -15,6 +15,7 @@ import { captureTrafficSource } from '@/lib/traffic-source-capture';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { formatFeePercent } from '@/lib/money/platform-fee';
 import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
+import { ShareModal } from '@/components/shared/ShareModal';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
 
 export interface CampaignDetailData {
@@ -202,6 +203,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   // Ticket 22: which of the (so far) two live tabs is shown. "Kabar Terbaru"
   // stays a plain, unwired button, exactly as all three were before this
   // ticket -- adding it is a separate concern this ticket does not touch.
+  const [shareOpen, setShareOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'story' | 'disbursements'>('story');
 
   const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
@@ -251,8 +253,9 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           <h1 className="text-sm font-medium text-text truncate flex-1">
             {campaign.title}
           </h1>
-          {/* Share button placeholder */}
           <button
+            type="button"
+            onClick={() => setShareOpen(true)}
             className="text-text hover:text-primary transition-colors"
             aria-label="Bagikan"
           >
@@ -272,6 +275,17 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           </button>
         </div>
       </header>
+
+      <ShareModal
+        isOpen={shareOpen}
+        onClose={() => setShareOpen(false)}
+        campaign={{
+          title: campaign.title,
+          slug: campaign.slug,
+          coverImage: campaign.coverImage,
+          description: campaign.description,
+        }}
+      />
 
       {/* Hero image + quick info panel -- stacked by default, side-by-side
           from lg (1025px) up. The donate CTA is NOT duplicated here: it is
