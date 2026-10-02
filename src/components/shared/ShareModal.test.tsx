@@ -28,7 +28,8 @@ describe('ShareModal', () => {
     mockOpen = vi.fn();
     Object.defineProperty(window, 'open', { value: mockOpen, writable: true });
     Object.defineProperty(window, 'location', {
-      value: { origin: 'https://fundforindonesia.org' },
+      // Deliberately not the canonical domain: shared links must not follow the visitor's origin.
+      value: { origin: 'http://localhost:3000' },
       writable: true,
     });
     onClose.mockClear();
@@ -65,7 +66,8 @@ describe('ShareModal', () => {
     const expectedText = `Bantu donasi untuk: ${mockCampaign.title} - ${mockCampaign.description.slice(0, 100)}`;
     expect(mockOpen).toHaveBeenCalledWith(
       `https://wa.me/?text=${encodeURIComponent(expectedText + ' ' + expectedUrl)}`,
-      '_blank'
+      '_blank',
+      'noopener,noreferrer'
     );
   });
 
@@ -77,7 +79,8 @@ describe('ShareModal', () => {
     const expectedUrl = `https://fundforindonesia.org/campaign/${mockCampaign.slug}?src=facebook`;
     expect(mockOpen).toHaveBeenCalledWith(
       `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(expectedUrl)}`,
-      '_blank'
+      '_blank',
+      'noopener,noreferrer'
     );
   });
 
@@ -90,7 +93,8 @@ describe('ShareModal', () => {
     const expectedText = `Bantu donasi untuk: ${mockCampaign.title} - ${mockCampaign.description.slice(0, 100)}`;
     expect(mockOpen).toHaveBeenCalledWith(
       `https://twitter.com/intent/tweet?text=${encodeURIComponent(expectedText)}&url=${encodeURIComponent(expectedUrl)}`,
-      '_blank'
+      '_blank',
+      'noopener,noreferrer'
     );
   });
 
@@ -131,5 +135,33 @@ describe('ShareModal', () => {
 
     const callArg = mockOpen.mock.calls[0][0] as string;
     expect(callArg).toContain(encodeURIComponent(`https://fundforindonesia.org/campaign/${mockCampaign.slug}`));
+  });
+
+  it('builds shared URLs on the canonical public domain, not window.location.origin', () => {
+    render(<ShareModal isOpen={true} onClose={onClose} campaign={mockCampaign} />);
+    fireEvent.click(screen.getByLabelText('Bagikan via Facebook'));
+    const callArg = mockOpen.mock.calls[0][0] as string;
+    expect(decodeURIComponent(callArg)).not.toContain('localhost');
+    expect(decodeURIComponent(callArg)).toContain('https://fundforindonesia.org/campaign/');
+  });
+
+  it('opens every external share link with noopener,noreferrer', () => {
+    render(<ShareModal isOpen={true} onClose={onClose} campaign={mockCampaign} />);
+    for (const label of ['WhatsApp', 'Facebook', 'Twitter/X']) {
+      fireEvent.click(screen.getByLabelText(`Bagikan via ${label}`));
+    }
+    expect(mockOpen).toHaveBeenCalledTimes(3);
+    for (const call of mockOpen.mock.calls) {
+      expect(call[1]).toBe('_blank');
+      expect(call[2]).toBe('noopener,noreferrer');
+    }
+  });
+
+  it('percent-encodes a slug with reserved characters inside the shared URL', () => {
+    render(<ShareModal isOpen={true} onClose={onClose} campaign={{ ...mockCampaign, slug: 'a b&c' }} />);
+    fireEvent.click(screen.getByLabelText('Bagikan via Facebook'));
+    const callArg = mockOpen.mock.calls[0][0] as string;
+    const u = new URL(callArg);
+    expect(u.searchParams.get('u')).toBe('https://fundforindonesia.org/campaign/a%20b%26c?src=facebook');
   });
 });
