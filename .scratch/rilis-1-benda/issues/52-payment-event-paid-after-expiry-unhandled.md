@@ -8,9 +8,22 @@
 
 ## Why
 
-Audit keamanan baca-saja alur Volunteer Trip (2026-10-02) menemukan dua skenario di mana uang tersimpan di payment provider tetapi tidak ada jalur refund atau rekonsiliasi di aplikasi: (1) event `paid` untuk Payment yang sudah EXPIRED atau FAILED diabaikan, dan (2) charge sukses di provider tetapi pencatatan Payment gagal.
+Audit keamanan baca-saja alur Volunteer Trip (2026-10-02, `origin/main` 0f827b1)
+menemukan dua skenario di mana uang tersimpan di payment provider tetapi tidak
+ada jalur refund di aplikasi:
 
-Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #180 untuk perbaikan.
+1. **Stray `paid` event**: Webhook menerima event `paid` untuk Payment yang sudah
+   EXPIRED atau FAILED. Route mengabaikan dengan early exit
+   (`src/app/api/webhooks/[provider]/route.ts:203-220`, comment "Already settled/failed/expired"):
+   payment tidak di-update, uang tetap di provider, tidak ada notifikasi untuk refund.
+
+2. **createCharge sukses, payment.create gagal**: Registrations route membuat charge
+   di provider (`src/app/api/volunteer-trips/[slug]/batches/[id]/registrations/route.ts:137-190`
+   area `createCharge`). Jika `provider.createCharge` berhasil tetapi `payment.create`
+   (Prisma write) gagal atau koneksi putus, uang sudah di provider tetapi tidak ada
+   Payment record di database. Tidak ada cara untuk refund atau rekonsiliasi.
+
+Dampak: dana bisa tertahan di provider tanpa catatan dan tanpa jalur refund.
 
 ## Scope
 
@@ -60,6 +73,6 @@ donations, route retry, dan route registrations, serta test webhook route.
 
 ## Comments
 
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #180.
 - 2026-10-02: keputusan owner (Dri): Donation yang dibayar setelah Payment EXPIRED/FAILED tetap di-settle, tidak di-refund; Trip Fee yang kursinya hilang tetap di-refund penuh. Dicatat di ADR 0021 dan CONTEXT.md.
-
 - 2026-10-02: awaiting-merge. PR #180, commit 3b045ff. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.

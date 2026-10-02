@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** in-review
+**Status:** done (PR #164, 04001cd)
 
 **Blocked by:** —
 
@@ -32,3 +32,7 @@ ditambahkan. Teks email dan CONTEXT.md tidak menyebut jumlah hari. Dedupe
 memakai `deadlineReminderSentAt`, tidak bergantung pada konstanta. Saat deploy,
 Campaign Active yang tenggatnya 3-7 hari lagi dan belum diingatkan dapat
 pengingat pada sapuan pertama (sekali).
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #164 (04001cd). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.

@@ -52,6 +52,12 @@ model User {
   emailKeyId       String
   phoneCiphertext  String?
   phoneKeyId       String?
+  /// Set once, when the owner of this address opened the confirmation link
+  /// emailed to it (prd-compliance 23; src/lib/email-verification.ts). Until
+  /// then the account has proven nothing about the address: it may have been
+  /// typed by anyone, so it matches no Guest Donor history. Never set by
+  /// registering, by signing in, or by an address merely matching.
+  emailVerifiedAt  DateTime?
   // Retired: the self-claimed verification and the Role hierarchy. No
   // application code or seed reads or writes them (retire-role-hierarchy
   // 02); authority comes only from assignments (ADR 0005). Nullable and
@@ -69,6 +75,7 @@ model User {
   volunteerTrips                   VolunteerTrip[]
   registrations                    Registration[]
   donations                        Donation[]
+  emailVerificationTokens          EmailVerificationToken[]
   prayers                          Prayer[]
   notifications                    Notification[]
   autoDonations                    AutoDonation[]
@@ -1003,6 +1010,24 @@ model Donation {
   @@index([paymentStatus])
   @@index([guestEmailHmac])
   @@index([createdAt])
+}
+
+/// A one-use confirmation link sent to an account's own email address
+/// (prd-compliance 23). Only a SHA-256 of the token is stored, so a dump
+/// holds nothing that can be replayed. `emailHmac` is the account's address
+/// at the time of issue: a token confirms that address and no later one.
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  emailHmac String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 /// The Donor's proof of a Donation (CONTEXT.md, Receipt), created once a

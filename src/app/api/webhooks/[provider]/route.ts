@@ -206,8 +206,31 @@ export async function POST(
       return NextResponse.json({ received: true }, { status: 200 });
     }
 
+    // The provider that signed this event must be the provider that created
+    // this Payment. The signature proves the event came from whoever holds
+    // THAT provider's secret, not that it may speak for this charge: without
+    // this check a delivery verified by one provider could settle, fail or
+    // expire a Payment another provider charged. Checked before the status
+    // early-exit below so it is never mistaken for a harmless replay, and
+    // before anything is written to the Payment.
+    //
+    // Two deliberate choices. (1) The answer is the same 200 as an unknown
+    // providerRef, so a caller cannot probe which refs exist by telling the
+    // two apart. (2) processedAt is NOT stamped: the dedupe key is
+    // (provider, providerEventId), and marking a mismatched event processed
+    // would make a later genuine event with the same id look like a replay and
+    // be dropped. Left unprocessed, that later event picks the row up and is
+    // handled normally. The log carries ids only, no PII.
+    if (payment.provider !== event.provider) {
+      console.error(
+        `[webhooks/${providerParam}] REJECTED: event ${event.providerEventId} from provider ${event.provider} names payment ${payment.id}, which belongs to provider ${payment.provider}`,
+      );
+      return NextResponse.json({ received: true }, { status: 200 });
+    }
+
     // Ticket 52: a `paid` for a Payment already EXPIRED/FAILED is real money at
-    // the provider, so it settles below instead of exiting here.
+    // the provider, so it settles below instead of exiting here. After the
+    // provider-match check above, so a mismatched event never settles late.
     const lateOutcome = event.status === 'paid' ? lateSettlementOutcome(payment.status) : null;
 
     if (payment.status !== PaymentStatus.PENDING && !lateOutcome) {

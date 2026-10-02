@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
  * labelled `include`.
  */
 
-export function findSelectSpreadInInclude(source: string): number[] {
+function findSelectSpreadInInclude(source: string): number[] {
   const text = blank(source);
   const lines: number[] = [];
   const stack: Array<string | null> = [];

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative, resolve, sep } from "node:path";
 
 /**
  * Guards docker-compose.prod.yml, the file the host deploys from
@@ -99,5 +99,134 @@ describe("docker-compose.prod.yml", () => {
       'app - "127.0.0.1:8093:3000"',
       'db - "127.0.0.1:18093:5432"',
     ]);
+  });
+});
+
+/**
+ * Compose passes env to the app container by listing it (ops/deploy.sh only
+ * hands .env to compose for interpolation), so a variable the server code reads
+ * but the app service does not list never reaches the container: the jobs
+ * endpoint answers 503 and mail is never sent.
+ *
+ * Detection limits, stated honestly. This is a textual scan, not a data-flow
+ * analysis. It finds names written as a literal at the point of use:
+ * `process.env.X`, `process.env["X"]`, `process.env['X']`, `requireEnv('X')`
+ * and a constant assigned as `..._ENV = 'X'`. It cannot see a name that
+ * reaches `process.env[key]` through a variable, or a whole `process.env`
+ * handed to another function. Those are covered by DYNAMIC_READERS below: a
+ * hand-kept list of the files that do this and the names they read. The test
+ * fails when a file starts reading env dynamically without being listed (and
+ * when a listed name no longer appears in its file), so the list cannot
+ * silently go stale, but the names in it are only as accurate as the author
+ * made them.
+ */
+describe("docker-compose.prod.yml env passthrough", () => {
+  // Read by code under src/ but deliberately not passed to the app container.
+  const NOT_PASSED = new Set([
+    "NODE_ENV", // set by the image
+    "TEST_DATABASE_URL", // tests only
+    "LEDGER_CLAIM_TEST_DATABASE_URL", // tests only
+  ]);
+
+  /** One env variable name: the single definition every pattern below reuses. */
+  const ENV_NAME = "[A-Z][A-Z0-9_]*";
+  const LITERAL_READS = [
+    new RegExp(`process\\.env\\.(${ENV_NAME})`, "g"),
+    new RegExp(`process\\.env\\[\\s*["'](${ENV_NAME})["']\\s*\\]`, "g"),
+    new RegExp(`requireEnv\\(\\s*["'](${ENV_NAME})["']\\s*\\)`, "g"),
+    new RegExp(`_ENV\\s*=\\s*["'](${ENV_NAME})["']`, "g"),
+  ];
+  /** `process.env[x]` with a non-literal key, or `process.env` passed whole. */
+  const DYNAMIC_READ = new RegExp(
+    `process\\.env\\[\\s*(?!["']${ENV_NAME}["']\\s*\\])|process\\.env(?![.\\[\\w])`,
+  );
+
+  /** Files that read env by a computed key or a whole `process.env`, and what they read. */
+  const DYNAMIC_READERS: Record<string, string[]> = {
+    // requireEnv(key) with literal callers, plus PARTNERSHIP_TEAM_EMAIL_ENV.
+    "src/lib/mail/index.ts": ["SMTP_PORT", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM"],
+    "src/lib/payments/index.ts": [
+      "MOCK_MIDTRANS_SERVER_KEY",
+      "SUMOPOD_API_KEY",
+      "SUMOPOD_WEBHOOK_SECRET",
+      "SUMOPOD_BASE_URL",
+    ],
+    "src/lib/partnership-inquiries.ts": ["PARTNERSHIP_TEAM_EMAIL"],
+    // loadFieldKeys(process.env); the names are VARS in field-encryption.ts.
+    "src/lib/contact-fields.ts": [
+      "FIELD_ENCRYPTION_KEY",
+      "FIELD_ENCRYPTION_KEY_ID",
+      "FIELD_HMAC_KEY",
+      "FIELD_HMAC_KEY_ID",
+    ],
+  };
+
+  function walk(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) return walk(p);
+      const isSource = /\.(ts|tsx)$/.test(e.name) && !/\.test\.(ts|tsx)$/.test(e.name);
+      return isSource && !p.includes("__tests__") ? [p] : [];
+    });
+  }
+
+  const sources = walk(resolve("src")).map((file) => ({
+    rel: relative(resolve("."), file).split(sep).join("/"),
+    text: readFileSync(file, "utf8"),
+  }));
+
+  const passed = new Set(
+    service("app")
+      .map((l) => l.match(/^ {6}([A-Z][A-Z0-9_]*):/)?.[1])
+      .filter((n): n is string => Boolean(n)),
+  );
+
+  it("lists every env variable the server code reads", () => {
+    const used = new Set<string>(Object.values(DYNAMIC_READERS).flat());
+    for (const { text } of sources) {
+      for (const re of LITERAL_READS) for (const m of text.matchAll(re)) used.add(m[1]);
+    }
+    const missing = [...used]
+      .filter((n) => !n.startsWith("NEXT_PUBLIC_") && !NOT_PASSED.has(n) && !passed.has(n))
+      .sort();
+    expect(missing, "add to the app environment: block, or to NOT_PASSED with a reason").toEqual([]);
+  });
+
+  it("knows every file that reads env dynamically", () => {
+    const dynamic = sources.filter((s) => DYNAMIC_READ.test(s.text)).map((s) => s.rel);
+    const unlisted = dynamic.filter((f) => !(f in DYNAMIC_READERS));
+    expect(unlisted, "register the names it reads in DYNAMIC_READERS").toEqual([]);
+  });
+
+  it("keeps DYNAMIC_READERS honest about the files it names", () => {
+    for (const [file, names] of Object.entries(DYNAMIC_READERS)) {
+      const src = sources.find((s) => s.rel === file);
+      expect(src, `${file} no longer exists`).toBeDefined();
+      expect(DYNAMIC_READ.test(src!.text), `${file} no longer reads env dynamically`).toBe(true);
+      for (const name of names) {
+        const inFile = src!.text.includes(name) || (file.endsWith("contact-fields.ts") &&
+          sources.find((s) => s.rel === "src/lib/field-encryption.ts")!.text.includes(name));
+        expect(inFile, `${name} not found for ${file}`).toBe(true);
+      }
+    }
+  });
+
+  it("recognises the literal read patterns, including bracket access", () => {
+    const found = (code: string) =>
+      LITERAL_READS.flatMap((re) => [...code.matchAll(new RegExp(re))].map((m) => m[1]));
+    expect(found("process.env.A_B")).toEqual(["A_B"]);
+    expect(found('process.env["C_D"]')).toEqual(["C_D"]);
+    expect(found("process.env['E_F']")).toEqual(["E_F"]);
+    expect(DYNAMIC_READ.test("process.env[key]")).toBe(true);
+    expect(DYNAMIC_READ.test("load(process.env)")).toBe(true);
+    expect(DYNAMIC_READ.test('process.env["X"]')).toBe(false);
+  });
+
+  it("gives JOBS_SECRET no non-empty default", () => {
+    const line = service("app").find((l) => /^ {6}JOBS_SECRET:/.test(l));
+    expect(line, "JOBS_SECRET must be passed to app").toBeDefined();
+    // Only `${JOBS_SECRET}` or `${JOBS_SECRET:-}` / `${JOBS_SECRET-}`: an empty
+    // default fails closed (503); a published default would be a known secret.
+    expect(line!.trim()).toMatch(/^JOBS_SECRET: \$\{JOBS_SECRET:?-?\}$/);
   });
 });
