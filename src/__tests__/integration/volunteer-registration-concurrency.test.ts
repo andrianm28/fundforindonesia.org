@@ -5,7 +5,13 @@ import { Client } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@/generated/prisma/client';
-import { BatchFullError, AlreadyRegisteredError, RegistrationNotCancellableError } from '@/lib/volunteer-trip-errors';
+import {
+  BatchFullError,
+  AlreadyRegisteredError,
+  BatchLockedByRegistrationsError,
+  OwnTripRegistrationError,
+  RegistrationNotCancellableError,
+} from '@/lib/volunteer-trip-errors';
 
 /**
  * Ticket 36: the Registration flow's two concurrency guarantees, against a
@@ -40,6 +46,7 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
   let prisma: PrismaClient;
   let holdRegistration: typeof import('@/lib/volunteer/trip').holdRegistration;
   let cancelRegistration: typeof import('@/lib/volunteer/trip').cancelRegistration;
+  let editBatch: typeof import('@/lib/volunteer/trip').editBatch;
 
   beforeAll(async () => {
     if (!DATABASE_URL) return;
@@ -63,7 +70,7 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
     const adapter = new PrismaPg({ connectionString: url });
     const { PrismaClient: RealPrismaClient } = await import('@/generated/prisma/client');
     prisma = new RealPrismaClient({ adapter });
-    ({ holdRegistration, cancelRegistration } = await import('@/lib/volunteer/trip'));
+    ({ holdRegistration, cancelRegistration, editBatch } = await import('@/lib/volunteer/trip'));
   }, 120_000);
 
   afterAll(async () => {
@@ -119,7 +126,7 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
         minQuota: 1,
       },
     });
-    return { tripId: trip.id, batchId: batch.id };
+    return { tripId: trip.id, batchId: batch.id, fundraiserId };
   }
 
   it('lets exactly one of several Volunteers racing for the last seat hold it', async () => {
@@ -221,5 +228,59 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
     const none = await paidRegistration(2);
     await cancelRegistration(prisma, { registrationId: none.registrationId, actor: { userId: none.volunteerId } });
     expect(await prisma.refund.count({ where: { paymentId: none.paymentId } })).toBe(0);
+  });
+
+  // Ticket 48: the edit judges "does the Batch have a live Registration" under
+  // the Trip -> Batch -> Registrations locks that holdRegistration takes, so an
+  // edit and a hold racing never leave a Registration on a Batch whose
+  // startDate moved after it was taken.
+  it('serialises a date edit against a hold: either the edit wins and the hold sees the new date, or the hold wins and the edit is refused', async () => {
+    for (let round = 0; round < 8; round++) {
+      const { tripId, batchId, fundraiserId } = await makeBatch({ maxQuota: 5, departsInDays: 30 });
+      const volunteerId = await makeUser();
+      const before = await prisma.volunteerBatch.findUniqueOrThrow({ where: { id: batchId } });
+      const newStart = new Date(before.startDate.getTime() + 2 * MS_PER_DAY);
+      const newEnd = new Date(before.endDate.getTime() + 2 * MS_PER_DAY);
+
+      const [edit, hold] = await Promise.allSettled([
+        editBatch(prisma, {
+          tripId,
+          batchId,
+          actor: { userId: fundraiserId, assignments: [] },
+          edits: { startDate: newStart, endDate: newEnd },
+        }),
+        holdRegistration(prisma, { tripId, batchId, volunteerId }),
+      ]);
+
+      const after = await prisma.volunteerBatch.findUniqueOrThrow({ where: { id: batchId } });
+      expect(hold.status).toBe('fulfilled');
+      if (edit.status === 'fulfilled') {
+        expect(after.startDate).toEqual(newStart);
+      } else {
+        expect(edit.reason).toBeInstanceOf(BatchLockedByRegistrationsError);
+        expect(after.startDate).toEqual(before.startDate);
+      }
+    }
+  });
+
+  it('refuses a date edit once a Volunteer holds a seat, and a past date on an empty Batch', async () => {
+    const { tripId, batchId, fundraiserId } = await makeBatch({ maxQuota: 5, departsInDays: 30 });
+    const actor = { userId: fundraiserId, assignments: [] };
+    const past = new Date(Date.now() - MS_PER_DAY);
+    await expect(editBatch(prisma, { tripId, batchId, actor, edits: { startDate: past, registrationDeadline: past } })).rejects.toThrow(
+      /masa depan/,
+    );
+    await holdRegistration(prisma, { tripId, batchId, volunteerId: await makeUser() });
+    await expect(
+      editBatch(prisma, { tripId, batchId, actor, edits: { startDate: new Date(Date.now() + MS_PER_DAY) } }),
+    ).rejects.toBeInstanceOf(BatchLockedByRegistrationsError);
+  });
+
+  it('refuses the Trip\'s own Fundraiser as a Volunteer', async () => {
+    const { tripId, batchId, fundraiserId } = await makeBatch({ maxQuota: 5, departsInDays: 30 });
+    await expect(holdRegistration(prisma, { tripId, batchId, volunteerId: fundraiserId })).rejects.toBeInstanceOf(
+      OwnTripRegistrationError,
+    );
+    expect(await prisma.registration.count({ where: { batchId } })).toBe(0);
   });
 });

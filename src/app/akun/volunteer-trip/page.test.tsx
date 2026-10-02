@@ -51,8 +51,8 @@ const batch = (overrides: Record<string, unknown> = {}) => ({
   minQuota: 2,
   status: 'OPEN',
   registrations: [
-    { id: 'r1', attended: false, volunteer: { name: 'Budi' } },
-    { id: 'r2', attended: false, volunteer: { name: 'Sari' } },
+    { id: 'r1', status: 'CONFIRMED', attended: false, volunteer: { name: 'Budi' } },
+    { id: 'r2', status: 'CONFIRMED', attended: false, volunteer: { name: 'Sari' } },
   ],
   ...overrides,
 });
@@ -134,8 +134,8 @@ describe('Fundraiser Trip screens (ticket 35)', () => {
           batch({
             status: 'COMPLETED',
             registrations: [
-              { id: 'r1', attended: true, volunteer: { name: 'Budi' } },
-              { id: 'r2', attended: false, volunteer: { name: 'Sari' } },
+              { id: 'r1', status: 'CONFIRMED', attended: true, volunteer: { name: 'Budi' } },
+              { id: 'r2', status: 'CONFIRMED', attended: false, volunteer: { name: 'Sari' } },
             ],
           }),
         ],

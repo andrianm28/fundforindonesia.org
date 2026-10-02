@@ -134,6 +134,27 @@ describe('Fundraiser Trip client components', () => {
     });
   });
 
+  describe('BatchForm with seats taken (ticket 48)', () => {
+    it('shows the dates read-only with the reason, and sends only the quotas', async () => {
+      answer(200, { batch: {} });
+      render(<BatchForm slug="sumba" batchId="b1" initial={VALUES} seatsUsed={3} />);
+      expect((screen.getByLabelText('Tanggal mulai') as HTMLInputElement).readOnly).toBe(true);
+      expect((screen.getByLabelText('Tanggal selesai') as HTMLInputElement).readOnly).toBe(true);
+      expect((screen.getByLabelText('Tenggat pendaftaran') as HTMLInputElement).readOnly).toBe(true);
+      expect((screen.getByLabelText('Kuota maksimum') as HTMLInputElement).min).toBe('3');
+      expect(screen.getByText(/Tanggal Batch dikunci/)).toBeDefined();
+      fireEvent.click(screen.getByRole('button', { name: 'Simpan Batch' }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(Object.keys(lastBody() as object).sort()).toEqual(['maxQuota', 'minQuota']);
+    });
+
+    it('keeps the dates editable while no one has registered', () => {
+      render(<BatchForm slug="sumba" batchId="b1" initial={VALUES} seatsUsed={0} />);
+      expect((screen.getByLabelText('Tanggal mulai') as HTMLInputElement).readOnly).toBe(false);
+      expect(screen.queryByText(/Tanggal Batch dikunci/)).toBeNull();
+    });
+  });
+
   describe('SubmitTripButton', () => {
     it('submits the Trip and refreshes', async () => {
       answer(200, { trip: {} });

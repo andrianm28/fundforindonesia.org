@@ -19,18 +19,24 @@ const EMPTY: BatchFormValues = { startDate: '', endDate: '', registrationDeadlin
  * Add a Batch to a Trip (POST /api/volunteer-trips/[slug]/batches), or change
  * an OPEN one (PATCH .../batches/[id]). Dates are WIB calendar dates. Whether
  * the dates and quotas agree, and whether the Batch is still OPEN, are the
- * server's to judge; its refusal text is shown as it comes. Client component:
+ * server's to judge; its refusal text is shown as it comes. Once a Batch has
+ * seats taken (`seatsUsed` > 0) its dates are shown read-only and not sent:
+ * the Volunteers' tiered Refund is counted from them (ticket 48), and the
+ * server refuses a change anyway. Client component:
  * talks to the API only.
  */
 export function BatchForm({
   slug,
   batchId,
   initial,
+  seatsUsed = 0,
   onDone,
 }: {
   slug: string;
   batchId?: string;
   initial?: BatchFormValues;
+  /** Seats held or confirmed: above zero the dates are frozen and maxQuota cannot go below it. */
+  seatsUsed?: number;
   onDone?: () => void;
 }) {
   const router = useRouter();
@@ -38,6 +44,7 @@ export function BatchForm({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const id = batchId ?? 'new';
+  const frozen = Boolean(batchId) && seatsUsed > 0;
 
   const set = <K extends keyof BatchFormValues>(key: K, value: BatchFormValues[K]) =>
     setValues((current) => ({ ...current, [key]: value }));
@@ -45,10 +52,15 @@ export function BatchForm({
   async function save() {
     setPending(true);
     setError('');
+    const dates = frozen
+      ? {}
+      : {
+          startDate: fromWibDate(values.startDate, 'start'),
+          endDate: fromWibDate(values.endDate, 'end'),
+          registrationDeadline: fromWibDate(values.registrationDeadline, 'end'),
+        };
     const body = {
-      startDate: fromWibDate(values.startDate, 'start'),
-      endDate: fromWibDate(values.endDate, 'end'),
-      registrationDeadline: fromWibDate(values.registrationDeadline, 'end'),
+      ...dates,
       maxQuota: Number(values.maxQuota),
       minQuota: Number(values.minQuota),
     };
@@ -81,6 +93,13 @@ export function BatchForm({
           {error}
         </p>
       )}
+      {frozen && (
+        <p className="text-sm text-[#757575]">
+          Tanggal Batch dikunci karena sudah ada {seatsUsed} Volunteer yang mendaftar atau membayar: refund mereka
+          dihitung dari tanggal ini. Kuota maksimum tidak bisa di bawah {seatsUsed}, dan kuota minimum tidak bisa
+          dinaikkan di atas jumlah Registration yang sudah CONFIRMED. Bila Batch tidak bisa berjalan, batalkan Batch.
+        </p>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label htmlFor={`start-${id}`} className={label}>
@@ -89,9 +108,10 @@ export function BatchForm({
           <input
             id={`start-${id}`}
             type="date"
-            className={field}
+            className={frozen ? `${field} bg-[#F5F5F5] text-[#757575]` : field}
             value={values.startDate}
             required
+            readOnly={frozen}
             onChange={(e) => set('startDate', e.target.value)}
           />
         </div>
@@ -105,6 +125,7 @@ export function BatchForm({
             className={field}
             value={values.endDate}
             required
+            readOnly={frozen}
             onChange={(e) => set('endDate', e.target.value)}
           />
         </div>
@@ -118,6 +139,7 @@ export function BatchForm({
             className={field}
             value={values.registrationDeadline}
             required
+            readOnly={frozen}
             onChange={(e) => set('registrationDeadline', e.target.value)}
           />
         </div>
@@ -128,7 +150,7 @@ export function BatchForm({
           <input
             id={`max-${id}`}
             type="number"
-            min={1}
+            min={Math.max(1, frozen ? seatsUsed : 1)}
             className={field}
             value={values.maxQuota}
             required

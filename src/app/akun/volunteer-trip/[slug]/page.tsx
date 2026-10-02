@@ -95,6 +95,7 @@ export default async function FundraiserTripPage({ params }: PageProps) {
                 slug={trip.slug}
                 batchId={batch.id}
                 ended={batch.ended}
+                seatsUsed={batch.seatsUsed}
                 roster={batch.roster.map((r) => ({ id: r.id, name: r.name }))}
                 values={{
                   startDate: toWibDate(batch.startDate),

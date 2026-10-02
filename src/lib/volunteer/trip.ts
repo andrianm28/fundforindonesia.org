@@ -23,6 +23,9 @@ import {
   BatchAlreadyCompletedError,
   BatchFieldsInvalidError,
   BatchFullError,
+  BatchLockedByRegistrationsError,
+  BatchQuotaBelowSeatsError,
+  OwnTripRegistrationError,
   BatchMinQuotaMetError,
   BatchNotEndedError,
   BatchNotFoundError,
@@ -488,11 +491,24 @@ function requireConsistentBatch(fields: BatchFields): void {
   }
 }
 
+/** A date being set must lie after `now`: a Batch is never scheduled into the past (ticket 48). */
+function requireFutureDates(fields: Partial<Pick<BatchFields, 'startDate' | 'endDate' | 'registrationDeadline'>>, now: Date): void {
+  if (fields.startDate !== undefined && fields.startDate <= now) {
+    throw new BatchFieldsInvalidError('startDate', 'startDate harus di masa depan');
+  }
+  if (fields.endDate !== undefined && fields.endDate <= now) {
+    throw new BatchFieldsInvalidError('endDate', 'endDate harus di masa depan');
+  }
+  if (fields.registrationDeadline !== undefined && fields.registrationDeadline <= now) {
+    throw new BatchFieldsInvalidError('registrationDeadline', 'registrationDeadline harus di masa depan');
+  }
+}
+
 /**
  * The Trip's Fundraiser, or an Admin, adds an OPEN Batch to it. Refusals:
  * TripNotFoundError (404); NotAuthorizedError (403);
  * TripNotAcceptingBatchesError (400) for a Cancelled or Completed Trip;
- * BatchFieldsInvalidError (400).
+ * BatchFieldsInvalidError (400), also for a date not after `now`.
  */
 export async function createBatch(
   prisma: PrismaClient,
@@ -506,6 +522,7 @@ export async function createBatch(
       throw new TripNotAcceptingBatchesError(trip.effectiveStatus);
     }
     requireConsistentBatch(fields);
+    requireFutureDates(fields, now);
     const batch = await tx.volunteerBatch.create({
       data: { tripId: trip.id, ...fields, status: VolunteerBatchStatus.OPEN },
     });
@@ -557,9 +574,21 @@ async function writeOpenBatch(
 
 /**
  * The Trip's Fundraiser, or an Admin, changes an OPEN Batch's dates or
- * quotas, judged together with what is stored. Refusals: TripNotFoundError
- * and BatchNotFoundError (404); NotAuthorizedError (403); BatchNotOpenError
- * (409); BatchFieldsInvalidError (400).
+ * quotas, judged together with what is stored (ticket 48).
+ *
+ * The tiered Refund is counted from `startDate`, so once the Batch has a
+ * live Registration (CONFIRMED, or a HOLD that has not lapsed) its
+ * `startDate`, `endDate` and `registrationDeadline` cannot move, `maxQuota`
+ * cannot drop below the seats held, and `minQuota` cannot rise above the
+ * CONFIRMED count. Only a Batch with no live Registration takes new dates,
+ * and those must be in the future. The judgement runs under the same locks
+ * as `holdRegistration` and `cancelBatch` (Trip, Batch, then the live
+ * Registrations), so a hold cannot commit between the check and the write.
+ *
+ * Refusals: TripNotFoundError and BatchNotFoundError (404);
+ * NotAuthorizedError (403); BatchNotOpenError and
+ * BatchLockedByRegistrationsError (409); BatchQuotaBelowSeatsError (422);
+ * BatchFieldsInvalidError (400).
  */
 export async function editBatch(
   prisma: PrismaClient,
@@ -573,6 +602,34 @@ export async function editBatch(
     const changed = Object.fromEntries(
       Object.entries(edits).filter(([, value]) => value !== undefined),
     ) as Partial<BatchFields>;
+
+    // Always taken, as in cancelBatch and completeBatch; lapsed holds are
+    // released first, so they neither lock the Batch nor count as seats.
+    await lockLiveRegistrations(tx, batch.id);
+    await expireLapsedHolds(tx, batch.id, now);
+    const confirmed = await tx.registration.count({ where: { batchId: batch.id, status: RegistrationStatus.CONFIRMED } });
+    const held = await tx.registration.count({ where: { batchId: batch.id, status: RegistrationStatus.HOLD } });
+    const seats = confirmed + held;
+
+    const moved = (['startDate', 'endDate', 'registrationDeadline'] as const).filter(
+      (field) => changed[field] !== undefined && changed[field].getTime() !== batch[field].getTime(),
+    );
+    if (seats > 0) {
+      if (moved.length > 0) throw new BatchLockedByRegistrationsError(moved[0]);
+      if (changed.maxQuota !== undefined && changed.maxQuota < seats) {
+        throw new BatchQuotaBelowSeatsError('maxQuota', `maxQuota tidak boleh di bawah jumlah kursi terpakai (${seats})`);
+      }
+      if (changed.minQuota !== undefined && changed.minQuota > batch.minQuota && changed.minQuota > confirmed) {
+        throw new BatchQuotaBelowSeatsError(
+          'minQuota',
+          `minQuota tidak boleh dinaikkan di atas jumlah Registration CONFIRMED (${confirmed})`,
+        );
+      }
+    } else {
+      requireFutureDates(Object.fromEntries(moved.map((field) => [field, changed[field]])), now);
+    }
+    // After the lock judgement, so a moved date on a Batch with Registrations
+    // is named for what it is, not for the inconsistency it also causes.
     requireConsistentBatch({ ...batch, ...changed });
     return { batch: await writeOpenBatch(tx, batch, changed) };
   });
@@ -738,7 +795,7 @@ export type HoldRegistrationResult = { registration: Registration; tripFeeAmount
  * second sees the first.
  *
  * Refusals: TripNotFoundError and BatchNotFoundError (404), the latter
- * also for a Batch of another Trip; TripNotTakingRegistrationsError,
+ * also for a Batch of another Trip; OwnTripRegistrationError (403); TripNotTakingRegistrationsError,
  * BatchNotTakingRegistrationsError, RegistrationDeadlinePassedError,
  * BatchFullError and AlreadyRegisteredError (400).
  */
@@ -749,6 +806,9 @@ export async function holdRegistration(
   const { tripId, batchId, volunteerId, now = new Date() } = params;
   return prisma.$transaction(async (tx: Tx) => {
     const trip = await lockTrip(tx, tripId, now);
+    // The Fundraiser never takes a seat on their own Trip: they would hold
+    // both sides of the Trip Fee and of its tiered Refund (ticket 48).
+    if (volunteerId === trip.ownerId) throw new OwnTripRegistrationError();
     // Judged in the order the hold route always answered: which Batch,
     // then the Batch's status, then the Trip's, then the deadline.
     const batch = await lockBatch(tx, trip, batchId);

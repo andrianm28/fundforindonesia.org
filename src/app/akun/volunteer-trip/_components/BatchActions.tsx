@@ -22,12 +22,14 @@ export function BatchActions({
   values,
   ended,
   roster,
+  seatsUsed = 0,
 }: {
   slug: string;
   batchId: string;
   values: BatchFormValues;
   ended: boolean;
   roster: RosterEntry[];
+  seatsUsed?: number;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -80,7 +82,7 @@ export function BatchActions({
           Batalkan Batch
         </button>
       </div>
-      {editing && <BatchForm slug={slug} batchId={batchId} initial={values} onDone={() => setEditing(false)} />}
+      {editing && <BatchForm slug={slug} batchId={batchId} initial={values} seatsUsed={seatsUsed} onDone={() => setEditing(false)} />}
 
       <fieldset className="space-y-2 border-t border-[#E0E0E0] pt-3">
         <legend className="text-sm font-semibold text-[#212121]">Selesaikan Batch</legend>
