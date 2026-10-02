@@ -8,23 +8,9 @@
 
 ## Why
 
-Audit keamanan baca-saja alur Volunteer Trip (2026-10-02, `origin/main` 0f827b1)
-menemukan dua skenario di mana uang tersimpan di payment provider tetapi tidak
-ada jalur refund di aplikasi:
+Audit keamanan baca-saja alur Volunteer Trip (2026-10-02) menemukan dua skenario di mana uang tersimpan di payment provider tetapi tidak ada jalur refund atau rekonsiliasi di aplikasi: (1) event `paid` untuk Payment yang sudah EXPIRED atau FAILED diabaikan, dan (2) charge sukses di provider tetapi pencatatan Payment gagal.
 
-1. **Stray `paid` event**: Webhook menerima event `paid` untuk Payment yang sudah
-   EXPIRED atau FAILED. Route mengabaikan dengan early exit
-   (`src/app/api/webhooks/[provider]/route.ts:203-220`, comment "Already settled/failed/expired"):
-   payment tidak di-update, uang tetap di provider, tidak ada notifikasi untuk refund.
-
-2. **createCharge sukses, payment.create gagal**: Registrations route membuat charge
-   di provider (`src/app/api/volunteer-trips/[slug]/batches/[id]/registrations/route.ts:137-190`
-   area `createCharge`). Jika `provider.createCharge` berhasil tetapi `payment.create`
-   (Prisma write) gagal atau koneksi putus, uang sudah di provider tetapi tidak ada
-   Payment record di database. Tidak ada cara untuk refund atau rekonsiliasi.
-
-Aliran uang yang tidak tercatat: Provider terima pembayaran → DB tidak tercatat →
-Tidak ada jalur refund → Dana hang indefinitely.
+Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #180 untuk perbaikan.
 
 ## Scope
 
