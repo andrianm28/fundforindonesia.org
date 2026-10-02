@@ -4,7 +4,7 @@
 
 **Blocked by:** 16
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 - [x] Name, email and phone are anonymised on request, including the HMAC and ciphertext
 - [x] Amounts and ledger entries are untouched
@@ -31,3 +31,5 @@
      number, bank code) is kept, as proof of where money went.
   4. `Donation.message` and Prayer text are kept (not name/email/phone).
   5. Guest scope is every Guest Donation with the same email HMAC.
+
+- 2026-10-02: awaiting-merge. PR #172, commit 0fe8a2f. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
