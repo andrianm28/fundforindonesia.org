@@ -12,7 +12,9 @@
 #   images, and scans them. workflow_run only ever fires from the default
 #   branch's copy of this file, so without this a broken Dockerfile or
 #   workflow would first show up after merge. Jobs added here later that must
-#   not run on PRs need their own `if`.
+#   not run on PRs need their own `if`. On a PR the `image` job is skipped
+#   (still reporting as skipped, never missing) unless the image can change;
+#   see the `scope` job and ticket 17.
 #
 # Build args: NEXT_PUBLIC_* and the site URLs are inlined by `next build`, so
 # they are fixed per image. They come from repository-level Actions variables
@@ -55,18 +57,73 @@ env:
   PUSH: ${{ github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
 
 jobs:
+  # Decides whether `image` has anything to prove. The skip is a job-level
+  # `if` on `image`, never a `paths:` filter on the workflow: a workflow that
+  # does not trigger reports no check at all, while a job skipped by `if`
+  # still reports `image` as skipped, which GitHub counts as passing. So no
+  # PR is ever left waiting on a check that will not come (ticket 17).
+  #
+  # Anything but a pull_request (push to main via workflow_run, dispatch)
+  # always builds: deploy.yml needs these images in GHCR for every main
+  # commit. On a PR the files it changes decide. If the file list cannot be
+  # read, this fails open and the image builds.
+  scope:
+    name: image scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # list the PR's changed files
+    outputs:
+      build: ${{ steps.scope.outputs.build }}
+    steps:
+      - name: Decide whether the image can change
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # Paths that change what the Dockerfile builds or what is scanned:
+          # the Dockerfile and its context rules, dependencies, prisma/ and
+          # prisma.config.ts (the migrate image), next.config.mjs, the Trivy
+          # ignore list, and the workflows (this file included).
+          pattern='^(Dockerfile|\.dockerignore|package\.json|package-lock\.json|prisma\.config\.ts|next\.config\.mjs|\.trivyignore|prisma/|\.github/workflows/)'
+          if [ "$EVENT" != pull_request ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "$EVENT: always builds the image"
+            exit 0
+          fi
+          if ! files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" \
+              --jq '.[] | .filename, (.previous_filename // empty)')"; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::could not list the PR's files; building the image to be safe"
+            exit 0
+          fi
+          matched="$(printf '%s\n' "$files" | grep -E "$pattern" || true)"
+          if [ -n "$matched" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "image-relevant files changed:"; echo "$matched"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no image-relevant file changed; skipping the image job"
+          fi
+
   image:
     name: image
+    needs: scope
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # A workflow_run fires for every completed CI run on a branch named main,
     # including failed runs and a fork's PR from its own "main". Only a green
     # push to this repository's main may publish.
+    # `needs.scope.outputs.build` is false only for a docs-or-app-code-only PR.
     if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+      needs.scope.outputs.build == 'true' &&
+      (github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
     permissions:
       contents: read
       actions: read # the gate step checks CI's result for a dispatched commit

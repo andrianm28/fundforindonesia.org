@@ -9,8 +9,8 @@ minutes are free; this saves time, not money).
 
 **Blocked by:** 15 (avoid conflicting edits to `cd.yml` and `.trivyignore`)
 
-**Status:** ready-for-agent
+**Status:** in-review
 
-- [ ] A docs-only PR skips `image`; a PR touching any path above runs it; every push to `main` runs it
-- [ ] Skipping never blocks a merge: a skipped `image` still reports a passing (or neutral) status
-- [ ] The deploy path (CD on `main`) is unchanged
+- [x] A docs-only PR skips `image`; a PR touching any path above runs it; every push to `main` runs it
+- [x] Skipping never blocks a merge: a skipped `image` still reports a passing (or neutral) status
+- [x] The deploy path (CD on `main`) is unchanged
