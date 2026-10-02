@@ -19,6 +19,7 @@ import {
 } from './ledger';
 import {
   DemoCampaignError,
+  DonationAnonymisedError,
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
   RefundExceedsRemainingError,
@@ -80,7 +81,7 @@ export {
 };
 
 type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt'> & {
-  donation: { campaignId: string } | null;
+  donation: { campaignId: string; anonymisedAt: Date | null } | null;
   registration: { batch: { tripId: string } } | null;
 };
 
@@ -248,6 +249,13 @@ export async function createRefund(
   const paymentSubject = paymentSubjectOf(payment);
   if (!sameSubject(subject, paymentSubject)) {
     throw new PaymentSubjectMismatchError(paymentId);
+  }
+
+  // Ticket 36: read under the Payment lock taken above, the same lock
+  // anonymiseDonations takes, so an anonymisation and a Refund on one
+  // Donation cannot both succeed.
+  if (payment.donation?.anonymisedAt) {
+    throw new DonationAnonymisedError();
   }
 
   if (subjectState?.kind === 'campaign') {

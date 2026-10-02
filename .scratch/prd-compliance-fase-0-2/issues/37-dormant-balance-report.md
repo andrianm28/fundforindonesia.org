@@ -4,7 +4,8 @@
 
 **Blocked by:** 20
 
-**Status:** ready-for-agent
+**Status:** done
+PR #127, `src/lib/money/dormant-balances.ts`
 
 - [ ] Campaigns Expired or Completed still holding a Campaign Balance appear in an Admin report after 60 days
 - [ ] Reminders to the Fundraiser are tracked so the count toward the 180-day definition is real

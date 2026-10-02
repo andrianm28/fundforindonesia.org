@@ -25,6 +25,7 @@ vi.mock('@/lib/prisma', () => ({
     campaign: { findUnique: vi.fn() },
     donation: { create: vi.fn(), update: vi.fn() },
     payment: { create: vi.fn() },
+    chargeWriteFailure: { create: vi.fn() },
     prayer: { create: vi.fn() },
     platformFeeRule: { findFirst: vi.fn() },
     platformFeeThreshold: { findFirst: vi.fn() },
@@ -50,6 +51,7 @@ const mockCampaignFindUnique = prisma.campaign.findUnique as unknown as Mock;
 const mockDonationCreate = prisma.donation.create as unknown as Mock;
 const mockDonationUpdate = prisma.donation.update as unknown as Mock;
 const mockPaymentCreate = prisma.payment.create as unknown as Mock;
+const mockChargeWriteFailureCreate = prisma.chargeWriteFailure.create as unknown as Mock;
 const mockPrayerCreate = prisma.prayer.create as unknown as Mock;
 const mockPlatformFeeRuleFindFirst = prisma.platformFeeRule.findFirst as unknown as Mock;
 const mockPlatformFeeThresholdFindFirst = prisma.platformFeeThreshold.findFirst as unknown as Mock;
@@ -129,6 +131,7 @@ beforeEach(() => {
     return {};
   });
   mockPrayerCreate.mockResolvedValue({});
+  mockChargeWriteFailureCreate.mockResolvedValue({});
   mockGetPaymentProvider.mockReturnValue(sumopodLike());
   // No Platform Fee rule or threshold configured by default -- resolves to
   // 0 bps / 0 threshold (prd-compliance 17), never an invented rate.
@@ -230,6 +233,36 @@ describe('POST /api/donations when the charge fails', () => {
       data: { paymentStatus: 'failed' },
     });
     expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('records a ChargeWriteFailure and answers 503 when the charge succeeded but the Payment write failed (ticket 52)', async () => {
+    // The provider now holds a live charge this database has no Payment for.
+    // It must be findable for reconciliation, not vanish into a bare 500.
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockPaymentCreate.mockRejectedValue(new Error('connection reset by donor@example.com'));
+
+      const response = await POST(createRequest(QRIS_BODY));
+
+      expect(response.status).toBe(503);
+      expect(mockChargeWriteFailureCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          provider: 'sumopod',
+          providerRef: 'donation-1',
+          subjectType: 'donation',
+          subjectId: 'donation-1',
+          amount: 50_000,
+        }),
+      });
+      const recorded = JSON.stringify(mockChargeWriteFailureCreate.mock.calls);
+      expect(recorded).not.toContain('donor@example.com');
+      expect(mockDonationUpdate).toHaveBeenCalledWith({
+        where: { id: 'donation-1' },
+        data: { paymentStatus: 'failed' },
+      });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('refuses a charge whose method is not the one the provider declared', async () => {

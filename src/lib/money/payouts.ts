@@ -1,6 +1,8 @@
 import type { Payout, PayoutBalanceCheck, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
-import { assertExactlyOnePayoutSubject } from './payout-subject';
+import { requireTripFundsFromCompletedBatches } from './trip-payout-funds';
+import { assertNever } from '@/lib/assert-never';
+import { assertExactlyOnePayoutSubject, InvalidPayoutSubjectError } from './payout-subject';
 import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
 import { exceedsPayoutBalance } from '@/lib/payout-balance-rule';
@@ -101,6 +103,33 @@ async function lockPayoutSubject(
 }
 
 /**
+ * Exhaustive over LedgerSubject: a subject kind added later is a compile
+ * error here, and a shape that slips past the types at runtime is refused
+ * rather than silently read as a Trip.
+ */
+async function subjectBalance(tx: Prisma.TransactionClient, subject: LedgerSubject): Promise<number> {
+  switch (subject.type) {
+    case 'campaign':
+      return campaignBalance(tx, subject.campaignId);
+    case 'trip':
+      return tripBalance(tx, subject.tripId);
+    default:
+      return assertNever(subject, new InvalidPayoutSubjectError());
+  }
+}
+
+function payoutSubjectFk(subject: LedgerSubject): { campaignId: string | null; volunteerTripId: string | null } {
+  switch (subject.type) {
+    case 'campaign':
+      return { campaignId: subject.campaignId, volunteerTripId: null };
+    case 'trip':
+      return { campaignId: null, volunteerTripId: subject.tripId };
+    default:
+      return assertNever(subject, new InvalidPayoutSubjectError());
+  }
+}
+
+/**
  * The owning Fundraiser or Campaign creator requests a payout. Creates a
  * DRAFT and posts nothing to the ledger -- a request is not yet a movement
  * of money, only a proposal to make one. This function takes a
@@ -138,6 +167,15 @@ export async function requestPayout(
   },
 ): Promise<Payout> {
   const { subject, requestedById, bankAccountId, amount, description } = params;
+
+  // A Payout is for a Campaign or a Volunteer Trip and nothing else. The type
+  // says so already; this is the same refusal at runtime, before any lock or
+  // balance read, so a Program-shaped subject (csr-and-hibah 07) can never
+  // fall through to the Trip branch below and read some other account.
+  const subjectType: string = subject.type;
+  if (subjectType !== 'campaign' && subjectType !== 'trip') {
+    throw new InvalidPayoutSubjectError();
+  }
 
   // The subject is locked, then read, before anything else: its state is
   // what the checks below judge (src/lib/subject-guard.ts).
@@ -187,10 +225,7 @@ export async function requestPayout(
   // from the ledger, scoped to this subject's own account -- a Trip subject
   // can never read a Campaign's balance or vice versa, because each function
   // filters on its own FK column.
-  const balance =
-    subject.type === 'campaign'
-      ? await campaignBalance(tx, subject.campaignId)
-      : await tripBalance(tx, subject.tripId);
+  const balance = await subjectBalance(tx, subject);
   // The cap itself is one named rule, asked of the same module a screen asks
   // and the same module approvePayout asks below:
   // exceedsPayoutBalance (@/lib/payout-balance-rule.ts). The server stays the
@@ -201,10 +236,14 @@ export async function requestPayout(
     throw new InsufficientBalanceError(amount, balance);
   }
 
-  const subjectFk =
-    subject.type === 'campaign'
-      ? { campaignId: subject.campaignId, volunteerTripId: null }
-      : { campaignId: null, volunteerTripId: subject.tripId };
+  // Trip Fee only from COMPLETED Batches (ticket 49; CONTEXT.md, Payout): a
+  // different question from the cap above -- the money is there but may still
+  // be refunded. Asked under the same Trip lock; never for a Campaign.
+  if (subject.type === 'trip') {
+    await requireTripFundsFromCompletedBatches(tx, subject.tripId, amount);
+  }
+
+  const subjectFk = payoutSubjectFk(subject);
   assertExactlyOnePayoutSubject(subjectFk);
 
   return tx.payout.create({
@@ -433,10 +472,7 @@ export async function approvePayout(
     // approved first -- and, now that this transaction holds the subject's
     // row lock, this read is guaranteed current for as long as the lock is
     // held.
-    const balance =
-      subject.type === 'campaign'
-        ? await campaignBalance(tx, subject.campaignId)
-        : await tripBalance(tx, subject.tripId);
+    const balance = await subjectBalance(tx, subject);
     // The same named rule requestPayout asks above, asked again because the
     // balance it judged has moved: the cap is one comparison in
     // (@/lib/payout-balance-rule.ts), so this path cannot become a second,
@@ -446,6 +482,13 @@ export async function approvePayout(
     // changes WHEN the balance is read, not by how much may be taken of it.
     if (exceedsPayoutBalance(payout.amount, balance)) {
       throw new InsufficientBalanceError(payout.amount, balance);
+    }
+
+    // Re-judged at approval for the same reason as the status above: a Batch
+    // can have been cancelled, or its Refunds paid, since the request (ticket
+    // 49). Trip only.
+    if (subject.type === 'trip') {
+      await requireTripFundsFromCompletedBatches(tx, subject.tripId, payout.amount);
     }
 
     // And the other half, which no ledger read can supply: the money has to be
@@ -775,6 +818,11 @@ export async function completePayout(
     // keeps alive, and a Trip's status rule (refused while Suspended) needs
     // the row; either way a null state is left to the checks below, as before.
     if (subjectState) requirePayoutAllowed(subjectState);
+
+    // Ticket 49: deliberately NO Trip Fee ceiling check here. The Payout's debit
+    // was posted at approval, where the ceiling was judged; the money is already
+    // out of TRIP_BALANCE, so a check now could only block recording the
+    // transfer proof for money that has left.
 
     // Predicated on the status, exactly as approvePayout is: the lock above
     // serialises operations on the Campaign's money, not two admins racing

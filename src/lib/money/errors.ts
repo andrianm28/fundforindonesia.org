@@ -311,6 +311,38 @@ export class RefundNotAllowedForKindError extends MoneyError {
 }
 
 /**
+ * The Donation's Donor had their identity removed (ticket 36, PRD FFI-16), so
+ * the system holds nothing to check a Refund destination against and refuses
+ * to create one. The PRD says such a Donation "ditangani di luar": the money
+ * is still the Donor's, it is just not returned through this flow.
+ */
+export class DonationAnonymisedError extends MoneyError {
+  readonly code = 'DONATION_ANONYMISED';
+  constructor() {
+    super(
+      'Donation ini sudah dianonimkan atas permintaan Donor, sehingga Refund tidak dapat dibuat lewat sistem dan ditangani di luar.',
+    );
+    this.name = 'DonationAnonymisedError';
+  }
+}
+
+/**
+ * A Donor asked to be anonymised while a Refund on one of their Donations is
+ * still in flight. That Refund's destination was approved against the Donor's
+ * name, so removing the name now would strand money already frozen for return.
+ * The Donor can ask again once the Refund is completed, rejected or failed.
+ */
+export class AnonymisationBlockedByOpenRefundError extends MoneyError {
+  readonly code = 'ANONYMISATION_BLOCKED_BY_OPEN_REFUND';
+  constructor() {
+    super(
+      'Ada Refund yang belum selesai pada salah satu donasi Anda. Identitas dapat dianonimkan setelah Refund itu selesai, ditolak, atau gagal.',
+    );
+    this.name = 'AnonymisationBlockedByOpenRefundError';
+  }
+}
+
+/**
  * The Refund exceeds what is still refundable on the Payment: its Gross
  * minus every prior Refund that is not REJECTED or FAILED (REQUESTED ones
  * count too, since their funds are already frozen).

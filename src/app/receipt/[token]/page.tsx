@@ -2,6 +2,10 @@ import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import { ReceiptView } from '@/components/receipt/ReceiptView';
 
+// Rendered per request: anonymisation (ticket 36) changes what this page may
+// show, so it must never be served from a cache.
+export const dynamic = 'force-dynamic';
+
 interface ReceiptPageProps {
   params: Promise<{ token: string }>;
 }
@@ -48,7 +52,11 @@ export default async function ReceiptPage({ params }: ReceiptPageProps) {
       // before it was ever sent, which is the nullable case the column exists
       // for -- and the one the resend route falls back on too.
       paidAt={(receipt.sentAt ?? receipt.createdAt).toISOString()}
+      // Both are null once the Donor is anonymised (ticket 36), so no name
+      // can reach the page; `anonymised` says why there is none.
       donorName={donation.donor?.name ?? donation.guestName ?? null}
+      anonymised={Boolean(donation.anonymisedAt)}
+      accountOwned={Boolean(donation.donorId)}
     />
   );
 }

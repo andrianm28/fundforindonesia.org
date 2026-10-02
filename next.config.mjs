@@ -18,6 +18,17 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // The email-confirmation link carries its token in the query string and the
+  // page needs no session. Sending no Referer keeps that token from leaking to
+  // anything the page loads or links to (prd-compliance 23).
+  async headers() {
+    return [
+      {
+        source: '/akun/verifikasi-email',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

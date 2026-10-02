@@ -8,8 +8,9 @@
 export class InvalidPayoutSubjectError extends Error {
   constructor() {
     super(
-      'A Payout must have exactly one of campaignId or volunteerTripId set -- both or neither ' +
-        'means the money it instructs has no single thing it is for.',
+      'A Payout is for exactly one Campaign or one Volunteer Trip (campaignId or volunteerTripId) -- ' +
+        'both, neither, or any other subject, such as a Program, means the money it instructs has ' +
+        'no single thing it is for.',
     );
     this.name = 'InvalidPayoutSubjectError';
   }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDonationGuestEmail, readUserEmail, SELECT_DONATION_GUEST_EMAIL, SELECT_USER_EMAIL } from '@/lib/contact-fields';
+import { readDonationGuestEmail, readUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { sendReportingFailure } from '@/lib/mail';
 import { receiptEmail, resolveReceiptRecipient } from '@/lib/mail/receipt';
@@ -25,9 +25,10 @@ export async function POST(
     include: {
       donation: {
         include: {
+          // Donation's own scalars (the guest email ciphertext and key id)
+          // come with `include`; naming scalars inside it is a Prisma error.
           campaign: { include: { collectingEntity: true } },
           donor: { select: { id: true, name: true, ...SELECT_USER_EMAIL } },
-          ...SELECT_DONATION_GUEST_EMAIL,
         },
       },
     },
@@ -35,6 +36,15 @@ export async function POST(
 
   if (!receipt) {
     return NextResponse.json({ error: 'Bukti donasi tidak ditemukan' }, { status: 404 });
+  }
+
+  // Ticket 36: the address is gone by design. Say so, rather than a 500 that
+  // reads as a fault, and never reach for a stale one.
+  if (receipt.donation.anonymisedAt) {
+    return NextResponse.json(
+      { error: 'Identitas Donor sudah dianonimkan, bukti donasi tidak dapat dikirim ulang ke email' },
+      { status: 409 },
+    );
   }
 
   const lastSent = receipt.lastSentAt ?? receipt.sentAt;

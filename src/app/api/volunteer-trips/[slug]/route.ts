@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { coverImageSchema } from '@/lib/cover-image';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
-import { submitTrip, TRIP_EDITABLE_STATUSES } from '@/lib/volunteer/trip';
+import { PUBLIC_BATCH_SELECT, PUBLIC_TRIP_DETAIL_SELECT } from '@/lib/volunteer/trip-public';
+import { submitTrip, TRIP_EDITABLE_STATUSES, tripFeeAmountSchema } from '@/lib/volunteer/trip';
 
 const editVolunteerTripSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().min(1).optional(),
   story: z.string().min(1).optional(),
-  coverImage: z.string().url().optional(),
+  coverImage: coverImageSchema.optional(),
   destination: z.string().min(1).optional(),
   itinerary: z.string().min(1).optional(),
-  tripFeeAmount: z.number().positive().optional(),
+  tripFeeAmount: tripFeeAmountSchema.optional(),
   action: z.enum(['submit']).optional(),
 });
 
+// The full row (including fundraiserId) goes back to the Trip's owner or an
+// Admin, the only callers refuseUnlessFundraiserOrAdmin lets through; the
+// public GET below never returns it.
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> },
@@ -92,7 +97,7 @@ export async function GET(
   try {
     const { slug } = await params;
 
-    const trip = await prisma.volunteerTrip.findUnique({ where: { slug } });
+    const trip = await prisma.volunteerTrip.findUnique({ where: { slug }, select: PUBLIC_TRIP_DETAIL_SELECT });
 
     if (!trip || trip.status !== 'ACTIVE') {
       return NextResponse.json({ error: 'Volunteer trip tidak ditemukan' }, { status: 404 });
@@ -100,6 +105,7 @@ export async function GET(
 
     const batches = await prisma.volunteerBatch.findMany({
       where: { tripId: trip.id, status: 'OPEN' },
+      select: PUBLIC_BATCH_SELECT,
       orderBy: { startDate: 'asc' },
     });
 

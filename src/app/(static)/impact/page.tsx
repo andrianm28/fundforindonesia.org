@@ -13,7 +13,9 @@ import { formatRupiah } from '@/lib/utils/currency';
  * When they cannot -- money moved that no settled Payment accounts for --
  * nothing is rendered. A page that shows six lines which do not sum to the
  * number above them is worse than a page that admits the books are broken, so
- * the failure is stated plainly and the figures stay hidden.
+ * the failure is stated plainly and the figures stay hidden. The CSR block is
+ * the exception: when the Program books do not reconcile only that block is
+ * replaced by a message, like the Program page, and the six lines stay.
  *
  * Rendered per request, not prerendered, for the same reason as the homepage
  * (src/app/page.tsx): the Docker build has no database, so a baked page would
@@ -148,6 +150,48 @@ export default async function ImpactPage({ searchParams }: ImpactPageProps) {
           Penerima manfaat adalah jumlah orang dari Usage Report yang diterima tiap Fundraiser untuk
           setiap Payout, bukan uang.
         </p>
+      </section>
+
+      <section aria-labelledby="csr-heading" className="mb-8">
+        <h2 id="csr-heading" className="text-lg font-semibold text-text mb-2">
+          Dana CSR
+        </h2>
+        {breakdown.csr ? (
+          <>
+          <p className="text-sm text-text-secondary mb-3">
+            Dana CSR dipisah dari dana terkumpul di atas dan tidak termasuk di dalam enam baris itu. Dua angka di bawah
+            sengaja tidak dijumlahkan: yang pertama dapat dipertanggungjawabkan buku besar, yang kedua hanya dilaporkan.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div data-csr-line className="rounded-lg border border-border p-4">
+              <p data-csr-label className="text-sm font-medium text-text">Di dalam pembukuan platform</p>
+              <p data-testid="impact-csr-in-books" className="text-2xl font-bold text-text">
+                {formatRupiah(breakdown.csr.inTheBooks)}
+              </p>
+              <p className="text-sm text-text-secondary mt-1">
+                Program Balance dari buku besar, dengan pemeriksaan keseimbangan tersendiri: blok Dana CSR ini diganti
+                pesan bila saldonya tidak dapat dijelaskan oleh Manual Contribution.
+              </p>
+            </div>
+            <div data-csr-line className="rounded-lg border border-dashed border-border p-4">
+              <p data-csr-label className="text-sm font-medium text-text">Di luar pembukuan platform</p>
+              <p data-testid="impact-csr-off-books" className="text-2xl font-bold text-text">
+                {formatRupiah(breakdown.csr.outsideTheBooks)}
+              </p>
+              <p data-testid="impact-csr-off-books-note" className="text-sm text-text-secondary mt-1">
+                Angka yang dilaporkan untuk dana CSR yang tidak pernah melewati rekening platform. Tidak ada catatan buku
+                besar di baliknya, jadi angka ini tidak direkonsiliasi dengan buku besar dan tidak dijumlahkan ke total
+                mana pun.
+              </p>
+            </div>
+          </div>
+          </>
+        ) : (
+          <p data-testid="impact-csr-unavailable" className="text-sm text-text-secondary">
+            Dana CSR sedang tidak dapat ditampilkan karena pembukuannya sedang kami periksa. Enam baris di atas
+            tidak terpengaruh.
+          </p>
+        )}
       </section>
 
       {platformCostTotal > 0 ? (

@@ -66,6 +66,8 @@ export type MoneyErrorCode =
   | "PAYMENT_SUBJECT_MISMATCH"
   | "REFUND_EXCEEDS_REMAINING"
   | "REFUND_NOT_ALLOWED_FOR_KIND"
+  | "DONATION_ANONYMISED"
+  | "ANONYMISATION_BLOCKED_BY_OPEN_REFUND"
   | "MANUAL_CONTRIBUTION_NOT_FOUND"
   | "MANUAL_CONTRIBUTION_TARGET_INVALID"
   | "MANUAL_CONTRIBUTION_INVALID"
@@ -96,10 +98,14 @@ export type TripErrorCode =
   | "TRIP_REJECTION_REASON_INVALID"
   | "TRIP_NOT_ACCEPTING_BATCHES"
   | "BATCH_FIELDS_INVALID"
+  | "BATCH_LOCKED_BY_REGISTRATIONS"
+  | "BATCH_QUOTA_BELOW_SEATS"
+  | "OWN_TRIP_REGISTRATION"
   | "BATCH_NOT_FOUND"
   | "BATCH_NOT_OPEN"
   | "BATCH_MIN_QUOTA_MET"
   | "BATCH_NOT_ENDED"
+  | "CERTIFICATE_NAME_MISSING"
   | "TRIP_NOT_TAKING_REGISTRATIONS"
   | "BATCH_NOT_TAKING_REGISTRATIONS"
   | "REGISTRATION_DEADLINE_PASSED"
@@ -110,7 +116,8 @@ export type TripErrorCode =
   | "BATCH_ALREADY_COMPLETED"
   | "TRIP_NOT_SUSPENDABLE"
   | "TRIP_NOT_SUSPENDED"
-  | "TRIP_SUSPENSION_UNRECORDED";
+  | "TRIP_SUSPENSION_UNRECORDED"
+  | "TRIP_PAYOUT_FUNDS_NOT_COMPLETED";
 
 /**
  * The Capacity judgement's refusals (./capacity.ts; CONTEXT.md, Capacity),
@@ -212,6 +219,9 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   FLAG_NOT_FOUND: 404,
   FLAG_ALREADY_RESOLVED: 409,
   PAYOUT_NOT_ALLOWED_FOR_STATUS: 409,
+  // Ticket 49: the money is there but still refundable, so it clears by itself
+  // when the Batch completes -- a conflict with state, not a bad input.
+  TRIP_PAYOUT_FUNDS_NOT_COMPLETED: 409,
   CAMPAIGN_NOT_EDITABLE: 409,
   // The Fundraiser could not fix it by resubmitting: a Verification Request
   // does not reopen title and description, only story and cover image stay
@@ -288,6 +298,10 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // Campaign's Kind is what forbids the Refund, and no resend of the same
   // body changes that. 403 with the other policy refusals.
   REFUND_NOT_ALLOWED_FOR_KIND: 403,
+  // Both are states the request cannot change by being resent: the Donation
+  // was anonymised (ticket 36), or a Refund on it has not finished yet.
+  DONATION_ANONYMISED: 409,
+  ANONYMISATION_BLOCKED_BY_OPEN_REFUND: 409,
   MANUAL_CONTRIBUTION_NOT_FOUND: 404,
   // Unmet preconditions the Admin can fix by filling the form in properly,
   // like REFUND_EXCEEDS_REMAINING and DEADLINE_REQUIRED.
@@ -344,10 +358,15 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   TRIP_REJECTION_REASON_INVALID: 422,
   TRIP_NOT_ACCEPTING_BATCHES: 400,
   BATCH_FIELDS_INVALID: 400,
+  BATCH_LOCKED_BY_REGISTRATIONS: 409,
+  BATCH_QUOTA_BELOW_SEATS: 422,
+  OWN_TRIP_REGISTRATION: 403,
   BATCH_NOT_FOUND: 404,
   BATCH_NOT_OPEN: 409,
   BATCH_MIN_QUOTA_MET: 400,
   BATCH_NOT_ENDED: 400,
+  // The Fundraiser (or the Volunteer) can fix it by filling the name in, then completing the Batch again.
+  CERTIFICATE_NAME_MISSING: 422,
   TRIP_NOT_TAKING_REGISTRATIONS: 400,
   BATCH_NOT_TAKING_REGISTRATIONS: 400,
   REGISTRATION_DEADLINE_PASSED: 400,

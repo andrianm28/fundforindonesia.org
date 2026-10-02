@@ -82,6 +82,24 @@ describe('AkadWakafPage', () => {
     expect(view.props).toMatchObject({ wakifName: 'Budi' });
   });
 
+  it('names an anonymised Wakif "Wakif anonim" rather than leaving the name empty (ticket 36)', async () => {
+    mockFindUnique.mockResolvedValue(
+      makeAkadWakaf({
+        donation: {
+          ...makeAkadWakaf().donation,
+          donorId: null,
+          donor: null,
+          guestName: null,
+          anonymisedAt: new Date('2026-10-02T08:00:00.000Z'),
+        },
+      }),
+    );
+
+    render(await AkadWakafPage({ params: Promise.resolve({ token: 'tok-1' }) }));
+
+    expect(view.props).toMatchObject({ wakifName: 'Wakif anonim' });
+  });
+
   it('answers not found for a token that names no Akad Wakaf', async () => {
     mockFindUnique.mockResolvedValue(null);
 

@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done (PR #127, 93ebdcf)
 
 **Blocked by:** —
 
@@ -20,3 +20,7 @@ sudah tandai murah.
 Laporan saja: Campaign Balance pada Campaign Expired/Completed yang tidak
 dicairkan >= 60 hari, dibaca Admin. **Bukan** pengalihannya ke Campaign lain
 -- itu tetap di luar Rilis 1.
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #127 (93ebdcf). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.

@@ -248,6 +248,31 @@ export function lookupDonationGuestEmail(email: string): Lookup<'guestEmailHmac'
 }
 export const SELECT_DONATION_GUEST_EMAIL = { guestEmailCiphertext: true, guestEmailKeyId: true } as const;
 
+/**
+ * Every column a Guest Donor's identity lives in on a Donation, nulled: the
+ * plaintext name, the email HMAC and ciphertext, and the phone ciphertext,
+ * each with its key id (ticket 36, ADR 0012 Consequences). Kept beside the
+ * field table so a new guest column cannot be added without this seeing it;
+ * the anonymisation test asserts none survives.
+ */
+export const CLEAR_DONATION_GUEST_CONTACT = {
+  guestName: null,
+  [GUEST_EMAIL.lookup!]: null,
+  [GUEST_EMAIL.lookupKeyId!]: null,
+  [GUEST_EMAIL.sealed]: null,
+  [GUEST_EMAIL.keyId]: null,
+  [GUEST_PHONE.sealed]: null,
+  [GUEST_PHONE.keyId]: null,
+} as {
+  guestName: null;
+  guestEmailHmac: null;
+  guestEmailHmacKeyId: null;
+  guestEmailCiphertext: null;
+  guestEmailKeyId: null;
+  guestPhoneCiphertext: null;
+  guestPhoneKeyId: null;
+};
+
 // --- PartnershipInquiry (a company's named contact) ----------------------------
 
 export function sealInquiryContactEmail(

@@ -12,7 +12,7 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/lib/prisma', () => ({ prisma: { volunteerTrip: { findMany: vi.fn(), findUnique: vi.fn() } } }));
 
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import FundraiserTripsPage, { dynamic as listDynamic } from './page';
@@ -51,8 +51,8 @@ const batch = (overrides: Record<string, unknown> = {}) => ({
   minQuota: 2,
   status: 'OPEN',
   registrations: [
-    { id: 'r1', attended: false, volunteer: { name: 'Budi' } },
-    { id: 'r2', attended: false, volunteer: { name: 'Sari' } },
+    { id: 'r1', status: 'CONFIRMED', attended: false, volunteer: { name: 'Budi' } },
+    { id: 'r2', status: 'CONFIRMED', attended: false, volunteer: { name: 'Sari' } },
   ],
   ...overrides,
 });
@@ -126,6 +126,33 @@ describe('Fundraiser Trip screens (ticket 35)', () => {
     expect(boxes.every((b) => b.checked)).toBe(true);
   });
 
+  it('shows Batch dates as WIB calendar dates, whatever zone the process runs in', async () => {
+    const original = process.env.TZ;
+    process.env.TZ = 'UTC';
+    try {
+      // 20 Nov 2026 00:00 WIB is 19 Nov 17:00 UTC; the deadline is 20 Nov 23:59:59 WIB.
+      findUnique.mockResolvedValue(
+        record({
+          status: 'ACTIVE',
+          batches: [
+            batch({
+              startDate: new Date('2026-11-19T17:00:00Z'),
+              endDate: new Date('2026-11-24T16:59:59Z'),
+              registrationDeadline: new Date('2026-11-10T16:59:59Z'),
+            }),
+          ],
+        }),
+      );
+      await renderDetail();
+      expect(screen.getByText(/20 Nov 2026 sampai 24 Nov 2026 · pendaftaran sampai 10 Nov 2026/)).toBeDefined();
+      fireEvent.click(screen.getByRole('button', { name: 'Ubah Batch' }));
+      expect((document.getElementById('start-b1') as HTMLInputElement).value).toBe('2026-11-20');
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
+
   it('shows attendance of a COMPLETED Batch and no actions', async () => {
     findUnique.mockResolvedValue(
       record({
@@ -134,8 +161,8 @@ describe('Fundraiser Trip screens (ticket 35)', () => {
           batch({
             status: 'COMPLETED',
             registrations: [
-              { id: 'r1', attended: true, volunteer: { name: 'Budi' } },
-              { id: 'r2', attended: false, volunteer: { name: 'Sari' } },
+              { id: 'r1', status: 'CONFIRMED', attended: true, volunteer: { name: 'Budi' } },
+              { id: 'r2', status: 'CONFIRMED', attended: false, volunteer: { name: 'Sari' } },
             ],
           }),
         ],
