@@ -97,3 +97,4 @@ aman.
 ## Comments
 
 - 2026-10-02: awaiting-merge. PR #176, commit eba566a (kode dan dokumen tindak lanjut review dua sumbu; sebelumnya 7e2077b). Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #176.

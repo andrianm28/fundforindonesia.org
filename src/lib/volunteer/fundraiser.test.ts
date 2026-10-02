@@ -25,7 +25,7 @@ function tripRecord(overrides: Record<string, unknown> = {}) {
         maxQuota: 10,
         minQuota: 2,
         status: 'OPEN',
-        registrations: [{ id: 'r1', attended: false, volunteer: { name: 'Budi' } }],
+        registrations: [{ id: 'r1', status: 'CONFIRMED', attended: false, volunteer: { name: 'Budi' } }],
       },
     ],
     statusChanges: [{ reason: 'Itinerary kurang jelas' }],

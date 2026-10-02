@@ -1,3 +1,4 @@
+import { formatWibDate, WIB_OFFSET_MS } from './batch-dates';
 import { FULL_REFUND_MIN_DAYS, HALF_REFUND_MIN_DAYS, tripFeeRefundAmount } from './refunds';
 
 /**
@@ -8,14 +9,6 @@ import { FULL_REFUND_MIN_DAYS, HALF_REFUND_MIN_DAYS, tripFeeRefundAmount } from 
  */
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
-
-/** "6 Okt 2026": the WIB calendar date, whatever timezone the process runs in. */
-export function formatWibDate(date: Date): string {
-  const wib = new Date(date.getTime() + WIB_OFFSET_MS);
-  return `${wib.getUTCDate()} ${MONTHS[wib.getUTCMonth()]} ${wib.getUTCFullYear()}`;
-}
 
 /** "6 Okt 2026 07.00 WIB": always WIB, whatever timezone the server runs in. */
 export function formatBoundary(date: Date): string {

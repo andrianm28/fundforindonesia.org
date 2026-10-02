@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done (PR #132, f1b08b4)
 
 **Blocked by:** 23 (done) -- REQUESTED -> APPROVED must exist first; 13
 (resolved) -- the proof-of-transfer shape this reuses.
@@ -95,3 +95,7 @@ into this one completion step, same as Payout), Rejected, and Failed.
 Creating a Trip Fee Refund from a screen (rather than this API) is ticket 29's
 scope, gated with its other Volunteer Trip screens on Fase 3 -- see ticket 29's
 own note (Q6, owner 2026-09-28).
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #132 (f1b08b4). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.

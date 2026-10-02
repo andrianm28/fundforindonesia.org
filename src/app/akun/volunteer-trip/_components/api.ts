@@ -17,9 +17,12 @@ export async function sendJson(url: string, method: 'POST' | 'PATCH', body: unkn
     const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (response.ok) return { ok: true, data };
     const fieldErrors = data.fieldErrors as Record<string, string[]> | undefined;
-    const detail = fieldErrors ? Object.values(fieldErrors).flat().join(' ') : '';
     const error = typeof data.error === 'string' ? data.error : 'Terjadi kesalahan.';
-    return { ok: false, message: detail ? `${error} ${detail}` : error };
+    // A Batch refusal answers with its message as `error` AND under its field:
+    // say each distinct message once.
+    const details = fieldErrors ? [...new Set(Object.values(fieldErrors).flat())] : [];
+    const message = [error, ...details.filter((detail) => detail !== error)].join(' ');
+    return { ok: false, message };
   } catch {
     return { ok: false, message: 'Terjadi kesalahan.' };
   }
