@@ -95,3 +95,7 @@ Keputusan yang diambil builder (owner dapat membalik):
 Tes: `src/__tests__/integration/webhook-paid-after-expiry-real-db.test.ts`
 (Postgres sungguhan: race, idempotensi, refund Trip Fee, mismatch, unknown),
 plus kasus baru di `donation-charge.test.ts` dan test registrations route.
+
+## Comments
+
+- 2026-10-02: keputusan owner (Dri): Donation yang dibayar setelah Payment EXPIRED/FAILED tetap di-settle, tidak di-refund; Trip Fee yang kursinya hilang tetap di-refund penuh. Dicatat di ADR 0021 dan CONTEXT.md.
