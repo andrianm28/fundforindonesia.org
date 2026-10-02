@@ -15,7 +15,9 @@ of this one.
 
 ## Comments
 
-2026-10-02: Diverifikasi di npm registry: `framer-motion` 13.0.0 (2026-08-05)
+- 2026-10-02: awaiting-merge. PR #168, commit 7eaf859. Status sudah benar; catatan ditambahkan koordinator.
+
+- 2026-10-02: Diverifikasi di npm registry: `framer-motion` 13.0.0 (2026-08-05)
 sampai 13.5.0 (`latest`) ada dan stabil; nama paket tidak berganti (`motion`
 hanya paket paralel dengan versi sama). Peer dep `react ^18 || ^19`.
 Satu-satunya breaking change 13.0.0: `@emotion/is-prop-valid` opsional dihapus,
