@@ -36,3 +36,4 @@
   `src/lib/rate-limit.ts` once PR #161 merges. (3) Registering with an address
   someone else uses is still allowed (unchanged); it just claims nothing.
   (4) Claimed Donations keep their `guest*` columns.
+- 2026-10-02: keputusan owner (Dri): login atau registrasi lewat Google belum dianggap email terverifikasi; klaim riwayat Donation tamu hanya setelah konfirmasi tautan email; registrasi dengan email milik orang lain diizinkan tetapi tidak mengklaim apa pun. Dicatat di ADR 0022 dan CONTEXT.md.
