@@ -1,30 +1,42 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
-import { prisma } from '@/lib/prisma';
-import { getServerSession } from '@/lib/auth';
-import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
-import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
-import type { PaymentMethod } from '@/lib/payments';
-import { PaymentStatus } from '@/generated/prisma/client';
-import { refusalResponse } from '@/lib/refusal-response';
-import { holdRegistration } from '@/lib/volunteer/trip';
-import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
-import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/prisma";
+import { getServerSession } from "@/lib/auth";
+import {
+  getPaymentProvider,
+  PaymentProviderNotConfiguredError,
+} from "@/lib/payments";
+import { canonicalPaymentProviderName } from "@/lib/payments/provider-names";
+import type { PaymentMethod } from "@/lib/payments";
+import { PaymentStatus } from "@/generated/prisma/client";
+import { refusalResponse } from "@/lib/refusal-response";
+import { holdRegistration } from "@/lib/volunteer/trip";
+import { assertExactlyOnePaymentSubject } from "@/lib/money/payment-subject";
+import { ESCROW_HOLD_DAYS } from "@/lib/money/escrow";
+import { recordChargeWriteFailure } from "@/lib/money/payment-reconciliation";
 import {
   donationsEnabled,
   sandboxInProductionReason,
   DONATIONS_DISABLED_MESSAGE,
-} from '@/lib/donations';
-import { volunteerRegistrationEnabled, VOLUNTEER_DISABLED_MESSAGE } from '@/lib/volunteer/registration-flag';
+} from "@/lib/donations";
+import {
+  volunteerRegistrationEnabled,
+  VOLUNTEER_DISABLED_MESSAGE,
+} from "@/lib/volunteer/registration-flag";
 
-const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris'] as const;
-const PROVIDER_METHOD_FOR: Record<(typeof VALID_PAYMENT_METHODS)[number], PaymentMethod> = {
-  bank_transfer: 'bank_transfer_va',
-  qris: 'qris_redirect',
+const VALID_PAYMENT_METHODS = ["bank_transfer", "qris"] as const;
+const PROVIDER_METHOD_FOR: Record<
+  (typeof VALID_PAYMENT_METHODS)[number],
+  PaymentMethod
+> = {
+  bank_transfer: "bank_transfer_va",
+  qris: "qris_redirect",
 };
 
 const registerSchema = z.object({
-  paymentMethod: z.enum(VALID_PAYMENT_METHODS, { error: 'Metode pembayaran tidak valid.' }),
+  paymentMethod: z.enum(VALID_PAYMENT_METHODS, {
+    error: "Metode pembayaran tidak valid.",
+  }),
 });
 
 export async function POST(
@@ -35,7 +47,10 @@ export async function POST(
   // payment provider exists. The server enforces it, not only the hidden
   // "Daftar" button; first of all, before the session or anything is read.
   if (!volunteerRegistrationEnabled()) {
-    return NextResponse.json({ error: VOLUNTEER_DISABLED_MESSAGE }, { status: 503 });
+    return NextResponse.json(
+      { error: VOLUNTEER_DISABLED_MESSAGE },
+      { status: 503 },
+    );
   }
 
   // The same switch that gates POST /api/donations. Owner decision
@@ -44,7 +59,10 @@ export async function POST(
   // Checked before the session, before the Trip is looked up, before
   // anything is held or written -- see donationsEnabled (src/lib/donations.ts).
   if (!donationsEnabled()) {
-    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+    return NextResponse.json(
+      { error: DONATIONS_DISABLED_MESSAGE },
+      { status: 503 },
+    );
   }
 
   // The interlock behind the switch. Sandbox credentials in production take
@@ -53,29 +71,41 @@ export async function POST(
   const blocked = sandboxInProductionReason();
   if (blocked) {
     console.error(`[registrations] refusing every charge: ${blocked}`);
-    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+    return NextResponse.json(
+      { error: DONATIONS_DISABLED_MESSAGE },
+      { status: 503 },
+    );
   }
 
   try {
     const session = await getServerSession();
     if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { slug, id: batchId } = await params;
 
     // Only which Trip the URL names; whether it and the Batch take
     // Registrations is judged by `holdRegistration`, under their locks.
-    const trip = await prisma.volunteerTrip.findUnique({ where: { slug }, select: { id: true } });
+    const trip = await prisma.volunteerTrip.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
     if (!trip) {
-      return NextResponse.json({ error: 'Volunteer batch tidak ditemukan' }, { status: 404 });
+      return NextResponse.json(
+        { error: "Volunteer batch tidak ditemukan" },
+        { status: 404 },
+      );
     }
 
     const body = await request.json();
     const result = registerSchema.safeParse(body);
     if (!result.success) {
       const fieldErrors = result.error.flatten().fieldErrors;
-      return NextResponse.json({ error: 'Validasi gagal', fieldErrors }, { status: 400 });
+      return NextResponse.json(
+        { error: "Validasi gagal", fieldErrors },
+        { status: 400 },
+      );
     }
 
     let provider;
@@ -84,7 +114,10 @@ export async function POST(
     } catch (err) {
       if (err instanceof PaymentProviderNotConfiguredError) {
         return NextResponse.json(
-          { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
+          {
+            error:
+              "Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.",
+          },
           { status: 503 },
         );
       }
@@ -97,7 +130,10 @@ export async function POST(
     const wantedMethod = PROVIDER_METHOD_FOR[result.data.paymentMethod];
     if (wantedMethod !== provider.method) {
       return NextResponse.json(
-        { error: 'Metode pembayaran ini belum tersedia. Silakan pilih metode lain.' },
+        {
+          error:
+            "Metode pembayaran ini belum tersedia. Silakan pilih metode lain.",
+        },
         { status: 503 },
       );
     }
@@ -137,12 +173,18 @@ export async function POST(
       charge = await provider.createCharge({
         orderId: registration.id,
         grossAmount: tripFeeAmount,
-        currency: 'IDR',
+        currency: "IDR",
       });
     } catch (err) {
-      console.error(`[registrations] charge failed for registration ${registration.id}:`, err);
+      console.error(
+        `[registrations] charge failed for registration ${registration.id}:`,
+        err,
+      );
       return NextResponse.json(
-        { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
+        {
+          error:
+            "Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.",
+        },
         { status: 503 },
       );
     }
@@ -155,44 +197,76 @@ export async function POST(
         `[registrations] provider ${providerName} declared ${provider.method} but charged ${charge.method} for registration ${registration.id}`,
       );
       return NextResponse.json(
-        { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
+        {
+          error:
+            "Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.",
+        },
         { status: 503 },
       );
     }
 
     assertExactlyOnePaymentSubject({ registrationId: registration.id });
 
-    await prisma.payment.create({
-      data: {
-        donationId: undefined,
-        registrationId: registration.id,
+    // The charge now exists at the provider. A Payment write that fails here
+    // leaves money a Volunteer can still pay with no row expecting it, so it is
+    // recorded for reconciliation (ticket 52) before the 503.
+    try {
+      await prisma.payment.create({
+        data: {
+          donationId: undefined,
+          registrationId: registration.id,
+          provider: providerName,
+          method: charge.method,
+          providerRef: registration.id,
+          amount: tripFeeAmount,
+          // Trip Fee takes the same Escrow Hold as a Campaign Donation, minus
+          // the Platform Fee and the Kind (CONTEXT.md, Trip Fee; ADR 0014), so
+          // it freezes the SAME length here as chargeDonation does on the
+          // donation path. Naming the constant rather than letting the
+          // `escrowHoldDays Int @default(7)` in prisma/schema.prisma supply it
+          // is the whole point: that default is a second copy of the number
+          // that nothing in src/ can see, and the day that 7 is moved to
+          // configuration the two copies drift -- Trip Fee releasing after 7
+          // while Donation releases after N, with the settlement webhook
+          // reading whichever this row happens to carry. Naming it here is also
+          // what makes the frozen-per-Payment rule (prd-compliance 18) true of
+          // this Payment: its length is decided in code at creation, not
+          // inherited from a schema default nobody chose deliberately.
+          escrowHoldDays: ESCROW_HOLD_DAYS,
+          status: PaymentStatus.PENDING,
+          expiresAt: charge.expiresAt,
+        },
+      });
+    } catch (err) {
+      await recordChargeWriteFailure(prisma, {
         provider: providerName,
-        method: charge.method,
         providerRef: registration.id,
+        subjectType: "registration",
+        subjectId: registration.id,
         amount: tripFeeAmount,
-        // Trip Fee takes the same Escrow Hold as a Campaign Donation, minus
-        // the Platform Fee and the Kind (CONTEXT.md, Trip Fee; ADR 0014), so
-        // it freezes the SAME length here as chargeDonation does on the
-        // donation path. Naming the constant rather than letting the
-        // `escrowHoldDays Int @default(7)` in prisma/schema.prisma supply it
-        // is the whole point: that default is a second copy of the number
-        // that nothing in src/ can see, and the day that 7 is moved to
-        // configuration the two copies drift -- Trip Fee releasing after 7
-        // while Donation releases after N, with the settlement webhook
-        // reading whichever this row happens to carry. Naming it here is also
-        // what makes the frozen-per-Payment rule (prd-compliance 18) true of
-        // this Payment: its length is decided in code at creation, not
-        // inherited from a schema default nobody chose deliberately.
-        escrowHoldDays: ESCROW_HOLD_DAYS,
-        status: PaymentStatus.PENDING,
-        expiresAt: charge.expiresAt,
-      },
-    });
+        error: err,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.",
+        },
+        { status: 503 },
+      );
+    }
 
     const paymentInstructions =
-      charge.method === 'qris_redirect'
-        ? { type: 'qris' as const, redirectUrl: charge.redirectUrl, expiresAt: charge.expiresAt }
-        : { type: 'bank_transfer' as const, vaNumber: charge.vaNumber, expiresAt: charge.expiresAt };
+      charge.method === "qris_redirect"
+        ? {
+            type: "qris" as const,
+            redirectUrl: charge.redirectUrl,
+            expiresAt: charge.expiresAt,
+          }
+        : {
+            type: "bank_transfer" as const,
+            vaNumber: charge.vaNumber,
+            expiresAt: charge.expiresAt,
+          };
 
     return NextResponse.json(
       {
@@ -204,7 +278,10 @@ export async function POST(
       { status: 201 },
     );
   } catch (error) {
-    console.error('Error creating registration:', error);
-    return NextResponse.json({ error: 'Gagal membuat registrasi' }, { status: 500 });
+    console.error("Error creating registration:", error);
+    return NextResponse.json(
+      { error: "Gagal membuat registrasi" },
+      { status: 500 },
+    );
   }
 }

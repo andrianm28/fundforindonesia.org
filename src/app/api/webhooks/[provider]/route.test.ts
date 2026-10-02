@@ -578,7 +578,7 @@ describe('POST /api/webhooks/[provider]', () => {
     // write -- a crash before this line must leave the row unprocessed.
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'SETTLED' },
     });
 
     expect(mockNotificationCreateMany).toHaveBeenCalled();
@@ -927,7 +927,7 @@ describe('POST /api/webhooks/[provider]', () => {
     // it logs again, which is the point.
     expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'AMOUNT_MISMATCH' },
     });
   });
 
@@ -1026,7 +1026,7 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(ledgerRows).toHaveLength(2);
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'SETTLED' },
     });
   });
 
@@ -1054,7 +1054,7 @@ describe('POST /api/webhooks/[provider]', () => {
     // The loser is still a finished event, not an unprocessed one.
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'LOST_RACE' },
     });
   });
 
@@ -1098,7 +1098,7 @@ describe('POST /api/webhooks/[provider]', () => {
     // rolled-back transaction.
     expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'SIBLING_ALREADY_PAID' },
     });
   });
 
@@ -1173,7 +1173,7 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
 
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'SETTLED' },
     });
   });
 
