@@ -12,6 +12,7 @@ import {
   TripNotFoundError,
 } from '@/lib/volunteer-trip-errors';
 import { NotAuthorizedError } from '@/lib/capacity';
+import { refundTiers } from './refund-table';
 import { domainErrorToHttp } from '@/lib/domain-errors';
 import { batchRow, makeTripDb, paymentRow, registrationRow, tripRow } from '../../../tests/support/in-memory-trip-db';
 
@@ -494,9 +495,51 @@ describe('editBatch with Registrations (ticket 48)', () => {
     const error = await edit(db, edits);
 
     expect(error).toBeInstanceOf(BatchLockedByRegistrationsError);
-    expect((error as BatchLockedByRegistrationsError).field).toBe(field);
+    expect((error as BatchLockedByRegistrationsError).fields[0]).toBe(field);
     expect(domainErrorToHttp(error)).toMatchObject({ status: 409, body: { code: 'BATCH_LOCKED_BY_REGISTRATIONS' } });
     expect(db.batch()).toEqual(batchRow());
+  });
+
+  it('refuses startDate and endDate moved to an explicit past date once a Volunteer paid', async () => {
+    const db = withRegistration('CONFIRMED');
+    const pastStart = new Date('2026-09-01T00:00:00Z');
+    const pastEnd = new Date('2026-09-05T00:00:00Z');
+
+    const error = await edit(db, { startDate: pastStart, endDate: pastEnd, registrationDeadline: new Date('2026-08-25T00:00:00Z') });
+
+    expect(error).toBeInstanceOf(BatchLockedByRegistrationsError);
+    expect(db.batch()).toEqual(batchRow());
+  });
+
+  it('cannot be used to complete the Batch early: the edit is refused and completeBatch still waits for the real endDate', async () => {
+    const db = withRegistration('CONFIRMED');
+    const original = batchRow();
+    expect(original.endDate.getTime()).toBeGreaterThan(NOW.getTime());
+
+    const edited = await edit(db, { startDate: new Date('2026-09-01T00:00:00Z'), endDate: new Date('2026-09-05T00:00:00Z') });
+    const completed = await completeBatch(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      actor: fundraiser,
+      attendedRegistrationIds: [],
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(edited).toBeInstanceOf(BatchLockedByRegistrationsError);
+    expect(completed).toBeInstanceOf(BatchNotEndedError);
+    expect(db.batch()).toEqual(original);
+  });
+
+  it('keeps the refund table on the frozen startDate after a refused edit', async () => {
+    const db = withRegistration('CONFIRMED');
+    const before = refundTiers({ startDate: db.batch().startDate, tripFee: 2_500_000 });
+
+    await edit(db, { startDate: new Date('2026-09-01T00:00:00Z') });
+    await edit(db, { startDate: new Date('2027-03-01T00:00:00Z'), endDate: new Date('2027-03-05T00:00:00Z') });
+
+    expect(db.batch().startDate).toEqual(batchRow().startDate);
+    expect(refundTiers({ startDate: db.batch().startDate, tripFee: 2_500_000 })).toEqual(before);
+    expect(before[0].window).toContain('Sampai 17 Nov 2026 07.00 WIB');
   });
 
   it('names every locked field in the message, not just the first', async () => {

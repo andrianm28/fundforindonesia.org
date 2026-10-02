@@ -109,13 +109,10 @@ export class BatchFieldsInvalidError extends TripError {
  */
 export class BatchLockedByRegistrationsError extends TripError {
   readonly code = 'BATCH_LOCKED_BY_REGISTRATIONS';
-  /** The first locked field, kept for callers that name one. */
-  readonly field: BatchField;
   constructor(readonly fields: readonly [BatchField, ...BatchField[]]) {
     super(
       `Tanggal Batch (${fields.join(', ')}) tidak bisa diubah karena sudah ada Volunteer yang mendaftar atau membayar; refund mereka dihitung dari tanggal ini. Batalkan Batch bila memang tidak bisa berjalan.`,
     );
-    this.field = fields[0];
     this.name = 'BatchLockedByRegistrationsError';
   }
 }

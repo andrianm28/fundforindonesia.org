@@ -491,16 +491,25 @@ function requireConsistentBatch(fields: BatchFields): void {
   }
 }
 
+/** The Batch dates that fix the tiered Refund and the schedule; frozen once a live Registration exists (ticket 48). */
+export const BATCH_DATE_FIELDS = ['startDate', 'endDate', 'registrationDeadline'] as const;
+
+/**
+ * A Registration is "live" when it occupies a seat: CONFIRMED, or a HOLD
+ * whose window has not lapsed. The one definition shared by the Fundraiser
+ * read and `editBatch`.
+ */
+export function liveRegistrationWhere(now: Date) {
+  return { OR: [{ status: RegistrationStatus.CONFIRMED }, { status: RegistrationStatus.HOLD, holdExpiresAt: { gt: now } }] };
+}
+
 /** A date being set must lie after `now`: a Batch is never scheduled into the past (ticket 48). */
-function requireFutureDates(fields: Partial<Pick<BatchFields, 'startDate' | 'endDate' | 'registrationDeadline'>>, now: Date): void {
-  if (fields.startDate !== undefined && fields.startDate <= now) {
-    throw new BatchFieldsInvalidError('startDate', 'startDate harus di masa depan');
-  }
-  if (fields.endDate !== undefined && fields.endDate <= now) {
-    throw new BatchFieldsInvalidError('endDate', 'endDate harus di masa depan');
-  }
-  if (fields.registrationDeadline !== undefined && fields.registrationDeadline <= now) {
-    throw new BatchFieldsInvalidError('registrationDeadline', 'registrationDeadline harus di masa depan');
+function requireFutureDates(fields: Partial<Pick<BatchFields, (typeof BATCH_DATE_FIELDS)[number]>>, now: Date): void {
+  for (const field of BATCH_DATE_FIELDS) {
+    const value = fields[field];
+    if (value !== undefined && value <= now) {
+      throw new BatchFieldsInvalidError(field, `${field} harus di masa depan`);
+    }
   }
 }
 
@@ -608,10 +617,9 @@ export async function editBatch(
     await lockLiveRegistrations(tx, batch.id);
     await expireLapsedHolds(tx, batch.id, now);
     const confirmed = await tx.registration.count({ where: { batchId: batch.id, status: RegistrationStatus.CONFIRMED } });
-    const held = await tx.registration.count({ where: { batchId: batch.id, status: RegistrationStatus.HOLD } });
-    const seats = confirmed + held;
+    const seats = await tx.registration.count({ where: { batchId: batch.id, ...liveRegistrationWhere(now) } });
 
-    const moved = (['startDate', 'endDate', 'registrationDeadline'] as const).filter(
+    const moved = BATCH_DATE_FIELDS.filter(
       (field) => changed[field] !== undefined && changed[field].getTime() !== batch[field].getTime(),
     );
     if (seats > 0) {

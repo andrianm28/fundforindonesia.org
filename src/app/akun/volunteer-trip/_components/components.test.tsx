@@ -37,7 +37,7 @@ describe('Fundraiser Trip client components', () => {
 
   describe('BatchActions: complete', () => {
     const renderActions = (ended = true) =>
-      render(<BatchActions slug="sumba" batchId="b1" values={VALUES} ended={ended} roster={ROSTER} />);
+      render(<BatchActions slug="sumba" batchId="b1" values={VALUES} ended={ended} roster={ROSTER} seatsUsed={0} />);
 
     it('sends every Registration id when nobody is unticked', async () => {
       answer(200, { batch: { id: 'b1', status: 'COMPLETED' } });
@@ -84,7 +84,7 @@ describe('Fundraiser Trip client components', () => {
   describe('BatchActions: cancel', () => {
     it('posts the cancel action', async () => {
       answer(200, { batch: {}, refundedRegistrations: [] });
-      render(<BatchActions slug="sumba" batchId="b1" values={VALUES} ended={false} roster={ROSTER} />);
+      render(<BatchActions slug="sumba" batchId="b1" values={VALUES} ended={false} roster={ROSTER} seatsUsed={0} />);
       fireEvent.click(screen.getByRole('button', { name: 'Batalkan Batch' }));
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
       expect(lastBody()).toEqual({ action: 'cancel' });
@@ -92,7 +92,7 @@ describe('Fundraiser Trip client components', () => {
 
     it('shows the server\'s reason when the minimum quota was reached', async () => {
       answer(400, { error: 'Kuota minimum sudah tercapai', code: 'BATCH_MIN_QUOTA_MET' });
-      render(<BatchActions slug="sumba" batchId="b1" values={VALUES} ended={false} roster={ROSTER} />);
+      render(<BatchActions slug="sumba" batchId="b1" values={VALUES} ended={false} roster={ROSTER} seatsUsed={0} />);
       fireEvent.click(screen.getByRole('button', { name: 'Batalkan Batch' }));
       expect((await screen.findByRole('alert')).textContent).toBe('Kuota minimum sudah tercapai');
     });
@@ -101,7 +101,7 @@ describe('Fundraiser Trip client components', () => {
   describe('BatchForm', () => {
     it('adds a Batch, sending WIB-bounded instants and numeric quotas', async () => {
       answer(201, { id: 'b9' });
-      render(<BatchForm slug="sumba" />);
+      render(<BatchForm slug="sumba" seatsUsed={0} />);
       fireEvent.change(screen.getByLabelText('Tanggal mulai'), { target: { value: '2026-12-01' } });
       fireEvent.change(screen.getByLabelText('Tanggal selesai'), { target: { value: '2026-12-05' } });
       fireEvent.change(screen.getByLabelText('Tenggat pendaftaran'), { target: { value: '2026-11-20' } });
@@ -125,7 +125,7 @@ describe('Fundraiser Trip client components', () => {
         error: 'Validasi gagal',
         fieldErrors: { minQuota: ['minQuota tidak boleh melebihi maxQuota'] },
       });
-      render(<BatchForm slug="sumba" batchId="b1" initial={VALUES} />);
+      render(<BatchForm slug="sumba" batchId="b1" initial={VALUES} seatsUsed={0} />);
       fireEvent.click(screen.getByRole('button', { name: 'Simpan Batch' }));
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
       expect(fetchMock.mock.calls[0][0]).toBe('/api/volunteer-trips/sumba/batches/b1');

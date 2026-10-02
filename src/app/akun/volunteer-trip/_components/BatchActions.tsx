@@ -22,14 +22,14 @@ export function BatchActions({
   values,
   ended,
   roster,
-  seatsUsed = 0,
+  seatsUsed,
 }: {
   slug: string;
   batchId: string;
   values: BatchFormValues;
   ended: boolean;
   roster: RosterEntry[];
-  seatsUsed?: number;
+  seatsUsed: number;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);

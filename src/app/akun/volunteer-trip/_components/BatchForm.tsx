@@ -29,14 +29,14 @@ export function BatchForm({
   slug,
   batchId,
   initial,
-  seatsUsed = 0,
+  seatsUsed,
   onDone,
 }: {
   slug: string;
   batchId?: string;
   initial?: BatchFormValues;
   /** Seats held or confirmed: above zero the dates are frozen and maxQuota cannot go below it. */
-  seatsUsed?: number;
+  seatsUsed: number;
   onDone?: () => void;
 }) {
   const router = useRouter();

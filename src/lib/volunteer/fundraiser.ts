@@ -1,5 +1,5 @@
 import type { PrismaClient, VolunteerBatchStatus, VolunteerTripStatus } from '@/generated/prisma/client';
-import { TRIP_EDITABLE_STATUSES } from './trip';
+import { liveRegistrationWhere, TRIP_EDITABLE_STATUSES } from './trip';
 
 /**
  * The Fundraiser's own reads behind /akun/volunteer-trip (ticket 35): their
@@ -85,7 +85,7 @@ export async function getFundraiserTripDetail(
         orderBy: { startDate: 'asc' },
         include: {
           registrations: {
-            where: { OR: [{ status: 'CONFIRMED' }, { status: 'HOLD', holdExpiresAt: { gt: now } }] },
+            where: liveRegistrationWhere(now),
             orderBy: { createdAt: 'asc' },
             select: { id: true, status: true, attended: true, volunteer: { select: { name: true } } },
           },
