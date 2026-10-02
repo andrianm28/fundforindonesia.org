@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done (PR #126)
 
 **Blocked by:** 17 (resolved)
 

@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done (PR #125)
 
 **Blocked by:** nothing — `07` is `resolved` and this ticket is the code for it
 

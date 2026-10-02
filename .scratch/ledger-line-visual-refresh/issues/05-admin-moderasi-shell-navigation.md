@@ -9,7 +9,7 @@ at the same time, for consistency.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** wontfix (tergantikan oleh rilis-1-benda 41: AdminSidebar sudah diimplementasikan)
 
 - [ ] The real current admin/moderasi route set is audited first —
       `/admin/campaigns`, `/admin/users`, `/moderasi/campaigns`,

@@ -4,7 +4,7 @@
 
 **Blocked by:** 6
 
-**Status:** ready-for-agent
+**Status:** done (sudah ada di src/lib/assignments.ts dan route admin users assignments)
 
 - [ ] An Admin can grant a specific assignment (Verifier, Admin) to a user as its own action, independent of changing their Role
 - [ ] An Admin can revoke a specific assignment from a user as its own action, independent of changing their Role

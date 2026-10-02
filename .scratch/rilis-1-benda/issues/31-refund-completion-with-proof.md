@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done (PR #132)
 
 **Blocked by:** 23 (done) -- REQUESTED -> APPROVED must exist first; 13
 (resolved) -- the proof-of-transfer shape this reuses.

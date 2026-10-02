@@ -4,7 +4,7 @@
 
 **Blocked by:** 13, 31, 8
 
-**Status:** ready-for-agent
+**Status:** done (tergantikan rilis-1-benda 23 dan 31, PR #130 dan #132)
 
 - [ ] Status moves Requested, AwaitingDonorDetails, Approved, Processing, Completed, with rejection from the first two and failure from Processing returning to AwaitingDonorDetails
 - [ ] Creating a Refund immediately moves the money by journal to Frozen Balance, so it stops being available and cannot join a Payout

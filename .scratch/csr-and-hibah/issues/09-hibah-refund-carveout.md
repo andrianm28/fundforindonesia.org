@@ -9,7 +9,7 @@ arriving after Campaign closure — the same carve-out Zakat and Wakaf get.
 has no per-Kind logic at all yet — this rule doesn't exist for
 `zakat`/`wakaf` either)
 
-**Status:** ready-for-agent
+**Status:** done (sudah ada di refunds.ts: Kind.HIBAH refund hanya technical failure)
 
 - [ ] Per ADR 0013's data-driven instruction: the per-Kind refund rule is
       implemented as a rule table or equivalent (not a one-off `if kind ===

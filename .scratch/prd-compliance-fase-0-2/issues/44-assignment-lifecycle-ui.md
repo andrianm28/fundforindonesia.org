@@ -4,7 +4,7 @@
 
 **Blocked by:** 42
 
-**Status:** ready-for-agent
+**Status:** done (sudah ada route admin users assignments dan handleAssignmentChange)
 
 - [ ] The admin user list or detail view shows each user's current assignments (Verifier, Admin), not just their Role
 - [ ] An Admin can grant or revoke a specific assignment from this view, calling ticket 42's API

@@ -4,7 +4,7 @@
 
 **Blocked by:** 17
 
-**Status:** ready-for-agent
+**Status:** done (sudah ada akun REFUND_COST di ledger)
 
 - [ ] A refund-cost ledger account exists
 - [ ] The cap rises from Net to Gross; the existing Net cap and the comment defending it are corrected
