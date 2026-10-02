@@ -572,3 +572,39 @@ export async function reverseManualContribution(
 
   return prisma.manualContribution.findUniqueOrThrow({ where: { id: manualContributionId } });
 }
+
+/**
+ * What the books say a set of Programs hold, beside what Manual Contributions
+ * explain of it (csr-08). This is the one reader of a Program's balance
+ * outside ledger.ts, so the guard in manual-contribution-isolation.test.ts
+ * keeps holding: /impact and the Program page ask here and never name the
+ * account themselves.
+ *
+ * - `booked`: every entry on the Program balance, net of reversals.
+ * - `explained`: the same balance counting only entries that carry a Manual
+ *   Contribution, the one thing allowed to move it.
+ *
+ * Both are the ledger, so a difference is a fault in the books, not a second
+ * source disagreeing. Callers decide what to do with a fault
+ * (assertCsrReconciles in ./impact.ts).
+ */
+export async function programBooks(
+  tx: Prisma.TransactionClient,
+  programIds: string[],
+): Promise<{ booked: number; explained: number }> {
+  const net = async (extra: Prisma.LedgerEntryWhereInput) => {
+    const rows = await tx.ledgerEntry.groupBy({
+      by: ['direction'] as const,
+      where: { programId: { in: programIds }, account: 'PROGRAM_BALANCE', ...extra },
+      _sum: { amount: true },
+    });
+    let credits = 0;
+    let debits = 0;
+    for (const row of rows) {
+      if (row.direction === 'CREDIT') credits += row._sum.amount ?? 0;
+      if (row.direction === 'DEBIT') debits += row._sum.amount ?? 0;
+    }
+    return credits - debits;
+  };
+  return { booked: await net({}), explained: await net({ manualContributionId: { not: null } }) };
+}

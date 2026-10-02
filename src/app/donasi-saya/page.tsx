@@ -31,6 +31,8 @@ interface DonationsResponse {
   page: number;
   limit: number;
   totalPages: number;
+  /** False until the account's email was confirmed by link; guest history appears only after (prd-compliance 23). */
+  emailVerified?: boolean;
 }
 
 export default function DonasiSayaPage() {
@@ -39,6 +41,7 @@ export default function DonasiSayaPage() {
   const [donations, setDonations] = useState<DonationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [emailVerified, setEmailVerified] = useState(true);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -56,6 +59,7 @@ export default function DonasiSayaPage() {
       }
       const data: DonationsResponse = await res.json();
       setDonations(data.donations);
+      setEmailVerified(data.emailVerified !== false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan');
     } finally {
@@ -86,6 +90,7 @@ export default function DonasiSayaPage() {
 
       {/* Content */}
       <div className="px-4 mt-4">
+        {!isLoading && !error && !emailVerified && <VerifyEmailPrompt />}
         {isLoading ? (
           <DonationListSkeleton />
         ) : error ? (
@@ -104,6 +109,47 @@ export default function DonasiSayaPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Donations given as a guest under this account's email join this list only
+ * after the address is confirmed by a link sent to it (prd-compliance 23).
+ */
+function VerifyEmailPrompt() {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+
+  async function send() {
+    setState('sending');
+    try {
+      const res = await fetch('/api/user/email-verification', { method: 'POST' });
+      setState(res.ok ? 'sent' : 'failed');
+    } catch {
+      setState('failed');
+    }
+  }
+
+  return (
+    <div className="mb-3 rounded-xl bg-[#E3F2FD] p-4 text-sm text-[#212121]">
+      <p>Pernah berdonasi sebagai tamu? Konfirmasi email akun Anda agar donasi tersebut muncul di sini.</p>
+      {state === 'sent' ? (
+        <p className="mt-2 font-medium text-[#2E7D32]">Periksa email Anda untuk tautan konfirmasi.</p>
+      ) : (
+        <button
+          type="button"
+          onClick={send}
+          disabled={state === 'sending'}
+          className="mt-2 font-medium text-[#0073E6] hover:underline disabled:opacity-60"
+        >
+          Kirim tautan konfirmasi
+        </button>
+      )}
+      {state === 'failed' && (
+        <p role="alert" className="mt-2 text-[#C62828]">
+          Tautan belum terkirim. Coba lagi sebentar lagi.
+        </p>
+      )}
     </div>
   );
 }

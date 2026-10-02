@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { cancelBatch, completeBatch, createBatch, editBatch, type TripActor } from './trip';
 import {
   BatchFieldsInvalidError,
+  BatchLockedByRegistrationsError,
+  BatchQuotaBelowSeatsError,
   BatchMinQuotaMetError,
   BatchNotEndedError,
   BatchNotFoundError,
@@ -10,6 +12,7 @@ import {
   TripNotFoundError,
 } from '@/lib/volunteer-trip-errors';
 import { NotAuthorizedError } from '@/lib/capacity';
+import { refundTiers } from './refund-table';
 import { domainErrorToHttp } from '@/lib/domain-errors';
 import { batchRow, makeTripDb, paymentRow, registrationRow, tripRow } from '../../../tests/support/in-memory-trip-db';
 
@@ -108,10 +111,15 @@ describe('createBatch', () => {
   });
 
   it.each([
-    ['minQuota above maxQuota', { minQuota: 25 }, 'minQuota'],
-    ['endDate before startDate', { endDate: new Date('2026-11-30T00:00:00Z') }, 'endDate'],
-    ['registrationDeadline after startDate', { registrationDeadline: new Date('2026-12-02T00:00:00Z') }, 'registrationDeadline'],
-  ])('refuses %s with a 400 naming the field, adding nothing', async (_, override, field) => {
+    ['minQuota above maxQuota', { minQuota: 25 }, 'minQuota', 'Kuota minimum tidak boleh melebihi kuota maksimum.'],
+    ['endDate before startDate', { endDate: new Date('2026-11-30T00:00:00Z') }, 'endDate', 'Tanggal selesai tidak boleh sebelum tanggal mulai.'],
+    [
+      'registrationDeadline after startDate',
+      { registrationDeadline: new Date('2026-12-02T00:00:00Z') },
+      'registrationDeadline',
+      'Tenggat pendaftaran tidak boleh setelah tanggal mulai.',
+    ],
+  ])('refuses %s with a 400 naming the field, in the form\'s own words, adding nothing', async (_, override, field, message) => {
     const db = makeTripDb({ trips: [tripRow()] });
 
     const error = await createBatch(db.prisma as never, {
@@ -123,6 +131,7 @@ describe('createBatch', () => {
 
     expect(error).toBeInstanceOf(BatchFieldsInvalidError);
     expect((error as BatchFieldsInvalidError).field).toBe(field);
+    expect((error as BatchFieldsInvalidError).message).toBe(message);
     expect(domainErrorToHttp(error)).toMatchObject({ status: 400, body: { code: 'BATCH_FIELDS_INVALID' } });
     expect(db.batches).toEqual([]);
   });
@@ -444,6 +453,32 @@ describe('editBatch', () => {
     expect(db.rowLocks).toEqual(['VolunteerTrip:trip-1', 'VolunteerBatch:batch-1']);
   });
 
+  it.each([
+    ['minQuota above maxQuota', { minQuota: 99 }, 'minQuota', 'Kuota minimum tidak boleh melebihi kuota maksimum.'],
+    ['endDate before startDate', { endDate: new Date('2026-11-30T00:00:00Z') }, 'endDate', 'Tanggal selesai tidak boleh sebelum tanggal mulai.'],
+    [
+      'registrationDeadline after startDate',
+      { registrationDeadline: new Date('2026-12-02T00:00:00Z') },
+      'registrationDeadline',
+      'Tenggat pendaftaran tidak boleh setelah tanggal mulai.',
+    ],
+  ])('refuses an edit leaving %s, in Indonesian words with no field identifiers', async (_, edits, field, message) => {
+    const db = makeTripDb({ trips: [tripRow({ status: 'ACTIVE' })], batches: [batchRow()] });
+
+    const error = await editBatch(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      actor: fundraiser,
+      edits,
+      now: NOW,
+    }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(BatchFieldsInvalidError);
+    expect((error as BatchFieldsInvalidError).field).toBe(field);
+    expect((error as BatchFieldsInvalidError).message).toBe(message);
+    expect((error as BatchFieldsInvalidError).message).not.toMatch(/minQuota|maxQuota|startDate|endDate|registrationDeadline/);
+  });
+
   it('lets an Admin who does not own the Trip edit a Batch', async () => {
     const db = makeTripDb({ trips: [tripRow()], batches: [batchRow()] });
 
@@ -510,6 +545,169 @@ describe('editBatch', () => {
     expect(error).toBeInstanceOf(BatchFieldsInvalidError);
     expect((error as BatchFieldsInvalidError).field).toBe(field);
     expect(db.batch()).toEqual(batchRow());
+  });
+});
+
+describe('editBatch with Registrations (ticket 48)', () => {
+  const PAST = new Date('2026-09-20T00:00:00Z');
+  const SOON = new Date('2026-09-27T00:00:00Z');
+  const edit = (db: ReturnType<typeof makeTripDb>, edits: Parameters<typeof editBatch>[1]['edits']) =>
+    editBatch(db.prisma as never, { tripId: 'trip-1', batchId: 'batch-1', actor: fundraiser, edits, now: NOW }).catch(
+      (e: unknown) => e,
+    );
+  const withRegistration = (status: 'CONFIRMED' | 'HOLD', holdExpiresAt = new Date('2026-09-26T10:30:00Z')) =>
+    makeTripDb({
+      trips: [tripRow({ status: 'ACTIVE' })],
+      batches: [batchRow()],
+      registrations: [registrationRow({ status, holdExpiresAt })],
+    });
+
+  it.each([
+    ['rug-pull: startDate and endDate into the past', { startDate: PAST, endDate: PAST, registrationDeadline: PAST }, 'startDate'],
+    ['startDate pulled under 3 days away', { startDate: SOON }, 'startDate'],
+    ['endDate moved', { endDate: new Date('2026-12-30T00:00:00Z') }, 'endDate'],
+    ['registrationDeadline moved', { registrationDeadline: new Date('2026-11-10T00:00:00Z') }, 'registrationDeadline'],
+  ])('refuses %s once a Volunteer paid, with a 409, changing nothing', async (_, edits, field) => {
+    const db = withRegistration('CONFIRMED');
+
+    const error = await edit(db, edits);
+
+    expect(error).toBeInstanceOf(BatchLockedByRegistrationsError);
+    expect((error as BatchLockedByRegistrationsError).fields[0]).toBe(field);
+    expect(domainErrorToHttp(error)).toMatchObject({ status: 409, body: { code: 'BATCH_LOCKED_BY_REGISTRATIONS' } });
+    expect(db.batch()).toEqual(batchRow());
+  });
+
+  it('refuses startDate and endDate moved to an explicit past date once a Volunteer paid', async () => {
+    const db = withRegistration('CONFIRMED');
+    const pastStart = new Date('2026-09-01T00:00:00Z');
+    const pastEnd = new Date('2026-09-05T00:00:00Z');
+
+    const error = await edit(db, { startDate: pastStart, endDate: pastEnd, registrationDeadline: new Date('2026-08-25T00:00:00Z') });
+
+    expect(error).toBeInstanceOf(BatchLockedByRegistrationsError);
+    expect(db.batch()).toEqual(batchRow());
+  });
+
+  it('cannot be used to complete the Batch early: the edit is refused and completeBatch still waits for the real endDate', async () => {
+    const db = withRegistration('CONFIRMED');
+    const original = batchRow();
+    expect(original.endDate.getTime()).toBeGreaterThan(NOW.getTime());
+
+    const edited = await edit(db, { startDate: new Date('2026-09-01T00:00:00Z'), endDate: new Date('2026-09-05T00:00:00Z') });
+    const completed = await completeBatch(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      actor: fundraiser,
+      attendedRegistrationIds: [],
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(edited).toBeInstanceOf(BatchLockedByRegistrationsError);
+    expect(completed).toBeInstanceOf(BatchNotEndedError);
+    expect(db.batch()).toEqual(original);
+  });
+
+  it('keeps the refund table on the frozen startDate after a refused edit', async () => {
+    const db = withRegistration('CONFIRMED');
+    const before = refundTiers({ startDate: db.batch().startDate, tripFee: 2_500_000 });
+
+    await edit(db, { startDate: new Date('2026-09-01T00:00:00Z') });
+    await edit(db, { startDate: new Date('2027-03-01T00:00:00Z'), endDate: new Date('2027-03-05T00:00:00Z') });
+
+    expect(db.batch().startDate).toEqual(batchRow().startDate);
+    expect(refundTiers({ startDate: db.batch().startDate, tripFee: 2_500_000 })).toEqual(before);
+    expect(before[0].window).toContain('Sampai 17 Nov 2026 07.00 WIB');
+  });
+
+  it('names every locked field in the message, not just the first', async () => {
+    const db = withRegistration('CONFIRMED');
+    const error = await edit(db, { startDate: PAST, endDate: new Date('2026-12-30T00:00:00Z') });
+    expect(error).toBeInstanceOf(BatchLockedByRegistrationsError);
+    expect((error as BatchLockedByRegistrationsError).fields).toEqual(['startDate', 'endDate']);
+    expect((error as BatchLockedByRegistrationsError).message).toContain('startDate, endDate');
+  });
+
+  it('also locks the dates for a HOLD that has not lapsed', async () => {
+    const db = withRegistration('HOLD');
+    expect(await edit(db, { startDate: SOON })).toBeInstanceOf(BatchLockedByRegistrationsError);
+  });
+
+  it('does not lock the dates for a lapsed HOLD, which no longer occupies a seat', async () => {
+    const db = withRegistration('HOLD', NOW);
+    const result = await edit(db, { startDate: new Date('2026-12-02T00:00:00Z'), endDate: new Date('2026-12-09T00:00:00Z') });
+    expect(result).toHaveProperty('batch');
+    expect(db.batch().startDate).toEqual(new Date('2026-12-02T00:00:00Z'));
+  });
+
+  it('lets fields that do not touch money change, and an unchanged date sent back as is', async () => {
+    const db = withRegistration('CONFIRMED');
+    await edit(db, { startDate: batchRow().startDate, maxQuota: 30, minQuota: 5 });
+    expect(db.batch()).toMatchObject({ maxQuota: 30, minQuota: 5, startDate: batchRow().startDate });
+  });
+
+  it('refuses a maxQuota below the seats in use with a 422', async () => {
+    const db = makeTripDb({
+      trips: [tripRow({ status: 'ACTIVE' })],
+      batches: [batchRow({ minQuota: 1 })],
+      registrations: [
+        registrationRow({ id: 'a', volunteerId: 'va' }),
+        registrationRow({ id: 'b', volunteerId: 'vb' }),
+        registrationRow({ id: 'c', volunteerId: 'vc', status: 'HOLD', holdExpiresAt: new Date('2026-09-26T10:30:00Z') }),
+      ],
+    });
+
+    const error = await edit(db, { maxQuota: 2 });
+
+    expect(error).toBeInstanceOf(BatchQuotaBelowSeatsError);
+    expect(domainErrorToHttp(error)).toMatchObject({ status: 422, body: { code: 'BATCH_QUOTA_BELOW_SEATS' } });
+    expect(await edit(db, { maxQuota: 3 })).toHaveProperty('batch');
+  });
+
+  it('refuses raising minQuota above the CONFIRMED count, which would let the Fundraiser cancel a Batch that ran', async () => {
+    const db = withRegistration('CONFIRMED');
+    db.batches[0].minQuota = 1;
+
+    expect(await edit(db, { minQuota: 2 })).toBeInstanceOf(BatchQuotaBelowSeatsError);
+    expect(db.batch().minQuota).toBe(1);
+    expect(await edit(db, { minQuota: 1, maxQuota: 25 })).toHaveProperty('batch');
+  });
+
+  it('takes the live Registrations lock after Trip and Batch', async () => {
+    const db = withRegistration('CONFIRMED');
+    await edit(db, { maxQuota: 25 });
+    expect(db.rowLocks).toEqual(['VolunteerTrip:trip-1', 'VolunteerBatch:batch-1', 'Registration:registration-1']);
+  });
+
+  it('lets an empty Batch move to new future dates', async () => {
+    const db = makeTripDb({ trips: [tripRow({ status: 'ACTIVE' })], batches: [batchRow()] });
+    const startDate = new Date('2026-10-20T00:00:00Z');
+    await edit(db, { startDate, endDate: new Date('2026-10-25T00:00:00Z'), registrationDeadline: new Date('2026-10-10T00:00:00Z') });
+    expect(db.batch().startDate).toEqual(startDate);
+  });
+
+  it.each([
+    ['startDate', { startDate: PAST, endDate: new Date('2026-12-07T00:00:00Z'), registrationDeadline: PAST }],
+    ['registrationDeadline', { registrationDeadline: PAST }],
+    ['endDate', { startDate: PAST, endDate: PAST, registrationDeadline: PAST }],
+  ])('refuses a past %s on an empty Batch with a 400', async (field, edits) => {
+    const db = makeTripDb({ trips: [tripRow({ status: 'ACTIVE' })], batches: [batchRow()] });
+    const error = await edit(db, edits);
+    expect(error).toBeInstanceOf(BatchFieldsInvalidError);
+    expect((error as BatchFieldsInvalidError).field).toBe(field === 'endDate' ? 'startDate' : field);
+    expect(db.batch()).toEqual(batchRow());
+  });
+
+  it('createBatch refuses dates not after now', async () => {
+    const db = makeTripDb({ trips: [tripRow()] });
+    const error = await createBatch(db.prisma as never, {
+      tripId: 'trip-1',
+      actor: fundraiser,
+      fields: { ...FIELDS, registrationDeadline: PAST, startDate: PAST, endDate: PAST },
+      now: NOW,
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BatchFieldsInvalidError);
+    expect(db.batches).toEqual([]);
   });
 });
 

@@ -58,3 +58,4 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #178 untuk p
 - 2026-10-02: keputusan owner (Dri): HOLD yang tersisa saat Batch COMPLETED menjadi EXPIRED, saat CANCELLED menjadi CANCELLED; pembayaran susulan di-refund penuh lewat late settlement; REJECTED tidak dipakai karena tidak ada di enum Registration. Dicatat di CONTEXT.md.
 
 - 2026-10-02: awaiting-merge. PR #178, commit d3a2ece. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #178.

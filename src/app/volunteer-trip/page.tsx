@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { listCatalogTrips } from '@/lib/volunteer/catalog';
 import { LazyImage } from '@/components/ui/LazyImage';
 import { formatRupiah } from '@/lib/utils/currency';
-import { formatIndonesianDate } from '@/lib/utils/date';
+import { formatWibDate } from '@/lib/volunteer/batch-dates';
 
 /**
  * The public Volunteer Trip catalog (ticket 33): ACTIVE Trips with at least
@@ -42,7 +42,7 @@ export default async function VolunteerCatalogPage() {
                   <h2 className="font-semibold text-text mb-1">{trip.title}</h2>
                   <p className="text-sm text-text-secondary">{trip.destination}</p>
                   <p className="text-sm text-text-secondary mt-2">
-                    Batch terdekat: {formatIndonesianDate(trip.nearestBatchStart)}
+                    Batch terdekat: {formatWibDate(trip.nearestBatchStart)}
                   </p>
                   <p className="font-bold text-primary mt-2">{formatRupiah(trip.tripFeeAmount)}</p>
                 </div>
