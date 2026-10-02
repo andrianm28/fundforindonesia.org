@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done (PR #131, 8a432c2)
 
 **Blocked by:** 21
 
@@ -56,3 +56,7 @@ function never touches the ledger or a Campaign/Trip slug. The check history
 shows on `/admin/payouts/[id]` (every status, newest first) and a queue
 marker on `/admin/payouts`; the Fundraiser's line is on
 `CampaignPayoutPanel`.
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #131 (8a432c2). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.

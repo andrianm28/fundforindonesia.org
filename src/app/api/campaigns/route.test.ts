@@ -350,6 +350,31 @@ describe('POST /api/campaigns', () => {
     expect(data.fieldErrors.targetAmount).toBeDefined();
   });
 
+  it.each([
+    '/images/placeholder-campaign.jpg',
+    'blob:http://localhost/abc',
+    'data:image/png;base64,AAAA',
+    'https://user:pass@example.com/image.jpg',
+    ' https://example.com/image.jpg',
+  ])('refuses the coverImage %s, writing nothing', async (coverImage) => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+
+    const response = await POST(createPostRequest({ ...validBody, coverImage }));
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).fieldErrors.coverImage).toBeDefined();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('accepts the local path /api/upload answers with as coverImage', async () => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+    mockCreate.mockResolvedValue({ id: 'campaign-3' } as never);
+
+    const response = await POST(createPostRequest({ ...validBody, coverImage: '/uploads/abc-123.png' }));
+
+    expect(response.status).toBe(201);
+  });
+
   it('returns 400 if title exceeds 200 characters', async () => {
     mockGetServerSession.mockResolvedValue(verifiedSession as never);
 

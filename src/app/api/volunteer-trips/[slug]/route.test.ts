@@ -114,6 +114,32 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
     );
   });
 
+  describe('coverImage', () => {
+    it.each([
+      ['an https URL with userinfo', 'https://user:pass@example.com/cover.jpg'],
+      ['an http URL', 'http://example.com/cover.jpg'],
+      ['a value with leading whitespace', ' https://example.com/cover.jpg'],
+      ['a value with trailing whitespace', '/uploads/cover.jpg '],
+    ])('refuses %s with a 400 naming the field, writing nothing', async (_, coverImage) => {
+      const response = await PATCH(patchRequest({ coverImage }), routeContext());
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.fieldErrors.coverImage).toBeDefined();
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['an /api/upload path', '/uploads/abc-123.jpg'],
+      ['an https URL', 'https://example.com/cover.jpg'],
+    ])('accepts %s', async (_, coverImage) => {
+      const response = await PATCH(patchRequest({ coverImage }), routeContext());
+      expect(response.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ coverImage }) }),
+      );
+    });
+  });
+
   it('allows editing while REJECTED', async () => {
     mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', status: 'REJECTED' });
     const response = await PATCH(patchRequest({ title: 'Updated title' }), routeContext());

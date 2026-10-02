@@ -38,7 +38,7 @@ describe('useUnreadCount', () => {
 
   it('fetches unread count when authenticated', async () => {
     mockUseSession.mockReturnValue({
-      data: { user: { id: '1', name: 'Test' }, expires: '' },
+      data: { user: { id: '1', name: 'Test', assignments: [] }, expires: '' },
       status: 'authenticated',
       update: vi.fn(),
     });
@@ -72,7 +72,7 @@ describe('useUnreadCount', () => {
 
   it('returns 0 when API returns no data', async () => {
     mockUseSession.mockReturnValue({
-      data: { user: { id: '1', name: 'Test' }, expires: '' },
+      data: { user: { id: '1', name: 'Test', assignments: [] }, expires: '' },
       status: 'authenticated',
       update: vi.fn(),
     });
@@ -107,7 +107,7 @@ describe('useUnreadCount', () => {
 
   it('provides a refreshCount function (mutate)', async () => {
     mockUseSession.mockReturnValue({
-      data: { user: { id: '1', name: 'Test' }, expires: '' },
+      data: { user: { id: '1', name: 'Test', assignments: [] }, expires: '' },
       status: 'authenticated',
       update: vi.fn(),
     });

@@ -112,6 +112,21 @@ describe('POST /api/volunteer-trips', () => {
     expect(response.status).toBe(400);
     expect(mockCreate).not.toHaveBeenCalled();
   });
+
+  it('accepts the local path /api/upload answers with as the cover image', async () => {
+    const response = await POST(createRequest({ ...VALID_BODY, coverImage: '/uploads/lq2k9-abc123.png' }));
+    expect(response.status).toBe(201);
+    expect(mockCreate.mock.calls[0][0].data.coverImage).toBe('/uploads/lq2k9-abc123.png');
+  });
+
+  it.each(['/uploads/../etc/passwd', 'http://example.com/x.png', 'javascript:alert(1)', 'data:image/png;base64,AAAA'])(
+    'refuses the unsafe cover image %s',
+    async (coverImage) => {
+      const response = await POST(createRequest({ ...VALID_BODY, coverImage }));
+      expect(response.status).toBe(400);
+      expect(mockCreate).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('POST /api/volunteer-trips tripFeeAmount', () => {

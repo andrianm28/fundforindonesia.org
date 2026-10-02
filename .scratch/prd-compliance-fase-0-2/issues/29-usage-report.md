@@ -4,7 +4,8 @@
 
 **Blocked by:** 28
 
-**Status:** ready-for-agent
+**Status:** done
+PR #129
 
 - [ ] A report carries a narrative, line items summing exactly to the Payout amount, at least one photo and a beneficiary count
 - [ ] It appears publicly on the Campaign page as soon as it is submitted, without waiting for review

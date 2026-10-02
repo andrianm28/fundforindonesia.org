@@ -15,16 +15,20 @@ import {
   type VolunteerTrip,
 } from '@/generated/prisma/client';
 import { LifecycleValidationError, SameAdminLiftError } from '@/lib/campaign-lifecycle-errors';
-import { fundraiserOnlyRefusal, judgeCapacity, NotAuthorizedError, requireAssignmentFor } from '@/lib/capacity';
+import { fundraiserOnlyRefusal, judgeCapacity, requireAssignmentFor } from '@/lib/capacity';
 import { recordIdentityVerification } from '@/lib/identity-verification';
 import { MAX_RUPIAH_AMOUNT } from '@/lib/money/ledger';
 import { createRefund } from '@/lib/money/refunds';
+import { issueCertificates } from './certificate';
 import { lockAndLoad, type SubjectState } from '@/lib/subject-guard';
 import {
   AlreadyRegisteredError,
   BatchAlreadyCompletedError,
   BatchFieldsInvalidError,
   BatchFullError,
+  BatchLockedByRegistrationsError,
+  BatchQuotaBelowSeatsError,
+  OwnTripRegistrationError,
   BatchMinQuotaMetError,
   BatchNotEndedError,
   BatchNotFoundError,
@@ -487,13 +491,35 @@ function judgeBatchAuthority(trip: LockedTrip, actor: TripActor): void {
 /** A Batch's dates and quotas must agree with each other. */
 function requireConsistentBatch(fields: BatchFields): void {
   if (fields.minQuota > fields.maxQuota) {
-    throw new BatchFieldsInvalidError('minQuota', 'minQuota tidak boleh melebihi maxQuota');
+    throw new BatchFieldsInvalidError('minQuota', 'Kuota minimum tidak boleh melebihi kuota maksimum.');
   }
   if (fields.endDate < fields.startDate) {
-    throw new BatchFieldsInvalidError('endDate', 'endDate tidak boleh sebelum startDate');
+    throw new BatchFieldsInvalidError('endDate', 'Tanggal selesai tidak boleh sebelum tanggal mulai.');
   }
   if (fields.registrationDeadline > fields.startDate) {
-    throw new BatchFieldsInvalidError('registrationDeadline', 'registrationDeadline tidak boleh setelah startDate');
+    throw new BatchFieldsInvalidError('registrationDeadline', 'Tenggat pendaftaran tidak boleh setelah tanggal mulai.');
+  }
+}
+
+/** The Batch dates that fix the tiered Refund and the schedule; frozen once a live Registration exists (ticket 48). */
+export const BATCH_DATE_FIELDS = ['startDate', 'endDate', 'registrationDeadline'] as const;
+
+/**
+ * A Registration is "live" when it occupies a seat: CONFIRMED, or a HOLD
+ * whose window has not lapsed. The one definition shared by the Fundraiser
+ * read and `editBatch`.
+ */
+export function liveRegistrationWhere(now: Date) {
+  return { OR: [{ status: RegistrationStatus.CONFIRMED }, { status: RegistrationStatus.HOLD, holdExpiresAt: { gt: now } }] };
+}
+
+/** A date being set must lie after `now`: a Batch is never scheduled into the past (ticket 48). */
+function requireFutureDates(fields: Partial<Pick<BatchFields, (typeof BATCH_DATE_FIELDS)[number]>>, now: Date): void {
+  for (const field of BATCH_DATE_FIELDS) {
+    const value = fields[field];
+    if (value !== undefined && value <= now) {
+      throw new BatchFieldsInvalidError(field, `${field} harus di masa depan`);
+    }
   }
 }
 
@@ -501,7 +527,7 @@ function requireConsistentBatch(fields: BatchFields): void {
  * The Trip's Fundraiser, or an Admin, adds an OPEN Batch to it. Refusals:
  * TripNotFoundError (404); NotAuthorizedError (403);
  * TripNotAcceptingBatchesError (400) for a Cancelled or Completed Trip;
- * BatchFieldsInvalidError (400).
+ * BatchFieldsInvalidError (400), also for a date not after `now`.
  */
 export async function createBatch(
   prisma: PrismaClient,
@@ -515,6 +541,7 @@ export async function createBatch(
       throw new TripNotAcceptingBatchesError(trip.effectiveStatus);
     }
     requireConsistentBatch(fields);
+    requireFutureDates(fields, now);
     const batch = await tx.volunteerBatch.create({
       data: { tripId: trip.id, ...fields, status: VolunteerBatchStatus.OPEN },
     });
@@ -566,9 +593,21 @@ async function writeOpenBatch(
 
 /**
  * The Trip's Fundraiser, or an Admin, changes an OPEN Batch's dates or
- * quotas, judged together with what is stored. Refusals: TripNotFoundError
- * and BatchNotFoundError (404); NotAuthorizedError (403); BatchNotOpenError
- * (409); BatchFieldsInvalidError (400).
+ * quotas, judged together with what is stored (ticket 48).
+ *
+ * The tiered Refund is counted from `startDate`, so once the Batch has a
+ * live Registration (CONFIRMED, or a HOLD that has not lapsed) its
+ * `startDate`, `endDate` and `registrationDeadline` cannot move, `maxQuota`
+ * cannot drop below the seats held, and `minQuota` cannot rise above the
+ * CONFIRMED count. Only a Batch with no live Registration takes new dates,
+ * and those must be in the future. The judgement runs under the same locks
+ * as `holdRegistration` and `cancelBatch` (Trip, Batch, then the live
+ * Registrations), so a hold cannot commit between the check and the write.
+ *
+ * Refusals: TripNotFoundError and BatchNotFoundError (404);
+ * NotAuthorizedError (403); BatchNotOpenError and
+ * BatchLockedByRegistrationsError (409); BatchQuotaBelowSeatsError (422);
+ * BatchFieldsInvalidError (400).
  */
 export async function editBatch(
   prisma: PrismaClient,
@@ -582,6 +621,34 @@ export async function editBatch(
     const changed = Object.fromEntries(
       Object.entries(edits).filter(([, value]) => value !== undefined),
     ) as Partial<BatchFields>;
+
+    // Always taken, as in cancelBatch and completeBatch; lapsed holds are
+    // released first, so they neither lock the Batch nor count as seats.
+    await lockLiveRegistrations(tx, batch.id);
+    await expireLapsedHolds(tx, batch.id, now);
+    const confirmed = await tx.registration.count({ where: { batchId: batch.id, status: RegistrationStatus.CONFIRMED } });
+    const seats = await tx.registration.count({ where: { batchId: batch.id, ...liveRegistrationWhere(now) } });
+
+    const moved = BATCH_DATE_FIELDS.filter(
+      (field) => changed[field] !== undefined && changed[field].getTime() !== batch[field].getTime(),
+    );
+    if (seats > 0) {
+      const [firstMoved, ...otherMoved] = moved;
+      if (firstMoved) throw new BatchLockedByRegistrationsError([firstMoved, ...otherMoved]);
+      if (changed.maxQuota !== undefined && changed.maxQuota < seats) {
+        throw new BatchQuotaBelowSeatsError('maxQuota', `maxQuota tidak boleh di bawah jumlah kursi terpakai (${seats})`);
+      }
+      if (changed.minQuota !== undefined && changed.minQuota > batch.minQuota && changed.minQuota > confirmed) {
+        throw new BatchQuotaBelowSeatsError(
+          'minQuota',
+          `minQuota tidak boleh dinaikkan di atas jumlah Registration CONFIRMED (${confirmed})`,
+        );
+      }
+    } else {
+      requireFutureDates(Object.fromEntries(moved.map((field) => [field, changed[field]])), now);
+    }
+    // After the lock judgement, so a moved date on a Batch with Registrations
+    // is named for what it is, not for the inconsistency it also causes.
     requireConsistentBatch({ ...batch, ...changed });
     return { batch: await writeOpenBatch(tx, batch, changed) };
   });
@@ -595,6 +662,9 @@ export async function editBatch(
  * Trip's own Fundraiser may mark attendance (FUNDRAISER Capacity), so when a
  * list is required (an empty one is a deliberate "nobody attended"), and an
  * Admin who does not own the Trip is refused like anyone else.
+ *
+ * Every HOLD still on the Batch becomes EXPIRED (ticket 53): a Trip Fee
+ * that settles afterwards is refunded in full, never confirmed.
  *
  * Moves no money: no Refund and no ledger row is written. Locks Trip, Batch,
  * then the live Registrations, the order `cancelBatch` takes, so a
@@ -632,6 +702,21 @@ export async function completeBatch(
       await tx.registration.updateMany({
         where: { id: { in: attended }, batchId: batch.id, status: RegistrationStatus.CONFIRMED },
         data: { attended: true },
+      });
+      // The Sertifikat Keikutsertaan, in this same transaction: the only
+      // path that issues one (ticket 37).
+      await issueCertificates(tx, { registrationIds: attended, batch: completed, now });
+    }
+    // The Batch has finished: no seat is left to hold. Each HOLD lapses, as
+    // a hold past its window does, so a Trip Fee that settles later finds a
+    // lapsed Registration and is refunded in full (`refundLateSettlement`),
+    // never confirmed after departure. Under the Registration lock taken
+    // above, so a settlement cannot confirm one between the read and here.
+    const holdIds = live.filter((r) => r.status === RegistrationStatus.HOLD).map((r) => r.id);
+    if (holdIds.length > 0) {
+      await tx.registration.updateMany({
+        where: { id: { in: holdIds } },
+        data: { status: RegistrationStatus.EXPIRED },
       });
     }
     return { batch: completed };
@@ -747,7 +832,7 @@ export type HoldRegistrationResult = { registration: Registration; tripFeeAmount
  * second sees the first.
  *
  * Refusals: TripNotFoundError and BatchNotFoundError (404), the latter
- * also for a Batch of another Trip; TripNotTakingRegistrationsError,
+ * also for a Batch of another Trip; OwnTripRegistrationError (403); TripNotTakingRegistrationsError,
  * BatchNotTakingRegistrationsError, RegistrationDeadlinePassedError,
  * BatchFullError and AlreadyRegisteredError (400).
  */
@@ -758,6 +843,9 @@ export async function holdRegistration(
   const { tripId, batchId, volunteerId, now = new Date() } = params;
   return prisma.$transaction(async (tx: Tx) => {
     const trip = await lockTrip(tx, tripId, now);
+    // The Fundraiser never takes a seat on their own Trip: they would hold
+    // both sides of the Trip Fee and of its tiered Refund (ticket 48).
+    if (volunteerId === trip.ownerId) throw new OwnTripRegistrationError();
     // Judged in the order the hold route always answered: which Batch,
     // then the Batch's status, then the Trip's, then the deadline.
     const batch = await lockBatch(tx, trip, batchId);
@@ -871,8 +959,6 @@ async function refundTripFee(
   });
 }
 
-const NOT_OWN_REGISTRATION = 'Hanya Volunteer pemilik Registrasi ini yang dapat membatalkannya.';
-
 export type CancelRegistrationResult = { registration: Registration; refund: Refund | null };
 
 /**
@@ -883,8 +969,9 @@ export type CancelRegistrationResult = { registration: Registration; refund: Ref
  *
  * Locks Trip → Registration → Payment (the last inside `createRefund`).
  *
- * Refusals: RegistrationNotFoundError (404); NotAuthorizedError (403) for
- * anyone but the Registration's Volunteer, before anything is locked;
+ * Refusals: RegistrationNotFoundError (404), also for anyone but the
+ * Registration's Volunteer (refused before anything is locked, and
+ * indistinguishable from a missing id);
  * RegistrationNotCancellableError (400) from any other status, including a
  * cancel or expiry committed before this call got the lock, so nothing is
  * refunded twice; BatchAlreadyCompletedError (400).
@@ -896,7 +983,9 @@ export async function cancelRegistration(
   const { registrationId, actor, now = new Date() } = params;
   return prisma.$transaction(async (tx: Tx) => {
     const { trip, registration } = await lockRegistration(tx, registrationId, now, (found) => {
-      if (found.volunteerId !== actor.userId) throw new NotAuthorizedError(NOT_OWN_REGISTRATION);
+      // Not the caller's own reads as not existing: a 403 here would tell
+      // anyone probing ids which ones exist.
+      if (found.volunteerId !== actor.userId) throw new RegistrationNotFoundError(registrationId);
     });
     const current = registration.status;
     if (!LIVE_REGISTRATION_STATUSES.includes(current)) throw new RegistrationNotCancellableError(current);
@@ -919,13 +1008,29 @@ export async function cancelRegistration(
 /**
  * What a Trip Fee Settlement found its Registration in:
  *   - 'confirmed': it was HOLD and now holds its seat;
- *   - 'cancelled': it was cancelled before the Trip Fee settled, so the
- *     money is owed back in full (`refundLateSettlement`);
- *   - 'lapsed': its hold expired first; the money is collected with no
- *     seat, so it is owed back in full too (`refundLateSettlement`, ticket
- *     40). The seat is not handed out, even if one is free.
+ *   - 'cancelled': it was cancelled before the Trip Fee settled (by the
+ *     Volunteer, or as a legacy HOLD on a CANCELLED Batch), so the money is
+ *     owed back in full (`refundLateSettlement`);
+ *   - 'lapsed': its hold expired first (or it is a legacy HOLD on a
+ *     COMPLETED Batch); the money is collected with no seat, so it is owed
+ *     back in full too (`refundLateSettlement`, ticket 40). The seat is not
+ *     handed out, even if one is free.
  */
 export type ConfirmRegistrationOutcome = 'confirmed' | 'cancelled' | 'lapsed';
+
+/**
+ * What becomes of a legacy HOLD found on a non-OPEN Batch: on a CANCELLED
+ * Batch it is cancelled, as `cancelBatch` would have, so its Refund reads
+ * 'late settlement'; on a COMPLETED Batch it lapses.
+ */
+function legacyHoldFate(batchStatus: VolunteerBatchStatus): {
+  registrationStatus: RegistrationStatus;
+  outcome: Exclude<ConfirmRegistrationOutcome, 'confirmed'>;
+} {
+  return batchStatus === VolunteerBatchStatus.CANCELLED
+    ? { registrationStatus: RegistrationStatus.CANCELLED, outcome: 'cancelled' }
+    : { registrationStatus: RegistrationStatus.EXPIRED, outcome: 'lapsed' };
+}
 
 /**
  * Settlement confirms a HOLD Registration. Runs inside the webhook's own
@@ -936,12 +1041,34 @@ export type ConfirmRegistrationOutcome = 'confirmed' | 'cancelled' | 'lapsed';
  * for a CONFIRMED Registration, whose Payment is already PAID and so is
  * never written by a Settlement; the Payment a Settlement writes belongs to
  * a HOLD, which those writers lock but never follow to its Payment.
+ *
+ * It reads the Registration (`findUnique`) before the compare-and-set, and
+ * that read is not the race guard: the CAS `updateMany WHERE status = HOLD`
+ * is. Its WHERE is re-evaluated after waiting on the Registration row lock a
+ * concurrent `completeBatch` holds, so it finds EXPIRED and reports 'lapsed'.
+ * The read only routes a legacy HOLD on a non-OPEN Batch (see `legacyHoldFate`).
  */
 export async function confirmRegistration(
   tx: Tx,
   params: { registrationId: string },
 ): Promise<{ outcome: ConfirmRegistrationOutcome }> {
   const { registrationId } = params;
+  // Defense-in-depth for legacy rows only: `completeBatch` and `cancelBatch`
+  // now leave no HOLD on a finished Batch. This check is NOT what guards the
+  // race with a concurrent `completeBatch`; the CAS below is (its WHERE is
+  // re-evaluated after waiting on the Registration row lock).
+  const existing = await tx.registration.findUnique({
+    where: { id: registrationId },
+    include: { batch: { select: { status: true } } },
+  });
+  if (existing?.status === RegistrationStatus.HOLD && existing.batch.status !== VolunteerBatchStatus.OPEN) {
+    const fate = legacyHoldFate(existing.batch.status);
+    await tx.registration.updateMany({
+      where: { id: registrationId, status: RegistrationStatus.HOLD },
+      data: { status: fate.registrationStatus },
+    });
+    return { outcome: fate.outcome };
+  }
   const confirmed = await tx.registration.updateMany({
     where: { id: registrationId, status: RegistrationStatus.HOLD },
     data: { status: RegistrationStatus.CONFIRMED },

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { findOwnLiveRegistration, getVolunteerRegistration } from './registration-view';
+import { findOwnLiveRegistration, getVolunteerRegistration, listVolunteerRegistrations } from './registration-view';
 
 const NOW = new Date('2026-10-01T10:00:00Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -41,6 +41,100 @@ describe('getVolunteerRegistration', () => {
       cancelRefundAmount: 0,
       paidAmount: null,
     });
+  });
+});
+
+describe('payment instructions of a HOLD (ticket 37: Lanjutkan pembayaran)', () => {
+  const later = new Date(NOW.getTime() + 20 * 60 * 1000);
+  const live = (payment: Record<string, unknown> | null) =>
+    row({
+      status: 'HOLD',
+      holdExpiresAt: later,
+      payment: payment && { amount: 500_000, refunds: [], ...payment },
+    });
+  const view = (r: unknown) => getVolunteerRegistration(db(r), { registrationId: 'reg-1', userId: 'vol-1', now: NOW });
+
+  it('hands back the stored QRIS link of a live HOLD whose Payment is still PENDING', async () => {
+    const v = await view(live({ status: 'PENDING', expiresAt: later, redirectUrl: 'https://pay.sumopod.com/abc', vaNumber: null }));
+    expect(v?.paymentInstructions).toEqual({ redirectUrl: 'https://pay.sumopod.com/abc', vaNumber: null });
+  });
+
+  it('hands back a stored Virtual Account number too', async () => {
+    const v = await view(live({ status: 'PENDING', expiresAt: later, redirectUrl: null, vaNumber: '8808123' }));
+    expect(v?.paymentInstructions).toEqual({ redirectUrl: null, vaNumber: '8808123' });
+  });
+
+  it.each([
+    ['no Payment was ever written', null],
+    ['the Payment predates stored instructions', { status: 'PENDING', expiresAt: later, redirectUrl: null, vaNumber: null }],
+    ['the Payment already expired', { status: 'PENDING', expiresAt: NOW, redirectUrl: 'https://pay.sumopod.com/abc', vaNumber: null }],
+    ['the Payment failed', { status: 'FAILED', expiresAt: later, redirectUrl: 'https://pay.sumopod.com/abc', vaNumber: null }],
+    ['the link is not http(s)', { status: 'PENDING', expiresAt: later, redirectUrl: 'javascript:alert(1)', vaNumber: null }],
+    ['the link is plain http', { status: 'PENDING', expiresAt: later, redirectUrl: 'http://pay.sumopod.com/abc', vaNumber: null }],
+    ['the link is on a foreign host', { status: 'PENDING', expiresAt: later, redirectUrl: 'https://evil.example/abc', vaNumber: null }],
+  ])('offers nothing when %s', async (_, payment) => {
+    expect((await view(live(payment)))?.paymentInstructions).toBeNull();
+  });
+
+  it('offers nothing once the seat hold lapsed, even with a stored link', async () => {
+    const lapsed = row({
+      status: 'HOLD',
+      holdExpiresAt: NOW,
+      payment: { amount: 1, status: 'PENDING', expiresAt: later, redirectUrl: 'https://pay.sumopod.com/abc', vaNumber: null, refunds: [] },
+    });
+    expect((await view(lapsed))?.paymentInstructions).toBeNull();
+  });
+
+  it('offers nothing on a CONFIRMED Registration', async () => {
+    expect((await view(row()))?.paymentInstructions).toBeNull();
+  });
+});
+
+describe('listVolunteerRegistrations (dashboard)', () => {
+  const listDb = (rows: unknown[]) => ({ registration: { findMany: vi.fn().mockResolvedValue(rows) } });
+  const full = (over: Record<string, unknown> = {}) => ({
+    ...row(),
+    attended: false,
+    certificate: null,
+    batch: { ...row().batch, status: 'OPEN' },
+    ...over,
+  });
+
+  it('asks only for the signed-in Volunteer’s own Registrations, newest first', async () => {
+    const d = listDb([]);
+    await listVolunteerRegistrations(d as never, { userId: 'vol-1', now: NOW });
+    expect(d.registration.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { volunteerId: 'vol-1' }, orderBy: { createdAt: 'desc' } }),
+    );
+  });
+
+  it('carries status, refunds, the tiered cancel amount and the certificate code', async () => {
+    const d = listDb([full({ certificate: { code: 'abcdefghijklmnopqrstuv' } })]);
+    const { registrations } = await listVolunteerRegistrations(d as never, { userId: 'vol-1', now: NOW });
+    expect(registrations).toEqual([
+      expect.objectContaining({
+        id: 'reg-1',
+        status: 'CONFIRMED',
+        cancelRefundAmount: 500_000,
+        refunds: [{ id: 'rf-1', amount: 100, status: 'REQUESTED' }],
+        certificateCode: 'abcdefghijklmnopqrstuv',
+      }),
+    ]);
+  });
+
+  it('lists as completed Trips only attended CONFIRMED Registrations on a COMPLETED Batch', async () => {
+    const completedBatch = { ...row().batch, status: 'COMPLETED' };
+    const done = full({ id: 'done', attended: true, batch: completedBatch });
+    const absent = full({ id: 'absent', attended: false, batch: completedBatch });
+    const open = full({ id: 'open', attended: false });
+    const cancelled = full({ id: 'x', status: 'CANCELLED', attended: true, batch: completedBatch });
+    const { completed } = await listVolunteerRegistrations(listDb([done, absent, open, cancelled]) as never, {
+      userId: 'vol-1',
+      now: NOW,
+    });
+    expect(completed).toEqual([
+      { registrationId: 'done', title: 'Trip', destination: 'Sumba', startDate: completedBatch.startDate, endDate: completedBatch.endDate },
+    ]);
   });
 });
 

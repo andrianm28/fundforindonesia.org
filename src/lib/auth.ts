@@ -6,14 +6,19 @@ import { prisma } from "@/lib/prisma";
 import { PASSWORD_HASH_COST, isHashAtCurrentCost } from "@/lib/password-hash-cost";
 import { Assignment } from "@/generated/prisma/client";
 import { buildAuthAdapter } from "@/lib/auth-adapter";
+import { isRemoteProviderPicture, providerPicture } from "@/lib/provider-picture";
 import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 
+// Both halves of the adapter need the schema it cannot see: the write goes
+// through the hooked client, so an OAuth sign-in's address is sealed on the
+// way in, and the read is rewired onto the lookup HMAC, because the plaintext
+// column this one used to ask for is gone (ADR 0012, src/lib/auth-adapter.ts).
+// Held here as well as on `authOptions` because the `jwt` callback writes the
+// provider's picture through it, so `image` <-> `avatar` is mapped in one place.
+const adapter = buildAuthAdapter(prisma);
+
 export const authOptions: NextAuthOptions = {
-  // Both halves of the adapter need the schema it cannot see: the write goes
-  // through the hooked client, so an OAuth sign-in's address is sealed on the
-  // way in, and the read is rewired onto the lookup HMAC, because the plaintext
-  // column this one used to ask for is gone (ADR 0012, src/lib/auth-adapter.ts).
-  adapter: buildAuthAdapter(prisma) as NextAuthOptions["adapter"],
+  adapter: adapter as NextAuthOptions["adapter"],
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -93,9 +98,27 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account, profile }) {
       if (user) {
         token.id = user.id;
+
+        // Signing in again with a different picture updates the stored one
+        // (ticket 47). A picture the user uploaded here (a local path) is not
+        // the provider's to overwrite; only a missing or provider-hosted one is.
+        // Best-effort: a failed write must not cost a user their login.
+        const incoming = account?.type === "oauth" ? providerPicture(profile) : null;
+        const stored = user.image ?? null;
+        if (incoming && incoming !== stored && (!stored || isRemoteProviderPicture(stored))) {
+          try {
+            await adapter.updateUser!({ id: user.id, image: incoming });
+            token.picture = incoming;
+          } catch (error) {
+            console.error(
+              "Failed to store the provider's picture:",
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
       }
 
       // Authority comes only from assignments (ADR 0005), read fresh so a
