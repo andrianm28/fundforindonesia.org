@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan)
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -37,11 +37,47 @@ menemukan dua celah pada webhook payment:
 
 ## Acceptance
 
-- Tes: Webhook dengan `[provider]` di URL tidak cocok dengan `payment.provider` di
-  database ditolak dengan 400/404.
-- Tes: Webhook ke `/api/webhooks/mock` ditolak atau diabaikan di lingkungan non-test.
+Keputusan yang disetujui owner 2026-10-02:
+
+- Mismatch provider dijawab `200 {received:true}`, identik dengan `providerRef`
+  tak dikenal, tanpa `processedAt` (menggantikan 400/404; alasan: anti-oracle
+  dan dedupe).
+- Gate mock hanya berlaku di production, kecuali
+  `ALLOW_MOCK_PAYMENT_PROVIDER === 'true'`.
+
+Kriteria:
+
+- Tes: webhook yang provider-nya tidak cocok dengan `payment.provider` dijawab
+  200 `{received:true}` tanpa mengubah Payment, ledger, Registration, atau email,
+  dan tanpa `processedAt`.
+- Tes: provider mock ditolak (503) di production, kecuali flag di atas.
 - Dokumentasi: .env produksi tidak boleh menyertakan `MOCK_MIDTRANS_SERVER_KEY`.
+
+## Keputusan implementasi
+
+- **Mismatch**: `payment.provider !== event.provider` (event.provider = adapter
+  yang memverifikasi, yaitu provider di URL) dicek di route tepat setelah
+  `payment` ditemukan dan SEBELUM cek status terminal. Dijawab 200 `{ received: true }`,
+  sama dengan `providerRef` tak dikenal, supaya mismatch bukan oracle keberadaan ref;
+  hanya di-log (id, tanpa PII). WebhookEvent TIDAK diberi `processedAt`: kunci dedupe
+  `(provider, providerEventId)` akan membuat event sah berikutnya dengan id sama
+  dianggap replay. Baris itu dipungut event sah tadi. Payment, ledger, Registration,
+  dan email tidak tersentuh.
+- **Mock di produksi**: tiket ambigu (NODE_ENV test atau flag), jadi dipilih
+  default aman. Builder `mock` di `src/lib/payments/index.ts` melempar
+  `PaymentProviderNotConfiguredError` (webhook 503, tanpa tulisan apa pun) bila
+  `NODE_ENV=production` kecuali `ALLOW_MOCK_PAYMENT_PROVIDER === 'true'` (string
+  persis, seperti saklar lain). Adanya `MOCK_MIDTRANS_SERVER_KEY` saja tidak
+  lagi cukup. Dev, vitest, dan e2e CI tidak terpengaruh (e2e berjalan di
+  `next start` tetapi tidak memakai jalur mock dan tidak men-set key-nya; lihat
+  komentar `ci.yml`).
+- **Dokumentasi**: `.env.example` menyatakan .env produksi tidak boleh memuat
+  `MOCK_MIDTRANS_SERVER_KEY` maupun `ALLOW_MOCK_PAYMENT_PROVIDER`;
+  `docker-compose.prod.yml` tidak lagi mewajibkan `MOCK_MIDTRANS_SERVER_KEY`.
+  `docker-compose.yml` (dev) dan smoke test `cd.yml` (hanya /api/health)
+  dibiarkan.
 
 ## Comments
 
 - 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #179.
+- 2026-10-02: awaiting-merge. PR #179, commit e2c9bd9. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.

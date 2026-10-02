@@ -7,6 +7,7 @@ import {
   MockPaymentProvider,
 } from './index';
 import { SumopodProvider } from './sumopod-provider';
+import { mutableEnv, setEnv } from '../../../tests/support/mutable-env';
 
 /**
  * The registry decides which adapter answers a given webhook URL, which makes
@@ -16,6 +17,8 @@ import { SumopodProvider } from './sumopod-provider';
 
 const ENV_KEYS = [
   'PAYMENT_PROVIDER',
+  'NODE_ENV',
+  'ALLOW_MOCK_PAYMENT_PROVIDER',
   'MOCK_MIDTRANS_SERVER_KEY',
   'SUMOPOD_API_KEY',
   'SUMOPOD_WEBHOOK_SECRET',
@@ -34,10 +37,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const k of ENV_KEYS) {
-    if (saved[k] === undefined) delete process.env[k];
-    else process.env[k] = saved[k];
-  }
+  for (const k of ENV_KEYS) setEnv(k, saved[k]);
 });
 
 describe('getPaymentProvider with no name', () => {
@@ -151,5 +151,46 @@ describe('getPaymentProvider when a named provider is not configured', () => {
     delete process.env.SUMOPOD_API_KEY;
 
     expect(() => getPaymentProvider('sumopod')).not.toThrow(UnknownPaymentProviderError);
+  });
+});
+
+describe('the mock provider outside tests (ticket 51)', () => {
+  const env = mutableEnv;
+
+  it('refuses to build in production, even with its key set, and says why', () => {
+    env.NODE_ENV = 'production';
+
+    expect(() => getPaymentProvider('mock')).toThrow(PaymentProviderNotConfiguredError);
+    expect(() => getPaymentProvider('mock')).toThrow(/ALLOW_MOCK_PAYMENT_PROVIDER/);
+  });
+
+  it('refuses the default provider too in production, since the default is the mock', () => {
+    env.NODE_ENV = 'production';
+
+    expect(() => getPaymentProvider()).toThrow(PaymentProviderNotConfiguredError);
+  });
+
+  it('builds in production only when explicitly opted in with exactly "true"', () => {
+    env.NODE_ENV = 'production';
+
+    for (const value of ['1', 'yes', 'TRUE', ' true']) {
+      env.ALLOW_MOCK_PAYMENT_PROVIDER = value;
+      expect(() => getPaymentProvider('mock')).toThrow(PaymentProviderNotConfiguredError);
+    }
+    env.ALLOW_MOCK_PAYMENT_PROVIDER = 'true';
+    expect(getPaymentProvider('mock')).toBeInstanceOf(MockPaymentProvider);
+  });
+
+  it('does not affect sumopod in production', () => {
+    env.NODE_ENV = 'production';
+
+    expect(getPaymentProvider('sumopod')).toBeInstanceOf(SumopodProvider);
+  });
+
+  it('still builds in development and test without any opt-in', () => {
+    for (const nodeEnv of ['development', 'test']) {
+      env.NODE_ENV = nodeEnv;
+      expect(getPaymentProvider('mock')).toBeInstanceOf(MockPaymentProvider);
+    }
   });
 });
