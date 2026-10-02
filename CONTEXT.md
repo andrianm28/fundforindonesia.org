@@ -214,7 +214,7 @@ Dana sebuah Payment yang dipindahkan keluar dari Escrow Hold atau Campaign Balan
 _Avoid_: Dana beku, hold, freeze
 
 **Program Balance**:
-Dana CSR yang tercatat pada sebuah Program, bukan Campaign. Tidak pernah bisa dicairkan lewat Payout karena Program tidak menerima uang daring.
+Dana CSR yang tercatat pada sebuah Program, bukan Campaign. Tidak pernah bisa dicairkan lewat Payout karena Program tidak menerima uang daring. Tidak pernah negatif: reversal Manual Contribution ditolak bila saldonya tidak lagi menutup nominalnya. Bila Program Balance tidak dapat dijelaskan oleh Manual Contribution, halaman `/impact` dan `GET /api/impact` menyembunyikan blok CSR saja (`csr: null`); enam baris Campaign tetap tampil.
 _Avoid_: Saldo CSR, dana program
 
 **Escrow Hold**:
