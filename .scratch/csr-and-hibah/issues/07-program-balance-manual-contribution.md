@@ -8,7 +8,7 @@ Program is not a Campaign.
 **Blocked by:** 01, and cross-feature `prd-compliance-fase-0-2 34`
 (Manual Contribution does not exist yet as of this spec)
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 - [ ] New `LedgerAccount` value `PROGRAM_BALANCE`
 - [ ] Manual Contribution's target is generalised from "always a Campaign" to
@@ -38,3 +38,5 @@ Program is not a Campaign.
   `prd-compliance-fase-0-2 34` has landed, or coordinate directly with
   whoever is building it to land the Campaign-or-Program generalisation in
   one place.
+
+- 2026-10-02: awaiting-merge. PR #182, commit 89205f1. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.

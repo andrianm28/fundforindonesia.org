@@ -9,7 +9,7 @@ never confused with money the ledger can account for.
 (Impact & Transparency's six-line breakdown does not exist yet as of this
 spec)
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 - [x] The Program detail page shows the off-books reported figure (ticket 01)
       next to, and visually distinct from, the ledger-backed Program Balance
@@ -42,3 +42,5 @@ spec)
   "per" date. `GET /api/impact` carries `csr` aggregates only (no per-Program
   figures); the Program page reads both figures via
   `src/lib/program-money.ts`.
+
+- 2026-10-02: awaiting-merge. PR #182, commit 89205f1. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
