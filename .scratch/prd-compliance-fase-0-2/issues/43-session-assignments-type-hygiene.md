@@ -4,7 +4,7 @@
 
 **Blocked by:** 7
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 - [ ] Every pre-existing test file that builds a session mock literal (`{ user: { id, role, isVerified, verificationType, ... } }`) without `assignments` gains it, matching this repo's established convention that `Session.user` fields are non-optional
 - [ ] No test's runtime assertions change — these are type-only fixes; `npx vitest run` was already fully green before this ticket and must stay that way
@@ -14,3 +14,7 @@
 **Context — how this was found:** `npx tsc --noEmit` jumped from 35 (the baseline right before merging ticket 07) to 86 immediately after. Broken down precisely before filing this: 61 errors trace to `assignments: Assignment[]` becoming a required field on `Session.user` (ticket 07, Task 1) — following this codebase's own pre-existing convention that `role`/`isVerified`/`verificationType` are non-optional too, not a new pattern ticket 07 invented. The other 25 are confirmed unrelated (no file overlap with anything ticket 07 touched) and pre-existing.
 
 Deliberately not fixed inline during ticket 07's merge: 61 errors across roughly a dozen files is a real, scoped body of work, not a one-line fix, and doing it unplanned mid-merge with no task brief and no review would be exactly the kind of scope creep this process exists to avoid. Filed here instead so it gets its own pass.
+
+## Comments
+
+- 2026-10-02: awaiting-merge. PR #184, commit bb12f36. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
