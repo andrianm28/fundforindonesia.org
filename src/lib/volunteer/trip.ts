@@ -17,6 +17,7 @@ import { LifecycleValidationError, SameAdminLiftError } from '@/lib/campaign-lif
 import { fundraiserOnlyRefusal, judgeCapacity, requireAssignmentFor } from '@/lib/capacity';
 import { recordIdentityVerification } from '@/lib/identity-verification';
 import { createRefund } from '@/lib/money/refunds';
+import { issueCertificates } from './certificate';
 import { lockAndLoad, type SubjectState } from '@/lib/subject-guard';
 import {
   AlreadyRegisteredError,
@@ -693,6 +694,9 @@ export async function completeBatch(
         where: { id: { in: attended }, batchId: batch.id, status: RegistrationStatus.CONFIRMED },
         data: { attended: true },
       });
+      // The Sertifikat Keikutsertaan, in this same transaction: the only
+      // path that issues one (ticket 37).
+      await issueCertificates(tx, { registrationIds: attended, batch: completed, now });
     }
     // The Batch has finished: no seat is left to hold. Each HOLD lapses, as
     // a hold past its window does, so a Trip Fee that settles later finds a

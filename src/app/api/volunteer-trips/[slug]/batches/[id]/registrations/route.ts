@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
+import { safePaymentLink } from '@/lib/payments/payment-link';
 import { PROVIDER_METHOD_FOR } from '@/lib/volunteer/payment-method';
 import { PaymentStatus } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
@@ -159,6 +160,11 @@ export async function POST(
 
     assertExactlyOnePaymentSubject({ registrationId: registration.id });
 
+    // Only an https link on a payment-provider host is stored or handed back;
+    // anything else becomes null, and the HOLD falls back to "batalkan lalu
+    // daftar ulang" rather than sending a Volunteer to an arbitrary address.
+    const redirectUrl = charge.method === 'qris_redirect' ? safePaymentLink(charge.redirectUrl) : null;
+
     // The charge now exists at the provider. A Payment write that fails here
     // leaves money a Volunteer can still pay with no row expecting it, so it is
     // recorded for reconciliation (ticket 52) before the 503.
@@ -187,6 +193,10 @@ export async function POST(
           escrowHoldDays: ESCROW_HOLD_DAYS,
           status: PaymentStatus.PENDING,
           expiresAt: charge.expiresAt,
+          // Kept so a Volunteer who closed the payment page can open it again
+          // ("Lanjutkan pembayaran", ticket 37): the provider is not asked twice.
+          redirectUrl,
+          vaNumber: charge.method === 'bank_transfer_va' ? charge.vaNumber : null,
         },
       });
     } catch (err) {
@@ -206,16 +216,8 @@ export async function POST(
 
     const paymentInstructions =
       charge.method === 'qris_redirect'
-        ? {
-            type: 'qris' as const,
-            redirectUrl: charge.redirectUrl,
-            expiresAt: charge.expiresAt,
-          }
-        : {
-            type: 'bank_transfer' as const,
-            vaNumber: charge.vaNumber,
-            expiresAt: charge.expiresAt,
-          };
+        ? { type: 'qris' as const, redirectUrl, expiresAt: charge.expiresAt }
+        : { type: 'bank_transfer' as const, vaNumber: charge.vaNumber, expiresAt: charge.expiresAt };
 
     return NextResponse.json(
       {

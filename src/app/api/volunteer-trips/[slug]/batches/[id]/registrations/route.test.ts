@@ -79,7 +79,7 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
       method: 'qris_redirect',
       createCharge: vi.fn().mockResolvedValue({
         method: 'qris_redirect',
-        redirectUrl: 'https://pay.example/x',
+        redirectUrl: 'https://pay.sumopod.com/x',
         expiresAt: new Date('2026-12-01'),
       }),
     });
@@ -178,6 +178,50 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     expect(await response.json()).toMatchObject({ registrationId: 'registration-1', amount: 1_500_000 });
   });
 
+  it('stores the QRIS link on the Payment so "Lanjutkan pembayaran" can show it again (ticket 37)', async () => {
+    await POST(createRequest(), routeContext());
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ redirectUrl: 'https://pay.sumopod.com/x', vaNumber: null }),
+      }),
+    );
+  });
+
+  it.each([
+    ['plain http', 'http://pay.sumopod.com/x'],
+    ['a foreign host', 'https://evil.example/x'],
+    ['javascript:', 'javascript:alert(1)'],
+  ])('stores no link when the provider answers %s, so the HOLD falls back to cancel-and-reregister', async (_, redirectUrl) => {
+    mockGetPaymentProvider.mockReturnValue({
+      name: 'sumopod',
+      method: 'qris_redirect',
+      createCharge: vi.fn().mockResolvedValue({ method: 'qris_redirect', redirectUrl, expiresAt: new Date('2026-12-01') }),
+    });
+    const response = await POST(createRequest(), routeContext());
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ redirectUrl: null }) }),
+    );
+    expect(JSON.stringify(await response.json())).not.toContain(redirectUrl);
+  });
+
+  it('stores the Virtual Account number on the Payment for a bank transfer charge (ticket 37)', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      name: 'sumopod',
+      method: 'bank_transfer_va',
+      createCharge: vi.fn().mockResolvedValue({
+        method: 'bank_transfer_va',
+        vaNumber: '8808123456',
+        expiresAt: new Date('2026-12-01'),
+      }),
+    });
+    await POST(createRequest({ paymentMethod: 'bank_transfer' }), routeContext());
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ redirectUrl: null, vaNumber: '8808123456' }),
+      }),
+    );
+  });
+
   it('records the provider under the one name the registry knows, whatever the adapter calls itself', async () => {
     // The same column, the same rule as a Donation's Payment: it is a join key
     // the Provider Balance groups by, so "SumoPod" and "sumopod" would file one
@@ -193,7 +237,7 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
         method: 'qris_redirect',
         createCharge: vi.fn().mockResolvedValue({
           method: 'qris_redirect',
-          redirectUrl: 'https://pay.example/x',
+          redirectUrl: 'https://pay.sumopod.com/x',
           expiresAt: new Date('2026-12-01'),
         }),
       });
