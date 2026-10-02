@@ -95,6 +95,7 @@ export default async function FundraiserTripPage({ params }: PageProps) {
                 slug={trip.slug}
                 batchId={batch.id}
                 ended={batch.ended}
+                seatsUsed={batch.seatsUsed}
                 roster={batch.roster.map((r) => ({ id: r.id, name: r.name }))}
                 values={{
                   startDate: toWibDate(batch.startDate),
@@ -118,7 +119,7 @@ export default async function FundraiserTripPage({ params }: PageProps) {
       {trip.status !== 'CANCELLED' && trip.status !== 'COMPLETED' && (
         <section className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-3">
           <h2 className="text-sm font-semibold text-[#212121]">Tambah Batch</h2>
-          <BatchForm slug={trip.slug} />
+          <BatchForm slug={trip.slug} seatsUsed={0} />
         </section>
       )}
     </div>

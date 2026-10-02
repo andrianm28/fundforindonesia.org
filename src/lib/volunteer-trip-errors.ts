@@ -76,7 +76,13 @@ export class TripNotAcceptingBatchesError extends TripError {
 }
 
 /** The fields of a Volunteer Batch a refusal can name. */
-export type BatchField = 'endDate' | 'registrationDeadline' | 'minQuota' | 'attendedRegistrationIds';
+export type BatchField =
+  | 'startDate'
+  | 'endDate'
+  | 'registrationDeadline'
+  | 'maxQuota'
+  | 'minQuota'
+  | 'attendedRegistrationIds';
 
 /**
  * A Batch's dates or quotas contradict each other, as sent or combined with
@@ -92,6 +98,45 @@ export class BatchFieldsInvalidError extends TripError {
   ) {
     super(message);
     this.name = 'BatchFieldsInvalidError';
+  }
+}
+
+/**
+ * A Batch that already holds a live (HOLD not yet lapsed, or CONFIRMED)
+ * Registration keeps its dates: the tiered Refund is counted from
+ * `startDate`, so moving it after a Volunteer paid would change what that
+ * Volunteer gets back (ticket 48). 409 through `domainErrorToHttp`.
+ */
+export class BatchLockedByRegistrationsError extends TripError {
+  readonly code = 'BATCH_LOCKED_BY_REGISTRATIONS';
+  constructor(readonly fields: readonly [BatchField, ...BatchField[]]) {
+    super(
+      `Tanggal Batch (${fields.join(', ')}) tidak bisa diubah karena sudah ada Volunteer yang mendaftar atau membayar; refund mereka dihitung dari tanggal ini. Batalkan Batch bila memang tidak bisa berjalan.`,
+    );
+    this.name = 'BatchLockedByRegistrationsError';
+  }
+}
+
+/**
+ * A Batch's quota would end below what its Registrations already need: a
+ * maxQuota under the seats held or confirmed, or a minQuota raised above the
+ * CONFIRMED count (which would let the Fundraiser cancel a Batch that made
+ * its minimum). 422 through `domainErrorToHttp`.
+ */
+export class BatchQuotaBelowSeatsError extends TripError {
+  readonly code = 'BATCH_QUOTA_BELOW_SEATS';
+  constructor(readonly field: BatchField, message: string) {
+    super(message);
+    this.name = 'BatchQuotaBelowSeatsError';
+  }
+}
+
+/** The Fundraiser cannot register on their own Trip. 403 through `domainErrorToHttp`. */
+export class OwnTripRegistrationError extends TripError {
+  readonly code = 'OWN_TRIP_REGISTRATION';
+  constructor() {
+    super('Fundraiser tidak bisa mendaftar sebagai Volunteer pada Trip miliknya sendiri');
+    this.name = 'OwnTripRegistrationError';
   }
 }
 
