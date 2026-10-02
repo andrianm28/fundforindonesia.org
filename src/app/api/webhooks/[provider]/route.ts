@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   readDonationGuestEmail,
   readUserEmail,
-  SELECT_DONATION_GUEST_EMAIL,
   SELECT_USER_EMAIL,
 } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
@@ -177,9 +176,11 @@ export async function POST(
             // money; donor is who it is addressed to when the Donor has an
             // account. Both addresses are ciphertexts now (ADR 0012) and are
             // decrypted where the Receipt is addressed, not stored in the clear.
+            // Donation's own scalars, guestEmailCiphertext and guestEmailKeyId
+            // among them, come with `include`; a scalar named inside an
+            // `include` is rejected by Prisma and answers every webhook 500.
             campaign: { include: { collectingEntity: true } },
             donor: { select: { id: true, name: true, ...SELECT_USER_EMAIL } },
-            ...SELECT_DONATION_GUEST_EMAIL,
           },
         },
         registration: { include: { batch: { include: { trip: true } } } },
