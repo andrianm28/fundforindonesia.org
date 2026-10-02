@@ -1,3 +1,4 @@
+import { escapeHtml } from './escape-html';
 import type { MailMessage } from './types';
 
 /**
@@ -11,15 +12,6 @@ export type EmailVerificationEmailInput = {
   name: string;
   confirmUrl: string;
 };
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 export function emailVerificationEmail(input: EmailVerificationEmailInput): MailMessage {
   const subject = 'Konfirmasi email akun Fund for Indonesia';

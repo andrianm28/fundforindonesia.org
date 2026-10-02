@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
  * can claim anyone else's (prd-compliance 23; CONTEXT.md, Guest Donor; ADR
  * 0012). What is protected here: the match is the stored HMAC against the
  * stored HMAC (no address is decrypted), only an account whose address was
- * confirmed by link may claim, and a Donation already anonymised is never
- * handed to anyone.
+ * confirmed by link may claim, and a Donation whose HMAC was cleared
+ * (anonymised, PR #172) cannot match.
  */
 
 vi.mock('@/lib/prisma', () => ({
@@ -67,25 +67,25 @@ describe('claimGuestDonations', () => {
       select: { id: true },
     });
     expect(updateDonations).toHaveBeenCalledWith({
-      where: { id: { in: ['d1', 'd2'] }, donorId: null, guestEmailHmac: 'hmac-of-sari' },
+      // Same three conditions as the read: a row linked, anonymised or re-keyed
+      // in between no longer matches.
+      where: {
+        id: { in: ['d1', 'd2'] },
+        donorId: null,
+        guestEmailHmac: 'hmac-of-sari',
+        guestEmailHmacKeyId: 'k1',
+      },
       data: { donorId: 'user-1' },
     });
     expect(result).toEqual({ verified: true, claimed: 2 });
   });
 
-  it('never claims a Donation that has been anonymised, once the column exists', async () => {
-    findUser.mockResolvedValue(account());
-    findDonations.mockResolvedValue([
-      { id: 'd1', anonymisedAt: null },
-      { id: 'd2', anonymisedAt: new Date('2026-10-01T00:00:00Z') },
-    ]);
-    updateDonations.mockResolvedValue({ count: 1 });
+  it('an account with an empty HMAC matches nothing, so a cleared Donation HMAC is never a match', async () => {
+    findUser.mockResolvedValue(account({ emailHmac: '' }));
 
-    await claimGuestDonations('user-1');
-
-    expect(updateDonations).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ id: { in: ['d1'] } }) }),
-    );
+    expect(await claimGuestDonations('user-1')).toEqual({ verified: true, claimed: 0 });
+    expect(findDonations).not.toHaveBeenCalled();
+    expect(updateDonations).not.toHaveBeenCalled();
   });
 
   it('writes nothing when there is nothing to claim', async () => {

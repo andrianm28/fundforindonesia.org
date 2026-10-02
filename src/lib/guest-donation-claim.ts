@@ -13,19 +13,23 @@ import { prisma } from '@/lib/prisma';
  * - **Matching is HMAC to HMAC (ADR 0012).** The account's stored lookup is
  *   compared with the Donation's stored lookup under the same key id. No
  *   address is decrypted, and no scan runs over decrypted rows.
- * - **An anonymised Donation is never claimed** (ticket 36, PR #172, which adds
- *   `Donation.anonymisedAt`). That change also clears the HMAC, so the match
- *   above already cannot find such a row; the field is checked as well, and
- *   read defensively off the row rather than named in a `select` or `where`, so
- *   this file compiles and behaves the same before and after #172 merges.
- *   After it merges, `anonymisedAt: null` can join the `where` below.
- */
-export async function claimGuestDonations(userId: string): Promise<{ verified: boolean; claimed: number }> {
+ * - **An anonymised Donation cannot match.** Anonymising (ticket 36, PR #172)
+ *   clears `guestEmailHmac`, and an empty HMAC equals no account's lookup, so
+ *   such a row is never found. This file does not name `Donation.anonymisedAt`
+ *   (that column is not on `main` until #172 merges). FOLLOW-UP after #172:
+ *   add `anonymisedAt: null` to both `where`s below (ticket 23, Comments).
+ * - **A rotated key fails safe.** The key id is part of the match. A guest
+ *   Donation sealed under an older HMAC key id is not claimed by an account
+ *   whose lookup uses a newer one, until the Donation's HMAC is re-keyed
+ *   (ADR 0020, key rotation).
+ */export async function claimGuestDonations(userId: string): Promise<{ verified: boolean; claimed: number }> {
   const account = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, emailHmac: true, emailHmacKeyId: true, emailVerifiedAt: true },
   });
   if (!account || !account.emailVerifiedAt) return { verified: false, claimed: 0 };
+  // An empty lookup would equal a cleared one; it must never match.
+  if (!account.emailHmac) return { verified: true, claimed: 0 };
 
   const candidates = await prisma.donation.findMany({
     where: { donorId: null, guestEmailHmac: account.emailHmac, guestEmailHmacKeyId: account.emailHmacKeyId },
@@ -33,20 +37,19 @@ export async function claimGuestDonations(userId: string): Promise<{ verified: b
     // into memory for a list the caller is not entitled to see yet.
     select: { id: true },
   });
-  const claimable = candidates.filter((row) => !isAnonymised(row));
-  if (claimable.length === 0) return { verified: true, claimed: 0 };
+  if (candidates.length === 0) return { verified: true, claimed: 0 };
 
-  // The where repeats the guard rather than trusting the read above: a Donation
-  // linked or anonymised in between no longer matches, and one row is never
-  // taken from another account.
+  // The write carries the same conditions as the read (donorId, HMAC, key id)
+  // rather than trusting it: a Donation linked, anonymised or re-keyed in
+  // between no longer matches, and one row is never taken from another account.
   const { count } = await prisma.donation.updateMany({
-    where: { id: { in: claimable.map((row) => row.id) }, donorId: null, guestEmailHmac: account.emailHmac },
+    where: {
+      id: { in: candidates.map((row) => row.id) },
+      donorId: null,
+      guestEmailHmac: account.emailHmac,
+      guestEmailHmacKeyId: account.emailHmacKeyId,
+    },
     data: { donorId: account.id },
   });
   return { verified: true, claimed: count };
-}
-
-/** True when the row carries an `anonymisedAt` that is set. Absent (pre-#172 schema) reads as not anonymised. */
-function isAnonymised(row: object): boolean {
-  return 'anonymisedAt' in row && row.anonymisedAt != null;
 }

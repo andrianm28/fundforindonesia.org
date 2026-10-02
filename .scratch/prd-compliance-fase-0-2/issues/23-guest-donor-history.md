@@ -25,10 +25,8 @@
 
   Compatible with PR #172 (ticket 36) in either merge order: the claim matches
   `guestEmailHmac` + key id, and #172 clears that HMAC on anonymisation, so an
-  anonymised Donation cannot match; `anonymisedAt` is additionally read
-  defensively off the row (never named in a `select`/`where`), so the code
-  compiles before and after. After #172 merges, `anonymisedAt: null` can be
-  added to the `where` in `guest-donation-claim.ts`.
+  anonymised Donation cannot match; `anonymisedAt` is not referenced at all
+  (see the follow-up below).
 
   Decisions for the owner: (1) Google sign-in does not verify the address;
   trusting Google's `email_verified` is a one-line follow-up. (2) Rate limiting
@@ -39,3 +37,6 @@
 - 2026-10-02: keputusan owner (Dri): login atau registrasi lewat Google belum dianggap email terverifikasi; klaim riwayat Donation tamu hanya setelah konfirmasi tautan email; registrasi dengan email milik orang lain diizinkan tetapi tidak mengklaim apa pun. Dicatat di ADR 0022 dan CONTEXT.md.
 
 - 2026-10-02: awaiting-merge. PR #186, commit aad00d2. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+
+- 2026-10-02, builder (tindak lanjut code-review PR #186): `claimGuestDonations` kini memfilter `donorId: null`, `guestEmailHmac`, dan `guestEmailHmacKeyId` pada baca dan tulis; `isAnonymised` dihapus (tidak pernah efektif karena `select: { id: true }`). PR ini tidak merujuk `Donation.anonymisedAt`: Donation teranonimkan tidak bisa cocok karena #172 mengosongkan HMAC (dites di unit dan Postgres sungguhan). Rotasi kunci gagal-aman: donasi tamu dengan key id lama tidak diklaim akun dengan key id baru (ADR 0020, dites).
+  **Tindak lanjut wajib setelah #172 merge:** tambahkan `anonymisedAt: null` ke `where` pada `findMany` dan `updateMany` di `src/lib/guest-donation-claim.ts`, dan tambahkan kasus tes Postgres sungguhan untuk Donation dengan `anonymisedAt` terisi. Tes Postgres yang ada sudah gagal bila Donation ber-HMAC kosong ikut diklaim.

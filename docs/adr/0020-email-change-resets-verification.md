@@ -33,3 +33,17 @@ that writes `email` or `emailHmac` without `emailVerifiedAt`.
 - Deriving verification instead of storing it (store the HMAC that was
   verified, compare with the current one). Sound, and avoids the reset, but
   changes the schema and every reader for a case that cannot occur yet.
+
+## Consequences for the Guest Donor claim
+
+- **Anonymised Donations cannot match.** The claim
+  (`src/lib/guest-donation-claim.ts`) matches `guestEmailHmac` and its key id.
+  Anonymising under FFI-16 (ticket 36, PR #172, not yet on `main`) clears that
+  HMAC, so such a row is never found. The claim does not name
+  `Donation.anonymisedAt`, which does not exist until #172 merges; once it does,
+  `anonymisedAt: null` is added to both `where`s (ticket 23, Comments).
+- **Key rotation fails safe.** The key id is part of the match, on the read and
+  on the write. A guest Donation sealed under an older HMAC key id is not
+  claimed by an account whose lookup is under a newer one. It stays unclaimed
+  until the Donation's HMAC is re-keyed; nothing is ever claimed wrongly.
+  `src/__tests__/integration/guest-donation-claim-real-db.test.ts` asserts it.
