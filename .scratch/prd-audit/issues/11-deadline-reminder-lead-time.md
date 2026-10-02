@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** needs-triage
+**Status:** in-review
 
 **Blocked by:** —
 
@@ -23,3 +23,12 @@ owner memang memilih 3 hari dan PRD yang direvisi? Catatan: Campaign yang
 sudah dalam jendela 3-7 hari saat perubahan dirilis akan mendapat pengingat
 pada sapuan pertama setelah deploy (sekali, `deadlineReminderSentAt`
 mencegah ulang).
+
+## Hasil
+
+`CAMPAIGN_DEADLINE_REMINDER_DAYS = 7` (sesuai PRD FFI-03), komentar ASSUMPTION
+diganti rujukan PRD, tes batas 5/7/7 hari+1ms dan dedupe aturan lama
+ditambahkan. Teks email dan CONTEXT.md tidak menyebut jumlah hari. Dedupe
+memakai `deadlineReminderSentAt`, tidak bergantung pada konstanta. Saat deploy,
+Campaign Active yang tenggatnya 3-7 hari lagi dan belum diingatkan dapat
+pengingat pada sapuan pertama (sekali).
