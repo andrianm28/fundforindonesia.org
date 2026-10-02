@@ -358,18 +358,24 @@ describe('PATCH tripFeeAmount bounds', () => {
     mockUpdate.mockResolvedValue({ count: 1 });
   });
 
-  it.each([999999999.99, 1500.5, 2_147_483_648, 0, -1])('rejects %s', async (tripFeeAmount) => {
+  it.each([999999999.99, 1500.5, 10_000_001, 2_147_483_647, 0, -1])('rejects %s', async (tripFeeAmount) => {
     const response = await PATCH(patchRequest({ tripFeeAmount }), routeContext());
     expect(response.status).toBe(400);
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  it('accepts the maximum whole Rupiah amount', async () => {
-    const response = await PATCH(patchRequest({ tripFeeAmount: 2_147_483_647 }), routeContext());
+  it('rejects Rp10.000.001 with an Indonesian message naming the limit', async () => {
+    const response = await PATCH(patchRequest({ tripFeeAmount: 10_000_001 }), routeContext());
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(await response.json())).toContain('Rp10.000.000');
+  });
+
+  it('accepts exactly Rp10.000.000 (owner decision 2026-10-02)', async () => {
+    const response = await PATCH(patchRequest({ tripFeeAmount: 10_000_000 }), routeContext());
     expect(response.status).toBe(200);
     expect(mockUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ tripFeeAmount: 2_147_483_647 }),
+        data: expect.objectContaining({ tripFeeAmount: 10_000_000 }),
       }),
     );
   });

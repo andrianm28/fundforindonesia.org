@@ -17,7 +17,6 @@ import {
 import { LifecycleValidationError, SameAdminLiftError } from '@/lib/campaign-lifecycle-errors';
 import { fundraiserOnlyRefusal, judgeCapacity, requireAssignmentFor } from '@/lib/capacity';
 import { recordIdentityVerification } from '@/lib/identity-verification';
-import { MAX_RUPIAH_AMOUNT } from '@/lib/money/ledger';
 import { createRefund } from '@/lib/money/refunds';
 import { issueCertificates } from './certificate';
 import { lockAndLoad, type SubjectState } from '@/lib/subject-guard';
@@ -49,12 +48,15 @@ import {
 } from '@/lib/volunteer-trip-errors';
 import { tripFeeRefund, type TripFeeRefundCase } from './refunds';
 
-/** Whole Rupiah only, positive, within the Int column (same bound as the ledger). */
+/** Upper bound of a Trip Fee per Volunteer, Rp10.000.000 (owner decision 2026-10-02). */
+export const MAX_TRIP_FEE_AMOUNT = 10_000_000;
+
+/** Whole Rupiah only, positive, at most MAX_TRIP_FEE_AMOUNT; shared by create and update. */
 export const tripFeeAmountSchema = z
   .number()
   .int('Trip Fee harus bilangan bulat Rupiah')
   .positive('Trip Fee harus lebih dari 0')
-  .max(MAX_RUPIAH_AMOUNT, 'Trip Fee terlalu besar');
+  .max(MAX_TRIP_FEE_AMOUNT, 'Trip Fee maksimal Rp10.000.000 per Volunteer');
 
 /**
  * The Volunteer Trip operations module: the one place a Volunteer Trip's,

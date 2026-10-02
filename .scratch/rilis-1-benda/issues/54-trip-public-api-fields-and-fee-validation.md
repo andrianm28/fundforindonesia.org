@@ -56,3 +56,4 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #177 untuk p
 ## Comments
 
 - 2026-10-02: awaiting-merge. PR #177, commit b9330b0. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: keputusan owner, batas atas `tripFeeAmount` per Volunteer = Rp10.000.000. Konstanta `MAX_TRIP_FEE_AMOUNT` di `src/lib/volunteer/trip.ts` menggantikan batas Int ledger; create dan update memakai schema yang sama; pesan error: "Trip Fee maksimal Rp10.000.000 per Volunteer". Tes batas: 10.000.000 diterima, 10.000.001 ditolak, 0/negatif ditolak. Dicatat juga di `CONTEXT.md` (Trip Fee). Status tetap awaiting-merge.

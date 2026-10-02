@@ -136,15 +136,21 @@ describe('POST /api/volunteer-trips tripFeeAmount', () => {
     mockCreate.mockResolvedValue({ id: 'trip-1', slug: 'x' });
   });
 
-  it.each([999999999.99, 1500.5, 2_147_483_648, 0, -1])('rejects %s', async (tripFeeAmount) => {
+  it.each([999999999.99, 1500.5, 10_000_001, 2_147_483_647, 0, -1])('rejects %s', async (tripFeeAmount) => {
     const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount }));
     expect(response.status).toBe(400);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('accepts the maximum whole Rupiah amount', async () => {
-    const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount: 2_147_483_647 }));
+  it('accepts exactly Rp10.000.000 (owner decision 2026-10-02)', async () => {
+    const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount: 10_000_000 }));
     expect(response.status).toBe(201);
+  });
+
+  it('rejects Rp10.000.001 with an Indonesian message naming the limit', async () => {
+    const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount: 10_000_001 }));
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(await response.json())).toContain('Rp10.000.000');
   });
 });
 
