@@ -18,7 +18,7 @@
   seam, not a second real provider. `docs/integrasi-sumopod.md` says Sumopod is
   QRIS only, and no other provider's API (Midtrans, Xendit, DOKU) can be verified
   from here, so no adapter and no endpoint were invented.
-  - `PaymentProviderSetting` (migration `20261003000000`), append-only like the
+  - `PaymentProviderSetting` (migration `20261003010000`), append-only like the
     other Admin settings: latest row = provider + enabled methods in force; no
     row = `PAYMENT_PROVIDER` with all of that adapter's methods, so nothing
     changes until an Admin acts. Resolved by `resolveActivePaymentProvider`
