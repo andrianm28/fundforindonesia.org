@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { donationsEnabled, sandboxInProductionReason } from './donations';
+import { setEnv } from '../../tests/support/mutable-env';
 
 /**
  * The gate is now two decisions, not one.
@@ -18,11 +19,6 @@ import { donationsEnabled, sandboxInProductionReason } from './donations';
 const KEYS = ['NEXT_PUBLIC_DONATIONS_ENABLED', 'PAYMENT_PROVIDER', 'SUMOPOD_BASE_URL', 'NODE_ENV'] as const;
 
 let saved: Record<string, string | undefined>;
-
-function setEnv(key: string, value: string | undefined) {
-  if (value === undefined) delete (process.env as Record<string, string | undefined>)[key];
-  else (process.env as Record<string, string | undefined>)[key] = value;
-}
 
 beforeEach(() => {
   saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));

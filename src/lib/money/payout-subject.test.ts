@@ -33,4 +33,10 @@ describe('assertExactlyOnePayoutSubject', () => {
       assertExactlyOnePayoutSubject({ campaignId: '', volunteerTripId: 'trip-1' }),
     ).toThrow(InvalidPayoutSubjectError);
   });
+
+  it('words its message for any refused subject, a Program included', () => {
+    const message = new InvalidPayoutSubjectError().message;
+    expect(message).toMatch(/exactly one Campaign or one Volunteer Trip/);
+    expect(message).toMatch(/Program/);
+  });
 });

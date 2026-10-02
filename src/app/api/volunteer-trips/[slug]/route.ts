@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { coverImageSchema } from '@/lib/cover-image';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
@@ -9,7 +10,7 @@ const editVolunteerTripSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().min(1).optional(),
   story: z.string().min(1).optional(),
-  coverImage: z.string().url().optional(),
+  coverImage: coverImageSchema.optional(),
   destination: z.string().min(1).optional(),
   itinerary: z.string().min(1).optional(),
   tripFeeAmount: z.number().positive().optional(),
