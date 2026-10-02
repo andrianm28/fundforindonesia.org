@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { ProgramNotFoundError, readProgram, SECTOR_LABEL, type ProgramDetail } from '@/lib/programs';
+import { readProgramMoney } from '@/lib/program-money';
 import { formatRupiah } from '@/lib/utils/currency';
 import { PartnershipInquiryForm } from '@/components/program/PartnershipInquiryForm';
 
@@ -19,10 +20,11 @@ import { PartnershipInquiryForm } from '@/components/program/PartnershipInquiryF
  *
  * A Program never takes money online (ADR 0002), so the page has no Donation
  * control, no payment method, and no amount a visitor could give: the budget
- * is a plan to be discussed, and the only action is a conversation. The
- * off-books reported figure is deliberately absent -- CSR money that never
- * crossed the platform's account is reported beside the ledger-backed Program
- * Balance, which lands with ticket 07 (csr-08).
+ * is a plan to be discussed, and the only action is a conversation. CSR money
+ * is shown as two figures in two boxes (csr-08): the ledger-backed Program
+ * Balance, and the plain figure reported for money that never crossed the
+ * platform's account, labelled as outside the books. They are never added.
+ * The free-text note behind the reported figure is not public.
  *
  * Rendered per request, not prerendered, for the reason the portfolio and the
  * Impact page give: the Docker build has no database, so a baked page would
@@ -83,6 +85,10 @@ function Bullets({ items }: { items: string[] }) {
   );
 }
 
+function formatDate(date: Date): string {
+  return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(date);
+}
+
 /** The portfolio anchor of the Sector this Program belongs to. */
 function sectorAnchor(program: ProgramDetail): string {
   return SECTOR_LABEL[program.sector].toLowerCase().replace(/\s+/g, '-');
@@ -92,6 +98,7 @@ export default async function ProgramDetailPage({ params }: ProgramDetailPagePro
   const { slug } = await params;
   const program = await programOrNull(slug);
   if (!program) notFound();
+  const money = await readProgramMoney(prisma, program.id);
 
   return (
     <article className="max-w-3xl mx-auto px-4 py-8 md:py-12">
@@ -162,6 +169,38 @@ export default async function ProgramDetailPage({ params }: ProgramDetailPagePro
           <p className="text-text-secondary">Belum ada laporan dampak untuk Program ini.</p>
         )}
       </Field>
+
+      <section aria-labelledby="dana-csr-heading" className="mb-10">
+        <h2 id="dana-csr-heading" className="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-3">
+          Dana CSR pada Program ini
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div data-testid="program-money-in-books" className="rounded-lg border border-border p-4">
+            <p className="text-sm font-medium text-text">Di dalam pembukuan platform</p>
+            <p className="text-2xl font-bold text-text">{formatRupiah(money.inTheBooks)}</p>
+            <p className="text-sm text-text-secondary mt-1">
+              Program Balance: dana yang masuk lewat rekening platform dan tercatat di buku besar.
+            </p>
+          </div>
+          <div data-testid="program-money-off-books" className="rounded-lg border border-dashed border-border p-4">
+            <p className="text-sm font-medium text-text">Di luar pembukuan platform</p>
+            {money.outsideTheBooks.amount > 0 ? (
+              <>
+                <p className="text-2xl font-bold text-text">{formatRupiah(money.outsideTheBooks.amount)}</p>
+                <p className="text-sm text-text-secondary mt-1">
+                  Angka yang dilaporkan{money.outsideTheBooks.asOf ? ` per ${formatDate(money.outsideTheBooks.asOf)}` : ''}{' '}
+                  untuk dana CSR yang tidak pernah melewati rekening platform. Tidak ada catatan buku besar di
+                  baliknya, jadi platform tidak dapat memverifikasinya.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-text-secondary mt-1">
+                Belum ada dana di luar pembukuan yang dilaporkan untuk Program ini.
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
 
       <section id="diskusi" aria-labelledby="diskusi-heading" className="mt-10 rounded-lg border border-border p-6">
         <h2 id="diskusi-heading" className="text-xl font-semibold text-text mb-2">

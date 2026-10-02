@@ -1,6 +1,6 @@
 import { render, screen, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { makeProgramDb, programRow } from '../../../../tests/support/in-memory-program-db';
+import { makeProgramDb, programRow, programCredit } from '../../../../tests/support/in-memory-program-db';
 
 /**
  * The public Program detail page, /program/[slug] (ticket csr-04; PRD
@@ -10,9 +10,8 @@ import { makeProgramDb, programRow } from '../../../../tests/support/in-memory-p
  *
  * A Program takes no money online (ADR 0002), so the last group of tests asks
  * what a visitor cannot do here: there is no Donation control, no payment
- * method, and no link that starts a gift. The reported off-books figure is
- * deliberately absent -- csr-08 puts it beside the ledger-backed Program
- * Balance, which does not exist until csr-07.
+ * method, and no link that starts a gift. The CSR money boxes (csr-08) show
+ * the ledger-backed Program Balance and the off-books reported figure apart.
  */
 
 const holder = vi.hoisted(() => ({
@@ -145,14 +144,76 @@ describe('/program/[slug] surfaces nothing a Program cannot be', () => {
     }
   });
 
-  it('leaves the off-books reported figure to ticket csr-08, which shows it beside Program Balance', async () => {
+  it('shows the off-books reported figure, labelled as outside the books, beside the ledger-backed Program Balance', async () => {
     holder.db = makeProgramDb({
-      programs: [programRow({ slug: 'klinik-keliling', reportedAmount: 50_000_000, reportedNote: 'Dana CSR mitra.' })],
+      programs: [
+        programRow({
+          id: 'program-1',
+          slug: 'klinik-keliling',
+          reportedAmount: 50_000_000,
+          reportedAsOf: new Date('2026-09-30T00:00:00Z'),
+          reportedNote: 'Dana CSR mitra via yayasan X.',
+        }),
+      ],
+      ledgerEntries: programCredit('program-1', 20_000_000),
+    });
+
+    await renderPage();
+
+    const inBooks = screen.getByTestId('program-money-in-books');
+    const outside = screen.getByTestId('program-money-off-books');
+    expect(inBooks.textContent).toContain('Rp20.000.000');
+    expect(inBooks.textContent).toMatch(/di dalam pembukuan/i);
+    expect(outside.textContent).toContain('Rp50.000.000');
+    expect(outside.textContent).toMatch(/di luar pembukuan platform/i);
+    expect(outside.textContent).toContain('30 September 2026');
+    // Each figure sits in its own box: neither contains the other's number.
+    expect(inBooks.textContent).not.toContain('Rp50.000.000');
+    expect(outside.textContent).not.toContain('Rp20.000.000');
+  });
+
+  it('never prints the two figures as one total, and never prints the free-text note', async () => {
+    holder.db = makeProgramDb({
+      programs: [
+        programRow({ id: 'program-1', slug: 'klinik-keliling', reportedAmount: 50_000_000, reportedNote: 'Dana CSR mitra via yayasan X.' }),
+      ],
+      ledgerEntries: programCredit('program-1', 20_000_000),
     });
 
     const { container } = await renderPage();
 
-    expect(container.textContent).not.toContain('Rp50.000.000');
-    expect(container.innerHTML).not.toMatch(/di luar pembukuan/i);
+    expect(container.textContent).not.toContain('Rp70.000.000');
+    expect(container.textContent).not.toContain('yayasan X');
+  });
+
+  it('REGRESSION: money that never crossed the account shows zero in the books and posts nothing to the ledger', async () => {
+    holder.db = makeProgramDb({
+      programs: [programRow({ id: 'program-1', slug: 'klinik-keliling', reportedAmount: 50_000_000 })],
+    });
+
+    await renderPage();
+
+    expect(screen.getByTestId('program-money-in-books').textContent).toContain('Rp0');
+    expect(screen.getByTestId('program-money-off-books').textContent).toContain('Rp50.000.000');
+    expect(holder.db.ledgerEntries).toHaveLength(0);
+  });
+
+  it('shows another Program\'s ledger money on that Program only', async () => {
+    holder.db = makeProgramDb({
+      programs: [programRow({ id: 'program-1', slug: 'klinik-keliling' })],
+      ledgerEntries: programCredit('program-2', 9_000_000),
+    });
+
+    await renderPage();
+
+    expect(screen.getByTestId('program-money-in-books').textContent).toContain('Rp0');
+  });
+
+  it('says plainly when nothing has been reported outside the books', async () => {
+    holder.db = makeProgramDb({ programs: [programRow({ id: 'program-1', slug: 'klinik-keliling', reportedAmount: 0 })] });
+
+    await renderPage();
+
+    expect(screen.getByTestId('program-money-off-books').textContent).toMatch(/belum ada/i);
   });
 });

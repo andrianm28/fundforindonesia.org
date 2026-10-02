@@ -64,6 +64,21 @@ import type { PrismaClient } from '@/generated/prisma/client';
  * Admin marked "dipertanyakan" still counts; it is shown publicly with its
  * reason, and hiding its figure here would be a rule nobody asked for.
  *
+ * **CSR is a separate block, not a seventh line** (ticket csr-08; owner
+ * decision). `csr` carries two figures that are never added together:
+ *
+ * - `inTheBooks`: the PROGRAM_BALANCE the ledger holds across the Programs in
+ *   scope, i.e. Manual Contributions credited to a Program net of reversals.
+ *   It joins neither `collected` nor the six lines (those are Campaign money),
+ *   but it has a reconciliation of its own: every PROGRAM_BALANCE entry must
+ *   carry the Manual Contribution that put it there, or the page refuses to
+ *   publish (CsrDoesNotReconcileError, same failure as the six lines).
+ * - `outsideTheBooks`: the sum of the plain figures an Admin reported for CSR
+ *   money that never crossed the platform's account. No ledger entry stands
+ *   behind it by design, so nothing can reconcile it, and it is never added
+ *   into any total that claims to. Only the aggregate is public: neither a
+ *   per-Program figure nor the free-text `reportedNote`.
+ *
  * `manualContributions` reads zero when no Admin has recorded one, or only
  * ones that have since been reversed. `notes` carries the caveat out to the
  * page so a visitor is told why a number is zero.
@@ -154,10 +169,20 @@ export interface ImpactBreakdown {
    * Money that arrived outside the gateway and is counted in `collected`,
    * marked apart so it is never read as a Donation. Zero until an Admin
    * records one; excludes anything already reversed, and excludes
-   * Program-targeted money (a Program is not a Campaign, and FFI-14's CSR line
-   * is a later ticket).
+   * Program-targeted money (a Program is not a Campaign; see `csr`).
    */
   manualContributions: number;
+  /**
+   * CSR money, kept apart from `collected` and the six lines. The two figures
+   * are never summed: one is backed by the ledger, the other is only reported.
+   */
+  csr: {
+    /** PROGRAM_BALANCE across the Programs in scope; ledger-backed and reconciled. */
+    inTheBooks: number;
+    /** Reported by an Admin for money that never crossed the platform's account; no ledger entry behind it. */
+    outsideTheBooks: number;
+    programCount: number;
+  };
   /** Sum of beneficiaryCount over the Usage Reports in scope; zero while there are none. */
   beneficiaries: number;
   /** The location filter as asked for, or null for the whole platform. */
@@ -169,12 +194,31 @@ export class ImpactDoesNotReconcileError extends Error {
   constructor(
     readonly collected: number,
     readonly linesTotal: number,
+    message?: string,
   ) {
     super(
-      `The six Impact lines total ${linesTotal} but the ledger says ${collected} was collected. ` +
-        'Refusing to publish a breakdown that does not add up.',
+      message ??
+        `The six Impact lines total ${linesTotal} but the ledger says ${collected} was collected. ` +
+          'Refusing to publish a breakdown that does not add up.',
     );
     this.name = 'ImpactDoesNotReconcileError';
+  }
+}
+
+/**
+ * PROGRAM_BALANCE holds money no Manual Contribution accounts for. A subclass
+ * of ImpactDoesNotReconcileError so the page and the route refuse it the same
+ * way, without a second error path to forget.
+ */
+export class CsrDoesNotReconcileError extends ImpactDoesNotReconcileError {
+  constructor(programBalance: number, explainedByContributions: number) {
+    super(
+      explainedByContributions,
+      programBalance,
+      `PROGRAM_BALANCE holds ${programBalance} but Manual Contributions explain ${explainedByContributions}. ` +
+        'Refusing to publish a CSR figure that does not add up.',
+    );
+    this.name = 'CsrDoesNotReconcileError';
   }
 }
 
@@ -328,9 +372,8 @@ export async function impactBreakdown(
     //
     // Scoped to Campaign-targeted rows only (`campaignId in campaignIds`), and
     // that is the whole reason a Program's money cannot inflate a Campaign's
-    // figure: a Program's entries carry no campaignId at all. FFI-14's
-    // separate CSR line is a later ticket; until then this page is about
-    // Campaigns, and saying so is better than mixing the two.
+    // figure: a Program's entries carry no campaignId at all. FFI-14's CSR
+    // line is the separate `csr` block below, never part of `collected`.
     const manualRows = await tx.ledgerEntry.groupBy({
       by: ['account', 'direction'] as const,
       where: {
@@ -341,6 +384,35 @@ export async function impactBreakdown(
       _sum: { amount: true },
     });
     const byManual = totalsOf(manualRows);
+
+    // CSR (ticket csr-08). Programs are filtered by the same location the
+    // Campaigns are; they have no demo flag, and Campaign.isDemo is not theirs.
+    const programs = await tx.program.findMany({
+      where: location ? { location: { contains: location, mode: 'insensitive' as const } } : {},
+      select: { id: true, reportedAmount: true },
+    });
+    const programIds = programs.map((p) => p.id);
+    const programRows = await tx.ledgerEntry.groupBy({
+      by: ['account', 'direction'] as const,
+      where: { programId: { in: programIds }, account: 'PROGRAM_BALANCE' },
+      _sum: { amount: true },
+    });
+    const programBooked = balance(totalsOf(programRows), 'PROGRAM_BALANCE');
+    // The same balance read by the one thing allowed to move it. Both reads
+    // are the ledger, so this is a check on the books, not a second source.
+    const programExplainedRows = await tx.ledgerEntry.groupBy({
+      by: ['account', 'direction'] as const,
+      where: {
+        programId: { in: programIds },
+        account: 'PROGRAM_BALANCE',
+        manualContributionId: { not: null },
+      },
+      _sum: { amount: true },
+    });
+    const programExplained = balance(totalsOf(programExplainedRows), 'PROGRAM_BALANCE');
+    if (programBooked !== programExplained) {
+      throw new CsrDoesNotReconcileError(programBooked, programExplained);
+    }
 
     const netSettled = sum(byPayment, 'ESCROW_HOLD:CREDIT');
     const providerFeeCharged = sum(byPayment, 'PROVIDER_FEE:CREDIT');
@@ -411,8 +483,13 @@ export async function impactBreakdown(
       // Money that arrived outside the gateway and is counted apart from
       // Donations, so a visitor is never told a bank transfer was a Donation.
       // Program-targeted money is deliberately not here -- see the groupBy
-      // above; it has no Campaign to be part of.
+      // above; it is reported in `csr` instead.
       manualContributions,
+      csr: {
+        inTheBooks: programBooked,
+        outsideTheBooks: programs.reduce((total, p) => total + p.reportedAmount, 0),
+        programCount: programs.length,
+      },
       beneficiaries,
       location,
       notes: [

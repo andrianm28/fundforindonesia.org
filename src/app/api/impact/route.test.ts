@@ -900,3 +900,141 @@ describe('GET /api/impact -- a sweep to the Collection Account (prd-compliance 3
     expect(sumOf(lines(after))).toBe(100_000);
   });
 });
+
+/**
+ * CSR on the Impact page (ticket csr-08; PRD FFI-14). CSR money is its own
+ * line, split by whether the ledger can account for it. "In the books" is the
+ * PROGRAM_BALANCE the ledger holds; "outside the books" is the plain figure an
+ * Admin reported for money that never crossed the platform's account. Neither
+ * is a Donation, neither is part of `collected`, and the two are never summed
+ * into one number.
+ */
+describe('GET /api/impact -- the CSR line (csr-08)', () => {
+  const PROGRAM = { id: 'program-1', location: 'Jawa Barat', reportedAmount: 0 };
+
+  type Csr = { inTheBooks: number; outsideTheBooks: number; programCount: number };
+  const csrOf = (body: Record<string, unknown>) => body.csr as Csr;
+
+  it('reads "in the books" from PROGRAM_BALANCE and "outside the books" from the reported figure, apart', async () => {
+    const ledger = ledgerFixture();
+    ledger.programContribution({ manualContributionId: 'mc-1', programId: 'program-1', amount: 250_000_000 });
+    holder.db = makeImpactDb({
+      programs: [{ ...PROGRAM, reportedAmount: 80_000_000 }],
+      ledgerEntries: ledger.rows,
+    });
+
+    const csr = csrOf(await getBreakdown());
+
+    expect(csr.inTheBooks).toBe(250_000_000);
+    expect(csr.outsideTheBooks).toBe(80_000_000);
+    expect(csr.programCount).toBe(1);
+    // Two figures, no third: nothing the response carries adds them together.
+    expect(Object.keys(csr).sort()).toEqual(['inTheBooks', 'outsideTheBooks', 'programCount']);
+  });
+
+  it('adds neither CSR figure to what was collected, nor moves any of the six lines', async () => {
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 0, platformFee: 0 });
+    ledger.programContribution({ manualContributionId: 'mc-1', programId: 'program-1', amount: 250_000_000 });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      programs: [{ ...PROGRAM, reportedAmount: 80_000_000 }],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    const raw = await getBreakdown();
+
+    expect(raw.collected).toBe(100_000);
+    expect(sumOf(lines(raw))).toBe(100_000);
+    expect(raw.manualContributions).toBe(0);
+  });
+
+  it('counts a reversed Program contribution out of the books, because the reversal is its own journal', async () => {
+    const ledger = ledgerFixture();
+    ledger.programContribution({ manualContributionId: 'mc-1', programId: 'program-1', amount: 250_000_000 });
+    ledger.programContributionReversal({ manualContributionId: 'mc-1', programId: 'program-1', amount: 250_000_000 });
+    holder.db = makeImpactDb({ programs: [PROGRAM], ledgerEntries: ledger.rows });
+
+    expect(csrOf(await getBreakdown()).inTheBooks).toBe(0);
+  });
+
+  it('REGRESSION: CSR money that never crossed the account has zero ledger entries and is only ever the outside figure', async () => {
+    // The Admin reported 80 000 000 for a Program whose money went straight
+    // from the partner to the beneficiary. The ledger saw none of it, so the
+    // in-the-books figure is zero, and `collected` -- which only ever counts
+    // what the ledger saw -- does not move.
+    holder.db = makeImpactDb({ programs: [{ ...PROGRAM, reportedAmount: 80_000_000 }] });
+
+    const raw = await getBreakdown();
+
+    expect(holder.db.data.ledgerEntries).toHaveLength(0);
+    expect(csrOf(raw)).toEqual({ inTheBooks: 0, outsideTheBooks: 80_000_000, programCount: 1 });
+    expect(raw.collected).toBe(0);
+    expect(sumOf(lines(raw))).toBe(0);
+  });
+
+  it("sums over every Program, each Program's ledger money in its own figure only", async () => {
+    const ledger = ledgerFixture();
+    ledger.programContribution({ manualContributionId: 'mc-1', programId: 'program-1', amount: 100 });
+    ledger.programContribution({ manualContributionId: 'mc-2', programId: 'program-2', amount: 40 });
+    holder.db = makeImpactDb({
+      programs: [
+        { ...PROGRAM, reportedAmount: 7 },
+        { id: 'program-2', location: 'Papua', reportedAmount: 3 },
+      ],
+      ledgerEntries: ledger.rows,
+    });
+
+    expect(csrOf(await getBreakdown())).toEqual({ inTheBooks: 140, outsideTheBooks: 10, programCount: 2 });
+  });
+
+  it('follows the location filter on both figures, and leaves out Programs elsewhere', async () => {
+    const ledger = ledgerFixture();
+    ledger.programContribution({ manualContributionId: 'mc-1', programId: 'program-1', amount: 100 });
+    ledger.programContribution({ manualContributionId: 'mc-2', programId: 'program-2', amount: 40 });
+    holder.db = makeImpactDb({
+      programs: [
+        { ...PROGRAM, reportedAmount: 7 },
+        { id: 'program-2', location: 'Papua', reportedAmount: 3 },
+      ],
+      ledgerEntries: ledger.rows,
+    });
+
+    expect(csrOf(await getBreakdown('?location=papua'))).toEqual({
+      inTheBooks: 40,
+      outsideTheBooks: 3,
+      programCount: 1,
+    });
+  });
+
+  it('reads zero, not nothing, when there are no Programs', async () => {
+    holder.db = makeImpactDb({});
+
+    expect(csrOf(await getBreakdown())).toEqual({ inTheBooks: 0, outsideTheBooks: 0, programCount: 0 });
+  });
+
+  it('fails loudly when PROGRAM_BALANCE holds money no Manual Contribution put there', async () => {
+    // Nothing but a Manual Contribution may credit a Program, so a balance
+    // that exceeds what contributions explain is a broken book, and the page
+    // refuses to publish it, exactly as it does for the six lines.
+    const ledger = ledgerFixture();
+    ledger.raw(manualContributionReceivedLegs({ subject: { type: 'program', programId: 'program-1' }, amount: 500 }));
+    holder.db = makeImpactDb({ programs: [PROGRAM], ledgerEntries: ledger.rows });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'impact-tidak-rekonsiliasi' });
+  });
+
+  it('never carries the free-text note or any per-Program figure', async () => {
+    holder.db = makeImpactDb({ programs: [{ ...PROGRAM, reportedAmount: 5 }] });
+
+    const raw = JSON.stringify(await getBreakdown());
+
+    expect(raw).not.toContain('program-1');
+    expect(raw.toLowerCase()).not.toContain('reportednote');
+  });
+});

@@ -1,4 +1,5 @@
 import type { Sector } from '@/generated/prisma/client';
+import { ledgerGroupBy } from './ledger-group-by';
 
 /**
  * In-memory stand-in for the slice of PrismaClient that the public Program
@@ -105,10 +106,25 @@ function shape(row: ProgramRow, select?: Record<string, boolean>): Record<string
   );
 }
 
-export function makeProgramDb(seed: { programs?: ProgramRow[] } = {}) {
+/** A ledger row as the Program page reads it: only the columns programBalance filters and sums on. */
+export type ProgramLedgerRow = {
+  account: string;
+  direction: 'DEBIT' | 'CREDIT';
+  amount: number;
+  programId: string | null;
+};
+
+/** One PROGRAM_BALANCE credit, the shape a Manual Contribution to a Program leaves. */
+export function programCredit(programId: string, amount: number): ProgramLedgerRow[] {
+  return [{ account: 'PROGRAM_BALANCE', direction: 'CREDIT', amount, programId }];
+}
+
+export function makeProgramDb(seed: { programs?: ProgramRow[]; ledgerEntries?: ProgramLedgerRow[] } = {}) {
+  const ledgerEntries = [...(seed.ledgerEntries ?? [])];
   const rows = (seed.programs ?? []).map((p) => ({ ...p, kpis: [...p.kpis], documentation: [...p.documentation] }));
 
   const prisma = {
+    ledgerEntry: { groupBy: ledgerGroupBy(ledgerEntries) },
     program: {
       findMany: async ({
         where = {},
@@ -132,6 +148,9 @@ export function makeProgramDb(seed: { programs?: ProgramRow[] } = {}) {
 
   return {
     prisma,
+    get ledgerEntries() {
+      return ledgerEntries;
+    },
     get programs() {
       return rows;
     },
