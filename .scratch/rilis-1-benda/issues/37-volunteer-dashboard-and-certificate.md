@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 **Blocked by:** 35 (kolom `attended` dan penyelesaian Batch), 36 (Registration
 yang bisa dibuat lewat UI).
@@ -60,3 +60,7 @@ Registration. Sertakan tesnya.
   hadir; `completeBatch` diulang tidak menerbitkan dua kali; kode tidak bisa
   ditebak berurutan; halaman publik tidak membocorkan data selain salinan beku.
 - Tes migrasi terhadap basis data berisi baris. Review independen `sonnet`.
+
+## Comments
+
+- 2026-10-02: awaiting-merge. PR #163, commit 61c3a75. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
