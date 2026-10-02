@@ -94,6 +94,6 @@ describe('lateSettlementOutcome and the review list', () => {
   });
 
   it('puts a failed late-settlement refund in front of an Admin', () => {
-    expect(WEBHOOK_OUTCOMES_NEEDING_REVIEW).toContain(WEBHOOK_OUTCOME.PAID_AFTER_EXPIRY_REFUND_FAILED);
+    expect(WEBHOOK_OUTCOMES_NEEDING_REVIEW).toContain(WEBHOOK_OUTCOME.LATE_SETTLEMENT_REFUND_FAILED);
   });
 });

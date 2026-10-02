@@ -14,4 +14,10 @@ When a provider reports `paid` for a Payment already `EXPIRED` or `FAILED`, a Do
 ## Consequences
 
 - Settlement can follow expiry for a Donation, so "EXPIRED" means "no longer awaiting payment", not "can never be paid".
-- A Donation Settlement after expiry must still honour the one-Settlement-per-Donation rule; a sibling already settled still means refund.
+- A Donation Settlement after expiry must still honour the one-Settlement-per-Donation rule. If a sibling Payment of the same Donation already settled, the late event is not booked: it is marked `SIBLING_ALREADY_PAID` (one of `WEBHOOK_OUTCOMES_NEEDING_REVIEW`) and an Admin refunds that money manually by following [the reconciliation runbook](../runbooks/payment-reconciliation.md). There is no automatic refund of the sibling's money.
+- A Payment that is `EXPIRED` while its Registration is still `HOLD` is confirmed on payment, not refunded: the seat is still there, so the expiry cost nothing. Only a Registration already `EXPIRED` or `CANCELLED` is refunded in full.
+- The outcome recording a failed automatic Trip Fee refund is `LATE_SETTLEMENT_REFUND_FAILED`; it covers both the expired and the cancelled Registration.
+
+## Follow-up option awaiting an owner decision
+
+- Automatic refund of a sibling Payment, without an Admin. Not implemented. It costs the provider fee (ADR 0007) and a wrong automatic refund cannot be undone, so the owner decides whether it is worth building.

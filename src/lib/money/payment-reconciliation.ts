@@ -36,7 +36,7 @@ export const WEBHOOK_OUTCOME = {
    * sweep (src/lib/volunteer/refund-sweep.ts) retries the same Payment on its
    * own; a row that stays here after a sweep round needs a manual Refund.
    */
-  PAID_AFTER_EXPIRY_REFUND_FAILED: 'PAID_AFTER_EXPIRY_REFUND_FAILED',
+  LATE_SETTLEMENT_REFUND_FAILED: 'LATE_SETTLEMENT_REFUND_FAILED',
   /** Anything else landing on a Payment that had already left PENDING; no money moved. */
   IGNORED_TERMINAL: 'IGNORED_TERMINAL',
 } as const;
@@ -48,7 +48,7 @@ export const WEBHOOK_OUTCOMES_NEEDING_REVIEW: readonly WebhookOutcome[] = [
   WEBHOOK_OUTCOME.AMOUNT_MISMATCH,
   WEBHOOK_OUTCOME.SIBLING_ALREADY_PAID,
   WEBHOOK_OUTCOME.UNKNOWN_PAYMENT,
-  WEBHOOK_OUTCOME.PAID_AFTER_EXPIRY_REFUND_FAILED,
+  WEBHOOK_OUTCOME.LATE_SETTLEMENT_REFUND_FAILED,
 ];
 
 const MAX_SANITIZED_ERROR_LENGTH = 200;

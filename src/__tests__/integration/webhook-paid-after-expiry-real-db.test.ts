@@ -328,10 +328,10 @@ describe.skipIf(!DATABASE_URL)('payment event paid after expiry -- against real 
     expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(0);
     const event = await eventOf(`evt-${payment.providerRef}`);
     expect(event.processedAt).not.toBeNull();
-    expect(event.outcome).toBe('PAID_AFTER_EXPIRY_REFUND_FAILED');
+    expect(event.outcome).toBe('LATE_SETTLEMENT_REFUND_FAILED');
     // The Admin's search: this outcome, and nothing else needs a code change.
     expect(
-      await prisma.webhookEvent.count({ where: { outcome: 'PAID_AFTER_EXPIRY_REFUND_FAILED', providerEventId: event.providerEventId } }),
+      await prisma.webhookEvent.count({ where: { outcome: 'LATE_SETTLEMENT_REFUND_FAILED', providerEventId: event.providerEventId } }),
     ).toBe(1);
 
     // The existing stuck-refund sweep sees the same Registration and refunds it.
@@ -373,6 +373,43 @@ describe.skipIf(!DATABASE_URL)('payment event paid after expiry -- against real 
     expect(events.map((e) => e.outcome).sort()).toEqual(['LOST_RACE', 'PAID_AFTER_EXPIRED']);
     const legs = await prisma.ledgerEntry.findMany({ where: { paymentId: payment.id } });
     expect(new Set(legs.map((l) => l.transactionId)).size).toBe(1);
+  });
+
+  it('a Donation Payment A that EXPIRED, whose sibling B already PAID, is labelled SIBLING_ALREADY_PAID when A is paid: no second Settlement, no second ledger, no automatic refund (ADR 0021)', async () => {
+    const { donation, payment: a } = await pendingDonationPayment(false);
+    await prisma.payment.update({ where: { id: a.id }, data: { status: 'EXPIRED' } });
+    await prisma.donation.update({ where: { id: donation.id }, data: { paymentStatus: 'failed' } });
+    const b = await prisma.payment.create({
+      data: {
+        donationId: donation.id,
+        provider: 'mock',
+        method: 'bank_transfer',
+        providerRef: `${a.providerRef}-retry`,
+        amount: 100_000,
+        status: 'PENDING',
+      },
+    });
+
+    // The retry Payment B settles first, the ordinary way.
+    expect((await sendPaid(b.providerRef, 100_000)).status).toBe(200);
+    const ledgerOfB = await prisma.ledgerEntry.count({ where: { paymentId: b.id } });
+    expect(ledgerOfB).toBeGreaterThan(0);
+    expect(await prisma.receipt.count({ where: { donationId: donation.id } })).toBe(1);
+
+    // Then the Donor's money for the expired A arrives too.
+    const res = await sendPaid(a.providerRef, 100_000);
+
+    expect(res.status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('EXPIRED');
+    expect(await prisma.payment.count({ where: { donationId: donation.id, status: 'PAID' } })).toBe(1);
+    expect(await prisma.ledgerEntry.count({ where: { paymentId: a.id } })).toBe(0);
+    expect(await prisma.ledgerEntry.count({ where: { paymentId: b.id } })).toBe(ledgerOfB);
+    expect(await prisma.receipt.count({ where: { donationId: donation.id } })).toBe(1);
+    expect(await prisma.refund.count({ where: { paymentId: a.id } })).toBe(0);
+    expect((await prisma.donation.findUniqueOrThrow({ where: { id: donation.id } })).paymentStatus).toBe('confirmed');
+    const event = await eventOf(`evt-${a.providerRef}`);
+    expect(event.processedAt).not.toBeNull();
+    expect(event.outcome).toBe('SIBLING_ALREADY_PAID');
   });
 
   it('a late paid event whose amount disagrees books nothing and is labelled AMOUNT_MISMATCH for an Admin', async () => {

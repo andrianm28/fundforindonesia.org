@@ -566,7 +566,7 @@ export async function POST(
               try {
                 await prisma.webhookEvent.update({
                   where: { id: webhookEventId },
-                  data: { outcome: WEBHOOK_OUTCOME.PAID_AFTER_EXPIRY_REFUND_FAILED },
+                  data: { outcome: WEBHOOK_OUTCOME.LATE_SETTLEMENT_REFUND_FAILED },
                 });
               } catch (markErr) {
                 console.error(
@@ -665,7 +665,7 @@ export async function POST(
         if (updated.count === 0) {
           await tx.webhookEvent.update({
             where: { id: webhookEventId },
-            data: { processedAt: new Date() },
+            data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.LOST_RACE },
           });
           return;
         }

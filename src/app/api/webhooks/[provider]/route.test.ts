@@ -1368,7 +1368,7 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     // The failure leaves a mark an Admin can search; the response stays 200.
     expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { outcome: 'PAID_AFTER_EXPIRY_REFUND_FAILED' },
+      data: { outcome: 'LATE_SETTLEMENT_REFUND_FAILED' },
     });
     consoleErrorSpy.mockRestore();
   });
@@ -1422,6 +1422,10 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     await POST(createRequest(), routeContext());
 
     expect(mockExpireRegistrationHold).not.toHaveBeenCalled();
+    expect(tx.webhookEvent.update).toHaveBeenCalledWith({
+      where: { id: 'we-1' },
+      data: { processedAt: expect.any(Date), outcome: 'LOST_RACE' },
+    });
   });
 
   it('no Platform Fee leg is ever posted against a Trip Fee settlement', async () => {
