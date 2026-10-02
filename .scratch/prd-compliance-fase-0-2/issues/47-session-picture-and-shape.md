@@ -7,7 +7,7 @@ placeholder even though the image is on the row.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 - [x] A user with a stored `avatar` has a picture in the session, so the
       picture renders wherever the session is the source
@@ -23,6 +23,8 @@ placeholder even though the image is on the row.
       not see a blank address (not handled by PR #166; still open, latent)
 
 ## Comments
+
+- 2026-10-02: awaiting-merge. PR #166, commit 8cb4ffe. Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.
 
 - 2026-09-27 (independent re-review of PR #89): the encryption contract
   made this visible. `getUserByEmail` and friends now return an address, so
