@@ -51,8 +51,9 @@ function requireEnv(key: string): string {
 }
 
 /**
- * The mock adapter's own gate (ticket 51). It does no signature check a
- * stranger could not pass with the key, and the key is the kind of variable
+ * The mock adapter's own gate (ticket 51). The mock does verify an HMAC
+ * signature with its serverKey (mock-provider.ts:120-130), but anyone holding
+ * that key can forge a valid event, and the key is the kind of variable
  * that survives a copied .env into production unnoticed, so "the key is set"
  * must not be what turns it on. Outside production it is always available
  * (dev, vitest, CI e2e). In production it needs a deliberate, separate

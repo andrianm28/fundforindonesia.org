@@ -219,8 +219,8 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     return { registration, payment };
   }
 
-  async function sendPaid(providerRef: string, amount: number): Promise<Response> {
-    const body = await provider.simulateWebhookPayload(providerRef, amount, 'settlement', `evt-${providerRef}`);
+  async function sendPaid(providerRef: string, amount: number, eventId = `evt-${providerRef}`): Promise<Response> {
+    const body = await provider.simulateWebhookPayload(providerRef, amount, 'settlement', eventId);
     const request = new NextRequest('http://localhost/api/webhooks/mock', {
       method: 'POST',
       body: JSON.stringify(body),
@@ -269,7 +269,7 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
   it.each([
     { label: 'Donation', trip: false },
     { label: 'Trip Fee', trip: true },
-  ])('refuses a mock-signed settlement for a sumopod $label Payment: 400, WebhookEvent kept as processed, nothing else written', async ({ trip }) => {
+  ])('refuses a mock-signed settlement for a sumopod $label Payment: 400, answered like an unknown ref, WebhookEvent kept unprocessed, nothing else written', async ({ trip }) => {
     sentMail.length = 0;
     const { payment } = trip ? await pendingTripFeePayment() : await pendingDonationPayment(false);
     await prisma.payment.update({ where: { id: payment.id }, data: { provider: 'sumopod' } });
@@ -277,7 +277,8 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
 
     const res = await sendPaid(payment.providerRef, payment.amount);
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true });
     const after = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
     expect(after.status).toBe('PENDING');
     expect(after.paidAt).toBeNull();
@@ -288,7 +289,7 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     const events = await prisma.webhookEvent.findMany({ where: { providerEventId: `evt-${payment.providerRef}` } });
     expect(events).toHaveLength(1);
     expect(events[0].provider).toBe('mock');
-    expect(events[0].processedAt).not.toBeNull();
+    expect(events[0].processedAt).toBeNull();
     if (trip) {
       const registrationId = (await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).registrationId!;
       expect((await prisma.registration.findUniqueOrThrow({ where: { id: registrationId } })).status).toBe('HOLD');
@@ -299,10 +300,26 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     const { payment } = await pendingDonationPayment(false);
     await prisma.payment.update({ where: { id: payment.id }, data: { provider: 'sumopod' } });
 
-    expect((await sendPaid(payment.providerRef, 100_000)).status).toBe(400);
-    // Redelivery hits the processed WebhookEvent: an idempotent no-op, never a settlement.
+    expect((await sendPaid(payment.providerRef, 100_000)).status).toBe(200);
     expect((await sendPaid(payment.providerRef, 100_000)).status).toBe(200);
     expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PENDING');
+  });
+
+  it('a provider-mismatched event does not poison its id: a genuine event with the same providerEventId is still settled', async () => {
+    const wrong = await pendingDonationPayment(false);
+    await prisma.payment.update({ where: { id: wrong.payment.id }, data: { provider: 'sumopod' } });
+    const right = await pendingDonationPayment(false);
+    const sharedEventId = `evt-shared-${process.pid}-${right.payment.providerRef}`;
+
+    expect((await sendPaid(wrong.payment.providerRef, 100_000, sharedEventId)).status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: wrong.payment.id } })).status).toBe('PENDING');
+
+    expect((await sendPaid(right.payment.providerRef, 100_000, sharedEventId)).status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: right.payment.id } })).status).toBe('PAID');
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: wrong.payment.id } })).status).toBe('PENDING');
+    const events = await prisma.webhookEvent.findMany({ where: { providerEventId: sharedEventId } });
+    expect(events).toHaveLength(1);
+    expect(events[0].processedAt).not.toBeNull();
   });
 
   // Idempotency: the provider retries. The same signed event delivered twice

@@ -204,22 +204,23 @@ export async function POST(
     // The provider that signed this event must be the provider that created
     // this Payment. The signature proves the event came from whoever holds
     // THAT provider's secret, not that it may speak for this charge: without
-    // this check a delivery verified by one provider (the mock, whose key is
-    // the weakest) could settle, fail or expire a Payment another provider
-    // charged. Checked before the status early-exit below so it is never
-    // mistaken for a harmless replay, and before anything is written to the
-    // Payment. The event is kept, marked processed (a retry changes nothing),
-    // and answered 400: unlike an unknown ref, this is a delivery that is
-    // wrong, not one that is merely about nothing.
+    // this check a delivery verified by one provider could settle, fail or
+    // expire a Payment another provider charged. Checked before the status
+    // early-exit below so it is never mistaken for a harmless replay, and
+    // before anything is written to the Payment.
+    //
+    // Two deliberate choices. (1) The answer is the same 200 as an unknown
+    // providerRef, so a caller cannot probe which refs exist by telling the
+    // two apart. (2) processedAt is NOT stamped: the dedupe key is
+    // (provider, providerEventId), and marking a mismatched event processed
+    // would make a later genuine event with the same id look like a replay and
+    // be dropped. Left unprocessed, that later event picks the row up and is
+    // handled normally. The log carries ids only, no PII.
     if (payment.provider !== event.provider) {
       console.error(
         `[webhooks/${providerParam}] REJECTED: event ${event.providerEventId} from provider ${event.provider} names payment ${payment.id}, which belongs to provider ${payment.provider}`,
       );
-      await prisma.webhookEvent.update({
-        where: { id: webhookEventId },
-        data: { processedAt: new Date() },
-      });
-      return NextResponse.json({ error: 'Provider tidak cocok dengan Payment' }, { status: 400 });
+      return NextResponse.json({ received: true }, { status: 200 });
     }
 
     if (payment.status !== PaymentStatus.PENDING) {

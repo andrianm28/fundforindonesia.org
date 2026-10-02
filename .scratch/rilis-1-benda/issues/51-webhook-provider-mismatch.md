@@ -20,8 +20,9 @@ menemukan dua celah pada webhook payment:
 2. **Mock provider aktif di produksi**: Jalur `/api/webhooks/mock` aktif selama
    `MOCK_MIDTRANS_SERVER_KEY` ada di lingkungan (`src/lib/payments/index.ts:73`).
    Jika env var ini tidak dihapus saat deploy ke produksi, attacker bisa mengirim
-   event palsu melalui `/api/webhooks/mock` tanpa signature validation, karena mock
-   provider tidak melakukan verifikasi.
+   event palsu melalui `/api/webhooks/mock` dengan signature yang valid, karena mock
+   provider memverifikasi HMAC `serverKey` (`mock-provider.ts:120-130`) dan siapa pun yang
+   memegang key itu bisa memalsukan event.
 
 ## Scope
 
@@ -48,10 +49,12 @@ menemukan dua celah pada webhook payment:
 
 - **Mismatch**: `payment.provider !== event.provider` (event.provider = adapter
   yang memverifikasi, yaitu provider di URL) dicek di route tepat setelah
-  `payment` ditemukan dan SEBELUM cek status terminal. Jawaban 400; WebhookEvent
-  tetap tercatat dan diberi `processedAt` (pola AMOUNT MISMATCH); Payment, ledger,
-  Registration, dan email tidak tersentuh. Redelivery event yang sama dijawab 200
-  oleh jalur idempotensi yang ada.
+  `payment` ditemukan dan SEBELUM cek status terminal. Dijawab 200 `{ received: true }`,
+  sama dengan `providerRef` tak dikenal, supaya mismatch bukan oracle keberadaan ref;
+  hanya di-log (id, tanpa PII). WebhookEvent TIDAK diberi `processedAt`: kunci dedupe
+  `(provider, providerEventId)` akan membuat event sah berikutnya dengan id sama
+  dianggap replay. Baris itu dipungut event sah tadi. Payment, ledger, Registration,
+  dan email tidak tersentuh.
 - **Mock di produksi**: tiket ambigu (NODE_ENV test atau flag), jadi dipilih
   default aman. Builder `mock` di `src/lib/payments/index.ts` melempar
   `PaymentProviderNotConfiguredError` (webhook 503, tanpa tulisan apa pun) bila

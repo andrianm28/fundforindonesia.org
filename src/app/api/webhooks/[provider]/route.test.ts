@@ -1104,7 +1104,7 @@ describe('POST /api/webhooks/[provider]', () => {
     });
   });
 
-  it('rejects an event whose verified provider is not the provider that created the Payment: 400, recorded, Payment untouched (ticket 51)', async () => {
+  it('answers a provider mismatch like an unknown providerRef: 200, recorded but NOT processed, Payment untouched (ticket 51)', async () => {
     // Signed and genuine for /api/webhooks/mock, but the Payment it names was
     // charged through sumopod. Whoever holds one provider's secret must not be
     // able to settle another provider's charge.
@@ -1113,18 +1113,40 @@ describe('POST /api/webhooks/[provider]', () => {
 
     const response = await POST(createRequest(), routeContext());
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ received: true });
     expect(mockTransaction).not.toHaveBeenCalled();
     expect(mockWebhookEventCreate).toHaveBeenCalledTimes(1);
-    expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
-      where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
-    });
+    // Not stamped processed: (provider, providerEventId) is the dedupe key, so
+    // a processed mismatch would make a later genuine event with the same id a replay.
+    expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
     expect(mockConfirmRegistration).not.toHaveBeenCalled();
     expect(mockSendReportingFailure).not.toHaveBeenCalled();
   });
 
-  it('rejects a provider mismatch on a Trip Fee Payment too', async () => {
+  it('a provider mismatch does not make a later genuine event with the same id a replay: it is processed (ticket 51)', async () => {
+    // First delivery: mismatch. Row created, left unprocessed.
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
+    expect((await POST(createRequest(), routeContext())).status).toBe(200);
+    expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+
+    // Second delivery, same (provider, providerEventId): the unique constraint
+    // fires and the existing row is unprocessed, so it is not a replay.
+    mockWebhookEventCreate.mockRejectedValue(Object.assign(new Error('duplicate'), { code: 'P2002' }));
+    mockWebhookEventFindUniqueOrThrow.mockResolvedValue({ id: 'we-1', processedAt: null });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'mock' }));
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a provider mismatch on a Trip Fee Payment with 200 too', async () => {
     mockGetPaymentProvider.mockReturnValue({
       parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
     });
@@ -1132,18 +1154,19 @@ describe('POST /api/webhooks/[provider]', () => {
 
     const response = await POST(createRequest(), routeContext());
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
     expect(mockTransaction).not.toHaveBeenCalled();
     expect(mockConfirmRegistration).not.toHaveBeenCalled();
   });
 
-  it('rejects a provider mismatch before the terminal-status early exit, so it is never mistaken for a replay', async () => {
+  it('handles a provider mismatch before the terminal-status early exit, so it is never stamped processed as a replay', async () => {
     mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
     mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod', status: 'PAID' }));
 
     const response = await POST(createRequest(), routeContext());
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
+    expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
   });
 
   it('rejects an event for a Payment already in a terminal status, without reprocessing it', async () => {
