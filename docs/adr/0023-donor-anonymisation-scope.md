@@ -4,6 +4,10 @@ status: proposed
 
 # What is removed when a Donor is anonymised, and what stays
 
+Status per decision: (a) to (d) are **Proposed**. (e), the scope of the Receipt
+link, is **Accepted (owner 2026-10-02)**; see "Scope: Guest and registered" and
+"Considered options".
+
 When a Donor requests their identity removed from their Donation(s), the
 decision to carry or drop each field follows a chain: fields that identify the
 person are removed; fields that prove money was received and where it went are
@@ -38,9 +42,16 @@ went.
 
 ## Scope: Guest and registered
 
-A Guest Donor asks from a link in their Receipt, which covers all Guest
-Donations carrying the same email HMAC as that Donation, because leaving the
-others would leave the person findable by that HMAC alone.
+A Guest Donor asks from a link in their Receipt, which covers **that
+Receipt's own Donation only** (decision e, Accepted, owner 2026-10-02). The
+Guest must also type the Donation's email address on the Receipt page. The
+server normalises it, computes its HMAC with the existing helper, and compares
+it with the Donation's `guestEmailHmac` in constant time. Without an email the
+request is refused (400); with a wrong one it is refused (403) with a message
+that does not say whether the address was close. A repeat is idempotent.
+
+Other Donations with the same email are not touched: they stay linkable to each
+other and to an account by their HMAC until each is anonymised on its own.
 
 A registered Donor asks from account settings, for the Donations linked to
 their account. The account itself (User row, its name/email/phone) is untouched:
@@ -59,18 +70,18 @@ The request can be asked again after the Refund completes.
 
 ## Considered options
 
-**Guest scope** (option e): The decision here — anonymise all Guest Donations
-with the same email HMAC — means a single Donor receiving a typo in their email
-or not protecting their Receipt link exposes every guest Donation they ever
-made to anonymisation at once. A recommended alternative: anonymise only the
-Donation itself plus add an email confirmation step on the Receipt page, so a
-person holding only the token cannot trigger the HMAC-wide scope alone. This
-remains open to the owner's review.
+**Guest scope** (decision e, **Accepted, owner 2026-10-02**): the first draft
+anonymised every Guest Donation sharing the email HMAC, so anyone holding one
+forwarded Receipt link could erase a Donor's whole history. Chosen instead:
+anonymise only the Receipt's own Donation, and require the Guest to type the
+Donation's email as proof of the inbox. Trade-off accepted: other Donations
+with the same email remain matchable by HMAC until anonymised one by one.
 
 ## Consequences
 
-- A Guest Donor's identity is removed from all their Donations in one request,
-  with no mention of or undo for the others that matched the HMAC.
+- A Guest Donor's identity is removed from one Donation per request, the
+  Receipt's own. Their other Donations with the same email stay as they were
+  and can still be matched by HMAC until anonymised individually.
 - A registered Donor's identity is removed from all their own Donations in one
   request, and their account persists.
 - An anonymised Donation raises an error on any attempt to refund it through the

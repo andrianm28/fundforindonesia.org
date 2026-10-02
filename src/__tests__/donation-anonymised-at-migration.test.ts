@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const DATABASE_URL = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIR = 'prisma/migrations';
-const THIS_MIGRATION = '20261002120000_donation_anonymised_at';
+const THIS_MIGRATION = '20261002190000_donation_anonymised_at';
 
 const allDirs = () =>
   readdirSync(MIGRATIONS_DIR)

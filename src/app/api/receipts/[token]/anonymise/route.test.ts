@@ -18,21 +18,47 @@ import { POST } from './route';
 
 const anonymise = anonymiseGuestDonor as unknown as Mock;
 
-function call(token = 'tok-1') {
-  return POST(new NextRequest(`http://localhost/api/receipts/${token}/anonymise`, { method: 'POST' }), {
-    params: Promise.resolve({ token }),
-  });
+function call(token = 'tok-1', body: unknown = { email: 'donor@example.org' }) {
+  return POST(
+    new NextRequest(`http://localhost/api/receipts/${token}/anonymise`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    }),
+    { params: Promise.resolve({ token }) },
+  );
 }
 
 describe('POST /api/receipts/[token]/anonymise', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('anonymises by the token in the URL and answers what changed', async () => {
-    anonymise.mockResolvedValue({ status: 'anonymised', anonymisedCount: 2 });
-    const response = await call('tok-9');
-    expect(anonymise).toHaveBeenCalledWith(expect.anything(), { token: 'tok-9' });
+  it('anonymises by the token in the URL and the email in the body, and answers what changed', async () => {
+    anonymise.mockResolvedValue({ status: 'anonymised', anonymisedCount: 1 });
+    const response = await call('tok-9', { email: ' Donor@Example.org ' });
+    expect(anonymise).toHaveBeenCalledWith(expect.anything(), { token: 'tok-9', email: ' Donor@Example.org ' });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: 'anonymised', anonymisedCount: 2 });
+    expect(await response.json()).toEqual({ status: 'anonymised', anonymisedCount: 1 });
+  });
+
+  it.each([
+    ['no body', ''],
+    ['not JSON', 'bukan json'],
+    ['no email', {}],
+    ['a blank email', { email: '   ' }],
+    ['an email that is not a string', { email: 42 }],
+  ])('answers 400 and does nothing when the request has %s', async (_label, body) => {
+    const response = await call('tok-1', body as unknown);
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/email/i);
+    expect(anonymise).not.toHaveBeenCalled();
+  });
+
+  it('answers 403 for an email that does not match, without saying which part was wrong', async () => {
+    anonymise.mockResolvedValue({ status: 'email-mismatch' });
+    const response = await call();
+    expect(response.status).toBe(403);
+    const { error } = await response.json();
+    expect(error).toBe('Email tidak cocok dengan donasi ini.');
   });
 
   it('answers a repeat as success, so a double click is not an error', async () => {

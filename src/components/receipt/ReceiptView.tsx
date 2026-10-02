@@ -28,12 +28,17 @@ type AnonymiseState = { status: 'idle' | 'confirming' | 'sending' | 'done' | 'er
 export function ReceiptView(props: ReceiptViewProps) {
   const [resend, setResend] = useState<ResendState>({ status: 'idle' });
   const [anonymise, setAnonymise] = useState<AnonymiseState>({ status: 'idle' });
+  const [email, setEmail] = useState('');
   const anonymised = props.anonymised || anonymise.status === 'done';
 
   async function handleAnonymise() {
     setAnonymise({ status: 'sending' });
     try {
-      const response = await fetch(`/api/receipts/${props.token}/anonymise`, { method: 'POST' });
+      const response = await fetch(`/api/receipts/${props.token}/anonymise`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
       const data = await response.json();
       if (!response.ok) {
         setAnonymise({ status: 'error', message: data.error || 'Gagal menganonimkan identitas' });
@@ -109,9 +114,7 @@ export function ReceiptView(props: ReceiptViewProps) {
         </div>
 
         {resend.message && (
-          <p
-            className={`mt-3 text-sm print:hidden ${resend.status === 'error' ? 'text-[#D50000]' : 'text-[#2E7D32]'}`}
-          >
+          <p className={`mt-3 text-sm print:hidden ${resend.status === 'error' ? 'text-[#D50000]' : 'text-[#2E7D32]'}`}>
             {resend.message}
           </p>
         )}
@@ -140,15 +143,25 @@ export function ReceiptView(props: ReceiptViewProps) {
           ) : (
             <div className="space-y-3">
               <p className="text-[#212121]">
-                Nama, email, dan telepon Anda akan dihapus dari semua donasi yang memakai email ini. Nominal dan catatan
-                keuangan tetap. Tindakan ini tidak dapat dibatalkan, bukti donasi ini tidak dapat dikirim ulang, dan
-                donasi ini tidak dapat di-refund lewat sistem.
+                Nama, email, dan telepon Anda akan dihapus dari donasi ini saja (hanya donasi ini; donasi lain tidak
+                berubah). Nominal dan catatan keuangan tetap. Tindakan ini tidak dapat dibatalkan, bukti donasi ini
+                tidak dapat dikirim ulang, dan donasi ini tidak dapat di-refund lewat sistem.
               </p>
+              <label className="block">
+                <span className="block text-[#212121] mb-1">Email yang dipakai pada donasi ini</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  className="w-full border border-[#BDBDBD] rounded-lg px-3 py-2"
+                />
+              </label>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={handleAnonymise}
-                  disabled={anonymise.status === 'sending'}
+                  disabled={anonymise.status === 'sending' || email.trim() === ''}
                   className="flex-1 bg-[#D50000] text-white font-medium px-4 py-2.5 rounded-lg disabled:opacity-50"
                 >
                   Ya, anonimkan

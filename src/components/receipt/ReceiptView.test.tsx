@@ -86,25 +86,53 @@ describe('ReceiptView, anonymisation (ticket 36)', () => {
     expect(screen.getByText(/tidak dapat di-refund lewat sistem/i)).toBeTruthy();
   });
 
+  it('says only this Donation is anonymised, never every Donation with the email', () => {
+    render(<ReceiptView {...baseProps()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hapus identitas saya' }));
+
+    expect(screen.queryByText(/semua donasi/i)).toBeNull();
+    expect(screen.getByText(/hanya donasi ini/i)).toBeTruthy();
+  });
+
+  it('will not post until an email is typed', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ReceiptView {...baseProps()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hapus identitas saya' }));
+
+    expect((screen.getByRole('button', { name: 'Ya, anonimkan' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('posts to the anonymise route on confirm and shows the result', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'anonymised' }) });
     vi.stubGlobal('fetch', fetchMock);
     render(<ReceiptView {...baseProps()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Hapus identitas saya' }));
+    fireEvent.change(screen.getByLabelText(/email yang dipakai/i), { target: { value: 'sari@example.org' } });
     fireEvent.click(screen.getByRole('button', { name: 'Ya, anonimkan' }));
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/receipts/tok-1/anonymise', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/receipts/tok-1/anonymise', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'sari@example.org' }),
+    });
     await waitFor(() => expect(screen.getByText(/sudah dianonimkan/i)).toBeTruthy());
     expect(screen.queryByRole('button', { name: 'Kirim ulang ke email' })).toBeNull();
   });
 
   it('shows the refusal, for instance an open Refund', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'Ada Refund yang belum selesai' }) });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: false, json: async () => ({ error: 'Ada Refund yang belum selesai' }) });
     vi.stubGlobal('fetch', fetchMock);
     render(<ReceiptView {...baseProps()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Hapus identitas saya' }));
+    fireEvent.change(screen.getByLabelText(/email yang dipakai/i), { target: { value: 'sari@example.org' } });
     fireEvent.click(screen.getByRole('button', { name: 'Ya, anonimkan' }));
 
     await waitFor(() => expect(screen.getByText('Ada Refund yang belum selesai')).toBeTruthy());

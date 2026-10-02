@@ -18,7 +18,7 @@
   What it does and where: `src/lib/donor-anonymisation.ts` (module),
   `POST /api/receipts/[token]/anonymise` (Guest Donor, link on the Receipt
   page), `POST /api/user/anonymise-donations` (registered, account settings).
-  Migration `20261002120000_donation_anonymised_at` adds `Donation.anonymisedAt`.
+  Migration `20261002190000_donation_anonymised_at` adds `Donation.anonymisedAt`.
   Removed vs kept is written in CONTEXT.md under "Anonimisasi Donor".
 
   Decisions taken without an owner ruling (flagged in the hand-off):
@@ -30,6 +30,7 @@
   3. A finished Refund's recorded destination (`donorAccountName`, sealed
      number, bank code) is kept, as proof of where money went.
   4. `Donation.message` and Prayer text are kept (not name/email/phone).
-  5. Guest scope is every Guest Donation with the same email HMAC.
+  5. Guest scope is every Guest Donation with the same email HMAC. (Diganti, lihat komentar 2026-10-02 berikutnya.)
 
 - 2026-10-02: awaiting-merge. PR #172, commit 0fe8a2f. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: keputusan owner untuk ADR 0023 (e), Accepted: tautan Receipt hanya menganonimkan Donation Receipt itu sendiri dan Guest wajib mengetik email donasi (HMAC dibandingkan constant-time; tanpa email 400, salah 403); Donation lain dengan email sama tetap utuh. Migrasi diganti nama jadi `20261002190000_donation_anonymised_at`. Status tetap awaiting-merge.

@@ -1,5 +1,6 @@
 import { Prisma, RefundStatus, type PrismaClient } from '@/generated/prisma/client';
-import { CLEAR_DONATION_GUEST_CONTACT } from '@/lib/contact-fields';
+import { timingSafeEqual } from 'node:crypto';
+import { CLEAR_DONATION_GUEST_CONTACT, lookupDonationGuestEmail } from '@/lib/contact-fields';
 import { AnonymisationBlockedByOpenRefundError } from '@/lib/money/errors';
 
 /**
@@ -17,7 +18,9 @@ import { AnonymisationBlockedByOpenRefundError } from '@/lib/money/errors';
  *
  * WHY THE HMAC GOES TOO: the HMAC is deterministic, so a row that keeps it is
  * linkable to every other row, and to an account, that carries the same
- * address -- keeping it would keep the person, only harder to read.
+ * address -- keeping it would keep the person, only harder to read. A Receipt
+ * link anonymises its own Donation only (ADR 0023, e), so the Guest's other
+ * Donations stay linkable until each is anonymised on its own.
  *
  * WHAT IS KEPT, and why: the Donation row (amount, status, Campaign, date,
  * traffic source, ikrar flag), its Payments, its Receipt (the print page shows
@@ -31,8 +34,9 @@ import { AnonymisationBlockedByOpenRefundError } from '@/lib/money/errors';
  * (User row) is untouched: it is the Donor's own, removing it is a different
  * request.
  *
- * WHO MAY ASK: a Guest Donor, by holding the Receipt link, for Donations that
- * belong to no account; a registered Donor, by their session, for their own.
+ * WHO MAY ASK: a Guest Donor, by holding the Receipt link and typing the
+ * Donation's email, for that one Donation when it belongs to no account; a
+ * registered Donor, by their session, for their own.
  * The route layer decides who; this module takes the subject as given.
  *
  * IDEMPOTENT and not undoable: only rows with `anonymisedAt` null are changed,
@@ -54,7 +58,8 @@ export type AnonymisationResult = {
   anonymisedCount: number;
 };
 
-export type GuestAnonymisationResult = AnonymisationResult | { status: 'not-found' } | { status: 'account-owned' };
+export type GuestAnonymisationResult =
+  AnonymisationResult | { status: 'not-found' } | { status: 'account-owned' } | { status: 'email-mismatch' };
 
 async function anonymiseDonations(
   client: PrismaClient,
@@ -83,17 +88,20 @@ async function anonymiseDonations(
       where: { donationId: { in: donationIds }, userId: { not: null } },
       data: { userId: null },
     });
-    return {
-      status: changed.count > 0 ? 'anonymised' : 'already-anonymised',
-      anonymisedCount: changed.count,
-    };
+    return { status: changed.count > 0 ? 'anonymised' : 'already-anonymised', anonymisedCount: changed.count };
   });
 }
 
 /**
- * A Guest Donor asks from the link in their Receipt. Removes the identity from
- * every Guest Donation carrying the same email HMAC as the Receipt's Donation,
- * because leaving the others would leave the person findable by that HMAC.
+ * A Guest Donor asks from the link in their Receipt, and proves the inbox by
+ * typing the address. Removes the identity from THAT Receipt's Donation only
+ * (ADR 0023, decision e). Another Donation made with the same address is not
+ * touched and stays matchable by its HMAC until it is anonymised on its own.
+ *
+ * The typed address is normalised and sealed with the same helper that sealed
+ * the Donation's, and its HMAC is compared with the stored one in constant
+ * time. A mismatch is `email-mismatch`, with nothing changed and nothing said
+ * about the right address.
  *
  * A Donation that belongs to an account is refused (`account-owned`): the
  * token is only an inbox's proof, and the account's own session is the right
@@ -101,12 +109,16 @@ async function anonymiseDonations(
  */
 export async function anonymiseGuestDonor(
   client: PrismaClient,
-  params: { token: string; now?: Date },
+  params: { token: string; email: string; now?: Date },
 ): Promise<GuestAnonymisationResult> {
   const now = params.now ?? new Date();
   const receipt = await client.receipt.findUnique({
     where: { token: params.token },
-    select: { donation: { select: { id: true, donorId: true, anonymisedAt: true, guestEmailHmac: true } } },
+    select: {
+      donation: {
+        select: { id: true, donorId: true, anonymisedAt: true, guestEmailHmac: true, guestEmailHmacKeyId: true },
+      },
+    },
   });
   if (!receipt) return { status: 'not-found' };
 
@@ -114,22 +126,32 @@ export async function anonymiseGuestDonor(
   if (donation.anonymisedAt) return { status: 'already-anonymised', anonymisedCount: 0 };
   if (donation.donorId) return { status: 'account-owned' };
 
+  if (!emailMatches(params.email, donation)) return { status: 'email-mismatch' };
+
   return anonymiseDonations(
     client,
     async (tx) => {
       const rows = await tx.donation.findMany({
-        where: {
-          anonymisedAt: null,
-          donorId: null,
-          OR: [{ id: donation.id }, ...(donation.guestEmailHmac ? [{ guestEmailHmac: donation.guestEmailHmac }] : [])],
-        },
+        where: { id: donation.id, anonymisedAt: null, donorId: null },
         select: { id: true },
-        orderBy: { id: 'asc' },
       });
       return rows.map((r) => r.id);
     },
     now,
   );
+}
+
+function emailMatches(
+  typed: string,
+  donation: { guestEmailHmac: string | null; guestEmailHmacKeyId: string | null },
+): boolean {
+  if (!donation.guestEmailHmac) return false;
+  const found = lookupDonationGuestEmail(typed);
+  // A different key id means the stored HMAC was made under another key: no match, never a guess.
+  if (found.guestEmailHmacKeyId !== donation.guestEmailHmacKeyId) return false;
+  const a = Buffer.from(found.guestEmailHmac, 'utf8');
+  const b = Buffer.from(donation.guestEmailHmac, 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** A registered Donor asks from account settings, for the Donations linked to their account. */

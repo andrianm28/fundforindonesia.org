@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from 'pg';
@@ -39,9 +40,14 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
   let postTransaction: typeof import('@/lib/money/ledger').postTransaction;
   let paymentSettledLegs: typeof import('@/lib/money/ledger').paymentSettledLegs;
   let errors: typeof import('@/lib/money/errors');
+  let sealDonationGuestEmail: typeof import('@/lib/contact-fields').sealDonationGuestEmail;
 
   beforeAll(async () => {
     if (!DATABASE_URL) return;
+    process.env.FIELD_ENCRYPTION_KEY = randomBytes(32).toString('base64');
+    process.env.FIELD_ENCRYPTION_KEY_ID = 'enc-1';
+    process.env.FIELD_HMAC_KEY = randomBytes(32).toString('base64');
+    process.env.FIELD_HMAC_KEY_ID = 'hmac-1';
     const admin = new Client({ connectionString: DATABASE_URL });
     await admin.connect();
     await admin.query(`CREATE DATABASE "${databaseName}"`);
@@ -67,6 +73,7 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
     ({ createRefund } = await import('@/lib/money/refunds'));
     ({ postTransaction, paymentSettledLegs } = await import('@/lib/money/ledger'));
     errors = await import('@/lib/money/errors');
+    ({ sealDonationGuestEmail } = await import('@/lib/contact-fields'));
   }, 120_000);
 
   afterAll(async () => {
@@ -118,12 +125,12 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
     return id;
   }
 
-  type Made = { donationId: string; paymentId: string; receiptToken: string };
+  type Made = { donationId: string; paymentId: string; receiptToken: string; email: string };
 
   /** A settled Donation (PAID Payment, ledger legs, Receipt), guest or registered. */
   async function makeDonation(
     campaignId: string,
-    who: { guestEmailHmac: string; guestName?: string } | { donorId: string },
+    who: { guestEmail: string; guestName?: string } | { donorId: string },
     amount = 100_000,
   ): Promise<Made> {
     const n = next();
@@ -140,11 +147,8 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
           ? { donorId: who.donorId }
           : {
               guestName: who.guestName ?? 'Budi Santoso',
-              guestEmailHmac: who.guestEmailHmac,
-              guestEmailHmacKeyId: 'k',
-              guestEmailCiphertext: `${who.guestEmailHmac}-c`,
-              guestEmailKeyId: 'k',
-              guestPhoneCiphertext: `${who.guestEmailHmac}-phone`,
+              ...sealDonationGuestEmail(who.guestEmail),
+              guestPhoneCiphertext: `${who.guestEmail}-phone`,
               guestPhoneKeyId: 'k',
             }),
       },
@@ -173,7 +177,7 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
     });
     const receiptToken = `tok-${process.pid}-${n}`;
     await prisma.receipt.create({ data: { donationId, token: receiptToken } });
-    return { donationId, paymentId, receiptToken };
+    return { donationId, paymentId, receiptToken, email: 'guestEmail' in who ? who.guestEmail : '' };
   }
 
   /** Everything the ledger, escrow and reconciliation read, as one comparable value. */
@@ -188,15 +192,14 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
     return { entries, payments, donations };
   }
 
-  const guestHmac = () => `guest-hmac-${process.pid}-${next()}`;
+  const guestEmail = () => `donor-${process.pid}-${next()}@example.org`;
 
   it('anonymises a Guest Donor from the Receipt token: contact gone, ledger and amounts untouched', async () => {
     const campaignId = await makeCampaign();
-    const hmac = guestHmac();
-    const mine = await makeDonation(campaignId, { guestEmailHmac: hmac });
+    const mine = await makeDonation(campaignId, { guestEmail: guestEmail() });
     const before = await moneySnapshot(campaignId);
 
-    const result = await anonymiseGuestDonor(prisma, { token: mine.receiptToken });
+    const result = await anonymiseGuestDonor(prisma, { token: mine.receiptToken, email: mine.email });
 
     expect(result).toEqual({ status: 'anonymised', anonymisedCount: 1 });
     const donation = await prisma.donation.findUniqueOrThrow({ where: { id: mine.donationId } });
@@ -218,40 +221,65 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
     expect(await prisma.receipt.findUnique({ where: { token: mine.receiptToken } })).not.toBeNull();
   }, 60_000);
 
-  it('anonymises every Guest Donation that shares the email HMAC, and no other Donor', async () => {
+  it('anonymises only the Donation the Receipt belongs to; another with the same email stays intact', async () => {
     const campaignId = await makeCampaign();
-    const hmac = guestHmac();
-    const first = await makeDonation(campaignId, { guestEmailHmac: hmac });
-    const second = await makeDonation(await makeCampaign(), { guestEmailHmac: hmac });
-    const stranger = await makeDonation(campaignId, { guestEmailHmac: guestHmac(), guestName: 'Orang Lain' });
+    const email = guestEmail();
+    const first = await makeDonation(campaignId, { guestEmail: email });
+    const second = await makeDonation(await makeCampaign(), { guestEmail: email });
+    const stranger = await makeDonation(campaignId, { guestEmail: guestEmail(), guestName: 'Orang Lain' });
+    const secondBefore = await prisma.donation.findUniqueOrThrow({ where: { id: second.donationId } });
 
-    const result = await anonymiseGuestDonor(prisma, { token: first.receiptToken });
+    const result = await anonymiseGuestDonor(prisma, { token: first.receiptToken, email });
 
-    expect(result).toEqual({ status: 'anonymised', anonymisedCount: 2 });
-    expect(await prisma.donation.findUniqueOrThrow({ where: { id: second.donationId } })).toMatchObject({
+    expect(result).toEqual({ status: 'anonymised', anonymisedCount: 1 });
+    expect(await prisma.donation.findUniqueOrThrow({ where: { id: first.donationId } })).toMatchObject({
       guestName: null,
       guestEmailHmac: null,
     });
+    expect(await prisma.donation.findUniqueOrThrow({ where: { id: second.donationId } })).toEqual(secondBefore);
     expect(await prisma.donation.findUniqueOrThrow({ where: { id: stranger.donationId } })).toMatchObject({
       guestName: 'Orang Lain',
       anonymisedAt: null,
     });
   }, 60_000);
 
+  it('refuses a wrong email, says nothing about the right one, and changes nothing', async () => {
+    const campaignId = await makeCampaign();
+    const mine = await makeDonation(campaignId, { guestEmail: guestEmail() });
+    const before = await prisma.donation.findUniqueOrThrow({ where: { id: mine.donationId } });
+
+    const result = await anonymiseGuestDonor(prisma, { token: mine.receiptToken, email: 'orang-lain@example.org' });
+
+    expect(result).toEqual({ status: 'email-mismatch' });
+    expect(await prisma.donation.findUniqueOrThrow({ where: { id: mine.donationId } })).toEqual(before);
+  }, 60_000);
+
+  it('accepts the right email whatever its letter case or surrounding spaces', async () => {
+    const campaignId = await makeCampaign();
+    const email = guestEmail();
+    const mine = await makeDonation(campaignId, { guestEmail: email });
+
+    const result = await anonymiseGuestDonor(prisma, { token: mine.receiptToken, email: `  ${email.toUpperCase()} ` });
+
+    expect(result).toEqual({ status: 'anonymised', anonymisedCount: 1 });
+  }, 60_000);
+
   it('is idempotent: a second request changes nothing and says so', async () => {
     const campaignId = await makeCampaign();
-    const mine = await makeDonation(campaignId, { guestEmailHmac: guestHmac() });
-    await anonymiseGuestDonor(prisma, { token: mine.receiptToken });
+    const mine = await makeDonation(campaignId, { guestEmail: guestEmail() });
+    await anonymiseGuestDonor(prisma, { token: mine.receiptToken, email: mine.email });
     const stamped = await prisma.donation.findUniqueOrThrow({ where: { id: mine.donationId } });
 
-    const again = await anonymiseGuestDonor(prisma, { token: mine.receiptToken });
+    const again = await anonymiseGuestDonor(prisma, { token: mine.receiptToken, email: mine.email });
 
     expect(again).toEqual({ status: 'already-anonymised', anonymisedCount: 0 });
     expect(await prisma.donation.findUniqueOrThrow({ where: { id: mine.donationId } })).toEqual(stamped);
   }, 60_000);
 
   it('answers not-found for an unknown token', async () => {
-    expect(await anonymiseGuestDonor(prisma, { token: 'no-such-token' })).toEqual({ status: 'not-found' });
+    expect(await anonymiseGuestDonor(prisma, { token: 'no-such-token', email: 'a@example.org' })).toEqual({
+      status: 'not-found',
+    });
   });
 
   it('refuses the token path for a Donation that belongs to an account, and changes nothing', async () => {
@@ -259,7 +287,9 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
     const donorId = await makeUser('Sari');
     const owned = await makeDonation(campaignId, { donorId });
 
-    expect(await anonymiseGuestDonor(prisma, { token: owned.receiptToken })).toEqual({ status: 'account-owned' });
+    expect(await anonymiseGuestDonor(prisma, { token: owned.receiptToken, email: 'a@example.org' })).toEqual({
+      status: 'account-owned',
+    });
     expect(await prisma.donation.findUniqueOrThrow({ where: { id: owned.donationId } })).toMatchObject({
       donorId,
       anonymisedAt: null,
@@ -273,9 +303,7 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
     const a = await makeDonation(campaignId, { donorId });
     const b = await makeDonation(campaignId, { donorId }, 250_000);
     const others = await makeDonation(campaignId, { donorId: otherId });
-    await prisma.prayer.create({
-      data: { text: 'Amin', donationId: a.donationId, campaignId, userId: donorId },
-    });
+    await prisma.prayer.create({ data: { text: 'Amin', donationId: a.donationId, campaignId, userId: donorId } });
     const before = await moneySnapshot(campaignId);
     const userBefore = await prisma.user.findUniqueOrThrow({ where: { id: donorId } });
 
@@ -314,14 +342,20 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
 
   it('is refused while a Refund on one of the Donations is still open, and changes nothing', async () => {
     const campaignId = await makeCampaign();
-    const mine = await makeDonation(campaignId, { guestEmailHmac: guestHmac() });
+    const mine = await makeDonation(campaignId, { guestEmail: guestEmail() });
     const admin = await makeUser('Admin');
     await prisma.refund.create({
-      data: { paymentId: mine.paymentId, amount: 100_000, reason: 'salah bayar', requestedById: admin, status: 'APPROVED' },
+      data: {
+        paymentId: mine.paymentId,
+        amount: 100_000,
+        reason: 'salah bayar',
+        requestedById: admin,
+        status: 'APPROVED',
+      },
     });
     const before = await prisma.donation.findUniqueOrThrow({ where: { id: mine.donationId } });
 
-    await expect(anonymiseGuestDonor(prisma, { token: mine.receiptToken })).rejects.toBeInstanceOf(
+    await expect(anonymiseGuestDonor(prisma, { token: mine.receiptToken, email: mine.email })).rejects.toBeInstanceOf(
       errors.AnonymisationBlockedByOpenRefundError,
     );
     expect(await prisma.donation.findUniqueOrThrow({ where: { id: mine.donationId } })).toEqual(before);
@@ -329,7 +363,7 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
 
   it('is allowed once the Refund is finished, and leaves the finished Refund row exactly as it was', async () => {
     const campaignId = await makeCampaign();
-    const mine = await makeDonation(campaignId, { guestEmailHmac: guestHmac() });
+    const mine = await makeDonation(campaignId, { guestEmail: guestEmail() });
     const admin = await makeUser('Admin');
     const refund = await prisma.refund.create({
       data: {
@@ -345,16 +379,18 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
       },
     });
 
-    expect(await anonymiseGuestDonor(prisma, { token: mine.receiptToken })).toMatchObject({ status: 'anonymised' });
+    expect(await anonymiseGuestDonor(prisma, { token: mine.receiptToken, email: mine.email })).toMatchObject({
+      status: 'anonymised',
+    });
     // The Refund is a financial record under the ten-year retention (PRD FFI-16): not touched.
     expect(await prisma.refund.findUniqueOrThrow({ where: { id: refund.id } })).toEqual(refund);
   }, 60_000);
 
   it('createRefund refuses an anonymised Donation and posts nothing', async () => {
     const campaignId = await makeCampaign();
-    const mine = await makeDonation(campaignId, { guestEmailHmac: guestHmac() });
+    const mine = await makeDonation(campaignId, { guestEmail: guestEmail() });
     const admin = await makeUser('Admin');
-    await anonymiseGuestDonor(prisma, { token: mine.receiptToken });
+    await anonymiseGuestDonor(prisma, { token: mine.receiptToken, email: mine.email });
     const entriesBefore = await prisma.ledgerEntry.count();
 
     await expect(
@@ -376,7 +412,7 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
   it('a Refund and an anonymisation racing on one Donation never both win', async () => {
     for (let round = 0; round < 6; round++) {
       const campaignId = await makeCampaign();
-      const mine = await makeDonation(campaignId, { guestEmailHmac: guestHmac() });
+      const mine = await makeDonation(campaignId, { guestEmail: guestEmail() });
       const admin = await makeUser('Admin');
 
       const [refund, anonymise] = await Promise.allSettled([
@@ -389,7 +425,7 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
             requestedById: admin,
           }),
         ),
-        anonymiseGuestDonor(prisma, { token: mine.receiptToken }),
+        anonymiseGuestDonor(prisma, { token: mine.receiptToken, email: mine.email }),
       ]);
 
       const donation = await prisma.donation.findUniqueOrThrow({ where: { id: mine.donationId } });
