@@ -87,8 +87,14 @@ jobs:
           # Paths that change what the Dockerfile builds or what is scanned:
           # the Dockerfile and its context rules, dependencies, prisma/ and
           # prisma.config.ts (the migrate image), next.config.mjs, the Trivy
-          # ignore list, and the workflows (this file included).
-          pattern='^(Dockerfile|\.dockerignore|package\.json|package-lock\.json|prisma\.config\.ts|next\.config\.mjs|\.trivyignore|prisma/|\.github/workflows/)'
+          # ignore list, the workflows (this file included), and the files
+          # `COPY . .` pulls into the build: public/ (its file permissions
+          # once caused EACCES in production), tsconfig.json,
+          # postcss.config.mjs and tailwind.config.*. src/ is deliberately
+          # left out: a PR touching only src/ skips the image build, which the
+          # `build` job in ci.yml and the image build on every push to main
+          # still cover.
+          pattern='^(Dockerfile|\.dockerignore|package\.json|package-lock\.json|prisma\.config\.ts|next\.config\.mjs|tsconfig\.json|postcss\.config\.mjs|tailwind\.config\.[^/]+|\.trivyignore|prisma/|public/|\.github/workflows/)'
           if [ "$EVENT" != pull_request ]; then
             echo "build=true" >> "$GITHUB_OUTPUT"
             echo "$EVENT: always builds the image"
