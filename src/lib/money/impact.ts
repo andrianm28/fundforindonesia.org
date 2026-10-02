@@ -195,12 +195,10 @@ export class ImpactDoesNotReconcileError extends Error {
   constructor(
     readonly collected: number,
     readonly linesTotal: number,
-    message?: string,
   ) {
     super(
-      message ??
-        `The six Impact lines total ${linesTotal} but the ledger says ${collected} was collected. ` +
-          'Refusing to publish a breakdown that does not add up.',
+      `The six Impact lines total ${linesTotal} but the ledger says ${collected} was collected. ` +
+        'Refusing to publish a breakdown that does not add up.',
     );
     this.name = 'ImpactDoesNotReconcileError';
   }
