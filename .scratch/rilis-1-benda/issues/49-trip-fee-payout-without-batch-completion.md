@@ -14,16 +14,21 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #176 untuk p
 
 ## Scope
 
-Putuskan dengan owner:
-- Apakah Payout Trip Fee harus menunggu Batch COMPLETED atau tanggal keberangkatan 
-  (`batch.startDate`) telah lewat sebelum diizinkan?
-- Apakah ada batasan lain, misal tidak boleh menguras pool selagi ada Registration 
-  CONFIRMED yang masih bisa di-refund?
-- Apakah diperlukan penanda (flag) pada Payment/Payout yang mencegah Payout sebelum 
-  kondisi terpenuhi?
+Keputusan sudah diambil (lihat "Keputusan owner" di bawah); bagian ini mencatat keadaan akhir:
 
-Jika ya, update `requirePayoutAllowed` (`src/lib/subject-guard.ts`) untuk 
-memeriksa state Batch tambahan.
+- Payout Trip Fee hanya boleh atas dana Batch `COMPLETED`, sebagai plafon per Trip,
+  bukan larangan seluruh Trip. Tidak menunggu `batch.startDate`.
+- Dana Batch lain yang masih bisa di-refund (OPEN, CLOSED, CANCELLED) tertahan.
+- Tanpa flag baru pada Payment/Payout dan tanpa skema baru.
+- Kode ada di `src/lib/money/trip-payout-funds.ts`, dipanggil dari `requestPayout` dan
+  `approvePayout` (`src/lib/money/payouts.ts`). `requirePayoutAllowed`
+  (`src/lib/subject-guard.ts`) tidak diubah.
+- Perubahan kontrak API tambahan (tidak diminta tiket asli): GET
+  `/api/volunteer-trips/[slug]/payouts` kini mengembalikan field `withdrawable`;
+  dites di `src/app/api/volunteer-trips/[slug]/payouts/route.test.ts`.
+- Guard: `src/lib/money/trip-balance-attribution.test.ts` memastikan tiap penulis
+  entri `TRIP_BALANCE` selain leg Payout mengisi `paymentId` atau `refundId`; entri tanpa
+  keduanya gugur dari INNER JOIN dan diam-diam tidak dihitung tertahan.
 
 ## Acceptance
 
@@ -34,8 +39,14 @@ memeriksa state Batch tambahan.
 ## Keputusan owner (Dri, 2026-10-02)
 
 Payout Trip Fee hanya boleh untuk dana dari Batch yang sudah `COMPLETED`.
-Ditegakkan saat Payout diminta, disetujui, dan diselesaikan, di bawah lock
-Trip yang sudah ada. Tanpa flag baru pada Payment/Payout dan tanpa skema baru.
+Ditegakkan saat Payout diminta dan disetujui, di bawah lock Trip yang sudah
+ada. Tanpa flag baru pada Payment/Payout dan tanpa skema baru.
+
+**Keputusan koordinator, MENUNGGU KONFIRMASI OWNER (bukan keputusan owner asli):**
+penyelesaian Payout (`completePayout`) sengaja tidak dicek. Keputusan owner di atas
+menyebut "diselesaikan"; pengecualian ini diambil dari temuan review PR #176
+(2026-10-02) karena debit sudah terjadi saat approve. Owner perlu mengonfirmasi atau
+membatalkannya.
 
 ### Pilihan desain dan alasannya
 
@@ -85,4 +96,4 @@ aman.
 
 ## Comments
 
-- 2026-10-02: awaiting-merge. PR #176, commit 7e2077b. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+- 2026-10-02: awaiting-merge. PR #176, commit __HEAD__. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
