@@ -1449,4 +1449,34 @@ describe('ledger invariants with a Manual Contribution (property-based)', () => 
       { numRuns: 200 },
     );
   });
+
+  it('a Program credited then reversed in parts keeps debits equal to credits and its balance never negative', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 1_000_000_000 }),
+        fc.array(fc.integer({ min: 1, max: 1_000_000_000 }), { maxLength: 5 }),
+        async (credit, attempts) => {
+          const tx = makeTx();
+          const subject: ManualContributionSubject = { type: 'program', programId: 'p1' };
+          await postTransaction(tx as never, manualContributionReceivedLegs({ subject, amount: credit }));
+
+          let remaining = credit;
+          for (const attempt of attempts) {
+            const amount = Math.min(attempt, remaining);
+            if (amount === 0) continue; // nothing left to reverse
+            await postTransaction(tx as never, manualContributionReversedLegs({ subject, amount }));
+            remaining -= amount;
+            expect(await programBalance(tx as never, 'p1')).toBe(remaining);
+            expect(remaining).toBeGreaterThanOrEqual(0);
+          }
+
+          const debits = tx.rows.filter((r) => r.direction === 'DEBIT').reduce((s, r) => s + r.amount, 0);
+          const credits = tx.rows.filter((r) => r.direction === 'CREDIT').reduce((s, r) => s + r.amount, 0);
+          expect(debits).toBe(credits);
+          expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
 });

@@ -101,6 +101,39 @@ async function lockPayoutSubject(
 }
 
 /**
+ * Exhaustive over LedgerSubject: a subject kind added later is a compile
+ * error here, and a shape that slips past the types at runtime is refused
+ * rather than silently read as a Trip.
+ */
+async function subjectBalance(tx: Prisma.TransactionClient, subject: LedgerSubject): Promise<number> {
+  switch (subject.type) {
+    case 'campaign':
+      return campaignBalance(tx, subject.campaignId);
+    case 'trip':
+      return tripBalance(tx, subject.tripId);
+    default: {
+      const unreachable: never = subject;
+      void unreachable;
+      throw new InvalidPayoutSubjectError();
+    }
+  }
+}
+
+function payoutSubjectFk(subject: LedgerSubject): { campaignId: string | null; volunteerTripId: string | null } {
+  switch (subject.type) {
+    case 'campaign':
+      return { campaignId: subject.campaignId, volunteerTripId: null };
+    case 'trip':
+      return { campaignId: null, volunteerTripId: subject.tripId };
+    default: {
+      const unreachable: never = subject;
+      void unreachable;
+      throw new InvalidPayoutSubjectError();
+    }
+  }
+}
+
+/**
  * The owning Fundraiser or Campaign creator requests a payout. Creates a
  * DRAFT and posts nothing to the ledger -- a request is not yet a movement
  * of money, only a proposal to make one. This function takes a
@@ -196,10 +229,7 @@ export async function requestPayout(
   // from the ledger, scoped to this subject's own account -- a Trip subject
   // can never read a Campaign's balance or vice versa, because each function
   // filters on its own FK column.
-  const balance =
-    subject.type === 'campaign'
-      ? await campaignBalance(tx, subject.campaignId)
-      : await tripBalance(tx, subject.tripId);
+  const balance = await subjectBalance(tx, subject);
   // The cap itself is one named rule, asked of the same module a screen asks
   // and the same module approvePayout asks below:
   // exceedsPayoutBalance (@/lib/payout-balance-rule.ts). The server stays the
@@ -210,10 +240,7 @@ export async function requestPayout(
     throw new InsufficientBalanceError(amount, balance);
   }
 
-  const subjectFk =
-    subject.type === 'campaign'
-      ? { campaignId: subject.campaignId, volunteerTripId: null }
-      : { campaignId: null, volunteerTripId: subject.tripId };
+  const subjectFk = payoutSubjectFk(subject);
   assertExactlyOnePayoutSubject(subjectFk);
 
   return tx.payout.create({
@@ -442,10 +469,7 @@ export async function approvePayout(
     // approved first -- and, now that this transaction holds the subject's
     // row lock, this read is guaranteed current for as long as the lock is
     // held.
-    const balance =
-      subject.type === 'campaign'
-        ? await campaignBalance(tx, subject.campaignId)
-        : await tripBalance(tx, subject.tripId);
+    const balance = await subjectBalance(tx, subject);
     // The same named rule requestPayout asks above, asked again because the
     // balance it judged has moved: the cap is one comparison in
     // (@/lib/payout-balance-rule.ts), so this path cannot become a second,
