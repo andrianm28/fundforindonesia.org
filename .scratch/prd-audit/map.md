@@ -90,3 +90,9 @@ Tujuh item Fase 3 di luar gerbang, diputuskan tidak masuk Rilis 1 pada triase
 - **Pengalihan Dormant Balance (Q16)** -- `CONTEXT.md` dan PRD sudah menaruh pengalihannya (bukan laporan 60 harinya) di luar rilis pertama.
 - **Refund yang diminta Donor (Q17)** -- konsisten dengan PRD §7.2 yang eksplisit menyatakan Donor tidak bisa memulai Refund sendiri hari ini.
 - **Anggota tim Fundraiser organisasi (Q18)** -- tidak ada gerbang yang membutuhkannya, dan satu akun per organisasi sudah cukup untuk Rilis 1.
+
+- **09** (resolved): ShareModal yatim (PRD FFI-06 memintanya; tiket 12);
+  pengingat tenggat 3 hari, PRD 7 hari (tiket 11); baris checklist hibah
+  terpisah dari wakaf di migrasi (isi produksi tak terbukti dari kode);
+  Platform Fee dibulatkan ke bawah terbukti. Lihat
+  `.scratch/prd-audit/issues/09-fase-0-1-loose-ends-verification.md`.
