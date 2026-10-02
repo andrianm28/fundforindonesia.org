@@ -42,9 +42,24 @@ const mockCampaign: CampaignDetailData = {
   escrowHoldDays: 7,
 };
 
+vi.mock('framer-motion', () => ({
+  motion: {
+    div: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  },
+  AnimatePresence: ({ children }: React.PropsWithChildren) => <>{children}</>,
+}));
+
 describe('CampaignDetailView', () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it('opens the ShareModal when "Bagikan" is pressed (PRD FFI-06)', () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    expect(screen.queryByText('Bagikan Campaign')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Bagikan'));
+    expect(screen.getByText('Bagikan Campaign')).toBeDefined();
+    expect(screen.getByLabelText('Bagikan via WhatsApp')).toBeDefined();
   });
 
   it('does not render a demo badge for a regular campaign', () => {
