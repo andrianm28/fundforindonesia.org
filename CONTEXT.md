@@ -55,7 +55,7 @@ Pengajuan wakaf non-tunai (tanah, bangunan, barang) yang ditindaklanjuti nazhir 
 _Avoid_: Wakaf aset (di kode), donasi barang
 
 **Volunteer Trip**:
-Item katalog milik satu Fundraiser yang mengumpulkan Volunteer untuk ikut satu atau beberapa Volunteer Batch, dengan destinasi, itinerary, dan Trip Fee yang sama di semua Batch-nya. Bukan Campaign dan bukan Kind: uangnya bergerak sebagai Trip Fee, bukan Donation (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Dinamai "Trip", bukan "Program", supaya tidak tertukar dengan Program CSR di atas. Volunteer masuk Rilis 1, diputuskan 2026-09-27, sebelumnya hanya direncanakan untuk rilis 3.
+Item katalog milik satu Fundraiser yang mengumpulkan Volunteer untuk ikut satu atau beberapa Volunteer Batch, dengan destinasi, itinerary, dan Trip Fee yang sama di semua Batch-nya. Bukan Campaign dan bukan Kind: uangnya bergerak sebagai Trip Fee, bukan Donation (lihat [ADR 0014](./docs/adr/0014-volunteer-trip-stays-separate-entity.md)). Dinamai "Trip", bukan "Program", supaya tidak tertukar dengan Program CSR di atas. Volunteer masuk Rilis 1, diputuskan 2026-09-27, sebelumnya hanya direncanakan untuk rilis 3. Yang boleh dilihat publik dari sebuah Volunteer Trip hanyalah judul, slug, deskripsi, cerita, itinerary, gambar sampul, destinasi, Trip Fee, status, dan tanggal dibuat; dari sebuah Volunteer Batch hanyalah tanggal mulai dan selesai, tenggat pendaftaran, kuota maksimum, status, dan sisa kuota. Identitas pemilik, kuota minimum, dan waktu perubahan terakhir tidak pernah tampil publik; kolom baru tetap tertutup sampai didaftarkan di `src/lib/volunteer/trip-public.ts`.
 _Avoid_: Volunteer Event, Volunteer Program, Kegiatan, activity, trip package
 
 **Volunteer Batch**:

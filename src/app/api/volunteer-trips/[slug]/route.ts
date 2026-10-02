@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
-import { PUBLIC_BATCH_SELECT, PUBLIC_TRIP_DETAIL_SELECT, tripFeeAmountSchema } from '@/lib/volunteer/trip-public';
-import { submitTrip, TRIP_EDITABLE_STATUSES } from '@/lib/volunteer/trip';
+import { PUBLIC_BATCH_SELECT, PUBLIC_TRIP_DETAIL_SELECT } from '@/lib/volunteer/trip-public';
+import { submitTrip, TRIP_EDITABLE_STATUSES, tripFeeAmountSchema } from '@/lib/volunteer/trip';
 
 const editVolunteerTripSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -17,7 +17,9 @@ const editVolunteerTripSchema = z.object({
   action: z.enum(['submit']).optional(),
 });
 
-// Full row data (including fundraiserId) returned to owner only.
+// The full row (including fundraiserId) goes back to the Trip's owner or an
+// Admin, the only callers refuseUnlessFundraiserOrAdmin lets through; the
+// public GET below never returns it.
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> },

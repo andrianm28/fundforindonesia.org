@@ -1,6 +1,3 @@
-import { z } from 'zod';
-import { MAX_RUPIAH_AMOUNT } from '@/lib/money/ledger';
-
 /**
  * What the public Volunteer Trip routes may expose (ticket 54). Explicit
  * allow-lists: a column added to the model later stays private until it is
@@ -34,10 +31,3 @@ export const PUBLIC_BATCH_SELECT = {
   maxQuota: true,
   status: true,
 } as const;
-
-/** Whole Rupiah only, positive, within the Int column (same bound as the ledger). */
-export const tripFeeAmountSchema = z
-  .number()
-  .int('Trip Fee harus bilangan bulat Rupiah')
-  .positive('Trip Fee harus lebih dari 0')
-  .max(MAX_RUPIAH_AMOUNT, 'Trip Fee terlalu besar');

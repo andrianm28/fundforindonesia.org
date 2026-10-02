@@ -1,4 +1,4 @@
-# 54: GET /api/volunteer-trips mengembalikan fundraiserId; tripFeeAmount menerima desimal tanpa batas; coverImage menerima URL apa saja
+# 54: API Trip publik memuat field internal; validasi tripFeeAmount lemah
 
 **Type:** implementation (keamanan, data integrity)
 

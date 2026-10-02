@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { PUBLIC_TRIP_LIST_SELECT, tripFeeAmountSchema } from '@/lib/volunteer/trip-public';
+import { PUBLIC_TRIP_LIST_SELECT } from '@/lib/volunteer/trip-public';
+import { tripFeeAmountSchema } from '@/lib/volunteer/trip';
 
 const createVolunteerTripSchema = z.object({
   title: z.string().min(1, 'Judul harus diisi').max(200, 'Judul maksimal 200 karakter'),
@@ -28,7 +29,8 @@ function generateSlug(title: string): string {
 
 // Anyone registered may create a Volunteer Trip (PRD FFI-04): no Role is
 // asked for. The Verifier's approval, not who created it, decides whether it
-// is published. Full row data (including fundraiserId) returned to owner only.
+// is published. The full row (including fundraiserId) goes back to the creator,
+// who is its owner; the public GET never returns it.
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession();

@@ -131,19 +131,32 @@ describe('POST /api/volunteer-trips tripFeeAmount', () => {
     const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount: 2_147_483_647 }));
     expect(response.status).toBe(201);
   });
-
-  it('rejects -1 as tripFeeAmount', async () => {
-    const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount: -1 }));
-    expect(response.status).toBe(400);
-    expect(mockCreate).not.toHaveBeenCalled();
-  });
-
-  it('accepts 2147483647 as maximum tripFeeAmount', async () => {
-    mockCreate.mockResolvedValue({ id: 'trip-1', slug: 'x', ...VALID_BODY, tripFeeAmount: 2_147_483_647, status: 'DRAFT', fundraiserId: 'user-1' });
-    const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount: 2_147_483_647 }));
-    expect(response.status).toBe(201);
-  });
 });
+
+
+// A Prisma stand-in that honours `select`: with no select the whole row comes
+// back, so a route that falls back to a full include/row leaks the field here.
+function applySelect<T extends Record<string, unknown>>(row: T, select?: Record<string, boolean>) {
+  if (!select) return row;
+  return Object.fromEntries(Object.entries(row).filter(([key]) => select[key] === true));
+}
+
+const FULL_TRIP_ROW = {
+  id: 'trip-1',
+  slug: 'trip-1',
+  title: 'Mengajar di Pulau Terpencil',
+  description: 'Deskripsi singkat trip.',
+  story: 'Cerita lengkap trip.',
+  itinerary: 'Hari 1: berangkat.',
+  coverImage: 'https://example.com/cover.jpg',
+  destination: 'Pulau Terpencil, NTT',
+  tripFeeAmount: 1_500_000,
+  status: 'ACTIVE',
+  fundraiserId: 'user-secret-1',
+  fundraiser: { id: 'user-secret-1', email: 'owner@example.com' },
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
+};
 
 function listRequest(query = ''): NextRequest {
   return new NextRequest(`http://localhost:3000/api/volunteer-trips${query}`);
@@ -152,7 +165,9 @@ function listRequest(query = ''): NextRequest {
 describe('GET /api/volunteer-trips', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFindMany.mockResolvedValue([{ id: 'trip-1', slug: 'trip-1', status: 'ACTIVE' }]);
+    mockFindMany.mockImplementation(async (args: { select?: Record<string, boolean> }) => [
+      applySelect(FULL_TRIP_ROW, args.select),
+    ]);
     mockCount.mockResolvedValue(1);
   });
 
@@ -176,14 +191,13 @@ describe('GET /api/volunteer-trips', () => {
     expect(mockFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 50 }));
   });
 
-  it('selects explicit public fields: never fundraiserId or other internals', async () => {
-    await GET(listRequest());
-    const args = mockFindMany.mock.calls[0][0];
-    expect(args.include).toBeUndefined();
-    expect(args.select).toEqual(PUBLIC_TRIP_LIST_SELECT);
-    expect(args.select.fundraiserId).toBeUndefined();
-    expect(args.select.fundraiser).toBeUndefined();
-    expect(args.select.status).toBeUndefined();
+  it('returns exactly the public list fields in the body: no fundraiserId, fundraiser, story, itinerary, status, updatedAt', async () => {
+    const response = await GET(listRequest());
+    const data = await response.json();
+    expect(data.trips).toHaveLength(1);
+    expect(Object.keys(data.trips[0]).sort()).toEqual(Object.keys(PUBLIC_TRIP_LIST_SELECT).sort());
+    expect(JSON.stringify(data)).not.toContain('user-secret-1');
+    expect(JSON.stringify(data)).not.toContain('owner@example.com');
   });
 
   it('does not require authentication', async () => {

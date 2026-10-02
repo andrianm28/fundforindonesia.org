@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   RegistrationStatus,
   StatusChangeCapacity,
@@ -16,6 +17,7 @@ import {
 import { LifecycleValidationError, SameAdminLiftError } from '@/lib/campaign-lifecycle-errors';
 import { fundraiserOnlyRefusal, judgeCapacity, NotAuthorizedError, requireAssignmentFor } from '@/lib/capacity';
 import { recordIdentityVerification } from '@/lib/identity-verification';
+import { MAX_RUPIAH_AMOUNT } from '@/lib/money/ledger';
 import { createRefund } from '@/lib/money/refunds';
 import { lockAndLoad, type SubjectState } from '@/lib/subject-guard';
 import {
@@ -42,6 +44,13 @@ import {
   TripRejectionReasonInvalidError,
 } from '@/lib/volunteer-trip-errors';
 import { tripFeeRefund, type TripFeeRefundCase } from './refunds';
+
+/** Whole Rupiah only, positive, within the Int column (same bound as the ledger). */
+export const tripFeeAmountSchema = z
+  .number()
+  .int('Trip Fee harus bilangan bulat Rupiah')
+  .positive('Trip Fee harus lebih dari 0')
+  .max(MAX_RUPIAH_AMOUNT, 'Trip Fee terlalu besar');
 
 /**
  * The Volunteer Trip operations module: the one place a Volunteer Trip's,

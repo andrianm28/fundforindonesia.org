@@ -202,6 +202,44 @@ describe('PATCH /api/volunteer-trips/[slug]', () => {
   });
 });
 
+
+// A Prisma stand-in that honours `select`: with no select the whole row comes
+// back, so a route that falls back to a full include/row leaks the field here.
+function applySelect<T extends Record<string, unknown>>(row: T, select?: Record<string, boolean>) {
+  if (!select) return row;
+  return Object.fromEntries(Object.entries(row).filter(([key]) => select[key] === true));
+}
+
+const FULL_TRIP_ROW = {
+  id: 'trip-1',
+  slug: 'some-slug',
+  title: 'Mengajar di Pulau Terpencil',
+  description: 'Deskripsi singkat trip.',
+  story: 'Cerita lengkap trip.',
+  itinerary: 'Hari 1: berangkat.',
+  coverImage: 'https://example.com/cover.jpg',
+  destination: 'Pulau Terpencil, NTT',
+  tripFeeAmount: 1_500_000,
+  status: 'ACTIVE',
+  fundraiserId: 'user-secret-1',
+  fundraiser: { id: 'user-secret-1', email: 'owner@example.com' },
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
+};
+
+const FULL_BATCH_ROW = {
+  id: 'batch-1',
+  tripId: 'trip-1',
+  startDate: '2026-03-01T00:00:00.000Z',
+  endDate: '2026-03-05T00:00:00.000Z',
+  registrationDeadline: '2026-02-20T00:00:00.000Z',
+  minQuota: 5,
+  maxQuota: 20,
+  status: 'OPEN',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
+};
+
 function getRequest(slug = 'some-slug'): NextRequest {
   return new NextRequest(`http://localhost:3000/api/volunteer-trips/${slug}`);
 }
@@ -209,14 +247,11 @@ function getRequest(slug = 'some-slug'): NextRequest {
 describe('GET /api/volunteer-trips/[slug]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFindUnique.mockResolvedValue({
-      id: 'trip-1',
-      slug: 'some-slug',
-      status: 'ACTIVE',
-      title: 'Mengajar di Pulau Terpencil',
-    });
-    mockBatchFindMany.mockResolvedValue([
-      { id: 'batch-1', tripId: 'trip-1', status: 'OPEN', maxQuota: 20 },
+    mockFindUnique.mockImplementation(async (args: { select?: Record<string, boolean> }) =>
+      applySelect(FULL_TRIP_ROW, args.select),
+    );
+    mockBatchFindMany.mockImplementation(async (args: { select?: Record<string, boolean> }) => [
+      applySelect(FULL_BATCH_ROW, args.select),
     ]);
     mockRegistrationCount.mockResolvedValue(0);
   });
@@ -259,16 +294,14 @@ describe('GET /api/volunteer-trips/[slug]', () => {
     );
   });
 
-  it('selects explicit public fields for the trip and its batches: never fundraiserId', async () => {
-    await GET(getRequest(), routeContext());
-    const tripArgs = mockFindUnique.mock.calls[0][0];
-    expect(tripArgs.include).toBeUndefined();
-    expect(tripArgs.select).toEqual(PUBLIC_TRIP_DETAIL_SELECT);
-    expect(tripArgs.select.fundraiserId).toBeUndefined();
-    expect(tripArgs.select.fundraiser).toBeUndefined();
-    const batchArgs = mockBatchFindMany.mock.calls[0][0];
-    expect(batchArgs.select).toEqual(PUBLIC_BATCH_SELECT);
-    expect(batchArgs.select.minQuota).toBeUndefined();
+  it('returns exactly the public trip and batch fields in the body: no fundraiserId, fundraiser, updatedAt, minQuota', async () => {
+    const response = await GET(getRequest(), routeContext());
+    const data = await response.json();
+    const { batches, ...trip } = data.trip;
+    expect(Object.keys(trip).sort()).toEqual(Object.keys(PUBLIC_TRIP_DETAIL_SELECT).sort());
+    expect(Object.keys(batches[0]).sort()).toEqual([...Object.keys(PUBLIC_BATCH_SELECT), 'remainingQuota'].sort());
+    expect(JSON.stringify(data)).not.toContain('user-secret-1');
+    expect(JSON.stringify(data)).not.toContain('owner@example.com');
   });
 
   it('does not require authentication', async () => {
@@ -277,7 +310,6 @@ describe('GET /api/volunteer-trips/[slug]', () => {
   });
 
   it('remainingQuota reflects real HOLD+CONFIRMED counts, not just maxQuota', async () => {
-    mockBatchFindMany.mockResolvedValue([{ id: 'batch-1', tripId: 'trip-1', status: 'OPEN', maxQuota: 20 }]);
     mockRegistrationCount.mockResolvedValue(5);
 
     const response = await GET(getRequest(), routeContext());
@@ -300,19 +332,13 @@ describe('PATCH tripFeeAmount bounds', () => {
     mockUpdate.mockResolvedValue({ count: 1 });
   });
 
-  it.each([999999999.99, 1500.5, 2_147_483_648, 0])('rejects %s', async (tripFeeAmount) => {
+  it.each([999999999.99, 1500.5, 2_147_483_648, 0, -1])('rejects %s', async (tripFeeAmount) => {
     const response = await PATCH(patchRequest({ tripFeeAmount }), routeContext());
-    expect(response.status).toBe(400);
-  });
-
-  it('rejects -1 as tripFeeAmount', async () => {
-    const response = await PATCH(patchRequest({ tripFeeAmount: -1 }), routeContext());
     expect(response.status).toBe(400);
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  it('accepts 2147483647 as maximum tripFeeAmount', async () => {
-    mockUpdate.mockResolvedValue({ count: 1 });
+  it('accepts the maximum whole Rupiah amount', async () => {
     const response = await PATCH(patchRequest({ tripFeeAmount: 2_147_483_647 }), routeContext());
     expect(response.status).toBe(200);
     expect(mockUpdate).toHaveBeenCalledWith(
