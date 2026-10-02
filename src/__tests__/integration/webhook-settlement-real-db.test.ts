@@ -1,0 +1,286 @@
+// @vitest-environment node
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { Client } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { NextRequest } from 'next/server';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { PrismaClient } from '@/generated/prisma/client';
+
+/**
+ * POST /api/webhooks/[provider] settling a Payment, against a REAL Postgres.
+ *
+ * Why this file exists: commit 4e55f3b spread `SELECT_DONATION_GUEST_EMAIL`
+ * (two scalars) into a Prisma `include`, which Prisma rejects at validation
+ * time, so every webhook answered 500 and no Payment ever reached PAID. The
+ * mock-Prisma tests (donation-flow.test.ts and the route's own) return
+ * whatever they are told and never validate a query, so they could not see it.
+ * Only a real client validates the shape of `include`.
+ *
+ * The route is called end to end with a validly signed MockPaymentProvider
+ * `settlement` event for (a) a Donation by an account holder, (b) a Guest
+ * Donation whose email exists only as a ciphertext (ADR 0012), and (c) a Trip
+ * Fee Registration. Skipped visibly, not passed, when TEST_DATABASE_URL is
+ * unset.
+ */
+
+const DATABASE_URL = process.env.TEST_DATABASE_URL;
+const MIGRATIONS_DIR = 'prisma/migrations';
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const SERVER_KEY = 'test-mock-server-key';
+
+function databaseUrlFor(database: string): string {
+  const [base] = DATABASE_URL!.split('?');
+  return `${base.substring(0, base.lastIndexOf('/') + 1)}${database}`;
+}
+
+type SentMail = { to: string };
+const sentMail: SentMail[] = [];
+
+describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postgres', () => {
+  if (!DATABASE_URL) {
+    console.warn(
+      '[webhook settlement real db] TEST_DATABASE_URL is not set: these tests are being SKIPPED, not passing. ' +
+        "CI's `test` job sets it; ci/local.sh's `local_database` helper does too.",
+    );
+  }
+
+  const databaseName = `webhook_settlement_${process.pid}`;
+  let prisma: PrismaClient;
+  let webhook: typeof import('@/app/api/webhooks/[provider]/route').POST;
+  let sealUserEmail: typeof import('@/lib/contact-fields').sealUserEmail;
+  let sealDonationGuestEmail: typeof import('@/lib/contact-fields').sealDonationGuestEmail;
+  let resend: typeof import('@/app/api/receipts/[token]/resend/route').POST;
+  let provider: import('@/lib/payments').MockPaymentProvider;
+
+  beforeAll(async () => {
+    if (!DATABASE_URL) return;
+    process.env.MOCK_MIDTRANS_SERVER_KEY = SERVER_KEY;
+    process.env.FIELD_ENCRYPTION_KEY = randomBytes(32).toString('base64');
+    process.env.FIELD_ENCRYPTION_KEY_ID = 'enc-1';
+    process.env.FIELD_HMAC_KEY = randomBytes(32).toString('base64');
+    process.env.FIELD_HMAC_KEY_ID = 'hmac-1';
+
+    const admin = new Client({ connectionString: DATABASE_URL });
+    await admin.connect();
+    await admin.query(`CREATE DATABASE "${databaseName}"`);
+    await admin.end();
+
+    const url = databaseUrlFor(databaseName);
+    const migrator = new Client({ connectionString: url });
+    await migrator.connect();
+    try {
+      const dirs = readdirSync(MIGRATIONS_DIR)
+        .filter((d) => !d.startsWith('migration_lock'))
+        .sort();
+      for (const dir of dirs) await migrator.query(readFileSync(join(MIGRATIONS_DIR, dir, 'migration.sql'), 'utf8'));
+    } finally {
+      await migrator.end();
+    }
+
+    const adapter = new PrismaPg({ connectionString: url });
+    const { PrismaClient: RealPrismaClient } = await import('@/generated/prisma/client');
+    prisma = new RealPrismaClient({ adapter });
+
+    // After the database exists, before anything resolving '@/lib/prisma' loads.
+    vi.doMock('@/lib/prisma', () => ({ prisma, default: prisma }));
+    vi.doMock('@/lib/mail', async () => {
+      const actual = await vi.importActual<typeof import('@/lib/mail')>('@/lib/mail');
+      return {
+        ...actual,
+        sendReportingFailure: async (message: SentMail) => {
+          sentMail.push(message);
+          return true;
+        },
+      };
+    });
+    ({ POST: webhook } = await import('@/app/api/webhooks/[provider]/route'));
+    ({ POST: resend } = await import('@/app/api/receipts/[token]/resend/route'));
+    ({ sealUserEmail, sealDonationGuestEmail } = await import('@/lib/contact-fields'));
+    const payments = await import('@/lib/payments');
+    provider = new payments.MockPaymentProvider({ serverKey: SERVER_KEY });
+  }, 120_000);
+
+  afterAll(async () => {
+    if (!DATABASE_URL) return;
+    await prisma?.$disconnect();
+    const admin = new Client({ connectionString: DATABASE_URL });
+    await admin.connect();
+    await admin.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+    await admin.end();
+  }, 60_000);
+
+  let counter = 0;
+  const next = () => counter++;
+
+  async function makeUser(email?: string): Promise<string> {
+    const id = `u-${process.pid}-${next()}`;
+    await prisma.user.create({
+      data: { id, name: 'Test User', ...sealUserEmail(email ?? `${id}@example.test`) },
+    });
+    return id;
+  }
+
+  async function makeCampaign(): Promise<string> {
+    const creatorId = await makeUser();
+    const registrarId = await makeUser();
+    const entity = await prisma.partnerOrganisation.create({
+      data: { name: 'Yayasan Uji', fundraiserId: creatorId, registeredById: registrarId },
+    });
+    const id = `c-${process.pid}-${next()}`;
+    await prisma.campaign.create({
+      data: {
+        id,
+        slug: id,
+        title: 'Kampanye Uji',
+        description: 'd',
+        story: 's',
+        coverImage: 'https://example.com/c.jpg',
+        targetAmount: 10_000_000,
+        category: 'test',
+        creatorId,
+        lifecycleStatus: 'ACTIVE',
+        collectingEntityId: entity.id,
+      },
+    });
+    return id;
+  }
+
+  async function pendingDonationPayment(guest: boolean) {
+    const campaignId = await makeCampaign();
+    const n = next();
+    const email = `${guest ? 'guest' : 'donor'}-${process.pid}-${n}@example.test`;
+    const donorId = guest ? null : await makeUser(email);
+    const donation = await prisma.donation.create({
+      data: {
+        amount: 100_000,
+        paymentMethod: 'bank_transfer',
+        campaignId,
+        donorId,
+        ...(guest ? { guestName: 'Tamu Uji', ...sealDonationGuestEmail(email) } : {}),
+      },
+    });
+    const payment = await prisma.payment.create({
+      data: {
+        donationId: donation.id,
+        provider: 'mock',
+        method: 'bank_transfer',
+        providerRef: `ref-${process.pid}-${n}`,
+        amount: 100_000,
+        status: 'PENDING',
+      },
+    });
+    return { donation, payment, expectedEmail: email };
+  }
+
+  async function pendingTripFeePayment() {
+    const fundraiserId = await makeUser();
+    const volunteerId = await makeUser();
+    const trip = await prisma.volunteerTrip.create({
+      data: {
+        slug: `trip-${process.pid}-${next()}`,
+        title: 'T',
+        description: 'd',
+        story: 's',
+        coverImage: 'https://example.com/c.jpg',
+        destination: 'x',
+        itinerary: 'i',
+        tripFeeAmount: 500_000,
+        status: 'ACTIVE',
+        fundraiserId,
+      },
+    });
+    const batch = await prisma.volunteerBatch.create({
+      data: {
+        tripId: trip.id,
+        startDate: new Date(Date.now() + 30 * MS_PER_DAY),
+        endDate: new Date(Date.now() + 33 * MS_PER_DAY),
+        registrationDeadline: new Date(Date.now() + 25 * MS_PER_DAY),
+        maxQuota: 5,
+        minQuota: 1,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: { volunteerId, batchId: batch.id, status: 'HOLD', holdExpiresAt: new Date(Date.now() + 30 * 60 * 1000) },
+    });
+    const payment = await prisma.payment.create({
+      data: {
+        registrationId: registration.id,
+        provider: 'mock',
+        method: 'bank_transfer',
+        providerRef: `ref-${process.pid}-${next()}`,
+        amount: 500_000,
+        status: 'PENDING',
+      },
+    });
+    return { registration, payment };
+  }
+
+  async function sendPaid(providerRef: string, amount: number): Promise<Response> {
+    const body = await provider.simulateWebhookPayload(providerRef, amount, 'settlement', `evt-${providerRef}`);
+    const request = new NextRequest('http://localhost/api/webhooks/mock', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return webhook(request, { params: Promise.resolve({ provider: 'mock' }) });
+  }
+
+  it('settles a Donation by an account holder: Payment PAID, Receipt created, Receipt email to the decrypted donor address', async () => {
+    sentMail.length = 0;
+    const { donation, payment, expectedEmail } = await pendingDonationPayment(false);
+
+    const res = await sendPaid(payment.providerRef, 100_000);
+
+    expect(res.status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
+    expect((await prisma.donation.findUniqueOrThrow({ where: { id: donation.id } })).paymentStatus).toBe('confirmed');
+    expect(await prisma.receipt.count({ where: { donationId: donation.id } })).toBe(1);
+    expect(sentMail.map((m) => m.to)).toContain(expectedEmail);
+  });
+
+  it('settles a Guest Donation and addresses the Receipt to the guest email decrypted from its ciphertext', async () => {
+    sentMail.length = 0;
+    const { donation, payment, expectedEmail } = await pendingDonationPayment(true);
+
+    const res = await sendPaid(payment.providerRef, 100_000);
+
+    expect(res.status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
+    expect(await prisma.receipt.count({ where: { donationId: donation.id } })).toBe(1);
+    expect(sentMail.map((m) => m.to)).toContain(expectedEmail);
+  });
+
+  it('settles a Trip Fee: Payment PAID and Registration CONFIRMED', async () => {
+    const { registration, payment } = await pendingTripFeePayment();
+
+    const res = await sendPaid(payment.providerRef, 500_000);
+
+    expect(res.status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
+    expect((await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).status).toBe('CONFIRMED');
+  });
+
+  // The same spread sat in the Receipt resend route's `include` (4e55f3b).
+  it('resends a Guest Donation Receipt to the guest email decrypted from its ciphertext', async () => {
+    const { donation, expectedEmail } = await pendingDonationPayment(true);
+    const token = `tok-${process.pid}-${next()}`;
+    await prisma.receipt.create({
+      data: {
+        donationId: donation.id,
+        token,
+        sentAt: new Date(Date.now() - 10 * 60 * 1000),
+        lastSentAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    });
+    sentMail.length = 0;
+
+    const res = await resend(new NextRequest(`http://localhost/api/receipts/${token}/resend`, { method: 'POST' }), {
+      params: Promise.resolve({ token }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(sentMail.map((m) => m.to)).toContain(expectedEmail);
+  });
+});
