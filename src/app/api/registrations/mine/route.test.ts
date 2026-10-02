@@ -171,6 +171,21 @@ describe('GET /api/registrations/mine', () => {
     );
   });
 
+  it.each(['page=abc', 'page=0', 'page=-1', 'page=99999999', 'page=1.5', 'limit=abc', 'limit=0', 'limit=-3'])(
+    'answers 400, not 500, and queries nothing for ?%s',
+    async (query) => {
+      const response = await GET(mineRequest(`?${query}`));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toHaveProperty('error');
+      expect(mockFindMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it('accepts the largest page the bound allows', async () => {
+    const response = await GET(mineRequest('?page=10000'));
+    expect(response.status).toBe(200);
+  });
+
   it('computes totalPages from total and limit', async () => {
     mockFindMany.mockResolvedValue([makeRow()]);
     mockCount.mockResolvedValue(23);
