@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { coverImageSchema } from '@/lib/cover-image';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 
@@ -7,7 +8,7 @@ const createVolunteerTripSchema = z.object({
   title: z.string().min(1, 'Judul harus diisi').max(200, 'Judul maksimal 200 karakter'),
   description: z.string().min(1, 'Deskripsi harus diisi'),
   story: z.string().min(1, 'Cerita trip harus diisi'),
-  coverImage: z.string().url('URL gambar tidak valid'),
+  coverImage: coverImageSchema,
   destination: z.string().min(1, 'Destinasi harus diisi'),
   itinerary: z.string().min(1, 'Itinerary harus diisi'),
   tripFeeAmount: z.number().positive('Trip Fee harus lebih dari 0'),

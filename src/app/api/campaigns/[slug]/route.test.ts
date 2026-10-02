@@ -768,6 +768,29 @@ describe('PATCH /api/campaigns/[slug]', () => {
     expect(body.campaign.title).toBe('My Updated Campaign');
   });
 
+  it.each([
+    '/images/placeholder-campaign.jpg',
+    'blob:http://localhost/abc',
+    'https://user:pass@example.com/image.jpg',
+    'https://example.com/image.jpg ',
+  ])('refuses the coverImage %s, writing nothing', async (coverImage) => {
+    mockGetServerSession.mockResolvedValue({
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },
+      expires: '2099-01-01',
+    } as never);
+    mockFindUnique.mockResolvedValue({
+      id: 'campaign-1',
+      creatorId: 'creator-user', lifecycleStatus: 'DRAFT', deadline: null,
+    } as never);
+
+    const response = await PATCH(createRequest('my-campaign', 'PATCH', { coverImage }), {
+      params: Promise.resolve({ slug: 'my-campaign' }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it('returns 403 for CAMPAIGN_CREATOR who is NOT the owner', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com' },

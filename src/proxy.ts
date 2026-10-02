@@ -44,7 +44,11 @@ export const config = {
   matcher: [
     "/donasi-saya/:path*",
     "/inbox/:path*",
-    "/akun/:path*",
+    // /akun/verifikasi-email needs no session (the token is the proof), and
+    // must stay out of the matcher: an anonymous visit would otherwise be
+    // redirected to /login?callbackUrl=<the link>, putting the token in a URL.
+    "/akun",
+    "/akun/((?!verifikasi-email(?:/|$)).+)",
     "/campaign/create/:path*",
     "/admin/:path*",
     "/moderasi/:path*",

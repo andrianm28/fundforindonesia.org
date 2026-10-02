@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
-import { impactBreakdown, ImpactDoesNotReconcileError } from '@/lib/money/impact';
+import { impactBreakdown, ImpactDoesNotReconcileError, CsrDoesNotReconcileError } from '@/lib/money/impact';
 import { formatRupiah } from '@/lib/utils/currency';
 
 /**
@@ -38,7 +38,7 @@ export default async function ImpactPage({ searchParams }: ImpactPageProps) {
   try {
     breakdown = await impactBreakdown(prisma, { location });
   } catch (error) {
-    if (!(error instanceof ImpactDoesNotReconcileError)) throw error;
+    if (!(error instanceof ImpactDoesNotReconcileError || error instanceof CsrDoesNotReconcileError)) throw error;
     console.error(`[impact] page refusing to render figures: ${error.message}`);
     return (
       <article>
@@ -148,6 +148,39 @@ export default async function ImpactPage({ searchParams }: ImpactPageProps) {
           Penerima manfaat adalah jumlah orang dari Usage Report yang diterima tiap Fundraiser untuk
           setiap Payout, bukan uang.
         </p>
+      </section>
+
+      <section aria-labelledby="csr-heading" className="mb-8">
+        <h2 id="csr-heading" className="text-lg font-semibold text-text mb-2">
+          Dana CSR
+        </h2>
+        <p className="text-sm text-text-secondary mb-3">
+          Dana CSR dipisah dari dana terkumpul di atas dan tidak termasuk di dalam enam baris itu. Dua angka di bawah
+          sengaja tidak dijumlahkan: yang pertama dapat dipertanggungjawabkan buku besar, yang kedua hanya dilaporkan.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div data-csr-line className="rounded-lg border border-border p-4">
+            <p data-csr-label className="text-sm font-medium text-text">Di dalam pembukuan platform</p>
+            <p data-testid="impact-csr-in-books" className="text-2xl font-bold text-text">
+              {formatRupiah(breakdown.csr.inTheBooks)}
+            </p>
+            <p className="text-sm text-text-secondary mt-1">
+              Program Balance dari buku besar, dengan pemeriksaan keseimbangan tersendiri: halaman ini tidak tampil
+              bila saldonya tidak dapat dijelaskan oleh Manual Contribution.
+            </p>
+          </div>
+          <div data-csr-line className="rounded-lg border border-dashed border-border p-4">
+            <p data-csr-label className="text-sm font-medium text-text">Di luar pembukuan platform</p>
+            <p data-testid="impact-csr-off-books" className="text-2xl font-bold text-text">
+              {formatRupiah(breakdown.csr.outsideTheBooks)}
+            </p>
+            <p data-testid="impact-csr-off-books-note" className="text-sm text-text-secondary mt-1">
+              Angka yang dilaporkan untuk dana CSR yang tidak pernah melewati rekening platform. Tidak ada catatan buku
+              besar di baliknya, jadi angka ini tidak direkonsiliasi dengan buku besar dan tidak dijumlahkan ke total
+              mana pun.
+            </p>
+          </div>
+        </div>
       </section>
 
       {platformCostTotal > 0 ? (
