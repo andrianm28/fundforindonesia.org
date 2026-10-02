@@ -8,7 +8,7 @@
 
 ## Why
 
-Audit keamanan baca-saja alur Volunteer Trip (2026-10-02) menemukan dua celah pada webhook payment: (1) provider pada URL webhook tidak divalidasi terhadap provider yang tercatat pada Payment, dan (2) provider mock tidak cukup dijaga dari aktif di lingkungan produksi.
+Audit keamanan baca-saja alur Volunteer Trip (2026-10-02) menemukan dua celah pada webhook payment: (1) provider yang memverifikasi event (`event.provider`, diisi adapter, yaitu provider pada URL, bukan dari body) tidak dicocokkan dengan provider yang tercatat pada Payment, dan (2) provider mock tidak cukup dijaga dari aktif di lingkungan produksi.
 
 Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #179 untuk perbaikan.
 
@@ -28,9 +28,20 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #179 untuk p
 
 ## Acceptance
 
-- Tes: Webhook dengan `[provider]` di URL tidak cocok dengan `payment.provider` di
-  database ditolak dengan 400/404.
-- Tes: provider mock ditolak atau diabaikan di lingkungan produksi.
+Keputusan yang disetujui owner 2026-10-02:
+
+- Mismatch provider dijawab `200 {received:true}`, identik dengan `providerRef`
+  tak dikenal, tanpa `processedAt` (menggantikan 400/404; alasan: anti-oracle
+  dan dedupe).
+- Gate mock hanya berlaku di production, kecuali
+  `ALLOW_MOCK_PAYMENT_PROVIDER === 'true'`.
+
+Kriteria:
+
+- Tes: webhook yang provider-nya tidak cocok dengan `payment.provider` dijawab
+  200 `{received:true}` tanpa mengubah Payment, ledger, Registration, atau email,
+  dan tanpa `processedAt`.
+- Tes: provider mock ditolak (503) di production, kecuali flag di atas.
 - Dokumentasi: .env produksi tidak boleh menyertakan `MOCK_MIDTRANS_SERVER_KEY`.
 
 ## Keputusan implementasi
