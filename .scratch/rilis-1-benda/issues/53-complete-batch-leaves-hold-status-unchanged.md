@@ -62,3 +62,7 @@ terlambat:
 - Tes race deterministik (completeBatch dijeda setelah lock Registration, settlement terbukti menunggu lock) membunuh mutan tanpa `updateMany` EXPIRE.
 - HOLD lama di Batch CANCELLED kini menjadi CANCELLED dan outcome `cancelled` (Refund `late settlement`, sama dengan `cancelBatch`); di Batch COMPLETED tetap `lapsed`.
 - UI Volunteer sudah benar: EXPIRED tampil "Kedaluwarsa" tanpa hitung mundur/tombol batal/tautan bayar; tes ditambahkan.
+
+## Comments
+
+- 2026-10-02: keputusan owner (Dri): HOLD yang tersisa saat Batch COMPLETED menjadi EXPIRED, saat CANCELLED menjadi CANCELLED; pembayaran susulan di-refund penuh lewat late settlement; REJECTED tidak dipakai karena tidak ada di enum Registration. Dicatat di CONTEXT.md.
