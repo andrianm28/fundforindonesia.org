@@ -195,4 +195,14 @@ describe('GET /api/registrations/mine', () => {
 
     expect(data).toMatchObject({ total: 23, page: 1, limit: 10, totalPages: 3 });
   });
+
+  it('treats empty query parameters as defaults', async () => {
+    const response = await GET(mineRequest('?page=&limit='));
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data).toMatchObject({ page: 1, limit: 10 });
+    expect(mockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 0, take: 10 }),
+    );
+  });
 });

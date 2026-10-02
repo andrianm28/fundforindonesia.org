@@ -6,8 +6,14 @@ import { prisma } from '@/lib/prisma';
 const MAX_PAGE = 10_000;
 
 const querySchema = z.object({
-  page: z.coerce.number().int().min(1).max(MAX_PAGE).default(1),
-  limit: z.coerce.number().int().min(1).transform((n) => Math.min(50, n)).default(10),
+  page: z.preprocess(
+    (val) => (val === '' ? undefined : val),
+    z.coerce.number().int().min(1).max(MAX_PAGE).default(1),
+  ),
+  limit: z.preprocess(
+    (val) => (val === '' ? undefined : val),
+    z.coerce.number().int().min(1).transform((n) => Math.min(50, n)).default(10),
+  ),
 });
 
 export async function GET(request: NextRequest) {
