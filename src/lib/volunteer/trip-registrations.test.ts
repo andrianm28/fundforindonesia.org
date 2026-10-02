@@ -305,9 +305,12 @@ describe('confirmRegistration (inside the Settlement transaction)', () => {
 });
 
 describe('confirmRegistration on a finished Batch (ticket 53)', () => {
-  it.each(['COMPLETED', 'CANCELLED'] as const)(
-    'does not confirm a HOLD left on a %s Batch: it lapses, so the money is refunded in full',
-    async (batchStatus) => {
+  it.each([
+    ['COMPLETED', 'lapsed', 'EXPIRED'],
+    ['CANCELLED', 'cancelled', 'CANCELLED'],
+  ] as const)(
+    'does not confirm a HOLD left on a %s Batch: outcome %s, so the money is refunded in full',
+    async (batchStatus, outcome, finalStatus) => {
       const db = makeTripDb({
         trips: [tripRow({ status: 'ACTIVE' })],
         batches: [batchRow({ status: batchStatus })],
@@ -316,8 +319,8 @@ describe('confirmRegistration on a finished Batch (ticket 53)', () => {
 
       const result = await confirmRegistration(db.prisma as never, { registrationId: 'registration-1' });
 
-      expect(result).toEqual({ outcome: 'lapsed' });
-      expect(db.registrations[0].status).toBe('EXPIRED');
+      expect(result).toEqual({ outcome });
+      expect(db.registrations[0].status).toBe(finalStatus);
     },
   );
 });

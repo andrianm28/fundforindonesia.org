@@ -945,20 +945,23 @@ export async function confirmRegistration(
   params: { registrationId: string },
 ): Promise<{ outcome: ConfirmRegistrationOutcome }> {
   const { registrationId } = params;
-  // A HOLD on a Batch that is no longer OPEN (`completeBatch` expires these,
-  // so only a legacy row) is not confirmed: it lapses, and the money is
-  // refunded in full. The writes below still take the Registration's row
-  // lock, so they wait for a concurrent `completeBatch` and re-check status.
+  // Defense-in-depth for legacy rows only: `completeBatch` and `cancelBatch`
+  // now leave no HOLD on a finished Batch. This check is NOT what guards the
+  // race with a concurrent `completeBatch`; the CAS below is (its WHERE is
+  // re-evaluated after waiting on the Registration row lock). A legacy HOLD
+  // on a CANCELLED Batch is cancelled, as `cancelBatch` would have, so its
+  // Refund reads 'late settlement'; on a COMPLETED Batch it lapses.
   const found = await tx.registration.findUnique({
     where: { id: registrationId },
     include: { batch: { select: { status: true } } },
   });
   if (found?.status === RegistrationStatus.HOLD && found.batch.status !== VolunteerBatchStatus.OPEN) {
+    const cancelled = found.batch.status === VolunteerBatchStatus.CANCELLED;
     await tx.registration.updateMany({
       where: { id: registrationId, status: RegistrationStatus.HOLD },
-      data: { status: RegistrationStatus.EXPIRED },
+      data: { status: cancelled ? RegistrationStatus.CANCELLED : RegistrationStatus.EXPIRED },
     });
-    return { outcome: 'lapsed' };
+    return { outcome: cancelled ? 'cancelled' : 'lapsed' };
   }
   const confirmed = await tx.registration.updateMany({
     where: { id: registrationId, status: RegistrationStatus.HOLD },

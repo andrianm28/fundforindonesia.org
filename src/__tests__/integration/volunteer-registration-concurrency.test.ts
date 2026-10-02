@@ -285,4 +285,63 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
       else expect(refunds.map((r) => r.amount)).toEqual([500_000]);
     }
   });
+
+  // Deterministic: completeBatch is paused right after it has locked the
+  // Registrations (the lock order that matters), a settlement is started and
+  // proven to be waiting on that row lock, and only then is completeBatch let
+  // go. The settlement's CAS must re-evaluate after the commit and find EXPIRED.
+  it('settles to lapsed, with a full Refund and no CONFIRMED seat, when it waits on completeBatch\'s Registration lock', async () => {
+    const h = await heldWithPendingPayment();
+    let reached!: () => void;
+    let release!: () => void;
+    const lockHeld = new Promise<void>((resolve) => (reached = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let paused = false;
+
+    const pausing = {
+      $transaction: <T,>(fn: (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>) =>
+        prisma.$transaction((tx) =>
+          fn(
+            new Proxy(tx, {
+              get(target, prop) {
+                const value = Reflect.get(target, prop, target);
+                if (prop !== '$queryRaw' || typeof value !== 'function') return value;
+                return async (strings: TemplateStringsArray, ...rest: unknown[]) => {
+                  const rows = await value.call(target, strings, ...rest);
+                  if (!paused && strings.join('?').includes('FROM "Registration"')) {
+                    paused = true;
+                    reached();
+                    await gate;
+                  }
+                  return rows;
+                };
+              },
+            }),
+          ),
+        ),
+    };
+
+    const completing = completeBatch(pausing as never, { tripId: h.tripId, batchId: h.batchId, actor: h.actor as never, attendedRegistrationIds: [] });
+    await lockHeld;
+    const settling = settle(h.registrationId, h.paymentId);
+
+    // Wait until the settlement is provably blocked on a row lock.
+    for (let i = 0; i < 100; i++) {
+      const [{ n }] = await prisma.$queryRaw<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+      if (n > 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    release();
+    await completing;
+    const settled = await settling;
+
+    expect(settled.outcome).toBe('lapsed');
+    await refundLateSettlement(prisma, { registrationId: h.registrationId });
+    expect((await prisma.registration.findUniqueOrThrow({ where: { id: h.registrationId } })).status).toBe('EXPIRED');
+    expect(await prisma.registration.count({ where: { batchId: h.batchId, status: 'CONFIRMED' } })).toBe(0);
+    const refunds = await prisma.refund.findMany({ where: { paymentId: h.paymentId } });
+    expect(refunds.map((r) => r.amount)).toEqual([500_000]);
+  });
 });

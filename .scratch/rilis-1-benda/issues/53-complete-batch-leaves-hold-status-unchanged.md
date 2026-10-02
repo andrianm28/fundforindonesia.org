@@ -55,3 +55,10 @@ terlambat:
   of a concurrent `completeBatch`.
 - Tests: trip-batches.test.ts, trip-registrations.test.ts, and real-Postgres
   cases in integration/volunteer-registration-concurrency.test.ts.
+
+## Keputusan review PR #178
+
+- Race `completeBatch` vs settlement dijaga CAS `updateMany WHERE status=HOLD` di `confirmRegistration`; cek status Batch hanya defense-in-depth untuk baris lama.
+- Tes race deterministik (completeBatch dijeda setelah lock Registration, settlement terbukti menunggu lock) membunuh mutan tanpa `updateMany` EXPIRE.
+- HOLD lama di Batch CANCELLED kini menjadi CANCELLED dan outcome `cancelled` (Refund `late settlement`, sama dengan `cancelBatch`); di Batch COMPLETED tetap `lapsed`.
+- UI Volunteer sudah benar: EXPIRED tampil "Kedaluwarsa" tanpa hitung mundur/tombol batal/tautan bayar; tes ditambahkan.
