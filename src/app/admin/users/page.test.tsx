@@ -26,12 +26,17 @@ function jsonResponse(body: unknown, ok = true) {
 
 let fetchMock: Mock;
 let pendingRequests: unknown[];
+let auditEntries: unknown[];
 
 beforeEach(() => {
   pendingRequests = [];
-  fetchMock = vi.fn(async (url: string) => {
+  auditEntries = [];
+  fetchMock = vi.fn(async (url: string, init?: { method?: string }) => {
     if (url.startsWith('/api/admin/users?')) {
       return jsonResponse({ users: USERS, pagination: { page: 1, limit: 10, total: 3, totalPages: 1 } });
+    }
+    if (url === '/api/admin/users/u-1/assignments' && !init?.method) {
+      return jsonResponse({ entries: auditEntries });
     }
     if (url === '/api/admin/assignment-grant-requests') {
       return jsonResponse({ requests: pendingRequests });
@@ -213,5 +218,29 @@ describe('AdminUsersPage', () => {
 
     expect(await screen.findByRole('button', { name: /tarik/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /konfirmasi/i })).toBeNull();
+  });
+
+  it('opens the grant/revoke audit trail of a user from their row, in the order the route returns it', async () => {
+    auditEntries = [
+      { id: 'a-2', assignment: 'VERIFIER', action: 'REVOKED', actedById: 'admin-2', actedByName: 'Admin Dua', actedAt: '2026-09-30T00:00:00.000Z', reason: null },
+      { id: 'a-1', assignment: 'VERIFIER', action: 'GRANTED', actedById: 'admin-1', actedByName: 'Saya', actedAt: '2026-09-29T00:00:00.000Z', reason: null },
+    ];
+    const budi = await openAtRowOf('Budi');
+
+    fireEvent.click(within(budi).getByRole('button', { name: 'Riwayat' }));
+
+    const list = await screen.findByRole('list', { name: /riwayat penugasan budi/i });
+    const items = within(list).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toContain('Dicabut');
+    expect(items[0]).toContain('Admin Dua');
+    expect(items[1]).toContain('Diberikan');
+    expect(items[1]).toContain('Saya');
+  });
+
+  it('shows an empty state when the user has no audit entries', async () => {
+    const budi = await openAtRowOf('Budi');
+    fireEvent.click(within(budi).getByRole('button', { name: 'Riwayat' }));
+    expect(await screen.findByText('Belum ada riwayat penugasan.')).toBeTruthy();
   });
 });

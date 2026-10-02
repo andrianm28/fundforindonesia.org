@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
 import { getServerSession } from "@/lib/auth";
-import { grantVerifierAssignment, proposeAdminGrant, revokeAssignment } from "@/lib/assignments";
+import { assignmentAuditTrail, grantVerifierAssignment, proposeAdminGrant, revokeAssignment } from "@/lib/assignments";
 import { domainErrorToHttp } from "@/lib/domain-errors";
 
 const VALID_ASSIGNMENTS: Assignment[] = ["VERIFIER", "ADMIN"];
@@ -78,4 +78,15 @@ export const DELETE = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequ
     if (refusal) return NextResponse.json(refusal.body, { status: refusal.status });
     throw error;
   }
+});
+
+/**
+ * GET /api/admin/users/[id]/assignments (ticket 44): the grant/revoke audit
+ * trail of one user -- who proposed, granted or revoked which assignment,
+ * and when -- newest first. ADMIN only, like POST and DELETE above.
+ */
+export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest, context: { params: Promise<{ id: string }> }) => {
+  const { id } = await context.params;
+  const entries = await assignmentAuditTrail(prisma, id);
+  return NextResponse.json({ entries }, { status: 200 });
 });

@@ -35,6 +35,22 @@ interface Pagination {
   totalPages: number;
 }
 
+interface AuditEntry {
+  id: string;
+  assignment: Assignment;
+  action: "PROPOSED" | "GRANTED" | "REVOKED";
+  actedById: string;
+  actedByName: string | null;
+  actedAt: string;
+  reason: string | null;
+}
+
+const AUDIT_ACTION_LABELS: Record<AuditEntry["action"], string> = {
+  PROPOSED: "Diajukan",
+  GRANTED: "Diberikan",
+  REVOKED: "Dicabut",
+};
+
 interface PendingGrantRequest {
   id: string;
   userId: string;
@@ -64,6 +80,37 @@ export default function AdminUsersPage() {
   const [pendingUserIds, setPendingUserIds] = useState<Set<string>>(new Set());
   const [pendingRequests, setPendingRequests] = useState<PendingGrantRequest[]>([]);
   const [decidingRequestId, setDecidingRequestId] = useState<string | null>(null);
+
+  // The grant/revoke audit trail (ticket 44), opened per user from the row.
+  const [auditUserId, setAuditUserId] = useState<string | null>(null);
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+
+  const toggleAudit = async (userId: string) => {
+    if (auditUserId === userId) {
+      setAuditUserId(null);
+      return;
+    }
+    setAuditUserId(userId);
+    setAuditEntries([]);
+    setAuditLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/assignments`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Gagal memuat riwayat penugasan");
+        setAuditUserId(null);
+        return;
+      }
+      setAuditEntries(data.entries ?? []);
+    } catch (error) {
+      console.error("Error fetching assignment audit trail:", error);
+      alert("Gagal memuat riwayat penugasan");
+      setAuditUserId(null);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   const fetchUsers = useCallback(async (page: number, searchQuery: string) => {
     setLoading(true);
@@ -325,13 +372,16 @@ export default function AdminUsersPage() {
                 <th className="text-left px-6 py-3 font-medium text-gray-600">
                   Penugasan
                 </th>
+                <th className="text-left px-6 py-3 font-medium text-gray-600">
+                  Riwayat
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={5}
                     className="px-6 py-10 text-center text-gray-500"
                   >
                     {search
@@ -344,6 +394,10 @@ export default function AdminUsersPage() {
                   <UserRow
                     key={user.id}
                     user={user}
+                    auditOpen={auditUserId === user.id}
+                    auditLoading={auditLoading}
+                    auditEntries={auditEntries}
+                    onToggleAudit={toggleAudit}
                     currentUserId={currentUserId}
                     isUpdating={updatingUserId === user.id}
                     isAdminGrantPending={pendingUserIds.has(user.id)}
@@ -391,12 +445,20 @@ export default function AdminUsersPage() {
 
 function UserRow({
   user,
+  auditOpen,
+  auditLoading,
+  auditEntries,
+  onToggleAudit,
   currentUserId,
   isUpdating,
   isAdminGrantPending,
   onAssignmentChange,
 }: {
   user: User;
+  auditOpen: boolean;
+  auditLoading: boolean;
+  auditEntries: AuditEntry[];
+  onToggleAudit: (userId: string) => void;
   currentUserId: string | undefined;
   isUpdating: boolean;
   isAdminGrantPending: boolean;
@@ -405,6 +467,7 @@ function UserRow({
   const isSelf = user.id === currentUserId;
 
   return (
+    <>
     <tr className="hover:bg-gray-50 transition-colors">
       <td className="px-6 py-4 font-medium text-gray-900">
         {user.name || "—"}
@@ -447,6 +510,38 @@ function UserRow({
           })}
         </div>
       </td>
+      <td className="px-6 py-4">
+        <button
+          type="button"
+          onClick={() => onToggleAudit(user.id)}
+          className="text-xs font-medium text-blue-600 hover:underline"
+        >
+          {auditOpen ? "Tutup riwayat" : "Riwayat"}
+        </button>
+      </td>
     </tr>
+    {auditOpen && (
+      <tr className="bg-gray-50">
+        <td colSpan={5} className="px-6 py-3">
+          {auditLoading ? (
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
+          ) : auditEntries.length === 0 ? (
+            <p className="text-xs text-gray-500">Belum ada riwayat penugasan.</p>
+          ) : (
+            <ul aria-label={`Riwayat penugasan ${user.name || user.email}`} className="space-y-1 text-xs text-gray-700">
+              {auditEntries.map((entry) => (
+                <li key={entry.id}>
+                  <strong>{AUDIT_ACTION_LABELS[entry.action]}</strong> {entry.assignment} oleh{" "}
+                  {entry.actedByName || entry.actedById} pada{" "}
+                  {new Date(entry.actedAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}
+                  {entry.reason ? ` (${entry.reason})` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
