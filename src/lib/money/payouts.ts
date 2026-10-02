@@ -1,5 +1,6 @@
 import type { Payout, PayoutBalanceCheck, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
+import { assertNever } from '@/lib/assert-never';
 import { assertExactlyOnePayoutSubject, InvalidPayoutSubjectError } from './payout-subject';
 import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
@@ -111,11 +112,8 @@ async function subjectBalance(tx: Prisma.TransactionClient, subject: LedgerSubje
       return campaignBalance(tx, subject.campaignId);
     case 'trip':
       return tripBalance(tx, subject.tripId);
-    default: {
-      const unreachable: never = subject;
-      void unreachable;
-      throw new InvalidPayoutSubjectError();
-    }
+    default:
+      return assertNever(subject, new InvalidPayoutSubjectError());
   }
 }
 
@@ -125,11 +123,8 @@ function payoutSubjectFk(subject: LedgerSubject): { campaignId: string | null; v
       return { campaignId: subject.campaignId, volunteerTripId: null };
     case 'trip':
       return { campaignId: null, volunteerTripId: subject.tripId };
-    default: {
-      const unreachable: never = subject;
-      void unreachable;
-      throw new InvalidPayoutSubjectError();
-    }
+    default:
+      return assertNever(subject, new InvalidPayoutSubjectError());
   }
 }
 

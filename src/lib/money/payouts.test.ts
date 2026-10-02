@@ -1299,6 +1299,28 @@ describe('approvePayout', () => {
     expect(posted.find((r) => r.direction === 'DEBIT')).toMatchObject({ account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1' });
   });
 
+  it('refuses a Payout whose subject is a Program, reads no balance and posts nothing, though the Program holds money', async () => {
+    // A row that points at a Program and at neither a Campaign nor a Trip: the
+    // shape a hand-edited or future-migrated row would have. csr-and-hibah 07:
+    // PROGRAM_BALANCE is never a Payout source, so approval must refuse it
+    // before the ledger is read, whatever the Program holds.
+    const payoutRow = basePayoutRow({ campaignId: null, volunteerTripId: null, programId: 'prog-1' });
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 'mc-1', direction: 'CREDIT', amount: 500_000, account: 'PROGRAM_BALANCE', campaignId: null, volunteerTripId: null, programId: 'prog-1' },
+    ];
+    const { tx, rows, payoutState, queryRawCalls } = makeTx({ ledgerRows, payoutRow });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 2_000_000 }),
+    ).rejects.toThrow(InvalidPayoutSubjectError);
+
+    expect(tx.ledgerEntry.groupBy).not.toHaveBeenCalled();
+    expect(queryRawCalls).toEqual([]);
+    expect(rows).toEqual(ledgerRows);
+    expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+  });
+
   it('refuses self-approval for a Trip-linked payout exactly as it already does for a Campaign-linked one', async () => {
     const { tx } = makeTx({ payoutRow: basePayoutRow({ requestedById: 'same-person' }) });
     const prisma = makePrisma(tx, basePayoutRow());

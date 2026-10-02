@@ -1450,7 +1450,7 @@ describe('ledger invariants with a Manual Contribution (property-based)', () => 
     );
   });
 
-  it('a Program credited then reversed in parts keeps debits equal to credits and its balance never negative', async () => {
+  it('a Program credited then reversed in parts reads back the model balance from the ledger, and debits equal credits', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.integer({ min: 1, max: 1_000_000_000 }),
@@ -1460,14 +1460,18 @@ describe('ledger invariants with a Manual Contribution (property-based)', () => 
           const subject: ManualContributionSubject = { type: 'program', programId: 'p1' };
           await postTransaction(tx as never, manualContributionReceivedLegs({ subject, amount: credit }));
 
-          let remaining = credit;
+          // The model: what was credited less what was reversed. The ledger
+          // is asked for the balance and must agree at every step. Reversals
+          // here stay within the credit so the model is a plain subtraction;
+          // whether the ledger should refuse an over-reversal is an owner
+          // decision, not something this property claims.
+          let modelBalance = credit;
           for (const attempt of attempts) {
-            const amount = Math.min(attempt, remaining);
+            const amount = Math.min(attempt, modelBalance);
             if (amount === 0) continue; // nothing left to reverse
             await postTransaction(tx as never, manualContributionReversedLegs({ subject, amount }));
-            remaining -= amount;
-            expect(await programBalance(tx as never, 'p1')).toBe(remaining);
-            expect(remaining).toBeGreaterThanOrEqual(0);
+            modelBalance -= amount;
+            expect(await programBalance(tx as never, 'p1')).toBe(modelBalance);
           }
 
           const debits = tx.rows.filter((r) => r.direction === 'DEBIT').reduce((s, r) => s + r.amount, 0);
