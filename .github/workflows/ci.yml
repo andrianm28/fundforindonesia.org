@@ -161,6 +161,10 @@ jobs:
         #
         # to this step, in the same pull request as the raise, and take it
         # back out in the next one. See ci/ratchet.mjs.
+        # Ticket 18 promoted four rules to error; 18 findings need a
+        # non-mechanical refactor. Remove this env in the next pull request.
+        env:
+          RATCHET_ALLOW_BASELINE_BUMP: "1"
         run: node ci/ratchet.mjs
 
   e2e:

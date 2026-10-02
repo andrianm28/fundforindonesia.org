@@ -22,16 +22,15 @@ const eslintConfig = [
       // next override) enforced it as an error. Restored to match.
       '@typescript-eslint/no-unused-vars': ['error', { caughtErrors: 'none' }],
 
-      // New rules in eslint-config-next 16 that were not enforced by the
-      // old .eslintrc.json at all (react-hooks@7's React Compiler-oriented
-      // rules, and a stricter default for no-html-link-for-pages). Left as
-      // warnings rather than dropped, since they push the lint ratchet
-      // above its 193 baseline; turning them into errors deliberately is
-      // ci-cd-github-actions ticket 18.
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/immutability': 'warn',
-      'react-hooks/purity': 'warn',
-      '@next/next/no-html-link-for-pages': 'warn',
+      // New rules in eslint-config-next 16 that the old .eslintrc.json did
+      // not enforce (react-hooks@7's React Compiler-oriented rules, and a
+      // stricter default for no-html-link-for-pages). Errors since
+      // ci-cd-github-actions ticket 18; the findings that remain are counted
+      // in ci/baselines.json and need a non-mechanical refactor.
+      'react-hooks/set-state-in-effect': 'error',
+      'react-hooks/immutability': 'error',
+      'react-hooks/purity': 'error',
+      '@next/next/no-html-link-for-pages': 'error',
     },
   },
 ];

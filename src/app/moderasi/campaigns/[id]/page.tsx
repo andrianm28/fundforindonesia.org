@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import { readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
@@ -108,7 +109,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
   return (
     <div>
       <div className="mb-6">
-        <a
+        <Link
           href="/moderasi/campaigns"
           className="inline-flex items-center gap-1 text-sm text-[#0073E6] hover:underline"
         >
@@ -126,7 +127,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
             />
           </svg>
           Kembali ke Daftar Kampanye
-        </a>
+        </Link>
       </div>
 
       <div className="bg-white rounded-xl border border-[#E0E0E0] overflow-hidden">

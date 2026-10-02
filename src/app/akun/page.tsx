@@ -20,12 +20,6 @@ export default function AkunPage() {
     }
   }, [status, router]);
 
-  useEffect(() => {
-    if (status === 'authenticated') {
-      fetchBalance();
-    }
-  }, [status]);
-
   const fetchBalance = () => {
     setBalanceLoading(true);
     fetch('/api/balance')
@@ -37,6 +31,12 @@ export default function AkunPage() {
       .catch(() => setBalance(0))
       .finally(() => setBalanceLoading(false));
   };
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      fetchBalance();
+    }
+  }, [status]);
 
   const handleLogout = () => {
     signOut({ callbackUrl: '/login' });

@@ -120,7 +120,7 @@ export function usePrayerStream(options: UsePrayerStreamOptions = {}): UsePrayer
     }
   );
 
-  const connectSSE = useCallback(() => {
+  const connectSSE = useCallback(function connectSSE() {
     if (!mountedRef.current) return;
 
     // Clean up existing connection
