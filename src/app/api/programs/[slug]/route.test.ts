@@ -116,10 +116,10 @@ describe('GET /api/programs/[slug]', () => {
   });
 
   // reportedAmount is real CSR money that never crossed the platform's
-  // account. csr-08 shows it beside the ledger-backed Program Balance, which
-  // does not exist until csr-07; a detail page that printed it on its own
-  // would be a number nothing can be compared against.
-  it('leaves the off-books reported figure to ticket csr-08', async () => {
+  // account. csr-08 shows it on the Program PAGE, beside the ledger-backed
+  // Program Balance (src/lib/program-money.ts); this catalog payload stays
+  // free of every money figure, so the two cannot be read apart here.
+  it('keeps the off-books reported figure out of the catalog payload', async () => {
     holder.db.programs[0].reportedAmount = 50000000;
     holder.db.programs[0].reportedNote = 'Dana CSR mitra yang disalurkan langsung.';
 

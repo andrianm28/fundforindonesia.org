@@ -122,15 +122,16 @@ describe('Fundraiser Trip client components', () => {
 
     it('edits an existing Batch with PATCH and shows a field refusal', async () => {
       answer(400, {
-        error: 'Validasi gagal',
-        fieldErrors: { minQuota: ['minQuota tidak boleh melebihi maxQuota'] },
+        error: 'Tanggal selesai tidak boleh sebelum tanggal mulai.',
+        fieldErrors: { endDate: ['Tanggal selesai tidak boleh sebelum tanggal mulai.'] },
       });
       render(<BatchForm slug="sumba" batchId="b1" initial={VALUES} seatsUsed={0} />);
       fireEvent.click(screen.getByRole('button', { name: 'Simpan Batch' }));
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
       expect(fetchMock.mock.calls[0][0]).toBe('/api/volunteer-trips/sumba/batches/b1');
       expect(fetchMock.mock.calls[0][1].method).toBe('PATCH');
-      expect((await screen.findByRole('alert')).textContent).toContain('minQuota tidak boleh melebihi maxQuota');
+      // One message, in Indonesian with the form's own labels, not the field name, and not twice.
+      expect((await screen.findByRole('alert')).textContent).toBe('Tanggal selesai tidak boleh sebelum tanggal mulai.');
     });
   });
 

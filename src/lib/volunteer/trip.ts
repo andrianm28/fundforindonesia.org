@@ -481,13 +481,13 @@ function judgeBatchAuthority(trip: LockedTrip, actor: TripActor): void {
 /** A Batch's dates and quotas must agree with each other. */
 function requireConsistentBatch(fields: BatchFields): void {
   if (fields.minQuota > fields.maxQuota) {
-    throw new BatchFieldsInvalidError('minQuota', 'minQuota tidak boleh melebihi maxQuota');
+    throw new BatchFieldsInvalidError('minQuota', 'Kuota minimum tidak boleh melebihi kuota maksimum.');
   }
   if (fields.endDate < fields.startDate) {
-    throw new BatchFieldsInvalidError('endDate', 'endDate tidak boleh sebelum startDate');
+    throw new BatchFieldsInvalidError('endDate', 'Tanggal selesai tidak boleh sebelum tanggal mulai.');
   }
   if (fields.registrationDeadline > fields.startDate) {
-    throw new BatchFieldsInvalidError('registrationDeadline', 'registrationDeadline tidak boleh setelah startDate');
+    throw new BatchFieldsInvalidError('registrationDeadline', 'Tenggat pendaftaran tidak boleh setelah tanggal mulai.');
   }
 }
 

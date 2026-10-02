@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** in-review
+**Status:** done (PR #156, 40081bc)
 
 **Blocked by:** 33 (pemilih Batch), 35 (Trip dan Batch bisa dibuat lewat UI),
 40 (aturan settle terlambat, agar layar ini tidak menjanjikan hal yang salah).
@@ -36,3 +36,7 @@ flag, karena penyedia pembayaran nyata belum ada (Q7).
 - Tes tampilan tabel Refund untuk ketiga tingkat dan untuk hari batas persis.
 - Kode uang tidak berubah di tiket ini; perubahan settle terlambat ada di tiket 40.
 - Review independen `sonnet` (jalur uang).
+
+## Comments
+
+- 2026-10-02: done. Merged di PR #156 (40081bc). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.

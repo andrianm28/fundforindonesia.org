@@ -8,9 +8,23 @@
 
 ## Why
 
-Audit keamanan baca-saja alur Volunteer Trip (2026-10-02) menemukan celah severity **high** pada jalur uang Trip Fee: Batch yang sudah punya Registration berbayar masih bisa diubah tanggal dan kuotanya, sehingga hak Volunteer atas refund dan Payout Trip Fee tidak terjaga. Tidak ada tiket lain yang menutupnya.
+Audit keamanan baca-saja alur Volunteer Trip (2026-10-02, `origin/main` 0f827b1)
+menemukan celah severity **high** pada jalur uang Trip Fee. Tidak ada tiket lain
+yang menutupnya.
 
-Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #170 untuk perbaikan.
+`editBatch` (`src/lib/volunteer/trip.ts:564-579`) mengubah `startDate`, `endDate`,
+`registrationDeadline`, `maxQuota`, `minQuota` pada Batch OPEN tanpa melihat
+apakah sudah ada Registration CONFIRMED, dan tanpa membandingkan tanggal dengan
+`now`. Satu-satunya aturan adalah `requireConsistentBatch` (`trip.ts:479-489`):
+`minQuota <= maxQuota`, `endDate >= startDate`, `registrationDeadline <= startDate`.
+Skema `editBatchSchema` (`src/app/api/volunteer-trips/[slug]/batches/[id]/route.ts:8-14`)
+hanya memeriksa bentuk. Pemilik Trip (atau Admin) boleh memanggilnya
+(`route.ts:50`).
+
+Dampak (setingkat peran): Pemilik Trip dapat mengubah jadwal dan kuota Batch
+yang sudah punya Volunteer berbayar sehingga hak refund Volunteer hilang atau
+terkunci, dan platform menanggung selisihnya. Detail rangkaian langkah
+disengaja tidak ditulis di sini.
 
 ## Scope
 
@@ -42,5 +56,6 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #170 untuk p
 
 ## Comments
 
+- 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #170.
 - 2026-10-02: scope tambahan: OwnTripRegistrationError (pemilik Trip tidak boleh mendaftar di Trip sendiri), endDate harus di masa depan, dan form Batch read-only saat terkunci; berasal dari audit, menunggu konfirmasi owner.
 - 2026-10-02: pilihan implementasi: tanggal Batch berisi Registration live dilarang berubah sama sekali (termasuk memundurkan); menunggu konfirmasi owner. Payout menunggu COMPLETED ditangani tiket 49 (PR #176).
