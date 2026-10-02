@@ -65,8 +65,9 @@ export class InsufficientBalanceError extends MoneyError {
   constructor(
     readonly requested: number,
     readonly available: number,
+    message = 'Jumlah Payout melebihi Campaign Balance atau saldo Volunteer Trip yang tersedia.',
   ) {
-    super('Jumlah Payout melebihi Campaign Balance atau saldo Volunteer Trip yang tersedia.');
+    super(message);
     this.name = 'InsufficientBalanceError';
   }
 }
@@ -89,7 +90,7 @@ export class InsufficientBalanceError extends MoneyError {
 export class SelfApprovalError extends MoneyError {
   readonly code = 'SELF_APPROVAL';
   constructor(
-    readonly what: 'Payout' | 'Refund' | 'Manual Contribution',
+    readonly what: 'Payout' | 'Refund' | 'Manual Contribution' | 'Campaign Transfer',
     readonly action: 'approval' | 'reversal' | 'balance_check' = 'approval',
   ) {
     super(
@@ -658,5 +659,97 @@ export class ProviderBalanceNotShortError extends MoneyError {
         'kekurangan untuk dicatat -- gunakan Setujui pencairan.',
     );
     this.name = 'ProviderBalanceNotShortError';
+  }
+}
+
+/**
+ * Campaign Transfer refusals (prd-compliance 33; CONTEXT.md, Campaign
+ * Transfer). The Kind rules are refusals outright, never warnings: money a
+ * Donor gave as zakat may only ever reach another zakat Campaign, and wakaf
+ * only wakaf of the same category.
+ */
+export class CampaignTransferNotFoundError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_NOT_FOUND';
+  constructor(readonly campaignTransferId: string) {
+    super('Campaign Transfer tidak ditemukan.');
+    this.name = 'CampaignTransferNotFoundError';
+  }
+}
+
+/** A field of the request is unusable: amount, reason, or a target that names nothing. */
+export class CampaignTransferInvalidError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'CampaignTransferInvalidError';
+  }
+}
+
+/** The transfer is no longer PENDING, or another decision won the race. */
+export class CampaignTransferNotPendingError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_NOT_PENDING';
+  constructor(readonly currentStatus: string) {
+    super('Campaign Transfer ini tidak lagi menunggu keputusan Admin kedua.');
+    this.name = 'CampaignTransferNotPendingError';
+  }
+}
+
+/** Only a Suspended Campaign's money moves by transfer (PRD §7.2). */
+export class CampaignTransferSourceNotSuspendedError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_SOURCE_NOT_SUSPENDED';
+  constructor(readonly currentStatus: string) {
+    super('Dana hanya dapat dialihkan dari Campaign yang sedang Suspended.');
+    this.name = 'CampaignTransferSourceNotSuspendedError';
+  }
+}
+
+/** Only zakat and wakaf money is moved by transfer; Donation and Hibah follow their own rule. */
+export class CampaignTransferKindNotTransferableError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_KIND_NOT_TRANSFERABLE';
+  constructor(readonly sourceKind: Kind) {
+    super(`Campaign ber-Kind ${KIND_LABEL[sourceKind]} tidak memakai Campaign Transfer; hanya Zakat dan Wakaf.`);
+    this.name = 'CampaignTransferKindNotTransferableError';
+  }
+}
+
+/** Zakat to wakaf, wakaf to zakat, or anything else across Kinds: refused outright. */
+export class CampaignTransferCrossKindError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_CROSS_KIND';
+  constructor(
+    readonly sourceKind: Kind,
+    readonly targetKind: Kind,
+  ) {
+    super(
+      `Dana ${KIND_LABEL[sourceKind]} tidak boleh dialihkan ke Campaign ber-Kind ${KIND_LABEL[targetKind]}. ` +
+        'Pengalihan hanya antar Campaign dengan Kind yang sama.',
+    );
+    this.name = 'CampaignTransferCrossKindError';
+  }
+}
+
+/** Wakaf money stays within its category. */
+export class CampaignTransferCategoryMismatchError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_CATEGORY_MISMATCH';
+  constructor(
+    readonly sourceCategory: string,
+    readonly targetCategory: string,
+  ) {
+    super('Dana Wakaf hanya boleh dialihkan ke Campaign Wakaf dengan kategori yang sama.');
+    this.name = 'CampaignTransferCategoryMismatchError';
+  }
+}
+
+/** The target is the source itself, a Demo Campaign, or a Campaign that is not Active. */
+export class CampaignTransferTargetNotEligibleError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_TARGET_NOT_ELIGIBLE';
+  constructor(readonly reason: 'same_campaign' | 'demo' | 'not_active') {
+    super(
+      reason === 'same_campaign'
+        ? 'Campaign tujuan tidak boleh sama dengan Campaign asal.'
+        : reason === 'demo'
+          ? 'Campaign tujuan adalah Demo Campaign dan tidak boleh menerima dana nyata.'
+          : 'Campaign tujuan harus berstatus Active agar dana yang dialihkan benar-benar sampai ke penerima.',
+    );
+    this.name = 'CampaignTransferTargetNotEligibleError';
   }
 }

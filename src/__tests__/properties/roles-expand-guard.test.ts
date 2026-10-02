@@ -131,6 +131,12 @@ import { join } from "node:path";
  * Verifier revoke or reinstate a Bank Account's verification, through
  * withAssignmentCheck on the VERIFIER assignment like the decide route above
  * -- growing this list by one.
+ *
+ * NOTE (prd-compliance 33): `POST /api/admin/campaign-transfers` and
+ * `POST /api/admin/campaign-transfers/[id]/decision` request and decide a
+ * Campaign Transfer (a Suspended zakat or wakaf Campaign's money moving to a
+ * Campaign of the same Kind), both on the ADMIN assignment alone, on the same
+ * two-person rule as Manual Contribution -- growing this list by two.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -139,6 +145,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/abuse-thresholds/route.ts",
   "src/app/api/admin/assignment-grant-requests/[requestId]/decision/route.ts",
   "src/app/api/admin/assignment-grant-requests/route.ts",
+  "src/app/api/admin/campaign-transfers/[id]/decision/route.ts",
+  "src/app/api/admin/campaign-transfers/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
   "src/app/api/admin/manual-contributions/route.ts",

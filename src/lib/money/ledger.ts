@@ -34,6 +34,8 @@ export interface PostOptions {
   payoutId?: string;
   /** Which Manual Contribution a movement belongs to, for the off-gateway accounts. */
   manualContributionId?: string;
+  /** Which Campaign Transfer a movement between two Campaigns' balances belongs to. */
+  campaignTransferId?: string;
   /** Which ProviderWithdrawal a movement belongs to, for the sweep to the bank. */
   providerWithdrawalId?: string;
   /**
@@ -333,6 +335,7 @@ export async function postTransaction(
         refundId: options.refundId ?? null,
         payoutId: options.payoutId ?? null,
         manualContributionId: options.manualContributionId ?? null,
+        campaignTransferId: options.campaignTransferId ?? null,
         providerWithdrawalId: options.providerWithdrawalId ?? null,
         provider: options.provider ?? null,
         transactionId,
@@ -880,6 +883,31 @@ export function manualContributionReceivedLegs(params: {
   return [
     { account: 'MANUAL_INTAKE_CLEARING', direction: 'DEBIT', amount },
     { account: manualContributionBalanceAccount(subject), direction: 'CREDIT', amount, ...manualContributionFk(subject) },
+  ];
+}
+
+/**
+ * A Campaign Transfer approved (CONTEXT.md, Campaign Transfer): the withdrawable
+ * balance of a Suspended zakat or wakaf Campaign moves to another Campaign.
+ *
+ *   DEBIT  CAMPAIGN_BALANCE  amount   source Campaign
+ *   CREDIT CAMPAIGN_BALANCE  amount   target Campaign
+ *
+ * One journal, debits equal credits, and the only way a balance moves between
+ * two Campaigns: never an edit of a stored figure. It touches neither
+ * ESCROW_HOLD nor any fee, because no money entered or left the platform -- it
+ * only changed whose it is. The caller has already judged the Kinds and the
+ * source's balance under both Campaigns' row locks.
+ */
+export function campaignTransferLegs(params: {
+  sourceCampaignId: string;
+  targetCampaignId: string;
+  amount: number;
+}): LedgerLeg[] {
+  const { sourceCampaignId, targetCampaignId, amount } = params;
+  return [
+    { account: 'CAMPAIGN_BALANCE', direction: 'DEBIT', amount, campaignId: sourceCampaignId },
+    { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount, campaignId: targetCampaignId },
   ];
 }
 

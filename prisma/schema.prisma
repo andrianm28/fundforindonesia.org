@@ -122,6 +122,8 @@ model User {
   manualContributionsRecorded       ManualContribution[]             @relation("ManualContributionRecorder")
   manualContributionsDecided        ManualContribution[]             @relation("ManualContributionDecider")
   manualContributionsReversed       ManualContribution[]             @relation("ManualContributionReverser")
+  campaignTransfersRequested        CampaignTransfer[]               @relation("CampaignTransferRequester")
+  campaignTransfersDecided          CampaignTransfer[]               @relation("CampaignTransferDecider")
   providerWithdrawalsRecorded       ProviderWithdrawal[]             @relation("ProviderWithdrawalRecorder")
   duplicateSimilarityThresholdsSet  DuplicateSimilarityThreshold[]
   abuseThresholdsSet                AbuseThreshold[]
@@ -526,6 +528,11 @@ model Campaign {
   /// (CONTEXT.md, Manual Contribution). Not a Donation: it has no Payment,
   /// no Donor and no Refund, and it can be taken back out by a reversal.
   manualContributions   ManualContribution[]
+  /// Zakat or wakaf money moved out of / into this Campaign by a Campaign
+  /// Transfer (CONTEXT.md, Campaign Transfer). Restrict on both ends: the
+  /// record of where a Suspended Campaign's money went is evidence.
+  transfersOut          CampaignTransfer[]   @relation("CampaignTransferSource")
+  transfersIn           CampaignTransfer[]   @relation("CampaignTransferTarget")
   auditMarker           CampaignAuditMarker?
   donationReviewMarkers DonationReviewMarker[]
 
@@ -2239,6 +2246,10 @@ model LedgerEntry {
   /// arrived off-gateway apart from money that came through a Payment.
   manualContributionId String?
   manualContribution   ManualContribution? @relation(fields: [manualContributionId], references: [id])
+  /// Which Campaign Transfer this movement belongs to: both legs of the
+  /// journal (the debit on the Suspended source, the credit on the target).
+  campaignTransferId   String?
+  campaignTransfer     CampaignTransfer?   @relation(fields: [campaignTransferId], references: [id])
   /// Which ProviderWithdrawal this movement belongs to (prd-compliance 35).
   /// The attribution the per-withdrawal reconciliation needs: the GATEWAY_CLEARING
   /// credit and the COLLECTION_ACCOUNT debit are the two legs of one recorded
@@ -2294,6 +2305,7 @@ model LedgerEntry {
   @@index([transactionId])
   @@index([account, campaignId])
   @@index([account, volunteerTripId])
+  @@index([campaignTransferId])
   @@index([account, programId])
   // The Provider Balance is read grouped by provider and direction, so this
   // is the index that query wants rather than one on provider alone.
@@ -2513,4 +2525,41 @@ model VolunteerCertificate {
   issuedAt       DateTime @default(now())
 
   registration Registration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+}
+
+/// Zakat or wakaf money moved from a Suspended Campaign to another Campaign of
+/// the same Kind (CONTEXT.md, Campaign Transfer; PRD §7.2; ADR 0015). Recorded
+/// by one Admin, decided by a different one (two-person rule, like Manual
+/// Contribution). Approval posts one balanced journal -- debit the source's
+/// CAMPAIGN_BALANCE, credit the target's -- and never edits a balance.
+model CampaignTransfer {
+  id             String                 @id @default(cuid())
+  sourceId       String
+  source         Campaign               @relation("CampaignTransferSource", fields: [sourceId], references: [id], onDelete: Restrict)
+  targetId       String
+  target         Campaign               @relation("CampaignTransferTarget", fields: [targetId], references: [id], onDelete: Restrict)
+  amount         Int
+  reason         String
+  status         CampaignTransferStatus @default(PENDING)
+  requestedById  String
+  requestedBy    User                   @relation("CampaignTransferRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  /// Two-person rule: never requestedById. Set on approval and on rejection.
+  decidedById    String?
+  decidedBy      User?                  @relation("CampaignTransferDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt      DateTime?
+  decisionReason String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([sourceId, status])
+  @@index([targetId, status])
+  @@index([status, createdAt])
+}
+
+enum CampaignTransferStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

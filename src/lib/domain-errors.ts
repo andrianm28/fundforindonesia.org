@@ -85,7 +85,15 @@ export type MoneyErrorCode =
   | "PROVIDER_BALANCE_AMOUNT_INVALID"
   | "PROVIDER_BALANCE_INSUFFICIENT"
   | "PROVIDER_BALANCE_NOT_SHORT"
-  | "PROVIDER_NAME_UNKNOWN";
+  | "PROVIDER_NAME_UNKNOWN"
+  | "CAMPAIGN_TRANSFER_NOT_FOUND"
+  | "CAMPAIGN_TRANSFER_INVALID"
+  | "CAMPAIGN_TRANSFER_NOT_PENDING"
+  | "CAMPAIGN_TRANSFER_SOURCE_NOT_SUSPENDED"
+  | "CAMPAIGN_TRANSFER_KIND_NOT_TRANSFERABLE"
+  | "CAMPAIGN_TRANSFER_CROSS_KIND"
+  | "CAMPAIGN_TRANSFER_CATEGORY_MISMATCH"
+  | "CAMPAIGN_TRANSFER_TARGET_NOT_ELIGIBLE";
 
 /**
  * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
@@ -351,6 +359,22 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // Admin can fix it by choosing a registered provider, and no rule was
   // breached, only a name that names nothing.
   PROVIDER_NAME_UNKNOWN: 400,
+  CAMPAIGN_TRANSFER_NOT_FOUND: 404,
+  // A field left blank, too long, or an amount that is not whole rupiah:
+  // fixable by filling the form in properly, like MANUAL_CONTRIBUTION_INVALID.
+  CAMPAIGN_TRANSFER_INVALID: 400,
+  CAMPAIGN_TRANSFER_NOT_PENDING: 409,
+  // Conflicts with the source's own state: it is not Suspended (or stopped
+  // being, between request and approval).
+  CAMPAIGN_TRANSFER_SOURCE_NOT_SUSPENDED: 409,
+  // Policy refusals that no resend of the same body changes, like
+  // REFUND_NOT_ALLOWED_FOR_KIND: 403. A cross-Kind transfer is refused
+  // outright, never warned about (PRD §7.2).
+  CAMPAIGN_TRANSFER_KIND_NOT_TRANSFERABLE: 403,
+  CAMPAIGN_TRANSFER_CROSS_KIND: 403,
+  CAMPAIGN_TRANSFER_CATEGORY_MISMATCH: 403,
+  // The target is a Demo Campaign, the source itself, or not Active.
+  CAMPAIGN_TRANSFER_TARGET_NOT_ELIGIBLE: 409,
   TRIP_NOT_FOUND: 404,
   TRIP_NOT_EDITABLE: 409,
   TRIP_NOT_SUBMITTED: 409,
