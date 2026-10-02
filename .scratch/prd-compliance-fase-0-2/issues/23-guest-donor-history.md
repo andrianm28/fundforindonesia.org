@@ -4,7 +4,7 @@
 
 **Blocked by:** 16, 18
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 - [x] History appears only after the account's email is verified by confirmation link
 - [x] Matching goes through the email HMAC, never a decrypted scan
@@ -37,3 +37,5 @@
   someone else uses is still allowed (unchanged); it just claims nothing.
   (4) Claimed Donations keep their `guest*` columns.
 - 2026-10-02: keputusan owner (Dri): login atau registrasi lewat Google belum dianggap email terverifikasi; klaim riwayat Donation tamu hanya setelah konfirmasi tautan email; registrasi dengan email milik orang lain diizinkan tetapi tidak mengklaim apa pun. Dicatat di ADR 0022 dan CONTEXT.md.
+
+- 2026-10-02: awaiting-merge. PR #186, commit aad00d2. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
