@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 - [x] Password hashing and verification no longer occupy the main thread
 - [x] Existing stored hashes keep working with no password reset and no migration, because the hash format is unchanged
