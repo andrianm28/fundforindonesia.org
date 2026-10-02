@@ -124,6 +124,7 @@ describe("docker-compose.prod.yml env passthrough", () => {
   // Read by code under src/ but deliberately not passed to the app container.
   const NOT_PASSED = new Set([
     "NODE_ENV", // set by the image
+    "NEXT_RUNTIME", // set by Next.js itself
     "TEST_DATABASE_URL", // tests only
     "LEDGER_CLAIM_TEST_DATABASE_URL", // tests only
   ]);
