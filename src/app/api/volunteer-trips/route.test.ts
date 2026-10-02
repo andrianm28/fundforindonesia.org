@@ -103,6 +103,25 @@ describe('POST /api/volunteer-trips', () => {
   });
 });
 
+describe('POST /api/volunteer-trips tripFeeAmount', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetServerSession.mockResolvedValue({ user: { id: 'user-1' } });
+    mockCreate.mockResolvedValue({ id: 'trip-1', slug: 'x' });
+  });
+
+  it.each([999999999.99, 1500.5, 2_147_483_648, 0, -1])('rejects %s', async (tripFeeAmount) => {
+    const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount }));
+    expect(response.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('accepts the maximum whole Rupiah amount', async () => {
+    const response = await POST(createRequest({ ...VALID_BODY, tripFeeAmount: 2_147_483_647 }));
+    expect(response.status).toBe(201);
+  });
+});
+
 function listRequest(query = ''): NextRequest {
   return new NextRequest(`http://localhost:3000/api/volunteer-trips${query}`);
 }
@@ -132,6 +151,16 @@ describe('GET /api/volunteer-trips', () => {
   it('clamps an out-of-range limit to the maximum', async () => {
     await GET(listRequest('?limit=500'));
     expect(mockFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 50 }));
+  });
+
+  it('selects explicit public fields: never fundraiserId or other internals', async () => {
+    await GET(listRequest());
+    const args = mockFindMany.mock.calls[0][0];
+    expect(args.include).toBeUndefined();
+    expect(args.select).toEqual(expect.objectContaining({ slug: true, title: true, tripFeeAmount: true }));
+    expect(args.select.fundraiserId).toBeUndefined();
+    expect(args.select.fundraiser).toBeUndefined();
+    expect(args.select.status).toBeUndefined();
   });
 
   it('does not require authentication', async () => {

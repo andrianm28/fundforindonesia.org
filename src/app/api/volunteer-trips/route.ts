@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { PUBLIC_TRIP_LIST_SELECT, tripFeeAmountSchema } from '@/lib/volunteer/trip-public';
 
 const createVolunteerTripSchema = z.object({
   title: z.string().min(1, 'Judul harus diisi').max(200, 'Judul maksimal 200 karakter'),
@@ -10,7 +11,7 @@ const createVolunteerTripSchema = z.object({
   coverImage: z.string().url('URL gambar tidak valid'),
   destination: z.string().min(1, 'Destinasi harus diisi'),
   itinerary: z.string().min(1, 'Itinerary harus diisi'),
-  tripFeeAmount: z.number().positive('Trip Fee harus lebih dari 0'),
+  tripFeeAmount: tripFeeAmountSchema,
 });
 
 function generateSlug(title: string): string {
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
     const [trips, total] = await Promise.all([
       prisma.volunteerTrip.findMany({
         where,
+        select: PUBLIC_TRIP_LIST_SELECT,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,

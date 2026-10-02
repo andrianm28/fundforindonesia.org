@@ -258,6 +258,18 @@ describe('GET /api/volunteer-trips/[slug]', () => {
     );
   });
 
+  it('selects explicit public fields for the trip and its batches: never fundraiserId', async () => {
+    await GET(getRequest(), routeContext());
+    const tripArgs = mockFindUnique.mock.calls[0][0];
+    expect(tripArgs.include).toBeUndefined();
+    expect(tripArgs.select).toEqual(expect.objectContaining({ id: true, slug: true, status: true }));
+    expect(tripArgs.select.fundraiserId).toBeUndefined();
+    expect(tripArgs.select.fundraiser).toBeUndefined();
+    const batchArgs = mockBatchFindMany.mock.calls[0][0];
+    expect(batchArgs.select).toEqual(expect.objectContaining({ id: true, maxQuota: true }));
+    expect(batchArgs.select.minQuota).toBeUndefined();
+  });
+
   it('does not require authentication', async () => {
     const response = await GET(getRequest(), routeContext());
     expect(response.status).toBe(200);
@@ -276,5 +288,18 @@ describe('GET /api/volunteer-trips/[slug]', () => {
         where: expect.objectContaining({ batchId: 'batch-1', status: { in: ['HOLD', 'CONFIRMED'] } }),
       }),
     );
+  });
+});
+
+describe('PATCH tripFeeAmount bounds', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetServerSession.mockResolvedValue({ user: { id: 'owner-1' } });
+    mockFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'owner-1', status: 'DRAFT' });
+  });
+
+  it.each([999999999.99, 1500.5, 2_147_483_648, 0])('rejects %s', async (tripFeeAmount) => {
+    const response = await PATCH(patchRequest({ tripFeeAmount }), routeContext());
+    expect(response.status).toBe(400);
   });
 });

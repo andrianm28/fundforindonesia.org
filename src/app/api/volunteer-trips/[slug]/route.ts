@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
+import { PUBLIC_BATCH_SELECT, PUBLIC_TRIP_DETAIL_SELECT, tripFeeAmountSchema } from '@/lib/volunteer/trip-public';
 import { submitTrip, TRIP_EDITABLE_STATUSES } from '@/lib/volunteer/trip';
 
 const editVolunteerTripSchema = z.object({
@@ -12,7 +13,7 @@ const editVolunteerTripSchema = z.object({
   coverImage: z.string().url().optional(),
   destination: z.string().min(1).optional(),
   itinerary: z.string().min(1).optional(),
-  tripFeeAmount: z.number().positive().optional(),
+  tripFeeAmount: tripFeeAmountSchema.optional(),
   action: z.enum(['submit']).optional(),
 });
 
@@ -92,7 +93,7 @@ export async function GET(
   try {
     const { slug } = await params;
 
-    const trip = await prisma.volunteerTrip.findUnique({ where: { slug } });
+    const trip = await prisma.volunteerTrip.findUnique({ where: { slug }, select: PUBLIC_TRIP_DETAIL_SELECT });
 
     if (!trip || trip.status !== 'ACTIVE') {
       return NextResponse.json({ error: 'Volunteer trip tidak ditemukan' }, { status: 404 });
@@ -100,6 +101,7 @@ export async function GET(
 
     const batches = await prisma.volunteerBatch.findMany({
       where: { tripId: trip.id, status: 'OPEN' },
+      select: PUBLIC_BATCH_SELECT,
       orderBy: { startDate: 'asc' },
     });
 
