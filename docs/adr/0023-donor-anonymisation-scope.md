@@ -1,11 +1,11 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # What is removed when a Donor is anonymised, and what stays
 
-Status per decision: (a) to (d) are **Proposed**. (e), the scope of the Receipt
-link, is **Accepted (owner 2026-10-02)**; see "Scope: Guest and registered" and
+Status per decision: (a) to (d) are **Accepted (owner 2026-10-02)**. (e), the
+scope of the Receipt link, is also **Accepted (owner 2026-10-02)**; see "Scope: Guest and registered" and
 "Considered options".
 
 When a Donor requests their identity removed from their Donation(s), the
