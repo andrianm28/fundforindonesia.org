@@ -23,7 +23,7 @@ export function AdminSidebar() {
   return (
     <div className="md:w-64 md:shrink-0">
       <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 md:hidden">
-        <p className="text-base font-bold text-gray-900">Admin Panel</p>
+        <p className="text-base font-bold text-ink">Admin Panel</p>
         <button
           type="button"
           aria-expanded={open}
@@ -40,7 +40,7 @@ export function AdminSidebar() {
         className={`${open ? "flex" : "hidden"} flex-col border-r border-gray-200 bg-white md:sticky md:top-0 md:flex md:min-h-screen`}
       >
       <div className="hidden border-b border-gray-200 p-6 md:block">
-        <p className="text-xl font-bold text-gray-900">Admin Panel</p>
+        <p className="text-xl font-bold text-ink">Admin Panel</p>
         <p className="text-sm text-gray-500 mt-1">Manajemen Platform</p>
       </div>
 
@@ -124,7 +124,7 @@ function SidebarLink({
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-primary/10 hover:text-primary transition-colors"
     >
       <SidebarIcon type={icon} />
       {children}

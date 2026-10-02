@@ -21,7 +21,7 @@ export default async function ModerasiLayout({
         {/* Sidebar */}
         <aside className="w-64 min-h-screen bg-white border-r border-[#E0E0E0] hidden md:block">
           <div className="p-6">
-            <h2 className="text-lg font-semibold text-[#212121]">Moderasi</h2>
+            <h2 className="text-lg font-semibold text-ink">Moderasi</h2>
             <p className="text-xs text-[#757575] mt-1">Panel Moderator</p>
           </div>
 
@@ -40,7 +40,7 @@ export default async function ModerasiLayout({
         {/* Mobile header */}
         <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-white border-b border-[#E0E0E0]">
           <div className="px-4 py-3">
-            <h2 className="text-base font-semibold text-[#212121]">Moderasi</h2>
+            <h2 className="text-base font-semibold text-ink">Moderasi</h2>
           </div>
           <div className="flex overflow-x-auto border-t border-[#E0E0E0]">
             <MobileNavLink href="/moderasi" label="Dashboard" />
@@ -73,7 +73,7 @@ function NavLink({
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-[#424242] hover:bg-[#F5F5F5] hover:text-[#0073E6] transition-colors"
+      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-[#424242] hover:bg-[#F5F5F5] hover:text-primary transition-colors"
     >
       <Icon className="w-5 h-5" />
       <span>{label}</span>
@@ -85,7 +85,7 @@ function MobileNavLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="flex-1 shrink-0 whitespace-nowrap px-3 text-center py-2.5 text-xs font-medium text-[#424242] hover:text-[#0073E6] hover:bg-[#F5F5F5] transition-colors"
+      className="flex-1 shrink-0 whitespace-nowrap px-3 text-center py-2.5 text-xs font-medium text-[#424242] hover:text-primary hover:bg-[#F5F5F5] transition-colors"
     >
       {label}
     </Link>

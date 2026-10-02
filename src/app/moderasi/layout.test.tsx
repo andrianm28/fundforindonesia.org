@@ -52,4 +52,12 @@ describe("ModerasiLayout", () => {
       expect(container.querySelectorAll(`a[href="${href}"]`)).toHaveLength(2);
     }
   });
+
+  it("styles the shell with the brand tokens, not the old blue hex or ledger gold", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
+    const { container } = render(await ModerasiLayout({ children: null }));
+    expect(container.innerHTML).not.toContain("0073E6");
+    expect(container.innerHTML).not.toContain("ledger");
+    expect(container.querySelector("a[href='/moderasi/reports']")?.className).toContain("hover:text-primary");
+  });
 });

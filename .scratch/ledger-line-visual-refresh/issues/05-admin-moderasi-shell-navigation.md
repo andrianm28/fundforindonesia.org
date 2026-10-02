@@ -9,7 +9,7 @@ at the same time, for consistency.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 - [ ] The real current admin/moderasi route set is audited first —
       `/admin/campaigns`, `/admin/users`, `/moderasi/campaigns`,
@@ -28,3 +28,15 @@ at the same time, for consistency.
 - [ ] Verified in-browser, logged in as an Admin and separately as a Verifier:
       every route each role can actually reach has a working nav entry, and no
       entry appears for a route that role can't access.
+
+## Audit dan bukti
+
+- Audit rute: `src/components/admin/AdminSidebar.tsx` (13 entri, PR #144/#151)
+  dan `src/app/moderasi/layout.tsx` (8 entri, desktop + mobile). Rute
+  `[id]`/`[slug]`/`new` tanpa halaman indeks tidak dapat entri. Tanpa hitungan
+  data pada nav.
+- Sisa yang dikerjakan: shell masih memakai abu-abu polos (admin) dan hex biru
+  lama `#0073E6` (moderasi). Kini memakai token `primary`/`ink`; tanpa
+  `ledger`. Tes: `AdminSidebar.test.tsx`, `moderasi/layout.test.tsx`.
+- Belum: verifikasi in-browser sebagai Admin dan Verifier (kriteria 4); akses
+  per peran dijaga layout (ADMIN / VERIFIER), bukan nav.
