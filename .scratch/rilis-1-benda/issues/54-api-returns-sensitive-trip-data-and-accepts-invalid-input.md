@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, data integrity)
 
-**Status:** in-review
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -52,3 +52,7 @@ Detail teknis eksposur disimpan owner di luar repo publik; lihat PR #177 untuk p
   PATCH (bukan 500 juta dari saran awal: mengikuti batas yang sudah ada).
 - **(c) coverImage: ditangani PR #173** (`src/lib/cover-image.ts`); tidak
   dikerjakan di tiket ini.
+
+## Comments
+
+- 2026-10-02: awaiting-merge. PR #177, commit b9330b0. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
