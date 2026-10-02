@@ -258,6 +258,52 @@ describe('completeBatch', () => {
   });
 });
 
+describe('completeBatch leaves no HOLD behind (ticket 53)', () => {
+  const ended = batchRow({ endDate: new Date('2026-09-20T00:00:00Z') });
+  const seed = () =>
+    makeTripDb({
+      trips: [tripRow({ status: 'ACTIVE' })],
+      batches: [ended],
+      registrations: [
+        registrationRow({ id: 'held', volunteerId: 'v-held', status: 'HOLD' }),
+        registrationRow({ id: 'paid', volunteerId: 'v-paid', status: 'CONFIRMED' }),
+        registrationRow({ id: 'gone', volunteerId: 'v-gone', status: 'CANCELLED' }),
+      ],
+    });
+
+  it('expires every HOLD and leaves CONFIRMED and CANCELLED Registrations as they were', async () => {
+    const db = seed();
+
+    await completeBatch(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      actor: fundraiser,
+      attendedRegistrationIds: ['paid'],
+      now: NOW,
+    });
+
+    const status = (id: string) => db.registrations.find((r) => r.id === id)!.status;
+    expect(status('held')).toBe('EXPIRED');
+    expect(status('paid')).toBe('CONFIRMED');
+    expect(status('gone')).toBe('CANCELLED');
+  });
+
+  it('leaves the HOLD alone when the completion is refused', async () => {
+    const db = seed();
+
+    await completeBatch(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      actor: fundraiser,
+      attendedRegistrationIds: ['held'],
+      now: NOW,
+    }).catch(() => undefined);
+
+    expect(db.registrations.find((r) => r.id === 'held')!.status).toBe('HOLD');
+    expect(db.batch().status).toBe('OPEN');
+  });
+});
+
 describe('completeBatch attendance (ticket 35)', () => {
   const ended = batchRow({ endDate: new Date('2026-09-20T00:00:00Z') });
   const confirmed = (id: string, overrides = {}) => registrationRow({ id, volunteerId: `v-${id}`, ...overrides });

@@ -220,6 +220,15 @@ describe('Registration page', () => {
     expect(screen.getByRole('button', { name: 'Batalkan Registrasi' })).toBeInTheDocument();
   });
 
+  it('shows an EXPIRED Registration as expired: no waiting-for-payment label, countdown or cancel', async () => {
+    view.getVolunteerRegistration.mockResolvedValue(reg({ status: 'EXPIRED', paidAmount: null, cancelRefundAmount: 0 }));
+    render(await RegistrationPage(params));
+    expect(screen.getByText('Kedaluwarsa')).toBeInTheDocument();
+    expect(screen.queryByText(/Menunggu pembayaran/)).toBeNull();
+    expect(screen.queryByRole('timer')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Batalkan Registrasi' })).toBeNull();
+  });
+
   it('shows Refund status for a cancelled Registration and offers no cancel', async () => {
     view.getVolunteerRegistration.mockResolvedValue(
       reg({ status: 'CANCELLED', refunds: [{ id: 'rf', amount: 1_250_000, status: 'REQUESTED' }] }),
