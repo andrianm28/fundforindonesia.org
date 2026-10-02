@@ -8,6 +8,17 @@ import { Assignment } from "@/generated/prisma/client";
 import { buildAuthAdapter } from "@/lib/auth-adapter";
 import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 
+/**
+ * The picture the identity provider reports on this sign-in, when it is one.
+ * Google's raw profile calls it `picture`; next-auth's own type only knows
+ * `image`, so the raw field is read as unknown and checked.
+ */
+function providerPicture(profile: unknown): string | null {
+  if (typeof profile !== "object" || profile === null) return null;
+  const { picture } = profile as { picture?: unknown };
+  return typeof picture === "string" && /^https?:\/\//.test(picture) ? picture : null;
+}
+
 export const authOptions: NextAuthOptions = {
   // Both halves of the adapter need the schema it cannot see: the write goes
   // through the hooked client, so an OAuth sign-in's address is sealed on the
@@ -93,9 +104,24 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account, profile }) {
       if (user) {
         token.id = user.id;
+
+        // Signing in again with a different picture updates the stored one
+        // (ticket 47). A picture the user uploaded here (a local path) is not
+        // the provider's to overwrite; only a missing or provider-hosted one is.
+        // Best-effort: a failed write must not cost a user their login.
+        const incoming = account?.type === "oauth" ? providerPicture(profile) : null;
+        const stored = user.image ?? null;
+        if (incoming && incoming !== stored && (!stored || /^https?:\/\//.test(stored))) {
+          try {
+            await prisma.user.update({ where: { id: user.id }, data: { avatar: incoming } });
+            token.picture = incoming;
+          } catch (error) {
+            console.error("Failed to store the provider's picture:", error);
+          }
+        }
       }
 
       // Authority comes only from assignments (ADR 0005), read fresh so a

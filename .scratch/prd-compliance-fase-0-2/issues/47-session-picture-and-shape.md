@@ -7,16 +7,16 @@ placeholder even though the image is on the row.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** in-review
 
-- [ ] A user with a stored `avatar` has a picture in the session, so the
+- [x] A user with a stored `avatar` has a picture in the session, so the
       picture renders wherever the session is the source
-- [ ] The mapping goes one way only if it has to: `image` in, `avatar` on
+- [x] The mapping goes one way only if it has to: `image` in, `avatar` on
       the row, and back out to whatever the session calls it. A second
       field holding the same value is not the answer
-- [ ] A user with no picture still gets the same placeholder as before, not
+- [x] A user with no picture still gets the same placeholder as before, not
       a broken image
-- [ ] Signing in again with a different picture updates the stored one, and
+- [x] Signing in again with a different picture updates the stored one, and
       the session reflects the new one
 
 ## Comments

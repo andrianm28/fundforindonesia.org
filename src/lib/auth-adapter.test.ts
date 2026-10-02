@@ -297,3 +297,55 @@ describe('a Google sign-in by an address with no account', () => {
     expect(DEFAULT_TOKEN(again.user).email).toBe('andi@email.com');
   });
 });
+
+// Ticket 47. The row stores the picture as `avatar`; next-auth builds the
+// token's `picture` (and so the session's `image`) from `user.image`. The
+// adapter is the one place that translates, and it returns one field, not two.
+describe('the picture on the user the adapter hands next-auth', () => {
+  const withAvatar = (avatar: string | null): Data => ({ ...sealedUser('u1', 'andi@email.com'), avatar });
+
+  it('arrives as `image` for an account that signs in through its linked Google identity', async () => {
+    const { client } = prismaDouble({
+      users: [withAvatar('https://example.test/stored.png')],
+      accounts: [{ userId: 'u1', ...GOOGLE_ACCOUNT }],
+    });
+
+    const { user } = await signInWithGoogle({ client });
+
+    expect(DEFAULT_TOKEN(user).picture).toBe('https://example.test/stored.png');
+    expect('avatar' in user).toBe(false);
+  });
+
+  it('arrives as `image` for a Donor created by the sign-in', async () => {
+    const { client } = prismaDouble();
+
+    const { user } = await signInWithGoogle({ client });
+
+    expect(DEFAULT_TOKEN(user).picture).toBe('https://example.test/andi.png');
+  });
+
+  it('is null, not a broken value, for an account with no picture', async () => {
+    const { client } = prismaDouble({
+      users: [withAvatar(null)],
+      accounts: [{ userId: 'u1', ...GOOGLE_ACCOUNT }],
+    });
+
+    const { user } = await signInWithGoogle({ client });
+
+    expect(DEFAULT_TOKEN(user).picture).toBeNull();
+  });
+
+  it('is mapped on every lookup, and written back as `avatar` by updateUser', async () => {
+    const { client, users } = prismaDouble({ users: [withAvatar('https://example.test/stored.png')] });
+    const adapter = buildAuthAdapter(client);
+
+    expect((await adapter.getUser!('u1'))?.image).toBe('https://example.test/stored.png');
+    expect((await adapter.getUserByEmail!('andi@email.com'))?.image).toBe('https://example.test/stored.png');
+
+    const updated = await adapter.updateUser!({ id: 'u1', image: 'https://example.test/new.png' });
+
+    expect(users[0]!.avatar).toBe('https://example.test/new.png');
+    expect(updated.image).toBe('https://example.test/new.png');
+    expect('avatar' in updated).toBe(false);
+  });
+});

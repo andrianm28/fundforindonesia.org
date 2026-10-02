@@ -278,3 +278,65 @@ describe("credentials login", () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 });
+
+// Ticket 47: signing in again with a different picture updates the stored one,
+// and the token (so the session) carries the new one.
+describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
+  type JwtArgs = Parameters<NonNullable<typeof authOptions.callbacks>["jwt"] & object>[0];
+
+  const signIn = (stored: string | null, picture: unknown) => {
+    const args = {
+      token: { picture: stored },
+      user: { id: "user-1", email: "andi@email.com", image: stored },
+      account: { type: "oauth", provider: "google", providerAccountId: "g-1" },
+      profile: { sub: "g-1", picture },
+      trigger: "signIn",
+    } as unknown as JwtArgs;
+    return authOptions.callbacks!.jwt!(args);
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindUnique.mockResolvedValue({ assignments: [] });
+  });
+
+  it("stores a different provider picture and puts it on the token", async () => {
+    const token = await signIn("https://example.test/old.png", "https://example.test/new.png");
+
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: { avatar: "https://example.test/new.png" },
+    });
+    expect(token.picture).toBe("https://example.test/new.png");
+  });
+
+  it("stores the provider picture for an account that had none", async () => {
+    await signIn(null, "https://example.test/new.png");
+
+    expect(mockUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("writes nothing when the picture is unchanged, or the provider sent none", async () => {
+    await signIn("https://example.test/same.png", "https://example.test/same.png");
+    await signIn("https://example.test/same.png", undefined);
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a picture the user uploaded here", async () => {
+    const token = await signIn("/uploads/me.jpg", "https://example.test/new.png");
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(token.picture).toBe("/uploads/me.jpg");
+  });
+
+  it("still signs in when the write fails, and puts nothing but id, picture and assignments on the token", async () => {
+    mockUpdate.mockRejectedValueOnce(new Error("db down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const token = await signIn("https://example.test/old.png", "https://example.test/new.png");
+
+    expect(token.picture).toBe("https://example.test/old.png");
+    expect(Object.keys(token).sort()).toEqual(["assignments", "id", "picture"]);
+  });
+});
