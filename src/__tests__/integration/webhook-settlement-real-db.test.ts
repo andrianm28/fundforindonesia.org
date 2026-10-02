@@ -217,8 +217,12 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     return { registration, payment };
   }
 
-  async function sendPaid(providerRef: string, amount: number): Promise<Response> {
-    const body = await provider.simulateWebhookPayload(providerRef, amount, 'settlement', `evt-${providerRef}`);
+  async function deliverSettlement(
+    providerRef: string,
+    amount: number,
+    providerEventId = `evt-${providerRef}`,
+  ): Promise<Response> {
+    const body = await provider.simulateWebhookPayload(providerRef, amount, 'settlement', providerEventId);
     const request = new NextRequest('http://localhost/api/webhooks/mock', {
       method: 'POST',
       body: JSON.stringify(body),
@@ -231,7 +235,7 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     sentMail.length = 0;
     const { donation, payment, expectedEmail } = await pendingDonationPayment(false);
 
-    const res = await sendPaid(payment.providerRef, 100_000);
+    const res = await deliverSettlement(payment.providerRef, 100_000);
 
     expect(res.status).toBe(200);
     expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
@@ -244,7 +248,7 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     sentMail.length = 0;
     const { donation, payment, expectedEmail } = await pendingDonationPayment(true);
 
-    const res = await sendPaid(payment.providerRef, 100_000);
+    const res = await deliverSettlement(payment.providerRef, 100_000);
 
     expect(res.status).toBe(200);
     expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
@@ -255,7 +259,7 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
   it('settles a Trip Fee: Payment PAID and Registration CONFIRMED', async () => {
     const { registration, payment } = await pendingTripFeePayment();
 
-    const res = await sendPaid(payment.providerRef, 500_000);
+    const res = await deliverSettlement(payment.providerRef, 500_000);
 
     expect(res.status).toBe(200);
     expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
@@ -271,10 +275,10 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     sentMail.length = 0;
     const { donation, payment, expectedEmail } = await pendingDonationPayment(guest);
 
-    const first = await sendPaid(payment.providerRef, 100_000);
+    const first = await deliverSettlement(payment.providerRef, 100_000);
     const afterFirst = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
     const ledgerAfterFirst = await prisma.ledgerEntry.count({ where: { paymentId: payment.id } });
-    const second = await sendPaid(payment.providerRef, 100_000);
+    const second = await deliverSettlement(payment.providerRef, 100_000);
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
@@ -294,11 +298,11 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     sentMail.length = 0;
     const { registration, payment } = await pendingTripFeePayment();
 
-    const first = await sendPaid(payment.providerRef, 500_000);
+    const first = await deliverSettlement(payment.providerRef, 500_000);
     const ledgerAfterFirst = await prisma.ledgerEntry.count({ where: { paymentId: payment.id } });
     const mailAfterFirst = sentMail.length;
     const confirmedAt = (await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).updatedAt;
-    const second = await sendPaid(payment.providerRef, 500_000);
+    const second = await deliverSettlement(payment.providerRef, 500_000);
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
@@ -310,6 +314,61 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     expect(await prisma.ledgerEntry.count({ where: { paymentId: payment.id } })).toBe(ledgerAfterFirst);
     expect(await prisma.webhookEvent.count({ where: { providerEventId: `evt-${payment.providerRef}` } })).toBe(1);
     expect(sentMail).toHaveLength(mailAfterFirst);
+  });
+
+  // Trip Fee: the webhook sends NO email (only notifyRegistrationConfirmed's
+  // in-app Notification; sendReportingFailure is reached only on the Donation
+  // branch, for the Receipt). Pinned so a future Trip Fee email is a decision.
+  it('first delivery for a Trip Fee sends no email and creates exactly one in-app confirmation', async () => {
+    sentMail.length = 0;
+    const { registration, payment } = await pendingTripFeePayment();
+
+    const res = await deliverSettlement(payment.providerRef, 500_000);
+
+    expect(res.status).toBe(200);
+    expect(sentMail).toHaveLength(0);
+    expect(
+      await prisma.notification.count({ where: { userId: registration.volunteerId, type: 'registration_confirmed' } }),
+    ).toBe(1);
+  });
+
+  // Two DIFFERENT events (distinct providerEventId) for one Payment: the
+  // status-keyed updateMany lets only the first settle it.
+  it('two different settlement events for one Donation Payment settle it once', async () => {
+    sentMail.length = 0;
+    const { donation, payment, expectedEmail } = await pendingDonationPayment(false);
+
+    const first = await deliverSettlement(payment.providerRef, 100_000, `evt-a-${payment.providerRef}`);
+    const ledgerAfterFirst = await prisma.ledgerEntry.count({ where: { paymentId: payment.id } });
+    const second = await deliverSettlement(payment.providerRef, 100_000, `evt-b-${payment.providerRef}`);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
+    expect(await prisma.receipt.count({ where: { donationId: donation.id } })).toBe(1);
+    expect(ledgerAfterFirst).toBeGreaterThan(0);
+    expect(await prisma.ledgerEntry.count({ where: { paymentId: payment.id } })).toBe(ledgerAfterFirst);
+    expect(await prisma.webhookEvent.count({ where: { providerEventId: { endsWith: payment.providerRef } } })).toBe(2);
+    expect(sentMail.filter((m) => m.to === expectedEmail)).toHaveLength(1);
+  });
+
+  it('two different settlement events for one Trip Fee Payment confirm it once', async () => {
+    sentMail.length = 0;
+    const { registration, payment } = await pendingTripFeePayment();
+
+    const first = await deliverSettlement(payment.providerRef, 500_000, `evt-a-${payment.providerRef}`);
+    const ledgerAfterFirst = await prisma.ledgerEntry.count({ where: { paymentId: payment.id } });
+    const second = await deliverSettlement(payment.providerRef, 500_000, `evt-b-${payment.providerRef}`);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect((await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).status).toBe('CONFIRMED');
+    expect(ledgerAfterFirst).toBeGreaterThan(0);
+    expect(await prisma.ledgerEntry.count({ where: { paymentId: payment.id } })).toBe(ledgerAfterFirst);
+    expect(
+      await prisma.notification.count({ where: { userId: registration.volunteerId, type: 'registration_confirmed' } }),
+    ).toBe(1);
+    expect(sentMail).toHaveLength(0);
   });
 
   // A registered Donor's account address is where the Receipt goes; the
