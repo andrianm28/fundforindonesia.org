@@ -152,6 +152,29 @@ describe('sendCampaignDeadlineReminders', () => {
     expect(report).toMatchObject({ mail: 'campaign_deadline_reminder', campaignId: 'campaign-1' });
   });
 
+  it('uses the seven-day lead time the PRD asks for (FFI-03)', () => {
+    expect(CAMPAIGN_DEADLINE_REMINDER_DAYS).toBe(7);
+  });
+
+  it('reminds a Campaign whose deadline is five days out, and exactly seven days out', async () => {
+    makeCampaignDb([
+      makeCampaign({ id: 'campaign-5d', slug: 'campaign-5d', deadline: new Date(NOW.getTime() + 5 * MS_PER_DAY) }),
+      makeCampaign({ id: 'campaign-7d', slug: 'campaign-7d', deadline: new Date(NOW.getTime() + 7 * MS_PER_DAY) }),
+    ]);
+
+    const result = await sendCampaignDeadlineReminders(NOW);
+
+    expect(result).toEqual({ attemptedCount: 2, consideredCount: 2 });
+  });
+
+  it('does not remind a Campaign whose deadline is just past seven days out', async () => {
+    makeCampaignDb([makeCampaign({ deadline: new Date(NOW.getTime() + 7 * MS_PER_DAY + 1) })]);
+
+    const result = await sendCampaignDeadlineReminders(NOW);
+
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
+  });
+
   it('does not remind a Campaign whose deadline is further out than the reminder window', async () => {
     makeCampaignDb([makeCampaign({ deadline: new Date(NOW.getTime() + 10 * MS_PER_DAY) })]);
 
@@ -171,6 +194,20 @@ describe('sendCampaignDeadlineReminders', () => {
 
   it('never reconsiders a Campaign that was already reminded', async () => {
     makeCampaignDb([makeCampaign({ deadlineReminderSentAt: new Date(NOW.getTime() - MS_PER_DAY) })]);
+
+    const result = await sendCampaignDeadlineReminders(NOW);
+
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
+  });
+
+  it('does not remind again a Campaign already reminded under the old three-day rule, now inside the seven-day window', async () => {
+    makeCampaignDb([
+      makeCampaign({
+        deadline: new Date(NOW.getTime() + 2 * MS_PER_DAY),
+        deadlineReminderSentAt: new Date(NOW.getTime() - MS_PER_DAY),
+      }),
+    ]);
 
     const result = await sendCampaignDeadlineReminders(NOW);
 
