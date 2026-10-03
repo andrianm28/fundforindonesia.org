@@ -4,10 +4,10 @@ import {
   escrowReleaseLegs,
   postTransaction,
   refundFreezeDebit,
-  refundFreezeTransactionId,
   type LedgerSubject,
 } from './ledger';
 import { assertExactlyOnePaymentSubject } from './payment-subject';
+import { isRefundStanding, readRefundFreezeEntries } from './refund-standing';
 import { isEscrowReleaseFrozen, lockAndLoad } from '@/lib/subject-guard';
 
 /**
@@ -213,21 +213,7 @@ type SweepOutcome = 'released' | 'frozen' | 'deferred' | 'raceLost';
  * catch logs it.
  */
 async function escrowTakenByRefunds(tx: Prisma.TransactionClient, refundIds: string[]): Promise<number> {
-  if (refundIds.length === 0) return 0;
-
-  const entries = await tx.ledgerEntry.findMany({
-    where: { transactionId: { in: refundIds.map((id) => refundFreezeTransactionId(id)) } },
-    select: { transactionId: true, account: true, direction: true, amount: true },
-  });
-
-  const posted = new Set(entries.map((e) => e.transactionId));
-  const missing = refundIds.filter((id) => !posted.has(refundFreezeTransactionId(id)));
-  if (missing.length > 0) {
-    throw new Error(
-      `Refund ${missing.join(', ')} has no freeze journal in the ledger; refusing to guess how much ` +
-        "of the Payment's escrow it took.",
-    );
-  }
+  const entries = await readRefundFreezeEntries(tx, refundIds);
 
   return refundIds.reduce((sum, id) => sum + refundFreezeDebit(entries, id, 'ESCROW_HOLD'), 0);
 }
@@ -460,7 +446,7 @@ export async function releaseMaturedEscrow(
         // back out -- so they are not asked about.
         const refundedNetAmount = await escrowTakenByRefunds(
           tx,
-          refunds.filter((r) => r.status !== 'REJECTED' && r.status !== 'FAILED').map((r) => r.id),
+          refunds.filter(isRefundStanding).map((r) => r.id),
         );
 
         // Claim this payment before posting anything. Whichever of two

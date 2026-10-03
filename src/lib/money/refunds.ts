@@ -35,11 +35,13 @@ import {
   RefundDestinationMismatchError,
   SelfApprovalError,
   InvalidRefundStatusError,
+  RefundFreezeJournalMissingError,
   TwoPersonRuleError,
   RefundAfterCampaignTransferError,
   RefundResolutionActorError,
   RefundReasonInvalidError,
 } from './errors';
+import { STANDING_REFUND_WHERE, isRefundStanding, readRefundFreezeEntries } from './refund-standing';
 
 /**
  * Refund: request, approve, complete.
@@ -85,6 +87,7 @@ export {
   RefundDestinationMismatchError,
   SelfApprovalError,
   InvalidRefundStatusError,
+  RefundFreezeJournalMissingError,
   TwoPersonRuleError,
   RefundAfterCampaignTransferError,
   RefundResolutionActorError,
@@ -235,21 +238,10 @@ async function standingRefundFees(
   tx: Prisma.TransactionClient,
   standing: ReadonlyArray<{ id: string; amount: number }>,
 ): Promise<StandingRefundFees[]> {
-  if (standing.length === 0) return [];
-
-  const entries = await tx.ledgerEntry.findMany({
-    where: { transactionId: { in: standing.map((r) => refundFreezeTransactionId(r.id)) } },
-    select: { transactionId: true, account: true, direction: true, amount: true },
-  });
-
-  const posted = new Set(entries.map((e) => e.transactionId));
-  const missing = standing.filter((r) => !posted.has(refundFreezeTransactionId(r.id)));
-  if (missing.length > 0) {
-    throw new Error(
-      `Refund ${missing.map((r) => r.id).join(', ')} has no freeze journal in the ledger; refusing to guess ` +
-        "how much of the Payment's fees it already took.",
-    );
-  }
+  const entries = await readRefundFreezeEntries(
+    tx,
+    standing.map((r) => r.id),
+  );
 
   return standing.map((r) => ({
     amount: r.amount,
@@ -331,11 +323,11 @@ export async function createRefund(
   }
 
   const priorRefunds = await tx.refund.findMany({
-    where: { paymentId, status: { notIn: ['REJECTED', 'FAILED'] } },
+    where: { paymentId, ...STANDING_REFUND_WHERE },
     orderBy: { createdAt: 'asc' },
     select: { id: true, amount: true, status: true },
   });
-  const standingRefunds = priorRefunds.filter((r) => r.status !== 'REJECTED' && r.status !== 'FAILED');
+  const standingRefunds = priorRefunds.filter(isRefundStanding);
   const alreadyCommitted = standingRefunds.reduce((sum, r) => sum + r.amount, 0);
   const remaining = payment.amount - alreadyCommitted;
   if (amount > remaining) {
@@ -540,13 +532,7 @@ export async function approveRefund(
     // row, so it cannot be missing in normal operation, and guessing would
     // cover the wrong shortfall. Read ahead of the claim below, so the refusal
     // leaves the Refund REQUESTED and writes nothing.
-    const freezeEntries = await tx.ledgerEntry.findMany({
-      where: { transactionId: refundFreezeTransactionId(refund.id) },
-      select: { transactionId: true, account: true, direction: true, amount: true },
-    });
-    if (freezeEntries.length === 0) {
-      throw new InvalidRefundStatusError(refund.status, 'its freeze journal is missing');
-    }
+    const freezeEntries = await readRefundFreezeEntries(tx, [refund.id]);
     const platformFeePortion = refundFreezeDebit(freezeEntries, refund.id, 'PLATFORM_FEE');
     const providerFeePortion = refundFreezeDebit(freezeEntries, refund.id, 'REFUND_COST');
     const netPortion = refund.amount - platformFeePortion - providerFeePortion;

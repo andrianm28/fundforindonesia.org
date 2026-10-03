@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@/generated/prisma/client';
 import { programBooks } from '@/lib/money/manual-contributions';
+import { STANDING_REFUND_WHERE } from '@/lib/money/refund-standing';
 
 /**
  * Impact & Transparency: where every rupiah a Donor handed over has ended up
@@ -331,7 +332,7 @@ export async function impactBreakdown(
     // other. What the page shows is therefore as if that Refund never existed,
     // and the conservation law holds because the mirrored journals did.
     const refunds = await tx.refund.findMany({
-      where: { paymentId: { in: paymentIds }, status: { notIn: ['REJECTED', 'FAILED'] } },
+      where: { paymentId: { in: paymentIds }, ...STANDING_REFUND_WHERE },
       select: { id: true },
     });
     const refundIds = refunds.map((r) => r.id);

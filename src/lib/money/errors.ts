@@ -186,6 +186,24 @@ export class InvalidRefundStatusError extends MoneyError {
 }
 
 /**
+ * A Refund that still stands has no freeze journal in the ledger. createRefund
+ * posts the journal in the same transaction as the Refund row, so this cannot
+ * happen in normal operation. Raised by name, not as a wrong status: the
+ * Refund's status is fine, the ledger is what is broken. The caller refuses
+ * rather than guess how much the Refund took.
+ */
+export class RefundFreezeJournalMissingError extends MoneyError {
+  readonly code = 'REFUND_FREEZE_JOURNAL_MISSING';
+  constructor(readonly refundIds: string[]) {
+    super(
+      `Refund ${refundIds.join(', ')} tidak memiliki jurnal freeze di ledger; ` +
+        'jumlah yang sudah diambil Refund tidak boleh ditebak.',
+    );
+    this.name = 'RefundFreezeJournalMissingError';
+  }
+}
+
+/**
  * A Refund completion whose proof of transfer does not have the shape
  * ticket 13 decided it has to (a transaction reference and a free-text
  * note, both present, trimmed, within @/lib/payout-proof's length limits) --
