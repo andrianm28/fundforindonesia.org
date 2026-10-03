@@ -20,14 +20,10 @@ export default function AkunPage() {
     }
   }, [status, router]);
 
+  // `balanceLoading` starts true, so the effect needs no synchronous setState
+  // before the fetch; every setState below runs in the response callbacks.
   useEffect(() => {
-    if (status === 'authenticated') {
-      fetchBalance();
-    }
-  }, [status]);
-
-  const fetchBalance = () => {
-    setBalanceLoading(true);
+    if (status !== 'authenticated') return;
     fetch('/api/balance')
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch balance');
@@ -36,7 +32,7 @@ export default function AkunPage() {
       .then((data) => setBalance(data.balance))
       .catch(() => setBalance(0))
       .finally(() => setBalanceLoading(false));
-  };
+  }, [status]);
 
   const handleLogout = () => {
     signOut({ callbackUrl: '/login' });
