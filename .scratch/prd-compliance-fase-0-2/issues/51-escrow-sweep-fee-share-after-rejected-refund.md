@@ -1,6 +1,6 @@
 # 51: Porsi fee di rilis sweep escrow dan di approve Refund bisa meleset setelah Refund awal ditolak
 
-**Status:** awaiting-merge
+**Status:** done (PR #205, 5ab5596)
 
 **Blocked by:** none
 
@@ -128,3 +128,5 @@ rupiah. Dikerjakan di tiket dan PR yang sama (lihat Comments).
   penuh: 411 berkas lulus, 5386 tes lulus, 8 dilewati; `node ci/ratchet.mjs`:
   lint 193 dan tsc 19, tak berubah. Tidak disentuh:
   `src/app/api/admin/reconcile/route.ts` (tiket terpisah).
+
+- 2026-10-03 (merge): PR #205 merge sebagai `5ab5596`, CI hijau, review dan re-review independen diposting di PR. Sisa dengan akar yang sama di `createRefund` menjadi tiket 53.

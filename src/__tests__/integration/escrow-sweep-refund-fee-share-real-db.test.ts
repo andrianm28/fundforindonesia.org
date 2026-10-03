@@ -21,6 +21,15 @@ import type { PrismaClient } from '@/generated/prisma/client';
  * Refunds that stands now, and rejecting or failing a Refund (prd-compliance 49)
  * is what makes that stop being true. So both have to read the posted entries.
  *
+ * createRefund reads them too, one step earlier, for the Refund that comes after
+ * (prd-compliance 53): the fee shares of a new Refund are measured against what
+ * the Refunds still standing on the Payment posted, not against what their
+ * amounts would give. Recomputed, two Refunds open, the first rejected and a
+ * third created leave the standing Refunds on 3_332 of the Provider Fee's 3_333
+ * and 1_666 of the Platform Fee's 1_667, and ESCROW_HOLD at -2. The tests in the
+ * nested describe at the bottom are that ticket's; the last of them kills a
+ * mutant of approveRefund that the tests above let through.
+ *
  * ORDER MATTERS, and it is not the order the ticket's checklist lists
  * (.scratch/prd-compliance-fase-0-2/issues/51). A Refund rejected BEFORE the
  * second one is created never disagrees: createRefund leaves rejected Refunds
@@ -53,7 +62,7 @@ function databaseUrlFor(database: string): string {
   return `${base.substring(0, base.lastIndexOf('/') + 1)}${database}`;
 }
 
-describe.skipIf(!DATABASE_URL)('A Refund reads its fee shares off its freeze -- against real Postgres (prd-compliance 51)', () => {
+describe.skipIf(!DATABASE_URL)('A Refund reads its fee shares off its freeze -- against real Postgres (prd-compliance 51 and 53)', () => {
   if (!DATABASE_URL) {
     console.warn(
       '[refund fee share] TEST_DATABASE_URL is not set: these tests are being SKIPPED, not passing. ' +
@@ -449,4 +458,145 @@ describe.skipIf(!DATABASE_URL)('A Refund reads its fee shares off its freeze -- 
     },
     60_000,
   );
+
+  describe('createRefund after an earlier Refund was rejected or failed (prd-compliance 53)', () => {
+    /** What these Refunds' freezes debited the pool and the two fee accounts by, summed account by account. */
+    async function frozenTotals(refundIds: string[]): Promise<Record<string, number>> {
+      const totals: Record<string, number> = {};
+      for (const id of refundIds) {
+        for (const [account, amount] of Object.entries(await postedFreeze(id))) totals[account] = (totals[account] ?? 0) + amount;
+      }
+      return totals;
+    }
+
+    it('gives a Refund created after a rejection the share the rejected one held: the standing Refunds carry the whole fee and ESCROW_HOLD never goes negative', async () => {
+      const campaign = await makeCampaign();
+      const payment = await seedMaturedPayment(campaign.id);
+      const requester = await makeUser();
+      const rejecter = await makeUser();
+
+      // Both open at once, so the second is frozen with the first still counted:
+      // 833 and 1_666 where the first took 834 and 1_667.
+      const first = await request(campaign.id, payment.id, requester, 50_000);
+      const second = await request(campaign.id, payment.id, requester, 50_000);
+      await refunds.rejectRefund(prisma, { refundId: first.id, rejectedById: rejecter, reason: 'Salah Payment' });
+      expect(await ledger.escrowBalance(prisma, campaign.id)).toBe(47_499);
+
+      // The third takes the rest of the Payment. It has to carry the rupiah the
+      // second was cut by, because that Refund still stands with the cut share.
+      // Recomputing against the second's amount alone gives 833 and 1_666, which
+      // leaves the two standing Refunds on 1_666 of the Platform Fee's 1_667 and
+      // 3_332 of the Provider Fee's 3_333, and ESCROW_HOLD at -2.
+      const third = await request(campaign.id, payment.id, requester, 50_000);
+
+      expect(await postedFreeze(third.id)).toEqual({ ESCROW_HOLD: 47_499, PLATFORM_FEE: 834, REFUND_COST: 1_667 });
+      expect(await frozenTotals([second.id, third.id])).toEqual({ ESCROW_HOLD: 95_000, PLATFORM_FEE: 1_667, REFUND_COST: 3_333 });
+      expect(await ledger.escrowBalance(prisma, campaign.id)).toBe(0);
+    }, 60_000);
+
+    it('gives the same share to a Refund created after one that failed after approval', async () => {
+      const campaign = await makeCampaign();
+      const payment = await seedMaturedPayment(campaign.id);
+      const requester = await makeUser();
+      const approver = await makeUser();
+      const failer = await makeUser();
+
+      const first = await request(campaign.id, payment.id, requester, 50_000);
+      const second = await request(campaign.id, payment.id, requester, 50_000);
+      await refunds.approveRefund(prisma, { refundId: first.id, approvedById: approver, ...destination });
+      await refunds.approveRefund(prisma, { refundId: second.id, approvedById: approver, ...destination });
+      await refunds.failRefund(prisma, { refundId: first.id, failedById: failer, reason: 'Rekening Donor ditutup' });
+
+      const third = await request(campaign.id, payment.id, requester, 50_000);
+
+      expect(await postedFreeze(third.id)).toEqual({ ESCROW_HOLD: 47_499, PLATFORM_FEE: 834, REFUND_COST: 1_667 });
+      expect(await ledger.escrowBalance(prisma, campaign.id)).toBe(0);
+    }, 60_000);
+
+    it('takes up a share the cap once cut from a Refund that still stands, once the Refunds that cut it are rejected', async () => {
+      const campaign = await makeCampaign();
+      const payment = await seedMaturedPayment(campaign.id);
+      const requester = await makeUser();
+      const rejecter = await makeUser();
+
+      // Three open at once. The third is cut twice over, by the first and by the
+      // second: 416 of the Platform Fee where its own share is 417, and 832 of the
+      // Provider Fee where its own is 834.
+      const first = await request(campaign.id, payment.id, requester, 50_000);
+      const second = await request(campaign.id, payment.id, requester, 25_000);
+      const third = await request(campaign.id, payment.id, requester, 25_000);
+      expect(await postedFreeze(third.id)).toEqual({ ESCROW_HOLD: 23_752, PLATFORM_FEE: 416, REFUND_COST: 832 });
+
+      await refunds.rejectRefund(prisma, { refundId: first.id, rejectedById: rejecter, reason: 'Salah Payment' });
+      await refunds.rejectRefund(prisma, { refundId: second.id, rejectedById: rejecter, reason: 'Salah Payment' });
+
+      // The fourth takes the 75_000 that is left, which completes the Payment. Its
+      // own shares are 1_251 and 2_500, and it takes up what the third was cut by on
+      // top of the Provider Fee: 2_501. Capped only by the fee that is not yet
+      // posted, without taking up the cut, it stops at 2_500, leaving the Payment
+      // on 3_332 of its 3_333 and ESCROW_HOLD at -1.
+      const fourth = await request(campaign.id, payment.id, requester, 75_000);
+
+      expect(await postedFreeze(fourth.id)).toEqual({ ESCROW_HOLD: 71_248, PLATFORM_FEE: 1_251, REFUND_COST: 2_501 });
+      expect(await frozenTotals([third.id, fourth.id])).toEqual({ ESCROW_HOLD: 95_000, PLATFORM_FEE: 1_667, REFUND_COST: 3_333 });
+      expect(await ledger.escrowBalance(prisma, campaign.id)).toBe(0);
+    }, 60_000);
+
+    it('gives a Refund created after a rejection the share the rejected one held on a Volunteer Trip Payment too', async () => {
+      const trip = await makeTrip();
+      const payment = await seedMaturedTripPayment(trip.id);
+      const requester = await makeUser();
+      const rejecter = await makeUser();
+
+      // No Platform Fee on a Trip Fee, so only the Provider Fee is split. The second
+      // Refund is frozen with the first still counted and carries 1_666 where the
+      // first carried 1_667.
+      const first = await requestForTrip(trip.id, payment.id, requester, 50_000);
+      const second = await requestForTrip(trip.id, payment.id, requester, 50_000);
+      await refunds.rejectRefund(prisma, { refundId: first.id, rejectedById: rejecter, reason: 'Salah Payment' });
+
+      // The third takes the rest of the Payment and the rupiah the second was cut
+      // by. Recomputed against the second's amount alone it would carry 1_666, and
+      // the Trip's ESCROW_HOLD would end at -1.
+      const third = await requestForTrip(trip.id, payment.id, requester, 50_000);
+
+      expect(await postedFreeze(second.id)).toEqual({ ESCROW_HOLD: 48_334, REFUND_COST: 1_666 });
+      expect(await postedFreeze(third.id)).toEqual({ ESCROW_HOLD: 48_333, REFUND_COST: 1_667 });
+      expect(await ledger.tripEscrowBalance(prisma, trip.id)).toBe(0);
+    }, 60_000);
+
+    it('covers exactly the net share a Refund froze when a Payout drained the pool and it is approved while another is still open (prd-compliance 53)', async () => {
+      const campaign = await makeCampaign();
+      const payment = await seedPaymentDrainedByPayout(campaign.id);
+      const requester = await makeUser();
+      const approver = await makeUser();
+
+      // Two Refunds open on the empty pool: each freeze takes the withdrawable
+      // balance further below zero, by 47_499 and by 47_501.
+      const first = await request(campaign.id, payment.id, requester, 50_000);
+      const second = await request(campaign.id, payment.id, requester, 50_000);
+      expect(await ledger.campaignBalance(prisma, campaign.id)).toBe(-95_000);
+
+      // The first is approved before the second, so the pool is still 95_000 below
+      // zero: more than the first's whole net share, which the platform covers
+      // exactly, 50_000 less the 834 and 1_667 its freeze took as fees. An approval
+      // that left out the Platform Fee share would cover 48_333, one that left out
+      // the Provider Fee share (REFUND_COST) 49_166, and one that left out both the
+      // whole 50_000. Approving the SECOND after the first is rejected, as above,
+      // cannot tell them apart: the pool is then no deeper than that Refund's own
+      // freeze, and the shortfall is capped at it whatever the shares were.
+      await refunds.approveRefund(prisma, { refundId: first.id, approvedById: approver, ...destination });
+
+      expect(await postedApproval(first.id)).toEqual({ FROZEN_BALANCE: 50_000, REFUND_COST: 47_499 });
+      expect(await ledger.campaignBalance(prisma, campaign.id)).toBe(-47_501);
+
+      await refunds.approveRefund(prisma, { refundId: second.id, approvedById: approver, ...destination });
+
+      expect(await postedApproval(second.id)).toEqual({ FROZEN_BALANCE: 50_000, REFUND_COST: 47_501 });
+      expect(await ledger.campaignBalance(prisma, campaign.id)).toBe(0);
+      // REFUND_COST over both: the Provider Fee shares at freeze (1_667 and 1_666)
+      // plus the two shortfalls (47_499 and 47_501).
+      expect(await refundCostOf([first.id, second.id])).toBe(98_333);
+    }, 60_000);
+  });
 });
