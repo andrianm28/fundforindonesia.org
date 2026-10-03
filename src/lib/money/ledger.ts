@@ -577,38 +577,84 @@ export function ceilMulDiv(a: number, b: number, c: number): number {
 }
 
 /**
- * The proportional, capped share of one Payment-level fee (Provider Fee or
- * Platform Fee) attributable to one Refund's `targetAmount`, rounded up --
- * capped so the SUM of every non-REJECTED/FAILED Refund's portion on the
- * same Payment, taken in creation order, never exceeds `feeTotal`. Without
- * this cumulative cap, two 50_000 partial refunds on a Gross 100_000 /
- * fee 3_333 Payment would each independently round their own 1_666.5 up to
- * 1_667, recognizing 3_334 total -- one rupiah more than the Payment ever
- * actually carried.
- *
- * Shared by providerFeePortionFor and platformFeePortionFor below: both
- * fees are split off a Payment's `amount` by the identical rule, so the
- * math lives once. `priorAmounts` must be every OTHER non-REJECTED/FAILED
- * Refund's `amount` on this same Payment, in ascending `createdAt` order,
- * excluding the Refund whose portion is being computed now.
+ * A Refund still standing on a Payment (not REJECTED or FAILED), as the fee
+ * share of the NEXT Refund on that Payment sees it: how big it is, and what its
+ * freeze actually took of each fee. See feePortionOf, below.
  */
-function feePortionOf(feeTotal: number, paymentAmount: number, targetAmount: number, priorAmounts: number[]): number {
+export type StandingRefundFees = {
+  amount: number;
+  /** What its freeze took of the Platform Fee: refundFreezeDebit(entries, id, 'PLATFORM_FEE'). */
+  platformFeePosted: number;
+  /** What its freeze took of the Provider Fee, which is booked to REFUND_COST: refundFreezeDebit(entries, id, 'REFUND_COST'). */
+  providerFeePosted: number;
+};
+
+/**
+ * The share of one Payment-level fee (Provider Fee or Platform Fee) that a Refund
+ * of `targetAmount` carries, given the Refunds still standing on the same Payment.
+ *
+ * THE CUMULATIVE PORTION. A Refund's own share is its amount's proportion of the
+ * fee, rounded up, and what the standing Refunds carry between them is the sum of
+ * those, capped at `feeTotal`. The cap is the point: two 50_000 partial Refunds on
+ * a Gross 100_000 / fee 3_333 Payment would each round their own 1_666.5 up to
+ * 1_667 and recognise 3_334, a rupiah more than the Payment ever carried. The
+ * Refund being created carries what is missing from that figure, taken for the
+ * standing Refunds and itself together.
+ *
+ * WHAT IS MISSING is measured against `posted`, the fee the standing Refunds'
+ * freezes ACTUALLY took, not against what their amounts would give (prd-compliance
+ * 53). The two agree while every standing Refund was frozen against the Refunds
+ * that stand now, and rejecting or failing one (prd-compliance 49) is what ends
+ * that: a Refund frozen while another was open carries the share the cap cut, and
+ * when the other goes away the cut share stays posted. Worked out again from the
+ * amounts, the standing Refunds are credited with the rupiah the cap cut, which
+ * the ledger never held, so the next Refund is sized for less fee than is still
+ * missing. The standing Refunds then end a rupiah or two short of the fee, and the
+ * pool is drawn that far below what it held. Measured against the posted shares, a
+ * later Refund takes up a share cut from a Refund that still stands, so the one
+ * that completes the Payment lands on the fee exactly.
+ *
+ * Without a rejection the posted shares ARE the cumulative portion of the
+ * Refunds before this one, and the result is the share the cap always gave.
+ *
+ * A Refund never carries more than its own amount, or its net portion would go
+ * negative. Fees that are a fraction of the Payment and Refunds of more than a few
+ * rupiah never get near that; if one did, the rest stays missing from the
+ * cumulative portion and the next Refund takes it up.
+ *
+ * Shared by providerFeePortionFor and platformFeePortionFor below: both fees are
+ * split off a Payment's `amount` by the identical rule, so the math lives once.
+ * `standing` is every OTHER Refund on this Payment that is not REJECTED or FAILED,
+ * with the fee its freeze posted.
+ */
+function feePortionOf(
+  feeTotal: number,
+  paymentAmount: number,
+  targetAmount: number,
+  standing: ReadonlyArray<{ amount: number; posted: number }>,
+): number {
+  let cumulative = ceilMulDiv(feeTotal, targetAmount, paymentAmount);
   let recognized = 0;
-  for (const priorAmount of priorAmounts) {
-    const raw = ceilMulDiv(feeTotal, priorAmount, paymentAmount);
-    recognized += Math.min(raw, Math.max(0, feeTotal - recognized));
+  for (const refund of standing) {
+    cumulative += ceilMulDiv(feeTotal, refund.amount, paymentAmount);
+    recognized += refund.posted;
   }
-  const raw = ceilMulDiv(feeTotal, targetAmount, paymentAmount);
-  return Math.min(raw, Math.max(0, feeTotal - recognized), targetAmount);
+  const missing = Math.min(cumulative, feeTotal) - recognized;
+  return Math.min(Math.max(0, missing), targetAmount);
 }
 
 /** The Provider Fee portion of one Refund's `amount` -- see feePortionOf above. */
 export function providerFeePortionFor(
   payment: { amount: number; providerFee: number },
   refundAmount: number,
-  priorAmounts: number[],
+  standing: ReadonlyArray<StandingRefundFees>,
 ): number {
-  return feePortionOf(payment.providerFee, payment.amount, refundAmount, priorAmounts);
+  return feePortionOf(
+    payment.providerFee,
+    payment.amount,
+    refundAmount,
+    standing.map((r) => ({ amount: r.amount, posted: r.providerFeePosted })),
+  );
 }
 
 /**
@@ -628,9 +674,14 @@ export function providerFeePortionFor(
 export function platformFeePortionFor(
   payment: { amount: number; platformFee: number | null | undefined },
   refundAmount: number,
-  priorAmounts: number[],
+  standing: ReadonlyArray<StandingRefundFees>,
 ): number {
-  return feePortionOf(payment.platformFee ?? 0, payment.amount, refundAmount, priorAmounts);
+  return feePortionOf(
+    payment.platformFee ?? 0,
+    payment.amount,
+    refundAmount,
+    standing.map((r) => ({ amount: r.amount, posted: r.platformFeePosted })),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -805,8 +856,8 @@ export function refundFreezeTransactionId(refundId: string): string {
  * Which account to ask about is the caller's question. ESCROW_HOLD is how much
  * of a Payment's Net the freeze took out of the hold (the escrow sweep, and the
  * release resolveRefund posts). PLATFORM_FEE and REFUND_COST are the two fee
- * shares (approveRefund), the Provider Fee's being booked to REFUND_COST
- * (ADR 0007).
+ * shares (approveRefund, and createRefund for the share of the Refund after it,
+ * prd-compliance 53), the Provider Fee's being booked to REFUND_COST (ADR 0007).
  *
  * `entries` may hold other transactions and other Refunds' freezes; only the
  * debit legs of THIS Refund's freeze are counted. A 0 therefore means two

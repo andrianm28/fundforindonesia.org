@@ -12,6 +12,8 @@ import {
   refundRequestedLegs,
   refundApprovedLegs,
   refundFreezeDebit,
+  platformFeePortionFor,
+  providerFeePortionFor,
   refundPaidLegs,
   payoutInstructedLegs,
   manualContributionReceivedLegs,
@@ -1131,6 +1133,155 @@ describe('refundFreezeDebit (prd-compliance 51)', () => {
     expect(refundFreezeDebit(posted, 'refund-5', 'TRIP_BALANCE')).toBe(48_334);
     expect(refundFreezeDebit(posted, 'refund-5', 'REFUND_COST')).toBe(1_666);
     expect(refundFreezeDebit(posted, 'refund-5', 'PLATFORM_FEE')).toBe(0);
+  });
+});
+
+describe('platformFeePortionFor and providerFeePortionFor (prd-compliance 53)', () => {
+  // Gross 100_000, Provider Fee 3_333, Platform Fee 1_667: neither fee splits
+  // evenly across two 50_000 Refunds (1_666.5 and 833.5).
+  const payment = { amount: 100_000, providerFee: 3_333, platformFee: 1_667 };
+  const standing = (amount: number, platformFeePosted: number, providerFeePosted: number) => ({
+    amount,
+    platformFeePosted,
+    providerFeePosted,
+  });
+
+  it('gives a Refund with nothing else standing the rounded-up proportional share of its own amount', () => {
+    expect(providerFeePortionFor(payment, 50_000, [])).toBe(1_667);
+    expect(platformFeePortionFor(payment, 50_000, [])).toBe(834);
+    expect(providerFeePortionFor(payment, 100_000, [])).toBe(3_333);
+    expect(platformFeePortionFor(payment, 100_000, [])).toBe(1_667);
+  });
+
+  it('reads a missing Platform Fee as 0, the way every other reader of the field does', () => {
+    expect(platformFeePortionFor({ amount: 100_000, platformFee: null }, 50_000, [])).toBe(0);
+    expect(platformFeePortionFor({ amount: 100_000, platformFee: undefined }, 50_000, [])).toBe(0);
+  });
+
+  it('caps what the standing Refunds and this one carry at the fee: the second 50_000 Refund takes what the first left', () => {
+    expect(providerFeePortionFor(payment, 50_000, [standing(50_000, 834, 1_667)])).toBe(1_666);
+    expect(platformFeePortionFor(payment, 50_000, [standing(50_000, 834, 1_667)])).toBe(833);
+  });
+
+  it('adds one rounded-up share per Refund and cuts only the last: 50_000, 40_000 and 10_000', () => {
+    const first = standing(50_000, 834, 1_667);
+    // 3_333 over 40_000 is 1_333.2 and 1_667 over it 666.8: rounded up, 1_334 and 667.
+    expect(providerFeePortionFor(payment, 40_000, [first])).toBe(1_334);
+    expect(platformFeePortionFor(payment, 40_000, [first])).toBe(667);
+    // 10_000 would carry 334 and 167 by itself; only 332 and 166 are left.
+    const second = standing(40_000, 667, 1_334);
+    expect(providerFeePortionFor(payment, 10_000, [first, second])).toBe(332);
+    expect(platformFeePortionFor(payment, 10_000, [first, second])).toBe(166);
+  });
+
+  it('measures what is missing against what the standing Refunds posted, not against what their amounts would give', () => {
+    // A 50_000 Refund stands whose freeze was cut to 833 and 1_666 (another
+    // Refund held the rest when it was frozen, and has since been rejected). The
+    // next 50_000 Refund takes the rupiah that was cut. Worked out from the
+    // standing amount alone the standing Refund would have carried 834 and 1_667,
+    // and the next one only 833 and 1_666.
+    expect(providerFeePortionFor(payment, 50_000, [standing(50_000, 833, 1_666)])).toBe(1_667);
+    expect(platformFeePortionFor(payment, 50_000, [standing(50_000, 833, 1_666)])).toBe(834);
+  });
+
+  it('takes up a share that was cut from a Refund that still stands, on top of its own', () => {
+    // 25_000 stands, cut to 416 and 832 (its own shares are 417 and 834). The
+    // 75_000 that is left has shares of 1_251 and 2_500 of its own, and takes up
+    // the cut on top: the Payment's 1_667 and 3_333 less what stands.
+    expect(platformFeePortionFor(payment, 75_000, [standing(25_000, 416, 832)])).toBe(1_251);
+    expect(providerFeePortionFor(payment, 75_000, [standing(25_000, 416, 832)])).toBe(2_501);
+  });
+
+  it('is 0 once the standing Refunds have posted the whole fee', () => {
+    expect(providerFeePortionFor(payment, 10_000, [standing(90_000, 1_500, 3_333)])).toBe(0);
+    expect(platformFeePortionFor(payment, 10_000, [standing(90_000, 1_667, 3_000)])).toBe(0);
+  });
+
+  it('is 0 when the Payment carries no such fee', () => {
+    expect(providerFeePortionFor({ amount: 100_000, providerFee: 0 }, 40_000, [standing(10_000, 0, 0)])).toBe(0);
+  });
+
+  it('never carries more than the Refund\'s own amount, however much is missing', () => {
+    // A 10-rupiah Payment whose whole value is Provider Fee, with 9 of it
+    // standing and none of the fee posted: everything is missing, but a 1-rupiah
+    // Refund can carry 1.
+    expect(providerFeePortionFor({ amount: 10, providerFee: 10 }, 1, [standing(9, 0, 0)])).toBe(1);
+  });
+
+  // The invariants the tests above and the Postgres tests state with figures, over
+  // any Payment and any run of Refunds created and rejected (prd-compliance 49 and
+  // 53). The fees are a per-mille share of the Gross, the Provider Fee up to 6% and
+  // the Platform Fee up to 10%. A Refund of less than MIN_REFUND is not generated:
+  // a Refund cannot carry more fee than its own amount, so a handful of rupiah
+  // could not carry the rupiah or two a catch-up adds on each of two fees, and a
+  // Refund that small is not a case this arithmetic is meant to settle.
+  const MIN_REFUND = 100;
+  const ceilDiv = (numerator: number, denominator: number) =>
+    Number((BigInt(numerator) + BigInt(denominator) - BigInt(1)) / BigInt(denominator));
+  const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
+
+  it('property: Refunds standing together carry exactly the cumulative portion of each fee, and never take more out of the pool than it held', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 10_000, max: 5_000_000 }),
+        fc.integer({ min: 0, max: 60 }),
+        fc.integer({ min: 0, max: 100 }),
+        fc.array(
+          fc.record({
+            reject: fc.boolean(),
+            permille: fc.integer({ min: 1, max: 1_000 }),
+            pick: fc.nat(),
+          }),
+          { minLength: 1, maxLength: 16 },
+        ),
+        (gross, providerPermille, platformPermille, operations) => {
+          const fees = {
+            providerFee: Math.floor((gross * providerPermille) / 1_000),
+            platformFee: Math.floor((gross * platformPermille) / 1_000),
+          };
+          const paymentUnderTest = { amount: gross, ...fees };
+          const standingRefunds: Array<{ amount: number; platform: number; provider: number }> = [];
+
+          for (const operation of operations) {
+            if (operation.reject) {
+              if (standingRefunds.length > 0) standingRefunds.splice(operation.pick % standingRefunds.length, 1);
+              continue;
+            }
+            const remaining = gross - sum(standingRefunds.map((r) => r.amount));
+            if (remaining < MIN_REFUND) continue;
+            const amount = Math.max(MIN_REFUND, Math.floor((remaining * operation.permille) / 1_000));
+
+            const others = standingRefunds.map((r) => ({
+              amount: r.amount,
+              platformFeePosted: r.platform,
+              providerFeePosted: r.provider,
+            }));
+            const platform = platformFeePortionFor(paymentUnderTest, amount, others);
+            const provider = providerFeePortionFor(paymentUnderTest, amount, others);
+            standingRefunds.push({ amount, platform, provider });
+
+            // Each fee taken by the standing Refunds is the sum of their rounded-up
+            // shares, capped at the fee: the cumulative portion, never a rupiah
+            // more or less.
+            const cumulative = (fee: number) =>
+              Math.min(fee, sum(standingRefunds.map((r) => ceilDiv(fee * r.amount, gross))));
+            expect(sum(standingRefunds.map((r) => r.platform))).toBe(cumulative(fees.platformFee));
+            expect(sum(standingRefunds.map((r) => r.provider))).toBe(cumulative(fees.providerFee));
+            // So the pool, which held the Gross less both fees, is never debited
+            // more than it held, and a Refund's own net portion is never negative.
+            expect(amount - platform - provider).toBeGreaterThanOrEqual(0);
+            const taken = sum(standingRefunds.map((r) => r.amount - r.platform - r.provider));
+            expect(taken).toBeLessThanOrEqual(gross - fees.platformFee - fees.providerFee);
+            // A Payment refunded in full has handed back every rupiah of both fees.
+            if (sum(standingRefunds.map((r) => r.amount)) === gross) {
+              expect(sum(standingRefunds.map((r) => r.platform))).toBe(fees.platformFee);
+              expect(sum(standingRefunds.map((r) => r.provider))).toBe(fees.providerFee);
+            }
+          }
+        },
+      ),
+      { numRuns: 3_000 },
+    );
   });
 });
 
