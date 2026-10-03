@@ -8,7 +8,7 @@ transfer logic.
 **Blocked by:** cross-feature `prd-compliance-fase-0-2 33` (kind-transfer;
 not built as of this spec)
 
-**Status:** awaiting-merge
+**Status:** done (PR #199, 55ab170)
 
 - [x] A suspended `hibah` Campaign transfers its funds to another Campaign of
       Kind `hibah`, via the same balanced-journal, two-person-rule transfer
