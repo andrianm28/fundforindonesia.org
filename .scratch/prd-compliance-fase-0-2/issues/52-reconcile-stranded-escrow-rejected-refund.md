@@ -150,3 +150,8 @@ uangnya benar: alarm palsu yang tidak bisa diselesaikan Admin.
   Review sendiri atas diff tambahan (166 baris tambah, 11 dihapus, di bawah
   ~300): satu temuan, tes Postgres `mismatches` merujuk "books are right,
   above" padahal tidak menegaskannya; kini menegaskan `books` sendiri.
+- 2026-10-03 (koordinator): PR #207; commit kerja `dfc9baa` (strandedEscrow) dan
+  `35fcd05` (mismatches). Review independen (sonnet, satu reviewer karena kode
+  produksi hanya `reconcile/route.ts`) tanpa blocking; komentar modul yang
+  bertentangan dengan kredit cermin dan entri Refund di `CONTEXT.md` dirapikan
+  di PR yang sama. Status menjadi `done` saat merge.

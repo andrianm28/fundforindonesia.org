@@ -32,7 +32,9 @@ import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
  *    all -- so there is no routine over-draw here to correct; only a
  *    genuine settlement-time shortfall (refundApprovedLegs, real pool
  *    insolvency, e.g. a Payout already spent past this refund's share)
- *    ever credits this account back, and the balance checks in
+ *    or the mirror of a rejected or failed freeze (resolveRefund,
+ *    ./refunds.ts, prd-compliance 49) ever credits this account back
+ *    under a refundId, and the balance checks in
  *    ./payouts.ts for CAMPAIGN_BALANCE; this is what would catch it if one
  *    of those was ever wrong.
  *  - preLedger / mismatches: both compare Campaign.collectedAmount against
