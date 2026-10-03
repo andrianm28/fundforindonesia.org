@@ -48,6 +48,7 @@ describe('AdminRefundCompleteForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-1"
         requestedById="admin-1"
+        isOwnSubject={false}
         approvedById="admin-2"
       />,
     );
@@ -63,6 +64,7 @@ describe('AdminRefundCompleteForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-2"
         requestedById="admin-1"
+        isOwnSubject={false}
         approvedById="admin-2"
       />,
     );
@@ -78,6 +80,7 @@ describe('AdminRefundCompleteForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-3"
         requestedById="admin-1"
+        isOwnSubject={false}
         approvedById="admin-2"
       />,
     );
@@ -93,6 +96,7 @@ describe('AdminRefundCompleteForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-3"
         requestedById="admin-1"
+        isOwnSubject={false}
         approvedById="admin-2"
       />,
     );
@@ -112,6 +116,7 @@ describe('AdminRefundCompleteForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-3"
         requestedById="admin-1"
+        isOwnSubject={false}
         approvedById="admin-2"
       />,
     );
@@ -143,6 +148,7 @@ describe('AdminRefundCompleteForm', () => {
         subject={{ type: 'trip', slug: 'trip-lombok' }}
         actorId="admin-3"
         requestedById="admin-1"
+        isOwnSubject={false}
         approvedById="admin-2"
       />,
     );
@@ -170,6 +176,7 @@ describe('AdminRefundCompleteForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-3"
         requestedById="admin-1"
+        isOwnSubject={false}
         approvedById="admin-2"
       />,
     );
@@ -179,5 +186,25 @@ describe('AdminRefundCompleteForm', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Nomor rekening yang diketik tidak sama dengan yang dicatat saat persetujuan.');
     expect(mockRefresh).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['campaign', 'Campaign'],
+    ['trip', 'Volunteer Trip'],
+  ] as const)("tells the %s's own Fundraiser they cannot act as Admin on it, instead of the form", (type, name) => {
+    render(
+      <AdminRefundCompleteForm
+        refundId="refund-1"
+        subject={{ type, slug: 'slug-x' }}
+        actorId="admin-3"
+        requestedById="admin-1"
+        isOwnSubject
+        approvedById="admin-2"
+      />,
+    );
+
+    expect(screen.getByText(new RegExp(`Fundraiser ${name} ini`))).toBeDefined();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.queryByLabelText('Nomor rekening (ketik ulang)')).toBeNull();
   });
 });

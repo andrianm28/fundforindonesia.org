@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { OwnSubjectNotice } from './OwnSubjectNotice';
 
 /**
  * The Admin side of a Refund's two-person rule (ticket 23; CONTEXT.md,
@@ -41,6 +42,8 @@ interface AdminRefundApproveFormProps {
   /** The signed-in Admin viewing this form. */
   actorId: string;
   requestedById: string;
+  /** The signed-in Admin is this Campaign's or Volunteer Trip's Fundraiser (OwnSubjectConflictError, 403). */
+  isOwnSubject: boolean;
 }
 
 function approveUrl(subject: RefundSubject, refundId: string): string {
@@ -48,7 +51,7 @@ function approveUrl(subject: RefundSubject, refundId: string): string {
   return `${base}/${subject.slug}/refunds/${refundId}/approve`;
 }
 
-export function AdminRefundApproveForm({ refundId, subject, actorId, requestedById }: AdminRefundApproveFormProps) {
+export function AdminRefundApproveForm({ refundId, subject, actorId, requestedById, isOwnSubject }: AdminRefundApproveFormProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -56,6 +59,10 @@ export function AdminRefundApproveForm({ refundId, subject, actorId, requestedBy
   const [bankCode, setBankCode] = useState('');
   const [accountName, setAccountName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
+
+  if (isOwnSubject) {
+    return <OwnSubjectNotice subjectType={subject.type} />;
+  }
 
   if (actorId === requestedById) {
     return (

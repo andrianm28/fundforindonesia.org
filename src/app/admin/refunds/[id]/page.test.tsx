@@ -228,7 +228,7 @@ describe('AdminRefundDetailPage -- reject and fail (ticket 50)', () => {
   it("tells the Campaign's Fundraiser, an Admin too, that they cannot reject its Refund", async () => {
     await renderAs('fundraiser-1', REQUESTED_REFUND);
 
-    expect(screen.getByText(/Fundraiser Campaign ini/)).toBeDefined();
+    expect(screen.getAllByText(/Fundraiser Campaign ini/).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByRole('button', { name: /tolak refund/i })).toBeNull();
   });
 
@@ -244,7 +244,7 @@ describe('AdminRefundDetailPage -- reject and fail (ticket 50)', () => {
       payment: { amount: 250_000, donation: null, registration: { batch: { tripId: 'trip-1' } } },
     });
 
-    expect(screen.getByText(/Fundraiser Volunteer Trip ini/)).toBeDefined();
+    expect(screen.getAllByText(/Fundraiser Volunteer Trip ini/).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByRole('button', { name: /tolak refund/i })).toBeNull();
   });
 
@@ -282,4 +282,83 @@ describe('AdminRefundDetailPage -- reject and fail (ticket 50)', () => {
       expect(screen.queryByRole('button')).toBeNull();
     },
   );
+});
+
+/**
+ * Ticket 55: what the way back left on the Refund is readable (who, when,
+ * why), and approve/complete say the same sentence to the subject's
+ * Fundraiser that reject and fail already say.
+ */
+describe('AdminRefundDetailPage -- resolution and Fundraiser (ticket 55)', () => {
+  const CAMPAIGN = { slug: 'wakaf-sumur', title: 'Wakaf Sumur', creatorId: 'fundraiser-1' };
+  const APPROVED = {
+    ...REQUESTED_REFUND,
+    status: 'APPROVED',
+    approvedById: 'admin-2',
+    approvedBy: { name: 'Admin Dua' },
+  };
+
+  async function renderAs(viewerId: string, refund: object) {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: viewerId, assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue(CAMPAIGN as never);
+    vi.mocked(prisma.refund.findUnique).mockResolvedValue(refund as never);
+    render(await AdminRefundDetailPage({ params: Promise.resolve({ id: 'refund-1' }) }));
+  }
+
+  it('shows who rejected a REJECTED Refund, when, and why', async () => {
+    await renderAs('admin-4', {
+      ...REQUESTED_REFUND,
+      status: 'REJECTED',
+      rejectedById: 'admin-2',
+      rejectedBy: { name: 'Admin Dua' },
+      rejectedAt: new Date('2026-09-25T03:00:00.000Z'),
+      rejectionReason: 'Donor membatalkan permintaan',
+    });
+
+    expect(screen.getByText('Ditolak oleh')).toBeDefined();
+    expect(screen.getByText('Admin Dua')).toBeDefined();
+    expect(screen.getByText(/25 Sep 2026/)).toBeDefined();
+    expect(screen.getByText('Donor membatalkan permintaan')).toBeDefined();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('shows who marked a FAILED Refund failed, when, and why', async () => {
+    await renderAs('admin-4', {
+      ...APPROVED,
+      status: 'FAILED',
+      failedById: 'admin-3',
+      failedBy: { name: 'Admin Tiga' },
+      failedAt: new Date('2026-09-26T03:00:00.000Z'),
+      failureReason: 'Rekening Donor ditutup',
+    });
+
+    expect(screen.getByText('Ditandai gagal oleh')).toBeDefined();
+    expect(screen.getByText('Admin Tiga')).toBeDefined();
+    expect(screen.getByText(/26 Sep 2026/)).toBeDefined();
+    expect(screen.getByText('Rekening Donor ditutup')).toBeDefined();
+    expect(screen.queryByText('Ditolak oleh')).toBeNull();
+  });
+
+  it('shows no resolution block for a Refund that has not ended that way', async () => {
+    await renderAs('admin-2', REQUESTED_REFUND);
+
+    expect(screen.queryByText('Ditolak oleh')).toBeNull();
+    expect(screen.queryByText('Ditandai gagal oleh')).toBeNull();
+  });
+
+  it("replaces Setujui with the explaining sentence for the Campaign's Fundraiser", async () => {
+    await renderAs('fundraiser-1', REQUESTED_REFUND);
+
+    expect(screen.queryByRole('button', { name: /setujui refund/i })).toBeNull();
+    expect(screen.queryByLabelText('Kode bank')).toBeNull();
+    expect(screen.getAllByText(/Fundraiser Campaign ini/).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("replaces Tandai selesai with the explaining sentence for the Campaign's Fundraiser", async () => {
+    await renderAs('fundraiser-1', APPROVED);
+
+    expect(screen.queryByRole('button', { name: /tandai refund selesai/i })).toBeNull();
+    expect(screen.queryByLabelText('Nomor rekening (ketik ulang)')).toBeNull();
+    expect(screen.getAllByText(/Fundraiser Campaign ini/).length).toBeGreaterThanOrEqual(2);
+  });
 });

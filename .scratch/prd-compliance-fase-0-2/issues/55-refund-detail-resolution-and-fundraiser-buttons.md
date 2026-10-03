@@ -1,6 +1,6 @@
 # 55: Detail Refund menampilkan penyelesaiannya; tombol approve/complete disembunyikan bagi Fundraiser
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none (50 done)
 
@@ -13,10 +13,10 @@ Lanjutan yang sengaja tidak dicakup tiket 50 (PR #206).
   penolakannya tetap datang dari server (403), hanya Tolak dan Tandai gagal yang
   sudah menggantinya dengan kalimat penjelas.
 
-- [ ] Refund REJECTED/FAILED menampilkan aktor, waktu, dan alasan
-- [ ] Approve/complete diganti kalimat penjelas bagi Fundraiser subjek, pola
+- [x] Refund REJECTED/FAILED menampilkan aktor, waktu, dan alasan
+- [x] Approve/complete diganti kalimat penjelas bagi Fundraiser subjek, pola
       yang sama dengan `AdminRefundResolveForm`
-- [ ] Tes komponen dan halaman
+- [x] Tes komponen dan halaman
 
 ## Comments
 
