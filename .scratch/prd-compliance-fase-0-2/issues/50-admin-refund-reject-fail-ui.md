@@ -1,6 +1,6 @@
 # 50: UI Admin untuk menolak dan menandai gagal Refund
 
-**Status:** awaiting-merge
+**Status:** done (PR #206, 96d9af3)
 
 **Blocked by:** 49 (done)
 
@@ -60,3 +60,5 @@ Sampai tiket ini dikerjakan, kedua aksi hanya bisa dijalankan lewat API.
   Review independen (sonnet, Spec dan Standards paralel) tanpa temuan blocking
   selain baris ini; tes jawaban 400 route (alasan terlalu panjang) ditambahkan
   ke `AdminRefundResolveForm.test.tsx`. Status menjadi `done` saat merge.
+
+- 2026-10-03 (merge): PR #206 merge sebagai `96d9af3`, CI hijau, review independen diposting di PR. Lanjutan yang belum dicakup (menampilkan siapa dan alasan penolakan/kegagalan; menyembunyikan tombol approve/complete bagi Fundraiser) belum dijadikan tiket.
