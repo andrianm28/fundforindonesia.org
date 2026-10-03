@@ -9,17 +9,20 @@ import type { PrismaClient } from '@/generated/prisma/client';
 import type { LedgerSubject } from '@/lib/money/ledger';
 
 /**
- * The reconciliation report's strandedEscrow check, on the books a Refund that
- * ended without paying the Donor really leaves behind (prd-compliance 52),
- * against a REAL Postgres.
+ * The reconciliation report's strandedEscrow and mismatches checks, on the
+ * books a Refund that ended without paying the Donor really leaves behind
+ * (prd-compliance 52), against a REAL Postgres.
  *
  * A Refund freezes its share of a Payment's Escrow Hold; reject and fail post
  * that freeze straight back (prd-compliance 49), and when the Payment's escrow
  * was released in the meantime they release the returned share too. The books
  * come out right. Until prd-compliance 52 the report read the freeze's debit
  * as money "refunded" whatever the Refund's fate, so it reported every such
- * Payment as stranded, with a negative residual, on every run: an alarm an
- * Admin could do nothing about, because nothing was wrong.
+ * Payment as stranded, with a negative residual, on every run; and it counted
+ * the credit that handed the freeze back as money the Campaign was credited
+ * with, so the Campaign's collectedAmount fell short of its ledger by exactly
+ * that share, on every run. Alarms an Admin could do nothing about, because
+ * nothing was wrong.
  *
  * What a JS fake cannot prove is that the journals the money layer actually
  * posts have the shape the report is read against. So these tests drive
@@ -46,7 +49,7 @@ type StrandedRow = {
   residual: number;
 } & ({ campaignId: string } | { volunteerTripId: string });
 
-describe.skipIf(!DATABASE_URL)('Reconcile strandedEscrow -- against real Postgres (prd-compliance 52)', () => {
+describe.skipIf(!DATABASE_URL)('Reconcile report on a Refund that ended without paying the Donor -- against real Postgres (prd-compliance 52)', () => {
   if (!DATABASE_URL) {
     console.warn(
       '[reconcile stranded escrow] TEST_DATABASE_URL is not set: these tests are being SKIPPED, not passing. ' +
@@ -163,6 +166,8 @@ describe.skipIf(!DATABASE_URL)('Reconcile strandedEscrow -- against real Postgre
           kind: 'DONATION',
           creatorId: ownerId,
           lifecycleStatus: 'ACTIVE',
+          // The settlement webhook increments this by the Payment's Gross.
+          collectedAmount: figures.gross,
         },
       });
       const donationId = `donation-${process.pid}-${next()}`;
@@ -263,15 +268,36 @@ describe.skipIf(!DATABASE_URL)('Reconcile strandedEscrow -- against real Postgre
     };
   }
 
-  /** What the route says about ONE Payment: the database is shared by every test in this file. */
-  async function reportedFor(paymentId: string): Promise<{ strandedEscrow: StrandedRow[]; tripStrandedEscrow: StrandedRow[] }> {
+  type Report = {
+    strandedEscrow: StrandedRow[];
+    tripStrandedEscrow: StrandedRow[];
+    mismatches: Array<{
+      campaignId: string;
+      campaignTitle: string;
+      collectedAmount: number;
+      ledgerAmount: number;
+      difference: number;
+    }>;
+  };
+
+  async function getReport(): Promise<Report> {
     const response = await GET(new NextRequest('http://localhost:3000/api/admin/reconcile'));
     expect(response.status).toBe(200);
-    const report = (await response.json()) as { strandedEscrow: StrandedRow[]; tripStrandedEscrow: StrandedRow[] };
+    return (await response.json()) as Report;
+  }
+
+  /** What the route says about ONE Payment: the database is shared by every test in this file. */
+  async function reportedFor(paymentId: string): Promise<Pick<Report, 'strandedEscrow' | 'tripStrandedEscrow'>> {
+    const report = await getReport();
     return {
       strandedEscrow: report.strandedEscrow.filter((r) => r.paymentId === paymentId),
       tripStrandedEscrow: report.tripStrandedEscrow.filter((r) => r.paymentId === paymentId),
     };
+  }
+
+  /** What it says about ONE Campaign's collectedAmount against its ledger. */
+  async function mismatchesFor(campaignId: string): Promise<Report['mismatches']> {
+    return (await getReport()).mismatches.filter((m) => m.campaignId === campaignId);
   }
 
   /**
@@ -325,6 +351,41 @@ describe.skipIf(!DATABASE_URL)('Reconcile strandedEscrow -- against real Postgre
       // about this Payment is a false alarm.
       expect(await books(seeded.subject)).toEqual({ escrow: 0, withdrawable: seeded.net, frozen: 0 });
       expect(await reportedFor(seeded.paymentId)).toEqual({ strandedEscrow: [], tripStrandedEscrow: [] });
+    }, 60_000);
+  });
+
+  describe('a campaign whose Refund ended without paying the Donor', () => {
+    it.each(endings)('whose Refund was $name still adds up to its collectedAmount', async ({ run }) => {
+      const seeded = await seed('campaign');
+
+      await run(seeded);
+
+      // collectedAmount is the lifetime-raised figure the public pages show, and
+      // no Refund writes it: the Donor paid 300_000 and none of it went back, so
+      // 300_000 is right. The ledger agrees: every rupiah is the Campaign's and
+      // withdrawable, so a mismatch can only be the report adding the ledger up
+      // wrongly.
+      expect((await prisma.campaign.findUniqueOrThrow({ where: { id: seeded.subjectId } })).collectedAmount).toBe(300_000);
+      expect(await books(seeded.subject)).toEqual({ escrow: 0, withdrawable: seeded.net, frozen: 0 });
+      expect(await mismatchesFor(seeded.subjectId)).toEqual([]);
+    }, 60_000);
+
+    it('still reports a collectedAmount that really is off, by exactly how far, with a rejected Refund on the Campaign', async () => {
+      const seeded = await seed('campaign');
+      const refund = await request(seeded, await makeUser());
+      await refunds.rejectRefund(prisma, { refundId: refund.id, rejectedById: await makeUser(), reason: 'Salah Payment' });
+      // 10_000 more than the 300_000 the Payment settled.
+      await prisma.campaign.update({ where: { id: seeded.subjectId }, data: { collectedAmount: 310_000 } });
+
+      expect(await mismatchesFor(seeded.subjectId)).toEqual([
+        {
+          campaignId: seeded.subjectId,
+          campaignTitle: `Campaign ${seeded.subjectId}`,
+          collectedAmount: 310_000,
+          ledgerAmount: 300_000,
+          difference: 10_000,
+        },
+      ]);
     }, 60_000);
   });
 

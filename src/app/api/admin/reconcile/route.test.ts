@@ -1588,7 +1588,10 @@ describe('GET /api/admin/reconcile -- a Refund that ended without paying the Don
   // failing it posts that freeze straight back (prd-compliance 49). Until
   // prd-compliance 52 the report read the freeze's ESCROW_HOLD debit as money
   // refunded whatever the Refund's fate, so a Payment whose books were right
-  // was reported as stranded, with a negative residual, on every run.
+  // was reported as stranded, with a negative residual, on every run. It also
+  // counted the credit that hands the freeze back as money the Campaign was
+  // credited with, so the Campaign's collectedAmount fell short of its ledger
+  // by that share.
   //
   // The journals below are written leg for leg as the money layer posts them;
   // src/__tests__/integration/reconcile-stranded-escrow-real-db.test.ts drives
@@ -1765,6 +1768,80 @@ describe('GET /api/admin/reconcile -- a Refund that ended without paying the Don
           residual: s.refund.net,
         },
       ]);
+    });
+  });
+
+  describe('a Campaign that took a Refund', () => {
+    const campaign = subjects[0];
+    const payments: PaymentRow[] = [{ id: 'payment-1', ...campaign.payment, escrowReleasedAt: new Date('2026-08-10') }];
+
+    it.each(endings)('whose Refund was $name still adds up to its collectedAmount', async (ending) => {
+      // collectedAmount is the Gross, 100_000, and no Refund writes it (the
+      // webhook increments it, a Refund never touches it): the Donor paid 100_000
+      // and none of it went back. The ledger adds up to the same 100_000 once
+      // only what Settlement credited is counted: the Net 92_500, and the two
+      // fees. The credit a reject or a fail posts to hand a freeze back to
+      // ESCROW_HOLD is not money the Campaign was credited with.
+      const data = await reportFor({
+        ledgerRows: ending.ledger(campaign),
+        payments,
+        refunds: [{ id: 'refund-1', paymentId: 'payment-1', status: ending.status, amount: campaign.refund.amount }],
+        campaigns: [{ id: 'campaign-1', title: 'Campaign One', collectedAmount: 100_000 }],
+      });
+
+      expect(data.mismatches).toEqual([]);
+      expect(data.preLedger).toEqual([]);
+    });
+
+    it('still reports a collectedAmount that really is off, by exactly how far, with a rejected Refund on the Campaign', async () => {
+      const data = await reportFor({
+        ledgerRows: [
+          ...settled(campaign),
+          ...frozen(campaign),
+          ...mirrored('refund-rejected-refund-1', frozen(campaign)),
+          ...released('escrow-release:payment-1', campaign.net, campaign),
+        ],
+        payments,
+        refunds: [{ id: 'refund-1', paymentId: 'payment-1', status: 'REJECTED', amount: campaign.refund.amount }],
+        // 10_000 more than the Gross the Payment settled.
+        campaigns: [{ id: 'campaign-1', title: 'Campaign One', collectedAmount: 110_000 }],
+      });
+
+      expect(data.mismatches).toEqual([
+        {
+          campaignId: 'campaign-1',
+          campaignTitle: 'Campaign One',
+          collectedAmount: 110_000,
+          ledgerAmount: 100_000,
+          difference: 10_000,
+        },
+      ]);
+    });
+
+    it('does not count the top-up an approved Refund posts to a drained Escrow Hold as money the Campaign was credited with', async () => {
+      // refundApprovedLegs covers a pool the Refund's freeze overdrew by
+      // crediting it from REFUND_COST: the platform's money, posted under the
+      // Refund's refundId, not a Donor's. This Refund (40_000, 37_000 of it out
+      // of ESCROW_HOLD) was approved with 10_000 of that cover, then completed.
+      // collectedAmount is still the Gross, 100_000.
+      const data = await reportFor({
+        ledgerRows: [
+          ...settled(campaign),
+          ...frozen(campaign),
+          leg('refund-approved-refund-1', 'CREDIT', 40_000, 'REFUND_CLEARING', { refundId: 'refund-1' }),
+          leg('refund-approved-refund-1', 'DEBIT', 40_000, 'FROZEN_BALANCE', { ...campaign.scope, refundId: 'refund-1' }),
+          leg('refund-approved-refund-1', 'DEBIT', 10_000, 'REFUND_COST', { refundId: 'refund-1' }),
+          leg('refund-approved-refund-1', 'CREDIT', 10_000, 'ESCROW_HOLD', { ...campaign.scope, refundId: 'refund-1' }),
+          leg('refund-completed-refund-1', 'DEBIT', 40_000, 'REFUND_CLEARING', { refundId: 'refund-1' }),
+          leg('refund-completed-refund-1', 'CREDIT', 40_000, 'GATEWAY_CLEARING', { refundId: 'refund-1' }),
+        ],
+        payments: [{ id: 'payment-1', ...campaign.payment }],
+        refunds: [{ id: 'refund-1', paymentId: 'payment-1', status: 'COMPLETED', amount: campaign.refund.amount }],
+        campaigns: [{ id: 'campaign-1', title: 'Campaign One', collectedAmount: 100_000 }],
+      });
+
+      expect(data.unbalancedTransactions).toEqual([]);
+      expect(data.mismatches).toEqual([]);
     });
   });
 

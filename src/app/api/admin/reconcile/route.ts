@@ -52,6 +52,9 @@ import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
  *    comparison ever runs -- their collectedAmount is fixture data with no
  *    ledger behind it by design, and this report should never spend a line
  *    on that.
+ *    "Ever credited" is what Settlement credited. What a Refund posts back to
+ *    ESCROW_HOLD (the reversal of a rejected or failed freeze) is money handed
+ *    back, not credited, and is left out; see the note on the query.
  *  - strandedEscrow: a Payment with `escrowReleasedAt` set (releaseMaturedEscrow,
  *    ./escrow.ts, considers it permanently finished) whose credited net still
  *    does not add up against what has actually left ESCROW_HOLD on its
@@ -178,9 +181,23 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // collected figure from -- and that is what collectedAmount is compared
     // against. Leaving the Platform Fee out reported every campaign that
     // charged one as a permanent mismatch, off by exactly that fee.
+    //
+    // "Ever credited" means what Settlement credited, so a credit posted under
+    // a refundId is left out. A Refund that ends REJECTED or FAILED hands its
+    // freeze back as the exact mirror (resolveRefund, ./refunds.ts): a CREDIT
+    // to ESCROW_HOLD, under the Refund's refundId, for the share the freeze took
+    // out. An approved Refund that outran its pool is topped up the same way
+    // (refundApprovedLegs, ./ledger.ts). Neither is money the Campaign was
+    // credited with: the first is money handed back, the second the platform's
+    // own cover (REFUND_COST). Counted, they put the reconstruction above
+    // collectedAmount by exactly that amount, a mismatch on every run for a
+    // Campaign whose books are right (prd-compliance 52). It is the ledger side
+    // that has to leave them out, not collectedAmount: that is the
+    // lifetime-raised figure the public pages show, and no Refund path writes
+    // it (the webhook increments it, ./refunds.ts never does).
     const escrowCreditRows = await tx.ledgerEntry.groupBy({
       by: ['campaignId'],
-      where: { account: 'ESCROW_HOLD', direction: 'CREDIT', campaignId: { not: null } },
+      where: { account: 'ESCROW_HOLD', direction: 'CREDIT', campaignId: { not: null }, refundId: null },
       _sum: { amount: true },
     });
     const netEverCreditedByCampaign = new Map<string, number>(
