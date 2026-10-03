@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { formatRupiah } from '@/lib/utils/currency';
+import { formatIndonesianDate } from '@/lib/utils/date';
 import { loadRefundSubject } from '@/lib/refund-subject-lookup';
 import { REFUND_STATUS_LABEL } from '@/lib/refund-status-label';
 import { readRefundDonorAccountNumber } from '@/lib/contact-fields';
@@ -31,10 +32,11 @@ type RouteContext = { params: Promise<{ id: string }> };
  * complete form (ticket 31, which itself refuses both the requester and
  * the approver). The way back sits beside them (ticket 50): REQUESTED and
  * AWAITING_DONOR_DETAILS get the reject form, APPROVED gets the fail form,
- * and each says for itself when the viewer is someone its act bars. Both
- * also say so to the subject's Fundraiser, which only this page can tell
- * them (`isOwnSubject`, from the subject lookup's `ownerId`); approve and
- * complete still leave that refusal to the server. Anything else (COMPLETED,
+ * and each says for itself when the viewer is someone its act bars. All
+ * four say so to the subject's Fundraiser, which only this page can tell
+ * them (`isOwnSubject`, from the subject lookup's `ownerId`; ticket 55); the
+ * server still refuses (403) regardless. REJECTED and FAILED show who ended
+ * the Refund, when, and why (ticket 55). Anything else (COMPLETED,
  * REJECTED, FAILED, ...) gets a read-only summary.
  *
  * THE RECORDED DESTINATION IS SHOWN MASKED, NEVER IN FULL (Q7(c), ADR
@@ -58,6 +60,8 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
       requestedBy: { select: { name: true } },
       approvedBy: { select: { name: true } },
       completedBy: { select: { name: true } },
+      rejectedBy: { select: { name: true } },
+      failedBy: { select: { name: true } },
       payment: {
         select: {
           amount: true,
@@ -144,6 +148,26 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
           </div>
         )}
 
+        {refund.status === 'REJECTED' && refund.rejectedById && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
+            <p className="text-xs text-gray-500">Ditolak oleh</p>
+            <p className="text-sm font-medium text-gray-900">{refund.rejectedBy?.name}</p>
+            {refund.rejectedAt && <p className="text-xs text-gray-500">{formatIndonesianDate(refund.rejectedAt)}</p>}
+            <p className="mt-1 text-xs text-gray-500">Alasan penolakan</p>
+            <p className="text-sm text-gray-900">{refund.rejectionReason}</p>
+          </div>
+        )}
+
+        {refund.status === 'FAILED' && refund.failedById && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
+            <p className="text-xs text-gray-500">Ditandai gagal oleh</p>
+            <p className="text-sm font-medium text-gray-900">{refund.failedBy?.name}</p>
+            {refund.failedAt && <p className="text-xs text-gray-500">{formatIndonesianDate(refund.failedAt)}</p>}
+            <p className="mt-1 text-xs text-gray-500">Alasan kegagalan</p>
+            <p className="text-sm text-gray-900">{refund.failureReason}</p>
+          </div>
+        )}
+
         {refund.donorBankCode && refund.donorAccountName && maskedDonorAccountNumber && (
           <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
             <p className="text-xs text-gray-500">Rekening tujuan Donor (dicatat saat persetujuan)</p>
@@ -166,6 +190,7 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
               subject={{ type: subject.type, slug: subject.slug }}
               actorId={actorId}
               requestedById={refund.requestedById}
+              isOwnSubject={isOwnSubject}
             />
           </div>
         )}
@@ -204,6 +229,7 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
               actorId={actorId}
               requestedById={refund.requestedById}
               approvedById={refund.approvedById}
+              isOwnSubject={isOwnSubject}
             />
           </div>
         )}

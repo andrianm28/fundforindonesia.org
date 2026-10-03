@@ -57,9 +57,9 @@ function makeTx(options: { refundRow?: Record<string, unknown> | null; tripFundr
         count: vi.fn(async () => 0),
         createMany: vi.fn().mockResolvedValue({ count: 0 }),
         groupBy: vi.fn().mockResolvedValue([]),
-        // The freeze approval reads back, selected by its transactionId.
-        findMany: vi.fn(async ({ where }: { where: { transactionId: string } }) =>
-          FREEZE_OF_DEFAULT_REFUND.filter((r) => r.transactionId === where.transactionId),
+        // The freeze approval reads back, selected by its transactionIds (readRefundFreezeEntries).
+        findMany: vi.fn(async ({ where }: { where: { transactionId: { in: string[] } } }) =>
+          FREEZE_OF_DEFAULT_REFUND.filter((r) => where.transactionId.in.includes(r.transactionId)),
         ),
       },
     },

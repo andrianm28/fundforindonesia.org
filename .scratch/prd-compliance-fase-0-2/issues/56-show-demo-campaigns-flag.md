@@ -1,6 +1,6 @@
 # 56: Flag untuk menampilkan Demo Campaign di katalog sebelum launch
 
-**Status:** awaiting-merge
+**Status:** done (PR #215, 030c3aa)
 
 **Blocked by:** none
 
@@ -32,3 +32,5 @@ launch menampilkan Demo Campaign di katalog dengan lencananya.
 ## Comments
 
 - 2026-10-03, `claude/prd-56-show-demo-campaigns`: `showDemoCampaigns()` dan `catalogueDemoWhere()` di `src/lib/subject-guard.ts` jadi satu-satunya penentu; `listableCampaignWhere` (home, explore/[category], /api/campaigns untuk explore/all dan search, zakat) mengikutinya, begitu pula filter Prayer Wall (beranda dan /api/prayers). `NOT_A_DEMO_CAMPAIGN` dan `sitemapCampaignWhere` tidak disentuh, jadi uang/Impact/abuse/dormant/sitemap/Donation/Payout tetap mengecualikan. Flag dibaca dari `process.env` saat request (bukan NEXT_PUBLIC_); semua halaman terdampak sudah dinamis (home dan explore/[category] `force-dynamic`, API membaca `request.url`), jadi tidak ada render statis saat build. Lencana sudah ada di CampaignCard/CampaignDetailView. Flag diteruskan ke container lewat kedua berkas docker-compose. Full suite hijau, ratchet lint 193 / tsc 19. Commit: 5f00d79
+
+- 2026-10-03 (merge): PR #215 merge sebagai `030c3aa`, CI hijau, review independen diposting di PR.

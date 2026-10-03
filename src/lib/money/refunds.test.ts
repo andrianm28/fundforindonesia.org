@@ -16,6 +16,7 @@ import {
   RefundDestinationMismatchError,
   SelfApprovalError,
   InvalidRefundStatusError,
+  RefundFreezeJournalMissingError,
   TwoPersonRuleError,
   OwnSubjectConflictError,
   rejectRefund,
@@ -1141,8 +1142,8 @@ describe('approveRefund', () => {
 
     const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
 
-    await expect(attempt).rejects.toThrow(InvalidRefundStatusError);
-    await expect(attempt).rejects.toMatchObject({ detail: 'its freeze journal is missing' });
+    await expect(attempt).rejects.toThrow(RefundFreezeJournalMissingError);
+    await expect(attempt).rejects.toMatchObject({ code: 'REFUND_FREEZE_JOURNAL_MISSING', refundIds: ['refund-1'] });
     expect(tx.refund.updateMany).not.toHaveBeenCalled();
     expect(rows).toHaveLength(0);
   });
@@ -1554,7 +1555,7 @@ describe('createRefund after an earlier Refund was rejected or failed (prd-compl
 
     await expect(
       createRefund(tx as never, { subject, paymentId: 'payment-1', amount: 60_000, reason: 'x', requestedById: 'admin-1' }),
-    ).rejects.toThrow(/refund-orphan has no freeze journal/);
+    ).rejects.toMatchObject({ code: 'REFUND_FREEZE_JOURNAL_MISSING', refundIds: ['refund-orphan'] });
     expect(refundCreate).not.toHaveBeenCalled();
     expect(rows).toHaveLength(0);
   });
