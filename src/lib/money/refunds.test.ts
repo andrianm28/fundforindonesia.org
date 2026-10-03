@@ -31,6 +31,7 @@ import {
   refundApprovedLegs,
   platformFeePortionFor,
   providerFeePortionFor,
+  InvalidLedgerLegError,
   type LedgerLeg,
   type LedgerSubject,
 } from './ledger';
@@ -1492,6 +1493,54 @@ describe('createRefund after an earlier Refund was rejected or failed (prd-compl
 
     expect(approvedBy(second.id)).toEqual({ FROZEN_BALANCE: 50_000, REFUND_COST: 47_501 });
     expect(withdrawable()).toBe(0);
+  });
+
+  it('gives a Refund nothing, never a negative share, once the standing Refunds carry more than the cumulative portion', async () => {
+    // A Payment of 10_000 with a Provider Fee of 10, settled into a pool of 9_990:
+    // a Refund of 1_000 carries 1, rounded up.
+    const { tx, prisma, rows, payments } = makeMultiPaymentTx([
+      { transactionId: 'settle-1', direction: 'CREDIT', amount: 9_990, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+    ]);
+    payments.set('payment-1', makePayment({ amount: 10_000, providerFee: 10, platformFee: 0 }));
+    const reject = (refundId: string) =>
+      rejectRefund(prisma as never, { refundId, rejectedById: 'admin-2', reason: 'Salah Payment' });
+
+    // Three open one after the other: 2, then 1, then 7 (its own 9, less the 2
+    // the first two took).
+    const first = await request(tx, 1_010);
+    const second = await request(tx, 100);
+    const third = await request(tx, 8_001);
+    expect(frozenBy(rows, first.id)).toEqual({ ESCROW_HOLD: 1_008, REFUND_COST: 2 });
+    expect(frozenBy(rows, second.id)).toEqual({ ESCROW_HOLD: 99, REFUND_COST: 1 });
+    expect(frozenBy(rows, third.id)).toEqual({ ESCROW_HOLD: 7_994, REFUND_COST: 7 });
+
+    // The first two are rejected. A Refund of 100 takes up the 2 the third was cut
+    // by, on top of its own 1.
+    await reject(first.id);
+    await reject(second.id);
+    const fourth = await request(tx, 100);
+    expect(frozenBy(rows, fourth.id)).toEqual({ ESCROW_HOLD: 97, REFUND_COST: 3 });
+
+    // Then the third is rejected too, and the fourth keeps the 3 it posted, where
+    // the cumulative portion of it and the next 100 is 2. The next Refund of 100
+    // carries no fee at all: a share of -1 would debit the pool 101 against a
+    // freeze of 100, and the freeze would not balance.
+    await reject(third.id);
+    const fifth = await request(tx, 100);
+    expect(frozenBy(rows, fifth.id)).toEqual({ ESCROW_HOLD: 100 });
+    // The pool held 9_990 and the two Refunds that stand took 97 and 100 of it.
+    expect(escrowNetOf(rows, 'campaign-1')).toBe(9_793);
+  });
+
+  it('refuses a Refund too small to carry its own two fee shares, posting nothing', async () => {
+    // One rupiah of a Payment with both fees: each share rounds up to 1, so the two
+    // come to 2 against an amount of 1. The freeze is refused as it is built; left
+    // to the ledger's own balance check it would fail as an unbalanced posting
+    // instead, with the same nothing posted but a worse message.
+    const { tx, rows } = setup();
+
+    await expect(request(tx, 1)).rejects.toThrow(InvalidLedgerLegError);
+    expect(rows.filter((r) => r.transactionId.startsWith('refund-requested-'))).toEqual([]);
   });
 
   it('refuses a Payment whose standing Refund has no freeze journal, writing nothing, rather than guess what that Refund took', async () => {

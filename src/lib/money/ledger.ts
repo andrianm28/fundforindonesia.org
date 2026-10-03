@@ -617,6 +617,15 @@ export type StandingRefundFees = {
  * Without a rejection the posted shares ARE the cumulative portion of the
  * Refunds before this one, and the result is the share the cap always gave.
  *
+ * So once this Refund is created the standing Refunds carry at least the
+ * cumulative portion and never more than the fee, and exactly the cumulative
+ * portion until a Refund is rejected. After that they can carry a rupiah or two
+ * more: a share taken up for a Refund that is rejected later stays posted with the
+ * Refund that took it (the ledger is not edited), and the next Refund finds
+ * nothing missing and carries 0. Never a negative share, which is what the
+ * Math.max(0, ...) below is for: a negative share would post a net portion larger
+ * than the amount and a freeze that does not balance.
+ *
  * A Refund never carries more than its own amount, or its net portion would go
  * negative. Fees that are a fraction of the Payment and Refunds of more than a few
  * rupiah never get near that; if one did, the rest stays missing from the

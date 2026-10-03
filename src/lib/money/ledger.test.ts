@@ -923,6 +923,24 @@ describe('a Refund and the fee money it returns (prd-compliance 28c)', () => {
     ]);
   });
 
+  it('refuses a freeze whose two fee portions together exceed the amount refunded, rather than debit the pool a negative net portion', () => {
+    const subject = { type: 'campaign' as const, campaignId: 'c1' };
+    // A Refund of 1_000 cannot give up 600 of Platform Fee and 500 of Provider
+    // Fee: the pool would be debited -100, and without the refusal the legs
+    // post 1_100 of debits against a 1_000 credit.
+    expect(() =>
+      refundRequestedLegs({ subject, amount: 1_000, source: 'ESCROW_HOLD', platformFeePortion: 600, providerFeePortion: 500 }),
+    ).toThrow(InvalidLedgerLegError);
+    // Exactly the amount is allowed: the net portion is 0 and posts no pool leg.
+    expect(
+      refundRequestedLegs({ subject, amount: 1_000, source: 'ESCROW_HOLD', platformFeePortion: 600, providerFeePortion: 400 }),
+    ).toEqual([
+      { account: 'FROZEN_BALANCE', direction: 'CREDIT', amount: 1_000, campaignId: 'c1' },
+      { account: 'PLATFORM_FEE', direction: 'DEBIT', amount: 600 },
+      { account: 'REFUND_COST', direction: 'DEBIT', amount: 400 },
+    ]);
+  });
+
   it('does NOT credit GATEWAY_CLEARING at approval -- approving a Refund is not paying it', () => {
     // CONTEXT.md, Refund: created by one Admin, approved by another, and
     // completed by a third. Approval moves no money, so the Provider Balance
@@ -1201,6 +1219,28 @@ describe('platformFeePortionFor and providerFeePortionFor (prd-compliance 53)', 
     expect(providerFeePortionFor({ amount: 100_000, providerFee: 0 }, 40_000, [standing(10_000, 0, 0)])).toBe(0);
   });
 
+  it('gives the next Refund nothing, never a negative share, once the standing Refunds carry more than the cumulative portion', () => {
+    // A Payment of 10_000 with a Provider Fee of 10: a Refund of 1_000 carries 1,
+    // rounded up. Three Refunds open one after the other, each frozen with the
+    // earlier ones standing: 1_010 carries 2, 100 carries 1, and 8_001 carries 7,
+    // its own 9 less the 2 that the first two already took.
+    const small = { amount: 10_000, providerFee: 10 };
+    expect(providerFeePortionFor(small, 1_010, [])).toBe(2);
+    expect(providerFeePortionFor(small, 100, [standing(1_010, 0, 2)])).toBe(1);
+    expect(providerFeePortionFor(small, 8_001, [standing(1_010, 0, 2), standing(100, 0, 1)])).toBe(7);
+
+    // The first two are rejected, so only the 8_001 stands, with its 7. A Refund
+    // of 100 takes up the 2 that were cut from it, on top of its own 1.
+    expect(providerFeePortionFor(small, 100, [standing(8_001, 0, 7)])).toBe(3);
+
+    // Then the 8_001 is rejected too. The Refund of 100 keeps the 3 it posted,
+    // where the cumulative portion of that 100 and the next 100 is only 2, so
+    // there is nothing missing: the next Refund of 100 takes 0, not -1. The two
+    // carry 3 between them, one more than the cumulative portion and well under
+    // the fee of 10.
+    expect(providerFeePortionFor(small, 100, [standing(100, 0, 3)])).toBe(0);
+  });
+
   it('never carries more than the Refund\'s own amount, however much is missing', () => {
     // A 10-rupiah Payment whose whole value is Provider Fee, with 9 of it
     // standing and none of the fee posted: everything is missing, but a 1-rupiah
@@ -1220,7 +1260,7 @@ describe('platformFeePortionFor and providerFeePortionFor (prd-compliance 53)', 
     Number((BigInt(numerator) + BigInt(denominator) - BigInt(1)) / BigInt(denominator));
   const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 
-  it('property: Refunds standing together carry exactly the cumulative portion of each fee, and never take more out of the pool than it held', () => {
+  it('property: Refunds standing together carry at least the cumulative portion of each fee and never more than the fee, and never take more out of the pool than it held', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 10_000, max: 5_000_000 }),
@@ -1241,10 +1281,14 @@ describe('platformFeePortionFor and providerFeePortionFor (prd-compliance 53)', 
           };
           const paymentUnderTest = { amount: gross, ...fees };
           const standingRefunds: Array<{ amount: number; platform: number; provider: number }> = [];
+          let anyRejected = false;
 
           for (const operation of operations) {
             if (operation.reject) {
-              if (standingRefunds.length > 0) standingRefunds.splice(operation.pick % standingRefunds.length, 1);
+              if (standingRefunds.length > 0) {
+                standingRefunds.splice(operation.pick % standingRefunds.length, 1);
+                anyRejected = true;
+              }
               continue;
             }
             const remaining = gross - sum(standingRefunds.map((r) => r.amount));
@@ -1260,27 +1304,66 @@ describe('platformFeePortionFor and providerFeePortionFor (prd-compliance 53)', 
             const provider = providerFeePortionFor(paymentUnderTest, amount, others);
             standingRefunds.push({ amount, platform, provider });
 
-            // Each fee taken by the standing Refunds is the sum of their rounded-up
-            // shares, capped at the fee: the cumulative portion, never a rupiah
-            // more or less.
+            // A Refund never carries a negative share, nor more than its own amount.
+            expect(platform).toBeGreaterThanOrEqual(0);
+            expect(provider).toBeGreaterThanOrEqual(0);
+            expect(amount - platform - provider).toBeGreaterThanOrEqual(0);
+
+            // The cumulative portion of a fee is the sum of the standing Refunds'
+            // rounded-up shares, capped at the fee. What they carry is never less
+            // than that and never more than the fee. It is exactly that until a
+            // Refund is rejected: after one, it can sit a rupiah or two above, since
+            // a share taken up for a Refund that is rejected later stays posted with
+            // the Refund that took it, and the next Refund then takes none.
             const cumulative = (fee: number) =>
               Math.min(fee, sum(standingRefunds.map((r) => ceilDiv(fee * r.amount, gross))));
-            expect(sum(standingRefunds.map((r) => r.platform))).toBe(cumulative(fees.platformFee));
-            expect(sum(standingRefunds.map((r) => r.provider))).toBe(cumulative(fees.providerFee));
+            const carried = {
+              platform: sum(standingRefunds.map((r) => r.platform)),
+              provider: sum(standingRefunds.map((r) => r.provider)),
+            };
+            expect(carried.platform).toBeGreaterThanOrEqual(cumulative(fees.platformFee));
+            expect(carried.platform).toBeLessThanOrEqual(fees.platformFee);
+            expect(carried.provider).toBeGreaterThanOrEqual(cumulative(fees.providerFee));
+            expect(carried.provider).toBeLessThanOrEqual(fees.providerFee);
+            if (!anyRejected) {
+              expect(carried.platform).toBe(cumulative(fees.platformFee));
+              expect(carried.provider).toBe(cumulative(fees.providerFee));
+            }
             // So the pool, which held the Gross less both fees, is never debited
-            // more than it held, and a Refund's own net portion is never negative.
-            expect(amount - platform - provider).toBeGreaterThanOrEqual(0);
+            // more than it held.
             const taken = sum(standingRefunds.map((r) => r.amount - r.platform - r.provider));
             expect(taken).toBeLessThanOrEqual(gross - fees.platformFee - fees.providerFee);
             // A Payment refunded in full has handed back every rupiah of both fees.
             if (sum(standingRefunds.map((r) => r.amount)) === gross) {
-              expect(sum(standingRefunds.map((r) => r.platform))).toBe(fees.platformFee);
-              expect(sum(standingRefunds.map((r) => r.provider))).toBe(fees.providerFee);
+              expect(carried.platform).toBe(fees.platformFee);
+              expect(carried.provider).toBe(fees.providerFee);
             }
           }
         },
       ),
-      { numRuns: 3_000 },
+      {
+        numRuns: 3_000,
+        examples: [
+          // The review of PR #208: a Payment of 10_000 with a fee of 10, Refunds of
+          // 1_010, 100 and 8_001, the first two rejected, then 100, then the 8_001
+          // rejected, then 100 again.
+          [
+            10_000,
+            1,
+            0,
+            [
+              { reject: false, permille: 101, pick: 0 },
+              { reject: false, permille: 11, pick: 0 },
+              { reject: false, permille: 900, pick: 0 },
+              { reject: true, permille: 1, pick: 0 },
+              { reject: true, permille: 1, pick: 0 },
+              { reject: false, permille: 1, pick: 0 },
+              { reject: true, permille: 1, pick: 0 },
+              { reject: false, permille: 1, pick: 0 },
+            ],
+          ],
+        ],
+      },
     );
   });
 });
