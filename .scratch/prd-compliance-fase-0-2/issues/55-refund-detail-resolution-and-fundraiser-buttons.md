@@ -1,6 +1,6 @@
 # 55: Detail Refund menampilkan penyelesaiannya; tombol approve/complete disembunyikan bagi Fundraiser
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 **Blocked by:** none (50 done)
 
@@ -19,3 +19,5 @@ Lanjutan yang sengaja tidak dicakup tiket 50 (PR #206).
 - [ ] Tes komponen dan halaman
 
 ## Comments
+
+- 2026-10-03: owner menyetujui pengerjaan ("ya semua").
