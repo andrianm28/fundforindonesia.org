@@ -45,13 +45,13 @@ function SingleCampaignCardSkeleton({ variant }: { variant: 'compact' | 'standar
 
   return (
     <div
-      className="rounded-[var(--radius-md)] overflow-hidden shadow-[var(--shadow-card)] bg-white flex-shrink-0"
+      className="rounded-md overflow-hidden shadow-card bg-white shrink-0"
       style={{ width: isCompact ? '280px' : undefined }}
       role="status"
       aria-label="Loading campaign"
     >
       {/* Image area (16:9 aspect ratio) */}
-      <Skeleton variant="rectangular" width="100%" height={0} className="!h-0 !pb-[56.25%]" />
+      <Skeleton variant="rectangular" width="100%" height={0} className="h-0! pb-[56.25%]!" />
 
       {/* Content area */}
       <div className="p-3 flex flex-col gap-2">
@@ -65,7 +65,7 @@ function SingleCampaignCardSkeleton({ variant }: { variant: 'compact' | 'standar
         </div>
 
         {/* Progress bar */}
-        <Skeleton variant="rectangular" width="100%" height={8} className="!rounded-full mt-1" />
+        <Skeleton variant="rectangular" width="100%" height={8} className="rounded-full! mt-1" />
 
         {/* Amount + days row */}
         <div className="flex justify-between items-center mt-1">

@@ -44,41 +44,41 @@ export default async function ModerasiVolunteerTripPage({ params }: PageProps) {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-xl font-semibold text-[#212121]">{trip.title}</h1>
-        <p className="text-sm text-[#757575] mt-1">Fundraiser: {trip.fundraiser.name}</p>
+        <h1 className="text-xl font-semibold text-text">{trip.title}</h1>
+        <p className="text-sm text-text-secondary mt-1">Fundraiser: {trip.fundraiser.name}</p>
       </div>
 
-      <section className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-4">
-        <p className="text-xs text-[#757575]">
+      <section className="bg-white rounded-xl border border-border p-6 space-y-4">
+        <p className="text-xs text-text-secondary">
           Isi Trip ini tidak dapat diubah Fundraiser selama menunggu keputusan.
         </p>
         <dl className="space-y-3 text-sm text-[#424242]">
           <div>
-            <dt className="text-xs text-[#757575]">Destinasi</dt>
+            <dt className="text-xs text-text-secondary">Destinasi</dt>
             <dd>{trip.destination}</dd>
           </div>
           <div>
-            <dt className="text-xs text-[#757575]">Trip Fee</dt>
+            <dt className="text-xs text-text-secondary">Trip Fee</dt>
             <dd>{formatRupiah(trip.tripFeeAmount)}</dd>
           </div>
           <div>
-            <dt className="text-xs text-[#757575]">Deskripsi</dt>
+            <dt className="text-xs text-text-secondary">Deskripsi</dt>
             <dd className="whitespace-pre-wrap">{trip.description}</dd>
           </div>
           <div>
-            <dt className="text-xs text-[#757575]">Cerita</dt>
+            <dt className="text-xs text-text-secondary">Cerita</dt>
             <dd className="whitespace-pre-wrap">{trip.story}</dd>
           </div>
           <div>
-            <dt className="text-xs text-[#757575]">Itinerary</dt>
+            <dt className="text-xs text-text-secondary">Itinerary</dt>
             <dd className="whitespace-pre-wrap">{trip.itinerary}</dd>
           </div>
         </dl>
       </section>
 
-      <section className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-2">
-        <h2 className="text-sm font-semibold text-[#212121]">Volunteer Batch</h2>
-        {trip.batches.length === 0 && <p className="text-sm text-[#757575]">Belum ada Batch.</p>}
+      <section className="bg-white rounded-xl border border-border p-6 space-y-2">
+        <h2 className="text-sm font-semibold text-text">Volunteer Batch</h2>
+        {trip.batches.length === 0 && <p className="text-sm text-text-secondary">Belum ada Batch.</p>}
         {trip.batches.map((batch) => (
           <p key={batch.id} className="text-sm text-[#424242]">
             {formatDate(batch.startDate)} sampai {formatDate(batch.endDate)} · pendaftaran sampai{" "}
@@ -87,14 +87,14 @@ export default async function ModerasiVolunteerTripPage({ params }: PageProps) {
         ))}
       </section>
 
-      <section className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-3">
-        <h2 className="text-sm font-semibold text-[#212121]">Keputusan</h2>
+      <section className="bg-white rounded-xl border border-border p-6 space-y-3">
+        <h2 className="text-sm font-semibold text-text">Keputusan</h2>
         {!isSubmitted ? (
-          <p className="text-sm text-[#757575]">Trip ini tidak lagi menunggu keputusan.</p>
+          <p className="text-sm text-text-secondary">Trip ini tidak lagi menunggu keputusan.</p>
         ) : (
           <>
             {isOwn && (
-              <p className="text-sm text-[#757575]">
+              <p className="text-sm text-text-secondary">
                 Ini Trip milik Anda sendiri; Verifier tidak dapat memutuskannya dan server akan menolak
                 keputusan Anda.
               </p>

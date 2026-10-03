@@ -51,29 +51,29 @@ export default async function ModerasiRekeningPage() {
     <div className="space-y-10">
       <section className="space-y-6">
         <div>
-          <h1 className="text-lg font-semibold text-[#212121]">Verifikasi Rekening</h1>
-          <p className="text-sm text-[#757575]">Diurutkan dari yang paling lama menunggu.</p>
+          <h1 className="text-lg font-semibold text-text">Verifikasi Rekening</h1>
+          <p className="text-sm text-text-secondary">Diurutkan dari yang paling lama menunggu.</p>
         </div>
 
         {requests.length === 0 && (
-          <p className="text-sm text-[#757575]">Tidak ada Bank Account yang menunggu verifikasi.</p>
+          <p className="text-sm text-text-secondary">Tidak ada Bank Account yang menunggu verifikasi.</p>
         )}
 
         {requests.map((request) => {
           const account = request.bankAccount;
           const fullNumber = readBankAccountNumber(account) ?? "(tidak dapat dibaca)";
           return (
-            <section key={request.id} className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-4">
+            <section key={request.id} className="bg-white rounded-xl border border-border p-6 space-y-4">
               <div className="space-y-1">
-                <p className="text-sm text-[#212121] font-medium">Pemilik: {account.ownerName}</p>
-                <p className="text-sm text-[#757575]">Bank (ditulis pemilik): {account.bankCode}</p>
-                <p className="text-sm text-[#757575]">Nama pemilik rekening (ditulis pemilik): {account.accountName}</p>
-                <p className="text-sm text-[#757575]">
+                <p className="text-sm text-text font-medium">Pemilik: {account.ownerName}</p>
+                <p className="text-sm text-text-secondary">Bank (ditulis pemilik): {account.bankCode}</p>
+                <p className="text-sm text-text-secondary">Nama pemilik rekening (ditulis pemilik): {account.accountName}</p>
+                <p className="text-sm text-text-secondary">
                   Nomor rekening (daftar, tersamar): {maskBankAccountNumber(fullNumber)}
                 </p>
                 {/* Decision 6: the Verifier's decide panel shows the full number, because a
                     mistyped digit cannot be checked against a mask. */}
-                <p className="text-sm font-semibold text-[#212121]">
+                <p className="text-sm font-semibold text-text">
                   Nomor rekening penuh (untuk diperiksa terhadap dokumen): {fullNumber}
                 </p>
               </div>
@@ -85,12 +85,12 @@ export default async function ModerasiRekeningPage() {
 
       <section className="space-y-4">
         <div>
-          <h2 className="text-lg font-semibold text-[#212121]">Rekening Terverifikasi</h2>
-          <p className="text-sm text-[#757575]">
+          <h2 className="text-lg font-semibold text-text">Rekening Terverifikasi</h2>
+          <p className="text-sm text-text-secondary">
             Cabut verifikasi bila rekening ternyata bermasalah. Bukan Verifier yang meloloskannya.
           </p>
         </div>
-        {verified.length === 0 && <p className="text-sm text-[#757575]">Tidak ada rekening terverifikasi.</p>}
+        {verified.length === 0 && <p className="text-sm text-text-secondary">Tidak ada rekening terverifikasi.</p>}
         {verified.map((account: RevocableBankAccount) => (
           <RevocationPanel
             key={account.id}
@@ -106,12 +106,12 @@ export default async function ModerasiRekeningPage() {
 
       <section className="space-y-4">
         <div>
-          <h2 className="text-lg font-semibold text-[#212121]">Rekening Dicabut</h2>
-          <p className="text-sm text-[#757575]">
+          <h2 className="text-lg font-semibold text-text">Rekening Dicabut</h2>
+          <p className="text-sm text-text-secondary">
             Pulihkan bila verifikasi ternyata seharusnya tidak dicabut. Bukan Verifier yang mencabutnya.
           </p>
         </div>
-        {revoked.length === 0 && <p className="text-sm text-[#757575]">Tidak ada rekening yang sedang dicabut.</p>}
+        {revoked.length === 0 && <p className="text-sm text-text-secondary">Tidak ada rekening yang sedang dicabut.</p>}
         {revoked.map((account: RevocableBankAccount) => (
           <RevocationPanel
             key={account.id}

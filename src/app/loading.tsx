@@ -9,7 +9,7 @@ export default function HomeLoading() {
   return (
     <div className="min-h-screen">
       {/* Hero Banner Skeleton */}
-      <div className="w-full aspect-[16/9] md:aspect-[21/9] lg:aspect-[3/1]">
+      <div className="w-full aspect-video md:aspect-21/9 lg:aspect-3/1">
         <Skeleton variant="rectangular" width="100%" height="100%" />
       </div>
 
@@ -30,7 +30,7 @@ export default function HomeLoading() {
         <Skeleton variant="text" width={220} height={20} className="mb-3" />
         <div className="flex gap-4 overflow-hidden">
           {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="w-[280px] flex-shrink-0">
+            <div key={i} className="w-[280px] shrink-0">
               <Skeleton variant="card" />
             </div>
           ))}
@@ -42,7 +42,7 @@ export default function HomeLoading() {
         <Skeleton variant="text" width={200} height={20} className="mb-3" />
         <div className="flex gap-4 overflow-hidden">
           {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="w-[280px] flex-shrink-0">
+            <div key={i} className="w-[280px] shrink-0">
               <Skeleton variant="card" />
             </div>
           ))}

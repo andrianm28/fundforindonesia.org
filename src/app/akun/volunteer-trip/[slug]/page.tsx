@@ -40,8 +40,8 @@ export default async function FundraiserTripPage({ params }: PageProps) {
         Kembali
       </Link>
       <div>
-        <h1 className="text-xl font-semibold text-[#212121]">{trip.title}</h1>
-        <p className="text-sm text-[#757575] mt-1">
+        <h1 className="text-xl font-semibold text-text">{trip.title}</h1>
+        <p className="text-sm text-text-secondary mt-1">
           Status: {TRIP_STATUS_LABELS[trip.status] ?? trip.status} · {trip.destination} ·{' '}
           {formatRupiah(trip.tripFeeAmount)}
         </p>
@@ -56,8 +56,8 @@ export default async function FundraiserTripPage({ params }: PageProps) {
       )}
 
       {trip.editable ? (
-        <section className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-[#212121]">Isi Trip</h2>
+        <section className="bg-white rounded-xl border border-border p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-text">Isi Trip</h2>
           <TripForm
             slug={trip.slug}
             initial={{
@@ -70,21 +70,21 @@ export default async function FundraiserTripPage({ params }: PageProps) {
               tripFeeAmount: trip.tripFeeAmount,
             }}
           />
-          <div className="border-t border-[#E0E0E0] pt-4">
+          <div className="border-t border-border pt-4">
             <SubmitTripButton slug={trip.slug} />
           </div>
         </section>
       ) : (
-        <p className="text-sm text-[#757575]">
+        <p className="text-sm text-text-secondary">
           Isi Trip hanya bisa diubah selama Draf atau Ditolak.
         </p>
       )}
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-[#212121]">Volunteer Batch</h2>
-        {trip.batches.length === 0 && <p className="text-sm text-[#757575]">Belum ada Batch.</p>}
+        <h2 className="text-sm font-semibold text-text">Volunteer Batch</h2>
+        {trip.batches.length === 0 && <p className="text-sm text-text-secondary">Belum ada Batch.</p>}
         {trip.batches.map((batch) => (
-          <div key={batch.id} className="bg-white rounded-xl border border-[#E0E0E0] p-4 space-y-3">
+          <div key={batch.id} className="bg-white rounded-xl border border-border p-4 space-y-3">
             <p className="text-sm text-[#424242]">
               {formatWibDate(batch.startDate)} sampai {formatWibDate(batch.endDate)} · pendaftaran
               sampai {formatWibDate(batch.registrationDeadline)} · kuota {batch.minQuota} sampai{' '}
@@ -107,7 +107,7 @@ export default async function FundraiserTripPage({ params }: PageProps) {
               />
             )}
             {batch.status === 'COMPLETED' && (
-              <p className="text-sm text-[#757575]">
+              <p className="text-sm text-text-secondary">
                 {batch.roster.filter((r) => r.attended).length} dari {batch.roster.length} Volunteer hadir.
               </p>
             )}
@@ -117,8 +117,8 @@ export default async function FundraiserTripPage({ params }: PageProps) {
 
       {/* Dates are WIB calendar dates; a Trip in any status but Ditarik or Selesai takes new Batches. */}
       {trip.status !== 'CANCELLED' && trip.status !== 'COMPLETED' && (
-        <section className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-3">
-          <h2 className="text-sm font-semibold text-[#212121]">Tambah Batch</h2>
+        <section className="bg-white rounded-xl border border-border p-6 space-y-3">
+          <h2 className="text-sm font-semibold text-text">Tambah Batch</h2>
           <BatchForm slug={trip.slug} seatsUsed={0} />
         </section>
       )}

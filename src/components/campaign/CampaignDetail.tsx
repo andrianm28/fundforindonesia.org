@@ -407,7 +407,7 @@ function CampaignUpdates({
                     key={idx}
                     src={img}
                     alt={`Update image ${idx + 1}`}
-                    className="w-32 h-24 object-cover rounded-lg flex-shrink-0"
+                    className="w-32 h-24 object-cover rounded-lg shrink-0"
                   />
                 ))}
               </div>

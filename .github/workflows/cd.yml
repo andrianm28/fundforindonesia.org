@@ -90,7 +90,9 @@ jobs:
           # ignore list, the workflows (this file included), and the files
           # `COPY . .` pulls into the build: public/ (its file permissions
           # once caused EACCES in production), tsconfig.json,
-          # postcss.config.mjs and tailwind.config.*. src/ is deliberately
+          # postcss.config.mjs (Tailwind 4 keeps its tokens in src/styles/globals.css,
+          # so no tailwind.config.* exists now; the pattern still lists it in
+          # case one returns). src/ is deliberately
           # left out: a PR touching only src/ skips the image build, which the
           # `build` job in ci.yml and the image build on every push to main
           # still cover.

@@ -336,7 +336,7 @@ export default function CampaignCreatePage() {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, kind: e.target.value as CampaignKind | '' }))
                   }
-                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${
+                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary ${
                     errors.kind
                       ? 'border-danger focus:ring-danger/20 focus:border-danger'
                       : 'border-border hover:border-text-secondary/50'
@@ -399,7 +399,7 @@ export default function CampaignCreatePage() {
                     setFormData((prev) => ({ ...prev, deadline: e.target.value }))
                   }
                   min={new Date().toISOString().split('T')[0]}
-                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${
+                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary ${
                     errors.deadline
                       ? 'border-danger focus:ring-danger/20 focus:border-danger'
                       : 'border-border hover:border-text-secondary/50'
@@ -420,7 +420,7 @@ export default function CampaignCreatePage() {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, category: e.target.value }))
                   }
-                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${
+                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary ${
                     errors.category
                       ? 'border-danger focus:ring-danger/20 focus:border-danger'
                       : 'border-border hover:border-text-secondary/50'
@@ -543,7 +543,7 @@ export default function CampaignCreatePage() {
                   }
                   placeholder="Ceritakan alasan Anda membuat penggalangan dana ini. Sertakan detail tentang siapa yang akan dibantu dan bagaimana dana akan digunakan."
                   rows={8}
-                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 resize-y focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-text-secondary/60 ${
+                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 resize-y focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-text-secondary/60 ${
                     errors.story
                       ? 'border-danger focus:ring-danger/20 focus:border-danger'
                       : 'border-border hover:border-text-secondary/50'
@@ -730,7 +730,7 @@ function CollectingEntityField({
           aria-label="Collecting Entity"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${
+          className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary ${
             error ? 'border-danger focus:ring-danger/20 focus:border-danger' : 'border-border hover:border-text-secondary/50'
           }`}
         >

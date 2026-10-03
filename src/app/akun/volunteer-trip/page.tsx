@@ -23,7 +23,7 @@ export default async function FundraiserTripsPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-[#212121]">Volunteer Trip Saya</h1>
+        <h1 className="text-xl font-semibold text-text">Volunteer Trip Saya</h1>
         <Link
           href="/akun/volunteer-trip/baru"
           className="px-4 py-2 bg-[#0073E6] text-white text-sm font-medium rounded-lg"
@@ -32,19 +32,19 @@ export default async function FundraiserTripsPage() {
         </Link>
       </div>
       {trips.length === 0 ? (
-        <p className="text-sm text-[#757575]">Anda belum membuat Volunteer Trip.</p>
+        <p className="text-sm text-text-secondary">Anda belum membuat Volunteer Trip.</p>
       ) : (
         <ul className="space-y-3">
           {trips.map((trip) => (
-            <li key={trip.slug} className="bg-white rounded-xl border border-[#E0E0E0] p-4">
+            <li key={trip.slug} className="bg-white rounded-xl border border-border p-4">
               <Link href={`/akun/volunteer-trip/${trip.slug}`} className="block">
                 <div className="flex items-start justify-between gap-2">
-                  <h2 className="text-sm font-medium text-[#212121]">{trip.title}</h2>
-                  <span className="text-xs font-medium text-[#424242] bg-[#F5F5F5] rounded-full px-2 py-0.5">
+                  <h2 className="text-sm font-medium text-text">{trip.title}</h2>
+                  <span className="text-xs font-medium text-[#424242] bg-bg-secondary rounded-full px-2 py-0.5">
                     {TRIP_STATUS_LABELS[trip.status] ?? trip.status}
                   </span>
                 </div>
-                <p className="text-xs text-[#757575] mt-1">
+                <p className="text-xs text-text-secondary mt-1">
                   {trip.destination} · {trip.batchCount} Batch
                 </p>
               </Link>

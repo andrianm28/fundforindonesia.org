@@ -38,14 +38,14 @@ export function TripDecisionPanel({ tripId }: { tripId: string }) {
   }
 
   return (
-    <div className="space-y-3 border-t border-[#E0E0E0] pt-4">
+    <div className="space-y-3 border-t border-border pt-4">
       {error && (
         <p role="alert" className="text-sm text-[#C62828]">
           {error}
         </p>
       )}
       <div>
-        <label htmlFor={`reason-${tripId}`} className="block text-sm font-medium text-[#212121] mb-1">
+        <label htmlFor={`reason-${tripId}`} className="block text-sm font-medium text-text mb-1">
           Alasan penolakan (wajib bila menolak)
         </label>
         <textarea
@@ -55,7 +55,7 @@ export function TripDecisionPanel({ tripId }: { tripId: string }) {
           maxLength={1000}
           rows={3}
           disabled={pending}
-          className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+          className="w-full rounded-lg border border-border p-2 text-sm"
         />
       </div>
       <div className="flex flex-wrap gap-3">
