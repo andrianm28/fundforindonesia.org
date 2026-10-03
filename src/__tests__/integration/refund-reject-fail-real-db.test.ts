@@ -85,7 +85,7 @@ describe.skipIf(!DATABASE_URL)('Refund reject and fail -- against real Postgres 
     return id;
   }
 
-  async function makeCampaign(balance = 0): Promise<{ id: string; ownerId: string }> {
+  async function makeCampaign(balance = 0, location?: string): Promise<{ id: string; ownerId: string }> {
     const ownerId = await makeUser();
     const id = `campaign-${process.pid}-${next()}`;
     await prisma.campaign.create({
@@ -101,6 +101,7 @@ describe.skipIf(!DATABASE_URL)('Refund reject and fail -- against real Postgres 
         kind: 'ZAKAT',
         creatorId: ownerId,
         lifecycleStatus: 'ACTIVE',
+        ...(location ? { location } : {}),
       },
     });
     if (balance > 0) {
@@ -282,6 +283,78 @@ describe.skipIf(!DATABASE_URL)('Refund reject and fail -- against real Postgres 
       refunds.failRefund(prisma, { refundId: refund.id, failedById: await makeUser(), reason: 'lagi' }),
     ).rejects.toMatchObject({ code: 'INVALID_REFUND_STATUS' });
     await expectLedgerBalanced();
+  }, 60_000);
+
+  /**
+   * The public Impact page for ONE Campaign, picked out by a location only it
+   * has, as one comparable value. Other tests in this file seed raw balances
+   * that are not collected money, so the whole database would not reconcile;
+   * a location scope reads this Campaign's books alone. It throws if the six
+   * lines stop reconciling.
+   */
+  async function impactFor(location: string) {
+    const impact = await import('@/lib/money/impact');
+    const breakdown = await impact.impactBreakdown(prisma, { location });
+    return {
+      collected: breakdown.collected,
+      lines: Object.fromEntries(breakdown.lines.map((l) => [l.key, l.amount])),
+      platformCost: breakdown.platformCost,
+    };
+  }
+
+  it('Impact: a Refund rejected after its freeze leaves the page as it was before the Refund', async () => {
+    const location = `impact-reject-${process.pid}`;
+    const campaign = await makeCampaign(0, location);
+    const payment = await seedPayment(campaign.id, false);
+    const before = await impactFor(location);
+    expect(before.collected).toBe(GROSS);
+
+    const refund = await request(campaign.id, payment.id, await makeUser());
+    expect((await impactFor(location)).lines).not.toEqual(before.lines);
+    await refunds.rejectRefund(prisma, { refundId: refund.id, rejectedById: await makeUser(), reason: 'Salah Payment' });
+
+    expect(await impactFor(location)).toEqual(before);
+  }, 60_000);
+
+  it('Impact: a Refund failed after approval, with a REFUND_COST shortfall, leaves the page as it was before the Refund', async () => {
+    const location = `impact-fail-${process.pid}`;
+    const campaign = await makeCampaign(0, location);
+    const payment = await seedPayment(campaign.id, true);
+    const net = GROSS - PROVIDER_FEE - PLATFORM_FEE;
+    // A Payout takes the whole released balance, so the Refund finds it empty.
+    const bank = await prisma.bankAccount.create({
+      data: {
+        ownerId: campaign.ownerId,
+        bankCode: 'BCA',
+        accountNumberCiphertext: 'c',
+        accountNumberKeyId: 'k',
+        accountName: 'Fundraiser',
+        verifiedAt: new Date(),
+      },
+    });
+    const payout = await prisma.payout.create({
+      data: {
+        campaignId: campaign.id,
+        bankAccountId: bank.id,
+        amount: net,
+        description: 'p',
+        status: 'APPROVED',
+        requestedById: campaign.ownerId,
+      },
+    });
+    await prisma.$transaction((tx) =>
+      ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId: campaign.id }, amount: net }), {
+        payoutId: payout.id,
+      }),
+    );
+    const before = await impactFor(location);
+
+    const refund = await request(campaign.id, payment.id, await makeUser());
+    await refunds.approveRefund(prisma, { refundId: refund.id, approvedById: await makeUser(), ...destination });
+    expect((await impactFor(location)).platformCost.uncoveredRefunds).toBeGreaterThan(0);
+    await refunds.failRefund(prisma, { refundId: refund.id, failedById: await makeUser(), reason: 'Rekening Donor ditutup' });
+
+    expect(await impactFor(location)).toEqual(before);
   }, 60_000);
 
   it('a COMPLETED Refund can be neither rejected nor failed', async () => {

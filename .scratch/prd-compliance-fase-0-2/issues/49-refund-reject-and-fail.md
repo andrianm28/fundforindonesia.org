@@ -49,3 +49,10 @@ Keputusan owner 2026-10-03:
   Route PATCH `.../refunds/[id]/reject` dan `/fail` untuk Campaign dan Volunteer
   Trip. Tes: unit, route, dan Postgres sungguhan (termasuk balapan reject vs
   approve). Belum ada UI Admin untuk kedua aksi.
+- 2026-10-03, perbaikan review: `impactBreakdown` mengecualikan Refund
+  REJECTED/FAILED dari `refunds`, dan query shortfall kini dibatasi `refundId in
+  refundIds`, jadi pasangan asli dan pembaliknya sama-sama tidak dibaca (net nol,
+  hukum konservasi tetap). Tes Impact (in-memory dan Postgres sungguhan: reject
+  setelah freeze, fail setelah approve dengan shortfall `REFUND_COST`). Empat
+  route baru didaftarkan di `roles-expand-guard`, entri Refund di `CONTEXT.md`
+  dilengkapi, dan tes route Volunteer Trip ditambahkan.
