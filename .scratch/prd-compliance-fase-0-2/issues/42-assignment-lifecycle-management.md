@@ -4,7 +4,7 @@
 
 **Blocked by:** 6
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 - [ ] An Admin can grant a specific assignment (Verifier, Admin) to a user as its own action, independent of changing their Role
 - [ ] An Admin can revoke a specific assignment from a user as its own action, independent of changing their Role
@@ -17,3 +17,21 @@
 **Context — how this was found:** flagged as Critical in ticket 07's final whole-branch review (Opus), independently verified by the controller before merge (`grep -rn "userAssignment\." src/` returns zero hits outside tests/generated; `admin/users/[id]/role/route.ts` confirmed to only write `role`). The reviewer's own framing: "the blocker is not in the diff — it is what the diff's absence of a companion makes true." Ticket 07 merged with this gap open and tracked here, by explicit decision, rather than held pending this ticket.
 
 **Design note:** the reviewer considered "sync assignments transactionally with the role-change route" as a smaller alternative fix. That's rejected above for the ADR-0005 reason stated in the third acceptance criterion — noted here so a future implementer doesn't reach for it as a shortcut without knowing it was already considered and declined.
+
+## Comments
+
+- 2026-10-02, verifikasi (branch `claude/prd-44-assignment-audit`): TIDAK ditandai done; klaim triase haiku tidak terbukti penuh. Pemblokir prd 06 berstatus wontfix (catatan saja). Pemetaan AC ke tes (`src/lib/assignments.test.ts`, `src/app/api/admin/users/[id]/assignments/route.test.ts`, `src/lib/auth.test.ts`; semua hijau):
+  - AC 1 grant: sebagian. VERIFIER langsung (terbukti). ADMIN kini dua-orang (propose + confirm, tiket 07/20), bukan grant langsung.
+  - AC 2 revoke: terbukti (revokes the assignment, records the audit entry; self-revoke dan last-ADMIN ditolak).
+  - AC 3 efek pada request berikutnya: terbukti tidak langsung (`auth.test.ts` "carries the user's current assignments onto the token" membaca assignment segar dari DB tiap refresh); tidak ada tes end-to-end revoke lalu 403.
+  - AC 4 role route tidak auto-sync: route `PATCH /api/admin/users/[id]/role` sudah tidak ada (Role dipensiunkan, `retire-role-hierarchy`), jadi AC usang.
+  - AC 5 tes "demoting Role alone tidak menyentuh assignment": TIDAK ADA tes; tidak ada kode yang bisa diuji karena route Role sudah dihapus.
+  - AC 6 tanpa two-person rule: BERTENTANGAN dengan implementasi; ADMIN grant sengaja dua-orang (tiket 07/20). Siapa/kapan tercatat (AssignmentAuditEntry, terbukti).
+  - AC 7 audit log aditif, `UserAssignment` tidak diubah: terbukti (upsert/delete polos di tes).
+  Perlu keputusan owner: tutup 42 sebagai superseded oleh 07/20 dengan AC 4-6 direvisi, atau tulis ulang AC.
+- 2026-10-03, keputusan owner ("setuju semua"), branch `claude/prd-44-assignment-audit`: status `wontfix`.
+  Alasan: digantikan oleh tiket 07/20 (grant ADMIN wajib dua orang, jadi AC 1 dan AC 6 tidak lagi berlaku
+  seperti tertulis) dan oleh pensiunnya Role (`retire-role-hierarchy`; route `PATCH /api/admin/users/[id]/role`
+  sudah dihapus, jadi AC 4 dan AC 5 usang). Sisanya sudah ada: revoke dan audit log aditif (AC 2, 7) terbukti
+  oleh tes di atas. Tes revoke lalu 403 pada request berikutnya (AC 3) kini ada di prd 44:
+  `src/app/api/admin/users/[id]/assignments/revoke-takes-effect.test.ts`.

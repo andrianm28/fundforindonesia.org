@@ -293,3 +293,39 @@ export async function pendingAdminGrantRequests(
     proposedReason: request.proposedReason,
   }));
 }
+
+// ==================== The audit trail ====================
+
+export type AssignmentAuditTrailEntry = {
+  id: string;
+  assignment: Assignment;
+  action: "PROPOSED" | "GRANTED" | "REVOKED";
+  actedById: string;
+  actedByName: string | null;
+  actedAt: Date;
+  reason: string | null;
+};
+
+/**
+ * Who proposed, granted or revoked which assignment of `userId`, and when
+ * (ticket 42/44): every AssignmentAuditEntry about that user, newest first.
+ */
+export async function assignmentAuditTrail(
+  prisma: Pick<PrismaClient, "assignmentAuditEntry">,
+  userId: string
+): Promise<AssignmentAuditTrailEntry[]> {
+  const entries = await prisma.assignmentAuditEntry.findMany({
+    where: { userId },
+    orderBy: { actedAt: "desc" },
+    include: { actedBy: { select: { name: true } } },
+  });
+  return entries.map((entry) => ({
+    id: entry.id,
+    assignment: entry.assignment,
+    action: entry.action,
+    actedById: entry.actedById,
+    actedByName: entry.actedBy.name,
+    actedAt: entry.actedAt,
+    reason: entry.reason,
+  }));
+}
