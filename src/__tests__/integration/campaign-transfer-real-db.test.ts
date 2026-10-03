@@ -133,12 +133,11 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     return prisma.$transaction((tx) => ledger.campaignBalance(tx, campaignId));
   }
 
-  async function requestTransfer(sourceId: string, targetId: string, amount: number, requestedById: string) {
+  async function requestTransfer(sourceId: string, targetId: string, requestedById: string) {
     return prisma.$transaction((tx) =>
       transfers.requestCampaignTransfer(tx, {
         sourceId,
         targetId,
-        amount,
         reason: 'Campaign asal disuspend',
         requestedById,
       }),
@@ -155,16 +154,16 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     for (const [transactionId, sum] of net) expect(`${transactionId}:${sum}`).toBe(`${transactionId}:0`);
   }
 
-  it('two transfers from one source whose balance covers only one: exactly one is approved', async () => {
+  it('two full transfers from one source (each captured the whole balance): exactly one is approved', async () => {
     const source = await makeCampaign({ status: 'SUSPENDED', balance: 500_000 });
     const target = await makeCampaign({ status: 'ACTIVE' });
     const requester = await makeUser();
     const approverA = await makeUser();
     const approverB = await makeUser();
 
-    // Each fits the balance on its own, so both requests are accepted.
-    const first = await requestTransfer(source.id, target.id, 400_000, requester);
-    const second = await requestTransfer(source.id, target.id, 400_000, requester);
+    // Each captures the whole 500k balance, so both requests are accepted.
+    const first = await requestTransfer(source.id, target.id, requester);
+    const second = await requestTransfer(source.id, target.id, requester);
 
     const outcomes = await Promise.allSettled([
       transfers.approveCampaignTransfer(prisma, { campaignTransferId: first.id, decidedById: approverA }),
@@ -176,8 +175,8 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     expect(rejected).toHaveLength(1);
     expect(rejected[0].reason).toBeInstanceOf(transfers.InsufficientBalanceError);
 
-    expect(await balanceOf(source.id)).toBe(100_000);
-    expect(await balanceOf(target.id)).toBe(400_000);
+    expect(await balanceOf(source.id)).toBe(0);
+    expect(await balanceOf(target.id)).toBe(500_000);
     expect(await prisma.campaignTransfer.count({ where: { sourceId: source.id, status: 'APPROVED' } })).toBe(1);
     expect(await prisma.campaignTransfer.count({ where: { sourceId: source.id, status: 'PENDING' } })).toBe(1);
     await expectLedgerBalanced();
@@ -194,10 +193,10 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     const approverB = await makeUser();
 
     await prisma.campaign.update({ where: { id: b.id }, data: { lifecycleStatus: 'ACTIVE' } });
-    const aToB = await requestTransfer(a.id, b.id, 100_000, requester);
+    const aToB = await requestTransfer(a.id, b.id, requester);
     await prisma.campaign.update({ where: { id: b.id }, data: { lifecycleStatus: 'SUSPENDED' } });
     await prisma.campaign.update({ where: { id: a.id }, data: { lifecycleStatus: 'ACTIVE' } });
-    const bToA = await requestTransfer(b.id, a.id, 100_000, requester);
+    const bToA = await requestTransfer(b.id, a.id, requester);
 
     // Approving either now fails its own re-judgement (the target is no longer
     // Active), which is the point: both still take the same two locks in the
@@ -237,10 +236,12 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
       },
     });
 
-    const transfer = await requestTransfer(source.id, target.id, 200_000, requester);
+    const transfer = await requestTransfer(source.id, target.id, requester);
 
-    // Amounts chosen so the outcome does not depend on who wins the lock:
-    // 500k - 200k transferred - 300k frozen for the Refund = 0 either way.
+    // Whoever wins the lock, the loser is refused rather than overdrawing:
+    // the transfer is full (500k), so a Refund that lands first changes the
+    // balance and the approval is refused; a transfer that lands first leaves
+    // nothing for the Refund.
     const outcomes = await Promise.allSettled([
       transfers.approveCampaignTransfer(prisma, { campaignTransferId: transfer.id, decidedById: approver }),
       prisma.$transaction((tx) =>
@@ -254,9 +255,36 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
       ),
     ]);
 
-    expect(outcomes.map((o) => o.status)).toEqual(['fulfilled', 'fulfilled']);
+    expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
+    expect(await balanceOf(source.id)).toBeGreaterThanOrEqual(0);
+    expect((await balanceOf(source.id)) + (await balanceOf(target.id))).toBeLessThanOrEqual(500_000);
+    await expectLedgerBalanced();
+  }, 60_000);
+
+  it('a follow-up transfer is allowed after an APPROVED one: matured Escrow Hold moves the same way', async () => {
+    const source = await makeCampaign({ status: 'SUSPENDED', balance: 300_000 });
+    const target = await makeCampaign({ status: 'ACTIVE' });
+    const requester = await makeUser();
+    const approver = await makeUser();
+
+    const first = await requestTransfer(source.id, target.id, requester);
+    await transfers.approveCampaignTransfer(prisma, { campaignTransferId: first.id, decidedById: approver });
+
+    // Escrow Hold matures into the source's withdrawable balance afterwards.
+    await prisma.$transaction((tx) =>
+      ledger.postTransaction(tx, [
+        { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 80_000 },
+        { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 80_000, campaignId: source.id },
+      ]),
+    );
+
+    const second = await requestTransfer(source.id, target.id, requester);
+    expect(second.amount).toBe(80_000);
+    await transfers.approveCampaignTransfer(prisma, { campaignTransferId: second.id, decidedById: approver });
+
     expect(await balanceOf(source.id)).toBe(0);
-    expect(await balanceOf(target.id)).toBe(200_000);
+    expect(await balanceOf(target.id)).toBe(380_000);
+    expect(await prisma.campaignTransfer.count({ where: { sourceId: source.id, status: 'APPROVED' } })).toBe(2);
     await expectLedgerBalanced();
   }, 60_000);
 
@@ -265,7 +293,7 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     const target = await makeCampaign({ status: 'ACTIVE' });
     const requester = await makeUser();
     const approver = await makeUser();
-    const transfer = await requestTransfer(source.id, target.id, 100_000, requester);
+    const transfer = await requestTransfer(source.id, target.id, requester);
 
     // No edit path changes a Kind once a Campaign has left Draft
     // (requireKindAndDeadlineEditable); this is the defence behind that rule.
@@ -284,7 +312,7 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     const target = await makeCampaign({ status: 'ACTIVE', kind: 'WAKAF', category: 'Wakaf Pendidikan' });
     const requester = await makeUser();
     const approver = await makeUser();
-    const transfer = await requestTransfer(source.id, target.id, 100_000, requester);
+    const transfer = await requestTransfer(source.id, target.id, requester);
 
     await prisma.campaign.update({ where: { id: target.id }, data: { category: 'Wakaf Kesehatan' } });
 

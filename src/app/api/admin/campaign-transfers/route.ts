@@ -11,7 +11,10 @@ import { requestCampaignTransfer } from '@/lib/money/campaign-transfers';
  * wakaf Campaign's money to move to another Campaign of the same Kind
  * (CONTEXT.md, Campaign Transfer; PRD §7.2).
  *
- *   { sourceId, targetId, amount, reason }
+ *   { sourceId, targetId, reason }
+ *
+ * There is no `amount`: the transfer is always the whole withdrawable balance
+ * of the source, computed by the server under lock.
  *
  * The route records and stops: a different Admin decides on
  * /api/admin/campaign-transfers/[id]/decision, so nothing moves on one
@@ -36,7 +39,6 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (req: NextReques
       requestCampaignTransfer(tx, {
         sourceId: body.sourceId as string,
         targetId: body.targetId as string,
-        amount: body.amount as number,
         reason: body.reason as string,
         requestedById: actorId,
       }),

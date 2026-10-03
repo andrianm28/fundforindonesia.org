@@ -29,6 +29,7 @@ import {
   requestCampaignTransfer,
   approveCampaignTransfer,
   rejectCampaignTransfer,
+  CampaignTransferBalanceChangedError,
   CampaignTransferCrossKindError,
   CampaignTransferNotPendingError,
   SelfApprovalError,
@@ -54,7 +55,7 @@ function decide(body: unknown): Promise<Response> {
   );
 }
 
-const BODY = { sourceId: 'a', targetId: 'b', amount: 1000, reason: 'Suspended' };
+const BODY = { sourceId: 'a', targetId: 'b', reason: 'Suspended' };
 
 const actual = await vi.importActual<typeof import('@/lib/money/campaign-transfers')>('@/lib/money/campaign-transfers');
 
@@ -85,6 +86,12 @@ describe('POST /api/admin/campaign-transfers', () => {
     expect(res.status).toBe(201);
     expect(mockRequest).toHaveBeenCalledWith(expect.anything(), { ...BODY, requestedById: 'admin-1' });
     expect(await res.json()).toMatchObject({ transfer: { status: 'PENDING' } });
+  });
+
+  it('never passes a body-supplied amount to the service: the server computes the full balance', async () => {
+    await request({ ...BODY, amount: 1 });
+    expect(mockRequest).toHaveBeenCalledWith(expect.anything(), { ...BODY, requestedById: 'admin-1' });
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('amount');
   });
 
   it('answers a cross-Kind request 403 with its own code, never a warning', async () => {
@@ -119,6 +126,14 @@ describe('POST /api/admin/campaign-transfers', () => {
     expect((await decided.json()).code).toBe('CAMPAIGN_TRANSFER_NOT_PENDING');
   });
 
+  it('answers 409 CAMPAIGN_TRANSFER_BALANCE_CHANGED when the balance moved since the request', async () => {
+    mockSession.mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } });
+    mockApprove.mockRejectedValueOnce(new CampaignTransferBalanceChangedError(400_000, 250_000));
+    const res = await decide({ decision: 'approve' });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('CAMPAIGN_TRANSFER_BALANCE_CHANGED');
+  });
+
   it('refuses a decision it does not enumerate', async () => {
     expect((await decide({ decision: 'delete' })).status).toBe(400);
     expect(mockApprove).not.toHaveBeenCalled();
@@ -139,8 +154,6 @@ describe('POST /api/admin/campaign-transfers', () => {
     it.each([
       ['sourceId is a number', { ...BODY, sourceId: 5 }],
       ['targetId is missing', { ...BODY, targetId: undefined }],
-      ['amount is a string', { ...BODY, amount: '1000' }],
-      ['amount is fractional', { ...BODY, amount: 10.5 }],
       ['reason is an object', { ...BODY, reason: { text: 'x' } }],
     ])('answers 400 CAMPAIGN_TRANSFER_INVALID, through the real service, when %s', async (_name, body) => {
       mockRequest.mockImplementation(actual.requestCampaignTransfer);

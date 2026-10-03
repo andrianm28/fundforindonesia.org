@@ -6,8 +6,9 @@ import { getMailer, type Mailer } from '@/lib/mail';
 import { campaignTransferEmail } from '@/lib/mail/campaign-transfer';
 import { publicUrl } from '@/lib/public-url';
 import { formatRupiah } from '@/lib/utils/currency';
-import { campaignBalance, campaignTransferLegs, MAX_RUPIAH_AMOUNT, postTransaction } from './ledger';
+import { campaignBalance, campaignTransferLegs, postTransaction } from './ledger';
 import {
+  CampaignTransferBalanceChangedError,
   CampaignTransferCategoryMismatchError,
   CampaignTransferCrossKindError,
   CampaignTransferInvalidError,
@@ -61,12 +62,17 @@ import {
  * Fundraiser of either Campaign". The PRD names no one else, and this is the
  * pattern of Manual Contribution and Payout approval.
  *
+ * A later transfer from the same source is allowed even after an APPROVED one
+ * (Escrow Hold that matures afterwards moves the same way): nothing here or in
+ * the schema limits a source to one transfer.
+ *
  * Callers establish the ADMIN Capacity (the routes do, through
  * withAssignmentCheck); these commands take the acting id because they also
  * judge it against the requester and the two Campaigns' owners.
  */
 
 export {
+  CampaignTransferBalanceChangedError,
   CampaignTransferCategoryMismatchError,
   CampaignTransferCrossKindError,
   CampaignTransferInvalidError,
@@ -119,14 +125,6 @@ export function judgeCampaignTransfer(source: TransferParty, target: TransferPar
   }
 }
 
-function assertAmountIsRupiah(amount: unknown): asserts amount is number {
-  if (typeof amount !== 'number' || !Number.isInteger(amount) || amount <= 0 || amount > MAX_RUPIAH_AMOUNT) {
-    throw new CampaignTransferInvalidError(
-      'Nominal Campaign Transfer harus berupa angka rupiah bulat di atas nol dan tidak melebihi 2.147.483.647.',
-    );
-  }
-}
-
 function cleanReason(value: unknown): string {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new CampaignTransferInvalidError('Alasan wajib diisi.');
@@ -156,13 +154,14 @@ type Judged = {
  * Locks both Campaigns in ascending id order, then judges everything that can
  * change between a request and its approval: the source is still Suspended,
  * the Kinds still allow it, nobody acting owns either Campaign, and the source
- * still holds the amount. Everything is read after the locks are taken.
+ * still holds something to move. Returns the withdrawable balance as read
+ * under the locks. Everything is read after the locks are taken.
  */
 async function lockAndJudge(
   tx: Prisma.TransactionClient,
-  params: { sourceId: string; targetId: string; amount: number; actorId: string },
+  params: { sourceId: string; targetId: string; actorId: string },
 ): Promise<Judged> {
-  const { sourceId, targetId, amount, actorId } = params;
+  const { sourceId, targetId, actorId } = params;
   const now = new Date();
 
   const states = new Map<string, SubjectState | null>();
@@ -204,12 +203,14 @@ async function lockAndJudge(
   const target = { state: targetState, category: targetRow.category };
   judgeCampaignTransfer(source, target);
 
+  // The amount is never an input: it is the whole withdrawable balance, read
+  // here under both locks. An empty source has nothing to transfer.
   const balance = await campaignBalance(tx, sourceId);
-  if (balance < amount) {
+  if (balance <= 0) {
     throw new InsufficientBalanceError(
-      amount,
+      1,
       balance,
-      'Jumlah Campaign Transfer melebihi Campaign Balance yang tersedia pada Campaign asal.',
+      'Campaign asal tidak memiliki Campaign Balance yang bisa dialihkan.',
     );
   }
 
@@ -223,26 +224,26 @@ async function lockAndJudge(
 
 /**
  * One Admin asks for a Suspended Campaign's money to move to another
- * Campaign. Posts nothing: until a second Admin approves, this is a claim.
+ * Campaign. Posts nothing: until a second Admin approves, this is a claim. The amount is
+ * computed here, never supplied: the whole withdrawable balance of the source.
  * Judged in full here as well as at approval, so a request that could never be
  * approved is refused now rather than left in the queue.
  */
 export async function requestCampaignTransfer(
   tx: Prisma.TransactionClient,
-  params: { sourceId: string; targetId: string; amount: number; reason: string; requestedById: string },
+  params: { sourceId: string; targetId: string; reason: string; requestedById: string },
 ): Promise<CampaignTransfer> {
   const sourceId = cleanId(params.sourceId, 'Campaign asal');
   const targetId = cleanId(params.targetId, 'Campaign tujuan');
-  assertAmountIsRupiah(params.amount);
   const reason = cleanReason(params.reason);
 
-  await lockAndJudge(tx, { sourceId, targetId, amount: params.amount, actorId: params.requestedById });
+  const { balance } = await lockAndJudge(tx, { sourceId, targetId, actorId: params.requestedById });
 
   return tx.campaignTransfer.create({
     data: {
       sourceId,
       targetId,
-      amount: params.amount,
+      amount: balance,
       reason,
       requestedById: params.requestedById,
       status: 'PENDING',
@@ -288,9 +289,20 @@ export async function approveCampaignTransfer(
     const judged = await lockAndJudge(tx, {
       sourceId: record.sourceId,
       targetId: record.targetId,
-      amount: record.amount,
       actorId: decidedById,
     });
+
+    // FULL TRANSFER ONLY. The amount was fixed at the request as the whole
+    // withdrawable balance; here it is recomputed under the locks. If the two
+    // differ (a Payout or Refund drained it, or a late Settlement added to it)
+    // the safest behaviour is to refuse and move nothing: moving the old
+    // figure could overdraw or strand money, and silently moving the new one
+    // would approve a sum the first Admin never saw. The transfer stays
+    // PENDING; the Admin rejects it and files a fresh request, which captures
+    // the current balance.
+    if (judged.balance !== record.amount) {
+      throw new CampaignTransferBalanceChangedError(record.amount, judged.balance);
+    }
 
     const claimed = await tx.campaignTransfer.updateMany({
       where: { id: campaignTransferId, status: 'PENDING' },

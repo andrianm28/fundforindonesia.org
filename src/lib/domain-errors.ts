@@ -89,6 +89,7 @@ export type MoneyErrorCode =
   | "CAMPAIGN_TRANSFER_NOT_FOUND"
   | "CAMPAIGN_TRANSFER_INVALID"
   | "CAMPAIGN_TRANSFER_NOT_PENDING"
+  | "CAMPAIGN_TRANSFER_BALANCE_CHANGED"
   | "CAMPAIGN_TRANSFER_SOURCE_NOT_SUSPENDED"
   | "CAMPAIGN_TRANSFER_KIND_NOT_TRANSFERABLE"
   | "CAMPAIGN_TRANSFER_CROSS_KIND"
@@ -364,6 +365,7 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // fixable by filling the form in properly, like MANUAL_CONTRIBUTION_INVALID.
   CAMPAIGN_TRANSFER_INVALID: 400,
   CAMPAIGN_TRANSFER_NOT_PENDING: 409,
+  CAMPAIGN_TRANSFER_BALANCE_CHANGED: 409,
   // Conflicts with the source's own state: it is not Suspended (or stopped
   // being, between request and approval).
   CAMPAIGN_TRANSFER_SOURCE_NOT_SUSPENDED: 409,

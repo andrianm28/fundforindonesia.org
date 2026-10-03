@@ -11,7 +11,7 @@
 - [x] A cross-Kind transfer is refused outright, not warned about
 - [x] The transfer is a balanced journal under the two-person rule, never a balance edit
 - [x] Every affected Donor is told where their money went
-- [ ] Built here because the suspension rule cannot work without it; Dormant Balance handling reuses this mechanism later
+- [x] Built here because the suspension rule cannot work without it; Dormant Balance handling reuses this mechanism later
 
 ## Comments
 
@@ -23,7 +23,7 @@
   tiket ini hanya bergantung pada `lockAndLoad`/`effectiveStatus` dari guard dan
   pada status SUSPENDED, yang sudah ada di `main`. Tiket 11 dan 32 sudah `done`.
 - 2026-10-02 `claude/prd-33-kind-transfer`: dibangun sebagai `CampaignTransfer`
-  (model, migrasi `20261003000000_add_campaign_transfer`), modul
+  (model, migrasi `20261003020000_add_campaign_transfer`), modul
   `src/lib/money/campaign-transfers.ts`, dua route Admin
   (`/api/admin/campaign-transfers`, `.../[id]/decision`, terdaftar di
   `roles-expand-guard.test.ts`), builder jurnal `campaignTransferLegs`, entri
@@ -58,20 +58,10 @@
     atau Completed) dan pemicunya.
   - Pemeriksaan: migrasi diterapkan ke Postgres sungguhan lewat
     `npm run ci:local -- migrations` (tanpa drift skema).
-- 2026-10-02 **Keputusan menunggu owner** (spec tidak menyebut; dipilih opsi
-  paling aman yang sejalan dengan Manual Contribution/Payout):
-  1. Yang meminta dan menyetujui adalah Admin yang berbeda (aturan dua orang),
-     keduanya harus bukan Fundraiser salah satu Campaign. Tidak ada Admin
-     ketiga dan tidak ada ambang nominal. Perlukah pemeriksaan ketiga seperti
-     penyelesaian Payout/Refund, atau persetujuan Verifier untuk Campaign
-     tujuan?
-  2. Nominal dipilih Admin pemohon (paling banyak saldo bisa-cair sumber), bukan
-     otomatis seluruh saldo; transfer parsial boleh dan bisa diajukan berulang.
-  3. Campaign tujuan dipilih Admin pemohon; belum ada aturan "tujuan harus
-     disetujui Fundraiser/Partner Organisation tujuan" atau Collecting Entity
-     yang sama. Tujuan cukup Active, bukan Demo, Kind (dan Category wakaf) sama.
-  4. Belum ada layar Admin untuk transfer; hanya API. Antrean transfer PENDING
-     juga belum muncul di `/api/admin/reconcile` seperti Manual Contribution.
+- 2026-10-02 **Pertanyaan ke owner** (dijawab 2026-10-03, lihat entri terakhir):
+  aturan dua orang tanpa Admin ketiga, nominal parsial, persetujuan Campaign
+  tujuan, dan belum adanya layar Admin atau antrean di `/api/admin/reconcile`.
+  Layar Admin dan antrean reconcile tetap belum ada (hanya API).
 - 2026-10-02 (perbaikan review PR #191), centang acceptance dan buktinya:
   - [x] Zakat/wakaf tidak bisa di-refund atas keputusan manajemen: sudah
     ditegakkan `REFUND_ELIGIBILITY_BY_KIND` dan diuji `refund-kind-gate.test.ts`
@@ -98,5 +88,24 @@
     kolom `status` milik model baru `CampaignTransfer` terhitung sebagai kolom
     `status` lama Campaign. Diperbaiki dengan parameter `excludeModels` di
     `tests/support/prisma-field-references.ts`, bukan dengan menonaktifkan tes.
-  - Keputusan [OWNER] (nominal parsial, persetujuan tujuan, Escrow Hold matang
-    setelah transfer) tidak diubah.
+- 2026-10-03 `claude/prd-33-kind-transfer` (keputusan owner "setuju semua"; tidak ada lagi yang menunggu owner):
+  1. Nominal transfer **penuh**: seluruh saldo yang bisa dicairkan. Request tidak
+     lagi menerima `amount`; server menghitungnya di bawah lock kedua Campaign
+     dan menyimpannya di `CampaignTransfer.amount`. Sumber tanpa saldo
+     bisa-cair ditolak (`INSUFFICIENT_BALANCE`). Saat approve nominal dihitung
+     ulang di bawah lock; bila saldo bisa-cair berbeda dari nominal request
+     (naik atau turun), **approve ditolak** dengan 409
+     `CAMPAIGN_TRANSFER_BALANCE_CHANGED`, tidak ada yang berpindah, dan
+     transfer tetap PENDING. Pilihan paling aman: memindahkan nominal lama bisa
+     menarik lebih dari saldo atau menyisakan dana, sedangkan memindahkan
+     nominal baru berarti menyetujui jumlah yang tidak pernah dilihat Admin
+     pemohon. Admin menolak request itu lalu mengajukan yang baru.
+  2. Persetujuan Campaign tujuan tidak diperlukan; aturan dua Admin berbeda
+     tetap.
+  3. Escrow Hold yang matang sesudah transfer dipindahkan lewat transfer
+     lanjutan: request baru dengan aturan sama, diizinkan walau sudah ada
+     transfer APPROVED dari sumber yang sama (tes unit dan real-DB; tes real-DB
+     dilewati tanpa `TEST_DATABASE_URL`, CI menjalankannya).
+  4. Migrasi di-rename (git mv) ke `20261003020000_add_campaign_transfer`
+     (SQL tidak berubah) agar bertimestamp setelah
+     `20261003010000_payment_provider_setting` (#195); rujukan diperbarui.

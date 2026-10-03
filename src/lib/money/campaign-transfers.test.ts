@@ -3,6 +3,7 @@ import {
   requestCampaignTransfer,
   approveCampaignTransfer,
   rejectCampaignTransfer,
+  CampaignTransferBalanceChangedError,
   CampaignTransferCategoryMismatchError,
   CampaignTransferCrossKindError,
   CampaignTransferInvalidError,
@@ -109,7 +110,7 @@ function makeTx(
     rows.push({
       transactionId: 'seed',
       direction: 'CREDIT',
-      amount: options.sourceBalance ?? 1_000_000,
+      amount: options.sourceBalance ?? 400_000,
       account: 'CAMPAIGN_BALANCE',
       campaignId: SOURCE,
       campaignTransferId: null,
@@ -187,7 +188,6 @@ function makePrisma(tx: unknown, finalRow: Record<string, unknown> = transfer({ 
 const REQUEST = {
   sourceId: SOURCE,
   targetId: TARGET,
-  amount: 400_000,
   reason: 'Campaign asal disuspend',
   requestedById: 'admin-1',
 };
@@ -288,18 +288,37 @@ describe('requestCampaignTransfer', () => {
     await expect(requestCampaignTransfer(tx as never, REQUEST)).rejects.toBeInstanceOf(DemoCampaignError);
   });
 
-  it('refuses an amount above the source balance, and a bad amount or reason', async () => {
-    const { tx } = makeTx({ sourceBalance: 100_000 });
-    await expect(requestCampaignTransfer(tx as never, REQUEST)).rejects.toBeInstanceOf(InsufficientBalanceError);
+  it('takes the whole withdrawable balance as the amount, ignoring any amount smuggled into the params', async () => {
+    const { tx } = makeTx({
+      sourceBalance: 750_000,
+      extraRows: [
+        { account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 300_000 },
+        { account: 'FROZEN_BALANCE', direction: 'CREDIT', amount: 120_000 },
+      ],
+    });
+    const recorded = await requestCampaignTransfer(tx as never, { ...REQUEST, amount: 1 } as never);
+    expect(recorded.amount).toBe(750_000);
+  });
 
-    for (const amount of [0, -5, 1.5, Number.NaN, '100' as unknown as number]) {
-      await expect(
-        requestCampaignTransfer(makeTx().tx as never, { ...REQUEST, amount }),
-      ).rejects.toBeInstanceOf(CampaignTransferInvalidError);
-    }
+  it('refuses a source with no withdrawable balance, and a missing reason', async () => {
+    const empty = makeTx({ sourceBalance: 0, extraRows: [{ account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 500_000 }] });
+    await expect(requestCampaignTransfer(empty.tx as never, REQUEST)).rejects.toBeInstanceOf(InsufficientBalanceError);
+    expect(empty.tx.campaignTransfer.create).not.toHaveBeenCalled();
+
     await expect(
       requestCampaignTransfer(makeTx().tx as never, { ...REQUEST, reason: '   ' }),
     ).rejects.toBeInstanceOf(CampaignTransferInvalidError);
+  });
+
+  it('allows a follow-up request after an APPROVED transfer from the same source', async () => {
+    // Escrow Hold that matured since moves by a new transfer under the same rules.
+    const { tx } = makeTx({ sourceBalance: 90_000 });
+    await expect(requestCampaignTransfer(tx as never, REQUEST)).resolves.toMatchObject({
+      status: 'PENDING',
+      amount: 90_000,
+    });
+    // The request never looks at earlier transfers, so none can block it.
+    expect(tx.campaignTransfer.findUnique).not.toHaveBeenCalled();
   });
 
   it('refuses an Admin who is the Fundraiser of either Campaign', async () => {
@@ -372,13 +391,41 @@ describe('approveCampaignTransfer', () => {
     expect(rows.length).toBe(before);
   });
 
-  it('re-judges the balance: a Payout or Refund drained it since the request', async () => {
-    const { tx, rows } = makeTx({ sourceBalance: 100_000 });
+  it('refuses when the balance changed since the request, whichever way: full transfer only, nothing moves', async () => {
+    for (const sourceBalance of [100_000, 900_000]) {
+      const { tx, rows, state } = makeTx({ sourceBalance });
+      const before = rows.length;
+      await expect(
+        approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' }),
+      ).rejects.toBeInstanceOf(CampaignTransferBalanceChangedError);
+      expect(rows.length).toBe(before);
+      expect(state?.status).toBe('PENDING');
+    }
+  });
+
+  it('refuses an approval when the source was drained to nothing since the request', async () => {
+    const { tx, rows } = makeTx({ sourceBalance: 0 });
     const before = rows.length;
     await expect(
       approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' }),
     ).rejects.toBeInstanceOf(InsufficientBalanceError);
     expect(rows.length).toBe(before);
+  });
+
+  it('approves a follow-up transfer although an earlier one from the same source is already APPROVED', async () => {
+    // The first transfer drained the source; Escrow Hold then matured (80k) and a second, full request captured it.
+    const { tx, rows } = makeTx({
+      sourceBalance: 400_000,
+      row: transfer({ id: 'ct-2', amount: 80_000 }),
+      extraRows: [
+        { account: 'CAMPAIGN_BALANCE', direction: 'DEBIT', amount: 400_000 },
+        { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 80_000 },
+      ],
+    });
+    const before = rows.length;
+    await approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-2', decidedById: 'admin-2' });
+    const posted = rows.slice(before);
+    expect(posted.reduce((n, r) => n + (r.direction === 'DEBIT' ? r.amount : 0), 0)).toBe(80_000);
   });
 
   it('re-judges the Kinds even if the stored row somehow names mismatched Campaigns', async () => {
@@ -393,6 +440,7 @@ describe('approveCampaignTransfer', () => {
   it('moves only the withdrawable balance: Escrow Hold and money frozen for a Refund stay with the source', async () => {
     const { tx, rows } = makeTx({
       sourceBalance: 1_000_000,
+      row: transfer({ amount: 1_000_000 }),
       extraRows: [
         { account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 300_000 },
         { account: 'FROZEN_BALANCE', direction: 'CREDIT', amount: 120_000 },
@@ -405,8 +453,8 @@ describe('approveCampaignTransfer', () => {
 
     await approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' });
 
-    expect(net('CAMPAIGN_BALANCE', SOURCE)).toBe(600_000);
-    expect(net('CAMPAIGN_BALANCE', TARGET)).toBe(400_000);
+    expect(net('CAMPAIGN_BALANCE', SOURCE)).toBe(0);
+    expect(net('CAMPAIGN_BALANCE', TARGET)).toBe(1_000_000);
     expect(net('ESCROW_HOLD', SOURCE)).toBe(300_000);
     expect(net('FROZEN_BALANCE', SOURCE)).toBe(120_000);
     expect(net('ESCROW_HOLD', TARGET)).toBe(0);
@@ -421,11 +469,12 @@ describe('approveCampaignTransfer', () => {
   it('does not count Escrow Hold towards what may be transferred', async () => {
     const { tx } = makeTx({
       sourceBalance: 100_000,
+      row: transfer({ amount: 1_000_000 }),
       extraRows: [{ account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 900_000 }],
     });
     await expect(
       approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' }),
-    ).rejects.toBeInstanceOf(InsufficientBalanceError);
+    ).rejects.toBeInstanceOf(CampaignTransferBalanceChangedError);
   });
 
   it('a Kind changed after the request stops the approval; the real edit rules would not allow one past Draft', async () => {

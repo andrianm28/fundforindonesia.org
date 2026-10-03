@@ -685,6 +685,24 @@ export class CampaignTransferInvalidError extends MoneyError {
   }
 }
 
+/**
+ * The withdrawable balance at approval is not the amount asked for at the
+ * request. Transfers are full, so nothing moves; the Admin files a new request.
+ */
+export class CampaignTransferBalanceChangedError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_BALANCE_CHANGED';
+  constructor(
+    readonly requested: number,
+    readonly available: number,
+  ) {
+    super(
+      'Campaign Balance asal sudah berubah sejak permintaan diajukan. Pengalihan harus seluruh saldo, jadi ' +
+        'tolak permintaan ini dan ajukan permintaan baru.',
+    );
+    this.name = 'CampaignTransferBalanceChangedError';
+  }
+}
+
 /** The transfer is no longer PENDING, or another decision won the race. */
 export class CampaignTransferNotPendingError extends MoneyError {
   readonly code = 'CAMPAIGN_TRANSFER_NOT_PENDING';
