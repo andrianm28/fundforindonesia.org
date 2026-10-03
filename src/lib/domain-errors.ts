@@ -58,6 +58,8 @@ export type MoneyErrorCode =
   | "REFUND_PROOF_INVALID"
   | "REFUND_DESTINATION_INVALID"
   | "REFUND_DESTINATION_MISMATCH"
+  | "REFUND_RESOLUTION_ACTOR"
+  | "REFUND_REASON_INVALID"
   | "INVALID_PAYOUT_STATUS"
   | "INVALID_REFUND_STATUS"
   | "PAYOUT_NOT_FOUND"
@@ -297,6 +299,11 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // re-reading the Donor's written request, not a policy refusal -- same
   // status as REFUND_DESTINATION_INVALID.
   REFUND_DESTINATION_MISMATCH: 400,
+  // Ticket 49: the requester may not reject, the approver may not fail. Not
+  // fixable by resending, so 403 like SELF_APPROVAL.
+  REFUND_RESOLUTION_ACTOR: 403,
+  // A blank or over-length reason: fixable by writing it, so 400.
+  REFUND_REASON_INVALID: 400,
   INVALID_PAYOUT_STATUS: 409,
   INVALID_REFUND_STATUS: 409,
   PAYOUT_NOT_FOUND: 404,

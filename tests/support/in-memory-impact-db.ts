@@ -8,6 +8,7 @@ import {
   refundApprovedLegs,
   refundPaidLegs,
   refundRequestedLegs,
+  reverseEntriesLegs,
   type LedgerLeg,
   type LedgerSubject,
   type ManualContributionSubject,
@@ -50,7 +51,7 @@ export type ProgramRow = {
   reportedAmount?: number;
 };
 
-export type RefundRow = { id: string; paymentId: string };
+export type RefundRow = { id: string; paymentId: string; status?: string };
 
 export type PayoutRow = {
   id: string;
@@ -107,6 +108,8 @@ function matchesField(actual: unknown, filter: unknown): boolean {
         return (operand as unknown[]).includes(actual);
       case 'not':
         return actual !== operand;
+      case 'notIn':
+        return !(operand as unknown[]).includes(actual);
       case 'contains':
         return (
           typeof actual === 'string' &&
@@ -244,6 +247,14 @@ export function ledgerFixture() {
         }),
         { refundId: opts.refundId },
       );
+    },
+    /**
+     * Reject or fail (ticket 49): the exact mirror of every entry this Refund
+     * has posted so far, built with the real reverseEntriesLegs.
+     */
+    refundReversal(opts: { refundId: string }) {
+      const posted = rows.filter((r) => r.refundId === opts.refundId);
+      post(reverseEntriesLegs(posted as never), { refundId: opts.refundId });
     },
     /** The Refund actually paid to the Donor, which is what drains the Provider Balance. */
     refundPayment(opts: { refundId: string; amount: number }) {
