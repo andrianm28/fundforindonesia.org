@@ -49,7 +49,9 @@ export default function AdminChecklistPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   /** Sends one change; on success reloads the list, else shows the refusal. */

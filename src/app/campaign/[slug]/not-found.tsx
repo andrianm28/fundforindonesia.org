@@ -29,13 +29,17 @@ type Lookup =
 export default function CampaignNotFound() {
   const params = useParams();
   const slug = typeof params?.slug === 'string' ? params.slug : '';
-  const [lookup, setLookup] = useState<Lookup>({ state: 'loading' });
+  // The answer for the slug it was asked about. Until it matches the current
+  // slug the lookup is loading; an empty slug has nothing to ask and is missing.
+  const [answer, setAnswer] = useState<{ slug: string; lookup: Lookup } | null>(null);
+  const lookup: Lookup = !slug
+    ? { state: 'missing' }
+    : answer?.slug === slug
+      ? answer.lookup
+      : { state: 'loading' };
 
   useEffect(() => {
-    if (!slug) {
-      setLookup({ state: 'missing' });
-      return;
-    }
+    if (!slug) return;
     let cancelled = false;
     fetch(`/api/campaigns/${encodeURIComponent(slug)}`, {
       cache: 'no-store',
@@ -50,7 +54,7 @@ export default function CampaignNotFound() {
       })
       .catch(() => ({ state: 'failed' }) as const)
       .then((next: Lookup) => {
-        if (!cancelled) setLookup(next);
+        if (!cancelled) setAnswer({ slug, lookup: next });
       });
     return () => {
       cancelled = true;

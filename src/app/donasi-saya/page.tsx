@@ -51,8 +51,6 @@ export default function DonasiSayaPage() {
 
   const fetchDonations = useCallback(async () => {
     try {
-      setIsLoading(true);
-      setError(null);
       const res = await fetch('/api/donations/mine');
       if (!res.ok) {
         throw new Error('Gagal memuat data donasi');
@@ -67,9 +65,19 @@ export default function DonasiSayaPage() {
     }
   }, []);
 
+  // The page starts in the loading state with no error, so the first fetch has
+  // nothing to reset; only a retry does (below).
+  const retry = useCallback(() => {
+    setIsLoading(true);
+    setError(null);
+    void fetchDonations();
+  }, [fetchDonations]);
+
   useEffect(() => {
     if (status === 'authenticated') {
-      fetchDonations();
+      void (async () => {
+        await fetchDonations();
+      })();
     }
   }, [status, fetchDonations]);
 
@@ -94,7 +102,7 @@ export default function DonasiSayaPage() {
         {isLoading ? (
           <DonationListSkeleton />
         ) : error ? (
-          <ErrorState message={error} onRetry={fetchDonations} />
+          <ErrorState message={error} onRetry={retry} />
         ) : donations.length === 0 ? (
           <EmptyState />
         ) : (

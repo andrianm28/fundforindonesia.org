@@ -56,6 +56,31 @@ describe('PartnerOrganisationRegister', () => {
     expect(screen.getByText('(tidak berlaku)')).toBeDefined();
   });
 
+  it('marks a permit and a Kind Authorisation that cover today as berlaku', async () => {
+    const current = {
+      ...ORGANISATION,
+      permits: [{ ...ORGANISATION.permits[0], validFrom: '2020-01-01T00:00:00.000Z', validTo: '2999-12-31T00:00:00.000Z' }],
+      kindAuthorisations: [
+        {
+          id: 'auth-1',
+          kind: 'ZAKAT',
+          documentReference: 'SK-1',
+          validFrom: '2020-01-01T00:00:00.000Z',
+          validTo: '2999-12-31T00:00:00.000Z',
+        },
+      ],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ organisations: [current] })),
+    );
+    render(<PartnerOrganisationRegister />);
+
+    await screen.findByText('Yayasan Indonesia Emas Merdeka');
+    expect(screen.getAllByText('(berlaku)')).toHaveLength(2);
+    expect(screen.queryByText('(tidak berlaku)')).toBeNull();
+  });
+
   it('registers an organisation with the account that acts for it', async () => {
     render(<PartnerOrganisationRegister />);
     await screen.findByText('Yayasan Indonesia Emas Merdeka');

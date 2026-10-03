@@ -27,14 +27,24 @@ effect atau handler). Tes komponen yang ada harus tetap hijau; tambahkan tes bil
 
 **Blocked by:** 18
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
-- [ ] Setiap temuan `set-state-in-effect` dan `purity` diperbaiki per komponen, tanpa `eslint-disable`
-- [ ] `eslint .` tidak melaporkan temuan untuk kedua aturan itu
-- [ ] `react-hooks/set-state-in-effect` dan `react-hooks/purity` bernilai `'error'` di `eslint.config.mjs`
-- [ ] `ci/baselines.json` `lint` tidak naik (turun bila memang turun); `ci.yml` tidak disentuh, tanpa bypass baseline
+- [x] Setiap temuan `set-state-in-effect` dan `purity` diperbaiki per komponen, tanpa `eslint-disable`
+- [x] `eslint .` tidak melaporkan temuan untuk kedua aturan itu
+- [x] `react-hooks/set-state-in-effect` dan `react-hooks/purity` bernilai `'error'` di `eslint.config.mjs`
+- [x] `ci/baselines.json` `lint` tidak naik (turun bila memang turun); `ci.yml` tidak disentuh, tanpa bypass baseline
 - [ ] CI hijau: test, build, migrations, ratchet
 
 ## Comments
 
 - 2026-10-03: dibuat dari tiket 18 atas keputusan owner ("setuju semua"). Lihat Comments tiket 18.
+- 2026-10-03, branch `claude/ci-cd-18b-set-state-and-purity`: 15 `set-state-in-effect` dan 2 `purity` selesai, tanpa `eslint-disable`; kedua aturan kini `'error'`. Keputusan per pola:
+  - Fetch saat mount (partnership-inquiries, verification-checklist, BankAccountRegister, PartnerOrganisationRegister, CampaignPayoutPanel, donasi-saya, users): effect memanggil loader lewat async IIFE sehingga setState hanya terjadi setelah `await`. `donasi-saya`: `setIsLoading(true)/setError(null)` dipindah ke handler `retry` (state awal sudah loading). `admin/users`: `loading` diturunkan dari `loadedKey` (page|search yang sudah termuat) alih-alih `setLoading(true)` di loader.
+  - `not-found.tsx`: lookup diturunkan dari `{slug, lookup}` yang sudah dijawab; slug kosong langsung `missing`.
+  - `CampaignDetail`: `isLoadingUpdates/Disbursements` diturunkan (tab terbuka, kosong, belum settled); `selectTab` mereset settled. Akibat kecil: indikator loading muncul di frame pertama tab, bukan setelah satu frame kosong.
+  - `NameForm` (pengaturan) dan `AdminSidebar`: sinkron prop/pathname lewat "adjust state during render" (state `seen*`), perilaku sama; `explore/all`: akumulasi halaman dengan pola yang sama, dikunci identitas daftar hasil.
+  - `ProgressBar`: bar statis memakai persentase langsung; hanya bar animasi yang punya state lebar (mulai 0, isi setelah 50 ms).
+  - `HoldCountdown`: `useSyncExternalStore` (server/hidrasi `null`, jam per detik); polling `router.refresh` tetap di effect tanpa setState.
+  - `PartnerOrganisationRegister`: `Date.now()` diganti hook `useNow` (`useSyncExternalStore`, dibulatkan ke menit, diperbarui tiap menit). Validitas izin kini dengan resolusi menit.
+  - Tes baru: izin/Kind Authorisation berlaku, ProgressBar statis dan animasi, AdminSidebar menutup menu setelah navigasi. `NameForm` tidak punya tes (komponen internal halaman yang butuh sesi); tidak ditambah.
+  - `ci/baselines.json` tetap lint 193 / tsc 19: ratchet menghitung error saja, dan temuan tadi berstatus warn, jadi angkanya tidak turun. `ci.yml` tidak disentuh.

@@ -47,19 +47,20 @@ export function ProgressBar({
   showLedgerLine = false,
 }: ProgressBarProps) {
   const percentage = calculatePercentage(current, target);
-  const [width, setWidth] = useState(animated ? 0 : percentage);
+  // Only the animated bar keeps a width of its own: it starts empty and fills
+  // to the percentage shortly after mount. A static bar just shows the percentage.
+  const [animatedWidth, setAnimatedWidth] = useState(0);
 
   useEffect(() => {
-    if (animated) {
-      // Trigger animation on mount by setting width after initial render
-      const timeout = setTimeout(() => {
-        setWidth(percentage);
-      }, 50);
-      return () => clearTimeout(timeout);
-    } else {
-      setWidth(percentage);
-    }
+    if (!animated) return;
+    // Trigger animation on mount by setting width after initial render
+    const timeout = setTimeout(() => {
+      setAnimatedWidth(percentage);
+    }, 50);
+    return () => clearTimeout(timeout);
   }, [animated, percentage]);
+
+  const width = animated ? animatedWidth : percentage;
 
   const heightClass = size === 'sm' ? 'h-1.5' : 'h-2.5';
 
