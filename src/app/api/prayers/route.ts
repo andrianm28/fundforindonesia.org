@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { NOT_A_DEMO_CAMPAIGN } from '@/lib/subject-guard';
+import { catalogueDemoWhere } from '@/lib/subject-guard';
 import { Prisma } from '@/generated/prisma/client';
 
 export async function GET(request: NextRequest) {
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     // public list shows (CONTEXT.md, Demo Campaign; prd-compliance 26).
     const where: Prisma.PrayerWhereInput = campaignSlug
       ? { campaign: { slug: campaignSlug } }
-      : { campaign: NOT_A_DEMO_CAMPAIGN };
+      : { campaign: catalogueDemoWhere() };
 
     const [prayers, total] = await Promise.all([
       prisma.prayer.findMany({

@@ -119,6 +119,32 @@ export function effectiveStatus(
 export const NOT_A_DEMO_CAMPAIGN: Prisma.CampaignWhereInput = { isDemo: false };
 
 /**
+ * Whether the public catalogue shows Demo Campaigns (CONTEXT.md, Demo
+ * Campaign): the pre-launch switch `SHOW_DEMO_CAMPAIGNS`, off unless it is
+ * exactly `"true"` (the rule `donationsEnabled` uses: a near-miss value must
+ * not turn it on).
+ *
+ * Read from the server environment on each call, never `NEXT_PUBLIC_`: it is
+ * not inlined at build, so a restart changes it, and a client component that
+ * needs to know is handed the Campaigns it may show, each with its `isDemo`
+ * badge. It governs only what a visitor sees listed. Money, Impact, abuse,
+ * dormant balances, the sitemap, Donation and Payout refusal read
+ * `NOT_A_DEMO_CAMPAIGN` or `isDemo` directly and never this.
+ */
+export function showDemoCampaigns(): boolean {
+  return process.env.SHOW_DEMO_CAMPAIGNS === 'true';
+}
+
+/**
+ * The one place that decides whether a public catalogue reader (home,
+ * explore, search, the Prayer Wall) leaves Demo Campaigns out. Spread it
+ * where `NOT_A_DEMO_CAMPAIGN` would have gone for a listing.
+ */
+export function catalogueDemoWhere(): Prisma.CampaignWhereInput {
+  return showDemoCampaigns() ? {} : NOT_A_DEMO_CAMPAIGN;
+}
+
+/**
  * The Campaigns a public list shows (CONTEXT.md, Campaign Status; Demo
  * Campaign): exactly those `effectiveStatus` calls ACTIVE, i.e. stored ACTIVE
  * with no deadline or one not yet passed, and no Demo Campaign among them.
@@ -128,8 +154,9 @@ export const NOT_A_DEMO_CAMPAIGN: Prisma.CampaignWhereInput = { isDemo: false };
  * only filter; lazy expiry is for commands.
  *
  * `includeDemo` is for a privileged screen that must still see them -- an
- * Admin working on a Campaign the public cannot see. It is opt-in, so a
- * listing cannot end up showing fiction by forgetting an argument.
+ * Admin working on a Campaign the public cannot see. Left out, it follows
+ * `showDemoCampaigns()`, off by default, so a listing cannot end up showing
+ * fiction by forgetting an argument.
  */
 export function listableCampaignWhere(
   now: Date,
@@ -137,7 +164,7 @@ export function listableCampaignWhere(
 ): Prisma.CampaignWhereInput {
   return {
     AND: [
-      ...(options.includeDemo ? [] : [NOT_A_DEMO_CAMPAIGN]),
+      ...((options.includeDemo ?? showDemoCampaigns()) ? [] : [NOT_A_DEMO_CAMPAIGN]),
       {
         lifecycleStatus: CampaignStatus.ACTIVE,
         OR: [{ deadline: null }, { deadline: { gte: now } }],

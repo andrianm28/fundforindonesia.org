@@ -56,6 +56,9 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL:?set NEXTAUTH_URL in .env}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Pre-launch switch, read by the server per request (not NEXT_PUBLIC_):
+      # a restart applies it. Exact "true" shows Demo Campaigns in the catalogue.
+      SHOW_DEMO_CAMPAIGNS: ${SHOW_DEMO_CAMPAIGNS:-false}
       # No default, for the reason given in docker-compose.yml: a default
       # webhook secret is a published one. Not required here (ticket 51): the
       # mock adapter is disabled under NODE_ENV=production unless
