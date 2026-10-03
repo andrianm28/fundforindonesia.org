@@ -1,9 +1,10 @@
 import { prisma } from '@/lib/prisma';
+import type { Prisma } from '@/generated/prisma/client';
 import {
   escrowReleaseLegs,
-  platformFeePortionFor,
   postTransaction,
-  providerFeePortionFor,
+  refundFreezeDebit,
+  refundFreezeTransactionId,
   type LedgerSubject,
 } from './ledger';
 import { assertExactlyOnePaymentSubject } from './payment-subject';
@@ -182,6 +183,56 @@ export interface ReleaseSweepOptions {
 type SweepOutcome = 'released' | 'frozen' | 'deferred' | 'raceLost';
 
 /**
+ * How much of a Payment's Net these Refunds already took out of ESCROW_HOLD,
+ * read back off the entries their freezes posted rather than worked out again.
+ *
+ * A Refund's freeze (refundRequestedLegs, ./ledger.ts) debits ESCROW_HOLD by the
+ * Refund's own Net portion: its amount less its Platform Fee and Provider Fee
+ * shares. createRefund (./refunds.ts) fixes those shares once, against the
+ * Refunds that stood before it at that moment, so that is the figure the ledger
+ * holds. Working the shares out again here, from the Refunds that stand now,
+ * agrees with it only while the same Refunds are still standing -- and
+ * rejecting a Refund (prd-compliance 49) is what ends that. A Refund frozen
+ * while an earlier one was still open carries the capped share; recomputed once
+ * the earlier one is rejected, it gets the larger uncapped one, and the sweep
+ * released a rupiah or two that ESCROW_HOLD did not hold (prd-compliance 51).
+ * The posted entry is the fact, so reading it cannot disagree with it. The
+ * reading itself is refundFreezeDebit (./ledger.ts), the same one approveRefund
+ * and resolveRefund make of a Refund's freeze.
+ *
+ * `refundIds` are the Refunds still standing (not REJECTED or FAILED, whose
+ * freeze was mirrored back out and so took nothing). With none, nothing is read:
+ * most Payments never see a Refund.
+ *
+ * A Refund whose freeze journal is not there is refused, not counted as having
+ * taken nothing. createRefund posts the journal in the same transaction as the
+ * Refund row, so it cannot be missing in normal operation, and "took nothing"
+ * would release the Refund's whole share with escrowReleasedAt stamped for
+ * good. The caller reads this ahead of its claim, so the throw leaves the
+ * Payment unclaimed and eligible, nothing posted, and the sweep's per-payment
+ * catch logs it.
+ */
+async function escrowTakenByRefunds(tx: Prisma.TransactionClient, refundIds: string[]): Promise<number> {
+  if (refundIds.length === 0) return 0;
+
+  const entries = await tx.ledgerEntry.findMany({
+    where: { transactionId: { in: refundIds.map((id) => refundFreezeTransactionId(id)) } },
+    select: { transactionId: true, account: true, direction: true, amount: true },
+  });
+
+  const posted = new Set(entries.map((e) => e.transactionId));
+  const missing = refundIds.filter((id) => !posted.has(refundFreezeTransactionId(id)));
+  if (missing.length > 0) {
+    throw new Error(
+      `Refund ${missing.join(', ')} has no freeze journal in the ledger; refusing to guess how much ` +
+        "of the Payment's escrow it took.",
+    );
+  }
+
+  return refundIds.reduce((sum, id) => sum + refundFreezeDebit(entries, id, 'ESCROW_HOLD'), 0);
+}
+
+/**
  * Finds every Payment whose escrow hold has matured -- `escrowReleaseAt <=
  * now` and `escrowReleasedAt IS NULL` -- and moves its money out of
  * ESCROW_HOLD into its subject's withdrawable CAMPAIGN_BALANCE or
@@ -338,12 +389,12 @@ export async function releaseMaturedEscrow(
         // accounts, through the subject guard, which fixes the lock order
         // (subject, then Payment) for every money path
         // (src/lib/subject-guard.ts). amountToRelease below is computed
-        // entirely from this payment's own fields and its own Refund rows,
-        // never from a campaign-wide aggregate, so two sibling payments of
-        // the same campaign releasing concurrently no longer share anything
-        // this lock would need to protect -- it stays as the standing guard
-        // for any future write in this function that does touch a shared
-        // campaign aggregate.
+        // entirely from this payment's own fields and the freeze entries its
+        // own Refunds posted, never from a campaign-wide aggregate, so two
+        // sibling payments of the same campaign releasing concurrently no
+        // longer share anything this lock would need to protect -- it stays
+        // as the standing guard for any future write in this function that
+        // does touch a shared campaign aggregate.
         //
         // WHY THE WEBHOOK DOESN'T DEADLOCK WITH THIS. The settlement webhook
         // (src/app/api/webhooks/[provider]/route.ts) stays outside the guard
@@ -377,8 +428,7 @@ export async function releaseMaturedEscrow(
         // the Refund row is what's joined here).
         const refunds = await tx.refund.findMany({
           where: { paymentId: payment.id },
-          orderBy: { createdAt: 'asc' },
-          select: { amount: true, status: true },
+          select: { id: true, status: true },
         });
 
         // escrowReleasedAt means "this payment's escrow is settled, for
@@ -401,7 +451,19 @@ export async function releaseMaturedEscrow(
         const hasRefundInFlight = refunds.some((r) => r.status === 'REQUESTED' || r.status === 'PROCESSING');
         if (hasRefundInFlight) return 'deferred';
 
-        // Claim this payment before doing anything else. Whichever of two
+        // What the Refunds still standing already took out of ESCROW_HOLD,
+        // read off their freeze entries (escrowTakenByRefunds, above). Read
+        // here, ahead of the claim, so a Refund the ledger cannot account for
+        // refuses the release while nothing has been written: the Payment is
+        // left unclaimed and eligible, and the catch below logs it. REJECTED
+        // and FAILED refunds never moved money -- their freezes were mirrored
+        // back out -- so they are not asked about.
+        const refundedNetAmount = await escrowTakenByRefunds(
+          tx,
+          refunds.filter((r) => r.status !== 'REJECTED' && r.status !== 'FAILED').map((r) => r.id),
+        );
+
+        // Claim this payment before posting anything. Whichever of two
         // concurrent sweeps commits this update first wins; the other sees
         // count 0 and stops here, before ever posting a ledger entry. Kept
         // rather than left to the ledger's claim index (prd-compliance 28b):
@@ -432,34 +494,18 @@ export async function releaseMaturedEscrow(
         // net portion -- the fee portion went straight to REFUND_COST/
         // PLATFORM_FEE at freeze time, never out of this account -- so what
         // is left to release is netAmount minus the SUM of those net
-        // shares, not minus their gross amounts. Recomputed here in
-        // creation order via the same cumulative-fee-cap helper
-        // createRefund/approveRefund use, so it reproduces exactly what was
-        // posted. REJECTED/FAILED refunds never moved money and are
-        // excluded. Deliberately not capped against the campaign's overall
-        // ESCROW_HOLD balance: that account is shared by every payment
-        // still inside its own hold window, so a cap measured against the
-        // shared pot would let this payment's release "borrow" headroom
-        // that in fact belongs to a sibling payment which has not matured
-        // yet.
+        // shares, not minus their gross amounts. That sum is READ off the
+        // entries the freezes posted (refundedNetAmount, above), never worked
+        // out again from the Refunds that stand now: the Platform Fee and
+        // Provider Fee shares were fixed against the Refunds standing when
+        // each one was frozen, and a Refund rejected since changes what a
+        // recomputation sees but not what was posted (prd-compliance 51).
+        // Deliberately not capped against the campaign's overall ESCROW_HOLD
+        // balance: that account is shared by every payment still inside its
+        // own hold window, so a cap measured against the shared pot would let
+        // this payment's release "borrow" headroom that in fact belongs to a
+        // sibling payment which has not matured yet.
         const netAmount = payment.amount - payment.providerFee - (payment.platformFee ?? 0);
-        const nonRejectedAmounts = refunds
-          .filter((r) => r.status !== 'REJECTED' && r.status !== 'FAILED')
-          .map((r) => r.amount);
-        // BOTH shares, not the Provider Fee's alone: the freeze debited
-        // ESCROW_HOLD by `amount - platformFeePortion - providerFeePortion`
-        // (./refunds.ts passes both to refundRequestedLegs; both come from the
-        // same cumulative-cap helper, so the two calls here reproduce that
-        // exact figure). Leaving the Platform Fee's out released less than was
-        // really held and stranded the difference for good, escrowReleasedAt
-        // having been stamped before this posts.
-        let refundedNetAmount = 0;
-        for (let i = 0; i < nonRejectedAmounts.length; i++) {
-          const priorAmounts = nonRejectedAmounts.slice(0, i);
-          const platformFeePortion = platformFeePortionFor(payment, nonRejectedAmounts[i], priorAmounts);
-          const providerFeePortion = providerFeePortionFor(payment, nonRejectedAmounts[i], priorAmounts);
-          refundedNetAmount += nonRejectedAmounts[i] - platformFeePortion - providerFeePortion;
-        }
         const amountToRelease = Math.max(0, netAmount - refundedNetAmount);
 
         if (amountToRelease > 0) {

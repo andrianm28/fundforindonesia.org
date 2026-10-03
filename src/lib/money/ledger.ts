@@ -776,6 +776,57 @@ export function refundRequestedLegs(params: {
 }
 
 /**
+ * The transactionId a Refund's freeze (refundRequestedLegs, above) is posted
+ * under. Spelled once because four places depend on the spelling: createRefund
+ * posts under it, and resolveRefund and approveRefund (./refunds.ts) and the
+ * escrow sweep (./escrow.ts) read the entries back (see refundFreezeDebit,
+ * below).
+ */
+export function refundFreezeTransactionId(refundId: string): string {
+  return `refund-requested-${refundId}`;
+}
+
+/**
+ * What a Refund's freeze took out of `account`: the debit legs it posted there,
+ * read back off the entries rather than worked out again.
+ *
+ * createRefund splits a Refund into its Net portion and its Platform Fee and
+ * Provider Fee shares once, against the Refunds that stood before it at that
+ * moment, and refundRequestedLegs posts the split. Whatever needs the split
+ * later has to read it here, because working it out again from the Refunds that
+ * stand now agrees with it only while the same earlier Refunds are still
+ * standing, and rejecting or failing one (prd-compliance 49) is what ends that.
+ * A Refund frozen while an earlier one was still open carries the share the
+ * cumulative cap cut; recomputed once the earlier one is gone, it gets the
+ * larger uncapped share, a rupiah or two more than the ledger holds
+ * (prd-compliance 51). The posted entry is the fact, so reading it cannot
+ * disagree with it.
+ *
+ * Which account to ask about is the caller's question. ESCROW_HOLD is how much
+ * of a Payment's Net the freeze took out of the hold (the escrow sweep, and the
+ * release resolveRefund posts). PLATFORM_FEE and REFUND_COST are the two fee
+ * shares (approveRefund), the Provider Fee's being booked to REFUND_COST
+ * (ADR 0007).
+ *
+ * `entries` may hold other transactions and other Refunds' freezes; only the
+ * debit legs of THIS Refund's freeze are counted. A 0 therefore means two
+ * different things: the freeze posted no leg there (refundRequestedLegs omits a
+ * zero leg), or its journal is not among `entries` at all. A caller that must
+ * tell them apart asks whether the journal is there first, as approveRefund and
+ * the sweep do.
+ */
+export function refundFreezeDebit(
+  entries: ReadonlyArray<{ transactionId: string; account: LedgerAccount; direction: LedgerDirection; amount: number }>,
+  refundId: string,
+  account: LedgerAccount,
+): number {
+  const freezeId = refundFreezeTransactionId(refundId);
+  return entries
+    .filter((e) => e.transactionId === freezeId && e.account === account && e.direction === 'DEBIT')
+    .reduce((sum, e) => sum + e.amount, 0);
+}
+
+/**
  * The gross-recognition posting when a Refund is approved. Closes out
  * FROZEN_BALANCE in full and credits the donor the full Gross. `shortfall`
  * here means genuine pool insolvency ONLY (e.g. a Payout already drained

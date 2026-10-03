@@ -11,6 +11,7 @@ import {
   escrowReleaseLegs,
   refundRequestedLegs,
   refundApprovedLegs,
+  refundFreezeDebit,
   refundPaidLegs,
   payoutInstructedLegs,
   manualContributionReceivedLegs,
@@ -1053,6 +1054,83 @@ describe('a Refund and the fee money it returns (prd-compliance 28c)', () => {
     expect(heldOf(tx.rows, 'GATEWAY_CLEARING')).toBe(100_000);
     expect(netOf(tx.rows, 'PLATFORM_FEE')).toBe(0); // 2.500 charged, 2.500 returned
     expect(await findUnbalancedTransactions(tx as never)).toEqual([]);
+  });
+});
+
+describe('refundFreezeDebit (prd-compliance 51)', () => {
+  // Two 50_000 Refunds on a Payment of 100_000 with a Provider Fee of 3_333 and a
+  // Platform Fee of 1_667, both open at once. The first is frozen against no
+  // earlier Refund (shares of 834 and 1_667, a debit of 47_499); the second with
+  // the first still counted, so the cumulative cap cuts its shares to 833 and
+  // 1_666 and it debits 47_501.
+  const entry = (
+    transactionId: string,
+    account: LedgerLeg['account'],
+    direction: LedgerLeg['direction'],
+    amount: number,
+  ) => ({ transactionId, account, direction, amount });
+
+  const entries = [
+    entry('settle-1', 'ESCROW_HOLD', 'CREDIT', 95_000),
+    entry('refund-requested-refund-1', 'FROZEN_BALANCE', 'CREDIT', 50_000),
+    entry('refund-requested-refund-1', 'ESCROW_HOLD', 'DEBIT', 47_499),
+    entry('refund-requested-refund-1', 'PLATFORM_FEE', 'DEBIT', 834),
+    entry('refund-requested-refund-1', 'REFUND_COST', 'DEBIT', 1_667),
+    entry('refund-requested-refund-2', 'FROZEN_BALANCE', 'CREDIT', 50_000),
+    entry('refund-requested-refund-2', 'ESCROW_HOLD', 'DEBIT', 47_501),
+    entry('refund-requested-refund-2', 'PLATFORM_FEE', 'DEBIT', 833),
+    entry('refund-requested-refund-2', 'REFUND_COST', 'DEBIT', 1_666),
+    // What happened to the first afterwards: rejected, its freeze mirrored back out.
+    entry('refund-rejected-refund-1', 'ESCROW_HOLD', 'CREDIT', 47_499),
+    entry('refund-rejected-refund-1', 'REFUND_COST', 'CREDIT', 1_667),
+  ];
+
+  it("reads the debit a Refund's freeze posted to an account, whatever else is in the ledger", () => {
+    expect(refundFreezeDebit(entries, 'refund-2', 'ESCROW_HOLD')).toBe(47_501);
+    expect(refundFreezeDebit(entries, 'refund-2', 'PLATFORM_FEE')).toBe(833);
+    expect(refundFreezeDebit(entries, 'refund-2', 'REFUND_COST')).toBe(1_666);
+  });
+
+  it("keeps one Refund's freeze apart from another's, and from the credits and journals that came after it", () => {
+    // refund-1's freeze, not its rejection (which credits the same accounts back) and not refund-2's.
+    expect(refundFreezeDebit(entries, 'refund-1', 'ESCROW_HOLD')).toBe(47_499);
+    expect(refundFreezeDebit(entries, 'refund-1', 'REFUND_COST')).toBe(1_667);
+    // FROZEN_BALANCE is only ever credited by a freeze, so there is no debit to read.
+    expect(refundFreezeDebit(entries, 'refund-1', 'FROZEN_BALANCE')).toBe(0);
+  });
+
+  it('adds up the debit legs when the freeze posted more than one to the same account', () => {
+    expect(
+      refundFreezeDebit(
+        [
+          entry('refund-requested-refund-3', 'ESCROW_HOLD', 'DEBIT', 30_000),
+          entry('refund-requested-refund-3', 'ESCROW_HOLD', 'DEBIT', 12_000),
+        ],
+        'refund-3',
+        'ESCROW_HOLD',
+      ),
+    ).toBe(42_000);
+  });
+
+  it('reads 0 for an account the freeze posted nothing to, and for a Refund whose freeze is not there at all', () => {
+    expect(refundFreezeDebit(entries, 'refund-1', 'CAMPAIGN_BALANCE')).toBe(0);
+    // The same 0 for a Refund the entries know nothing about, which is why a caller that cares asks for the journal first.
+    expect(refundFreezeDebit(entries, 'refund-unknown', 'ESCROW_HOLD')).toBe(0);
+  });
+
+  it('agrees with the legs refundRequestedLegs builds, account by account', () => {
+    const legs = refundRequestedLegs({
+      subject: { type: 'trip', tripId: 't1' },
+      amount: 50_000,
+      source: 'TRIP_BALANCE',
+      platformFeePortion: 0,
+      providerFeePortion: 1_666,
+    });
+    const posted = legs.map((leg) => ({ transactionId: 'refund-requested-refund-5', ...leg }));
+
+    expect(refundFreezeDebit(posted, 'refund-5', 'TRIP_BALANCE')).toBe(48_334);
+    expect(refundFreezeDebit(posted, 'refund-5', 'REFUND_COST')).toBe(1_666);
+    expect(refundFreezeDebit(posted, 'refund-5', 'PLATFORM_FEE')).toBe(0);
   });
 });
 

@@ -23,7 +23,14 @@ import {
   RefundResolutionActorError,
   RefundReasonInvalidError,
 } from './refunds';
-import { refundRequestedLegs, refundApprovedLegs, platformFeePortionFor, providerFeePortionFor, type LedgerLeg } from './ledger';
+import {
+  refundRequestedLegs,
+  refundApprovedLegs,
+  platformFeePortionFor,
+  providerFeePortionFor,
+  type LedgerLeg,
+  type LedgerSubject,
+} from './ledger';
 import { readRefundDonorAccountNumber, sealRefundDonorAccountNumber } from '@/lib/contact-fields';
 import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
 
@@ -34,6 +41,53 @@ type LedgerRow = {
   account: string;
   campaignId: string | null;
   volunteerTripId: string | null;
+};
+
+/** Ledger rows for the legs a builder in ./ledger produced, posted under one transactionId. */
+const rowsOf = (legs: LedgerLeg[], transactionId: string): LedgerRow[] =>
+  legs.map((l) => ({
+    transactionId,
+    direction: l.direction,
+    amount: l.amount,
+    account: l.account,
+    campaignId: l.campaignId ?? null,
+    volunteerTripId: l.volunteerTripId ?? null,
+  }));
+
+/**
+ * The rows createRefund posts as a Refund's freeze, which approveRefund now reads
+ * back (prd-compliance 51): the same legs, under the transactionId production
+ * uses, so a fixture cannot hand approval a freeze production would never have
+ * written.
+ */
+const freezeRows = (
+  refundId: string,
+  params: {
+    amount: number;
+    source: 'ESCROW_HOLD' | 'CAMPAIGN_BALANCE' | 'TRIP_BALANCE';
+    platformFeePortion?: number;
+    providerFeePortion?: number;
+    subject?: LedgerSubject;
+  },
+): LedgerRow[] =>
+  rowsOf(
+    refundRequestedLegs({
+      subject: params.subject ?? { type: 'campaign', campaignId: 'campaign-1' },
+      amount: params.amount,
+      source: params.source,
+      platformFeePortion: params.platformFeePortion ?? 0,
+      providerFeePortion: params.providerFeePortion ?? 0,
+    }),
+    `refund-requested-${refundId}`,
+  );
+
+/**
+ * `ledgerEntry.findMany` for the fakes below, answering the two shapes of
+ * `transactionId` the money module asks with: one id, or `{ in: [...] }`.
+ */
+const entriesByTransactionId = (rows: LedgerRow[], where: { transactionId: string | { in: string[] } }) => {
+  const ids = typeof where.transactionId === 'string' ? [where.transactionId] : where.transactionId.in;
+  return rows.filter((r) => ids.includes(r.transactionId));
 };
 
 function makePayment(overrides: Record<string, unknown> = {}) {
@@ -193,8 +247,8 @@ function makeTx(
           return { count: data.length };
         }),
         groupBy: vi.fn(ledgerGroupBy(rows)),
-        findMany: vi.fn(async ({ where }: { where: { transactionId: { in: string[] } } }) =>
-          rows.filter((r) => where.transactionId.in.includes(r.transactionId)),
+        findMany: vi.fn(async ({ where }: { where: { transactionId: string | { in: string[] } } }) =>
+          entriesByTransactionId(rows, where),
         ),
       },
     },
@@ -686,7 +740,7 @@ describe('approveRefund', () => {
   it('settles a full refund with zero fees cleanly: FROZEN_BALANCE debited the full amount, no PLATFORM_FEE/REFUND_COST legs', async () => {
     const ledgerRows: LedgerRow[] = [
       { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
-      { transactionId: 'freeze-1', direction: 'DEBIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      ...freezeRows('refund-1', { amount: 100_000, source: 'ESCROW_HOLD' }),
     ];
     const refundRow = baseRefundRow({ amount: 100_000, payment: makePayment({ amount: 100_000, providerFee: 0 }) });
     const { tx, rows } = makeTx({ ledgerRows, refundRow });
@@ -707,7 +761,7 @@ describe('approveRefund', () => {
   it('still approves a Refund on a Suspended Campaign (PRD section 7.2)', async () => {
     const ledgerRows: LedgerRow[] = [
       { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
-      { transactionId: 'freeze-1', direction: 'DEBIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      ...freezeRows('refund-1', { amount: 100_000, source: 'ESCROW_HOLD' }),
     ];
     const refundRow = baseRefundRow({ amount: 100_000, payment: makePayment({ amount: 100_000, providerFee: 0 }) });
     const { tx, rows } = makeTx({ ledgerRows, refundRow, lifecycleStatus: 'SUSPENDED' });
@@ -726,12 +780,12 @@ describe('approveRefund', () => {
     // separately above) already debited ESCROW_HOLD only the refund's own
     // 95_000 NET share and posted REFUND_COST 5_000 THERE, in the
     // "refund-requested-..." transaction -- so settle-1 (95_000, the real
-    // NET credited) and freeze-1 (95_000, this refund's own net share) net
+    // NET credited) and the freeze (95_000, this refund's own net share) net
     // the pool to exactly 0. Approval must NOT re-split or re-post the fee:
     // it only closes FROZEN_BALANCE and credits the donor the full Gross.
     const ledgerRows: LedgerRow[] = [
       { transactionId: 'settle-1', direction: 'CREDIT', amount: 95_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
-      { transactionId: 'freeze-1', direction: 'DEBIT', amount: 95_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      ...freezeRows('refund-1', { amount: 100_000, source: 'ESCROW_HOLD', providerFeePortion: 5_000 }),
     ];
     const refundRow = baseRefundRow({ amount: 100_000, payment: makePayment({ amount: 100_000, providerFee: 5_000 }) });
     const { tx, rows } = makeTx({ ledgerRows, refundRow });
@@ -756,11 +810,11 @@ describe('approveRefund', () => {
     // already debited ESCROW_HOLD only the refund's own 92_500 NET share
     // (100_000 - 5_000 - 2_500) and posted REFUND_COST 5_000 and
     // PLATFORM_FEE 2_500 in the "refund-requested-..." transaction -- so
-    // settle-1 (92_500) and freeze-1 (92_500) net the pool to exactly 0.
+    // settle-1 (92_500) and the freeze (92_500) net the pool to exactly 0.
     // Approval must not re-split or re-post either fee.
     const ledgerRows: LedgerRow[] = [
       { transactionId: 'settle-1', direction: 'CREDIT', amount: 92_500, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
-      { transactionId: 'freeze-1', direction: 'DEBIT', amount: 92_500, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      ...freezeRows('refund-1', { amount: 100_000, source: 'ESCROW_HOLD', platformFeePortion: 2_500, providerFeePortion: 5_000 }),
     ];
     const refundRow = baseRefundRow({
       amount: 100_000,
@@ -786,12 +840,12 @@ describe('approveRefund', () => {
     // Gross 100_000, Provider Fee 3_333, refunding half (50_000). The freeze
     // already debited ESCROW_HOLD only 48_333 (50_000 - 1_667, its own
     // rounded-up NET share) and posted REFUND_COST 1_667 there. settle-1
-    // credits the real NET (96_667), freeze-1 debits this refund's own
+    // credits the real NET (96_667), the freeze debits this refund's own
     // 48_333 net share -- pool stays healthy (48_334), so approval posts
     // only the simple 2-leg settlement.
     const ledgerRows: LedgerRow[] = [
       { transactionId: 'settle-1', direction: 'CREDIT', amount: 96_667, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
-      { transactionId: 'freeze-1', direction: 'DEBIT', amount: 48_333, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      ...freezeRows('refund-1', { amount: 50_000, source: 'ESCROW_HOLD', providerFeePortion: 1_667 }),
     ];
     const refundRow = baseRefundRow({ amount: 50_000, payment: makePayment({ amount: 100_000, providerFee: 3_333 }) });
     const { tx, rows } = makeTx({ ledgerRows, refundRow });
@@ -812,9 +866,9 @@ describe('approveRefund', () => {
     // The freeze already debited CAMPAIGN_BALANCE only its own 95_000 NET
     // share (100_000 - 5_000). settle-1 credited 95_000 (the real NET), an
     // 85_000 Payout already went out: poolBalance = 95_000 - 85_000 - 95_000
-    // = -85_000. netPortion = 100_000 - 0 - 5_000 = 95_000 (providerFeePortion
-    // recomputed identically to freeze time, since Payment fields and prior
-    // refunds are unchanged). shortfall = min(max(0, 85_000), 95_000) =
+    // = -85_000. netPortion = 100_000 - 0 - 5_000 = 95_000 (the
+    // providerFeePortion is the REFUND_COST leg the freeze posted).
+    // shortfall = min(max(0, 85_000), 95_000) =
     // 85_000 -- genuine insolvency, not a fee artifact (the fee was already
     // handled at freeze time, so it plays no part in this shortfall at all).
     // FROZEN_BALANCE debits the full 100_000 (closing it out). REFUND_COST =
@@ -824,7 +878,7 @@ describe('approveRefund', () => {
     const ledgerRows: LedgerRow[] = [
       { transactionId: 'settle-1', direction: 'CREDIT', amount: 95_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
       { transactionId: 'payout-1', direction: 'DEBIT', amount: 85_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
-      { transactionId: 'freeze-1', direction: 'DEBIT', amount: 95_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+      ...freezeRows('refund-1', { amount: 100_000, source: 'CAMPAIGN_BALANCE', providerFeePortion: 5_000 }),
     ];
     const refundRow = baseRefundRow({
       amount: 100_000,
@@ -845,7 +899,7 @@ describe('approveRefund', () => {
   it('settles a Trip-linked refund debiting FROZEN_BALANCE with volunteerTripId, never touching a Campaign row', async () => {
     const ledgerRows: LedgerRow[] = [
       { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-1' },
-      { transactionId: 'freeze-1', direction: 'DEBIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: null, volunteerTripId: 'trip-1' },
+      ...freezeRows('refund-1', { amount: 100_000, source: 'ESCROW_HOLD', subject: { type: 'trip', tripId: 'trip-1' } }),
     ];
     const refundRow = baseRefundRow({ amount: 100_000, payment: makeTripPayment({ amount: 100_000, providerFee: 0 }) });
     const { tx, rows, queryRawCalls } = makeTx({ ledgerRows, refundRow });
@@ -915,6 +969,9 @@ describe('approveRefund', () => {
   it('REGRESSION: a second concurrent approval loses the race and posts nothing', async () => {
     const ledgerRows: LedgerRow[] = [
       { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+      // The Refund's own freeze, so what refuses the approval below is the lost
+      // race and not a missing journal.
+      ...freezeRows('refund-1', { amount: 40_000, source: 'ESCROW_HOLD', providerFeePortion: 2_000 }),
     ];
     const { tx, rows } = makeTx({ ledgerRows, refundRow: baseRefundRow() });
     // Simulates another approval having already flipped this Refund's status
@@ -923,7 +980,10 @@ describe('approveRefund', () => {
     tx.refund.updateMany = vi.fn().mockResolvedValue({ count: 0 });
     const prisma = makePrisma(tx, baseRefundRow());
 
-    await expect(approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination })).rejects.toThrow(InvalidRefundStatusError);
+    const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
+
+    await expect(attempt).rejects.toThrow(InvalidRefundStatusError);
+    await expect(attempt).rejects.toMatchObject({ detail: 'lost the approval race' });
     expect(rows.filter((r) => r.transactionId === 'refund-approved-refund-1')).toHaveLength(0);
   });
 
@@ -993,7 +1053,7 @@ describe('approveRefund', () => {
 
   it('records the sealed donor account number on approval, never the plaintext, decrypting back to what was typed', async () => {
     const refundRow = baseRefundRow({ amount: 100_000, payment: makePayment({ amount: 100_000, providerFee: 0 }) });
-    const { tx } = makeTx({ refundRow });
+    const { tx } = makeTx({ refundRow, ledgerRows: freezeRows('refund-1', { amount: 100_000, source: 'ESCROW_HOLD' }) });
     const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED' });
 
     await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
@@ -1010,6 +1070,74 @@ describe('approveRefund', () => {
         donorAccountNumberKeyId: written.donorAccountNumberKeyId as string,
       }),
     ).toBe('1234567890');
+  });
+
+  it(
+    "covers the net share the Refund's own freeze took, not the one worked out again from the Refunds that stand now " +
+      '(prd-compliance 51)',
+    async () => {
+      // Gross 100_000, Provider Fee 3_333, Platform Fee 1_667: Net 95_000, released
+      // to CAMPAIGN_BALANCE and then taken out in full by a Payout. Two 50_000
+      // Refunds were open at once.
+      //
+      // refund-1 was frozen against no earlier Refund, so its shares rounded up
+      // whole, 834 (Platform Fee) and 1_667 (Provider Fee), and it debited
+      // CAMPAIGN_BALANCE 50_000 - 834 - 1_667 = 47_499. refund-2 was frozen with
+      // refund-1 still counted, so the cumulative cap cut its shares to what the
+      // Payment had left, 833 and 1_666, and it debited 50_000 - 833 - 1_666 =
+      // 47_501. refund-1 is then REJECTED and its freeze mirrored back, which
+      // leaves the pool at exactly what refund-2's freeze took: -47_501.
+      //
+      // Worked out again from the Refunds that stand now, refund-2 has no earlier
+      // Refund: shares of 834 and 1_667, a net of 47_499. Covering that leaves the
+      // pool at -2 and REFUND_COST two rupiah short.
+      const payment = makePayment({
+        amount: 100_000,
+        providerFee: 3_333,
+        platformFee: 1_667,
+        escrowReleasedAt: new Date('2026-01-01'),
+      });
+      const ledgerRows: LedgerRow[] = [
+        { transactionId: 'settle-1', direction: 'CREDIT', amount: 95_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+        { transactionId: 'payout-1', direction: 'DEBIT', amount: 95_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+        { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', amount: 47_499, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+        { transactionId: 'refund-rejected-refund-1', direction: 'CREDIT', amount: 47_499, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+        ...freezeRows('refund-2', { amount: 50_000, source: 'CAMPAIGN_BALANCE', platformFeePortion: 833, providerFeePortion: 1_666 }),
+      ];
+      // refund-1 is REJECTED, so no Refund stands ahead of refund-2 any more.
+      const refundRow = baseRefundRow({ id: 'refund-2', amount: 50_000, payment });
+      const { tx, rows } = makeTx({ ledgerRows, refundRow });
+      const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED' });
+
+      await approveRefund(prisma as never, { refundId: 'refund-2', approvedById: 'admin-1', ...validDestination });
+
+      const posted = rows.filter((r) => r.transactionId === 'refund-approved-refund-2');
+      expect(posted).toContainEqual(expect.objectContaining({ account: 'REFUND_COST', direction: 'DEBIT', amount: 47_501 }));
+      expect(posted).toContainEqual(
+        expect.objectContaining({ account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 47_501, campaignId: 'campaign-1' }),
+      );
+      const poolNet = rows
+        .filter((r) => r.account === 'CAMPAIGN_BALANCE' && r.campaignId === 'campaign-1')
+        .reduce((sum, r) => sum + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+      expect(poolNet).toBe(0);
+    },
+  );
+
+  it('refuses to approve a Refund whose freeze journal is missing: it stays REQUESTED and nothing is posted', async () => {
+    // createRefund posts the freeze in the same transaction as the Refund, so this
+    // should not happen. If it does, approving from a guess at its fee shares
+    // would cover the wrong shortfall, so the approval is refused, ahead of the
+    // claim on the row.
+    const refundRow = baseRefundRow();
+    const { tx, rows } = makeTx({ ledgerRows: [], refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    const attempt = approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination });
+
+    await expect(attempt).rejects.toThrow(InvalidRefundStatusError);
+    await expect(attempt).rejects.toMatchObject({ detail: 'its freeze journal is missing' });
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
   });
 });
 
@@ -1090,6 +1218,10 @@ function makeMultiPaymentTx(initialLedgerRows: LedgerRow[] = []) {
         return { count: data.length };
       }),
       groupBy: vi.fn(ledgerGroupBy(rows)),
+      // The freeze journal approveRefund reads back (prd-compliance 51).
+      findMany: vi.fn(async ({ where }: { where: { transactionId: string | { in: string[] } } }) =>
+        entriesByTransactionId(rows, where),
+      ),
     },
   };
 
@@ -1524,16 +1656,6 @@ describe('rejectRefund and failRefund (ticket 49)', () => {
   const AMOUNT = 100_000;
   const paymentFor = (overrides: Record<string, unknown> = {}) =>
     makePayment({ amount: AMOUNT, providerFee: 5_000, platformFee: 2_500, ...overrides });
-
-  const rowsOf = (legs: LedgerLeg[], transactionId: string): LedgerRow[] =>
-    legs.map((l) => ({
-      transactionId,
-      direction: l.direction,
-      amount: l.amount,
-      account: l.account,
-      campaignId: l.campaignId ?? null,
-      volunteerTripId: l.volunteerTripId ?? null,
-    }));
 
   /** Rows as createRefund (and, when approved, approveRefund) would have posted them. */
   function journal(opts: { source: 'ESCROW_HOLD' | 'CAMPAIGN_BALANCE'; approved?: boolean; shortfall?: number }): LedgerRow[] {
