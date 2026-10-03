@@ -19,6 +19,8 @@ import ts from 'typescript';
  * Generated types are attributed to the model by name prefix (`Campaign`,
  * `CampaignSelect`, `$CampaignPayload`...), so the fields must belong to no
  * other model whose name starts with `model` (CampaignFlag, UserAssignment).
+ * A model that does have such a field (CampaignTransfer.status) is named in
+ * `excludeModels`, so its types are not mistaken for `model`'s.
  *
  * Lives outside src/ so it is never mistaken for application code.
  */
@@ -27,7 +29,8 @@ export function findPrismaFieldReferences({
   fields,
   root = process.cwd(),
   alsoScan = [],
-}: { model: string; fields: string[]; root?: string; alsoScan?: string[] }): string[] {
+  excludeModels = [],
+}: { model: string; fields: string[]; root?: string; alsoScan?: string[]; excludeModels?: string[] }): string[] {
   const parsed = ts.getParsedCommandLineOfConfigFile(
     path.join(root, 'tsconfig.json'),
     {},
@@ -57,7 +60,9 @@ export function findPrismaFieldReferences({
     );
 
   const isGenerated = (decl: ts.Declaration) => decl.getSourceFile().fileName.includes('/src/generated/');
-  const MODEL_TYPE = new RegExp(`^\\$?${model}`);
+  const OWN_PREFIX = new RegExp(`^\\$?${model}`);
+  const EXCLUDED = excludeModels.length ? new RegExp(`^\\$?(${excludeModels.join('|')})`) : null;
+  const MODEL_TYPE = { test: (name: string) => OWN_PREFIX.test(name) && !EXCLUDED?.test(name) };
   const OMIT_TYPE = new RegExp(`^${model}Omit$`);
   const fieldSet = new Set(fields);
 
