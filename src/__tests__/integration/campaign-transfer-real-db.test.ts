@@ -173,7 +173,7 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
     const rejected = outcomes.filter((o): o is PromiseRejectedResult => o.status === 'rejected');
     expect(rejected).toHaveLength(1);
-    expect(rejected[0].reason).toBeInstanceOf(transfers.InsufficientBalanceError);
+    expect(rejected[0].reason).toBeInstanceOf(transfers.CampaignTransferBalanceChangedError);
 
     expect(await balanceOf(source.id)).toBe(0);
     expect(await balanceOf(target.id)).toBe(500_000);
