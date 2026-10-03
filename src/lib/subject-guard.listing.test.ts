@@ -1,11 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { vi } from 'vitest';
 import { CampaignStatus } from '@/generated/prisma/client';
 import {
   campaignMatches,
   campaignRow,
   type CampaignRow,
 } from '../../tests/support/in-memory-campaign-db';
-import { effectiveStatus, listableCampaignWhere, sitemapCampaignWhere } from './subject-guard';
+import {
+  catalogueDemoWhere,
+  effectiveStatus,
+  listableCampaignWhere,
+  showDemoCampaigns,
+  sitemapCampaignWhere,
+} from './subject-guard';
 
 /**
  * The list filters and the Campaign page's banner must never disagree
@@ -132,5 +139,46 @@ describe('which Demo Campaigns public listings show', () => {
     const demo = campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE, isDemo: true });
 
     expect(isListed(demo, { includeDemo: true })).toBe(true);
+  });
+});
+
+describe('SHOW_DEMO_CAMPAIGNS (prd-compliance 56)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const demo = () => campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE, isDemo: true });
+
+  it.each([undefined, '', 'false', '1', 'yes', 'TRUE', 'true '])(
+    'is off, and the catalogue hides a Demo Campaign, when the value is %j',
+    (value) => {
+      vi.stubEnv('SHOW_DEMO_CAMPAIGNS', value as string);
+      if (value === undefined) vi.unstubAllEnvs();
+
+      expect(showDemoCampaigns()).toBe(false);
+      expect(isListed(demo())).toBe(false);
+      expect(campaignMatches(demo(), catalogueDemoWhere())).toBe(false);
+    }
+  );
+
+  it('lists a Demo Campaign, and a real one, only when it is exactly "true"', () => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'true');
+
+    expect(showDemoCampaigns()).toBe(true);
+    expect(isListed(demo())).toBe(true);
+    expect(isListed(campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE }))).toBe(true);
+    expect(campaignMatches(demo(), catalogueDemoWhere())).toBe(true);
+  });
+
+  it('still applies the status rule to a Demo Campaign it lists', () => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'true');
+
+    expect(isListed(campaignRow({ lifecycleStatus: CampaignStatus.SUSPENDED, isDemo: true }))).toBe(false);
+  });
+
+  it('never puts a Demo Campaign in the sitemap, even when on', () => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'true');
+
+    expect(isInSitemap(demo())).toBe(false);
   });
 });

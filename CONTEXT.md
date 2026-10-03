@@ -274,7 +274,7 @@ Dokumen ikrar per Donation pada Campaign `wakaf`, memuat nama Wakif, nominal, pe
 _Avoid_: Sertifikat wakaf, deed
 
 **Demo Campaign**:
-Campaign yang datanya fiktif. Tidak pernah dicantumkan di katalog, di hasil pencarian, maupun di sitemap, dan angkanya tidak masuk hitungan Impact, karena halaman Impact menjumlahkan Campaign yang bisa ditemukan di katalog. Halamannya sendiri tetap terbuka lewat tautannya dan tetap memakai lencana yang menyatakannya, dan tetap ditolak menerima Donation maupun Payout. Admin tetap melihatnya di layar mereka. Yang menentukan mana adalah kolom `isDemo` pada barisnya, bukan nama, slug, atau daftar Campaign tertentu.
+Campaign yang datanya fiktif. Tidak pernah dicantumkan di katalog, di hasil pencarian, maupun di sitemap, dan angkanya tidak masuk hitungan Impact, karena halaman Impact menjumlahkan Campaign yang bisa ditemukan di katalog. Halamannya sendiri tetap terbuka lewat tautannya dan tetap memakai lencana yang menyatakannya, dan tetap ditolak menerima Donation maupun Payout. Admin tetap melihatnya di layar mereka. Sebelum launch, env flag server-side `SHOW_DEMO_CAMPAIGNS` (aktif hanya bila persis `"true"`, off secara default; keputusan owner 2026-10-03) membuat Demo Campaign ikut tampil di beranda, katalog, dan pencarian, selalu dengan lencananya; satu-satunya yang diubah flag adalah daftar yang dilihat pengunjung (`catalogueDemoWhere` dan `listableCampaignWhere` di `src/lib/subject-guard.ts`), bukan sitemap, Impact, hitungan uang/abuse/dormant, maupun penolakan Donation dan Payout. Yang menentukan mana adalah kolom `isDemo` pada barisnya, bukan nama, slug, atau daftar Campaign tertentu.
 _Avoid_: Sample, test campaign, contoh (di kode)
 
 **Prayer**:
