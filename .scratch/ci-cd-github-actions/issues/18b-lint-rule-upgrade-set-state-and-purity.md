@@ -27,7 +27,7 @@ effect atau handler). Tes komponen yang ada harus tetap hijau; tambahkan tes bil
 
 **Blocked by:** 18
 
-**Status:** awaiting-merge
+**Status:** done (PR #200, ae79aef)
 
 - [x] Setiap temuan `set-state-in-effect` dan `purity` diperbaiki per komponen, tanpa `eslint-disable`
 - [x] `eslint .` tidak melaporkan temuan untuk kedua aturan itu
