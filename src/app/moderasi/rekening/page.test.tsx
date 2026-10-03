@@ -16,6 +16,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import { render, screen, cleanup } from "@testing-library/react";
 import {
+  bankAccountRevocationRow,
   bankAccountRow,
   bankAccountVerificationRequestRow,
   makeCampaignDb,
@@ -80,6 +81,37 @@ describe("ModerasiRekeningPage", () => {
     render(await ModerasiRekeningPage());
 
     expect(screen.getByText(/Tidak ada Bank Account/)).toBeDefined();
+    cleanup();
+  });
+
+  it("lists a verified account for revoke, and shows none to reinstate (ticket 11)", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "verifier-1", assignments: ["VERIFIER"] } });
+    state.db = makeCampaignDb({
+      users: [userRow({ id: "owner-1", name: "Siti Fundraiser" })],
+      bankAccounts: [bankAccountRow({ verifiedAt: new Date("2026-09-27T00:00:00Z") })],
+    });
+
+    render(await ModerasiRekeningPage());
+
+    expect(screen.getByText(/Rekening Terverifikasi/)).toBeDefined();
+    expect(screen.getByText("Cabut Verifikasi")).toBeDefined();
+    expect(screen.getByText(/Tidak ada rekening yang sedang dicabut/)).toBeDefined();
+    cleanup();
+  });
+
+  it("lists a revoked account for reinstate, and shows none to revoke (ticket 11)", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "verifier-1", assignments: ["VERIFIER"] } });
+    state.db = makeCampaignDb({
+      users: [userRow({ id: "owner-1", name: "Siti Fundraiser" })],
+      bankAccounts: [bankAccountRow({ verifiedAt: null })],
+      bankAccountRevocations: [bankAccountRevocationRow()],
+    });
+
+    render(await ModerasiRekeningPage());
+
+    expect(screen.getByText(/Rekening Dicabut/)).toBeDefined();
+    expect(screen.getByText("Pulihkan Verifikasi")).toBeDefined();
+    expect(screen.getByText(/Tidak ada rekening terverifikasi/)).toBeDefined();
     cleanup();
   });
 });

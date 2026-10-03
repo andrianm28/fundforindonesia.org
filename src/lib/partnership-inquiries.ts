@@ -185,6 +185,12 @@ export async function createPartnershipInquiry(
   prisma: PrismaClient,
   input: PartnershipInquiryCreateInput,
   mailer?: Mailer,
+  /**
+   * Runs once the input is valid and the Program exists, immediately before
+   * the write. A route uses it for limits that should count only submissions
+   * that would otherwise be recorded (csr-06b); throwing from it refuses.
+   */
+  beforeWrite?: () => Promise<void>,
 ): Promise<PartnershipInquiry> {
   const db = delegatesOf(prisma);
   const programId = cleanProgramId(input.programId);
@@ -205,6 +211,7 @@ export async function createPartnershipInquiry(
 
   const program = await db.program.findUnique({ where: { id: programId } });
   if (!program) throw new PartnershipInquiryProgramNotFoundError();
+  await beforeWrite?.();
 
   // The contact details are sealed here, and the plaintext is not part of the
   // write at all: the columns are gone (ADR 0012, contract step). The email

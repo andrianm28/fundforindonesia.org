@@ -4,6 +4,9 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // Native addon (ADR 0019): keep it out of the webpack bundle so Node loads the
+  // prebuilt .node binary at runtime; Next's standalone trace still copies it.
+  serverExternalPackages: ['@node-rs/bcrypt'],
   // The image optimizer stays off (ci-cd-github-actions ticket 15 upgraded
   // Next past the release that fixed GHSA-2xp9-vwfh-vxw4, an AVIF-triggered
   // RCE in Next 14.2.35's optimizer, but turning the optimizer back on is a
@@ -14,6 +17,17 @@ const nextConfig = {
   // checked by the client's claim.
   images: {
     unoptimized: true,
+  },
+  // The email-confirmation link carries its token in the query string and the
+  // page needs no session. Sending no Referer keeps that token from leaking to
+  // anything the page loads or links to (prd-compliance 23).
+  async headers() {
+    return [
+      {
+        source: '/akun/verifikasi-email',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
+    ];
   },
 };
 

@@ -8,7 +8,7 @@ team cannot tell a real partner from noise.
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done (PR #161, 29e5fb8)
 
 - [ ] A submission from one client is bounded: repeat posts from the same
       source are refused, and the refusal is a plain refusal rather than a
@@ -38,3 +38,15 @@ team cannot tell a real partner from noise.
   half-configured deployment already produces `mail_not_configured`. A spam
   flood makes that noise worse, which is one more reason this is worth doing
   before the first real enquiry arrives.
+- 2026-10-02 (implementation): the limiter is generic, not specific to this
+  route: `src/lib/rate-limit.ts` (`consumeRateLimit`, atomic upsert on
+  `RateLimitBucket`) and `src/lib/client-ip.ts`. Donation submission only needs
+  a new `scope`. Limits here: 10 per client and 300 overall per hour, honeypot
+  field `fax_ref` (neutral name, autofill-proof) answered as a 201 no-op; fail-open if the limiter breaks; the 300 global counts only valid, non-trapped submissions. Client address is the last (trusted
+  hop) `X-Forwarded-For` entry, stored only as an HMAC; assumes nginx appends
+  that header, which the owner must confirm (its config is not in this repo).
+
+- 2026-10-02: awaiting-merge. PR #161, commit be1ca61. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
+
+- 2026-10-02: keputusan owner: limiter tetap fail-open saat runtime, tetapi produksi tanpa `RATE_LIMIT_SECRET` maupun `NEXTAUTH_SECRET` kini gagal boot (`src/instrumentation.ts` -> `src/lib/env-check.ts`); topologi dicatat di `.env.example` (nginx tanpa CDN, `TRUSTED_PROXY_HOPS=1`); tes `TRUSTED_PROXY_HOPS=2` lewat POST ditambahkan; migrasi diganti nama menjadi `20261002200000_rate_limit_bucket` (bentrok urutan dengan PR #172). Status tetap awaiting-merge.
+- 2026-10-02: merge ke main sebagai 29e5fb8 (#161).

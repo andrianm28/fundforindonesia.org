@@ -146,3 +146,35 @@ describe("the deploy workflow", () => {
   });
 });
 
+/**
+ * Guards the image job's scope (ticket 17). The skip must be a job-level `if`
+ * fed by the `scope` job, never a workflow `paths:` filter, so a skipped PR
+ * still reports a passing `image` check.
+ */
+describe("the CD image scope", () => {
+  const text = workflows.find((w) => w.file === "cd.yml")?.text ?? "";
+  const onBlock = text.match(/^on:\n((?: {2}.*\n|\n)+)/m)?.[1] ?? "";
+  const pattern = new RegExp(text.match(/^\s*pattern='([^']+)'/m)?.[1] ?? "(?!)");
+
+  it("has a scope job that the image job needs", () => {
+    expect(text).toMatch(/^ {2}scope:$/m);
+    expect(text).toMatch(/^ {2}image:\n(?:(?: {4}.*)?\n)*? {4}needs: scope$/m);
+  });
+
+  it("never uses pull_request_target or a paths filter on the triggers", () => {
+    expect(text).not.toMatch(/pull_request_target/);
+    expect(onBlock).not.toBe("");
+    expect(onBlock).not.toMatch(/paths(-ignore)?:/);
+  });
+
+  it("always builds outside a pull request", () => {
+    expect(text).toMatch(/if \[ "\$EVENT" != pull_request \]; then\n\s+echo "build=true" >> "\$GITHUB_OUTPUT"/);
+  });
+
+  it("matches image-relevant paths only", () => {
+    const hit = ["Dockerfile", "prisma/migrations/x/migration.sql", "public/a.png", "tsconfig.json", "postcss.config.mjs", ".github/workflows/cd.yml"];
+    for (const p of hit) expect(pattern.test(p), p).toBe(true);
+    for (const p of ["README.md", "docs/x.md", "src/a.ts"]) expect(pattern.test(p), p).toBe(false);
+  });
+});
+

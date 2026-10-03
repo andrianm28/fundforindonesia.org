@@ -1,6 +1,7 @@
 import { DomainError, type MoneyErrorCode } from '@/lib/domain-errors';
 import type { Kind } from '@/generated/prisma/client';
 import { KIND_LABEL } from '@/lib/campaign-kind';
+import { formatRupiah } from '@/lib/utils/currency';
 
 /**
  * The money layer's typed refusals, for Payouts and Refunds on both a
@@ -64,8 +65,9 @@ export class InsufficientBalanceError extends MoneyError {
   constructor(
     readonly requested: number,
     readonly available: number,
+    message = 'Jumlah Payout melebihi Campaign Balance atau saldo Volunteer Trip yang tersedia.',
   ) {
-    super('Jumlah Payout melebihi Campaign Balance atau saldo Volunteer Trip yang tersedia.');
+    super(message);
     this.name = 'InsufficientBalanceError';
   }
 }
@@ -88,7 +90,7 @@ export class InsufficientBalanceError extends MoneyError {
 export class SelfApprovalError extends MoneyError {
   readonly code = 'SELF_APPROVAL';
   constructor(
-    readonly what: 'Payout' | 'Refund' | 'Manual Contribution',
+    readonly what: 'Payout' | 'Refund' | 'Manual Contribution' | 'Campaign Transfer',
     readonly action: 'approval' | 'reversal' | 'balance_check' = 'approval',
   ) {
     super(
@@ -145,22 +147,27 @@ export class PayoutProofInvalidError extends MoneyError {
 
 /**
  * The two-person rule on the SECOND action: the Admin recording the transfer
- * is the Admin who approved it (or the Payout has no recorded approver at
+ * is the Admin who approved it (or the subject has no recorded approver at
  * all, which cannot show two people either). Distinct from SelfApprovalError,
  * which is the same rule on the first action -- the requester approving
  * their own request.
  *
- * ContEXT.md, Payout: the Payout is "disetujui satu Admin, lalu ... ditandai
- * selesai dengan bukti transfer oleh Admin yang berbeda". The rule is
- * enforced here, not merely advised: an approver who marks their own
- * approval done has performed one person's action and called it two, and
- * nothing downstream of that write can tell the difference.
+ * CONTEXT.md, Payout: a Payout is "disetujui satu Admin, lalu ... ditandai
+ * selesai dengan bukti transfer oleh Admin yang berbeda". CONTEXT.md, Refund:
+ * a Refund is "dibuat satu Admin, disetujui Admin lain, dan diselesaikan
+ * Admin yang berbeda dari penyetujunya" -- three people, not two pairs, so
+ * `completeRefund` (ticket 31) refuses BOTH the requester and the approver,
+ * not only the approver. `what` names which one this refusal is about, the
+ * same shape SelfApprovalError already uses; the CODE is the same either
+ * way (one rule, one code, one HTTP status).
  */
 export class TwoPersonRuleError extends MoneyError {
   readonly code = 'TWO_PERSON_RULE';
-  constructor() {
+  constructor(readonly what: 'Payout' | 'Refund' = 'Payout') {
     super(
-      'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
+      what === 'Refund'
+        ? 'Refund harus diselesaikan oleh Admin yang berbeda dari yang mengajukan maupun yang menyetujuinya (aturan dua orang).'
+        : 'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
     );
     this.name = 'TwoPersonRuleError';
   }
@@ -175,6 +182,66 @@ export class InvalidRefundStatusError extends MoneyError {
   ) {
     super('Refund tidak lagi menunggu persetujuan.');
     this.name = 'InvalidRefundStatusError';
+  }
+}
+
+/**
+ * A Refund completion whose proof of transfer does not have the shape
+ * ticket 13 decided it has to (a transaction reference and a free-text
+ * note, both present, trimmed, within @/lib/payout-proof's length limits) --
+ * `completeRefund`'s own twin of PayoutProofInvalidError, asking the exact
+ * same `validateProofReference`/`validateProofNote` functions so a Payout's
+ * and a Refund's proof can never disagree about what "bukti transfer" means
+ * (CONTEXT.md, Refund; PRD §7.2; ticket 13; ticket 31). A distinct class
+ * from PayoutProofInvalidError, not a reuse of it renamed, because the two
+ * still answer for different rows and a caller catching one must not
+ * silently also catch the other.
+ */
+export class RefundProofInvalidError extends MoneyError {
+  readonly code = 'REFUND_PROOF_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'RefundProofInvalidError';
+  }
+}
+
+/**
+ * The Donor destination the approving Admin records -- bank code, account
+ * holder name, account number -- is missing or too long. There is no saved
+ * BankAccount row for a Donor (ADR 0018, Amendment 2026-09-28; ticket 31),
+ * so this is the approving Admin's own input, judged the same way ManualContribution's
+ * hand-typed evidence is: a field left blank or over length, fixable by
+ * filling the form in properly, not a policy the request has no way to
+ * satisfy -- 400, like MANUAL_CONTRIBUTION_INVALID.
+ */
+export class RefundDestinationInvalidError extends MoneyError {
+  readonly code = 'REFUND_DESTINATION_INVALID';
+  constructor(
+    message: string,
+    readonly field: 'donorBankCode' | 'donorAccountName' | 'donorAccountNumber',
+  ) {
+    super(message);
+    this.name = 'RefundDestinationInvalidError';
+  }
+}
+
+/**
+ * The account number the completing Admin re-typed does not match the one
+ * the approving Admin recorded (Q7(c), ADR 0018 Amendment 2026-09-28): the
+ * two-pairs-of-eyes control Rilis 1 uses in place of Verifier checking, for
+ * a Guest Donor with no Bank Account of their own to be checked. This is a
+ * mistyped re-entry, not a policy the request has no way to satisfy --
+ * fixable by re-reading the Donor's written request and typing it again --
+ * so it answers 400, like RefundDestinationInvalidError. The message never
+ * repeats either number: neither one belongs in a client-visible string.
+ */
+export class RefundDestinationMismatchError extends MoneyError {
+  readonly code = 'REFUND_DESTINATION_MISMATCH';
+  constructor() {
+    super(
+      'Nomor rekening yang diketik tidak sama dengan yang dicatat saat persetujuan. Cocokkan kembali dengan permintaan tertulis Donor.',
+    );
+    this.name = 'RefundDestinationMismatchError';
   }
 }
 
@@ -241,6 +308,38 @@ export class RefundNotAllowedForKindError extends MoneyError {
       `Refund pada Campaign ber-Kind ${KIND_LABEL[campaignKind]} hanya sah untuk kegagalan teknis: ${allowedReasons.join(', ')}.`,
     );
     this.name = 'RefundNotAllowedForKindError';
+  }
+}
+
+/**
+ * The Donation's Donor had their identity removed (ticket 36, PRD FFI-16), so
+ * the system holds nothing to check a Refund destination against and refuses
+ * to create one. The PRD says such a Donation "ditangani di luar": the money
+ * is still the Donor's, it is just not returned through this flow.
+ */
+export class DonationAnonymisedError extends MoneyError {
+  readonly code = 'DONATION_ANONYMISED';
+  constructor() {
+    super(
+      'Donation ini sudah dianonimkan atas permintaan Donor, sehingga Refund tidak dapat dibuat lewat sistem dan ditangani di luar.',
+    );
+    this.name = 'DonationAnonymisedError';
+  }
+}
+
+/**
+ * A Donor asked to be anonymised while a Refund on one of their Donations is
+ * still in flight. That Refund's destination was approved against the Donor's
+ * name, so removing the name now would strand money already frozen for return.
+ * The Donor can ask again once the Refund is completed, rejected or failed.
+ */
+export class AnonymisationBlockedByOpenRefundError extends MoneyError {
+  readonly code = 'ANONYMISATION_BLOCKED_BY_OPEN_REFUND';
+  constructor() {
+    super(
+      'Ada Refund yang belum selesai pada salah satu donasi Anda. Identitas dapat dianonimkan setelah Refund itu selesai, ditolak, atau gagal.',
+    );
+    this.name = 'AnonymisationBlockedByOpenRefundError';
   }
 }
 
@@ -439,7 +538,7 @@ export class ProviderBalanceInsufficientError extends MoneyError {
     readonly provider: string,
   ) {
     super(
-      `Saldo yang tercatat di ${provider} adalah ${providerBalance}, lebih kecil daripada nominal Payout ${payoutAmount}. ` +
+      `Saldo yang tercatat di ${provider} adalah ${formatRupiah(providerBalance)}, lebih kecil daripada nominal Payout ${formatRupiah(payoutAmount)}. ` +
         'Payout ini belum disetujui: cek ulang dashboard penyedia, atau tunggu sampai saldonya cukup.',
     );
     this.name = 'ProviderBalanceInsufficientError';
@@ -556,9 +655,138 @@ export class ProviderBalanceNotShortError extends MoneyError {
     readonly providerBalance: number,
   ) {
     super(
-      `Saldo yang tercatat (${providerBalance}) sudah mencukupi nominal Payout (${payoutAmount}), jadi ini bukan ` +
+      `Saldo yang tercatat (${formatRupiah(providerBalance)}) sudah mencukupi nominal Payout (${formatRupiah(payoutAmount)}), jadi ini bukan ` +
         'kekurangan untuk dicatat -- gunakan Setujui pencairan.',
     );
     this.name = 'ProviderBalanceNotShortError';
+  }
+}
+
+/**
+ * Campaign Transfer refusals (prd-compliance 33; CONTEXT.md, Campaign
+ * Transfer). The Kind rules are refusals outright, never warnings: money a
+ * Donor gave as zakat may only ever reach another zakat Campaign, and wakaf
+ * only wakaf of the same category.
+ */
+export class CampaignTransferNotFoundError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_NOT_FOUND';
+  constructor(readonly campaignTransferId: string) {
+    super('Campaign Transfer tidak ditemukan.');
+    this.name = 'CampaignTransferNotFoundError';
+  }
+}
+
+/** A field of the request is unusable: amount, reason, or a target that names nothing. */
+export class CampaignTransferInvalidError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'CampaignTransferInvalidError';
+  }
+}
+
+/**
+ * The withdrawable balance at approval is not the amount asked for at the
+ * request. Transfers are full, so nothing moves; the Admin files a new request.
+ */
+export class CampaignTransferBalanceChangedError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_BALANCE_CHANGED';
+  constructor(
+    readonly requested: number,
+    readonly available: number,
+  ) {
+    super(
+      'Campaign Balance asal sudah berubah sejak permintaan diajukan. Pengalihan harus seluruh saldo, jadi ' +
+        'tolak permintaan ini dan ajukan permintaan baru.',
+    );
+    this.name = 'CampaignTransferBalanceChangedError';
+  }
+}
+
+/**
+ * A Refund asked for money a Campaign Transfer already moved to another
+ * Campaign. Unlike a Payout drawing the pool down (the platform covers that
+ * shortfall at approval), the money still exists, on the target Campaign.
+ */
+export class RefundAfterCampaignTransferError extends MoneyError {
+  readonly code = 'REFUND_AFTER_CAMPAIGN_TRANSFER';
+  constructor(
+    readonly requested: number,
+    readonly available: number,
+  ) {
+    super(
+      'Refund tidak bisa dibuat: dana Campaign ini sudah dipindahkan ke Campaign lain lewat Campaign Transfer ' +
+        'dan saldo yang tersisa tidak cukup. Platform tidak menalangi dana yang sudah berpindah.',
+    );
+    this.name = 'RefundAfterCampaignTransferError';
+  }
+}
+
+/** The transfer is no longer PENDING, or another decision won the race. */
+export class CampaignTransferNotPendingError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_NOT_PENDING';
+  constructor(readonly currentStatus: string) {
+    super('Campaign Transfer ini tidak lagi menunggu keputusan Admin kedua.');
+    this.name = 'CampaignTransferNotPendingError';
+  }
+}
+
+/** Only a Suspended Campaign's money moves by transfer (PRD §7.2). */
+export class CampaignTransferSourceNotSuspendedError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_SOURCE_NOT_SUSPENDED';
+  constructor(readonly currentStatus: string) {
+    super('Dana hanya dapat dialihkan dari Campaign yang sedang Suspended.');
+    this.name = 'CampaignTransferSourceNotSuspendedError';
+  }
+}
+
+/** Only zakat, wakaf and hibah money is moved by transfer; Donation follows its own rule. */
+export class CampaignTransferKindNotTransferableError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_KIND_NOT_TRANSFERABLE';
+  constructor(readonly sourceKind: Kind) {
+    super(`Campaign ber-Kind ${KIND_LABEL[sourceKind]} tidak memakai Campaign Transfer; hanya Zakat, Wakaf, dan Hibah.`);
+    this.name = 'CampaignTransferKindNotTransferableError';
+  }
+}
+
+/** Zakat to wakaf, wakaf to zakat, or anything else across Kinds: refused outright. */
+export class CampaignTransferCrossKindError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_CROSS_KIND';
+  constructor(
+    readonly sourceKind: Kind,
+    readonly targetKind: Kind,
+  ) {
+    super(
+      `Dana ${KIND_LABEL[sourceKind]} tidak boleh dialihkan ke Campaign ber-Kind ${KIND_LABEL[targetKind]}. ` +
+        'Pengalihan hanya antar Campaign dengan Kind yang sama.',
+    );
+    this.name = 'CampaignTransferCrossKindError';
+  }
+}
+
+/** Wakaf money stays within its category. */
+export class CampaignTransferCategoryMismatchError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_CATEGORY_MISMATCH';
+  constructor(
+    readonly sourceCategory: string,
+    readonly targetCategory: string,
+  ) {
+    super('Dana Wakaf hanya boleh dialihkan ke Campaign Wakaf dengan kategori yang sama.');
+    this.name = 'CampaignTransferCategoryMismatchError';
+  }
+}
+
+/** The target is the source itself, a Demo Campaign, or a Campaign that is not Active. */
+export class CampaignTransferTargetNotEligibleError extends MoneyError {
+  readonly code = 'CAMPAIGN_TRANSFER_TARGET_NOT_ELIGIBLE';
+  constructor(readonly reason: 'same_campaign' | 'demo' | 'not_active') {
+    super(
+      reason === 'same_campaign'
+        ? 'Campaign tujuan tidak boleh sama dengan Campaign asal.'
+        : reason === 'demo'
+          ? 'Campaign tujuan adalah Demo Campaign dan tidak boleh menerima dana nyata.'
+          : 'Campaign tujuan harus berstatus Active agar dana yang dialihkan benar-benar sampai ke penerima.',
+    );
+    this.name = 'CampaignTransferTargetNotEligibleError';
   }
 }

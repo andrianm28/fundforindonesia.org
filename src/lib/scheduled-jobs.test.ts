@@ -8,6 +8,9 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 vi.mock('@/lib/money/escrow', () => ({
   releaseMaturedEscrow: vi.fn(),
 }));
+vi.mock('@/lib/volunteer/refund-sweep', () => ({
+  sweepStuckLateSettlementRefunds: vi.fn(),
+}));
 vi.mock('@/lib/reminders', () => ({
   sendCampaignDeadlineReminders: vi.fn(),
   sendKindAuthorisationExpiryWarnings: vi.fn(),
@@ -15,20 +18,24 @@ vi.mock('@/lib/reminders', () => ({
 
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 import { sendCampaignDeadlineReminders, sendKindAuthorisationExpiryWarnings } from '@/lib/reminders';
+import { sweepStuckLateSettlementRefunds } from '@/lib/volunteer/refund-sweep';
 import { runScheduledJobs } from './scheduled-jobs';
 
 const mockReleaseMaturedEscrow = releaseMaturedEscrow as unknown as Mock;
 const mockSendCampaignDeadlineReminders = sendCampaignDeadlineReminders as unknown as Mock;
 const mockSendKindAuthorisationExpiryWarnings = sendKindAuthorisationExpiryWarnings as unknown as Mock;
 
+const mockSweepRefunds = sweepStuckLateSettlementRefunds as unknown as Mock;
+const SWEEP_RESULT = { consideredCount: 3, attemptedCount: 3, refundedCount: 2, skippedCount: 0, failedCount: 1 };
 const NOW = new Date('2026-09-27T00:00:00.000Z');
 
 describe('runScheduledJobs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockReleaseMaturedEscrow.mockResolvedValue({ releasedCount: 2, consideredCount: 2 });
-    mockSendCampaignDeadlineReminders.mockResolvedValue({ sentCount: 1, consideredCount: 1 });
-    mockSendKindAuthorisationExpiryWarnings.mockResolvedValue({ sentCount: 0, consideredCount: 0 });
+    mockSendCampaignDeadlineReminders.mockResolvedValue({ attemptedCount: 1, consideredCount: 1 });
+    mockSendKindAuthorisationExpiryWarnings.mockResolvedValue({ attemptedCount: 0, consideredCount: 0 });
+    mockSweepRefunds.mockResolvedValue(SWEEP_RESULT);
   });
 
   it('takes the current time as an argument and drives every phase with it directly, never through a timer', async () => {
@@ -44,8 +51,9 @@ describe('runScheduledJobs', () => {
 
     expect(result).toEqual({
       escrowRelease: { releasedCount: 2, consideredCount: 2 },
-      campaignDeadlineReminders: { sentCount: 1, consideredCount: 1 },
-      kindAuthorisationExpiryWarnings: { sentCount: 0, consideredCount: 0 },
+      campaignDeadlineReminders: { attemptedCount: 1, consideredCount: 1 },
+      kindAuthorisationExpiryWarnings: { attemptedCount: 0, consideredCount: 0 },
+      lateSettlementRefunds: SWEEP_RESULT,
     });
   });
 
@@ -55,8 +63,8 @@ describe('runScheduledJobs', () => {
     const result = await runScheduledJobs(NOW);
 
     expect(result.escrowRelease).toEqual({ releasedCount: 0, consideredCount: 0 });
-    expect(result.campaignDeadlineReminders).toEqual({ sentCount: 1, consideredCount: 1 });
-    expect(result.kindAuthorisationExpiryWarnings).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result.campaignDeadlineReminders).toEqual({ attemptedCount: 1, consideredCount: 1 });
+    expect(result.kindAuthorisationExpiryWarnings).toEqual({ attemptedCount: 0, consideredCount: 0 });
     expect(mockSendCampaignDeadlineReminders).toHaveBeenCalled();
     expect(mockSendKindAuthorisationExpiryWarnings).toHaveBeenCalled();
   });
@@ -66,9 +74,19 @@ describe('runScheduledJobs', () => {
 
     const result = await runScheduledJobs(NOW);
 
-    expect(result.campaignDeadlineReminders).toEqual({ sentCount: 0, consideredCount: 0 });
-    expect(result.kindAuthorisationExpiryWarnings).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result.campaignDeadlineReminders).toEqual({ attemptedCount: 0, consideredCount: 0 });
+    expect(result.kindAuthorisationExpiryWarnings).toEqual({ attemptedCount: 0, consideredCount: 0 });
     expect(mockSendKindAuthorisationExpiryWarnings).toHaveBeenCalled();
+  });
+
+  it('runs the stuck late-settlement refund sweep with `now`, and a throw there zeroes only that phase', async () => {
+    await runScheduledJobs(NOW);
+    expect(mockSweepRefunds).toHaveBeenCalledWith(NOW);
+
+    mockSweepRefunds.mockRejectedValueOnce(new Error('db blip'));
+    const result = await runScheduledJobs(NOW);
+    expect(result.lateSettlementRefunds).toEqual({ consideredCount: 0, attemptedCount: 0, refundedCount: 0, skippedCount: 0, failedCount: 0 });
+    expect(result.escrowRelease).toEqual({ releasedCount: 2, consideredCount: 2 });
   });
 
   it('defaults `now` to the current time when called with no argument', async () => {

@@ -57,6 +57,14 @@ export function PartnershipInquiryForm({ programId, programSlug }: { programId: 
     <form onSubmit={submit} data-program-slug={programSlug} className="grid gap-4 max-w-xl">
       <input type="hidden" name="programId" value={programId} readOnly />
 
+      {/* Honeypot (csr-06b): invisible and unreachable for a person, filled by a bot. */}
+      {/* The name is neutral on purpose: autofill fills `website`. `inert` takes the wrapper out of
+          the tab order and the accessibility tree, so nothing focusable sits inside aria-hidden. */}
+      <div aria-hidden="true" inert className="absolute left-[-9999px] h-0 w-0 overflow-hidden">
+        <label htmlFor="fax_ref">Jangan diisi</label>
+        <input id="fax_ref" name="fax_ref" type="text" tabIndex={-1} autoComplete="new-password" defaultValue="" />
+      </div>
+
       <div>
         <label htmlFor="companyName" className="block text-sm font-medium text-text mb-1">
           Nama perusahaan

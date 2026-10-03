@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     volunteerTrip: { findUnique: vi.fn() },
+    paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     payment: { create: vi.fn() },
+    chargeWriteFailure: { create: vi.fn() },
   },
 }));
 
@@ -46,6 +48,7 @@ import { POST } from './route';
 
 const mockTripFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
 const mockPaymentCreate = prisma.payment.create as unknown as Mock;
+const mockChargeWriteFailureCreate = prisma.chargeWriteFailure.create as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 const mockHoldRegistration = holdRegistration as unknown as Mock;
@@ -65,8 +68,13 @@ function routeContext(slug = 'some-slug', id = 'batch-1') {
 }
 
 describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', 'true');
     mockDonationsEnabled.mockReturnValue(true);
     mockSandboxInProductionReason.mockReturnValue(null);
     mockGetServerSession.mockResolvedValue({ user: { id: 'volunteer-1' } });
@@ -76,7 +84,7 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
       method: 'qris_redirect',
       createCharge: vi.fn().mockResolvedValue({
         method: 'qris_redirect',
-        redirectUrl: 'https://pay.example/x',
+        redirectUrl: 'https://pay.sumopod.com/x',
         expiresAt: new Date('2026-12-01'),
       }),
     });
@@ -85,6 +93,26 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
       tripFeeAmount: 1_500_000,
     });
   });
+
+  it.each([[undefined], ['false'], ['TRUE'], ['1']])(
+    'refuses with a clear message when NEXT_PUBLIC_VOLUNTEER_ENABLED is %s (ticket 36), before the session, the Trip or any hold',
+    async (value) => {
+      if (value === undefined) vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', '');
+      else vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', value);
+      const createCharge = vi.fn();
+      mockGetPaymentProvider.mockReturnValue({ name: 'sumopod', method: 'qris_redirect', createCharge });
+
+      const response = await POST(createRequest(), routeContext());
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error).toMatch(/Pendaftaran Volunteer Trip belum dibuka/);
+      expect(mockGetServerSession).not.toHaveBeenCalled();
+      expect(mockTripFindUnique).not.toHaveBeenCalled();
+      expect(mockHoldRegistration).not.toHaveBeenCalled();
+      expect(createCharge).not.toHaveBeenCalled();
+      expect(mockPaymentCreate).not.toHaveBeenCalled();
+    },
+  );
 
   it('refuses to charge the Trip Fee when the money kill switch is off, holding nothing', async () => {
     // Owner decision 2026-09-28: Trip Fee is stopped by the SAME switch as
@@ -106,6 +134,28 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     mockSandboxInProductionReason.mockReturnValue('PAYMENT_PROVIDER=mock in production');
     const createCharge = vi.fn();
     mockGetPaymentProvider.mockReturnValue({ name: 'sumopod', method: 'qris_redirect', createCharge });
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(mockHoldRegistration).not.toHaveBeenCalled();
+    expect(createCharge).not.toHaveBeenCalled();
+    expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the mock', { provider: 'mock', methods: ['bank_transfer_va'] }, {}],
+    [
+      'a sandbox',
+      { provider: 'sumopod', methods: ['qris_redirect'] },
+      { SUMOPOD_BASE_URL: 'https://api-pay-sandbox.sumopod.com/api/v1' },
+    ],
+  ])('answers 503 in production, holding nothing, when the Admin chose %s (prd-compliance 39)', async (_label, row, env) => {
+    vi.stubEnv('NODE_ENV', 'production');
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    (prisma.paymentProviderSetting.findFirst as unknown as Mock).mockResolvedValueOnce(row);
+    const createCharge = vi.fn();
+    mockGetPaymentProvider.mockReturnValue({ name: row.provider, method: 'qris_redirect', createCharge });
 
     const response = await POST(createRequest(), routeContext());
 
@@ -155,6 +205,50 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     expect(await response.json()).toMatchObject({ registrationId: 'registration-1', amount: 1_500_000 });
   });
 
+  it('stores the QRIS link on the Payment so "Lanjutkan pembayaran" can show it again (ticket 37)', async () => {
+    await POST(createRequest(), routeContext());
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ redirectUrl: 'https://pay.sumopod.com/x', vaNumber: null }),
+      }),
+    );
+  });
+
+  it.each([
+    ['plain http', 'http://pay.sumopod.com/x'],
+    ['a foreign host', 'https://evil.example/x'],
+    ['javascript:', 'javascript:alert(1)'],
+  ])('stores no link when the provider answers %s, so the HOLD falls back to cancel-and-reregister', async (_, redirectUrl) => {
+    mockGetPaymentProvider.mockReturnValue({
+      name: 'sumopod',
+      method: 'qris_redirect',
+      createCharge: vi.fn().mockResolvedValue({ method: 'qris_redirect', redirectUrl, expiresAt: new Date('2026-12-01') }),
+    });
+    const response = await POST(createRequest(), routeContext());
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ redirectUrl: null }) }),
+    );
+    expect(JSON.stringify(await response.json())).not.toContain(redirectUrl);
+  });
+
+  it('stores the Virtual Account number on the Payment for a bank transfer charge (ticket 37)', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      name: 'sumopod',
+      method: 'bank_transfer_va',
+      createCharge: vi.fn().mockResolvedValue({
+        method: 'bank_transfer_va',
+        vaNumber: '8808123456',
+        expiresAt: new Date('2026-12-01'),
+      }),
+    });
+    await POST(createRequest({ paymentMethod: 'bank_transfer' }), routeContext());
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ redirectUrl: null, vaNumber: '8808123456' }),
+      }),
+    );
+  });
+
   it('records the provider under the one name the registry knows, whatever the adapter calls itself', async () => {
     // The same column, the same rule as a Donation's Payment: it is a join key
     // the Provider Balance groups by, so "SumoPod" and "sumopod" would file one
@@ -170,7 +264,7 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
         method: 'qris_redirect',
         createCharge: vi.fn().mockResolvedValue({
           method: 'qris_redirect',
-          redirectUrl: 'https://pay.example/x',
+          redirectUrl: 'https://pay.sumopod.com/x',
           expiresAt: new Date('2026-12-01'),
         }),
       });
@@ -250,5 +344,59 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     const response = await POST(createRequest({ paymentMethod: 'cash' }), routeContext());
     expect(response.status).toBe(400);
     expect(mockHoldRegistration).not.toHaveBeenCalled();
+  });
+
+  // Ticket 52: the provider holds a live charge, this database holds no Payment
+  // for it. The failure must be recorded so the charge can be reconciled.
+  it('records a ChargeWriteFailure when the charge succeeded but the Payment write failed', async () => {
+    mockPaymentCreate.mockRejectedValue(new Error('connection reset'));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(mockChargeWriteFailureCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        provider: 'sumopod',
+        providerRef: 'registration-1',
+        subjectType: 'registration',
+        subjectId: 'registration-1',
+        amount: 1_500_000,
+        errorMessage: expect.stringContaining('connection reset'),
+      }),
+    });
+  });
+
+  it('never logs a raw Error or an email when the charge or the route fails', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockGetPaymentProvider.mockReturnValue({
+        name: 'sumopod',
+        method: 'qris_redirect',
+        createCharge: vi.fn().mockRejectedValue(new Error('rejected payer volunteer@example.com')),
+      });
+      const charged = await POST(createRequest(), routeContext());
+      expect(charged.status).toBe(503);
+
+      mockHoldRegistration.mockRejectedValue(new Error('db failure for volunteer@example.com'));
+      const failed = await POST(createRequest(), routeContext());
+      expect(failed.status).toBe(500);
+
+      expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const args = spy.mock.calls.flat();
+      expect(args.some((a) => a instanceof Error)).toBe(false);
+      expect(args.some((a) => typeof a === 'string' && a.includes('@'))).toBe(false);
+      expect(args.join(' ')).toContain('registration-1');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('still answers 503 when recording the ChargeWriteFailure fails too', async () => {
+    mockPaymentCreate.mockRejectedValue(new Error('db down'));
+    mockChargeWriteFailureCreate.mockRejectedValue(new Error('db still down'));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(503);
   });
 });

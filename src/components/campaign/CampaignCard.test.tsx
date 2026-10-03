@@ -156,7 +156,7 @@ describe('CampaignCard', () => {
     const { container } = render(<CampaignCard campaign={mockCampaign} variant="compact" />);
     const card = container.firstChild as HTMLElement;
     expect(card.className).toContain('w-[280px]');
-    expect(card.className).toContain('flex-shrink-0');
+    expect(card.className).toContain('shrink-0');
   });
 
   it('renders standard variant with full width', () => {

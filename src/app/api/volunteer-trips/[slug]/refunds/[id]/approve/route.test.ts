@@ -69,8 +69,18 @@ function makeRefundRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function patchRequest(): NextRequest {
-  return new NextRequest('http://localhost:3000/api/volunteer-trips/bersih-pantai/refunds/refund-1/approve', { method: 'PATCH' });
+const validDestination = {
+  donorBankCode: 'BCA',
+  donorAccountName: 'Budi Santoso',
+  donorAccountNumber: '1234567890',
+};
+
+function patchRequest(body: Record<string, unknown> = validDestination): NextRequest {
+  return new NextRequest('http://localhost:3000/api/volunteer-trips/bersih-pantai/refunds/refund-1/approve', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }
 
 function routeContext(id = 'refund-1') {
@@ -127,7 +137,7 @@ describe('PATCH /api/volunteer-trips/[slug]/refunds/[id]/approve', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('approves a REQUESTED refund and returns 200 with the updated status', async () => {
+  it('approves a REQUESTED refund with a destination and returns 200 with the updated status', async () => {
     const { tx } = makeTx({ refundRow: makeRefundRow() });
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -136,6 +146,17 @@ describe('PATCH /api/volunteer-trips/[slug]/refunds/[id]/approve', () => {
 
     expect(response.status).toBe(200);
     expect(data.status).toBe('APPROVED');
+  });
+
+  it('returns 400 REFUND_DESTINATION_INVALID when approving without a destination, posting nothing', async () => {
+    const { tx } = makeTx({ refundRow: makeRefundRow() });
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await PATCH(patchRequest({ ...validDestination, donorAccountNumber: '' }), routeContext());
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe('REFUND_DESTINATION_INVALID');
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
   });
 
   it('returns 403 when the approver is the same person who requested it', async () => {

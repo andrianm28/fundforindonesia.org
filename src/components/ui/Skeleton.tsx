@@ -28,7 +28,7 @@ export function Skeleton({
   className = '',
 }: SkeletonProps) {
   const shimmerClass = animated ? 'skeleton-shimmer' : '';
-  const baseClass = 'bg-[var(--color-bg-secondary)]';
+  const baseClass = 'bg-bg-secondary';
 
   if (variant === 'text') {
     return (
@@ -65,7 +65,7 @@ export function Skeleton({
   if (variant === 'rectangular') {
     return (
       <div
-        className={`${baseClass} ${shimmerClass} rounded-[var(--radius-sm)] ${className}`}
+        className={`${baseClass} ${shimmerClass} rounded-sm ${className}`}
         style={{
           width: getStyleValue(width) || '100%',
           height: getStyleValue(height) || '100px',
@@ -80,7 +80,7 @@ export function Skeleton({
   if (variant === 'card') {
     return (
       <div
-        className={`rounded-[var(--radius-md)] overflow-hidden shadow-[var(--shadow-card)] bg-white ${className}`}
+        className={`rounded-md overflow-hidden shadow-card bg-white ${className}`}
         style={{ width: getStyleValue(width) || '100%' }}
         role="status"
         aria-label="Loading"

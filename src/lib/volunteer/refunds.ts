@@ -1,6 +1,14 @@
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
+ * The tier thresholds of `tripFeeRefundAmount`, named so the table shown to a
+ * Volunteer before paying (./refund-table.ts) is cut from the same numbers the
+ * policy refunds by, not from a second copy.
+ */
+export const FULL_REFUND_MIN_DAYS = 14;
+export const HALF_REFUND_MIN_DAYS = 3;
+
+/**
  * The tiered-by-time-to-departure refund amount for a Volunteer-initiated
  * cancellation of their own CONFIRMED Registration. Thresholds and
  * percentages are this function's own contract -- no upstream spec pins
@@ -24,8 +32,8 @@ export function tripFeeRefundAmount(params: {
   const { departureDate, now, paidAmount } = params;
   const daysToDeparture = Math.floor((departureDate.getTime() - now.getTime()) / MS_PER_DAY);
 
-  if (daysToDeparture >= 14) return paidAmount;
-  if (daysToDeparture >= 3) return Math.floor(paidAmount / 2);
+  if (daysToDeparture >= FULL_REFUND_MIN_DAYS) return paidAmount;
+  if (daysToDeparture >= HALF_REFUND_MIN_DAYS) return Math.floor(paidAmount / 2);
   return 0;
 }
 
@@ -36,9 +44,11 @@ export function tripFeeRefundAmount(params: {
  *   - 'batch cancel': the Fundraiser cancels the Batch, refunded in full
  *     whenever it happens;
  *   - 'late settlement': the Trip Fee settles after the Registration was
- *     already cancelled, refunded in full automatically.
+ *     already cancelled, refunded in full automatically;
+ *   - 'lapsed settlement': the Trip Fee settles after the seat hold had
+ *     already expired (ticket 40), refunded in full automatically.
  */
-export type TripFeeRefundCase = 'volunteer cancel' | 'batch cancel' | 'late settlement';
+export type TripFeeRefundCase = 'volunteer cancel' | 'batch cancel' | 'late settlement' | 'lapsed settlement';
 
 /**
  * The Trip Fee Refund policy: the amount and reason to refund a paid
@@ -65,6 +75,11 @@ export function tripFeeRefund(
       return {
         amount: paidAmount,
         reason: 'Trip Fee settlement arrived after the Registration was already cancelled -- refunded automatically',
+      };
+    case 'lapsed settlement':
+      return {
+        amount: paidAmount,
+        reason: 'Trip Fee settlement arrived after the seat hold had expired -- refunded automatically',
       };
   }
 }

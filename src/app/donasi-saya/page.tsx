@@ -31,6 +31,8 @@ interface DonationsResponse {
   page: number;
   limit: number;
   totalPages: number;
+  /** False until the account's email was confirmed by link; guest history appears only after (prd-compliance 23). */
+  emailVerified?: boolean;
 }
 
 export default function DonasiSayaPage() {
@@ -39,6 +41,7 @@ export default function DonasiSayaPage() {
   const [donations, setDonations] = useState<DonationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [emailVerified, setEmailVerified] = useState(true);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -48,14 +51,13 @@ export default function DonasiSayaPage() {
 
   const fetchDonations = useCallback(async () => {
     try {
-      setIsLoading(true);
-      setError(null);
       const res = await fetch('/api/donations/mine');
       if (!res.ok) {
         throw new Error('Gagal memuat data donasi');
       }
       const data: DonationsResponse = await res.json();
       setDonations(data.donations);
+      setEmailVerified(data.emailVerified !== false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan');
     } finally {
@@ -63,9 +65,19 @@ export default function DonasiSayaPage() {
     }
   }, []);
 
+  // The page starts in the loading state with no error, so the first fetch has
+  // nothing to reset; only a retry does (below).
+  const retry = useCallback(() => {
+    setIsLoading(true);
+    setError(null);
+    void fetchDonations();
+  }, [fetchDonations]);
+
   useEffect(() => {
     if (status === 'authenticated') {
-      fetchDonations();
+      void (async () => {
+        await fetchDonations();
+      })();
     }
   }, [status, fetchDonations]);
 
@@ -78,7 +90,7 @@ export default function DonasiSayaPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       {/* Header */}
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <h1 className="text-white text-lg font-semibold">Donasi Saya</h1>
@@ -86,10 +98,11 @@ export default function DonasiSayaPage() {
 
       {/* Content */}
       <div className="px-4 mt-4">
+        {!isLoading && !error && !emailVerified && <VerifyEmailPrompt />}
         {isLoading ? (
           <DonationListSkeleton />
         ) : error ? (
-          <ErrorState message={error} onRetry={fetchDonations} />
+          <ErrorState message={error} onRetry={retry} />
         ) : donations.length === 0 ? (
           <EmptyState />
         ) : (
@@ -108,6 +121,47 @@ export default function DonasiSayaPage() {
   );
 }
 
+/**
+ * Donations given as a guest under this account's email join this list only
+ * after the address is confirmed by a link sent to it (prd-compliance 23).
+ */
+function VerifyEmailPrompt() {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+
+  async function send() {
+    setState('sending');
+    try {
+      const res = await fetch('/api/user/email-verification', { method: 'POST' });
+      setState(res.ok ? 'sent' : 'failed');
+    } catch {
+      setState('failed');
+    }
+  }
+
+  return (
+    <div className="mb-3 rounded-xl bg-[#E3F2FD] p-4 text-sm text-text">
+      <p>Pernah berdonasi sebagai tamu? Konfirmasi email akun Anda agar donasi tersebut muncul di sini.</p>
+      {state === 'sent' ? (
+        <p className="mt-2 font-medium text-[#2E7D32]">Periksa email Anda untuk tautan konfirmasi.</p>
+      ) : (
+        <button
+          type="button"
+          onClick={send}
+          disabled={state === 'sending'}
+          className="mt-2 font-medium text-[#0073E6] hover:underline disabled:opacity-60"
+        >
+          Kirim tautan konfirmasi
+        </button>
+      )}
+      {state === 'failed' && (
+        <p role="alert" className="mt-2 text-[#C62828]">
+          Tautan belum terkirim. Coba lagi sebentar lagi.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function DonationCard({
   donation,
   onClick,
@@ -116,20 +170,20 @@ function DonationCard({
   onClick: () => void;
 }) {
   return (
-    <div className="w-full bg-white rounded-xl shadow-sm p-4 hover:shadow-md transition-shadow">
+    <div className="w-full bg-white rounded-xl shadow-xs p-4 hover:shadow-md transition-shadow">
       <button onClick={onClick} className="w-full text-left" type="button">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <p className="text-[#212121] text-sm font-semibold line-clamp-2">
+            <p className="text-text text-sm font-semibold line-clamp-2">
               {donation.campaign.title}
             </p>
-            <p className="text-[#757575] text-xs mt-1">
+            <p className="text-text-secondary text-xs mt-1">
               {formatIndonesianDate(new Date(donation.createdAt))}
             </p>
           </div>
           <PaymentStatusBadge status={donation.paymentStatus} />
         </div>
-        <div className="mt-3 pt-3 border-t border-[#E0E0E0]">
+        <div className="mt-3 pt-3 border-t border-border">
           <p className="text-[#0073E6] text-sm font-bold">
             {formatRupiah(donation.amount)}
           </p>
@@ -180,7 +234,7 @@ function PaymentStatusBadge({ status }: { status: 'pending' | 'confirmed' | 'fai
 
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${bg} ${text} flex-shrink-0`}
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${bg} ${text} shrink-0`}
     >
       {label}
     </span>
@@ -208,10 +262,10 @@ function EmptyState() {
           />
         </svg>
       </div>
-      <p className="text-[#212121] text-base font-semibold text-center">
+      <p className="text-text text-base font-semibold text-center">
         Anda belum pernah berdonasi
       </p>
-      <p className="text-[#757575] text-sm text-center mt-1">
+      <p className="text-text-secondary text-sm text-center mt-1">
         Mulai berbagi kebaikan dengan berdonasi
       </p>
       <button
@@ -235,7 +289,7 @@ function ErrorState({
     <div className="flex flex-col items-center justify-center py-16 px-4">
       <div className="w-16 h-16 rounded-full bg-[#FFEBEE] flex items-center justify-center mb-4">
         <svg
-          className="w-8 h-8 text-[#D50000]"
+          className="w-8 h-8 text-danger"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -248,7 +302,7 @@ function ErrorState({
           />
         </svg>
       </div>
-      <p className="text-[#212121] text-sm text-center">{message}</p>
+      <p className="text-text text-sm text-center">{message}</p>
       <button
         onClick={onRetry}
         className="mt-4 text-[#0073E6] text-sm font-medium hover:underline"
@@ -261,7 +315,7 @@ function ErrorState({
 
 function DonasiSayaSkeleton() {
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <div className="h-5 w-24 bg-white/20 rounded" />
       </div>
@@ -276,16 +330,16 @@ function DonationListSkeleton() {
   return (
     <div className="space-y-3">
       {[...Array(4)].map((_, i) => (
-        <div key={i} className="bg-white rounded-xl shadow-sm p-4">
+        <div key={i} className="bg-white rounded-xl shadow-xs p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 space-y-2">
-              <div className="h-4 w-3/4 bg-[#E0E0E0] rounded animate-pulse" />
-              <div className="h-3 w-24 bg-[#E0E0E0] rounded animate-pulse" />
+              <div className="h-4 w-3/4 bg-border rounded animate-pulse" />
+              <div className="h-3 w-24 bg-border rounded animate-pulse" />
             </div>
-            <div className="h-5 w-16 bg-[#E0E0E0] rounded-full animate-pulse" />
+            <div className="h-5 w-16 bg-border rounded-full animate-pulse" />
           </div>
-          <div className="mt-3 pt-3 border-t border-[#E0E0E0]">
-            <div className="h-4 w-28 bg-[#E0E0E0] rounded animate-pulse" />
+          <div className="mt-3 pt-3 border-t border-border">
+            <div className="h-4 w-28 bg-border rounded animate-pulse" />
           </div>
         </div>
       ))}

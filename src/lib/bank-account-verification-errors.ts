@@ -127,3 +127,59 @@ export class OwnBankAccountVerificationError extends BankAccountVerificationErro
     this.name = "OwnBankAccountVerificationError";
   }
 }
+
+/**
+ * Ticket 11: the account is not currently eligible (`verifiedAt` is
+ * already null), whether it was never verified or is already revoked, so
+ * there is nothing for a revoke to clear.
+ */
+export class BankAccountNotRevocableError extends BankAccountVerificationError {
+  readonly code = "BANK_ACCOUNT_NOT_REVOCABLE";
+  constructor() {
+    super("Bank Account ini belum terverifikasi, jadi tidak ada yang bisa dicabut.");
+    this.name = "BankAccountNotRevocableError";
+  }
+}
+
+/**
+ * Ticket 11: the account's latest revoke/reinstate row is not a REVOKED one
+ * (never revoked, or already reinstated), so there is nothing to restore.
+ */
+export class BankAccountNotReinstatableError extends BankAccountVerificationError {
+  readonly code = "BANK_ACCOUNT_NOT_REINSTATABLE";
+  constructor() {
+    super("Bank Account ini tidak sedang dicabut, jadi tidak ada yang bisa dipulihkan.");
+    this.name = "BankAccountNotReinstatableError";
+  }
+}
+
+/**
+ * Ticket 11, owner decision (b): the Verifier who most recently approved
+ * this account's verification may not be the one who revokes it -- the same
+ * two-pairs-of-eyes reasoning as ticket 16's "Verifier tak menilai
+ * rekeningnya sendiri", applied to the person who already vouched for it
+ * once.
+ */
+export class RevokerWasApproverError extends BankAccountVerificationError {
+  readonly code = "BANK_ACCOUNT_REVOKED_BY_APPROVER";
+  constructor() {
+    super(
+      "Verifier yang meloloskan verifikasi Bank Account ini tidak dapat mencabutnya sendiri. Tindakan ini harus dilakukan Verifier lain."
+    );
+    this.name = "RevokerWasApproverError";
+  }
+}
+
+/**
+ * Ticket 11, owner decision (b): a different Verifier than the one who
+ * revoked the account must be the one who reinstates it.
+ */
+export class ReinstaterWasRevokerError extends BankAccountVerificationError {
+  readonly code = "BANK_ACCOUNT_REINSTATED_BY_REVOKER";
+  constructor() {
+    super(
+      "Verifier yang mencabut verifikasi Bank Account ini tidak dapat memulihkannya sendiri. Tindakan ini harus dilakukan Verifier lain."
+    );
+    this.name = "ReinstaterWasRevokerError";
+  }
+}

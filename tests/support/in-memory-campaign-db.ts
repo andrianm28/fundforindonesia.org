@@ -241,6 +241,16 @@ export type BankAccountVerificationRequestRow = {
   decidedAt: Date | null;
 };
 
+/** One revoke or reinstate of a Bank Account's verification (ticket 11). */
+export type BankAccountRevocationRow = {
+  id: string;
+  bankAccountId: string;
+  action: 'REVOKED' | 'REINSTATED';
+  reason: string;
+  actorId: string;
+  createdAt: Date;
+};
+
 /** Every table the stand-in holds; what the interleave hooks receive. */
 export type CampaignDbData = Data;
 
@@ -262,6 +272,7 @@ type Data = {
   partnerOrganisationAudits: PartnerOrganisationAuditRow[];
   bankAccounts: BankAccountRow[];
   bankAccountVerificationRequests: BankAccountVerificationRequestRow[];
+  bankAccountRevocations: BankAccountRevocationRow[];
 };
 
 type Where = Record<string, unknown>;
@@ -348,6 +359,7 @@ function clone(data: Data): Data {
     partnerOrganisationAudits: data.partnerOrganisationAudits.map((a) => ({ ...a })),
     bankAccounts: data.bankAccounts.map((a) => ({ ...a })),
     bankAccountVerificationRequests: data.bankAccountVerificationRequests.map((r) => ({ ...r })),
+    bankAccountRevocations: data.bankAccountRevocations.map((r) => ({ ...r })),
   };
 }
 
@@ -498,6 +510,21 @@ export function bankAccountVerificationRequestRow(
   };
 }
 
+/** A REVOKED row on `bank-account-1` (ticket 11). */
+export function bankAccountRevocationRow(
+  overrides: Partial<BankAccountRevocationRow> = {},
+): BankAccountRevocationRow {
+  return {
+    id: 'bank-account-revocation-1',
+    bankAccountId: 'bank-account-1',
+    action: 'REVOKED',
+    reason: 'Rekening dilaporkan bermasalah.',
+    actorId: 'verifier-1',
+    createdAt: new Date('2026-09-28T08:00:00Z'),
+    ...overrides,
+  };
+}
+
 /** Sorts rows by a single-field Prisma `orderBy`, keeping insertion order for ties. */
 function ordered<T>(rows: T[], orderBy?: Record<string, 'asc' | 'desc'>): T[] {
   if (!orderBy) return rows;
@@ -587,6 +614,8 @@ export function makeCampaignDb(
     bankAccounts?: BankAccountRow[];
     /** BankAccountVerificationRequest rows (ticket 16); defaults to none. */
     bankAccountVerificationRequests?: BankAccountVerificationRequestRow[];
+    /** BankAccountRevocation rows (ticket 11); defaults to none. */
+    bankAccountRevocations?: BankAccountRevocationRow[];
   } = {},
 ) {
   const users = (seed.users ?? [userRow()]).map((u) => ({ ...u }));
@@ -608,6 +637,7 @@ export function makeCampaignDb(
     partnerOrganisationAudits: [],
     bankAccounts: (seed.bankAccounts ?? []).map((a) => ({ ...a })),
     bankAccountVerificationRequests: (seed.bankAccountVerificationRequests ?? []).map((r) => ({ ...r })),
+    bankAccountRevocations: (seed.bankAccountRevocations ?? []).map((r) => ({ ...r })),
   };
   // The abuse threshold history is read-only here, like the Users below, so it
   // sits outside the transactional copy.
@@ -991,8 +1021,36 @@ export function makeCampaignDb(
               ]),
           );
         },
-        findMany: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'> } = {}) =>
-          ordered(getData().bankAccounts.filter((a) => matches(a, where)), orderBy).map((a) => ({ ...a })),
+        findMany: async (
+          {
+            where = {},
+            orderBy,
+            select,
+          }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'>; select?: Record<string, unknown> } = {},
+        ) =>
+          ordered(getData().bankAccounts.filter((a) => matches(a, where)), orderBy).map((a) => {
+            if (!select) return { ...a };
+            return Object.fromEntries(
+              Object.keys(select)
+                .filter((key) => select[key])
+                .map((key) => [
+                  key,
+                  key === 'owner'
+                    ? (() => {
+                        const owner = users.find((u) => u.id === a.ownerId);
+                        if (!owner) return null;
+                        const raw = select.owner as Record<string, boolean> | true | { select: Record<string, boolean> };
+                        if (raw === true) return { ...owner };
+                        const ownerSelect: Record<string, boolean> =
+                          'select' in raw ? (raw as { select: Record<string, boolean> }).select : raw;
+                        return Object.fromEntries(
+                          Object.keys(ownerSelect).filter((k) => ownerSelect[k]).map((k) => [k, owner[k as keyof UserRow]]),
+                        );
+                      })()
+                    : a[key as keyof BankAccountRow],
+                ]),
+            );
+          }),
         create: async ({ data }: { data: Omit<BankAccountRow, 'id' | 'verifiedAt' | 'createdAt'> & { verifiedAt?: Date | null; createdAt?: Date } }) => {
           const row: BankAccountRow = { id: `bank-account-${nextId++}`, verifiedAt: null, createdAt: new Date(), ...data };
           getData().bankAccounts.push(row);
@@ -1054,6 +1112,27 @@ export function makeCampaignDb(
           return { count: rows.length };
         },
       },
+      bankAccountRevocation: {
+        findFirst: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'> } = {}) => {
+          const rows = ordered(getData().bankAccountRevocations.filter((r) => matches(r, where)), orderBy);
+          return rows.length > 0 ? { ...rows[0] } : null;
+        },
+        findMany: async ({ where = {}, orderBy }: { where?: Where; orderBy?: Record<string, 'asc' | 'desc'> } = {}) =>
+          ordered(getData().bankAccountRevocations.filter((r) => matches(r, where)), orderBy).map((r) => ({ ...r })),
+        create: async ({
+          data,
+        }: {
+          data: Pick<BankAccountRevocationRow, 'bankAccountId' | 'action' | 'reason' | 'actorId'> & { createdAt?: Date };
+        }) => {
+          const row: BankAccountRevocationRow = {
+            id: `bank-account-revocation-${nextId++}`,
+            createdAt: new Date(),
+            ...data,
+          };
+          getData().bankAccountRevocations.push(row);
+          return { ...row };
+        },
+      },
       user: {
         findUnique: async ({ where }: { where: Where }) => {
           const row = users.find((u) => matches(u, where));
@@ -1086,6 +1165,12 @@ export function makeCampaignDb(
         findFirst: async () => null,
       },
       platformFeeThreshold: {
+        findFirst: async () => null,
+      },
+      // No Admin provider choice is seeded (prd-compliance 39): with none, the
+      // deployment's PAYMENT_PROVIDER applies, which is what every test that is
+      // not about the choice needs.
+      paymentProviderSetting: {
         findFirst: async () => null,
       },
       // No abuse threshold is seeded unless a test says so (prd-compliance
@@ -1194,6 +1279,9 @@ export function makeCampaignDb(
     },
     get bankAccountVerificationRequests() {
       return committed.bankAccountVerificationRequests;
+    },
+    get bankAccountRevocations() {
+      return committed.bankAccountRevocations;
     },
     bankAccount(id = 'bank-account-1') {
       const row = committed.bankAccounts.find((a) => a.id === id);

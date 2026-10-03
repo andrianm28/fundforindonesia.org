@@ -15,6 +15,7 @@ import { captureTrafficSource } from '@/lib/traffic-source-capture';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { formatFeePercent } from '@/lib/money/platform-fee';
 import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
+import { ShareModal } from '@/components/shared/ShareModal';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
 
 export interface CampaignDetailData {
@@ -202,6 +203,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   // Ticket 22: which of the (so far) two live tabs is shown. "Kabar Terbaru"
   // stays a plain, unwired button, exactly as all three were before this
   // ticket -- adding it is a separate concern this ticket does not touch.
+  const [shareOpen, setShareOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'story' | 'disbursements'>('story');
 
   const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
@@ -214,7 +216,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   useEffect(() => {
     captureTrafficSource(campaign.slug, window.location.href);
   }, [campaign.slug]);
-  const trafficSources = useTrafficSources(campaign.slug);
+  const trafficSources = useTrafficSources(campaign.slug, campaign.creator.id);
 
   const remainingDays = campaign.deadline
     ? getRemainingDays(new Date(campaign.deadline))
@@ -227,7 +229,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   return (
     <div className="min-h-screen bg-white pb-20">
       {/* Back button header */}
-      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-sm border-b border-border">
+      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-xs border-b border-border">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
           <button
             onClick={() => router.back()}
@@ -251,8 +253,9 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           <h1 className="text-sm font-medium text-text truncate flex-1">
             {campaign.title}
           </h1>
-          {/* Share button placeholder */}
           <button
+            type="button"
+            onClick={() => setShareOpen(true)}
             className="text-text hover:text-primary transition-colors"
             aria-label="Bagikan"
           >
@@ -273,6 +276,17 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         </div>
       </header>
 
+      <ShareModal
+        isOpen={shareOpen}
+        onClose={() => setShareOpen(false)}
+        campaign={{
+          title: campaign.title,
+          slug: campaign.slug,
+          coverImage: campaign.coverImage,
+          description: campaign.description,
+        }}
+      />
+
       {/* Hero image + quick info panel -- stacked by default, side-by-side
           from lg (1025px) up. The donate CTA is NOT duplicated here: it is
           already a `fixed` bottom bar, already visible on every viewport
@@ -284,7 +298,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         {/* Cover Image */}
         <div
           data-testid="campaign-hero-image"
-          className="relative w-full aspect-video max-h-[300px] overflow-hidden lg:w-3/5 lg:max-h-none lg:aspect-[21/9] lg:rounded-lg"
+          className="relative w-full aspect-video max-h-[300px] overflow-hidden lg:w-3/5 lg:max-h-none lg:aspect-21/9 lg:rounded-lg"
         >
           <Image
             src={campaign.coverImage}
@@ -427,7 +441,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         {/* Creator info */}
         <div className="flex items-center gap-3 py-3 border-t border-b border-border mb-4">
           {/* Avatar */}
-          <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
+          <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 shrink-0">
             {campaign.creator.avatar ? (
               <Image
                 src={campaign.creator.avatar}

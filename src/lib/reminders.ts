@@ -5,6 +5,7 @@ import { campaignDeadlineReminderEmail, kindAuthorisationExpiryWarningEmail } fr
 import { publicUrl } from '@/lib/public-url';
 import { KIND_LABEL } from '@/lib/campaign-kind';
 import { formatIndonesianDate } from '@/lib/utils/date';
+import { KIND_AUTHORISATION_EXPIRY_WARNING_DAYS } from '@/lib/kind-authorisation-window';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -12,22 +13,15 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * How many days before a Campaign's deadline its Fundraiser is reminded, so
  * it does not lapse to Expired unattended (CONTEXT.md, Campaign Status).
  *
- * ASSUMPTION: ticket 20 does not name a lead time, and none is written down
- * in spec.md or CONTEXT.md either. Three days (a single reminder per
- * Campaign, never repeated -- see Campaign.deadlineReminderSentAt) is this
- * change's own choice, kept in one place so the owner can adjust it without
- * touching the sweep itself.
+ * Seven days, per PRD FFI-03 ("pengingat email saat tenggat tinggal tujuh
+ * hari"). One reminder per Campaign, never repeated -- see
+ * Campaign.deadlineReminderSentAt, which is independent of this number, so a
+ * Campaign already reminded under an earlier lead time is not reminded again.
  */
-export const CAMPAIGN_DEADLINE_REMINDER_DAYS = 3;
+export const CAMPAIGN_DEADLINE_REMINDER_DAYS = 7;
 
-/**
- * How many days before a Kind Authorisation's `validTo` its Partner
- * Organisation is warned (CONTEXT.md, Kind Authorisation). Per spec.md
- * ("Kind Authorisation expiry warnings at 30 days"), the same horizon the
- * Verifier dashboard's own "expiring soon" list already uses by default
- * (expiringWindows, ./collecting-entity.ts).
- */
-export const KIND_AUTHORISATION_EXPIRY_WARNING_DAYS = 30;
+// Defined in ./kind-authorisation-window.ts (shared with the Verifier's list); re-exported here.
+export { KIND_AUTHORISATION_EXPIRY_WARNING_DAYS };
 
 /**
  * How many reminders one call processes. Bounds the sweep the same way
@@ -38,8 +32,13 @@ export const KIND_AUTHORISATION_EXPIRY_WARNING_DAYS = 30;
 export const REMINDER_SWEEP_LIMIT = 500;
 
 export interface ReminderSweepResult {
-  /** Reminders this call actually sent. */
-  sentCount: number;
+  /**
+   * Reminders this call attempted: the claim and in-app Notification committed,
+   * and the email was handed to the mailer when the recipient has a readable
+   * address. Not a delivery count; the mailer's accept/refuse result is not
+   * tracked here (ticket 14).
+   */
+  attemptedCount: number;
   /** Reminders this call looked at, including ones it skipped or lost a race on. */
   consideredCount: number;
 }
@@ -88,7 +87,7 @@ export async function sendCampaignDeadlineReminders(
     );
   }
 
-  let sentCount = 0;
+  let attemptedCount = 0;
   for (const campaign of campaigns) {
     try {
       const deadline = campaign.deadline!;
@@ -138,14 +137,14 @@ export async function sendCampaignDeadlineReminders(
         );
       }
 
-      sentCount++;
+      attemptedCount++;
     } catch (err) {
       // One Campaign's failure must not stop the rest of the sweep.
       console.error(`sendCampaignDeadlineReminders: failed for campaign ${campaign.id}`, err);
     }
   }
 
-  return { sentCount, consideredCount: campaigns.length };
+  return { attemptedCount, consideredCount: campaigns.length };
 }
 
 /**
@@ -189,7 +188,7 @@ export async function sendKindAuthorisationExpiryWarnings(
     );
   }
 
-  let sentCount = 0;
+  let attemptedCount = 0;
   for (const authorisation of authorisations) {
     try {
       const kindLabel = KIND_LABEL[authorisation.kind];
@@ -241,12 +240,12 @@ export async function sendKindAuthorisationExpiryWarnings(
         );
       }
 
-      sentCount++;
+      attemptedCount++;
     } catch (err) {
       // One authorisation's failure must not stop the rest of the sweep.
       console.error(`sendKindAuthorisationExpiryWarnings: failed for kind authorisation ${authorisation.id}`, err);
     }
   }
 
-  return { sentCount, consideredCount: authorisations.length };
+  return { attemptedCount, consideredCount: authorisations.length };
 }

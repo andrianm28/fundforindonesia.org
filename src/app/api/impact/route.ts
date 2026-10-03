@@ -13,6 +13,10 @@ import { impactBreakdown, ImpactDoesNotReconcileError } from '@/lib/money/impact
  * A visitor is better served by "the books do not add up, we are not showing
  * you numbers" than by six lines that quietly do not sum to the total above
  * them; the incident itself belongs in /api/admin/reconcile.
+ *
+ * The CSR block is the one exception: when the Program books do not reconcile
+ * it is withheld alone. The answer is still 200 with the six lines, and `csr`
+ * is null as the marker that CSR is unavailable (owner decision 2026-10-02).
  */
 export async function GET(req: NextRequest) {
   const location = req.nextUrl.searchParams.get('location');
@@ -21,7 +25,12 @@ export async function GET(req: NextRequest) {
     const breakdown = await impactBreakdown(prisma, { location });
 
     const response = NextResponse.json(breakdown);
-    response.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    // A withheld CSR block is a fault being looked at: do not let a CDN keep
+    // serving the degraded answer for minutes after it is fixed.
+    response.headers.set(
+      'Cache-Control',
+      breakdown.csr ? 'public, s-maxage=300, stale-while-revalidate=600' : 'no-store',
+    );
     return response;
   } catch (error) {
     if (error instanceof ImpactDoesNotReconcileError) {

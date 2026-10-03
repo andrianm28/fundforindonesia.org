@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const mockSandboxReason = vi.fn<() => string | null>(() => null);
@@ -14,7 +14,9 @@ vi.mock('@/lib/donations', async () => {
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     donation: { findUnique: vi.fn() },
+    paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     payment: { updateMany: vi.fn(), create: vi.fn() },
+    chargeWriteFailure: { create: vi.fn() },
     platformFeeRule: { findFirst: vi.fn().mockResolvedValue(null) },
     platformFeeThreshold: { findFirst: vi.fn().mockResolvedValue(null) },
   },
@@ -35,6 +37,7 @@ import { getPaymentProvider } from '@/lib/payments';
 const mockDonationFindUnique = prisma.donation.findUnique as unknown as Mock;
 const mockPaymentUpdateMany = prisma.payment.updateMany as unknown as Mock;
 const mockPaymentCreate = prisma.payment.create as unknown as Mock;
+const mockChargeWriteFailureCreate = prisma.chargeWriteFailure.create as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockGetPaymentProvider = getPaymentProvider as unknown as Mock;
 
@@ -76,6 +79,7 @@ beforeEach(() => {
   mockGetServerSession.mockResolvedValue(null);
   mockDonationFindUnique.mockResolvedValue(makeDonation());
   mockPaymentUpdateMany.mockResolvedValue({ count: 1 });
+  mockChargeWriteFailureCreate.mockResolvedValue({});
   mockPaymentCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: 'payment-2',
     ...data,
@@ -115,6 +119,29 @@ describe('POST /api/donations/[id]/retry', () => {
         amount: 50_000,
       }),
     });
+  });
+
+  it('records a ChargeWriteFailure and answers 503 when the retry charge succeeded but the Payment write failed (ticket 52)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockPaymentCreate.mockRejectedValue(new Error('connection reset by donor@example.com'));
+
+      const response = await POST(retryRequest(), routeContext());
+
+      expect(response.status).toBe(503);
+      expect(mockChargeWriteFailureCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          provider: 'sumopod',
+          providerRef: expect.stringMatching(/^donation-1-r[0-9a-f]{8}$/),
+          subjectType: 'donation',
+          subjectId: 'donation-1',
+          amount: 50_000,
+        }),
+      });
+      expect(JSON.stringify(mockChargeWriteFailureCreate.mock.calls)).not.toContain('donor@example.com');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('retries after EXPIRED the same way', async () => {
@@ -209,6 +236,68 @@ describe('POST /api/donations/[id]/retry', () => {
     const response = await POST(retryRequest(), routeContext());
 
     expect(response.status).toBe(403);
+    expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/donations/[id]/retry after an Admin switched provider (prd-compliance 39)', () => {
+  const mockSetting = prisma.paymentProviderSetting.findFirst as unknown as Mock;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    mockSetting.mockResolvedValue(null);
+  });
+
+  it('retries through the newly chosen provider, recording it on the new Payment; the old Payment keeps its own provider', async () => {
+    mockSetting.mockResolvedValue({ provider: 'mock', methods: ['bank_transfer_va'] });
+    mockDonationFindUnique.mockResolvedValue(makeDonation({ paymentMethod: 'bank_transfer' }));
+    const createCharge = vi.fn().mockResolvedValue({
+      providerOrderId: 'x',
+      method: 'bank_transfer_va',
+      vaNumber: '8800123',
+      expiresAt: new Date('2099-01-02T00:00:00.000Z'),
+    });
+    mockGetPaymentProvider.mockImplementation((name?: string) =>
+      name === 'mock'
+        ? { name: 'mock', method: 'bank_transfer_va', createCharge }
+        : (() => {
+            throw new Error(`unexpected provider ${name}`);
+          })(),
+    );
+
+    const response = await POST(retryRequest(), routeContext());
+
+    expect(response.status).toBe(201);
+    expect(mockGetPaymentProvider).toHaveBeenCalledWith('mock');
+    expect(createCharge).toHaveBeenCalledWith(expect.objectContaining({ method: 'bank_transfer_va' }));
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ provider: 'mock', method: 'bank_transfer_va' }),
+    });
+    // Settlement of the earlier sumopod Payment is the webhook's job and is
+    // pinned there (webhooks/[provider]/route.test.ts): it never reads the setting.
+    expect(mockPaymentUpdateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ provider: expect.anything() }) }),
+    );
+  });
+
+  it.each([
+    ['the mock', { provider: 'mock', methods: ['bank_transfer_va'] }, {}],
+    [
+      'a sandbox',
+      { provider: 'sumopod', methods: ['qris_redirect'] },
+      { SUMOPOD_BASE_URL: 'https://api-pay-sandbox.sumopod.com/api/v1' },
+    ],
+  ])('answers 503 and charges nothing in production when the Admin chose %s', async (_label, row, env) => {
+    vi.stubEnv('NODE_ENV', 'production');
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    mockSetting.mockResolvedValue(row);
+    const createCharge = vi.fn();
+    mockGetPaymentProvider.mockReturnValue({ name: row.provider, method: 'qris_redirect', createCharge });
+
+    const response = await POST(retryRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(createCharge).not.toHaveBeenCalled();
     expect(mockPaymentCreate).not.toHaveBeenCalled();
   });
 });

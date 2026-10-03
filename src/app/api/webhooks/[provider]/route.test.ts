@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 import { POST } from './route';
 
@@ -10,6 +10,8 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     webhookEvent: { create: vi.fn(), update: vi.fn(), findUniqueOrThrow: vi.fn() },
     payment: { findUnique: vi.fn() },
+    paymentProviderSetting: { findFirst: vi.fn() },
+    donation: { findUnique: vi.fn() },
     notification: { createMany: vi.fn(), create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -67,6 +69,8 @@ import {
 import { confirmRegistration, expireRegistrationHold, refundLateSettlement } from '@/lib/volunteer/trip';
 import { sendReportingFailure } from '@/lib/mail';
 import { formatRupiah } from '@/lib/utils/currency';
+import { MockPaymentProvider } from '@/lib/payments';
+import { setEnv } from '../../../../../tests/support/mutable-env';
 
 const mockConfirmRegistration = confirmRegistration as unknown as Mock;
 const mockExpireRegistrationHold = expireRegistrationHold as unknown as Mock;
@@ -75,6 +79,7 @@ const mockWebhookEventCreate = prisma.webhookEvent.create as unknown as Mock;
 const mockWebhookEventUpdate = prisma.webhookEvent.update as unknown as Mock;
 const mockWebhookEventFindUniqueOrThrow = prisma.webhookEvent.findUniqueOrThrow as unknown as Mock;
 const mockPaymentFindUnique = prisma.payment.findUnique as unknown as Mock;
+const mockDonationFindUnique = prisma.donation.findUnique as unknown as Mock;
 const mockNotificationCreateMany = prisma.notification.createMany as unknown as Mock;
 const mockNotificationCreate = prisma.notification.create as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
@@ -203,6 +208,7 @@ function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
 function makePayment(overrides: Record<string, unknown> = {}) {
   return {
     id: 'payment-1',
+    provider: 'mock',
     amount: 100_000,
     status: 'PENDING',
     escrowHoldDays: 7,
@@ -233,6 +239,7 @@ function makePayment(overrides: Record<string, unknown> = {}) {
 function makeRegistrationPayment(overrides: Record<string, unknown> = {}) {
   return {
     id: 'payment-1',
+    provider: 'mock',
     amount: 250_000,
     status: 'PENDING',
     escrowHoldDays: 7,
@@ -293,6 +300,7 @@ describe('POST /api/webhooks/[provider]', () => {
     vi.clearAllMocks();
     mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
     mockWebhookEventUpdate.mockResolvedValue({});
+    mockDonationFindUnique.mockResolvedValue({ anonymisedAt: null });
     mockNotificationCreateMany.mockResolvedValue({ count: 0 });
     mockNotificationCreate.mockResolvedValue({});
     mockSendReportingFailure.mockResolvedValue(true);
@@ -325,6 +333,47 @@ describe('POST /api/webhooks/[provider]', () => {
   });
 
 
+  describe('after an Admin switched the active provider (prd-compliance 39)', () => {
+    const activeSetting = prisma.paymentProviderSetting.findFirst as unknown as Mock;
+
+    function postTo(provider: string) {
+      return POST(
+        new NextRequest(`http://localhost:3000/api/webhooks/${provider}`, { method: 'POST', body: '{}' }),
+        { params: Promise.resolve({ provider }) },
+      );
+    }
+
+    it('still settles a Payment of provider B while the Admin setting names A, verified by B alone', async () => {
+      activeSetting.mockResolvedValue({ provider: 'mock', methods: ['bank_transfer_va'] });
+      mockGetPaymentProvider.mockReturnValue({
+        parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, provider: 'sumopod' }),
+      });
+      mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
+      const { tx, ledgerRows } = makeTx();
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+      const response = await postTo('sumopod');
+
+      expect(response.status).toBe(200);
+      expect(mockGetPaymentProvider).toHaveBeenCalledWith('sumopod');
+      expect(activeSetting).not.toHaveBeenCalled();
+      expect(ledgerRows.every((r) => r.provider === 'sumopod')).toBe(true);
+      expect(ledgerRows.length).toBeGreaterThan(0);
+    });
+
+    it('still refuses a provider mismatch: A\'s secret cannot settle B\'s Payment even if A is the active one', async () => {
+      activeSetting.mockResolvedValue({ provider: 'mock', methods: ['bank_transfer_va'] });
+      mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+      mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
+
+      const response = await postTo('mock');
+
+      expect(response.status).toBe(200);
+      expect(mockTransaction).not.toHaveBeenCalled();
+      expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
+    });
+  });
+
   it('stamps the provider on every leg of a settlement, so the Provider Balance can be read per provider', async () => {
     // CONTEXT.md, Provider Balance: "Tercatat sebagai akun buku besar
     // tersendiri per penyedia". The provider is a fact right here -- it is in
@@ -337,7 +386,7 @@ describe('POST /api/webhooks/[provider]', () => {
     mockGetPaymentProvider.mockReturnValue({
       parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, provider: 'sumopod' }),
     });
-    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
     const { tx, ledgerRows } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -364,7 +413,7 @@ describe('POST /api/webhooks/[provider]', () => {
     mockGetPaymentProvider.mockReturnValue({
       parseWebhook: vi.fn().mockResolvedValue({ ...REGISTRATION_PAID_EVENT, provider: 'sumopod' }),
     });
-    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment());
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment({ provider: 'sumopod' }));
     mockConfirmRegistration.mockResolvedValue({ outcome: 'confirmed' });
     const { tx, ledgerRows } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
@@ -387,7 +436,7 @@ describe('POST /api/webhooks/[provider]', () => {
     mockGetPaymentProvider.mockReturnValue({
       parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, provider: 'sumopod' }),
     });
-    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
     const { tx } = makeTx();
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -578,7 +627,7 @@ describe('POST /api/webhooks/[provider]', () => {
     // write -- a crash before this line must leave the row unprocessed.
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'SETTLED' },
     });
 
     expect(mockNotificationCreateMany).toHaveBeenCalled();
@@ -664,6 +713,40 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(message.text).toContain('Yayasan Contoh');
     expect(message.text).toContain('/receipt/tok-fixed');
     expect(report).toMatchObject({ mail: 'receipt', donationId: 'donation-1', paymentId: 'payment-1' });
+  });
+
+  it('re-reads anonymisedAt right before sending, so a Donor anonymised after the Payment was loaded gets no Receipt email (ticket 36)', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    mockDonationFindUnique.mockResolvedValue({ anonymisedAt: new Date('2026-10-02T08:00:00.000Z') });
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    await POST(createRequest(), routeContext());
+
+    expect(mockDonationFindUnique).toHaveBeenCalledWith({
+      where: { id: 'donation-1' },
+      select: { anonymisedAt: true },
+    });
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
+  });
+
+  it('still answers 200, records the settlement and sends no Receipt when the anonymisedAt re-read throws (ticket 36)', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment());
+    mockDonationFindUnique.mockRejectedValue(new Error('connection lost'));
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(tx.payment.updateMany).toHaveBeenCalled();
+    expect(tx.receipt.create).toHaveBeenCalled();
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('payment-1'), expect.any(Error));
+    expect(JSON.stringify(error.mock.calls)).not.toContain('donor@example.test');
   });
 
   it('emails the Receipt to a Guest Donor at their sealed guest email when there is no account', async () => {
@@ -927,7 +1010,7 @@ describe('POST /api/webhooks/[provider]', () => {
     // it logs again, which is the point.
     expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'AMOUNT_MISMATCH' },
     });
   });
 
@@ -978,6 +1061,48 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(response.status).toBe(200);
     expect(data.received).toBe(true);
     expect(mockTransaction).not.toHaveBeenCalled();
+    // Money with no Payment to land on: labelled so an Admin can find it.
+    expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
+      where: { id: 'we-1' },
+      data: { processedAt: expect.any(Date), outcome: 'UNKNOWN_PAYMENT' },
+    });
+  });
+
+  it.each(['expired', 'failed'] as const)(
+    'labels a %s event naming no known Payment IGNORED_TERMINAL, not UNKNOWN_PAYMENT: no money is missing',
+    async (status) => {
+      mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, status }) });
+      mockPaymentFindUnique.mockResolvedValue(null);
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const response = await POST(createRequest(), routeContext());
+
+      expect(response.status).toBe(200);
+      expect(mockTransaction).not.toHaveBeenCalled();
+      expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
+        where: { id: 'we-1' },
+        data: { processedAt: expect.any(Date), outcome: 'IGNORED_TERMINAL' },
+      });
+      consoleErrorSpy.mockRestore();
+    },
+  );
+
+  it('logs an unexpected failure without the raw Error object or any email in it', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+      mockWebhookEventCreate.mockRejectedValue(new Error('insert failed for donor@example.com'));
+
+      const response = await POST(createRequest(), routeContext());
+
+      expect(response.status).toBe(500);
+      expect(spy).toHaveBeenCalled();
+      const args = spy.mock.calls.flat();
+      expect(args.some((a) => a instanceof Error)).toBe(false);
+      expect(args.some((a) => typeof a === 'string' && a.includes('@'))).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('is idempotent on a replayed event that already finished: the existing processed row short-circuits before any Payment lookup', async () => {
@@ -1026,7 +1151,7 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(ledgerRows).toHaveLength(2);
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'SETTLED' },
     });
   });
 
@@ -1054,7 +1179,7 @@ describe('POST /api/webhooks/[provider]', () => {
     // The loser is still a finished event, not an unprocessed one.
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'LOST_RACE' },
     });
   });
 
@@ -1098,8 +1223,73 @@ describe('POST /api/webhooks/[provider]', () => {
     // rolled-back transaction.
     expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'SIBLING_ALREADY_PAID' },
     });
+  });
+
+  it('answers a provider mismatch like an unknown providerRef: 200, recorded but NOT processed, Payment untouched (ticket 51)', async () => {
+    // Signed and genuine for /api/webhooks/mock, but the Payment it names was
+    // charged through sumopod. Whoever holds one provider's secret must not be
+    // able to settle another provider's charge.
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ received: true });
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockWebhookEventCreate).toHaveBeenCalledTimes(1);
+    // Not stamped processed: (provider, providerEventId) is the dedupe key, so
+    // a processed mismatch would make a later genuine event with the same id a replay.
+    expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
+    expect(mockConfirmRegistration).not.toHaveBeenCalled();
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
+  });
+
+  it('a provider mismatch does not make a later genuine event with the same id a replay: it is processed (ticket 51)', async () => {
+    // First delivery: mismatch. Row created, left unprocessed.
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
+    expect((await POST(createRequest(), routeContext())).status).toBe(200);
+    expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+
+    // Second delivery, same (provider, providerEventId): the unique constraint
+    // fires and the existing row is unprocessed, so it is not a replay.
+    mockWebhookEventCreate.mockRejectedValue(Object.assign(new Error('duplicate'), { code: 'P2002' }));
+    mockWebhookEventFindUniqueOrThrow.mockResolvedValue({ id: 'we-1', processedAt: null });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'mock' }));
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a provider mismatch on a Trip Fee Payment with 200 too', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue(REGISTRATION_PAID_EVENT),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makeRegistrationPayment({ provider: 'sumopod' }));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockConfirmRegistration).not.toHaveBeenCalled();
+  });
+
+  it('handles a provider mismatch before the terminal-status early exit, so it is never stamped processed as a replay', async () => {
+    mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod', status: 'PAID' }));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
   });
 
   it('rejects an event for a Payment already in a terminal status, without reprocessing it', async () => {
@@ -1112,7 +1302,56 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(response.status).toBe(200);
     expect(data.received).toBe(true);
     expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
+      where: { id: 'we-1' },
+      data: { processedAt: expect.any(Date), outcome: 'IGNORED_TERMINAL' },
+    });
   });
+
+  it('labels a non-paid event landing on an EXPIRED Payment IGNORED_TERMINAL and does not settle it', async () => {
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, status: 'failed' as const }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ status: 'EXPIRED' }));
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
+      where: { id: 'we-1' },
+      data: { processedAt: expect.any(Date), outcome: 'IGNORED_TERMINAL' },
+    });
+    consoleErrorSpy.mockRestore();
+  });
+
+  it.each([
+    { from: 'EXPIRED', outcome: 'PAID_AFTER_EXPIRED' },
+    { from: 'FAILED', outcome: 'PAID_AFTER_FAILED' },
+  ] as const)(
+    'settles a paid event for a $from Payment, guarding the update on that status and labelling it $outcome',
+    async ({ from, outcome }) => {
+      mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+      mockPaymentFindUnique.mockResolvedValue(makePayment({ status: from }));
+      const { tx, ledgerRows } = makeTx();
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+      const response = await POST(createRequest(), routeContext());
+
+      expect(response.status).toBe(200);
+      // The race guard keys on the status the Payment was read in, not PENDING.
+      expect(tx.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-1', status: from },
+        data: expect.objectContaining({ status: 'PAID' }),
+      });
+      expect(ledgerRows.length).toBeGreaterThan(0);
+      expect(tx.webhookEvent.update).toHaveBeenCalledWith({
+        where: { id: 'we-1' },
+        data: { processedAt: expect.any(Date), outcome },
+      });
+    },
+  );
 });
 
 describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) payment', () => {
@@ -1173,20 +1412,29 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
 
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'we-1' },
-      data: { processedAt: expect.any(Date) },
+      data: { processedAt: expect.any(Date), outcome: 'SETTLED' },
     });
   });
 
-  it('paid: still posts the ledger legs and settles the Payment when the hold had lapsed, but neither notifies nor refunds', async () => {
+  it('paid: still posts the ledger legs when the hold had lapsed, does not notify, and has the module refund it in full once the settlement has committed', async () => {
     // A hold can expire without its Payment being touched, and the Payment
     // can stay PENDING for up to VA_EXPIRY_MS after the 30-minute hold
     // window closed. If the charge clears in that window, the money
     // genuinely arrived at the provider -- settlement must not be refused --
-    // but there is no seat left to confirm, so the Volunteer must not be
-    // told registration succeeded.
+    // but there is no seat to confirm: the Volunteer must not be told
+    // registration succeeded, and is refunded instead (ticket 40).
     mockConfirmRegistration.mockResolvedValue({ outcome: 'lapsed' });
     const { tx, ledgerRows } = makeTx();
-    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    const order: string[] = [];
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => {
+      const result = await cb(tx);
+      order.push('settlement committed');
+      return result;
+    });
+    mockRefundLateSettlement.mockImplementation(async () => {
+      order.push('late-settlement refund');
+      return { refund: { id: 'refund-1' } };
+    });
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const response = await POST(createRequest(), routeContext());
@@ -1200,11 +1448,25 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
       expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 250_000, volunteerTripId: 'trip-1' }),
     );
     expect(mockNotificationCreate).not.toHaveBeenCalled();
-    expect(mockRefundLateSettlement).not.toHaveBeenCalled();
-    // Logged for manual review: money collected, no seat confirmed.
-    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('registration-1'));
+    expect(mockRefundLateSettlement).toHaveBeenCalledTimes(1);
+    expect(mockRefundLateSettlement).toHaveBeenCalledWith(prisma, { registrationId: 'registration-1' });
+    expect(order).toEqual(['settlement committed', 'late-settlement refund']);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('auto-refunding'));
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it('paid: a second delivery of the same settlement neither confirms nor refunds again', async () => {
+    mockConfirmRegistration.mockResolvedValue({ outcome: 'lapsed' });
+    // The loser of the PENDING -> PAID race: a real database returns count 0.
+    const { tx } = makeTx({ paymentUpdateManyCount: 0 });
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(mockConfirmRegistration).not.toHaveBeenCalled();
+    expect(mockRefundLateSettlement).not.toHaveBeenCalled();
   });
 
   it('paid: has the module refund a Registration cancelled before the charge cleared, once the settlement has committed', async () => {
@@ -1246,10 +1508,30 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     const response = await POST(createRequest(), routeContext());
 
     expect(response.status).toBe(200);
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('failed to auto-refund payment payment-1'),
-      expect.any(Error),
-    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('failed to auto-refund payment payment-1'));
+    // Never the raw error object: provider errors can carry PII or tokens.
+    for (const call of consoleErrorSpy.mock.calls) {
+      expect(call.some((arg) => arg instanceof Error)).toBe(false);
+    }
+    // The failure leaves a mark an Admin can search; the response stays 200.
+    expect(mockWebhookEventUpdate).toHaveBeenCalledWith({
+      where: { id: 'we-1' },
+      data: { outcome: 'LATE_SETTLEMENT_REFUND_FAILED' },
+    });
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('paid: still answers 200 when marking the failed refund fails too', async () => {
+    mockConfirmRegistration.mockResolvedValue({ outcome: 'cancelled' });
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    mockRefundLateSettlement.mockRejectedValue(new Error('database exploded'));
+    mockWebhookEventUpdate.mockRejectedValue(new Error('still down'));
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(200);
     consoleErrorSpy.mockRestore();
   });
 
@@ -1288,6 +1570,10 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     await POST(createRequest(), routeContext());
 
     expect(mockExpireRegistrationHold).not.toHaveBeenCalled();
+    expect(tx.webhookEvent.update).toHaveBeenCalledWith({
+      where: { id: 'we-1' },
+      data: { processedAt: expect.any(Date), outcome: 'LOST_RACE' },
+    });
   });
 
   it('no Platform Fee leg is ever posted against a Trip Fee settlement', async () => {
@@ -1303,5 +1589,72 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     const debits = ledgerRows.filter((r) => r.direction === 'DEBIT').reduce((s, r) => s + r.amount, 0);
     const credits = ledgerRows.filter((r) => r.direction === 'CREDIT').reduce((s, r) => s + r.amount, 0);
     expect(debits).toBe(credits);
+  });
+});
+
+// Ticket 51. The adapter's own gate is covered in src/lib/payments/index.test.ts;
+// this is the route seam: with the REAL registry behind it (not the stubbed
+// getPaymentProvider the other tests use), a mock webhook in production
+// without the opt-in must be refused before anything is written.
+describe('POST /api/webhooks/mock in production (ticket 51)', () => {
+  const ENV_KEYS = ['NODE_ENV', 'ALLOW_MOCK_PAYMENT_PROVIDER', 'MOCK_MIDTRANS_SERVER_KEY'] as const;
+  const SERVER_KEY = 'test-mock-server-key';
+  let saved: Record<string, string | undefined>;
+
+  async function signedRequest(): Promise<NextRequest> {
+    const body = await new MockPaymentProvider({ serverKey: SERVER_KEY }).simulateWebhookPayload(
+      'order-unknown',
+      100_000,
+      'settlement',
+      'evt-prod-gate',
+    );
+    return createRequest(body);
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    setEnv('MOCK_MIDTRANS_SERVER_KEY', SERVER_KEY);
+    setEnv('NODE_ENV', 'production');
+    setEnv('ALLOW_MOCK_PAYMENT_PROVIDER', undefined);
+    const actual = await vi.importActual<typeof import('@/lib/payments')>('@/lib/payments');
+    mockGetPaymentProvider.mockImplementation(actual.getPaymentProvider);
+    mockWebhookEventCreate.mockResolvedValue({ id: 'we-1' });
+    mockWebhookEventUpdate.mockResolvedValue({});
+    mockPaymentFindUnique.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    for (const k of ENV_KEYS) setEnv(k, saved[k]);
+  });
+
+  it('answers 503 and writes nothing, even for a validly signed event', async () => {
+    const response = await POST(await signedRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+    expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
+    expect(mockPaymentFindUnique).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('still answers 503 when ALLOW_MOCK_PAYMENT_PROVIDER is anything but exactly "true"', async () => {
+    for (const value of ['1', 'yes', 'TRUE', ' true']) {
+      setEnv('ALLOW_MOCK_PAYMENT_PROVIDER', value);
+      const response = await POST(await signedRequest(), routeContext());
+      expect(response.status).toBe(503);
+    }
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('runs as usual when ALLOW_MOCK_PAYMENT_PROVIDER is "true": the event is recorded and the Payment looked up', async () => {
+    setEnv('ALLOW_MOCK_PAYMENT_PROVIDER', 'true');
+
+    const response = await POST(await signedRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(mockWebhookEventCreate).toHaveBeenCalledTimes(1);
+    expect(mockPaymentFindUnique).toHaveBeenCalledTimes(1);
   });
 });

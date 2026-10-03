@@ -41,10 +41,10 @@ describe('BottomNavBar', () => {
     render(<BottomNavBar activeTab="home" />);
 
     const homeLink = screen.getByText('Home').closest('a');
-    expect(homeLink).toHaveClass('text-[#2F7A5F]');
+    expect(homeLink).toHaveClass('text-primary');
 
     const inboxLink = screen.getByText('Inbox').closest('a');
-    expect(inboxLink).toHaveClass('text-[#757575]');
+    expect(inboxLink).toHaveClass('text-text-secondary');
   });
 
   it('sets aria-current on active tab', () => {
@@ -112,6 +112,6 @@ describe('BottomNavBar', () => {
 
     const indicator = screen.getByTestId('active-indicator');
     expect(indicator).toBeInTheDocument();
-    expect(indicator).toHaveClass('bg-[#2F7A5F]');
+    expect(indicator).toHaveClass('bg-primary');
   });
 });

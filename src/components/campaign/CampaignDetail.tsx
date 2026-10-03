@@ -70,8 +70,22 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
   const [activeTab, setActiveTab] = useState<TabKey>('story');
   const [updates, setUpdates] = useState<CampaignUpdate[]>([]);
   const [disbursements, setDisbursements] = useState<Disbursement[]>([]);
-  const [isLoadingUpdates, setIsLoadingUpdates] = useState(false);
-  const [isLoadingDisbursements, setIsLoadingDisbursements] = useState(false);
+  // A tab is loading while it is open, has nothing to show, and its last
+  // fetch has not settled. Opening the tab clears "settled" (selectTab), so an
+  // empty tab asks again each time it is opened.
+  const [updatesSettled, setUpdatesSettled] = useState(false);
+  const [disbursementsSettled, setDisbursementsSettled] = useState(false);
+  const isLoadingUpdates = activeTab === 'updates' && updates.length === 0 && !updatesSettled;
+  const isLoadingDisbursements =
+    activeTab === 'disbursements' && disbursements.length === 0 && !disbursementsSettled;
+
+  const selectTab = (key: TabKey) => {
+    if (key !== activeTab) {
+      if (key === 'updates') setUpdatesSettled(false);
+      if (key === 'disbursements') setDisbursementsSettled(false);
+    }
+    setActiveTab(key);
+  };
 
   const remainingDays = campaign.deadline
     ? getRemainingDays(new Date(campaign.deadline))
@@ -86,7 +100,6 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
   // Fetch updates when tab is activated
   useEffect(() => {
     if (activeTab === 'updates' && updates.length === 0) {
-      setIsLoadingUpdates(true);
       fetch(`/api/campaigns/${campaign.slug}/updates`)
         .then((res) => res.json())
         .then((data) => {
@@ -96,7 +109,7 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
           setUpdates([]);
         })
         .finally(() => {
-          setIsLoadingUpdates(false);
+          setUpdatesSettled(true);
         });
     }
   }, [activeTab, campaign.slug, updates.length]);
@@ -104,7 +117,6 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
   // Fetch disbursements when tab is activated
   useEffect(() => {
     if (activeTab === 'disbursements' && disbursements.length === 0) {
-      setIsLoadingDisbursements(true);
       fetch(`/api/campaigns/${campaign.slug}/disbursements`)
         .then((res) => res.json())
         .then((data) => {
@@ -114,7 +126,7 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
           setDisbursements([]);
         })
         .finally(() => {
-          setIsLoadingDisbursements(false);
+          setDisbursementsSettled(true);
         });
     }
   }, [activeTab, campaign.slug, disbursements.length]);
@@ -228,7 +240,7 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
           {tabs.map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => selectTab(tab.key)}
               className={`flex-1 py-3 text-sm font-medium text-center transition-colors relative ${
                 activeTab === tab.key
                   ? 'text-primary'
@@ -407,7 +419,7 @@ function CampaignUpdates({
                     key={idx}
                     src={img}
                     alt={`Update image ${idx + 1}`}
-                    className="w-32 h-24 object-cover rounded-lg flex-shrink-0"
+                    className="w-32 h-24 object-cover rounded-lg shrink-0"
                   />
                 ))}
               </div>

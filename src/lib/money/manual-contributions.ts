@@ -511,6 +511,15 @@ export async function reverseManualContribution(
     if (!contribution) {
       throw new ManualContributionNotFoundError(manualContributionId);
     }
+    // Status first: a contribution that is not APPROVED has nothing to take
+    // back, whoever asks, and that is the more basic thing to tell an Admin
+    // than who they are (UAT round 2: the recorder reversing a still-pending
+    // one was told "not by the person who recorded it"). No rule is loosened:
+    // everyone is refused here, and the check below still refuses the pair
+    // once it is APPROVED.
+    if (contribution.status !== 'APPROVED') {
+      throw new ManualContributionNotApprovedError(contribution.status);
+    }
     // The two-person rule, at the reversal as well as at the approval, and for
     // the same reason: the pair that created this money may not also be the one
     // that takes it back out. Otherwise the whole rule collapses into one
@@ -518,15 +527,12 @@ export async function reverseManualContribution(
     // end where they began with nothing on the record for anyone else to have
     // seen. Both halves of the pair are refused, and the refusal is the same
     // SelfApprovalError an approval of the wrong person gets, thrown before
-    // the status is even looked at, so this decision has no trace either.
+    // anything is written, so this decision has no trace either.
     if (
       reversedById === contribution.recordedById ||
       reversedById === contribution.decidedById
     ) {
       throw new SelfApprovalError('Manual Contribution', 'reversal');
-    }
-    if (contribution.status !== 'APPROVED') {
-      throw new ManualContributionNotApprovedError(contribution.status);
     }
 
     const subject = subjectOf(contribution);
@@ -565,4 +571,40 @@ export async function reverseManualContribution(
   });
 
   return prisma.manualContribution.findUniqueOrThrow({ where: { id: manualContributionId } });
+}
+
+/**
+ * What the books say a set of Programs hold, beside what Manual Contributions
+ * explain of it (csr-08). This is the one reader of a Program's balance
+ * outside ledger.ts, so the guard in manual-contribution-isolation.test.ts
+ * keeps holding: /impact and the Program page ask here and never name the
+ * account themselves.
+ *
+ * - `booked`: every entry on the Program balance, net of reversals.
+ * - `explained`: the same balance counting only entries that carry a Manual
+ *   Contribution, the one thing allowed to move it.
+ *
+ * Both are the ledger, so a difference is a fault in the books, not a second
+ * source disagreeing. Callers decide what to do with a fault
+ * (assertCsrReconciles in ./impact.ts).
+ */
+export async function programBooks(
+  tx: Prisma.TransactionClient,
+  programIds: string[],
+): Promise<{ booked: number; explained: number }> {
+  const net = async (extra: Prisma.LedgerEntryWhereInput) => {
+    const rows = await tx.ledgerEntry.groupBy({
+      by: ['direction'] as const,
+      where: { programId: { in: programIds }, account: 'PROGRAM_BALANCE', ...extra },
+      _sum: { amount: true },
+    });
+    let credits = 0;
+    let debits = 0;
+    for (const row of rows) {
+      if (row.direction === 'CREDIT') credits += row._sum.amount ?? 0;
+      if (row.direction === 'DEBIT') debits += row._sum.amount ?? 0;
+    }
+    return credits - debits;
+  };
+  return { booked: await net({}), explained: await net({ manualContributionId: { not: null } }) };
 }

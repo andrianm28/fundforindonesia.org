@@ -56,7 +56,7 @@ export default async function CampaignPayoutPage({ params }: PageProps) {
   const { slug } = await params;
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <h1 className="text-white text-lg font-semibold">Pencairan Dana</h1>
       </div>

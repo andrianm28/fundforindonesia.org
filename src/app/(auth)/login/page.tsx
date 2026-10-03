@@ -5,6 +5,12 @@ import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
+import { safeCallbackUrl } from '@/lib/safe-callback-url';
+
+/** Read on click, not render: the page is prerendered, so there is no query string until the browser. */
+function callbackUrlFromLocation(): string {
+  return safeCallbackUrl(new URLSearchParams(window.location.search).get('callbackUrl'));
+}
 
 function GoogleIcon() {
   return (
@@ -86,7 +92,7 @@ export default function LoginPage() {
           setError('Email atau password salah');
         }
       } else if (result?.ok) {
-        router.push('/');
+        router.push(callbackUrlFromLocation());
       }
     } catch {
       setError('Terjadi kesalahan. Silakan coba lagi.');
@@ -97,7 +103,7 @@ export default function LoginPage() {
 
   const handleGoogleSignIn = () => {
     setIsGoogleLoading(true);
-    signIn('google', { callbackUrl: '/' });
+    signIn('google', { callbackUrl: callbackUrlFromLocation() });
   };
 
   return (
@@ -141,7 +147,7 @@ export default function LoginPage() {
               }}
               placeholder="Masukkan email kamu"
               disabled={isLocked}
-              className="w-full px-4 py-2.5 border border-border rounded-md text-text placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="w-full px-4 py-2.5 border border-border rounded-md text-text placeholder:text-text-secondary/60 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               autoComplete="email"
             />
           </div>
@@ -164,7 +170,7 @@ export default function LoginPage() {
               }}
               placeholder="Masukkan password"
               disabled={isLocked}
-              className="w-full px-4 py-2.5 border border-border rounded-md text-text placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="w-full px-4 py-2.5 border border-border rounded-md text-text placeholder:text-text-secondary/60 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               autoComplete="current-password"
             />
           </div>

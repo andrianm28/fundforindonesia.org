@@ -85,4 +85,11 @@ describe('tripFeeRefund: the one Trip Fee Refund policy', () => {
       reason: 'Trip Fee settlement arrived after the Registration was already cancelled -- refunded automatically',
     });
   });
+
+  it('lapsed settlement: refunds the full Trip Fee, with a reason that names the expired hold', () => {
+    expect(tripFeeRefund(paidRegistration(-5, 250_000), 'lapsed settlement', NOW)).toEqual({
+      amount: 250_000,
+      reason: 'Trip Fee settlement arrived after the seat hold had expired -- refunded automatically',
+    });
+  });
 });

@@ -65,3 +65,33 @@ Admin, because money returned to the wrong account cannot be recalled.
   piece of work and is not implied by this decision. `payouts.ts` already
   refuses an unverified destination, so a Payout aimed at a cleared account
   fails; what is missing is what clears it.
+
+## Amendment 2026-09-28
+
+This ADR's own text already says a Refund's destination is "verified by a
+Verifier rather than an Admin" -- the same Bank Account flow as a Payout's.
+Ticket 31 could not build that: Rilis 1's Guest Donors have no account of
+their own to add a Bank Account to and submit for a Verifier's queue, so
+there is nothing for a Verifier to check. Owner decision Q7(c),
+2026-09-28: for Rilis 1 only, a Refund's destination is exempted from the
+Verifier check this ADR otherwise requires, and a compensating control
+takes its place -- two pairs of eyes on the account number, the same shape
+the rest of the ledger already uses for money leaving the platform
+(createRefund/approveRefund/completeRefund's own three-Admin rule).
+
+- The Admin who **approves** a Refund records the destination -- bank code,
+  account holder name, account number -- straight from the Donor's written
+  request. This moved here from completion, where ticket 31 first put it:
+  an approval with no destination is now refused.
+- The Admin who **completes** the Refund, a different Admin again, does not
+  type a fresh destination. They re-type only the account number from the
+  same written request, and the server compares it against the one sealed
+  at approval (decrypted server-side, digits normalised, compared in
+  constant time) -- a mismatch refuses the completion and writes nothing.
+  Neither the approve form nor the complete form ever renders the full
+  number back; only a masked tail is shown, the same mask the Bank Account
+  verification queue already uses.
+- This is a Rilis 1 exception, not a reinterpretation of the rule above.
+  Once a Donor can hold a Bank Account on their own profile, a Refund's
+  destination goes back to full Verifier verification, exactly as this
+  ADR's original text describes, and this exception is retired.

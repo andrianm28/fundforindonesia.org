@@ -132,7 +132,7 @@ export function DonationConfirmation({
               value={guestContact.email}
               onChange={(e) => guestContact.onEmailChange(e.target.value)}
               placeholder="email@contoh.com"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               aria-invalid={!!guestContact.error}
               aria-describedby={guestContact.error ? 'guest-email-error' : undefined}
             />
@@ -154,7 +154,7 @@ export function DonationConfirmation({
               value={guestContact.name}
               onChange={(e) => guestContact.onNameChange(e.target.value)}
               placeholder="Nama Anda"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
 
@@ -168,7 +168,7 @@ export function DonationConfirmation({
               value={guestContact.phone}
               onChange={(e) => guestContact.onPhoneChange(e.target.value)}
               placeholder="08xxxxxxxxxx"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
         </div>
@@ -228,7 +228,7 @@ export function DonationConfirmation({
           placeholder="Tulis doa atau harapanmu..."
           maxLength={PRAYER_MAX_LENGTH}
           rows={4}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-text placeholder:text-text-secondary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
         />
         <p className="text-xs text-text-secondary text-right">
           {prayer.length}/{PRAYER_MAX_LENGTH}

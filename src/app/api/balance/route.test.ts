@@ -35,6 +35,7 @@ describe("GET /api/balance", () => {
       id: "user-1",
       name: "Test",
       email: "test@test.com",
+      assignments: [],
     },
     expires: "2099-01-01",
   };

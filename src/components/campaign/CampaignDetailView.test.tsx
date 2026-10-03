@@ -2,6 +2,13 @@ import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/re
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { CampaignDetailView, type CampaignDetailData } from './CampaignDetailView';
 
+// The Traffic Source hook asks the route only for the Campaign's own
+// Fundraiser or an Admin, so it reads the session. Default: the Fundraiser.
+const mockSession = vi.hoisted(() => ({
+  value: { data: { user: { id: 'user-1', assignments: [] as string[] } } } as { data: unknown },
+}));
+vi.mock('next-auth/react', () => ({ useSession: () => mockSession.value }));
+
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
@@ -35,9 +42,24 @@ const mockCampaign: CampaignDetailData = {
   escrowHoldDays: 7,
 };
 
+vi.mock('framer-motion', () => ({
+  motion: {
+    div: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  },
+  AnimatePresence: ({ children }: React.PropsWithChildren) => <>{children}</>,
+}));
+
 describe('CampaignDetailView', () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it('opens the ShareModal when "Bagikan" is pressed (PRD FFI-06)', () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    expect(screen.queryByText('Bagikan Campaign')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Bagikan'));
+    expect(screen.getByText('Bagikan Campaign')).toBeDefined();
+    expect(screen.getByLabelText('Bagikan via WhatsApp')).toBeDefined();
   });
 
   it('does not render a demo badge for a regular campaign', () => {
@@ -90,7 +112,7 @@ describe('CampaignDetailView', () => {
     expect(imageBox).not.toBeNull();
     expect(imageBox.className).toContain('aspect-video');
     expect(imageBox.className).toContain('max-h-[300px]');
-    expect(imageBox.className).toContain('lg:aspect-[21/9]');
+    expect(imageBox.className).toContain('lg:aspect-21/9');
     expect(imageBox.className).toContain('lg:max-h-none');
   });
 
@@ -149,12 +171,12 @@ describe('CampaignDetailView', () => {
     expect(donateCta.className).not.toContain('font-mono');
   });
 
-  it('does not disable flex-shrink on the hero image or quick info panel, so the row can fit within its container at lg', () => {
+  it('does not disable shrink on the hero image or quick info panel, so the row can fit within its container at lg', () => {
     const { container } = render(<CampaignDetailView campaign={mockCampaign} />);
     const heroImage = container.querySelector('[data-testid="campaign-hero-image"]') as HTMLElement;
     const quickInfo = container.querySelector('[data-testid="campaign-quick-info"]') as HTMLElement;
-    expect(heroImage.className).not.toContain('lg:flex-shrink-0');
-    expect(quickInfo.className).not.toContain('lg:flex-shrink-0');
+    expect(heroImage.className).not.toContain('lg:shrink-0');
+    expect(quickInfo.className).not.toContain('lg:shrink-0');
   });
 
   it('does not duplicate vertical padding between the quick info panel and the section below it', () => {
@@ -418,13 +440,18 @@ describe('CampaignDetailView Traffic Source (ticket 24)', () => {
     expect(sessionStorage.getItem(`ffi:traffic-source:${mockCampaign.slug}`)).toBe('whatsapp');
   });
 
-  it('renders nothing extra when the viewer is not the Fundraiser (the API refuses)', async () => {
+  it('renders nothing extra, and never calls the owner-only route, for an anonymous visitor', async () => {
+    mockSession.value = { data: null };
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 }) as unknown as typeof fetch;
 
     render(<CampaignDetailView campaign={mockCampaign} />);
 
-    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      `/api/campaigns/${mockCampaign.slug}/traffic-sources`,
+      expect.anything(),
+    );
     expect(screen.queryByText(/Sumber Kunjungan/i)).toBeNull();
+    mockSession.value = { data: { user: { id: 'user-1', assignments: [] } } };
   });
 
   it("shows counts per source to the campaign's own Fundraiser", async () => {

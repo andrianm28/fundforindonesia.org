@@ -18,8 +18,8 @@ export default function ReportsPage() {
         </svg>
       </div>
 
-      <h1 className="text-xl font-semibold text-[#212121]">Laporan</h1>
-      <p className="text-sm text-[#757575] mt-2 max-w-sm">
+      <h1 className="text-xl font-semibold text-text">Laporan</h1>
+      <p className="text-sm text-text-secondary mt-2 max-w-sm">
         Fitur laporan akan segera hadir. Anda akan dapat mengelola laporan dari
         pengguna di sini.
       </p>

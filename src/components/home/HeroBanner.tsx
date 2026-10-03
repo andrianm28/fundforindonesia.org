@@ -110,7 +110,7 @@ export function HeroBanner({ slides, autoPlayInterval = 5000 }: HeroBannerProps)
 
   return (
     <div
-      className="relative w-full overflow-hidden aspect-[16/9] md:aspect-[21/9] lg:aspect-[3/1]"
+      className="relative w-full overflow-hidden aspect-video md:aspect-21/9 lg:aspect-3/1"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
       onTouchStart={handleTouchStart}
@@ -142,12 +142,13 @@ export function HeroBanner({ slides, autoPlayInterval = 5000 }: HeroBannerProps)
               width={1200}
               height={400}
               priority={currentIndex === 0}
+              fill
               className="w-full h-full"
             />
           </div>
 
           {/* Overlay gradient */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+          <div className="absolute inset-0 bg-linear-to-t from-black/60 via-black/20 to-transparent" />
 
           {/* Content */}
           <div className="absolute inset-0 flex flex-col justify-end p-4 md:p-8 lg:p-12">
@@ -156,7 +157,7 @@ export function HeroBanner({ slides, autoPlayInterval = 5000 }: HeroBannerProps)
             </h2>
             <Link
               href={currentSlide.cta.href}
-              className="inline-flex items-center justify-center bg-[var(--color-primary,#2F7A5F)] hover:bg-[var(--color-primary-dark,#255F4A)] text-white font-semibold text-sm md:text-base px-4 md:px-6 py-2 md:py-3 rounded-lg transition-colors duration-200 w-fit"
+              className="inline-flex items-center justify-center bg-(--color-primary,#2F7A5F) hover:bg-(--color-primary-dark,#255F4A) text-white font-semibold text-sm md:text-base px-4 md:px-6 py-2 md:py-3 rounded-lg transition-colors duration-200 w-fit"
             >
               {currentSlide.cta.label}
             </Link>

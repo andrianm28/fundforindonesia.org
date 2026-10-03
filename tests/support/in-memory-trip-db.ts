@@ -82,6 +82,8 @@ export type RegistrationRow = {
   batchId: string;
   status: RegistrationStatus;
   holdExpiresAt: Date;
+  /** Set once, by completeBatch (ticket 35); false until then. */
+  attended: boolean;
 };
 
 /** A Trip Fee Payment: always a Registration's, never a Donation's. */
@@ -113,7 +115,35 @@ export type LedgerEntryRow = {
   transactionId: string;
 };
 
+/** A Verifier's one-time identity check of a Fundraiser; `userId` is unique, as in the schema. */
+export type IdentityVerificationRow = {
+  id: string;
+  userId: string;
+  verifierId: string;
+  verifiedAt: Date;
+  note: string | null;
+};
+
+/** Only what the Sertifikat Keikutsertaan copies: a person's display name. */
+export type UserRow = { id: string; name: string };
+
+/** A Sertifikat Keikutsertaan; `registrationId` and `code` are unique, as in the schema. */
+export type CertificateRow = {
+  id: string;
+  registrationId: string;
+  code: string;
+  volunteerName: string;
+  tripTitle: string;
+  destination: string;
+  batchStartDate: Date;
+  batchEndDate: Date;
+  organizerName: string;
+  issuedAt: Date;
+};
+
 type Data = {
+  users: UserRow[];
+  certificates: CertificateRow[];
   trips: TripRow[];
   statusChanges: TripStatusChangeRow[];
   notifications: TripNotificationRow[];
@@ -122,6 +152,7 @@ type Data = {
   payments: PaymentRow[];
   refunds: RefundRow[];
   ledgerEntries: LedgerEntryRow[];
+  identityVerifications: IdentityVerificationRow[];
 };
 
 /** The tables `SELECT id FROM "<Table>" WHERE id = ... FOR UPDATE` may name. */
@@ -143,14 +174,16 @@ function matches(row: object, where: Where): boolean {
   const fields = row as Record<string, unknown>;
   return Object.entries(where).every(([key, filter]) => {
     if (filter === undefined) return true;
+    if (key === 'OR') return (filter as Where[]).some((branch) => matches(row, branch));
     if (filter !== null && typeof filter === 'object' && !(filter instanceof Date)) {
-      const { in: list, notIn, lte, ...rest } = filter as { in?: unknown[]; notIn?: unknown[]; lte?: Date };
-      if (Object.keys(rest).length > 0 || (!list && !notIn && !lte)) {
+      const { in: list, notIn, lte, gt, ...rest } = filter as { in?: unknown[]; notIn?: unknown[]; lte?: Date; gt?: Date };
+      if (Object.keys(rest).length > 0 || (!list && !notIn && !lte && !gt)) {
         throw new Error(`in-memory trip db does not understand the filter on ${key}`);
       }
       if (list && !list.includes(fields[key])) return false;
       if (notIn && notIn.includes(fields[key])) return false;
       if (lte && !(fields[key] instanceof Date && fields[key].getTime() <= lte.getTime())) return false;
+      if (gt && !(fields[key] instanceof Date && fields[key].getTime() > gt.getTime())) return false;
       return true;
     }
     return fields[key] === filter;
@@ -159,6 +192,8 @@ function matches(row: object, where: Where): boolean {
 
 function clone(data: Data): Data {
   return {
+    users: data.users.map((u) => ({ ...u })),
+    certificates: data.certificates.map((c) => ({ ...c })),
     trips: data.trips.map((t) => ({ ...t })),
     statusChanges: data.statusChanges.map((s) => ({ ...s })),
     notifications: data.notifications.map((n) => ({ ...n })),
@@ -167,6 +202,7 @@ function clone(data: Data): Data {
     payments: data.payments.map((p) => ({ ...p })),
     refunds: data.refunds.map((r) => ({ ...r })),
     ledgerEntries: data.ledgerEntries.map((e) => ({ ...e })),
+    identityVerifications: data.identityVerifications.map((v) => ({ ...v })),
   };
 }
 
@@ -208,6 +244,7 @@ export function registrationRow(overrides: Partial<RegistrationRow> = {}): Regis
     batchId: 'batch-1',
     status: 'CONFIRMED',
     holdExpiresAt: new Date('2026-10-01T00:00:00Z'),
+    attended: false,
     ...overrides,
   };
 }
@@ -225,14 +262,18 @@ export function paymentRow(overrides: Partial<PaymentRow> = {}): PaymentRow {
 }
 
 type Seed = {
+  users?: UserRow[];
   trips?: TripRow[];
   batches?: BatchRow[];
   registrations?: RegistrationRow[];
   payments?: PaymentRow[];
+  identityVerifications?: IdentityVerificationRow[];
 };
 
 export function makeTripDb(seed: Seed = {}) {
   let committed: Data = {
+    users: (seed.users ?? []).map((u) => ({ ...u })),
+    certificates: [],
     trips: (seed.trips ?? []).map((t) => ({ ...t })),
     statusChanges: [],
     notifications: [],
@@ -241,6 +282,7 @@ export function makeTripDb(seed: Seed = {}) {
     payments: (seed.payments ?? []).map((p) => ({ ...p })),
     refunds: [],
     ledgerEntries: [],
+    identityVerifications: (seed.identityVerifications ?? []).map((v) => ({ ...v })),
   };
   const rowLocks: string[] = [];
   let pendingLockInterleave: ((data: Data) => void) | null = null;
@@ -269,7 +311,48 @@ export function makeTripDb(seed: Seed = {}) {
           return { count: rows.length };
         },
       },
+      user: {
+        findMany: async ({ where }: { where: Where }) =>
+          getData()
+            .users.filter((u) => matches(u, where))
+            .map((u) => ({ ...u })),
+      },
+      volunteerCertificate: {
+        findMany: async ({ where }: { where: Where }) =>
+          getData()
+            .certificates.filter((c) => matches(c, where))
+            .map((c) => ({ ...c })),
+        // `skipDuplicates` is ON CONFLICT DO NOTHING on either unique column.
+        createMany: async ({
+          data,
+          skipDuplicates,
+        }: {
+          data: Array<Omit<CertificateRow, 'id' | 'issuedAt'> & { issuedAt?: Date }>;
+          skipDuplicates?: boolean;
+        }) => {
+          let count = 0;
+          for (const input of data) {
+            const clash = getData().certificates.some(
+              (c) => c.registrationId === input.registrationId || c.code === input.code,
+            );
+            if (clash) {
+              if (skipDuplicates) continue;
+              throw new Error('Unique constraint failed on VolunteerCertificate');
+            }
+            getData().certificates.push({ id: `certificate-${nextId++}`, issuedAt: new Date(), ...input });
+            count += 1;
+          }
+          return { count };
+        },
+      },
       volunteerTripStatusChange: {
+        // The newest row matching `where`, as liftTripSuspension reads the Suspension it undoes.
+        findFirst: async ({ where }: { where: Where; orderBy?: unknown }) => {
+          const rows = getData()
+            .statusChanges.filter((c) => matches(c, where))
+            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
+          return rows[0] ? { ...rows[0] } : null;
+        },
         create: async ({
           data,
         }: {
@@ -285,6 +368,27 @@ export function makeTripDb(seed: Seed = {}) {
           const row: TripNotificationRow = { id: `notification-${nextId++}`, link: null, ...data };
           getData().notifications.push(row);
           return { ...row };
+        },
+      },
+      identityVerification: {
+        // `skipDuplicates` is ON CONFLICT DO NOTHING on the unique userId.
+        createMany: async ({
+          data,
+          skipDuplicates,
+        }: {
+          data: Omit<IdentityVerificationRow, 'id'>[];
+          skipDuplicates?: boolean;
+        }) => {
+          let count = 0;
+          for (const input of data) {
+            if (getData().identityVerifications.some((v) => v.userId === input.userId)) {
+              if (skipDuplicates) continue;
+              throw new Error('Unique constraint failed on IdentityVerification.userId');
+            }
+            getData().identityVerifications.push({ id: `identity-${nextId++}`, ...input });
+            count += 1;
+          }
+          return { count };
         },
       },
       volunteerBatch: {
@@ -326,8 +430,8 @@ export function makeTripDb(seed: Seed = {}) {
             ...(include?.payment ? { payment: paymentOf(data, row.id) } : {}),
           };
         },
-        create: async ({ data }: { data: Omit<RegistrationRow, 'id'> }) => {
-          const row: RegistrationRow = { id: `registration-${nextId++}`, ...data };
+        create: async ({ data }: { data: Omit<RegistrationRow, 'id' | 'attended'> }) => {
+          const row: RegistrationRow = { id: `registration-${nextId++}`, attended: false, ...data };
           getData().registrations.push(row);
           return { ...row };
         },
@@ -438,11 +542,20 @@ export function makeTripDb(seed: Seed = {}) {
     get ledgerEntries() {
       return committed.ledgerEntries;
     },
+    get users() {
+      return committed.users;
+    },
+    get certificates() {
+      return committed.certificates;
+    },
     get statusChanges() {
       return committed.statusChanges;
     },
     get notifications() {
       return committed.notifications;
+    },
+    get identityVerifications() {
+      return committed.identityVerifications;
     },
     /** Every row lock taken, committed or not, as "<Table>:<id>", in order. */
     get rowLocks() {

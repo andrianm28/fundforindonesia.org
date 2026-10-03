@@ -102,7 +102,7 @@ export function DonationAmountSelector({
                 onClick={() => handlePresetClick(amount)}
                 className={[
                   'py-3 px-4 rounded-md text-sm font-semibold transition-colors duration-fast',
-                  'border-2 focus:outline-none focus:ring-2 focus:ring-primary/30',
+                  'border-2 focus:outline-hidden focus:ring-2 focus:ring-primary/30',
                   isSelected
                     ? 'border-primary bg-blue-50 text-primary'
                     : 'border-border bg-white text-text hover:border-primary/50 hover:bg-blue-50/50',
@@ -142,7 +142,7 @@ export function DonationAmountSelector({
             value={customInput}
             onChange={handleCustomInputChange}
             onFocus={handleCustomInputFocus}
-            className="flex-1 px-3 py-3 text-sm text-text outline-none bg-white placeholder:text-text-secondary/50"
+            className="flex-1 px-3 py-3 text-sm text-text outline-hidden bg-white placeholder:text-text-secondary/50"
             aria-label="Nominal donasi custom"
             aria-invalid={!!validationError && isCustomActive}
             aria-describedby={validationError ? 'donation-error' : undefined}

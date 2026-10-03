@@ -1,0 +1,39 @@
+# 34: Layar moderasi Verifier untuk pengajuan Volunteer Trip
+
+**Type:** implementation
+
+**Status:** done
+
+**Blocked by:** none
+
+## Why
+
+`POST /api/moderasi/volunteer-trips/...` meloloskan atau menolak pengajuan Trip,
+tetapi tak ada layar yang memakainya: Trip berstatus `SUBMITTED` tidak terjangkau
+siapa pun. Owner 2026-09-29, grilling tiket 29 dan `prd-audit/issues/10` (putaran 1 dan 2, "ya semua"): satu tiket per layar.
+
+## Scope
+
+- Halaman di `/moderasi/volunteer-trips` (dijaga penugasan VERIFIER seperti
+  halaman moderasi lain): antrean Trip `SUBMITTED`, dan halaman detail yang
+  menampilkan isi Trip yang dibekukan selama diperiksa.
+- Meloloskan atau menolak dengan alasan (wajib saat menolak). Verifier tidak
+  pernah memutuskan Trip miliknya sendiri; tampilan hanya memberi petunjuk, server
+  yang menegakkan.
+- Tautan nav di sidebar dan bar mobile `src/app/moderasi/layout.tsx` dengan tes
+  nav; halaman didaftarkan di `roles-expand-guard.test.ts` bila memakai
+  `withAssignmentCheck` atau `hasAssignment`.
+- `export const dynamic = 'force-dynamic'`.
+
+## Acceptance
+
+- Tes halaman untuk daftar kosong, daftar berisi, dan detail; tes bentuk body
+  yang dikirim sama persis dengan yang dibaca rute.
+- Identity Verification pada pengajuan pertama bukan bagian tiket ini (tiket 39).
+
+## Implementation note (branch `claude/ticket-34-trip-moderation`)
+
+- Halaman: `src/app/moderasi/volunteer-trips/page.tsx` (antrean `SUBMITTED`, terlama dulu) dan `[id]/page.tsx` (isi Trip, Batch, panel keputusan), keduanya dijaga `hasAssignment(VERIFIER)` dan `force-dynamic`; `[id]/TripDecisionPanel.tsx` mengirim `PATCH /api/moderasi/volunteer-trips/[id]` dengan body persis `{ action: 'approve' | 'reject' }` dan menampilkan teks penolakan server apa adanya. Petunjuk "Trip milik Anda sendiri" hanya petunjuk; `decideTripSubmission` yang menegakkan. Nav di sidebar dan bar mobile, dengan tes nav; kedua halaman didaftarkan di `roles-expand-guard.test.ts`.
+- **Alasan penolakan (keputusan koordinator, dikerjakan di tiket ini)**: `decideTripSubmission` menerima `reason`; menolak tanpa alasan (kosong setelah trim, bukan string, atau lebih dari 1000 karakter) ditolak `TripRejectionReasonInvalidError` (422, `TRIP_REJECTION_REASON_INVALID`) sebelum apa pun dikunci, dan alasan tersimpan di `VolunteerTripStatusChange.reason` dalam transaksi yang sama; persetujuan menyimpan `null`. Rute membaca `{ action, reason }`; panel punya kolom alasan dan Tolak baru aktif setelah alasan terisi. Tanpa perubahan skema.
+- Tes: `npx vitest run src/lib/volunteer src/app/moderasi src/app/api/moderasi/volunteer-trips src/__tests__/properties src/lib/domain-errors` (351 lulus, termasuk `src/lib/volunteer`, rute moderasi Trip, dan `src/__tests__/properties`). Ratchet: `node ci/ratchet.mjs`, lint 193, tsc 47.
+- Tinjauan sendiri (`code-review`, dua sumbu dikerjakan satu agen karena subagent tak bisa men-dispatch): Standards bersih; Spec: selisih alasan penolakan sudah ditutup.

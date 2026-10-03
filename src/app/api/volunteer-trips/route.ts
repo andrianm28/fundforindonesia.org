@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { coverImageSchema } from '@/lib/cover-image';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { PUBLIC_TRIP_LIST_SELECT } from '@/lib/volunteer/trip-public';
+import { tripFeeAmountSchema } from '@/lib/volunteer/trip';
 
 const createVolunteerTripSchema = z.object({
   title: z.string().min(1, 'Judul harus diisi').max(200, 'Judul maksimal 200 karakter'),
   description: z.string().min(1, 'Deskripsi harus diisi'),
   story: z.string().min(1, 'Cerita trip harus diisi'),
-  coverImage: z.string().url('URL gambar tidak valid'),
+  coverImage: coverImageSchema,
   destination: z.string().min(1, 'Destinasi harus diisi'),
   itinerary: z.string().min(1, 'Itinerary harus diisi'),
-  tripFeeAmount: z.number().positive('Trip Fee harus lebih dari 0'),
+  tripFeeAmount: tripFeeAmountSchema,
 });
 
 function generateSlug(title: string): string {
@@ -27,7 +30,8 @@ function generateSlug(title: string): string {
 
 // Anyone registered may create a Volunteer Trip (PRD FFI-04): no Role is
 // asked for. The Verifier's approval, not who created it, decides whether it
-// is published.
+// is published. The full row (including fundraiserId) goes back to the creator,
+// who is its owner; the public GET never returns it.
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession();
@@ -76,6 +80,7 @@ export async function GET(request: NextRequest) {
     const [trips, total] = await Promise.all([
       prisma.volunteerTrip.findMany({
         where,
+        select: PUBLIC_TRIP_LIST_SELECT,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,

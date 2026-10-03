@@ -2,6 +2,12 @@
 
 import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
+import { publicUrl } from '@/lib/public-url';
+
+/** External share targets open in a new tab that gets no window.opener and no Referer. */
+function openExternal(url: string) {
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
 
 export interface ShareModalProps {
   isOpen: boolean;
@@ -17,7 +23,6 @@ export interface ShareModalProps {
 export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
   const [copied, setCopied] = useState(false);
 
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
   /**
    * Traffic Source (ticket 24): each channel tags the link it hands out
    * with its own `src`, so a Donation that comes back through it can be
@@ -26,7 +31,7 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
    * this value is never trusted just because this app produced it, since
    * anyone can also hand-edit the query string before sharing it further.
    */
-  const urlWithSource = (source: string) => `${baseUrl}/campaign/${campaign.slug}?src=${source}`;
+  const urlWithSource = (source: string) => publicUrl(`/campaign/${encodeURIComponent(campaign.slug)}?src=${source}`);
   const shareText = `Bantu donasi untuk: ${campaign.title} - ${campaign.description.slice(0, 100)}`;
 
   const shareOptions = [
@@ -40,9 +45,8 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
       ),
       color: 'bg-[#25D366] hover:bg-[#1DA851]',
       onClick: () => {
-        window.open(
-          `https://wa.me/?text=${encodeURIComponent(shareText + ' ' + urlWithSource('whatsapp'))}`,
-          '_blank'
+        openExternal(
+          `https://wa.me/?text=${encodeURIComponent(shareText + ' ' + urlWithSource('whatsapp'))}`
         );
       },
     },
@@ -56,9 +60,8 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
       ),
       color: 'bg-[#1877F2] hover:bg-[#0d6eea]',
       onClick: () => {
-        window.open(
-          `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(urlWithSource('facebook'))}`,
-          '_blank'
+        openExternal(
+          `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(urlWithSource('facebook'))}`
         );
       },
     },
@@ -72,9 +75,8 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
       ),
       color: 'bg-[#000000] hover:bg-[#333333]',
       onClick: () => {
-        window.open(
-          `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(urlWithSource('twitter'))}`,
-          '_blank'
+        openExternal(
+          `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(urlWithSource('twitter'))}`
         );
       },
     },
@@ -119,7 +121,7 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
             className={`flex items-center gap-3 px-4 py-3 rounded-lg text-white transition-colors duration-150 ${option.color}`}
             aria-label={`Bagikan via ${option.label}`}
           >
-            <span className="flex-shrink-0">{option.icon}</span>
+            <span className="shrink-0">{option.icon}</span>
             <span className="text-sm font-medium">{option.label}</span>
           </button>
         ))}

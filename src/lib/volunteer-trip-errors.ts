@@ -51,6 +51,19 @@ export class TripNotSubmittedError extends TripError {
 }
 
 /**
+ * A Verifier rejects a Submitted Volunteer Trip with a reason the Fundraiser
+ * can act on: blank, or longer than the bound, is refused. 422 through
+ * `domainErrorToHttp`: the Verifier fixes it by filling the field in.
+ */
+export class TripRejectionReasonInvalidError extends TripError {
+  readonly code = 'TRIP_REJECTION_REASON_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'TripRejectionReasonInvalidError';
+  }
+}
+
+/**
  * A Batch is added only to a Trip that can still run one: any status but
  * Cancelled or Completed. 400 through `domainErrorToHttp`.
  */
@@ -63,7 +76,13 @@ export class TripNotAcceptingBatchesError extends TripError {
 }
 
 /** The fields of a Volunteer Batch a refusal can name. */
-export type BatchField = 'endDate' | 'registrationDeadline' | 'minQuota';
+export type BatchField =
+  | 'startDate'
+  | 'endDate'
+  | 'registrationDeadline'
+  | 'maxQuota'
+  | 'minQuota'
+  | 'attendedRegistrationIds';
 
 /**
  * A Batch's dates or quotas contradict each other, as sent or combined with
@@ -79,6 +98,45 @@ export class BatchFieldsInvalidError extends TripError {
   ) {
     super(message);
     this.name = 'BatchFieldsInvalidError';
+  }
+}
+
+/**
+ * A Batch that already holds a live (HOLD not yet lapsed, or CONFIRMED)
+ * Registration keeps its dates: the tiered Refund is counted from
+ * `startDate`, so moving it after a Volunteer paid would change what that
+ * Volunteer gets back (ticket 48). 409 through `domainErrorToHttp`.
+ */
+export class BatchLockedByRegistrationsError extends TripError {
+  readonly code = 'BATCH_LOCKED_BY_REGISTRATIONS';
+  constructor(readonly fields: readonly [BatchField, ...BatchField[]]) {
+    super(
+      `Tanggal Batch (${fields.join(', ')}) tidak bisa diubah karena sudah ada Volunteer yang mendaftar atau membayar; refund mereka dihitung dari tanggal ini. Batalkan Batch bila memang tidak bisa berjalan.`,
+    );
+    this.name = 'BatchLockedByRegistrationsError';
+  }
+}
+
+/**
+ * A Batch's quota would end below what its Registrations already need: a
+ * maxQuota under the seats held or confirmed, or a minQuota raised above the
+ * CONFIRMED count (which would let the Fundraiser cancel a Batch that made
+ * its minimum). 422 through `domainErrorToHttp`.
+ */
+export class BatchQuotaBelowSeatsError extends TripError {
+  readonly code = 'BATCH_QUOTA_BELOW_SEATS';
+  constructor(readonly field: BatchField, message: string) {
+    super(message);
+    this.name = 'BatchQuotaBelowSeatsError';
+  }
+}
+
+/** The Fundraiser cannot register on their own Trip. 403 through `domainErrorToHttp`. */
+export class OwnTripRegistrationError extends TripError {
+  readonly code = 'OWN_TRIP_REGISTRATION';
+  constructor() {
+    super('Fundraiser tidak bisa mendaftar sebagai Volunteer pada Trip miliknya sendiri');
+    this.name = 'OwnTripRegistrationError';
   }
 }
 
@@ -115,6 +173,28 @@ export class BatchMinQuotaMetError extends TripError {
   constructor() {
     super('Batch sudah mencapai kuota minimum, tidak bisa dibatalkan');
     this.name = 'BatchMinQuotaMetError';
+  }
+}
+
+/**
+ * A Sertifikat Keikutsertaan freezes the Volunteer's and the organizer's
+ * name and cannot be corrected afterwards (Release 1), so completing a Batch
+ * is refused while either name is blank. Rolls the whole completion back;
+ * fixed by filling the name in, then completing again. 422 through
+ * `domainErrorToHttp`.
+ */
+export class CertificateNameMissingError extends TripError {
+  readonly code = 'CERTIFICATE_NAME_MISSING';
+  constructor(
+    readonly subject: 'volunteer' | 'organizer',
+    readonly registrationId?: string,
+  ) {
+    super(
+      subject === 'volunteer'
+        ? `Nama Volunteer pada Registration ${registrationId} masih kosong. Sertifikat tidak bisa dikoreksi setelah terbit: minta Volunteer melengkapi nama di profilnya, lalu selesaikan Batch lagi.`
+        : 'Nama penyelenggara (Fundraiser) masih kosong. Sertifikat tidak bisa dikoreksi setelah terbit: lengkapi nama di profil Anda, lalu selesaikan Batch lagi.',
+    );
+    this.name = 'CertificateNameMissingError';
   }
 }
 
@@ -210,5 +290,63 @@ export class BatchAlreadyCompletedError extends TripError {
   constructor() {
     super('Registrasi tidak bisa dibatalkan karena Batch sudah selesai');
     this.name = 'BatchAlreadyCompletedError';
+  }
+}
+
+/**
+ * An Admin suspends only an ACTIVE Volunteer Trip. Raised when the Trip, read
+ * under its row lock, is in any other status, including one a competing
+ * Suspension already changed. 409 through `domainErrorToHttp`.
+ */
+export class TripNotSuspendableError extends TripError {
+  readonly code = 'TRIP_NOT_SUSPENDABLE';
+  constructor(readonly currentStatus: VolunteerTripStatus) {
+    super('Volunteer Trip ini tidak bisa ditangguhkan pada status ini. Muat ulang halaman lalu periksa kembali.');
+    this.name = 'TripNotSuspendableError';
+  }
+}
+
+/** An Admin lifts a Suspension only on a SUSPENDED Volunteer Trip. 409 through `domainErrorToHttp`. */
+export class TripNotSuspendedError extends TripError {
+  readonly code = 'TRIP_NOT_SUSPENDED';
+  constructor(readonly currentStatus: VolunteerTripStatus) {
+    super('Volunteer Trip ini tidak sedang ditangguhkan. Muat ulang halaman lalu periksa kembali.');
+    this.name = 'TripNotSuspendedError';
+  }
+}
+
+/**
+ * A SUSPENDED Trip with no SUSPENDED log row: the status to return to is
+ * unknown, so lifting is refused rather than guessed (the Campaign's
+ * UnrecordedSuspensionError, for a Trip). 409 through `domainErrorToHttp`.
+ */
+export class TripSuspensionUnrecordedError extends TripError {
+  readonly code = 'TRIP_SUSPENSION_UNRECORDED';
+  constructor() {
+    super(
+      'Penangguhan ini tidak tercatat di riwayat status, sehingga status Volunteer Trip sebelumnya tidak diketahui. Hubungi tim teknis untuk mencabutnya.',
+    );
+    this.name = 'TripSuspensionUnrecordedError';
+  }
+}
+
+/**
+ * A Trip Fee Payout asked for more than the money of Batches that are
+ * COMPLETED (ticket 49; CONTEXT.md, Payout). Trip Fee still sitting in a
+ * Batch that has not completed (open, closed, or cancelled with a residue)
+ * can still be refunded to a Volunteer, so it may not leave the platform.
+ * The message names the figure the Fundraiser may withdraw now, so the
+ * screen shows the reason and the way out. 409 through `domainErrorToHttp`.
+ */
+export class TripPayoutFundsNotCompletedError extends TripError {
+  readonly code = 'TRIP_PAYOUT_FUNDS_NOT_COMPLETED';
+  constructor(
+    readonly requested: number,
+    readonly withdrawable: number,
+  ) {
+    super(
+      `Pencairan Trip Fee hanya bisa dari dana Batch yang sudah Selesai. Yang bisa dicairkan saat ini Rp ${withdrawable.toLocaleString('id-ID')}, sedangkan diminta Rp ${requested.toLocaleString('id-ID')}. Sisanya masih tertahan di Batch yang belum selesai karena Volunteer-nya masih bisa meminta Refund; dana itu bisa dicairkan setelah Batch-nya diselesaikan.`,
+    );
+    this.name = 'TripPayoutFundsNotCompletedError';
   }
 }

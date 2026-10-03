@@ -2,6 +2,9 @@
 FROM node:24-alpine AS deps
 WORKDIR /app
 
+# npm ci installs the optional @node-rs/bcrypt-linux-*-musl package matching
+# this Alpine base (prebuilt, no compiler needed); see ADR 0019. Next's
+# standalone trace then carries that binary into the runner.
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -31,9 +34,11 @@ RUN npx prisma generate
 #   NEXTAUTH_URL                   the URL next-auth sees during the build; the
 #                                  running app takes it from the runtime env
 #   NEXT_PUBLIC_DONATIONS_ENABLED  "true" to take real donations, else off
+#   NEXT_PUBLIC_VOLUNTEER_ENABLED  "true" to open Volunteer Trip Registration, else off
 ARG NEXT_PUBLIC_BASE_URL="https://fundforindonesia.org"
 ARG NEXTAUTH_URL="https://galang.fundforindonesia.org"
 ARG NEXT_PUBLIC_DONATIONS_ENABLED="false"
+ARG NEXT_PUBLIC_VOLUNTEER_ENABLED="false"
 
 # Build Next.js. DATABASE_URL and NEXTAUTH_SECRET are placeholders, not
 # secrets: a "dummy" URL makes src/lib/prisma.ts use its build-time mock. They
@@ -46,6 +51,7 @@ ENV NEXTAUTH_SECRET="build-time-placeholder-not-a-secret"
 ENV NEXTAUTH_URL=$NEXTAUTH_URL
 ENV NEXT_PUBLIC_BASE_URL=$NEXT_PUBLIC_BASE_URL
 ENV NEXT_PUBLIC_DONATIONS_ENABLED=$NEXT_PUBLIC_DONATIONS_ENABLED
+ENV NEXT_PUBLIC_VOLUNTEER_ENABLED=$NEXT_PUBLIC_VOLUNTEER_ENABLED
 RUN npm run build
 
 # Assemble the whole runtime tree inside .next/standalone, so the runner takes
@@ -149,6 +155,11 @@ COPY --from=sharp /opt/sharp/node_modules /opt/sharp/node_modules
 ENV NEXT_SHARP_PATH=/opt/sharp/node_modules/sharp
 
 USER nextjs
+
+# Smoke test for the native bcrypt binding (ADR 0019): fail the build, not the
+# first login, if the traced musl binary is missing or will not load. Runs as
+# the runtime user against the runtime tree; cost 4 makes it instant.
+RUN node -e "const b=require('@node-rs/bcrypt');if(!b.verifySync('x',b.hashSync('x',4)))process.exit(1)"
 
 EXPOSE 3000
 

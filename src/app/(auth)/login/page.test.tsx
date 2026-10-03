@@ -176,6 +176,44 @@ describe('LoginPage', () => {
     });
   });
 
+  it('returns to the page in ?callbackUrl after a successful login', async () => {
+    window.history.pushState({}, '', '/login?callbackUrl=%2Fvolunteer-trip%2Fmengajar');
+    mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
+    render(<LoginPage />);
+
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/volunteer-trip/mengajar');
+    });
+    window.history.pushState({}, '', '/');
+  });
+
+  it('ignores a ?callbackUrl that leaves the site', async () => {
+    window.history.pushState({}, '', '/login?callbackUrl=https%3A%2F%2Fevil.example');
+    mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
+    render(<LoginPage />);
+
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/');
+    });
+    window.history.pushState({}, '', '/');
+  });
+
+  it('carries ?callbackUrl through Google sign-in', () => {
+    window.history.pushState({}, '', '/login?callbackUrl=%2Fvolunteer-trip%2Fmengajar');
+    render(<LoginPage />);
+    fireEvent.click(screen.getByRole('button', { name: /masuk dengan google/i }));
+    expect(mockSignIn).toHaveBeenCalledWith('google', { callbackUrl: '/volunteer-trip/mengajar' });
+    window.history.pushState({}, '', '/');
+  });
+
   it('calls signIn with google provider when Google button is clicked', () => {
     render(<LoginPage />);
     fireEvent.click(

@@ -6,7 +6,9 @@ import {
   holdRegistration,
   refundLateSettlement,
 } from './trip';
+import { RefundExceedsRemainingError } from '@/lib/money/errors';
 import { domainErrorToHttp } from '@/lib/domain-errors';
+import { OwnTripRegistrationError } from '@/lib/volunteer-trip-errors';
 import { batchRow, makeTripDb, paymentRow, registrationRow, tripRow } from '../../../tests/support/in-memory-trip-db';
 
 const NOW = new Date('2026-09-26T10:00:00Z');
@@ -33,6 +35,21 @@ describe('holdRegistration', () => {
     expect(result.registration.holdExpiresAt).toEqual(new Date(NOW.getTime() + HOLD_WINDOW_MS));
     expect(db.registrations).toEqual([expect.objectContaining({ volunteerId: 'volunteer-9', status: 'HOLD' })]);
     expect(db.rowLocks).toEqual(['VolunteerTrip:trip-1', 'VolunteerBatch:batch-1']);
+  });
+
+  it('refuses the Trip\'s own Fundraiser with a typed 403, holding nothing', async () => {
+    const db = openTrip();
+
+    const error = await holdRegistration(db.prisma as never, {
+      tripId: 'trip-1',
+      batchId: 'batch-1',
+      volunteerId: 'fundraiser-1',
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(OwnTripRegistrationError);
+    expect(domainErrorToHttp(error)).toMatchObject({ status: 403, body: { code: 'OWN_TRIP_REGISTRATION' } });
+    expect(db.registrations).toEqual([]);
   });
 
   it('frees the seats of lapsed holds before counting, so a full Batch with an abandoned hold takes one more', async () => {
@@ -205,7 +222,7 @@ describe('cancelRegistration', () => {
 
   it.each([
     ['a Registration that does not exist', { registrationId: 'nope' }, 'REGISTRATION_NOT_FOUND', 404],
-    ["another Volunteer's Registration", { actor: { userId: 'someone-else' } }, 'NOT_AUTHORIZED', 403],
+    ["another Volunteer's Registration", { actor: { userId: 'someone-else' } }, 'REGISTRATION_NOT_FOUND', 404],
     ['a CANCELLED Registration', { registration: registrationRow({ status: 'CANCELLED' }) }, 'REGISTRATION_NOT_CANCELLABLE', 400],
     ['an EXPIRED Registration', { registration: registrationRow({ status: 'EXPIRED' }) }, 'REGISTRATION_NOT_CANCELLABLE', 400],
     ['a Registration on a COMPLETED Batch', { batch: batchRow({ status: 'COMPLETED' }) }, 'BATCH_ALREADY_COMPLETED', 400],
@@ -232,6 +249,28 @@ describe('cancelRegistration', () => {
 
     expect(domainErrorToHttp(error)).toMatchObject({ status, body: { code } });
     expect(db.registrations[0].status).toBe(registration.status);
+    expect(db.refunds).toEqual([]);
+  });
+
+  it("answers another Volunteer's Registration exactly as one that does not exist (status and body), and cancels nothing", async () => {
+    const db = makeTripDb({
+      trips: [tripRow({ status: 'ACTIVE' })],
+      batches: [batchRow()],
+      registrations: [registrationRow()],
+      payments: [paymentRow()],
+    });
+    const refuse = (registrationId: string, userId: string) =>
+      cancelRegistration(db.prisma as never, { registrationId, actor: { userId }, now: NOW }).catch((e: unknown) =>
+        domainErrorToHttp(e),
+      );
+
+    const notOwner = await refuse('registration-1', 'someone-else');
+    const missing = await refuse('registration-nope', 'someone-else');
+
+    expect(notOwner).toEqual(missing);
+    expect(notOwner).toMatchObject({ status: 404 });
+    expect(JSON.stringify(notOwner)).not.toContain('registration-1');
+    expect(db.registrations[0].status).toBe('CONFIRMED');
     expect(db.refunds).toEqual([]);
   });
 
@@ -280,6 +319,19 @@ describe('confirmRegistration (inside the Settlement transaction)', () => {
     expect(db.registrations[0].status).toBe('CANCELLED');
   });
 
+  it('confirms a HOLD whose window has not yet closed when the Trip Fee settles', async () => {
+    const db = makeTripDb({
+      trips: [tripRow({ status: 'ACTIVE' })],
+      batches: [batchRow()],
+      registrations: [registrationRow({ status: 'HOLD', holdExpiresAt: new Date(NOW.getTime() + 1_000) })],
+    });
+
+    const result = await confirmRegistration(db.prisma as never, { registrationId: 'registration-1' });
+
+    expect(result).toEqual({ outcome: 'confirmed' });
+    expect(db.registrations[0].status).toBe('CONFIRMED');
+  });
+
   it('reports a hold that lapsed before its Trip Fee settled, leaving it expired', async () => {
     const db = withRegistration('EXPIRED');
 
@@ -288,6 +340,27 @@ describe('confirmRegistration (inside the Settlement transaction)', () => {
     expect(result).toEqual({ outcome: 'lapsed' });
     expect(db.registrations[0].status).toBe('EXPIRED');
   });
+});
+
+describe('confirmRegistration on a finished Batch (ticket 53)', () => {
+  it.each([
+    ['COMPLETED', 'lapsed', 'EXPIRED'],
+    ['CANCELLED', 'cancelled', 'CANCELLED'],
+  ] as const)(
+    'does not confirm a HOLD left on a %s Batch: outcome %s, so the money is refunded in full',
+    async (batchStatus, outcome, finalStatus) => {
+      const db = makeTripDb({
+        trips: [tripRow({ status: 'ACTIVE' })],
+        batches: [batchRow({ status: batchStatus })],
+        registrations: [registrationRow({ status: 'HOLD' })],
+      });
+
+      const result = await confirmRegistration(db.prisma as never, { registrationId: 'registration-1' });
+
+      expect(result).toEqual({ outcome });
+      expect(db.registrations[0].status).toBe(finalStatus);
+    },
+  );
 });
 
 describe('expireRegistrationHold (inside the Payment-lapsed transaction)', () => {
@@ -338,8 +411,42 @@ describe('refundLateSettlement', () => {
     ]);
   });
 
-  it.each(['EXPIRED', 'CONFIRMED'] as const)('refunds nothing for a %s Registration', async (status) => {
-    const db = settledAfterCancel(status);
+  it('refunds the full Trip Fee of an expired Registration, whose hold lapsed before the fee settled', async () => {
+    const db = settledAfterCancel('EXPIRED');
+
+    const result = await refundLateSettlement(db.prisma as never, { registrationId: 'registration-1', now: NOW });
+
+    expect(db.refunds).toEqual([
+      expect.objectContaining({
+        paymentId: 'payment-1',
+        amount: 250_000,
+        reason: 'Trip Fee settlement arrived after the seat hold had expired -- refunded automatically',
+        requestedById: 'volunteer-1',
+        status: 'REQUESTED',
+      }),
+    ]);
+    expect(result.refund).toMatchObject({ id: db.refunds[0].id, amount: 250_000 });
+    // The seat is not handed out: the Registration stays EXPIRED.
+    expect(db.registrations[0].status).toBe('EXPIRED');
+  });
+
+  it.each(['CANCELLED', 'EXPIRED'] as const)(
+    'never refunds a %s Registration twice: a replay is refused by the remaining-amount guard',
+    async (status) => {
+      const db = settledAfterCancel(status);
+      await refundLateSettlement(db.prisma as never, { registrationId: 'registration-1', now: NOW });
+
+      await expect(
+        refundLateSettlement(db.prisma as never, { registrationId: 'registration-1', now: NOW }),
+      ).rejects.toBeInstanceOf(RefundExceedsRemainingError);
+
+      expect(db.refunds).toHaveLength(1);
+      expect(db.refunds[0].amount).toBe(250_000);
+    },
+  );
+
+  it('refunds nothing for a CONFIRMED Registration', async () => {
+    const db = settledAfterCancel('CONFIRMED');
 
     const result = await refundLateSettlement(db.prisma as never, { registrationId: 'registration-1', now: NOW });
 

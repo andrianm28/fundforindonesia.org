@@ -747,6 +747,88 @@ describe('reverseManualContribution', () => {
     expect(state?.status).toBe('APPROVED');
   });
 
+  // Owner decision 2026-10-02 (csr-07 follow-up): a reversal must never leave a
+  // Program balance negative. Same rule and same error as a Campaign: the
+  // balance is read under the Program row lock, inside the transaction.
+  describe('on a Program (CSR money)', () => {
+    const credit = (amount: number, mc = 'mc-1'): LedgerRow => ({
+      transactionId: `manual-contribution-${mc}`,
+      direction: 'CREDIT',
+      amount,
+      account: 'PROGRAM_BALANCE',
+      campaignId: null,
+      volunteerTripId: null,
+      programId: 'program-1',
+      manualContributionId: mc,
+    });
+    const programApproved = (ledgerRows: LedgerRow[]) =>
+      makeTx({
+        row: contribution({ campaignId: null, programId: 'program-1', status: 'APPROVED', decidedById: 'admin-2' }),
+        ledgerRows,
+      });
+    const reverse = (tx: unknown) =>
+      reverseManualContribution(makePrisma(tx, contribution({ status: 'REVERSED' })) as never, {
+        manualContributionId: 'mc-1',
+        reversedById: 'admin-3',
+        reason: 'Salah rekening tujuan',
+      });
+
+    it('reverses when the Program balance equals the amount received', async () => {
+      const { tx, rows, state } = programApproved([credit(250_000)]);
+
+      await reverse(tx);
+
+      expect(posted(rows, 'PROGRAM_BALANCE')).toEqual([
+        expect.objectContaining({ direction: 'CREDIT', amount: 250_000 }),
+        expect.objectContaining({ direction: 'DEBIT', amount: 250_000, programId: 'program-1' }),
+      ]);
+      expect(state?.status).toBe('REVERSED');
+    });
+
+    it('refuses, with the Indonesian domain error and no posting, when the balance is below the amount', async () => {
+      // Another contribution (mc-2) has since been reversed out of the same
+      // Program, leaving 100 000 of the 250 000 this one brought in.
+      const { tx, rows, state } = programApproved([
+        credit(250_000),
+        { ...credit(150_000, 'mc-2'), direction: 'DEBIT', transactionId: 'manual-contribution-reversed-mc-2' },
+      ]);
+
+      const attempt = reverse(tx);
+
+      await expect(attempt).rejects.toThrow(ManualContributionAlreadySpentError);
+      await expect(attempt).rejects.toThrow(/tidak bisa dibalikkan/);
+      expect(rows).toHaveLength(2);
+      expect(state?.status).toBe('APPROVED');
+    });
+
+    it('takes the Program row lock before it reads the balance', async () => {
+      // The lock is what serialises two reversals of one Program; it only does
+      // so if the balance is read after it is held, never before.
+      const { tx } = programApproved([credit(250_000)]);
+
+      await reverse(tx);
+
+      const lockCall = tx.$queryRaw.mock.calls.findIndex(([strings]) => {
+        const sql = (strings as TemplateStringsArray).join('');
+        return sql.includes('"Program"') && sql.includes('FOR UPDATE');
+      });
+      expect(lockCall).toBeGreaterThanOrEqual(0);
+      const lockOrder = tx.$queryRaw.mock.invocationCallOrder[lockCall];
+      const firstBalanceRead = Math.min(...tx.ledgerEntry.groupBy.mock.invocationCallOrder);
+      expect(lockOrder).toBeLessThan(firstBalanceRead);
+    });
+
+    it('loses the race to a concurrent reversal without posting a second journal', async () => {
+      // The claim is a predicated updateMany on APPROVED: a second reversal
+      // that read the same row before the first committed claims nothing.
+      const { tx, rows } = programApproved([credit(250_000)]);
+      tx.manualContribution.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(reverse(tx)).rejects.toThrow(ManualContributionNotApprovedError);
+      expect(rows).toHaveLength(1);
+    });
+  });
+
   it('reverses when the balance still covers the amount exactly, Payout or not', async () => {
     // 250 000 in, 100 000 of OTHER money released from escrow, 100 000 paid
     // out: the pool is back to 250 000, so the contribution can be taken out
@@ -824,6 +906,22 @@ describe('reverseManualContribution', () => {
       }),
     ).rejects.toThrow(ManualContributionNotApprovedError);
     expect(alreadyReversed.rows).toEqual([]);
+  });
+
+  it('tells the recorder that a pending contribution is not approved yet, not that they may not reverse it (status before actor)', async () => {
+    // UAT round 2: the more basic reason comes first. The recorder is still
+    // refused -- the status check refuses everyone, and the two-person rule
+    // still refuses them once it is APPROVED (next test) -- only the wording
+    // changed.
+    const pending = makeTx();
+    await expect(
+      reverseManualContribution(makePrisma(pending.tx, {}) as never, {
+        manualContributionId: 'mc-1',
+        reversedById: 'admin-1',
+        reason: 'Salah rekening tujuan',
+      }),
+    ).rejects.toThrow(ManualContributionNotApprovedError);
+    expect(pending.rows).toEqual([]);
   });
 
   it('refuses the Admin who recorded it, and the Admin who approved it', async () => {

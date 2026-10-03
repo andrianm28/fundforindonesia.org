@@ -6,21 +6,27 @@
  * style", per the owner's 2026-09-28 answer
  * (.scratch/rilis-1-benda/issues/13-what-counts-as-proof-that-the-money-moved.md).
  *
- * ONE VALIDATOR, TWO CALLERS. `completePayout` (src/lib/money/payouts.ts)
- * imports these same three functions and refuses a Payout completion whose
- * reference or note fails them, under the same subject row lock as every
- * other completePayout check (@/lib/money/errors.ts's PayoutProofInvalidError,
- * mapped to 400). The Admin's own form
- * (src/components/admin/AdminPayoutActionForm.tsx) imports them too, to
- * disable its submit button and show the same message before the request
- * ever leaves the browser. Neither copies the other's rule: a screen that
- * warned about one shape while the server enforced another is exactly what
+ * ONE VALIDATOR, NOW THREE CALLERS (ticket 31 added the third).
+ * `completePayout` (src/lib/money/payouts.ts) and `completeRefund`
+ * (src/lib/money/refunds.ts) both import these same three functions and
+ * refuse a completion whose reference or note fails them, under the same
+ * subject row lock as every other check each makes
+ * (@/lib/money/errors.ts's PayoutProofInvalidError / RefundProofInvalidError,
+ * both mapped to 400 -- two classes, because the two still answer for
+ * different rows, but one shared rule between them). The Admin's own forms
+ * (src/components/admin/AdminPayoutActionForm.tsx,
+ * AdminRefundCompleteForm.tsx) import them too, to disable their submit
+ * button and show the same message before the request ever leaves the
+ * browser. None of the three copies another's rule: a screen that warned
+ * about one shape while the server enforced another is exactly what
  * @/lib/payout-balance-rule.ts's own doc comment (`exceedsPayoutBalance`)
  * warns against, and this module is that same arrangement for the proof
  * instead of the amount. `buildProofImage` is the one place the two
- * validated fields become the single string `Payout.proofImage` still
- * stores (no migration; ticket 13's answer only asked for a structured
- * value, not a new column).
+ * validated fields become the single string each row's own `proofImage`
+ * column stores (no migration for Payout; ticket 13's answer only asked for
+ * a structured value, not a new column -- Refund's `proofImage` is new,
+ * ticket 31, for the same reason: the column did not exist before there was
+ * a completion step to fill it).
  */
 
 export const MAX_PROOF_REFERENCE_LENGTH = 200;

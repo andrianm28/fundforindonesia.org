@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   readDonationGuestEmail,
   readUserEmail,
-  SELECT_DONATION_GUEST_EMAIL,
   SELECT_USER_EMAIL,
 } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
@@ -18,6 +17,7 @@ import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { escrowReleaseAt } from '@/lib/money/escrow';
 import { notifyDonationConfirmed, notifyRegistrationConfirmed } from '@/lib/notifications';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
+import { lateSettlementOutcome, sanitizeError, WEBHOOK_OUTCOME } from '@/lib/money/payment-reconciliation';
 import {
   confirmRegistration,
   expireRegistrationHold,
@@ -177,9 +177,11 @@ export async function POST(
             // money; donor is who it is addressed to when the Donor has an
             // account. Both addresses are ciphertexts now (ADR 0012) and are
             // decrypted where the Receipt is addressed, not stored in the clear.
+            // Donation's own scalars, guestEmailCiphertext and guestEmailKeyId
+            // among them, come with `include`; a scalar named inside an
+            // `include` is rejected by Prisma and answers every webhook 500.
             campaign: { include: { collectingEntity: true } },
             donor: { select: { id: true, name: true, ...SELECT_USER_EMAIL } },
-            ...SELECT_DONATION_GUEST_EMAIL,
           },
         },
         registration: { include: { batch: { include: { trip: true } } } },
@@ -195,12 +197,43 @@ export async function POST(
       );
       await prisma.webhookEvent.update({
         where: { id: webhookEventId },
-        data: { processedAt: new Date() },
+        // A `paid` here is money with no Payment (see ChargeWriteFailure).
+        data: {
+          processedAt: new Date(),
+          outcome: event.status === 'paid' ? WEBHOOK_OUTCOME.UNKNOWN_PAYMENT : WEBHOOK_OUTCOME.IGNORED_TERMINAL,
+        },
       });
       return NextResponse.json({ received: true }, { status: 200 });
     }
 
-    if (payment.status !== PaymentStatus.PENDING) {
+    // The provider that signed this event must be the provider that created
+    // this Payment. The signature proves the event came from whoever holds
+    // THAT provider's secret, not that it may speak for this charge: without
+    // this check a delivery verified by one provider could settle, fail or
+    // expire a Payment another provider charged. Checked before the status
+    // early-exit below so it is never mistaken for a harmless replay, and
+    // before anything is written to the Payment.
+    //
+    // Two deliberate choices. (1) The answer is the same 200 as an unknown
+    // providerRef, so a caller cannot probe which refs exist by telling the
+    // two apart. (2) processedAt is NOT stamped: the dedupe key is
+    // (provider, providerEventId), and marking a mismatched event processed
+    // would make a later genuine event with the same id look like a replay and
+    // be dropped. Left unprocessed, that later event picks the row up and is
+    // handled normally. The log carries ids only, no PII.
+    if (payment.provider !== event.provider) {
+      console.error(
+        `[webhooks/${providerParam}] REJECTED: event ${event.providerEventId} from provider ${event.provider} names payment ${payment.id}, which belongs to provider ${payment.provider}`,
+      );
+      return NextResponse.json({ received: true }, { status: 200 });
+    }
+
+    // Ticket 52: a `paid` for a Payment already EXPIRED/FAILED is real money at
+    // the provider, so it settles below instead of exiting here. After the
+    // provider-match check above, so a mismatched event never settles late.
+    const lateOutcome = event.status === 'paid' ? lateSettlementOutcome(payment.status) : null;
+
+    if (payment.status !== PaymentStatus.PENDING && !lateOutcome) {
       // Already settled/failed/expired by an earlier delivery. Distinct from
       // the WebhookEvent unique constraint above: that one catches the exact
       // same event replayed, this one catches a different event (e.g. a
@@ -214,7 +247,7 @@ export async function POST(
       );
       await prisma.webhookEvent.update({
         where: { id: webhookEventId },
-        data: { processedAt: new Date() },
+        data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.IGNORED_TERMINAL },
       });
       return NextResponse.json({ received: true }, { status: 200 });
     }
@@ -254,7 +287,7 @@ export async function POST(
         );
         await prisma.webhookEvent.update({
           where: { id: webhookEventId },
-          data: { processedAt: new Date() },
+          data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.AMOUNT_MISMATCH },
         });
         return NextResponse.json({ received: true }, { status: 200 });
       }
@@ -306,7 +339,7 @@ export async function POST(
         let updated: { count: number };
         try {
           updated = await tx.payment.updateMany({
-            where: { id: payment.id, status: PaymentStatus.PENDING },
+            where: { id: payment.id, status: payment.status },
             data: {
               status: PaymentStatus.PAID,
               providerFee,
@@ -334,7 +367,7 @@ export async function POST(
           // so it still gets marked processed.
           await tx.webhookEvent.update({
             where: { id: webhookEventId },
-            data: { processedAt: new Date() },
+            data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.LOST_RACE },
           });
           return { settled: false as const };
         }
@@ -346,8 +379,9 @@ export async function POST(
         if (isTripPayment) {
           const { registration } = payment;
           // The Volunteer Trip module confirms the seat, or reports why it
-          // could not: the Registration was cancelled first (refunded in
-          // full once this commits) or its hold lapsed.
+          // could not: the Registration was cancelled first or its hold
+          // lapsed. Either way the money is refunded in full once this
+          // commits.
           ({ outcome: registrationOutcome } = await confirmRegistration(tx, { registrationId: registration!.id }));
 
           if (registrationOutcome === 'cancelled') {
@@ -361,9 +395,11 @@ export async function POST(
             // charge clears in that window, the money genuinely arrived at
             // the provider -- the ledger legs below still post, same as any
             // other settlement -- but there is no longer a seat to confirm.
-            // Logged here for manual review: money collected, no seat held.
+            // Money collected, no seat held: refunded in full once this
+            // commits (ticket 40). The seat is not handed out, even if one
+            // is free.
             console.error(
-              `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was no longer HOLD (hold likely already expired) -- money collected, no seat confirmed, needs manual review`,
+              `[webhooks/${providerParam}] event ${event.providerEventId} settled payment ${payment.id} for registration ${registration!.id}, but the Registration was no longer HOLD (hold already expired) -- auto-refunding the full amount`,
             );
           }
 
@@ -490,7 +526,7 @@ export async function POST(
         // resumes the settlement instead of being told it already happened.
         await tx.webhookEvent.update({
           where: { id: webhookEventId },
-          data: { processedAt: new Date() },
+          data: { processedAt: new Date(), outcome: lateOutcome ?? WEBHOOK_OUTCOME.SETTLED },
         });
 
         return { settled: true as const, registrationOutcome, receiptToken, akadWakafToken };
@@ -508,7 +544,7 @@ export async function POST(
           );
           await prisma.webhookEvent.update({
             where: { id: webhookEventId },
-            data: { processedAt: new Date() },
+            data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.SIBLING_ALREADY_PAID },
           });
           return NextResponse.json({ received: true }, { status: 200 });
         }
@@ -531,8 +567,9 @@ export async function POST(
               tripTitle: registration!.batch.trip.title,
               amount: payment.amount,
             });
-          } else if (settled.registrationOutcome === 'cancelled') {
-            // The Trip Fee Refund policy's late-settlement case, in the
+          } else if (settled.registrationOutcome === 'cancelled' || settled.registrationOutcome === 'lapsed') {
+            // The Trip Fee Refund policy's late-settlement cases (cancelled
+            // first, or the hold lapsed first), in the
             // module's own transaction -- never the settlement's `tx`, which
             // has already written the Payment: createRefund locks
             // VolunteerTrip-then-Payment, and calling it from inside would
@@ -544,9 +581,21 @@ export async function POST(
               await refundLateSettlement(prisma, { registrationId: registration!.id });
             } catch (err) {
               console.error(
-                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${payment.id} for cancelled registration ${registration!.id}`,
-                err,
+                `[webhooks/${providerParam}] event ${event.providerEventId}: failed to auto-refund payment ${payment.id} for ${settled.registrationOutcome} registration ${registration!.id}: ${sanitizeError(err)}`,
               );
+              // Leave a mark an Admin can search: the money is booked and owed
+              // back. The stuck-refund sweep also picks this Payment up. Still
+              // 200 -- the provider has nothing to retry.
+              try {
+                await prisma.webhookEvent.update({
+                  where: { id: webhookEventId },
+                  data: { outcome: WEBHOOK_OUTCOME.LATE_SETTLEMENT_REFUND_FAILED },
+                });
+              } catch (markErr) {
+                console.error(
+                  `[webhooks/${providerParam}] event ${event.providerEventId}: could not mark the failed auto-refund: ${sanitizeError(markErr)}`,
+                );
+              }
             }
           }
         } else {
@@ -568,49 +617,74 @@ export async function POST(
           // (no second query); either missing is an anomaly this webhook
           // does not fail over, since the Payment has already settled --
           // it is logged for manual follow-up instead.
-          if (settled.receiptToken) {
-            const resolved = resolveReceiptRecipient({
-              donor: donation!.donor
-                ? { name: donation!.donor.name, email: readUserEmail(donation!.donor) }
-                : null,
-              guestEmail: readDonationGuestEmail(donation!),
-              guestName: donation!.guestName,
-              collectingEntityName: campaign.collectingEntity?.name ?? null,
-            });
-            if (resolved.ok) {
-              let mail = receiptEmail({
-                to: resolved.recipient.recipientEmail,
-                donorName: resolved.recipient.donorName,
-                campaignTitle: campaign.title,
-                collectingEntityName: resolved.recipient.collectingEntityName,
-                amount: payment.amount,
-                paidAt,
-                printUrl: publicUrl(`/receipt/${settled.receiptToken}`),
+          // A Donation anonymised before it settled (ticket 36) has no address
+          // left to send to, by design: skip rather than log it as an anomaly.
+          // The `donation` above was loaded before the settlement transaction,
+          // so an anonymisation that landed since (the Donor opened the
+          // Receipt link in the meantime) is invisible to it: read the flag
+          // again right before sending, so the mail never goes to an address
+          // that has just been erased.
+          // The re-read and the send share one try/catch: the settlement has
+          // already committed, so neither may turn this webhook into a 500. If
+          // the re-read itself fails we cannot tell whether the Donor was
+          // anonymised meanwhile, so fail safe: log (ids only, no PII) and send
+          // nothing rather than mail an address that may have been erased.
+          try {
+            const freshDonation = settled.receiptToken
+              ? await prisma.donation.findUnique({
+                  where: { id: donation!.id },
+                  select: { anonymisedAt: true },
+                })
+              : null;
+            if (settled.receiptToken && !donation!.anonymisedAt && !freshDonation?.anonymisedAt) {
+              const resolved = resolveReceiptRecipient({
+                donor: donation!.donor
+                  ? { name: donation!.donor.name, email: readUserEmail(donation!.donor) }
+                  : null,
+                guestEmail: readDonationGuestEmail(donation!),
+                guestName: donation!.guestName,
+                collectingEntityName: campaign.collectingEntity?.name ?? null,
               });
-
-              // Akad Wakaf rides the same delivery as the Receipt (PRD:
-              // "Akad Wakaf terkirim bersama Receipt") rather than a second
-              // email with its own send failure to track.
-              if (settled.akadWakafToken) {
-                mail = withAkadWakaf(mail, {
-                  wakifName: resolved.recipient.donorName,
+              if (resolved.ok) {
+                let mail = receiptEmail({
+                  to: resolved.recipient.recipientEmail,
+                  donorName: resolved.recipient.donorName,
+                  campaignTitle: campaign.title,
+                  collectingEntityName: resolved.recipient.collectingEntityName,
                   amount: payment.amount,
-                  purpose: campaign.title,
-                  nazhirName: resolved.recipient.collectingEntityName,
-                  printUrl: publicUrl(`/akad-wakaf/${settled.akadWakafToken}`),
+                  paidAt,
+                  printUrl: publicUrl(`/receipt/${settled.receiptToken}`),
                 });
-              }
 
-              await sendReportingFailure(mail, {
-                mail: 'receipt',
-                donationId: donation!.id,
-                paymentId: payment.id,
-              });
-            } else {
-              console.error(
-                `[webhooks/${providerParam}] settled payment ${payment.id} but could not send its Receipt: ${resolved.reason}`,
-              );
+                // Akad Wakaf rides the same delivery as the Receipt (PRD:
+                // "Akad Wakaf terkirim bersama Receipt") rather than a second
+                // email with its own send failure to track.
+                if (settled.akadWakafToken) {
+                  mail = withAkadWakaf(mail, {
+                    wakifName: resolved.recipient.donorName,
+                    amount: payment.amount,
+                    purpose: campaign.title,
+                    nazhirName: resolved.recipient.collectingEntityName,
+                    printUrl: publicUrl(`/akad-wakaf/${settled.akadWakafToken}`),
+                  });
+                }
+
+                await sendReportingFailure(mail, {
+                  mail: 'receipt',
+                  donationId: donation!.id,
+                  paymentId: payment.id,
+                });
+              } else {
+                console.error(
+                  `[webhooks/${providerParam}] settled payment ${payment.id} but could not send its Receipt: ${resolved.reason}`,
+                );
+              }
             }
+          } catch (err) {
+            console.error(
+              `[webhooks/${providerParam}] settled payment ${payment.id} (donation ${donation!.id}) but the Receipt email was not sent: re-read of anonymisedAt or send failed`,
+              err,
+            );
           }
         }
       } else {
@@ -639,7 +713,7 @@ export async function POST(
         if (updated.count === 0) {
           await tx.webhookEvent.update({
             where: { id: webhookEventId },
-            data: { processedAt: new Date() },
+            data: { processedAt: new Date(), outcome: WEBHOOK_OUTCOME.LOST_RACE },
           });
           return;
         }
@@ -662,7 +736,7 @@ export async function POST(
 
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (error) {
-    console.error('Error processing payment webhook:', error);
+    console.error(`Error processing payment webhook: ${sanitizeError(error)}`);
     return NextResponse.json({ error: 'Gagal memproses webhook' }, { status: 500 });
   }
 }

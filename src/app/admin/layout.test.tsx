@@ -1,11 +1,14 @@
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 
 vi.mock("@/lib/auth", () => ({
   getServerSession: vi.fn(),
 }));
 
+const mockPathname = vi.hoisted(() => ({ value: "/admin" }));
+
 vi.mock("next/navigation", () => ({
+  usePathname: () => mockPathname.value,
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
   }),
@@ -40,6 +43,49 @@ describe("AdminLayout", () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
     const result = await AdminLayout({ children: null });
     expect(result).toBeDefined();
+  });
+
+  // UAT round 1: AppShell supplies <main> for every other page, but /admin
+  // renders its own, and the sidebar title was a second <h1> next to each
+  // page's own. The layout contributes exactly one <main> and no <h1>.
+  describe("structure", () => {
+    afterEach(() => cleanup());
+
+    it("closes the open menu after navigating to another page", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      mockPathname.value = "/admin";
+      const tree = await AdminLayout({ children: null });
+      const { rerender } = render(tree);
+
+      const button = screen.getByRole("button", { name: /buka menu/i });
+      fireEvent.click(button);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+
+      mockPathname.value = "/admin/payouts";
+      rerender(await AdminLayout({ children: null }));
+      expect(screen.getByRole("button", { name: /buka menu/i }).getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("renders one main landmark and no h1 of its own", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: <h1>Judul Halaman</h1> }));
+
+      expect(screen.getAllByRole("main")).toHaveLength(1);
+      expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    });
+
+    it("folds the navigation behind a menu button that opens and closes it", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: null }));
+
+      const button = screen.getByRole("button", { name: /buka menu/i });
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      expect(document.getElementById("admin-sidebar")?.className).toContain("hidden");
+
+      fireEvent.click(button);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      expect(document.getElementById("admin-sidebar")?.className).not.toMatch(/(^| )hidden( |$)/);
+    });
   });
 
   describe("nav", () => {
@@ -88,6 +134,26 @@ describe("AdminLayout", () => {
 
       const link = screen.getByRole("link", { name: /^refund$/i });
       expect(link.getAttribute("href")).toBe("/admin/refunds");
+    });
+
+    // Ticket 38: Volunteer Trip Suspension has a route and a module, but no
+    // Admin can reach the page without a nav link.
+    it("links to the Volunteer Trip suspension page", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: null }));
+
+      const link = screen.getByRole("link", { name: /volunteer trip/i });
+      expect(link.getAttribute("href")).toBe("/admin/volunteer-trips");
+    });
+
+    // Ticket 27: the abuse-thresholds route.ts is built and tested, but stays
+    // as unreachable as the Payout queue was without a nav link.
+    it("links to the Abuse Thresholds screen", async () => {
+      mockGetServerSession.mockResolvedValue({ user: { id: "ops-1", assignments: ["ADMIN"] } });
+      render(await AdminLayout({ children: null }));
+
+      const link = screen.getByRole("link", { name: /ambang penyalahgunaan/i });
+      expect(link.getAttribute("href")).toBe("/admin/abuse-thresholds");
     });
   });
 });

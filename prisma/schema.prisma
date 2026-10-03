@@ -52,6 +52,12 @@ model User {
   emailKeyId       String
   phoneCiphertext  String?
   phoneKeyId       String?
+  /// Set once, when the owner of this address opened the confirmation link
+  /// emailed to it (prd-compliance 23; src/lib/email-verification.ts). Until
+  /// then the account has proven nothing about the address: it may have been
+  /// typed by anyone, so it matches no Guest Donor history. Never set by
+  /// registering, by signing in, or by an address merely matching.
+  emailVerifiedAt  DateTime?
   // Retired: the self-claimed verification and the Role hierarchy. No
   // application code or seed reads or writes them (retire-role-hierarchy
   // 02); authority comes only from assignments (ADR 0005). Nullable and
@@ -69,6 +75,7 @@ model User {
   volunteerTrips                   VolunteerTrip[]
   registrations                    Registration[]
   donations                        Donation[]
+  emailVerificationTokens          EmailVerificationToken[]
   prayers                          Prayer[]
   notifications                    Notification[]
   autoDonations                    AutoDonation[]
@@ -100,6 +107,7 @@ model User {
   bankAccounts                      BankAccount[]
   bankAccountVerificationsSubmitted BankAccountVerificationRequest[] @relation("BankAccountVerificationSubmitter")
   bankAccountVerificationsDecided   BankAccountVerificationRequest[] @relation("BankAccountVerificationDecider")
+  bankAccountRevocations            BankAccountRevocation[]          @relation("BankAccountRevocationActor")
   payoutsRequested                  Payout[]                         @relation("PayoutRequester")
   payoutsApproved                   Payout[]                         @relation("PayoutApprover")
   payoutsCompleted                  Payout[]                         @relation("PayoutCompleter")
@@ -108,14 +116,18 @@ model User {
   usageReportsDisputed              UsageReport[]                    @relation("UsageReportDisputer")
   refundsRequested                  Refund[]                         @relation("RefundRequester")
   refundsApproved                   Refund[]                         @relation("RefundApprover")
+  refundsCompleted                  Refund[]                         @relation("RefundCompleter")
   platformFeeRulesSet               PlatformFeeRule[]
   platformFeeThresholdsSet          PlatformFeeThreshold[]
   manualContributionsRecorded       ManualContribution[]             @relation("ManualContributionRecorder")
   manualContributionsDecided        ManualContribution[]             @relation("ManualContributionDecider")
   manualContributionsReversed       ManualContribution[]             @relation("ManualContributionReverser")
+  campaignTransfersRequested        CampaignTransfer[]               @relation("CampaignTransferRequester")
+  campaignTransfersDecided          CampaignTransfer[]               @relation("CampaignTransferDecider")
   providerWithdrawalsRecorded       ProviderWithdrawal[]             @relation("ProviderWithdrawalRecorder")
   duplicateSimilarityThresholdsSet  DuplicateSimilarityThreshold[]
   abuseThresholdsSet                AbuseThreshold[]
+  paymentProviderSettingsSet        PaymentProviderSetting[]
 
   // One account per address, and it is the normalized address that counts: the
   // old `email @unique` was case-sensitive and would let one person hold
@@ -517,6 +529,11 @@ model Campaign {
   /// (CONTEXT.md, Manual Contribution). Not a Donation: it has no Payment,
   /// no Donor and no Refund, and it can be taken back out by a reversal.
   manualContributions   ManualContribution[]
+  /// Zakat or wakaf money moved out of / into this Campaign by a Campaign
+  /// Transfer (CONTEXT.md, Campaign Transfer). Restrict on both ends: the
+  /// record of where a Suspended Campaign's money went is evidence.
+  transfersOut          CampaignTransfer[]   @relation("CampaignTransferSource")
+  transfersIn           CampaignTransfer[]   @relation("CampaignTransferTarget")
   auditMarker           CampaignAuditMarker?
   donationReviewMarkers DonationReviewMarker[]
 
@@ -959,6 +976,15 @@ model Donation {
   guestPhoneCiphertext String?
   guestPhoneKeyId      String?
 
+  /// Set once, when this Donation's Donor had their identity removed (PRD
+  /// FFI-16; ticket 36; src/lib/donor-anonymisation.ts). From then on the
+  /// name, email and phone columns above are NULL, donorId is NULL,
+  /// isAnonymous is true, and createRefund refuses this Donation (the Refund
+  /// design says an anonymised Donation is refunded outside the system).
+  /// Amount, Payment and ledger rows are untouched: the Donation stays a
+  /// money row. Never cleared -- anonymisation cannot be undone.
+  anonymisedAt DateTime?
+
   /// The `src` a shared link carried when the Donor arrived, sanitized by
   /// src/lib/traffic-source.ts (ticket 24, "Traffic Source on Donation").
   /// Null when absent or when nothing safe survived sanitizing -- this never
@@ -1001,6 +1027,24 @@ model Donation {
   @@index([paymentStatus])
   @@index([guestEmailHmac])
   @@index([createdAt])
+}
+
+/// A one-use confirmation link sent to an account's own email address
+/// (prd-compliance 23). Only a SHA-256 of the token is stored, so a dump
+/// holds nothing that can be replayed. `emailHmac` is the account's address
+/// at the time of issue: a token confirms that address and no later one.
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  emailHmac String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 /// The Donor's proof of a Donation (CONTEXT.md, Receipt), created once a
@@ -1314,6 +1358,12 @@ model Payment {
   /// proactively.
   registrationId String?       @unique
   registration   Registration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  /// How to pay this charge, kept so a Volunteer who closed the payment page
+  /// can open it again (ticket 37). Set only for a Trip Fee charge: the QRIS
+  /// link or the Virtual Account number the provider returned; null on every
+  /// Donation Payment and on rows created before this column existed.
+  redirectUrl    String?
+  vaNumber       String?
   /// The Payment Provider this charge went through, in the name that appears
   /// in its webhook URL, on this row and on the WebhookEvent for the same
   /// delivery -- one spelling per provider so the Provider Balance, which is
@@ -1397,6 +1447,35 @@ model Payment {
   /// now AND escrowReleasedAt IS NULL`, which is also why they share an index.
   escrowReleasedAt DateTime?
 
+  /// Ticket 15. Stamped with the sweep's `now` whenever releaseMaturedEscrow
+  /// (src/lib/money/escrow.ts) skips this Payment because a PERMANENT guard
+  /// holds it -- isEscrowReleaseFrozen (a SUSPENDED subject) or an in-flight
+  /// Refund -- never for a Payment that simply has not matured yet, and
+  /// never touched by the claim itself (updateMany only ever writes
+  /// escrowReleasedAt). Cleared back to null the moment a later sweep
+  /// finally releases this Payment, so a row that WAS stuck and later
+  /// resolved reads identically to one that was never stuck at all.
+  ///
+  /// Exists only to give the sweep's query a secondary sort key that moves
+  /// with each skip, because escrowReleaseAt deliberately does not: changing
+  /// escrowReleaseAt to push a stuck row back would be an accounting error
+  /// (CONTEXT.md, Escrow Hold -- it is the hold's own maturity date, not a
+  /// scheduling hint). Ordering `escrowSweepDeferredAt ASC NULLS FIRST,
+  /// escrowReleaseAt ASC, id ASC` puts every never-skipped row (the common
+  /// case) ahead of every previously-skipped one, and rotates previously-skipped
+  /// rows oldest-skipped-first among themselves -- so a backlog of
+  /// permanently-stuck rows, however large, can never again fill every
+  /// future call's page and starve the genuinely releasable rows behind it.
+  escrowSweepDeferredAt DateTime?
+
+  /// Ticket 43: when the stuck-late-settlement-refund sweep
+  /// (src/lib/volunteer/refund-sweep.ts) last FAILED to refund this Trip Fee
+  /// Payment. Only a sort key: the sweep orders `refundSweepFailedAt ASC NULLS
+  /// FIRST`, so a Registration that keeps failing rotates behind never-failed
+  /// ones and cannot fill every round's limit. Null for every Payment that
+  /// has never failed; never read for any money decision.
+  refundSweepFailedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1407,6 +1486,12 @@ model Payment {
   @@index([provider, status])
   @@index([donationId, status])
   @@index([escrowReleaseAt, escrowReleasedAt])
+  /// The sweep's own paging order (ticket 15): releaseMaturedEscrow orders
+  /// candidates `escrowSweepDeferredAt ASC NULLS FIRST, escrowReleaseAt ASC,
+  /// id ASC`, and this index carries the same column order so that ordering
+  /// is served by an index scan rather than a sort over the whole matched
+  /// set.
+  @@index([escrowSweepDeferredAt, escrowReleaseAt, id])
 }
 
 enum PlatformFeeScope {
@@ -1502,6 +1587,33 @@ enum AbuseThresholdKind {
   ACTIVE_CAMPAIGNS_PER_FUNDRAISER
 }
 
+/// Which Payment Provider takes new charges, and through which methods, as an
+/// Admin set it from the dashboard (prd-compliance 39). Append-only like every
+/// other setting here: the latest row is in force, older rows are who chose what
+/// and when. No row means the deployment's own default -- PAYMENT_PROVIDER,
+/// with every method that adapter supports -- so nothing is seeded and a fresh
+/// database behaves exactly as before.
+///
+/// `provider` is a registered name (PAYMENT_PROVIDER_NAMES) and `methods` are
+/// PaymentMethod values that provider supports; both are validated by
+/// setPaymentProviderSetting before the insert, not by the column types. This
+/// row selects a provider for NEW charges only: a webhook is verified by the
+/// provider in its own URL and never reads this table, so a Payment made before
+/// a switch still settles afterwards. Credentials are never stored here -- they
+/// are environment variables only (ADR 0011: this platform's own merchant
+/// account, one set of keys per deployment).
+model PaymentProviderSetting {
+  id       String   @id @default(cuid())
+  provider String
+  methods  String[]
+  setById  String
+  setAt    DateTime @default(now())
+
+  setBy User @relation(fields: [setById], references: [id], onDelete: Restrict)
+
+  @@index([setAt])
+}
+
 /// One threshold in force, as an Admin set it: the row with the latest setAt
 /// for a kind is the current value, and setById/setAt on it are the "who and
 /// when". Nothing is seeded, so with no row set the PRD's own numbers apply,
@@ -1581,9 +1693,42 @@ model WebhookEvent {
   payload         Json
   receivedAt      DateTime  @default(now())
   processedAt     DateTime?
+  /// What the handler decided this event was, stamped with processedAt (ticket
+  /// 52). Null on rows written before the column existed and while an event is
+  /// unfinished. A plain String, not an enum: the values live in
+  /// WEBHOOK_OUTCOME (src/lib/money/payment-reconciliation.ts), and the ones
+  /// that mean money needs a human are listed in WEBHOOK_OUTCOMES_NEEDING_REVIEW.
+  outcome         String?
 
   @@unique([provider, providerEventId])
   @@index([provider, receivedAt])
+  @@index([outcome])
+}
+
+/// A charge that exists at the payment provider while this database holds no
+/// Payment for it (ticket 52): provider.createCharge succeeded and the
+/// payment.create that should have recorded it failed. The provider's order id
+/// is the Donation id or the Registration id, so a later `paid` event for it
+/// matches no Payment; this row is how an Admin finds that money and either
+/// cancels the charge at the provider or refunds what was paid. Written outside
+/// any transaction the failure could have rolled back.
+model ChargeWriteFailure {
+  id             String    @id @default(cuid())
+  provider       String
+  /// The order id the charge was created under: Donation id or Registration id.
+  providerRef    String
+  /// "donation" | "registration"
+  subjectType    String
+  subjectId      String
+  amount         Int
+  errorMessage   String
+  createdAt      DateTime  @default(now())
+  /// Set by whoever reconciled it at the provider.
+  resolvedAt     DateTime?
+  resolutionNote String?
+
+  @@index([resolvedAt, createdAt])
+  @@index([providerRef])
 }
 
 model Refund {
@@ -1602,6 +1747,39 @@ model Refund {
   providerRef   String?      @unique
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
+
+  /// The third Admin: completes an APPROVED Refund by recording that the
+  /// Admin has transferred the money by hand to the Donor's account
+  /// (CONTEXT.md, Refund; PRD §7.2; ticket 31). Two-person rule's second
+  /// half, enforced in the service layer exactly like Payout.completedById --
+  /// this Admin must be neither requestedBy nor approvedBy -- and the column
+  /// exists so it is auditable after the fact.
+  completedById String?
+  completedBy   User?     @relation("RefundCompleter", fields: [completedById], references: [id])
+  completedAt   DateTime?
+  /// Ticket 13's proof-of-transfer shape (transaction reference + free
+  /// sentence), joined into one string by the same `buildProofImage`
+  /// Payout.proofImage already uses (@/lib/payout-proof) -- one validator,
+  /// now three callers (Payout, and this).
+  proofImage    String?
+
+  /// The Donor's destination account, recorded by the approving Admin from
+  /// the Donor's written request -- there is no saved BankAccount row for a
+  /// Donor (ADR 0018, Amendment 2026-09-28). The completing Admin re-types
+  /// the number and the server compares it before any money moves. Nullable
+  /// because every Refund approved before ticket 31 has none.
+  donorBankCode                String?
+  /// Plaintext, like BankAccount.accountName: compared against the name on
+  /// the Donation (ADR 0012's stated reason for leaving that field alone).
+  donorAccountName             String?
+  /// Sealed with the same field encryption as BankAccount.accountNumber
+  /// (ADR 0012; @/lib/contact-fields.ts) -- a randomized AES-256-GCM
+  /// ciphertext, never searched, and never rendered back in full. Bound to
+  /// its own AAD ("Refund.donorAccountNumber"), not BankAccount's, so a
+  /// ciphertext copied from one column to the other fails to decrypt rather
+  /// than silently reading as the wrong donor's number.
+  donorAccountNumberCiphertext String?
+  donorAccountNumberKeyId      String?
 
   ledgerEntries LedgerEntry[]
 
@@ -1634,6 +1812,7 @@ model BankAccount {
 
   payouts              Payout[]
   verificationRequests BankAccountVerificationRequest[]
+  revocations          BankAccountRevocation[]
 
   // What used to be `@@unique([ownerId, bankCode, accountNumber])` cannot
   // survive the drop: the account number is a randomized ciphertext, and two
@@ -1693,6 +1872,54 @@ model BankAccountVerificationRequest {
   @@index([outcome, submittedAt])
   /// One account's own history.
   @@index([bankAccountId, submittedAt])
+}
+
+/// REVOKED clears BankAccount.verifiedAt; REINSTATED sets it again. A
+/// separate action from Suspension (ticket 11's answer): clearing a Bank
+/// Account's eligibility is not a judgement about a Campaign, and this row
+/// carries no CampaignStatusChangeAction.
+enum BankAccountRevocationAction {
+  REVOKED
+  REINSTATED
+}
+
+/// One row per revoke or reinstate of a Bank Account's `verifiedAt`
+/// (ticket 11; owner decision 2026-09-28, on top of ADR 0018). Same pattern
+/// as CampaignStatusChange for Suspension: an append-only action log, not a
+/// status column, so "was this ever revoked, and by whom" is answered by
+/// reading history rather than trusting a flag. The account's current state
+/// is `BankAccount.verifiedAt` itself (null = ineligible, whether never
+/// verified or revoked; set = eligible) -- this table is the "why" and
+/// "who", not a second source of the "whether".
+///
+/// Both halves are their own action, not Suspension's cousin: revoking an
+/// account's verification is not the same decision as suspending the
+/// Campaign a Payout was headed for, and doing one never does the other
+/// (ticket 11's answer, (b)). Payouts already paid are untouched by either
+/// action -- this table never reaches into Payout or the ledger, and
+/// `payouts.ts`'s existing `BankAccountNotEligibleError` checks (requestPayout,
+/// approvePayout, completePayout all re-read `verifiedAt` fresh) are what
+/// stop an unpaid Payout once `verifiedAt` is cleared.
+///
+/// `actorId` is the deciding Verifier for both actions -- never the account's
+/// owner (ADR 0018's "never a Verifier on their own account", checked in the
+/// command) and never, for a REVOKED row, the Verifier who most recently
+/// approved the account's verification, and never, for a REINSTATED row, the
+/// Verifier who wrote the REVOKED row it reverses. `reason` is required on
+/// both: a cleared or restored `verifiedAt` with no trace is the thing ADR
+/// 0018 already refuses for the original verification.
+model BankAccountRevocation {
+  id            String                      @id @default(cuid())
+  bankAccountId String
+  bankAccount   BankAccount                 @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  action        BankAccountRevocationAction
+  reason        String
+  actorId       String
+  actor         User                        @relation("BankAccountRevocationActor", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt     DateTime                    @default(now())
+
+  /// One account's own revoke/reinstate history, latest first.
+  @@index([bankAccountId, createdAt])
 }
 
 /// Money leaving the platform to a campaign's bank account.
@@ -2047,6 +2274,10 @@ model LedgerEntry {
   /// arrived off-gateway apart from money that came through a Payment.
   manualContributionId String?
   manualContribution   ManualContribution? @relation(fields: [manualContributionId], references: [id])
+  /// Which Campaign Transfer this movement belongs to: both legs of the
+  /// journal (the debit on the Suspended source, the credit on the target).
+  campaignTransferId   String?
+  campaignTransfer     CampaignTransfer?   @relation(fields: [campaignTransferId], references: [id])
   /// Which ProviderWithdrawal this movement belongs to (prd-compliance 35).
   /// The attribution the per-withdrawal reconciliation needs: the GATEWAY_CLEARING
   /// credit and the COLLECTION_ACCOUNT debit are the two legs of one recorded
@@ -2102,6 +2333,7 @@ model LedgerEntry {
   @@index([transactionId])
   @@index([account, campaignId])
   @@index([account, volunteerTripId])
+  @@index([campaignTransferId])
   @@index([account, programId])
   // The Provider Balance is read grouped by provider and direction, so this
   // is the index that query wants rather than one on provider alone.
@@ -2179,11 +2411,14 @@ model VolunteerTrip {
 }
 
 /// What a Volunteer Trip status change was: the Fundraiser submitting it for
-/// review, or a Verifier approving or rejecting that submission.
+/// review, a Verifier approving or rejecting that submission, or an Admin
+/// suspending the Trip and lifting that Suspension (ticket 38).
 enum VolunteerTripStatusChangeAction {
   SUBMITTED
   SUBMISSION_APPROVED
   SUBMISSION_REJECTED
+  SUSPENDED
+  SUSPENSION_LIFTED
 }
 
 /// Append-only record of every Volunteer Trip status change, shaped like
@@ -2263,16 +2498,96 @@ model Registration {
   batchId       String
   status        RegistrationStatus @default(HOLD)
   holdExpiresAt DateTime
+  /// Whether the Fundraiser marked this Volunteer present when completing the
+  /// Batch (ticket 35). Written once, by completeBatch, and false for every
+  /// Registration until then; only an attended CONFIRMED Registration earns a
+  /// Sertifikat Keikutsertaan.
+  attended      Boolean            @default(false)
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
   // Relations
-  volunteer User           @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
-  batch     VolunteerBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  payment   Payment?
+  volunteer   User                  @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  batch       VolunteerBatch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  payment     Payment?
+  certificate VolunteerCertificate?
 
   @@index([volunteerId])
   @@index([batchId])
   @@index([status])
   @@index([holdExpiresAt])
+}
+
+/// Shared fixed-window counters for public endpoints (ticket csr-06b;
+/// src/lib/rate-limit.ts). subjectHash is a keyed HMAC of the caller's
+/// address, never the address. Rows are deleted a day after their window.
+model RateLimitBucket {
+  scope       String
+  subjectHash String
+  windowStart DateTime
+  count       Int
+
+  @@id([scope, subjectHash, windowStart])
+  @@index([windowStart])
+}
+
+/// Sertifikat Keikutsertaan (ticket 37; prd-audit/issues/10). One per
+/// Registration, written only by completeBatch in the same transaction that
+/// completes the Batch, for a CONFIRMED Registration marked attended. The
+/// public page /sertifikat/[code] reads nothing but this row: every field
+/// below is a copy frozen at issue, so a later rename or Trip edit never
+/// changes an issued certificate. `code` is a cryptographically random,
+/// unguessable bearer reference (src/lib/volunteer/certificate.ts). No
+/// correction or revocation exists in Rilis 1, so there is no such column.
+/// onDelete: Restrict, as on VolunteerTripStatusChange.
+model VolunteerCertificate {
+  id             String   @id @default(cuid())
+  registrationId String   @unique
+  code           String   @unique
+  volunteerName  String
+  tripTitle      String
+  destination    String
+  batchStartDate DateTime
+  batchEndDate   DateTime
+  organizerName  String
+  issuedAt       DateTime @default(now())
+
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+}
+
+/// Zakat or wakaf money moved from a Suspended Campaign to another Campaign of
+/// the same Kind (CONTEXT.md, Campaign Transfer; PRD §7.2; ADR 0015). Recorded
+/// by one Admin, decided by a different one (two-person rule, like Manual
+/// Contribution). Approval posts one balanced journal -- debit the source's
+/// CAMPAIGN_BALANCE, credit the target's -- and never edits a balance.
+model CampaignTransfer {
+  id             String                 @id @default(cuid())
+  sourceId       String
+  source         Campaign               @relation("CampaignTransferSource", fields: [sourceId], references: [id], onDelete: Restrict)
+  targetId       String
+  target         Campaign               @relation("CampaignTransferTarget", fields: [targetId], references: [id], onDelete: Restrict)
+  amount         Int
+  reason         String
+  status         CampaignTransferStatus @default(PENDING)
+  requestedById  String
+  requestedBy    User                   @relation("CampaignTransferRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  /// Two-person rule: never requestedById. Set on approval and on rejection.
+  decidedById    String?
+  decidedBy      User?                  @relation("CampaignTransferDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt      DateTime?
+  decisionReason String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([sourceId, status])
+  @@index([targetId, status])
+  @@index([status, createdAt])
+}
+
+enum CampaignTransferStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

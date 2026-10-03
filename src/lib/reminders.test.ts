@@ -137,7 +137,7 @@ describe('sendCampaignDeadlineReminders', () => {
 
     const result = await sendCampaignDeadlineReminders(NOW);
 
-    expect(result).toEqual({ sentCount: 1, consideredCount: 1 });
+    expect(result).toEqual({ attemptedCount: 1, consideredCount: 1 });
     expect(state.get('campaign-1')!.deadlineReminderSentAt).toEqual(NOW);
     expect(notifications).toEqual([
       expect.objectContaining({
@@ -152,12 +152,35 @@ describe('sendCampaignDeadlineReminders', () => {
     expect(report).toMatchObject({ mail: 'campaign_deadline_reminder', campaignId: 'campaign-1' });
   });
 
+  it('uses the seven-day lead time the PRD asks for (FFI-03)', () => {
+    expect(CAMPAIGN_DEADLINE_REMINDER_DAYS).toBe(7);
+  });
+
+  it('reminds a Campaign whose deadline is five days out, and exactly seven days out', async () => {
+    makeCampaignDb([
+      makeCampaign({ id: 'campaign-5d', slug: 'campaign-5d', deadline: new Date(NOW.getTime() + 5 * MS_PER_DAY) }),
+      makeCampaign({ id: 'campaign-7d', slug: 'campaign-7d', deadline: new Date(NOW.getTime() + 7 * MS_PER_DAY) }),
+    ]);
+
+    const result = await sendCampaignDeadlineReminders(NOW);
+
+    expect(result).toEqual({ attemptedCount: 2, consideredCount: 2 });
+  });
+
+  it('does not remind a Campaign whose deadline is just past seven days out', async () => {
+    makeCampaignDb([makeCampaign({ deadline: new Date(NOW.getTime() + 7 * MS_PER_DAY + 1) })]);
+
+    const result = await sendCampaignDeadlineReminders(NOW);
+
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
+  });
+
   it('does not remind a Campaign whose deadline is further out than the reminder window', async () => {
     makeCampaignDb([makeCampaign({ deadline: new Date(NOW.getTime() + 10 * MS_PER_DAY) })]);
 
     const result = await sendCampaignDeadlineReminders(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
     expect(mockSendReportingFailure).not.toHaveBeenCalled();
   });
 
@@ -166,7 +189,7 @@ describe('sendCampaignDeadlineReminders', () => {
 
     const result = await sendCampaignDeadlineReminders(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('never reconsiders a Campaign that was already reminded', async () => {
@@ -174,7 +197,21 @@ describe('sendCampaignDeadlineReminders', () => {
 
     const result = await sendCampaignDeadlineReminders(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
+    expect(mockSendReportingFailure).not.toHaveBeenCalled();
+  });
+
+  it('does not remind again a Campaign already reminded under the old three-day rule, now inside the seven-day window', async () => {
+    makeCampaignDb([
+      makeCampaign({
+        deadline: new Date(NOW.getTime() + 2 * MS_PER_DAY),
+        deadlineReminderSentAt: new Date(NOW.getTime() - MS_PER_DAY),
+      }),
+    ]);
+
+    const result = await sendCampaignDeadlineReminders(NOW);
+
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
     expect(mockSendReportingFailure).not.toHaveBeenCalled();
   });
 
@@ -183,7 +220,7 @@ describe('sendCampaignDeadlineReminders', () => {
 
     const [a, b] = await Promise.all([sendCampaignDeadlineReminders(NOW), sendCampaignDeadlineReminders(NOW)]);
 
-    expect(a.sentCount + b.sentCount).toBe(1);
+    expect(a.attemptedCount + b.attemptedCount).toBe(1);
     expect(notifications).toHaveLength(1);
     expect(mockSendReportingFailure).toHaveBeenCalledTimes(1);
   });
@@ -294,7 +331,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
 
     const result = await sendKindAuthorisationExpiryWarnings(NOW);
 
-    expect(result).toEqual({ sentCount: 1, consideredCount: 1 });
+    expect(result).toEqual({ attemptedCount: 1, consideredCount: 1 });
     expect(state.get('kind-auth-1')!.expiryWarningSentAt).toEqual(NOW);
     expect(notifications).toEqual([
       expect.objectContaining({ type: 'kind_authorisation_expiry_warning', userId: 'fundraiser-org-1' }),
@@ -309,7 +346,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
 
     const result = await sendKindAuthorisationExpiryWarnings(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('does not warn about an authorisation that has already lapsed', async () => {
@@ -322,7 +359,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
 
     const result = await sendKindAuthorisationExpiryWarnings(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('does not warn about an authorisation not valid yet', async () => {
@@ -335,7 +372,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
 
     const result = await sendKindAuthorisationExpiryWarnings(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('never reconsiders an authorisation already warned about', async () => {
@@ -343,7 +380,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
 
     const result = await sendKindAuthorisationExpiryWarnings(NOW);
 
-    expect(result).toEqual({ sentCount: 0, consideredCount: 0 });
+    expect(result).toEqual({ attemptedCount: 0, consideredCount: 0 });
   });
 
   it('sends exactly one warning when two overlapping scheduler runs race for the same authorisation', async () => {
@@ -354,7 +391,7 @@ describe('sendKindAuthorisationExpiryWarnings', () => {
       sendKindAuthorisationExpiryWarnings(NOW),
     ]);
 
-    expect(a.sentCount + b.sentCount).toBe(1);
+    expect(a.attemptedCount + b.attemptedCount).toBe(1);
     expect(notifications).toHaveLength(1);
   });
 });

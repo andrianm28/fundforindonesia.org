@@ -1,10 +1,12 @@
-import type { PrismaClient, Kind } from '@/generated/prisma/client';
+import type { PrismaClient, Kind, Payment } from '@/generated/prisma/client';
 import { PaymentStatus } from '@/generated/prisma/client';
 import type { ChargeResult, PaymentMethod, PaymentProvider } from '@/lib/payments';
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
+import { providerSupportedMethods } from '@/lib/payments/active-provider';
 import { resolvePlatformFeeBasisForCampaign } from './platform-fee-config';
 import { computePlatformFee } from './platform-fee';
 import { ESCROW_HOLD_DAYS } from './escrow';
+import { recordChargeWriteFailure, sanitizeError } from './payment-reconciliation';
 
 /**
  * One attempt at charging a Donation: resolves and freezes the Platform Fee
@@ -28,7 +30,7 @@ import { ESCROW_HOLD_DAYS } from './escrow';
  * Donation over.
  */
 export interface ChargeDonationParams {
-  db: Pick<PrismaClient, 'payment' | 'platformFeeRule' | 'platformFeeThreshold'>;
+  db: Pick<PrismaClient, 'payment' | 'platformFeeRule' | 'platformFeeThreshold' | 'chargeWriteFailure'>;
   provider: PaymentProvider;
   campaign: { id: string; kind: Kind; category: string };
   donationId: string;
@@ -41,7 +43,8 @@ export type ChargeDonationResult =
   | { ok: true; charge: ChargeResult; paymentId: string; platformFee: number }
   | { ok: false; reason: 'method_unavailable' }
   | { ok: false; reason: 'provider_error' }
-  | { ok: false; reason: 'method_mismatch' };
+  | { ok: false; reason: 'method_mismatch' }
+  | { ok: false; reason: 'payment_write_failed' };
 
 export async function chargeDonation(params: ChargeDonationParams): Promise<ChargeDonationResult> {
   const { db, provider, campaign, donationId, amount, orderId, paymentMethod } = params;
@@ -71,24 +74,24 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
   // written and before a charge exists anywhere. Checking afterwards would
   // leave an abandoned charge at the provider -- a live payment link a donor
   // could still find and pay into, with nothing on this side expecting it.
-  if (paymentMethod !== provider.method) {
+  if (!providerSupportedMethods(provider).includes(paymentMethod)) {
     return { ok: false, reason: 'method_unavailable' };
   }
 
   let charge: ChargeResult;
   try {
-    charge = await provider.createCharge({ orderId, grossAmount: amount, currency: 'IDR' });
+    charge = await provider.createCharge({ orderId, grossAmount: amount, currency: 'IDR', method: paymentMethod });
   } catch (err) {
-    console.error(`[donations] charge failed for donation ${donationId} (order ${orderId}):`, err);
+    console.error(`[donations] charge failed for donation ${donationId} (order ${orderId}): ${sanitizeError(err)}`);
     return { ok: false, reason: 'provider_error' };
   }
 
   // Narrowed against what the provider declared, not cast. A provider
   // answering with a shape this route did not prepare for must fail loudly
   // rather than write a Payment with no way to pay it.
-  if (charge.method !== provider.method) {
+  if (charge.method !== paymentMethod) {
     console.error(
-      `[donations] provider ${providerName} declared ${provider.method} but charged ${charge.method} for donation ${donationId} (order ${orderId})`,
+      `[donations] provider ${providerName} was asked for ${paymentMethod} but charged ${charge.method} for donation ${donationId} (order ${orderId})`,
     );
     return { ok: false, reason: 'method_mismatch' };
   }
@@ -101,19 +104,36 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
   const { percentBps, thresholdAmount } = await resolvePlatformFeeBasisForCampaign(db, campaign);
   const platformFee = computePlatformFee({ grossAmount: amount, percentBps, thresholdAmount });
 
-  const payment = await db.payment.create({
-    data: {
-      donationId,
+  // The charge now exists at the provider. If the Payment that records it
+  // cannot be written, the money a donor may still pay into it would arrive with
+  // nothing here expecting it: record the charge for reconciliation (ticket 52)
+  // instead of letting the failure vanish into a bare 500.
+  let payment: Payment;
+  try {
+    payment = await db.payment.create({
+      data: {
+        donationId,
+        provider: providerName,
+        method: charge.method,
+        providerRef: orderId,
+        amount,
+        platformFee,
+        escrowHoldDays: ESCROW_HOLD_DAYS,
+        status: PaymentStatus.PENDING,
+        expiresAt: charge.expiresAt,
+      },
+    });
+  } catch (err) {
+    await recordChargeWriteFailure(db, {
       provider: providerName,
-      method: charge.method,
       providerRef: orderId,
+      subjectType: 'donation',
+      subjectId: donationId,
       amount,
-      platformFee,
-      escrowHoldDays: ESCROW_HOLD_DAYS,
-      status: PaymentStatus.PENDING,
-      expiresAt: charge.expiresAt,
-    },
-  });
+      error: err,
+    });
+    return { ok: false, reason: 'payment_write_failed' };
+  }
 
   return { ok: true, charge, paymentId: payment.id, platformFee };
 }

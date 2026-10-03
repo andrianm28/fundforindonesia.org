@@ -25,6 +25,7 @@ vi.mock("@/lib/prisma", () => {
     },
     assignmentAuditEntry: {
       create: vi.fn(),
+      findMany: vi.fn(),
     },
     assignmentGrantRequest: {
       findFirst: vi.fn(),
@@ -40,7 +41,7 @@ vi.mock("@/lib/prisma", () => {
 
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { POST, DELETE } from "./route";
+import { GET, POST, DELETE } from "./route";
 
 const mockGetServerSession = getServerSession as unknown as Mock;
 const mockFindUnique = prisma.userAssignment.findUnique as unknown as Mock;
@@ -285,5 +286,46 @@ describe("DELETE /api/admin/users/[id]/assignments", () => {
 
     expect(response.status).toBe(200);
     expect(mockDelete).toHaveBeenCalledOnce();
+  });
+});
+
+describe("GET /api/admin/users/[id]/assignments (audit trail)", () => {
+  const mockAuditFindMany = prisma.assignmentAuditEntry.findMany as unknown as Mock;
+
+  function get() {
+    return GET(new NextRequest("http://localhost:3000/api/admin/users/user-2/assignments"), routeContext());
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: ["ADMIN"] } });
+    mockAuditFindMany.mockResolvedValue([
+      { id: "a-2", assignment: "ADMIN", action: "GRANTED", actedById: "admin-2", actedAt: new Date("2026-09-30T00:00:00Z"), reason: null, actedBy: { name: "Admin Two" } },
+      { id: "a-1", assignment: "ADMIN", action: "PROPOSED", actedById: "admin-1", actedAt: new Date("2026-09-29T00:00:00Z"), reason: null, actedBy: { name: "Admin One" } },
+    ]);
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    mockGetServerSession.mockResolvedValue(null);
+    expect((await get()).status).toBe(401);
+    expect(mockAuditFindMany).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 for a Verifier who does not hold the Admin assignment", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "v-1", assignments: ["VERIFIER"] } });
+    expect((await get()).status).toBe(403);
+    expect(mockAuditFindMany).not.toHaveBeenCalled();
+  });
+
+  it("lets an Admin read the user's trail, newest first, with who and when", async () => {
+    const response = await get();
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockAuditFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: "user-2" }, orderBy: { actedAt: "desc" } })
+    );
+    expect(data.entries.map((e: { id: string }) => e.id)).toEqual(["a-2", "a-1"]);
+    expect(data.entries[0]).toMatchObject({ action: "GRANTED", actedById: "admin-2", actedByName: "Admin Two", actedAt: "2026-09-30T00:00:00.000Z" });
   });
 });

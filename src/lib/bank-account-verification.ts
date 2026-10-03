@@ -1,16 +1,25 @@
-import { Prisma, VerificationOutcome } from "@/generated/prisma/client";
-import type { BankAccount, BankAccountVerificationRequest, PrismaClient } from "@/generated/prisma/client";
+import { BankAccountRevocationAction, Prisma, VerificationOutcome } from "@/generated/prisma/client";
+import type {
+  BankAccount,
+  BankAccountRevocation,
+  BankAccountVerificationRequest,
+  PrismaClient,
+} from "@/generated/prisma/client";
 import { sealBankAccountNumber, SELECT_BANK_ACCOUNT_NUMBER } from "./contact-fields";
 import {
   BankAccountAlreadyVerifiedError,
   BankAccountDecisionInvalidError,
   BankAccountNotDeletableError,
   BankAccountNotFoundError,
+  BankAccountNotReinstatableError,
+  BankAccountNotRevocableError,
   BankAccountVerificationAlreadyPendingError,
   BankAccountVerificationNotPendingError,
   BankAccountVerificationRequestNotFoundError,
   InvalidBankAccountError,
   OwnBankAccountVerificationError,
+  ReinstaterWasRevokerError,
+  RevokerWasApproverError,
 } from "./bank-account-verification-errors";
 
 /**
@@ -371,4 +380,260 @@ export async function pendingBankAccountVerifications(
       accountNumberKeyId: request.bankAccount.accountNumberKeyId,
     },
   }));
+}
+
+// ==================== Revocation (ticket 11; owner decision 2026-09-28) ====================
+
+/**
+ * The account's own revoke/reinstate history, latest first: `null` when the
+ * account has never been touched. Its `.action` is what says whether the
+ * account is currently revoked (REVOKED) or was restored after being
+ * revoked (REINSTATED) -- `BankAccount.verifiedAt` itself already says
+ * whether the account is eligible right now; this is only the "why" and
+ * "who" of the last time that changed.
+ */
+async function latestRevocation(tx: Tx, bankAccountId: string): Promise<BankAccountRevocation | null> {
+  return tx.bankAccountRevocation.findFirst({
+    where: { bankAccountId },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/** A revoke or reinstate's required reason: 422, fixable by filling the form in, the same shape as a rejection's. */
+function cleanRevocationReason(raw: unknown): string {
+  return cleanDecisionText(raw, "Alasan", "reason", 1000);
+}
+
+/**
+ * A Verifier revokes a verified Bank Account's eligibility, with a reason
+ * (ticket 11; owner decision (b) on top of ADR 0018): clears `verifiedAt`
+ * and writes a REVOKED row. Refused when the account has no `verifiedAt` to
+ * clear (`BankAccountNotRevocableError`, covering both "never verified" and
+ * "already revoked"), when the acting Verifier is the account's owner
+ * (`OwnBankAccountVerificationError`, same rule as deciding), and when the
+ * acting Verifier is the one who most recently approved this account's
+ * verification (`RevokerWasApproverError`) -- symmetric with ticket 16's "a
+ * Verifier tak menilai rekeningnya sendiri", applied to the person who
+ * already vouched for it once.
+ *
+ * Revoking is a separate action from Suspension: nothing here touches a
+ * Campaign, a Flag, or the ledger. Payouts already completed are untouched
+ * by design -- this function never reads or writes Payout. An unpaid Payout
+ * pointed at this account is stopped the next time it is checked, through
+ * `payouts.ts`'s existing `BankAccountNotEligibleError` path (requestPayout,
+ * approvePayout and completePayout all re-read `verifiedAt` fresh from the
+ * row); nothing here needs to change for that to hold.
+ */
+export async function revokeBankAccountVerification(
+  prisma: PrismaClient,
+  params: { accountId: string; verifierId: string; reason: unknown; now?: Date }
+): Promise<BankAccountRevocation> {
+  const now = params.now ?? new Date();
+  const reason = cleanRevocationReason(params.reason);
+
+  return prisma.$transaction(async (tx) => {
+    const account = await tx.bankAccount.findUnique({ where: { id: params.accountId } });
+    if (!account) throw new BankAccountNotFoundError();
+    if (account.ownerId === params.verifierId) throw new OwnBankAccountVerificationError();
+
+    // The Verifier who most recently approved this account, if any -- never
+    // the one allowed to revoke it themselves.
+    const approval = await tx.bankAccountVerificationRequest.findFirst({
+      where: { bankAccountId: account.id, outcome: VerificationOutcome.APPROVED },
+      orderBy: { decidedAt: "desc" },
+    });
+    if (approval?.decidedById === params.verifierId) throw new RevokerWasApproverError();
+
+    // Conditional write, the same guard as decideBankAccountVerification's
+    // own approval: throws under a race with a concurrent revoke of the
+    // same account, and refuses outright when there was nothing to clear.
+    const cleared = await tx.bankAccount.updateMany({
+      where: { id: account.id, verifiedAt: { not: null } },
+      data: { verifiedAt: null },
+    });
+    if (cleared.count === 0) throw new BankAccountNotRevocableError();
+
+    const revocation = await tx.bankAccountRevocation.create({
+      data: {
+        bankAccountId: account.id,
+        action: BankAccountRevocationAction.REVOKED,
+        reason,
+        actorId: params.verifierId,
+        createdAt: now,
+      },
+    });
+
+    await tx.notification.create({
+      data: {
+        type: "bank_account_verification",
+        userId: account.ownerId,
+        title: "Verifikasi Rekening Dicabut",
+        message: `Verifikasi rekening ${account.bankCode} Anda dicabut oleh Verifier. Alasan: ${reason}`,
+        link: "/akun/rekening",
+      },
+    });
+
+    return revocation;
+  });
+}
+
+/**
+ * A different Verifier than the one who revoked it reinstates a Bank
+ * Account's eligibility, with a reason (ticket 11; owner decision (b)):
+ * sets `verifiedAt` again and writes a REINSTATED row. Refused when the
+ * account's latest revoke/reinstate row is not a REVOKED one
+ * (`BankAccountNotReinstatableError`, covering both "never revoked" and
+ * "already reinstated"), when the acting Verifier is the account's owner
+ * (`OwnBankAccountVerificationError`), and when the acting Verifier is the
+ * one who wrote that REVOKED row (`ReinstaterWasRevokerError`).
+ *
+ * Reinstating does not create a new BankAccountVerificationRequest: it is
+ * the reversal of a revoke, not a fresh submission through the Verifier's
+ * usual queue, so `checkedBankCode` and `documentedAccountName` are not
+ * asked again here.
+ */
+export async function reinstateBankAccountVerification(
+  prisma: PrismaClient,
+  params: { accountId: string; verifierId: string; reason: unknown; now?: Date }
+): Promise<BankAccountRevocation> {
+  const now = params.now ?? new Date();
+  const reason = cleanRevocationReason(params.reason);
+
+  return prisma.$transaction(async (tx) => {
+    const account = await tx.bankAccount.findUnique({ where: { id: params.accountId } });
+    if (!account) throw new BankAccountNotFoundError();
+    if (account.ownerId === params.verifierId) throw new OwnBankAccountVerificationError();
+
+    const latest = await latestRevocation(tx, account.id);
+    if (!latest || latest.action !== BankAccountRevocationAction.REVOKED) {
+      throw new BankAccountNotReinstatableError();
+    }
+    if (latest.actorId === params.verifierId) throw new ReinstaterWasRevokerError();
+
+    // Conditional write, mirroring revoke's own guard: a race with a second
+    // reinstatement (or a fresh approval landing concurrently) throws
+    // instead of overwriting, reusing BankAccountAlreadyVerifiedError since
+    // that is exactly the state it finds.
+    const restored = await tx.bankAccount.updateMany({
+      where: { id: account.id, verifiedAt: null },
+      data: { verifiedAt: now },
+    });
+    if (restored.count === 0) throw new BankAccountAlreadyVerifiedError();
+
+    const revocation = await tx.bankAccountRevocation.create({
+      data: {
+        bankAccountId: account.id,
+        action: BankAccountRevocationAction.REINSTATED,
+        reason,
+        actorId: params.verifierId,
+        createdAt: now,
+      },
+    });
+
+    await tx.notification.create({
+      data: {
+        type: "bank_account_verification",
+        userId: account.ownerId,
+        title: "Verifikasi Rekening Dipulihkan",
+        message: `Verifikasi rekening ${account.bankCode} Anda dipulihkan oleh Verifier. Alasan: ${reason}`,
+        link: "/akun/rekening",
+      },
+    });
+
+    return revocation;
+  });
+}
+
+/** One row of the Verifier's revoke/reinstate lists: the account and its owner, ciphertext included (never decrypted here). */
+export type RevocableBankAccount = {
+  id: string;
+  bankCode: string;
+  accountName: string;
+  ownerId: string;
+  ownerName: string;
+  verifiedAt: Date | null;
+  accountNumberCiphertext: string;
+  accountNumberKeyId: string;
+};
+
+const REVOCABLE_SELECT = {
+  id: true,
+  bankCode: true,
+  accountName: true,
+  ownerId: true,
+  owner: { select: { name: true } },
+  verifiedAt: true,
+  ...SELECT_BANK_ACCOUNT_NUMBER,
+} as const;
+
+function toRevocableBankAccount(account: {
+  id: string;
+  bankCode: string;
+  accountName: string;
+  ownerId: string;
+  owner: { name: string };
+  verifiedAt: Date | null;
+  accountNumberCiphertext: string;
+  accountNumberKeyId: string;
+}): RevocableBankAccount {
+  return {
+    id: account.id,
+    bankCode: account.bankCode,
+    accountName: account.accountName,
+    ownerId: account.ownerId,
+    ownerName: account.owner.name,
+    verifiedAt: account.verifiedAt,
+    accountNumberCiphertext: account.accountNumberCiphertext,
+    accountNumberKeyId: account.accountNumberKeyId,
+  };
+}
+
+/**
+ * Every currently-verified Bank Account, most recently verified first: the
+ * Verifier's "revoke" list on `/moderasi/rekening`. `verifiedAt` is the
+ * single source of "eligible right now" (ADR 0018); this reads it directly
+ * rather than joining BankAccountRevocation's history.
+ */
+export async function verifiedBankAccounts(
+  prisma: Pick<PrismaClient, "bankAccount">
+): Promise<RevocableBankAccount[]> {
+  const accounts = await prisma.bankAccount.findMany({
+    where: { verifiedAt: { not: null } },
+    orderBy: { verifiedAt: "desc" },
+    select: REVOCABLE_SELECT,
+  });
+  return accounts.map(toRevocableBankAccount);
+}
+
+/**
+ * Every Bank Account whose latest revoke/reinstate row is REVOKED, most
+ * recently revoked first: the Verifier's "reinstate" list. Computed in
+ * application code, not a join, because "latest row per account" is not a
+ * `WHERE` clause Prisma's query API expresses directly, and this table is
+ * small (one row per revoke or reinstate, ever).
+ */
+export async function revokedBankAccounts(
+  prisma: Pick<PrismaClient, "bankAccount" | "bankAccountRevocation">
+): Promise<RevocableBankAccount[]> {
+  const revocations = await prisma.bankAccountRevocation.findMany({
+    orderBy: { createdAt: "desc" },
+    select: { bankAccountId: true, action: true, createdAt: true },
+  });
+  const latestByAccount = new Map<string, BankAccountRevocationAction>();
+  for (const row of revocations) {
+    if (!latestByAccount.has(row.bankAccountId)) latestByAccount.set(row.bankAccountId, row.action);
+  }
+  const revokedIds = [...latestByAccount.entries()]
+    .filter(([, action]) => action === BankAccountRevocationAction.REVOKED)
+    .map(([id]) => id);
+  if (revokedIds.length === 0) return [];
+
+  const accounts = await prisma.bankAccount.findMany({
+    where: { id: { in: revokedIds } },
+    select: REVOCABLE_SELECT,
+  });
+  const order = new Map(revokedIds.map((id, index) => [id, index]));
+  return accounts
+    .map(toRevocableBankAccount)
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }

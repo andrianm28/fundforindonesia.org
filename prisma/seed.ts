@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { randomUUID } from 'crypto';
 import { PrismaClient, Assignment, CampaignStatus, Kind, PaymentStatus, PayoutStatus, type User } from '@/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import bcrypt from 'bcryptjs';
+import { hashPassword } from '@/lib/password-hash';
 import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { lookupUserEmail, sealBankAccountNumber, sealUserEmail } from '@/lib/contact-fields';
@@ -251,7 +251,7 @@ async function main() {
 
   // 2. Seed Users
   console.log('👤 Creating users...');
-  const password = await bcrypt.hash('password123', PASSWORD_HASH_COST);
+  const password = await hashPassword('password123', PASSWORD_HASH_COST);
   const users: User[] = [];
   for (const userData of USERS_DATA) {
     // Through the lookup HMAC, so re-running the seed finds the account it made

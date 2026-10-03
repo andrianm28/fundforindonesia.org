@@ -18,9 +18,26 @@ lower here, since the rules were `warn` and not counted before).
 **Blocked by:** 15 (must merge first; this ticket's baseline math depends on
 ticket 15's `eslint.config.mjs` and `ci/baselines.json`)
 
-**Status:** ready-for-agent
+**Status:** done (PR #196, 65fca94)
 
-- [ ] All four rules read `'error'` in `eslint.config.mjs`, not `'warn'`
+- [ ] All four rules read `'error'` in `eslint.config.mjs`, not `'warn'` (dua dari empat; sisanya dipindah ke 18b)
 - [ ] `eslint .` reports zero findings for these four rules
 - [ ] `ci/baselines.json`'s `lint` count reflects the new, lower total (never raised)
 - [ ] CI is green: test, build, migrations, ratchet
+
+## Comments
+
+- 2026-10-03, branch `claude/ci-cd-18-lint-rule-upgrade-v2` (dari `origin/main`; branch lama
+  `claude/ci-cd-18-lint-rule-upgrade` tidak dipakai karena menaikkan baseline lint 193 ke 211 dan menambah
+  bypass `RATCHET_ALLOW_BASELINE_BUMP` di `ci.yml`). Keputusan owner "setuju semua":
+  - Hanya tiga perbaikan mekanis diambil: `Link` di `moderasi/campaigns/[id]`, `connectSSE` bernama di
+    `usePrayerStream`, dan `fetchBalance` di `akun/page.tsx`. Pemindahan `fetchBalance` seperti di branch lama
+    mengganti satu temuan `immutability` dengan satu temuan `set-state-in-effect` baru, jadi tidak diambil;
+    fetch-nya di-inline di effect tanpa `setBalanceLoading(true)` sinkron (state awalnya sudah `true`), yang
+    menghapus kedua temuan.
+  - Dinaikkan ke `error`: `react-hooks/immutability` dan `@next/next/no-html-link-for-pages` (nol temuan).
+    `react-hooks/set-state-in-effect` dan `react-hooks/purity` tetap `warn`.
+  - Baseline lint tetap 193 (jumlah error memang 193; aturan yang dinaikkan sudah bersih). `ci.yml` tidak disentuh.
+  - Sisa pekerjaan (15 temuan `set-state-in-effect`, 2 `purity`, lalu promosi keduanya ke `error`) dipindah ke
+    tiket 18b. Angka 16 di keputusan owner menghitung temuan `akun/page.tsx` yang kini sudah hilang.
+- 2026-10-03: done. Merge ke main sebagai 65fca94.

@@ -55,6 +55,9 @@ export type MoneyErrorCode =
   | "SELF_APPROVAL"
   | "TWO_PERSON_RULE"
   | "PAYOUT_PROOF_INVALID"
+  | "REFUND_PROOF_INVALID"
+  | "REFUND_DESTINATION_INVALID"
+  | "REFUND_DESTINATION_MISMATCH"
   | "INVALID_PAYOUT_STATUS"
   | "INVALID_REFUND_STATUS"
   | "PAYOUT_NOT_FOUND"
@@ -63,6 +66,8 @@ export type MoneyErrorCode =
   | "PAYMENT_SUBJECT_MISMATCH"
   | "REFUND_EXCEEDS_REMAINING"
   | "REFUND_NOT_ALLOWED_FOR_KIND"
+  | "DONATION_ANONYMISED"
+  | "ANONYMISATION_BLOCKED_BY_OPEN_REFUND"
   | "MANUAL_CONTRIBUTION_NOT_FOUND"
   | "MANUAL_CONTRIBUTION_TARGET_INVALID"
   | "MANUAL_CONTRIBUTION_INVALID"
@@ -80,7 +85,17 @@ export type MoneyErrorCode =
   | "PROVIDER_BALANCE_AMOUNT_INVALID"
   | "PROVIDER_BALANCE_INSUFFICIENT"
   | "PROVIDER_BALANCE_NOT_SHORT"
-  | "PROVIDER_NAME_UNKNOWN";
+  | "PROVIDER_NAME_UNKNOWN"
+  | "CAMPAIGN_TRANSFER_NOT_FOUND"
+  | "CAMPAIGN_TRANSFER_INVALID"
+  | "CAMPAIGN_TRANSFER_NOT_PENDING"
+  | "CAMPAIGN_TRANSFER_BALANCE_CHANGED"
+  | "CAMPAIGN_TRANSFER_SOURCE_NOT_SUSPENDED"
+  | "CAMPAIGN_TRANSFER_KIND_NOT_TRANSFERABLE"
+  | "CAMPAIGN_TRANSFER_CROSS_KIND"
+  | "CAMPAIGN_TRANSFER_CATEGORY_MISMATCH"
+  | "CAMPAIGN_TRANSFER_TARGET_NOT_ELIGIBLE"
+  | "REFUND_AFTER_CAMPAIGN_TRANSFER";
 
 /**
  * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
@@ -90,12 +105,17 @@ export type TripErrorCode =
   | "TRIP_NOT_FOUND"
   | "TRIP_NOT_EDITABLE"
   | "TRIP_NOT_SUBMITTED"
+  | "TRIP_REJECTION_REASON_INVALID"
   | "TRIP_NOT_ACCEPTING_BATCHES"
   | "BATCH_FIELDS_INVALID"
+  | "BATCH_LOCKED_BY_REGISTRATIONS"
+  | "BATCH_QUOTA_BELOW_SEATS"
+  | "OWN_TRIP_REGISTRATION"
   | "BATCH_NOT_FOUND"
   | "BATCH_NOT_OPEN"
   | "BATCH_MIN_QUOTA_MET"
   | "BATCH_NOT_ENDED"
+  | "CERTIFICATE_NAME_MISSING"
   | "TRIP_NOT_TAKING_REGISTRATIONS"
   | "BATCH_NOT_TAKING_REGISTRATIONS"
   | "REGISTRATION_DEADLINE_PASSED"
@@ -103,7 +123,11 @@ export type TripErrorCode =
   | "ALREADY_REGISTERED"
   | "REGISTRATION_NOT_FOUND"
   | "REGISTRATION_NOT_CANCELLABLE"
-  | "BATCH_ALREADY_COMPLETED";
+  | "BATCH_ALREADY_COMPLETED"
+  | "TRIP_NOT_SUSPENDABLE"
+  | "TRIP_NOT_SUSPENDED"
+  | "TRIP_SUSPENSION_UNRECORDED"
+  | "TRIP_PAYOUT_FUNDS_NOT_COMPLETED";
 
 /**
  * The Capacity judgement's refusals (./capacity.ts; CONTEXT.md, Capacity),
@@ -142,7 +166,11 @@ export type BankAccountErrorCode =
   | "BANK_ACCOUNT_VERIFICATION_REQUEST_NOT_FOUND"
   | "BANK_ACCOUNT_VERIFICATION_NOT_PENDING"
   | "BANK_ACCOUNT_DECISION_INVALID"
-  | "OWN_BANK_ACCOUNT_CONFLICT";
+  | "OWN_BANK_ACCOUNT_CONFLICT"
+  | "BANK_ACCOUNT_NOT_REVOCABLE"
+  | "BANK_ACCOUNT_NOT_REINSTATABLE"
+  | "BANK_ACCOUNT_REVOKED_BY_APPROVER"
+  | "BANK_ACCOUNT_REINSTATED_BY_REVOKER";
 
 /**
  * Refusals of a Usage Report -- a Fundraiser's account of one Payout's
@@ -201,6 +229,9 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   FLAG_NOT_FOUND: 404,
   FLAG_ALREADY_RESOLVED: 409,
   PAYOUT_NOT_ALLOWED_FOR_STATUS: 409,
+  // Ticket 49: the money is there but still refundable, so it clears by itself
+  // when the Batch completes -- a conflict with state, not a bad input.
+  TRIP_PAYOUT_FUNDS_NOT_COMPLETED: 409,
   CAMPAIGN_NOT_EDITABLE: 409,
   // The Fundraiser could not fix it by resubmitting: a Verification Request
   // does not reopen title and description, only story and cover image stay
@@ -252,6 +283,20 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // PROVIDER_WITHDRAWAL_INVALID: a field left blank or too long, not a
   // policy the request has no way to satisfy, so 400 rather than 422.
   PAYOUT_PROOF_INVALID: 400,
+  // completeRefund's own twin of PAYOUT_PROOF_INVALID, same reasoning, same
+  // status: the Admin fixes it by filling the reference or note field named.
+  REFUND_PROOF_INVALID: 400,
+  // The Donor destination an Admin typed at approval (Q7(c): bank code,
+  // account name, account number -- moved here from completion): a field
+  // left blank or over length, the same shape as
+  // MANUAL_CONTRIBUTION_INVALID -- fixable by filling the form in properly,
+  // not a policy the request has no way to satisfy.
+  REFUND_DESTINATION_INVALID: 400,
+  // The completing Admin's re-typed account number does not match the one
+  // the approving Admin recorded (Q7(c)): a mistyped re-entry, fixable by
+  // re-reading the Donor's written request, not a policy refusal -- same
+  // status as REFUND_DESTINATION_INVALID.
+  REFUND_DESTINATION_MISMATCH: 400,
   INVALID_PAYOUT_STATUS: 409,
   INVALID_REFUND_STATUS: 409,
   PAYOUT_NOT_FOUND: 404,
@@ -263,6 +308,10 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // Campaign's Kind is what forbids the Refund, and no resend of the same
   // body changes that. 403 with the other policy refusals.
   REFUND_NOT_ALLOWED_FOR_KIND: 403,
+  // Both are states the request cannot change by being resent: the Donation
+  // was anonymised (ticket 36), or a Refund on it has not finished yet.
+  DONATION_ANONYMISED: 409,
+  ANONYMISATION_BLOCKED_BY_OPEN_REFUND: 409,
   MANUAL_CONTRIBUTION_NOT_FOUND: 404,
   // Unmet preconditions the Admin can fix by filling the form in properly,
   // like REFUND_EXCEEDS_REMAINING and DEADLINE_REQUIRED.
@@ -312,15 +361,42 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // Admin can fix it by choosing a registered provider, and no rule was
   // breached, only a name that names nothing.
   PROVIDER_NAME_UNKNOWN: 400,
+  CAMPAIGN_TRANSFER_NOT_FOUND: 404,
+  // A field left blank, too long, or an amount that is not whole rupiah:
+  // fixable by filling the form in properly, like MANUAL_CONTRIBUTION_INVALID.
+  CAMPAIGN_TRANSFER_INVALID: 400,
+  CAMPAIGN_TRANSFER_NOT_PENDING: 409,
+  CAMPAIGN_TRANSFER_BALANCE_CHANGED: 409,
+  // The Campaign's balance already moved to another Campaign by transfer: a
+  // conflict with its state, not a malformed request.
+  REFUND_AFTER_CAMPAIGN_TRANSFER: 409,
+  // Conflicts with the source's own state: it is not Suspended (or stopped
+  // being, between request and approval).
+  CAMPAIGN_TRANSFER_SOURCE_NOT_SUSPENDED: 409,
+  // Policy refusals that no resend of the same body changes, like
+  // REFUND_NOT_ALLOWED_FOR_KIND: 403. A cross-Kind transfer is refused
+  // outright, never warned about (PRD §7.2).
+  CAMPAIGN_TRANSFER_KIND_NOT_TRANSFERABLE: 403,
+  CAMPAIGN_TRANSFER_CROSS_KIND: 403,
+  CAMPAIGN_TRANSFER_CATEGORY_MISMATCH: 403,
+  // The target is a Demo Campaign, the source itself, or not Active.
+  CAMPAIGN_TRANSFER_TARGET_NOT_ELIGIBLE: 409,
   TRIP_NOT_FOUND: 404,
   TRIP_NOT_EDITABLE: 409,
   TRIP_NOT_SUBMITTED: 409,
+  // The Verifier can fix it by writing the reason, like MISSING_CAMPAIGN_UPDATE.
+  TRIP_REJECTION_REASON_INVALID: 422,
   TRIP_NOT_ACCEPTING_BATCHES: 400,
   BATCH_FIELDS_INVALID: 400,
+  BATCH_LOCKED_BY_REGISTRATIONS: 409,
+  BATCH_QUOTA_BELOW_SEATS: 422,
+  OWN_TRIP_REGISTRATION: 403,
   BATCH_NOT_FOUND: 404,
   BATCH_NOT_OPEN: 409,
   BATCH_MIN_QUOTA_MET: 400,
   BATCH_NOT_ENDED: 400,
+  // The Fundraiser (or the Volunteer) can fix it by filling the name in, then completing the Batch again.
+  CERTIFICATE_NAME_MISSING: 422,
   TRIP_NOT_TAKING_REGISTRATIONS: 400,
   BATCH_NOT_TAKING_REGISTRATIONS: 400,
   REGISTRATION_DEADLINE_PASSED: 400,
@@ -329,6 +405,9 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   REGISTRATION_NOT_FOUND: 404,
   REGISTRATION_NOT_CANCELLABLE: 400,
   BATCH_ALREADY_COMPLETED: 400,
+  TRIP_NOT_SUSPENDABLE: 409,
+  TRIP_NOT_SUSPENDED: 409,
+  TRIP_SUSPENSION_UNRECORDED: 409,
   PARTNER_ORGANISATION_INVALID: 400,
   PARTNER_ORGANISATION_NOT_FOUND: 404,
   FUNDRAISING_PERMIT_NOT_FOUND: 404,
@@ -358,6 +437,20 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // A Verifier tried to decide their own account (ADR 0018), the same shape
   // as OWN_CAMPAIGN_CONFLICT / OWN_TRIP_CONFLICT.
   OWN_BANK_ACCOUNT_CONFLICT: 403,
+  // Ticket 11: nothing to clear -- the account already has no verifiedAt,
+  // whether never verified or already revoked. A conflict with the
+  // account's own state, like BANK_ACCOUNT_ALREADY_VERIFIED.
+  BANK_ACCOUNT_NOT_REVOCABLE: 409,
+  // Ticket 11: nothing to restore -- the account's latest revoke/reinstate
+  // row is not a REVOKED one.
+  BANK_ACCOUNT_NOT_REINSTATABLE: 409,
+  // Ticket 11, owner decision (b): the Verifier who approved the account
+  // may not be the one who revokes it, the same shape as
+  // OWN_BANK_ACCOUNT_CONFLICT.
+  BANK_ACCOUNT_REVOKED_BY_APPROVER: 403,
+  // Ticket 11, owner decision (b): the Verifier who revoked the account may
+  // not be the one who reinstates it.
+  BANK_ACCOUNT_REINSTATED_BY_REVOKER: 403,
   // A malformed or missing `assignment` value, fixable by resending.
   ASSIGNMENT_INVALID: 400,
   // The grantee already holds this assignment; proposing or granting again

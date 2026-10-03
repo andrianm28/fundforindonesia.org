@@ -297,3 +297,98 @@ describe('a Google sign-in by an address with no account', () => {
     expect(DEFAULT_TOKEN(again.user).email).toBe('andi@email.com');
   });
 });
+
+// Ticket 47. The row stores the picture as `avatar`; next-auth builds the
+// token's `picture` (and so the session's `image`) from `user.image`. The
+// adapter is the one place that translates, and it returns one field, not two.
+describe('the picture on the user the adapter hands next-auth', () => {
+  const withAvatar = (avatar: string | null): Data => ({ ...sealedUser('u1', 'andi@email.com'), avatar });
+
+  it('arrives as `image` for an account that signs in through its linked Google identity', async () => {
+    const { client } = prismaDouble({
+      users: [withAvatar('https://example.test/stored.png')],
+      accounts: [{ userId: 'u1', ...GOOGLE_ACCOUNT }],
+    });
+
+    const { user } = await signInWithGoogle({ client });
+
+    expect(DEFAULT_TOKEN(user).picture).toBe('https://example.test/stored.png');
+    expect('avatar' in user).toBe(false);
+  });
+
+  it('arrives as `image` for a Donor created by the sign-in', async () => {
+    const { client } = prismaDouble();
+
+    const { user } = await signInWithGoogle({ client });
+
+    expect(DEFAULT_TOKEN(user).picture).toBe('https://example.test/andi.png');
+  });
+
+  it('is null, not a broken value, for an account with no picture', async () => {
+    const { client } = prismaDouble({
+      users: [withAvatar(null)],
+      accounts: [{ userId: 'u1', ...GOOGLE_ACCOUNT }],
+    });
+
+    const { user } = await signInWithGoogle({ client });
+
+    expect(DEFAULT_TOKEN(user).picture).toBeNull();
+  });
+
+  it('is mapped on every lookup, and written back as `avatar` by updateUser', async () => {
+    const { client, users } = prismaDouble({ users: [withAvatar('https://example.test/stored.png')] });
+    const adapter = buildAuthAdapter(client);
+
+    expect((await adapter.getUser!('u1'))?.image).toBe('https://example.test/stored.png');
+    expect((await adapter.getUserByEmail!('andi@email.com'))?.image).toBe('https://example.test/stored.png');
+
+    const updated = await adapter.updateUser!({ id: 'u1', image: 'https://example.test/new.png' });
+
+    expect(users[0]!.avatar).toBe('https://example.test/new.png');
+    expect(updated.image).toBe('https://example.test/new.png');
+    expect('avatar' in updated).toBe(false);
+  });
+
+  it('leaves the stored avatar alone when updateUser is not given an image', async () => {
+    const { client, users } = prismaDouble({ users: [withAvatar('https://example.test/stored.png')] });
+    const adapter = buildAuthAdapter(client);
+
+    const updated = await adapter.updateUser!({ id: 'u1', name: 'Andi B' });
+
+    expect(users[0]!.avatar).toBe('https://example.test/stored.png');
+    expect(users[0]!.name).toBe('Andi B');
+    expect(updated.image).toBe('https://example.test/stored.png');
+  });
+});
+
+describe('createUser through the adapter', () => {
+  it("maps NextAuth's `image` onto the row's `avatar`, and returns it as `image`", async () => {
+    const { client, users } = prismaDouble();
+
+    const created = await buildAuthAdapter(client).createUser!({
+      name: 'Andi',
+      email: 'andi@email.com',
+      emailVerified: null,
+      image: 'https://lh3.googleusercontent.com/a/new',
+    });
+
+    expect(users[0]!.avatar).toBe('https://lh3.googleusercontent.com/a/new');
+    expect('image' in users[0]!).toBe(false);
+    expect(created.image).toBe('https://lh3.googleusercontent.com/a/new');
+    expect('avatar' in created).toBe(false);
+  });
+
+  it('stores a null avatar when the sign-in carries no image', async () => {
+    const { client, users } = prismaDouble();
+
+    const created = await buildAuthAdapter(client).createUser!({
+      name: 'Andi',
+      email: 'andi@email.com',
+      emailVerified: null,
+      image: null,
+    });
+
+    expect(users[0]!.avatar).toBeNull();
+    expect(created.image).toBeNull();
+  });
+});

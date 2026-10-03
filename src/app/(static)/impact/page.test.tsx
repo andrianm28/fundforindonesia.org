@@ -21,13 +21,14 @@ import ImpactPage from './page';
 
 const CAMPAIGN = { id: 'campaign-1', title: 'Pemulihan Gudang', isDemo: false, location: 'Jawa Barat' };
 
-function settledOnly(): Partial<ImpactDbData> {
+function settledOnly(overrides: Partial<ImpactDbData> = {}): Partial<ImpactDbData> {
   const ledger = ledgerFixture();
   ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
   return {
     campaigns: [CAMPAIGN],
     payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
     ledgerEntries: ledger.rows,
+    ...overrides,
   };
 }
 
@@ -56,6 +57,11 @@ function renderedLine(label: string): number {
 function renderedName(key: string): string {
   const row = screen.getByTestId(`impact-line-${key}`).closest('tr');
   return row?.querySelector('th')?.textContent?.trim() ?? '';
+}
+
+/** The label printed in the heading cell beside a CSR figure. */
+function renderedLabelOf(testId: string): string {
+  return screen.getByTestId(testId).closest('[data-csr-line]')?.querySelector('[data-csr-label]')?.textContent ?? '';
 }
 
 beforeEach(() => {
@@ -259,6 +265,20 @@ describe('ImpactPage', () => {
     expect(screen.getAllByText(/Usage Report/).length).toBeGreaterThan(0);
   });
 
+  it('shows the beneficiaries summed from Usage Reports', async () => {
+    holder.db = makeImpactDb(
+      settledOnly({
+        payouts: [{ id: 'payout-1', campaignId: 'campaign-1', amount: 50_000, status: 'COMPLETED' }],
+        usageReports: [{ payoutId: 'payout-1', beneficiaryCount: 150 }],
+      }),
+    );
+
+    await renderPage();
+
+    expect(screen.getByTestId('impact-beneficiaries').textContent).toContain('150 orang');
+    expect(screen.queryByText(/belum ada satu pun Usage Report/)).toBeNull();
+  });
+
   it('filters by location, and says which location is being shown', async () => {
     const ledger = ledgerFixture();
     ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 0, platformFee: 0 });
@@ -326,5 +346,93 @@ describe('ImpactPage', () => {
     expect(screen.getByTestId('impact-does-not-reconcile')).toBeTruthy();
     expect(screen.queryByTestId('impact-collected')).toBeNull();
     expect(screen.queryAllByTestId(/^impact-line-/)).toHaveLength(0);
+  });
+
+  describe('the CSR block (csr-08)', () => {
+    const PROGRAM = { id: 'program-1', location: 'Jawa Barat', reportedAmount: 80_000_000 };
+
+    it('shows CSR as its own block with two labelled lines, never summed, and leaves the six lines alone', async () => {
+      const ledger = ledgerFixture();
+      ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+      ledger.programContribution({ manualContributionId: 'mc-1', programId: 'program-1', amount: 250_000_000 });
+      holder.db = makeImpactDb({
+        campaigns: [CAMPAIGN],
+        programs: [PROGRAM],
+        payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+        ledgerEntries: ledger.rows,
+      });
+
+      const { container } = await renderPage();
+
+      const inBooks = screen.getByTestId('impact-csr-in-books');
+      const outside = screen.getByTestId('impact-csr-off-books');
+      expect(inBooks.textContent).toContain('Rp250.000.000');
+      expect(outside.textContent).toContain('Rp80.000.000');
+      expect(renderedLabelOf('impact-csr-in-books')).toMatch(/di dalam pembukuan/i);
+      expect(renderedLabelOf('impact-csr-off-books')).toMatch(/di luar pembukuan/i);
+      // Still exactly six lines, still collected = their sum, CSR in neither.
+      expect(screen.getAllByTestId(/^impact-line-/)).toHaveLength(6);
+      expect(screen.getByTestId('impact-collected').textContent).toContain('Rp100.000');
+      expect(container.textContent).not.toContain('Rp330.000.000');
+      // The outside line says it is not reconciled against the ledger.
+      expect(screen.getByTestId('impact-csr-off-books-note').textContent).toMatch(/tidak.*(rekonsiliasi|buku besar)/i);
+    });
+
+    it('REGRESSION: reported-only CSR money is marked outside the books and the ledger has no entry for it', async () => {
+      holder.db = makeImpactDb({ programs: [PROGRAM] });
+
+      await renderPage();
+
+      expect(holder.db.data.ledgerEntries).toHaveLength(0);
+      expect(screen.getByTestId('impact-csr-in-books').textContent).toContain('Rp0');
+      expect(screen.getByTestId('impact-csr-off-books').textContent).toContain('Rp80.000.000');
+      expect(screen.getByTestId('impact-collected').textContent).toContain('Rp0');
+    });
+
+    it('hides ONLY the CSR block when the Program books do not reconcile: the six lines stay, with a replacement message', async () => {
+      const ledger = ledgerFixture();
+      ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+      ledger.raw([
+        { account: 'MANUAL_INTAKE_CLEARING', direction: 'DEBIT', amount: 500 },
+        { account: 'PROGRAM_BALANCE', direction: 'CREDIT', amount: 500, programId: 'program-1' },
+      ]);
+      holder.db = makeImpactDb({
+        campaigns: [CAMPAIGN],
+        programs: [PROGRAM],
+        payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+        ledgerEntries: ledger.rows,
+      });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await renderPage();
+
+      expect(screen.queryByTestId('impact-does-not-reconcile')).toBeNull();
+      expect(screen.getByTestId('impact-collected').textContent).toContain('Rp100.000');
+      expect(screen.getAllByTestId(/^impact-line-/)).toHaveLength(6);
+      expect(screen.queryByTestId('impact-csr-in-books')).toBeNull();
+      expect(screen.queryByTestId('impact-csr-off-books')).toBeNull();
+      expect(screen.getByTestId('impact-csr-unavailable').textContent).toMatch(/tidak dapat ditampilkan/i);
+    });
+
+    it('still hides everything when the six lines do not reconcile', async () => {
+      const ledger = ledgerFixture();
+      ledger.raw([
+        { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 500_000 },
+        { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 500_000, campaignId: 'campaign-1' },
+      ]);
+      ledger.payoutInstruction({ payoutId: 'payout-1', campaignId: 'campaign-1', amount: 500_000 });
+      holder.db = makeImpactDb({
+        campaigns: [CAMPAIGN],
+        programs: [PROGRAM],
+        payouts: [{ id: 'payout-1', campaignId: 'campaign-1', amount: 500_000, status: 'APPROVED' }],
+        ledgerEntries: ledger.rows,
+      });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await renderPage();
+
+      expect(screen.getByTestId('impact-does-not-reconcile')).toBeTruthy();
+      expect(screen.queryByTestId('impact-csr-unavailable')).toBeNull();
+    });
   });
 });

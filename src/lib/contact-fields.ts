@@ -58,6 +58,12 @@ const BANK_ACCOUNT_NUMBER: ContactField = {
   sealed: 'accountNumberCiphertext',
   keyId: 'accountNumberKeyId',
 };
+const REFUND_DONOR_ACCOUNT_NUMBER: ContactField = {
+  model: 'Refund',
+  column: 'donorAccountNumber',
+  sealed: 'donorAccountNumberCiphertext',
+  keyId: 'donorAccountNumberKeyId',
+};
 const GUEST_EMAIL: ContactField = {
   model: 'Donation',
   column: 'guestEmail',
@@ -193,6 +199,34 @@ export const SELECT_BANK_ACCOUNT_NUMBER = {
   accountNumberKeyId: true,
 } as const;
 
+// --- Refund (a Donor's destination account, recorded at approval) ------------
+
+/**
+ * The Donor's destination account (ticket 31; CONTEXT.md, Refund; ADR
+ * 0012): the same field encryption as BankAccount.accountNumber (same
+ * `seal`/`read` plumbing, same key material), sealed under its own AAD
+ * ("Refund.donorAccountNumber") so a ciphertext copied from one column to
+ * the other fails to decrypt rather than silently reading as the wrong
+ * donor's number. There is no saved BankAccount row for a Donor -- the
+ * approving Admin records the destination, and the completing Admin re-types
+ * the number to be compared (ADR 0018, Amendment 2026-09-28) -- so this is
+ * its own field, not a reuse of BankAccount's.
+ */
+export function sealRefundDonorAccountNumber(
+  accountNumber: string,
+): SealedRequired<'donorAccountNumberCiphertext', 'donorAccountNumberKeyId'> {
+  return seal(REFUND_DONOR_ACCOUNT_NUMBER, accountNumber) as ReturnType<typeof sealRefundDonorAccountNumber>;
+}
+export function readRefundDonorAccountNumber(
+  row: Sealed<'donorAccountNumberCiphertext', 'donorAccountNumberKeyId'>,
+): string | null {
+  return read(REFUND_DONOR_ACCOUNT_NUMBER, row);
+}
+export const SELECT_REFUND_DONOR_ACCOUNT_NUMBER = {
+  donorAccountNumberCiphertext: true,
+  donorAccountNumberKeyId: true,
+} as const;
+
 // --- Donation (a Guest Donor's contact details) --------------------------------
 
 export function sealDonationGuestEmail(
@@ -213,6 +247,31 @@ export function lookupDonationGuestEmail(email: string): Lookup<'guestEmailHmac'
   return lookup(GUEST_EMAIL, email) as Lookup<'guestEmailHmac', 'guestEmailHmacKeyId'>;
 }
 export const SELECT_DONATION_GUEST_EMAIL = { guestEmailCiphertext: true, guestEmailKeyId: true } as const;
+
+/**
+ * Every column a Guest Donor's identity lives in on a Donation, nulled: the
+ * plaintext name, the email HMAC and ciphertext, and the phone ciphertext,
+ * each with its key id (ticket 36, ADR 0012 Consequences). Kept beside the
+ * field table so a new guest column cannot be added without this seeing it;
+ * the anonymisation test asserts none survives.
+ */
+export const CLEAR_DONATION_GUEST_CONTACT = {
+  guestName: null,
+  [GUEST_EMAIL.lookup!]: null,
+  [GUEST_EMAIL.lookupKeyId!]: null,
+  [GUEST_EMAIL.sealed]: null,
+  [GUEST_EMAIL.keyId]: null,
+  [GUEST_PHONE.sealed]: null,
+  [GUEST_PHONE.keyId]: null,
+} as {
+  guestName: null;
+  guestEmailHmac: null;
+  guestEmailHmacKeyId: null;
+  guestEmailCiphertext: null;
+  guestEmailKeyId: null;
+  guestPhoneCiphertext: null;
+  guestPhoneKeyId: null;
+};
 
 // --- PartnershipInquiry (a company's named contact) ----------------------------
 

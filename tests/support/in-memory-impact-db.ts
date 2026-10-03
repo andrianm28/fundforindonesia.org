@@ -42,6 +42,14 @@ export type PaymentRow = {
   status?: string;
 };
 
+/** A CSR Program: only the columns the Impact reader touches (csr-08). */
+export type ProgramRow = {
+  id: string;
+  location?: string;
+  /** Off-books reported figure; no ledger entry stands behind it. */
+  reportedAmount?: number;
+};
+
 export type RefundRow = { id: string; paymentId: string };
 
 export type PayoutRow = {
@@ -49,6 +57,13 @@ export type PayoutRow = {
   campaignId?: string | null;
   amount: number;
   status: string;
+};
+
+export type UsageReportRow = {
+  payoutId: string;
+  beneficiaryCount: number;
+  /** An Admin's "dipertanyakan" marker; the report is still a report. */
+  disputedAt?: Date | null;
 };
 
 export type LedgerRow = {
@@ -118,9 +133,11 @@ function matches(row: Row, where: Row | undefined, resolve: (key: string) => unk
 
 export type ImpactDbData = {
   campaigns: CampaignRow[];
+  programs: ProgramRow[];
   payments: PaymentRow[];
   refunds: RefundRow[];
   payouts: PayoutRow[];
+  usageReports: UsageReportRow[];
   ledgerEntries: LedgerRow[];
 };
 
@@ -272,6 +289,20 @@ export function ledgerFixture() {
         { manualContributionId: opts.manualContributionId },
       );
     },
+    /** Money an Admin recorded as arriving outside the gateway, into a Program (PROGRAM_BALANCE). */
+    programContribution(opts: { manualContributionId: string; programId: string; amount: number }) {
+      post(
+        manualContributionReceivedLegs({ subject: { type: 'program', programId: opts.programId }, amount: opts.amount }),
+        { manualContributionId: opts.manualContributionId },
+      );
+    },
+    /** A Program-targeted Manual Contribution taken back out again. */
+    programContributionReversal(opts: { manualContributionId: string; programId: string; amount: number }) {
+      post(
+        manualContributionReversedLegs({ subject: { type: 'program', programId: opts.programId }, amount: opts.amount }),
+        { manualContributionId: opts.manualContributionId },
+      );
+    },
     /** The same money taken back out again, on a new transaction. */
     manualContributionReversal(opts: { manualContributionId: string; campaignId: string; amount: number }) {
       post(
@@ -288,9 +319,11 @@ export function ledgerFixture() {
 export function makeImpactDb(overrides: Partial<ImpactDbData> = {}) {
   const data: ImpactDbData = {
     campaigns: [],
+    programs: [],
     payments: [],
     refunds: [],
     payouts: [],
+    usageReports: [],
     ledgerEntries: [],
     ...overrides,
   };
@@ -314,6 +347,12 @@ export function makeImpactDb(overrides: Partial<ImpactDbData> = {}) {
           .map((c) => ({ ...c, isDemo: c.isDemo ?? false, location: c.location ?? null }))
           .filter((c) => matches(c as Row, args.where, (key) => (c as Row)[key])),
     },
+    program: {
+      findMany: async (args: { where?: Row } = {}) =>
+        data.programs
+          .map((p) => ({ ...p, location: p.location ?? '', reportedAmount: p.reportedAmount ?? 0 }))
+          .filter((p) => matches(p as Row, args.where, (key) => (p as Row)[key])),
+    },
     payment: {
       findMany: async (args: { where?: Row } = {}) => {
         const resolved = data.payments.map(paymentRow);
@@ -332,6 +371,17 @@ export function makeImpactDb(overrides: Partial<ImpactDbData> = {}) {
     payout: {
       findMany: async (args: { where?: Row } = {}) =>
         data.payouts.filter((p) => matches(p as Row, args.where, (key) => (p as Row)[key])),
+    },
+    usageReport: {
+      // Only the aggregate the Impact reader asks for: the sum of
+      // beneficiaryCount and the number of reports behind it.
+      aggregate: async (args: { where?: Row } = {}) => {
+        const rows = data.usageReports.filter((r) => matches(r as Row, args.where, (key) => (r as Row)[key]));
+        return {
+          _count: { _all: rows.length },
+          _sum: { beneficiaryCount: rows.length === 0 ? null : rows.reduce((t, r) => t + r.beneficiaryCount, 0) },
+        };
+      },
     },
     ledgerEntry: {
       groupBy: ledgerGroupBy(data.ledgerEntries, {

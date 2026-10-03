@@ -98,6 +98,12 @@ import { join } from "node:path";
  * The Active Campaign limit itself is enforced in the lifecycle module
  * (campaign-lifecycle.ts), which is a Capacity judgement, not a route gate.
  *
+ * NOTE (prd-compliance 39): POST /api/admin/payment-providers lets an Admin
+ * choose which Payment Provider takes new charges and through which methods,
+ * through withAssignmentCheck on the ADMIN assignment like every other Admin
+ * setting here -- growing this list by one. It carries no credential; those are
+ * environment variables only.
+ *
  * NOTE (csr-04): the Program edit was keyed by id when csr-01 landed, and the
  * public portfolio read needed the same segment for the slug a public link can
  * carry. Next.js allows one dynamic segment per level, so the segment is the
@@ -112,6 +118,12 @@ import { join } from "node:path";
  * withAssignmentCheck on the ADMIN assignment, like every other Admin money
  * action here. Growing this list by one.
  *
+ * NOTE (ticket 31): adds
+ * `POST /api/campaigns/[slug]/refunds/[id]/complete` and
+ * `POST /api/volunteer-trips/[slug]/refunds/[id]/complete`, the third Admin
+ * of the Refund two-person rule recording the transfer proof -- both
+ * Admin-only on both ends, growing this list from thirteen to fifteen.
+ *
  * NOTE (prd-compliance 35): `POST /api/admin/provider-withdrawals` records the
  * platform's own money moving from a payment provider to a Collection Account,
  * which is in the Admin's remit on the same grounds as a Payout approval and a
@@ -120,6 +132,17 @@ import { join } from "node:path";
  * goes to a bank account of a named entity rather than to a person, so there is
  * no individual for a second pair of hands to protect it from. Whether that is
  * the right call is the owner's, and it is raised in the ticket's Comments.
+ *
+ * NOTE (ticket 11): `POST /api/moderasi/bank-account-revocations/[id]` lets a
+ * Verifier revoke or reinstate a Bank Account's verification, through
+ * withAssignmentCheck on the VERIFIER assignment like the decide route above
+ * -- growing this list by one.
+ *
+ * NOTE (prd-compliance 33): `POST /api/admin/campaign-transfers` and
+ * `POST /api/admin/campaign-transfers/[id]/decision` request and decide a
+ * Campaign Transfer (a Suspended zakat or wakaf Campaign's money moving to a
+ * Campaign of the same Kind), both on the ADMIN assignment alone, on the same
+ * two-person rule as Manual Contribution -- growing this list by two.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -128,11 +151,14 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/abuse-thresholds/route.ts",
   "src/app/api/admin/assignment-grant-requests/[requestId]/decision/route.ts",
   "src/app/api/admin/assignment-grant-requests/route.ts",
+  "src/app/api/admin/campaign-transfers/[id]/decision/route.ts",
+  "src/app/api/admin/campaign-transfers/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
   "src/app/api/admin/manual-contributions/route.ts",
   "src/app/api/admin/partnership-inquiries/[id]/route.ts",
   "src/app/api/admin/partnership-inquiries/route.ts",
+  "src/app/api/admin/payment-providers/route.ts",
   "src/app/api/admin/payouts/[id]/balance-check/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/provider-withdrawals/route.ts",
@@ -144,7 +170,9 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/campaigns/[slug]/payouts/[id]/complete/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/usage-report/route.ts",
   "src/app/api/campaigns/[slug]/refunds/[id]/approve/route.ts",
+  "src/app/api/campaigns/[slug]/refunds/[id]/complete/route.ts",
   "src/app/api/campaigns/[slug]/refunds/route.ts",
+  "src/app/api/moderasi/bank-account-revocations/[id]/route.ts",
   "src/app/api/moderasi/bank-accounts/[requestId]/route.ts",
   "src/app/api/moderasi/bank-accounts/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
@@ -154,9 +182,13 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/volunteer-trips/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/volunteer-trips/[slug]/payouts/[id]/complete/route.ts",
   "src/app/api/volunteer-trips/[slug]/refunds/[id]/approve/route.ts",
+  "src/app/api/volunteer-trips/[slug]/refunds/[id]/complete/route.ts",
+  "src/app/moderasi/kind-authorisations/page.tsx",
   "src/app/moderasi/layout.tsx",
   "src/app/moderasi/page.tsx",
   "src/app/moderasi/rekening/page.tsx",
+  "src/app/moderasi/volunteer-trips/[id]/page.tsx",
+  "src/app/moderasi/volunteer-trips/page.tsx",
   // Not a route: the Capacity judgement, which the lifecycle module, the
   // money operations and Trip moderation ask, because "owner or Admin" and
   // "never Admin on your own Campaign or Trip" are not single-assignment

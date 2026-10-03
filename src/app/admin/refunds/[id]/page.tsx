@@ -4,7 +4,10 @@ import { getServerSession } from '@/lib/auth';
 import { formatRupiah } from '@/lib/utils/currency';
 import { loadRefundSubject } from '@/lib/refund-subject-lookup';
 import { REFUND_STATUS_LABEL } from '@/lib/refund-status-label';
+import { readRefundDonorAccountNumber } from '@/lib/contact-fields';
+import { maskBankAccountNumber } from '@/lib/bank-account-mask';
 import { AdminRefundApproveForm } from '@/components/admin/AdminRefundApproveForm';
+import { AdminRefundCompleteForm } from '@/components/admin/AdminRefundCompleteForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,8 +26,19 @@ type RouteContext = { params: Promise<{ id: string }> };
  * single lookup -- the same shape the queue page repeats for many rows.
  *
  * STATUS DECIDES THE FORM, NOT A ROLE CHECK HERE. REQUESTED gets the
- * approve form (which itself refuses the requester); anything else
- * (APPROVED and, later, the rest of the machine) gets a read-only summary.
+ * approve form (which itself refuses the requester); APPROVED gets the
+ * complete form (ticket 31, which itself refuses both the requester and
+ * the approver); anything else (COMPLETED and, later, the rest of the
+ * machine) gets a read-only summary.
+ *
+ * THE RECORDED DESTINATION IS SHOWN MASKED, NEVER IN FULL (Q7(c), ADR
+ * 0018 Amendment 2026-09-28): once an Admin has approved and recorded the
+ * Donor's destination, this page shows the bank code and account name
+ * plaintext (as CONTEXT.md, Bank Account already does for a Fundraiser's
+ * saved account) but only the account number's masked tail
+ * (maskBankAccountNumber, @/lib/bank-account-mask.ts) -- the completing
+ * Admin re-types the number from the Donor's own written request, not from
+ * this screen.
  */
 export default async function AdminRefundDetailPage({ params }: RouteContext) {
   const { id } = await params;
@@ -37,6 +51,7 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
     include: {
       requestedBy: { select: { name: true } },
       approvedBy: { select: { name: true } },
+      completedBy: { select: { name: true } },
       payment: {
         select: {
           amount: true,
@@ -54,6 +69,19 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
   if (!subject) {
     notFound();
   }
+
+  // Decrypted only to mask (Q7(c)): the full number is never handed to the
+  // page's render, only the tail maskBankAccountNumber leaves visible.
+  const recordedAccountNumber = readRefundDonorAccountNumber({
+    donorAccountNumberCiphertext: refund.donorAccountNumberCiphertext,
+    donorAccountNumberKeyId: refund.donorAccountNumberKeyId,
+  });
+  const maskedDonorAccountNumber = recordedAccountNumber ? maskBankAccountNumber(recordedAccountNumber) : null;
+
+  const proofSeparator = ' — ';
+  const proofAt = refund.proofImage ? refund.proofImage.indexOf(proofSeparator) : -1;
+  const proofReference = proofAt > 0 && refund.proofImage ? refund.proofImage.slice(0, proofAt) : null;
+  const proofNote = proofAt > 0 && refund.proofImage ? refund.proofImage.slice(proofAt + proofSeparator.length) : null;
 
   return (
     <div className="max-w-2xl">
@@ -82,19 +110,73 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
             <p className="text-sm font-medium text-gray-900">{refund.approvedBy?.name}</p>
           </div>
         )}
+
+        {refund.completedById && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
+            <p className="text-xs text-gray-500">Diselesaikan oleh</p>
+            <p className="text-sm font-medium text-gray-900">{refund.completedBy?.name}</p>
+            {refund.proofImage && (
+              <>
+                {/* Stored as one string by buildProofImage ("reference — note");
+                    shown as plain text, never as a link or image source. */}
+                {proofReference ? (
+                  <>
+                    <p className="mt-1 text-xs text-gray-500">Referensi transaksi</p>
+                    <p className="text-sm text-gray-900">{proofReference}</p>
+                    <p className="mt-1 text-xs text-gray-500">Catatan</p>
+                    <p className="text-sm text-gray-900">{proofNote}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-xs text-gray-500">Bukti transfer</p>
+                    <p className="text-sm text-gray-900">{refund.proofImage}</p>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {refund.donorBankCode && refund.donorAccountName && maskedDonorAccountNumber && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
+            <p className="text-xs text-gray-500">Rekening tujuan Donor (dicatat saat persetujuan)</p>
+            <p className="text-sm font-medium text-gray-900">
+              {refund.donorBankCode} -- {refund.donorAccountName} -- {maskedDonorAccountNumber}
+            </p>
+          </div>
+        )}
       </div>
 
       {refund.status === 'REQUESTED' && (
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-semibold text-gray-900">Tindakan</h2>
           <p className="mb-3 text-xs text-gray-500">
-            Aturan dua orang (CONTEXT.md, Refund): Admin yang menyetujui harus berbeda dari yang mengajukan.
+            Aturan dua orang: Admin yang menyetujui harus berbeda dari yang mengajukan.
           </p>
           <AdminRefundApproveForm
             refundId={refund.id}
             subject={{ type: subject.type, slug: subject.slug }}
             actorId={actorId}
             requestedById={refund.requestedById}
+          />
+        </div>
+      )}
+
+      {refund.status === 'APPROVED' && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <h2 className="mb-3 text-sm font-semibold text-gray-900">Tandai selesai</h2>
+          <p className="mb-3 text-xs text-gray-500">
+            Aturan dua orang: Admin yang menyelesaikan harus berbeda dari yang
+            mengajukan maupun yang menyetujui, dan mentransfer dana secara manual ke rekening Donor -- yang sudah
+            dicatat Admin yang menyetujui -- sebelum mengetik ulang nomor rekening dan mencatat bukti transfer di
+            sini.
+          </p>
+          <AdminRefundCompleteForm
+            refundId={refund.id}
+            subject={{ type: subject.type, slug: subject.slug }}
+            actorId={actorId}
+            requestedById={refund.requestedById}
+            approvedById={refund.approvedById}
           />
         </div>
       )}

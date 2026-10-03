@@ -36,6 +36,13 @@ export function AppShell({ children }: AppShellProps) {
   const { data: session } = useSession();
   const { unreadCount } = useUnreadCount();
   const activeTab = getActiveTab(pathname);
+  // /admin and /moderasi layouts render their own <main>; a second one here
+  // would nest landmarks (UAT round 1), so this wrapper steps down to a div.
+  const ownsMain = pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname === '/moderasi' ||
+    pathname.startsWith('/moderasi/');
+  const Content = ownsMain ? 'div' : 'main';
 
   // Map session user to the User shape expected by DesktopHeader
   const user: User | null = session?.user
@@ -60,11 +67,11 @@ export function AppShell({ children }: AppShellProps) {
       <DesktopHeader user={user} notificationCount={unreadCount} onSearch={handleSearch} />
 
       {/* Main content area with padding for fixed navigation */}
-      <main className="pb-16 lg:pb-0 lg:pt-16">
+      <Content className="pb-16 lg:pb-0 lg:pt-16">
         <PageTransition direction="up">
           {children}
         </PageTransition>
-      </main>
+      </Content>
 
       {/* Bottom Nav - visible on mobile/tablet, hidden on lg+ */}
       <BottomNavBar activeTab={activeTab} unreadCount={unreadCount} />

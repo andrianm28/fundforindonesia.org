@@ -18,6 +18,7 @@ export function Footer() {
             <ul className="space-y-1 text-text-secondary">
               <li><Link href="/about" className="hover:text-primary">Tentang Kami</Link></li>
               <li><Link href="/impact" className="hover:text-primary">Impact &amp; Transparansi</Link></li>
+              <li><Link href="/volunteer-trip" className="hover:text-primary">Volunteer</Link></li>
               <li><Link href="/careers" className="hover:text-primary">Karir</Link></li>
               <li><Link href="/press" className="hover:text-primary">Media</Link></li>
             </ul>
@@ -53,7 +54,7 @@ export function Footer() {
           </div>
         </div>
         <div className="border-t border-border mt-6 pt-4 text-center text-xs text-text-secondary">
-          © 2024 Fund for Indonesia. Semua hak dilindungi undang-undang.
+          © {new Date().getFullYear()} Fund for Indonesia. Semua hak dilindungi undang-undang.
         </div>
       </div>
     </footer>
