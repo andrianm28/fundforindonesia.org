@@ -4,12 +4,13 @@
 
 **Blocked by:** 16
 
-**Status:** awaiting-merge
+**Status:** done (PR #172, ae8394a)
 
 - [x] Name, email and phone are anonymised on request, including the HMAC and ciphertext
 - [x] Amounts and ledger entries are untouched
 - [x] A Guest Donor requests it from a link in their Receipt; a registered user from account settings
 - [x] An anonymised Donation can no longer be refunded through the system, and says so
+- [x] Email guesses on the Guest Receipt route are rate limited (5 per hour per token + client, 429, fail-open)
 
 ## Comments
 
@@ -34,3 +35,5 @@
 
 - 2026-10-02: awaiting-merge. PR #172, commit 0fe8a2f. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
 - 2026-10-02: keputusan owner untuk ADR 0023 (e), Accepted: tautan Receipt hanya menganonimkan Donation Receipt itu sendiri dan Guest wajib mengetik email donasi (HMAC dibandingkan constant-time; tanpa email 400, salah 403); Donation lain dengan email sama tetap utuh. Migrasi diganti nama jadi `20261002190000_donation_anonymised_at`. Status tetap awaiting-merge.
+- 2026-10-02: merge ke main sebagai ae8394a (#172).
+- 2026-10-02: owner menyetujui keputusan (a)-(d) ADR 0023; seluruh ADR kini Accepted. Itu mencakup keputusan ADR tentang apa yang dihapus dan apa yang disimpan; butir 1-5 di atas (tautan akun pengguna, blokir Refund terbuka, tujuan Refund selesai, pesan dan doa, cakupan Guest) tetap sebagaimana tertulis.

@@ -4,6 +4,9 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // Native addon (ADR 0019): keep it out of the webpack bundle so Node loads the
+  // prebuilt .node binary at runtime; Next's standalone trace still copies it.
+  serverExternalPackages: ['@node-rs/bcrypt'],
   // The image optimizer stays off (ci-cd-github-actions ticket 15 upgraded
   // Next past the release that fixed GHSA-2xp9-vwfh-vxw4, an AVIF-triggered
   // RCE in Next 14.2.35's optimizer, but turning the optimizer back on is a

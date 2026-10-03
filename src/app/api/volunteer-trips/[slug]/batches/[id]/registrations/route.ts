@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
+import { PaymentProviderNotConfiguredError } from '@/lib/payments';
+import { resolveActivePaymentProvider } from '@/lib/payments/active-provider';
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
 import { safePaymentLink } from '@/lib/payments/payment-link';
 import { PROVIDER_METHOD_FOR } from '@/lib/volunteer/payment-method';
@@ -77,8 +78,9 @@ export async function POST(
     }
 
     let provider;
+    let enabledMethods;
     try {
-      provider = getPaymentProvider();
+      ({ provider, enabledMethods } = await resolveActivePaymentProvider(prisma));
     } catch (err) {
       if (err instanceof PaymentProviderNotConfiguredError) {
         return NextResponse.json(
@@ -93,7 +95,7 @@ export async function POST(
     // charge abandoned at the provider because this platform rejected the
     // method afterwards is a live payment link nobody expects money from.
     const wantedMethod = PROVIDER_METHOD_FOR[result.data.paymentMethod];
-    if (wantedMethod !== provider.method) {
+    if (!enabledMethods.includes(wantedMethod)) {
       return NextResponse.json(
         { error: 'Metode pembayaran ini belum tersedia. Silakan pilih metode lain.' },
         { status: 503 },
@@ -136,6 +138,7 @@ export async function POST(
         orderId: registration.id,
         grossAmount: tripFeeAmount,
         currency: 'IDR',
+        method: wantedMethod,
       });
     } catch (err) {
       console.error(`[registrations] charge failed for registration ${registration.id}: ${sanitizeError(err)}`);
@@ -148,9 +151,9 @@ export async function POST(
     // Narrowed against what the provider declared, not cast -- a provider
     // answering with a shape this route did not prepare for must fail
     // loudly rather than write a Payment with no way to pay it.
-    if (charge.method !== provider.method) {
+    if (charge.method !== wantedMethod) {
       console.error(
-        `[registrations] provider ${providerName} declared ${provider.method} but charged ${charge.method} for registration ${registration.id}`,
+        `[registrations] provider ${providerName} was asked for ${wantedMethod} but charged ${charge.method} for registration ${registration.id}`,
       );
       return NextResponse.json(
         { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
@@ -217,7 +220,14 @@ export async function POST(
     const paymentInstructions =
       charge.method === 'qris_redirect'
         ? { type: 'qris' as const, redirectUrl, expiresAt: charge.expiresAt }
-        : { type: 'bank_transfer' as const, vaNumber: charge.vaNumber, expiresAt: charge.expiresAt };
+        : charge.method === 'bank_transfer_va'
+          ? { type: 'bank_transfer' as const, vaNumber: charge.vaNumber, expiresAt: charge.expiresAt }
+          : null;
+    // Trip Fee offers QRIS and bank transfer only (RegistrationPaymentMethod),
+    // so wantedMethod can never be an e-wallet and this cannot happen; it is
+    // narrowed rather than cast so the day a method is added it does not
+    // silently fall into the VA branch.
+    if (!paymentInstructions) throw new Error(`Unexpected Trip Fee charge method ${charge.method}`);
 
     return NextResponse.json(
       {

@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
+import { PaymentProviderNotConfiguredError } from '@/lib/payments';
+import { resolveActivePaymentProvider } from '@/lib/payments/active-provider';
 import {
   donationsEnabled,
   sandboxInProductionReason,
@@ -12,7 +13,7 @@ import { campaignAcceptsDonations, donationBlock } from '@/lib/campaign-lifecycl
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
 import { chargeDonation } from '@/lib/money/donation-charge';
-import { PROVIDER_METHOD_FOR, type DonationPaymentMethod } from '@/lib/money/payment-method-map';
+import { PROVIDER_METHOD_FOR, paymentInstructionsFor, type DonationPaymentMethod } from '@/lib/money/payment-method-map';
 
 /**
  * A Donor retries payment on a Donation whose last attempt did not go
@@ -150,8 +151,9 @@ export async function POST(
     }
 
     let provider;
+    let enabledMethods;
     try {
-      provider = getPaymentProvider();
+      ({ provider, enabledMethods } = await resolveActivePaymentProvider(prisma));
     } catch (err) {
       if (err instanceof PaymentProviderNotConfiguredError) {
         return NextResponse.json(
@@ -163,7 +165,7 @@ export async function POST(
     }
 
     const wantedMethod = PROVIDER_METHOD_FOR[donation.paymentMethod as DonationPaymentMethod];
-    if (!wantedMethod || wantedMethod !== provider.method) {
+    if (!wantedMethod || !enabledMethods.includes(wantedMethod)) {
       return NextResponse.json(
         { error: 'Metode pembayaran ini belum tersedia. Silakan pilih metode lain.' },
         { status: 503 },
@@ -199,10 +201,7 @@ export async function POST(
     }
 
     const charge = charged.charge;
-    const paymentInstructions =
-      charge.method === 'qris_redirect'
-        ? { type: 'qris' as const, redirectUrl: charge.redirectUrl, expiresAt: charge.expiresAt }
-        : { type: 'bank_transfer' as const, vaNumber: charge.vaNumber, expiresAt: charge.expiresAt };
+    const paymentInstructions = paymentInstructionsFor(charge);
 
     return NextResponse.json(
       {

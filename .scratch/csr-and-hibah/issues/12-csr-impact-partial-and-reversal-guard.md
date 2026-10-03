@@ -5,7 +5,7 @@
 
 **Blocked by:** none (07 and 08 are `done`)
 
-**Status:** awaiting-merge
+**Status:** done (PR #188, 9a131c6)
 
 ## Decisions
 
@@ -49,3 +49,4 @@
   ticket adds (equal balance, over-balance, lock, lost claim). There is no
   integration-test infrastructure, so the race is covered at the unit level.
 - 2026-10-02: awaiting-merge. PR #188.
+- 2026-10-02: merge ke main sebagai 9a131c6 (#188).
