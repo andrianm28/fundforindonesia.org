@@ -740,11 +740,11 @@ export class CampaignTransferSourceNotSuspendedError extends MoneyError {
   }
 }
 
-/** Only zakat and wakaf money is moved by transfer; Donation and Hibah follow their own rule. */
+/** Only zakat, wakaf and hibah money is moved by transfer; Donation follows its own rule. */
 export class CampaignTransferKindNotTransferableError extends MoneyError {
   readonly code = 'CAMPAIGN_TRANSFER_KIND_NOT_TRANSFERABLE';
   constructor(readonly sourceKind: Kind) {
-    super(`Campaign ber-Kind ${KIND_LABEL[sourceKind]} tidak memakai Campaign Transfer; hanya Zakat dan Wakaf.`);
+    super(`Campaign ber-Kind ${KIND_LABEL[sourceKind]} tidak memakai Campaign Transfer; hanya Zakat, Wakaf, dan Hibah.`);
     this.name = 'CampaignTransferKindNotTransferableError';
   }
 }

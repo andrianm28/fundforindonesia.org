@@ -2,7 +2,7 @@ import { escapeHtml } from './escape-html';
 import type { MailMessage } from './types';
 
 /**
- * What a Donor of a Suspended zakat or wakaf Campaign is told once its money
+ * What a Donor of a Suspended zakat, wakaf or hibah Campaign is told once its money
  * has been moved to another Campaign (CONTEXT.md, Campaign Transfer; PRD
  * §7.2): where it went, because it was not returned to them.
  */
@@ -11,6 +11,8 @@ export type CampaignTransferEmailInput = {
   sourceTitle: string;
   targetTitle: string;
   targetUrl: string;
+  /** The Kind's name as screens show it (Zakat, Wakaf, Hibah); both Campaigns share it. */
+  kindLabel: string;
 };
 
 function oneLine(value: string): string {
@@ -21,7 +23,7 @@ export function campaignTransferEmail(input: CampaignTransferEmailInput): MailMe
   const subject = `Dana Campaign "${oneLine(input.sourceTitle)}" dialihkan`;
   const body = [
     `Campaign "${input.sourceTitle}" yang Anda dukung sedang Suspended.`,
-    `Sesuai ketentuan untuk dana Zakat dan Wakaf, dana yang terkumpul tidak dikembalikan, ` +
+    `Sesuai ketentuan untuk dana ${input.kindLabel}, dana yang terkumpul tidak dikembalikan, ` +
       `melainkan dialihkan ke Campaign "${input.targetTitle}" dengan Kind yang sama.`,
     'Anda dapat melihat Campaign tujuan di tautan ini:',
   ];
