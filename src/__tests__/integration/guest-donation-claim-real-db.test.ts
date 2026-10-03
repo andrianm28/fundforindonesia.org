@@ -168,6 +168,17 @@ describe.skipIf(!DATABASE_URL)('Guest Donor claim -- against real Postgres (prd-
     expect(await donorOf(newKey)).toBe(rotated);
   });
 
+  it('never claims a Donation marked anonymisedAt, even if its HMAC still matches', async () => {
+    const accountE = await makeUser('e', { hmac: 'hmac-e', verified: true });
+    const anonymised = await makeGuestDonation('e-anon', 'hmac-e');
+    const live = await makeGuestDonation('e-live', 'hmac-e');
+    await prisma.donation.update({ where: { id: anonymised }, data: { anonymisedAt: new Date('2026-10-02T00:00:00Z') } });
+
+    expect(await claimGuestDonations(accountE)).toEqual({ verified: true, claimed: 1 });
+    expect(await donorOf(anonymised)).toBeNull();
+    expect(await donorOf(live)).toBe(accountE);
+  });
+
   it('never claims a Donation whose HMAC was cleared (the anonymised shape, PR #172)', async () => {
     const accountD = await makeUser('d', { hmac: 'hmac-d', verified: true });
     const cleared = await makeGuestDonation('d-cleared', null);
