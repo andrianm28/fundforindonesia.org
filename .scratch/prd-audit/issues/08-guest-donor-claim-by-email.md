@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** ready-for-agent
+**Status:** done (PR #186, 7aed972)
 
 **Blocked by:** —
 
@@ -41,3 +41,5 @@ akunnya setelah verifikasi.
         dan idempoten; Donation ber-akun, teranonimkan, atau key id lama tidak disentuh
   - [ ] Riwayat Donasi akun menampilkan Donation yang sudah diklaim
   - [ ] Tes di seam route dan satu tes Postgres sungguhan
+
+- 2026-10-03 (owner memilih menutup): klaim sudah berjalan sejak prd-compliance 23 (PR #186). Saat email akun terverifikasi lewat tautan konfirmasi, Donation Guest dengan HMAC email yang sama ditautkan ke akun (`src/lib/guest-donation-claim.ts`). Tautan konfirmasi itu sudah membuktikan kepemilikan email, jadi jalur tautan kedua tidak dibuat; branch `claude/prd-audit-08-guest-claim-by-email` tidak di-merge.
