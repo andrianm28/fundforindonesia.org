@@ -4,7 +4,7 @@
 
 **Blocked by:** 42
 
-**Status:** awaiting-merge
+**Status:** done (PR #190, 2ca8c0c)
 
 - [x] The admin user list or detail view shows each user's current assignments (Verifier, Admin), not just their Role
 - [x] An Admin can grant or revoke a specific assignment from this view, calling ticket 42's API
@@ -24,3 +24,4 @@
   `GET /api/moderasi/bank-accounts` (sebelumnya 200), Admin yang di-revoke mendapat 403 di
   `GET /api/admin/users/[id]/assignments` (sebelumnya 200), dan user dengan dua assignment hanya kehilangan yang
   di-revoke.
+- 2026-10-03: done. Merge ke main sebagai 2ca8c0c.

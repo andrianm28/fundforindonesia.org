@@ -4,7 +4,7 @@
 
 **Blocked by:** 11, 32 (30 dilepas, lihat Comments)
 
-**Status:** awaiting-merge
+**Status:** done (PR #191, bac072b)
 
 - [x] Zakat and wakaf are not refundable by management decision, only on technical failure: wrong payment, double payment, or money arriving after closure
 - [x] A suspended zakat or wakaf Campaign transfers its funds to another Campaign of the same Kind, and for wakaf the same category
@@ -126,3 +126,4 @@
   shortfall; sama bila kekurangan disebabkan Refund lain yang masih REQUESTED.
   Tidak ada uang yang hilang; Admin menangani kasus itu secara manual, dan
   penyempitan aturan menjadi tiket lanjutan.
+- 2026-10-03: done. Merge ke main sebagai bac072b.
