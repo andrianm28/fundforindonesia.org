@@ -15,4 +15,12 @@
 
 ## Comments
 
-- 2026-10-02, branch `claude/prd-44-assignment-audit`: AC 1, 2, 4 already held on main (`src/app/admin/users/page.test.tsx`: shows assignments, grants/revokes through the assignments route, alert-on-error pattern). AC 3 added: `GET /api/admin/users/[id]/assignments` (ADMIN via `withAssignmentCheck`, already registered in `roles-expand-guard.test.ts`) returns `assignmentAuditTrail()` from `src/lib/assignments.ts`, newest first (`actedAt desc`; who = `actedByName`, when = `actedAt`). The page has a per-row "Riwayat" toggle that loads it lazily (spinner, alert on error, empty state). Tests: route (401, 403 for Verifier, order and fields), service, page. Keputusan untuk owner: urutan terbaru-dulu dipilih; ubah ke `asc` bila diinginkan kronologis naik.
+- 2026-10-02, branch `claude/prd-44-assignment-audit`: AC 1, 2, 4 already held on main (`src/app/admin/users/page.test.tsx`: shows assignments, grants/revokes through the assignments route, alert-on-error pattern). AC 3 added: `GET /api/admin/users/[id]/assignments` (ADMIN via `withAssignmentCheck`, already registered in `roles-expand-guard.test.ts`) returns `assignmentAuditTrail()` from `src/lib/assignments.ts`, newest first (`actedAt desc`; who = `actedByName`, when = `actedAt`). The page has a per-row "Riwayat" toggle that loads it lazily (spinner, alert on error, empty state). Tests: route (401, 403 for Verifier, order and fields), service, page. Keputusan owner 2026-10-03: urutan terbaru-dulu (`actedAt desc`) tetap, tidak diubah.
+- 2026-10-03, branch `claude/prd-44-assignment-audit`: ditambah tes revoke lalu 403 lewat seam publik,
+  `src/app/api/admin/users/[id]/assignments/revoke-takes-effect.test.ts` (membuktikan AC 3 tiket 42, yang kini
+  `wontfix`). `DELETE /api/admin/users/[id]/assignments` yang asli menulis ke tabel `UserAssignment` in-memory;
+  `getServerSession` menjalankan callback `jwt` dan `session` asli dari `authOptions` (pembacaan assignment segar
+  tiap request) dengan token login lama yang tidak dibangun ulang. Hasil: Verifier yang di-revoke mendapat 403 di
+  `GET /api/moderasi/bank-accounts` (sebelumnya 200), Admin yang di-revoke mendapat 403 di
+  `GET /api/admin/users/[id]/assignments` (sebelumnya 200), dan user dengan dua assignment hanya kehilangan yang
+  di-revoke.

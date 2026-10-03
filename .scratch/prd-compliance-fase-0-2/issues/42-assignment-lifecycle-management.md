@@ -4,7 +4,7 @@
 
 **Blocked by:** 6
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 - [ ] An Admin can grant a specific assignment (Verifier, Admin) to a user as its own action, independent of changing their Role
 - [ ] An Admin can revoke a specific assignment from a user as its own action, independent of changing their Role
@@ -29,3 +29,9 @@
   - AC 6 tanpa two-person rule: BERTENTANGAN dengan implementasi; ADMIN grant sengaja dua-orang (tiket 07/20). Siapa/kapan tercatat (AssignmentAuditEntry, terbukti).
   - AC 7 audit log aditif, `UserAssignment` tidak diubah: terbukti (upsert/delete polos di tes).
   Perlu keputusan owner: tutup 42 sebagai superseded oleh 07/20 dengan AC 4-6 direvisi, atau tulis ulang AC.
+- 2026-10-03, keputusan owner ("setuju semua"), branch `claude/prd-44-assignment-audit`: status `wontfix`.
+  Alasan: digantikan oleh tiket 07/20 (grant ADMIN wajib dua orang, jadi AC 1 dan AC 6 tidak lagi berlaku
+  seperti tertulis) dan oleh pensiunnya Role (`retire-role-hierarchy`; route `PATCH /api/admin/users/[id]/role`
+  sudah dihapus, jadi AC 4 dan AC 5 usang). Sisanya sudah ada: revoke dan audit log aditif (AC 2, 7) terbukti
+  oleh tes di atas. Tes revoke lalu 403 pada request berikutnya (AC 3) kini ada di prd 44:
+  `src/app/api/admin/users/[id]/assignments/revoke-takes-effect.test.ts`.
