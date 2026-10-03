@@ -21,3 +21,4 @@ Lanjutan yang sengaja tidak dicakup tiket 50 (PR #206).
 ## Comments
 
 - 2026-10-03: owner menyetujui pengerjaan ("ya semua").
+- 2026-10-03: branch `claude/prd-55-refund-detail-resolution`, commit 7088dff. Halaman detail menampilkan aktor, tanggal, dan alasan untuk REJECTED/FAILED (include rejectedBy/failedBy). `AdminRefundApproveForm` dan `AdminRefundCompleteForm` menerima `isOwnSubject` dan menampilkan kalimat yang sama dengan form Tolak/Gagal; kalimat dipusatkan di `OwnSubjectNotice`, kini dipakai keempat form. Server tetap menolak (403). Tes terdampak hijau (77), ratchet lint 193 / tsc 19.
