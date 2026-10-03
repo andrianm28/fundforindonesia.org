@@ -80,7 +80,7 @@ export function PaymentMethodSelector({
                     ].join(' ')}
                     aria-pressed={isSelected}
                   >
-                    <span className="text-2xl flex-shrink-0" aria-hidden="true">
+                    <span className="text-2xl shrink-0" aria-hidden="true">
                       {method.icon}
                     </span>
                     <div className="flex flex-col items-start text-left flex-1">
@@ -93,7 +93,7 @@ export function PaymentMethodSelector({
                     </div>
                     {isSelected && (
                       <svg
-                        className="w-5 h-5 text-primary flex-shrink-0"
+                        className="w-5 h-5 text-primary shrink-0"
                         fill="currentColor"
                         viewBox="0 0 20 20"
                         aria-hidden="true"

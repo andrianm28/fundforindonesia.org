@@ -40,9 +40,9 @@ describe('CampaignCardSkeleton', () => {
     expect(cards.length).toBe(3);
   });
 
-  it('compact skeletons have flex-shrink-0 for horizontal scroll', () => {
+  it('compact skeletons have shrink-0 for horizontal scroll', () => {
     const { container } = render(<CampaignCardSkeleton variant="compact" count={2} />);
-    const cards = container.querySelectorAll('.flex-shrink-0');
+    const cards = container.querySelectorAll('.shrink-0');
     expect(cards.length).toBe(2);
   });
 

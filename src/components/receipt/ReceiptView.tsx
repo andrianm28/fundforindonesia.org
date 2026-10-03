@@ -66,30 +66,30 @@ export function ReceiptView(props: ReceiptViewProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] py-10 px-4 print:bg-white print:py-0">
-      <div className="max-w-md mx-auto bg-white rounded-xl shadow-sm p-6 print:shadow-none print:rounded-none">
-        <h1 className="text-lg font-semibold text-[#212121]">Bukti Donasi</h1>
+    <div className="min-h-screen bg-bg-secondary py-10 px-4 print:bg-white print:py-0">
+      <div className="max-w-md mx-auto bg-white rounded-xl shadow-xs p-6 print:shadow-none print:rounded-none">
+        <h1 className="text-lg font-semibold text-text">Bukti Donasi</h1>
 
         <dl className="mt-4 space-y-3 text-sm">
           <div>
-            <dt className="text-[#757575]">Campaign</dt>
-            <dd className="text-[#212121] font-medium">{props.campaignTitle}</dd>
+            <dt className="text-text-secondary">Campaign</dt>
+            <dd className="text-text font-medium">{props.campaignTitle}</dd>
           </div>
           <div>
-            <dt className="text-[#757575]">Donor</dt>
-            <dd className="text-[#212121] font-medium">{anonymised ? 'Donor anonim' : props.donorName || 'Donor'}</dd>
+            <dt className="text-text-secondary">Donor</dt>
+            <dd className="text-text font-medium">{anonymised ? 'Donor anonim' : props.donorName || 'Donor'}</dd>
           </div>
           <div>
-            <dt className="text-[#757575]">Jumlah</dt>
+            <dt className="text-text-secondary">Jumlah</dt>
             <dd className="text-[#0073E6] font-bold">{formatRupiah(props.amount)}</dd>
           </div>
           <div>
-            <dt className="text-[#757575]">Tanggal</dt>
-            <dd className="text-[#212121]">{formatIndonesianDate(new Date(props.paidAt))}</dd>
+            <dt className="text-text-secondary">Tanggal</dt>
+            <dd className="text-text">{formatIndonesianDate(new Date(props.paidAt))}</dd>
           </div>
           <div>
-            <dt className="text-[#757575]">Diterima oleh</dt>
-            <dd className="text-[#212121] font-medium">{props.collectingEntityName}</dd>
+            <dt className="text-text-secondary">Diterima oleh</dt>
+            <dd className="text-text font-medium">{props.collectingEntityName}</dd>
           </div>
         </dl>
 
@@ -114,7 +114,7 @@ export function ReceiptView(props: ReceiptViewProps) {
         </div>
 
         {resend.message && (
-          <p className={`mt-3 text-sm print:hidden ${resend.status === 'error' ? 'text-[#D50000]' : 'text-[#2E7D32]'}`}>
+          <p className={`mt-3 text-sm print:hidden ${resend.status === 'error' ? 'text-danger' : 'text-[#2E7D32]'}`}>
             {resend.message}
           </p>
         )}
@@ -125,7 +125,7 @@ export function ReceiptView(props: ReceiptViewProps) {
               Identitas Donor pada donasi ini sudah dianonimkan. Nominal dan bukti donasi tetap tersimpan.
             </p>
           ) : props.accountOwned ? (
-            <p className="text-[#757575]">
+            <p className="text-text-secondary">
               Ingin identitas Anda dihapus dari donasi ini? Masuk lalu buka{' '}
               <a href="/akun/pengaturan" className="text-[#0073E6] underline">
                 Pengaturan akun
@@ -136,19 +136,19 @@ export function ReceiptView(props: ReceiptViewProps) {
             <button
               type="button"
               onClick={() => setAnonymise({ status: 'confirming' })}
-              className="text-[#D50000] underline"
+              className="text-danger underline"
             >
               Hapus identitas saya
             </button>
           ) : (
             <div className="space-y-3">
-              <p className="text-[#212121]">
+              <p className="text-text">
                 Nama, email, dan telepon Anda akan dihapus dari donasi ini saja (hanya donasi ini; donasi lain tidak
                 berubah). Nominal dan catatan keuangan tetap. Tindakan ini tidak dapat dibatalkan, bukti donasi ini
                 tidak dapat dikirim ulang, dan donasi ini tidak dapat di-refund lewat sistem.
               </p>
               <label className="block">
-                <span className="block text-[#212121] mb-1">Email yang dipakai pada donasi ini</span>
+                <span className="block text-text mb-1">Email yang dipakai pada donasi ini</span>
                 <input
                   type="email"
                   value={email}
@@ -162,7 +162,7 @@ export function ReceiptView(props: ReceiptViewProps) {
                   type="button"
                   onClick={handleAnonymise}
                   disabled={anonymise.status === 'sending' || email.trim() === ''}
-                  className="flex-1 bg-[#D50000] text-white font-medium px-4 py-2.5 rounded-lg disabled:opacity-50"
+                  className="flex-1 bg-danger text-white font-medium px-4 py-2.5 rounded-lg disabled:opacity-50"
                 >
                   Ya, anonimkan
                 </button>
@@ -170,12 +170,12 @@ export function ReceiptView(props: ReceiptViewProps) {
                   type="button"
                   onClick={() => setAnonymise({ status: 'idle' })}
                   disabled={anonymise.status === 'sending'}
-                  className="flex-1 border border-[#BDBDBD] text-[#212121] font-medium px-4 py-2.5 rounded-lg disabled:opacity-50"
+                  className="flex-1 border border-[#BDBDBD] text-text font-medium px-4 py-2.5 rounded-lg disabled:opacity-50"
                 >
                   Batal
                 </button>
               </div>
-              {anonymise.message && <p className="text-[#D50000]">{anonymise.message}</p>}
+              {anonymise.message && <p className="text-danger">{anonymise.message}</p>}
             </div>
           )}
         </div>

@@ -43,7 +43,7 @@ export function CategorySection({
           <button
             key={category.slug}
             onClick={() => setSelectedCategory(category.slug)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 ${
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors shrink-0 ${
               selectedCategory === category.slug
                 ? 'bg-primary text-white'
                 : 'bg-bg-secondary text-text-secondary hover:bg-border'

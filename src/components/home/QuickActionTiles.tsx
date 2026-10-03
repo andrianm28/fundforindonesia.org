@@ -22,7 +22,7 @@ export default function QuickActionTiles({ tiles }: QuickActionTilesProps) {
                 </span>
               </div>
               <div className="flex flex-col items-center gap-0.5">
-                <span className="text-[11px] sm:text-xs text-text-secondary text-center leading-tight font-medium line-clamp-2 break-words">
+                <span className="text-[11px] sm:text-xs text-text-secondary text-center leading-tight font-medium line-clamp-2 wrap-break-word">
                   {tile.label}
                 </span>
                 <span className="text-[10px] text-text-secondary">Segera hadir</span>
@@ -42,7 +42,7 @@ export default function QuickActionTiles({ tiles }: QuickActionTilesProps) {
                   {tile.icon}
                 </span>
               </div>
-              <span className="text-[11px] sm:text-xs text-text text-center leading-tight font-medium line-clamp-2 break-words">
+              <span className="text-[11px] sm:text-xs text-text text-center leading-tight font-medium line-clamp-2 wrap-break-word">
                 {tile.label}
               </span>
             </Link>

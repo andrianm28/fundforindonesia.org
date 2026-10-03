@@ -147,7 +147,7 @@ describe('ProgressBar component', () => {
     expect(track).toHaveAttribute('aria-valuenow', '75');
   });
 
-  it('stacks Ledger Line ticks above the fill bar with a contrasting outline', () => {
+  it('stacks Ledger Line ticks above the fill bar with a contrasting outline-solid', () => {
     const { container } = render(
       <ProgressBar current={100} target={100} showLedgerLine />
     );

@@ -47,9 +47,9 @@ export function AssignCollectingEntityForm({ campaign }: { campaign: AssignableC
   const reasonId = `reason-${campaign.slug}`;
 
   return (
-    <form onSubmit={submit} className="bg-white rounded-xl border border-[#E0E0E0] p-4 space-y-2">
-      <p className="text-sm font-medium text-[#212121]">{campaign.title}</p>
-      <p className="text-xs text-[#757575]">Fundraiser: {campaign.fundraiserName}</p>
+    <form onSubmit={submit} className="bg-white rounded-xl border border-border p-4 space-y-2">
+      <p className="text-sm font-medium text-text">{campaign.title}</p>
+      <p className="text-xs text-text-secondary">Fundraiser: {campaign.fundraiserName}</p>
       {error && (
         <p role="alert" className="text-sm text-[#C62828]">
           {error}
@@ -61,14 +61,14 @@ export function AssignCollectingEntityForm({ campaign }: { campaign: AssignableC
         </p>
       ) : (
         <>
-          <label htmlFor={selectId} className="block text-xs text-[#757575]">
+          <label htmlFor={selectId} className="block text-xs text-text-secondary">
             Collecting Entity
           </label>
           <select
             id={selectId}
             value={collectingEntityId}
             onChange={(e) => setCollectingEntityId(e.target.value)}
-            className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+            className="w-full rounded-lg border border-border p-2 text-sm"
             required
           >
             <option value="">Pilih Partner Organisation</option>
@@ -78,7 +78,7 @@ export function AssignCollectingEntityForm({ campaign }: { campaign: AssignableC
               </option>
             ))}
           </select>
-          <label htmlFor={reasonId} className="block text-xs text-[#757575]">
+          <label htmlFor={reasonId} className="block text-xs text-text-secondary">
             Alasan
           </label>
           <textarea
@@ -88,7 +88,7 @@ export function AssignCollectingEntityForm({ campaign }: { campaign: AssignableC
             maxLength={1000}
             rows={2}
             required
-            className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+            className="w-full rounded-lg border border-border p-2 text-sm"
           />
           <button
             type="submit"

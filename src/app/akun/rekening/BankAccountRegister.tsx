@@ -40,7 +40,7 @@ function statusLabel(account: Account): string {
   return "Belum Diajukan";
 }
 
-const inputClass = "w-full rounded-lg border border-[#E0E0E0] p-2 text-sm";
+const inputClass = "w-full rounded-lg border border-border p-2 text-sm";
 
 export function BankAccountRegister() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
@@ -69,7 +69,7 @@ export function BankAccountRegister() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold text-[#212121]">Rekening Bank Saya</h1>
+      <h1 className="text-lg font-semibold text-text">Rekening Bank Saya</h1>
 
       {message && (
         <div
@@ -84,17 +84,17 @@ export function BankAccountRegister() {
 
       <RegisterForm onSubmit={(body) => act(send(API, "POST", body), "Bank Account ditambahkan.")} />
 
-      {accounts === null && <p className="text-sm text-[#757575]">Memuat...</p>}
-      {accounts?.length === 0 && <p className="text-sm text-[#757575]">Belum ada Bank Account terdaftar.</p>}
+      {accounts === null && <p className="text-sm text-text-secondary">Memuat...</p>}
+      {accounts?.length === 0 && <p className="text-sm text-text-secondary">Belum ada Bank Account terdaftar.</p>}
       {accounts?.map((account) => (
-        <section key={account.id} className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-2" data-testid={`bank-account-${account.id}`}>
+        <section key={account.id} className="bg-white rounded-xl border border-border p-6 space-y-2" data-testid={`bank-account-${account.id}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-[#212121]">
+              <h2 className="text-base font-semibold text-text">
                 {account.bankCode.toUpperCase()} &middot; {account.accountName}
               </h2>
-              <p className="text-xs text-[#757575]">Nomor rekening: {account.maskedNumber}</p>
-              <p className="text-xs text-[#757575]">Status: {statusLabel(account)}</p>
+              <p className="text-xs text-text-secondary">Nomor rekening: {account.maskedNumber}</p>
+              <p className="text-xs text-text-secondary">Status: {statusLabel(account)}</p>
             </div>
             <div className="flex gap-2">
               {!account.verifiedAt && !account.pendingRequestId && account.latestOutcome !== "PENDING" && (
@@ -114,7 +114,7 @@ export function BankAccountRegister() {
                   onClick={() =>
                     act(send(`${API}/${account.id}/verification-requests`, "DELETE"), "Pengajuan ditarik.")
                   }
-                  className="text-xs font-medium px-3 py-1.5 rounded-lg text-[#0073E6] bg-white border border-[#0073E6] hover:bg-[#F5F5F5]"
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg text-[#0073E6] bg-white border border-[#0073E6] hover:bg-bg-secondary"
                 >
                   Tarik Pengajuan
                 </button>
@@ -155,10 +155,10 @@ function RegisterForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) 
   }
 
   return (
-    <form onSubmit={submit} className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-3">
-      <h2 className="text-sm font-semibold text-[#212121]">Tambah Bank Account</h2>
+    <form onSubmit={submit} className="bg-white rounded-xl border border-border p-6 space-y-3">
+      <h2 className="text-sm font-semibold text-text">Tambah Bank Account</h2>
       <div>
-        <label className="block text-xs text-[#757575] mb-1" htmlFor="bank-code">
+        <label className="block text-xs text-text-secondary mb-1" htmlFor="bank-code">
           Kode Bank
         </label>
         <input
@@ -170,13 +170,13 @@ function RegisterForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) 
         />
       </div>
       <div>
-        <label className="block text-xs text-[#757575] mb-1" htmlFor="account-name">
+        <label className="block text-xs text-text-secondary mb-1" htmlFor="account-name">
           Nama Pemilik Rekening
         </label>
         <input id="account-name" className={inputClass} value={accountName} onChange={(e) => setAccountName(e.target.value)} />
       </div>
       <div>
-        <label className="block text-xs text-[#757575] mb-1" htmlFor="account-number">
+        <label className="block text-xs text-text-secondary mb-1" htmlFor="account-number">
           Nomor Rekening
         </label>
         <input id="account-number" className={inputClass} value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} />

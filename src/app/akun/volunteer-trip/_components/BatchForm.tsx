@@ -77,8 +77,8 @@ export function BatchForm({
     router.refresh();
   }
 
-  const field = 'w-full rounded-lg border border-[#E0E0E0] p-2 text-sm';
-  const label = 'block text-xs font-medium text-[#212121] mb-1';
+  const field = 'w-full rounded-lg border border-border p-2 text-sm';
+  const label = 'block text-xs font-medium text-text mb-1';
 
   return (
     <form
@@ -94,7 +94,7 @@ export function BatchForm({
         </p>
       )}
       {frozen && (
-        <p className="text-sm text-[#757575]">
+        <p className="text-sm text-text-secondary">
           Tanggal Batch dikunci karena sudah ada {seatsUsed} Volunteer yang mendaftar atau membayar: refund mereka
           dihitung dari tanggal ini. Kuota maksimum tidak bisa di bawah {seatsUsed}, dan kuota minimum tidak bisa
           dinaikkan di atas jumlah Registration yang sudah CONFIRMED. Bila Batch tidak bisa berjalan, batalkan Batch.
@@ -108,7 +108,7 @@ export function BatchForm({
           <input
             id={`start-${id}`}
             type="date"
-            className={frozen ? `${field} bg-[#F5F5F5] text-[#757575]` : field}
+            className={frozen ? `${field} bg-bg-secondary text-text-secondary` : field}
             value={values.startDate}
             required
             readOnly={frozen}

@@ -34,13 +34,13 @@ function Confirm() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] px-4 pt-12">
-      <div className="mx-auto max-w-md rounded-xl bg-white p-6 shadow-sm">
-        <h1 className="text-lg font-semibold text-[#212121]">Konfirmasi Email</h1>
+    <div className="min-h-screen bg-bg-secondary px-4 pt-12">
+      <div className="mx-auto max-w-md rounded-xl bg-white p-6 shadow-xs">
+        <h1 className="text-lg font-semibold text-text">Konfirmasi Email</h1>
         {!token ? (
-          <p className="mt-3 text-sm text-[#757575]">Tautan tidak lengkap. Minta tautan baru dari halaman Donasi Saya.</p>
+          <p className="mt-3 text-sm text-text-secondary">Tautan tidak lengkap. Minta tautan baru dari halaman Donasi Saya.</p>
         ) : outcome.kind === 'done' ? (
-          <div className="mt-3 text-sm text-[#212121]">
+          <div className="mt-3 text-sm text-text">
             <p>Email berhasil dikonfirmasi.</p>
             {outcome.claimed > 0 && <p className="mt-1">{outcome.claimed} donasi tamu Anda kini ada di riwayat.</p>}
             <a href="/donasi-saya" className="mt-4 inline-block font-medium text-[#0073E6] hover:underline">
@@ -49,7 +49,7 @@ function Confirm() {
           </div>
         ) : (
           <div className="mt-3">
-            <p className="text-sm text-[#757575]">Tekan tombol di bawah untuk memastikan email ini milik Anda.</p>
+            <p className="text-sm text-text-secondary">Tekan tombol di bawah untuk memastikan email ini milik Anda.</p>
             {outcome.kind === 'refused' && (
               <p role="alert" className="mt-3 text-sm text-[#C62828]">
                 Tautan tidak valid atau sudah kedaluwarsa. Minta tautan baru dari halaman Donasi Saya.

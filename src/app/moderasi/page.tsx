@@ -41,18 +41,18 @@ export default async function ModerasiPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-[#212121]">Dashboard Moderasi</h1>
-      <p className="text-sm text-[#757575] mt-1">
+      <h1 className="text-xl font-semibold text-text">Dashboard Moderasi</h1>
+      <p className="text-sm text-text-secondary mt-1">
         Ringkasan item yang perlu ditinjau
       </p>
 
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Open Verification Requests card */}
-        <div className="bg-white rounded-xl border border-[#E0E0E0] p-5">
+        <div className="bg-white rounded-xl border border-border p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-[#757575]">Kampanye Menunggu Review</p>
-              <p className="text-2xl font-bold text-[#212121] mt-1">
+              <p className="text-sm text-text-secondary">Kampanye Menunggu Review</p>
+              <p className="text-2xl font-bold text-text mt-1">
                 {pendingRequestsCount}
               </p>
             </div>
@@ -94,11 +94,11 @@ export default async function ModerasiPage() {
         </div>
 
         {/* Reports card */}
-        <div className="bg-white rounded-xl border border-[#E0E0E0] p-5">
+        <div className="bg-white rounded-xl border border-border p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-[#757575]">Laporan</p>
-              <p className="text-2xl font-bold text-[#212121] mt-1">-</p>
+              <p className="text-sm text-text-secondary">Laporan</p>
+              <p className="text-2xl font-bold text-text mt-1">-</p>
             </div>
             <div className="w-10 h-10 rounded-full bg-[#FFEBEE] flex items-center justify-center">
               <svg
@@ -138,11 +138,11 @@ export default async function ModerasiPage() {
         </div>
 
         {/* Expiring soon card: Fundraising Permits and Kind Authorisations lapsing within 30 days (prd-compliance 11) */}
-        <div className="bg-white rounded-xl border border-[#E0E0E0] p-5">
+        <div className="bg-white rounded-xl border border-border p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-[#757575]">Izin Akan Berakhir</p>
-              <p className="text-2xl font-bold text-[#212121] mt-1">{expiring.length}</p>
+              <p className="text-sm text-text-secondary">Izin Akan Berakhir</p>
+              <p className="text-2xl font-bold text-text mt-1">{expiring.length}</p>
             </div>
             <div className="w-10 h-10 rounded-full bg-[#FFF3E0] flex items-center justify-center">
               <svg
@@ -181,11 +181,11 @@ export default async function ModerasiPage() {
           </Link>
         </div>
         {/* Fourth card (ticket 16): Bank Account verification requests, a separate queue from Campaign's (decision 4). */}
-        <div className="bg-white rounded-xl border border-[#E0E0E0] p-5">
+        <div className="bg-white rounded-xl border border-border p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-[#757575]">Rekening Menunggu Verifikasi</p>
-              <p className="text-2xl font-bold text-[#212121] mt-1">
+              <p className="text-sm text-text-secondary">Rekening Menunggu Verifikasi</p>
+              <p className="text-2xl font-bold text-text mt-1">
                 {pendingBankAccountsCount}
               </p>
             </div>
@@ -228,8 +228,8 @@ export default async function ModerasiPage() {
       </div>
 
       {expiring.length > 0 && (
-        <div className="mt-6 bg-white rounded-xl border border-[#E0E0E0] p-5">
-          <h2 className="text-sm font-semibold text-[#212121] mb-3">
+        <div className="mt-6 bg-white rounded-xl border border-border p-5">
+          <h2 className="text-sm font-semibold text-text mb-3">
             Fundraising Permit dan Kind Authorisation yang akan berakhir dalam 30 hari
           </h2>
           <ul className="space-y-2 text-sm text-[#424242]">

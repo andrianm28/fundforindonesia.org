@@ -172,7 +172,7 @@ describe("the CD image scope", () => {
   });
 
   it("matches image-relevant paths only", () => {
-    const hit = ["Dockerfile", "prisma/migrations/x/migration.sql", "public/a.png", "tsconfig.json", "postcss.config.mjs", "tailwind.config.ts", ".github/workflows/cd.yml"];
+    const hit = ["Dockerfile", "prisma/migrations/x/migration.sql", "public/a.png", "tsconfig.json", "postcss.config.mjs", ".github/workflows/cd.yml"];
     for (const p of hit) expect(pattern.test(p), p).toBe(true);
     for (const p of ["README.md", "docs/x.md", "src/a.ts"]) expect(pattern.test(p), p).toBe(false);
   });
