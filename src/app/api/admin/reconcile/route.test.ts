@@ -113,16 +113,24 @@ type ManualContributionRow = {
   createdAt?: Date;
 };
 
-/** Handles the `{ not }` and `{ in }` Prisma filter shapes this route's queries use. */
+/**
+ * Handles the `{ not }`, `{ in }`, `{ notIn }` and `{ lte }` Prisma filter
+ * shapes this route's queries use. Any other object is refused outright
+ * instead of being compared for equality: a filter this fake does not know
+ * would match nothing, silently dropping every row, and a test about what the
+ * report leaves OUT would then pass for want of any input at all.
+ */
 function matchesWhere(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([k, v]) => {
     const rowValue = row[k] ?? null;
-    if (v && typeof v === 'object') {
+    if (v && typeof v === 'object' && !(v instanceof Date)) {
       if ('not' in (v as Record<string, unknown>)) return rowValue !== (v as { not: unknown }).not;
       if ('in' in (v as Record<string, unknown>)) return (v as { in: unknown[] }).in.includes(rowValue);
+      if ('notIn' in (v as Record<string, unknown>)) return !(v as { notIn: unknown[] }).notIn.includes(rowValue);
       if ('lte' in (v as Record<string, unknown>)) {
         return rowValue != null && (rowValue as Date) <= (v as { lte: Date }).lte;
       }
+      throw new Error(`matchesWhere has no support for the filter on "${k}": ${JSON.stringify(v)}`);
     }
     return rowValue === v;
   });
@@ -1567,6 +1575,266 @@ describe('GET /api/admin/reconcile -- registration-linked (trip) payments', () =
       },
     ]);
     expect(data.tripStrandedEscrow).toEqual([]);
+  });
+});
+
+describe('GET /api/admin/reconcile -- a Refund that ended without paying the Donor (prd-compliance 52)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
+  });
+
+  // A Refund freezes its share of the Payment's Escrow Hold, and rejecting or
+  // failing it posts that freeze straight back (prd-compliance 49). Until
+  // prd-compliance 52 the report read the freeze's ESCROW_HOLD debit as money
+  // refunded whatever the Refund's fate, so a Payment whose books were right
+  // was reported as stranded, with a negative residual, on every run.
+  //
+  // The journals below are written leg for leg as the money layer posts them;
+  // src/__tests__/integration/reconcile-stranded-escrow-real-db.test.ts drives
+  // the real thing against Postgres and asks this same route. Every figure is a
+  // literal. A Payment of 100_000 kept 5_000 for the provider, and a Campaign's
+  // also kept 2_500 for the platform where a Trip Fee's keeps none (CONTEXT.md,
+  // Trip Fee), so the Net credited to ESCROW_HOLD is 92_500 or 95_000. A Refund
+  // of 40_000 hands back its share of those fees and freezes the rest of itself
+  // out of ESCROW_HOLD: 37_000 or 38_000. Once that Refund no longer stands, the
+  // sweep releases the whole Net, or, while it stands, the Net less that share.
+  const subjects = [
+    {
+      name: 'Campaign',
+      scope: { campaignId: 'campaign-1', volunteerTripId: null },
+      payment: { campaignId: 'campaign-1', amount: 100_000, providerFee: 5_000, platformFee: 2_500 },
+      withdrawable: 'CAMPAIGN_BALANCE',
+      net: 92_500,
+      refund: { amount: 40_000, platformFee: 1_000, providerFee: 2_000, net: 37_000 },
+      netLessRefundShare: 55_500,
+      reportKey: 'strandedEscrow',
+      idKey: { campaignId: 'campaign-1' },
+    },
+    {
+      name: 'Volunteer Trip',
+      scope: { campaignId: null, volunteerTripId: 'trip-1' },
+      payment: { volunteerTripId: 'trip-1', amount: 100_000, providerFee: 5_000, platformFee: 0 },
+      withdrawable: 'TRIP_BALANCE',
+      net: 95_000,
+      refund: { amount: 40_000, platformFee: 0, providerFee: 2_000, net: 38_000 },
+      netLessRefundShare: 57_000,
+      reportKey: 'tripStrandedEscrow',
+      idKey: { volunteerTripId: 'trip-1' },
+    },
+  ] as const;
+  type Subject = (typeof subjects)[number];
+
+  const leg = (
+    transactionId: string,
+    direction: 'DEBIT' | 'CREDIT',
+    amount: number,
+    account: string,
+    extra: Partial<LedgerRow> = {},
+  ): LedgerRow => ({ transactionId, direction, amount, account, campaignId: null, ...extra });
+
+  /** Another journal over the same legs with every direction flipped: what a reject or a fail posts. */
+  const mirrored = (transactionId: string, legs: LedgerRow[]): LedgerRow[] =>
+    legs.map((l) => ({ ...l, transactionId, direction: l.direction === 'DEBIT' ? 'CREDIT' : 'DEBIT' }));
+
+  const settled = (s: Subject): LedgerRow[] => [
+    leg('settle-payment-1', 'DEBIT', 100_000, 'GATEWAY_CLEARING', { paymentId: 'payment-1' }),
+    leg('settle-payment-1', 'CREDIT', s.net, 'ESCROW_HOLD', { ...s.scope, paymentId: 'payment-1' }),
+    leg('settle-payment-1', 'CREDIT', 5_000, 'PROVIDER_FEE', { paymentId: 'payment-1' }),
+    ...(s.payment.platformFee > 0
+      ? [leg('settle-payment-1', 'CREDIT', s.payment.platformFee, 'PLATFORM_FEE', { paymentId: 'payment-1' })]
+      : []),
+  ];
+
+  const frozen = (s: Subject): LedgerRow[] => [
+    leg('refund-requested-refund-1', 'CREDIT', s.refund.amount, 'FROZEN_BALANCE', { ...s.scope, refundId: 'refund-1' }),
+    leg('refund-requested-refund-1', 'DEBIT', s.refund.net, 'ESCROW_HOLD', { ...s.scope, refundId: 'refund-1' }),
+    ...(s.refund.platformFee > 0
+      ? [leg('refund-requested-refund-1', 'DEBIT', s.refund.platformFee, 'PLATFORM_FEE', { refundId: 'refund-1' })]
+      : []),
+    leg('refund-requested-refund-1', 'DEBIT', s.refund.providerFee, 'REFUND_COST', { refundId: 'refund-1' }),
+  ];
+
+  const approved = (s: Subject): LedgerRow[] => [
+    leg('refund-approved-refund-1', 'CREDIT', s.refund.amount, 'REFUND_CLEARING', { refundId: 'refund-1' }),
+    leg('refund-approved-refund-1', 'DEBIT', s.refund.amount, 'FROZEN_BALANCE', { ...s.scope, refundId: 'refund-1' }),
+  ];
+
+  /** An escrow release, whether the sweep's or the one resolveRefund posts for a returned share: both carry the paymentId. */
+  const released = (transactionId: string, amount: number, s: Subject): LedgerRow[] => [
+    leg(transactionId, 'DEBIT', amount, 'ESCROW_HOLD', { ...s.scope, paymentId: 'payment-1' }),
+    leg(transactionId, 'CREDIT', amount, s.withdrawable, { ...s.scope, paymentId: 'payment-1' }),
+  ];
+
+  async function reportFor(options: Parameters<typeof makeTx>[0]) {
+    const tx = makeTx(options);
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+    const response = await GET(createRequest());
+    expect(response.status).toBe(200);
+    return response.json();
+  }
+
+  /**
+   * The three ways a Refund ends without paying the Donor, with the sweep
+   * landing where it really can: REQUESTED defers it, so a Refund rejected from
+   * REQUESTED is released around only AFTER it is rejected; a Refund that has
+   * left REQUESTED (approved, or awaiting the Donor's details) does not defer
+   * it, so the sweep releases the Payment around the Refund and the reversal
+   * then releases the returned share itself.
+   */
+  const endings: Array<{ name: string; status: 'REJECTED' | 'FAILED'; ledger: (s: Subject) => LedgerRow[] }> = [
+    {
+      name: 'rejected before the sweep',
+      status: 'REJECTED',
+      ledger: (s) => [
+        ...settled(s),
+        ...frozen(s),
+        ...mirrored('refund-rejected-refund-1', frozen(s)),
+        ...released('escrow-release:payment-1', s.net, s),
+      ],
+    },
+    {
+      // Rejected from AWAITING_DONOR_DETAILS, the one status other than
+      // REQUESTED a Refund can be rejected from.
+      name: 'rejected after the sweep',
+      status: 'REJECTED',
+      ledger: (s) => [
+        ...settled(s),
+        ...frozen(s),
+        ...released('escrow-release:payment-1', s.netLessRefundShare, s),
+        ...mirrored('refund-rejected-refund-1', frozen(s)),
+        ...released('refund-reversal-release-refund-1', s.refund.net, s),
+      ],
+    },
+    {
+      name: 'failed after the sweep',
+      status: 'FAILED',
+      ledger: (s) => [
+        ...settled(s),
+        ...frozen(s),
+        ...approved(s),
+        ...released('escrow-release:payment-1', s.netLessRefundShare, s),
+        ...mirrored('refund-failed-refund-1', [...frozen(s), ...approved(s)]),
+        ...released('refund-reversal-release-refund-1', s.refund.net, s),
+      ],
+    },
+  ];
+
+  describe.each(subjects)('a $name Payment', (s) => {
+    it.each(endings)('whose Refund was $name is not reported as stranded', async (ending) => {
+      const data = await reportFor({
+        ledgerRows: ending.ledger(s),
+        payments: [{ id: 'payment-1', ...s.payment, escrowReleasedAt: new Date('2026-08-10') }],
+        refunds: [{ id: 'refund-1', paymentId: 'payment-1', status: ending.status, amount: s.refund.amount }],
+      });
+
+      // The books first: every journal balances and no pool went below zero, so
+      // there is nothing wrong with the money for the report to find.
+      expect(data.unbalancedTransactions).toEqual([]);
+      expect(data.negativeBalances).toEqual([]);
+      expect(data.tripNegativeBalances).toEqual([]);
+      expect(data.strandedEscrow).toEqual([]);
+      expect(data.tripStrandedEscrow).toEqual([]);
+    });
+
+    it('still reports the share a rejected Refund handed back when nothing released it, at the size of that share', async () => {
+      // The stranding this report exists for. The sweep released the Payment
+      // around a Refund that then stood; the Refund was rejected; and the
+      // release resolveRefund posts for the returned share never happened.
+      // The mirrored freeze took nothing off the Payment, so that share is
+      // still in ESCROW_HOLD with nothing left able to release it, and the
+      // residual is the share, not the share less a freeze that was reversed.
+      const data = await reportFor({
+        ledgerRows: [
+          ...settled(s),
+          ...frozen(s),
+          ...released('escrow-release:payment-1', s.netLessRefundShare, s),
+          ...mirrored('refund-rejected-refund-1', frozen(s)),
+        ],
+        payments: [{ id: 'payment-1', ...s.payment, escrowReleasedAt: new Date('2026-08-10') }],
+        refunds: [{ id: 'refund-1', paymentId: 'payment-1', status: 'REJECTED', amount: s.refund.amount }],
+      });
+
+      expect(data[s.reportKey]).toEqual([
+        {
+          paymentId: 'payment-1',
+          ...s.idKey,
+          creditedNet: s.net,
+          releasedAmount: s.netLessRefundShare,
+          refundedAmount: 0,
+          residual: s.refund.net,
+        },
+      ]);
+    });
+  });
+
+  it('counts the Refund that stands and ignores the rejected one on the same Payment', async () => {
+    // Two Payments, each with a COMPLETED Refund of 40_000 (37_000 out of
+    // ESCROW_HOLD) and a REJECTED one of 20_000 (18_500 frozen, then mirrored
+    // back). The sweep ignores the rejected one: it releases 92_500 - 37_000.
+    // payment-1 did, and is silent. payment-2 released 15_500 less than that,
+    // and is reported with ONLY the standing Refund's debit as refunded: the
+    // control that the standing Refund is still counted, and the rejected one's
+    // freeze, which was handed back, is not.
+    const paymentLegs = (n: number, releasedByTheSweep: number): LedgerRow[] => {
+      const payment = `payment-${n}`;
+      const refundA = `refund-a${n}`;
+      const refundB = `refund-b${n}`;
+      const scope = { campaignId: 'campaign-1' };
+      const freezeB = [
+        leg(`refund-requested-${refundB}`, 'CREDIT', 20_000, 'FROZEN_BALANCE', { ...scope, refundId: refundB }),
+        leg(`refund-requested-${refundB}`, 'DEBIT', 18_500, 'ESCROW_HOLD', { ...scope, refundId: refundB }),
+        leg(`refund-requested-${refundB}`, 'DEBIT', 500, 'PLATFORM_FEE', { refundId: refundB }),
+        leg(`refund-requested-${refundB}`, 'DEBIT', 1_000, 'REFUND_COST', { refundId: refundB }),
+      ];
+      return [
+        leg(`settle-${payment}`, 'DEBIT', 100_000, 'GATEWAY_CLEARING', { paymentId: payment }),
+        leg(`settle-${payment}`, 'CREDIT', 92_500, 'ESCROW_HOLD', { ...scope, paymentId: payment }),
+        leg(`settle-${payment}`, 'CREDIT', 5_000, 'PROVIDER_FEE', { paymentId: payment }),
+        leg(`settle-${payment}`, 'CREDIT', 2_500, 'PLATFORM_FEE', { paymentId: payment }),
+        leg(`refund-requested-${refundA}`, 'CREDIT', 40_000, 'FROZEN_BALANCE', { ...scope, refundId: refundA }),
+        leg(`refund-requested-${refundA}`, 'DEBIT', 37_000, 'ESCROW_HOLD', { ...scope, refundId: refundA }),
+        leg(`refund-requested-${refundA}`, 'DEBIT', 1_000, 'PLATFORM_FEE', { refundId: refundA }),
+        leg(`refund-requested-${refundA}`, 'DEBIT', 2_000, 'REFUND_COST', { refundId: refundA }),
+        leg(`refund-approved-${refundA}`, 'CREDIT', 40_000, 'REFUND_CLEARING', { refundId: refundA }),
+        leg(`refund-approved-${refundA}`, 'DEBIT', 40_000, 'FROZEN_BALANCE', { ...scope, refundId: refundA }),
+        leg(`refund-completed-${refundA}`, 'DEBIT', 40_000, 'REFUND_CLEARING', { refundId: refundA }),
+        leg(`refund-completed-${refundA}`, 'CREDIT', 40_000, 'GATEWAY_CLEARING', { refundId: refundA }),
+        ...freezeB,
+        ...mirrored(`refund-rejected-${refundB}`, freezeB),
+        leg(`escrow-release:${payment}`, 'DEBIT', releasedByTheSweep, 'ESCROW_HOLD', { ...scope, paymentId: payment }),
+        leg(`escrow-release:${payment}`, 'CREDIT', releasedByTheSweep, 'CAMPAIGN_BALANCE', { ...scope, paymentId: payment }),
+      ];
+    };
+    const payment = (n: number): PaymentRow => ({
+      id: `payment-${n}`,
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      providerFee: 5_000,
+      platformFee: 2_500,
+      escrowReleasedAt: new Date('2026-08-10'),
+    });
+    const refundRows = (n: number): RefundRow[] => [
+      { id: `refund-a${n}`, paymentId: `payment-${n}`, status: 'COMPLETED', amount: 40_000 },
+      { id: `refund-b${n}`, paymentId: `payment-${n}`, status: 'REJECTED', amount: 20_000 },
+    ];
+
+    const data = await reportFor({
+      ledgerRows: [...paymentLegs(1, 55_500), ...paymentLegs(2, 40_000)],
+      payments: [payment(1), payment(2)],
+      refunds: [...refundRows(1), ...refundRows(2)],
+    });
+
+    expect(data.strandedEscrow).toEqual([
+      {
+        paymentId: 'payment-2',
+        campaignId: 'campaign-1',
+        creditedNet: 92_500,
+        releasedAmount: 40_000,
+        refundedAmount: 37_000,
+        residual: 15_500,
+      },
+    ]);
   });
 });
 
