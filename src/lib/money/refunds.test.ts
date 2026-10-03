@@ -7,6 +7,7 @@ import {
   DemoCampaignError,
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
+  RefundAfterCampaignTransferError,
   RefundExceedsRemainingError,
   RefundNotFoundError,
   RefundNotAllowedForKindError,
@@ -87,6 +88,8 @@ function makeTx(
     refundRow?: Record<string, unknown> | null;
     /** The Campaign's Kind, which the per-Kind Refund rule reads. */
     kind?: Kind;
+    /** APPROVED Campaign Transfers that left the Campaign (a transfer moved its balance away). */
+    approvedTransfersOut?: number;
   } = {},
 ) {
   const rows: LedgerRow[] = [...(options.ledgerRows ?? [])];
@@ -163,6 +166,9 @@ function makeTx(
           kind: options.kind ?? Kind.DONATION,
           deadline: null,
         }),
+      },
+      campaignTransfer: {
+        count: vi.fn(async () => options.approvedTransfersOut ?? 0),
       },
       // The Trip row the subject guard reads under its lock.
       volunteerTrip: {
@@ -296,6 +302,43 @@ describe('createRefund', () => {
 
     const posted = rows.filter((r) => r.transactionId === 'refund-requested-refund-1');
     expect(posted.find((r) => r.account === 'CAMPAIGN_BALANCE')).toMatchObject({ direction: 'DEBIT' });
+  });
+
+  it('refuses to freeze from CAMPAIGN_BALANCE when the balance cannot cover the net portion and a Campaign Transfer moved it away', async () => {
+    const { tx, rows } = makeTx({
+      payment: makePayment({ escrowReleasedAt: new Date('2026-01-01') }),
+      ledgerRows: [{ transactionId: 'seed-funds', direction: 'CREDIT', amount: 10_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null }],
+      approvedTransfersOut: 1,
+    });
+
+    await expect(
+      createRefund(tx as never, {
+        subject: { type: 'campaign', campaignId: 'campaign-1' },
+        paymentId: 'payment-1',
+        amount: 40_000,
+        reason: 'x',
+        requestedById: 'admin-1',
+      }),
+    ).rejects.toBeInstanceOf(RefundAfterCampaignTransferError);
+    expect(rows.some((r) => r.transactionId === 'refund-requested-refund-1')).toBe(false);
+  });
+
+  it('still freezes an uncovered balance when no Campaign Transfer left the Campaign (a Payout drew it down: the platform covers the shortfall at approval)', async () => {
+    const { tx, rows } = makeTx({
+      payment: makePayment({ escrowReleasedAt: new Date('2026-01-01') }),
+      ledgerRows: [{ transactionId: 'seed-funds', direction: 'CREDIT', amount: 10_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null }],
+      approvedTransfersOut: 0,
+    });
+
+    await createRefund(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      paymentId: 'payment-1',
+      amount: 40_000,
+      reason: 'x',
+      requestedById: 'admin-1',
+    });
+
+    expect(rows.some((r) => r.transactionId === 'refund-requested-refund-1')).toBe(true);
   });
 
   it('freezes funds from TRIP_BALANCE for a matured Trip subject, never touching CAMPAIGN_BALANCE', async () => {

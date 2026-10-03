@@ -12,6 +12,7 @@ import {
   InvalidRefundStatusError,
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
+  RefundAfterCampaignTransferError,
   RefundExceedsRemainingError,
   RefundNotFoundError,
 } from './money/refunds';
@@ -33,6 +34,7 @@ describe('domainErrorToHttp for the money refusals', () => {
     [new PaymentNotFoundError('pay1'), 404, 'PAYMENT_NOT_FOUND'],
     [new PaymentSubjectMismatchError('pay1'), 404, 'PAYMENT_SUBJECT_MISMATCH'],
     [new RefundExceedsRemainingError(20_000, 10_000), 400, 'REFUND_EXCEEDS_REMAINING'],
+    [new RefundAfterCampaignTransferError(20_000, 0), 409, 'REFUND_AFTER_CAMPAIGN_TRANSFER'],
     [new OwnSubjectConflictError('trip', 'ADMIN'), 403, 'OWN_TRIP_CONFLICT'],
     [new OwnSubjectConflictError('campaign', 'ADMIN'), 403, 'OWN_CAMPAIGN_CONFLICT'],
   ])('%s answers %i with code %s and its Indonesian message', (error, status, code) => {

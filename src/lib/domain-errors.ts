@@ -94,7 +94,8 @@ export type MoneyErrorCode =
   | "CAMPAIGN_TRANSFER_KIND_NOT_TRANSFERABLE"
   | "CAMPAIGN_TRANSFER_CROSS_KIND"
   | "CAMPAIGN_TRANSFER_CATEGORY_MISMATCH"
-  | "CAMPAIGN_TRANSFER_TARGET_NOT_ELIGIBLE";
+  | "CAMPAIGN_TRANSFER_TARGET_NOT_ELIGIBLE"
+  | "REFUND_AFTER_CAMPAIGN_TRANSFER";
 
 /**
  * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
@@ -366,6 +367,9 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   CAMPAIGN_TRANSFER_INVALID: 400,
   CAMPAIGN_TRANSFER_NOT_PENDING: 409,
   CAMPAIGN_TRANSFER_BALANCE_CHANGED: 409,
+  // The Campaign's balance already moved to another Campaign by transfer: a
+  // conflict with its state, not a malformed request.
+  REFUND_AFTER_CAMPAIGN_TRANSFER: 409,
   // Conflicts with the source's own state: it is not Suspended (or stopped
   // being, between request and approval).
   CAMPAIGN_TRANSFER_SOURCE_NOT_SUSPENDED: 409,

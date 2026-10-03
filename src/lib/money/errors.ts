@@ -703,6 +703,25 @@ export class CampaignTransferBalanceChangedError extends MoneyError {
   }
 }
 
+/**
+ * A Refund asked for money a Campaign Transfer already moved to another
+ * Campaign. Unlike a Payout drawing the pool down (the platform covers that
+ * shortfall at approval), the money still exists, on the target Campaign.
+ */
+export class RefundAfterCampaignTransferError extends MoneyError {
+  readonly code = 'REFUND_AFTER_CAMPAIGN_TRANSFER';
+  constructor(
+    readonly requested: number,
+    readonly available: number,
+  ) {
+    super(
+      'Refund tidak bisa dibuat: dana Campaign ini sudah dipindahkan ke Campaign lain lewat Campaign Transfer ' +
+        'dan saldo yang tersisa tidak cukup. Platform tidak menalangi dana yang sudah berpindah.',
+    );
+    this.name = 'RefundAfterCampaignTransferError';
+  }
+}
+
 /** The transfer is no longer PENDING, or another decision won the race. */
 export class CampaignTransferNotPendingError extends MoneyError {
   readonly code = 'CAMPAIGN_TRANSFER_NOT_PENDING';
