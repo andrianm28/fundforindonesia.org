@@ -212,18 +212,12 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     await expectLedgerBalanced();
   }, 60_000);
 
-  it('a transfer racing a Refund on the same Campaign both settle, and the ledger stays balanced', async () => {
-    const source = await makeCampaign({ status: 'SUSPENDED', balance: 500_000 });
-    const target = await makeCampaign({ status: 'ACTIVE' });
-    const requester = await makeUser();
-    const approver = await makeUser();
-    const refundAdmin = await makeUser();
-
+  async function seedReleasedPayment(campaignId: string) {
     const donationId = `donation-${process.pid}-${next()}`;
     await prisma.donation.create({
-      data: { id: donationId, amount: 300_000, paymentMethod: 'bank_transfer', campaignId: source.id },
+      data: { id: donationId, amount: 300_000, paymentMethod: 'bank_transfer', campaignId },
     });
-    const payment = await prisma.payment.create({
+    return prisma.payment.create({
       data: {
         donationId,
         provider: 'mock',
@@ -235,29 +229,87 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
         escrowReleasedAt: new Date(Date.now() - 60_000),
       },
     });
+  }
 
+  function refundOf(tx: Parameters<typeof refunds.createRefund>[0], campaignId: string, paymentId: string, by: string) {
+    return refunds.createRefund(tx, {
+      subject: { type: 'campaign', campaignId },
+      paymentId,
+      amount: 300_000,
+      reason: 'salah bayar',
+      requestedById: by,
+    });
+  }
+
+  it('a transfer racing a Refund on the same Campaign never overdraws, whichever lands first, and the ledger stays balanced', async () => {
+    const source = await makeCampaign({ status: 'SUSPENDED', balance: 500_000 });
+    const target = await makeCampaign({ status: 'ACTIVE' });
+    const requester = await makeUser();
+    const approver = await makeUser();
+    const refundAdmin = await makeUser();
+    const payment = await seedReleasedPayment(source.id);
     const transfer = await requestTransfer(source.id, target.id, requester);
 
-    // Whoever wins the lock, the loser is refused rather than overdrawing:
-    // the transfer is full (500k), so a Refund that lands first changes the
-    // balance and the approval is refused; a transfer that lands first leaves
-    // nothing for the Refund.
-    const outcomes = await Promise.allSettled([
+    // The order is the database's to pick, so only the money invariants are
+    // asserted here, never how many of the two settled (the deterministic
+    // orders are pinned in the two tests below).
+    await Promise.allSettled([
       transfers.approveCampaignTransfer(prisma, { campaignTransferId: transfer.id, decidedById: approver }),
-      prisma.$transaction((tx) =>
-        refunds.createRefund(tx, {
-          subject: { type: 'campaign', campaignId: source.id },
-          paymentId: payment.id,
-          amount: 300_000,
-          reason: 'salah bayar',
-          requestedById: refundAdmin,
-        }),
-      ),
+      prisma.$transaction((tx) => refundOf(tx, source.id, payment.id, refundAdmin)),
     ]);
 
-    expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
     expect(await balanceOf(source.id)).toBeGreaterThanOrEqual(0);
+    expect(await balanceOf(target.id)).toBeGreaterThanOrEqual(0);
     expect((await balanceOf(source.id)) + (await balanceOf(target.id))).toBeLessThanOrEqual(500_000);
+    await expectLedgerBalanced();
+  }, 60_000);
+
+  it('a Refund requested after the transfer moved the balance is refused (409), not left to overdraw the source', async () => {
+    const source = await makeCampaign({ status: 'SUSPENDED', balance: 500_000 });
+    const target = await makeCampaign({ status: 'ACTIVE' });
+    const requester = await makeUser();
+    const approver = await makeUser();
+    const refundAdmin = await makeUser();
+    const payment = await seedReleasedPayment(source.id);
+    const transfer = await requestTransfer(source.id, target.id, requester);
+    await transfers.approveCampaignTransfer(prisma, { campaignTransferId: transfer.id, decidedById: approver });
+
+    await expect(prisma.$transaction((tx) => refundOf(tx, source.id, payment.id, refundAdmin))).rejects.toMatchObject({
+      code: 'REFUND_AFTER_CAMPAIGN_TRANSFER',
+    });
+    expect(await balanceOf(source.id)).toBe(0);
+    expect(await balanceOf(target.id)).toBe(500_000);
+    expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(0);
+    await expectLedgerBalanced();
+  }, 60_000);
+
+  it('without a transfer, a Refund the balance cannot cover still freezes (Payout shortfall design: the platform covers it at approval)', async () => {
+    const source = await makeCampaign({ status: 'SUSPENDED', balance: 100_000 });
+    const refundAdmin = await makeUser();
+    const payment = await seedReleasedPayment(source.id);
+
+    await prisma.$transaction((tx) => refundOf(tx, source.id, payment.id, refundAdmin));
+
+    expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(1);
+    expect(await balanceOf(source.id)).toBe(100_000 - 300_000);
+    await expectLedgerBalanced();
+  }, 60_000);
+
+  it('a Refund that froze the balance first makes the transfer approval refuse (the balance changed)', async () => {
+    const source = await makeCampaign({ status: 'SUSPENDED', balance: 500_000 });
+    const target = await makeCampaign({ status: 'ACTIVE' });
+    const requester = await makeUser();
+    const approver = await makeUser();
+    const refundAdmin = await makeUser();
+    const payment = await seedReleasedPayment(source.id);
+    const transfer = await requestTransfer(source.id, target.id, requester);
+    await prisma.$transaction((tx) => refundOf(tx, source.id, payment.id, refundAdmin));
+
+    await expect(
+      transfers.approveCampaignTransfer(prisma, { campaignTransferId: transfer.id, decidedById: approver }),
+    ).rejects.toMatchObject({ code: 'CAMPAIGN_TRANSFER_BALANCE_CHANGED' });
+    expect(await balanceOf(source.id)).toBeGreaterThanOrEqual(0);
+    expect(await balanceOf(target.id)).toBe(0);
     await expectLedgerBalanced();
   }, 60_000);
 
