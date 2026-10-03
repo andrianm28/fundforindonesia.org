@@ -18,7 +18,7 @@ lower here, since the rules were `warn` and not counted before).
 **Blocked by:** 15 (must merge first; this ticket's baseline math depends on
 ticket 15's `eslint.config.mjs` and `ci/baselines.json`)
 
-**Status:** awaiting-merge
+**Status:** done (PR #196, 65fca94)
 
 - [ ] All four rules read `'error'` in `eslint.config.mjs`, not `'warn'` (dua dari empat; sisanya dipindah ke 18b)
 - [ ] `eslint .` reports zero findings for these four rules
@@ -40,3 +40,4 @@ ticket 15's `eslint.config.mjs` and `ci/baselines.json`)
   - Baseline lint tetap 193 (jumlah error memang 193; aturan yang dinaikkan sudah bersih). `ci.yml` tidak disentuh.
   - Sisa pekerjaan (15 temuan `set-state-in-effect`, 2 `purity`, lalu promosi keduanya ke `error`) dipindah ke
     tiket 18b. Angka 16 di keputusan owner menghitung temuan `akun/page.tsx` yang kini sudah hilang.
+- 2026-10-03: done. Merge ke main sebagai 65fca94.

@@ -8,7 +8,7 @@ and close Dependabot PR #13 in favour of this one.
 
 **Blocked by:** 15 (land the Next major first; one framework shift at a time)
 
-**Status:** awaiting-merge
+**Status:** done (PR #193, 9133314)
 
 - [x] `tailwindcss` 4.x with `@tailwindcss/postcss`; the design tokens from `tailwind.config.ts` live on (in CSS `@theme` or a kept JS config, decision recorded in the PR)
 - [ ] No utility used in `src/` is silently dropped: `npx next build` succeeds, and a before/after screenshot of the home page, a Campaign page and the Admin shell shows no visual regression
@@ -38,3 +38,4 @@ and close Dependabot PR #13 in favour of this one.
   visual check with real data are still open.
 - Dependabot #13 not closed by the agent; coordinator/owner closes it with a
   pointer to the PR after merge.
+- 2026-10-03: done. Merge ke main sebagai 9133314.

@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** awaiting-merge
+**Status:** done (PR #192, c537660)
 
 - [x] Password hashing and verification no longer occupy the main thread
 - [x] Existing stored hashes keep working with no password reset and no migration, because the hash format is unchanged
@@ -28,3 +28,4 @@ Cross-compatibility was verified in both directions: the native implementation r
 **Parent spec:** `.scratch/prd-compliance-fase-0-2/spec.md`
 
 - 2026-10-02: `@node-rs/bcrypt` via `src/lib/password-hash.ts`, ADR 0019. Compat tested both directions with real hashes (cost 4 and 12). Event-loop lag 5184ms -> 142ms (4 vCPU, shared). Threadpool left at default. Docker build now run for real (2026-10-02, dockerd in the cloud session, node:24-alpine): image builds, musl binary traced into standalone, smoke test passes, container starts and serves `/`. ADR 0019 number kept: main deliberately skipped 0019 for this ADR (commit bc97971), so there is no clash. Added a test for hashes at older costs (4, 8, 10).
+- 2026-10-03: done. Merge ke main sebagai c537660.

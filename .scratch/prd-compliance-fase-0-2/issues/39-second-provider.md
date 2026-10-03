@@ -4,7 +4,7 @@
 
 **Blocked by:** 18
 
-**Status:** awaiting-merge
+**Status:** done (PR #195, 96c1c87)
 
 - [x] Providers and their methods are enabled from the Admin panel (`/admin/payment-providers`, `POST /api/admin/payment-providers`; only providers registered in this build and configured in the environment)
 - [x] Every Payment records its provider and reference (already true; pinned again by the e-wallet donation route test)
@@ -49,3 +49,4 @@
   its own signature) stays open until then. Also open: `GATEWAY_CLEARING` is
   still one account for all providers (ADR 0011 update note), so a second
   provider's settlements would share that pot until that is split.
+- 2026-10-03: done. Merge ke main sebagai 96c1c87. AC 3 (provider webhook signature verification) dan pemisahan GATEWAY_CLEARING menunggu owner memilih provider kedua.
