@@ -1,6 +1,6 @@
 # 52: Laporan reconcile menandai Payment dengan Refund REJECTED/FAILED sebagai strandedEscrow
 
-**Status:** awaiting-merge
+**Status:** done (PR #207, 25c23f4)
 
 **Blocked by:** none (49 done)
 
@@ -155,3 +155,5 @@ uangnya benar: alarm palsu yang tidak bisa diselesaikan Admin.
   produksi hanya `reconcile/route.ts`) tanpa blocking; komentar modul yang
   bertentangan dengan kredit cermin dan entri Refund di `CONTEXT.md` dirapikan
   di PR yang sama. Status menjadi `done` saat merge.
+
+- 2026-10-03 (merge): PR #207 merge sebagai `25c23f4`, CI hijau, review independen diposting di PR.
