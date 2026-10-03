@@ -1,6 +1,6 @@
 # 53: createRefund menghitung ulang porsi fee sehingga fee terakui kurang setelah Refund ditolak
 
-**Status:** awaiting-merge
+**Status:** done (PR #208, 2673ca3)
 
 **Blocked by:** 51 (done)
 
@@ -169,3 +169,5 @@ scratchpad sesi koordinator (`pr205/sim/sim2.ts`), bukan di repo.
   lint 193 dan tsc 19, tak berubah.
 - Tidak disentuh: `src/app/api/admin/reconcile/route.ts` (tiket 52), `escrow.ts`,
   `approveRefund`, `resolveRefund`.
+
+- 2026-10-03 (merge): PR #208 merge sebagai `2673ca3`, CI hijau, review dan re-review independen diposting di PR. Penyatuan pemeriksaan "jurnal freeze hilang" menjadi tiket 54.
