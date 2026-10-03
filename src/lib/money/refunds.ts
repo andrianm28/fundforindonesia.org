@@ -290,6 +290,13 @@ export async function createRefund(
   }
 
   const source = sourceFor(payment, subject);
+  // Split the same way providerFeePortionFor already does: proportional to
+  // amount / payment.amount, capped cumulatively across every prior Refund
+  // on this Payment (prd-compliance 17). The Payment's pool only ever held
+  // gross - providerFee - platformFee (paymentSettledLegs), so a Refund must
+  // return this share too, not just the Provider Fee's.
+  const platformFeePortion = platformFeePortionFor(payment, amount, priorAmounts);
+  const providerFeePortion = providerFeePortionFor(payment, amount, priorAmounts);
   // The freeze below DEBITS the Campaign's withdrawable balance by the net
   // portion at request time. A pool a Payout drew down is covered by the
   // platform at approval (shortfall), but a pool a Campaign Transfer moved
@@ -299,8 +306,7 @@ export async function createRefund(
   // the balance cannot cover is refused when an APPROVED transfer left this
   // Campaign. Escrow Hold, Trip pools and Payout shortfall are unchanged.
   if (source === 'CAMPAIGN_BALANCE' && subject.type === 'campaign') {
-    const netToFreeze =
-      amount - platformFeePortionFor(payment, amount, priorAmounts) - providerFeePortionFor(payment, amount, priorAmounts);
+    const netToFreeze = amount - platformFeePortion - providerFeePortion;
     if (netToFreeze > 0) {
       const available = await campaignBalance(tx, subject.campaignId);
       if (available < netToFreeze) {
@@ -314,13 +320,6 @@ export async function createRefund(
     data: { paymentId, amount, reason, requestedById, status: 'REQUESTED' },
   });
 
-  // Split the same way providerFeePortionFor already does: proportional to
-  // amount / payment.amount, capped cumulatively across every prior Refund
-  // on this Payment (prd-compliance 17). The Payment's pool only ever held
-  // gross - providerFee - platformFee (paymentSettledLegs), so a Refund must
-  // return this share too, not just the Provider Fee's.
-  const platformFeePortion = platformFeePortionFor(payment, amount, priorAmounts);
-  const providerFeePortion = providerFeePortionFor(payment, amount, priorAmounts);
   // No claim on the Refund row here, unlike approveRefund: this Refund was
   // created a statement ago, so its id has never been posted. That is what
   // makes the transactionId below one-shot -- the ledger's claim index

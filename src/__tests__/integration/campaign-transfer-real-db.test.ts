@@ -307,7 +307,7 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
 
     await expect(
       transfers.approveCampaignTransfer(prisma, { campaignTransferId: transfer.id, decidedById: approver }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: 'CAMPAIGN_TRANSFER_BALANCE_CHANGED' });
     expect(await balanceOf(source.id)).toBeGreaterThanOrEqual(0);
     expect(await balanceOf(target.id)).toBe(0);
     await expectLedgerBalanced();

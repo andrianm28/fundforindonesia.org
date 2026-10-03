@@ -119,4 +119,10 @@
   deadlock: approve transfer hanya mengunci Campaign, `createRefund` mengunci
   Campaign dulu lalu Payment. Tes real-DB balapan kini hanya menegaskan invarian
   uang (saldo >= 0, total <= 500k, ledger seimbang) plus dua urutan deterministik.
-
+  Batasan yang sengaja konservatif (temuan review PR #198): penolakan memakai dua
+  syarat kasar, saldo kurang dan ada transfer APPROVED keluar, tanpa melacak asal
+  kekurangannya. Campaign yang pernah mentransfer, lalu menerima donasi baru,
+  lalu dananya ditarik lewat Payout, juga ditolak walau seharusnya masuk
+  shortfall; sama bila kekurangan disebabkan Refund lain yang masih REQUESTED.
+  Tidak ada uang yang hilang; Admin menangani kasus itu secara manual, dan
+  penyempitan aturan menjadi tiket lanjutan.
