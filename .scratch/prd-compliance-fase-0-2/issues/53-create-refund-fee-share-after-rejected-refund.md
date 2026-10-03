@@ -20,7 +20,9 @@ scratchpad sesi koordinator (`pr205/sim/sim2.ts`), bukan di repo.
 - [x] Tes merah dulu (unit dan satu tes Postgres sungguhan) untuk urutan di atas,
       termasuk Refund penuh setelah penolakan: total fee terakui atas Refund yang
       berdiri sama persis dengan porsi kumulatifnya, dan `ESCROW_HOLD` tidak
-      pernah negatif
+      pernah negatif. Dikoreksi atas review #208: "sama persis" hanya berlaku
+      sampai ada penolakan; sesudahnya total itu tidak kurang dari porsi kumulatif
+      dan tidak lebih dari fee (lihat Comments)
 - [x] Porsi fee Refund baru dihitung dari fee yang sudah diposting oleh jurnal
       freeze Refund yang masih berdiri (helper `refundFreezeDebit` dari #205),
       bukan dari daftar jumlah. Daftar jumlah masih dipakai satu hal: menentukan
@@ -38,8 +40,11 @@ scratchpad sesi koordinator (`pr205/sim/sim2.ts`), bukan di repo.
   ditolak, R3 50_000: R3 mendapat 833 dan 1_666 (seharusnya 834 dan 1_667), Refund
   yang berdiri membawa 1_666 dari 1_667 dan 3_332 dari 3_333, `ESCROW_HOLD` -2.
   Tes merah di `17a401f`, hijau di commit kerja `df30ada` (sha penuh
-  `df30ada2d0744773682607817910bcc48c92a317`). PR belum dibuat; koordinator
-  menambahkan nomornya di sini.
+  `df30ada2d0744773682607817910bcc48c92a317`).
+  PR #208. Commit di branch: `df30ada` (perbaikan awal, kode dan tes), `fb0ec99`
+  (tiket `awaiting-merge`), `f2e5fca` (perbaikan atas review independen #208, sha
+  penuh `f2e5fca75d00e1ce3da48d09229a2ab9d07a5646`), lalu satu commit tiket yang
+  mengoreksi komentar ini.
 - 2026-10-03, keputusan implementasi:
   1. `createRefund` membaca fee yang sudah diposting tiap Refund yang masih
      berdiri (bukan REJECTED atau FAILED) dari jurnal freeze-nya lewat
@@ -55,10 +60,15 @@ scratchpad sesi koordinator (`pr205/sim/sim2.ts`), bukan di repo.
      Maka porsi = porsi kumulatif (jumlah porsi bulat-ke-atas tiap Refund yang
      berdiri ditambah milik sendiri, dibatasi fee; sama seperti sebelum tiket ini)
      dikurangi yang sudah diposting, dibatasi jumlah Refund itu sendiri. Dengan
-     itu total fee atas Refund yang berdiri selalu sama dengan porsi kumulatif, dan
-     Refund yang menutup Payment menyusul porsi yang pernah terpotong. Tanpa
-     penolakan hasilnya identik dengan perilaku lama (deret 50_000, 40_000, 10_000
-     dikunci tes; varian "satu pembulatan atas jumlah total" merahkan tes itu).
+     itu, begitu sebuah Refund dibuat, total fee atas Refund yang berdiri tidak
+     kurang dari porsi kumulatif dan tidak lebih dari fee (jadi pool tidak pernah
+     terdebit melebihi isinya), dan Refund yang menutup Payment menyusul porsi yang
+     pernah terpotong (total = fee). Total itu sama persis dengan porsi kumulatif
+     hanya selama belum ada penolakan; sesudahnya bisa satu-dua rupiah di atasnya
+     (koreksi atas klaim awal "selalu sama persis", lihat komentar review #208).
+     Tanpa penolakan hasilnya identik dengan perilaku lama (deret 50_000, 40_000,
+     10_000 dikunci tes; varian "satu pembulatan atas jumlah total" merahkan tes
+     itu).
   3. Refund yang berdiri tanpa jurnal freeze membuat `createRefund` menolak tanpa
      menulis apa pun (`Error` biasa, seperti sweep escrow), bukan dianggap
      mengambil nol. Tidak mungkin terjadi pada operasi normal: `createRefund`
@@ -74,11 +84,12 @@ scratchpad sesi koordinator (`pr205/sim/sim2.ts`), bukan di repo.
      sendiri; bila ada porsi yang belum terambil dari Refund sekecil itu, sisanya
      menunggu Refund berikutnya. `refundRequestedLegs` tetap menolak porsi gabungan
      yang melebihi jumlah Refund (perilaku lama, Refund beberapa rupiah).
-  6. Catatan data lama: Refund yang dibekukan sebelum prd-compliance 17 (jurnal
-     freeze tanpa leg `PLATFORM_FEE`) kini dianggap membawa Platform Fee 0, jadi
-     Refund berikutnya pada Payment itu menyusul porsinya. Itu yang dicatat buku
-     besar. Tidak diperiksa terhadap data produksi (di luar jangkauan sesi cloud);
-     bila ada Refund semacam itu di produksi, perilakunya berubah seperti ini.
+  6. Refund pra-prd-17 (jurnal freeze tanpa leg `PLATFORM_FEE`) tidak mungkin ada
+     pada Payment yang membawa Platform Fee: kolom `Payment.platformFee` NOT NULL
+     DEFAULT 0 (migrasi `20260927030000_add_platform_fee`, tanpa backfill), jadi
+     Payment lama membawa Platform Fee 0 dan porsi 0 pada jurnal freeze Refund-nya
+     memang benar. Tidak ada Refund lama yang kini "menyusul" porsi (koreksi atas
+     catatan awal di sini).
 - 2026-10-03, tes: `refunds.test.ts` (urutan R1, R2, R3 lewat `createRefund` dan
   `rejectRefund`, Refund digagalkan setelah approve, catch-up, deret tanpa
   penolakan, jurnal hilang, pembunuh mutan approve), `ledger.test.ts` (porsi murni
@@ -105,5 +116,56 @@ scratchpad sesi koordinator (`pr205/sim/sim2.ts`), bukan di repo.
   diputar ulang di `createRefund`, `approveRefund`, `rejectRefund`, `failRefund` dan
   sweep di Postgres sungguhan: tiap shortfall dan saldo `FROZEN_BALANCE`,
   `ESCROW_HOLD`, pool, `PLATFORM_FEE`, `REFUND_COST` cocok dengan model.
+- 2026-10-03, review independen PR #208. Algoritmanya dinyatakan benar (200.000
+  walk acak tanpa pelanggaran, 1.400 skrip Postgres cocok dengan model, hasil
+  tanpa penolakan identik dengan `main`). Dua temuan blocking, diperbaiki di
+  `f2e5fca`:
+  1. Tes properti di `ledger.test.ts` menegaskan `toBe(porsi kumulatif)` setelah
+     tiap Refund dibuat, padahal itu bukan invarian. Sesudah penolakan, fee yang
+     sudah diposting bisa melebihi porsi kumulatif: porsi yang diambil sebuah
+     Refund untuk menutup potongan pada Refund lain tetap terposting bila Refund
+     yang ditutupi kemudian ditolak (buku besar tidak disunting), sehingga Refund
+     berikutnya mendapat 0, bukan negatif, dan totalnya satu-dua rupiah di atas
+     porsi kumulatif. Contoh review: Payment 10_000 dengan Provider Fee 10, Refund
+     1_010, 100 dan 8_001; dua yang pertama ditolak; Refund 100 (porsi 3); yang
+     8_001 ditolak; Refund 100 (porsi 0). Total 3, porsi kumulatif 2. Tes itu flaky
+     sekitar 1%. Dengan contoh itu dipasang sebagai `examples`, tes lama merah
+     deterministik di `fb0ec99` ("expected 3 to be 2"). Perbaikan: asersi menjadi
+     total >= porsi kumulatif dan <= fee (sama persis hanya selama belum ada
+     penolakan), ditambah porsi tiap Refund tidak negatif dan tidak melebihi
+     jumlahnya; contoh review juga menjadi tes deterministik, pada fungsi porsi
+     (`ledger.test.ts`) dan lewat `createRefund` dan `rejectRefund`
+     (`refunds.test.ts`: Refund kelima membeku tanpa leg fee, pool 9_793). Klaim di
+     item 2 dikoreksi. Algoritma tidak berubah; di `ledger.ts` hanya komentar
+     `feePortionOf` yang diperjelas.
+  2. Status `awaiting-merge` kini menyebut PR #208 dan commit (komentar pertama).
+  Sekalian: item 6 dikoreksi (Payment lama membawa Platform Fee 0, jadi tidak ada
+  Refund pra-prd-17 yang terpengaruh). Dua mutan yang lolos semua 1.201 tes
+  terkait di `fb0ec99` kini merah: (a) hapus `Math.max(0, ...)` di `feePortionOf`
+  (3 tes: dua contoh deterministik dan tes properti); (b) hapus pagar
+  `combinedFeePortion > amount` di `refundRequestedLegs`, yaitu porsi fee gabungan
+  yang lebih besar dari jumlah Refund (2 tes baru: `ledger.test.ts` pada
+  `refundRequestedLegs`, dan `refunds.test.ts` lewat `createRefund` pada Refund 1
+  rupiah di Payment dengan dua fee, yang harus ditolak sebagai
+  `InvalidLedgerLegError` tanpa memposting apa pun). Pagar jumlah per fee
+  (`Math.min(..., targetAmount)` di `feePortionOf`) juga dicoba: sudah merah di
+  satu tes dari `df30ada`, jadi bukan yang lolos. Enam mutan lain pada aritmetika
+  porsi (hanya fee terposting Refund terakhir yang dihitung, porsi sendiri
+  dibuang, batas fee dan batas jumlah masing-masing bergeser satu, pagar gabungan
+  memakai `>=`, porsi Refund yang berdiri memakai jumlah milik sendiri) semuanya
+  merah. Tidak diubah, dicatat sebagai tiket lanjutan menurut review: helper
+  "jurnal hilang" (`Error` biasa di `standingRefundFees`) dan kode error domain.
+  Diulang (`TEST_DATABASE_URL=postgresql://ci:ci@localhost:5432/ci?schema=public`):
+  `npx vitest run src/lib/money`; `npx vitest run
+  src/__tests__/integration/escrow-sweep-refund-fee-share-real-db.test.ts
+  src/__tests__/integration/refund-reject-fail-real-db.test.ts`; semua berkas tes
+  yang menyentuh modul Refund (99 berkas, 1880 tes lulus); tes properti
+  (`npx vitest run src/lib/money/ledger.test.ts -t "property: Refunds standing"`)
+  60 kali, tiap kali proses vitest sendiri dengan seed acak berbeda: 60 lulus; 300
+  seed eksplisit dengan 2.000 kasus tiap seed (salinan sementara blok tes itu,
+  tidak ada di repo): lulus; full suite sekali (`npx vitest run`, dengan
+  `TEST_DATABASE_URL` dan `LEDGER_CLAIM_TEST_DATABASE_URL` ke Postgres lokal): 412
+  berkas, 5453 tes lulus, tidak ada yang dilewati; `node ci/ratchet.mjs`:
+  lint 193 dan tsc 19, tak berubah.
 - Tidak disentuh: `src/app/api/admin/reconcile/route.ts` (tiket 52), `escrow.ts`,
   `approveRefund`, `resolveRefund`.
