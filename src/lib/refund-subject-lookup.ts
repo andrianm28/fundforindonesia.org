@@ -17,6 +17,14 @@ export interface RefundSubjectInfo {
   type: 'campaign' | 'trip';
   slug: string;
   title: string;
+  /**
+   * The subject's Fundraiser: `creatorId` of a Campaign, `fundraiserId` of a
+   * Volunteer Trip (the same person `lockAndLoad` calls `ownerId`). An Admin
+   * who is this person never acts as Admin on the subject's Refunds
+   * (requireNotOwnerAsAdmin, src/lib/subject-guard.ts), so a page that wants
+   * to say so before the server has to compares its viewer with this.
+   */
+  ownerId: string;
 }
 
 type SubjectRow = {
@@ -42,11 +50,19 @@ export function refundSubjectKey(row: SubjectRow): string {
 export async function loadRefundSubject(prisma: PrismaClient, row: SubjectRow): Promise<RefundSubjectInfo | null> {
   const { type, id } = subjectIdOf(row);
   if (type === 'campaign') {
-    const campaign = await prisma.campaign.findUnique({ where: { id }, select: { slug: true, title: true } });
-    return campaign ? { type: 'campaign', slug: campaign.slug, title: campaign.title } : null;
+    const campaign = await prisma.campaign.findUnique({
+      where: { id },
+      select: { slug: true, title: true, creatorId: true },
+    });
+    return campaign
+      ? { type: 'campaign', slug: campaign.slug, title: campaign.title, ownerId: campaign.creatorId }
+      : null;
   }
-  const trip = await prisma.volunteerTrip.findUnique({ where: { id }, select: { slug: true, title: true } });
-  return trip ? { type: 'trip', slug: trip.slug, title: trip.title } : null;
+  const trip = await prisma.volunteerTrip.findUnique({
+    where: { id },
+    select: { slug: true, title: true, fundraiserId: true },
+  });
+  return trip ? { type: 'trip', slug: trip.slug, title: trip.title, ownerId: trip.fundraiserId } : null;
 }
 
 /**
@@ -64,19 +80,30 @@ export async function loadRefundSubjects(
 
   const [campaigns, trips] = await Promise.all([
     campaignIds.length > 0
-      ? prisma.campaign.findMany({ where: { id: { in: campaignIds } }, select: { id: true, slug: true, title: true } })
+      ? prisma.campaign.findMany({
+          where: { id: { in: campaignIds } },
+          select: { id: true, slug: true, title: true, creatorId: true },
+        })
       : Promise.resolve([]),
     tripIds.length > 0
-      ? prisma.volunteerTrip.findMany({ where: { id: { in: tripIds } }, select: { id: true, slug: true, title: true } })
+      ? prisma.volunteerTrip.findMany({
+          where: { id: { in: tripIds } },
+          select: { id: true, slug: true, title: true, fundraiserId: true },
+        })
       : Promise.resolve([]),
   ]);
 
   const subjects = new Map<string, RefundSubjectInfo>();
   for (const campaign of campaigns) {
-    subjects.set(`campaign:${campaign.id}`, { type: 'campaign', slug: campaign.slug, title: campaign.title });
+    subjects.set(`campaign:${campaign.id}`, {
+      type: 'campaign',
+      slug: campaign.slug,
+      title: campaign.title,
+      ownerId: campaign.creatorId,
+    });
   }
   for (const trip of trips) {
-    subjects.set(`trip:${trip.id}`, { type: 'trip', slug: trip.slug, title: trip.title });
+    subjects.set(`trip:${trip.id}`, { type: 'trip', slug: trip.slug, title: trip.title, ownerId: trip.fundraiserId });
   }
   return subjects;
 }

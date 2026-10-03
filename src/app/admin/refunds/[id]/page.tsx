@@ -8,17 +8,18 @@ import { readRefundDonorAccountNumber } from '@/lib/contact-fields';
 import { maskBankAccountNumber } from '@/lib/bank-account-mask';
 import { AdminRefundApproveForm } from '@/components/admin/AdminRefundApproveForm';
 import { AdminRefundCompleteForm } from '@/components/admin/AdminRefundCompleteForm';
+import { AdminRefundResolveForm } from '@/components/admin/AdminRefundResolveForm';
 
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 /**
- * One Refund, for the Admin acting on it: create → approve (ticket 23;
- * CONTEXT.md, Refund). Rilis 1's narrowed scope -- only REQUESTED gets an
- * action, the wider RefundStatus machine (AwaitingDonorDetails, Processing,
- * Completed, Rejected, Failed) stays in the schema for a later rilis. The
- * form half of /admin/refunds, which only lists.
+ * One Refund, for the Admin acting on it: create → approve → complete
+ * (tickets 23 and 31), and the two ways it ends without paying the Donor,
+ * reject and fail (tickets 49 and 50; CONTEXT.md, Refund). Processing stays
+ * in the schema's RefundStatus for a later rilis. The form half of
+ * /admin/refunds, which only lists.
  *
  * TWO SUBJECTS, RESOLVED WITHOUT AN .include(). A Refund's Payment names a
  * Campaign or a Volunteer Trip, never both (assertExactlyOnePaymentSubject),
@@ -28,8 +29,13 @@ type RouteContext = { params: Promise<{ id: string }> };
  * STATUS DECIDES THE FORM, NOT A ROLE CHECK HERE. REQUESTED gets the
  * approve form (which itself refuses the requester); APPROVED gets the
  * complete form (ticket 31, which itself refuses both the requester and
- * the approver); anything else (COMPLETED and, later, the rest of the
- * machine) gets a read-only summary.
+ * the approver). The way back sits beside them (ticket 50): REQUESTED and
+ * AWAITING_DONOR_DETAILS get the reject form, APPROVED gets the fail form,
+ * and each says for itself when the viewer is someone its act bars. Both
+ * also say so to the subject's Fundraiser, which only this page can tell
+ * them (`isOwnSubject`, from the subject lookup's `ownerId`); approve and
+ * complete still leave that refusal to the server. Anything else (COMPLETED,
+ * REJECTED, FAILED, ...) gets a read-only summary.
  *
  * THE RECORDED DESTINATION IS SHOWN MASKED, NEVER IN FULL (Q7(c), ADR
  * 0018 Amendment 2026-09-28): once an Admin has approved and recorded the
@@ -69,6 +75,7 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
   if (!subject) {
     notFound();
   }
+  const isOwnSubject = subject.ownerId === actorId;
 
   // Decrypted only to mask (Q7(c)): the full number is never handed to the
   // page's render, only the tail maskBankAccountNumber leaves visible.
@@ -147,39 +154,79 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
         )}
       </div>
 
-      {refund.status === 'REQUESTED' && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-gray-900">Tindakan</h2>
-          <p className="mb-3 text-xs text-gray-500">
-            Aturan dua orang: Admin yang menyetujui harus berbeda dari yang mengajukan.
-          </p>
-          <AdminRefundApproveForm
-            refundId={refund.id}
-            subject={{ type: subject.type, slug: subject.slug }}
-            actorId={actorId}
-            requestedById={refund.requestedById}
-          />
-        </div>
-      )}
+      <div className="space-y-4">
+        {refund.status === 'REQUESTED' && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <h2 className="mb-3 text-sm font-semibold text-gray-900">Tindakan</h2>
+            <p className="mb-3 text-xs text-gray-500">
+              Aturan dua orang: Admin yang menyetujui harus berbeda dari yang mengajukan.
+            </p>
+            <AdminRefundApproveForm
+              refundId={refund.id}
+              subject={{ type: subject.type, slug: subject.slug }}
+              actorId={actorId}
+              requestedById={refund.requestedById}
+            />
+          </div>
+        )}
 
-      {refund.status === 'APPROVED' && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-gray-900">Tandai selesai</h2>
-          <p className="mb-3 text-xs text-gray-500">
-            Aturan dua orang: Admin yang menyelesaikan harus berbeda dari yang
-            mengajukan maupun yang menyetujui, dan mentransfer dana secara manual ke rekening Donor -- yang sudah
-            dicatat Admin yang menyetujui -- sebelum mengetik ulang nomor rekening dan mencatat bukti transfer di
-            sini.
-          </p>
-          <AdminRefundCompleteForm
-            refundId={refund.id}
-            subject={{ type: subject.type, slug: subject.slug }}
-            actorId={actorId}
-            requestedById={refund.requestedById}
-            approvedById={refund.approvedById}
-          />
-        </div>
-      )}
+        {(refund.status === 'REQUESTED' || refund.status === 'AWAITING_DONOR_DETAILS') && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <h2 className="mb-3 text-sm font-semibold text-gray-900">Tolak Refund</h2>
+            <p className="mb-3 text-xs text-gray-500">
+              Hanya sebelum disetujui. Frozen Balance Refund ini dikembalikan ke saldo asalnya. Admin yang menolak
+              harus berbeda dari yang mengajukan, dan bukan Fundraiser Campaign atau Volunteer Trip ini.
+            </p>
+            <AdminRefundResolveForm
+              action="reject"
+              refundId={refund.id}
+              subject={{ type: subject.type, slug: subject.slug }}
+              actorId={actorId}
+              requestedById={refund.requestedById}
+              approvedById={refund.approvedById}
+              isOwnSubject={isOwnSubject}
+            />
+          </div>
+        )}
+
+        {refund.status === 'APPROVED' && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <h2 className="mb-3 text-sm font-semibold text-gray-900">Tandai selesai</h2>
+            <p className="mb-3 text-xs text-gray-500">
+              Aturan dua orang: Admin yang menyelesaikan harus berbeda dari yang
+              mengajukan maupun yang menyetujui, dan mentransfer dana secara manual ke rekening Donor -- yang sudah
+              dicatat Admin yang menyetujui -- sebelum mengetik ulang nomor rekening dan mencatat bukti transfer di
+              sini.
+            </p>
+            <AdminRefundCompleteForm
+              refundId={refund.id}
+              subject={{ type: subject.type, slug: subject.slug }}
+              actorId={actorId}
+              requestedById={refund.requestedById}
+              approvedById={refund.approvedById}
+            />
+          </div>
+        )}
+
+        {refund.status === 'APPROVED' && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <h2 className="mb-3 text-sm font-semibold text-gray-900">Tandai gagal</h2>
+            <p className="mb-3 text-xs text-gray-500">
+              Untuk Refund yang sudah disetujui tetapi tidak bisa dibayar ke Donor. Dana kembali ke saldo asalnya. Admin
+              yang menandai harus berbeda dari yang menyetujui, dan bukan Fundraiser Campaign atau Volunteer Trip ini.
+            </p>
+            <AdminRefundResolveForm
+              action="fail"
+              refundId={refund.id}
+              subject={{ type: subject.type, slug: subject.slug }}
+              actorId={actorId}
+              requestedById={refund.requestedById}
+              approvedById={refund.approvedById}
+              isOwnSubject={isOwnSubject}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
