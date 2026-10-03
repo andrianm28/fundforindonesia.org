@@ -31,6 +31,7 @@ import {
   SelfApprovalError,
   InvalidRefundStatusError,
   TwoPersonRuleError,
+  InsufficientBalanceError,
 } from './errors';
 
 /**
@@ -287,11 +288,30 @@ export async function createRefund(
     throw new RefundExceedsRemainingError(amount, remaining);
   }
 
+  const source = sourceFor(payment, subject);
+  // The freeze below DEBITS the Campaign's withdrawable balance by the net
+  // portion at request time, so it is judged here, under the Campaign lock
+  // taken above -- the same lock approveCampaignTransfer holds while it moves
+  // that whole balance away. Without it a transfer that lands first leaves a
+  // Refund that drives the source negative (a transfer racing a Refund ended
+  // at source -300k, target +500k). Campaign balance only: Escrow Hold and
+  // Trip pools keep their own rules.
+  const netToFreeze = amount - platformFeePortionFor(payment, amount, priorAmounts) - providerFeePortionFor(payment, amount, priorAmounts);
+  if (source === 'CAMPAIGN_BALANCE' && subject.type === 'campaign' && netToFreeze > 0) {
+    const available = await campaignBalance(tx, subject.campaignId);
+    if (available < netToFreeze) {
+      throw new InsufficientBalanceError(
+        netToFreeze,
+        available,
+        'Campaign Balance tidak cukup untuk membekukan Refund ini (dana sudah dipindahkan atau ditarik).',
+      );
+    }
+  }
+
   const refund = await tx.refund.create({
     data: { paymentId, amount, reason, requestedById, status: 'REQUESTED' },
   });
 
-  const source = sourceFor(payment, subject);
   // Split the same way providerFeePortionFor already does: proportional to
   // amount / payment.amount, capped cumulatively across every prior Refund
   // on this Payment (prd-compliance 17). The Payment's pool only ever held

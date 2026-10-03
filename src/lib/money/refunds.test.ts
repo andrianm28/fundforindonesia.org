@@ -30,6 +30,10 @@ type LedgerRow = {
   volunteerTripId: string | null;
 };
 
+function campaignFunds(amount: number): LedgerRow {
+  return { transactionId: 'seed-funds', direction: 'CREDIT', amount, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null };
+}
+
 function makePayment(overrides: Record<string, unknown> = {}) {
   return {
     id: 'payment-1',
@@ -284,7 +288,10 @@ describe('createRefund', () => {
   });
 
   it('freezes funds from CAMPAIGN_BALANCE once the Payment has matured', async () => {
-    const { tx, rows } = makeTx({ payment: makePayment({ escrowReleasedAt: new Date('2026-01-01') }) });
+    const { tx, rows } = makeTx({
+      payment: makePayment({ escrowReleasedAt: new Date('2026-01-01') }),
+      ledgerRows: [campaignFunds(100_000)],
+    });
 
     await createRefund(tx as never, {
       subject: { type: 'campaign', campaignId: 'campaign-1' },
@@ -296,6 +303,24 @@ describe('createRefund', () => {
 
     const posted = rows.filter((r) => r.transactionId === 'refund-requested-refund-1');
     expect(posted.find((r) => r.account === 'CAMPAIGN_BALANCE')).toMatchObject({ direction: 'DEBIT' });
+  });
+
+  it('refuses to freeze from CAMPAIGN_BALANCE when the withdrawable balance cannot cover the net portion (a transfer moved it)', async () => {
+    const { tx, rows } = makeTx({
+      payment: makePayment({ escrowReleasedAt: new Date('2026-01-01') }),
+      ledgerRows: [campaignFunds(10_000)],
+    });
+
+    await expect(
+      createRefund(tx as never, {
+        subject: { type: 'campaign', campaignId: 'campaign-1' },
+        paymentId: 'payment-1',
+        amount: 40_000,
+        reason: 'x',
+        requestedById: 'admin-1',
+      }),
+    ).rejects.toThrow(/Campaign Balance tidak cukup/);
+    expect(rows.some((r) => r.transactionId === 'refund-requested-refund-1')).toBe(false);
   });
 
   it('freezes funds from TRIP_BALANCE for a matured Trip subject, never touching CAMPAIGN_BALANCE', async () => {
