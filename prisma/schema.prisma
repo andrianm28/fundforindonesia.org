@@ -125,6 +125,7 @@ model User {
   providerWithdrawalsRecorded       ProviderWithdrawal[]             @relation("ProviderWithdrawalRecorder")
   duplicateSimilarityThresholdsSet  DuplicateSimilarityThreshold[]
   abuseThresholdsSet                AbuseThreshold[]
+  paymentProviderSettingsSet        PaymentProviderSetting[]
 
   // One account per address, and it is the normalized address that counts: the
   // old `email @unique` was case-sensitive and would let one person hold
@@ -1577,6 +1578,33 @@ enum AbuseThresholdKind {
   DONATION_REVIEW_AMOUNT
   /// How many Active Campaigns one Fundraiser may run before their first Usage Report.
   ACTIVE_CAMPAIGNS_PER_FUNDRAISER
+}
+
+/// Which Payment Provider takes new charges, and through which methods, as an
+/// Admin set it from the dashboard (prd-compliance 39). Append-only like every
+/// other setting here: the latest row is in force, older rows are who chose what
+/// and when. No row means the deployment's own default -- PAYMENT_PROVIDER,
+/// with every method that adapter supports -- so nothing is seeded and a fresh
+/// database behaves exactly as before.
+///
+/// `provider` is a registered name (PAYMENT_PROVIDER_NAMES) and `methods` are
+/// PaymentMethod values that provider supports; both are validated by
+/// setPaymentProviderSetting before the insert, not by the column types. This
+/// row selects a provider for NEW charges only: a webhook is verified by the
+/// provider in its own URL and never reads this table, so a Payment made before
+/// a switch still settles afterwards. Credentials are never stored here -- they
+/// are environment variables only (ADR 0011: this platform's own merchant
+/// account, one set of keys per deployment).
+model PaymentProviderSetting {
+  id       String   @id @default(cuid())
+  provider String
+  methods  String[]
+  setById  String
+  setAt    DateTime @default(now())
+
+  setBy User @relation(fields: [setById], references: [id], onDelete: Restrict)
+
+  @@index([setAt])
 }
 
 /// One threshold in force, as an Admin set it: the row with the latest setAt

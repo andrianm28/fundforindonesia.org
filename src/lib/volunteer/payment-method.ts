@@ -20,6 +20,8 @@ export function registrationMethodFor(providerMethod: PaymentMethod): Registrati
       return 'bank_transfer';
     case 'qris_redirect':
       return 'qris';
+    case 'ewallet_redirect':
+      throw new Error('Trip Fee tidak dibayar lewat e-wallet.');
     default: {
       const unknown: never = providerMethod;
       throw new Error(`Metode pembayaran provider tidak dikenal: ${String(unknown)}`);

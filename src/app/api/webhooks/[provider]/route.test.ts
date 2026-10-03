@@ -10,6 +10,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     webhookEvent: { create: vi.fn(), update: vi.fn(), findUniqueOrThrow: vi.fn() },
     payment: { findUnique: vi.fn() },
+    paymentProviderSetting: { findFirst: vi.fn() },
     donation: { findUnique: vi.fn() },
     notification: { createMany: vi.fn(), create: vi.fn() },
     $transaction: vi.fn(),
@@ -331,6 +332,47 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
+
+  describe('after an Admin switched the active provider (prd-compliance 39)', () => {
+    const activeSetting = prisma.paymentProviderSetting.findFirst as unknown as Mock;
+
+    function postTo(provider: string) {
+      return POST(
+        new NextRequest(`http://localhost:3000/api/webhooks/${provider}`, { method: 'POST', body: '{}' }),
+        { params: Promise.resolve({ provider }) },
+      );
+    }
+
+    it('still settles a Payment of provider B while the Admin setting names A, verified by B alone', async () => {
+      activeSetting.mockResolvedValue({ provider: 'mock', methods: ['bank_transfer_va'] });
+      mockGetPaymentProvider.mockReturnValue({
+        parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, provider: 'sumopod' }),
+      });
+      mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
+      const { tx, ledgerRows } = makeTx();
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+      const response = await postTo('sumopod');
+
+      expect(response.status).toBe(200);
+      expect(mockGetPaymentProvider).toHaveBeenCalledWith('sumopod');
+      expect(activeSetting).not.toHaveBeenCalled();
+      expect(ledgerRows.every((r) => r.provider === 'sumopod')).toBe(true);
+      expect(ledgerRows.length).toBeGreaterThan(0);
+    });
+
+    it('still refuses a provider mismatch: A\'s secret cannot settle B\'s Payment even if A is the active one', async () => {
+      activeSetting.mockResolvedValue({ provider: 'mock', methods: ['bank_transfer_va'] });
+      mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+      mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
+
+      const response = await postTo('mock');
+
+      expect(response.status).toBe(200);
+      expect(mockTransaction).not.toHaveBeenCalled();
+      expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
+    });
+  });
 
   it('stamps the provider on every leg of a settlement, so the Provider Balance can be read per provider', async () => {
     // CONTEXT.md, Provider Balance: "Tercatat sebagai akun buku besar

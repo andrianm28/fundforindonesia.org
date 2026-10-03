@@ -2,6 +2,7 @@ import type { PrismaClient, Kind, Payment } from '@/generated/prisma/client';
 import { PaymentStatus } from '@/generated/prisma/client';
 import type { ChargeResult, PaymentMethod, PaymentProvider } from '@/lib/payments';
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
+import { providerSupportedMethods } from '@/lib/payments/active-provider';
 import { resolvePlatformFeeBasisForCampaign } from './platform-fee-config';
 import { computePlatformFee } from './platform-fee';
 import { ESCROW_HOLD_DAYS } from './escrow';
@@ -73,13 +74,13 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
   // written and before a charge exists anywhere. Checking afterwards would
   // leave an abandoned charge at the provider -- a live payment link a donor
   // could still find and pay into, with nothing on this side expecting it.
-  if (paymentMethod !== provider.method) {
+  if (!providerSupportedMethods(provider).includes(paymentMethod)) {
     return { ok: false, reason: 'method_unavailable' };
   }
 
   let charge: ChargeResult;
   try {
-    charge = await provider.createCharge({ orderId, grossAmount: amount, currency: 'IDR' });
+    charge = await provider.createCharge({ orderId, grossAmount: amount, currency: 'IDR', method: paymentMethod });
   } catch (err) {
     console.error(`[donations] charge failed for donation ${donationId} (order ${orderId}): ${sanitizeError(err)}`);
     return { ok: false, reason: 'provider_error' };
@@ -88,9 +89,9 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
   // Narrowed against what the provider declared, not cast. A provider
   // answering with a shape this route did not prepare for must fail loudly
   // rather than write a Payment with no way to pay it.
-  if (charge.method !== provider.method) {
+  if (charge.method !== paymentMethod) {
     console.error(
-      `[donations] provider ${providerName} declared ${provider.method} but charged ${charge.method} for donation ${donationId} (order ${orderId})`,
+      `[donations] provider ${providerName} was asked for ${paymentMethod} but charged ${charge.method} for donation ${donationId} (order ${orderId})`,
     );
     return { ok: false, reason: 'method_mismatch' };
   }
