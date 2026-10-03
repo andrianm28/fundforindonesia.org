@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
  * 0012). What is protected here: the match is the stored HMAC against the
  * stored HMAC (no address is decrypted), only an account whose address was
  * confirmed by link may claim, and a Donation whose HMAC was cleared
- * (anonymised, PR #172) cannot match.
+ * (anonymised, PR #172) cannot match, by HMAC and by `anonymisedAt` both.
  */
 
 vi.mock('@/lib/prisma', () => ({
@@ -62,16 +62,17 @@ describe('claimGuestDonations', () => {
     const result = await claimGuestDonations('user-1');
 
     expect(findDonations).toHaveBeenCalledWith({
-      where: { donorId: null, guestEmailHmac: 'hmac-of-sari', guestEmailHmacKeyId: 'k1' },
+      where: { donorId: null, anonymisedAt: null, guestEmailHmac: 'hmac-of-sari', guestEmailHmacKeyId: 'k1' },
       // Ids only: no guest name, message or ciphertext is read for the claim.
       select: { id: true },
     });
     expect(updateDonations).toHaveBeenCalledWith({
-      // Same three conditions as the read: a row linked, anonymised or re-keyed
+      // Same four conditions as the read: a row linked, anonymised or re-keyed
       // in between no longer matches.
       where: {
         id: { in: ['d1', 'd2'] },
         donorId: null,
+        anonymisedAt: null,
         guestEmailHmac: 'hmac-of-sari',
         guestEmailHmacKeyId: 'k1',
       },

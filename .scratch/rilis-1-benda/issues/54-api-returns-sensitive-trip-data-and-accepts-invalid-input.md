@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan, data integrity)
 
-**Status:** ready-for-agent
+**Status:** done (PR #177, c0fb6fc; duplikat dari `54-trip-public-api-fields-and-fee-validation.md`)
 
 **Blocked by:** none
 
@@ -51,3 +51,5 @@ menemukan tiga celah pada API responses dan validasi input:
 ## Comments
 
 - 2026-10-02: ditriase retroaktif oleh koordinator (gap alur: builder di-dispatch saat masih needs-triage); owner menyetujui cakupan lewat "ya" 2026-10-02. Dibangun di PR #177.
+
+- 2026-10-02: done. Tiket ini duplikat dari `54-trip-public-api-fields-and-fee-validation.md` (nama baru saat #177); keduanya selesai lewat #177 (c0fb6fc).

@@ -8,7 +8,7 @@ team cannot tell a real partner from noise.
 
 **Blocked by:** 05
 
-**Status:** awaiting-merge
+**Status:** done (PR #161, 29e5fb8)
 
 - [ ] A submission from one client is bounded: repeat posts from the same
       source are refused, and the refusal is a plain refusal rather than a
@@ -49,3 +49,4 @@ team cannot tell a real partner from noise.
 - 2026-10-02: awaiting-merge. PR #161, commit be1ca61. Status sebelumnya ditulis `in-review`, label yang tidak sah; dikoreksi koordinator.
 
 - 2026-10-02: keputusan owner: limiter tetap fail-open saat runtime, tetapi produksi tanpa `RATE_LIMIT_SECRET` maupun `NEXTAUTH_SECRET` kini gagal boot (`src/instrumentation.ts` -> `src/lib/env-check.ts`); topologi dicatat di `.env.example` (nginx tanpa CDN, `TRUSTED_PROXY_HOPS=1`); tes `TRUSTED_PROXY_HOPS=2` lewat POST ditambahkan; migrasi diganti nama menjadi `20261002200000_rate_limit_bucket` (bentrok urutan dengan PR #172). Status tetap awaiting-merge.
+- 2026-10-02: merge ke main sebagai 29e5fb8 (#161).

@@ -6,7 +6,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
  * Registration page (/volunteer-trip/registrasi/[id]), ticket 36.
  */
 
-vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/prisma', () => ({ prisma: { paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) } } }));
 const catalog = vi.hoisted(() => ({ getTripDetail: vi.fn() }));
 vi.mock('@/lib/volunteer/catalog', () => catalog);
 const view = vi.hoisted(() => ({ getVolunteerRegistration: vi.fn(), findOwnLiveRegistration: vi.fn() }));

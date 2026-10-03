@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { anonymiseGuestDonor } from '@/lib/donor-anonymisation';
+import { clientAddress } from '@/lib/client-ip';
+import { consumeRateLimit } from '@/lib/rate-limit';
 import { refusalResponse } from '@/lib/refusal-response';
 
 /**
@@ -14,8 +16,15 @@ import { refusalResponse } from '@/lib/refusal-response';
  * A Donation that belongs to an account is not this route's to anonymise: its
  * owner does that from account settings, with a session.
  *
+ * Email guesses are rate limited per Receipt token and client address (429).
+ *
  * Idempotent and not undoable: a repeat answers 200 and changes nothing.
  */
+const RATE_SCOPE = 'receipt-anonymise';
+/** Email guesses per Receipt token per client per window: small, since a Donor needs one. */
+const ANONYMISE_GUESS_LIMIT = 5;
+const ANONYMISE_WINDOW_SECONDS = 60 * 60;
+
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
 
@@ -27,6 +36,33 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   if (typeof email !== 'string' || email.trim() === '') {
     return NextResponse.json({ error: 'Masukkan email yang dipakai pada donasi ini.' }, { status: 400 });
+  }
+
+  // The link plus a guessed address erases an identity, so guesses are bounded
+  // per token and client (stored only as a keyed hash, see rate-limit.ts).
+  // Fail-open like the partnership form (PR #161): a store outage must not
+  // lock a Donor out of removing their own identity.
+  try {
+    const attempt = await consumeRateLimit(prisma, {
+      scope: RATE_SCOPE,
+      subject: `${token}|${clientAddress(request.headers)}`,
+      limit: ANONYMISE_GUESS_LIMIT,
+      windowSeconds: ANONYMISE_WINDOW_SECONDS,
+    });
+    if (!attempt.allowed) {
+      return NextResponse.json(
+        { error: 'Terlalu banyak percobaan. Coba lagi nanti.' },
+        { status: 429, headers: { 'Retry-After': String(attempt.retryAfterSeconds) } },
+      );
+    }
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'rate_limit_unavailable',
+        scope: RATE_SCOPE,
+        error: error instanceof Error ? error.name : 'UnknownError',
+      }),
+    );
   }
 
   try {

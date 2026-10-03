@@ -1,7 +1,7 @@
 import { NextAuthOptions, getServerSession as nextAuthGetServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
-import bcrypt from "bcryptjs";
+import { hashPassword, verifyPassword } from "@/lib/password-hash";
 import { prisma } from "@/lib/prisma";
 import { PASSWORD_HASH_COST, isHashAtCurrentCost } from "@/lib/password-hash-cost";
 import { Assignment } from "@/generated/prisma/client";
@@ -47,7 +47,7 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Email atau password salah");
         }
 
-        const isPasswordValid = await bcrypt.compare(
+        const isPasswordValid = await verifyPassword(
           credentials.password,
           user.password
         );
@@ -67,7 +67,7 @@ export const authOptions: NextAuthOptions = {
         // must never cost a user their login.
         if (!isHashAtCurrentCost(user.password)) {
           try {
-            const rehashed = await bcrypt.hash(
+            const rehashed = await hashPassword(
               credentials.password,
               PASSWORD_HASH_COST
             );
