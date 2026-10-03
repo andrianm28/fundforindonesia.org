@@ -127,7 +127,7 @@ export function judgeCampaignTransfer(source: TransferParty, target: TransferPar
     throw new CampaignTransferTargetNotEligibleError('same_campaign');
   }
   const rule = TRANSFER_RULE_BY_KIND[source.state.campaignKind];
-  if (!rule?.transferable) {
+  if (!rule.transferable) {
     throw new CampaignTransferKindNotTransferableError(source.state.campaignKind);
   }
   if (target.state.campaignKind !== source.state.campaignKind) {
