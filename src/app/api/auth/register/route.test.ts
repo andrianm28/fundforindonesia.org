@@ -14,11 +14,9 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-// Mock bcryptjs
-vi.mock('bcryptjs', () => ({
-  default: {
-    hash: vi.fn().mockResolvedValue('$2a$12$hashedpassword'),
-  },
+// Mock the hashing wrapper (real cost/compat is covered in password-hash.test.ts)
+vi.mock('@/lib/password-hash', () => ({
+  hashPassword: vi.fn().mockResolvedValue('$2a$12$hashedpassword'),
 }));
 
 import { prisma } from '@/lib/prisma';
@@ -62,6 +60,19 @@ describe('POST /api/auth/register', () => {
 
     expect(res.status).toBe(400);
     expect(body.errors.password).toBe('Password minimal 8 karakter');
+  });
+
+  it('rejects a password over 72 bytes (bcrypt would ignore the tail) and accepts exactly 72', async () => {
+    const over = await POST(createRequest({ name: 'Test', email: 'test@example.com', password: 'a'.repeat(73) }));
+    expect(over.status).toBe(400);
+    expect((await over.json()).errors.password).toBe('Password maksimal 72 byte');
+
+    // 37 two-byte characters = 74 bytes but only 37 characters: bytes, not length, are limited.
+    const multibyte = await POST(createRequest({ name: 'Test', email: 'test@example.com', password: 'é'.repeat(37) }));
+    expect(multibyte.status).toBe(400);
+
+    const edge = await POST(createRequest({ name: 'Test', email: 'test@example.com', password: 'a'.repeat(72) }));
+    expect(edge.status).not.toBe(400);
   });
 
   it('should return 409 when email already exists', async () => {

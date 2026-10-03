@@ -98,6 +98,12 @@ import { join } from "node:path";
  * The Active Campaign limit itself is enforced in the lifecycle module
  * (campaign-lifecycle.ts), which is a Capacity judgement, not a route gate.
  *
+ * NOTE (prd-compliance 39): POST /api/admin/payment-providers lets an Admin
+ * choose which Payment Provider takes new charges and through which methods,
+ * through withAssignmentCheck on the ADMIN assignment like every other Admin
+ * setting here -- growing this list by one. It carries no credential; those are
+ * environment variables only.
+ *
  * NOTE (csr-04): the Program edit was keyed by id when csr-01 landed, and the
  * public portfolio read needed the same segment for the slug a public link can
  * carry. Next.js allows one dynamic segment per level, so the segment is the
@@ -152,6 +158,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/manual-contributions/route.ts",
   "src/app/api/admin/partnership-inquiries/[id]/route.ts",
   "src/app/api/admin/partnership-inquiries/route.ts",
+  "src/app/api/admin/payment-providers/route.ts",
   "src/app/api/admin/payouts/[id]/balance-check/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/provider-withdrawals/route.ts",

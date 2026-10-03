@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
+import { hashPassword, verifyPassword } from "@/lib/password-hash";
 import { PASSWORD_HASH_COST } from "@/lib/password-hash-cost";
+import { passwordField } from "@/lib/password-schema";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
 
 const passwordSchema = z
   .object({
     currentPassword: z.string().min(1, "Password saat ini harus diisi"),
-    newPassword: z.string().min(8, "Password minimal 8 karakter"),
+    newPassword: passwordField,
     confirmPassword: z.string(),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
@@ -64,7 +65,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // 5. Verify current password
-    const isCurrentPasswordValid = await bcrypt.compare(
+    const isCurrentPasswordValid = await verifyPassword(
       currentPassword,
       user.password
     );
@@ -78,7 +79,7 @@ export async function PATCH(request: NextRequest) {
 
     // 6. Hash new password and update DB. Same factor registration uses, so
     // rotating a password can never leave the account weaker than it was.
-    const hashedPassword = await bcrypt.hash(newPassword, PASSWORD_HASH_COST);
+    const hashedPassword = await hashPassword(newPassword, PASSWORD_HASH_COST);
 
     await prisma.user.update({
       where: { id: session.user.id },

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import bcrypt from 'bcryptjs';
+import { passwordField } from '@/lib/password-schema';
+import { hashPassword } from '@/lib/password-hash';
 import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import { lookupUserEmail, readUserEmail, sealUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
@@ -8,7 +9,7 @@ import { prisma } from '@/lib/prisma';
 const registerSchema = z.object({
   name: z.string().min(1, 'Nama harus diisi'),
   email: z.string().email('Format email tidak valid'),
-  password: z.string().min(8, 'Password minimal 8 karakter'),
+  password: passwordField,
 });
 
 export async function POST(request: NextRequest) {
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(password, PASSWORD_HASH_COST);
+    const hashedPassword = await hashPassword(password, PASSWORD_HASH_COST);
 
     // Sealed at the call site rather than by the client hook: the plaintext
     // column is gone, so there is nothing for the hook to add it to. The hook

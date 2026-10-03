@@ -5,7 +5,8 @@ import { getServerSession } from '@/lib/auth';
 import { getTripDetail } from '@/lib/volunteer/catalog';
 import { findOwnLiveRegistration } from '@/lib/volunteer/registration-view';
 import { volunteerRegistrationEnabled, VOLUNTEER_DISABLED_MESSAGE } from '@/lib/volunteer/registration-flag';
-import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
+import { PaymentProviderNotConfiguredError } from '@/lib/payments';
+import { resolveActivePaymentProvider } from '@/lib/payments/active-provider';
 import { registrationMethodFor } from '@/lib/volunteer/payment-method';
 import { formatRupiah } from '@/lib/utils/currency';
 import { formatWibDate } from '@/lib/volunteer/batch-dates';
@@ -32,9 +33,15 @@ interface PageProps {
  * refuses the Registration on its own in that case); a method or provider the
  * app does not know is a bug and is thrown, never shown as QRIS.
  */
-function paymentMethodOfActiveProvider() {
+async function paymentMethodOfActiveProvider() {
   try {
-    return registrationMethodFor(getPaymentProvider().method);
+    const { provider, enabledMethods } = await resolveActivePaymentProvider(prisma);
+    // Trip Fee is paid by QRIS or bank transfer; an e-wallet-only provider has
+    // nothing to offer here, which the API then refuses on its own.
+    const method =
+      enabledMethods.find((m) => m === provider.method && m !== 'ewallet_redirect') ??
+      enabledMethods.find((m) => m !== 'ewallet_redirect');
+    return method ? registrationMethodFor(method) : ('qris' as const);
   } catch (error) {
     if (error instanceof PaymentProviderNotConfiguredError) return 'qris' as const;
     throw error;
@@ -107,7 +114,7 @@ export default async function RegistrationSummaryPage({ params }: PageProps) {
           <RegisterButton
             slug={trip.slug}
             batchId={batch.id}
-            paymentMethod={paymentMethodOfActiveProvider()}
+            paymentMethod={await paymentMethodOfActiveProvider()}
           />
         </>
       ) : (

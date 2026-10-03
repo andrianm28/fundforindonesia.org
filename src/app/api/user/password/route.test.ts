@@ -17,24 +17,22 @@ vi.mock("@/lib/auth", () => ({
   getServerSession: vi.fn(),
 }));
 
-// Mock bcryptjs
-vi.mock("bcryptjs", () => ({
-  default: {
-    compare: vi.fn(),
-    hash: vi.fn(),
-  },
+// Mock the hashing wrapper (real cost/compat is covered in password-hash.test.ts)
+vi.mock("@/lib/password-hash", () => ({
+  verifyPassword: vi.fn(),
+  hashPassword: vi.fn(),
 }));
 
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
-import bcrypt from "bcryptjs";
+import { hashPassword, verifyPassword } from "@/lib/password-hash";
 import { PASSWORD_HASH_COST } from "@/lib/password-hash-cost";
 
 const mockedGetServerSession = vi.mocked(getServerSession);
 const mockedPrismaUserFindUnique = vi.mocked(prisma.user.findUnique);
 const mockedPrismaUserUpdate = vi.mocked(prisma.user.update);
-const mockedBcryptCompare = vi.mocked(bcrypt.compare);
-const mockedBcryptHash = vi.mocked(bcrypt.hash);
+const mockedBcryptCompare = vi.mocked(verifyPassword);
+const mockedBcryptHash = vi.mocked(hashPassword);
 
 function createRequest(body: unknown): NextRequest {
   return new NextRequest("http://localhost:3000/api/user/password", {
@@ -98,6 +96,22 @@ describe("PATCH /api/user/password", () => {
     expect(response.status).toBe(400);
     expect(data.error).toBe("Validasi gagal");
     expect(data.fieldErrors?.newPassword).toContain("Password minimal 8 karakter");
+  });
+
+  it("returns 400 if newPassword is longer than 72 bytes", async () => {
+    mockedGetServerSession.mockResolvedValue({
+      user: { id: "user-1", assignments: [], name: "Test", email: "test@test.com" },
+      expires: "2099-01-01",
+    });
+
+    const tooLong = "a".repeat(73);
+    const response = await PATCH(
+      createRequest({ currentPassword: "oldpass123", newPassword: tooLong, confirmPassword: tooLong })
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.fieldErrors?.newPassword).toContain("Password maksimal 72 byte");
   });
 
   it("returns 400 if confirmPassword does not match newPassword", async () => {

@@ -2,6 +2,9 @@
 FROM node:24-alpine AS deps
 WORKDIR /app
 
+# npm ci installs the optional @node-rs/bcrypt-linux-*-musl package matching
+# this Alpine base (prebuilt, no compiler needed); see ADR 0019. Next's
+# standalone trace then carries that binary into the runner.
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -152,6 +155,11 @@ COPY --from=sharp /opt/sharp/node_modules /opt/sharp/node_modules
 ENV NEXT_SHARP_PATH=/opt/sharp/node_modules/sharp
 
 USER nextjs
+
+# Smoke test for the native bcrypt binding (ADR 0019): fail the build, not the
+# first login, if the traced musl binary is missing or will not load. Runs as
+# the runtime user against the runtime tree; cost 4 makes it instant.
+RUN node -e "const b=require('@node-rs/bcrypt');if(!b.verifySync('x',b.hashSync('x',4)))process.exit(1)"
 
 EXPOSE 3000
 

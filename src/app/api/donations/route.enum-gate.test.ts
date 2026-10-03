@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     campaign: {
       findUnique: vi.fn(),
     },
