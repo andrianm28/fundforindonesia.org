@@ -99,6 +99,7 @@ export default function DonasiSayaPage() {
       {/* Content */}
       <div className="px-4 mt-4">
         {!isLoading && !error && !emailVerified && <VerifyEmailPrompt />}
+        {!isLoading && !error && emailVerified && <ClaimPrompt />}
         {isLoading ? (
           <DonationListSkeleton />
         ) : error ? (
@@ -156,6 +157,47 @@ function VerifyEmailPrompt() {
       {state === 'failed' && (
         <p role="alert" className="mt-2 text-[#C62828]">
           Tautan belum terkirim. Coba lagi sebentar lagi.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A verified account asks for a one-use link that links the Donations it gave
+ * as a guest under its address (prd-audit 08).
+ */
+function ClaimPrompt() {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+
+  async function send() {
+    setState('sending');
+    try {
+      const res = await fetch('/api/user/guest-claim', { method: 'POST' });
+      setState(res.ok ? 'sent' : 'failed');
+    } catch {
+      setState('failed');
+    }
+  }
+
+  return (
+    <div className="mb-3 rounded-xl bg-[#E3F2FD] p-4 text-sm text-text">
+      <p>Donasi sebagai tamu belum muncul? Kirim tautan ke email akun Anda untuk menautkannya.</p>
+      {state === 'sent' ? (
+        <p className="mt-2 font-medium text-[#2E7D32]">Periksa email Anda untuk tautan penautan.</p>
+      ) : (
+        <button
+          type="button"
+          onClick={send}
+          disabled={state === 'sending'}
+          className="mt-2 font-medium text-[#0073E6] hover:underline disabled:opacity-60"
+        >
+          Kirim tautan penautan
+        </button>
+      )}
+      {state === 'failed' && (
+        <p role="alert" className="mt-2 text-[#C62828]">
+          Tautan belum terkirim. Coba lagi nanti.
         </p>
       )}
     </div>

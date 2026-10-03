@@ -76,6 +76,7 @@ model User {
   registrations                    Registration[]
   donations                        Donation[]
   emailVerificationTokens          EmailVerificationToken[]
+  guestClaimTokens                 GuestClaimToken[]
   prayers                          Prayer[]
   notifications                    Notification[]
   autoDonations                    AutoDonation[]
@@ -1041,6 +1042,26 @@ model EmailVerificationToken {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+/// A one-use link that lets a signed-in account with a verified email claim
+/// the Guest Donations made under that address (prd-audit 08). Only a SHA-256
+/// of the token is stored. `emailHmac` and `emailHmacKeyId` are the account's
+/// lookup at issue: a token claims for that address under that key id and no
+/// other, and no address is stored here.
+model GuestClaimToken {
+  id             String    @id @default(cuid())
+  userId         String
+  tokenHash      String    @unique
+  emailHmac      String
+  emailHmacKeyId String
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

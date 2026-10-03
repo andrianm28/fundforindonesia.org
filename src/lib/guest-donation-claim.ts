@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import type { Prisma } from '@/generated/prisma/client';
 
 /**
  * A Guest Donor who later registers finds their past gifts waiting
@@ -22,8 +23,13 @@ import { prisma } from '@/lib/prisma';
  *   whose lookup uses a newer one, until the Donation's HMAC is re-keyed
  *   (ADR 0020, key rotation).
  */
-export async function claimGuestDonations(userId: string): Promise<{ verified: boolean; claimed: number }> {
-  const account = await prisma.user.findUnique({
+export async function claimGuestDonations(
+  userId: string,
+  // A caller that must claim inside its own transaction (the claim link, which
+  // spends its token in the same one) passes the transaction client.
+  db: Pick<Prisma.TransactionClient, 'user' | 'donation'> = prisma,
+): Promise<{ verified: boolean; claimed: number }> {
+  const account = await db.user.findUnique({
     where: { id: userId },
     select: { id: true, emailHmac: true, emailHmacKeyId: true, emailVerifiedAt: true },
   });
@@ -31,7 +37,7 @@ export async function claimGuestDonations(userId: string): Promise<{ verified: b
   // An empty lookup would equal a cleared one; it must never match.
   if (!account.emailHmac) return { verified: true, claimed: 0 };
 
-  const candidates = await prisma.donation.findMany({
+  const candidates = await db.donation.findMany({
     where: {
       donorId: null,
       anonymisedAt: null,
@@ -47,7 +53,7 @@ export async function claimGuestDonations(userId: string): Promise<{ verified: b
   // The write carries the same conditions as the read (donorId, anonymisedAt, HMAC, key id)
   // rather than trusting it: a Donation linked, anonymised or re-keyed in
   // between no longer matches, and one row is never taken from another account.
-  const { count } = await prisma.donation.updateMany({
+  const { count } = await db.donation.updateMany({
     where: {
       id: { in: candidates.map((row) => row.id) },
       donorId: null,

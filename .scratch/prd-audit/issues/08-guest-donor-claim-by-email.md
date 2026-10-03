@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** —
 
@@ -33,11 +33,26 @@ akunnya setelah verifikasi.
   sudah dianonimkan tidak disentuh.
 
   Acceptance:
-  - [ ] Hanya user login dengan email terverifikasi yang bisa meminta tautan;
+  - [x] Hanya user login dengan email terverifikasi yang bisa meminta tautan;
         permintaan dibatasi rate limit yang sudah ada
-  - [ ] Token disimpan sebagai hash, sekali pakai, kedaluwarsa 24 jam; token
+  - [x] Token disimpan sebagai hash, sekali pakai, kedaluwarsa 24 jam; token
         kedaluwarsa, terpakai, atau milik user lain ditolak tanpa mengubah apa pun
-  - [ ] Klaim menautkan Donation Guest yang cocok ke akun dalam satu transaksi
+  - [x] Klaim menautkan Donation Guest yang cocok ke akun dalam satu transaksi
         dan idempoten; Donation ber-akun, teranonimkan, atau key id lama tidak disentuh
-  - [ ] Riwayat Donasi akun menampilkan Donation yang sudah diklaim
-  - [ ] Tes di seam route dan satu tes Postgres sungguhan
+  - [x] Riwayat Donasi akun menampilkan Donation yang sudah diklaim
+  - [x] Tes di seam route dan satu tes Postgres sungguhan
+
+- 2026-10-03 (builder, branch `claude/prd-audit-08-guest-claim-by-email`):
+  tabel baru `GuestClaimToken` (migrasi `20261003040000`; hash SHA-256, simpan
+  `emailHmac` + `emailHmacKeyId` saat terbit, tanpa email). `POST
+  /api/user/guest-claim` (sesi, email terverifikasi, rate limit 3/jam per akun
+  lewat `consumeRateLimit`, fail-closed 503 karena membatasi surat keluar) dan
+  `POST /api/user/guest-claim/confirm` (wajib sesi akun yang sama dengan
+  pemilik token). Konfirmasi = satu transaksi: spend token, cek akun masih
+  punya hmac + key id yang sama dan terverifikasi, lalu
+  `claimGuestDonations(userId, tx)` (kini menerima klien transaksi). Penolakan
+  apa pun me-rollback, jadi token tetap utuh. Halaman `/akun/klaim-donasi`
+  (tombol, bukan auto-spend) dan prompt di Donasi Saya. Catatan untuk owner:
+  `GET /api/donations/mine` dan konfirmasi email (prd-compliance 23) sudah
+  auto-klaim untuk akun terverifikasi tanpa tautan; tidak diubah di tiket ini,
+  jadi tautan ini jalur eksplisit tambahan.
