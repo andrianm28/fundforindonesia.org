@@ -23,6 +23,18 @@ const mockRefundFindUniqueOrThrow = prisma.refund.findUniqueOrThrow as unknown a
 const mockTransaction = prisma.$transaction as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 
+/**
+ * The freeze createRefund posts for makeRefundRow's default Refund (40_000 of a
+ * Payment with a 5_000 Provider Fee, so a 2_000 share), which approval reads
+ * back (prd-compliance 51): the Net it took out of ESCROW_HOLD and the Provider
+ * Fee share booked to REFUND_COST. Without it approval refuses the Refund.
+ */
+const FREEZE_OF_DEFAULT_REFUND = [
+  { transactionId: 'refund-requested-refund-1', account: 'FROZEN_BALANCE', direction: 'CREDIT', amount: 40_000 },
+  { transactionId: 'refund-requested-refund-1', account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 38_000 },
+  { transactionId: 'refund-requested-refund-1', account: 'REFUND_COST', direction: 'DEBIT', amount: 2_000 },
+];
+
 function makeTx(options: { refundRow?: Record<string, unknown> | null; tripFundraiserId?: string } = {}) {
   const state = options.refundRow ? { ...options.refundRow } : null;
   return {
@@ -45,6 +57,10 @@ function makeTx(options: { refundRow?: Record<string, unknown> | null; tripFundr
         count: vi.fn(async () => 0),
         createMany: vi.fn().mockResolvedValue({ count: 0 }),
         groupBy: vi.fn().mockResolvedValue([]),
+        // The freeze approval reads back, selected by its transactionId.
+        findMany: vi.fn(async ({ where }: { where: { transactionId: string } }) =>
+          FREEZE_OF_DEFAULT_REFUND.filter((r) => r.transactionId === where.transactionId),
+        ),
       },
     },
   };

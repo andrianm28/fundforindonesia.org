@@ -12,6 +12,7 @@ import {
   postTransaction,
   refundRequestedLegs,
   refundFreezeTransactionId,
+  refundFreezeDebit,
   refundApprovedLegs,
   refundPaidLegs,
   reverseEntriesLegs,
@@ -473,29 +474,34 @@ export async function approveRefund(
     const source = sourceFor(payment, subject);
     const poolBalance = await poolBalanceFor(tx, subject, source);
 
-    // Recompute this refund's own fee portion exactly the way createRefund
-    // did at freeze time -- deterministic from stable inputs (Payment
-    // fields never change; every OTHER non-REJECTED/FAILED refund on this
-    // Payment created before this one is a fixed, immutable fact), so it
-    // reproduces the exact number already posted at freeze time.
-    const priorRefunds = await tx.refund.findMany({
-      where: { paymentId: refund.paymentId, status: { notIn: ['REJECTED', 'FAILED'] }, createdAt: { lt: refund.createdAt } },
-      orderBy: { createdAt: 'asc' },
-      select: { amount: true },
+    // This Refund's own fee shares, READ off the freeze createRefund posted,
+    // not worked out again. createRefund split the Refund against the Refunds
+    // that stood before it at that moment (prd-compliance 17); a Refund
+    // rejected or failed since is no longer in the set a recomputation would
+    // use, so the second of two Refunds opened together, which carries the
+    // share the cumulative cap cut, would get the larger uncapped share back,
+    // and the shortfall below came out a rupiah or two short of what its
+    // freeze took from the pool (prd-compliance 51). The escrow sweep reads
+    // the same entries for the same reason (refundFreezeDebit, ./ledger.ts).
+    // The net portion is what is left of the amount once those two shares are
+    // taken off: the freeze's own pool leg sits on whichever account was the
+    // source when it was posted, while the fee legs sit on accounts named for
+    // what they are, so this reads the same whichever pool that was.
+    //
+    // A Refund with no freeze journal is refused, not counted as having taken
+    // nothing: createRefund posts it in the same transaction as the Refund
+    // row, so it cannot be missing in normal operation, and guessing would
+    // cover the wrong shortfall. Read ahead of the claim below, so the refusal
+    // leaves the Refund REQUESTED and writes nothing.
+    const freezeEntries = await tx.ledgerEntry.findMany({
+      where: { transactionId: refundFreezeTransactionId(refund.id) },
+      select: { transactionId: true, account: true, direction: true, amount: true },
     });
-    // Recomputed the same deterministic way createRefund derived it at
-    // freeze time (prd-compliance 17) -- reproduces the exact number
-    // already posted there, needed here only to work out netPortion below.
-    const platformFeePortion = platformFeePortionFor(
-      payment,
-      refund.amount,
-      priorRefunds.map((r: { amount: number }) => r.amount),
-    );
-    const providerFeePortion = providerFeePortionFor(
-      payment,
-      refund.amount,
-      priorRefunds.map((r: { amount: number }) => r.amount),
-    );
+    if (freezeEntries.length === 0) {
+      throw new InvalidRefundStatusError(refund.status, 'its freeze journal is missing');
+    }
+    const platformFeePortion = refundFreezeDebit(freezeEntries, refund.id, 'PLATFORM_FEE');
+    const providerFeePortion = refundFreezeDebit(freezeEntries, refund.id, 'REFUND_COST');
     const netPortion = refund.amount - platformFeePortion - providerFeePortion;
     // The pool was never over-drawn by this refund's own fee (that was
     // already removed correctly at freeze time) -- a negative reading here
@@ -796,9 +802,7 @@ async function resolveRefund(
       transactionId: `${action === 'reject' ? 'refund-rejected' : 'refund-failed'}-${refundId}`,
     });
 
-    const escrowShare = entries
-      .filter((e) => e.transactionId === freezeId && e.account === 'ESCROW_HOLD' && e.direction === 'DEBIT')
-      .reduce((sum, e) => sum + e.amount, 0);
+    const escrowShare = refundFreezeDebit(entries, refundId, 'ESCROW_HOLD');
     if (escrowShare > 0) {
       const payment = await tx.payment.findUniqueOrThrow({
         where: { id: refund.paymentId },

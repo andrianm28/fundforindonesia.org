@@ -525,6 +525,43 @@ describe('releaseMaturedEscrow', () => {
   );
 
   it(
+    'reads a Refund that ended FAILED after approval the same way as a rejected one: its freeze was mirrored back, ' +
+      'so it took nothing out of ESCROW_HOLD (prd-compliance 51)',
+    async () => {
+      // The two Refunds of the test above, except refund-1 was approved and then
+      // failed: its freeze and its approval are mirrored back (the credit below;
+      // an approval posts no ESCROW_HOLD leg), and refund-2 is APPROVED. Counting
+      // refund-1's freeze as taken as well would release nothing and strand
+      // 47_499 in ESCROW_HOLD; working the shares out again from refund-2 alone
+      // would release 47_501 and leave it at -2.
+      const { rows } = makeDb(
+        [makePayment({ id: 'payment-1', amount: 100_000, providerFee: 3_333, platformFee: 1_667, campaignId: 'campaign-1' })],
+        [
+          { transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 95_000, campaignId: 'campaign-1' },
+          { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 47_499, campaignId: 'campaign-1' },
+          { transactionId: 'refund-failed-refund-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 47_499, campaignId: 'campaign-1' },
+          { transactionId: 'refund-requested-refund-2', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 47_501, campaignId: 'campaign-1' },
+        ],
+        [
+          { id: 'refund-1', paymentId: 'payment-1', amount: 50_000, status: 'FAILED' },
+          { id: 'refund-2', paymentId: 'payment-1', amount: 50_000, status: 'APPROVED' },
+        ],
+      );
+
+      const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+      expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+      const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
+      expect(releaseLegs.find((r) => r.direction === 'DEBIT')).toMatchObject({ account: 'ESCROW_HOLD', amount: 47_499 });
+      expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({ account: 'CAMPAIGN_BALANCE', amount: 47_499 });
+      const escrowNet = rows
+        .filter((r) => r.account === 'ESCROW_HOLD' && r.campaignId === 'campaign-1')
+        .reduce((s, r) => s + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+      expect(escrowNet).toBe(0);
+    },
+  );
+
+  it(
     'refuses to release a Payment whose standing Refund has no freeze journal: nothing claimed, nothing posted, ' +
       'and the failure is logged rather than read as the Refund having taken nothing',
     async () => {
@@ -764,6 +801,44 @@ describe('releaseMaturedEscrow -- trip-linked payments', () => {
     expect(credit).toMatchObject({ account: 'TRIP_BALANCE', amount: 100_000, volunteerTripId: 'trip-1' });
     expect(debit.amount).toBe(credit.amount);
   });
+
+  it(
+    "releases to TRIP_BALANCE exactly what a Trip Fee Refund's freeze left in ESCROW_HOLD when an earlier Refund was " +
+      'rejected after that freeze (prd-compliance 51)',
+    async () => {
+      // Gross 100_000, Provider Fee 3_333, no Platform Fee (a Trip Fee carries
+      // none): Net 96_667. Two 50_000 Refunds were open at once. refund-1 took the
+      // rounded-up Provider Fee share, 1_667, and debited 48_333; refund-2, frozen
+      // with refund-1 still counted, was capped at the 1_666 the Payment had left
+      // and debited 48_334. refund-1 is then REJECTED and refund-2 APPROVED. Worked
+      // out again from refund-2 alone, its share would be 1_667 and the release
+      // 48_334, one rupiah more than the 48_333 ESCROW_HOLD holds.
+      const { rows } = makeDb(
+        [makePayment({ id: 'payment-1', amount: 100_000, providerFee: 3_333, platformFee: 0, campaignId: null, tripId: 'trip-1' })],
+        [
+          { transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 96_667, campaignId: null, volunteerTripId: 'trip-1' },
+          { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 48_333, campaignId: null, volunteerTripId: 'trip-1' },
+          { transactionId: 'refund-rejected-refund-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 48_333, campaignId: null, volunteerTripId: 'trip-1' },
+          { transactionId: 'refund-requested-refund-2', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 48_334, campaignId: null, volunteerTripId: 'trip-1' },
+        ],
+        [
+          { id: 'refund-1', paymentId: 'payment-1', amount: 50_000, status: 'REJECTED' },
+          { id: 'refund-2', paymentId: 'payment-1', amount: 50_000, status: 'APPROVED' },
+        ],
+      );
+
+      const result = await releaseMaturedEscrow({ type: 'trip', id: 'trip-1' });
+
+      expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+      const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
+      expect(releaseLegs.find((r) => r.direction === 'DEBIT')).toMatchObject({ account: 'ESCROW_HOLD', amount: 48_333, volunteerTripId: 'trip-1' });
+      expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({ account: 'TRIP_BALANCE', amount: 48_333, volunteerTripId: 'trip-1' });
+      const escrowNet = rows
+        .filter((r) => r.account === 'ESCROW_HOLD' && r.volunteerTripId === 'trip-1')
+        .reduce((s, r) => s + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+      expect(escrowNet).toBe(0);
+    },
+  );
 
   it('does not affect a Campaign-linked payment in the same sweep call -- both subjects processed correctly in one pass', async () => {
     const { rows } = makeDb([

@@ -3,6 +3,7 @@ import type { Prisma } from '@/generated/prisma/client';
 import {
   escrowReleaseLegs,
   postTransaction,
+  refundFreezeDebit,
   refundFreezeTransactionId,
   type LedgerSubject,
 } from './ledger';
@@ -195,7 +196,9 @@ type SweepOutcome = 'released' | 'frozen' | 'deferred' | 'raceLost';
  * while an earlier one was still open carries the capped share; recomputed once
  * the earlier one is rejected, it gets the larger uncapped one, and the sweep
  * released a rupiah or two that ESCROW_HOLD did not hold (prd-compliance 51).
- * The posted entry is the fact, so reading it cannot disagree with it.
+ * The posted entry is the fact, so reading it cannot disagree with it. The
+ * reading itself is refundFreezeDebit (./ledger.ts), the same one approveRefund
+ * and resolveRefund make of a Refund's freeze.
  *
  * `refundIds` are the Refunds still standing (not REJECTED or FAILED, whose
  * freeze was mirrored back out and so took nothing). With none, nothing is read:
@@ -226,9 +229,7 @@ async function escrowTakenByRefunds(tx: Prisma.TransactionClient, refundIds: str
     );
   }
 
-  return entries
-    .filter((e) => e.account === 'ESCROW_HOLD' && e.direction === 'DEBIT')
-    .reduce((sum, e) => sum + e.amount, 0);
+  return refundIds.reduce((sum, id) => sum + refundFreezeDebit(entries, id, 'ESCROW_HOLD'), 0);
 }
 
 /**
