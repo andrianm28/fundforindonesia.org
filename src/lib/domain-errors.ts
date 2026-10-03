@@ -62,6 +62,7 @@ export type MoneyErrorCode =
   | "REFUND_REASON_INVALID"
   | "INVALID_PAYOUT_STATUS"
   | "INVALID_REFUND_STATUS"
+  | "REFUND_FREEZE_JOURNAL_MISSING"
   | "PAYOUT_NOT_FOUND"
   | "REFUND_NOT_FOUND"
   | "PAYMENT_NOT_FOUND"
@@ -306,6 +307,11 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   REFUND_REASON_INVALID: 400,
   INVALID_PAYOUT_STATUS: 409,
   INVALID_REFUND_STATUS: 409,
+  // A standing Refund whose freeze journal is not in the ledger. createRefund
+  // posts it in the same transaction as the Refund row, so this is a broken
+  // ledger invariant, not something the caller did or can fix by resending:
+  // 500, but with a code so the log says what it was.
+  REFUND_FREEZE_JOURNAL_MISSING: 500,
   PAYOUT_NOT_FOUND: 404,
   REFUND_NOT_FOUND: 404,
   PAYMENT_NOT_FOUND: 404,

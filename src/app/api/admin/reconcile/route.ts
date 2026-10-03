@@ -5,6 +5,7 @@ import { Assignment } from '@/generated/prisma/client';
 import { collectionAccountBalance, findUnbalancedTransactions, providerBalances } from '@/lib/money/ledger';
 import { reconcileProviderBalances } from '@/lib/money/provider-withdrawals';
 import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/lib/money/escrow';
+import { STANDING_REFUND_WHERE, isRefundStanding } from '@/lib/money/refund-standing';
 import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
 
 /**
@@ -431,7 +432,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // refunds out for the same reason.
     const refundsOnReleasedPayments = releasedPaymentIds.length
       ? await tx.refund.findMany({
-          where: { paymentId: { in: releasedPaymentIds }, status: { notIn: ['REJECTED', 'FAILED'] } },
+          where: { paymentId: { in: releasedPaymentIds }, ...STANDING_REFUND_WHERE },
           select: { id: true, paymentId: true },
         })
       : [];
@@ -641,7 +642,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     }> = [];
     for (const payment of paidTripPayments) {
       if (payment.registration?.status !== 'CANCELLED') continue;
-      const hasLiveRefund = payment.refunds.some((r) => r.status !== 'REJECTED' && r.status !== 'FAILED');
+      const hasLiveRefund = payment.refunds.some(isRefundStanding);
       if (hasLiveRefund) continue;
       orphanedCancelledRegistrationPayments.push({
         paymentId: payment.id,

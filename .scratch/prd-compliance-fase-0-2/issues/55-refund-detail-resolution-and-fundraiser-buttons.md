@@ -1,6 +1,6 @@
 # 55: Detail Refund menampilkan penyelesaiannya; tombol approve/complete disembunyikan bagi Fundraiser
 
-**Status:** awaiting-merge
+**Status:** done (PR #216, 9d91c98)
 
 **Blocked by:** none (50 done)
 
@@ -22,3 +22,5 @@ Lanjutan yang sengaja tidak dicakup tiket 50 (PR #206).
 
 - 2026-10-03: owner menyetujui pengerjaan ("ya semua").
 - 2026-10-03: branch `claude/prd-55-refund-detail-resolution`, commit 7088dff. Halaman detail menampilkan aktor, tanggal, dan alasan untuk REJECTED/FAILED (include rejectedBy/failedBy). `AdminRefundApproveForm` dan `AdminRefundCompleteForm` menerima `isOwnSubject` dan menampilkan kalimat yang sama dengan form Tolak/Gagal; kalimat dipusatkan di `OwnSubjectNotice`, kini dipakai keempat form. Server tetap menolak (403). Tes terdampak hijau (77), ratchet lint 193 / tsc 19.
+
+- 2026-10-03 (merge): PR #216 merge sebagai `9d91c98`, CI hijau, review independen diposting di PR.
