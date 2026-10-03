@@ -2,7 +2,7 @@
 
 **Type:** research
 
-**Status:** ready-for-human
+**Status:** done (PR #203, 25b98f4)
 
 **Blocked by:** 13, 31, 8
 
@@ -102,3 +102,5 @@ before 32 is scheduled.
   pertanyaan 1: tolak hanya sebelum approve; Refund APPROVED yang gagal dibayar
   ditandai `FAILED`. Implementasinya tiket 49. Tiket riset ini selesai saat 49
   done.
+
+- 2026-10-03 (selesai): `REJECTED` dan `FAILED` kini punya penulis lewat tiket 49 (PR #203); `impact.ts` mengecualikan Refund yang ditolak atau gagal. Selisih pembulatan fee di `escrow.ts` dicatat sebagai tiket 51.

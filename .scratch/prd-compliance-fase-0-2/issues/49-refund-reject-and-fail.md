@@ -1,6 +1,6 @@
 # 49: Refund bisa ditolak sebelum approve dan ditandai gagal setelahnya
 
-**Status:** awaiting-merge
+**Status:** done (PR #203, 25b98f4)
 
 **Blocked by:** none (32 done; menjawab tiket riset 33)
 
@@ -56,3 +56,5 @@ Keputusan owner 2026-10-03:
   setelah freeze, fail setelah approve dengan shortfall `REFUND_COST`). Empat
   route baru didaftarkan di `roles-expand-guard`, entri Refund di `CONTEXT.md`
   dilengkapi, dan tes route Volunteer Trip ditambahkan.
+
+- 2026-10-03 (merge): PR #203 merge sebagai `25b98f4`, CI hijau, review independen diposting di PR.
