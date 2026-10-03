@@ -2,7 +2,7 @@
 
 **Type:** research
 
-**Status:** open
+**Status:** ready-for-human
 
 **Blocked by:** 13, 31, 8
 
@@ -93,3 +93,12 @@ that the path can strand money.
 Note that `Blocked by: 8` may itself be wrong — that blocker is `wontfix`, and a
 ticket that cannot be unblocked by a `wontfix` blocker is worth re-examining
 before 32 is scheduled.
+
+## Comments
+
+- 2026-10-03 (status sweep): `COMPLETED` kini ditulis oleh `completeRefund`
+  (tiket 32), dan pelaporan Impact sudah dikerjakan ulang. Yang tersisa adalah
+  `REJECTED` dan `FAILED`, yang masih tanpa penulis. Owner memutuskan
+  pertanyaan 1: tolak hanya sebelum approve; Refund APPROVED yang gagal dibayar
+  ditandai `FAILED`. Implementasinya tiket 49. Tiket riset ini selesai saat 49
+  done.
