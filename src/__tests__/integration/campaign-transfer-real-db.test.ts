@@ -264,7 +264,7 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     await expectLedgerBalanced();
   }, 60_000);
 
-  it('a Refund requested after the transfer moved the whole balance is refused, not left to overdraw the source', async () => {
+  it('a Refund requested after the transfer moved the balance is refused (409), not left to overdraw the source', async () => {
     const source = await makeCampaign({ status: 'SUSPENDED', balance: 500_000 });
     const target = await makeCampaign({ status: 'ACTIVE' });
     const requester = await makeUser();
@@ -274,12 +274,24 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     const transfer = await requestTransfer(source.id, target.id, requester);
     await transfers.approveCampaignTransfer(prisma, { campaignTransferId: transfer.id, decidedById: approver });
 
-    await expect(prisma.$transaction((tx) => refundOf(tx, source.id, payment.id, refundAdmin))).rejects.toThrow(
-      /Campaign Balance tidak cukup/,
-    );
+    await expect(prisma.$transaction((tx) => refundOf(tx, source.id, payment.id, refundAdmin))).rejects.toMatchObject({
+      code: 'REFUND_AFTER_CAMPAIGN_TRANSFER',
+    });
     expect(await balanceOf(source.id)).toBe(0);
     expect(await balanceOf(target.id)).toBe(500_000);
     expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(0);
+    await expectLedgerBalanced();
+  }, 60_000);
+
+  it('without a transfer, a Refund the balance cannot cover still freezes (Payout shortfall design: the platform covers it at approval)', async () => {
+    const source = await makeCampaign({ status: 'SUSPENDED', balance: 100_000 });
+    const refundAdmin = await makeUser();
+    const payment = await seedReleasedPayment(source.id);
+
+    await prisma.$transaction((tx) => refundOf(tx, source.id, payment.id, refundAdmin));
+
+    expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(1);
+    expect(await balanceOf(source.id)).toBe(100_000 - 300_000);
     await expectLedgerBalanced();
   }, 60_000);
 

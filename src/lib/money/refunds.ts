@@ -31,7 +31,7 @@ import {
   SelfApprovalError,
   InvalidRefundStatusError,
   TwoPersonRuleError,
-  InsufficientBalanceError,
+  RefundAfterCampaignTransferError,
 } from './errors';
 
 /**
@@ -79,6 +79,7 @@ export {
   SelfApprovalError,
   InvalidRefundStatusError,
   TwoPersonRuleError,
+  RefundAfterCampaignTransferError,
 };
 
 type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt'> & {
@@ -290,21 +291,22 @@ export async function createRefund(
 
   const source = sourceFor(payment, subject);
   // The freeze below DEBITS the Campaign's withdrawable balance by the net
-  // portion at request time, so it is judged here, under the Campaign lock
-  // taken above -- the same lock approveCampaignTransfer holds while it moves
-  // that whole balance away. Without it a transfer that lands first leaves a
-  // Refund that drives the source negative (a transfer racing a Refund ended
-  // at source -300k, target +500k). Campaign balance only: Escrow Hold and
-  // Trip pools keep their own rules.
-  const netToFreeze = amount - platformFeePortionFor(payment, amount, priorAmounts) - providerFeePortionFor(payment, amount, priorAmounts);
-  if (source === 'CAMPAIGN_BALANCE' && subject.type === 'campaign' && netToFreeze > 0) {
-    const available = await campaignBalance(tx, subject.campaignId);
-    if (available < netToFreeze) {
-      throw new InsufficientBalanceError(
-        netToFreeze,
-        available,
-        'Campaign Balance tidak cukup untuk membekukan Refund ini (dana sudah dipindahkan atau ditarik).',
-      );
+  // portion at request time. A pool a Payout drew down is covered by the
+  // platform at approval (shortfall), but a pool a Campaign Transfer moved
+  // away is not: that money sits on another Campaign. So, under the Campaign
+  // lock taken above (the same lock approveCampaignTransfer holds while it
+  // moves the balance; it takes no Payment lock, so no cycle), a Refund that
+  // the balance cannot cover is refused when an APPROVED transfer left this
+  // Campaign. Escrow Hold, Trip pools and Payout shortfall are unchanged.
+  if (source === 'CAMPAIGN_BALANCE' && subject.type === 'campaign') {
+    const netToFreeze =
+      amount - platformFeePortionFor(payment, amount, priorAmounts) - providerFeePortionFor(payment, amount, priorAmounts);
+    if (netToFreeze > 0) {
+      const available = await campaignBalance(tx, subject.campaignId);
+      if (available < netToFreeze) {
+        const movedOut = await tx.campaignTransfer.count({ where: { sourceId: subject.campaignId, status: 'APPROVED' } });
+        if (movedOut > 0) throw new RefundAfterCampaignTransferError(netToFreeze, available);
+      }
     }
   }
 

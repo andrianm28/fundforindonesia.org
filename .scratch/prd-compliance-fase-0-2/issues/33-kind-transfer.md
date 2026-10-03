@@ -109,3 +109,14 @@
   4. Migrasi di-rename (git mv) ke `20261003020000_add_campaign_transfer`
      (SQL tidak berubah) agar bertimestamp setelah
      `20261003010000_payment_provider_setting` (#195); rujukan diperbarui.
+- 2026-10-03 (keputusan owner, opsi ii; balapan transfer vs Refund): `createRefund`
+  membekukan Campaign Balance saat request (`refundRequestedLegs`), tanpa cek saldo.
+  Bila transfer menang lock, Refund tetap sukses dan sumber berakhir negatif
+  (-300k, target +500k). Aturan: di bawah lock Campaign, Refund atas Campaign
+  ditolak (409 `REFUND_AFTER_CAMPAIGN_TRANSFER`) bila saldo < porsi neto DAN ada
+  CampaignTransfer APPROVED dari Campaign itu. Refund setelah Payout tidak
+  berubah: tetap lewat shortfall yang ditutup platform saat approve. Tidak ada
+  deadlock: approve transfer hanya mengunci Campaign, `createRefund` mengunci
+  Campaign dulu lalu Payment. Tes real-DB balapan kini hanya menegaskan invarian
+  uang (saldo >= 0, total <= 500k, ledger seimbang) plus dua urutan deterministik.
+
