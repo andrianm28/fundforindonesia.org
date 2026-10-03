@@ -403,12 +403,12 @@ describe('approveCampaignTransfer', () => {
     }
   });
 
-  it('refuses an approval when the source was drained to nothing since the request', async () => {
+  it('treats a source drained to nothing since the request as a changed balance (reject and re-request)', async () => {
     const { tx, rows } = makeTx({ sourceBalance: 0 });
     const before = rows.length;
     await expect(
       approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' }),
-    ).rejects.toBeInstanceOf(InsufficientBalanceError);
+    ).rejects.toBeInstanceOf(CampaignTransferBalanceChangedError);
     expect(rows.length).toBe(before);
   });
 

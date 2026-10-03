@@ -159,9 +159,9 @@ type Judged = {
  */
 async function lockAndJudge(
   tx: Prisma.TransactionClient,
-  params: { sourceId: string; targetId: string; actorId: string },
+  params: { sourceId: string; targetId: string; actorId: string; atApproval?: boolean },
 ): Promise<Judged> {
-  const { sourceId, targetId, actorId } = params;
+  const { sourceId, targetId, actorId, atApproval } = params;
   const now = new Date();
 
   const states = new Map<string, SubjectState | null>();
@@ -206,7 +206,9 @@ async function lockAndJudge(
   // The amount is never an input: it is the whole withdrawable balance, read
   // here under both locks. An empty source has nothing to transfer.
   const balance = await campaignBalance(tx, sourceId);
-  if (balance <= 0) {
+  // At approval an empty source is just a changed balance (the caller compares
+  // it with the requested amount), so the Admin gets the same reject-and-re-request answer.
+  if (balance <= 0 && !atApproval) {
     throw new InsufficientBalanceError(
       1,
       balance,
@@ -290,6 +292,7 @@ export async function approveCampaignTransfer(
       sourceId: record.sourceId,
       targetId: record.targetId,
       actorId: decidedById,
+      atApproval: true,
     });
 
     // FULL TRANSFER ONLY. The amount was fixed at the request as the whole
