@@ -231,9 +231,12 @@ function NameForm({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  useEffect(() => {
+  // Follow the saved name when it changes (adjusting state during render, not in an effect).
+  const [seenName, setSeenName] = useState(currentName);
+  if (currentName !== seenName) {
+    setSeenName(currentName);
     setName(currentName);
-  }, [currentName]);
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

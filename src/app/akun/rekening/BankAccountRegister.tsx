@@ -57,7 +57,9 @@ export function BankAccountRegister() {
   }, []);
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   const act = async (request: Promise<string | null>, success: string) => {

@@ -344,7 +344,9 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
   }, [slug]);
 
   useEffect(() => {
-    load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   if (loadError) {

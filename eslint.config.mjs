@@ -24,15 +24,12 @@ const eslintConfig = [
 
       // New rules in eslint-config-next 16 that the old .eslintrc.json never
       // enforced (react-hooks@7's React Compiler-oriented rules, and a
-      // stricter default for no-html-link-for-pages). Promoted to 'error'
-      // once clean (ci-cd-github-actions ticket 18): these two have no
-      // findings left. The other two still fire (16 set-state-in-effect, 2
-      // purity) and stay 'warn' so they do not raise the lint ratchet; fixing
-      // them component by component and promoting them is ticket 18b.
+      // stricter default for no-html-link-for-pages). All four are 'error'
+      // now that no findings are left (ci-cd-github-actions tickets 18, 18b).
       'react-hooks/immutability': 'error',
       '@next/next/no-html-link-for-pages': 'error',
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/purity': 'warn',
+      'react-hooks/set-state-in-effect': 'error',
+      'react-hooks/purity': 'error',
     },
   },
 ];

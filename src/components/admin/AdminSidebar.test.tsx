@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 
 const nav = vi.hoisted(() => ({ pathname: "/admin" }));
 vi.mock("next/navigation", () => ({ usePathname: () => nav.pathname }));
@@ -63,5 +63,19 @@ describe("AdminSidebar", () => {
     for (const a of container.querySelectorAll("nav a")) {
       expect(a.textContent).not.toMatch(/\d/);
     }
+  });
+
+  it("folds the phone menu open on tap and closes it after navigating to another page", () => {
+    nav.pathname = "/admin";
+    const { rerender } = render(<AdminSidebar />);
+    const toggle = screen.getByRole("button", { name: "Buka menu" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Tutup menu" }).getAttribute("aria-expanded")).toBe("true");
+
+    nav.pathname = "/admin/users";
+    rerender(<AdminSidebar />);
+    expect(screen.getByRole("button", { name: "Buka menu" }).getAttribute("aria-expanded")).toBe("false");
   });
 });

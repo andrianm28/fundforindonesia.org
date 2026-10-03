@@ -78,7 +78,9 @@ export default function AdminPartnershipInquiriesPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   /** Sends one step forward; on success reloads the queue, else shows the refusal. */

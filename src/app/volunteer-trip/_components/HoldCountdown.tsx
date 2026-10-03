@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 
 const POLL_MS = 15_000;
@@ -16,6 +16,26 @@ function format(ms: number): string {
   return `${mm}:${ss}`;
 }
 
+function subscribeToSecond(onChange: () => void) {
+  const tick = setInterval(onChange, 1000);
+  return () => clearInterval(tick);
+}
+
+/**
+ * The time left on the hold, in whole seconds as milliseconds, read from the
+ * clock as an external store. The server render and hydration draw `null`
+ * (the clock differs between them by a second or more, which is a hydration
+ * mismatch); the real time arrives as soon as the component subscribes, then
+ * every second.
+ */
+function useRemaining(expiresAt: string): number | null {
+  return useSyncExternalStore(
+    subscribeToSecond,
+    () => Math.ceil(remaining(expiresAt) / 1000) * 1000,
+    () => null,
+  );
+}
+
 /**
  * Counts down the seat hold (30 minutes). Refreshes the server page when it
  * reaches zero, and every 15 seconds while it runs so a Trip Fee that settles
@@ -24,19 +44,13 @@ function format(ms: number): string {
  */
 export function HoldCountdown({ expiresAt }: { expiresAt: string }) {
   const router = useRouter();
-  // Null until mounted: the clock differs between the server render and the
-  // client's first render (a second or more), which is a hydration mismatch.
-  // Both draw the same placeholder, and the real time arrives with the effect.
-  const [ms, setMs] = useState<number | null>(null);
+  const ms = useRemaining(expiresAt);
 
   useEffect(() => {
-    setMs(remaining(expiresAt));
     let sinceRefresh = 0;
     const tick = setInterval(() => {
-      const left = remaining(expiresAt);
-      setMs(left);
       sinceRefresh += 1000;
-      if (left === 0) {
+      if (remaining(expiresAt) === 0) {
         clearInterval(tick);
         router.refresh();
       } else if (sinceRefresh >= POLL_MS) {

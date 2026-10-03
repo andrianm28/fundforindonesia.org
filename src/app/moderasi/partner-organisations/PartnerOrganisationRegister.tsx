@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { KIND_LABEL, KINDS, type CampaignKind } from "@/lib/campaign-kind";
 
 /**
@@ -42,6 +42,19 @@ type Organisation = {
 };
 
 const API = "/api/moderasi/partner-organisations";
+
+const MINUTE_MS = 60_000;
+
+function subscribeToClock(onChange: () => void) {
+  const tick = setInterval(onChange, MINUTE_MS);
+  return () => clearInterval(tick);
+}
+
+/** The current time to the minute, kept out of render (Date.now() is impure) and refreshed as the minutes pass. */
+function useNow(): number {
+  const read = () => Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS;
+  return useSyncExternalStore(subscribeToClock, read, read);
+}
 
 /** A date input's day as the instant it starts (validFrom) or ends (validTo) in WIB. */
 function dayStart(day: string): string {
@@ -88,7 +101,9 @@ export function PartnerOrganisationRegister() {
   }, []);
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   const act = async (request: Promise<string | null>, success: string) => {
@@ -269,7 +284,7 @@ function RegisterForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) 
 
 function PermitRow({ permit, onRenew }: { permit: Permit; onRenew: (validTo: string) => Promise<boolean> }) {
   const [validTo, setValidTo] = useState("");
-  const now = Date.now();
+  const now = useNow();
   const valid = new Date(permit.validFrom).getTime() <= now && now <= new Date(permit.validTo).getTime();
 
   return (
@@ -375,7 +390,7 @@ function KindAuthorisationRow({
   onRenew: (validTo: string) => Promise<boolean>;
 }) {
   const [validTo, setValidTo] = useState("");
-  const now = Date.now();
+  const now = useNow();
   const valid = new Date(authorisation.validFrom).getTime() <= now && now <= new Date(authorisation.validTo).getTime();
 
   return (

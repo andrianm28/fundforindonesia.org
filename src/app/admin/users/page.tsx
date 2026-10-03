@@ -69,7 +69,10 @@ export default function AdminUsersPage() {
   });
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
-  const [loading, setLoading] = useState(true);
+  // The page|search whose users are on screen; the list is loading whenever it
+  // differs from the page|search being asked for.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const loading = loadedKey !== `${pagination.page}|${search}`;
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [pendingUserIds, setPendingUserIds] = useState<Set<string>>(new Set());
   const [pendingRequests, setPendingRequests] = useState<PendingGrantRequest[]>([]);
@@ -114,7 +117,6 @@ export default function AdminUsersPage() {
   };
 
   const fetchUsers = useCallback(async (page: number, searchQuery: string) => {
-    setLoading(true);
     try {
       const params = new URLSearchParams({
         page: String(page),
@@ -135,7 +137,7 @@ export default function AdminUsersPage() {
     } catch (error) {
       console.error("Error fetching users:", error);
     } finally {
-      setLoading(false);
+      setLoadedKey(`${page}|${searchQuery}`);
     }
   }, []);
 
@@ -155,8 +157,9 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     if (status === "authenticated") {
-      fetchUsers(pagination.page, search);
-      fetchPendingRequests();
+      void (async () => {
+        await Promise.all([fetchUsers(pagination.page, search), fetchPendingRequests()]);
+      })();
     }
   }, [status, pagination.page, search, fetchUsers, fetchPendingRequests]);
 

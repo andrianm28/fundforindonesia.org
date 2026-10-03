@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useCampaigns } from '@/lib/hooks/useCampaigns';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import type { CampaignCardData } from '@/types/campaign';
@@ -20,33 +20,35 @@ export default function ExploreAllPage() {
     setAllCampaigns([]);
   }, []);
 
-  // Accumulate campaigns across pages
-  useEffect(() => {
-    if (campaigns.length > 0) {
-      setAllCampaigns((prev) => {
-        // Avoid duplicates by checking IDs
-        const existingIds = new Set(prev.map((c) => c.id));
-        const newCampaigns: CampaignCardData[] = campaigns
-          .filter((c) => !existingIds.has(c.id))
-          .map((c) => ({
-            id: c.id,
-            slug: c.slug,
-            title: c.title,
-            coverImage: c.coverImage,
-            collectedAmount: c.collectedAmount,
-            targetAmount: c.targetAmount,
-            category: c.category,
-            deadline: c.deadline ? new Date(c.deadline) : null,
-            isUrgent: c.isUrgent,
-            isDemo: c.isDemo,
-            creator: {
-              name: c.creator.name,
-            },
-          }));
-        return [...prev, ...newCampaigns];
-      });
-    }
-  }, [campaigns]);
+  // Accumulate campaigns across pages: when a new page of results arrives
+  // (adjusting state during render, keyed on the result list's identity),
+  // fold it into what is already shown.
+  const [foldedCampaigns, setFoldedCampaigns] = useState<typeof campaigns | null>(null);
+  if (campaigns.length > 0 && campaigns !== foldedCampaigns) {
+    setFoldedCampaigns(campaigns);
+    setAllCampaigns((prev) => {
+      // Avoid duplicates by checking IDs
+      const existingIds = new Set(prev.map((c) => c.id));
+      const newCampaigns: CampaignCardData[] = campaigns
+        .filter((c) => !existingIds.has(c.id))
+        .map((c) => ({
+          id: c.id,
+          slug: c.slug,
+          title: c.title,
+          coverImage: c.coverImage,
+          collectedAmount: c.collectedAmount,
+          targetAmount: c.targetAmount,
+          category: c.category,
+          deadline: c.deadline ? new Date(c.deadline) : null,
+          isUrgent: c.isUrgent,
+          isDemo: c.isDemo,
+          creator: {
+            name: c.creator.name,
+          },
+        }));
+      return [...prev, ...newCampaigns];
+    });
+  }
 
   const handleLoadMore = useCallback(() => {
     if (!isLoading && page < totalPages) {

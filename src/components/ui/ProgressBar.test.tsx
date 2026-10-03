@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, screen, cleanup, act } from '@testing-library/react';
 import { ProgressBar, calculatePercentage } from './ProgressBar';
 
 afterEach(() => {
@@ -86,6 +86,29 @@ describe('ProgressBar component', () => {
     render(<ProgressBar current={50} target={100} />);
     const progressbar = screen.getByRole('progressbar');
     expect(progressbar.className).toContain('h-2.5');
+  });
+
+  it('fills a static bar to its percentage straight away, and follows a changed value', () => {
+    const { rerender } = render(<ProgressBar current={40} target={100} />);
+    const fill = () => screen.getByRole('progressbar').firstChild as HTMLElement;
+    expect(fill().style.width).toBe('40%');
+    rerender(<ProgressBar current={70} target={100} />);
+    expect(fill().style.width).toBe('70%');
+  });
+
+  it('starts an animated bar empty, then fills it to its percentage after mount', () => {
+    vi.useFakeTimers();
+    try {
+      render(<ProgressBar current={60} target={100} animated />);
+      const fill = screen.getByRole('progressbar').firstChild as HTMLElement;
+      expect(fill.style.width).toBe('0%');
+      act(() => {
+        vi.advanceTimersByTime(60);
+      });
+      expect(fill.style.width).toBe('60%');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('applies animation transition when animated is true', () => {
