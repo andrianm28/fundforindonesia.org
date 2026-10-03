@@ -160,6 +160,8 @@ describe('AdminRefundResolveForm -- refusals from the route', () => {
     ['reject', 409, renderReject, STATUS_409, 'Alasan penolakan', /tolak refund/i],
     ['fail', 403, renderFail, 'Refund tidak dapat ditandai gagal oleh Admin yang menyetujuinya.', 'Alasan kegagalan', /tandai refund gagal/i],
     ['fail', 409, renderFail, STATUS_409, 'Alasan kegagalan', /tandai refund gagal/i],
+    ['reject', 400, renderReject, 'Alasan maksimal 500 karakter.', 'Alasan penolakan', /tolak refund/i],
+    ['fail', 400, renderFail, 'Alasan maksimal 500 karakter.', 'Alasan kegagalan', /tandai refund gagal/i],
   ] as const)(
     "shows the %s route's %i answer in its own words, keeps the reason and does not refresh",
     async (_action, status, renderForm, message, label, button) => {
