@@ -11,6 +11,7 @@ import {
   tripEscrowBalance,
   postTransaction,
   refundRequestedLegs,
+  refundFreezeTransactionId,
   refundApprovedLegs,
   refundPaidLegs,
   reverseEntriesLegs,
@@ -334,7 +335,7 @@ export async function createRefund(
   await postTransaction(
     tx,
     refundRequestedLegs({ subject, amount, source, platformFeePortion, providerFeePortion }),
-    { refundId: refund.id, transactionId: `refund-requested-${refund.id}` },
+    { refundId: refund.id, transactionId: refundFreezeTransactionId(refund.id) },
   );
 
   return refund;
@@ -770,7 +771,7 @@ async function resolveRefund(
       throw new InvalidRefundStatusError('unknown (changed concurrently)', `lost the ${action} race`);
     }
 
-    const freezeId = `refund-requested-${refundId}`;
+    const freezeId = refundFreezeTransactionId(refundId);
     const transactionIds = action === 'reject' ? [freezeId] : [freezeId, `refund-approved-${refundId}`];
     const entries = await tx.ledgerEntry.findMany({
       where: { refundId, transactionId: { in: transactionIds } },

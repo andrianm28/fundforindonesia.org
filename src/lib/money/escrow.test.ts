@@ -58,7 +58,10 @@ type LedgerRow = {
   paymentId?: string | null;
 };
 
-type RefundRow = { paymentId: string; amount: number; status: string };
+// `id` is what ties a Refund to the freeze journal it posted: the sweep reads
+// the ledger rows whose transactionId is `refund-requested-<id>`
+// (refundFreezeTransactionId, ./ledger.ts).
+type RefundRow = { id: string; paymentId: string; amount: number; status: string };
 
 /** What the subject guard reads under its row lock (src/lib/subject-guard.ts). */
 const ACTIVE_CAMPAIGN = { creatorId: 'fundraiser-1', isDemo: false, lifecycleStatus: 'ACTIVE', deadline: null };
@@ -199,10 +202,17 @@ function makeDb(
       },
       refund: {
         findMany: vi.fn(async ({ where }: { where: { paymentId: string } }) =>
-          refunds.filter((r) => r.paymentId === where.paymentId).map((r) => ({ amount: r.amount, status: r.status })),
+          refunds
+            .filter((r) => r.paymentId === where.paymentId)
+            .map((r) => ({ id: r.id, amount: r.amount, status: r.status })),
         ),
       },
       ledgerEntry: {
+        // The freeze journals the sweep reads back (escrowTakenByRefunds in
+        // ./escrow.ts), selected by transactionId exactly as it asks.
+        findMany: vi.fn(async ({ where }: { where: { transactionId: { in: string[] } } }) =>
+          rows.filter((r) => where.transactionId.in.includes(r.transactionId)),
+        ),
         count: vi.fn(async ({ where }: { where: { transactionId: string } }) =>
           rows.filter((r) => r.transactionId === where.transactionId).length,
         ),
@@ -304,8 +314,10 @@ describe('releaseMaturedEscrow', () => {
   it('stamps a fully-refunded payment (refund COMPLETED -- a final outcome) and never reconsiders it', async () => {
     const { rows, paymentState } = makeDb(
       [makePayment({ id: 'payment-1', amount: 50_000, campaignId: 'campaign-1' })],
-      [],
-      [{ paymentId: 'payment-1', amount: 50_000, status: 'COMPLETED' }],
+      // The refund's freeze took the whole 50_000 out of ESCROW_HOLD (this
+      // Payment carries no fees), which is what the sweep reads back.
+      [{ transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 50_000, campaignId: 'campaign-1' }],
+      [{ id: 'refund-1', paymentId: 'payment-1', amount: 50_000, status: 'COMPLETED' }],
     );
 
     const firstSweep = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
@@ -333,7 +345,7 @@ describe('releaseMaturedEscrow', () => {
       // REJECTED, the money would sit in ESCROW_HOLD forever with nothing
       // left to ever release it -- escrowReleasedAt is not null, so no
       // future sweep would ever look at this payment again.
-      const refunds: RefundRow[] = [{ paymentId: 'payment-1', amount: 100_000, status: 'REQUESTED' }];
+      const refunds: RefundRow[] = [{ id: 'refund-1', paymentId: 'payment-1', amount: 100_000, status: 'REQUESTED' }];
       const { rows, paymentState } = makeDb(
         [makePayment({ id: 'payment-1', amount: 100_000, campaignId: 'campaign-1' })],
         [],
@@ -368,7 +380,7 @@ describe('releaseMaturedEscrow', () => {
     const { rows } = makeDb(
       [makePayment({ id: 'payment-1', amount: 50_000, campaignId: 'campaign-1' })],
       [],
-      [{ paymentId: 'payment-1', amount: 50_000, status: 'REJECTED' }],
+      [{ id: 'refund-1', paymentId: 'payment-1', amount: 50_000, status: 'REJECTED' }],
     );
 
     await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
@@ -399,7 +411,7 @@ describe('releaseMaturedEscrow', () => {
           { transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 95_000, campaignId: 'campaign-1' },
           { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 38_000, campaignId: 'campaign-1' },
         ],
-        [{ paymentId: 'payment-1', amount: 40_000, status: 'COMPLETED' }],
+        [{ id: 'refund-1', paymentId: 'payment-1', amount: 40_000, status: 'COMPLETED' }],
       );
 
       const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
@@ -445,7 +457,7 @@ describe('releaseMaturedEscrow', () => {
           { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'PLATFORM_FEE', amount: 1_250, campaignId: null },
           { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'REFUND_COST', amount: 2_500, campaignId: null },
         ],
-        [{ paymentId: 'payment-1', amount: 50_000, status: 'COMPLETED' }],
+        [{ id: 'refund-1', paymentId: 'payment-1', amount: 50_000, status: 'COMPLETED' }],
       );
 
       const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
@@ -460,6 +472,86 @@ describe('releaseMaturedEscrow', () => {
         .filter((r) => r.account === 'ESCROW_HOLD' && r.campaignId === 'campaign-1')
         .reduce((s, r) => s + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
       expect(escrowNet).toBe(0);
+    },
+  );
+
+  it(
+    "releases exactly what a Refund's freeze left in ESCROW_HOLD when an earlier Refund was rejected after " +
+      'that freeze, rather than the figure worked out again from the Refunds still standing (prd-compliance 51)',
+    async () => {
+      // Gross 100_000, Provider Fee 3_333, Platform Fee 1_667: Net 95_000. Two
+      // 50_000 Refunds were open at once.
+      //
+      // refund-1 was frozen against no earlier Refund, so its shares rounded up
+      // whole: Provider Fee ceil(3_333 / 2) = 1_667 and Platform Fee
+      // ceil(1_667 / 2) = 834, and it debited ESCROW_HOLD 50_000 - 1_667 - 834 =
+      // 47_499. refund-2 was frozen with refund-1 still counted, so the
+      // cumulative cap cut its shares to what the Payment had left, 3_333 -
+      // 1_667 = 1_666 and 1_667 - 834 = 833, and it debited 50_000 - 1_666 - 833
+      // = 47_501.
+      //
+      // refund-1 is then REJECTED (its freeze mirrored back, the credit below)
+      // and refund-2 APPROVED. Worked out again from the Refunds that stand now,
+      // refund-2 would be the only one: shares of 1_667 and 834, a debit of
+      // 47_499, and a release of 95_000 - 47_499 = 47_501 -- two rupiah more
+      // than the 47_499 ESCROW_HOLD actually holds.
+      const { rows } = makeDb(
+        [makePayment({ id: 'payment-1', amount: 100_000, providerFee: 3_333, platformFee: 1_667, campaignId: 'campaign-1' })],
+        [
+          { transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 95_000, campaignId: 'campaign-1' },
+          { transactionId: 'refund-requested-refund-1', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 47_499, campaignId: 'campaign-1' },
+          { transactionId: 'refund-rejected-refund-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 47_499, campaignId: 'campaign-1' },
+          { transactionId: 'refund-requested-refund-2', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 47_501, campaignId: 'campaign-1' },
+        ],
+        [
+          { id: 'refund-1', paymentId: 'payment-1', amount: 50_000, status: 'REJECTED' },
+          { id: 'refund-2', paymentId: 'payment-1', amount: 50_000, status: 'APPROVED' },
+        ],
+      );
+
+      const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+      expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
+      const releaseLegs = rows.filter((r) => r.transactionId === 'escrow-release:payment-1');
+      expect(releaseLegs.find((r) => r.direction === 'DEBIT')).toMatchObject({ account: 'ESCROW_HOLD', amount: 47_499 });
+      expect(releaseLegs.find((r) => r.direction === 'CREDIT')).toMatchObject({ account: 'CAMPAIGN_BALANCE', amount: 47_499 });
+      // Read off the account: settled 95_000, refund-1 in and back out, refund-2's
+      // 47_501 taken, and the 47_499 released -- exactly 0, not -2.
+      const escrowNet = rows
+        .filter((r) => r.account === 'ESCROW_HOLD' && r.campaignId === 'campaign-1')
+        .reduce((s, r) => s + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+      expect(escrowNet).toBe(0);
+    },
+  );
+
+  it(
+    'refuses to release a Payment whose standing Refund has no freeze journal: nothing claimed, nothing posted, ' +
+      'and the failure is logged rather than read as the Refund having taken nothing',
+    async () => {
+      // createRefund posts the freeze in the same transaction as the Refund, so
+      // this should not happen. If it does, counting the Refund as having taken
+      // nothing would release the whole 100_000 -- 40_000 of which the Refund
+      // already holds back -- and stamp escrowReleasedAt for good.
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const { rows, paymentState } = makeDb(
+          [makePayment({ id: 'payment-1', amount: 100_000, campaignId: 'campaign-1' })],
+          [{ transactionId: 'settle-1', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 100_000, campaignId: 'campaign-1' }],
+          [{ id: 'refund-1', paymentId: 'payment-1', amount: 40_000, status: 'COMPLETED' }],
+        );
+
+        const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+        expect(result).toEqual({ releasedCount: 0, consideredCount: 1 });
+        expect(paymentState.get('payment-1')!.escrowReleasedAt).toBeNull();
+        expect(rows.filter((r) => r.transactionId === 'escrow-release:payment-1')).toHaveLength(0);
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining('payment-1'),
+          expect.objectContaining({ message: expect.stringContaining('refund-1') }),
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
     },
   );
 
@@ -554,13 +646,17 @@ describe('releaseMaturedEscrow', () => {
         [
           { transactionId: 'settle-A', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 100_000, campaignId: 'campaign-1' },
           { transactionId: 'settle-B', direction: 'CREDIT', account: 'ESCROW_HOLD', amount: 100_000, campaignId: 'campaign-1' },
+          // A's refund froze all of A's 100_000 out of the shared account.
+          { transactionId: 'refund-requested-refund-A', direction: 'DEBIT', account: 'ESCROW_HOLD', amount: 100_000, campaignId: 'campaign-1' },
         ],
-        [{ paymentId: 'payment-A', amount: 100_000, status: 'COMPLETED' }],
+        [{ id: 'refund-A', paymentId: 'payment-A', amount: 100_000, status: 'COMPLETED' }],
       );
 
       const result = await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
 
-      expect(result.consideredCount).toBe(1);
+      // Released as in claimed and finished, with nothing to post. Asserted
+      // so this cannot go green by the sweep failing on A instead.
+      expect(result).toEqual({ releasedCount: 1, consideredCount: 1 });
       const releaseLegsA = rows.filter((r) => r.transactionId === 'escrow-release:payment-A');
       expect(releaseLegsA).toHaveLength(0);
       // Payment B's own settlement leg is the only thing left in the ledger

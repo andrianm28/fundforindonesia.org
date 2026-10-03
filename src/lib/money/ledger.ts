@@ -776,6 +776,17 @@ export function refundRequestedLegs(params: {
 }
 
 /**
+ * The transactionId a Refund's freeze (refundRequestedLegs, above) is posted
+ * under. Spelled once because three places depend on the spelling: createRefund
+ * posts under it, resolveRefund (./refunds.ts) reads the entries back to mirror
+ * them, and the escrow sweep (./escrow.ts) reads the ESCROW_HOLD debit to know
+ * how much of a Payment's Net those Refunds already took out of the hold.
+ */
+export function refundFreezeTransactionId(refundId: string): string {
+  return `refund-requested-${refundId}`;
+}
+
+/**
  * The gross-recognition posting when a Refund is approved. Closes out
  * FROZEN_BALANCE in full and credits the donor the full Gross. `shortfall`
  * here means genuine pool insolvency ONLY (e.g. a Payout already drained
