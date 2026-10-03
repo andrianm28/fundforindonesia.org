@@ -124,3 +124,27 @@ describe('the home page and a Demo Campaign', () => {
     expect(where).toEqual({ campaign: { isDemo: false } });
   });
 });
+
+describe('the home page with SHOW_DEMO_CAMPAIGNS on (prd-compliance 56)', () => {
+  beforeEach(() => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'true');
+    holder.db = makeCampaignDb({
+      campaigns: [
+        campaign('active', { isUrgent: true }),
+        campaign('demo-urgent', { isDemo: true, isUrgent: true, deadline: TOMORROW }),
+      ],
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('shows a Demo Campaign in the Urgent rail, and the Prayer Wall no longer leaves its Campaign out', async () => {
+    const page = await HomePage();
+    expect(campaignsPassedTo(page, UrgentCampaigns)[0].sort()).toEqual(['active', 'demo-urgent']);
+
+    const { where } = holder.prayerFindMany.mock.calls.at(-1)![0];
+    expect(where).toEqual({ campaign: {} });
+  });
+});

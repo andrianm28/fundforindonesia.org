@@ -146,6 +146,44 @@ describe('GET /api/campaigns and a Demo Campaign', () => {
   });
 });
 
+describe('GET /api/campaigns with SHOW_DEMO_CAMPAIGNS on (prd-compliance 56)', () => {
+  beforeEach(() => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'true');
+    holder.db = makeCampaignDb({
+      campaigns: [
+        campaign('active', { title: 'Pemulihan Gudang' }),
+        campaign('demo-active', { isDemo: true, title: 'Bantu korban bencana (contoh)' }),
+        campaign('demo-urgent', { isDemo: true, isUrgent: true }),
+        campaign('demo-suspended', { isDemo: true, lifecycleStatus: 'SUSPENDED' }),
+      ],
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('lists effectively Active Demo Campaigns beside real ones, with isDemo so the card can badge them', async () => {
+    const response = await GET(new NextRequest(new URL('http://localhost:3000/api/campaigns')));
+    const body = await response.json();
+
+    expect(body.campaigns.map((c: { slug: string }) => c.slug).sort()).toEqual(['active', 'demo-active', 'demo-urgent']);
+    expect(body.total).toBe(3);
+    const flags = Object.fromEntries(body.campaigns.map((c: { slug: string; isDemo: boolean }) => [c.slug, c.isDemo]));
+    expect(flags).toEqual({ active: false, 'demo-active': true, 'demo-urgent': true });
+  });
+
+  it('finds them by search and in the urgent list', async () => {
+    expect(await listSlugs('?search=korban')).toEqual(['demo-active']);
+    expect(await listSlugs('?urgent=true')).toEqual(['demo-urgent']);
+  });
+
+  it('is off again when the flag is anything but "true"', async () => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'TRUE');
+    expect(await listSlugs()).toEqual(['active']);
+  });
+});
+
 describe('GET /api/campaigns filters by Kind', () => {
   beforeEach(() => {
     holder.db = makeCampaignDb({
