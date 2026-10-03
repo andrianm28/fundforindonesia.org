@@ -976,6 +976,38 @@ export function manualContributionReversedLegs(params: {
 }
 
 /**
+ * The exact mirror of journal entries already posted: every leg flipped
+ * DEBIT <-> CREDIT, same account, same amount, same Campaign or Trip.
+ *
+ * Used when a Refund is rejected (ticket 49: mirror of the freeze) or fails
+ * (mirror of the freeze and of the approval). Built from the posted entries
+ * rather than recomputed from the Payment, so the money returns to precisely
+ * the accounts that were debited, whatever the pool, fee split, or shortfall
+ * looked like at the time (a source that has since matured, a shortfall the
+ * platform covered with REFUND_COST). Never an edit or a deletion of the
+ * original rows: the correction is a new journal, balanced because the
+ * originals were.
+ */
+export function reverseEntriesLegs(
+  entries: ReadonlyArray<
+    Pick<LedgerLeg, 'account' | 'direction' | 'amount'> & {
+      campaignId?: string | null;
+      volunteerTripId?: string | null;
+      programId?: string | null;
+    }
+  >,
+): LedgerLeg[] {
+  return entries.map((e) => ({
+    account: e.account,
+    direction: e.direction === 'DEBIT' ? ('CREDIT' as const) : ('DEBIT' as const),
+    amount: e.amount,
+    ...(e.campaignId ? { campaignId: e.campaignId } : {}),
+    ...(e.volunteerTripId ? { volunteerTripId: e.volunteerTripId } : {}),
+    ...(e.programId ? { programId: e.programId } : {}),
+  }));
+}
+
+/**
  * A refund actually PAID to the Donor, by the third Admin who completes it.
  *
  *   DEBIT  REFUND_CLEARING   amount   the Donor is owed nothing further

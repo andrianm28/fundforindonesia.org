@@ -13,6 +13,8 @@ import {
   refundRequestedLegs,
   refundApprovedLegs,
   refundPaidLegs,
+  reverseEntriesLegs,
+  escrowReleaseLegs,
   providerFeePortionFor,
   platformFeePortionFor,
   type LedgerSubject,
@@ -32,6 +34,8 @@ import {
   InvalidRefundStatusError,
   TwoPersonRuleError,
   RefundAfterCampaignTransferError,
+  RefundResolutionActorError,
+  RefundReasonInvalidError,
 } from './errors';
 
 /**
@@ -80,6 +84,8 @@ export {
   InvalidRefundStatusError,
   TwoPersonRuleError,
   RefundAfterCampaignTransferError,
+  RefundResolutionActorError,
+  RefundReasonInvalidError,
 };
 
 type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt'> & {
@@ -681,4 +687,154 @@ export async function completeRefund(
   });
 
   return prisma.refund.findUniqueOrThrow({ where: { id: refundId } });
+}
+
+const MAX_RESOLUTION_REASON_LENGTH = 500;
+
+function cleanResolutionReason(raw: unknown): string {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (text === '') throw new RefundReasonInvalidError('Alasan wajib diisi.');
+  if (text.length > MAX_RESOLUTION_REASON_LENGTH) {
+    throw new RefundReasonInvalidError(`Alasan maksimal ${MAX_RESOLUTION_REASON_LENGTH} karakter.`);
+  }
+  return text;
+}
+
+/**
+ * The way back for a Refund (ticket 49; ticket 33): a Refund freezes the
+ * subject's money when it is created and, once APPROVED, moves it to
+ * REFUND_CLEARING, so a Refund that is wrong or cannot be paid has to return
+ * that money, or it is locked for good.
+ *
+ * Reject (REQUESTED or AWAITING_DONOR_DETAILS) posts the exact mirror of the
+ * freeze. Fail (APPROVED) posts the exact mirror of the freeze AND of the
+ * approval, so REFUND_CLEARING is emptied and a shortfall the platform covered
+ * with REFUND_COST is taken back out of the pool it topped up. Both mirror the
+ * ENTRIES already posted (reverseEntriesLegs, ./ledger.ts), not a recomputation
+ * from the Payment: the money goes back to precisely the accounts that were
+ * debited, even when the Payment's escrow matured between freeze and approve.
+ *
+ * Same lock order as approveRefund/completeRefund: the subject first, then the
+ * claim on the Refund row. A reject racing an approve is serialised by the
+ * subject lock and the loser, whose claim matches nothing, is refused 409 with
+ * nothing written. A COMPLETED Refund matches neither claim.
+ *
+ * ESCROW. If the freeze debited ESCROW_HOLD and that Payment's escrow has since
+ * been released (the sweep only defers for REQUESTED/PROCESSING, so an APPROVED
+ * Refund does not stop it, and the release already counted this Refund as
+ * having taken its net share), the mirror alone would leave the net share
+ * stranded in ESCROW_HOLD with nothing left to release it. So the same
+ * transaction also posts the release of that share to the withdrawable balance,
+ * exactly what the sweep would have done had the Refund never existed.
+ */
+async function resolveRefund(
+  prisma: PrismaClient,
+  params: { refundId: string; actorId: string; reason: string; action: 'reject' | 'fail' },
+): Promise<Refund> {
+  const { refundId, actorId, action } = params;
+  const reason = cleanResolutionReason(params.reason);
+  const allowedFrom = action === 'reject' ? (['REQUESTED', 'AWAITING_DONOR_DETAILS'] as const) : (['APPROVED'] as const);
+
+  await prisma.$transaction(async (tx) => {
+    const refund = await tx.refund.findUnique({
+      where: { id: refundId },
+      include: {
+        payment: { include: { donation: true, registration: { include: { batch: true } } } },
+      },
+    });
+    if (!refund) {
+      throw new RefundNotFoundError(refundId);
+    }
+
+    const subject = paymentSubjectOf(refund.payment as unknown as PaymentWithSubjectLinks);
+    const subjectState = await lockAndLoad(tx, subject, new Date());
+    // An Admin act, refused to the Fundraiser of this Campaign or Trip.
+    if (subjectState) requireNotOwnerAsAdmin(subjectState, actorId);
+
+    if (!(allowedFrom as readonly string[]).includes(refund.status)) {
+      throw new InvalidRefundStatusError(refund.status);
+    }
+    if (action === 'reject' ? refund.requestedById === actorId : refund.approvedById === actorId) {
+      throw new RefundResolutionActorError(action);
+    }
+
+    const now = new Date();
+    const claimed = await tx.refund.updateMany({
+      where: { id: refundId, status: { in: [...allowedFrom] } },
+      data:
+        action === 'reject'
+          ? { status: 'REJECTED', rejectedById: actorId, rejectedAt: now, rejectionReason: reason }
+          : { status: 'FAILED', failedById: actorId, failedAt: now, failureReason: reason },
+    });
+    if (claimed.count === 0) {
+      throw new InvalidRefundStatusError('unknown (changed concurrently)', `lost the ${action} race`);
+    }
+
+    const freezeId = `refund-requested-${refundId}`;
+    const transactionIds = action === 'reject' ? [freezeId] : [freezeId, `refund-approved-${refundId}`];
+    const entries = await tx.ledgerEntry.findMany({
+      where: { refundId, transactionId: { in: transactionIds } },
+      orderBy: [{ transactionId: 'asc' }, { legIndex: 'asc' }],
+      select: {
+        transactionId: true,
+        account: true,
+        direction: true,
+        amount: true,
+        campaignId: true,
+        volunteerTripId: true,
+      },
+    });
+    const posted = new Set(entries.map((e) => e.transactionId));
+    if (transactionIds.some((id) => !posted.has(id))) {
+      // A Refund without its journal cannot be mirrored; never guess the legs.
+      throw new InvalidRefundStatusError(refund.status, 'its freeze or approval journal is missing');
+    }
+
+    await postTransaction(tx, reverseEntriesLegs(entries), {
+      refundId,
+      transactionId: `${action === 'reject' ? 'refund-rejected' : 'refund-failed'}-${refundId}`,
+    });
+
+    const escrowShare = entries
+      .filter((e) => e.transactionId === freezeId && e.account === 'ESCROW_HOLD' && e.direction === 'DEBIT')
+      .reduce((sum, e) => sum + e.amount, 0);
+    if (escrowShare > 0) {
+      const payment = await tx.payment.findUniqueOrThrow({
+        where: { id: refund.paymentId },
+        select: { escrowReleasedAt: true },
+      });
+      if (payment.escrowReleasedAt != null) {
+        await postTransaction(tx, escrowReleaseLegs({ subject, amount: escrowShare }), {
+          paymentId: refund.paymentId,
+          transactionId: `refund-reversal-release-${refundId}`,
+        });
+      }
+    }
+  });
+
+  return prisma.refund.findUniqueOrThrow({ where: { id: refundId } });
+}
+
+/**
+ * An Admin other than the requester, and other than the Campaign's
+ * Fundraiser, rejects a Refund that has not been approved yet. The freeze is
+ * returned to the accounts it was taken from (see resolveRefund).
+ */
+export function rejectRefund(
+  prisma: PrismaClient,
+  params: { refundId: string; rejectedById: string; reason: string },
+): Promise<Refund> {
+  return resolveRefund(prisma, { refundId: params.refundId, actorId: params.rejectedById, reason: params.reason, action: 'reject' });
+}
+
+/**
+ * An Admin other than the approver, and other than the Campaign's Fundraiser,
+ * marks an APPROVED Refund as failed because the Donor could not be paid. The
+ * money returns from REFUND_CLEARING to the accounts it came from.
+ */
+export function failRefund(
+  prisma: PrismaClient,
+  params: { refundId: string; failedById: string; reason: string },
+): Promise<Refund> {
+  return resolveRefund(prisma, { refundId: params.refundId, actorId: params.failedById, reason: params.reason, action: 'fail' });
 }

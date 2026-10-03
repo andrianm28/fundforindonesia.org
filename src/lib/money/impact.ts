@@ -324,8 +324,14 @@ export async function impactBreakdown(
     });
     const paymentIds = payments.map((p) => p.id);
 
+    // A REJECTED or FAILED Refund (ticket 49) is out of every Refund figure
+    // below: it is posted back as the exact mirror of its own journals, so
+    // reading its original legs and its reversal together nets to zero, and
+    // reading neither is the same answer with no way to count one without the
+    // other. What the page shows is therefore as if that Refund never existed,
+    // and the conservation law holds because the mirrored journals did.
     const refunds = await tx.refund.findMany({
-      where: { paymentId: { in: paymentIds } },
+      where: { paymentId: { in: paymentIds }, status: { notIn: ['REJECTED', 'FAILED'] } },
       select: { id: true },
     });
     const refundIds = refunds.map((r) => r.id);
@@ -362,7 +368,7 @@ export async function impactBreakdown(
       by: ['account', 'direction'] as const,
       where: {
         campaignId: { in: campaignIds },
-        refundId: { not: null },
+        refundId: { in: refundIds },
         account: { in: ['ESCROW_HOLD', 'CAMPAIGN_BALANCE'] },
       },
       _sum: { amount: true },

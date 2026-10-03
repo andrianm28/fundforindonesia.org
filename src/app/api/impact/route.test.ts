@@ -597,6 +597,103 @@ describe('GET /api/impact -- a refunded Donation', () => {
   });
 });
 
+describe('GET /api/impact -- a Refund that was rejected or failed (prd-compliance 49)', () => {
+  // A rejected or failed Refund is posted as the exact mirror of its own
+  // journals, so the page must read as if the Refund had never been made:
+  // nothing returned, no fee handed back, no platform cost, and the six lines
+  // still total what was collected.
+  const PRE_REFUND = {
+    disbursedToFundraisers: 0,
+    returnedToDonors: 0,
+    heldInEscrowHold: 92_000,
+    availableInCampaignBalance: 0,
+    platformFeeRetained: 5_000,
+    providerFeeKept: 3_000,
+  };
+
+  it('a Refund rejected after its freeze leaves the page exactly as before the Refund', async () => {
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    ledger.refundRequest({
+      refundId: 'refund-1',
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      source: 'ESCROW_HOLD',
+      platformFeePortion: 5_000,
+      providerFeePortion: 3_000,
+    });
+    ledger.refundReversal({ refundId: 'refund-1' });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1', status: 'REJECTED' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    const body = await getBreakdown();
+
+    expect(body.collected).toBe(100_000);
+    expect(lines(body)).toEqual(PRE_REFUND);
+    expect(body.platformCost).toEqual({ unrecoveredProviderFee: 0, uncoveredRefunds: 0 });
+  });
+
+  it('a Refund failed after approval, with a REFUND_COST shortfall, leaves the page as before the Refund and reports no platform cost', async () => {
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    ledger.release({ paymentId: 'payment-1', campaignId: 'campaign-1', amount: 92_000 });
+    ledger.payoutInstruction({ payoutId: 'payout-1', campaignId: 'campaign-1', amount: 92_000 });
+    ledger.refundRequest({
+      refundId: 'refund-1',
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      source: 'CAMPAIGN_BALANCE',
+      platformFeePortion: 5_000,
+      providerFeePortion: 3_000,
+    });
+    ledger.refundApproval({ refundId: 'refund-1', campaignId: 'campaign-1', amount: 100_000, source: 'CAMPAIGN_BALANCE', shortfall: 92_000 });
+    ledger.refundReversal({ refundId: 'refund-1' });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      refunds: [{ id: 'refund-1', paymentId: 'payment-1', status: 'FAILED' }],
+      payouts: [{ id: 'payout-1', campaignId: 'campaign-1', amount: 92_000, status: 'APPROVED' }],
+      ledgerEntries: ledger.rows,
+    });
+
+    const body = await getBreakdown();
+
+    expect(body.collected).toBe(100_000);
+    expect(lines(body)).toEqual({ ...PRE_REFUND, disbursedToFundraisers: 92_000, heldInEscrowHold: 0 });
+    expect(sumOf(lines(body))).toBe(100_000);
+    expect(body.platformCost).toEqual({ unrecoveredProviderFee: 0, uncoveredRefunds: 0 });
+  });
+
+  it('a FAILED Refund that was already approved does not count as returned, while a live Refund beside it still does', async () => {
+    const ledger = ledgerFixture();
+    ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+    ledger.release({ paymentId: 'payment-1', campaignId: 'campaign-1', amount: 92_000 });
+    ledger.refundRequest({ refundId: 'refund-failed', campaignId: 'campaign-1', amount: 40_000, source: 'CAMPAIGN_BALANCE', platformFeePortion: 2_000, providerFeePortion: 1_200 });
+    ledger.refundApproval({ refundId: 'refund-failed', campaignId: 'campaign-1', amount: 40_000, source: 'CAMPAIGN_BALANCE', shortfall: 0 });
+    ledger.refundReversal({ refundId: 'refund-failed' });
+    ledger.refundRequest({ refundId: 'refund-live', campaignId: 'campaign-1', amount: 10_000, source: 'CAMPAIGN_BALANCE', platformFeePortion: 500, providerFeePortion: 300 });
+    holder.db = makeImpactDb({
+      campaigns: [CAMPAIGN],
+      payments: [{ id: 'payment-1', campaignId: 'campaign-1' }],
+      refunds: [
+        { id: 'refund-failed', paymentId: 'payment-1', status: 'FAILED' },
+        { id: 'refund-live', paymentId: 'payment-1', status: 'REQUESTED' },
+      ],
+      ledgerEntries: ledger.rows,
+    });
+
+    const body = await getBreakdown();
+
+    expect(lines(body).returnedToDonors).toBe(10_000);
+    expect(sumOf(lines(body))).toBe(100_000);
+    expect(body.platformCost).toEqual({ unrecoveredProviderFee: 300, uncoveredRefunds: 0 });
+  });
+});
+
 describe('GET /api/impact -- who the money is for, and what the page must not claim', () => {
   it('leaves a Demo Campaign out of every figure, including the collected total', async () => {
     const ledger = ledgerFixture();

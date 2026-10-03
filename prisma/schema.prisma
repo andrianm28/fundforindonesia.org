@@ -117,6 +117,8 @@ model User {
   refundsRequested                  Refund[]                         @relation("RefundRequester")
   refundsApproved                   Refund[]                         @relation("RefundApprover")
   refundsCompleted                  Refund[]                         @relation("RefundCompleter")
+  refundsRejected                   Refund[]                         @relation("RefundRejecter")
+  refundsFailed                     Refund[]                         @relation("RefundFailer")
   platformFeeRulesSet               PlatformFeeRule[]
   platformFeeThresholdsSet          PlatformFeeThreshold[]
   manualContributionsRecorded       ManualContribution[]             @relation("ManualContributionRecorder")
@@ -1780,6 +1782,21 @@ model Refund {
   /// than silently reading as the wrong donor's number.
   donorAccountNumberCiphertext String?
   donorAccountNumberKeyId      String?
+
+  /// Ticket 49: the Admin who rejected a REQUESTED Refund, when, and why. The
+  /// freeze was returned by a mirror journal in the same transaction. Never the
+  /// requester or the Fundraiser (service layer).
+  rejectedById    String?
+  rejectedBy      User?     @relation("RefundRejecter", fields: [rejectedById], references: [id])
+  rejectedAt      DateTime?
+  rejectionReason String?
+
+  /// Ticket 49: the Admin who marked an APPROVED Refund as failed (the Donor
+  /// could not be paid), when, and why. Never the approver or the Fundraiser.
+  failedById    String?
+  failedBy      User?     @relation("RefundFailer", fields: [failedById], references: [id])
+  failedAt      DateTime?
+  failureReason String?
 
   ledgerEntries LedgerEntry[]
 
