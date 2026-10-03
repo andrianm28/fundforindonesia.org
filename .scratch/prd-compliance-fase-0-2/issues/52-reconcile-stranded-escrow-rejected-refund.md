@@ -25,6 +25,10 @@ uangnya benar: alarm palsu yang tidak bisa diselesaikan Admin.
       REJECTED/FAILED dari perhitungan `refundedAmount`, dengan komentar yang
       menjelaskan mengapa pasangan freeze dan pembaliknya saling meniadakan
 - [x] Satu tes Postgres sungguhan
+- [x] `mismatches` tidak memberi alarm palsu untuk Campaign yang punya Refund
+      REJECTED atau FAILED, dan `collectedAmount` yang memang meleset tetap
+      dilaporkan sebesar selisih sebenarnya (ditambahkan 2026-10-03 atas
+      keputusan koordinator; tes merah dulu, unit dan Postgres sungguhan)
 
 ## Comments
 
@@ -80,7 +84,8 @@ uangnya benar: alarm palsu yang tidak bisa diselesaikan Admin.
   lokal menunjuk database `postgres` yang bukan milik role `ci` ("permission
   denied for database postgres"), bukan karena perubahan ini; dengan URL seperti
   di CI (`.../ci?schema=public`) berkas itu hijau, 7 tes.
-  Di luar lingkup tiket ini, belum diperbaiki, perlu tiket sendiri: bagian
+  Di luar lingkup saat catatan ini ditulis (kemudian dikerjakan di tiket ini,
+  lihat catatan lanjutan di bawah): bagian
   `mismatches` di route yang sama juga memberi alarm palsu untuk Campaign yang
   punya Refund REJECTED atau FAILED dengan freeze dari ESCROW_HOLD.
   `escrowCreditRows` menjumlah semua CREDIT ESCROW_HOLD, termasuk kredit jurnal
@@ -107,3 +112,41 @@ uangnya benar: alarm palsu yang tidak bisa diselesaikan Admin.
   guard `matchesWhere` (alasan di atas) dan dua kontrol (porsi tak dirilis
   tetap dilaporkan; Refund yang berdiri tetap dihitung). Tidak ada temuan keras
   yang tersisa.
+- 2026-10-03, lanjutan atas keputusan koordinator, branch yang sama (owner sudah
+  menyetujui tiket ini sebagai perbaikan alarm palsu reconcile untuk Refund yang
+  ditolak atau gagal): alarm palsu `mismatches`, yang di catatan pertama ditulis
+  sebagai di luar lingkup. Commit kerja kedua `35fcd05`; PR tetap dibuat
+  koordinator. Sisi yang salah dipastikan dulu, dan bukan `collectedAmount`
+  Campaign: tes Postgres membaca `collectedAmount` 300000 sesudah Refund ditolak
+  atau gagal (angka yang benar: Donor membayar 300000 dan tidak ada yang
+  kembali), dan tidak ada kode Refund yang menulisnya
+  (`git grep -n collectedAmount -- src/lib/money/refunds.ts src/lib/volunteer/refunds.ts`
+  tidak menemukan apa pun). Yang salah adalah rekonstruksi di laporan:
+  `escrowCreditRows` menjumlah semua CREDIT ESCROW_HOLD, termasuk kredit jurnal
+  pembalik yang ber-`refundId`, sehingga `ledgerAmount` 392500 untuk
+  `collectedAmount` 300000.
+  Keputusan implementasi:
+  - Satu kata kunci di `route.ts`: `refundId: null` pada query `escrowCreditRows`,
+    jadi hanya kredit Settlement yang dihitung, dengan komentar. Dipilih
+    daripada `paymentId: { not: null }` karena tes lama memakai kredit
+    ESCROW_HOLD tanpa `paymentId`, dan penyaring ini tidak pernah menyembunyikan
+    kredit Settlement yang mungkin tidak ber-`paymentId`.
+  - Akibat ikutan, sengaja dan ada tesnya: topangan shortfall Refund yang
+    disetujui (kredit ke ESCROW_HOLD dari REFUND_COST, juga ber-`refundId`)
+    tidak lagi dihitung sebagai uang yang dikreditkan ke Campaign.
+  Tes: merah dulu pada `route.ts` seperti di `aeedf15`: 4 tes unit dan 4 tes
+  Postgres sungguhan (ledgerAmount 392500, difference -92500; kontrol
+  collectedAmount 310000 dilaporkan dengan difference -82500, seharusnya
+  10000). Hijau sesudahnya, tanpa mengubah tes yang sudah ada di `main`: 76 tes
+  unit dan 11 tes Postgres di dua berkas itu
+  (`TEST_DATABASE_URL='postgresql://ci:ci@localhost:5432/postgres?schema=public' npx vitest run src/app/api/admin/reconcile/route.test.ts src/__tests__/integration/reconcile-stranded-escrow-real-db.test.ts`).
+  Mutasi: menghapus `refundId: null` dari query itu membuat sembilan tes baru
+  merah (lima unit, empat Postgres).
+  `npx tsc --noEmit`: 19 galat, sama dengan baseline. `npx eslint` pada tiga
+  berkas yang berubah hanya memuat dua galat lama di `route.ts` (impor
+  `DEFERRED_ESCROW_WATCHDOG_DAYS` dan parameter `_req` yang tidak dipakai);
+  lint seluruh repo tidak dijalankan ulang. Full suite tidak dijalankan ulang
+  (builder tiket 53 berjalan paralel); hanya dua berkas tes reconcile di atas.
+  Review sendiri atas diff tambahan (166 baris tambah, 11 dihapus, di bawah
+  ~300): satu temuan, tes Postgres `mismatches` merujuk "books are right,
+  above" padahal tidak menegaskannya; kini menegaskan `books` sendiri.
