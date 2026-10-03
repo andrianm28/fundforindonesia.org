@@ -18,7 +18,12 @@ import {
   InvalidRefundStatusError,
   TwoPersonRuleError,
   OwnSubjectConflictError,
+  rejectRefund,
+  failRefund,
+  RefundResolutionActorError,
+  RefundReasonInvalidError,
 } from './refunds';
+import { refundRequestedLegs, refundApprovedLegs, platformFeePortionFor, providerFeePortionFor, type LedgerLeg } from './ledger';
 import { readRefundDonorAccountNumber, sealRefundDonorAccountNumber } from '@/lib/contact-fields';
 import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
 
@@ -121,8 +126,9 @@ function makeTx(
   const state = options.refundRow ? { ...options.refundRow } : null;
   const refundFindUnique = vi.fn().mockResolvedValue(state);
   const refundUpdateMany = vi.fn(
-    async ({ where, data }: { where: { status: string }; data: Record<string, unknown> }) => {
-      if (!state || state.status !== where.status) return { count: 0 };
+    async ({ where, data }: { where: { status: string | { in: string[] } }; data: Record<string, unknown> }) => {
+      const allowed = typeof where.status === 'string' ? [where.status] : where.status.in;
+      if (!state || !allowed.includes(state.status as string)) return { count: 0 };
       Object.assign(state, data);
       return { count: 1 };
     },
@@ -187,6 +193,9 @@ function makeTx(
           return { count: data.length };
         }),
         groupBy: vi.fn(ledgerGroupBy(rows)),
+        findMany: vi.fn(async ({ where }: { where: { transactionId: { in: string[] } } }) =>
+          rows.filter((r) => where.transactionId.in.includes(r.transactionId)),
+        ),
       },
     },
     refundCreate,
@@ -1507,6 +1516,203 @@ describe('completeRefund', () => {
 
     await expect(attempt).rejects.toThrow(OwnSubjectConflictError);
     expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+});
+
+describe('rejectRefund and failRefund (ticket 49)', () => {
+  const AMOUNT = 100_000;
+  const paymentFor = (overrides: Record<string, unknown> = {}) =>
+    makePayment({ amount: AMOUNT, providerFee: 5_000, platformFee: 2_500, ...overrides });
+
+  const rowsOf = (legs: LedgerLeg[], transactionId: string): LedgerRow[] =>
+    legs.map((l) => ({
+      transactionId,
+      direction: l.direction,
+      amount: l.amount,
+      account: l.account,
+      campaignId: l.campaignId ?? null,
+      volunteerTripId: l.volunteerTripId ?? null,
+    }));
+
+  /** Rows as createRefund (and, when approved, approveRefund) would have posted them. */
+  function journal(opts: { source: 'ESCROW_HOLD' | 'CAMPAIGN_BALANCE'; approved?: boolean; shortfall?: number }): LedgerRow[] {
+    const subject = { type: 'campaign' as const, campaignId: 'campaign-1' };
+    const payment = paymentFor();
+    const platformFeePortion = platformFeePortionFor(payment, AMOUNT, []);
+    const providerFeePortion = providerFeePortionFor(payment, AMOUNT, []);
+    const out = rowsOf(
+      refundRequestedLegs({ subject, amount: AMOUNT, source: opts.source, platformFeePortion, providerFeePortion }),
+      'refund-requested-refund-1',
+    );
+    if (opts.approved) {
+      out.push(
+        ...rowsOf(
+          refundApprovedLegs({ subject, amount: AMOUNT, source: opts.source, shortfall: opts.shortfall ?? 0 }),
+          'refund-approved-refund-1',
+        ),
+      );
+    }
+    return out;
+  }
+
+  const refundRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 'refund-1',
+    paymentId: 'payment-1',
+    amount: AMOUNT,
+    status: 'REQUESTED',
+    requestedById: 'requester-1',
+    approvedById: null,
+    payment: paymentFor(),
+    ...overrides,
+  });
+
+  /** Signed (credit +, debit -) net per account/subject over every row. */
+  function netByAccount(rows: LedgerRow[]): Record<string, number> {
+    const net: Record<string, number> = {};
+    for (const r of rows) {
+      const key = `${r.account}:${r.campaignId ?? ''}`;
+      net[key] = (net[key] ?? 0) + (r.direction === 'CREDIT' ? r.amount : -r.amount);
+    }
+    return net;
+  }
+
+  const allZero = (net: Record<string, number>) => Object.values(net).every((v) => v === 0);
+
+  function setup(opts: {
+    status: string;
+    source: 'ESCROW_HOLD' | 'CAMPAIGN_BALANCE';
+    approved?: boolean;
+    shortfall?: number;
+    row?: Record<string, unknown>;
+  }) {
+    const payment = paymentFor({ escrowReleasedAt: opts.source === 'CAMPAIGN_BALANCE' ? new Date(2026, 0, 1) : null });
+    const row = refundRow({ status: opts.status, payment, ...opts.row });
+    const ledgerRows = journal({ source: opts.source, approved: opts.approved, shortfall: opts.shortfall });
+    const { tx, rows } = makeTx({ ledgerRows, refundRow: row, payment });
+    const prisma = makePrisma(tx, row);
+    return { prisma, rows, tx, row, before: ledgerRows.length };
+  }
+
+  it('reject mirrors the freeze exactly: every account that was debited or credited returns to zero', async () => {
+    const { prisma, rows, before } = setup({ status: 'REQUESTED', source: 'CAMPAIGN_BALANCE' });
+    expect(allZero(netByAccount(rows))).toBe(false);
+
+    await rejectRefund(prisma as never, { refundId: 'refund-1', rejectedById: 'admin-2', reason: ' salah input ' });
+
+    const posted = rows.slice(before);
+    expect(posted.every((r) => r.transactionId === 'refund-rejected-refund-1')).toBe(true);
+    expect(posted).toContainEqual(expect.objectContaining({ account: 'FROZEN_BALANCE', direction: 'DEBIT', amount: AMOUNT, campaignId: 'campaign-1' }));
+    expect(posted).toContainEqual(expect.objectContaining({ account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: AMOUNT - 5_000 - 2_500, campaignId: 'campaign-1' }));
+    expect(posted).toContainEqual(expect.objectContaining({ account: 'PLATFORM_FEE', direction: 'CREDIT', amount: 2_500 }));
+    expect(posted).toContainEqual(expect.objectContaining({ account: 'REFUND_COST', direction: 'CREDIT', amount: 5_000 }));
+    expect(allZero(netByAccount(rows))).toBe(true);
+  });
+
+  it('reject records status, actor, time and the trimmed reason', async () => {
+    const { prisma, tx } = setup({ status: 'REQUESTED', source: 'ESCROW_HOLD' });
+    const updateMany = (tx as unknown as { refund: { updateMany: ReturnType<typeof vi.fn> } }).refund.updateMany;
+
+    await rejectRefund(prisma as never, { refundId: 'refund-1', rejectedById: 'admin-2', reason: ' salah input ' });
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'refund-1', status: { in: ['REQUESTED', 'AWAITING_DONOR_DETAILS'] } },
+      data: expect.objectContaining({ status: 'REJECTED', rejectedById: 'admin-2', rejectedAt: expect.any(Date), rejectionReason: 'salah input' }),
+    });
+  });
+
+  it('reject also accepts AWAITING_DONOR_DETAILS', async () => {
+    const { prisma, rows } = setup({ status: 'AWAITING_DONOR_DETAILS', source: 'ESCROW_HOLD' });
+    await rejectRefund(prisma as never, { refundId: 'refund-1', rejectedById: 'admin-2', reason: 'x' });
+    expect(allZero(netByAccount(rows))).toBe(true);
+  });
+
+  it.each(['APPROVED', 'COMPLETED', 'REJECTED', 'FAILED'])('reject on a %s Refund is a 409 and writes nothing', async (status) => {
+    const { prisma, rows, before } = setup({ status, source: 'CAMPAIGN_BALANCE', approved: true });
+    await expect(rejectRefund(prisma as never, { refundId: 'refund-1', rejectedById: 'admin-2', reason: 'x' })).rejects.toBeInstanceOf(InvalidRefundStatusError);
+    expect(rows).toHaveLength(before);
+  });
+
+  it('reject is refused to the requester, to the Campaign Fundraiser, and for a blank reason, writing nothing', async () => {
+    const { prisma, rows, before } = setup({ status: 'REQUESTED', source: 'CAMPAIGN_BALANCE' });
+    await expect(rejectRefund(prisma as never, { refundId: 'refund-1', rejectedById: 'requester-1', reason: 'x' })).rejects.toBeInstanceOf(RefundResolutionActorError);
+    await expect(rejectRefund(prisma as never, { refundId: 'refund-1', rejectedById: 'fundraiser-1', reason: 'x' })).rejects.toBeInstanceOf(OwnSubjectConflictError);
+    await expect(rejectRefund(prisma as never, { refundId: 'refund-1', rejectedById: 'admin-2', reason: '   ' })).rejects.toBeInstanceOf(RefundReasonInvalidError);
+    expect(rows).toHaveLength(before);
+  });
+
+  it('a second reject is a 409 and posts no second journal', async () => {
+    const { prisma, rows } = setup({ status: 'REQUESTED', source: 'CAMPAIGN_BALANCE' });
+    await rejectRefund(prisma as never, { refundId: 'refund-1', rejectedById: 'admin-2', reason: 'x' });
+    const total = rows.length;
+    await expect(rejectRefund(prisma as never, { refundId: 'refund-1', rejectedById: 'admin-3', reason: 'x' })).rejects.toBeInstanceOf(InvalidRefundStatusError);
+    expect(rows).toHaveLength(total);
+  });
+
+  it('fail mirrors freeze and approval: REFUND_CLEARING and every other account return to zero', async () => {
+    const { prisma, rows } = setup({ status: 'APPROVED', source: 'CAMPAIGN_BALANCE', approved: true, row: { approvedById: 'approver-1' } });
+    expect(netByAccount(rows)['REFUND_CLEARING:']).toBe(AMOUNT);
+
+    await failRefund(prisma as never, { refundId: 'refund-1', failedById: 'admin-3', reason: 'rekening Donor ditutup' });
+
+    expect(netByAccount(rows)['REFUND_CLEARING:']).toBe(0);
+    expect(allZero(netByAccount(rows))).toBe(true);
+  });
+
+  it('fail covers the shortfall REFUND_COST closed at approval: the top-up is taken back out of the same pool', async () => {
+    const { prisma, rows, before } = setup({ status: 'APPROVED', source: 'CAMPAIGN_BALANCE', approved: true, shortfall: 30_000, row: { approvedById: 'approver-1' } });
+    expect(rows.some((r) => r.account === 'REFUND_COST' && r.amount === 30_000 && r.direction === 'DEBIT')).toBe(true);
+
+    await failRefund(prisma as never, { refundId: 'refund-1', failedById: 'admin-3', reason: 'x' });
+
+    const posted = rows.slice(before);
+    expect(posted).toContainEqual(expect.objectContaining({ account: 'REFUND_COST', direction: 'CREDIT', amount: 30_000 }));
+    expect(posted).toContainEqual(expect.objectContaining({ account: 'CAMPAIGN_BALANCE', direction: 'DEBIT', amount: 30_000, campaignId: 'campaign-1' }));
+    expect(allZero(netByAccount(rows))).toBe(true);
+  });
+
+  it('fail returns to the account the freeze debited even when approval topped up a different one, and releases a share whose escrow already matured', async () => {
+    // Frozen from ESCROW_HOLD; by approval the escrow had matured, so the
+    // shortfall top-up went to CAMPAIGN_BALANCE. A recomputation from today's
+    // Payment would send everything to one pool; the mirror cannot.
+    const payment = paymentFor({ escrowReleasedAt: new Date(2026, 0, 1) });
+    const subject = { type: 'campaign' as const, campaignId: 'campaign-1' };
+    const frozen = rowsOf(
+      refundRequestedLegs({ subject, amount: AMOUNT, source: 'ESCROW_HOLD', platformFeePortion: 2_500, providerFeePortion: 5_000 }),
+      'refund-requested-refund-1',
+    );
+    const approved = rowsOf(refundApprovedLegs({ subject, amount: AMOUNT, source: 'CAMPAIGN_BALANCE', shortfall: 10_000 }), 'refund-approved-refund-1');
+    const row = refundRow({ status: 'APPROVED', approvedById: 'approver-1', payment });
+    const { tx, rows } = makeTx({ ledgerRows: [...frozen, ...approved], refundRow: row, payment });
+
+    await failRefund(makePrisma(tx, row) as never, { refundId: 'refund-1', failedById: 'admin-3', reason: 'x' });
+
+    const net = netByAccount(rows);
+    // The ESCROW_HOLD net share was returned and, the escrow having been
+    // released, moved on to the withdrawable balance in the same transaction.
+    expect(net['CAMPAIGN_BALANCE:campaign-1']).toBe(92_500);
+    expect(net['ESCROW_HOLD:campaign-1']).toBe(-92_500); // the Payment's own settlement credit, now released
+    expect(net['FROZEN_BALANCE:campaign-1']).toBe(0);
+    expect(net['REFUND_CLEARING:']).toBe(0);
+  });
+
+  it('fail is refused to the approver and to the Fundraiser, and only an APPROVED Refund can fail', async () => {
+    const approved = setup({ status: 'APPROVED', source: 'CAMPAIGN_BALANCE', approved: true, row: { approvedById: 'approver-1' } });
+    await expect(failRefund(approved.prisma as never, { refundId: 'refund-1', failedById: 'approver-1', reason: 'x' })).rejects.toBeInstanceOf(RefundResolutionActorError);
+    await expect(failRefund(approved.prisma as never, { refundId: 'refund-1', failedById: 'fundraiser-1', reason: 'x' })).rejects.toBeInstanceOf(OwnSubjectConflictError);
+    expect(approved.rows).toHaveLength(approved.before);
+
+    for (const status of ['REQUESTED', 'COMPLETED', 'REJECTED', 'FAILED']) {
+      const s = setup({ status, source: 'CAMPAIGN_BALANCE', row: { approvedById: 'approver-1' } });
+      await expect(failRefund(s.prisma as never, { refundId: 'refund-1', failedById: 'admin-3', reason: 'x' })).rejects.toBeInstanceOf(InvalidRefundStatusError);
+      expect(s.rows).toHaveLength(s.before);
+    }
+  });
+
+  it('a Refund missing its journal is refused rather than mirrored from a guess', async () => {
+    const row = refundRow({ status: 'REQUESTED' });
+    const { tx, rows } = makeTx({ ledgerRows: [], refundRow: row, payment: paymentFor() });
+    await expect(rejectRefund(makePrisma(tx, row) as never, { refundId: 'refund-1', rejectedById: 'admin-2', reason: 'x' })).rejects.toBeInstanceOf(InvalidRefundStatusError);
     expect(rows).toHaveLength(0);
   });
 });

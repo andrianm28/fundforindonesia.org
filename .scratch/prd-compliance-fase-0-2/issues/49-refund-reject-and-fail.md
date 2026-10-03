@@ -1,6 +1,6 @@
 # 49: Refund bisa ditolak sebelum approve dan ditandai gagal setelahnya
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none (32 done; menjawab tiket riset 33)
 
@@ -20,17 +20,32 @@ Keputusan owner 2026-10-03:
   kembali dari `REFUND_CLEARING` ke akun asal.
 - Refund yang sudah `COMPLETED` tidak bisa ditolak maupun digagalkan.
 
-- [ ] `rejectRefund` dan `failRefund` di `src/lib/money/refunds.ts`, masing-masing
+- [x] `rejectRefund` dan `failRefund` di `src/lib/money/refunds.ts`, masing-masing
       di bawah lock yang sama dengan approve/complete, menulis status, aktor,
       waktu, dan alasan
-- [ ] Jurnal pembalik seimbang dan mengembalikan uang persis ke akun yang
+- [x] Jurnal pembalik seimbang dan mengembalikan uang persis ke akun yang
       di-debit; termasuk kasus shortfall yang ditutup `REFUND_COST` saat approve
-- [ ] Aturan aktor ditegakkan di domain; aksi kedua atau status yang salah
+- [x] Aturan aktor ditegakkan di domain; aksi kedua atau status yang salah
       mendapat 409 tanpa perubahan apa pun
-- [ ] Refund yang ditolak atau gagal tidak lagi dihitung oleh cap Refund
+- [x] Refund yang ditolak atau gagal tidak lagi dihitung oleh cap Refund
       (`notIn: ['REJECTED','FAILED']` sudah ada) dan tidak lagi menahan sweep escrow
-- [ ] Route Admin untuk kedua aksi, mengikuti pola route Refund yang ada
-- [ ] Tes unit di seam publik dan tes Postgres sungguhan untuk reject dan fail,
+- [x] Route Admin untuk kedua aksi, mengikuti pola route Refund yang ada
+- [x] Tes unit di seam publik dan tes Postgres sungguhan untuk reject dan fail,
       termasuk balapan reject vs approve
 
 ## Comments
+
+- 2026-10-03, branch `claude/prd-49-refund-reject-fail`: `rejectRefund` (REQUESTED
+  atau AWAITING_DONOR_DETAILS) dan `failRefund` (APPROVED) di `refunds.ts`, satu
+  fungsi bersama di bawah lock subjek lalu klaim baris Refund. Jurnal pembalik
+  dibangun dari ENTRI yang sudah diposting (`reverseEntriesLegs`, freeze untuk
+  tolak; freeze + approve untuk gagal), bukan dihitung ulang dari Payment, jadi
+  akun asal dan shortfall `REFUND_COST` kembali persis. Bila freeze mendebit
+  `ESCROW_HOLD` dan escrow Payment sudah dirilis sweep (sweep tidak menunda untuk
+  APPROVED), bagian net itu juga dirilis ke saldo agar tidak tertinggal di hold.
+  Migrasi `20261003030000`: enam kolom nullable (rejected*/failed*). Error baru
+  `REFUND_RESOLUTION_ACTOR` (403) dan `REFUND_REASON_INVALID` (400); status salah
+  atau aksi kedua tetap `INVALID_REFUND_STATUS` (409), pesannya dibuat generik.
+  Route PATCH `.../refunds/[id]/reject` dan `/fail` untuk Campaign dan Volunteer
+  Trip. Tes: unit, route, dan Postgres sungguhan (termasuk balapan reject vs
+  approve). Belum ada UI Admin untuk kedua aksi.

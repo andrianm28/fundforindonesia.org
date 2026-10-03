@@ -180,7 +180,7 @@ export class InvalidRefundStatusError extends MoneyError {
     readonly currentStatus: string,
     readonly detail?: string,
   ) {
-    super('Refund tidak lagi menunggu persetujuan.');
+    super('Refund tidak berada pada status yang memungkinkan tindakan ini.');
     this.name = 'InvalidRefundStatusError';
   }
 }
@@ -202,6 +202,37 @@ export class RefundProofInvalidError extends MoneyError {
   constructor(message: string) {
     super(message);
     this.name = 'RefundProofInvalidError';
+  }
+}
+
+/**
+ * Who may not reject or fail a Refund (ticket 49). Reject is refused to the
+ * Admin who requested the Refund; fail is refused to the Admin who approved
+ * it. The Fundraiser of the Campaign is refused by the Capacity judgement
+ * (OwnSubjectConflictError), as on approve and complete. Not fixable by
+ * resending, so 403 like SELF_APPROVAL.
+ */
+export class RefundResolutionActorError extends MoneyError {
+  readonly code = 'REFUND_RESOLUTION_ACTOR';
+  constructor(readonly action: 'reject' | 'fail') {
+    super(
+      action === 'reject'
+        ? 'Refund tidak dapat ditolak oleh Admin yang mengajukannya.'
+        : 'Refund tidak dapat ditandai gagal oleh Admin yang menyetujuinya.',
+    );
+    this.name = 'RefundResolutionActorError';
+  }
+}
+
+/**
+ * The reason an Admin gives for rejecting or failing a Refund is blank or too
+ * long. Fixable by writing it, so 400 like REFUND_PROOF_INVALID.
+ */
+export class RefundReasonInvalidError extends MoneyError {
+  readonly code = 'REFUND_REASON_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'RefundReasonInvalidError';
   }
 }
 
