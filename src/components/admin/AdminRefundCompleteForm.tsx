@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { OwnSubjectNotice } from './OwnSubjectNotice';
 import { validateProofReference, validateProofNote } from '@/lib/payout-proof';
 
 /**
@@ -49,6 +50,8 @@ interface AdminRefundCompleteFormProps {
   actorId: string;
   requestedById: string;
   approvedById: string | null;
+  /** The signed-in Admin is this Campaign's or Volunteer Trip's Fundraiser (OwnSubjectConflictError, 403). */
+  isOwnSubject: boolean;
 }
 
 function completeUrl(subject: RefundSubject, refundId: string): string {
@@ -56,7 +59,7 @@ function completeUrl(subject: RefundSubject, refundId: string): string {
   return `${base}/${subject.slug}/refunds/${refundId}/complete`;
 }
 
-export function AdminRefundCompleteForm({ refundId, subject, actorId, requestedById, approvedById }: AdminRefundCompleteFormProps) {
+export function AdminRefundCompleteForm({ refundId, subject, actorId, requestedById, approvedById, isOwnSubject }: AdminRefundCompleteFormProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -65,6 +68,9 @@ export function AdminRefundCompleteForm({ refundId, subject, actorId, requestedB
   const [note, setNote] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
 
+  if (isOwnSubject) {
+    return <OwnSubjectNotice subjectType={subject.type} />;
+  }
   if (actorId === requestedById) {
     return (
       <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">

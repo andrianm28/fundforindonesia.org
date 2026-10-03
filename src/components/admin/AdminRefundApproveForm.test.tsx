@@ -37,6 +37,7 @@ describe('AdminRefundApproveForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-1"
         requestedById="admin-1"
+        isOwnSubject={false}
       />,
     );
 
@@ -51,6 +52,7 @@ describe('AdminRefundApproveForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-2"
         requestedById="admin-1"
+        isOwnSubject={false}
       />,
     );
 
@@ -66,6 +68,7 @@ describe('AdminRefundApproveForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-2"
         requestedById="admin-1"
+        isOwnSubject={false}
       />,
     );
 
@@ -87,6 +90,7 @@ describe('AdminRefundApproveForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-2"
         requestedById="admin-1"
+        isOwnSubject={false}
       />,
     );
 
@@ -117,6 +121,7 @@ describe('AdminRefundApproveForm', () => {
         subject={{ type: 'trip', slug: 'trip-lombok' }}
         actorId="admin-2"
         requestedById="admin-1"
+        isOwnSubject={false}
       />,
     );
 
@@ -141,6 +146,7 @@ describe('AdminRefundApproveForm', () => {
         subject={{ type: 'campaign', slug: 'wakaf-sumur' }}
         actorId="admin-2"
         requestedById="admin-1"
+        isOwnSubject={false}
       />,
     );
 
@@ -149,5 +155,24 @@ describe('AdminRefundApproveForm', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Kode bank wajib diisi.');
     expect(mockRefresh).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['campaign', 'Campaign'],
+    ['trip', 'Volunteer Trip'],
+  ] as const)("tells the %s's own Fundraiser they cannot act as Admin on it, instead of the form", (type, name) => {
+    render(
+      <AdminRefundApproveForm
+        refundId="refund-1"
+        subject={{ type, slug: 'slug-x' }}
+        actorId="admin-2"
+        requestedById="admin-1"
+        isOwnSubject
+      />,
+    );
+
+    expect(screen.getByText(new RegExp(`Fundraiser ${name} ini`))).toBeDefined();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.queryByLabelText('Kode bank')).toBeNull();
   });
 });

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { OwnSubjectNotice } from './OwnSubjectNotice';
 
 /**
  * The way back for a Refund, on the Admin's screen (ticket 50, on top of the
@@ -78,8 +79,6 @@ const COPY = {
   },
 } as const;
 
-const SUBJECT_NAME = { campaign: 'Campaign', trip: 'Volunteer Trip' } as const;
-
 function Notice({ children }: { children: string }) {
   return <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">{children}</p>;
 }
@@ -100,12 +99,7 @@ export function AdminRefundResolveForm({
   const copy = COPY[action];
 
   if (isOwnSubject) {
-    const name = SUBJECT_NAME[subject.type];
-    return (
-      <Notice>
-        {`Anda adalah Fundraiser ${name} ini, jadi tidak bisa bertindak sebagai Admin atas ${name} milik Anda sendiri -- tindakan ini harus dilakukan Admin lain.`}
-      </Notice>
-    );
+    return <OwnSubjectNotice subjectType={subject.type} />;
   }
 
   const barredActorId = action === 'reject' ? requestedById : approvedById;
