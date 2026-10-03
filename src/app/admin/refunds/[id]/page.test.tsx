@@ -175,3 +175,111 @@ describe('AdminRefundDetailPage', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 });
+
+/**
+ * Ticket 50: the way back for a Refund (ticket 49's reject and fail routes)
+ * gets its buttons on the page that already holds approve and complete.
+ * Reject is offered while the Refund is not yet approved, fail once it is;
+ * a Refund that has reached an end offers neither. The actor rules are the
+ * form's own (AdminRefundResolveForm.test.tsx); what is pinned here is that
+ * the page hands the form the right people.
+ */
+describe('AdminRefundDetailPage -- reject and fail (ticket 50)', () => {
+  const APPROVED_REFUND = {
+    ...REQUESTED_REFUND,
+    status: 'APPROVED',
+    approvedById: 'admin-2',
+    approvedBy: { name: 'Admin Dua' },
+  };
+
+  /** The Refund's Campaign belongs to fundraiser-1, who holds the ADMIN assignment too. */
+  const CAMPAIGN = { slug: 'wakaf-sumur', title: 'Wakaf Sumur', creatorId: 'fundraiser-1' };
+
+  async function renderAs(viewerId: string, refund: object) {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: viewerId, assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue(CAMPAIGN as never);
+    vi.mocked(prisma.refund.findUnique).mockResolvedValue(refund as never);
+    render(await AdminRefundDetailPage({ params: Promise.resolve({ id: 'refund-1' }) }));
+  }
+
+  it('offers Tolak next to Setujui on a REQUESTED Refund, for an Admin who did not request it', async () => {
+    await renderAs('admin-2', REQUESTED_REFUND);
+
+    expect(screen.getByRole('button', { name: /setujui refund/i })).toBeDefined();
+    expect(screen.getByLabelText('Alasan penolakan')).toBeDefined();
+    expect(screen.getByRole('button', { name: /tolak refund/i })).toBeDefined();
+    expect(screen.queryByRole('button', { name: /tandai refund gagal/i })).toBeNull();
+  });
+
+  it('offers Tolak, and no approve form, on an AWAITING_DONOR_DETAILS Refund', async () => {
+    await renderAs('admin-2', { ...REQUESTED_REFUND, status: 'AWAITING_DONOR_DETAILS' });
+
+    expect(screen.getByRole('button', { name: /tolak refund/i })).toBeDefined();
+    expect(screen.queryByRole('button', { name: /setujui refund/i })).toBeNull();
+  });
+
+  it('tells the Admin who requested the Refund that they cannot reject it, instead of a Tolak button', async () => {
+    await renderAs('admin-1', REQUESTED_REFUND);
+
+    expect(screen.getByText(/tidak bisa menolaknya sendiri/i)).toBeDefined();
+    expect(screen.queryByRole('button', { name: /tolak refund/i })).toBeNull();
+  });
+
+  it("tells the Campaign's Fundraiser, an Admin too, that they cannot reject its Refund", async () => {
+    await renderAs('fundraiser-1', REQUESTED_REFUND);
+
+    expect(screen.getByText(/Fundraiser Campaign ini/)).toBeDefined();
+    expect(screen.queryByRole('button', { name: /tolak refund/i })).toBeNull();
+  });
+
+  it("tells a Volunteer Trip's Fundraiser the same, naming the Trip", async () => {
+    vi.mocked(prisma.volunteerTrip.findUnique).mockResolvedValue({
+      slug: 'trip-lombok',
+      title: 'Trip ke Lombok',
+      fundraiserId: 'fundraiser-2',
+    } as never);
+
+    await renderAs('fundraiser-2', {
+      ...REQUESTED_REFUND,
+      payment: { amount: 250_000, donation: null, registration: { batch: { tripId: 'trip-1' } } },
+    });
+
+    expect(screen.getByText(/Fundraiser Volunteer Trip ini/)).toBeDefined();
+    expect(screen.queryByRole('button', { name: /tolak refund/i })).toBeNull();
+  });
+
+  it('offers Tandai gagal next to Tandai selesai on an APPROVED Refund, for a third Admin', async () => {
+    await renderAs('admin-3', APPROVED_REFUND);
+
+    expect(screen.getByRole('button', { name: /tandai refund selesai/i })).toBeDefined();
+    expect(screen.getByLabelText('Alasan kegagalan')).toBeDefined();
+    expect(screen.getByRole('button', { name: /tandai refund gagal/i })).toBeDefined();
+    expect(screen.queryByRole('button', { name: /tolak refund/i })).toBeNull();
+  });
+
+  it('tells the Admin who approved the Refund that they cannot mark it failed, instead of the button', async () => {
+    await renderAs('admin-2', APPROVED_REFUND);
+
+    expect(screen.getByText(/tidak bisa menandainya gagal sendiri/i)).toBeDefined();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('still offers Tandai gagal to the Admin who requested an APPROVED Refund, who may not complete it', async () => {
+    await renderAs('admin-1', APPROVED_REFUND);
+
+    expect(screen.getByText(/tidak bisa menandainya selesai sendiri/i)).toBeDefined();
+    expect(screen.queryByRole('button', { name: /tandai refund selesai/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /tandai refund gagal/i })).toBeDefined();
+  });
+
+  it.each(['COMPLETED', 'REJECTED', 'FAILED', 'PROCESSING'])(
+    'offers neither Tolak nor Tandai gagal once the Refund is %s',
+    async (status) => {
+      await renderAs('admin-4', { ...APPROVED_REFUND, status });
+
+      expect(screen.queryByLabelText('Alasan penolakan')).toBeNull();
+      expect(screen.queryByLabelText('Alasan kegagalan')).toBeNull();
+      expect(screen.queryByRole('button')).toBeNull();
+    },
+  );
+});

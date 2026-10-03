@@ -8,6 +8,11 @@ describe('REFUND_STATUS_LABEL', () => {
     expect(REFUND_STATUS_LABEL.COMPLETED).toBe('Selesai');
   });
 
+  it('names Rejected and Failed as what a Refund really reaches (tickets 49 and 50), not as unbuilt', () => {
+    expect(REFUND_STATUS_LABEL.REJECTED).toBe('Ditolak');
+    expect(REFUND_STATUS_LABEL.FAILED).toBe('Gagal');
+  });
+
   it('is total over RefundStatus, so a status this repo has not built yet still has words', () => {
     expect(REFUND_STATUS_LABEL.AWAITING_DONOR_DETAILS).toBeTypeOf('string');
     expect(REFUND_STATUS_LABEL.PROCESSING).toBeTypeOf('string');

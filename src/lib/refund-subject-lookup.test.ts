@@ -36,23 +36,41 @@ describe('refundSubjectKey', () => {
 });
 
 describe('loadRefundSubject', () => {
-  it('resolves a Campaign Refund through the Campaign lookup', async () => {
+  it('resolves a Campaign Refund through the Campaign lookup, naming its Fundraiser as ownerId', async () => {
     const prisma = fakePrisma();
-    prisma.campaign.findUnique.mockResolvedValue({ slug: 'sumur-desa', title: 'Sumur untuk Desa' });
+    prisma.campaign.findUnique.mockResolvedValue({
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+      creatorId: 'user-pemilik-campaign',
+    });
 
     const subject = await loadRefundSubject(prisma as never, campaignRow);
 
-    expect(subject).toEqual({ type: 'campaign', slug: 'sumur-desa', title: 'Sumur untuk Desa' });
+    expect(subject).toEqual({
+      type: 'campaign',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+      ownerId: 'user-pemilik-campaign',
+    });
     expect(prisma.volunteerTrip.findUnique).not.toHaveBeenCalled();
   });
 
-  it('resolves a Trip Refund through the Volunteer Trip lookup', async () => {
+  it('resolves a Trip Refund through the Volunteer Trip lookup, naming its Fundraiser as ownerId', async () => {
     const prisma = fakePrisma();
-    prisma.volunteerTrip.findUnique.mockResolvedValue({ slug: 'trip-lombok', title: 'Trip ke Lombok' });
+    prisma.volunteerTrip.findUnique.mockResolvedValue({
+      slug: 'trip-lombok',
+      title: 'Trip ke Lombok',
+      fundraiserId: 'user-pemilik-trip',
+    });
 
     const subject = await loadRefundSubject(prisma as never, tripRow);
 
-    expect(subject).toEqual({ type: 'trip', slug: 'trip-lombok', title: 'Trip ke Lombok' });
+    expect(subject).toEqual({
+      type: 'trip',
+      slug: 'trip-lombok',
+      title: 'Trip ke Lombok',
+      ownerId: 'user-pemilik-trip',
+    });
     expect(prisma.campaign.findUnique).not.toHaveBeenCalled();
   });
 
@@ -67,13 +85,27 @@ describe('loadRefundSubject', () => {
 describe('loadRefundSubjects', () => {
   it('batches Campaign and Trip lookups and keys the result by refundSubjectKey', async () => {
     const prisma = fakePrisma();
-    prisma.campaign.findMany.mockResolvedValue([{ id: 'campaign-1', slug: 'sumur-desa', title: 'Sumur untuk Desa' }]);
-    prisma.volunteerTrip.findMany.mockResolvedValue([{ id: 'trip-1', slug: 'trip-lombok', title: 'Trip ke Lombok' }]);
+    prisma.campaign.findMany.mockResolvedValue([
+      { id: 'campaign-1', slug: 'sumur-desa', title: 'Sumur untuk Desa', creatorId: 'user-pemilik-campaign' },
+    ]);
+    prisma.volunteerTrip.findMany.mockResolvedValue([
+      { id: 'trip-1', slug: 'trip-lombok', title: 'Trip ke Lombok', fundraiserId: 'user-pemilik-trip' },
+    ]);
 
     const subjects = await loadRefundSubjects(prisma as never, [campaignRow, tripRow]);
 
-    expect(subjects.get('campaign:campaign-1')).toEqual({ type: 'campaign', slug: 'sumur-desa', title: 'Sumur untuk Desa' });
-    expect(subjects.get('trip:trip-1')).toEqual({ type: 'trip', slug: 'trip-lombok', title: 'Trip ke Lombok' });
+    expect(subjects.get('campaign:campaign-1')).toEqual({
+      type: 'campaign',
+      slug: 'sumur-desa',
+      title: 'Sumur untuk Desa',
+      ownerId: 'user-pemilik-campaign',
+    });
+    expect(subjects.get('trip:trip-1')).toEqual({
+      type: 'trip',
+      slug: 'trip-lombok',
+      title: 'Trip ke Lombok',
+      ownerId: 'user-pemilik-trip',
+    });
   });
 
   it('skips both lookups for an empty list', async () => {
