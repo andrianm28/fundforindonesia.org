@@ -17,6 +17,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     assignmentAuditEntry: {
       create: vi.fn(),
+      findMany: vi.fn(),
     },
     assignmentGrantRequest: {
       findUnique: vi.fn(),
@@ -41,6 +42,7 @@ import {
   withdrawAdminGrant,
   revokeAssignment,
   pendingAdminGrantRequests,
+  assignmentAuditTrail,
 } from "./assignments";
 import {
   AssignmentAlreadyGrantedError,
@@ -381,5 +383,24 @@ describe("pendingAdminGrantRequests", () => {
     expect(mockGrantFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { outcome: "PENDING" }, orderBy: { proposedAt: "asc" } })
     );
+  });
+});
+
+describe("assignmentAuditTrail", () => {
+  it("lists a user's audit entries newest first with who acted and when", async () => {
+    const findMany = prisma.assignmentAuditEntry.findMany as unknown as Mock;
+    findMany.mockResolvedValue([
+      { id: "a-2", userId: "user-2", assignment: "VERIFIER", action: "REVOKED", actedById: "admin-2", actedAt: new Date("2026-09-30T00:00:00Z"), reason: "x", actedBy: { name: "Admin Two" } },
+      { id: "a-1", userId: "user-2", assignment: "VERIFIER", action: "GRANTED", actedById: "admin-1", actedAt: new Date("2026-09-29T00:00:00Z"), reason: null, actedBy: { name: null } },
+    ]);
+
+    const rows = await assignmentAuditTrail(prisma as never, "user-2");
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: "user-2" }, orderBy: { actedAt: "desc" } })
+    );
+    expect(rows.map((r) => r.id)).toEqual(["a-2", "a-1"]);
+    expect(rows[0]).toMatchObject({ action: "REVOKED", actedById: "admin-2", actedByName: "Admin Two", reason: "x" });
+    expect(rows[0].actedAt.getTime()).toBeGreaterThan(rows[1].actedAt.getTime());
   });
 });
