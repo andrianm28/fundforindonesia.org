@@ -19,3 +19,5 @@ Lanjutan yang sengaja tidak dicakup tiket 50 (PR #206).
 - [ ] Tes komponen dan halaman
 
 ## Comments
+
+- 2026-10-03 (merge): PR #216 merge sebagai `9d91c98`, CI hijau, review independen diposting di PR.
