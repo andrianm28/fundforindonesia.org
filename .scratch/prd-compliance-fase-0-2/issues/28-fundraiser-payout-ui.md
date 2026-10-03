@@ -4,7 +4,7 @@
 
 **Blocked by:** 27
 
-**Status:** awaiting-merge
+**Status:** done (PR #114, ee00b1b)
 
 - [x] Escrow Hold and Campaign Balance are shown separately and computed from the ledger
 - [x] A partial Payout may be requested while the Campaign is Active
@@ -273,3 +273,6 @@
   of suite. Not taken: the comment now states the honest scope, and pinning file
   names is the same brittleness the rest of this work just removed. Reversible
   if a fourth caller ever appears.
+
+- 2026-10-03 (status sweep): PR #94 ditutup tanpa merge; pekerjaannya masuk
+  lewat PR #114 (`ee00b1b`). Status diperbaiki ke `done`.

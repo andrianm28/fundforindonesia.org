@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** open
+**Status:** ready-for-agent
 
 **Blocked by:** —
 
@@ -20,3 +20,24 @@ akun, bukan jalur uang.
 Bentuk verifikasi tautan (kedaluwarsa, sekali pakai atau berulang), dan
 bagaimana Donation Guest Donor sebelum akun dibuat direkonsiliasi dengan
 akunnya setelah verifikasi.
+
+## Comments
+
+- 2026-10-03 (keputusan owner, menjawab Question): **tautan sekali pakai,
+  kedaluwarsa 24 jam.** User yang login meminta tautan ke email akunnya
+  (email akun harus sudah terverifikasi). Saat tautan dibuka, semua Donation
+  Guest yang emailnya sama dengan email akun ditautkan ke akun itu. Pencocokan
+  memakai `guestEmailHmac` (bukan plaintext; kolom plaintext sudah tidak ada).
+  Donation yang disegel dengan key id HMAC lama tidak ikut, sama dengan
+  batasan anonimisasi di prd-compliance 48. Donation yang sudah ber-akun atau
+  sudah dianonimkan tidak disentuh.
+
+  Acceptance:
+  - [ ] Hanya user login dengan email terverifikasi yang bisa meminta tautan;
+        permintaan dibatasi rate limit yang sudah ada
+  - [ ] Token disimpan sebagai hash, sekali pakai, kedaluwarsa 24 jam; token
+        kedaluwarsa, terpakai, atau milik user lain ditolak tanpa mengubah apa pun
+  - [ ] Klaim menautkan Donation Guest yang cocok ke akun dalam satu transaksi
+        dan idempoten; Donation ber-akun, teranonimkan, atau key id lama tidak disentuh
+  - [ ] Riwayat Donasi akun menampilkan Donation yang sudah diklaim
+  - [ ] Tes di seam route dan satu tes Postgres sungguhan
