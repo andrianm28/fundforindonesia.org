@@ -71,7 +71,7 @@ async function send(url: string, method: string, body: unknown): Promise<string 
   return data.error || "Terjadi kesalahan.";
 }
 
-const inputClass = "w-full rounded-lg border border-[#E0E0E0] p-2 text-sm";
+const inputClass = "w-full rounded-lg border border-border p-2 text-sm";
 
 export function PartnerOrganisationRegister() {
   const [organisations, setOrganisations] = useState<Organisation[] | null>(null);
@@ -100,7 +100,7 @@ export function PartnerOrganisationRegister() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold text-[#212121]">Partner Organisation</h1>
+      <h1 className="text-lg font-semibold text-text">Partner Organisation</h1>
 
       {message && (
         <div
@@ -115,16 +115,16 @@ export function PartnerOrganisationRegister() {
 
       <RegisterForm onSubmit={(body) => act(send(API, "POST", body), "Partner Organisation terdaftar.")} />
 
-      {organisations === null && <p className="text-sm text-[#757575]">Memuat...</p>}
+      {organisations === null && <p className="text-sm text-text-secondary">Memuat...</p>}
       {organisations?.length === 0 && (
-        <p className="text-sm text-[#757575]">Belum ada Partner Organisation terdaftar.</p>
+        <p className="text-sm text-text-secondary">Belum ada Partner Organisation terdaftar.</p>
       )}
       {organisations?.map((organisation) => (
-        <section key={organisation.id} className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-4">
+        <section key={organisation.id} className="bg-white rounded-xl border border-border p-6 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-[#212121]">{organisation.name}</h2>
-              <p className="text-xs text-[#757575]">
+              <h2 className="text-base font-semibold text-text">{organisation.name}</h2>
+              <p className="text-xs text-text-secondary">
                 Akun Fundraiser: {organisation.fundraiser.name} ({organisation.fundraiser.email})
               </p>
             </div>
@@ -146,7 +146,7 @@ export function PartnerOrganisationRegister() {
           </div>
 
           <div>
-            <h3 className="text-sm font-medium text-[#212121] mb-2">Fundraising Permit</h3>
+            <h3 className="text-sm font-medium text-text mb-2">Fundraising Permit</h3>
             {organisation.permits.length === 0 ? (
               <p className="text-sm text-[#C62828]">
                 Belum ada Fundraising Permit tercatat: Campaign yang dihimpunnya tidak dapat dibuka.
@@ -176,12 +176,12 @@ export function PartnerOrganisationRegister() {
           />
 
           <div>
-            <h3 className="text-sm font-medium text-[#212121] mb-2">Kind Authorisation</h3>
-            <p className="text-xs text-[#757575] mb-2">
+            <h3 className="text-sm font-medium text-text mb-2">Kind Authorisation</h3>
+            <p className="text-xs text-text-secondary mb-2">
               Izin tambahan agar organisasi ini boleh menjalankan Campaign ber-Kind Zakat, Wakaf, atau Hibah.
             </p>
             {(organisation.kindAuthorisations ?? []).length === 0 ? (
-              <p className="text-sm text-[#757575]">Belum ada Kind Authorisation.</p>
+              <p className="text-sm text-text-secondary">Belum ada Kind Authorisation.</p>
             ) : (
               <ul className="space-y-2">
                 {(organisation.kindAuthorisations ?? []).map((authorisation) => (
@@ -221,7 +221,7 @@ function RegisterForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) 
 
   return (
     <form
-      className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-3"
+      className="bg-white rounded-xl border border-border p-6 space-y-3"
       onSubmit={async (event) => {
         event.preventDefault();
         setBusy(true);
@@ -234,15 +234,15 @@ function RegisterForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) 
         }
       }}
     >
-      <h2 className="text-sm font-semibold text-[#212121]">Daftarkan Partner Organisation</h2>
-      <p className="text-xs text-[#757575]">
+      <h2 className="text-sm font-semibold text-text">Daftarkan Partner Organisation</h2>
+      <p className="text-xs text-text-secondary">
         Daftarkan hanya setelah memeriksa dokumen legal organisasi. Satu akun Fundraiser bertindak atas namanya.
       </p>
-      <label className="block text-sm text-[#212121]">
+      <label className="block text-sm text-text">
         Nama organisasi
         <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
-      <label className="block text-sm text-[#212121]">
+      <label className="block text-sm text-text">
         Email akun Fundraiser yang mewakilinya
         <input
           className={inputClass}
@@ -273,8 +273,8 @@ function PermitRow({ permit, onRenew }: { permit: Permit; onRenew: (validTo: str
   const valid = new Date(permit.validFrom).getTime() <= now && now <= new Date(permit.validTo).getTime();
 
   return (
-    <li className="rounded-lg border border-[#E0E0E0] p-3 text-sm text-[#424242]">
-      <p className="font-medium text-[#212121]">
+    <li className="rounded-lg border border-border p-3 text-sm text-[#424242]">
+      <p className="font-medium text-text">
         {permit.number} · {permit.issuer}
       </p>
       <p>
@@ -289,11 +289,11 @@ function PermitRow({ permit, onRenew }: { permit: Permit; onRenew: (validTo: str
           if (validTo && (await onRenew(validTo))) setValidTo("");
         }}
       >
-        <label className="text-xs text-[#757575]">
+        <label className="text-xs text-text-secondary">
           Perpanjang sampai
           <input className={inputClass} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} />
         </label>
-        <button type="submit" className="px-3 py-2 border border-[#E0E0E0] rounded-lg text-xs">
+        <button type="submit" className="px-3 py-2 border border-border rounded-lg text-xs">
           Perbarui
         </button>
       </form>
@@ -313,7 +313,7 @@ function PermitForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) =>
 
   return (
     <form
-      className="rounded-lg bg-[#F5F5F5] p-3 space-y-2"
+      className="rounded-lg bg-bg-secondary p-3 space-y-2"
       onSubmit={async (event) => {
         event.preventDefault();
         const done = await onSubmit({
@@ -332,27 +332,27 @@ function PermitForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) =>
         }
       }}
     >
-      <h3 className="text-sm font-medium text-[#212121]">Catat Fundraising Permit</h3>
+      <h3 className="text-sm font-medium text-text">Catat Fundraising Permit</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <label className="text-xs text-[#757575]">
+        <label className="text-xs text-text-secondary">
           Nomor izin
           <input className={inputClass} value={number} onChange={(e) => setNumber(e.target.value)} required />
         </label>
-        <label className="text-xs text-[#757575]">
+        <label className="text-xs text-text-secondary">
           Penerbit
           <input className={inputClass} value={issuer} onChange={(e) => setIssuer(e.target.value)} required />
         </label>
-        <label className="text-xs text-[#757575]">
+        <label className="text-xs text-text-secondary">
           Berlaku dari
           <input className={inputClass} type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} required />
         </label>
-        <label className="text-xs text-[#757575]">
+        <label className="text-xs text-text-secondary">
           Berlaku sampai
           <input className={inputClass} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} required />
         </label>
       </div>
       <fieldset className="flex flex-wrap gap-3 text-sm text-[#424242]">
-        <legend className="text-xs text-[#757575]">Kind yang dicakup</legend>
+        <legend className="text-xs text-text-secondary">Kind yang dicakup</legend>
         {KINDS.map((kind) => (
           <label key={kind} className="flex items-center gap-1">
             <input type="checkbox" checked={kinds.includes(kind)} onChange={() => toggle(kind)} />
@@ -379,8 +379,8 @@ function KindAuthorisationRow({
   const valid = new Date(authorisation.validFrom).getTime() <= now && now <= new Date(authorisation.validTo).getTime();
 
   return (
-    <li className="rounded-lg border border-[#E0E0E0] p-3 text-sm text-[#424242]">
-      <p className="font-medium text-[#212121]">
+    <li className="rounded-lg border border-border p-3 text-sm text-[#424242]">
+      <p className="font-medium text-text">
         {KIND_LABEL[authorisation.kind]} · {authorisation.documentReference}
       </p>
       <p>
@@ -394,11 +394,11 @@ function KindAuthorisationRow({
           if (validTo && (await onRenew(validTo))) setValidTo("");
         }}
       >
-        <label className="text-xs text-[#757575]">
+        <label className="text-xs text-text-secondary">
           Perpanjang sampai
           <input className={inputClass} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} />
         </label>
-        <button type="submit" className="px-3 py-2 border border-[#E0E0E0] rounded-lg text-xs">
+        <button type="submit" className="px-3 py-2 border border-border rounded-lg text-xs">
           Perbarui
         </button>
       </form>
@@ -414,7 +414,7 @@ function KindAuthorisationForm({ onSubmit }: { onSubmit: (body: Record<string, u
 
   return (
     <form
-      className="rounded-lg bg-[#F5F5F5] p-3 space-y-2"
+      className="rounded-lg bg-bg-secondary p-3 space-y-2"
       onSubmit={async (event) => {
         event.preventDefault();
         const done = await onSubmit({
@@ -430,9 +430,9 @@ function KindAuthorisationForm({ onSubmit }: { onSubmit: (body: Record<string, u
         }
       }}
     >
-      <h3 className="text-sm font-medium text-[#212121]">Berikan Kind Authorisation</h3>
+      <h3 className="text-sm font-medium text-text">Berikan Kind Authorisation</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <label className="text-xs text-[#757575]">
+        <label className="text-xs text-text-secondary">
           Kind
           <select
             className={inputClass}
@@ -446,7 +446,7 @@ function KindAuthorisationForm({ onSubmit }: { onSubmit: (body: Record<string, u
             ))}
           </select>
         </label>
-        <label className="text-xs text-[#757575]">
+        <label className="text-xs text-text-secondary">
           Rujukan dokumen
           <input
             className={inputClass}
@@ -455,11 +455,11 @@ function KindAuthorisationForm({ onSubmit }: { onSubmit: (body: Record<string, u
             required
           />
         </label>
-        <label className="text-xs text-[#757575]">
+        <label className="text-xs text-text-secondary">
           Berlaku dari
           <input className={inputClass} type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} required />
         </label>
-        <label className="text-xs text-[#757575]">
+        <label className="text-xs text-text-secondary">
           Berlaku sampai
           <input className={inputClass} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} required />
         </label>

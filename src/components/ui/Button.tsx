@@ -84,7 +84,7 @@ export function Button({
       className={[
         'inline-flex items-center justify-center gap-2 font-medium',
         'transition-colors duration-fast ease-out',
-        'focus:outline-none focus:ring-2',
+        'focus:outline-hidden focus:ring-2',
         'disabled:opacity-50 disabled:cursor-not-allowed',
         variantStyles[variant],
         sizeStyles[size],
@@ -96,11 +96,11 @@ export function Button({
       {isLoading ? (
         <LoadingSpinner />
       ) : (
-        leftIcon && <span className="flex-shrink-0">{leftIcon}</span>
+        leftIcon && <span className="shrink-0">{leftIcon}</span>
       )}
       <span>{children}</span>
       {!isLoading && rightIcon && (
-        <span className="flex-shrink-0">{rightIcon}</span>
+        <span className="shrink-0">{rightIcon}</span>
       )}
     </motion.button>
   );

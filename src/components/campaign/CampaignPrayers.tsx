@@ -228,7 +228,7 @@ function CampaignPrayerCard({
       className="flex gap-3 p-3 bg-white rounded-lg border border-border"
     >
       {/* Avatar */}
-      <div className="flex-shrink-0">
+      <div className="shrink-0">
         {avatarUrl ? (
           <img
             src={avatarUrl}
@@ -253,7 +253,7 @@ function CampaignPrayerCard({
           <span className="text-sm font-semibold text-text truncate">
             {donorName}
           </span>
-          <span className="text-xs text-text-secondary flex-shrink-0">
+          <span className="text-xs text-text-secondary shrink-0">
             {timestamp}
           </span>
         </div>

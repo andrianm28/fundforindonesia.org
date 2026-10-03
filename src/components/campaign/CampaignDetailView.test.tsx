@@ -112,7 +112,7 @@ describe('CampaignDetailView', () => {
     expect(imageBox).not.toBeNull();
     expect(imageBox.className).toContain('aspect-video');
     expect(imageBox.className).toContain('max-h-[300px]');
-    expect(imageBox.className).toContain('lg:aspect-[21/9]');
+    expect(imageBox.className).toContain('lg:aspect-21/9');
     expect(imageBox.className).toContain('lg:max-h-none');
   });
 
@@ -171,12 +171,12 @@ describe('CampaignDetailView', () => {
     expect(donateCta.className).not.toContain('font-mono');
   });
 
-  it('does not disable flex-shrink on the hero image or quick info panel, so the row can fit within its container at lg', () => {
+  it('does not disable shrink on the hero image or quick info panel, so the row can fit within its container at lg', () => {
     const { container } = render(<CampaignDetailView campaign={mockCampaign} />);
     const heroImage = container.querySelector('[data-testid="campaign-hero-image"]') as HTMLElement;
     const quickInfo = container.querySelector('[data-testid="campaign-quick-info"]') as HTMLElement;
-    expect(heroImage.className).not.toContain('lg:flex-shrink-0');
-    expect(quickInfo.className).not.toContain('lg:flex-shrink-0');
+    expect(heroImage.className).not.toContain('lg:shrink-0');
+    expect(quickInfo.className).not.toContain('lg:shrink-0');
   });
 
   it('does not duplicate vertical padding between the quick info panel and the section below it', () => {

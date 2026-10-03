@@ -25,7 +25,7 @@ export function CampaignCTA({ campaignSlug, onShare }: CampaignCTAProps) {
         <button
           type="button"
           onClick={onShare}
-          className="flex-shrink-0 w-12 h-12 flex items-center justify-center rounded-md border border-border bg-white hover:bg-gray-50 transition-colors duration-fast"
+          className="shrink-0 w-12 h-12 flex items-center justify-center rounded-md border border-border bg-white hover:bg-gray-50 transition-colors duration-fast"
           aria-label="Bagikan kampanye"
         >
           <svg

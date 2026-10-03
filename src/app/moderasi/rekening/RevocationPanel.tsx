@@ -50,12 +50,12 @@ export function RevocationPanel({
   const reasonId = `${revocationAction}-reason-${accountId}`;
 
   return (
-    <div className="bg-white rounded-xl border border-[#E0E0E0] p-6 space-y-3">
+    <div className="bg-white rounded-xl border border-border p-6 space-y-3">
       <div className="space-y-1">
-        <p className="text-sm text-[#212121] font-medium">Pemilik: {ownerName}</p>
-        <p className="text-sm text-[#757575]">Bank: {bankCode}</p>
-        <p className="text-sm text-[#757575]">Nama pemilik rekening: {accountName}</p>
-        <p className="text-sm text-[#757575]">Nomor rekening (tersamar): {maskedNumber}</p>
+        <p className="text-sm text-text font-medium">Pemilik: {ownerName}</p>
+        <p className="text-sm text-text-secondary">Bank: {bankCode}</p>
+        <p className="text-sm text-text-secondary">Nama pemilik rekening: {accountName}</p>
+        <p className="text-sm text-text-secondary">Nomor rekening (tersamar): {maskedNumber}</p>
       </div>
 
       {error && (
@@ -65,12 +65,12 @@ export function RevocationPanel({
       )}
 
       <div>
-        <label className="block text-xs text-[#757575] mb-1" htmlFor={reasonId}>
+        <label className="block text-xs text-text-secondary mb-1" htmlFor={reasonId}>
           Alasan
         </label>
         <input
           id={reasonId}
-          className="w-full rounded-lg border border-[#E0E0E0] p-2 text-sm"
+          className="w-full rounded-lg border border-border p-2 text-sm"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
         />

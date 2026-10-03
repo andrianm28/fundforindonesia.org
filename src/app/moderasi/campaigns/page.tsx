@@ -25,16 +25,16 @@ export default async function ModerasiCampaignsPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-[#212121]">
+      <h1 className="text-xl font-semibold text-text">
         Kampanye Menunggu Review
       </h1>
-      <p className="text-sm text-[#757575] mt-1">
+      <p className="text-sm text-text-secondary mt-1">
         Tinjau dan moderasi kampanye yang diajukan
       </p>
 
       <div className="mt-6">
         {requests.length === 0 ? (
-          <div className="bg-white rounded-xl border border-[#E0E0E0] p-8 text-center">
+          <div className="bg-white rounded-xl border border-border p-8 text-center">
             <svg
               className="w-12 h-12 mx-auto text-[#BDBDBD]"
               fill="none"
@@ -48,7 +48,7 @@ export default async function ModerasiCampaignsPage() {
                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <p className="text-[#757575] mt-3">
+            <p className="text-text-secondary mt-3">
               Tidak ada kampanye yang menunggu review
             </p>
           </div>
@@ -58,25 +58,25 @@ export default async function ModerasiCampaignsPage() {
               <Link
                 key={id}
                 href={`/moderasi/campaigns/${campaign.id}`}
-                className="block bg-white rounded-xl border border-[#E0E0E0] p-4 hover:border-[#0073E6] hover:shadow-sm transition-all"
+                className="block bg-white rounded-xl border border-border p-4 hover:border-[#0073E6] hover:shadow-xs transition-all"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-semibold text-[#212121] truncate">
+                    <h3 className="text-sm font-semibold text-text truncate">
                       {campaign.title}
                     </h3>
-                    <p className="text-xs text-[#757575] mt-1">
+                    <p className="text-xs text-text-secondary mt-1">
                       Dibuat oleh:{" "}
                       <span className="font-medium text-[#424242]">
                         {campaign.creator.name}
                       </span>
                     </p>
                     <div className="flex items-center gap-4 mt-2">
-                      <span className="text-xs text-[#757575]">
+                      <span className="text-xs text-text-secondary">
                         Target: Rp{" "}
                         {campaign.targetAmount.toLocaleString("id-ID")}
                       </span>
-                      <span className="text-xs text-[#757575]">
+                      <span className="text-xs text-text-secondary">
                         Diajukan{" "}
                         {new Date(submittedAt).toLocaleDateString(
                           "id-ID",
@@ -94,7 +94,7 @@ export default async function ModerasiCampaignsPage() {
                       Menunggu
                     </span>
                     {!isFirst && (
-                      <span className="text-[10px] text-[#757575]">Pengajuan ulang</span>
+                      <span className="text-[10px] text-text-secondary">Pengajuan ulang</span>
                     )}
                   </div>
                 </div>

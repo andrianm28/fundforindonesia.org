@@ -229,7 +229,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   return (
     <div className="min-h-screen bg-white pb-20">
       {/* Back button header */}
-      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-sm border-b border-border">
+      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-xs border-b border-border">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
           <button
             onClick={() => router.back()}
@@ -298,7 +298,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         {/* Cover Image */}
         <div
           data-testid="campaign-hero-image"
-          className="relative w-full aspect-video max-h-[300px] overflow-hidden lg:w-3/5 lg:max-h-none lg:aspect-[21/9] lg:rounded-lg"
+          className="relative w-full aspect-video max-h-[300px] overflow-hidden lg:w-3/5 lg:max-h-none lg:aspect-21/9 lg:rounded-lg"
         >
           <Image
             src={campaign.coverImage}
@@ -441,7 +441,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         {/* Creator info */}
         <div className="flex items-center gap-3 py-3 border-t border-b border-border mb-4">
           {/* Avatar */}
-          <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
+          <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 shrink-0">
             {campaign.creator.avatar ? (
               <Image
                 src={campaign.creator.avatar}

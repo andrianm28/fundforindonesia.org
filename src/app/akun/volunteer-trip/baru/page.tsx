@@ -13,7 +13,7 @@ export default async function NewTripPage() {
       <Link href="/akun/volunteer-trip" className="text-sm text-[#0073E6]">
         Kembali
       </Link>
-      <h1 className="text-xl font-semibold text-[#212121]">Buat Volunteer Trip</h1>
+      <h1 className="text-xl font-semibold text-text">Buat Volunteer Trip</h1>
       <TripForm />
     </div>
   );

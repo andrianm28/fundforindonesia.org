@@ -35,12 +35,12 @@ export default async function ModerasiVolunteerTripsPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-[#212121]">Volunteer Trip Menunggu Review</h1>
-      <p className="text-sm text-[#757575] mt-1">Diurutkan dari yang paling lama menunggu.</p>
+      <h1 className="text-xl font-semibold text-text">Volunteer Trip Menunggu Review</h1>
+      <p className="text-sm text-text-secondary mt-1">Diurutkan dari yang paling lama menunggu.</p>
 
       <div className="mt-6 space-y-3">
         {trips.length === 0 && (
-          <div className="bg-white rounded-xl border border-[#E0E0E0] p-8 text-center text-sm text-[#757575]">
+          <div className="bg-white rounded-xl border border-border p-8 text-center text-sm text-text-secondary">
             Tidak ada Volunteer Trip yang menunggu review.
           </div>
         )}
@@ -48,13 +48,13 @@ export default async function ModerasiVolunteerTripsPage() {
           <Link
             key={trip.id}
             href={`/moderasi/volunteer-trips/${trip.id}`}
-            className="block bg-white rounded-xl border border-[#E0E0E0] p-4 hover:border-[#0073E6] transition-colors"
+            className="block bg-white rounded-xl border border-border p-4 hover:border-[#0073E6] transition-colors"
           >
-            <p className="text-sm font-medium text-[#212121]">{trip.title}</p>
-            <p className="text-xs text-[#757575] mt-1">
+            <p className="text-sm font-medium text-text">{trip.title}</p>
+            <p className="text-xs text-text-secondary mt-1">
               Fundraiser: {trip.fundraiser.name} · {trip.destination}
             </p>
-            <p className="text-xs text-[#757575]">
+            <p className="text-xs text-text-secondary">
               Trip Fee {formatRupiah(trip.tripFeeAmount)} · diajukan{" "}
               {new Date(trip.createdAt).toLocaleDateString("id-ID", {
                 day: "numeric",

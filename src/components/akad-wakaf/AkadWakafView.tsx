@@ -19,30 +19,30 @@ export type AkadWakafViewProps = {
  */
 export function AkadWakafView(props: AkadWakafViewProps) {
   return (
-    <div className="min-h-screen bg-[#F5F5F5] py-10 px-4 print:bg-white print:py-0">
-      <div className="max-w-md mx-auto bg-white rounded-xl shadow-sm p-6 print:shadow-none print:rounded-none">
-        <h1 className="text-lg font-semibold text-[#212121]">Akad Wakaf</h1>
+    <div className="min-h-screen bg-bg-secondary py-10 px-4 print:bg-white print:py-0">
+      <div className="max-w-md mx-auto bg-white rounded-xl shadow-xs p-6 print:shadow-none print:rounded-none">
+        <h1 className="text-lg font-semibold text-text">Akad Wakaf</h1>
 
         <dl className="mt-4 space-y-3 text-sm">
           <div>
-            <dt className="text-[#757575]">Wakif</dt>
-            <dd className="text-[#212121] font-medium">{props.wakifName || 'Wakif'}</dd>
+            <dt className="text-text-secondary">Wakif</dt>
+            <dd className="text-text font-medium">{props.wakifName || 'Wakif'}</dd>
           </div>
           <div>
-            <dt className="text-[#757575]">Nominal</dt>
+            <dt className="text-text-secondary">Nominal</dt>
             <dd className="text-[#0073E6] font-bold">{formatRupiah(props.amount)}</dd>
           </div>
           <div>
-            <dt className="text-[#757575]">Peruntukan</dt>
-            <dd className="text-[#212121] font-medium">{props.purpose}</dd>
+            <dt className="text-text-secondary">Peruntukan</dt>
+            <dd className="text-text font-medium">{props.purpose}</dd>
           </div>
           <div>
-            <dt className="text-[#757575]">Nazhir</dt>
-            <dd className="text-[#212121] font-medium">{props.nazhirName}</dd>
+            <dt className="text-text-secondary">Nazhir</dt>
+            <dd className="text-text font-medium">{props.nazhirName}</dd>
           </div>
           <div>
-            <dt className="text-[#757575]">Tanggal</dt>
-            <dd className="text-[#212121]">{formatIndonesianDate(new Date(props.createdAt))}</dd>
+            <dt className="text-text-secondary">Tanggal</dt>
+            <dd className="text-text">{formatIndonesianDate(new Date(props.createdAt))}</dd>
           </div>
         </dl>
 

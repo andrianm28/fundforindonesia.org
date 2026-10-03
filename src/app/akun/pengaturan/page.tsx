@@ -27,7 +27,7 @@ export default function SettingsPage() {
   const user = session?.user;
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       {/* Header */}
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <div className="flex items-center gap-3">
@@ -69,13 +69,13 @@ export default function SettingsPage() {
 
 function EmailDisplay({ email }: { email: string }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm p-4">
-      <h2 className="text-[#212121] font-semibold text-sm mb-3">Email</h2>
+    <div className="bg-white rounded-xl shadow-xs p-4">
+      <h2 className="text-text font-semibold text-sm mb-3">Email</h2>
       <div className="flex items-center gap-2">
-        <svg className="w-4 h-4 text-[#757575]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
         </svg>
-        <span className="text-[#757575] text-sm">{email}</span>
+        <span className="text-text-secondary text-sm">{email}</span>
       </div>
       <p className="text-[#9E9E9E] text-xs mt-2">Email tidak dapat diubah</p>
     </div>
@@ -94,8 +94,8 @@ function ProfileSection({
   onProfileUpdated: () => void;
 }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm p-4 space-y-5">
-      <h2 className="text-[#212121] font-semibold text-sm">Profil</h2>
+    <div className="bg-white rounded-xl shadow-xs p-4 space-y-5">
+      <h2 className="text-text font-semibold text-sm">Profil</h2>
       <AvatarUpload currentAvatar={currentAvatar} onUploaded={onProfileUpdated} />
       <NameForm currentName={currentName} onUpdated={onProfileUpdated} />
     </div>
@@ -173,7 +173,7 @@ function AvatarUpload({
 
   return (
     <div className="flex items-center gap-4">
-      <div className="relative w-16 h-16 rounded-full overflow-hidden bg-[#E0E0E0] flex-shrink-0">
+      <div className="relative w-16 h-16 rounded-full overflow-hidden bg-border shrink-0">
         {preview ? (
           <Image
             src={preview}
@@ -203,8 +203,8 @@ function AvatarUpload({
           {loading ? 'Mengunggah...' : 'Ubah Foto'}
         </button>
         <p className="text-[#9E9E9E] text-xs mt-0.5">PNG, JPG, atau WebP. Maks 2MB.</p>
-        {error && <p className="text-[#D50000] text-xs mt-1">{error}</p>}
-        {success && <p className="text-[#00C853] text-xs mt-1">Avatar berhasil diperbarui</p>}
+        {error && <p className="text-danger text-xs mt-1">{error}</p>}
+        {success && <p className="text-success text-xs mt-1">Avatar berhasil diperbarui</p>}
       </div>
       <input
         ref={fileInputRef}
@@ -284,7 +284,7 @@ function NameForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <div>
-        <label htmlFor="name" className="block text-[#757575] text-xs mb-1">
+        <label htmlFor="name" className="block text-text-secondary text-xs mb-1">
           Nama Lengkap
         </label>
         <input
@@ -295,12 +295,12 @@ function NameForm({
             setName(e.target.value);
             setError(null);
           }}
-          className="w-full border border-[#E0E0E0] rounded-lg px-3 py-2 text-sm text-[#212121] focus:outline-none focus:border-[#0073E6] focus:ring-1 focus:ring-[#0073E6]"
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm text-text focus:outline-hidden focus:border-[#0073E6] focus:ring-1 focus:ring-[#0073E6]"
           placeholder="Masukkan nama lengkap"
           maxLength={50}
         />
-        {error && <p className="text-[#D50000] text-xs mt-1">{error}</p>}
-        {success && <p className="text-[#00C853] text-xs mt-1">Nama berhasil diperbarui</p>}
+        {error && <p className="text-danger text-xs mt-1">{error}</p>}
+        {success && <p className="text-success text-xs mt-1">Nama berhasil diperbarui</p>}
       </div>
       <button
         type="submit"
@@ -389,20 +389,20 @@ function PasswordSection() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm p-4">
-      <h2 className="text-[#212121] font-semibold text-sm mb-4">Ubah Password</h2>
+    <div className="bg-white rounded-xl shadow-xs p-4">
+      <h2 className="text-text font-semibold text-sm mb-4">Ubah Password</h2>
       <form onSubmit={handleSubmit} className="space-y-3">
         {errors.general && (
-          <p className="text-[#D50000] text-xs bg-red-50 p-2 rounded">{errors.general}</p>
+          <p className="text-danger text-xs bg-red-50 p-2 rounded">{errors.general}</p>
         )}
         {success && (
-          <p className="text-[#00C853] text-xs bg-green-50 p-2 rounded">
+          <p className="text-success text-xs bg-green-50 p-2 rounded">
             Password berhasil diubah
           </p>
         )}
 
         <div>
-          <label htmlFor="currentPassword" className="block text-[#757575] text-xs mb-1">
+          <label htmlFor="currentPassword" className="block text-text-secondary text-xs mb-1">
             Password Saat Ini
           </label>
           <input
@@ -416,20 +416,20 @@ function PasswordSection() {
                 return rest;
               });
             }}
-            className={`w-full border rounded-lg px-3 py-2 text-sm text-[#212121] focus:outline-none focus:ring-1 ${
+            className={`w-full border rounded-lg px-3 py-2 text-sm text-text focus:outline-hidden focus:ring-1 ${
               errors.currentPassword
-                ? 'border-[#D50000] focus:border-[#D50000] focus:ring-[#D50000]'
-                : 'border-[#E0E0E0] focus:border-[#0073E6] focus:ring-[#0073E6]'
+                ? 'border-danger focus:border-danger focus:ring-[#D50000]'
+                : 'border-border focus:border-[#0073E6] focus:ring-[#0073E6]'
             }`}
             placeholder="Masukkan password saat ini"
           />
           {errors.currentPassword && (
-            <p className="text-[#D50000] text-xs mt-1">{errors.currentPassword}</p>
+            <p className="text-danger text-xs mt-1">{errors.currentPassword}</p>
           )}
         </div>
 
         <div>
-          <label htmlFor="newPassword" className="block text-[#757575] text-xs mb-1">
+          <label htmlFor="newPassword" className="block text-text-secondary text-xs mb-1">
             Password Baru
           </label>
           <input
@@ -443,20 +443,20 @@ function PasswordSection() {
                 return rest;
               });
             }}
-            className={`w-full border rounded-lg px-3 py-2 text-sm text-[#212121] focus:outline-none focus:ring-1 ${
+            className={`w-full border rounded-lg px-3 py-2 text-sm text-text focus:outline-hidden focus:ring-1 ${
               errors.newPassword
-                ? 'border-[#D50000] focus:border-[#D50000] focus:ring-[#D50000]'
-                : 'border-[#E0E0E0] focus:border-[#0073E6] focus:ring-[#0073E6]'
+                ? 'border-danger focus:border-danger focus:ring-[#D50000]'
+                : 'border-border focus:border-[#0073E6] focus:ring-[#0073E6]'
             }`}
             placeholder="Masukkan password baru (min. 8 karakter)"
           />
           {errors.newPassword && (
-            <p className="text-[#D50000] text-xs mt-1">{errors.newPassword}</p>
+            <p className="text-danger text-xs mt-1">{errors.newPassword}</p>
           )}
         </div>
 
         <div>
-          <label htmlFor="confirmPassword" className="block text-[#757575] text-xs mb-1">
+          <label htmlFor="confirmPassword" className="block text-text-secondary text-xs mb-1">
             Konfirmasi Password Baru
           </label>
           <input
@@ -470,15 +470,15 @@ function PasswordSection() {
                 return rest;
               });
             }}
-            className={`w-full border rounded-lg px-3 py-2 text-sm text-[#212121] focus:outline-none focus:ring-1 ${
+            className={`w-full border rounded-lg px-3 py-2 text-sm text-text focus:outline-hidden focus:ring-1 ${
               errors.confirmPassword
-                ? 'border-[#D50000] focus:border-[#D50000] focus:ring-[#D50000]'
-                : 'border-[#E0E0E0] focus:border-[#0073E6] focus:ring-[#0073E6]'
+                ? 'border-danger focus:border-danger focus:ring-[#D50000]'
+                : 'border-border focus:border-[#0073E6] focus:ring-[#0073E6]'
             }`}
             placeholder="Masukkan ulang password baru"
           />
           {errors.confirmPassword && (
-            <p className="text-[#D50000] text-xs mt-1">{errors.confirmPassword}</p>
+            <p className="text-danger text-xs mt-1">{errors.confirmPassword}</p>
           )}
         </div>
 
@@ -498,15 +498,15 @@ function PasswordSection() {
 
 function SettingsSkeleton() {
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <div className="h-5 w-24 bg-white/20 rounded" />
       </div>
       <div className="max-w-lg mx-auto px-4 py-6 space-y-4">
         {[...Array(3)].map((_, i) => (
-          <div key={i} className="bg-white rounded-xl shadow-sm p-4">
-            <div className="h-4 w-20 bg-[#E0E0E0] rounded animate-pulse mb-3" />
-            <div className="h-10 w-full bg-[#E0E0E0] rounded animate-pulse" />
+          <div key={i} className="bg-white rounded-xl shadow-xs p-4">
+            <div className="h-4 w-20 bg-border rounded animate-pulse mb-3" />
+            <div className="h-10 w-full bg-border rounded animate-pulse" />
           </div>
         ))}
       </div>

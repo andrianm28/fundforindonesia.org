@@ -95,7 +95,7 @@ export default function ZakatPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-20">
+    <div className="min-h-screen bg-bg-secondary pb-20">
       {/* Header */}
       <div className="bg-[#0073E6] px-4 pt-8 pb-6">
         <h1 className="text-white text-lg font-semibold">Zakat & Donasi</h1>
@@ -113,20 +113,20 @@ export default function ZakatPage() {
               onClick={() => setSelectedType(type.id)}
               className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${
                 selectedType === type.id
-                  ? 'border-[#0073E6] bg-[#E3F2FD] shadow-sm'
-                  : 'border-[#E0E0E0] bg-white hover:border-[#90CAF9]'
+                  ? 'border-[#0073E6] bg-[#E3F2FD] shadow-xs'
+                  : 'border-border bg-white hover:border-[#90CAF9]'
               }`}
             >
               <span className="text-2xl">{type.icon}</span>
               <div className="text-left">
                 <p
                   className={`text-sm font-semibold ${
-                    selectedType === type.id ? 'text-[#0073E6]' : 'text-[#212121]'
+                    selectedType === type.id ? 'text-[#0073E6]' : 'text-text'
                   }`}
                 >
                   {type.label}
                 </p>
-                <p className="text-xs text-[#757575] leading-tight">{type.description}</p>
+                <p className="text-xs text-text-secondary leading-tight">{type.description}</p>
               </div>
             </button>
           ))}
@@ -135,7 +135,7 @@ export default function ZakatPage() {
 
       {/* Calculator Section */}
       <div className="px-4 mt-6">
-        <div className="bg-white rounded-xl shadow-sm p-4">
+        <div className="bg-white rounded-xl shadow-xs p-4">
           {selectedType === 'mal' && (
             <ZakatMalCalculator
               assets={assets}
@@ -210,7 +210,7 @@ function ZakatMalCalculator({
 }) {
   return (
     <div className="space-y-4">
-      <h2 className="text-base font-semibold text-[#212121]">Kalkulator Zakat Mal</h2>
+      <h2 className="text-base font-semibold text-text">Kalkulator Zakat Mal</h2>
 
       {/* Nisab info */}
       <div className="bg-[#E8F5E9] rounded-lg p-3">
@@ -222,11 +222,11 @@ function ZakatMalCalculator({
 
       {/* Total Assets Input */}
       <div>
-        <label className="block text-sm font-medium text-[#212121] mb-1.5">
+        <label className="block text-sm font-medium text-text mb-1.5">
           Total Harta (tabungan, investasi, emas, dll)
         </label>
-        <div className="flex items-center border border-[#E0E0E0] rounded-lg overflow-hidden focus-within:border-[#0073E6] focus-within:ring-1 focus-within:ring-[#0073E6]">
-          <span className="px-3 py-2.5 bg-[#F5F5F5] text-sm text-[#757575] font-medium border-r border-[#E0E0E0]">
+        <div className="flex items-center border border-border rounded-lg overflow-hidden focus-within:border-[#0073E6] focus-within:ring-1 focus-within:ring-[#0073E6]">
+          <span className="px-3 py-2.5 bg-bg-secondary text-sm text-text-secondary font-medium border-r border-border">
             Rp
           </span>
           <input
@@ -235,18 +235,18 @@ function ZakatMalCalculator({
             value={formatInputValue(assets)}
             onChange={(e) => onAssetsChange(e.target.value)}
             placeholder="0"
-            className="flex-1 px-3 py-2.5 text-sm text-[#212121] outline-none"
+            className="flex-1 px-3 py-2.5 text-sm text-text outline-hidden"
           />
         </div>
       </div>
 
       {/* Debts Input */}
       <div>
-        <label className="block text-sm font-medium text-[#212121] mb-1.5">
+        <label className="block text-sm font-medium text-text mb-1.5">
           Hutang / Kewajiban
         </label>
-        <div className="flex items-center border border-[#E0E0E0] rounded-lg overflow-hidden focus-within:border-[#0073E6] focus-within:ring-1 focus-within:ring-[#0073E6]">
-          <span className="px-3 py-2.5 bg-[#F5F5F5] text-sm text-[#757575] font-medium border-r border-[#E0E0E0]">
+        <div className="flex items-center border border-border rounded-lg overflow-hidden focus-within:border-[#0073E6] focus-within:ring-1 focus-within:ring-[#0073E6]">
+          <span className="px-3 py-2.5 bg-bg-secondary text-sm text-text-secondary font-medium border-r border-border">
             Rp
           </span>
           <input
@@ -255,28 +255,28 @@ function ZakatMalCalculator({
             value={formatInputValue(debts)}
             onChange={(e) => onDebtsChange(e.target.value)}
             placeholder="0"
-            className="flex-1 px-3 py-2.5 text-sm text-[#212121] outline-none"
+            className="flex-1 px-3 py-2.5 text-sm text-text outline-hidden"
           />
         </div>
       </div>
 
       {/* Calculation Result */}
       {result.totalAssets > 0 && (
-        <div className="border-t border-[#E0E0E0] pt-4 space-y-2">
+        <div className="border-t border-border pt-4 space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-[#757575]">Harta bersih</span>
-            <span className="text-[#212121] font-medium">
+            <span className="text-text-secondary">Harta bersih</span>
+            <span className="text-text font-medium">
               {formatRupiah(result.netAssets)}
             </span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-[#757575]">Nisab</span>
-            <span className="text-[#212121] font-medium">
+            <span className="text-text-secondary">Nisab</span>
+            <span className="text-text font-medium">
               {formatRupiah(NISAB_THRESHOLD)}
             </span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-[#757575]">Status</span>
+            <span className="text-text-secondary">Status</span>
             <span
               className={`font-medium ${
                 result.meetsNisab ? 'text-[#2E7D32]' : 'text-[#F57F17]'
@@ -314,7 +314,7 @@ function ZakatFitrahCalculator({
 }) {
   return (
     <div className="space-y-4">
-      <h2 className="text-base font-semibold text-[#212121]">Kalkulator Zakat Fitrah</h2>
+      <h2 className="text-base font-semibold text-text">Kalkulator Zakat Fitrah</h2>
 
       {/* Info */}
       <div className="bg-[#FFF3E0] rounded-lg p-3">
@@ -326,7 +326,7 @@ function ZakatFitrahCalculator({
 
       {/* Number of People */}
       <div>
-        <label className="block text-sm font-medium text-[#212121] mb-1.5">
+        <label className="block text-sm font-medium text-text mb-1.5">
           Jumlah Jiwa
         </label>
         <div className="flex items-center gap-3">
@@ -335,7 +335,7 @@ function ZakatFitrahCalculator({
               const current = parseInt(people, 10) || 1;
               if (current > 1) onPeopleChange(String(current - 1));
             }}
-            className="w-10 h-10 rounded-lg border border-[#E0E0E0] flex items-center justify-center text-lg font-bold text-[#757575] hover:bg-[#F5F5F5] transition-colors"
+            className="w-10 h-10 rounded-lg border border-border flex items-center justify-center text-lg font-bold text-text-secondary hover:bg-bg-secondary transition-colors"
             aria-label="Kurangi jumlah jiwa"
           >
             −
@@ -348,14 +348,14 @@ function ZakatFitrahCalculator({
               const val = e.target.value.replace(/\D/g, '');
               onPeopleChange(val || '1');
             }}
-            className="w-16 text-center border border-[#E0E0E0] rounded-lg py-2 text-sm text-[#212121] font-semibold outline-none focus:border-[#0073E6]"
+            className="w-16 text-center border border-border rounded-lg py-2 text-sm text-text font-semibold outline-hidden focus:border-[#0073E6]"
           />
           <button
             onClick={() => {
               const current = parseInt(people, 10) || 0;
               onPeopleChange(String(current + 1));
             }}
-            className="w-10 h-10 rounded-lg border border-[#E0E0E0] flex items-center justify-center text-lg font-bold text-[#757575] hover:bg-[#F5F5F5] transition-colors"
+            className="w-10 h-10 rounded-lg border border-border flex items-center justify-center text-lg font-bold text-text-secondary hover:bg-bg-secondary transition-colors"
             aria-label="Tambah jumlah jiwa"
           >
             +
@@ -400,8 +400,8 @@ function CustomAmountInput({
 
   return (
     <div className="space-y-4">
-      <h2 className="text-base font-semibold text-[#212121]">{title}</h2>
-      <p className="text-sm text-[#757575]">{description}</p>
+      <h2 className="text-base font-semibold text-text">{title}</h2>
+      <p className="text-sm text-text-secondary">{description}</p>
 
       {/* Preset amounts */}
       <div className="grid grid-cols-3 gap-2">
@@ -412,7 +412,7 @@ function CustomAmountInput({
             className={`py-2 px-2 rounded-lg border text-xs font-medium transition-colors ${
               parseInt(amount.replace(/\D/g, ''), 10) === preset
                 ? 'border-[#0073E6] bg-[#E3F2FD] text-[#0073E6]'
-                : 'border-[#E0E0E0] text-[#212121] hover:border-[#90CAF9]'
+                : 'border-border text-text hover:border-[#90CAF9]'
             }`}
           >
             {formatRupiah(preset)}
@@ -422,11 +422,11 @@ function CustomAmountInput({
 
       {/* Custom amount */}
       <div>
-        <label className="block text-sm font-medium text-[#212121] mb-1.5">
+        <label className="block text-sm font-medium text-text mb-1.5">
           Nominal lainnya
         </label>
-        <div className="flex items-center border border-[#E0E0E0] rounded-lg overflow-hidden focus-within:border-[#0073E6] focus-within:ring-1 focus-within:ring-[#0073E6]">
-          <span className="px-3 py-2.5 bg-[#F5F5F5] text-sm text-[#757575] font-medium border-r border-[#E0E0E0]">
+        <div className="flex items-center border border-border rounded-lg overflow-hidden focus-within:border-[#0073E6] focus-within:ring-1 focus-within:ring-[#0073E6]">
+          <span className="px-3 py-2.5 bg-bg-secondary text-sm text-text-secondary font-medium border-r border-border">
             Rp
           </span>
           <input
@@ -435,7 +435,7 @@ function CustomAmountInput({
             value={formatInputValue(amount)}
             onChange={(e) => onAmountChange(e.target.value)}
             placeholder="0"
-            className="flex-1 px-3 py-2.5 text-sm text-[#212121] outline-none"
+            className="flex-1 px-3 py-2.5 text-sm text-text outline-hidden"
           />
         </div>
       </div>

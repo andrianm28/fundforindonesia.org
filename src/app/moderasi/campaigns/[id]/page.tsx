@@ -130,10 +130,10 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
         </Link>
       </div>
 
-      <div className="bg-white rounded-xl border border-[#E0E0E0] overflow-hidden">
+      <div className="bg-white rounded-xl border border-border overflow-hidden">
         {/* Cover Image */}
         {campaign.coverImage && (
-          <div className="w-full h-48 bg-[#F5F5F5] relative">
+          <div className="w-full h-48 bg-bg-secondary relative">
             <Image
               src={campaign.coverImage}
               alt={campaign.title}
@@ -146,7 +146,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
         {/* Campaign Info */}
         <div className="p-6">
           <div className="flex items-start justify-between gap-4">
-            <h1 className="text-lg font-semibold text-[#212121]">
+            <h1 className="text-lg font-semibold text-text">
               {campaign.title}
             </h1>
             <CampaignStatusBadge status={status} />
@@ -204,7 +204,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
 
           {/* Description */}
           <div className="mt-6">
-            <h2 className="text-sm font-semibold text-[#212121] mb-2">
+            <h2 className="text-sm font-semibold text-text mb-2">
               Deskripsi
             </h2>
             <p className="text-sm text-[#424242] whitespace-pre-line">
@@ -214,7 +214,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
 
           {/* Story */}
           <div className="mt-6">
-            <h2 className="text-sm font-semibold text-[#212121] mb-2">
+            <h2 className="text-sm font-semibold text-text mb-2">
               Cerita Kampanye
             </h2>
             <div
@@ -228,7 +228,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
       {/* Why this request is open, when it is an amount review: the Gross
           that earned it and the limit it passed (prd-compliance 38). */}
       {openRequest?.kind === "AMOUNT_REVIEW" && (
-        <div className="mt-6 bg-[#FFF3E0] border border-[#FFB300] rounded-xl p-6">
+        <div className="mt-6 bg-[#FFF3E0] border border-warning rounded-xl p-6">
           <h2 className="text-sm font-semibold text-[#E65100] mb-1">Verifikasi Tambahan</h2>
           <p className="text-xs text-[#8D6E63]">
             Campaign ini sudah mengumpulkan lebih dari ambang yang berlaku, jadi Verifier
@@ -248,22 +248,22 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
       )}
 
       {/* Duplicate hints: the Campaigns this one most resembles, and why. */}
-      <div className="mt-6 bg-white rounded-xl border border-[#E0E0E0] p-6">
-        <h2 className="text-sm font-semibold text-[#212121] mb-1">Campaign yang Mirip</h2>
-        <p className="text-xs text-[#757575] mb-4">
+      <div className="mt-6 bg-white rounded-xl border border-border p-6">
+        <h2 className="text-sm font-semibold text-text mb-1">Campaign yang Mirip</h2>
+        <p className="text-xs text-text-secondary mb-4">
           Paling banyak lima Campaign yang cocok pada salah satu dari tiga hal: Fundraiser
           yang sama, kemiripan judul di atas {Math.round(similarityThreshold * 100)}%, atau nama
           penerima manfaat yang sama persis. Centang &ldquo;Sudah dipastikan bukan duplikat Campaign
           lain&rdquo; pada checklist di bawah hanya setelah Anda sudah melihat Campaign ini.
         </p>
         {hints.length === 0 ? (
-          <p className="text-sm text-[#757575]">
+          <p className="text-sm text-text-secondary">
             Tidak ada Campaign lain yang mirip dengan Campaign ini.
           </p>
         ) : (
           <ul className="space-y-3">
             {hints.map((hint) => (
-              <li key={hint.campaignId} className="border border-[#E0E0E0] rounded-lg p-3">
+              <li key={hint.campaignId} className="border border-border rounded-lg p-3">
                 <a
                   href={`/moderasi/campaigns/${hint.campaignId}`}
                   className="text-sm font-medium text-[#0073E6] hover:underline"
@@ -280,7 +280,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
                     </li>
                   ))}
                   {/* Whether the duplicate is still live is half the question. */}
-                  <li className="text-xs rounded-full bg-[#F5F5F5] text-[#616161] px-2 py-0.5">
+                  <li className="text-xs rounded-full bg-bg-secondary text-[#616161] px-2 py-0.5">
                     {STATUS_LABEL[hint.lifecycleStatus]}
                   </li>
                 </ul>
@@ -312,8 +312,8 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs text-[#757575]">{label}</p>
-      <p className="text-sm font-medium text-[#212121] mt-0.5">{value}</p>
+      <p className="text-xs text-text-secondary">{label}</p>
+      <p className="text-sm font-medium text-text mt-0.5">{value}</p>
     </div>
   );
 }

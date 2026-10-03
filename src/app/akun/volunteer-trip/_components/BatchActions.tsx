@@ -69,7 +69,7 @@ export function BatchActions({
         <button
           type="button"
           onClick={() => setEditing((open) => !open)}
-          className="px-3 py-1.5 text-sm rounded-lg border border-[#E0E0E0] text-[#212121]"
+          className="px-3 py-1.5 text-sm rounded-lg border border-border text-text"
         >
           {editing ? 'Tutup' : 'Ubah Batch'}
         </button>
@@ -84,16 +84,16 @@ export function BatchActions({
       </div>
       {editing && <BatchForm slug={slug} batchId={batchId} initial={values} seatsUsed={seatsUsed} onDone={() => setEditing(false)} />}
 
-      <fieldset className="space-y-2 border-t border-[#E0E0E0] pt-3">
-        <legend className="text-sm font-semibold text-[#212121]">Selesaikan Batch</legend>
+      <fieldset className="space-y-2 border-t border-border pt-3">
+        <legend className="text-sm font-semibold text-text">Selesaikan Batch</legend>
         {!ended && (
-          <p className="text-sm text-[#757575]">Batch baru bisa diselesaikan setelah tanggal selesainya lewat.</p>
+          <p className="text-sm text-text-secondary">Batch baru bisa diselesaikan setelah tanggal selesainya lewat.</p>
         )}
         {roster.length === 0 ? (
-          <p className="text-sm text-[#757575]">Belum ada Registration CONFIRMED.</p>
+          <p className="text-sm text-text-secondary">Belum ada Registration CONFIRMED.</p>
         ) : (
           <>
-            <p className="text-xs text-[#757575]">
+            <p className="text-xs text-text-secondary">
               Centang yang hadir. Yang tidak dicentang tidak menerima Sertifikat Keikutsertaan.
             </p>
             <ul className="space-y-1">
