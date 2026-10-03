@@ -20,6 +20,7 @@ import {
   providerFeePortionFor,
   platformFeePortionFor,
   type LedgerSubject,
+  type StandingRefundFees,
 } from './ledger';
 import {
   DemoCampaignError,
@@ -212,6 +213,52 @@ function requireRefundAllowedForKind(campaignKind: Kind, reason: string): void {
 }
 
 /**
+ * What each of these Refunds, all still standing on one Payment, took of the
+ * Platform Fee and the Provider Fee: read back off the entries its freeze posted
+ * (refundFreezeDebit, ./ledger.ts), the same reading approveRefund and the
+ * escrow sweep make, rather than worked out again from the amounts.
+ *
+ * A Refund's share is fixed once, against the Refunds that stood when it was
+ * frozen. Rejecting or failing one of those afterwards (prd-compliance 49) does
+ * not move the shares the others already carry, so the next Refund's share has to
+ * be measured against what is posted, or the standing Refunds stop adding up to
+ * the Payment's fee (prd-compliance 53).
+ *
+ * With no Refund standing nothing is read: most Payments never see one. A Refund
+ * whose freeze journal is not there is refused, not counted as having taken
+ * nothing, for the same reason the sweep and approveRefund refuse it: createRefund
+ * posts the journal in the same transaction as the Refund row, so it cannot be
+ * missing in normal operation, and guessing would put the wrong share on the next
+ * Refund. Read ahead of the Refund row, so the refusal writes nothing.
+ */
+async function standingRefundFees(
+  tx: Prisma.TransactionClient,
+  standing: ReadonlyArray<{ id: string; amount: number }>,
+): Promise<StandingRefundFees[]> {
+  if (standing.length === 0) return [];
+
+  const entries = await tx.ledgerEntry.findMany({
+    where: { transactionId: { in: standing.map((r) => refundFreezeTransactionId(r.id)) } },
+    select: { transactionId: true, account: true, direction: true, amount: true },
+  });
+
+  const posted = new Set(entries.map((e) => e.transactionId));
+  const missing = standing.filter((r) => !posted.has(refundFreezeTransactionId(r.id)));
+  if (missing.length > 0) {
+    throw new Error(
+      `Refund ${missing.map((r) => r.id).join(', ')} has no freeze journal in the ledger; refusing to guess ` +
+        "how much of the Payment's fees it already took.",
+    );
+  }
+
+  return standing.map((r) => ({
+    amount: r.amount,
+    platformFeePosted: refundFreezeDebit(entries, r.id, 'PLATFORM_FEE'),
+    providerFeePosted: refundFreezeDebit(entries, r.id, 'REFUND_COST'),
+  }));
+}
+
+/**
  * An Admin creates a Refund for a Payment. Locks the subject (Campaign or
  * VolunteerTrip) BEFORE the Payment row, matching the Campaign/VolunteerTrip
  * -> Payment order this codebase's other money-moving transactions already
@@ -286,25 +333,25 @@ export async function createRefund(
   const priorRefunds = await tx.refund.findMany({
     where: { paymentId, status: { notIn: ['REJECTED', 'FAILED'] } },
     orderBy: { createdAt: 'asc' },
-    select: { amount: true, status: true },
+    select: { id: true, amount: true, status: true },
   });
-  const priorAmounts = priorRefunds
-    .filter((r: { status: string }) => r.status !== 'REJECTED' && r.status !== 'FAILED')
-    .map((r: { amount: number }) => r.amount);
-  const alreadyCommitted = priorAmounts.reduce((sum: number, a: number) => sum + a, 0);
+  const standingRefunds = priorRefunds.filter((r) => r.status !== 'REJECTED' && r.status !== 'FAILED');
+  const alreadyCommitted = standingRefunds.reduce((sum, r) => sum + r.amount, 0);
   const remaining = payment.amount - alreadyCommitted;
   if (amount > remaining) {
     throw new RefundExceedsRemainingError(amount, remaining);
   }
 
   const source = sourceFor(payment, subject);
-  // Split the same way providerFeePortionFor already does: proportional to
-  // amount / payment.amount, capped cumulatively across every prior Refund
-  // on this Payment (prd-compliance 17). The Payment's pool only ever held
-  // gross - providerFee - platformFee (paymentSettledLegs), so a Refund must
-  // return this share too, not just the Provider Fee's.
-  const platformFeePortion = platformFeePortionFor(payment, amount, priorAmounts);
-  const providerFeePortion = providerFeePortionFor(payment, amount, priorAmounts);
+  // Split proportional to amount / payment.amount, capped cumulatively across
+  // every Refund still standing on this Payment (prd-compliance 17). The
+  // Payment's pool only ever held gross - providerFee - platformFee
+  // (paymentSettledLegs), so a Refund must return this share too, not just the
+  // Provider Fee's. What those Refunds already took is READ off the freezes
+  // they posted, not worked out again from their amounts (prd-compliance 53).
+  const standingFees = await standingRefundFees(tx, standingRefunds);
+  const platformFeePortion = platformFeePortionFor(payment, amount, standingFees);
+  const providerFeePortion = providerFeePortionFor(payment, amount, standingFees);
   // The freeze below DEBITS the Campaign's withdrawable balance by the net
   // portion at request time. A pool a Payout drew down is covered by the
   // platform at approval (shortfall), but a pool a Campaign Transfer moved

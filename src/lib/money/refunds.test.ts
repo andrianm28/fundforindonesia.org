@@ -24,10 +24,14 @@ import {
   RefundReasonInvalidError,
 } from './refunds';
 import {
+  paymentSettledLegs,
+  escrowReleaseLegs,
+  payoutInstructedLegs,
   refundRequestedLegs,
   refundApprovedLegs,
   platformFeePortionFor,
   providerFeePortionFor,
+  InvalidLedgerLegError,
   type LedgerLeg,
   type LedgerSubject,
 } from './ledger';
@@ -143,7 +147,7 @@ function makeTx(
     lifecycleStatus?: string;
     campaignCreatorId?: string;
     tripFundraiserId?: string;
-    priorRefunds?: Array<{ amount: number; status: string }>;
+    priorRefunds?: Array<{ id: string; amount: number; status: string }>;
     refundRow?: Record<string, unknown> | null;
     /** The Campaign's Kind, which the per-Kind Refund rule reads. */
     kind?: Kind;
@@ -197,7 +201,7 @@ function makeTx(
         .filter((r) => !where?.status || !where.status.notIn.includes(r.status))
         .filter((r) => !where?.createdAt || r.createdAt < where.createdAt.lt)
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
-        .map((r) => ({ amount: r.amount, status: r.status }));
+        .map((r) => ({ id: r.id, amount: r.amount, status: r.status }));
     },
   );
   const queryRawCalls: string[] = [];
@@ -690,9 +694,12 @@ describe('createRefund', () => {
   });
 
   it('subtracts every prior non-rejected/failed Refund from what is still refundable', async () => {
+    // The prior Refund carries the freeze createRefund would have posted for it
+    // (prd-compliance 53: the next Refund's fee share is read off it).
     const { tx, refundCreate } = makeTx({
       payment: makePayment({ amount: 100_000 }),
-      priorRefunds: [{ amount: 40_000, status: 'REQUESTED' }],
+      priorRefunds: [{ id: 'refund-prior', amount: 40_000, status: 'REQUESTED' }],
+      ledgerRows: freezeRows('refund-prior', { amount: 40_000, source: 'ESCROW_HOLD', providerFeePortion: 2_000 }),
     });
 
     await expect(
@@ -708,7 +715,7 @@ describe('createRefund', () => {
   it('does NOT count a REJECTED prior Refund against what is still refundable', async () => {
     const { tx, refundCreate } = makeTx({
       payment: makePayment({ amount: 100_000 }),
-      priorRefunds: [{ amount: 90_000, status: 'REJECTED' }],
+      priorRefunds: [{ id: 'refund-prior', amount: 90_000, status: 'REJECTED' }],
     });
 
     await createRefund(tx as never, { subject: { type: 'campaign', campaignId: 'campaign-1' }, paymentId: 'payment-1', amount: 100_000, reason: 'x', requestedById: 'admin-1' });
@@ -1176,6 +1183,9 @@ function makeMultiPaymentTx(initialLedgerRows: LedgerRow[] = []) {
       // what they are testing.
       findUnique: vi.fn().mockResolvedValue({ isDemo: false, creatorId: 'fundraiser-1', lifecycleStatus: 'ACTIVE', kind: Kind.DONATION, deadline: null }),
     },
+    // Asked when a Refund frozen from CAMPAIGN_BALANCE finds the balance short:
+    // none of these scenarios moved a balance to another Campaign.
+    campaignTransfer: { count: vi.fn(async () => 0) },
     refund: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         refundCounter += 1;
@@ -1202,14 +1212,17 @@ function makeMultiPaymentTx(initialLedgerRows: LedgerRow[] = []) {
             .filter((r) => !where.status || !where.status.notIn.includes(r.status as string))
             .filter((r) => !where.createdAt || (r.createdAt as Date) < where.createdAt.lt)
             .sort((a, b) => (a.createdAt as Date).getTime() - (b.createdAt as Date).getTime())
-            .map((r) => ({ amount: r.amount, status: r.status })),
+            .map((r) => ({ id: r.id, amount: r.amount, status: r.status })),
       ),
-      updateMany: vi.fn(async ({ where, data }: { where: { id: string; status: string }; data: Record<string, unknown> }) => {
-        const row = refunds.get(where.id);
-        if (!row || row.status !== where.status) return { count: 0 };
-        Object.assign(row, data);
-        return { count: 1 };
-      }),
+      updateMany: vi.fn(
+        async ({ where, data }: { where: { id: string; status: string | { in: string[] } }; data: Record<string, unknown> }) => {
+          const row = refunds.get(where.id);
+          const allowed = typeof where.status === 'string' ? [where.status] : where.status.in;
+          if (!row || !allowed.includes(row.status as string)) return { count: 0 };
+          Object.assign(row, data);
+          return { count: 1 };
+        },
+      ),
     },
     ledgerEntry: {
       count: vi.fn(async () => 0),
@@ -1320,6 +1333,230 @@ describe('settlement redesign regressions (freeze splits the fee, not settlement
       .filter((r) => r.account === 'REFUND_COST')
       .reduce((s, r) => s + r.amount, 0);
     expect(totalFeeRecognized).toBe(3_333); // exactly the Payment's real total fee, never 3_334
+  });
+});
+
+describe('createRefund after an earlier Refund was rejected or failed (prd-compliance 53)', () => {
+  // Gross 100_000, Provider Fee 3_333 and Platform Fee 1_667: neither fee splits
+  // evenly across two 50_000 Refunds (1_666.5 and 833.5), so one of the two takes
+  // the rounded-up half and the other the rupiah the cumulative cap leaves it.
+  // The pool the Payment settled into held 95_000.
+  const subject = { type: 'campaign' as const, campaignId: 'campaign-1' };
+
+  function setup() {
+    const harness = makeMultiPaymentTx([
+      { transactionId: 'settle-1', direction: 'CREDIT', amount: 95_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+    ]);
+    harness.payments.set('payment-1', makePayment({ amount: 100_000, providerFee: 3_333, platformFee: 1_667 }));
+    return harness;
+  }
+
+  const request = (tx: ReturnType<typeof makeMultiPaymentTx>['tx'], amount: number) =>
+    createRefund(tx as never, { subject, paymentId: 'payment-1', amount, reason: 'x', requestedById: 'admin-1' });
+
+  /** The debit legs a Refund's freeze posted, as account -> amount. */
+  const frozenBy = (rows: LedgerRow[], refundId: string): Record<string, number> =>
+    Object.fromEntries(
+      rows
+        .filter((r) => r.transactionId === `refund-requested-${refundId}` && r.direction === 'DEBIT')
+        .map((r) => [r.account, r.amount]),
+    );
+
+  it('gives the Refund that follows a rejection the share the rejected one held, so the standing Refunds carry the whole fee', async () => {
+    const { tx, prisma, rows } = setup();
+
+    // Both open at once: the second is frozen with the first still counted, so it
+    // carries the cut shares (833 and 1_666), the first the rounded-up ones (834
+    // and 1_667).
+    const first = await request(tx, 50_000);
+    const second = await request(tx, 50_000);
+    expect(frozenBy(rows, first.id)).toEqual({ ESCROW_HOLD: 47_499, PLATFORM_FEE: 834, REFUND_COST: 1_667 });
+    expect(frozenBy(rows, second.id)).toEqual({ ESCROW_HOLD: 47_501, PLATFORM_FEE: 833, REFUND_COST: 1_666 });
+
+    // The first is rejected, so only the second stands and the rest of the Payment
+    // is open again. The third, for that rest, has to take the rupiah the second
+    // was cut by: 834 and 1_667, not the 833 and 1_666 a recomputation against the
+    // second's amount alone gives.
+    await rejectRefund(prisma as never, { refundId: first.id, rejectedById: 'admin-2', reason: 'Salah Payment' });
+    const third = await request(tx, 50_000);
+
+    expect(frozenBy(rows, third.id)).toEqual({ ESCROW_HOLD: 47_499, PLATFORM_FEE: 834, REFUND_COST: 1_667 });
+    const standing = [frozenBy(rows, second.id), frozenBy(rows, third.id)];
+    expect(standing[0].PLATFORM_FEE + standing[1].PLATFORM_FEE).toBe(1_667);
+    expect(standing[0].REFUND_COST + standing[1].REFUND_COST).toBe(3_333);
+    // 95_000 settled, less the two standing Refunds' nets (47_501 and 47_499).
+    expect(escrowNetOf(rows, 'campaign-1')).toBe(0);
+  });
+
+  it('gives a Refund created after one that failed after approval the same shares as after a rejection', async () => {
+    const { tx, prisma, rows } = setup();
+    const first = await request(tx, 50_000);
+    const second = await request(tx, 50_000);
+    await approveRefund(prisma as never, { refundId: first.id, approvedById: 'admin-3', ...validDestination });
+    await approveRefund(prisma as never, { refundId: second.id, approvedById: 'admin-3', ...validDestination });
+    await failRefund(prisma as never, { refundId: first.id, failedById: 'admin-4', reason: 'Rekening Donor ditutup' });
+
+    const third = await request(tx, 50_000);
+
+    expect(frozenBy(rows, third.id)).toEqual({ ESCROW_HOLD: 47_499, PLATFORM_FEE: 834, REFUND_COST: 1_667 });
+    expect(escrowNetOf(rows, 'campaign-1')).toBe(0);
+  });
+
+  it('takes up a share the cap once cut from a Refund that still stands, once the Refunds that cut it are rejected', async () => {
+    const { tx, prisma, rows } = setup();
+
+    // Three open at once. The third is cut twice over, by the first and by the
+    // second: 416 of the Platform Fee where its own share is 417, and 832 of the
+    // Provider Fee where its own is 834.
+    const first = await request(tx, 50_000);
+    const second = await request(tx, 25_000);
+    const third = await request(tx, 25_000);
+    expect(frozenBy(rows, third.id)).toEqual({ ESCROW_HOLD: 23_752, PLATFORM_FEE: 416, REFUND_COST: 832 });
+
+    // Only the third stands once the other two are rejected. The fourth, for the
+    // 75_000 that is left, has to take up what the third was cut by on top of its
+    // own share of 1_251 and 2_500: 1_251 and 2_501. Capped only by the fee that
+    // is not yet posted, without taking up the cut, it stops a rupiah short on the
+    // Provider Fee (2_500), and the Payment ends with 3_332 of its 3_333 taken and
+    // ESCROW_HOLD at -1.
+    await rejectRefund(prisma as never, { refundId: first.id, rejectedById: 'admin-2', reason: 'Salah Payment' });
+    await rejectRefund(prisma as never, { refundId: second.id, rejectedById: 'admin-2', reason: 'Salah Payment' });
+    const fourth = await request(tx, 75_000);
+
+    expect(frozenBy(rows, fourth.id)).toEqual({ ESCROW_HOLD: 71_248, PLATFORM_FEE: 1_251, REFUND_COST: 2_501 });
+    const standing = [frozenBy(rows, third.id), frozenBy(rows, fourth.id)];
+    expect(standing[0].PLATFORM_FEE + standing[1].PLATFORM_FEE).toBe(1_667);
+    expect(standing[0].REFUND_COST + standing[1].REFUND_COST).toBe(3_333);
+    expect(escrowNetOf(rows, 'campaign-1')).toBe(0);
+  });
+
+  it('leaves a series of partial Refunds with no rejection on the shares it always had: each rounded up, the cap cutting only the last', async () => {
+    const { tx, rows } = setup();
+
+    const first = await request(tx, 50_000);
+    const second = await request(tx, 40_000);
+    const third = await request(tx, 10_000);
+
+    // Each Refund carries the rounded-up share of its own amount: for the 40_000,
+    // 1_334 of the Provider Fee (3_333 over it is 1_333.2) and 667 of the Platform
+    // Fee (666.8). Two Refunds in, that is 3_001 of the Provider Fee, where one
+    // rounded-up share of their 90_000 together would be 3_000: the shares are
+    // added up one Refund at a time, and this series must not move to the other
+    // rule. The cap takes the last Refund down to what is left, 332 and 166
+    // (its own shares would be 334 and 167).
+    expect(frozenBy(rows, first.id)).toEqual({ ESCROW_HOLD: 47_499, PLATFORM_FEE: 834, REFUND_COST: 1_667 });
+    expect(frozenBy(rows, second.id)).toEqual({ ESCROW_HOLD: 37_999, PLATFORM_FEE: 667, REFUND_COST: 1_334 });
+    expect(frozenBy(rows, third.id)).toEqual({ ESCROW_HOLD: 9_502, PLATFORM_FEE: 166, REFUND_COST: 332 });
+    expect(escrowNetOf(rows, 'campaign-1')).toBe(0);
+  });
+
+  it('covers exactly the net share a Refund froze when the pool was drained by a Payout and it is approved while another is still open', async () => {
+    // Settled, released to the Campaign's withdrawable balance, and paid out in
+    // full: the empty pool a later Refund finds, with the Payment's escrow matured.
+    const { tx, prisma, rows, payments } = makeMultiPaymentTx([
+      ...rowsOf(paymentSettledLegs({ subject, grossAmount: 100_000, providerFee: 3_333, platformFee: 1_667 }), 'settle-1'),
+      ...rowsOf(escrowReleaseLegs({ subject, amount: 95_000 }), 'escrow-release-1'),
+      ...rowsOf(payoutInstructedLegs({ subject, amount: 95_000 }), 'payout-1'),
+    ]);
+    payments.set('payment-1', makePayment({ amount: 100_000, providerFee: 3_333, platformFee: 1_667, escrowReleasedAt: new Date(2026, 0, 1) }));
+    const withdrawable = () =>
+      rows
+        .filter((r) => r.account === 'CAMPAIGN_BALANCE' && r.campaignId === 'campaign-1')
+        .reduce((sum, r) => sum + (r.direction === 'CREDIT' ? r.amount : -r.amount), 0);
+    const approvedBy = (refundId: string) =>
+      Object.fromEntries(
+        rows
+          .filter((r) => r.transactionId === `refund-approved-${refundId}` && r.direction === 'DEBIT')
+          .map((r) => [r.account, r.amount]),
+      );
+
+    // Two Refunds open on the empty pool: each freeze takes the balance further
+    // below zero, by 47_499 and by 47_501.
+    const first = await request(tx, 50_000);
+    const second = await request(tx, 50_000);
+    expect(withdrawable()).toBe(-95_000);
+
+    // The first is approved before the second, so the pool is still 95_000 below
+    // zero, more than the first's whole net share, which the platform covers
+    // exactly: 50_000 less the 834 and 1_667 its freeze took as fees. An approval
+    // that left out the Platform Fee share would cover 48_333, one that left out
+    // the Provider Fee share (REFUND_COST) 49_166, one that left out both 50_000.
+    // Approving the second AFTER the first is rejected cannot tell them apart:
+    // the pool is then no deeper than that Refund's own freeze, so the shortfall
+    // is capped at it whatever the shares were.
+    await approveRefund(prisma as never, { refundId: first.id, approvedById: 'admin-3', ...validDestination });
+
+    expect(approvedBy(first.id)).toEqual({ FROZEN_BALANCE: 50_000, REFUND_COST: 47_499 });
+    expect(withdrawable()).toBe(-47_501);
+
+    await approveRefund(prisma as never, { refundId: second.id, approvedById: 'admin-3', ...validDestination });
+
+    expect(approvedBy(second.id)).toEqual({ FROZEN_BALANCE: 50_000, REFUND_COST: 47_501 });
+    expect(withdrawable()).toBe(0);
+  });
+
+  it('gives a Refund nothing, never a negative share, once the standing Refunds carry more than the cumulative portion', async () => {
+    // A Payment of 10_000 with a Provider Fee of 10, settled into a pool of 9_990:
+    // a Refund of 1_000 carries 1, rounded up.
+    const { tx, prisma, rows, payments } = makeMultiPaymentTx([
+      { transactionId: 'settle-1', direction: 'CREDIT', amount: 9_990, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+    ]);
+    payments.set('payment-1', makePayment({ amount: 10_000, providerFee: 10, platformFee: 0 }));
+    const reject = (refundId: string) =>
+      rejectRefund(prisma as never, { refundId, rejectedById: 'admin-2', reason: 'Salah Payment' });
+
+    // Three open one after the other: 2, then 1, then 7 (its own 9, less the 2
+    // the first two took).
+    const first = await request(tx, 1_010);
+    const second = await request(tx, 100);
+    const third = await request(tx, 8_001);
+    expect(frozenBy(rows, first.id)).toEqual({ ESCROW_HOLD: 1_008, REFUND_COST: 2 });
+    expect(frozenBy(rows, second.id)).toEqual({ ESCROW_HOLD: 99, REFUND_COST: 1 });
+    expect(frozenBy(rows, third.id)).toEqual({ ESCROW_HOLD: 7_994, REFUND_COST: 7 });
+
+    // The first two are rejected. A Refund of 100 takes up the 2 the third was cut
+    // by, on top of its own 1.
+    await reject(first.id);
+    await reject(second.id);
+    const fourth = await request(tx, 100);
+    expect(frozenBy(rows, fourth.id)).toEqual({ ESCROW_HOLD: 97, REFUND_COST: 3 });
+
+    // Then the third is rejected too, and the fourth keeps the 3 it posted, where
+    // the cumulative portion of it and the next 100 is 2. The next Refund of 100
+    // carries no fee at all: a share of -1 would debit the pool 101 against a
+    // freeze of 100, and the freeze would not balance.
+    await reject(third.id);
+    const fifth = await request(tx, 100);
+    expect(frozenBy(rows, fifth.id)).toEqual({ ESCROW_HOLD: 100 });
+    // The pool held 9_990 and the two Refunds that stand took 97 and 100 of it.
+    expect(escrowNetOf(rows, 'campaign-1')).toBe(9_793);
+  });
+
+  it('refuses a Refund too small to carry its own two fee shares, posting nothing', async () => {
+    // One rupiah of a Payment with both fees: each share rounds up to 1, so the two
+    // come to 2 against an amount of 1. The freeze is refused as it is built; left
+    // to the ledger's own balance check it would fail as an unbalanced posting
+    // instead, with the same nothing posted but a worse message.
+    const { tx, rows } = setup();
+
+    await expect(request(tx, 1)).rejects.toThrow(InvalidLedgerLegError);
+    expect(rows.filter((r) => r.transactionId.startsWith('refund-requested-'))).toEqual([]);
+  });
+
+  it('refuses a Payment whose standing Refund has no freeze journal, writing nothing, rather than guess what that Refund took', async () => {
+    // createRefund posts the journal in the transaction that creates the Refund,
+    // so this should not happen. If it does, the next Refund's share measured
+    // against "took nothing" would be the whole of the fee again.
+    const { tx, refundCreate, rows } = makeTx({
+      payment: makePayment({ amount: 100_000, providerFee: 3_333, platformFee: 1_667 }),
+      priorRefunds: [{ id: 'refund-orphan', amount: 40_000, status: 'REQUESTED' }],
+    });
+
+    await expect(
+      createRefund(tx as never, { subject, paymentId: 'payment-1', amount: 60_000, reason: 'x', requestedById: 'admin-1' }),
+    ).rejects.toThrow(/refund-orphan has no freeze journal/);
+    expect(refundCreate).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
   });
 });
 
