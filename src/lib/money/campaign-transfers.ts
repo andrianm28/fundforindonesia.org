@@ -6,6 +6,7 @@ import { getMailer, type Mailer } from '@/lib/mail';
 import { campaignTransferEmail } from '@/lib/mail/campaign-transfer';
 import { publicUrl } from '@/lib/public-url';
 import { formatRupiah } from '@/lib/utils/currency';
+import { KIND_LABEL } from '@/lib/campaign-kind';
 import { campaignBalance, campaignTransferLegs, postTransaction } from './ledger';
 import {
   CampaignTransferBalanceChangedError,
@@ -23,8 +24,8 @@ import {
 } from './errors';
 
 /**
- * Campaign Transfer (prd-compliance 33; PRD §7.2; ADR 0015; CONTEXT.md,
- * Campaign Transfer): when a zakat or wakaf Campaign is Suspended its money is
+ * Campaign Transfer (prd-compliance 33; csr-and-hibah 10; PRD §7.2; ADR 0015;
+ * CONTEXT.md, Campaign Transfer): when a zakat, wakaf or hibah Campaign is Suspended its money is
  * not handed back to Donors, it moves to another Campaign of the same Kind.
  *
  * THE KIND RULES LIVE HERE, NOT IN A SCREEN. `judgeCampaignTransfer` is the
@@ -32,7 +33,7 @@ import {
  * and it is called under both row locks at the request and again at the
  * approval, so a UI that offers a wrong target, or a request crafted by hand,
  * meets the same refusal. Zakat goes to zakat; wakaf goes to wakaf of the same
- * category; anything across Kinds is refused outright, never warned about. It
+ * category; hibah goes to hibah; anything across Kinds is refused outright, never warned about. It
  * is a pure function of the two locked states so the Dormant Balance transfer
  * (a later ticket) can reuse it by judging its own source status.
  *
@@ -89,8 +90,25 @@ export {
 
 const MAX_REASON_LENGTH = 1000;
 
-/** The Kinds whose money is moved by transfer rather than returned (PRD §7.2). */
-const TRANSFERABLE_KINDS: readonly Kind[] = [Kind.ZAKAT, Kind.WAKAF];
+/**
+ * How each Kind's money is moved when its Campaign is Suspended (PRD §7.2;
+ * ADR 0013, 0015). A total Record over Kind, like the refund table in
+ * refunds.ts, so a fifth Kind cannot be added without someone deciding its
+ * transfer rule here. Every transferable Kind goes only to its own Kind.
+ *  - zakat: any zakat Campaign.
+ *  - wakaf: a wakaf Campaign of the same Category (the asset stays bound).
+ *  - hibah: any hibah Campaign (csr-and-hibah ticket 10). The Wakaf copy that
+ *    ADR 0013 makes provisional covers Kind Authorisation, Refund and fee, not
+ *    this; the ticket and spec say "the same Kind" only. OWNER DECISION
+ *    PENDING: whether Hibah should also be category-bound like Wakaf.
+ *  - donation: not transferred (its own rule).
+ */
+const TRANSFER_RULE_BY_KIND: Record<Kind, { transferable: boolean; sameCategory: boolean }> = {
+  [Kind.DONATION]: { transferable: false, sameCategory: false },
+  [Kind.ZAKAT]: { transferable: true, sameCategory: false },
+  [Kind.WAKAF]: { transferable: true, sameCategory: true },
+  [Kind.HIBAH]: { transferable: true, sameCategory: false },
+};
 
 type CampaignState = Extract<SubjectState, { kind: 'campaign' }>;
 
@@ -108,13 +126,14 @@ export function judgeCampaignTransfer(source: TransferParty, target: TransferPar
   if (source.state.id === target.state.id) {
     throw new CampaignTransferTargetNotEligibleError('same_campaign');
   }
-  if (!TRANSFERABLE_KINDS.includes(source.state.campaignKind)) {
+  const rule = TRANSFER_RULE_BY_KIND[source.state.campaignKind];
+  if (!rule?.transferable) {
     throw new CampaignTransferKindNotTransferableError(source.state.campaignKind);
   }
   if (target.state.campaignKind !== source.state.campaignKind) {
     throw new CampaignTransferCrossKindError(source.state.campaignKind, target.state.campaignKind);
   }
-  if (source.state.campaignKind === Kind.WAKAF && source.category !== target.category) {
+  if (rule.sameCategory && source.category !== target.category) {
     throw new CampaignTransferCategoryMismatchError(source.category, target.category);
   }
   if (target.state.isDemo) {
@@ -146,7 +165,7 @@ function cleanId(value: unknown, field: string): string {
 type Judged = {
   source: TransferParty;
   target: TransferParty;
-  targets: { sourceTitle: string; targetTitle: string; targetSlug: string };
+  targets: { sourceTitle: string; targetTitle: string; targetSlug: string; kindLabel: string };
   balance: number;
 };
 
@@ -219,7 +238,9 @@ async function lockAndJudge(
   return {
     source,
     target,
-    targets: { sourceTitle: sourceRow.title, targetTitle: targetRow.title, targetSlug: targetRow.slug },
+    targets: { sourceTitle: sourceRow.title, targetTitle: targetRow.title, targetSlug: targetRow.slug,
+      kindLabel: KIND_LABEL[sourceState.campaignKind],
+    },
     balance,
   };
 }
@@ -363,7 +384,7 @@ export async function approveCampaignTransfer(
 
 async function emailGuestDonors(
   guests: GuestEmailRow[],
-  targets: { sourceTitle: string; targetTitle: string; targetSlug: string },
+  targets: { sourceTitle: string; targetTitle: string; targetSlug: string; kindLabel: string },
   deps: CampaignTransferNotifyDeps,
 ): Promise<void> {
   const read = deps.readGuestEmail ?? readDonationGuestEmail;
@@ -384,6 +405,7 @@ async function emailGuestDonors(
           sourceTitle: targets.sourceTitle,
           targetTitle: targets.targetTitle,
           targetUrl: publicUrl(`/campaign/${targets.targetSlug}`),
+          kindLabel: targets.kindLabel,
         }),
       );
     } catch (error) {

@@ -222,13 +222,12 @@ describe('requestCampaignTransfer', () => {
     expect(tx.campaignTransfer.create).not.toHaveBeenCalled();
   });
 
-  it('refuses a Suspended source of Kind Donation or Hibah: only zakat and wakaf are transferred', async () => {
-    for (const kind of ['DONATION', 'HIBAH']) {
-      const { tx } = makeTx({ source: { kind }, target: { kind } });
-      await expect(requestCampaignTransfer(tx as never, REQUEST)).rejects.toBeInstanceOf(
-        CampaignTransferKindNotTransferableError,
-      );
-    }
+  it('refuses a Suspended source of Kind Donation: only zakat, wakaf and hibah are transferred', async () => {
+    const { tx } = makeTx({ source: { kind: 'DONATION' }, target: { kind: 'DONATION' } });
+    await expect(requestCampaignTransfer(tx as never, REQUEST)).rejects.toBeInstanceOf(
+      CampaignTransferKindNotTransferableError,
+    );
+    expect(tx.campaignTransfer.create).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -237,6 +236,9 @@ describe('requestCampaignTransfer', () => {
     ['ZAKAT', 'DONATION'],
     ['WAKAF', 'HIBAH'],
     ['ZAKAT', 'HIBAH'],
+    ['HIBAH', 'ZAKAT'],
+    ['HIBAH', 'WAKAF'],
+    ['HIBAH', 'DONATION'],
   ])('refuses %s money going to a %s Campaign outright', async (sourceKind, targetKind) => {
     const { tx } = makeTx({ source: { kind: sourceKind }, target: { kind: targetKind } });
     await expect(requestCampaignTransfer(tx as never, REQUEST)).rejects.toBeInstanceOf(CampaignTransferCrossKindError);
@@ -259,6 +261,19 @@ describe('requestCampaignTransfer', () => {
       target: { kind: 'WAKAF', category: 'Wakaf Pendidikan' },
     });
     await expect(requestCampaignTransfer(tx as never, REQUEST)).resolves.toMatchObject({ status: 'PENDING' });
+  });
+
+  // Regression named in csr-and-hibah spec: a suspended hibah Campaign's
+  // transfer refuses a cross-Kind destination outright, like zakat/wakaf.
+  it('allows hibah to hibah, with no category match (Hibah is not bound to a category the way Wakaf is)', async () => {
+    const { tx } = makeTx({
+      source: { kind: 'HIBAH', category: 'Pendidikan' },
+      target: { kind: 'HIBAH', category: 'Kesehatan' },
+    });
+    await expect(requestCampaignTransfer(tx as never, REQUEST)).resolves.toMatchObject({
+      status: 'PENDING',
+      amount: 400_000,
+    });
   });
 
   it('does not require a category match for zakat', async () => {
@@ -340,6 +355,44 @@ describe('requestCampaignTransfer', () => {
 });
 
 describe('approveCampaignTransfer', () => {
+  it('approves a hibah transfer as one balanced journal, with a different Admin, and tells the Donor Hibah', async () => {
+    const { tx, rows } = makeTx({
+      source: { kind: 'HIBAH', title: 'Hibah Sumber' },
+      target: { kind: 'HIBAH', title: 'Hibah Tujuan', slug: 'hibah-tujuan' },
+      donors: [{ donorId: 'donor-1' }],
+    });
+    const prisma = makePrisma(tx);
+    await approveCampaignTransfer(prisma as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' });
+
+    const posted = rows.filter((r) => r.transactionId === 'campaign-transfer-ct-1');
+    expect(posted).toHaveLength(2);
+    expect(posted.find((r) => r.direction === 'DEBIT')).toMatchObject({ campaignId: SOURCE, amount: 400_000 });
+    expect(posted.find((r) => r.direction === 'CREDIT')).toMatchObject({ campaignId: TARGET, amount: 400_000 });
+    const notified = tx.notification.createMany.mock.calls[0][0].data as Array<{ userId: string; message: string }>;
+    expect(notified.find((n) => n.userId === 'donor-1')?.message).toContain('Hibah Tujuan');
+  });
+
+  it('refuses a hibah approval by the requester, and when the balance changed since the request', async () => {
+    const self = makeTx({ source: { kind: 'HIBAH' }, target: { kind: 'HIBAH' } });
+    await expect(
+      approveCampaignTransfer(makePrisma(self.tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-1' }),
+    ).rejects.toBeInstanceOf(SelfApprovalError);
+
+    const changed = makeTx({ source: { kind: 'HIBAH' }, target: { kind: 'HIBAH' }, sourceBalance: 350_000 });
+    await expect(
+      approveCampaignTransfer(makePrisma(changed.tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' }),
+    ).rejects.toBeInstanceOf(CampaignTransferBalanceChangedError);
+    expect(changed.rows.filter((r) => r.transactionId.startsWith('campaign-transfer-'))).toHaveLength(0);
+  });
+
+  it('re-judges the Kind at approval: a hibah request whose target became zakat moves nothing', async () => {
+    const { tx, rows } = makeTx({ source: { kind: 'HIBAH' }, target: { kind: 'ZAKAT' } });
+    await expect(
+      approveCampaignTransfer(makePrisma(tx) as never, { campaignTransferId: 'ct-1', decidedById: 'admin-2' }),
+    ).rejects.toBeInstanceOf(CampaignTransferCrossKindError);
+    expect(rows.filter((r) => r.transactionId.startsWith('campaign-transfer-'))).toHaveLength(0);
+  });
+
   it('posts one balanced journal: debit the source balance, credit the target, tagged with the transfer', async () => {
     const { tx, rows } = makeTx();
     const before = rows.length;

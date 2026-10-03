@@ -96,7 +96,7 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
 
   async function makeCampaign(opts: {
     status: 'ACTIVE' | 'SUSPENDED';
-    kind?: 'ZAKAT' | 'WAKAF';
+    kind?: 'ZAKAT' | 'WAKAF' | 'HIBAH';
     category?: string;
     /** The Campaign's balance, seeded as a balanced journal against the provider clearing account. */
     balance?: number;
@@ -373,5 +373,43 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
     ).rejects.toBeInstanceOf(transfers.CampaignTransferCategoryMismatchError);
     expect(await balanceOf(source.id)).toBe(300_000);
     expect(await balanceOf(target.id)).toBe(0);
+  }, 60_000);
+
+  it('a suspended hibah Campaign moves its whole balance to another hibah Campaign (csr-and-hibah 10), balanced, with a different Admin', async () => {
+    const source = await makeCampaign({ status: 'SUSPENDED', kind: 'HIBAH', category: 'Pendidikan', balance: 300_000 });
+    const target = await makeCampaign({ status: 'ACTIVE', kind: 'HIBAH', category: 'Kesehatan' });
+    const requester = await makeUser();
+    const approver = await makeUser();
+    const transfer = await requestTransfer(source.id, target.id, requester);
+    expect(transfer.amount).toBe(300_000);
+
+    await expect(
+      transfers.approveCampaignTransfer(prisma, { campaignTransferId: transfer.id, decidedById: requester }),
+    ).rejects.toBeInstanceOf(transfers.SelfApprovalError);
+    await transfers.approveCampaignTransfer(prisma, { campaignTransferId: transfer.id, decidedById: approver });
+
+    expect(await balanceOf(source.id)).toBe(0);
+    expect(await balanceOf(target.id)).toBe(300_000);
+    await expectLedgerBalanced();
+  }, 60_000);
+
+  it('a hibah transfer to a zakat Campaign is refused outright, at the request and at the approval', async () => {
+    const source = await makeCampaign({ status: 'SUSPENDED', kind: 'HIBAH', balance: 300_000 });
+    const zakat = await makeCampaign({ status: 'ACTIVE', kind: 'ZAKAT' });
+    const hibah = await makeCampaign({ status: 'ACTIVE', kind: 'HIBAH' });
+    const requester = await makeUser();
+    const approver = await makeUser();
+
+    await expect(requestTransfer(source.id, zakat.id, requester)).rejects.toBeInstanceOf(
+      transfers.CampaignTransferCrossKindError,
+    );
+
+    const transfer = await requestTransfer(source.id, hibah.id, requester);
+    await prisma.campaign.update({ where: { id: hibah.id }, data: { kind: 'ZAKAT' } });
+    await expect(
+      transfers.approveCampaignTransfer(prisma, { campaignTransferId: transfer.id, decidedById: approver }),
+    ).rejects.toBeInstanceOf(transfers.CampaignTransferCrossKindError);
+    expect(await balanceOf(source.id)).toBe(300_000);
+    expect(await balanceOf(hibah.id)).toBe(0);
   }, 60_000);
 });

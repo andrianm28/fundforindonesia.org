@@ -7,8 +7,8 @@ import { domainErrorToHttp } from '@/lib/domain-errors';
 import { requestCampaignTransfer } from '@/lib/money/campaign-transfers';
 
 /**
- * POST /api/admin/campaign-transfers: one Admin asks for a Suspended zakat or
- * wakaf Campaign's money to move to another Campaign of the same Kind
+ * POST /api/admin/campaign-transfers: one Admin asks for a Suspended zakat,
+ * wakaf or hibah Campaign's money to move to another Campaign of the same Kind
  * (CONTEXT.md, Campaign Transfer; PRD §7.2).
  *
  *   { sourceId, targetId, reason }
