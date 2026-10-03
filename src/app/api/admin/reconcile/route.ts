@@ -32,7 +32,9 @@ import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
  *    all -- so there is no routine over-draw here to correct; only a
  *    genuine settlement-time shortfall (refundApprovedLegs, real pool
  *    insolvency, e.g. a Payout already spent past this refund's share)
- *    ever credits this account back, and the balance checks in
+ *    or the mirror of a rejected or failed freeze (resolveRefund,
+ *    ./refunds.ts, prd-compliance 49) ever credits this account back
+ *    under a refundId, and the balance checks in
  *    ./payouts.ts for CAMPAIGN_BALANCE; this is what would catch it if one
  *    of those was ever wrong.
  *  - preLedger / mismatches: both compare Campaign.collectedAmount against
@@ -52,10 +54,16 @@ import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
  *    comparison ever runs -- their collectedAmount is fixture data with no
  *    ledger behind it by design, and this report should never spend a line
  *    on that.
+ *    "Ever credited" is what Settlement credited. What a Refund posts back to
+ *    ESCROW_HOLD (the reversal of a rejected or failed freeze) is money handed
+ *    back, not credited, and is left out; see the note on the query.
  *  - strandedEscrow: a Payment with `escrowReleasedAt` set (releaseMaturedEscrow,
  *    ./escrow.ts, considers it permanently finished) whose credited net still
  *    does not add up against what has actually left ESCROW_HOLD on its
- *    behalf -- either released directly, or debited by a refund against it.
+ *    behalf -- either released directly, or debited by a refund against it
+ *    that still stands. A REJECTED or FAILED refund counts for nothing: its
+ *    freeze was posted straight back (prd-compliance 49), so it took nothing,
+ *    and reading it would report books that are right as stranded.
  *    Should always be empty; it exists as the safety net for the exact class
  *    of bug fixed in escrow.ts (stamping a payment "done" while a refund
  *    against it was still in flight, then that refund resolving in a way the
@@ -175,9 +183,23 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // collected figure from -- and that is what collectedAmount is compared
     // against. Leaving the Platform Fee out reported every campaign that
     // charged one as a permanent mismatch, off by exactly that fee.
+    //
+    // "Ever credited" means what Settlement credited, so a credit posted under
+    // a refundId is left out. A Refund that ends REJECTED or FAILED hands its
+    // freeze back as the exact mirror (resolveRefund, ./refunds.ts): a CREDIT
+    // to ESCROW_HOLD, under the Refund's refundId, for the share the freeze took
+    // out. An approved Refund that outran its pool is topped up the same way
+    // (refundApprovedLegs, ./ledger.ts). Neither is money the Campaign was
+    // credited with: the first is money handed back, the second the platform's
+    // own cover (REFUND_COST). Counted, they put the reconstruction above
+    // collectedAmount by exactly that amount, a mismatch on every run for a
+    // Campaign whose books are right (prd-compliance 52). It is the ledger side
+    // that has to leave them out, not collectedAmount: that is the
+    // lifetime-raised figure the public pages show, and no Refund path writes
+    // it (the webhook increments it, ./refunds.ts never does).
     const escrowCreditRows = await tx.ledgerEntry.groupBy({
       by: ['campaignId'],
-      where: { account: 'ESCROW_HOLD', direction: 'CREDIT', campaignId: { not: null } },
+      where: { account: 'ESCROW_HOLD', direction: 'CREDIT', campaignId: { not: null }, refundId: null },
       _sum: { amount: true },
     });
     const netEverCreditedByCampaign = new Map<string, number>(
@@ -334,10 +356,10 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // ESCROW_HOLD -- Gross minus BOTH fees, the same fields
     // paymentSettledLegs credited it from and the same ones the release
     // itself reads, so no query is needed -- minus (a) what has actually been
-    // released on its behalf, and (b) what a refund against it has actually
-    // debited. A nonzero remainder means this payment's own money is sitting
-    // in ESCROW_HOLD with nothing left able to ever move it, because
-    // escrowReleasedAt already took it out of the sweep's predicate.
+    // released on its behalf, and (b) what a refund against it that still
+    // stands has actually debited. A nonzero remainder means this payment's own
+    // money is sitting in ESCROW_HOLD with nothing left able to ever move it,
+    // because escrowReleasedAt already took it out of the sweep's predicate.
     //
     // Reading only `amount - providerFee` here, as this did while the sweep
     // subtracted no Platform Fee either, would have reported every released
@@ -387,9 +409,29 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // PostOptions.refundId, never paymentId) -- so, the same way
     // PROVIDER_FEE was attributed to a campaign above, this is joined
     // through Refund.paymentId rather than read off the ledger entry itself.
+    //
+    // Only a refund that still stands. A REJECTED or FAILED one took nothing out
+    // of ESCROW_HOLD for good (prd-compliance 52): resolveRefund (./refunds.ts)
+    // posts the exact mirror of its freeze, a CREDIT of the same amount to the
+    // same account under the same refundId, so the freeze and its reversal
+    // cancel to zero. The sum below is over DEBIT legs only, so a refund left
+    // in this join would show the freeze and never the credit that handed it
+    // back.
+    //
+    // That is wrong in both directions. The returned share leaves ESCROW_HOLD
+    // again under this payment's paymentId either way -- released by
+    // resolveRefund when the escrow had already been released before the refund
+    // ended, or by the sweep when it had not, since the sweep counts a rejected
+    // refund as never having existed -- so (a) above already holds it. Counting
+    // the freeze as well counts that share twice and puts the residual below
+    // zero by exactly the share: books that are right, reported as stranded on
+    // every run, with nothing for an Admin to fix. And a share that really was
+    // never released would be hidden behind a freeze that had been reversed.
+    // The sweep (./escrow.ts) and the Impact page (./impact.ts) leave these
+    // refunds out for the same reason.
     const refundsOnReleasedPayments = releasedPaymentIds.length
       ? await tx.refund.findMany({
-          where: { paymentId: { in: releasedPaymentIds } },
+          where: { paymentId: { in: releasedPaymentIds }, status: { notIn: ['REJECTED', 'FAILED'] } },
           select: { id: true, paymentId: true },
         })
       : [];
