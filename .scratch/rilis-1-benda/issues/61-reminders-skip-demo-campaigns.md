@@ -2,7 +2,7 @@
 
 **Type:** bug (pencegahan sebelum cron dipasang)
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -18,9 +18,9 @@ itu. Pembanding yang sudah benar: `src/lib/money/dormant-balances.ts`
 
 ## Acceptance criteria
 
-- [ ] Setiap job terjadwal yang mengirim pengingat atau notifikasi ke manusia mengecualikan Demo Campaign, lewat `NOT_A_DEMO_CAMPAIGN` (`src/lib/subject-guard.ts`).
-- [ ] `sendCampaignDeadlineReminders` tidak mengirim Notification maupun email, dan tidak menandai `deadlineReminderSentAt`, untuk Demo Campaign.
-- [ ] Job uang yang tidak mengirim pesan (sweep escrow) tidak berubah perilaku.
-- [ ] Tes per job; tanpa migrasi.
+- [x] Job terjadwal yang mengirim pesan ke manusia dan terikat Campaign (hanya `sendCampaignDeadlineReminders`) mengecualikan Demo Campaign via `NOT_A_DEMO_CAMPAIGN`; lihat Comments
+- [x] `sendCampaignDeadlineReminders` tidak mengirim Notification maupun email, dan tidak menandai `deadlineReminderSentAt`, untuk Demo Campaign.
+- [x] Job uang yang tidak mengirim pesan (sweep escrow) tidak berubah perilaku.
+- [x] Tes per job; tanpa migrasi.
 
 ## Comments

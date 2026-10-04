@@ -42,6 +42,7 @@ type CampaignRow = {
   title: string;
   deadline: Date | null;
   lifecycleStatus: string;
+  isDemo?: boolean;
   creatorId: string;
   deadlineReminderSentAt: Date | null;
   // The Fundraiser's address is a ciphertext (ADR 0012), decrypted where the
@@ -87,6 +88,7 @@ function makeCampaignDb(campaigns: CampaignRow[]) {
       const matches = Array.from(state.values()).filter(
         (c) =>
           c.lifecycleStatus === where.lifecycleStatus &&
+          (where.isDemo === undefined || (c.isDemo ?? false) === where.isDemo) &&
           c.deadlineReminderSentAt === (where.deadlineReminderSentAt as null) &&
           c.deadline !== null &&
           c.deadline.getTime() > deadlineFilter.gt.getTime() &&
@@ -150,6 +152,21 @@ describe('sendCampaignDeadlineReminders', () => {
     const [message, report] = mockSendReportingFailure.mock.calls[0];
     expect(message.to).toBe('fundraiser@example.test');
     expect(report).toMatchObject({ mail: 'campaign_deadline_reminder', campaignId: 'campaign-1' });
+  });
+
+  it('sends nothing for a Demo Campaign, and still reminds the real one beside it', async () => {
+    const { state, notifications } = makeCampaignDb([
+      makeCampaign({ id: 'demo-1', slug: 'demo', isDemo: true }),
+      makeCampaign({ id: 'real-1', slug: 'real' }),
+    ]);
+
+    const result = await sendCampaignDeadlineReminders(NOW);
+
+    expect(result).toEqual({ attemptedCount: 1, consideredCount: 1 });
+    expect(state.get('demo-1')!.deadlineReminderSentAt).toBeNull();
+    expect(notifications).toEqual([expect.objectContaining({ link: '/campaign/real' })]);
+    expect(mockSendReportingFailure).toHaveBeenCalledTimes(1);
+    expect(mockCampaignFindMany.mock.calls[0][0].where).toMatchObject({ isDemo: false });
   });
 
   it('uses the seven-day lead time the PRD asks for (FFI-03)', () => {
