@@ -38,7 +38,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: fundindo_staging
-      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:?set STAGING_DB_PASSWORD in .env.staging}
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:?}
       POSTGRES_DB: fund_indonesia_staging
     volumes:
       - postgres_data:/var/lib/postgresql/data

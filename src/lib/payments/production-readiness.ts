@@ -25,6 +25,23 @@
 import { isStagingDeployment } from '@/lib/deploy-environment';
 import { canonicalPaymentProviderName, type PaymentProviderName } from './provider-names';
 
+const SUMOPOD_SANDBOX_HOST = 'api-pay-sandbox.sumopod.com';
+
+/**
+ * Whether the url is, exactly, the Sumopod sandbox over https. The substring
+ * test below is right for production, where a false "sandbox" only refuses;
+ * staging reads the answer the other way round, so there a url that merely
+ * mentions "sandbox" (a query string, a path, a lookalike host) must not count.
+ */
+function isExactlySumopodSandbox(baseUrl: string): boolean {
+  try {
+    const url = new URL(baseUrl);
+    return url.protocol === 'https:' && url.hostname === SUMOPOD_SANDBOX_HOST;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * One rule per provider this build can speak to: null when it may take money
  * here, and the reason when it may not.
@@ -53,7 +70,7 @@ const PRODUCTION_RULES: Record<PaymentProviderName, () => string | null> = {
     // that no real rupiah moves there, so the permission is a requirement,
     // not merely a relaxation.
     if (isStagingDeployment()) {
-      return isSandbox
+      return isExactlySumopodSandbox(baseUrl)
         ? null
         : 'SUMOPOD_BASE_URL is not the Sumopod sandbox in a staging deployment. Staging must never ' +
             'take real money, so it is refused rather than charged for real.';

@@ -107,6 +107,21 @@ describe('paymentProviderProductionRefusal in a staging deployment', () => {
     expect(paymentProviderProductionRefusal('sumopod')).toMatch(/staging/i);
   });
 
+  it('refuses a live or lookalike url that merely contains "sandbox" in staging', () => {
+    process.env.DEPLOY_ENVIRONMENT = 'staging';
+    for (const lookalike of [
+      'https://api-pay.sumopod.com/api/v1?x=sandbox',
+      'https://api-pay.sumopod.com/sandbox/api/v1',
+      'https://sandbox.evil.example/api/v1',
+      'https://api-pay-sandbox.sumopod.com.evil.example/api/v1',
+      'http://api-pay-sandbox.sumopod.com/api/v1',
+      'not a url sandbox',
+    ]) {
+      process.env.SUMOPOD_BASE_URL = lookalike;
+      expect(paymentProviderProductionRefusal('sumopod'), lookalike).toMatch(/staging/i);
+    }
+  });
+
   it('still refuses an unset base url in staging, and the mock adapter, and an unknown provider', () => {
     process.env.DEPLOY_ENVIRONMENT = 'staging';
 
