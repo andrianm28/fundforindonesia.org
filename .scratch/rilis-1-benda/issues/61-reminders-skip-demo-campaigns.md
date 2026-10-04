@@ -24,3 +24,4 @@ itu. Pembanding yang sudah benar: `src/lib/money/dormant-balances.ts`
 - [x] Tes per job; tanpa migrasi.
 
 ## Comments
+- 2026-10-04, branch `claude/rilis-1-61-reminders-skip-demo`, sha kode 8dec795: `sendCampaignDeadlineReminders` kini memakai `...NOT_A_DEMO_CAMPAIGN` di `where`, tanpa mempedulikan `SHOW_DEMO_CAMPAIGNS`. Tidak diubah, sengaja: sweep escrow (tanpa pesan); `sweepStuckLateSettlementRefunds` (Volunteer Trip tidak punya `isDemo`, ADR 0014); `sendKindAuthorisationExpiryWarnings` (terikat Partner Organisation, bukan Campaign; butuh keputusan owner bila Partner Organisation demo ada). `dormant-balances`, `partnership-inquiries`, `collecting-entity` bukan job terjadwal.
