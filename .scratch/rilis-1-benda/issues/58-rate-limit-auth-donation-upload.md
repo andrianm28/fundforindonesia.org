@@ -48,4 +48,4 @@ verifikasi, dan upload.
   per akun, fail-closed 503. Sisanya fail-open. Tes: `rate-limit-endpoints`,
   `auth.test`, `email-verification/route.test`. Ratchet lint 193, tsc 19.
   Catatan: route kirim ulang Receipt (cooldown sendiri) tidak termasuk cakupan.
-  Commit kerja: lihat komentar berikut.
+  Commit kerja: 685d8bf.
