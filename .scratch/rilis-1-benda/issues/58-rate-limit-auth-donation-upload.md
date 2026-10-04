@@ -2,7 +2,7 @@
 
 **Type:** task (kode keamanan)
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -27,16 +27,25 @@ verifikasi, dan upload.
 
 ## Kriteria penerimaan
 
-- [ ] Login: percobaan ke-N+1 per klien+alamat dan per klien ditolak sebelum
+- [x] Login: percobaan ke-N+1 per klien+alamat dan per klien ditolak sebelum
       lookup/hash password
-- [ ] Register: ditolak 429 di atas batas, sebelum body dibaca
-- [ ] Donasi tamu: ditolak 429 di atas batas; Donor yang masuk tidak dihitung
-- [ ] Kirim ulang verifikasi: 429 di atas batas; 503 dan tanpa email bila limiter
+- [x] Register: ditolak 429 di atas batas, sebelum body dibaca
+- [x] Donasi tamu: ditolak 429 di atas batas; Donor yang masuk tidak dihitung
+- [x] Kirim ulang verifikasi: 429 di atas batas; 503 dan tanpa email bila limiter
       gagal
-- [ ] Upload: 429 di atas batas per akun; tanpa sesi tetap 401 tanpa menghitung
-- [ ] Jalur fail-open tetap melayani saat limiter gagal
-- [ ] Tanpa migrasi; tidak ada angka batas di `.scratch`
+- [x] Upload: 429 di atas batas per akun; tanpa sesi tetap 401 tanpa menghitung
+- [x] Jalur fail-open tetap melayani saat limiter gagal
+- [x] Tanpa migrasi; tidak ada angka batas di `.scratch`
 
 ## Comments
 
 - 2026-10-04: owner menyetujui rencana (H-1, Gelombang 0).
+- 2026-10-04, branch `claude/rilis-1-58-rate-limit`: `src/lib/rate-limit-guard.ts`
+  (`checkRateLimit`, `guardRoute`) membungkus `consumeRateLimit` dengan
+  kebijakan per endpoint. Login dihitung di `authorize` (per klien+alamat dan per
+  klien) sebelum lookup. Register per klien; donasi hanya tamu, per klien,
+  setelah sesi dibaca; upload per akun setelah cek sesi; kirim ulang verifikasi
+  per akun, fail-closed 503. Sisanya fail-open. Tes: `rate-limit-endpoints`,
+  `auth.test`, `email-verification/route.test`. Ratchet lint 193, tsc 19.
+  Catatan: route kirim ulang Receipt (cooldown sendiri) tidak termasuk cakupan.
+  Commit kerja: lihat komentar berikut.

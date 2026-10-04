@@ -5,6 +5,8 @@ import { hashPassword } from '@/lib/password-hash';
 import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import { lookupUserEmail, readUserEmail, sealUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
+import { clientAddress } from '@/lib/client-ip';
+import { guardRoute } from '@/lib/rate-limit-guard';
 
 const registerSchema = z.object({
   name: z.string().min(1, 'Nama harus diisi'),
@@ -12,7 +14,24 @@ const registerSchema = z.object({
   password: passwordField,
 });
 
+/** Per client per hour. Fail-open: a limiter outage must not close registration. */
+const REGISTER_LIMIT = 10;
+const REGISTER_WINDOW_SECONDS = 60 * 60;
+
 export async function POST(request: NextRequest) {
+  // Counted before the body is read: every attempt, valid or not, costs one.
+  const refused = await guardRoute(
+    {
+      scope: 'auth-register',
+      subject: clientAddress(request.headers),
+      limit: REGISTER_LIMIT,
+      windowSeconds: REGISTER_WINDOW_SECONDS,
+      onUnavailable: 'open',
+    },
+    { limited: 'Terlalu banyak percobaan pendaftaran. Coba lagi nanti.' },
+  );
+  if (refused) return refused;
+
   try {
     const body = await request.json();
 

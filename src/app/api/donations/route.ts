@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { sealDonationGuestEmail, sealDonationGuestPhone } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
+import { clientAddress } from '@/lib/client-ip';
+import { guardRoute } from '@/lib/rate-limit-guard';
 import { PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { resolveActivePaymentProvider } from '@/lib/payments/active-provider';
 import {
@@ -50,6 +52,10 @@ const createDonationSchema = z.object({
   // it is never treated as having confirmed anything.
   ikrarConfirmed: z.boolean().optional().default(false),
 });
+
+/** Guest Donation attempts per client address per hour. */
+const GUEST_DONATION_LIMIT = 30;
+const GUEST_DONATION_WINDOW_SECONDS = 60 * 60;
 
 export async function POST(request: NextRequest) {
   // The switch, checked before the body is parsed, before the session is
@@ -146,6 +152,23 @@ export async function POST(request: NextRequest) {
     // 3. Get session (optional -- donorId can be null for a Guest Donor)
     const session = await getServerSession();
     const donorId = session?.user?.id || null;
+
+    // Guest Donations are counted per client address: each one opens a charge
+    // at the provider. Signed-in Donors have an account behind them and are
+    // not counted. Fail-open: a limiter outage must not stop a donation.
+    if (!donorId) {
+      const refused = await guardRoute(
+        {
+          scope: 'donation-guest',
+          subject: clientAddress(request.headers),
+          limit: GUEST_DONATION_LIMIT,
+          windowSeconds: GUEST_DONATION_WINDOW_SECONDS,
+          onUnavailable: 'open',
+        },
+        { limited: 'Terlalu banyak percobaan donasi dari jaringan ini. Coba lagi nanti.' },
+      );
+      if (refused) return refused;
+    }
 
     // A Guest Donor must leave an email -- the minimum data needed for a
     // Receipt (CONTEXT.md, Guest Donor). A signed-in Donor's email already
