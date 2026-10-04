@@ -9,16 +9,21 @@ import { POST } from './route';
 
 vi.mock('@/lib/auth', () => ({ getServerSession: vi.fn() }));
 vi.mock('@/lib/email-verification', () => ({ requestEmailVerification: vi.fn() }));
+vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/rate-limit', () => ({ consumeRateLimit: vi.fn() }));
 
 import { getServerSession } from '@/lib/auth';
 import { requestEmailVerification } from '@/lib/email-verification';
+import { consumeRateLimit } from '@/lib/rate-limit';
 
 const session = getServerSession as unknown as Mock;
 const request = requestEmailVerification as unknown as Mock;
+const consume = consumeRateLimit as unknown as Mock;
 
 beforeEach(() => {
   vi.resetAllMocks();
   session.mockResolvedValue({ user: { id: 'user-1' } });
+  consume.mockResolvedValue({ allowed: true, count: 1, retryAfterSeconds: 60 });
 });
 
 describe('POST /api/user/email-verification', () => {
@@ -60,5 +65,25 @@ describe('POST /api/user/email-verification', () => {
     request.mockResolvedValue({ status: 'send-failed' });
 
     expect((await POST()).status).toBe(502);
+  });
+
+  it('answers 429 with Retry-After over the rate limit, and sends nothing', async () => {
+    consume.mockResolvedValue({ allowed: false, count: 99, retryAfterSeconds: 123 });
+
+    const res = await POST();
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('123');
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the limiter is down: 503 and no mail', async () => {
+    consume.mockRejectedValue(new Error('db down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await POST();
+
+    expect(res.status).toBe(503);
+    expect(request).not.toHaveBeenCalled();
   });
 });

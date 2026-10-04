@@ -13,6 +13,8 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+vi.mock("@/lib/rate-limit", () => ({ consumeRateLimit: vi.fn() }));
+
 // The credentials login is exercised through the module under test, so bcrypt
 // is stubbed here rather than run at the production cost factor. The factor
 // itself is verified against real hashes in
@@ -24,6 +26,7 @@ vi.mock("@/lib/password-hash", () => ({
 }));
 
 import { hashPassword, verifyPassword } from "@/lib/password-hash";
+import { consumeRateLimit } from "@/lib/rate-limit";
 import type { CredentialsConfig } from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
@@ -35,6 +38,7 @@ const mockFindFirst = prisma.user.findFirst as unknown as Mock;
 const mockUpdate = prisma.user.update as unknown as Mock;
 const mockCompare = verifyPassword as unknown as Mock;
 const mockHash = hashPassword as unknown as Mock;
+const mockConsume = consumeRateLimit as unknown as Mock;
 
 const HASH_AT_CURRENT_COST = `$2b$${PASSWORD_HASH_COST}$` + "x".repeat(53);
 const HASH_BELOW_CURRENT_COST = `$2b$${PASSWORD_HASH_COST - 2}$` + "x".repeat(53);
@@ -47,7 +51,7 @@ const HASH_BELOW_CURRENT_COST = `$2b$${PASSWORD_HASH_COST - 2}$` + "x".repeat(53
  * `options`. That is the only way to drive the real function; the alternative
  * is to log in over HTTP, which no unit test in this repo does.
  */
-async function login(credentials: { email: string; password: string }) {
+async function login(credentials: { email: string; password: string }, forwardedFor?: string) {
   const provider = authOptions.providers.find(
     (p): p is CredentialsConfig => p.id === "credentials"
   );
@@ -56,7 +60,10 @@ async function login(credentials: { email: string; password: string }) {
   }
   // The request argument is unused by our `authorize`, and every field of the
   // shape next-auth asks for is optional.
-  return provider.options.authorize(credentials, {});
+  return provider.options.authorize(
+    credentials,
+    forwardedFor ? { headers: { "x-forwarded-for": forwardedFor }, body: {}, query: {}, method: "POST" } : {}
+  );
 }
 
 // The adapter the app installs. This is the wiring only -- src/lib/auth-adapter.test.ts
@@ -214,6 +221,39 @@ describe("credentials login", () => {
     vi.clearAllMocks();
     mockFindFirst.mockResolvedValue(storedUser);
     mockCompare.mockResolvedValue(true);
+    mockConsume.mockResolvedValue({ allowed: true, count: 1, retryAfterSeconds: 60 });
+  });
+
+  describe("rate limit", () => {
+    it("refuses over the limit before any lookup or password check", async () => {
+      mockConsume.mockResolvedValue({ allowed: false, count: 99, retryAfterSeconds: 60 });
+
+      await expect(login({ email: "test@test.com", password: "x" }, "203.0.113.7")).rejects.toThrow(
+        "Terlalu banyak percobaan masuk"
+      );
+      expect(mockFindFirst).not.toHaveBeenCalled();
+      expect(mockCompare).not.toHaveBeenCalled();
+    });
+
+    it("counts per client and address, and per client, with the address case-folded", async () => {
+      mockFindFirst.mockResolvedValue({ ...storedUser, password: HASH_AT_CURRENT_COST });
+
+      await login({ email: " Test@Test.com ", password: "x" }, "203.0.113.7");
+
+      const counted = mockConsume.mock.calls.map(([, input]) => [input.scope, input.subject]);
+      expect(counted).toEqual([
+        ["auth-login", "203.0.113.7|test@test.com"],
+        ["auth-login-client", "203.0.113.7"],
+      ]);
+    });
+
+    it("fails open when the limiter is down", async () => {
+      mockConsume.mockRejectedValue(new Error("db down"));
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      mockFindFirst.mockResolvedValue({ ...storedUser, password: HASH_AT_CURRENT_COST });
+
+      await expect(login({ email: "test@test.com", password: "x" })).resolves.toMatchObject({ id: "user-1" });
+    });
   });
 
   it("returns the user on a correct password", async () => {
