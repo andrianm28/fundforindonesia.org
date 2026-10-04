@@ -8,3 +8,9 @@ describe('next.config headers', () => {
     expect(rule?.headers).toContainEqual({ key: 'Referrer-Policy', value: 'no-referrer' });
   });
 });
+
+describe('next.config hardening', () => {
+  it('does not send the X-Powered-By header', () => {
+    expect(nextConfig.poweredByHeader).toBe(false);
+  });
+});

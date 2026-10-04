@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  // No X-Powered-By: Next.js header; it only tells a scanner what the stack is.
+  poweredByHeader: false,
   typescript: {
     ignoreBuildErrors: true,
   },

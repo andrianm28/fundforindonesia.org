@@ -2,7 +2,7 @@
 
 **Type:** implementation (hardening, SEO)
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -23,10 +23,10 @@ Situs belum punya `robots.txt`, sehingga crawler bebas menyentuh `/admin`,
 
 ## Acceptance
 
-- [ ] Tes: robots memblokir semua path privat di atas untuk `*`.
-- [ ] Tes: robots tidak memblokir halaman publik yang ada di sitemap (`/`, `/explore`, `/zakat`, `/login`, `/register`, `/campaign/...`).
-- [ ] Tes: robots menunjuk sitemap di URL publik kanonik.
-- [ ] Tes: `next.config` punya `poweredByHeader: false`.
+- [x] Tes: robots memblokir semua path privat di atas untuk `*`.
+- [x] Tes: robots tidak memblokir halaman publik yang ada di sitemap (`/`, `/explore`, `/zakat`, `/login`, `/register`, `/campaign/...`).
+- [x] Tes: robots menunjuk sitemap di URL publik kanonik.
+- [x] Tes: `next.config` punya `poweredByHeader: false`.
 
 ## Comments
 
