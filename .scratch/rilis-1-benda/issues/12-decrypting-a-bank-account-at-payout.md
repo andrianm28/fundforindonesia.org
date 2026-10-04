@@ -4,6 +4,8 @@
 
 **Status:** resolved
 
+**Built by:** belum ada tiket di batch ini: kemungkinan A-1 (reveal rekening, C6), definisinya terpotong (lihat `../../percepatan-full-rilis/tiket-tertunda.md`)
+
 ## Question
 
 [01: How does a Fundraiser get a bank account, and who says it is theirs?](01-bank-account-verification.md)

@@ -4,6 +4,8 @@
 
 **Status:** resolved
 
+**Built by:** [E9 tim-csr-account](../../fase-3-perluasan/issues/01-tim-csr-account.md)
+
 ## Question
 
 PRD §4 lists "Perusahaan atau tim CSR" among the target users, with needs a

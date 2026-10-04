@@ -4,6 +4,8 @@
 
 **Status:** resolved
 
+**Built by:** [83: V-2 trip-fee-payout-panel](83-trip-fee-payout-panel.md) (payout Volunteer Trip dan empty state)
+
 **Blocked by:** 16 — the two dead ends below are only fixable once
 `/akun/rekening` exists, and #16 is what builds it. Nothing here reopens #16's
 decisions.

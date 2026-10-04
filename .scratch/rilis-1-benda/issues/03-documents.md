@@ -4,6 +4,8 @@
 
 **Status:** resolved
 
+**Built by:** [64: D-1 private-document-store](64-private-document-store.md)
+
 **Blocked by:** 01
 
 ## Question

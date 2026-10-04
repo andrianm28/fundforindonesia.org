@@ -4,6 +4,8 @@
 
 **Status:** resolved
 
+**Built by:** belum ada tiket di batch ini: navigasi gabungan menurut assignment tidak punya baris di rencana yang terbaca (lihat `../../percepatan-full-rilis/tiket-tertunda.md`)
+
 ## Question
 
 ADR 0005 removed rank: a role no longer implies a permission, and a

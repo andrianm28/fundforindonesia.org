@@ -4,6 +4,8 @@
 
 **Status:** resolved
 
+**Built by:** belum ada tiket di batch ini: halaman Admin `platform-fee` dan fee/lama Escrow Hold di Checkout tidak punya baris di rencana yang terbaca (lihat `../../percepatan-full-rilis/tiket-tertunda.md`)
+
 ## Question
 
 The PRD states numbers in prose — Platform Fee waived below Rp50.000,
