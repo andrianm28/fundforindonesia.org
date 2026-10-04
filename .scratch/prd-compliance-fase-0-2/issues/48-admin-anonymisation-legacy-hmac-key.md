@@ -1,6 +1,6 @@
 # 48: Jalur Admin/support untuk anonimisasi Donation yang HMAC-nya memakai key id lama atau tanpa email
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 **Blocked by:** none
 
@@ -12,3 +12,5 @@ Anonimisasi Guest (tiket 36) mencocokkan email yang diketik Donor dengan `guestE
 - [ ] Tes di seam route dan satu tes Postgres sungguhan untuk kedua kasus
 
 ## Comments
+
+- 2026-10-04 (percepatan-full-rilis, Track D): hitungan baca-saja di produksi menunjukkan key id yang ada hanya `enc-k1` dan `hmac-k1`, jadi belum ada Donation yang HMAC-nya memakai key id lama. Jalur ini baru dibutuhkan setelah rotasi kunci pertama (ADR 0020) atau bila ada Donation tanpa email, sehingga **dikerjakan pasca-rilis**, bukan pemblokir Rilis 1. Status berubah dari `needs-triage` ke `ready-for-agent` karena isinya sudah spesifik; dispatch menunggu setelah rilis. Bila hitungan itu kelak menemukan baris key lama sebelum rilis, tiket ini naik jadi pra-rilis.

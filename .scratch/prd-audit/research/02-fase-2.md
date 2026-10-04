@@ -1,5 +1,18 @@
 # 02: Kepatuhan `origin/main` terhadap gerbang Fase 2
 
+> **Koreksi bertanggal 2026-10-04 (percepatan-full-rilis, Track D).** Dokumen
+> ini potret `origin/main` @ `c19f2eb` (2026-09-28) dan isinya tidak ditulis
+> ulang. Banyak ❌ di bawah sudah ditutup sejak itu. Yang jelas basi, dengan
+> tiket yang menutupnya (status dan PR dari berkas tiketnya):
+>
+> - Layar Payout Fundraiser dan Admin (ajukan, setujui, selesaikan) dan pemilih Bank Account: `rilis-1-benda/issues/21`, PR #126 (8ffabdd). "Unmerged PR #94" tidak lagi relevan.
+> - Usage Report (model, route, halaman, gerbang Payout berikutnya): `rilis-1-benda/issues/22`, PR #129 (028e690).
+> - Siklus Refund (create, approve, selesai dengan bukti, tolak dan gagal) dan layarnya: `rilis-1-benda/issues/23` (PR #130), `31` (PR #132), `prd-compliance-fase-0-2/issues/32`, `49`, `50`.
+> - Laporan Dormant Balance 60 hari: `rilis-1-benda/issues/24`, PR #127 (93ebdcf).
+> - Layar Suspension dan Cancellation: `rilis-1-benda/issues/25`, PR #128 (8a65e3f); layar Manual Contribution: `26`; layar abuse-thresholds: `27`; permukaan pengingat Kind Authorisation: `28`.
+> - Pernyataan "tidak ada penyedia kedua": **masih benar** (`PAYMENT_PROVIDER_NAMES = ['mock', 'sumopod']`). Xendit adalah tiket M-c di `percepatan-full-rilis/plan.md`.
+> - **Masih terbuka dan tetap benar**: ekspor/rekap keuangan (A-6), admin memilih penyedia dari dashboard, dan layar rekonsiliasi Admin (A-2); semuanya ada di `percepatan-full-rilis/plan.md`. Pengalihan Dormant Balance, yang di sini "di luar cakupan", sejak 2026-10-04 masuk Rilis 1.
+
 Diaudit pada `origin/main` commit `c19f2eb` (Ticket 16 merged), read-only, tanpa
 menjalankan test suite. Standar bukti: `.scratch/prd-audit/map.md` — requirement
 yang dijalankan pengguna baru ✅ bila ada kode + tes + layar yang menunjuknya;

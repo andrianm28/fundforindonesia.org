@@ -1,6 +1,6 @@
 # 54: Satukan predikat "Refund masih berdiri" dan pemeriksaan jurnal freeze yang hilang
 
-**Status:** ready-for-agent
+**Status:** done (PR #217, bac0127)
 
 **Blocked by:** none (49-53 done)
 
@@ -28,3 +28,5 @@ Refactor tanpa perubahan perilaku, dicatat dari review PR #207 dan #208.
 - Tes yang diubah (keputusan koordinator, bukan owner), hanya ini: (1) `refunds.test.ts` "refuses to approve a Refund whose freeze journal is missing": kini mengharapkan `RefundFreezeJournalMissingError`, bukan `InvalidRefundStatusError` yang menyesatkan; (2) `refunds.test.ts` "refuses a Payment whose standing Refund has no freeze journal": kini asersi pada kode error, bukan teks pesan Inggris; (3) dan (4) `campaigns/[slug]/refunds/[id]/approve/route.test.ts` dan `volunteer-trips/[slug]/refunds/[id]/approve/route.test.ts`: mock `ledgerEntry.findMany` menangani `transactionId: { in: [...] }` (detail mock, bukan perilaku).
 - Sisa pekerjaan: `resolveRefund` (reject/fail) masih punya pemeriksaan "freeze or approval journal" sendiri yang melempar `InvalidRefundStatusError`; ia membaca dua jurnal sekaligus sehingga tidak dipaksakan ke helper.
 - Commit: 7b5f3c5 (kode); commit ini sendiri hanya mencatat sha di tiket
+
+- 2026-10-04: merge ke `main` sebagai PR #217 (bac0127), dicatat saat housekeeping `percepatan-full-rilis` (Track D). Sisa pekerjaan `resolveRefund` di atas tidak ikut tiket ini.

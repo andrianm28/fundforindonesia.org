@@ -16,7 +16,7 @@
 
 **Blocked by:** 01, 07
 
-**Status:** ready-for-human
+**Status:** done
 
 - [ ] Every step is done and checked off in the wizard, with a rollback path at each step
 - [ ] Production is served by an image from this repo, and `kibi-clone` is stopped
@@ -72,3 +72,5 @@
     the reasoning, and what would change it, is in prd-compliance 45's Comments.
     If the owner prefers it, the secret moves to an Actions secret and the
     workflow calls the same public URL.
+
+- 2026-10-04 (percepatan-full-rilis, Track D): ditutup `done` atas keputusan owner. Produksi sudah berjalan dari image repo ini lewat `deploy.yml` (rilis bac0127). **Sisa pekerjaan dipindah ke `.scratch/go-live-ops/issues/01-nginx-stopgap-and-retire-kibi-clone.md`**: stopgap nginx `/_next/image` (tidak berbahaya, boleh dibiarkan) dan pensiun checkout `kibi-clone` (keputusan setelah ~2026-10-10). Kotak centang di atas sengaja tidak diubah: dua kotak itu tidak diverifikasi agent, dan sisanya kini ada di tiket go-live-ops 01.

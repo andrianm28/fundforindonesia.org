@@ -18,16 +18,16 @@ itself, it is a deploy nobody approved.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human
+**Status:** done
 
-- [ ] The owner has chosen: accept the procedural control, or move to a plan
+- [x] The owner has chosen: accept the procedural control, or move to a plan
       that supports an Environment required reviewer
-- [ ] Whatever is chosen is written down where the next reader of
+- [x] Whatever is chosen is written down where the next reader of
       `deploy.yml` will find it, instead of only in a plan from 2026-09-26
-- [ ] The comment at the top of `deploy.yml` and the matching paragraph in
+- [x] The comment at the top of `deploy.yml` and the matching paragraph in
       `docs/agents/verification.md` say what actually enforces this, rather
       than a control that does not exist
-- [ ] If the answer is "procedural", the standing rule is that no agent
+- [x] If the answer is "procedural", the standing rule is that no agent
       dispatches `deploy.yml`, and the decision is recorded in
       `CLAUDE.md` next to the existing rule about merges and GitHub settings
 
@@ -55,3 +55,5 @@ itself, it is a deploy nobody approved.
   `ready-for-human` even though the Environment already exists. This ticket
   does not reopen it; it records what is still missing, which is the
   approval gate rather than the Environment.
+
+- 2026-10-04: **keputusan owner "A + reviewer + protection".** Repo ini publik, jadi branch protection dan required reviewer environment gratis, dan premis tiket ("GitHub Free tidak punya required reviewer") sudah tidak berlaku. Tiga kontrol sekaligus: hanya owner yang men-dispatch `deploy.yml`; owner satu-satunya required reviewer environment `production`; dan `main` dilindungi branch protection (ci-cd 10). Agent, termasuk koordinator, tidak pernah men-dispatch maupun menyetujui deploy. Ini menggantikan kalimat di `CLAUDE.md`, `docs/agents/verification.md`, dan komentar `deploy.yml` yang mengizinkan agent men-dispatch; perubahan dokumen itu ada di PR housekeeping yang sama. Fakta GitHub terverifikasi di ci-cd 10 dan 23.
