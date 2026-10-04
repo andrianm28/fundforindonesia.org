@@ -2,7 +2,7 @@
 
 **Type:** implementation (kode tampilan yang membaca logika uang)
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -43,11 +43,22 @@ Admin Platform Fee, Escrow Hold per Campaign.
 
 ## Kriteria penerimaan
 
-- [ ] Layar konfirmasi menampilkan persentase Platform Fee dan nominalnya, dihitung dengan `computePlatformFee` atas basis yang di-resolve server.
-- [ ] Layar konfirmasi menampilkan lama Escrow Hold dari `ESCROW_HOLD_DAYS`, bukan angka tertulis di komponen.
-- [ ] Layar konfirmasi menampilkan perkiraan jumlah bersih untuk Campaign, dengan catatan bahwa Provider Fee belum termasuk.
-- [ ] Fee 0 (persentase 0 atau nominal di bawah ambang) tampil sebagai Rp0, bukan disembunyikan.
-- [ ] `GET /api/campaigns/[slug]` membawa ambang pembebasan, dengan tes.
-- [ ] Tidak ada perubahan pada perhitungan uang (`src/lib/money/*`), skema, atau `CONTEXT.md`.
+- [x] Layar konfirmasi menampilkan persentase Platform Fee dan nominalnya, dihitung dengan `computePlatformFee` atas basis yang di-resolve server.
+- [x] Layar konfirmasi menampilkan lama Escrow Hold dari `ESCROW_HOLD_DAYS`, bukan angka tertulis di komponen.
+- [x] Layar konfirmasi menampilkan perkiraan jumlah bersih untuk Campaign, dengan catatan bahwa Provider Fee belum termasuk.
+- [x] Fee 0 (persentase 0 atau nominal di bawah ambang) tampil sebagai Rp0, bukan disembunyikan.
+- [x] `GET /api/campaigns/[slug]` membawa ambang pembebasan, dengan tes.
+- [x] Tidak ada perubahan pada perhitungan uang (`src/lib/money/*`), skema, atau `CONTEXT.md`.
 
 ## Comments
+
+2026-10-04, branch `claude/rilis-1-87-checkout-fee-hold-disclosure`: `DonationConfirmation`
+membaca `platformFeePercentBps`, `platformFeeThresholdAmount`, dan `escrowHoldDays`
+dari payload Campaign dan menghitung fee dengan `computePlatformFee`
+(`src/lib/money/platform-fee.ts`, modul murni yang juga dipakai `chargeDonation`);
+tidak ada aritmetika baru dan `src/lib/money/*` tidak disentuh. `GET
+/api/campaigns/[slug]` hanya menambah `platformFeeThresholdAmount` dari basis yang
+sudah di-resolve. Fee 0 tampil sebagai Rp0; di bawah ambang ada catatan
+"dibebaskan". Jumlah bersih dinyatakan sebelum Provider Fee. Bila payload tidak
+membawa basis, blok tidak tampil (tidak ada angka karangan). Tes: komponen dan
+rute, hijau; ratchet lint 193 dan tsc 19 (baseline).
