@@ -19,10 +19,19 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: test
+  # The vitest suite, three ways in parallel (ticket 26). Each shard is its own
+  # runner with its own Postgres service, so the real-DB tests of one shard
+  # never see another's database. These jobs are deliberately NOT called
+  # `test`: that name belongs to the aggregate below.
+  test-shard:
+    name: test-shard (${{ matrix.shard }}/3)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      # A failing shard must not hide what the others found.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     services:
       postgres:
         image: postgres:16-alpine
@@ -55,7 +64,26 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma generate
-      - run: npx vitest run
+      - run: npx vitest run --shard=${{ matrix.shard }}/3
+
+  # Branch protection on main requires a check named exactly `test`, and
+  # ci/deploy-gate.sh looks for a green job of that exact name, so this
+  # aggregate keeps the name the shards took away. `always()` is what makes a
+  # failed or cancelled shard turn this red: without it the job would be
+  # skipped, and a skipped required check reads as passing.
+  test:
+    name: test
+    needs: test-shard
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every test shard must have succeeded
+        env:
+          SHARDS_RESULT: ${{ needs.test-shard.result }}
+        run: |
+          echo "test-shard result: $SHARDS_RESULT"
+          [ "$SHARDS_RESULT" = success ] || { echo "::error::a vitest shard did not succeed ($SHARDS_RESULT)"; exit 1; }
 
   build:
     name: build
@@ -200,6 +228,11 @@ jobs:
       FIELD_ENCRYPTION_KEY_ID: enc-ci-1
       FIELD_HMAC_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
       FIELD_HMAC_KEY_ID: hmac-ci-1
+      # The boot check (src/lib/env-check.ts) holds `next start` to the production
+      # environment. These two are throwaway: a jobs secret, and the explicit
+      # opt-out that lets the bundle run on http://localhost:3000 for Playwright.
+      JOBS_SECRET: ci-placeholder-jobs-secret-not-real
+      ALLOW_LOCAL_AUTH_URL: "1"
       # Inlined into the client bundle at build time: the donate page shows
       # its form. The money itself stays stubbed in the specs: in
       # production `next start` the mock adapter is refused, so CI raises

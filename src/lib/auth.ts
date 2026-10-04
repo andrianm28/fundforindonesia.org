@@ -1,12 +1,15 @@
 import { NextAuthOptions, getServerSession as nextAuthGetServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
+import { isGoogleConfigured } from "@/lib/auth-providers";
 import { hashPassword, verifyPassword } from "@/lib/password-hash";
 import { prisma } from "@/lib/prisma";
 import { PASSWORD_HASH_COST, isHashAtCurrentCost } from "@/lib/password-hash-cost";
 import { Assignment } from "@/generated/prisma/client";
 import { buildAuthAdapter } from "@/lib/auth-adapter";
 import { isRemoteProviderPicture, providerPicture } from "@/lib/provider-picture";
+import { clientAddress } from "@/lib/client-ip";
+import { checkRateLimit } from "@/lib/rate-limit-guard";
 import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 
 // Both halves of the adapter need the schema it cannot see: the write goes
@@ -17,22 +20,50 @@ import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact
 // provider's picture through it, so `image` <-> `avatar` is mapped in one place.
 const adapter = buildAuthAdapter(prisma);
 
+/** Login attempts per window. */
+const LOGIN_WINDOW_SECONDS = 15 * 60;
+const LOGIN_PER_ACCOUNT_LIMIT = 10;
+const LOGIN_PER_CLIENT_LIMIT = 50;
+
 export const authOptions: NextAuthOptions = {
   adapter: adapter as NextAuthOptions["adapter"],
   providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    }),
+    // Only when both halves are configured; the login page hides its button
+    // when this provider is absent from /api/auth/providers.
+    ...(isGoogleConfigured()
+      ? [
+          GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID!,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+          }),
+        ]
+      : []),
     CredentialsProvider({
       name: "credentials",
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) {
           throw new Error("Email dan password harus diisi");
+        }
+
+        // Counted before any lookup or hash, every attempt, right or wrong:
+        // per client + address (guessing one account) and per client (many
+        // accounts). Fail-open, like the other non-mail paths: the lookup
+        // below needs the same database, so this only matters when the
+        // limiter alone is broken, and that must not lock everyone out.
+        const forwarded = req?.headers?.["x-forwarded-for"];
+        const headers = new Headers();
+        if (typeof forwarded === "string") headers.set("x-forwarded-for", forwarded);
+        const client = clientAddress(headers);
+        for (const attempt of [
+          { scope: "auth-login", subject: `${client}|${credentials.email.trim().toLowerCase()}`, limit: LOGIN_PER_ACCOUNT_LIMIT },
+          { scope: "auth-login-client", subject: client, limit: LOGIN_PER_CLIENT_LIMIT },
+        ]) {
+          const verdict = await checkRateLimit({ ...attempt, windowSeconds: LOGIN_WINDOW_SECONDS, onUnavailable: "open" });
+          if (!verdict.ok) throw new Error("Terlalu banyak percobaan masuk. Coba lagi nanti.");
         }
 
         // Through the HMAC, never a scan over decrypted addresses (ADR 0012):

@@ -131,6 +131,9 @@ describe("docker-compose.prod.yml env passthrough", () => {
     "DEPLOY_ENVIRONMENT",
     "TEST_DATABASE_URL", // tests only
     "LEDGER_CLAIM_TEST_DATABASE_URL", // tests only
+    // CI-only opt-out of the localhost check in src/lib/env-check.ts, set by the
+    // e2e job and the image smoke test. It must never reach production.
+    "ALLOW_LOCAL_AUTH_URL",
   ]);
 
   /** One env variable name: the single definition every pattern below reuses. */
@@ -157,6 +160,13 @@ describe("docker-compose.prod.yml env passthrough", () => {
       "SUMOPOD_BASE_URL",
     ],
     "src/lib/partnership-inquiries.ts": ["PARTNERSHIP_TEAM_EMAIL"],
+    // loadFieldKeys(process.env) at boot; the names are VARS in field-encryption.ts.
+    "src/lib/env-check.ts": [
+      "FIELD_ENCRYPTION_KEY",
+      "FIELD_ENCRYPTION_KEY_ID",
+      "FIELD_HMAC_KEY",
+      "FIELD_HMAC_KEY_ID",
+    ],
     // loadFieldKeys(process.env); the names are VARS in field-encryption.ts.
     "src/lib/contact-fields.ts": [
       "FIELD_ENCRYPTION_KEY",

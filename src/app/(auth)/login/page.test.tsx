@@ -4,9 +4,14 @@ import LoginPage from './page';
 
 // Mock next-auth/react
 const mockSignIn = vi.fn();
+const mockGetProviders = vi.fn();
 vi.mock('next-auth/react', () => ({
   signIn: (...args: unknown[]) => mockSignIn(...args),
+  getProviders: () => mockGetProviders(),
 }));
+
+const CREDENTIALS_ONLY = { credentials: { id: 'credentials', name: 'credentials' } };
+const WITH_GOOGLE = { ...CREDENTIALS_ONLY, google: { id: 'google', name: 'Google' } };
 
 // Mock next/navigation
 const mockPush = vi.fn();
@@ -38,6 +43,7 @@ afterEach(() => {
 describe('LoginPage', () => {
   beforeEach(() => {
     mockSignIn.mockResolvedValue({ ok: false, error: null });
+    mockGetProviders.mockResolvedValue(WITH_GOOGLE);
   });
 
   it('renders login form with email and password fields', () => {
@@ -47,9 +53,25 @@ describe('LoginPage', () => {
     expect(screen.getByRole('button', { name: /masuk$/i })).toBeInTheDocument();
   });
 
-  it('renders Google OAuth button', () => {
+  it('renders Google OAuth button when Google is configured', async () => {
     render(<LoginPage />);
-    expect(screen.getByRole('button', { name: /masuk dengan google/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /masuk dengan google/i })).toBeInTheDocument();
+  });
+
+  it('hides the Google button and the separator when Google is not configured', async () => {
+    mockGetProviders.mockResolvedValue(CREDENTIALS_ONLY);
+    render(<LoginPage />);
+    await waitFor(() => expect(mockGetProviders).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /masuk dengan google/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('atau')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /masuk$/i })).toBeInTheDocument();
+  });
+
+  it('keeps the Google button hidden when the providers request fails', async () => {
+    mockGetProviders.mockRejectedValue(new Error('network'));
+    render(<LoginPage />);
+    await waitFor(() => expect(mockGetProviders).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /masuk dengan google/i })).not.toBeInTheDocument();
   });
 
   it('renders link to register page', () => {
@@ -206,18 +228,18 @@ describe('LoginPage', () => {
     window.history.pushState({}, '', '/');
   });
 
-  it('carries ?callbackUrl through Google sign-in', () => {
+  it('carries ?callbackUrl through Google sign-in', async () => {
     window.history.pushState({}, '', '/login?callbackUrl=%2Fvolunteer-trip%2Fmengajar');
     render(<LoginPage />);
-    fireEvent.click(screen.getByRole('button', { name: /masuk dengan google/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /masuk dengan google/i }));
     expect(mockSignIn).toHaveBeenCalledWith('google', { callbackUrl: '/volunteer-trip/mengajar' });
     window.history.pushState({}, '', '/');
   });
 
-  it('calls signIn with google provider when Google button is clicked', () => {
+  it('calls signIn with google provider when Google button is clicked', async () => {
     render(<LoginPage />);
     fireEvent.click(
-      screen.getByRole('button', { name: /masuk dengan google/i })
+      await screen.findByRole('button', { name: /masuk dengan google/i })
     );
     expect(mockSignIn).toHaveBeenCalledWith('google', { callbackUrl: '/' });
   });

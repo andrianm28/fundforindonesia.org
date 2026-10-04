@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { getServerSession } from '@/lib/auth';
+import { guardRoute } from '@/lib/rate-limit-guard';
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 export const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+/** Uploads per account per hour. */
+const UPLOAD_LIMIT = 30;
+const UPLOAD_WINDOW_SECONDS = 60 * 60;
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
 
 const MIME_TO_EXT: Record<string, string> = {
@@ -59,6 +63,20 @@ export async function POST(request: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Per account, after the session check so anonymous floods cost no write.
+  // Fail-open: a limiter outage must not block Campaign creation.
+  const refused = await guardRoute(
+    {
+      scope: 'upload',
+      subject: session.user.id ?? 'unknown',
+      limit: UPLOAD_LIMIT,
+      windowSeconds: UPLOAD_WINDOW_SECONDS,
+      onUnavailable: 'open',
+    },
+    { limited: 'Terlalu banyak unggahan. Coba lagi nanti.' },
+  );
+  if (refused) return refused;
 
   try {
     const formData = await request.formData();

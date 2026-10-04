@@ -6,6 +6,7 @@ import { publicUrl } from '@/lib/public-url';
 import { KIND_LABEL } from '@/lib/campaign-kind';
 import { formatIndonesianDate } from '@/lib/utils/date';
 import { KIND_AUTHORISATION_EXPIRY_WARNING_DAYS } from '@/lib/kind-authorisation-window';
+import { NOT_A_DEMO_CAMPAIGN } from '@/lib/subject-guard';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -63,6 +64,9 @@ export async function sendCampaignDeadlineReminders(
 
   const campaigns = await prisma.campaign.findMany({
     where: {
+      // A Demo Campaign's Fundraiser is fictional (CONTEXT.md, Demo Campaign);
+      // never remind them, whatever SHOW_DEMO_CAMPAIGNS says.
+      ...NOT_A_DEMO_CAMPAIGN,
       lifecycleStatus: 'ACTIVE',
       deadline: { gt: now, lte: horizon },
       deadlineReminderSentAt: null,
