@@ -2,7 +2,7 @@
 
 **Type:** hardening (H-2 dalam rencana percepatan full rilis 2026-10-04)
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -43,15 +43,27 @@ tombol disembunyikan sampai dikonfigurasi).
 
 ## Kriteria penerimaan
 
-- [ ] Tes `env-check` merah lalu hijau: tiap variabel `FIELD_*` hilang, kunci
+- [x] Tes `env-check` merah lalu hijau: tiap variabel `FIELD_*` hilang, kunci
       salah ukuran, kunci sama, `JOBS_SECRET` kosong/pendek, `NEXTAUTH_URL`
       kosong/http/localhost/privat/bukan URL ditolak; env lengkap diterima.
-- [ ] Non-produksi tidak diblokir; pesan galat tidak memuat nilai rahasia.
-- [ ] Tes halaman login: tombol Google tampil hanya bila provider ada.
+- [x] Non-produksi tidak diblokir; pesan galat tidak memuat nilai rahasia.
+- [x] Tes halaman login: tombol Google tampil hanya bila provider ada.
 - [ ] `next build` tanpa `FIELD_*` tetap lolos; CI e2e dan smoke CD tetap hijau.
-- [ ] Ratchet lint 193 dan tsc 19 tidak naik.
+- [x] Ratchet lint 193 dan tsc 19 tidak naik.
 
 ## Comments
 
 - 2026-10-04: owner menyetujui rencana (H-2). Tiket ditulis koordinator,
   `ready-for-agent`.
+- 2026-10-04, branch `claude/rilis-1-59-env-validation`, kode di 49c9e15 (PR belum
+  dibuat): `loadFieldKeys` dipakai ulang agar aturan kunci satu sumber; galat
+  dikumpulkan dan hanya menyebut nama variabel. `JOBS_SECRET` minimal 16 karakter
+  (keputusan builder, naikkan bila owner mau). `NEXTAUTH_URL` ditolak bila bukan
+  https, localhost, loopback/privat, IPv6 literal, nama tanpa titik, atau TLD
+  `.local/.internal/.lan/.home/.test/.invalid/.example`. `ALLOW_LOCAL_AUTH_URL=1`
+  hanya melonggarkan cek host/skema (variabel wajib tetap), di-set hanya di job CI
+  e2e dan smoke CD, dan didaftarkan `NOT_PASSED` di tes compose prod. `next build`
+  tanpa `FIELD_*` lolos (register tidak jalan saat build). Login: tombol Google
+  dan pemisah baru muncul setelah `getProviders()` memuat `google`; gagal fetch =
+  tersembunyi. Tes terkait hijau, tsc 19, lint 193 (baseline). Hijau CI e2e dan
+  smoke CD belum dibuktikan lokal; dibuktikan oleh CI PR.
