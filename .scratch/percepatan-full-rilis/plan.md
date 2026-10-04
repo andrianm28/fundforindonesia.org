@@ -26,11 +26,13 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 | **M0 Jaring pengaman** | Backup terjadwal + offsite + restore drill tercatat, alert berfungsi, cron jobs 200, `NEXTAUTH_URL` di apex, GitHub terproteksi | Hanya langkah host/GitHub (Track A1–A2) |
 | **M1 Donasi nyata pertama** (gerbang F0+F1) | Campaign YIEM nyata lolos Verification Request dan tampil; satu donasi QRIS nyata settle; Receipt email diterima | Kode Gelombang 1 + Sumopod produksi + SMTP + setup YIEM di produk |
 | **M2 Soft Launch** (gerbang F2) | Dari layar saja: Payout → Usage Report → Payout kedua → Refund (3 Admin) → rekonsiliasi di layar Admin | Kode Gelombang 2 + jendela escrow 7 hari |
-| **M3 Rilis 1** (gerbang F3 + semua fitur) | Volunteer Trip nyata sampai sertifikat dengan satu Trip Fee nyata dan satu Refund Trip Fee; ketujuh item perluasan, Asset Waqf, dan Tim CSR lolos uji terima; dua penyedia terekonsiliasi | Gelombang 3–5 + Xendit + onboarding WhatsApp + kalender Batch |
+| **M3 Rilis 1** (gerbang F3 + semua fitur) | Volunteer Trip nyata sampai sertifikat dengan satu Trip Fee nyata dan satu Refund Trip Fee; ketujuh item perluasan, Asset Waqf, dan Tim CSR lolos uji terima; **gerbang "Payment dari dua penyedia terekonsiliasi" (semula syarat Fase 2/M2) kini di sini**, keputusan owner C2 2026-10-04 | Gelombang 3–5 + Xendit + onboarding WhatsApp + kalender Batch |
+
+> **Diputuskan 2026-10-04 (C1, C2):** gladi tertutup dengan uang nyata (satu Campaign YIEM, tanpa promosi, nominal kecil) diizinkan setelah M-a dan A-1 merge, sebelum M2; Soft Launch tetap berarti promosi publik dan baru setelah M2. Gerbang "dua penyedia" pindah dari M2 ke M3, jadi M2 cukup dengan Sumopod; Xendit (M-c) tetap wajib untuk M3. Lihat `keputusan-ronde-c.md`.
 
 ## Pengungkit percepatan
 
-1. **Semua lead time eksternal dimulai hari 0** paralel: KYB Sumopod produksi, Xendit, verifikasi Meta/WhatsApp Business, counsel legal, bucket object storage, subdomain staging. Inilah jalur kritis sebenarnya.
+1. **Semua lead time eksternal dimulai hari 0** paralel: KYB Sumopod produksi, Xendit, verifikasi Meta/WhatsApp Business, counsel legal, Google OAuth, subdomain staging. Inilah jalur kritis sebenarnya.
 2. **Staging sandbox** (keputusan owner): M1/M2/M3 diuji end-to-end dengan Sumopod sandbox sebelum uang nyata; verifikasi kode tidak menunggu KYB.
 3. **Satu ronde grilling** untuk semua keputusan (daftar C), termasuk pertanyaan terbuka item perluasan.
 4. **Lajur builder paralel dengan aturan konflik file**: maksimal 8 agent, tetapi satu PR skema pada satu waktu; builder menjalankan tes terkait + tsc + lint saja, full suite di CI; vitest di-shard 3 arah; merge dibatch → satu CD + satu Deploy per gelombang.
@@ -44,7 +46,7 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 - A1-8 hitungan read-only: ADMIN=2 & VERIFIER=2 (perlu Admin ke-3); tidak ada role lama tanpa assignment; SUSPENDED tanpa log=0; key id tunggal; donationBalance>0: 5 user (total Rp1.371.884).
 - A2 reviewer production + branch protection (test/build/migrations/ratchet/e2e) + Dependabot alerts + secret scanning + push protection.
 - Monitoring host: /api/health, umur backup, disk 85%; alert terkirim setelah owner memperbaiki kredensial kanal alert.
-- A1-7 cron jobs ditunda: menunggu reminders-skip-demo-campaigns.
+- A1-7 cron jobs ditunda: menunggu reminders-skip-demo-campaigns. **Diperbarui 2026-10-04 (relay ronde C):** reminders-skip-demo-campaigns merge (#219) dan ter-deploy di 53fe2d2; A1-7 selesai: cron terpasang tiap 15 menit, secret lewat stdin, logrotate mingguan; dua uji tangan http 200 lalu semua hitungan 0 (prd-compliance 45 done). Deploy 53fe2d2 live; rollback target bac0127.
 - Owner: uji login apex, kanal alert, Admin ke-3, saldo dompet lama, disk 84% naik ~0,5 GB/jam (build stack lain di host).
 
 ## Pembagian sesi (sesuai CLAUDE.md)
@@ -78,7 +80,9 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 - Sumopod sandbox untuk staging; SMTP relay.
 - Xendit: daftar, kunci sandbox, mulai KYB produksi.
 - Meta Business / BSP WhatsApp: verifikasi dan persetujuan template.
-- Bucket object storage untuk dokumen; DSN GlitchTip; DNS + TLS subdomain staging; Google OAuth (opsional).
+- **Google OAuth: disiapkan sebelum M1** (keputusan C13, bukan lagi opsional). Buat OAuth client di akun Google milik FFI (bukan akun pribadi), dengan redirect URI di domain apex (`https://<apex>/api/auth/callback/google`); isi `GOOGLE_CLIENT_ID` dan `GOOGLE_CLIENT_SECRET` di env produksi (nilai tidak masuk repo). Selama env kosong, tombol Google tersembunyi otomatis (#223), jadi langkah ini tidak memblokir deploy tetapi harus selesai sebelum flip M1 (A6).
+- Penyimpanan dokumen (C5): **volume lokal di host, bukan bucket S3**; tidak ada pembelian atau akun bucket. Volume privat terpisah dari `public/uploads`, dimasukkan sesi VPS ke backup malam dan offsite terenkripsi saat D-1 dideploy.
+- DSN GlitchTip; DNS + TLS subdomain staging.
 
 **A4. Legal dan syariah** (owner + counsel, hari 0)
 - Dokumen izin YIEM; perjanjian kerja sama PT–YIEM dan atas nama siapa dana dihimpun; status PSE Lingkup Privat; entitas nyata + kontak untuk Terms/Privacy (operator-rule-gaps 03); UU PDP (kontak perlindungan data, prosedur insiden 3×24 jam, jadwal retensi); kewajiban AML/PPATK; penasihat syariah untuk hibah; mitra zakat (LAZ/BAZNAS) dan wakaf (nazhir BWI); persetujuan WhatsApp sesuai PDP.
@@ -86,10 +90,10 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 **A5. Setup di produk** (setelah deploy Gelombang 1)
 1. Tetapkan ≥1 VERIFIER dan ≥3 ADMIN (orang berbeda).
 2. Daftarkan YIEM sebagai Partner Organisation; catat Fundraising Permit, Collecting Entity, Kind Authorisation `donation`.
-3. Masukkan aturan Platform Fee.
+3. Masukkan aturan Platform Fee lewat panel Admin (A-1, tiket 88). **Tidak ada nilai awal yang ditetapkan di rencana** (keputusan C3): owner mengisi nilainya sendiri di langkah ini.
 4. Rekening YIEM diverifikasi; Campaign pertama dibuat, diajukan, disetujui. **Gerbang F0.**
 
-**A6. Flip ke M1**: isi env Sumopod produksi, SMTP, `PARTNERSHIP_TEAM_EMAIL`; `SHOW_DEMO_CAMPAIGNS=false`; repo variable `NEXT_PUBLIC_DONATIONS_ENABLED=true` → CD + Deploy; donasi QRIS kecil dari owner sendiri.
+**A6. Flip ke M1**: isi env Sumopod produksi, SMTP, `PARTNERSHIP_TEAM_EMAIL`; `SHOW_DEMO_CAMPAIGNS` tidak perlu di-flip: Demo Campaign tersembunyi otomatis begitu ada Campaign nyata Active (tiket 91, keputusan C19; flag tetap penimpa manual); repo variable `NEXT_PUBLIC_DONATIONS_ENABLED=true` → CD + Deploy; donasi QRIS kecil dari owner sendiri.
 
 **A7. Drill M2** (≥7 hari setelah M1; butuh 3 Admin + Fundraiser YIEM).
 
@@ -109,7 +113,7 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 | ID | Tiket baru | Isi | Ukuran |
 |---|---|---|---|
 | M-a | payout-reveal-account-number | Nomor penuh hanya untuk Admin penyelesai, saat APPROVED, bukan requester/approver; tabel audit reveal (skema); perbaiki tes `page.test.tsx:104`; buka ulang premis rilis-1-benda 12 | S |
-| A-1 | admin-platform-fee-page | Layar aturan Platform Fee + riwayat di atas API yang sudah ada | M |
+| A-1 | admin-platform-fee-page | Layar aturan Platform Fee + riwayat di atas API yang sudah ada; nilainya diisi Admin di A5.3 (C3), bukan konstanta | M |
 | P2 | checkout-fee-hold-disclosure | Persentase fee, Escrow Hold, dan jumlah bersih di konfirmasi donasi | S |
 | P1 | admin-moderasi-door | Tautan ke /admin dan /moderasi menurut role (rilis-1-benda 05) | S |
 | S-0 | contract release | Drop kolom status/role lama (legacy-status-contract 03, retire-role-hierarchy 03) sebelum data nyata, setelah hitungan A1 aman | S+S |
@@ -131,8 +135,10 @@ Baris H-1, H-2, H-3a, dan G-1 pada tabel berikut juga pra-M1.
 
 | ID | Tiket baru | Isi | Ukuran |
 |---|---|---|---|
+| A-7 | admin-escrow-hold-setting (tiket 90) | Setelan lama Escrow Hold di Admin, disalin ke Payment saat dibuat, riwayat dengan aktor (C18); kode uang, review independen | M, skema |
+| A-8 | demo-campaigns-auto-hide (tiket 91) | Demo Campaign tersembunyi otomatis begitu ada Campaign nyata Active; `SHOW_DEMO_CAMPAIGNS` penimpa manual (C19) | S |
 | A-2 | admin-reconciliation-page | Laporan `/api/admin/reconcile`, form provider-withdrawal, antrean webhook needs-review; perbarui runbook | L |
-| D-1 | private-document-store | rilis-1-benda 03: model Document, storage privat, signed URL, ACL, unggah saat create/edit, viewer Verifier, baris checklist nonaktif sampai dokumen ada | XL, skema |
+| D-1 | private-document-store | rilis-1-benda 03: model Document, **volume privat lokal di host (C5)**, disajikan lewat route ber-ACL (Verifier, Fundraiser pemilik, Admin), unggah saat create/edit, viewer Verifier, baris checklist nonaktif sampai dokumen ada | XL, skema |
 | F2 | fundraiser-complete-and-cancellation-request | Tandai Completed + ajukan pembatalan | S-M |
 | F3 | verifier-flag-admin-urgent | Form Flag + dismiss, toggle Urgent | M |
 | A-3 | admin-scrutiny-markers | Daftar penanda audit | S |
@@ -175,7 +181,7 @@ Baris H-1, H-2, H-3a, dan G-1 pada tabel berikut juga pra-M1.
 | E4 | Anggota tim organisasi: membership, peran, undangan, akses Payout | Grilling peran | L, skema, review uang |
 | E5 | Impor settlement otomatis | Setelah M-c | M-L |
 | E6 | Notifikasi WhatsApp: notifier di samping mail, consent | Onboarding Meta (A3) dan PDP | L |
-| E7 | Bahasa Inggris (i18n) | ADR pustaka dan konvensi kunci ditulis di Gelombang 1 supaya layar baru langsung memakai kunci; ekstraksi penuh paling akhir dan sendirian | XL |
+| E7 | Bahasa Inggris (i18n) | `next-intl` dengan **slug diterjemahkan** (keputusan E7); ADR i18n di Gelombang 1 mendefinisikan peta pathname per bahasa, canonical, dan hreflang, plus konvensi kunci; ekstraksi penuh paling akhir dan sendirian | XL |
 | E8 | Asset Waqf Inquiry (prd-audit 07) | Grilling, input nazhir | L, skema |
 
 | E9 | Akun Tim CSR (rilis-1-benda 08): email konfirmasi ke perusahaan (S) dulu, akun lengkap belakangan | Grilling empat sub-pertanyaan | L, skema |
@@ -195,6 +201,8 @@ Baris H-1, H-2, H-3a, dan G-1 pada tabel berikut juga pra-M1.
 **Estimasi kasar:** pra-M1 ~8 hari-builder; M2 ~20; M3: sisa F0–F3 ~30, Xendit ~6, item perluasan + E8–E9 ~35. Total ~100 hari-builder ≈ 4–5 minggu kalender dengan 5–6 lajur. Kalender sebenarnya ditentukan KYB vendor, onboarding Meta, legal, escrow 7 hari, dan tanggal Batch.
 
 ## Track C: satu ronde keputusan (rekomendasi di depan)
+
+> **Dijawab owner 2026-10-04** (relay sesi VPS); jawaban lengkap per butir ada di `keputusan-ronde-c.md`. Daftar di bawah adalah rekomendasi asli. **Menyimpang dari rekomendasi:** C3 (tanpa angka awal; Admin mengisi di A5.3 lewat tiket 88, yang ada di PR #228 dan belum merge), C5 (volume lokal di host, bukan S3), C13 (Google OAuth disiapkan sebelum M1), C18 (Escrow Hold setelan Admin, PRD FFI-17 tetap; tiket 90), C19 (Demo Campaign tersembunyi otomatis; tiket 91), E7 (slug diterjemahkan), E2 (dibangun setelah counsel; pelacakan pengingat boleh duluan), E6 (grilling terpisah). Sisanya sesuai rekomendasi.
 
 - **C1. Uang sebelum gerbang F2.** `CONTEXT.md:291` melarang uang publik sebelum gerbang F2. Rekomendasi: izinkan **gladi tertutup** setelah M-a + A-1 merge (satu Campaign YIEM, tanpa promosi, nominal kecil). Soft Launch = promosi publik setelah M2. Amandemen `CONTEXT.md`.
 - **C2. "Dua penyedia terekonsiliasi"** pindah dari gerbang M2 ke M3 (Xendit belum mulai); Soft Launch cukup Sumopod.

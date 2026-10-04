@@ -6,7 +6,7 @@
 
 **Ukuran:** XL
 
-**Catatan:** Review uang/konkurensi: wajib review independen `sonnet` dengan bukti diposting di PR. Harus ada di Rilis 1: gerbang F2/F3 butuh dua penyedia.
+**Catatan:** Review uang/konkurensi: wajib review independen `sonnet` dengan bukti diposting di PR. Harus ada di Rilis 1: gerbang F3/M3 butuh dua penyedia (C2: syarat itu dipindah dari F2/M2 pada 2026-10-04, jadi Xendit tidak lagi memblokir Soft Launch).
 
 ## Latar
 
@@ -36,3 +36,5 @@ Penyedia kedua: Xendit membawa VA dan e-wallet (keputusan di `18-second-payment-
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-04 (ronde C): C2 dijawab owner sesuai rekomendasi: syarat "Payment dari dua penyedia terekonsiliasi" pindah dari gerbang M2 ke M3. Soft Launch cukup dengan Sumopod; tiket ini tetap wajib untuk M3 dan ukurannya tidak berubah. C22 (disbursement API ditunda) tetap. Status tidak berubah.

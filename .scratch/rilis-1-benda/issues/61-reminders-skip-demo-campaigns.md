@@ -2,7 +2,7 @@
 
 **Type:** bug (pencegahan sebelum cron dipasang)
 
-**Status:** awaiting-merge
+**Status:** done (PR #219, 464d309)
 
 **Blocked by:** none
 
@@ -25,3 +25,5 @@ itu. Pembanding yang sudah benar: `src/lib/money/dormant-balances.ts`
 
 ## Comments
 - 2026-10-04, branch `claude/rilis-1-61-reminders-skip-demo`, sha kode 8dec795: `sendCampaignDeadlineReminders` kini memakai `...NOT_A_DEMO_CAMPAIGN` di `where`, tanpa mempedulikan `SHOW_DEMO_CAMPAIGNS`. Tidak diubah, sengaja: sweep escrow (tanpa pesan); `sweepStuckLateSettlementRefunds` (Volunteer Trip tidak punya `isDemo`, ADR 0014); `sendKindAuthorisationExpiryWarnings` (terikat Partner Organisation, bukan Campaign; butuh keputusan owner bila Partner Organisation demo ada). `dormant-balances`, `partnership-inquiries`, `collecting-entity` bukan job terjadwal.
+
+- 2026-10-04: done. Squash-merge ke `main` di PR #219 (464d309), setelah semua check CI hijau; `awaiting-merge` diganti `done` di PR dokumen ronde C.

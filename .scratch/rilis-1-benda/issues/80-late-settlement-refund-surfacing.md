@@ -1,14 +1,14 @@
 # 80: M-d late-settlement-refund-surfacing
 
-**Status:** needs-info
+**Status:** ready-for-agent
 
-**Blocked by:** none; menunggu C11
+**Blocked by:** none; C11 dijawab owner 2026-10-04
 
 **Ukuran:** S-M
 
 **Catatan:** Review uang/konkurensi: wajib review independen `sonnet` dengan bukti diposting di PR.
 
-**Menunggu keputusan:** C11 (rekomendasi: diusulkan sebagai Refund, tidak otomatis).
+**Keputusan (2026-10-04, ronde C):** C11 settlement terlambat diusulkan sebagai Refund kepada Admin, tidak otomatis (sesuai rekomendasi).
 
 ## Latar
 
@@ -32,3 +32,5 @@ Settlement yang datang setelah pembayaran kedaluwarsa tercatat sebagai hasil web
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-04 (ronde C): C11 dijawab owner sesuai rekomendasi: usulan Refund kepada Admin, tidak otomatis. Untuk Trip Fee perilaku yang ada tetap (Refund otomatis, tiket 40 dan 43). `needs-info` menjadi `ready-for-agent`.

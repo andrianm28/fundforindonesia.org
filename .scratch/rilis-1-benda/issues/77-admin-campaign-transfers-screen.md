@@ -1,14 +1,14 @@
 # 77: A-4 admin-campaign-transfers-screen
 
-**Status:** needs-info
+**Status:** ready-for-agent
 
-**Blocked by:** none; menunggu C14
+**Blocked by:** none; C14 dijawab owner 2026-10-04
 
 **Ukuran:** M
 
 **Catatan:** Review uang/konkurensi: wajib review independen `sonnet` dengan bukti diposting di PR.
 
-**Menunggu keputusan:** C14 (rekomendasi: transfer hibah tanpa batas kategori sampai review syariah).
+**Keputusan (2026-10-04, ronde C):** C14 transfer hibah tanpa batas kategori (sesuai rekomendasi).
 
 ## Latar
 
@@ -33,3 +33,5 @@ Backend transfer antar Campaign sudah ada (`requestCampaignTransfer`, `approveCa
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-04 (ronde C): C14 dijawab owner sesuai rekomendasi: transfer hibah tanpa batas kategori sampai ada review syariah. Aturan di `campaign-transfers.ts` (hibah hanya ke hibah, lintas Kind ditolak) tidak berubah; layar hanya menampilkannya. `needs-info` menjadi `ready-for-agent`.

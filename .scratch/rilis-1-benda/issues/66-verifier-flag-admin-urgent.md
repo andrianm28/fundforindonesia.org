@@ -32,3 +32,5 @@ Verifier tidak punya form untuk memasang Flag dan Admin tidak punya tombol dismi
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-04 (ronde C): C10 dijawab owner sesuai rekomendasi: Admin boleh menangguhkan Campaign tanpa Flag dari Verifier, asal alasannya tercatat. Itu sudah perilaku `CONTEXT.md` (Suspension) dan ADR 0015, jadi tiket ini tidak berubah dan tetap tidak bergantung padanya; layar Flag tidak boleh menjadikan Flag prasyarat Suspension.
