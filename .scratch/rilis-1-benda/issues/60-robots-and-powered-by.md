@@ -31,3 +31,4 @@ Situs belum punya `robots.txt`, sehingga crawler bebas menyentuh `/admin`,
 ## Comments
 
 - 2026-10-04: owner menyetujui rencana ini. Status `ready-for-agent`.
+- 2026-10-04: awaiting-merge. Branch claude/rilis-1-60-robots-powered-by, commit 2765d8c. robots.ts memblokir path privat/bertoken, merujuk sitemap dan host via publicUrl; /login dan /register tetap terbuka karena ada di sitemap. Tes robots dan next.config hijau, ratchet lint 193 / tsc 19 tidak naik.
