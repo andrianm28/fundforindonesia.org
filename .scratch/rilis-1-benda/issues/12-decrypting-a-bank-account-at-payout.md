@@ -4,7 +4,7 @@
 
 **Status:** resolved
 
-**Built by:** belum ada tiket di batch ini: kemungkinan A-1 (reveal rekening, C6), definisinya terpotong (lihat `../../percepatan-full-rilis/tiket-tertunda.md`)
+**Built by:** [89: M-a payout-reveal-account-number](89-payout-reveal-account-number.md) (membuka ulang premis tiket ini, lihat Comments)
 
 ## Question
 
@@ -61,3 +61,7 @@ Jawab (1) dulu: kalau provider aktif masih tanpa API pencairan, nyatakan
 eksplisit nomor tak pernah dibaca di payout, perbaiki komentar schema, tutup
 (2)-(3) sebagai "tidak berlaku sampai ada provider dengan API pencairan" —
 keputusan satu kalimat, murah.
+
+## Comments
+
+- 2026-10-04: premis jawaban di atas dibuka ulang oleh [89](89-payout-reveal-account-number.md): transfer manual menuntut Admin mengetik nomor penuh, jadi "nomor tak pernah dibaca di payout" tidak berlaku. Menunggu C6.

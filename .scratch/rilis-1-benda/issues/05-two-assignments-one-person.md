@@ -4,7 +4,7 @@
 
 **Status:** resolved
 
-**Built by:** belum ada tiket di batch ini: navigasi gabungan menurut assignment tidak punya baris di rencana yang terbaca (lihat `../../percepatan-full-rilis/tiket-tertunda.md`)
+**Built by:** [86: P1 admin-moderasi-door](86-admin-moderasi-door.md) (ditulis builder di branchnya sendiri; belum ada di branch ini)
 
 ## Question
 

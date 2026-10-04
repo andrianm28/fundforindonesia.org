@@ -1,0 +1,39 @@
+# 89: M-a payout-reveal-account-number
+
+**Status:** ready-for-agent
+
+**Blocked by:** none (tiket). Menunggu owner menjawab C6 (reveal rekening) sebelum acceptance dianggap final; rekomendasi C6: hanya Admin penyelesai, tercatat di tabel audit. Memakai "slot skema" Gelombang 1.
+
+**Ukuran:** S
+
+**Catatan:** Skema: menambah tabel audit reveal, jadi menyentuh `prisma/schema.prisma`/migrasi. Satu PR skema pada satu waktu; timestamp migrasi dibagi koordinator. Review uang/keamanan: wajib review independen `sonnet` dengan bukti diposting di PR. Pra-M1 dan prasyarat gladi tertutup bersama A-1 (88), lihat C1.
+
+**Menunggu keputusan:** C6 (siapa yang boleh membuka nomor rekening, dan pencatatannya).
+
+## Latar
+
+Admin tidak bisa melihat nomor rekening tujuan Payout: `src/app/admin/payouts/[id]/page.tsx:70` hanya memilih `bankCode` dan `accountName`, dan tes `src/app/admin/payouts/[id]/page.test.tsx:104` mengunci hal itu (`accountNumberCiphertext` tidak boleh dipilih). Karena Payout dijalankan manual di dashboard penyedia (ADR 0006), Payout mustahil tanpa psql.
+
+Tiket ini **membuka ulang premis** `12-decrypting-a-bank-account-at-payout.md`, yang menjawab bahwa nomor tak pernah dibaca saat payout dan menutup pertanyaan reveal sebagai "tidak berlaku". Premis itu salah untuk transfer manual: Admin harus mengetik nomor penuh. Jawaban 12 perlu diamandemen bertanggal, bukan ditulis ulang. Catatan ADR 0012: ciphertext teracak, jadi pembacaan tidak bisa dicari belakangan; tabel audit reveal justru menutup celah itu.
+
+## Berkas relevan
+
+- `src/app/admin/payouts/[id]/page.tsx` (baris 70: pemilihan `bankAccount`)
+- `src/app/admin/payouts/[id]/page.test.tsx` (baris 104: tes yang melarang `accountNumberCiphertext`; harus diperbaiki)
+- `src/lib/contact-fields.ts` (`readBankAccountNumber`, kini tanpa pemanggil produksi)
+- `src/lib/money/payouts.ts`
+- `prisma/schema.prisma` (tabel audit reveal baru; komentar `accountNumberCiphertext`)
+- `.scratch/rilis-1-benda/issues/12-decrypting-a-bank-account-at-payout.md`
+
+## Acceptance
+
+- [ ] Nomor penuh hanya terlihat oleh Admin penyelesai, hanya saat Payout `APPROVED`, dan tidak oleh requester maupun approver Payout itu
+- [ ] Tiap pembukaan menulis baris di tabel audit reveal (siapa, Payout mana, kapan); migrasi mengikuti aturan satu PR skema
+- [ ] Pembukaan lewat aksi eksplisit di server; nomor tidak ikut dalam payload halaman default dan tidak dicatat di log
+- [ ] Tes `page.test.tsx:104` diperbaiki sesuai perilaku baru; tes menolak requester, approver, dan status selain APPROVED
+- [ ] Komentar `accountNumberCiphertext` di skema dan jawaban `12` diamandemen bertanggal
+- [ ] Review independen `sonnet` (uang/keamanan) diposting di PR
+
+## Comments
+
+- 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (baris Pra-M1 M-a, dipulihkan dari relay kedua). C6 masih menunggu jawaban owner.

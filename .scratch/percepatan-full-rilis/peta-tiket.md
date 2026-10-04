@@ -33,10 +33,21 @@ Sumber: `.scratch/percepatan-full-rilis/plan.md`, Track B. Dibuat 2026-10-04.
 | H-3b | `.scratch/go-live-ops/issues/05-csp-report-only.md` | ready-for-agent |
 | H-7 | `.scratch/go-live-ops/issues/06-campaign-transfer-race-loop.md` | ready-for-agent |
 | E9 | `.scratch/fase-3-perluasan/issues/01-tim-csr-account.md` | needs-info |
+| P1 | `.scratch/rilis-1-benda/issues/86-admin-moderasi-door.md` (ditulis builder di branchnya sendiri) | belum ada di branch ini |
+| P2 | `.scratch/rilis-1-benda/issues/87-checkout-fee-hold-disclosure.md` (ditulis builder di branchnya sendiri) | belum ada di branch ini |
+| A-1 | `.scratch/rilis-1-benda/issues/88-admin-platform-fee-page.md` (ditulis builder di branchnya sendiri) | belum ada di branch ini |
+| M-a | `.scratch/rilis-1-benda/issues/89-payout-reveal-account-number.md` | ready-for-agent |
+| E1 | `.scratch/fase-3-perluasan/issues/02-e1-tautan-pendek.md` | needs-info |
+| E2 | `.scratch/fase-3-perluasan/issues/03-e2-dormant-balance-transfer.md` | needs-info |
+| E3 | `.scratch/fase-3-perluasan/issues/04-e3-donor-requested-refund.md` | needs-info |
+| E4 | `.scratch/fase-3-perluasan/issues/05-e4-organisation-team-members.md` | needs-info |
+| E5 | `.scratch/fase-3-perluasan/issues/06-e5-automatic-settlement-import.md` | needs-info |
+| E6 | `.scratch/fase-3-perluasan/issues/07-e6-whatsapp-notifications.md` | needs-info |
+| E7 | `.scratch/fase-3-perluasan/issues/08-e7-english-i18n.md` | needs-info |
+| E8 | `.scratch/fase-3-perluasan/issues/09-e8-asset-waqf-inquiry.md` | needs-info |
 | H-1 | (ditangani builder lain) | - |
 | H-2 | (ditangani builder lain) | - |
 | H-3a | (ditangani builder lain) | - |
 | G-1 | (ditangani builder G-1 (go-live-ops 02)) | - |
 | H-6 | (ditangani builder lain) | - |
 | reminders-skip-demo-campaigns | (ditangani builder lain) | - |
-| P1, P2, A-1, M-a, E1-E8 | (tertunda, lihat `tiket-tertunda.md`) | - |
