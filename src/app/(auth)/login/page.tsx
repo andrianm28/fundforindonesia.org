@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
-import { signIn } from 'next-auth/react';
+import { useEffect, useState, FormEvent } from 'react';
+import { signIn, getProviders } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
@@ -42,7 +42,22 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  // Hidden until /api/auth/providers says Google is configured: an unset client
+  // id would otherwise offer a button that can only end on an error page.
+  const [googleEnabled, setGoogleEnabled] = useState(false);
   const [failedAttempts, setFailedAttempts] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    getProviders()
+      .then((providers) => {
+        if (!cancelled) setGoogleEnabled(Boolean(providers && providers.google));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const isLocked = failedAttempts >= 5;
 
@@ -187,24 +202,28 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        {/* Separator */}
-        <div className="flex items-center my-6">
-          <div className="flex-1 border-t border-border" />
-          <span className="px-4 text-sm text-text-secondary">atau</span>
-          <div className="flex-1 border-t border-border" />
-        </div>
+        {googleEnabled && (
+          <>
+            {/* Separator */}
+            <div className="flex items-center my-6">
+              <div className="flex-1 border-t border-border" />
+              <span className="px-4 text-sm text-text-secondary">atau</span>
+              <div className="flex-1 border-t border-border" />
+            </div>
 
-        {/* Google OAuth Button */}
-        <Button
-          variant="secondary"
-          size="full"
-          onClick={handleGoogleSignIn}
-          isLoading={isGoogleLoading}
-          disabled={isLocked}
-          leftIcon={<GoogleIcon />}
-        >
-          Masuk dengan Google
-        </Button>
+            {/* Google OAuth Button */}
+            <Button
+              variant="secondary"
+              size="full"
+              onClick={handleGoogleSignIn}
+              isLoading={isGoogleLoading}
+              disabled={isLocked}
+              leftIcon={<GoogleIcon />}
+            >
+              Masuk dengan Google
+            </Button>
+          </>
+        )}
 
         {/* Register Link */}
         <p className="mt-6 text-center text-sm text-text-secondary">

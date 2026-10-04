@@ -1,6 +1,7 @@
 import { NextAuthOptions, getServerSession as nextAuthGetServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
+import { isGoogleConfigured } from "@/lib/auth-providers";
 import { hashPassword, verifyPassword } from "@/lib/password-hash";
 import { prisma } from "@/lib/prisma";
 import { PASSWORD_HASH_COST, isHashAtCurrentCost } from "@/lib/password-hash-cost";
@@ -27,10 +28,16 @@ const LOGIN_PER_CLIENT_LIMIT = 50;
 export const authOptions: NextAuthOptions = {
   adapter: adapter as NextAuthOptions["adapter"],
   providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    }),
+    // Only when both halves are configured; the login page hides its button
+    // when this provider is absent from /api/auth/providers.
+    ...(isGoogleConfigured()
+      ? [
+          GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID!,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+          }),
+        ]
+      : []),
     CredentialsProvider({
       name: "credentials",
       credentials: {

@@ -200,6 +200,11 @@ jobs:
       FIELD_ENCRYPTION_KEY_ID: enc-ci-1
       FIELD_HMAC_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
       FIELD_HMAC_KEY_ID: hmac-ci-1
+      # The boot check (src/lib/env-check.ts) holds `next start` to the production
+      # environment. These two are throwaway: a jobs secret, and the explicit
+      # opt-out that lets the bundle run on http://localhost:3000 for Playwright.
+      JOBS_SECRET: ci-placeholder-jobs-secret-not-real
+      ALLOW_LOCAL_AUTH_URL: "1"
       # Inlined into the client bundle at build time: the donate page shows
       # its form. The money itself stays stubbed in the specs: in
       # production `next start` the mock adapter is refused, so CI raises
