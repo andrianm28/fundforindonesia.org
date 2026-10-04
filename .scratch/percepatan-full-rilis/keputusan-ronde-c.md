@@ -190,7 +190,7 @@ Tanggal: 2026-10-04. Sumber: Track C di `.scratch/percepatan-full-rilis/plan.md`
 
 ## C23. Item perluasan (E1 sampai E9)
 
-Ketujuh item perluasan Fase 3 masuk Rilis 1 (keputusan owner 2026-10-04, diamandemen di `CONTEXT.md` dan PRD §6 dan §11). Tiap item butuh grilling singkat sebelum dibuat tiketnya; pertanyaan di bawah adalah yang sudah ada di rencana. Pesan relay rencana terpotong pada daftar E1 sampai E8, jadi E5 dan E8 ditandai [TERPOTONG] dan tidak diisi dengan tebakan.
+Ketujuh item perluasan Fase 3 masuk Rilis 1 (keputusan owner 2026-10-04, diamandemen di `CONTEXT.md` dan PRD §6 dan §11). Tiap item butuh grilling singkat sebelum dibuat tiketnya; pertanyaan di bawah adalah yang sudah ada di rencana. Relay kedua memulihkan daftar E1 sampai E8 (E5 = impor settlement otomatis, E8 = Asset Waqf Inquiry). Rencana tidak memuat pertanyaan C23 untuk E5; untuk E8 dan E9 pertanyaannya "sub-pertanyaan dari tiketnya".
 
 ### E1. Tautan pendek
 
@@ -224,9 +224,11 @@ Ketujuh item perluasan Fase 3 masuk Rilis 1 (keputusan owner 2026-10-04, diamand
 - **Rujukan:** `CONTEXT.md:106` (Partner Organisation: "anggota tim menyusul"); ADR 0005 (peran sebagai Assignment terpisah).
 - **Jawaban owner:** ___
 
-### E5. [TERPOTONG]
+### E5. Impor settlement otomatis
 
-- **Catatan:** Baris E5 hilang dari pesan relay. Tujuh item perluasan menurut PRD ada tujuh (bahasa Inggris, WhatsApp, tautan pendek, impor settlement otomatis, pengalihan Dormant Balance, Refund oleh Donor, anggota tim); enam sudah punya nomor E di rencana, jadi kemungkinan E5 adalah impor settlement otomatis. Ini inferensi koordinator, bukan teks rencana. Pertanyaan, rekomendasi, dan konsekuensi menunggu isi aslinya.
+- **Pertanyaan:** Rencana tidak memuat pertanyaan C23 untuk E5; diajukan saat grilling singkat setelah M-c.
+- **Prasyarat:** Setelah M-c (xendit-adapter), karena impor bergantung pada penyedia kedua. Ukuran M-L.
+- **Rujukan:** `plan.md` Lajur X dan Lajur E; `.scratch/rilis-1-benda/issues/85-xendit-adapter.md`.
 - **Jawaban owner:** ___
 
 ### E6. Notifikasi WhatsApp
@@ -245,9 +247,11 @@ Ketujuh item perluasan Fase 3 masuk Rilis 1 (keputusan owner 2026-10-04, diamand
 - **Rujukan:** PRD §9 baris Bahasa (`docs/PRD-fund-for-indonesia.md:303`); `.scratch/prd-audit/research/01-fase-0-1.md` (⚠️ 2).
 - **Jawaban owner:** ___
 
-### E8. [TERPOTONG]
+### E8. Asset Waqf Inquiry
 
-- **Catatan:** Baris E8 hilang dari pesan relay; rencana hanya menyebut "E8/E9 sub-pertanyaan dari tiketnya". Kemungkinan E8 adalah Asset Waqf Inquiry (`.scratch/prd-audit/issues/07-asset-waqf-inquiry.md`, status `open`, belum digrilling, pertanyaannya: model dan alur pengajuan Wakif, status tindak lanjut nazhir, dan hubungannya dengan Campaign `wakaf`), tetapi ini inferensi koordinator, bukan teks rencana. Menunggu isi aslinya.
+- **Pertanyaan:** Sub-pertanyaan dari tiketnya (rencana: "E8/E9 sub-pertanyaan dari tiketnya"): model dan alur pengajuan Wakif, status tindak lanjut nazhir, dan hubungannya dengan Campaign `wakaf`.
+- **Prasyarat:** Grilling dan input nazhir. Ukuran L, skema.
+- **Rujukan:** `.scratch/prd-audit/issues/07-asset-waqf-inquiry.md` (status `open`, belum digrilling).
 - **Jawaban owner:** ___
 
 ### E9. Akun Tim CSR

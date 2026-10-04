@@ -1,11 +1,14 @@
 # Plan: percepatan full rilis fundforindonesia.org (Rilis 1 penuh, 2026-10-04)
 
-> Disalin koordinator dari pesan relay sesi VPS (2026-10-04). Pesan itu TERPOTONG di
-> beberapa tempat; bagian yang hilang ditandai [TERPOTONG]. Jangan menebak isinya.
+> Disalin koordinator dari pesan relay sesi VPS (2026-10-04). Pesan itu TERPOTONG; bagian yang
+> hilang dipulihkan dari relay kedua (2026-10-04, verbatim). Yang masih hilang ditandai [TERPOTONG]:
+> kalimat pembuka Context dan butir A1 nomor 2 s/d 6. Jangan menebak isinya.
 > Detail host (IP, hostname, nama stack lain, path server) sengaja dihapus karena repo ini publik.
 > Owner menyetujui rencana ini pada 2026-10-04.
 
 ## Context
+
+[TERPOTONG: kalimat pembuka Context "Owner minta rencana percepata..." hilang dari relay; kalimat di bawah disusun koordinator dari sisa pesan.]
 
 Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur**. Keputusan: YIEM izinnya lengkap; **ketujuh item perluasan Fase 3 MASUK Rilis 1** (membalik Q12–Q18 prd-audit 05); tiket 25 **tetap A** (owner-only dispatch) + required reviewer + branch protection (repo ternyata publik → gratis).
 
@@ -33,17 +36,28 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 4. **Lajur builder paralel dengan aturan konflik file**: maksimal 8 agent, tetapi satu PR skema pada satu waktu; builder menjalankan tes terkait + tsc + lint saja, full suite di CI; vitest di-shard 3 arah; merge dibatch → satu CD + satu Deploy per gelombang.
 5. **Bersih-bersih tiket sekali jalan** dalam satu PR dokumen, plus semua tiket baru ditulis dalam satu batch.
 
+## Status eksekusi (sesi VPS, 2026-10-04)
+
+- A1-1/2 backup malam DB produksi + volume uploads, offsite terenkripsi retensi 90 hari; cron backup lama yang mati dinonaktifkan.
+- A1-3 restore drill lulus (4 s, jumlah baris identik).
+- A1-6 NEXTAUTH_URL apex, galang 301 ke apex.
+- A1-8 hitungan read-only: ADMIN=2 & VERIFIER=2 (perlu Admin ke-3); tidak ada role lama tanpa assignment; SUSPENDED tanpa log=0; key id tunggal; donationBalance>0: 5 user (total Rp1.371.884).
+- A2 reviewer production + branch protection (test/build/migrations/ratchet/e2e) + Dependabot alerts + secret scanning + push protection.
+- Monitoring host: /api/health, umur backup, disk 85%; alert terkirim setelah owner memperbaiki kredensial kanal alert.
+- A1-7 cron jobs ditunda: menunggu reminders-skip-demo-campaigns.
+- Owner: uji login apex, kanal alert, Admin ke-3, saldo dompet lama, disk 84% naik ~0,5 GB/jam (build stack lain di host).
+
 ## Pembagian sesi (sesuai CLAUDE.md)
 
 - **Sesi VPS:** hanya ops host + setelan GitHub; setiap perintah yang mengubah sesuatu ditunjukkan dulu dan dijalankan setelah owner bilang "ok"; nilai rahasia tidak pernah ditampilkan.
 - **Sesi koordinator cloud:** salin rencana ini ke `.scratch/percepatan-full-rilis/plan.md`, tandai rencana lama superseded, tulis tiket, dispatch builder (sonnet), review independen kode uang, merge setelah "ya" owner.
 - **Owner:** vendor, legal, setup di produk, dispatch `deploy.yml`.
-- **Tempat tiket baru:** [TERPOTONG — dari instruksi koordinator: rilis-1-benda/issues/58+, go-live-ops/issues/, fase-3-perluasan/issues/]
+- **Tempat tiket baru:** celah Rilis 1 di `.scratch/rilis-1-benda/issues/` (58+), ops di `.scratch/go-live-ops/issues/` (tanpa detail host), item perluasan di `.scratch/fase-3-perluasan/issues/`.
 
 ## Track A: langkah owner dan host
 
 **A1. Host** (sesi VPS)
-1. [TERPOTONG — backup DB terjadwal; menurut laporan VPS sudah selesai: backup malam DB + uploads, offsite terenkripsi retensi 90 hari]
+1. Backup malam DB produksi dan volume uploads, offsite terenkripsi retensi 90 hari; cron backup lama yang mati dinonaktifkan (selesai, lihat Status eksekusi). [TERPOTONG: butir A1 nomor 2 s/d 6 pada relay kedua terpotong ("2. Backup volume uploads, mal..." lalu lompat ke 7); teks butir 2-6 di bawah disusun koordinator, bukan verbatim.]
 2. Backup volume uploads, malam hari dan offsite.
 3. Restore drill ke Postgres sementara, dicatat sebagai `docs/runbooks/restore.md` lewat koordinator.
 4. Alert: perbaiki kanal yang rusak (laporan ops: SMTP 535); cek `/api/health`, umur backup, disk 85%; uptime eksternal.
@@ -88,9 +102,22 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 - `src/lib/domain-errors.ts` dan `src/lib/money/errors.ts` hanya ditambah, di-merge berurutan.
 - `CONTEXT.md`, `.env.example`, `ci/baselines.json`, `package.json`, dan dokumen agent hanya diedit koordinator.
 - Baris di `AdminSidebar.tsx` ditambah satu per satu, di-merge berurutan.
-- Tidak boleh berjalan bersamaan: M-e dengan F4 (`campaign-lifecyc… [TERPOTONG]
+- Tidak bersamaan: M-e dengan F4 (`campaign-lifecycle.ts`), H-3 dengan H-4 (`next.config.mjs`).
 
-**Menuju M1:** [TERPOTONG — baris P1, P2, A-1, M-a dan lainnya hilang dari pesan relay]
+**Menuju M1:** Pra-M1 (wajib sebelum flip)
+
+| ID | Tiket baru | Isi | Ukuran |
+|---|---|---|---|
+| M-a | payout-reveal-account-number | Nomor penuh hanya untuk Admin penyelesai, saat APPROVED, bukan requester/approver; tabel audit reveal (skema); perbaiki tes `page.test.tsx:104`; buka ulang premis rilis-1-benda 12 | S |
+| A-1 | admin-platform-fee-page | Layar aturan Platform Fee + riwayat di atas API yang sudah ada | M |
+| P2 | checkout-fee-hold-disclosure | Persentase fee, Escrow Hold, dan jumlah bersih di konfirmasi donasi | S |
+| P1 | admin-moderasi-door | Tautan ke /admin dan /moderasi menurut role (rilis-1-benda 05) | S |
+| S-0 | contract release | Drop kolom status/role lama (legacy-status-contract 03, retire-role-hierarchy 03) sebelum data nyata, setelah hitungan A1 aman | S+S |
+
+Baris H-1, H-2, H-3a, dan G-1 pada tabel berikut juga pra-M1.
+
+**Nomor tiket (ditulis builder di branch masing-masing, bukan di PR dokumen ini):** P1 = `rilis-1-benda` 86, P2 = 87, A-1 = 88, M-a = 89 (ditulis koordinator, `rilis-1-benda/issues/89-payout-reveal-account-number.md`). Peta tiket ada di PR #222 (`claude/full-rilis-g0-tickets`).
+
 
 | ID | Tiket baru | Isi | Ukuran |
 |---|---|---|---|
@@ -140,7 +167,16 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 
 **Lajur E: item perluasan** (folder `fase-3-perluasan`, masing-masing perlu grilling singkat dulu)
 
-[TERPOTONG — baris E1–E8 hilang]
+| ID | Item | Prasyarat | Ukuran |
+|---|---|---|---|
+| E1 | Tautan pendek | Domain/prefix; skema | S |
+| E2 | Pengalihan Dormant Balance 180 hari: tiga pengingat, predikat, layar transfer, notifikasi Donor | Cron A1, A-4, aturan legal | M, skema |
+| E3 | Refund diminta Donor | Mengubah PRD 7.2 dan ADR 0018; aturan kelayakan dan anti-abuse | M-L, review uang |
+| E4 | Anggota tim organisasi: membership, peran, undangan, akses Payout | Grilling peran | L, skema, review uang |
+| E5 | Impor settlement otomatis | Setelah M-c | M-L |
+| E6 | Notifikasi WhatsApp: notifier di samping mail, consent | Onboarding Meta (A3) dan PDP | L |
+| E7 | Bahasa Inggris (i18n) | ADR pustaka dan konvensi kunci ditulis di Gelombang 1 supaya layar baru langsung memakai kunci; ekstraksi penuh paling akhir dan sendirian | XL |
+| E8 | Asset Waqf Inquiry (prd-audit 07) | Grilling, input nazhir | L, skema |
 
 | E9 | Akun Tim CSR (rilis-1-benda 08): email konfirmasi ke perusahaan (S) dulu, akun lengkap belakangan | Grilling empat sub-pertanyaan | L, skema |
 
