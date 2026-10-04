@@ -2,8 +2,10 @@
 # forced command that runs ops/deploy.sh (.scratch/ci-cd-github-actions,
 # ticket 07).
 #
-# Started only by hand: Actions > Deploy > Run workflow, on main, with an
-# optional commit SHA (empty means main's head). Two jobs: `gate` (no
+# Started only by hand, and only by the owner: Actions > Deploy > Run workflow,
+# on main, with an optional commit SHA (empty means main's head). No agent ever
+# dispatches this workflow or approves its deployment (owner's decision,
+# 2026-10-04, ticket ci-cd 25: "A + reviewer + protection"). Two jobs: `gate` (no
 # Environment) checks everything itself before anything reaches the host
 # (ci/deploy-gate.sh):
 #   - the SHA is a full commit on main;
@@ -15,8 +17,10 @@
 # bytes, not from anything typed into the form.
 #
 # `deploy` (needs: gate, environment: production) runs only once the owner
-# approves it as that environment's required reviewer: an agent may dispatch
-# this workflow, but never approves its own deployment.
+# approves it as that environment's required reviewer. The owner is the only
+# required reviewer, and `main` is protected by branch protection (required
+# checks test, build, migrations, ratchet, e2e; no force-push or deletion), so
+# only a commit that passed CI can reach this workflow.
 #
 # It lives apart from cd.yml because cd.yml builds on every CI pass and every
 # PR: sharing that workflow's concurrency group would let a new build push a

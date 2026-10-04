@@ -66,11 +66,11 @@ untuk produksi dan ops yang dijalankan owner (nginx, cutover, backup).
   menyentuh host produksi.
 - Jangan pernah mengubah, men-deploy, atau menjalankan apa pun di
   `/home/ubuntu/kibi-clone` (checkout produksi yang live) atau stack produksi.
-- Agent, termasuk koordinator, boleh men-dispatch
-  `.github/workflows/deploy.yml` untuk commit `main` dengan CI hijau setelah
-  environment `production` (tiket 23) ada; persetujuan tetap di tangan owner
-  selaku environment reviewer, dan agent tidak pernah menyetujui deployment-nya
-  sendiri.
+- Hanya owner yang men-dispatch `.github/workflows/deploy.yml`, dan owner juga
+  satu-satunya required reviewer environment `production`; `main` dilindungi
+  branch protection (keputusan owner 2026-10-04, ci-cd 25: "A + reviewer +
+  protection"). Agent, termasuk koordinator, tidak pernah men-dispatch maupun
+  menyetujui deploy.
 - Merge hanya setelah semua check CI hijau.
 - Tidak ada kredensial asli di repo, termasuk `.scratch/`.
 
