@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -43,11 +43,27 @@ esensial, dilaporkan, tidak ditambal di sini.
 
 ## Acceptance
 
-- [ ] Halaman menampilkan aturan berlaku per Kind, override Category dan
+- [x] Halaman menampilkan aturan berlaku per Kind, override Category dan
       Campaign, dan ambang, dari baris terbaru di database.
-- [ ] Kind tanpa baris ditampilkan sebagai belum diatur, bukan angka karangan.
-- [ ] Riwayat menampilkan semua baris dengan siapa dan kapan, terbaru dulu.
-- [ ] Form memposting body yang tepat ke API yang ada (rule per scope,
+- [x] Kind tanpa baris ditampilkan sebagai belum diatur, bukan angka karangan.
+- [x] Riwayat menampilkan semua baris dengan siapa dan kapan, terbaru dulu.
+- [x] Form memposting body yang tepat ke API yang ada (rule per scope,
       threshold) dan menampilkan penolakan server apa adanya.
-- [ ] Tidak ada angka fee, persen, atau ambang di-hardcode di halaman/form.
-- [ ] Tautan sidebar ke `/admin/platform-fee`.
+- [x] Tidak ada angka fee, persen, atau ambang di-hardcode di halaman/form.
+- [x] Tautan sidebar ke `/admin/platform-fee`.
+
+## Comments
+
+- 2026-10-04, branch `claude/rilis-1-88-admin-platform-fee-page`: dibangun
+  test-first. Halaman `/admin/platform-fee` (server component, `force-dynamic`)
+  membaca `platformFeeRule` dan `platformFeeThreshold` langsung dan menurunkan
+  "yang berlaku" dari baris terbaru per Kind/Category/Campaign, aturan yang
+  sama dengan `resolvePlatformFeeBasis`. Kind tanpa baris tampil "Belum
+  diatur". `AdminPlatformFeeForm` memposting ke API yang ada tanpa mengubahnya;
+  persen diketik lalu diubah ke basis point lewat aritmetika string, validasi
+  tetap di server. Tidak ada angka fee di-hardcode. Sidebar: satu tautan, plus
+  href-nya di `ADMIN_HREFS` agar status aktif jalan (dan daftar tes sidebar).
+- Batasan yang dilaporkan, bukan ditambal: override Campaign memakai ID
+  Campaign yang diketik (API hanya menerima `campaignId`); tidak ada pemilih
+  Campaign. API tidak punya GET, jadi halaman membaca lewat Prisma seperti
+  halaman Admin lain.
