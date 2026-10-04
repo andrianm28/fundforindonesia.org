@@ -1,4 +1,4 @@
-import { Assignment } from "@/generated/prisma/client";
+import type { Assignment } from "@/generated/prisma/client";
 import { hasAssignment } from "@/lib/assignment";
 
 export interface StaffEntryLink {
@@ -13,10 +13,10 @@ export interface StaffEntryLink {
  */
 export function staffEntryLinks(assignments: Assignment[] | undefined): StaffEntryLink[] {
   const links: StaffEntryLink[] = [];
-  if (hasAssignment(assignments, Assignment.ADMIN)) {
+  if (hasAssignment(assignments, "ADMIN")) {
     links.push({ href: "/admin", label: "Admin" });
   }
-  if (hasAssignment(assignments, Assignment.VERIFIER)) {
+  if (hasAssignment(assignments, "VERIFIER")) {
     links.push({ href: "/moderasi", label: "Moderasi" });
   }
   return links;
