@@ -19,7 +19,7 @@ match, and a skipped aggregate is refused like any other non-success job.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 - [x] `ci.yml` has a `test-shard` matrix job (shards 1..3 of 3, `fail-fast: false`), each with its own Postgres service and `TEST_DATABASE_URL`
 - [x] A job named exactly `test` needs the shards and fails when any shard did not succeed
@@ -38,3 +38,4 @@ match, and a skipped aggregate is refused like any other non-success job.
   `prisma generate` cost per shard), at three times the runner minutes for
   that job. Median before and after is to be read off CI runs once this is on
   `main`.
+- 2026-10-04, branch `claude/ci-cd-26-vitest-shard`, work at beb1e06: `test` job became `test-shard` (matrix 1..3, fail-fast false, own Postgres per shard) plus aggregate `test` (`needs`, `if: always()`, fails unless result is success). `deploy-gate.sh` unchanged: it matches exact names, so shard names cannot satisfy `test`; two new gate tests pin that. Not run locally: full suite and CI timings (median before/after still to be read off CI).
