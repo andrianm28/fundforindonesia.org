@@ -285,6 +285,12 @@ jobs:
             -e DATABASE_URL="$SMOKE_DATABASE_URL" \
             -e NEXTAUTH_SECRET=ci-placeholder-not-a-secret \
             -e NEXTAUTH_URL=http://localhost:3000 \
+            -e ALLOW_LOCAL_AUTH_URL=1 \
+            -e JOBS_SECRET=ci-placeholder-jobs-secret-not-real \
+            -e FIELD_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+            -e FIELD_ENCRYPTION_KEY_ID=enc-ci-1 \
+            -e FIELD_HMAC_KEY=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE= \
+            -e FIELD_HMAC_KEY_ID=hmac-ci-1 \
             -e MOCK_MIDTRANS_SERVER_KEY=ci-placeholder-not-a-secret \
             local/app:candidate
           for _ in $(seq 1 30); do
