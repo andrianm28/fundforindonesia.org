@@ -123,7 +123,10 @@ done and CI is green.
 `main` and every push to `main`:
 
 - **test**: the full vitest suite passes. This is the full-suite step of
-  `/implement`.
+  `/implement`. The suite runs as three parallel shards (`test-shard (i/3)`,
+  each with its own Postgres); the check named exactly `test` is an aggregate
+  that needs all three and fails if any did not succeed. Branch protection
+  and `ci/deploy-gate.sh` match that name, so never rename it.
 - **build**: `next build` succeeds with placeholder env.
 - **migrations**: every migration applies to an empty Postgres 16, and
   `prisma migrate diff` against `prisma/schema.prisma` is empty afterwards. A

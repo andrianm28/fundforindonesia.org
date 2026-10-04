@@ -178,3 +178,48 @@ describe("the CD image scope", () => {
   });
 });
 
+
+/**
+ * Ticket 26: the vitest job is sharded three ways. Branch protection and
+ * ci/deploy-gate.sh both want a check named exactly `test`, so the shards have
+ * other names and an aggregate job called `test` stands in for them.
+ */
+describe("the CI test shards", () => {
+  const lines = (workflows.find((w) => w.file === "ci.yml")?.text ?? "").split("\n");
+  /** The lines of job `name` under `jobs:` (two-space-indented key). */
+  function job(name: string): string[] {
+    const start = lines.indexOf(`  ${name}:`);
+    if (start === -1) return [];
+    const out: string[] = [];
+    for (const line of lines.slice(start + 1)) {
+      if (/^ {0,2}\S/.test(line)) break;
+      out.push(line);
+    }
+    return out;
+  }
+  const has = (name: string, re: RegExp) => job(name).some((l) => re.test(l));
+
+  it("run vitest as three shards, each with its own Postgres and no fail-fast", () => {
+    expect(has("test-shard", /shard: \[1, 2, 3\]/)).toBe(true);
+    expect(has("test-shard", /fail-fast: false/)).toBe(true);
+    expect(has("test-shard", /npx vitest run --shard=\$\{\{ matrix\.shard \}\}\/3/)).toBe(true);
+    expect(has("test-shard", /^ {6}postgres:/)).toBe(true);
+    expect(has("test-shard", /TEST_DATABASE_URL: /)).toBe(true);
+    // The shard job must not take the protected name.
+    expect(has("test-shard", /^ {4}name: test$/)).toBe(false);
+  });
+
+  it("are aggregated by a job named exactly `test` that cannot be skipped into passing", () => {
+    expect(has("test", /^ {4}name: test$/)).toBe(true);
+    expect(has("test", /needs: \[?test-shard\]?$/)).toBe(true);
+    expect(has("test", /if: \$\{\{ always\(\) \}\}/)).toBe(true);
+    expect(has("test", /SHARDS_RESULT: \$\{\{ needs\.test-shard\.result \}\}/)).toBe(true);
+    expect(has("test", /"\$SHARDS_RESULT" = success/)).toBe(true);
+  });
+
+  it("leave the other protected check names alone", () => {
+    for (const name of ["build", "migrations", "ratchet", "e2e"]) {
+      expect(has(name, new RegExp(`^ {4}name: ${name}$`)), name).toBe(true);
+    }
+  });
+});

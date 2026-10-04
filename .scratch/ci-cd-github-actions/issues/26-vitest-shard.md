@@ -21,12 +21,12 @@ match, and a skipped aggregate is refused like any other non-success job.
 
 **Status:** ready-for-agent
 
-- [ ] `ci.yml` has a `test-shard` matrix job (shards 1..3 of 3, `fail-fast: false`), each with its own Postgres service and `TEST_DATABASE_URL`
-- [ ] A job named exactly `test` needs the shards and fails when any shard did not succeed
-- [ ] Names `build`, `migrations`, `ratchet`, `e2e` unchanged
-- [ ] `deploy-gate.test.ts` proves a run whose shards are green but whose `test` aggregate is not green is refused
-- [ ] `workflows.test.ts` pins the wiring above
-- [ ] `docs/agents/verification.md` describes the shards
+- [x] `ci.yml` has a `test-shard` matrix job (shards 1..3 of 3, `fail-fast: false`), each with its own Postgres service and `TEST_DATABASE_URL`
+- [x] A job named exactly `test` needs the shards and fails when any shard did not succeed
+- [x] Names `build`, `migrations`, `ratchet`, `e2e` unchanged
+- [x] `deploy-gate.test.ts` proves a run whose shards are green but whose `test` aggregate is not green is refused
+- [x] `workflows.test.ts` pins the wiring above
+- [x] `docs/agents/verification.md` describes the shards
 - [ ] Median duration of `test` before and after recorded (visible only in CI after merge)
 
 ## Comments

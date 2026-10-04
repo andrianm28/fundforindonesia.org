@@ -384,6 +384,33 @@ describe("ci/deploy-gate.sh", () => {
       expectRefused(gate(), /ratchet/);
     });
 
+    it("a green CI run whose test shards passed but whose `test` aggregate did not (ticket 26)", () => {
+      gh(`repos/${REPO}/actions/runs/${CI_RUN}/jobs`, {
+        total_count: 7,
+        jobs: [
+          ...[1, 2, 3].map((i) => ({ name: `test-shard (${i}/3)`, conclusion: "success" })),
+          { name: "test", conclusion: "skipped" },
+          { name: "ratchet", conclusion: "success" },
+          { name: "migrations", conclusion: "success" },
+          { name: "build", conclusion: "success" },
+        ],
+      });
+      expectRefused(gate(), /no green `test` job/);
+    });
+
+    it("a green CI run with test shards but no `test` aggregate at all (ticket 26)", () => {
+      gh(`repos/${REPO}/actions/runs/${CI_RUN}/jobs`, {
+        total_count: 6,
+        jobs: [
+          ...[1, 2, 3].map((i) => ({ name: `test-shard (${i}/3)`, conclusion: "success" })),
+          { name: "ratchet", conclusion: "success" },
+          { name: "migrations", conclusion: "success" },
+          { name: "build", conclusion: "success" },
+        ],
+      });
+      expectRefused(gate(), /no green `test` job/);
+    });
+
     it.each([
       ["the app image", SHA],
       ["the migrate image", `${SHA}-migrate`],
