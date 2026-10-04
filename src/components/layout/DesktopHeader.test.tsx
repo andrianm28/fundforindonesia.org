@@ -121,4 +121,19 @@ describe('DesktopHeader', () => {
     expect(header).toHaveClass('hidden');
     expect(header).toHaveClass('lg:block');
   });
+
+  it('shows staff links to a signed-in user, and to no visitor (ticket 86)', () => {
+    const links = [{ href: '/admin', label: 'Admin' }];
+    const { rerender } = render(<DesktopHeader user={mockUser} staffLinks={links} onSearch={vi.fn()} />);
+    expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin');
+
+    rerender(<DesktopHeader user={null} staffLinks={links} onSearch={vi.fn()} />);
+    expect(screen.queryByRole('link', { name: 'Admin' })).toBeNull();
+  });
+
+  it('shows no staff link when none is passed', () => {
+    render(<DesktopHeader user={mockUser} onSearch={vi.fn()} />);
+    expect(screen.queryByRole('link', { name: 'Admin' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Moderasi' })).toBeNull();
+  });
 });

@@ -1,22 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth";
 import { Assignment } from "@/generated/prisma/client";
+import { hasAssignment } from "@/lib/assignment";
+
+// Re-exported so existing imports keep working.
+export { hasAssignment };
 
 type RouteHandler = (
   req: NextRequest,
   context?: any
 ) => Promise<NextResponse>;
-
-/**
- * True if the given assignments include the required one. Treats a
- * missing list as no assignments -- deny by default, never assume.
- */
-export function hasAssignment(
-  assignments: Assignment[] | undefined,
-  required: Assignment
-): boolean {
-  return (assignments ?? []).includes(required);
-}
 
 /**
  * Higher-order function that wraps a Next.js API route handler with

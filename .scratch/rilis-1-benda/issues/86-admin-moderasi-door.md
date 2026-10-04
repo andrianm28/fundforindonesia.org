@@ -2,7 +2,7 @@
 
 **Type:** feature (UI kecil)
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -19,11 +19,12 @@ memakai helper otorisasi yang sama (`hasAssignment`), bukan logika peran baru.
 
 ## Acceptance criteria
 
-- [ ] Pengguna yang memegang assignment ADMIN melihat tautan ke `/admin` di `/akun` dan di header desktop.
-- [ ] Pengguna yang memegang assignment VERIFIER (assignment yang dipakai guard `/moderasi`) melihat tautan ke `/moderasi` di tempat yang sama.
-- [ ] Pemegang kedua assignment melihat kedua tautan (satu navigasi, bagian sesuai assignment; tidak ada layar eksklusif).
-- [ ] Pengguna tanpa assignment itu, dan pengunjung tanpa sesi, tidak melihat tautan apa pun.
-- [ ] Penentuan memakai `hasAssignment` yang sama dengan guard halaman; tidak ada salinan logika peran.
-- [ ] Tes; tanpa migrasi, tanpa menyentuh `AdminSidebar.tsx`.
+- [x] Pengguna yang memegang assignment ADMIN melihat tautan ke `/admin` di `/akun` dan di header desktop.
+- [x] Pengguna yang memegang assignment VERIFIER (assignment yang dipakai guard `/moderasi`) melihat tautan ke `/moderasi` di tempat yang sama.
+- [x] Pemegang kedua assignment melihat kedua tautan (satu navigasi, bagian sesuai assignment; tidak ada layar eksklusif).
+- [x] Pengguna tanpa assignment itu, dan pengunjung tanpa sesi, tidak melihat tautan apa pun.
+- [x] Penentuan memakai `hasAssignment` yang sama dengan guard halaman; tidak ada salinan logika peran.
+- [x] Tes; tanpa migrasi, tanpa menyentuh `AdminSidebar.tsx`.
 
 ## Comments
+- 2026-10-04, branch `claude/rilis-1-86-admin-moderasi-door`: `hasAssignment` dipindah ke `src/lib/assignment.ts` (bebas modul server, di-re-export dari `withAssignmentCheck` sehingga impor lama tetap jalan) agar komponen klien memakai cek yang sama dengan guard halaman. `staffEntryLinks` (`src/lib/staff-entry-links.ts`) memetakan ADMIN -> /admin, VERIFIER -> /moderasi; dipakai di `/akun` (daftar tautan) dan `DesktopHeader` (via `AppShell`). Enum `Assignment` hanya punya ADMIN dan VERIFIER, jadi "siapa pun yang boleh moderasi" = VERIFIER, sama seperti guard `/moderasi`. Tanpa migrasi; `AdminSidebar` tidak disentuh. BottomNavBar tidak diubah: tab Akun sudah mengarah ke `/akun`.

@@ -7,6 +7,7 @@ import DesktopHeader from './DesktopHeader';
 import { PageTransition } from './PageTransition';
 import { useUnreadCount } from '@/lib/hooks/useUnreadCount';
 import { User } from '@/types';
+import { staffEntryLinks } from '@/lib/staff-entry-links';
 
 type TabId = 'home' | 'galang-dana' | 'donasi-saya' | 'inbox' | 'akun';
 
@@ -64,7 +65,12 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <>
       {/* Desktop Header - hidden on mobile/tablet, visible on lg+ */}
-      <DesktopHeader user={user} notificationCount={unreadCount} onSearch={handleSearch} />
+      <DesktopHeader
+        user={user}
+        notificationCount={unreadCount}
+        staffLinks={staffEntryLinks(session?.user?.assignments)}
+        onSearch={handleSearch}
+      />
 
       {/* Main content area with padding for fixed navigation */}
       <Content className="pb-16 lg:pb-0 lg:pt-16">
