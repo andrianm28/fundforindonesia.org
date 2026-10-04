@@ -80,6 +80,10 @@ resolved, dan spec-nya bisa diserahkan ke `/to-spec`.
 
 - Mengukur metrik PRD §5 terhadap angka nyata. Rilis 1 hanya menuntut metriknya *bisa diukur* (keputusan Q10.4); nilainya baru ada setelah Soft Launch.
 
+> **Dibalik 2026-10-04:** ketujuh item ini kini masuk Rilis 1; lihat catatan di
+> `issues/05-triage-prd-gaps.md` bagian Comments. Teks di bawah dipertahankan
+> sebagai riwayat.
+
 Tujuh item Fase 3 di luar gerbang, diputuskan tidak masuk Rilis 1 pada triase
 2026-09-28 (`triage-2026-09-28.md` Bagian A):
 

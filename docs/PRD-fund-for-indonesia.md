@@ -70,7 +70,9 @@ Target di atas usulan awal dan perlu dikunci sebelum pengembangan. Rata-rata don
 
 ## 6. Ruang lingkup rilis pertama
 
-Rilis pertama mencakup Fase 0 sampai 2 pada pasal 11. Fase 3 menyusul. Satu entitas Campaign membawa seluruh uang daring; lihat [ADR 0002](./adr/0002-one-campaign-entity-for-all-money.md).
+Rilis pertama mencakup Fase 0 sampai 2 pada pasal 11. Fase 3 menyusul.
+
+> **Amandemen 2026-10-04 (keputusan owner, `.scratch/percepatan-full-rilis/plan.md`):** definisi "Rilis 1" di `CONTEXT.md` sejak 2026-09-28 memuat gerbang Fase 0 sampai 3, dan kini juga memuat ketujuh item perluasan Fase 3 (daftar di bawah dan di pasal 11), Asset Waqf Inquiry, serta akun Tim CSR. Teks "rilis pertama = Fase 0 sampai 2" di pasal ini dan daftar pengecualian di bawah adalah teks asli; baca bersama catatan ini. Cakupan Fase 0 sampai 2 tidak berubah. Satu entitas Campaign membawa seluruh uang daring; lihat [ADR 0002](./adr/0002-one-campaign-entity-for-all-money.md).
 
 ### Masuk
 
@@ -92,6 +94,8 @@ Rilis pertama mencakup Fase 0 sampai 2 pada pasal 11. Fase 3 menyusul. Satu enti
 - Notifikasi email untuk Receipt, Campaign Update, hasil verifikasi, dan Payout.
 
 ### Dikecualikan dari rilis pertama, masuk Fase 3 atau setelahnya
+
+> **Amandemen 2026-10-04:** ketujuh item perluasan di daftar ini (versi bahasa Inggris, notifikasi WhatsApp, tautan pendek, impor settlement otomatis, pengalihan Dormant Balance, Refund yang diminta sendiri oleh Donor, anggota tim untuk Fundraiser organisasi) kini **masuk Rilis 1**, bukan lagi "setelahnya". Volunteer Trip sudah masuk Rilis 1 sejak 2026-09-27. Daftar di bawah dipertahankan sebagai teks asli. Dasar keputusan dan urutan kerja ada di `.scratch/percepatan-full-rilis/plan.md`.
 
 - Versi bahasa Inggris. Pendekatan i18n dipilih di Fase 1 agar halaman baru ditulis dengan kunci terjemahan sejak awal.
 - Volunteer Trip, Batch, Registration berbayar, sertifikat volunteer. Portofolio CSR dan Partnership Inquiry dipindah ke rilis pertama; lihat bagian Masuk di atas.
@@ -322,6 +326,8 @@ Urutan disusun ulang mengikuti kondisi kode.
 | Fase 1, MVP | Adapter Sumopod QRIS dengan webhook dan Provider Fee nyata dari payload, tanpa metode lain; Platform Fee di buku besar dengan pengaturan Admin (FFI-17); Receipt dan Campaign Update lewat email yang sudah berdiri sejak Fase 0; Guest Donor; Traffic Source; lokasi dan penerima manfaat; zakat, wakaf tunai dengan Akad Wakaf, dan hibah (FFI-08b); dashboard kontributor; halaman Impact & Transparency; Demo Campaign disembunyikan dari katalog dan Impact saat Campaign nyata pertama Active; Portofolio CSR dan Partnership Inquiry (FFI-09, FFI-10), dipindah dari Fase 3 pada revisi ini — berjalan pada rentang waktu yang sama tetapi tidak menjadi syarat lolos fase karena jalur uangnya terpisah (Manual Contribution ke Program Balance, bukan gateway) | Donasi QRIS nyata pertama berhasil end to end dan Receipt diterima |
 | Fase 2, pendalaman | UI Payout untuk Fundraiser, Payout Completed manual oleh Admin dengan bukti, Usage Report dan gating-nya, Suspension, Cancelled, Refund oleh Admin dengan batas per Kind, laporan Campaign yang belum mencairkan saldo selama 60 hari, Manual Contribution, anonimisasi Donor, verifikasi tambahan di atas ambang, penanda audit, pengaturan penyedia ganda (FFI-18) dengan penyedia kedua yang membawa VA, e-wallet, dan disbursement | Alur Payout dan Usage Report berjalan tanpa intervensi basis data; Payment dari dua penyedia terekonsiliasi |
 | Fase 3, perluasan | Volunteer Trip, Batch, Registration berbayar, sertifikat volunteer, versi bahasa Inggris, WhatsApp, tautan pendek, impor settlement otomatis, pengalihan Dormant Balance, Refund yang diminta sendiri oleh Donor, anggota tim untuk Fundraiser organisasi | Volunteer Trip pertama berjalan end to end sampai sertifikat terbit, termasuk satu Batch yang menerima Trip Fee nyata dan satu Refund Trip Fee |
+
+> **Amandemen 2026-10-04:** "Rilis 1" kini berarti gerbang keempat fase lolos **dan** ketujuh item perluasan Fase 3 (kolom Cakupan baris Fase 3: versi bahasa Inggris, WhatsApp, tautan pendek, impor settlement otomatis, pengalihan Dormant Balance, Refund yang diminta sendiri oleh Donor, anggota tim) selesai dan lolos uji terima, ditambah Asset Waqf Inquiry dan akun Tim CSR. Kolom "Syarat lolos fase" tidak berubah: item perluasan bukan syarat lolos Fase 3, tetapi syarat Rilis 1 penuh. Rencana kerjanya: `.scratch/percepatan-full-rilis/plan.md`.
 
 Tanggal per fase belum ditetapkan karena bergantung pada kapasitas tim dan keputusan Platform Operator.
 
