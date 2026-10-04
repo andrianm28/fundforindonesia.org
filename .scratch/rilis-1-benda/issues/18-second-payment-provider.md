@@ -4,6 +4,8 @@
 
 **Status:** resolved
 
+**Built by:** [85: M-c xendit-adapter](85-xendit-adapter.md)
+
 **Findings:** `.scratch/rilis-1-benda/research/18-second-provider.md`
 
 **Blocked by:** —

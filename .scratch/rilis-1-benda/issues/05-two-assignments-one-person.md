@@ -4,6 +4,8 @@
 
 **Status:** resolved
 
+**Built by:** [86: P1 admin-moderasi-door](86-admin-moderasi-door.md) (ditulis builder di branchnya sendiri; belum ada di branch ini)
+
 ## Question
 
 ADR 0005 removed rank: a role no longer implies a permission, and a

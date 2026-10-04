@@ -4,6 +4,8 @@
 
 **Status:** resolved
 
+**Built by:** [88: A-1 admin-platform-fee-page](88-admin-platform-fee-page.md) (halaman Admin `platform-fee`) dan [87: P2 checkout-fee-hold-disclosure](87-checkout-fee-hold-disclosure.md) (fee % dan Escrow Hold di Checkout); keduanya ditulis builder di branchnya sendiri, belum ada di branch ini
+
 ## Question
 
 The PRD states numbers in prose — Platform Fee waived below Rp50.000,
