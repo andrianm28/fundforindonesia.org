@@ -22,6 +22,7 @@
  * money in.
  */
 
+import { isStagingDeployment } from '@/lib/deploy-environment';
 import { canonicalPaymentProviderName, type PaymentProviderName } from './provider-names';
 
 /**
@@ -45,7 +46,19 @@ const PRODUCTION_RULES: Record<PaymentProviderName, () => string | null> = {
     if (!baseUrl) {
       return 'SUMOPOD_BASE_URL is not set in production, so there is no way to tell sandbox from live.';
     }
-    if (baseUrl.includes('sandbox')) {
+    const isSandbox = baseUrl.includes('sandbox');
+    // Staging is the one deployment allowed to charge through the sandbox, and
+    // only on the explicit marker (src/lib/deploy-environment.ts). It is also
+    // the one deployment that must NOT have the live url: staging exists so
+    // that no real rupiah moves there, so the permission is a requirement,
+    // not merely a relaxation.
+    if (isStagingDeployment()) {
+      return isSandbox
+        ? null
+        : 'SUMOPOD_BASE_URL is not the Sumopod sandbox in a staging deployment. Staging must never ' +
+            'take real money, so it is refused rather than charged for real.';
+    }
+    if (isSandbox) {
       return (
         'SUMOPOD_BASE_URL points at the Sumopod sandbox in production. Donations would be ' +
         'charged for real and settle nowhere.'

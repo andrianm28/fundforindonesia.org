@@ -178,3 +178,54 @@ describe("the CD image scope", () => {
   });
 });
 
+/**
+ * Guards the staging image variant (go-live-ops 02). NEXT_PUBLIC_* are inlined
+ * at build time, so staging needs its own build of the same Dockerfile target
+ * with staging args. The production image must stay exactly as it was: its
+ * build args, its tags (:<sha> and :latest) and its digest output.
+ */
+describe("the CD staging image variant", () => {
+  const text = workflows.find((w) => w.file === "cd.yml")?.text ?? "";
+  const step = (name: string) => {
+    const start = text.indexOf(`      - name: ${name}\n`);
+    if (start === -1) throw new Error(`step "${name}" not found`);
+    const next = text.indexOf("\n      - ", start + 1);
+    return text.slice(start, next === -1 ? undefined : next);
+  };
+
+  it("leaves the production build args free of anything staging", () => {
+    const prodArgs = text.match(/build-args: &build-args \|\n((?: {12}.*\n)+)/)?.[1] ?? "";
+    expect(prodArgs).toContain("NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'https://fundforindonesia.org' }}");
+    expect(prodArgs).toContain("NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.NEXT_PUBLIC_DONATIONS_ENABLED || 'false' }}");
+    expect(prodArgs).not.toMatch(/staging/i);
+    // The production push still uses exactly that block.
+    expect(step("Push the app image")).toContain("build-args: *build-args");
+    expect(step("Push the app image")).not.toMatch(/staging/i);
+  });
+
+  it("pushes the staging image under its own tag, never :latest, with its own build args", () => {
+    const push = step("Push the staging app image");
+    expect(push).toContain("target: runner");
+    expect(push).toContain("tags: ${{ env.IMAGE }}:${{ env.SHA }}-staging");
+    expect(push).not.toMatch(/latest/);
+    expect(push).not.toContain("*build-args");
+    expect(push).toContain("if: env.PUSH == 'true'");
+    expect(push).toContain("provenance: mode=max,version=v1");
+    for (const arg of ["NEXT_PUBLIC_BASE_URL", "NEXTAUTH_URL", "NEXT_PUBLIC_DONATIONS_ENABLED", "NEXT_PUBLIC_VOLUNTEER_ENABLED"]) {
+      expect(push, arg).toContain(`${arg}=\${{ vars.STAGING_${arg}`);
+    }
+  });
+
+  it("builds the staging image without pushing on a pull request, so a broken variant shows up before merge", () => {
+    const proof = step("Build the staging app image, not pushed");
+    expect(proof).toContain("if: env.PUSH != 'true'");
+    expect(proof).toContain("push: false");
+    expect(proof).toContain("STAGING_NEXT_PUBLIC_DONATIONS_ENABLED");
+  });
+
+  it("exposes the staging digest as a job output next to the production ones", () => {
+    expect(text).toContain("app-staging-digest: ${{ steps.push-app-staging.outputs.digest }}");
+    expect(text).toContain("app-digest: ${{ steps.push-app.outputs.digest }}");
+  });
+});
+

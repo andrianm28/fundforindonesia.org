@@ -13,14 +13,14 @@ No migration. `.env.example` and `package.json` are the coordinator's to change;
 
 **Blocked by:** none
 
-**Status:** ready-for-agent (owner approved 2026-10-04)
+**Status:** awaiting-merge
 
-- [ ] `docker-compose.staging.yml` has a distinct project name, no external volumes, no `kibi-clone` reference, distinct loopback ports, digest-pinned images, and passes `DEPLOY_ENVIRONMENT: staging`
-- [ ] `docker-compose.prod.yml` never passes `DEPLOY_ENVIRONMENT`
-- [ ] `cd.yml` builds and pushes the `-staging` image with staging build args; the production build args and tags are unchanged
-- [ ] Sandbox base URL is allowed only with `DEPLOY_ENVIRONMENT=staging`; refused in production otherwise; a live base URL is refused in staging; mock, unset URL and unknown provider stay refused
-- [ ] Seed refuses a production deployment that is not staging
-- [ ] `docs/runbooks/staging.md` covers nginx noindex + basic auth (webhook path exempt), seed, first bring-up and the env list
+- [x] `docker-compose.staging.yml` has a distinct project name, no external volumes, no `kibi-clone` reference, distinct loopback ports, digest-pinned images, and passes `DEPLOY_ENVIRONMENT: staging`
+- [x] `docker-compose.prod.yml` never passes `DEPLOY_ENVIRONMENT`
+- [x] `cd.yml` builds and pushes the `-staging` image with staging build args; the production build args and tags are unchanged
+- [x] Sandbox base URL is allowed only with `DEPLOY_ENVIRONMENT=staging`; refused in production otherwise; a live base URL is refused in staging; mock, unset URL and unknown provider stay refused
+- [x] Seed refuses a production deployment that is not staging
+- [x] `docs/runbooks/staging.md` covers nginx noindex + basic auth (webhook path exempt), seed, first bring-up and the env list
 
 ## Comments
 

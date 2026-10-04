@@ -16,7 +16,7 @@ import { setEnv } from '../../tests/support/mutable-env';
  * recoverable, so it is refused in code rather than remembered in a runbook.
  */
 
-const KEYS = ['NEXT_PUBLIC_DONATIONS_ENABLED', 'PAYMENT_PROVIDER', 'SUMOPOD_BASE_URL', 'NODE_ENV'] as const;
+const KEYS = ['NEXT_PUBLIC_DONATIONS_ENABLED', 'PAYMENT_PROVIDER', 'SUMOPOD_BASE_URL', 'NODE_ENV', 'DEPLOY_ENVIRONMENT'] as const;
 
 let saved: Record<string, string | undefined>;
 
@@ -72,6 +72,16 @@ describe('sandboxInProductionReason', () => {
     setEnv('SUMOPOD_BASE_URL', 'https://api-pay-sandbox.sumopod.com/api/v1');
 
     expect(sandboxInProductionReason()).toMatch(/sandbox/i);
+  });
+
+  it('allows the sandbox in production only for an explicit staging deployment', () => {
+    setEnv('NODE_ENV', 'production');
+    setEnv('PAYMENT_PROVIDER', 'sumopod');
+    setEnv('SUMOPOD_BASE_URL', 'https://api-pay-sandbox.sumopod.com/api/v1');
+    expect(sandboxInProductionReason()).toMatch(/sandbox/i);
+
+    setEnv('DEPLOY_ENVIRONMENT', 'staging');
+    expect(sandboxInProductionReason()).toBeNull();
   });
 
   it('allows a production base url in production', () => {

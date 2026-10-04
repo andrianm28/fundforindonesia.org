@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { randomUUID } from 'crypto';
 import { PrismaClient, Assignment, CampaignStatus, Kind, PaymentStatus, PayoutStatus, type User } from '@/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { seedRefusal } from '@/lib/deploy-environment';
 import { hashPassword } from '@/lib/password-hash';
 import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
@@ -232,6 +233,9 @@ async function assertDatabaseIsEmpty(): Promise<void> {
 }
 
 async function main() {
+  const refusal = seedRefusal();
+  if (refusal) throw new Error(refusal);
+
   console.log('🌱 Seeding database...\n');
 
   await assertDatabaseIsEmpty();

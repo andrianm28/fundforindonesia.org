@@ -17,7 +17,7 @@ import { PAYMENT_PROVIDER_NAMES } from './provider-names';
  * says "refuse" is worth having; a provider nobody thought about is not.
  */
 
-const KEYS = ['PAYMENT_PROVIDER', 'SUMOPOD_BASE_URL'] as const;
+const KEYS = ['PAYMENT_PROVIDER', 'SUMOPOD_BASE_URL', 'DEPLOY_ENVIRONMENT'] as const;
 
 let saved: Record<string, string | undefined>;
 
@@ -70,5 +70,48 @@ describe('paymentProviderProductionRefusal', () => {
 
     process.env.SUMOPOD_BASE_URL = 'https://api-pay-sandbox.sumopod.com/api/v1';
     expect(paymentProviderProductionRefusal('sumopod')).toMatch(/sandbox/i);
+  });
+});
+
+/**
+ * Staging is the one place the sandbox is allowed to take charges while the
+ * process still runs with NODE_ENV=production (the image sets it). The
+ * permission is an explicit marker, never a default, and it cuts both ways:
+ * a staging stack that points at the live base url is refused too, because the
+ * reason staging exists is that no real rupiah moves there.
+ */
+describe('paymentProviderProductionRefusal in a staging deployment', () => {
+  const SANDBOX = 'https://api-pay-sandbox.sumopod.com/api/v1';
+  const LIVE = 'https://api-pay.sumopod.com/api/v1';
+
+  it('allows the Sumopod sandbox only when DEPLOY_ENVIRONMENT is exactly staging', () => {
+    process.env.SUMOPOD_BASE_URL = SANDBOX;
+    expect(paymentProviderProductionRefusal('sumopod')).toMatch(/sandbox/i);
+
+    process.env.DEPLOY_ENVIRONMENT = 'staging';
+    expect(paymentProviderProductionRefusal('sumopod')).toBeNull();
+  });
+
+  it('does not read a near miss as staging: the permissive direction is the dangerous one', () => {
+    process.env.SUMOPOD_BASE_URL = SANDBOX;
+    for (const almost of ['Staging', 'STAGING', ' staging', 'staging ', 'stage', 'true', '1', 'production', '']) {
+      process.env.DEPLOY_ENVIRONMENT = almost;
+      expect(paymentProviderProductionRefusal('sumopod'), JSON.stringify(almost)).toMatch(/sandbox/i);
+    }
+  });
+
+  it('refuses the live base url in staging, so staging can never take real money', () => {
+    process.env.DEPLOY_ENVIRONMENT = 'staging';
+    process.env.SUMOPOD_BASE_URL = LIVE;
+
+    expect(paymentProviderProductionRefusal('sumopod')).toMatch(/staging/i);
+  });
+
+  it('still refuses an unset base url in staging, and the mock adapter, and an unknown provider', () => {
+    process.env.DEPLOY_ENVIRONMENT = 'staging';
+
+    expect(paymentProviderProductionRefusal('sumopod')).not.toBeNull();
+    expect(paymentProviderProductionRefusal('mock')).toMatch(/mock/i);
+    expect(paymentProviderProductionRefusal('xendit')).toMatch(/xendit/);
   });
 });

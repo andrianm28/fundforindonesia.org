@@ -142,6 +142,7 @@ jobs:
       sha: ${{ env.SHA }}
       app-digest: ${{ steps.push-app.outputs.digest }}
       migrate-digest: ${{ steps.push-migrate.outputs.digest }}
+      app-staging-digest: ${{ steps.push-app-staging.outputs.digest }}
     services:
       # A throwaway database, only for the smoke run of the built images.
       postgres:
@@ -356,6 +357,59 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=migrate
 
+      # The staging variant of the app image (go-live-ops 02). Same Dockerfile
+      # and `runner` target; only the build args differ, because NEXT_PUBLIC_*
+      # are inlined by `next build` and so cannot be changed at run time. The
+      # migrate image has no build args and is shared with production. Tagged
+      # <sha>-staging, a tag nothing else moves, so the production tags, the
+      # production build args and deploy.yml's reading of them are unaffected.
+      # Not scanned a second time: it is the same source, dependencies and base
+      # as the production image scanned above; only public URL strings differ.
+      #
+      # Repository variables, all public, each with a default that is staging's
+      # and never production's (set the variables to override):
+      #   STAGING_NEXT_PUBLIC_BASE_URL           https://staging.fundforindonesia.org
+      #   STAGING_NEXTAUTH_URL                   the same host
+      #   STAGING_NEXT_PUBLIC_DONATIONS_ENABLED  default true (the sandbox takes the charges)
+      #   STAGING_NEXT_PUBLIC_VOLUNTEER_ENABLED  default true
+      # Taking charges here is safe only because the running stack sets
+      # DEPLOY_ENVIRONMENT=staging, which makes the money-path guard accept the
+      # Sumopod sandbox and refuse the live url (docker-compose.staging.yml).
+      - name: Build the staging app image, not pushed
+        if: env.PUSH != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runner
+          push: false
+          provenance: false
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NEXT_PUBLIC_BASE_URL=${{ vars.STAGING_NEXT_PUBLIC_BASE_URL || 'https://staging.fundforindonesia.org' }}
+            NEXTAUTH_URL=${{ vars.STAGING_NEXTAUTH_URL || 'https://staging.fundforindonesia.org' }}
+            NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.STAGING_NEXT_PUBLIC_DONATIONS_ENABLED || 'true' }}
+            NEXT_PUBLIC_VOLUNTEER_ENABLED=${{ vars.STAGING_NEXT_PUBLIC_VOLUNTEER_ENABLED || 'true' }}
+          cache-from: type=gha,scope=app-staging
+          cache-to: type=gha,mode=max,scope=app-staging
+
+      - name: Push the staging app image
+        id: push-app-staging
+        if: env.PUSH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runner
+          push: true
+          provenance: mode=max,version=v1
+          tags: ${{ env.IMAGE }}:${{ env.SHA }}-staging
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NEXT_PUBLIC_BASE_URL=${{ vars.STAGING_NEXT_PUBLIC_BASE_URL || 'https://staging.fundforindonesia.org' }}
+            NEXTAUTH_URL=${{ vars.STAGING_NEXTAUTH_URL || 'https://staging.fundforindonesia.org' }}
+            NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.STAGING_NEXT_PUBLIC_DONATIONS_ENABLED || 'true' }}
+            NEXT_PUBLIC_VOLUNTEER_ENABLED=${{ vars.STAGING_NEXT_PUBLIC_VOLUNTEER_ENABLED || 'true' }}
+          cache-from: type=gha,scope=app-staging
+
       # GitHub artifact attestations need a public repository (or GitHub
       # Enterprise Cloud); on a private user-owned repository the API refuses
       # them. So they run once the repository is public, and until then the
@@ -383,6 +437,7 @@ jobs:
         env:
           APP_DIGEST: ${{ steps.push-app.outputs.digest }}
           MIGRATE_DIGEST: ${{ steps.push-migrate.outputs.digest }}
+          APP_STAGING_DIGEST: ${{ steps.push-app-staging.outputs.digest }}
         run: |
           {
             echo "### Pushed ${IMAGE}"
@@ -390,4 +445,5 @@ jobs:
             echo "|---|---|---|"
             echo "| app | \`${SHA}\`, \`latest\` | \`${APP_DIGEST}\` |"
             echo "| migrate | \`${SHA}-migrate\` | \`${MIGRATE_DIGEST}\` |"
+            echo "| app (staging) | \`${SHA}-staging\` | \`${APP_STAGING_DIGEST}\` |"
           } >> "$GITHUB_STEP_SUMMARY"

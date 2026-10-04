@@ -1,0 +1,122 @@
+# Staging compose (.scratch/go-live-ops, ticket 02). The rehearsal stack: the
+# same images as production's code, a separate project, database and volumes,
+# and the Sumopod SANDBOX, so M1, M2 and M3 can be exercised end to end before
+# any real rupiah moves. Runbook: docs/runbooks/staging.md.
+#
+# Pattern follows docker-compose.prod.yml: the host never builds. The staging
+# app image is built, pushed and tagged <sha>-staging by .github/workflows/cd.yml
+# (its own build args: staging URLs, donations on, because NEXT_PUBLIC_* are
+# inlined at build time and the production image keeps them off). The migrate
+# image has no build args and is the same one production uses. Deployed by
+# digest, which cd.yml prints as outputs:
+#
+#   docker compose --env-file .env.staging -f docker-compose.staging.yml \
+#     --profile migrate run --rm migrate
+#   docker compose --env-file .env.staging -f docker-compose.staging.yml up -d app
+#
+# with APP_DIGEST (the app-staging digest) and MIGRATE_DIGEST in the shell.
+#
+# WHY EVERY VALUE IS STAGING_-PREFIXED. A host that runs both stacks has a
+# production .env on it. Compose reads ./.env by default, and a staging stack
+# that used the same names as production would take production's Sumopod key,
+# encryption keys and database password from it without anyone choosing to.
+# Distinct names make that impossible; always pass --env-file .env.staging.
+# Guarded by src/__tests__/docker-compose-staging.test.ts.
+#
+# DEPLOY_ENVIRONMENT=staging below is the explicit marker that lets the
+# money-path guard (sandboxInProductionReason) accept the Sumopod sandbox in
+# this production-mode build, and makes it refuse the live url. Only this file
+# sets it; docker-compose.prod.yml must never.
+
+# Not fundforindonesia-prod (production) and not fund-for-indonesia (the other
+# stack). The named volumes below become fundforindonesia-staging_*.
+name: fundforindonesia-staging
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fundindo_staging
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:?set STAGING_DB_PASSWORD in .env.staging}
+      POSTGRES_DB: fund_indonesia_staging
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # One above production's 18093, loopback only.
+      - "127.0.0.1:18094:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fundindo_staging -d fund_indonesia_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: ghcr.io/andrianm28/fundforindonesia.org@${APP_DIGEST:?set APP_DIGEST}
+    restart: unless-stopped
+    ports:
+      # One above production's 8093, loopback only; nginx is the only public entry.
+      - "127.0.0.1:8094:3000"
+    environment:
+      DEPLOY_ENVIRONMENT: staging
+      DATABASE_URL: "postgresql://fundindo_staging:${STAGING_DB_PASSWORD}@db:5432/fund_indonesia_staging?schema=public"
+      NEXTAUTH_SECRET: ${STAGING_NEXTAUTH_SECRET:?set STAGING_NEXTAUTH_SECRET in .env.staging}
+      NEXTAUTH_URL: ${STAGING_NEXTAUTH_URL:?set STAGING_NEXTAUTH_URL in .env.staging}
+      GOOGLE_CLIENT_ID: ${STAGING_GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${STAGING_GOOGLE_CLIENT_SECRET:-}
+      SHOW_DEMO_CAMPAIGNS: ${STAGING_SHOW_DEMO_CAMPAIGNS:-false}
+      # The mock adapter is refused in production mode whatever its flags say
+      # (production-readiness.ts), so neither of its variables is passed.
+      PAYMENT_PROVIDER: sumopod
+      # Sandbox credentials only. The guard also refuses any base url that is
+      # not a sandbox while DEPLOY_ENVIRONMENT=staging, so a live url here
+      # stops charges instead of taking real money.
+      SUMOPOD_API_KEY: ${STAGING_SUMOPOD_API_KEY:-}
+      SUMOPOD_WEBHOOK_SECRET: ${STAGING_SUMOPOD_WEBHOOK_SECRET:-}
+      SUMOPOD_BASE_URL: ${STAGING_SUMOPOD_BASE_URL:-https://api-pay-sandbox.sumopod.com/api/v1}
+      PAYMENT_LINK_ALLOWED_HOSTS: ${STAGING_PAYMENT_LINK_ALLOWED_HOSTS:-}
+      RATE_LIMIT_SECRET: ${STAGING_RATE_LIMIT_SECRET:-}
+      TRUSTED_PROXY_HOPS: ${STAGING_TRUSTED_PROXY_HOPS:-1}
+      # Staging has its own field-encryption keys. Never production's: this
+      # database is seed data, and a key shared with production would make its
+      # leak a production incident.
+      FIELD_ENCRYPTION_KEY: ${STAGING_FIELD_ENCRYPTION_KEY:-}
+      FIELD_ENCRYPTION_KEY_ID: ${STAGING_FIELD_ENCRYPTION_KEY_ID:-}
+      FIELD_HMAC_KEY: ${STAGING_FIELD_HMAC_KEY:-}
+      FIELD_HMAC_KEY_ID: ${STAGING_FIELD_HMAC_KEY_ID:-}
+      JOBS_SECRET: ${STAGING_JOBS_SECRET:-}
+      # Mail is off unless the owner configures a relay that cannot reach real
+      # donors (a catch-all inbox). Unset, mail is logged and not sent.
+      MAIL_PROVIDER: ${STAGING_MAIL_PROVIDER:-}
+      SMTP_HOST: ${STAGING_SMTP_HOST:-}
+      SMTP_PORT: ${STAGING_SMTP_PORT:-465}
+      SMTP_SECURE: ${STAGING_SMTP_SECURE:-}
+      SMTP_USER: ${STAGING_SMTP_USER:-}
+      SMTP_PASSWORD: ${STAGING_SMTP_PASSWORD:-}
+      MAIL_FROM: ${STAGING_MAIL_FROM:-}
+      PARTNERSHIP_TEAM_EMAIL: ${STAGING_PARTNERSHIP_TEAM_EMAIL:-}
+      # NEXT_PUBLIC_* are build args of the staging image (cd.yml), not here.
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/public/uploads
+
+  # One-off: runs `prisma migrate deploy` against the STAGING database only.
+  migrate:
+    image: ghcr.io/andrianm28/fundforindonesia.org@${MIGRATE_DIGEST:?set MIGRATE_DIGEST}
+    restart: "no"
+    environment:
+      DATABASE_URL: "postgresql://fundindo_staging:${STAGING_DB_PASSWORD}@db:5432/fund_indonesia_staging?schema=public"
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - migrate
+
+# Staging's own data, created by this project on first `up`. Deliberately not
+# external (unlike production's): staging is rebuildable, and `down -v` here
+# destroys only staging. Nothing is ever copied into it from production.
+volumes:
+  postgres_data:
+  uploads:

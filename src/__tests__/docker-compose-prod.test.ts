@@ -125,6 +125,10 @@ describe("docker-compose.prod.yml env passthrough", () => {
   const NOT_PASSED = new Set([
     "NODE_ENV", // set by the image
     "NEXT_RUNTIME", // set by Next.js itself
+    // The staging marker. Only docker-compose.staging.yml passes it, and this
+    // file never may: it is what permits the Sumopod sandbox in production
+    // mode (docker-compose-staging.test.ts pins the absence).
+    "DEPLOY_ENVIRONMENT",
     "TEST_DATABASE_URL", // tests only
     "LEDGER_CLAIM_TEST_DATABASE_URL", // tests only
   ]);

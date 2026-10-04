@@ -62,6 +62,12 @@ export function donationsEnabled(): boolean {
  * rupiah with nothing checking whether it was a sandbox. What is left here is
  * the environment half, which is this file's own business: the switch, and
  * whether this is production at all.
+ *
+ * STAGING is the one exception to "no sandbox in production mode", and only
+ * through DEPLOY_ENVIRONMENT=staging (src/lib/deploy-environment.ts), which
+ * only docker-compose.staging.yml sets. The staging image is a production
+ * build (NODE_ENV=production), so this check still runs there; the Sumopod
+ * rule decides what staging may do (sandbox yes, live url no).
  */
 export function sandboxInProductionReason(): string | null {
   if (process.env.NODE_ENV !== 'production') return null;
