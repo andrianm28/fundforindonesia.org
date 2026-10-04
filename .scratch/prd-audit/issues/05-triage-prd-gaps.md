@@ -58,3 +58,16 @@ Out of scope di `map.md`.
 
 Putusan Rilis 1 (*siap kode* / *siap luncur*) ada di `map.md` bagian
 "Draf putusan Rilis 1", tidak diulang di sini.
+
+## Comments
+
+### 2026-10-04 -- pembalikan Q12–Q18 (keputusan owner)
+
+Owner memutuskan 2026-10-04 bahwa **ketujuh item perluasan Fase 3 masuk
+Rilis 1**: Q12 versi bahasa Inggris, Q13 notifikasi WhatsApp, Q14 tautan
+pendek, Q15 impor settlement otomatis, Q16 pengalihan Dormant Balance, Q17
+Refund yang diminta Donor, Q18 anggota tim Fundraiser organisasi. Ini membalik
+putusan "tidak masuk Rilis 1" pada Q12–Q18 di atas; teks lama sengaja tidak
+ditulis ulang. Dasar: `percepatan-full-rilis/plan.md` (lajur E, pertanyaan
+terbukanya di ronde keputusan C23). `CONTEXT.md` (**Rilis 1**) dan PRD §6 dan
+§11 diamandemen dengan catatan bertanggal di PR yang sama.

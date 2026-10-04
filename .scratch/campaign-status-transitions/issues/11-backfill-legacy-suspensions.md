@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human
+**Status:** wontfix
 
 Why human: this needs production data that no agent can reach, and a data decision.
 1. Count the Campaigns with `lifecycleStatus = SUSPENDED` and no `CampaignStatusChange` row with action SUSPENDED. If the count is zero, close this ticket as `wontfix`.
@@ -14,3 +14,7 @@ Why human: this needs production data that no agent can reach, and a data decisi
 - [ ] The count is recorded in this ticket's Comments
 - [ ] The prior status is decided and recorded per Campaign
 - [ ] The backfill migration exists, is marked not to be reused on other environments (as the M9 isDemo migration is), and after it runs, a lift on each such Campaign succeeds for a second Admin
+
+## Comments
+
+- 2026-10-04 (percepatan-full-rilis, Track D): hitungan baca-saja di produksi, Campaign `SUSPENDED` tanpa baris `CampaignStatusChange` bertindakan SUSPENDED = **0**. Sesuai langkah 1 tiket ini, ditutup `wontfix`: tidak ada Suspension lama yang perlu backfill, jadi tidak ada migrasi data yang ditulis. Bila kelak ada pengecualian, `liftSuspension` tetap menolaknya dengan 409 `UnrecordedSuspensionError`.

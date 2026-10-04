@@ -245,7 +245,7 @@ Pengalihan Campaign Balance sebuah Campaign `zakat`, `wakaf`, atau `hibah` yang 
 _Avoid_: Pemindahan dana, realokasi, refund zakat
 
 **Dormant Balance**:
-Dirancang untuk Campaign Balance pada Campaign yang sudah Expired atau Completed dan tidak dicairkan lama, yang akhirnya dialihkan ke Campaign ber-Kind sama milik Partner Organisation yang sama. Yang sudah ada hanya **laporan 60 hari** untuk Admin: Campaign Expired atau Completed yang Campaign Balance-nya belum dicairkan 60 hari atau lebih. Pengalihan 180 hari dan pengingat Fundraiser **belum ada** dan tidak masuk Rilis 1, jadi saldo itu tetap Campaign Balance biasa; laporan hanya membuatnya terlihat.
+Dirancang untuk Campaign Balance pada Campaign yang sudah Expired atau Completed dan tidak dicairkan lama, yang akhirnya dialihkan ke Campaign ber-Kind sama milik Partner Organisation yang sama. Yang sudah ada hanya **laporan 60 hari** untuk Admin: Campaign Expired atau Completed yang Campaign Balance-nya belum dicairkan 60 hari atau lebih. Pengalihan 180 hari dan pengingat Fundraiser **belum ada**, jadi saldo itu tetap Campaign Balance biasa; laporan hanya membuatnya terlihat. _Diamandemen 2026-10-04:_ pengalihan ini kini masuk Rilis 1 (lihat **Rilis 1**), tetapi dasar legal aturan 180 hari masih menunggu keputusan owner (E2), dan sebelum itu selesai pernyataan "belum ada" di atas tetap berlaku.
 _Avoid_: Saldo menganggur, dana nganggur, unclaimed
 
 **Bank Account**:
@@ -285,6 +285,7 @@ _Avoid_: Doa (di kode), comment
 
 **Rilis 1**:
 Rilis yang dianggap selesai saat gerbang Fase 0, 1, 2, dan 3 PRD §11 semuanya lolos, termasuk Volunteer Trip dengan Trip Fee nyata, dan tidak ada langkahnya yang memerlukan akses basis data langsung. Isi Fase 3 di luar gerbangnya diputuskan per item, bukan ikut otomatis. Diputuskan 2026-09-28; sebelumnya Rilis 1 berarti Fase 0 sampai 2.
+_Diamandemen 2026-10-04 (keputusan owner, `percepatan-full-rilis/plan.md`):_ ketujuh item perluasan Fase 3 di luar gerbang (versi bahasa Inggris, notifikasi WhatsApp, tautan pendek, impor settlement otomatis, pengalihan Dormant Balance, Refund yang diminta sendiri oleh Donor, dan anggota tim untuk Fundraiser organisasi) **masuk Rilis 1**, membalik keputusan triase 2026-09-28 (Q12–Q18, `prd-audit/issues/05`). Asset Waqf Inquiry dan akun Tim CSR juga masuk Rilis 1. Rilis 1 penuh berarti keempat gerbang lolos dan semua item itu selesai dan lolos uji terima; gerbang Fase 3 sendiri tidak berubah. Rincian keputusan tiap item (E1–E9) menunggu ronde keputusan C di `percepatan-full-rilis/keputusan-ronde-c.md`.
 _Avoid_: v1 (untuk ruang lingkupnya), MVP, rilis pertama (tanpa nama)
 
 **Soft Launch**:

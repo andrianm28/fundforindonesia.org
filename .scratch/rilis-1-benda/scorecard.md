@@ -1,5 +1,18 @@
 # Scorecard: is each role's job reachable through the product?
 
+> **Koreksi bertanggal 2026-10-04 (percepatan-full-rilis, Track D).** Skor ini
+> potret 2026-09-27 dan angka di tabel tidak ditulis ulang. Yang kini jelas
+> basi, dengan tiket yang menutupnya:
+>
+> - **Payout** (ajukan, setujui, selesaikan, "PR #94 unmerged"): `21`, PR #126 (8ffabdd). Catatan: Admin masih belum bisa melihat nomor rekening tujuan di layar Payout, itu tiket baru di `percepatan-full-rilis`.
+> - **Usage Report** (Fundraiser, "nol kode"): `22`, PR #129 (028e690).
+> - **Refund** (setujui, tolak, selesaikan): `23` (PR #130), `31` (PR #132), `prd-compliance-fase-0-2/issues/49` dan `50`.
+> - **Suspension, Cancellation, Manual Contribution, abuse-thresholds, pengingat Kind Authorisation**: `25` (PR #128), `26`, `27`, `28`.
+> - **Memeriksa rekening tujuan (Verifier, "nol kode")**: `16`, PR #121 (c19f2eb).
+> - **Guest Donor tanpa riwayat**: `prd-compliance-fase-0-2/issues/23`, PR #186 (7aed972).
+> - **Volunteer**: layar katalog, Trip, Verifier, Fundraiser, pendaftaran, dasbor, dan sertifikat: `33` sampai `37`.
+> - **Masih benar, belum selesai**: form Campaign Update dan tab Kabar Terbaru (F1), layar edit Draft/Rejected dan tautan mati di `admin/campaigns/page.tsx:112` (F4), Flag Verifier dan toggle Urgent (F3), tandai Completed (F2), dokumen Campaign (D-1), layar rekonsiliasi (A-2), dan rekap keuangan (A-6); semuanya di `percepatan-full-rilis/plan.md`. Bocoran nama pada Receipt anonim menunggu keputusan C20.
+
 Written 2026-09-27, after `CONTEXT.md` gained a job description for all four
 roles. The map's destination says "every role can do their job through the
 product". This file is that sentence, counted.

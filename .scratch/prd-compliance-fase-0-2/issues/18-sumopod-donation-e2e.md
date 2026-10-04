@@ -77,3 +77,5 @@
      live webhook from the real Sumopod sandbox or production. Removing the
      switch is for the ticket that wires up real credentials and can watch
      a real settlement happen end to end.
+
+- 2026-10-04 (sapu checkbox): kotak terakhir (kill-switch donasi dicabut) sengaja **tidak** dicentang: flag build `NEXT_PUBLIC_DONATIONS_ENABLED` masih ada di kode dan dipakai sebagai kill-switch go-live (percepatan-full-rilis, A6). Kotak lain sudah tercentang.

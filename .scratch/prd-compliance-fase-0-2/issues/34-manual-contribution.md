@@ -6,10 +6,10 @@
 
 **Status:** done (PR #75, 30af106)
 
-- [ ] Admin-only, proof of transfer required, approved by a second Admin
-- [ ] Credited directly to Campaign Balance, or Program Balance when it names a Program, with no Escrow Hold and neither fee
-- [ ] Posted to its own ledger account and marked distinctly in collected totals
-- [ ] Reversible by opposite journal while no Payout has used it, and never deleted
+- [x] Admin-only, proof of transfer required, approved by a second Admin
+- [x] Credited directly to Campaign Balance, or Program Balance when it names a Program, with no Escrow Hold and neither fee
+- [x] Posted to its own ledger account and marked distinctly in collected totals
+- [x] Reversible by opposite journal while no Payout has used it, and never deleted
 
 ## Comments
 
@@ -81,3 +81,5 @@
   because a larger rupiah is refused by the column as a driver error that no
   route can turn into a 400; the bound is the column's own, not a rule of ours,
   and the largest amount the column holds still records.
+
+- 2026-10-04 (sapu checkbox, Track D): semua kotak dicentang setelah dicek di kode (`src/lib/money/manual-contributions.ts`): bukti transfer wajib, perekam dan penyetuju Admin berbeda, kredit ke `CAMPAIGN_BALANCE` atau `PROGRAM_BALANCE` tanpa Escrow Hold dan tanpa fee, lawan `MANUAL_INTAKE_CLEARING` sebagai akun tersendiri, `impact.ts` memisahkan `manualContributions` dari `collectedAmount`, dan pembalikan lewat jurnal lawan tanpa penghapusan.

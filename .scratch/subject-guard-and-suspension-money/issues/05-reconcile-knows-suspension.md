@@ -6,6 +6,10 @@
 
 **Status:** done
 
-- [ ] A watchdog entry whose Campaign is effectively SUSPENDED carries a distinguishable cause (for example `cause: "SUSPENDED"`). Other entries are unchanged
-- [ ] The report's comments and field docs describe the new cause. Existing consumers keep working, because the change only adds fields
+- [x] A watchdog entry whose Campaign is effectively SUSPENDED carries a distinguishable cause (for example `cause: "SUSPENDED"`). Other entries are unchanged
+- [x] The report's comments and field docs describe the new cause. Existing consumers keep working, because the change only adds fields
 - [ ] Route tests cover a Suspended Campaign's held Payment, an unexplained one, and a Trip one. Full suite green, tsc adds no errors
+
+## Comments
+
+- 2026-10-04 (sapu checkbox, Track D): kotak 1 dan 2 dicentang: `cause: 'SUSPENDED'` ada di `src/app/api/admin/reconcile/route.ts` (komentar dan teks dokumentasi laporan menjelaskannya, field hanya ditambah). Kotak 3 tidak dicentang: tes route untuk ketiga kasus ada (`route.test.ts`: entri ber-cause, tanpa cause, dan Trip), tetapi "full suite green, tsc adds no errors" adalah fakta CI yang tidak bisa dibuktikan dari kode.

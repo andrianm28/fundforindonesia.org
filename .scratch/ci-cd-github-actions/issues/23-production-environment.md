@@ -14,8 +14,12 @@ allows it. Secret values are always entered by the owner.
 
 **Blocked by:** none for steps 1–2; step 3 needs ticket 08's deploy user and key
 
-**Status:** ready-for-human
+**Status:** done
 
-- [ ] `production` exists with the owner as required reviewer and `main` as the only deployment branch
+- [x] `production` exists with the owner as required reviewer and `main` as the only deployment branch
 - [ ] The three deploy secrets exist only as environment secrets
 - [ ] A dispatch of `deploy.yml` (after ticket 24) waits for the owner's approval before the deploy job starts
+
+## Comments
+
+- 2026-10-04 (fakta sesi VPS, terverifikasi): environment `production` punya required reviewer `andrianm28` (owner), dan deployment branch hanya `main`. Kotak 2 (secret hanya sebagai environment secret) dan kotak 3 (dispatch menunggu approval) tidak dicek dalam sesi itu, jadi tidak dicentang. Keputusan kebijakan: "A + reviewer + protection" (ci-cd 25).

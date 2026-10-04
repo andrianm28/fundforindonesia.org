@@ -175,9 +175,13 @@ success instead), or lacks cd.yml's
 app and migrate images in GHCR with matching provenance
 (`ci/deploy-gate.sh`). `deploy` runs `needs: gate`, in the `production`
 Environment, so it starts only once the owner approves it as that
-environment's required reviewer. Agents, including the cloud coordinator, may
-dispatch the workflow for a green-CI commit on main once environment
-`production` exists (ticket 23); an agent never approves its own deployment.
+environment's required reviewer. Three controls apply together (owner's
+decision 2026-10-04, ticket ci-cd 25, "A + reviewer + protection"): only the
+owner dispatches `deploy.yml`; the owner is also the only required reviewer of
+environment `production`; and `main` has branch protection (required checks
+test, build, migrations, ratchet, e2e; no force-push or deletion). Agents,
+including the cloud coordinator, never dispatch the workflow and never approve
+a deployment.
 Once approved, `deploy` SSHes to the host's forced command with the SHA and
 the two image digests, and `ops/deploy.sh` does the rest. Rolling back is the
 same dispatch with an older SHA. When a release changes `ops/deploy.sh` or

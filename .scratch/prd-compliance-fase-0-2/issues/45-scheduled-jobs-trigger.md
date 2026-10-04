@@ -93,3 +93,5 @@ overlapping or repeated call is safe; keep it that way.
   still sits in `src/lib/money/escrow.ts` (its "There is no scheduler
   anywhere in this repo" paragraph), which another ticket owns; it was left
   alone here.
+
+- 2026-10-04 (percepatan-full-rilis, Track D): status **tetap** `ready-for-human`. Cron belum dipasang di produksi: pemasangannya menunggu tiket `reminders-skip-demo-campaigns` ter-deploy, karena 8 Campaign demo akan memicu pengingat tenggat begitu `POST /api/internal/jobs/run` berjalan. Setelah deploy itu, pasang cron, panggil dua kali dengan tangan (200 dengan hitungan, lalu nol), baru tutup tiket ini. Tiket `reminders-skip-demo-campaigns` ditulis koordinator di batch tiket baru.

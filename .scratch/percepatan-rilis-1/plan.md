@@ -1,3 +1,5 @@
+> **Superseded 2026-10-04 oleh [percepatan-full-rilis/plan.md](../percepatan-full-rilis/plan.md).**
+
 # Plan: percepatan Rilis 1
 
 Status: **aktif — ditulis ulang 2026-09-28 sore** setelah owner memperluas Rilis 1.

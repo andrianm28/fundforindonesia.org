@@ -9,7 +9,7 @@ Rujukan teknis untuk adapter Sumopod di bawah antarmuka `PaymentProvider`. Ditul
 | Base URL sandbox | `https://api-pay-sandbox.sumopod.com/api/v1` |
 | Base URL produksi | Belum dikonfirmasi, tanyakan ke Sumopod sebelum rilis |
 | Autentikasi | Header `X-Api-Key` |
-| Environment variable | `SUMOPOD_API_KEY`, `SUMOPOD_WEBHOOK_SECRET`, `SUMOPOD_WEBHOOK_TOKEN`, `SUMOPOD_BASE_URL` |
+| Environment variable | `SUMOPOD_API_KEY`, `SUMOPOD_WEBHOOK_SECRET`, `SUMOPOD_BASE_URL` |
 
 ## Metode pembayaran dan biaya
 
