@@ -1,0 +1,53 @@
+# 88: Layar Admin -- aturan Platform Fee dan riwayatnya
+
+**Type:** implementation
+
+**Status:** ready-for-agent
+
+**Blocked by:** none
+
+## Why
+
+`POST /api/admin/platform-fee` (aturan per Kind, Category, Campaign, plus
+ambang pembebasan) sudah ada dan teruji, tetapi tidak ada layar Admin di
+belakangnya: mengubah Platform Fee hari ini hanya mungkin lewat `curl` atau
+psql. Rencana Gelombang 0, item A-1 (`plan-missing-parts.md`): "layar aturan
+Platform Fee + riwayat, di atas API yang sudah ada. Ukuran M."
+
+Besaran fee belum diputuskan owner (C3). Rekomendasinya (5% untuk `donation`;
+0 untuk bencana, zakat, wakaf, hibah; tanpa fee di bawah Rp50.000) masih
+rekomendasi. Layar ini TIDAK boleh meng-hardcode angka itu; ia hanya
+menampilkan dan mengubah aturan yang tersimpan, lewat API yang ada.
+
+## Decision / scope
+
+Halaman `/admin/platform-fee` (otorisasi sama dengan halaman Admin lain: layout
+`/admin` mensyaratkan Assignment ADMIN):
+
+- Aturan yang berlaku: tiap Kind (baris terbaru per Kind; belum ada baris
+  ditampilkan sebagai belum diatur, yang oleh `resolvePlatformFeeBasis`
+  berarti 0%), override per Category dan per Campaign (baris terbaru per
+  kunci), dan ambang pembebasan terbaru.
+- Riwayat: seluruh baris aturan dan ambang, terbaru dulu, dengan siapa dan
+  kapan (`setBy`, `setAt`). Append-only, jadi riwayat adalah isi tabelnya.
+- Form untuk menambah/mengubah satu aturan (scope KIND/CATEGORY/CAMPAIGN,
+  persen) atau ambang (rupiah), memanggil `POST /api/admin/platform-fee`
+  apa adanya. Validasi tetap milik server; form menampilkan penolakan server.
+  Persen yang diketik diubah ke basis point (`percentBps`) hanya sebagai
+  format.
+- Tautan di `AdminSidebar`.
+
+Di luar lingkup: mengubah semantik API atau logika uang, skema, angka default
+apa pun, tampilan fee di checkout (tiket P2). Bila API kurang sesuatu yang
+esensial, dilaporkan, tidak ditambal di sini.
+
+## Acceptance
+
+- [ ] Halaman menampilkan aturan berlaku per Kind, override Category dan
+      Campaign, dan ambang, dari baris terbaru di database.
+- [ ] Kind tanpa baris ditampilkan sebagai belum diatur, bukan angka karangan.
+- [ ] Riwayat menampilkan semua baris dengan siapa dan kapan, terbaru dulu.
+- [ ] Form memposting body yang tepat ke API yang ada (rule per scope,
+      threshold) dan menampilkan penolakan server apa adanya.
+- [ ] Tidak ada angka fee, persen, atau ambang di-hardcode di halaman/form.
+- [ ] Tautan sidebar ke `/admin/platform-fee`.
