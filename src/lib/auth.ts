@@ -10,6 +10,7 @@ import { buildAuthAdapter } from "@/lib/auth-adapter";
 import { isRemoteProviderPicture, providerPicture } from "@/lib/provider-picture";
 import { clientAddress } from "@/lib/client-ip";
 import { checkRateLimit } from "@/lib/rate-limit-guard";
+import { sessionPasswordClaim } from "@/lib/password-reset";
 import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 
 // Both halves of the adapter need the schema it cannot see: the write goes
@@ -153,14 +154,33 @@ export const authOptions: NextAuthOptions = {
       }
 
       // Authority comes only from assignments (ADR 0005), read fresh so a
-      // grant or revocation takes effect on the next request.
+      // grant or revocation takes effect on the next request. The same read
+      // carries the stored password so a reset can end old sessions.
       if (token.id) {
         const dbUser = await prisma.user.findUnique({
           where: { id: token.id as string },
-          select: { assignments: { select: { assignment: true } } },
+          select: { password: true, assignments: { select: { assignment: true } } },
         });
 
         if (dbUser) {
+          // A session lasts only as long as the password it was issued under
+          // (rilis-1 93): the claim is set at sign-in, and a changed hash ends
+          // the session without any stored state. A token from before this
+          // claim existed has none and is upgraded to the current one, not
+          // ended, so deploying it signs nobody out. A password change from
+          // the settings page also ends the session it is made in, which is why
+          // that page signs out after it.
+          const claim = sessionPasswordClaim(dbUser.password ?? null);
+          if (user || token.pwf === undefined) {
+            token.pwf = claim;
+          } else if (token.pwf !== claim) {
+            // Ended: no id and no authority, so the session callback returns
+            // nothing and getServerSession is null.
+            delete token.id;
+            delete token.pwf;
+            token.assignments = [];
+            return token;
+          }
           token.assignments = dbUser.assignments.map((a) => a.assignment);
         }
       }
@@ -168,6 +188,10 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
+      // The jwt callback ended this session (its password changed). An empty
+      // object is what next-auth turns into "no session" for getServerSession
+      // and for the client.
+      if (!token.id) return {} as typeof session;
       if (session.user) {
         session.user.id = token.id as string;
         session.user.assignments = (token.assignments as Assignment[]) ?? [];
