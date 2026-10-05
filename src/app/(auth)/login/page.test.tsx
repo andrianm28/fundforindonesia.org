@@ -74,6 +74,11 @@ describe('LoginPage', () => {
     expect(screen.queryByRole('button', { name: /masuk dengan google/i })).not.toBeInTheDocument();
   });
 
+  it('links to the forgot-password page', () => {
+    render(<LoginPage />);
+    expect(screen.getByRole('link', { name: /lupa password\?/i })).toHaveAttribute('href', '/lupa-password');
+  });
+
   it('renders link to register page', () => {
     render(<LoginPage />);
     const link = screen.getByRole('link', { name: /daftar di sini/i });

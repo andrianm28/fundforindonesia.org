@@ -7,7 +7,9 @@ import { prisma } from '@/lib/prisma';
  * guarded three ways:
  *
  * - **Only a verified address claims.** `emailVerifiedAt` is set by opening
- *   the confirmation link sent to the address (src/lib/email-verification.ts),
+ *   a link mailed to the address: the confirmation link
+ *   (src/lib/email-verification.ts) or a password reset link
+ *   (src/app/api/auth/password-reset/confirm/route.ts, ADR 0020 amendment),
  *   nothing else. An account registered with someone else's address, however
  *   exactly it matches, sees nothing.
  * - **Matching is HMAC to HMAC (ADR 0012).** The account's stored lookup is
