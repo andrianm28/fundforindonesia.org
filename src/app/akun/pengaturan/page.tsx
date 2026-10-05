@@ -325,6 +325,15 @@ function PasswordSection() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState(false);
+  const signOutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Leaving the page before the timer runs must not sign the person out later.
+  useEffect(
+    () => () => {
+      if (signOutTimer.current) clearTimeout(signOutTimer.current);
+    },
+    [],
+  );
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -386,7 +395,7 @@ function PasswordSection() {
       // A new password ends every session issued under the old one, this one
       // included (rilis-1 93, src/lib/auth.ts), so say so and send the person
       // to sign in rather than let their next click fail silently.
-      setTimeout(() => signOut({ callbackUrl: '/login' }), 1500);
+      signOutTimer.current = setTimeout(() => signOut({ callbackUrl: '/login' }), 1500);
     } catch {
       setErrors({ general: 'Gagal mengubah password. Coba lagi.' });
     } finally {

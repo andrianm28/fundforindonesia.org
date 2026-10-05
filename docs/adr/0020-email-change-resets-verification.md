@@ -46,3 +46,26 @@ that writes `email` or `emailHmac` without `emailVerifiedAt`.
   claimed by an account whose lookup is under a newer one. It stays unclaimed
   until the Donation's HMAC is re-keyed; nothing is ever claimed wrongly.
   `src/__tests__/integration/guest-donation-claim-real-db.test.ts` asserts it.
+
+## Amendment (rilis-1 93, 2026-10-05): a password-reset link also proves the address
+
+`emailVerifiedAt` has a second writer besides the confirmation link: a
+successful password reset (`src/app/api/auth/password-reset/confirm/route.ts`)
+sets it when it is empty. The reset token is mailed only to the address the
+account holds, and it carries that address's `emailHmac`; the write is guarded
+on the same `emailHmac` and password hash the token was verified against. So
+opening it proves control of the account's *current* address, which is exactly
+what the confirmation link proves, and the invariant above still holds: a
+changed address makes the token fail, and the timestamp is never moved once
+set.
+
+This matters beyond sign-in: a verified address is what lets an account claim a
+Guest Donor's history (`/api/donations/mine`, `src/lib/guest-donation-claim.ts`).
+The decision is that a reset link counts as proof of the address for that
+purpose too. The cost is that someone who can read the inbox (and so could also
+use the confirmation link) gains nothing new; someone who cannot read it gets
+neither. ADR 0022 is unaffected: Google sign-in still verifies nothing.
+
+Any further writer of `emailVerifiedAt` needs the same two properties: the proof
+travels only to the address on the account, and the write is bound to that
+address's `emailHmac`.

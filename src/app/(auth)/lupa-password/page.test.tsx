@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import LupaPasswordPage from './page';
+import { RESET_REQUESTED_MESSAGE } from '@/lib/password-reset-copy';
 
 vi.mock('framer-motion', () => ({
   motion: {
@@ -27,7 +28,7 @@ describe('Lupa Password page', () => {
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'sari@example.test' } });
     fireEvent.click(screen.getByRole('button', { name: /kirim tautan/i }));
 
-    await waitFor(() => expect(screen.getByText(/jika email itu terdaftar/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(RESET_REQUESTED_MESSAGE));
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/auth/password-reset',
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ email: 'sari@example.test' }) }),
@@ -41,7 +42,9 @@ describe('Lupa Password page', () => {
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'nobody@example.test' } });
     fireEvent.click(screen.getByRole('button', { name: /kirim tautan/i }));
 
-    await waitFor(() => expect(screen.getByText(/jika email itu terdaftar/i)).toBeInTheDocument());
+    // One copy of the confirmation, shared with the endpoint, in the page's "kamu" register.
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(RESET_REQUESTED_MESSAGE));
+    expect(screen.getByRole('status')).toHaveTextContent(/kamu/);
   });
 
   it('does not post an address that is not an email', () => {

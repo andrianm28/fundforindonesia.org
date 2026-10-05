@@ -67,3 +67,10 @@ Sengaja tidak diubah / catatan untuk reviewer:
 - Batas per email 3/jam berarti pihak lain bisa menghabiskan jatah permintaan seseorang selama satu jam (mereka tidak bisa membaca emailnya). Kompromi yang disengaja demi mencegah banjir inbox.
 - `mail_not_configured` dicatat oleh `sendReportingFailure` dengan `userId` dan teks error (nama variabel env), bukan email atau token.
 - Tes: `password-reset.test.ts`, `mail/password-reset.test.ts`, kedua `route.test.ts`, `auth.test.ts` (klaim, upgrade token lama, Google), tiga halaman `(auth)`, `next-config.test.ts`.
+
+### 2026-10-05, builder, perbaikan review putaran 1
+
+- S1: satu salinan konfirmasi permintaan reset di `src/lib/password-reset-copy.ts` (register "kamu"), dipakai endpoint dan halaman `/lupa-password`; tidak bisa lagi bergeser. Email tetap "Anda", mengikuti `email-verification`.
+- S2: tes baru `src/app/akun/pengaturan/page.test.tsx` (fake timers): `signOut({ callbackUrl: '/login' })` dipanggil 1,5 detik setelah sukses, tidak dipanggil bila ditolak atau halaman ditinggalkan. Timer kini dibersihkan saat unmount.
+- F1 (dicatat, tanpa perubahan kode): sesi yang diterbitkan **sebelum deploy ini** tidak punya klaim `pwf` dan di-upgrade ke klaim saat ini pada pemakaian berikutnya (agar tidak ada logout massal saat deploy). Akibatnya, cookie lama yang belum pernah dipakai ulang sebelum reset tetap berlaku sampai masa JWT habis (default next-auth 30 hari), jadi kriteria "sesi lain tidak berlaku" baru penuh untuk sesi yang terbit setelah deploy. Bila ada dugaan sesi bocor, obatnya memutar `NEXTAUTH_SECRET` (mengakhiri semua sesi). Masukkan batas ini ke badan PR.
+- F2: reset password kini penulis kedua `emailVerifiedAt` (selain tautan konfirmasi). ADR 0020 diamandemen; komentar `guest-donation-claim.ts` dan `email-verification.ts` diperbaiki. Koordinator masih perlu memperbarui komentar `emailVerifiedAt` di `prisma/schema.prisma` dan entri di `CONTEXT.md`.

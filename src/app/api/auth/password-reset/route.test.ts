@@ -14,6 +14,7 @@ vi.mock('@/lib/rate-limit', () => ({ consumeRateLimit: vi.fn() }));
 vi.mock('@/lib/mail', () => ({ sendReportingFailure: vi.fn() }));
 
 import { POST } from './route';
+import { RESET_REQUESTED_MESSAGE } from '@/lib/password-reset-copy';
 import { prisma } from '@/lib/prisma';
 import { consumeRateLimit } from '@/lib/rate-limit';
 import { sendReportingFailure } from '@/lib/mail';
@@ -109,7 +110,7 @@ describe('POST /api/auth/password-reset', () => {
     const res = await POST(request({ email: EMAIL }));
 
     expect(res.status).toBe(200);
-    expect((await res.json()).message).toMatch(/jika email/i);
+    expect((await res.json()).message).toBe(RESET_REQUESTED_MESSAGE);
   });
 
   it('answers the generic body even if the mail call rejects, and logs no address or token', async () => {

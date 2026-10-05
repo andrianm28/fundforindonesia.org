@@ -8,6 +8,7 @@ import { signPasswordResetToken } from '@/lib/password-reset';
 import { passwordResetEmail } from '@/lib/mail/password-reset';
 import { sendReportingFailure } from '@/lib/mail';
 import { publicUrl } from '@/lib/public-url';
+import { RESET_REQUESTED_MESSAGE } from '@/lib/password-reset-copy';
 
 /**
  * Asks for a link to set a new password (rilis-1 93). Public, because the
@@ -32,9 +33,6 @@ const CLIENT_LIMIT = 10;
 /** Per address per hour. */
 const EMAIL_LIMIT = 3;
 const WINDOW_SECONDS = 60 * 60;
-
-const GENERIC_MESSAGE =
-  'Jika email itu terdaftar, tautan untuk mengatur ulang password sudah kami kirim. Periksa kotak masuk Anda; tautan berlaku 60 menit.';
 
 export async function POST(request: NextRequest) {
   const limited = 'Terlalu banyak permintaan atur ulang password. Coba lagi nanti.';
@@ -97,7 +95,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ message: GENERIC_MESSAGE }, { status: 200 });
+    return NextResponse.json({ message: RESET_REQUESTED_MESSAGE }, { status: 200 });
   } catch (error) {
     console.error(JSON.stringify({ event: 'password_reset_request_failed', error: error instanceof Error ? error.name : 'UnknownError' }));
     return NextResponse.json({ message: 'Terjadi kesalahan server', error: 'Terjadi kesalahan server' }, { status: 500 });

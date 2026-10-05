@@ -3,11 +3,13 @@
 import { useState, FormEvent } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
+import { RESET_REQUESTED_MESSAGE } from '@/lib/password-reset-copy';
 
 /**
  * Asks for a password reset link (rilis-1 93). The confirmation is the same
  * whatever the server knows about the address: the endpoint does not say, and
- * neither does this page.
+ * neither does this page. The text is shared with the endpoint
+ * (src/lib/password-reset-copy.ts) so there is one copy of it.
  */
 export default function LupaPasswordPage() {
   const [email, setEmail] = useState('');
@@ -62,8 +64,7 @@ export default function LupaPasswordPage() {
 
         {sent ? (
           <div className="p-3 rounded-md bg-green-50 border border-green-200 text-sm text-text" role="status">
-            Jika email itu terdaftar, tautan untuk mengatur ulang password sudah kami kirim. Periksa kotak masuk
-            kamu; tautan berlaku 60 menit.
+            {RESET_REQUESTED_MESSAGE}
           </div>
         ) : (
           <>
