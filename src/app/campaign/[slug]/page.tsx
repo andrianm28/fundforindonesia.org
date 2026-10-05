@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { withCountedCollectedAmount } from '@/lib/money/counted-payment';
+import { testDonationAmountForCampaign, withCountedCollectedAmount } from '@/lib/money/counted-payment';
 import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 import { CampaignDetailView } from '@/components/campaign/CampaignDetailView';
@@ -108,9 +108,12 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
   // is what the next Donation's Payment would actually freeze.
   const escrowHoldDays = ESCROW_HOLD_DAYS;
 
-  // Progress as the public may see it (counted-payment.ts): live, the beta's
-  // sandbox Payments are taken back out of the stored counter.
+  // Progress as the public may see it (counted-payment.ts): sandbox (beta)
+  // Payments are taken back out of the stored counter.
   const [{ collectedAmount: collectedAmountForPublic }] = await withCountedCollectedAmount(prisma, [campaign]);
+
+  // "Donasi uji": only while the beta marker is on; null otherwise.
+  const testDonationAmount = await testDonationAmountForCampaign(prisma, campaign.id);
 
   // Transform the data for the client component
   const campaignData = {
@@ -122,6 +125,7 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     coverImage: campaign.coverImage,
     targetAmount: campaign.targetAmount,
     collectedAmount: collectedAmountForPublic,
+    testDonationAmount,
     category: campaign.category,
     // Effective, so an Active Campaign past its deadline shows as ended.
     // The Suspension reason is not rendered here: this page is cached for

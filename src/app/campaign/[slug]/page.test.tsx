@@ -102,6 +102,20 @@ describe('the Platform Fee rate in force (prd-compliance 17)', () => {
 });
 
 describe('the Campaign page payload', () => {
+  it('carries "Donasi uji" (beta Gross) only while the beta marker is on, and keeps it out of progress', async () => {
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([{ amount: 30_000, donation: { campaignId: 'campaign-1' } }] as never);
+
+    const live = await campaignHandedToView({ collectedAmount: 100_000 });
+    expect(live.testDonationAmount).toBeNull();
+    expect(live.collectedAmount).toBe(70_000);
+
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    const beta = await campaignHandedToView({ collectedAmount: 100_000 });
+    expect(beta.testDonationAmount).toBe(30_000);
+    expect(beta.collectedAmount).toBe(70_000);
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([]);
+  });
+
   it('carries lifecycleStatus and no legacy status string', async () => {
     const campaign = await campaignHandedToView();
 

@@ -56,7 +56,9 @@ model User {
   /// emailed to it (prd-compliance 23; src/lib/email-verification.ts). Until
   /// then the account has proven nothing about the address: it may have been
   /// typed by anyone, so it matches no Guest Donor history. Never set by
-  /// registering, by signing in, or by an address merely matching.
+  /// registering, by signing in, or by an address merely matching. Two writers:
+  /// the confirmation link and a successful password reset (rilis-1 93, which
+  /// proves the address the same way; docs/adr/0020).
   emailVerifiedAt  DateTime?
   // Retired: the self-claimed verification and the Role hierarchy. No
   // application code or seed reads or writes them (retire-role-hierarchy
@@ -1414,11 +1416,11 @@ model Payment {
   /// (BETA_SANDBOX, src/lib/deploy-environment.ts) was on, i.e. against the
   /// Sumopod sandbox where no real rupiah moves. Stamped once at creation
   /// (chargeDonation and the Trip Fee registration route) and never changed:
-  /// at go-live the marker is removed and the beta rows stay, which is exactly
-  /// why the mode has to be on the row and not read from the environment. Read
-  /// only through countedPaymentWhere (src/lib/money/counted-payment.ts), which
-  /// keeps these rows out of the public totals and the reconciliation report
-  /// once the platform is live (ticket rilis-1-benda/92).
+  /// the mode has to be on the row and not read from the environment. Beta
+  /// rows are excluded PERMANENTLY from real figures (nothing is deleted at
+  /// go-live): read only through countedPaymentWhere
+  /// (src/lib/money/counted-payment.ts), which keeps them out of the public
+  /// totals and the reconciliation report (ticket rilis-1-benda/92).
   sandbox        Boolean       @default(false)
   status         PaymentStatus @default(PENDING)
   /// Provider payload, kept verbatim for dispute resolution. Never parsed for
@@ -1757,6 +1759,10 @@ model Refund {
   approvedById  String?
   approvedBy    User?        @relation("RefundApprover", fields: [approvedById], references: [id])
   providerRef   String?      @unique
+  /// Mode of the money this row belongs to: true for the public beta's
+  /// sandbox. Added with Payment.sandbox (rilis-1-benda/92); stamped from
+  /// the source Payment and read by rilis-1-benda/94, not by anything yet.
+  sandbox       Boolean  @default(false)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -2089,6 +2095,10 @@ model Payout {
   approvedProvider        String?
   approvedProviderBalance Int?
   completedAt             DateTime?
+  /// Mode of the money this row belongs to: true for the public beta's
+  /// sandbox. Added with Payment.sandbox (rilis-1-benda/92); stamped from
+  /// the source Payment and read by rilis-1-benda/94, not by anything yet.
+  sandbox       Boolean  @default(false)
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
@@ -2173,6 +2183,10 @@ model UsageReport {
 
   submittedById String
   submittedBy   User     @relation("UsageReportSubmitter", fields: [submittedById], references: [id])
+  /// Mode of the money this row belongs to: true for the public beta's
+  /// sandbox. Added with Payment.sandbox (rilis-1-benda/92); stamped from
+  /// the source Payment and read by rilis-1-benda/94, not by anything yet.
+  sandbox       Boolean  @default(false)
   createdAt     DateTime @default(now())
 
   /// Admin's "dipertanyakan" marker (PRD FFI-07a): set together, tampil
@@ -2355,6 +2369,10 @@ model LedgerEntry {
   /// same arrangement as Payment_donationId_paid_key.
   legIndex      Int
   memo          String?
+  /// Mode of the money this row belongs to: true for the public beta's
+  /// sandbox. Added with Payment.sandbox (rilis-1-benda/92); stamped from
+  /// the source Payment and read by rilis-1-benda/94, not by anything yet.
+  sandbox       Boolean  @default(false)
   createdAt     DateTime @default(now())
 
   @@index([transactionId])

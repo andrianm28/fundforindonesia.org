@@ -9,10 +9,11 @@ import type { PrismaClient } from '@/generated/prisma/client';
 /**
  * "Payment yang dihitung" (ticket rilis-1-benda/92) against a REAL Postgres.
  *
- * The claim: a Campaign that took one beta (sandbox-stamped) Payment and one
- * live Payment shows BOTH on the Impact page while the beta marker is on, and
- * only the live one once the marker is off -- and the page still reconciles in
- * both modes, because the pools are read without the sandbox Payment's legs.
+ * The claim (owner's decision of 2026-10-05): a Campaign that took one beta
+ * (sandbox-stamped) Payment and one live Payment shows only the live one on the
+ * Impact page, whether the beta marker is on or off -- beta data is excluded
+ * permanently -- and the page still reconciles in both modes, because the pools
+ * are read without the sandbox Payment's legs.
  * A JS fake cannot show that the conservation law still holds; the real
  * ledger can. Same setup as refund-reject-fail-real-db.test.ts.
  */
@@ -158,7 +159,7 @@ describe.skipIf(!DATABASE_URL)('Payment yang dihitung -- against real Postgres (
     };
   }
 
-  it('Impact counts the beta Payment in the beta, and leaves it out live, reconciling both times', async () => {
+  it('Impact leaves the beta Payment out in the beta and live alike, reconciling both times', async () => {
     const location = `beta-impact-${process.pid}`;
     const campaignId = await makeCampaign(location);
     await seedSettled(campaignId, 400_000, false);
@@ -166,12 +167,13 @@ describe.skipIf(!DATABASE_URL)('Payment yang dihitung -- against real Postgres (
 
     vi.stubEnv('BETA_SANDBOX', 'true');
     const inBeta = await impactFor(location);
-    expect(inBeta.collected).toBe(500_000);
+    expect(inBeta.collected).toBe(400_000);
+    expect(inBeta.lines.heldInEscrowHold).toBe(400_000 - 20_000 - 10_000);
 
     vi.stubEnv('BETA_SANDBOX', '');
     const live = await impactFor(location);
     expect(live.collected).toBe(400_000);
-    // Both held in escrow, so the held line is the net of the live one alone.
+    // The live one held in escrow, so the held line is the net of the live one alone.
     expect(live.lines.heldInEscrowHold).toBe(400_000 - 20_000 - 10_000);
   });
 
@@ -211,11 +213,14 @@ describe.skipIf(!DATABASE_URL)('Payment yang dihitung -- against real Postgres (
     expect(kept.some((e) => e.paymentId === live.id)).toBe(true);
     expect(kept.some((e) => e.paymentId === null)).toBe(true);
 
+    // The marker does not change what is dropped.
     vi.stubEnv('BETA_SANDBOX', 'true');
-    expect(await counted.ledgerWhereWithoutUncountedPayments(prisma, { donation: { campaignId } })).toEqual({});
+    const inBeta = await counted.ledgerWhereWithoutUncountedPayments(prisma, { donation: { campaignId } });
+    const keptInBeta = await prisma.ledgerEntry.findMany({ where: { campaignId, ...inBeta }, select: { paymentId: true } });
+    expect(keptInBeta.some((e) => e.paymentId === beta.id)).toBe(false);
   });
 
-  it('public progress is the stored counter less the beta Gross once the marker is off', async () => {
+  it('public progress is the stored counter less the beta Gross, marker on or off; "Donasi uji" only with the marker on', async () => {
     const campaignId = await makeCampaign(`beta-progress-${process.pid}`);
     await seedSettled(campaignId, 400_000, false);
     await seedSettled(campaignId, 100_000, true);
@@ -223,10 +228,12 @@ describe.skipIf(!DATABASE_URL)('Payment yang dihitung -- against real Postgres (
     expect(rows[0].collectedAmount).toBe(500_000);
 
     vi.stubEnv('BETA_SANDBOX', 'true');
-    expect((await counted.withCountedCollectedAmount(prisma, rows))[0].collectedAmount).toBe(500_000);
+    expect((await counted.withCountedCollectedAmount(prisma, rows))[0].collectedAmount).toBe(400_000);
+    expect(await counted.testDonationAmountForCampaign(prisma, campaignId)).toBe(100_000);
 
     vi.stubEnv('BETA_SANDBOX', '');
     expect((await counted.withCountedCollectedAmount(prisma, rows))[0].collectedAmount).toBe(400_000);
+    expect(await counted.testDonationAmountForCampaign(prisma, campaignId)).toBeNull();
   });
 
   it('countedPaymentWhere selects the same rows the helpers do', async () => {
@@ -236,7 +243,7 @@ describe.skipIf(!DATABASE_URL)('Payment yang dihitung -- against real Postgres (
     const scope = { donation: { campaignId } };
 
     vi.stubEnv('BETA_SANDBOX', 'true');
-    expect(await prisma.payment.count({ where: { ...scope, ...counted.countedPaymentWhere() } })).toBe(2);
+    expect(await prisma.payment.count({ where: { ...scope, ...counted.countedPaymentWhere() } })).toBe(1);
 
     vi.stubEnv('BETA_SANDBOX', '');
     expect(await prisma.payment.count({ where: { ...scope, ...counted.countedPaymentWhere() } })).toBe(1);

@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
 
     const totalPages = Math.ceil(total / limit);
 
-    // Progress as the public may see it: live, the beta's sandbox Payments
+    // Progress as the public may see it: sandbox (beta) Payments
     // are taken back out of the stored counter (counted-payment.ts).
     const publicCampaigns = await withCountedCollectedAmount(prisma, campaigns);
 

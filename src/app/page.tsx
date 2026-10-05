@@ -169,8 +169,8 @@ export default async function HomePage() {
     }),
   ]);
 
-  // Progress as the public may see it (counted-payment.ts): live, the beta's
-  // sandbox Payments are taken back out of the stored counter.
+  // Progress as the public may see it (counted-payment.ts): sandbox (beta)
+  // Payments are taken back out of the stored counter.
   const [publicUrgent, publicNew, publicFeatured] = await Promise.all([
     withCountedCollectedAmount(prisma, urgentCampaigns),
     withCountedCollectedAmount(prisma, newCampaigns),

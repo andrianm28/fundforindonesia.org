@@ -2,37 +2,36 @@ import type { Prisma } from '@/generated/prisma/client';
 import { isBetaSandbox } from '@/lib/deploy-environment';
 
 /**
- * "Payment yang dihitung": which Payments count towards the figures this
- * platform publishes and reconciles (ticket rilis-1-benda/92).
+ * "Payment yang dihitung": which Payments count towards the real figures this
+ * platform publishes and reconciles (ticket rilis-1-benda/92, amended by the
+ * owner's decision of 2026-10-05).
  *
  * Every Payment is stamped `sandbox` when it is created (chargeDonation and the
  * Trip Fee registration route), from the BETA_SANDBOX marker in force at that
- * moment. Whether it COUNTS is a different question, asked at read time:
- *
- *   - In the beta (marker on) everything counts. The beta's whole purpose is
- *     to rehearse the platform, so its public totals and its reconciliation
- *     report show the rehearsal money, which is what a tester needs to see.
- *   - Live (marker off) a sandbox-stamped Payment does not count. Beta data
- *     stays in the database as evidence but never reaches a public total or the
- *     live reconciliation report.
+ * moment. A sandbox Payment NEVER counts, in the beta or live: beta data is
+ * excluded permanently from the balance, Payout, Impact & Transparency, the
+ * recap and Dormant figures, and nothing is deleted at go-live. So this
+ * predicate does not depend on the marker at all; the marker only decides what
+ * a Payment is stamped as, and whether the Campaign page shows the extra
+ * "Donasi uji" line (`testDonationAmountForCampaign`).
  *
  * This is the ONE definition. A caller that needs "the Payments that count"
  * spreads `countedPaymentWhere()` into its Payment query, or filters rows with
- * `isCountedPayment`; nobody writes `sandbox: false` themselves, because the
- * beta branch is exactly the part a second copy would forget.
+ * `isCountedPayment`; nobody writes `sandbox: false` themselves.
  *
  * Deliberately not applied to the Ledger paths that read money by account
- * (balances, Payout, Refund): see the Comments of rilis-1-benda/92.
+ * (balances, Payout, Refund, ...): ticket rilis-1-benda/94 stamps and splits
+ * those by mode.
  */
 
-/** A Prisma `where` fragment for Payment rows that count right now. */
+/** A Prisma `where` fragment for Payment rows that count. */
 export function countedPaymentWhere(): Prisma.PaymentWhereInput {
-  return isBetaSandbox() ? {} : { sandbox: false };
+  return { sandbox: false };
 }
 
 /** The same rule for a row already in hand. */
 export function isCountedPayment(payment: { sandbox: boolean }): boolean {
-  return isBetaSandbox() || !payment.sandbox;
+  return !payment.sandbox;
 }
 
 /**
@@ -55,11 +54,11 @@ export function currentPaymentSandboxStamp(): boolean {
 
 /**
  * A Ledger `where` fragment that leaves out every entry belonging to a Payment
- * that does not count right now, or to a Refund of one, among the Payments in
- * `paymentScope`. `{}` in the beta, without querying.
+ * that does not count, or to a Refund of one, among the Payments in
+ * `paymentScope`. `{}` when there are none.
  *
  * For readers that sum a pool by Campaign (Impact's six lines) and so cannot
- * filter by Payment: they must drop the uncounted Payments' settlement and
+ * filter by Payment: they must drop the sandbox Payments' settlement and
  * escrow-release legs AND the legs of their Refunds, or the conservation law
  * they assert would see a pool holding money its `collected` figure no longer
  * includes. Every Refund of the Payment is dropped whatever its status,
@@ -70,8 +69,6 @@ export async function ledgerWhereWithoutUncountedPayments(
   db: Pick<Prisma.TransactionClient, 'payment' | 'refund'>,
   paymentScope: Prisma.PaymentWhereInput,
 ): Promise<Prisma.LedgerEntryWhereInput> {
-  if (isBetaSandbox()) return {};
-
   const payments = await db.payment.findMany({
     where: { AND: [paymentScope, { sandbox: true }] },
     select: { id: true },
@@ -95,24 +92,22 @@ export async function ledgerWhereWithoutUncountedPayments(
 }
 
 /**
- * The part of each Campaign's stored `collectedAmount` that came from Payments
- * which do not count right now, keyed by Campaign id.
+ * The part of each Campaign's stored `collectedAmount` that came from sandbox
+ * Payments, keyed by Campaign id.
  *
  * `Campaign.collectedAmount` is a lifetime counter incremented at Settlement
- * (the webhook route), so a go-live that removes the beta marker cannot
- * un-increment it. The public progress figure is therefore the counter minus
- * this: the Gross of every sandbox Payment that ever settled, which only exist
- * to subtract when the marker is off. REFUNDED counts as settled: a full
+ * (the webhook route), for sandbox Payments too, so the public progress figure
+ * is the counter minus this: the Gross of every sandbox Payment that ever
+ * settled, in the beta and live alike. REFUNDED counts as settled: a full
  * Refund never decrements the lifetime counter, so a beta Payment refunded in
- * full is still inside it. In the beta this answers an empty map without
- * querying.
+ * full is still inside it.
  */
 export async function uncountedGrossByCampaign(
   db: Pick<Prisma.TransactionClient, 'payment'>,
   campaignIds: string[],
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
-  if (isBetaSandbox() || campaignIds.length === 0) return out;
+  if (campaignIds.length === 0) return out;
 
   const rows = await db.payment.findMany({
     where: {
@@ -132,8 +127,8 @@ export async function uncountedGrossByCampaign(
 
 /**
  * The same rows with `collectedAmount` as the public may see it: the stored
- * counter less what sandbox Payments contributed to it while the marker is off.
- * Every public read of a Campaign's progress goes through here.
+ * counter less what sandbox Payments contributed to it. Every public read of a
+ * Campaign's progress goes through here.
  */
 export async function withCountedCollectedAmount<T extends { id: string; collectedAmount: number }>(
   db: Pick<Prisma.TransactionClient, 'payment'>,
@@ -148,4 +143,18 @@ export async function withCountedCollectedAmount<T extends { id: string; collect
     ...c,
     collectedAmount: Math.max(0, c.collectedAmount - (uncounted.get(c.id) ?? 0)),
   }));
+}
+
+/**
+ * "Donasi uji": the Gross of the sandbox Payments settled for one Campaign,
+ * shown as one extra line on the Campaign page while the beta marker is on.
+ * `null` when the marker is off, so a live page carries no trace of the beta
+ * and makes no query for it.
+ */
+export async function testDonationAmountForCampaign(
+  db: Pick<Prisma.TransactionClient, 'payment'>,
+  campaignId: string,
+): Promise<number | null> {
+  if (!isBetaSandbox()) return null;
+  return (await uncountedGrossByCampaign(db, [campaignId])).get(campaignId) ?? 0;
 }

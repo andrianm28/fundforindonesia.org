@@ -95,19 +95,18 @@ describe('GET /api/campaigns', () => {
       vi.unstubAllEnvs();
     });
 
-    it('live, shows the stored counter less what beta Payments put into it', async () => {
+    it('shows the stored counter less what beta Payments put into it', async () => {
       const data = await (await GET(createRequest('http://localhost:3000/api/campaigns'))).json();
 
       expect(data.campaigns[0].collectedAmount).toBe(380_000);
     });
 
-    it('in the beta, shows the stored counter whole, without asking for beta Payments', async () => {
+    it('in the beta too: beta Payments stay out of the public figure', async () => {
       vi.stubEnv('BETA_SANDBOX', 'true');
 
       const data = await (await GET(createRequest('http://localhost:3000/api/campaigns'))).json();
 
-      expect(data.campaigns[0].collectedAmount).toBe(500_000);
-      expect(mockPaymentFindMany).not.toHaveBeenCalled();
+      expect(data.campaigns[0].collectedAmount).toBe(380_000);
     });
   });
 

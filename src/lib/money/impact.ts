@@ -320,8 +320,8 @@ export async function impactBreakdown(
     // the Payment, Refund or Payout each leg names, the same way
     // src/app/api/admin/reconcile/route.ts attributes PROVIDER_FEE. The lookup
     // lists below are what makes that attribution possible.
-    // Only the Payments that count (src/lib/money/counted-payment.ts): in the
-    // beta every one does; live, the beta's sandbox Payments are out of every
+    // Only the Payments that count (src/lib/money/counted-payment.ts): sandbox
+    // (beta) Payments are always out of every
     // figure below, and `campaignPoolRows` leaves their legs out to match.
     const payments = await tx.payment.findMany({
       where: { donation: { campaignId: { in: campaignIds } }, ...countedPaymentWhere() },

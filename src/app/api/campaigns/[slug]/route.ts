@@ -157,8 +157,8 @@ export async function GET(
     // one value in force everywhere.
     const escrowHoldDays = ESCROW_HOLD_DAYS;
 
-    // Progress as the public may see it (counted-payment.ts): live, the beta's
-    // sandbox Payments are taken back out of the stored counter.
+    // Progress as the public may see it (counted-payment.ts): sandbox (beta)
+    // Payments are taken back out of the stored counter.
     const [{ collectedAmount: collectedAmountForPublic }] = await withCountedCollectedAmount(prisma, [campaign]);
 
     const response = NextResponse.json({

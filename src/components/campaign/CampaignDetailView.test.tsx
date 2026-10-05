@@ -83,6 +83,14 @@ describe('CampaignDetailView', () => {
     expect(screen.getByText('Donasi sekarang')).toBeDefined();
   });
 
+  it('shows one "Donasi uji" line when the beta hands an amount, and none otherwise', () => {
+    render(<CampaignDetailView campaign={{ ...mockCampaign, testDonationAmount: 150000 }} />);
+    expect(screen.getByText(/Donasi uji: Rp\s?150\.000/)).toBeDefined();
+    cleanup();
+    render(<CampaignDetailView campaign={{ ...mockCampaign, testDonationAmount: null }} />);
+    expect(screen.queryByText(/Donasi uji/)).toBeNull();
+  });
+
   it('shows the Platform Fee rate in force (prd-compliance 17)', () => {
     render(<CampaignDetailView campaign={mockCampaign} />);
     expect(screen.getByText(/2,5%/)).toBeDefined();

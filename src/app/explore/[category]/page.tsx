@@ -53,8 +53,8 @@ export default async function CategoryPage({ params }: Props) {
     take: 24,
   });
 
-  // Progress as the public may see it (counted-payment.ts): live, the beta's
-  // sandbox Payments are taken back out of the stored counter.
+  // Progress as the public may see it (counted-payment.ts): sandbox (beta)
+  // Payments are taken back out of the stored counter.
   const publicCampaigns = await withCountedCollectedAmount(prisma, campaigns);
 
   // Map to CampaignCardData format

@@ -2290,13 +2290,13 @@ describe('GET /api/admin/reconcile -- Payment yang dihitung (ticket rilis-1-bend
     return response.json();
   }
 
-  it('in the beta, reconciles the counter against every Payment, beta ones included', async () => {
+  it('in the beta, reconciles the counter less the beta Gross against the real Payments only', async () => {
     vi.stubEnv('BETA_SANDBOX', 'true');
 
     const data = await report(fixture(150_000));
 
     expect(data.mismatches).toEqual([]);
-    expect(data.providerReconciliation.collectedByKind).toEqual([{ kind: 'DONATION', settledGross: 150_000 }]);
+    expect(data.providerReconciliation.collectedByKind).toEqual([{ kind: 'DONATION', settledGross: 100_000 }]);
   });
 
   it('live, reconciles the counter less the beta Gross against the live Payments only', async () => {

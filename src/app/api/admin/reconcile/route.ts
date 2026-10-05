@@ -205,7 +205,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // it (the webhook increments it, ./refunds.ts never does).
     //
     // Only what counts (src/lib/money/counted-payment.ts, ticket
-    // rilis-1-benda/92): live, the beta's sandbox Payments are left out of this
+    // rilis-1-benda/92): sandbox (beta) Payments are always left out of this
     // side, and `campaigns` below reads the stored counter less their Gross, so
     // the two sides still describe the same set of Payments.
     const withoutUncounted = await ledgerWhereWithoutUncountedPayments(tx, {});

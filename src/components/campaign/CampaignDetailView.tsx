@@ -27,6 +27,9 @@ export interface CampaignDetailData {
   coverImage: string;
   targetAmount: number;
   collectedAmount: number;
+  /** Beta only: the Gross of sandbox Payments settled for this Campaign, shown
+   * as "Donasi uji". `null` (or absent) when the beta marker is off. */
+  testDonationAmount?: number | null;
   category: string;
   /** Effective status: an Active Campaign past its deadline arrives as EXPIRED. */
   lifecycleStatus: CampaignLifecycleStatus;
@@ -365,6 +368,12 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
             <p className="text-xl font-bold text-primary font-mono">
               {formatRupiah(campaign.collectedAmount)}
             </p>
+
+            {campaign.testDonationAmount != null && (
+              <p className="text-xs text-text-secondary">
+                Donasi uji: {formatRupiah(campaign.testDonationAmount)}
+              </p>
+            )}
 
             {/* Progress bar */}
             <ProgressBar

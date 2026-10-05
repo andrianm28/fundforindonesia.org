@@ -3,6 +3,7 @@ import {
   countedPaymentWhere,
   isCountedPayment,
   currentPaymentSandboxStamp,
+  testDonationAmountForCampaign,
   uncountedGrossByCampaign,
   withCountedCollectedAmount,
 } from './counted-payment';
@@ -24,9 +25,9 @@ describe('"Payment yang dihitung" in the beta', () => {
     process.env.BETA_SANDBOX = 'true';
   });
 
-  it('counts every Payment, sandbox or not', () => {
-    expect(countedPaymentWhere()).toEqual({});
-    expect(isCountedPayment({ sandbox: true })).toBe(true);
+  it('leaves sandbox Payments out even while the marker is on', () => {
+    expect(countedPaymentWhere()).toEqual({ sandbox: false });
+    expect(isCountedPayment({ sandbox: true })).toBe(false);
     expect(isCountedPayment({ sandbox: false })).toBe(true);
   });
 
@@ -34,12 +35,19 @@ describe('"Payment yang dihitung" in the beta', () => {
     expect(currentPaymentSandboxStamp()).toBe(true);
   });
 
-  it('subtracts nothing from a Campaign figure, and does not even query', async () => {
-    const db = { payment: { findMany: vi.fn() } };
-    const rows = [{ id: 'c1', collectedAmount: 500 }];
+  it('subtracts beta Gross from the public Campaign figure just as live does', async () => {
+    const db = { payment: { findMany: vi.fn().mockResolvedValue([{ amount: 40, donation: { campaignId: 'c1' } }]) } };
 
-    expect(await withCountedCollectedAmount(db as never, rows)).toBe(rows);
-    expect(db.payment.findMany).not.toHaveBeenCalled();
+    const [row] = await withCountedCollectedAmount(db as never, [{ id: 'c1', collectedAmount: 500 }]);
+
+    expect(row.collectedAmount).toBe(460);
+  });
+
+  it('reports "Donasi uji" for a Campaign: the sandbox Gross, zero when there is none', async () => {
+    const db = { payment: { findMany: vi.fn().mockResolvedValue([{ amount: 40, donation: { campaignId: 'c1' } }]) } };
+
+    expect(await testDonationAmountForCampaign(db as never, 'c1')).toBe(40);
+    expect(await testDonationAmountForCampaign(db as never, 'c2')).toBe(0);
   });
 });
 
@@ -54,10 +62,18 @@ describe('"Payment yang dihitung" live', () => {
     expect(currentPaymentSandboxStamp()).toBe(false);
   });
 
-  it('reads a near-miss marker as live, so beta rows stay out', () => {
+  it('reports no "Donasi uji" and does not query for it', async () => {
+    const db = { payment: { findMany: vi.fn() } };
+
+    expect(await testDonationAmountForCampaign(db as never, 'c1')).toBeNull();
+    expect(db.payment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('reads a near-miss marker as live: no "Donasi uji" line', async () => {
     process.env.BETA_SANDBOX = 'TRUE';
-    expect(countedPaymentWhere()).toEqual({ sandbox: false });
-    expect(isCountedPayment({ sandbox: true })).toBe(false);
+    const db = { payment: { findMany: vi.fn() } };
+
+    expect(await testDonationAmountForCampaign(db as never, 'c1')).toBeNull();
   });
 
   it('subtracts the Gross of every settled sandbox Payment, refunded ones included, from the stored Campaign counter', async () => {
