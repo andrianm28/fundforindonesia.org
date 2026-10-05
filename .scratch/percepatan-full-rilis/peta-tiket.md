@@ -48,7 +48,8 @@ Sumber: `.scratch/percepatan-full-rilis/plan.md`, Track B. Dibuat 2026-10-04.
 | H-1 | `.scratch/rilis-1-benda/issues/58-rate-limit-auth-donation-upload.md` | done (PR #221, a0df7b4) |
 | H-2 | `.scratch/rilis-1-benda/issues/59-env-validation-and-auth-url.md` | done (PR #223, 983ee5d) |
 | H-3a | `.scratch/rilis-1-benda/issues/60-robots-and-powered-by.md` | done (PR #218, 8c005e0) |
-| G-1 | (ditangani builder G-1 (go-live-ops 02)) | - |
+| G-1 | dibatalkan 2026-10-04 (PR #224 ditutup; tidak ada staging) | - |
+| B-1 | `rilis-1-benda/issues/92-beta-sandbox-mode.md` (ditulis builder di branch-nya) | rilis-1-benda 92 |
 | H-6 | `.scratch/ci-cd-github-actions/issues/26-vitest-shard.md` | done (PR #220, 5dabf6d) |
 | reminders-skip-demo-campaigns | `.scratch/rilis-1-benda/issues/61-reminders-skip-demo-campaigns.md` | done (PR #219, 464d309) |
 | prd-compliance 45 (cron jobs) | `.scratch/prd-compliance-fase-0-2/issues/45-scheduled-jobs-trigger.md` | done (cron terpasang dan terbukti 2026-10-04) |

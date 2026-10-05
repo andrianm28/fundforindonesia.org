@@ -32,7 +32,7 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 
 ## Pengungkit percepatan
 
-1. **Semua lead time eksternal dimulai hari 0** paralel: KYB Sumopod produksi, Xendit, verifikasi Meta/WhatsApp Business, counsel legal, Google OAuth, subdomain staging. Inilah jalur kritis sebenarnya.
+1. **Semua lead time eksternal dimulai hari 0** paralel: KYB Sumopod produksi, Xendit, verifikasi Meta/WhatsApp Business, counsel legal, Google OAuth. Inilah jalur kritis sebenarnya.
 2. **Staging sandbox** (keputusan owner): M1/M2/M3 diuji end-to-end dengan Sumopod sandbox sebelum uang nyata; verifikasi kode tidak menunggu KYB.
 3. **Satu ronde grilling** untuk semua keputusan (daftar C), termasuk pertanyaan terbuka item perluasan.
 4. **Lajur builder paralel dengan aturan konflik file**: maksimal 8 agent, tetapi satu PR skema pada satu waktu; builder menjalankan tes terkait + tsc + lint saja, full suite di CI; vitest di-shard 3 arah; merge dibatch → satu CD + satu Deploy per gelombang.
@@ -77,12 +77,12 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 
 **A3. Vendor** (hari 0, lalu menunggu)
 - Sumopod produksi: KYB atas nama entitas yang benar (ADR 0011), base URL, API key, `whsec`, webhook `/api/webhooks/sumopod`.
-- Sumopod sandbox untuk staging; SMTP relay.
+- Sumopod sandbox untuk mode beta di domain utama (B-1); SMTP relay.
 - Xendit: daftar, kunci sandbox, mulai KYB produksi.
 - Meta Business / BSP WhatsApp: verifikasi dan persetujuan template.
 - **Google OAuth: disiapkan sebelum M1** (keputusan C13, bukan lagi opsional). Buat OAuth client di akun Google milik FFI (bukan akun pribadi), dengan redirect URI di domain apex (`https://<apex>/api/auth/callback/google`); isi `GOOGLE_CLIENT_ID` dan `GOOGLE_CLIENT_SECRET` di env produksi (nilai tidak masuk repo). Selama env kosong, tombol Google tersembunyi otomatis (#223), jadi langkah ini tidak memblokir deploy tetapi harus selesai sebelum flip M1 (A6).
 - Penyimpanan dokumen (C5): **volume lokal di host, bukan bucket S3**; tidak ada pembelian atau akun bucket. Volume privat terpisah dari `public/uploads`, dimasukkan sesi VPS ke backup malam dan offsite terenkripsi saat D-1 dideploy.
-- DSN GlitchTip; DNS + TLS subdomain staging.
+- DSN GlitchTip.
 
 **A4. Legal dan syariah** (owner + counsel, hari 0)
 - Dokumen izin YIEM; perjanjian kerja sama PT–YIEM dan atas nama siapa dana dihimpun; status PSE Lingkup Privat; entitas nyata + kontak untuk Terms/Privacy (operator-rule-gaps 03); UU PDP (kontak perlindungan data, prosedur insiden 3×24 jam, jadwal retensi); kewajiban AML/PPATK; penasihat syariah untuk hibah; mitra zakat (LAZ/BAZNAS) dan wakaf (nazhir BWI); persetujuan WhatsApp sesuai PDP.
@@ -118,7 +118,7 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 | P1 | admin-moderasi-door | Tautan ke /admin dan /moderasi menurut role (rilis-1-benda 05) | S |
 | S-0 | contract release | Drop kolom status/role lama (legacy-status-contract 03, retire-role-hierarchy 03) sebelum data nyata, setelah hitungan A1 aman | S+S |
 
-Baris H-1, H-2, H-3a, dan G-1 pada tabel berikut juga pra-M1.
+Baris H-1, H-2, H-3a, dan B-1 pada tabel berikut juga pra-M1.
 
 **Nomor tiket (ditulis builder di branch masing-masing, bukan di PR dokumen ini):** P1 = `rilis-1-benda` 86, P2 = 87, A-1 = 88, M-a = 89 (ditulis koordinator, `rilis-1-benda/issues/89-payout-reveal-account-number.md`). Peta tiket ada di PR #222 (`claude/full-rilis-g0-tickets`).
 
@@ -129,7 +129,8 @@ Baris H-1, H-2, H-3a, dan G-1 pada tabel berikut juga pra-M1.
 | H-2 | env-validation-and-auth-url | `assertProductionEnv` mencakup FIELD_*, JOBS_SECRET, NEXTAUTH_URL = host publik; tombol Google disembunyikan bila belum dikonfigurasi | S |
 | H-3a | robots-and-powered-by | `src/app/robots.ts`, `poweredByHeader:false` | S |
 | S-0 | contract release | Drop kolom `status`/`role` lama (legacy-status-contract 03, retire-role-hierarchy 03) **sebelum data nyata**, setelah hitungan A1 aman | S+S |
-| G-1 | staging-environment (go-live-ops) | `docker-compose.staging.yml` (project/DB/volume terpisah); varian image staging di `cd.yml` dengan build arg staging; izin sandbox eksplisit **hanya** untuk staging (review uang); noindex + basic auth; seed data, bukan salinan produksi | M |
+| ~~G-1~~ | ~~staging-environment~~ | **Dibatalkan 2026-10-04 (keputusan owner):** tidak ada subdomain staging; PR #224 ditutup tanpa merge, branch disimpan untuk dipakai ulang. Digantikan B-1. | - |
+| B-1 | beta-sandbox-mode (rilis-1-benda 92) | Beta publik di domain utama dengan Sumopod sandbox: penanda env server eksplisit (hanya host sandbox persis via https; tanpa penanda sandbox tetap ditolak); banner "Beta, tidak ada uang nyata" di semua halaman, konfirmasi donasi, dan Receipt; situs tetap diindeks; setiap Payment dicap mode sandbox (skema, slot skema sebelum M-a) dan dikeluarkan dari total publik dan rekonsiliasi saat go-live. Review uang dan keamanan. | M, skema |
 
 **Menuju M2:**
 
@@ -241,7 +242,7 @@ Baris H-1, H-2, H-3a, dan G-1 pada tabel berikut juga pra-M1.
 ## Gelombang
 
 - **G0 (hari 0–2):** owner A1/A2 di sesi VPS, mulai A3/A4, jawab ronde C. Koordinator: salin rencana, PR housekeeping, tulis semua tiket baru. Builder: P1, P2, A-1, H-1, H-2, H-3a, G-1, H-6. Keluar bila M0 terbukti, C1–C6 terjawab, PR hijau.
-- **G1 (hari 2–6):** builder M-a (slot skema), S-0 (setelah ~10-10 + hitungan A1), A-2, F3, A-3, ADR i18n, runbook. Staging hidup: gladi donasi → Payout → Refund dengan sandbox. Satu Deploy di akhir gelombang. Keluar bila produksi memuat semua item pra-M1 dan alur M1 lulus gladi di staging.
+- **G1 (hari 2–6):** builder M-a (slot skema), S-0 (setelah ~10-10 + hitungan A1), A-2, F3, A-3, ADR i18n, runbook. Beta publik (B-1) hidup: gladi donasi → Payout → Refund dengan sandbox di domain utama. Satu Deploy di akhir gelombang. Keluar bila produksi memuat semua item pra-M1 dan alur M1 lulus gladi di beta.
 - **G2 (M1, lalu 7 hari escrow):** owner A5 → A6. Builder D-1, F2, N-1, H-4, H-5, H-3b, M-b, lalu M-c Xendit dengan kunci sandbox. Keluar bila M1 terbukti dan semua kode M2 ter-deploy sebelum hari ke-7.
 - **G3 (M2 → Soft Launch):** owner drill A7. Builder F1 → N-2, F4 → M-e, F5, F6, P3, A-4, A-5, A-6, M-d, V-1, V-2, E1, E9 (email konfirmasi). Owner membuat Trip/Batch nyata ≥3 minggu ke depan. Keluar bila M2 terbukti, Terms/Privacy live, owner menyetujui promosi.
 - **G4:** builder E2, E3, E4, E8, E9 (akun penuh), V-3, sisa M-c sampai siap produksi, lalu E5. Owner: kredensial Xendit produksi, onboarding WhatsApp.
@@ -256,7 +257,7 @@ Baris H-1, H-2, H-3a, dan G-1 pada tabel berikut juga pra-M1.
 
 ## Risiko utama
 
-- Lead time vendor/legal (KYB Sumopod dan Xendit, Meta, PSE) menentukan tanggal → mulai hari 0, gladi di staging.
+- Lead time vendor/legal (KYB Sumopod dan Xendit, Meta, PSE) menentukan tanggal → mulai hari 0, gladi di beta sandbox (B-1).
 - Ketujuh item perluasan menambah ~35 hari-builder, dan i18n menyentuh semua halaman → ADR kunci di G1, ekstraksi paling akhir.
 - Kode uang baru (reveal, Xendit, refund Donor, anggota tim) selalu review independen sonnet dengan bukti di PR.
 - Data produksi hanya di satu host sampai A1 selesai → prioritas pertama.

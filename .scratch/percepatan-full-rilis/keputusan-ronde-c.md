@@ -282,3 +282,12 @@ Ketujuh item perluasan Fase 3 masuk Rilis 1 (keputusan owner 2026-10-04, diamand
 - **Kalau ditolak:** Email konfirmasi tetap bisa dibangun tanpa keputusan ini, tetapi akun lengkap tidak bisa dirancang; tanpa jawaban (d) retensi data kontak melanggar kehati-hatian UU PDP.
 - **Rujukan:** `.scratch/rilis-1-benda/issues/08-tim-csr-account.md` ("What this does not decide"); `CONTEXT.md:42` (Tim CSR).
 - **Jawaban owner:** 2026-10-04: (a) akun per orang plus keanggotaan perusahaan; (b) verifikasi ringan lewat domain email; (c) inquiry plus riwayat status plus **unduh laporan dampak Program yang dibiayai perusahaannya**; (d) retensi selama aktif ditambah 2 tahun setelah inquiry terakhir, lalu dianonimkan.
+
+## Keputusan susulan: beta publik menggantikan staging (owner, 2026-10-04/05)
+
+Owner menutup PR #224 (G-1 staging): tidak ada subdomain staging. Beta publik berjalan di domain utama dengan Sumopod sandbox. Owner menyetujui keempat rekomendasi koordinator:
+1. Penanda mode beta: satu env server eksplisit; saat aktif hanya `https://api-pay-sandbox.sumopod.com` (host persis) yang diterima; tanpa penanda, sandbox tetap ditolak. Go-live = cabut penanda + isi URL live.
+2. Banner "Beta, tidak ada uang nyata" di semua halaman, konfirmasi donasi, dan Receipt; situs tetap diindeks.
+3. Setiap Payment dicap mode sandbox (perubahan skema, slot skema sebelum M-a); saat go-live data beta dikeluarkan dari total publik dan rekonsiliasi.
+4. Beta menggantikan peran staging untuk gladi Gelombang 1; gladi tertutup C1 dengan uang nyata tetap menunggu M-a dan A-1.
+Tiket: rilis-1-benda 92 (B-1). C5 tidak berubah (dokumen tetap volume lokal privat).
