@@ -7,6 +7,11 @@ import { reconcileProviderBalances } from '@/lib/money/provider-withdrawals';
 import { DEFERRED_ESCROW_WATCHDOG_DAYS, deferredEscrowWatchdogCutoff } from '@/lib/money/escrow';
 import { STANDING_REFUND_WHERE, isRefundStanding } from '@/lib/money/refund-standing';
 import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
+import {
+  countedPaymentWhere,
+  ledgerWhereWithoutUncountedPayments,
+  withCountedCollectedAmount,
+} from '@/lib/money/counted-payment';
 
 /**
  * GET /api/admin/reconcile -- ADMIN-only reconciliation report.
@@ -198,9 +203,21 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // that has to leave them out, not collectedAmount: that is the
     // lifetime-raised figure the public pages show, and no Refund path writes
     // it (the webhook increments it, ./refunds.ts never does).
+    //
+    // Only what counts (src/lib/money/counted-payment.ts, ticket
+    // rilis-1-benda/92): live, the beta's sandbox Payments are left out of this
+    // side, and `campaigns` below reads the stored counter less their Gross, so
+    // the two sides still describe the same set of Payments.
+    const withoutUncounted = await ledgerWhereWithoutUncountedPayments(tx, {});
     const escrowCreditRows = await tx.ledgerEntry.groupBy({
       by: ['campaignId'],
-      where: { account: 'ESCROW_HOLD', direction: 'CREDIT', campaignId: { not: null }, refundId: null },
+      where: {
+        account: 'ESCROW_HOLD',
+        direction: 'CREDIT',
+        campaignId: { not: null },
+        refundId: null,
+        ...withoutUncounted,
+      },
       _sum: { amount: true },
     });
     const netEverCreditedByCampaign = new Map<string, number>(
@@ -217,6 +234,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         account: { in: ['PROVIDER_FEE', 'PLATFORM_FEE'] },
         direction: 'CREDIT',
         paymentId: { not: null },
+        ...withoutUncounted,
       },
       select: { amount: true, paymentId: true, account: true },
     });
@@ -297,9 +315,12 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       createdAt: m.createdAt,
     }));
 
-    const campaigns = await tx.campaign.findMany({
-      select: { id: true, title: true, collectedAmount: true, isDemo: true },
-    });
+    const campaigns = await withCountedCollectedAmount(
+      tx,
+      await tx.campaign.findMany({
+        select: { id: true, title: true, collectedAmount: true, isDemo: true },
+      }),
+    );
 
     type CollectedAmountRow = {
       campaignId: string;
@@ -369,7 +390,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // could do nothing about. The two sides have to be fixed together for
     // either to be true, which is why this and escrow.ts are one change.
     const releasedPayments = await tx.payment.findMany({
-      where: { escrowReleasedAt: { not: null } },
+      where: { escrowReleasedAt: { not: null }, ...countedPaymentWhere() },
       select: {
         id: true,
         amount: true,
@@ -518,6 +539,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         status: 'PAID',
         escrowReleasedAt: null,
         escrowReleaseAt: { lte: deferredEscrowWatchdogCutoff() },
+        ...countedPaymentWhere(),
       },
       select: {
         id: true,
@@ -626,7 +648,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // is exactly that failure, surfaced instead of silently releasing at
     // maturity with no record anything went wrong.
     const paidTripPayments = await tx.payment.findMany({
-      where: { status: 'PAID', registrationId: { not: null } },
+      where: { status: 'PAID', registrationId: { not: null }, ...countedPaymentWhere() },
       select: {
         id: true,
         registrationId: true,
@@ -740,7 +762,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     });
     const campaignByDonation = new Map(kindDonations.map((d) => [d.id, d.campaignId]));
     const kindPayments = await tx.payment.findMany({
-      where: { donationId: { in: kindDonations.map((d) => d.id) } },
+      where: { donationId: { in: kindDonations.map((d) => d.id) }, ...countedPaymentWhere() },
       select: { id: true, donationId: true },
     });
     // Built by looking each one up rather than by asserting the lookup

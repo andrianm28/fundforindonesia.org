@@ -44,6 +44,42 @@ export function currentPaymentSandboxStamp(): boolean {
 }
 
 /**
+ * A Ledger `where` fragment that leaves out every entry belonging to a Payment
+ * that does not count right now, or to a Refund of one, among the Payments in
+ * `paymentScope`. `{}` in the beta, without querying.
+ *
+ * For readers that sum a pool by Campaign (Impact's six lines) and so cannot
+ * filter by Payment: they must drop the uncounted Payments' settlement and
+ * escrow-release legs AND the legs of their Refunds, or the conservation law
+ * they assert would see a pool holding money its `collected` figure no longer
+ * includes. Every Refund of the Payment is dropped whatever its status,
+ * because a REJECTED one is already netted to zero by its own mirror entries
+ * and leaving half of that pair in would not be.
+ */
+export async function ledgerWhereWithoutUncountedPayments(
+  db: Pick<Prisma.TransactionClient, 'payment' | 'refund'>,
+  paymentScope: Prisma.PaymentWhereInput,
+): Promise<Prisma.LedgerEntryWhereInput> {
+  if (isBetaSandbox()) return {};
+
+  const payments = await db.payment.findMany({
+    where: { AND: [paymentScope, { sandbox: true }] },
+    select: { id: true },
+  });
+  if (payments.length === 0) return {};
+  const paymentIds = payments.map((p) => p.id);
+  const refunds = await db.refund.findMany({
+    where: { paymentId: { in: paymentIds } },
+    select: { id: true },
+  });
+  return {
+    NOT: {
+      OR: [{ paymentId: { in: paymentIds } }, { refundId: { in: refunds.map((r) => r.id) } }],
+    },
+  };
+}
+
+/**
  * The part of each Campaign's stored `collectedAmount` that came from Payments
  * which do not count right now, keyed by Campaign id.
  *

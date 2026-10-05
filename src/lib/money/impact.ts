@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@/generated/prisma/client';
 import { programBooks } from '@/lib/money/manual-contributions';
 import { STANDING_REFUND_WHERE } from '@/lib/money/refund-standing';
+import { countedPaymentWhere, ledgerWhereWithoutUncountedPayments } from '@/lib/money/counted-payment';
 
 /**
  * Impact & Transparency: where every rupiah a Donor handed over has ended up
@@ -319,8 +320,11 @@ export async function impactBreakdown(
     // the Payment, Refund or Payout each leg names, the same way
     // src/app/api/admin/reconcile/route.ts attributes PROVIDER_FEE. The lookup
     // lists below are what makes that attribution possible.
+    // Only the Payments that count (src/lib/money/counted-payment.ts): in the
+    // beta every one does; live, the beta's sandbox Payments are out of every
+    // figure below, and `campaignPoolRows` leaves their legs out to match.
     const payments = await tx.payment.findMany({
-      where: { donation: { campaignId: { in: campaignIds } } },
+      where: { donation: { campaignId: { in: campaignIds } }, ...countedPaymentWhere() },
       select: { id: true },
     });
     const paymentIds = payments.map((p) => p.id);
@@ -359,9 +363,12 @@ export async function impactBreakdown(
     // The second query is the shortfall: refundApprovedLegs tops a drained
     // pool back up by CREDITING it, and only a leg carrying a refundId can be
     // that credit -- escrow releases carry a paymentId instead.
+    const withoutUncounted = await ledgerWhereWithoutUncountedPayments(tx, {
+      donation: { campaignId: { in: campaignIds } },
+    });
     const campaignPoolRows = await tx.ledgerEntry.groupBy({
       by: ['account', 'direction'] as const,
-      where: { campaignId: { in: campaignIds } },
+      where: { campaignId: { in: campaignIds }, ...withoutUncounted },
       _sum: { amount: true },
     });
     const campaignPools = totalsOf(campaignPoolRows);
