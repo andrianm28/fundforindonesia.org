@@ -160,6 +160,43 @@ describe('GET /api/campaigns/[slug]', () => {
     expect(body.campaign.platformFeePercentBps).toBe(250);
   });
 
+  // ticket 87: the checkout confirmation computes the Platform Fee with the
+  // same computePlatformFee the money path uses, so it needs the waiver
+  // threshold in force next to the rate.
+  it('carries the Platform Fee waiver threshold in force, for the checkout disclosure (ticket 87)', async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 'campaign-1',
+      slug: 'bantu-korban-bencana',
+      title: 'Bantu Korban Bencana',
+      description: 'd',
+      story: '<p>s</p>',
+      coverImage: 'https://example.com/image.jpg',
+      targetAmount: 50000000,
+      collectedAmount: 0,
+      category: 'bencana-alam',
+      kind: 'DONATION',
+      lifecycleStatus: 'ACTIVE',
+      isUrgent: false,
+      isDemo: false,
+      deadline: null,
+      creatorId: 'user-1',
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+      updatedAt: new Date('2024-06-01T00:00:00Z'),
+      creator: { id: 'user-1', name: 'Yayasan Peduli', avatar: null },
+      _count: { donations: 0 },
+    } as never);
+    mockPlatformFeeRuleFindFirst.mockResolvedValue({ percentBps: 250 } as never);
+    mockPlatformFeeThresholdFindFirst.mockResolvedValue({ amount: 50_000 } as never);
+
+    const response = await GET(createRequest('bantu-korban-bencana'), {
+      params: Promise.resolve({ slug: 'bantu-korban-bencana' }),
+    });
+    const body = await response.json();
+
+    expect(body.campaign.platformFeePercentBps).toBe(250);
+    expect(body.campaign.platformFeeThresholdAmount).toBe(50_000);
+  });
+
   // ticket 03 (ADR 0013): hibah's rate shown on the Campaign page is exactly
   // what resolvePlatformFeeBasisForCampaign resolves -- 0 by default, since
   // no Kind rule has been set for it, matching zakat/wakaf.

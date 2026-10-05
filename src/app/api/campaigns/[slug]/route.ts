@@ -147,7 +147,8 @@ export async function GET(
     // The rate in force right now (prd-compliance 17), resolved the same
     // way as the public page and frozen the same way POST /api/donations
     // freezes it: Campaign, then Category, then Kind default.
-    const { percentBps: platformFeePercentBps } = await resolvePlatformFeeBasisForCampaign(prisma, campaign);
+    const { percentBps: platformFeePercentBps, thresholdAmount: platformFeeThresholdAmount } =
+      await resolvePlatformFeeBasisForCampaign(prisma, campaign);
 
     // The Escrow Hold length every new Payment freezes at creation
     // (CONTEXT.md, Escrow Hold; prd-compliance 18) -- there is no per-Kind/
@@ -181,6 +182,9 @@ export async function GET(
         donationBlock: donationBlock({ ...campaign, collectingEntity }, now),
         donationCount: campaign._count.donations,
         platformFeePercentBps,
+        // With the rate, so the checkout confirmation can show the fee with
+        // computePlatformFee itself (ticket 87) instead of its own arithmetic.
+        platformFeeThresholdAmount,
         escrowHoldDays,
         ...(suspensionReason !== undefined && { suspensionReason }),
         ...(pendingVerificationRequestId !== undefined && { pendingVerificationRequestId }),

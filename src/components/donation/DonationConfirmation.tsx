@@ -4,6 +4,7 @@ import React from 'react';
 import { Campaign } from '@/types/campaign';
 import { PaymentMethod } from '@/types/donation';
 import { formatRupiah } from '@/lib/utils/currency';
+import { computePlatformFee, formatFeePercent } from '@/lib/money/platform-fee';
 import { Button } from '@/components/ui/Button';
 
 export interface DonationConfirmationProps {
@@ -69,6 +70,19 @@ export function DonationConfirmation({
     }
   };
 
+  // Platform Fee, Escrow Hold and estimated Net (CONTEXT.md; rilis-1-benda
+  // 04 and 87). The fee is computePlatformFee on the basis the server
+  // resolved -- the function chargeDonation freezes onto the Payment -- so
+  // this screen never carries its own arithmetic. Absent when the Campaign
+  // payload carries no basis: nothing is invented.
+  const { platformFeePercentBps, platformFeeThresholdAmount, escrowHoldDays } = campaign;
+  const feeBasisKnown = platformFeePercentBps !== undefined;
+  const threshold = platformFeeThresholdAmount ?? 0;
+  const platformFee = feeBasisKnown
+    ? computePlatformFee({ grossAmount: amount, percentBps: platformFeePercentBps, thresholdAmount: threshold })
+    : 0;
+  const waived = feeBasisKnown && platformFeePercentBps > 0 && platformFee === 0 && amount < threshold;
+
   return (
     <div className="flex flex-col gap-6">
       {/* Summary Section */}
@@ -98,6 +112,39 @@ export function DonationConfirmation({
               {paymentMethod.name}
             </span>
           </div>
+
+          {feeBasisKnown && (
+            <div className="border-t border-gray-200 pt-2 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-text-secondary">
+                  Platform Fee ({formatFeePercent(platformFeePercentBps)})
+                </span>
+                <span className="text-sm font-medium text-text">{formatRupiah(platformFee)}</span>
+              </div>
+              {waived && (
+                <p className="text-xs text-text-secondary">
+                  Platform Fee dibebaskan untuk donasi di bawah {formatRupiah(threshold)}.
+                </p>
+              )}
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-text-secondary">Perkiraan diterima Campaign</span>
+                <span className="text-sm font-semibold text-text" data-testid="estimated-net">
+                  {formatRupiah(amount - platformFee)}
+                </span>
+              </div>
+              <p className="text-xs text-text-secondary">
+                Sebelum Biaya Provider, yang baru diketahui saat pembayaran diselesaikan.
+              </p>
+            </div>
+          )}
+          {escrowHoldDays !== undefined && (
+            <div className="border-t border-gray-200 pt-2">
+              <p className="text-xs text-text-secondary">
+                Dana donasi ditahan {escrowHoldDays} hari (Escrow Hold) sebelum bisa dicairkan Campaign,
+                untuk memberi ruang pengembalian dana.
+              </p>
+            </div>
+          )}
 
           {/* Provider Fee (CONTEXT.md, Provider Fee; prd-compliance 18): a
               real cost the payment provider deducts, but never known until
