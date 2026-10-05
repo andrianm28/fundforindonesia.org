@@ -10,7 +10,7 @@
 
 **Prasyarat:** Grilling dan input nazhir.
 
-**Menunggu keputusan:** C23 (E8). Sub-pertanyaan dari tiketnya (rencana: "E8/E9 sub-pertanyaan dari tiketnya"): model dan alur pengajuan Wakif, status tindak lanjut nazhir, dan hubungannya dengan Campaign `wakaf`.
+**Menunggu:** grilling dengan nazhir (model dan alur pengajuan Wakif, status tindak lanjut nazhir, hubungan dengan Campaign `wakaf`). Keputusan owner 2026-10-04 (ronde C): grilling dengan nazhir.
 
 ## Latar
 
@@ -31,3 +31,5 @@ Asset Waqf Inquiry: pengajuan wakaf non-tunai (tanah, bangunan, barang), FFI-08.
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Lajur E, relay kedua) dan `keputusan-ronde-c.md` (C23). Status `needs-info` karena grilling singkat dulu; acceptance di bawah sementara.
+
+- 2026-10-04 (ronde C): E8 dijawab owner: **grilling dengan nazhir**, tidak diputuskan di ronde C. Status tetap `needs-info`.

@@ -1,14 +1,14 @@
 # 79: A-6 finance-recap-and-csv-export
 
-**Status:** needs-info
+**Status:** ready-for-agent
 
-**Blocked by:** none; menunggu C15
+**Blocked by:** none; C15 dijawab owner 2026-10-04
 
 **Ukuran:** M
 
 **Catatan:** Laporan uang baca-saja; tanpa skema. Review independen `sonnet` karena angka keuangan.
 
-**Menunggu keputusan:** C15 (rekomendasi: rekap per periode x Kind x Campaign + CSV).
+**Keputusan (2026-10-04, ronde C):** C15 rekap per periode x Kind x Campaign plus ekspor CSV (sesuai rekomendasi).
 
 ## Latar
 
@@ -31,3 +31,5 @@ PRD section 9 meminta rekap keuangan dan ekspor CSV. Dimensi rekap menunggu kepu
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-04 (ronde C): C15 dijawab owner sesuai rekomendasi: rekap per periode x Kind x Campaign, plus ekspor CSV. Acceptance di atas sudah memakai bentuk itu. `needs-info` menjadi `ready-for-agent`.

@@ -2,13 +2,13 @@
 
 **Status:** ready-for-agent
 
-**Blocked by:** none (tiket). Menunggu owner menjawab C6 (reveal rekening) sebelum acceptance dianggap final; rekomendasi C6: hanya Admin penyelesai, tercatat di tabel audit. Memakai "slot skema" Gelombang 1.
+**Blocked by:** none (tiket). C6 dijawab owner 2026-10-04 (hanya Admin penyelesai, tercatat di tabel audit); acceptance final. Memakai "slot skema" Gelombang 1.
 
 **Ukuran:** S
 
 **Catatan:** Skema: menambah tabel audit reveal, jadi menyentuh `prisma/schema.prisma`/migrasi. Satu PR skema pada satu waktu; timestamp migrasi dibagi koordinator. Review uang/keamanan: wajib review independen `sonnet` dengan bukti diposting di PR. Pra-M1 dan prasyarat gladi tertutup bersama A-1 (88), lihat C1.
 
-**Menunggu keputusan:** C6 (siapa yang boleh membuka nomor rekening, dan pencatatannya).
+**Keputusan (2026-10-04, ronde C):** C6 dijawab owner sesuai rekomendasi: hanya Admin penyelesai yang boleh membuka nomor rekening, tercatat di tabel audit. Acceptance di bawah final.
 
 ## Latar
 
@@ -37,3 +37,5 @@ Tiket ini **membuka ulang premis** `12-decrypting-a-bank-account-at-payout.md`, 
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (baris Pra-M1 M-a, dipulihkan dari relay kedua). C6 masih menunggu jawaban owner.
+
+- 2026-10-04 (ronde C): C6 dijawab owner, sesuai rekomendasi dan sesuai acceptance di atas: hanya Admin penyelesai, tercatat di tabel audit. Tidak ada perubahan acceptance; status tetap `ready-for-agent`.

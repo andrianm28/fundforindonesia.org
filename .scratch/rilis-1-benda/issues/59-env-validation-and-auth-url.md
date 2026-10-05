@@ -2,7 +2,7 @@
 
 **Type:** hardening (H-2 dalam rencana percepatan full rilis 2026-10-04)
 
-**Status:** awaiting-merge
+**Status:** done (PR #223, 983ee5d)
 
 **Blocked by:** none
 
@@ -48,7 +48,7 @@ tombol disembunyikan sampai dikonfigurasi).
       kosong/http/localhost/privat/bukan URL ditolak; env lengkap diterima.
 - [x] Non-produksi tidak diblokir; pesan galat tidak memuat nilai rahasia.
 - [x] Tes halaman login: tombol Google tampil hanya bila provider ada.
-- [ ] `next build` tanpa `FIELD_*` tetap lolos; CI e2e dan smoke CD tetap hijau.
+- [x] `next build` tanpa `FIELD_*` tetap lolos; CI e2e dan smoke CD tetap hijau.
 - [x] Ratchet lint 193 dan tsc 19 tidak naik.
 
 ## Comments
@@ -67,3 +67,5 @@ tombol disembunyikan sampai dikonfigurasi).
   dan pemisah baru muncul setelah `getProviders()` memuat `google`; gagal fetch =
   tersembunyi. Tes terkait hijau, tsc 19, lint 193 (baseline). Hijau CI e2e dan
   smoke CD belum dibuktikan lokal; dibuktikan oleh CI PR.
+
+- 2026-10-04: done. Squash-merge ke `main` di PR #223 (983ee5d), setelah semua check CI hijau; `awaiting-merge` diganti `done` di PR dokumen ronde C. Kotak terakhir dicentang karena terbukti: check `build` dan `e2e` hijau di PR (wajib untuk merge), dan deploy 53fe2d2 berjalan dengan `assertProductionEnv` lolos serta tombol Google tersembunyi di produksi.

@@ -1,8 +1,8 @@
 # 05: E4 organisation-team-members
 
-**Status:** needs-info
+**Status:** ready-for-agent
 
-**Blocked by:** none; menunggu grilling peran (C23)
+**Blocked by:** none; E4 dijawab owner 2026-10-04
 
 **Ukuran:** L, skema, review uang
 
@@ -10,7 +10,7 @@
 
 **Prasyarat:** Grilling peran anggota.
 
-**Menunggu keputusan:** C23 (E4). Peran apa yang dimiliki anggota, dan bolehkah anggota meminta Payout? (rekomendasi: tidak; permintaan Payout tetap milik akun Fundraiser utama organisasi)
+**Keputusan (2026-10-04, ronde C):** E4 anggota tim **tidak** boleh meminta Payout; permintaan Payout tetap milik akun Fundraiser utama organisasi.
 
 ## Latar
 
@@ -26,8 +26,10 @@ Anggota tim untuk Fundraiser organisasi: membership, peran, undangan, akses Payo
 
 - [ ] Hasil grilling peran dicatat di tiket
 - [ ] Model membership + undangan; migrasi tanpa kehilangan data
-- [ ] Akses Payout sesuai keputusan, dengan tes subject-guard dan aturan dua orang
+- [ ] Anggota tidak bisa meminta Payout (ditolak di domain, bukan hanya disembunyikan di UI); akses Payout tetap hanya akun Fundraiser utama; tes subject-guard dan aturan dua orang
 
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Lajur E, relay kedua) dan `keputusan-ronde-c.md` (C23). Status `needs-info` karena grilling singkat dulu; acceptance di bawah sementara.
+
+- 2026-10-04 (ronde C): E4 dijawab owner sesuai rekomendasi: anggota tim tidak boleh meminta Payout. Dengan begitu aturan dua orang dan pemisahan tugas tidak perlu dihitung ulang. Yang tidak ditanyakan: rincian peran anggota selain Payout; builder memakai peran minimal tanpa akses uang dan mencatatnya di PR untuk persetujuan owner. Kode uang tetap memerlukan review independen `sonnet`. `needs-info` menjadi `ready-for-agent`.

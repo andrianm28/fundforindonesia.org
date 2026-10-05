@@ -18,7 +18,7 @@ overlapping or repeated call is safe; keep it that way.
 
 **Blocked by:** 20
 
-**Status:** ready-for-human (the code is in; the scheduler itself is a host step, see Comments)
+**Status:** done (code in `main`; cron terpasang dan terbukti 2026-10-04)
 
 - [x] The route runs `runScheduledJobs` only with the right secret; a missing or wrong secret gets 401 and runs nothing (tests for both)
 - [x] The response reports per-phase counts, never PII or secrets
@@ -95,3 +95,5 @@ overlapping or repeated call is safe; keep it that way.
   alone here.
 
 - 2026-10-04 (percepatan-full-rilis, Track D): status **tetap** `ready-for-human`. Cron belum dipasang di produksi: pemasangannya menunggu tiket `reminders-skip-demo-campaigns` ter-deploy, karena 8 Campaign demo akan memicu pengingat tenggat begitu `POST /api/internal/jobs/run` berjalan. Setelah deploy itu, pasang cron, panggil dua kali dengan tangan (200 dengan hitungan, lalu nol), baru tutup tiket ini. Tiket `reminders-skip-demo-campaigns` ditulis koordinator di batch tiket baru.
+
+- 2026-10-04 (ronde C): **done.** Prasyaratnya, `reminders-skip-demo-campaigns` (rilis-1-benda 61, PR #219, 464d309), sudah merge dan ter-deploy di rilis 53fe2d2 (live 2026-10-04). Setelah itu owner memasang cron di host: tiap 15 menit, secret dikirim lewat stdin (tidak di baris crontab), dengan logrotate mingguan untuk lognya. Diuji dua kali dengan tangan: keduanya http 200, dan semua hitungan per fase 0. Detail host (path, alamat, nama stack) sengaja tidak dicatat di repo publik. Kotak "CI green" tetap tidak dicentang karena sumber ronde C tidak memuat bukti CI untuk tiket ini.

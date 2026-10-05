@@ -10,7 +10,7 @@
 
 **Prasyarat:** Setelah M-c (penyedia kedua).
 
-**Menunggu keputusan:** C23 (E5). Rencana tidak memuat pertanyaan C23 untuk E5; ajukan saat grilling singkat setelah M-c.
+**Menunggu:** M-c (85) selesai, lalu grilling singkat (rencana tidak punya pertanyaan C23 untuk E5). Keputusan owner 2026-10-04 (ronde C): E5 dikerjakan setelah M-c.
 
 ## Latar
 
@@ -31,3 +31,5 @@ Impor settlement otomatis dari penyedia pembayaran. Bergantung pada adapter Xend
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Lajur E, relay kedua) dan `keputusan-ronde-c.md` (C23). Status `needs-info` karena grilling singkat dulu; acceptance di bawah sementara.
+
+- 2026-10-04 (ronde C): E5 dijawab owner: dikerjakan **setelah M-c** (tiket 85). Status tetap `needs-info` (grilling singkat sumber settlement per penyedia menunggu M-c); pemblokirnya 85.

@@ -1,14 +1,14 @@
 # 01: E9 tim-csr-account
 
-**Status:** needs-info
+**Status:** ready-for-agent
 
-**Blocked by:** none; menunggu C23 (sub-pertanyaan E8/E9 dari tiketnya) dan grilling empat sub-pertanyaan
+**Blocked by:** none; E9 dijawab owner 2026-10-04
 
 **Ukuran:** L, skema
 
 **Catatan:** Skema: menyentuh `prisma/schema.prisma`/migrasi; ikuti aturan satu PR skema pada satu waktu, timestamp migrasi dibagi koordinator. Menyimpan kontak perusahaan: review privasi.
 
-**Menunggu keputusan:** C23 (E8/E9: sub-pertanyaan dari tiketnya) serta grilling singkat. Tahap 1 dapat dipecah dan dikerjakan lebih dulu setelah owner setuju.
+**Keputusan (2026-10-04, ronde C):** E9 (a) akun per orang plus keanggotaan perusahaan; (b) verifikasi ringan lewat domain email; (c) inquiry plus riwayat status plus unduh laporan dampak Program yang dibiayai perusahaannya; (d) retensi selama aktif plus 2 tahun setelah inquiry terakhir, lalu dianonimkan.
 
 ## Latar
 
@@ -25,10 +25,18 @@ Tahap pertama: email konfirmasi ke perusahaan yang mengirim Partnership Inquiry 
 ## Acceptance
 
 - [ ] Tahap 1: pengirim Inquiry menerima email konfirmasi; notifikasi ke tim platform memakai `replyTo` perusahaan; gagal kirim tidak menggagalkan Inquiry
-- [ ] Hasil grilling empat sub-pertanyaan dicatat di tiket sebelum tahap 2 dimulai
+- [x] Hasil empat sub-pertanyaan dicatat di tiket sebelum tahap 2 dimulai (2026-10-04, lihat Comments)
 - [ ] Tahap 2: akun Tim CSR tanpa `Assignment`, beberapa pengguna per perusahaan, daftar Inquiry perusahaan; migrasi tanpa kehilangan data
+- [ ] Tahap 2 mengikuti keputusan 2026-10-04: verifikasi ringan lewat domain email, riwayat status inquiry, unduhan laporan dampak Program yang dibiayai perusahaan (tanpa data pribadi donor), retensi aktif + 2 tahun lalu anonimisasi
 - [ ] Tes route, domain, dan e2e; alamat perusahaan tidak bocor ke pihak lain
 
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-04 (ronde C): E9 dijawab owner, keempat sub-pertanyaan `rilis-1-benda/issues/08`:
+  - (a) Akun berjangkar pada **orang**, dengan **keanggotaan perusahaan** (satu perusahaan, beberapa orang; tetap tanpa `Assignment`).
+  - (b) **Verifikasi ringan lewat domain email** perusahaan.
+  - (c) Setelah mendaftar: mengajukan Partnership Inquiry, melihat **riwayat status** inquiry, dan **mengunduh laporan dampak Program yang dibiayai perusahaannya**.
+  - (d) Retensi: selama akun aktif ditambah **2 tahun setelah inquiry terakhir**, lalu data kontak **dianonimkan**.
+  Acceptance tahap 2 perlu menambah: unduhan laporan dampak per Program yang dibiayai perusahaan (hanya data Program, tanpa data pribadi donor), job anonimisasi retensi, dan pengecekan domain email. Tahap 1 (email konfirmasi) tidak bergantung pada jawaban ini. `needs-info` menjadi `ready-for-agent`.

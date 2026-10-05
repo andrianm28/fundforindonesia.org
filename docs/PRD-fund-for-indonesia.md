@@ -144,6 +144,10 @@ Rilis pertama mencakup Fase 0 sampai 2 pada pasal 11. Fase 3 menyusul.
 | FFI-17 | Pengaturan Platform Fee dan Escrow Hold | Sebagai Admin saya mengubah Platform Fee, ambang bebas fee, lama Escrow Hold, dan metode pembayaran dari dashboard | Nilai default per Kind, override per Category, dan override per Campaign, semuanya dari panel Admin; perubahan hanya berlaku untuk Donation setelah perubahan karena setiap Payment menyimpan Platform Fee, Provider Fee, dan lama Escrow Hold yang berlaku saat ia dibuat; nilai yang berlaku tampil di halaman Campaign; Campaign bencana boleh memakai metode settlement cepat dan Escrow Hold yang dipendekkan; setiap perubahan tercatat dengan pelaku dan waktu | M | 1 |
 | FFI-18 | Penyedia pembayaran ganda | Sebagai Admin saya mengaktifkan penyedia pembayaran dari dashboard | Antarmuka penyedia yang sama untuk Sumopod, Midtrans, Xendit, DOKU, Stripe, dan lainnya; Admin mengaktifkan penyedia dan metode per penyedia; setiap Payment menyimpan penyedia dan referensinya; webhook per penyedia dengan verifikasi tanda tangan masing-masing; rekonsiliasi per penyedia; Refund dan Payout memakai penyedia yang mendukung disbursement | M | 2 |
 
+> **Amandemen 2026-10-04 (keputusan owner C21, `.scratch/percepatan-full-rilis/keputusan-ronde-c.md`) pada FFI-05:** Bank Account tidak lagi menjadi bagian dari perubahan Campaign Active. Frasa "perubahan target, tenggat, atau Bank Account ... membuat Verification Request baru" kini berlaku untuk target dan tenggat saja. Rekening tujuan dipilih **per Payout**, dan setiap Bank Account diperiksa Verifier sendiri lewat antrean verifikasi Bank Account ([ADR 0018](./adr/0018-bank-account-born-unverified-verified-by-request.md)), bukan lewat change request Campaign. Tidak ada jenis Verification Request baru yang mengaitkan Campaign dan rekening. Teks asli di baris FFI-05 dipertahankan.
+>
+> **Catatan 2026-10-04 (keputusan owner C18) pada FFI-17:** lama Escrow Hold tetap **setelan Admin** seperti tertulis di FFI-17; keputusan ini menolak usulan menjadikannya konstanta 7 hari, dan teks FFI-17 tidak diubah. Setiap Payment tetap menyimpan lama Escrow Hold yang berlaku saat dibuat. Panel Admin-nya dikerjakan di `.scratch/rilis-1-benda/issues/90-admin-escrow-hold-setting.md`.
+
 ### 7.1 Dokumen wajib per Kind saat submit
 
 | Kind | Dokumen |
@@ -328,6 +332,8 @@ Urutan disusun ulang mengikuti kondisi kode.
 | Fase 3, perluasan | Volunteer Trip, Batch, Registration berbayar, sertifikat volunteer, versi bahasa Inggris, WhatsApp, tautan pendek, impor settlement otomatis, pengalihan Dormant Balance, Refund yang diminta sendiri oleh Donor, anggota tim untuk Fundraiser organisasi | Volunteer Trip pertama berjalan end to end sampai sertifikat terbit, termasuk satu Batch yang menerima Trip Fee nyata dan satu Refund Trip Fee |
 
 > **Amandemen 2026-10-04:** "Rilis 1" kini berarti gerbang keempat fase lolos **dan** ketujuh item perluasan Fase 3 (kolom Cakupan baris Fase 3: versi bahasa Inggris, WhatsApp, tautan pendek, impor settlement otomatis, pengalihan Dormant Balance, Refund yang diminta sendiri oleh Donor, anggota tim) selesai dan lolos uji terima, ditambah Asset Waqf Inquiry dan akun Tim CSR. Kolom "Syarat lolos fase" tidak berubah: item perluasan bukan syarat lolos Fase 3, tetapi syarat Rilis 1 penuh. Rencana kerjanya: `.scratch/percepatan-full-rilis/plan.md`.
+
+> **Amandemen 2026-10-04 (keputusan owner C2):** syarat lolos Fase 2 "Payment dari dua penyedia terekonsiliasi" dipindah ke gerbang Rilis 1 penuh (setara M3 di `plan.md`). Soft Launch cukup dengan penyedia pertama (Sumopod); penyedia kedua tetap wajib sebelum Rilis 1 dinyatakan selesai. Teks kolom "Syarat lolos fase" di atas dipertahankan sebagai teks asli.
 
 Tanggal per fase belum ditetapkan karena bergantung pada kapasitas tim dan keputusan Platform Operator.
 
