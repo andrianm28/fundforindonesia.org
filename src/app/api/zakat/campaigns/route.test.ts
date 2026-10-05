@@ -8,6 +8,11 @@ vi.mock('@/lib/prisma', () => ({
       findMany: vi.fn(),
       count: vi.fn(),
     },
+    // Public progress asks for the beta Gross to take back out of the counter
+    // (counted-payment.ts); none is seeded unless a test says so.
+    payment: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   },
 }));
 
@@ -23,6 +28,20 @@ function createRequest(params: Record<string, string> = {}): NextRequest {
 }
 
 describe('GET /api/zakat/campaigns', () => {
+  it('shows the stored counter less what beta Payments put into it (ticket rilis-1-benda/92)', async () => {
+    mockFindMany.mockResolvedValue([
+      { id: 'z1', title: 'Z', category: 'zakat', collectedAmount: 500_000, creator: { name: 'x' } },
+    ] as never);
+    mockCount.mockResolvedValue(1);
+    vi.mocked(prisma.payment.findMany).mockResolvedValueOnce([
+      { amount: 120_000, donation: { campaignId: 'z1' } },
+    ] as never);
+
+    const data = await (await GET(createRequest())).json();
+
+    expect(data.campaigns[0].collectedAmount).toBe(380_000);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
