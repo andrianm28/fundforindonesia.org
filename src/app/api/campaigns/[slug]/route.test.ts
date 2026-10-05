@@ -12,6 +12,11 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    // Public progress asks for the beta Gross to take back out of the counter
+    // (counted-payment.ts); none is seeded here.
+    payment: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     campaignStatusChange: {
       findFirst: vi.fn(),
     },

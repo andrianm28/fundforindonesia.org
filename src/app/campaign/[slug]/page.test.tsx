@@ -10,6 +10,9 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     campaign: { findUnique: vi.fn() },
+    // Public progress asks for the beta Gross to take back out of the counter
+    // (counted-payment.ts); none is seeded here.
+    payment: { findMany: vi.fn().mockResolvedValue([]) },
     platformFeeRule: { findFirst: vi.fn() },
     platformFeeThreshold: { findFirst: vi.fn() },
   },

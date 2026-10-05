@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { coverImageSchema } from '@/lib/cover-image';
 import { prisma } from '@/lib/prisma';
+import { withCountedCollectedAmount } from '@/lib/money/counted-payment';
 import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiserOrAdmin } from '@/lib/refusal-response';
 import { CampaignStatus, CampaignStatusChangeAction, VerificationOutcome } from '@/generated/prisma/client';
@@ -155,6 +156,10 @@ export async function GET(
     // one value in force everywhere.
     const escrowHoldDays = ESCROW_HOLD_DAYS;
 
+    // Progress as the public may see it (counted-payment.ts): live, the beta's
+    // sandbox Payments are taken back out of the stored counter.
+    const [{ collectedAmount: collectedAmountForPublic }] = await withCountedCollectedAmount(prisma, [campaign]);
+
     const response = NextResponse.json({
       campaign: {
         id: campaign.id,
@@ -164,7 +169,7 @@ export async function GET(
         story: campaign.story,
         coverImage: campaign.coverImage,
         targetAmount: campaign.targetAmount,
-        collectedAmount: campaign.collectedAmount,
+        collectedAmount: collectedAmountForPublic,
         category: campaign.category,
         kind: campaign.kind,
         lifecycleStatus,

@@ -1173,6 +1173,11 @@ export function makeCampaignDb(
       paymentProviderSetting: {
         findFirst: async () => null,
       },
+      // No Payment is seeded here, so the public progress figure has no beta
+      // Gross to take back out of a Campaign's counter (counted-payment.ts).
+      payment: {
+        findMany: async () => [],
+      },
       // No abuse threshold is seeded unless a test says so (prd-compliance
       // 38); with none, resolveAbuseThresholds answers the PRD's own numbers,
       // which is what every test that is not about the thresholds needs. Same

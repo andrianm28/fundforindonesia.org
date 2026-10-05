@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GET, POST } from './route';
 import { NextRequest } from 'next/server';
 
@@ -9,6 +9,11 @@ vi.mock('@/lib/prisma', () => ({
       findMany: vi.fn(),
       count: vi.fn(),
       create: vi.fn(),
+    },
+    // Public progress asks for the beta Gross to take back out of the counter
+    // (counted-payment.ts); none is seeded here.
+    payment: {
+      findMany: vi.fn().mockResolvedValue([]),
     },
     partnerOrganisation: {
       findUnique: vi.fn(),
@@ -74,6 +79,36 @@ describe('GET /api/campaigns', () => {
     expect(data.page).toBe(1);
     expect(data.limit).toBe(12);
     expect(data.totalPages).toBe(1);
+  });
+
+  describe('progress and the beta (ticket rilis-1-benda/92)', () => {
+    const row = { id: 'c1', slug: 'c1', title: 'C1', collectedAmount: 500_000, creator: { name: 'x' } };
+    const mockPaymentFindMany = vi.mocked(prisma.payment.findMany);
+
+    beforeEach(() => {
+      mockFindMany.mockResolvedValue([row] as never);
+      mockCount.mockResolvedValue(1);
+      mockPaymentFindMany.mockResolvedValue([{ amount: 120_000, donation: { campaignId: 'c1' } }] as never);
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('live, shows the stored counter less what beta Payments put into it', async () => {
+      const data = await (await GET(createRequest('http://localhost:3000/api/campaigns'))).json();
+
+      expect(data.campaigns[0].collectedAmount).toBe(380_000);
+    });
+
+    it('in the beta, shows the stored counter whole, without asking for beta Payments', async () => {
+      vi.stubEnv('BETA_SANDBOX', 'true');
+
+      const data = await (await GET(createRequest('http://localhost:3000/api/campaigns'))).json();
+
+      expect(data.campaigns[0].collectedAmount).toBe(500_000);
+      expect(mockPaymentFindMany).not.toHaveBeenCalled();
+    });
   });
 
   it('sets Cache-Control header', async () => {
