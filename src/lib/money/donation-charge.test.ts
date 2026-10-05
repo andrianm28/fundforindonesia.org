@@ -65,6 +65,32 @@ describe('chargeDonation', () => {
     });
   });
 
+  it('stamps the Payment as sandbox exactly when BETA_SANDBOX is true, and as live otherwise (ticket 92)', async () => {
+    const charge = async () => {
+      const db = makeDb();
+      await chargeDonation({
+        db: db as never,
+        provider: makeProvider(),
+        campaign: CAMPAIGN,
+        donationId: 'donation-1',
+        amount: 100_000,
+        orderId: 'donation-1',
+        paymentMethod: 'qris_redirect',
+      });
+      return db.payment.create.mock.calls[0][0].data.sandbox;
+    };
+
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    expect(await charge()).toBe(true);
+
+    vi.stubEnv('BETA_SANDBOX', '');
+    expect(await charge()).toBe(false);
+
+    vi.stubEnv('BETA_SANDBOX', 'TRUE');
+    expect(await charge()).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
   it('refuses without writing anything when the wanted method is not what the provider serves', async () => {
     const db = makeDb();
     const provider = makeProvider({ method: 'qris_redirect' });

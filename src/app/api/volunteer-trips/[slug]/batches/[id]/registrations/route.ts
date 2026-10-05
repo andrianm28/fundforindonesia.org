@@ -12,6 +12,7 @@ import { refusalResponse } from '@/lib/refusal-response';
 import { holdRegistration } from '@/lib/volunteer/trip';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
 import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
+import { currentPaymentSandboxStamp } from '@/lib/money/counted-payment';
 import { recordChargeWriteFailure, sanitizeError } from '@/lib/money/payment-reconciliation';
 import {
   donationsEnabled,
@@ -180,6 +181,9 @@ export async function POST(
           method: charge.method,
           providerRef: registration.id,
           amount: tripFeeAmount,
+          // Which mode created it (ticket rilis-1-benda/92), frozen here the
+          // same way chargeDonation freezes it on a Donation Payment.
+          sandbox: currentPaymentSandboxStamp(),
           // Trip Fee takes the same Escrow Hold as a Campaign Donation, minus
           // the Platform Fee and the Kind (CONTEXT.md, Trip Fee; ADR 0014), so
           // it freezes the SAME length here as chargeDonation does on the
