@@ -10,8 +10,12 @@ import { publicUrl } from '@/lib/public-url';
 import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
 import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
 
-// ISR: one render per Campaign, cached for every visitor alike and
-// revalidated every 60 seconds. So this page never reads the session, and an
+// Was ISR (one render per Campaign, revalidated every 60 seconds). Since
+// rilis-1-benda/92 the root layout reads the beta marker per request
+// (connection()), which makes every route dynamic, so `revalidate` below no
+// longer caches anything; it stays as the statement of intent should the
+// marker move out of the layout. The rule it imposed still holds: this page
+// never reads the session, and an
 // unapproved Campaign (Draft, Submitted, Rejected) renders the 404 here for
 // everyone: whatever is cached is safe to serve to anyone. Its Fundraiser,
 // Verifiers and Admins see it through ./not-found.tsx, which asks the

@@ -32,7 +32,7 @@ export async function POST(
           donor: { select: { id: true, name: true, ...SELECT_USER_EMAIL } },
           // Only the beta stamp is read: a Receipt for a beta Payment says so
           // whatever the marker is now (receiptNeedsBetaNotice).
-          payments: { where: { status: 'PAID' }, select: { sandbox: true } },
+          payments: { select: { sandbox: true } },
         },
       },
     },

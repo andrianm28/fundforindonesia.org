@@ -32,6 +32,8 @@ export interface DonationConfirmationProps {
     onPhoneChange: (value: string) => void;
     error?: string;
   };
+  /** Beta (ticket rilis-1-benda/92): from the server via the layout's context; this component never reads the environment. */
+  betaSandbox?: boolean;
   /**
    * Shown only for a Campaign ber-Kind `wakaf`: the explicit ikrar
    * confirmation checkout carries (CONTEXT.md, Akad Wakaf; PRD user story
@@ -39,8 +41,6 @@ export interface DonationConfirmationProps {
    * wakaf and what for, the same Collecting Entity and Campaign title the
    * Akad Wakaf document itself will carry.
    */
-  /** Beta (ticket rilis-1-benda/92): from the server via the layout's context; this component never reads the environment. */
-  betaSandbox?: boolean;
   ikrarWakaf?: {
     confirmed: boolean;
     onToggle: (value: boolean) => void;

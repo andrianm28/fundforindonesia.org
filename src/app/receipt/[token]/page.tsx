@@ -28,7 +28,7 @@ export default async function ReceiptPage({ params }: ReceiptPageProps) {
           donor: { select: { id: true, name: true } },
           // Only the beta stamp is read: a Receipt for a beta Payment says so
           // whatever the marker is now (receiptNeedsBetaNotice).
-          payments: { where: { status: 'PAID' }, select: { sandbox: true } },
+          payments: { select: { sandbox: true } },
         },
       },
     },

@@ -101,8 +101,10 @@ export async function ledgerWhereWithoutUncountedPayments(
  * `Campaign.collectedAmount` is a lifetime counter incremented at Settlement
  * (the webhook route), so a go-live that removes the beta marker cannot
  * un-increment it. The public progress figure is therefore the counter minus
- * this: the Gross of the PAID sandbox Payments, which only exist to subtract
- * when the marker is off. In the beta this answers an empty map without
+ * this: the Gross of every sandbox Payment that ever settled, which only exist
+ * to subtract when the marker is off. REFUNDED counts as settled: a full
+ * Refund never decrements the lifetime counter, so a beta Payment refunded in
+ * full is still inside it. In the beta this answers an empty map without
  * querying.
  */
 export async function uncountedGrossByCampaign(
@@ -114,7 +116,7 @@ export async function uncountedGrossByCampaign(
 
   const rows = await db.payment.findMany({
     where: {
-      status: 'PAID',
+      status: { in: ['PAID', 'REFUNDED'] },
       sandbox: true,
       donation: { campaignId: { in: campaignIds } },
     },

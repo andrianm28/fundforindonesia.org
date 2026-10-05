@@ -60,7 +60,7 @@ describe('"Payment yang dihitung" live', () => {
     expect(isCountedPayment({ sandbox: true })).toBe(false);
   });
 
-  it('subtracts the Gross of PAID sandbox Payments from the stored Campaign counter', async () => {
+  it('subtracts the Gross of every settled sandbox Payment, refunded ones included, from the stored Campaign counter', async () => {
     const findMany = vi.fn().mockResolvedValue([
       { amount: 100_000, donation: { campaignId: 'c1' } },
       { amount: 50_000, donation: { campaignId: 'c1' } },
@@ -82,7 +82,13 @@ describe('"Payment yang dihitung" live', () => {
     ]);
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { status: 'PAID', sandbox: true, donation: { campaignId: { in: ['c1', 'c2', 'c3'] } } },
+        // REFUNDED too: a full Refund never decrements the lifetime counter, so a
+        // beta Payment refunded in full is still inside it.
+        where: {
+          status: { in: ['PAID', 'REFUNDED'] },
+          sandbox: true,
+          donation: { campaignId: { in: ['c1', 'c2', 'c3'] } },
+        },
       }),
     );
   });
