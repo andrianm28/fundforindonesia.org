@@ -5,6 +5,7 @@ import { Campaign } from '@/types/campaign';
 import { PaymentMethod } from '@/types/donation';
 import { formatRupiah } from '@/lib/utils/currency';
 import { Button } from '@/components/ui/Button';
+import { BetaBanner } from '@/components/layout/BetaBanner';
 
 export interface DonationConfirmationProps {
   campaign: Campaign;
@@ -38,6 +39,8 @@ export interface DonationConfirmationProps {
    * wakaf and what for, the same Collecting Entity and Campaign title the
    * Akad Wakaf document itself will carry.
    */
+  /** Beta (ticket rilis-1-benda/92): from the server via the layout's context; this component never reads the environment. */
+  betaSandbox?: boolean;
   ikrarWakaf?: {
     confirmed: boolean;
     onToggle: (value: boolean) => void;
@@ -61,6 +64,7 @@ export function DonationConfirmation({
   isSubmitting,
   guestContact,
   ikrarWakaf,
+  betaSandbox = false,
 }: DonationConfirmationProps) {
   const handlePrayerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -71,6 +75,8 @@ export function DonationConfirmation({
 
   return (
     <div className="flex flex-col gap-6">
+      {betaSandbox && <BetaBanner variant="donation" />}
+
       {/* Summary Section */}
       <div className="bg-gray-50 rounded-lg p-4 space-y-3">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">

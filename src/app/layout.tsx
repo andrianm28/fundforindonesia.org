@@ -4,6 +4,9 @@ import "@/styles/globals.css";
 import { Providers } from "@/components/layout/Providers";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConditionalFooter } from "@/components/layout/ConditionalFooter";
+import { BetaBanner } from "@/components/layout/BetaBanner";
+import { BetaSandboxProvider } from "@/components/layout/BetaSandboxContext";
+import { betaSandboxForThisRequest } from "@/lib/beta-sandbox-request";
 
 // Self-hosted, not next/font/google: the Docker build has no reliable route
 // to fonts.googleapis.com, so a build-time fetch there is a build that can
@@ -43,17 +46,25 @@ export const metadata: Metadata = {
     "Fund for Indonesia adalah platform teknologi untuk donasi dan penggalangan dana online terpercaya di Indonesia.",
 };
 
-export default function RootLayout({
+// The public beta (ticket rilis-1-benda/92) is announced on every page, read
+// per request on the server and handed down; the metadata above carries no
+// robots entry on purpose, because the beta stays indexed.
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const betaSandbox = await betaSandboxForThisRequest();
+
   return (
     <html lang="id">
       <body className={`${inter.variable} ${newsreader.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
         <Providers>
-          <AppShell>{children}</AppShell>
-          <ConditionalFooter />
+          <BetaSandboxProvider active={betaSandbox}>
+            {betaSandbox && <BetaBanner variant="site" />}
+            <AppShell>{children}</AppShell>
+            <ConditionalFooter />
+          </BetaSandboxProvider>
         </Providers>
       </body>
     </html>

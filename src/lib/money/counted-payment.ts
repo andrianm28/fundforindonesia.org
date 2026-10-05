@@ -36,6 +36,16 @@ export function isCountedPayment(payment: { sandbox: boolean }): boolean {
 }
 
 /**
+ * Whether a Receipt (page or email) must say that no real money moved: while
+ * the beta marker is on, and ALSO for a Donation whose Payment was stamped
+ * sandbox, so a beta Receipt opened or re-sent after go-live still says so
+ * instead of passing for proof of a real donation.
+ */
+export function receiptNeedsBetaNotice(payments: Array<{ sandbox: boolean }>): boolean {
+  return isBetaSandbox() || payments.some((p) => p.sandbox);
+}
+
+/**
  * The stamp for a Payment being created now. One name for "this Payment's
  * mode", so the two creation points cannot disagree about how it is read.
  */

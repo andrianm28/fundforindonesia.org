@@ -27,6 +27,17 @@ describe('receiptEmail', () => {
     expect(email.text).not.toMatch(/Fund for Indonesia menerima/i);
   });
 
+  it('opens with the beta notice, in text and html, only for a beta Receipt (ticket rilis-1-benda/92)', () => {
+    const beta = receiptEmail({ ...base, betaSandbox: true });
+    expect(beta.text.split('\n\n')[1]).toMatch(/^Beta, tidak ada uang nyata/);
+    expect(beta.html).toMatch(/Beta, tidak ada uang nyata/);
+
+    for (const plain of [receiptEmail(base), receiptEmail({ ...base, betaSandbox: false })]) {
+      expect(plain.text).not.toMatch(/tidak ada uang nyata/i);
+      expect(plain.html).not.toMatch(/tidak ada uang nyata/i);
+    }
+  });
+
   it('greets the Donor by name and carries the amount, campaign and print link', () => {
     const email = receiptEmail(base);
 

@@ -31,6 +31,7 @@ import { evaluateSettledDonationScrutiny } from '@/lib/scrutiny';
 import { withAkadWakaf } from '@/lib/mail/akad-wakaf';
 import { sendReportingFailure } from '@/lib/mail';
 import { publicUrl } from '@/lib/public-url';
+import { receiptNeedsBetaNotice } from '@/lib/money/counted-payment';
 
 /**
  * The single place where money becomes real.
@@ -654,6 +655,7 @@ export async function POST(
                   amount: payment.amount,
                   paidAt,
                   printUrl: publicUrl(`/receipt/${settled.receiptToken}`),
+                  betaSandbox: receiptNeedsBetaNotice([payment]),
                 });
 
                 // Akad Wakaf rides the same delivery as the Receipt (PRD:

@@ -7,6 +7,7 @@ import { useCampaignDetail } from '@/lib/hooks/useCampaignDetail';
 import { DonationAmountSelector } from '@/components/donation/DonationAmountSelector';
 import { PaymentMethodSelector } from '@/components/donation/PaymentMethodSelector';
 import { DonationConfirmation } from '@/components/donation/DonationConfirmation';
+import { useBetaSandbox } from '@/components/layout/BetaSandboxContext';
 import { formatRupiah } from '@/lib/utils/currency';
 import { donationsEnabled, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 import { COLLECTING_ENTITY_REFUSAL, offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
@@ -43,6 +44,9 @@ export default function DonatePage() {
   const { campaign, isLoading, error, notFound } = useCampaignDetail(slug);
   const { status: sessionStatus } = useSession();
   const isGuest = sessionStatus !== 'authenticated';
+  // From the server through the layout's context, never from the environment
+  // (ticket rilis-1-benda/92): the confirmation step says no real money moves.
+  const betaSandbox = useBetaSandbox();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
@@ -359,6 +363,7 @@ export default function DonatePage() {
               onAnonymousToggle={setIsAnonymous}
               onConfirm={handleConfirm}
               isSubmitting={isSubmitting}
+              betaSandbox={betaSandbox}
               ikrarWakaf={
                 isWakaf
                   ? {

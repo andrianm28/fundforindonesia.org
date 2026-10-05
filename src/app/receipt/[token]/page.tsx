@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import { ReceiptView } from '@/components/receipt/ReceiptView';
+import { receiptNeedsBetaNotice } from '@/lib/money/counted-payment';
 
 // Rendered per request: anonymisation (ticket 36) changes what this page may
 // show, so it must never be served from a cache.
@@ -25,6 +26,9 @@ export default async function ReceiptPage({ params }: ReceiptPageProps) {
         include: {
           campaign: { include: { collectingEntity: true } },
           donor: { select: { id: true, name: true } },
+          // Only the beta stamp is read: a Receipt for a beta Payment says so
+          // whatever the marker is now (receiptNeedsBetaNotice).
+          payments: { where: { status: 'PAID' }, select: { sandbox: true } },
         },
       },
     },
@@ -57,6 +61,9 @@ export default async function ReceiptPage({ params }: ReceiptPageProps) {
       donorName={donation.donor?.name ?? donation.guestName ?? null}
       anonymised={Boolean(donation.anonymisedAt)}
       accountOwned={Boolean(donation.donorId)}
+      // Decided here, on the server: ReceiptView is a client component and
+      // never reads the environment (ticket rilis-1-benda/92).
+      betaSandbox={receiptNeedsBetaNotice(donation.payments)}
     />
   );
 }

@@ -26,6 +26,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('ReceiptView beta notice (ticket rilis-1-benda/92)', () => {
+  it('says no real money moved when the server asks for it', () => {
+    render(<ReceiptView {...baseProps()} betaSandbox />);
+
+    expect(screen.getByTestId('beta-banner').textContent).toMatch(/tidak ada uang nyata/i);
+  });
+
+  it('shows nothing by default or when the server says it is not the beta', () => {
+    const { rerender } = render(<ReceiptView {...baseProps()} />);
+    expect(screen.queryByTestId('beta-banner')).toBeNull();
+
+    rerender(<ReceiptView {...baseProps()} betaSandbox={false} />);
+    expect(screen.queryByTestId('beta-banner')).toBeNull();
+  });
+});
+
 describe('ReceiptView', () => {
   it('shows the Collecting Entity as who received the money, never the platform', () => {
     render(<ReceiptView {...baseProps()} />);

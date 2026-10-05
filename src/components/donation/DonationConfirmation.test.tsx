@@ -47,6 +47,20 @@ const defaultProps = {
   isSubmitting: false,
 };
 
+describe('DonationConfirmation beta notice (ticket rilis-1-benda/92)', () => {
+  it('says no real money moves when the layout hands down the beta flag', () => {
+    render(<DonationConfirmation {...defaultProps} betaSandbox />);
+
+    expect(screen.getByTestId('beta-banner').textContent).toMatch(/tidak ada uang nyata/i);
+  });
+
+  it('shows nothing without the flag', () => {
+    render(<DonationConfirmation {...defaultProps} />);
+
+    expect(screen.queryByTestId('beta-banner')).toBeNull();
+  });
+});
+
 describe('DonationConfirmation', () => {
   it('renders campaign title in summary', () => {
     render(<DonationConfirmation {...defaultProps} />);
