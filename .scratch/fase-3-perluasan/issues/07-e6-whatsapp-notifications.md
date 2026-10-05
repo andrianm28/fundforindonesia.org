@@ -10,7 +10,7 @@
 
 **Prasyarat:** Verifikasi Meta/WhatsApp Business (A3) dan consent PDP (A4).
 
-**Menunggu keputusan:** C23 (E6). Penyedia (BSP) mana dan berapa biayanya, dan model consent apa yang dipakai? (rekomendasi tidak ada di rencana)
+**Menunggu:** grilling terpisah untuk E6 (penyedia/BSP, biaya, model consent), onboarding Meta/BSP (A3), dan persetujuan sesuai UU PDP (A4). Keputusan owner 2026-10-04 (ronde C): grilling terpisah.
 
 ## Latar
 
@@ -31,3 +31,5 @@ Notifikasi WhatsApp: notifier di samping mail, dengan consent. Email transaksion
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Lajur E, relay kedua) dan `keputusan-ronde-c.md` (C23). Status `needs-info` karena grilling singkat dulu; acceptance di bawah sementara.
+
+- 2026-10-04 (ronde C): E6 dijawab owner: **grilling terpisah**, tidak diputuskan di ronde C. Status tetap `needs-info`.

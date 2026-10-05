@@ -1,8 +1,8 @@
 # 02: E1 tautan-pendek
 
-**Status:** needs-info
+**Status:** ready-for-agent
 
-**Blocked by:** none; menunggu C23 (E1) dan grilling
+**Blocked by:** none; E1 dijawab owner 2026-10-04
 
 **Ukuran:** S, skema
 
@@ -10,7 +10,7 @@
 
 **Prasyarat:** Domain atau prefix tautan pendek (skema).
 
-**Menunggu keputusan:** C23 (E1). Domain atau prefix mana yang dipakai untuk tautan pendek? (rekomendasi tidak ada di rencana; owner menentukan)
+**Keputusan (2026-10-04, ronde C):** E1 tautan pendek memakai prefix di domain apex, mis. `/s/<kode>` (tanpa domain terpisah).
 
 ## Latar
 
@@ -24,10 +24,12 @@ Tautan pendek per Campaign untuk dibagikan, supaya Traffic Source per tautan (PR
 
 ## Acceptance
 
-- [ ] Domain/prefix diputuskan dan dicatat di tiket
+- [x] Domain/prefix diputuskan dan dicatat di tiket: prefix di apex (mis. `/s/<kode>`), 2026-10-04
 - [ ] Model tautan pendek + migrasi; pengalihan mencatat Traffic Source
 - [ ] Tes route dan e2e
 
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Lajur E, relay kedua) dan `keputusan-ronde-c.md` (C23). Status `needs-info` karena grilling singkat dulu; acceptance di bawah sementara.
+
+- 2026-10-04 (ronde C): E1 dijawab owner: prefix di apex, mis. `/s/<kode>`. Tidak ada pertanyaan terbuka; builder memilih bentuk persis prefix dan kode, memastikan tidak bentrok dengan rute yang ada (lihat tiket `32-route-slug-collision-guard`). `needs-info` menjadi `ready-for-agent`.

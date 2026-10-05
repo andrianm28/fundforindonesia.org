@@ -2,7 +2,7 @@
 
 **Type:** implementation (hardening, SEO)
 
-**Status:** awaiting-merge
+**Status:** done (PR #218, 8c005e0)
 
 **Blocked by:** none
 
@@ -32,3 +32,5 @@ Situs belum punya `robots.txt`, sehingga crawler bebas menyentuh `/admin`,
 
 - 2026-10-04: owner menyetujui rencana ini. Status `ready-for-agent`.
 - 2026-10-04: awaiting-merge. Branch claude/rilis-1-60-robots-powered-by, commit 2765d8c. robots.ts memblokir path privat/bertoken, merujuk sitemap dan host via publicUrl; /login dan /register tetap terbuka karena ada di sitemap. Tes robots dan next.config hijau, ratchet lint 193 / tsc 19 tidak naik.
+
+- 2026-10-04: done. Squash-merge ke `main` di PR #218 (8c005e0), setelah semua check CI hijau; `awaiting-merge` diganti `done` di PR dokumen ronde C.

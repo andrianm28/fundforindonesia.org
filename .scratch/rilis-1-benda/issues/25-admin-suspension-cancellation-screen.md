@@ -22,3 +22,5 @@ menyetujui/menolak Cancellation.
 ## Comments
 
 - 2026-10-02: done. Merged di PR #128 (8a65e3f). Status sebelumnya `in-review` (label tidak sah); dikoreksi koordinator.
+
+- 2026-10-04 (ronde C): C10 dikonfirmasi owner: Suspension tanpa Flag boleh asal alasan tercatat, sesuai layar dan domain yang sudah ada. Tidak ada perubahan.

@@ -31,6 +31,12 @@ export interface Campaign {
   collectingEntity?: { id: string; name: string } | null;
   /** Why an Active Campaign cannot take a Donation right now because of its Collecting Entity; null when it can. */
   donationBlock?: CollectingEntityBlock | null;
+  /** Platform Fee rate in force, in basis points, as GET /api/campaigns/[slug] sends it (CONTEXT.md, Platform Fee). Optional so fixtures need not name it. */
+  platformFeePercentBps?: number;
+  /** Donations below this Gross carry no Platform Fee (same payload). */
+  platformFeeThresholdAmount?: number;
+  /** Escrow Hold length every new Payment freezes at creation (same payload). */
+  escrowHoldDays?: number;
   isUrgent: boolean;
   /** Sample content marked by the task M9 migration -- see schema.prisma. Never take money from a campaign where this is true. */
   isDemo: boolean;

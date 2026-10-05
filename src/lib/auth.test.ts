@@ -31,6 +31,7 @@ import type { CredentialsConfig } from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { PASSWORD_HASH_COST } from "@/lib/password-hash-cost";
+import { sessionPasswordClaim } from "@/lib/password-reset";
 import { lookupUserEmail, sealUserEmail } from "@/lib/contact-fields";
 
 const mockFindUnique = prisma.user.findUnique as unknown as Mock;
@@ -150,9 +151,99 @@ describe("authOptions.callbacks.jwt", () => {
     expect(mockFindUnique).toHaveBeenCalledOnce();
     expect(mockFindUnique).toHaveBeenCalledWith({
       where: { id: "user-3" },
-      select: { assignments: { select: { assignment: true } } },
+      select: { password: true, assignments: { select: { assignment: true } } },
     });
-    expect(Object.keys(token).sort()).toEqual(["assignments", "id"]);
+    // `pwf` is the password claim (rilis-1 93), tested below; it is the only
+    // thing besides assignments and the id that the callback adds.
+    expect(Object.keys(token).sort()).toEqual(["assignments", "id", "pwf"]);
+  });
+});
+
+// Ending other sessions after a password reset (rilis-1 93) with no schema: the
+// token carries a short claim about the password hash it was issued under, and
+// the callback (which already reads the user on every call) compares it.
+describe("authOptions.callbacks.jwt: password claim", () => {
+  const HASH = "$2b$12$" + "a".repeat(53);
+  const NEW_HASH = "$2b$12$" + "n".repeat(53);
+
+  type JwtParams = Parameters<NonNullable<NonNullable<typeof authOptions.callbacks>["jwt"]>>[0];
+
+  function callJwt(token: Record<string, unknown>, user?: Record<string, unknown>) {
+    return authOptions.callbacks!.jwt!({
+      token,
+      user,
+      account: null,
+      profile: undefined,
+      trigger: undefined,
+    } as unknown as JwtParams);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("puts the claim for the stored password on the token at sign-in", async () => {
+    mockFindUnique.mockResolvedValue({ password: HASH, assignments: [] });
+
+    const token = await callJwt({}, { id: "user-1", email: "a@example.test" });
+
+    expect(token.id).toBe("user-1");
+    expect(token.pwf).toBe(sessionPasswordClaim(HASH));
+  });
+
+  it("keeps a session whose claim still matches the stored password", async () => {
+    mockFindUnique.mockResolvedValue({ password: HASH, assignments: [{ assignment: "ADMIN" }] });
+
+    const token = await callJwt({ id: "user-1", pwf: sessionPasswordClaim(HASH) });
+
+    expect(token.id).toBe("user-1");
+    expect(token.assignments).toEqual(["ADMIN"]);
+  });
+
+  it("ends a session issued under a password that has since changed: no id, no authority", async () => {
+    mockFindUnique.mockResolvedValue({ password: NEW_HASH, assignments: [{ assignment: "ADMIN" }] });
+
+    const token = await callJwt({ id: "user-1", pwf: sessionPasswordClaim(HASH), assignments: ["ADMIN"] });
+
+    expect(token.id).toBeUndefined();
+    expect(token.assignments).toEqual([]);
+  });
+
+  it("stays ended on the next call, and does not read the database for a token with no id", async () => {
+    const token = await callJwt({ assignments: [] });
+
+    expect(token.id).toBeUndefined();
+    expect(mockFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("UPGRADES a token issued before the claim existed, so the deploy signs nobody out", async () => {
+    mockFindUnique.mockResolvedValue({ password: HASH, assignments: [] });
+
+    const token = await callJwt({ id: "user-1" });
+
+    expect(token.id).toBe("user-1");
+    expect(token.pwf).toBe(sessionPasswordClaim(HASH));
+  });
+
+  it("keeps a Google account (no password) signed in, before and after the claim", async () => {
+    mockFindUnique.mockResolvedValue({ password: null, assignments: [] });
+
+    const signedIn = await callJwt({}, { id: "g-1" });
+    expect(signedIn.pwf).toBe(sessionPasswordClaim(null));
+
+    const later = await callJwt({ ...signedIn });
+    expect(later.id).toBe("g-1");
+    const legacy = await callJwt({ id: "g-1" });
+    expect(legacy.id).toBe("g-1");
+  });
+
+  it("puts nothing about the password on the token but the short claim", async () => {
+    mockFindUnique.mockResolvedValue({ password: HASH, assignments: [] });
+
+    const token = await callJwt({}, { id: "user-1" });
+
+    expect(JSON.stringify(token)).not.toContain(HASH);
+    expect(JSON.stringify(token)).not.toContain(HASH.slice(7, 20));
   });
 });
 
@@ -169,6 +260,20 @@ function assignmentsOf(session: Session | DefaultSession): unknown {
 }
 
 describe("authOptions.callbacks.session", () => {
+  // A session the jwt callback ended (its password changed) has no id; it must
+  // come out empty, which getServerSession turns into null (signed out).
+  it("returns an empty session for a token whose session was ended", async () => {
+    type SessionParams = Parameters<NonNullable<NonNullable<typeof authOptions.callbacks>["session"]>>[0];
+    const session = await authOptions.callbacks!.session!({
+      session: { user: { name: "A", email: "a@example.test" }, expires: "2099-01-01" },
+      token: { assignments: [] },
+      newSession: undefined,
+      trigger: "update",
+    } as unknown as SessionParams);
+
+    expect(session).toEqual({});
+  });
+
   it("copies the token's assignments onto session.user.assignments", async () => {
     const session = await authOptions.callbacks!.session!({
       session: { user: {}, expires: "2099-01-01" } as any,
@@ -408,7 +513,7 @@ describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
     logged.mockRestore();
   });
 
-  it("adds only id, picture and assignments to what next-auth already put on the token", async () => {
+  it("adds only id, picture, assignments and the password claim to what next-auth already put on the token", async () => {
     const seeded = { name: "Andi", email: "andi@email.com", sub: "g-1", picture: "https://lh3.googleusercontent.com/old.png" };
     const args = {
       token: { ...seeded },
@@ -425,6 +530,7 @@ describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
       id: "user-1",
       picture: "https://lh3.googleusercontent.com/new",
       assignments: [],
+      pwf: sessionPasswordClaim(null),
     });
   });
 

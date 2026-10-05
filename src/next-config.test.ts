@@ -7,6 +7,12 @@ describe('next.config headers', () => {
     const rule = rules.find((r) => r.source === '/akun/verifikasi-email');
     expect(rule?.headers).toContainEqual({ key: 'Referrer-Policy', value: 'no-referrer' });
   });
+
+  it('sends Referrer-Policy: no-referrer on the password reset page, whose URL carries a token', async () => {
+    const rules = await nextConfig.headers!();
+    const rule = rules.find((r) => r.source === '/reset-password');
+    expect(rule?.headers).toContainEqual({ key: 'Referrer-Policy', value: 'no-referrer' });
+  });
 });
 
 describe('next.config hardening', () => {

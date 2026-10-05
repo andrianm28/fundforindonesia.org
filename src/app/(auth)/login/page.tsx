@@ -188,6 +188,14 @@ export default function LoginPage() {
               className="w-full px-4 py-2.5 border border-border rounded-md text-text placeholder:text-text-secondary/60 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               autoComplete="current-password"
             />
+            <div className="mt-2 text-right">
+              <Link
+                href="/lupa-password"
+                className="text-sm text-primary font-medium hover:underline"
+              >
+                Lupa password?
+              </Link>
+            </div>
           </div>
 
           {/* Submit Button */}

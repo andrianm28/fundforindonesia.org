@@ -1,6 +1,6 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useRef } from 'react';
 import Image from 'next/image';
@@ -325,6 +325,15 @@ function PasswordSection() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState(false);
+  const signOutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Leaving the page before the timer runs must not sign the person out later.
+  useEffect(
+    () => () => {
+      if (signOutTimer.current) clearTimeout(signOutTimer.current);
+    },
+    [],
+  );
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -383,7 +392,10 @@ function PasswordSection() {
       setNewPassword('');
       setConfirmPassword('');
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      // A new password ends every session issued under the old one, this one
+      // included (rilis-1 93, src/lib/auth.ts), so say so and send the person
+      // to sign in rather than let their next click fail silently.
+      signOutTimer.current = setTimeout(() => signOut({ callbackUrl: '/login' }), 1500);
     } catch {
       setErrors({ general: 'Gagal mengubah password. Coba lagi.' });
     } finally {
@@ -400,7 +412,7 @@ function PasswordSection() {
         )}
         {success && (
           <p className="text-success text-xs bg-green-50 p-2 rounded">
-            Password berhasil diubah
+            Password berhasil diubah. Silakan masuk lagi dengan password baru.
           </p>
         )}
 

@@ -15,12 +15,12 @@ import AkunPage from './page';
 
 // A signed-in user holding no assignment: the session carries no Role and no
 // self-claimed verification (retire-role-hierarchy).
-function signedIn() {
+function signedIn(assignments: string[] = []) {
   return {
     status: 'authenticated',
     update: vi.fn(),
     data: {
-      user: { id: 'user-1', name: 'Budi', email: 'budi@test.com', assignments: [] },
+      user: { id: 'user-1', name: 'Budi', email: 'budi@test.com', assignments },
       expires: '2099-01-01',
     },
   };
@@ -60,5 +60,32 @@ describe('AkunPage', () => {
     render(<AkunPage />);
 
     expect(screen.queryByText(/terverifikasi|diverifikasi/i)).toBeNull();
+  });
+
+  it('shows the /admin and /moderasi doors by assignment held (ticket 86)', () => {
+    mockUseSession.mockReturnValue(signedIn(['ADMIN', 'VERIFIER']));
+
+    render(<AkunPage />);
+
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Moderasi' })).toBeTruthy();
+  });
+
+  it('shows only the /moderasi door to a Verifier', () => {
+    mockUseSession.mockReturnValue(signedIn(['VERIFIER']));
+
+    render(<AkunPage />);
+
+    expect(screen.queryByRole('button', { name: 'Admin' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Moderasi' })).toBeTruthy();
+  });
+
+  it('shows no staff door to a person holding no assignment (ticket 86)', () => {
+    mockUseSession.mockReturnValue(signedIn([]));
+
+    render(<AkunPage />);
+
+    expect(screen.queryByRole('button', { name: 'Admin' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Moderasi' })).toBeNull();
   });
 });

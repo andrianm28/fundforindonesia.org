@@ -1,14 +1,14 @@
 # 74: F6 location-beneficiaries
 
-**Status:** needs-info
+**Status:** ready-for-agent
 
-**Blocked by:** none; menunggu C8
+**Blocked by:** none; C8 dijawab owner 2026-10-04
 
 **Ukuran:** M, skema
 
 **Catatan:** Skema: menyentuh `prisma/schema.prisma`/migrasi; ikuti aturan satu PR skema pada satu waktu, timestamp migrasi dibagi koordinator.
 
-**Menunggu keputusan:** C8 (rekomendasi: provinsi dari daftar statis, kabupaten/kota teks bebas, penerima manfaat + jumlah opsional).
+**Keputusan (2026-10-04, ronde C):** C8 provinsi dari daftar statis, kabupaten/kota teks bebas, penerima manfaat dan jumlah opsional (sesuai rekomendasi).
 
 ## Latar
 
@@ -32,3 +32,5 @@ Campaign punya `location` teks bebas dan tidak punya penerima manfaat. PRD memin
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-04 (ronde C): C8 dijawab owner sesuai rekomendasi: provinsi dari daftar statis, kabupaten/kota teks, penerima manfaat dan jumlahnya opsional. Acceptance di atas sudah memakai bentuk itu. `needs-info` menjadi `ready-for-agent`.

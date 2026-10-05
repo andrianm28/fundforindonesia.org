@@ -37,3 +37,5 @@ tidak terblokir.
 ## Comments
 
 - 2026-10-02: status `needs-info` karena terblokir PR #161 dan batas penahanan belum diputuskan owner. Isi tiket diredaksi sampai setingkat peran (gap `.scratch` publik); detail teknis disimpan owner di luar repo.
+
+- 2026-10-04 (ronde C): owner memutuskan batas hold (C16, sesuai rekomendasi); angkanya tersamar dan tidak ditulis di repo. Status tetap `needs-info` sampai PR #161 merge. Tiket build: 82.

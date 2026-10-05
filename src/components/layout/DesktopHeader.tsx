@@ -3,16 +3,20 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { User } from '@/types';
+import type { StaffEntryLink } from '@/lib/staff-entry-links';
 
 export interface DesktopHeaderProps {
   user: User | null;
   notificationCount?: number;
+  /** Doors to /admin and /moderasi for the assignments the user holds (ticket 86). */
+  staffLinks?: StaffEntryLink[];
   onSearch: (query: string) => void;
 }
 
 export default function DesktopHeader({
   user,
   notificationCount = 0,
+  staffLinks = [],
   onSearch,
 }: DesktopHeaderProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,6 +85,16 @@ export default function DesktopHeader({
             >
               Zakat
             </Link>
+            {user &&
+              staffLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="text-sm font-medium text-text hover:text-primary transition-colors"
+                >
+                  {link.label}
+                </Link>
+              ))}
           </nav>
 
           {/* Notification Bell */}

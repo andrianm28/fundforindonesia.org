@@ -2,7 +2,7 @@
 
 **Type:** task (kode keamanan)
 
-**Status:** awaiting-merge
+**Status:** done (PR #221, a0df7b4)
 
 **Blocked by:** none
 
@@ -49,3 +49,5 @@ verifikasi, dan upload.
   `auth.test`, `email-verification/route.test`. Ratchet lint 193, tsc 19.
   Catatan: route kirim ulang Receipt (cooldown sendiri) tidak termasuk cakupan.
   Commit kerja: 685d8bf.
+
+- 2026-10-04: done. Squash-merge ke `main` di PR #221 (a0df7b4), setelah semua check CI hijau; `awaiting-merge` diganti `done` di PR dokumen ronde C.

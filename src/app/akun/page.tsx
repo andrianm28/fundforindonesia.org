@@ -7,6 +7,7 @@ import Image from 'next/image';
 import { formatRupiah } from '@/lib/utils/currency';
 import Link from 'next/link';
 import { WALLET_DISABLED_MESSAGE } from '@/lib/wallet';
+import { staffEntryLinks } from '@/lib/staff-entry-links';
 
 export default function AkunPage() {
   const { data: session, status } = useSession();
@@ -49,6 +50,7 @@ export default function AkunPage() {
   }
 
   const user = session?.user;
+  const staffLinks = staffEntryLinks(user?.assignments);
 
   return (
     <div className="min-h-screen bg-bg-secondary pb-20">
@@ -112,6 +114,9 @@ export default function AkunPage() {
         <SettingsLink label="Galang Dana Saya" href="/akun/kampanye-saya" />
         <SettingsLink label="Volunteer Trip Saya" href="/akun/volunteer-trip" />
         <SettingsLink label="Keikutsertaan Volunteer Saya" href="/akun/volunteer" />
+        {staffLinks.map((link) => (
+          <SettingsLink key={link.href} label={link.label} href={link.href} />
+        ))}
         <SettingsLink label="Pengaturan" href="/akun/pengaturan" isLast />
       </div>
 

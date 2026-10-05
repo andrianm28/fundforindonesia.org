@@ -105,6 +105,71 @@ describe('DonationConfirmation', () => {
     ).toBeInTheDocument();
   });
 
+  // Ticket 87 (rilis-1-benda/issues/04, butir 4): the Donor sees the Platform
+  // Fee rate, the Escrow Hold and an estimated Net before paying. The fee
+  // comes from computePlatformFee on the basis the server resolved; the hold
+  // from ESCROW_HOLD_DAYS (carried as escrowHoldDays).
+  describe('fee and hold disclosure (ticket 87)', () => {
+    const disclosed = {
+      ...mockCampaign,
+      platformFeePercentBps: 250,
+      platformFeeThresholdAmount: 0,
+      escrowHoldDays: 7,
+    };
+
+    it('shows the Platform Fee percentage, its amount and the estimated Net', () => {
+      render(<DonationConfirmation {...defaultProps} campaign={disclosed} amount={100000} />);
+      expect(screen.getByText('Platform Fee (2,5%)')).toBeInTheDocument();
+      expect(screen.getByText('Rp2.500')).toBeInTheDocument();
+      expect(screen.getByText('Rp97.500')).toBeInTheDocument();
+      expect(screen.getByText(/sebelum biaya provider/i)).toBeInTheDocument();
+    });
+
+    it('rounds the fee down exactly as the money path does', () => {
+      // 2,5% of 50.001 = 1.250,025 -> 1.250
+      render(<DonationConfirmation {...defaultProps} campaign={disclosed} amount={50001} />);
+      expect(screen.getByText('Rp1.250')).toBeInTheDocument();
+      expect(screen.getByText('Rp48.751')).toBeInTheDocument();
+    });
+
+    it('states the Escrow Hold in days', () => {
+      render(<DonationConfirmation {...defaultProps} campaign={disclosed} amount={100000} />);
+      expect(screen.getByText(/ditahan 7 hari/i)).toBeInTheDocument();
+    });
+
+    it('says honestly that there is no Platform Fee when the rate is 0%', () => {
+      render(
+        <DonationConfirmation
+          {...defaultProps}
+          campaign={{ ...disclosed, platformFeePercentBps: 0 }}
+          amount={100000}
+        />,
+      );
+      expect(screen.getByText('Platform Fee (0%)')).toBeInTheDocument();
+      expect(screen.getByText('Rp0')).toBeInTheDocument();
+      expect(screen.getByText('Rp100.000', { selector: '[data-testid="estimated-net"]' })).toBeInTheDocument();
+    });
+
+    it('says the fee is waived below the threshold, with no fee taken', () => {
+      render(
+        <DonationConfirmation
+          {...defaultProps}
+          campaign={{ ...disclosed, platformFeeThresholdAmount: 50000 }}
+          amount={20000}
+        />,
+      );
+      expect(screen.getByText('Rp0')).toBeInTheDocument();
+      expect(screen.getByText(/dibebaskan.*Rp50\.000/i)).toBeInTheDocument();
+      expect(screen.getByText('Rp20.000', { selector: '[data-testid="estimated-net"]' })).toBeInTheDocument();
+    });
+
+    it('shows no invented numbers when the Campaign carries no fee basis', () => {
+      render(<DonationConfirmation {...defaultProps} />);
+      expect(screen.queryByText(/Platform Fee/)).toBeNull();
+      expect(screen.queryByText(/ditahan/i)).toBeNull();
+    });
+  });
+
   it('renders anonymous toggle checkbox', () => {
     render(<DonationConfirmation {...defaultProps} />);
     expect(screen.getByText('Sembunyikan nama saya (donasi anonim)')).toBeInTheDocument();

@@ -1,14 +1,14 @@
 # 81: M-e active-limit-usage-report-exemption-and-max-duration
 
-**Status:** needs-info
+**Status:** ready-for-agent
 
-**Blocked by:** none; menunggu C12. Tidak boleh berjalan bersamaan dengan F4 (72); bagian lanjutan batasan itu terpotong dalam rencana.
+**Blocked by:** none; C12 dijawab owner 2026-10-04. Tidak boleh berjalan bersamaan dengan F4 (72); bagian lanjutan batasan itu terpotong dalam rencana.
 
 **Ukuran:** S+S
 
 **Catatan:** Aturan lifecycle; tanpa skema yang diketahui (batas Active memakai `AbuseThreshold` yang ada).
 
-**Menunggu keputusan:** C12 (rekomendasi: batas tiga Active dicabut setelah Usage Report pertama; durasi maks 12 bulan, wakaf dikecualikan).
+**Keputusan (2026-10-04, ronde C):** C12 batas tiga Active dicabut setelah Usage Report pertama; durasi maksimum 12 bulan, wakaf dikecualikan (sesuai rekomendasi).
 
 ## Latar
 
@@ -31,3 +31,5 @@ Dua aturan lifecycle: batas tiga Campaign Active dicabut setelah Usage Report pe
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-04 (ronde C): C12 dijawab owner sesuai rekomendasi: batas tiga Active dicabut setelah Usage Report pertama Fundraiser itu; durasi maksimum 12 bulan, wakaf dikecualikan. Acceptance di atas sudah memakai bentuk itu. `needs-info` menjadi `ready-for-agent`.

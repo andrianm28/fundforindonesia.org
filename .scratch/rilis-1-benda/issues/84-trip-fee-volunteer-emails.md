@@ -1,14 +1,14 @@
 # 84: V-3 trip-fee-volunteer-emails
 
-**Status:** needs-info
+**Status:** ready-for-agent
 
-**Blocked by:** none; menunggu C17
+**Blocked by:** none; C17 dijawab owner 2026-10-04
 
 **Ukuran:** M
 
 **Catatan:** Email; tanpa skema.
 
-**Menunggu keputusan:** C17 (rekomendasi: email Volunteer untuk konfirmasi dan Refund masuk di M3).
+**Keputusan (2026-10-04, ronde C):** C17 email Volunteer (konfirmasi pendaftaran dan Refund Trip Fee) dibangun di M3 (sesuai rekomendasi).
 
 ## Latar
 
@@ -31,3 +31,5 @@ Volunteer belum menerima email saat pendaftaran dikonfirmasi atau Refund Trip Fe
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-04 (ronde C): C17 dijawab owner sesuai rekomendasi: email Volunteer masuk M3, bukan sebelumnya. Dikerjakan di Gelombang 4 (V-3). `needs-info` menjadi `ready-for-agent`.
