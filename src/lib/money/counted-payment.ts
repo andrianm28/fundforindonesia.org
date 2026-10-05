@@ -82,10 +82,15 @@ export async function ledgerWhereWithoutUncountedPayments(
     where: { paymentId: { in: paymentIds } },
     select: { id: true },
   });
+  // Written as "no reference, or a reference outside the set" rather than as
+  // NOT(... IN ...): SQL's NOT over a NULL comparison is NULL, which would drop
+  // every entry with no paymentId or no refundId at all (Payout legs, Manual
+  // Contributions, Settlement legs) -- the opposite of leaving them alone.
   return {
-    NOT: {
-      OR: [{ paymentId: { in: paymentIds } }, { refundId: { in: refunds.map((r) => r.id) } }],
-    },
+    AND: [
+      { OR: [{ paymentId: null }, { paymentId: { notIn: paymentIds } }] },
+      { OR: [{ refundId: null }, { refundId: { notIn: refunds.map((r) => r.id) } }] },
+    ],
   };
 }
 

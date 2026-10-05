@@ -187,6 +187,34 @@ describe.skipIf(!DATABASE_URL)('Payment yang dihitung -- against real Postgres (
     expect(Object.values(live.lines).every((v) => v === 0)).toBe(true);
   });
 
+  it('the ledger filter drops only the beta Payment legs, and keeps entries that name no Payment at all', async () => {
+    const campaignId = await makeCampaign(`beta-ledger-filter-${process.pid}`);
+    const live = await seedSettled(campaignId, 400_000, false);
+    const beta = await seedSettled(campaignId, 100_000, true);
+    // An entry with no paymentId and no refundId (what a Payout or a Manual
+    // Contribution leaves): SQL's NOT over a NULL comparison would drop it.
+    await prisma.$transaction((tx) =>
+      ledger.postTransaction(tx, [
+        { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 7_000 },
+        { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 7_000, campaignId },
+      ]),
+    );
+
+    vi.stubEnv('BETA_SANDBOX', '');
+    const where = await counted.ledgerWhereWithoutUncountedPayments(prisma, { donation: { campaignId } });
+    const kept = await prisma.ledgerEntry.findMany({
+      where: { campaignId, ...where },
+      select: { paymentId: true },
+    });
+
+    expect(kept.some((e) => e.paymentId === beta.id)).toBe(false);
+    expect(kept.some((e) => e.paymentId === live.id)).toBe(true);
+    expect(kept.some((e) => e.paymentId === null)).toBe(true);
+
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    expect(await counted.ledgerWhereWithoutUncountedPayments(prisma, { donation: { campaignId } })).toEqual({});
+  });
+
   it('public progress is the stored counter less the beta Gross once the marker is off', async () => {
     const campaignId = await makeCampaign(`beta-progress-${process.pid}`);
     await seedSettled(campaignId, 400_000, false);
