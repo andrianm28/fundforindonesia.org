@@ -2,7 +2,7 @@
 
 **Type:** implementation (kode tampilan yang membaca logika uang)
 
-**Status:** awaiting-merge
+**Status:** done (PR #226, 55cec9a)
 
 **Blocked by:** none
 
@@ -62,3 +62,5 @@ sudah di-resolve. Fee 0 tampil sebagai Rp0; di bawah ambang ada catatan
 "dibebaskan". Jumlah bersih dinyatakan sebelum Provider Fee. Bila payload tidak
 membawa basis, blok tidak tampil (tidak ada angka karangan). Tes: komponen dan
 rute, hijau; ratchet lint 193 dan tsc 19 (baseline).
+
+- 2026-10-10 (koordinator): merge ke `main` sebagai PR #226 (55cec9a); status dinaikkan ke done.
