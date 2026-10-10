@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { withCountedCollectedAmount } from '@/lib/money/counted-payment';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
 import { VerificationOutcome } from '@/generated/prisma/client';
 
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
   const limit = 10;
   const skip = (page - 1) * limit;
 
-  const [rows, total] = await Promise.all([
+  const [storedRows, total] = await Promise.all([
     prisma.campaign.findMany({
       where: { creatorId: session.user.id },
       orderBy: { createdAt: 'desc' },
@@ -35,6 +36,10 @@ export async function GET(request: NextRequest) {
     }),
     prisma.campaign.count({ where: { creatorId: session.user.id } }),
   ]);
+
+  // The Fundraiser's own progress figure is real money only (ticket 94): the
+  // stored counter also holds beta Payments, which are test money.
+  const rows = await withCountedCollectedAmount(prisma, storedRows);
 
   // The request each Submitted Campaign waits on (at most one is PENDING per
   // Campaign), so the page can offer to withdraw it.

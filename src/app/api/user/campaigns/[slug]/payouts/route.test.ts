@@ -380,7 +380,7 @@ describe("GET /api/user/campaigns/[slug]/payouts", () => {
     // another's money movements. Asserted on the query the route actually
     // issued, not on an echo of it inside the fake.
     expect(tx.payout.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { campaignId: 'campaign-1' } }),
+      expect.objectContaining({ where: { campaignId: 'campaign-1', sandbox: false } }),
     );
   });
 

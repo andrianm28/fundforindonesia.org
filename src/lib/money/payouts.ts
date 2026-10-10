@@ -1,5 +1,6 @@
 import type { Payout, PayoutBalanceCheck, Prisma, PrismaClient } from '@/generated/prisma/client';
 import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
+import { currentSandboxStamp, sandboxModeOf } from './sandbox-mode';
 import { requireTripFundsFromCompletedBatches } from './trip-payout-funds';
 import { assertNever } from '@/lib/assert-never';
 import { assertExactlyOnePayoutSubject, InvalidPayoutSubjectError } from './payout-subject';
@@ -107,12 +108,16 @@ async function lockPayoutSubject(
  * error here, and a shape that slips past the types at runtime is refused
  * rather than silently read as a Trip.
  */
-async function subjectBalance(tx: Prisma.TransactionClient, subject: LedgerSubject): Promise<number> {
+async function subjectBalance(
+  tx: Prisma.TransactionClient,
+  subject: LedgerSubject,
+  sandbox: boolean,
+): Promise<number> {
   switch (subject.type) {
     case 'campaign':
-      return campaignBalance(tx, subject.campaignId);
+      return campaignBalance(tx, subject.campaignId, sandbox);
     case 'trip':
-      return tripBalance(tx, subject.tripId);
+      return tripBalance(tx, subject.tripId, sandbox);
     default:
       return assertNever(subject, new InvalidPayoutSubjectError());
   }
@@ -207,7 +212,7 @@ export async function requestPayout(
   // equivalent requirement anywhere in the PRD or CONTEXT.md, so this is
   // never asked for a trip subject.
   if (subject.type === 'campaign') {
-    const blocking = await campaignBlockingUsageReport(tx, subject.campaignId);
+    const blocking = await campaignBlockingUsageReport(tx, subject.campaignId, currentSandboxStamp());
     if (blocking) {
       throw new UsageReportRequiredError(blocking.id);
     }
@@ -225,7 +230,12 @@ export async function requestPayout(
   // from the ledger, scoped to this subject's own account -- a Trip subject
   // can never read a Campaign's balance or vice versa, because each function
   // filters on its own FK column.
-  const balance = await subjectBalance(tx, subject);
+  // The balance of the mode this Payout is created in (ticket 94): while the
+  // beta marker is on a Payout is a simulation against test money only, and
+  // otherwise it is real against real money. The two pools never meet, so test
+  // money cannot fund a real Payout nor real money a simulated one.
+  const sandbox = currentSandboxStamp();
+  const balance = await subjectBalance(tx, subject, sandbox);
   // The cap itself is one named rule, asked of the same module a screen asks
   // and the same module approvePayout asks below:
   // exceedsPayoutBalance (@/lib/payout-balance-rule.ts). The server stays the
@@ -240,7 +250,7 @@ export async function requestPayout(
   // different question from the cap above -- the money is there but may still
   // be refunded. Asked under the same Trip lock; never for a Campaign.
   if (subject.type === 'trip') {
-    await requireTripFundsFromCompletedBatches(tx, subject.tripId, amount);
+    await requireTripFundsFromCompletedBatches(tx, subject.tripId, amount, sandbox);
   }
 
   const subjectFk = payoutSubjectFk(subject);
@@ -254,6 +264,7 @@ export async function requestPayout(
       description,
       requestedById,
       status: 'DRAFT',
+      sandbox,
     },
   });
 }
@@ -472,7 +483,7 @@ export async function approvePayout(
     // approved first -- and, now that this transaction holds the subject's
     // row lock, this read is guaranteed current for as long as the lock is
     // held.
-    const balance = await subjectBalance(tx, subject);
+    const balance = await subjectBalance(tx, subject, sandboxModeOf(payout));
     // The same named rule requestPayout asks above, asked again because the
     // balance it judged has moved: the cap is one comparison in
     // (@/lib/payout-balance-rule.ts), so this path cannot become a second,
@@ -488,7 +499,7 @@ export async function approvePayout(
     // can have been cancelled, or its Refunds paid, since the request (ticket
     // 49). Trip only.
     if (subject.type === 'trip') {
-      await requireTripFundsFromCompletedBatches(tx, subject.tripId, payout.amount);
+      await requireTripFundsFromCompletedBatches(tx, subject.tripId, payout.amount, sandboxModeOf(payout));
     }
 
     // And the other half, which no ledger read can supply: the money has to be
@@ -540,7 +551,7 @@ export async function approvePayout(
     await postTransaction(
       tx,
       payoutInstructedLegs({ subject, amount: payout.amount }),
-      { payoutId: payout.id, transactionId: `payout-instructed-${payout.id}` },
+      { payoutId: payout.id, sandbox: sandboxModeOf(payout), transactionId: `payout-instructed-${payout.id}` },
     );
   });
 
@@ -853,7 +864,7 @@ export async function completePayout(
     await postTransaction(
       tx,
       payoutCompletedLegs({ amount: payout.amount }),
-      { payoutId: payout.id, transactionId: `payout-completed-${payout.id}` },
+      { payoutId: payout.id, sandbox: sandboxModeOf(payout), transactionId: `payout-completed-${payout.id}` },
     );
   });
 

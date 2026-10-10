@@ -4,6 +4,7 @@ import { getServerSession } from '@/lib/auth';
 import { refuseUnlessFundraiser } from '@/lib/refusal-response';
 import { PRIVATE_CACHE_CONTROL } from '@/lib/campaign-visibility-route';
 import { campaignBalance, escrowBalance } from '@/lib/money/ledger';
+import { currentSandboxStamp } from '@/lib/money/sandbox-mode';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
 
 // Per request: the answer depends on who asks, and it reads the ledger.
@@ -72,10 +73,15 @@ export async function GET(_request: Request, context: RouteContext) {
   const refusal = refuseUnlessFundraiser({ kind: 'campaign', ownerId: campaign.creatorId }, session.user);
   if (refusal) return refusal;
 
+  // The mode this screen works in (ticket 94): while the beta marker is on it
+  // is the simulation, with test money and test Payouts only; otherwise it is
+  // real money only. The answer says which (`sandbox`), so the screen can label
+  // every figure UJI instead of passing it off as real.
+  const sandbox = currentSandboxStamp();
   const [escrowHold, available, payouts] = await prisma.$transaction(async (tx) =>
     Promise.all([
-      escrowBalance(tx, campaign.id),
-      campaignBalance(tx, campaign.id),
+      escrowBalance(tx, campaign.id, sandbox),
+      campaignBalance(tx, campaign.id, sandbox),
 
       // Every status, not only the COMPLETED ones the public Campaign page
       // shows (./api/campaigns/[slug]/disbursements). FFI-07 requires the
@@ -83,7 +89,7 @@ export async function GET(_request: Request, context: RouteContext) {
       // persetujuan Admin" is the state they spend the most time in. Scoped
       // to this Campaign alone, so one Fundraiser never sees another's.
       tx.payout.findMany({
-        where: { campaignId: campaign.id },
+        where: { campaignId: campaign.id, sandbox },
         select: {
           id: true,
           amount: true,
@@ -182,6 +188,7 @@ export async function GET(_request: Request, context: RouteContext) {
     ),
     escrowHold,
     campaignBalance: available,
+    sandbox,
     payouts: payoutsWithUsageReportStatus,
     bankAccounts,
     hasUnverifiedBankAccount,
