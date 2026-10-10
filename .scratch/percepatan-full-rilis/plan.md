@@ -24,7 +24,8 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 | Milestone | Bukti gerbang | Sisa utama |
 |---|---|---|
 | **M0 Jaring pengaman** | Backup terjadwal + offsite + restore drill tercatat, alert berfungsi, cron jobs 200, `NEXTAUTH_URL` di apex, GitHub terproteksi | Hanya langkah host/GitHub (Track A1–A2) |
-| **M1 Donasi nyata pertama** (gerbang F0+F1) | Campaign YIEM nyata lolos Verification Request dan tampil; satu donasi QRIS nyata settle; Receipt email diterima | Kode Gelombang 1 + Sumopod produksi + SMTP + setup YIEM di produk |
+| **M1-beta Donasi uji end-to-end** (amandemen 2026-10-04/05, keputusan owner) | Di domain utama dengan `BETA_SANDBOX` aktif (setelah tiket 94 ter-deploy): donasi QRIS uji lewat Sumopod sandbox settle, Receipt dan email berlabel uji diterima, progres dan Impact nyata tidak berubah, rekonsiliasi Admin bersih untuk campuran uji/nyata | Tiket 92 (done) + 94 (fase 1 dan 2) + SMTP produksi + kunci sandbox |
+| **M1 nyata: donasi nyata pertama** (gerbang F0+F1) | Campaign YIEM nyata lolos Verification Request dan tampil; satu donasi QRIS nyata settle; Receipt email diterima | Kode Gelombang 1 + Sumopod produksi + SMTP + setup YIEM di produk |
 | **M2 Soft Launch** (gerbang F2) | Dari layar saja: Payout → Usage Report → Payout kedua → Refund (3 Admin) → rekonsiliasi di layar Admin | Kode Gelombang 2 + jendela escrow 7 hari |
 | **M3 Rilis 1** (gerbang F3 + semua fitur) | Volunteer Trip nyata sampai sertifikat dengan satu Trip Fee nyata dan satu Refund Trip Fee; ketujuh item perluasan, Asset Waqf, dan Tim CSR lolos uji terima; **gerbang "Payment dari dua penyedia terekonsiliasi" (semula syarat Fase 2/M2) kini di sini**, keputusan owner C2 2026-10-04 | Gelombang 3–5 + Xendit + onboarding WhatsApp + kalender Batch |
 
@@ -33,7 +34,7 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 ## Pengungkit percepatan
 
 1. **Semua lead time eksternal dimulai hari 0** paralel: KYB Sumopod produksi, Xendit, verifikasi Meta/WhatsApp Business, counsel legal, Google OAuth. Inilah jalur kritis sebenarnya.
-2. **Staging sandbox** (keputusan owner): M1/M2/M3 diuji end-to-end dengan Sumopod sandbox sebelum uang nyata; verifikasi kode tidak menunggu KYB.
+2. **Beta sandbox di domain utama** (keputusan owner 2026-10-04, menggantikan staging): M1/M2/M3 diuji end-to-end dengan Sumopod sandbox sebelum uang nyata; verifikasi kode tidak menunggu KYB. M1 menjadi dua tahap: **M1-beta** (alur donasi uji) lalu **M1 nyata** setelah KYB Sumopod produksi lolos. Gerbang F1/F2 dengan uang nyata baru bisa dibuktikan setelah KYB.
 3. **Satu ronde grilling** untuk semua keputusan (daftar C), termasuk pertanyaan terbuka item perluasan.
 4. **Lajur builder paralel dengan aturan konflik file**: maksimal 8 agent, tetapi satu PR skema pada satu waktu; builder menjalankan tes terkait + tsc + lint saja, full suite di CI; vitest di-shard 3 arah; merge dibatch → satu CD + satu Deploy per gelombang.
 5. **Bersih-bersih tiket sekali jalan** dalam satu PR dokumen, plus semua tiket baru ditulis dalam satu batch.
@@ -242,7 +243,7 @@ Baris H-1, H-2, H-3a, dan B-1 pada tabel berikut juga pra-M1.
 ## Gelombang
 
 - **G0 (hari 0–2):** owner A1/A2 di sesi VPS, mulai A3/A4, jawab ronde C. Koordinator: salin rencana, PR housekeeping, tulis semua tiket baru. Builder: P1, P2, A-1, H-1, H-2, H-3a, G-1, H-6. Keluar bila M0 terbukti, C1–C6 terjawab, PR hijau.
-- **G1 (hari 2–6):** builder M-a (slot skema), S-0 (setelah ~10-10 + hitungan A1), A-2, F3, A-3, ADR i18n, runbook. Beta publik (B-1) hidup: gladi donasi → Payout → Refund dengan sandbox di domain utama. Satu Deploy di akhir gelombang. Keluar bila produksi memuat semua item pra-M1 dan alur M1 lulus gladi di beta.
+- **G1 (hari 2–6):** builder M-a (slot skema), S-0 (setelah ~10-10 + hitungan A1), A-2, F3, A-3, ADR i18n, runbook, plus tiket 94 (Ledger per mode, syarat M1-beta) dan 91 (Demo Campaign tersembunyi otomatis). Beta publik (B-1) hidup: gladi donasi → Payout → Refund dengan sandbox di domain utama. Satu Deploy di akhir gelombang. Keluar bila produksi memuat semua item pra-M1 dan alur M1 lulus gladi di beta.
 - **G2 (M1, lalu 7 hari escrow):** owner A5 → A6. Builder D-1, F2, N-1, H-4, H-5, H-3b, M-b, lalu M-c Xendit dengan kunci sandbox. Keluar bila M1 terbukti dan semua kode M2 ter-deploy sebelum hari ke-7.
 - **G3 (M2 → Soft Launch):** owner drill A7. Builder F1 → N-2, F4 → M-e, F5, F6, P3, A-4, A-5, A-6, M-d, V-1, V-2, E1, E9 (email konfirmasi). Owner membuat Trip/Batch nyata ≥3 minggu ke depan. Keluar bila M2 terbukti, Terms/Privacy live, owner menyetujui promosi.
 - **G4:** builder E2, E3, E4, E8, E9 (akun penuh), V-3, sisa M-c sampai siap produksi, lalu E5. Owner: kredensial Xendit produksi, onboarding WhatsApp.

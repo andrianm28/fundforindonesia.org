@@ -33,10 +33,10 @@ Sumber: `.scratch/percepatan-full-rilis/plan.md`, Track B. Dibuat 2026-10-04.
 | H-3b | `.scratch/go-live-ops/issues/05-csp-report-only.md` | ready-for-agent |
 | H-7 | `.scratch/go-live-ops/issues/06-campaign-transfer-race-loop.md` | ready-for-agent |
 | E9 | `.scratch/fase-3-perluasan/issues/01-tim-csr-account.md` | ready-for-agent |
-| P1 | `.scratch/rilis-1-benda/issues/86-admin-moderasi-door.md` (ditulis builder di branchnya sendiri) | belum ada di branch ini |
-| P2 | `.scratch/rilis-1-benda/issues/87-checkout-fee-hold-disclosure.md` (ditulis builder di branchnya sendiri) | belum ada di branch ini |
-| A-1 | `.scratch/rilis-1-benda/issues/88-admin-platform-fee-page.md` (ditulis builder di branchnya sendiri) | belum ada di branch ini; ada di PR #228 (belum merge). Keputusan C3: tanpa angka awal, Admin mengisi di A5.3 |
-| M-a | `.scratch/rilis-1-benda/issues/89-payout-reveal-account-number.md` | ready-for-agent (C6 dijawab) |
+| P1 | `.scratch/rilis-1-benda/issues/86-admin-moderasi-door.md` | done (PR #227, 9ca0b0c) |
+| P2 | `.scratch/rilis-1-benda/issues/87-checkout-fee-hold-disclosure.md` | done (PR #226, 55cec9a) |
+| A-1 | `.scratch/rilis-1-benda/issues/88-admin-platform-fee-page.md` | done (PR #228, 73a7157). Keputusan C3: tanpa angka awal, Admin mengisi di A5.3 |
+| M-a | `.scratch/rilis-1-benda/issues/89-payout-reveal-account-number.md` | ready-for-agent (C6 dijawab); dibangun di PR #232 |
 | E1 | `.scratch/fase-3-perluasan/issues/02-e1-tautan-pendek.md` | ready-for-agent |
 | E2 | `.scratch/fase-3-perluasan/issues/03-e2-dormant-balance-transfer.md` | needs-info (menunggu counsel) |
 | E3 | `.scratch/fase-3-perluasan/issues/04-e3-donor-requested-refund.md` | ready-for-agent |
@@ -49,7 +49,9 @@ Sumber: `.scratch/percepatan-full-rilis/plan.md`, Track B. Dibuat 2026-10-04.
 | H-2 | `.scratch/rilis-1-benda/issues/59-env-validation-and-auth-url.md` | done (PR #223, 983ee5d) |
 | H-3a | `.scratch/rilis-1-benda/issues/60-robots-and-powered-by.md` | done (PR #218, 8c005e0) |
 | G-1 | dibatalkan 2026-10-04 (PR #224 ditutup; tidak ada staging) | - |
-| B-1 | `rilis-1-benda/issues/92-beta-sandbox-mode.md` (ditulis builder di branch-nya) | rilis-1-benda 92 |
+| B-1 | `rilis-1-benda/issues/92-beta-sandbox-mode.md` | done (PR #230, 6c8f0b8) |
+| B-2 | `rilis-1-benda/issues/94-beta-ledger-mode-and-simulation.md` | ready-for-agent; fase 1 (stamping, agregat per mode, guard, runbook) lalu fase 2 (simulasi Payout/Usage Report) |
+| lupa password | `rilis-1-benda/issues/93-password-reset.md` | done (PR #231, e4c42a4) |
 | H-6 | `.scratch/ci-cd-github-actions/issues/26-vitest-shard.md` | done (PR #220, 5dabf6d) |
 | reminders-skip-demo-campaigns | `.scratch/rilis-1-benda/issues/61-reminders-skip-demo-campaigns.md` | done (PR #219, 464d309) |
 | prd-compliance 45 (cron jobs) | `.scratch/prd-compliance-fase-0-2/issues/45-scheduled-jobs-trigger.md` | done (cron terpasang dan terbukti 2026-10-04) |

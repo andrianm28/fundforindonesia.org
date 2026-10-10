@@ -2,7 +2,7 @@
 
 **Type:** feature (UI kecil)
 
-**Status:** awaiting-merge
+**Status:** done (PR #227, 9ca0b0c)
 
 **Blocked by:** none
 
@@ -28,3 +28,4 @@ memakai helper otorisasi yang sama (`hasAssignment`), bukan logika peran baru.
 
 ## Comments
 - 2026-10-04, branch `claude/rilis-1-86-admin-moderasi-door`: `hasAssignment` dipindah ke `src/lib/assignment.ts` (bebas modul server, di-re-export dari `withAssignmentCheck` sehingga impor lama tetap jalan) agar komponen klien memakai cek yang sama dengan guard halaman. `staffEntryLinks` (`src/lib/staff-entry-links.ts`) memetakan ADMIN -> /admin, VERIFIER -> /moderasi; dipakai di `/akun` (daftar tautan) dan `DesktopHeader` (via `AppShell`). Enum `Assignment` hanya punya ADMIN dan VERIFIER, jadi "siapa pun yang boleh moderasi" = VERIFIER, sama seperti guard `/moderasi`. Tanpa migrasi; `AdminSidebar` tidak disentuh. BottomNavBar tidak diubah: tab Akun sudah mengarah ke `/akun`.
+- 2026-10-10 (koordinator): di-merge ke `main` lewat PR #227 (9ca0b0c) setelah CI hijau.

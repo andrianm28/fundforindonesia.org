@@ -1,6 +1,6 @@
 # 92: B-1 beta-sandbox-mode
 
-**Status:** awaiting-merge
+**Status:** done (PR #230, 6c8f0b8)
 
 **Blocked by:** none
 
@@ -47,3 +47,4 @@ Keputusan owner 2026-10-04/05 (bagian "Keputusan susulan: beta publik menggantik
   - Skema: satu migrasi, namanya diganti menjadi `20261005010000_sandbox_mode_columns` (belum ter-deploy). Kolom `sandbox Boolean @default(false)` ditambahkan juga ke `LedgerEntry`, `Payout`, `Refund`, `UsageReport`. Kolom itu BELUM diisi/dibaca oleh kode di PR ini; stamping dan pembacaannya dikerjakan tiket 94.
   - Komentar `User.emailVerifiedAt` di `prisma/schema.prisma` diperbarui: reset password (tiket 93, ADR 0020) kini penulis kedua.
   - Daftar jalur Ledger "belum memilah beta" di Comments sebelumnya kini menjadi cakupan tiket 94, bukan keputusan "bersihkan atau lanjutkan". PERINGATAN: `BETA_SANDBOX` jangan diaktifkan di produksi sebelum tiket 94 ter-deploy, karena saldo/Payout/Refund/escrow masih mencampur uang uji dengan uang nyata.
+- 2026-10-10 (koordinator): di-merge ke `main` lewat PR #230 (6c8f0b8) setelah CI hijau.
