@@ -546,7 +546,7 @@ export async function reverseManualContribution(
     }
 
     const subject = subjectOf(contribution);
-        // The mode it was booked in, read off its own entries: the marker may have
+    // The mode it was booked in, read off its own entries: the marker may have
     // changed since, and a reversal must come out of the pool the money went in.
     const booked = await tx.ledgerEntry.findFirst({
       where: { transactionId: `manual-contribution-${contribution.id}` },

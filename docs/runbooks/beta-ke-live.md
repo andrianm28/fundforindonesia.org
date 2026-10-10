@@ -26,7 +26,7 @@ Jalankan berurutan. Berhenti di langkah mana pun yang gagal; jangan lanjut.
 
 ### 1. Bekukan donasi sementara (opsional, disarankan)
 
-Pastikan tidak ada Payment baru yang masuk selama penggantian. Cek tidak ada Payment `PENDING` yang masih hidup:
+Belum ada tombol pembekuan donasi; cara praktisnya, jadwalkan go-live di jam sepi dan umumkan jeda singkat. Pastikan tidak ada Payment baru yang masuk selama penggantian. Cek tidak ada Payment `PENDING` yang masih hidup:
 
 ```sql
 SELECT id, "sandbox", status, "createdAt" FROM "Payment" WHERE status = 'PENDING' ORDER BY "createdAt";
@@ -48,14 +48,21 @@ Bila tidak bersih, **berhenti** dan selidiki dulu. Jangan go-live di atas angka 
 
 ### 3. Selesaikan atau biarkan antrean uji
 
-Payout, Refund, dan Usage Report uji yang masih menggantung tidak perlu diselesaikan; mereka dikecualikan dari angka nyata. Yang perlu dicek hanya bahwa tidak ada **uang nyata** yang menggantung:
+Payout, Refund, dan Usage Report uji yang masih menggantung dikecualikan dari angka nyata. Pertama cek bahwa tidak ada **uang nyata** yang menggantung:
 
 ```sql
 SELECT status, count(*) FROM "Payout" WHERE "sandbox" = false GROUP BY status;
 SELECT status, count(*) FROM "Refund" WHERE "sandbox" = false GROUP BY status;
 ```
 
-Hasilnya harus kosong atau hanya berisi status akhir (`COMPLETED`, `REJECTED`, `FAILED`). Sebelum go-live biasanya memang kosong, karena belum ada uang nyata.
+Cek juga Refund yang belum final (`AWAITING_DONOR_DETAILS`, `PROCESSING`) dan Payout `DRAFT`/`PENDING` ber-cap sandbox. **Tolak atau selesaikan Payout dan Refund sandbox yang masih menggantung sebelum go-live**: setelah rekening nyata dipakai, Payout sandbox yang masih `DRAFT` tidak boleh disetujui.
+
+```sql
+SELECT status, count(*) FROM "Payout" WHERE "sandbox" = true AND status NOT IN ('COMPLETED','REJECTED','FAILED') GROUP BY status;
+SELECT status, count(*) FROM "Refund" WHERE "sandbox" = true AND status NOT IN ('COMPLETED','REJECTED','FAILED') GROUP BY status;
+```
+
+Hasil dua query pertama (uang nyata) harus kosong atau hanya berisi status akhir (`COMPLETED`, `REJECTED`, `FAILED`). Sebelum go-live biasanya memang kosong, karena belum ada uang nyata.
 
 ### 4. Ganti URL dan kredensial Sumopod ke live
 
@@ -65,7 +72,7 @@ Di `.env` produksi:
 2. Isi `SUMOPOD_API_KEY` dan `SUMOPOD_WEBHOOK_SECRET` dengan kredensial **live**.
 3. Pastikan `PAYMENT_PROVIDER=sumopod`.
 
-Jangan cabut penanda dulu bila kredensial live belum siap: guard boot menolak kombinasi penanda aktif dengan URL live, dan guard Sumopod menolak sandbox saat penanda mati. Dua guard ini sengaja saling mengunci, jadi go-live dilakukan **satu langkah**: cabut penanda dan isi URL live dalam satu penggantian `.env` dan satu restart.
+Guard boot memeriksa URL Sumopod saja, bukan API key; pastikan sendiri kunci yang diisi adalah kunci sandbox selama Beta. Jangan cabut penanda dulu bila kredensial live belum siap: guard boot menolak kombinasi penanda aktif dengan URL live, dan guard Sumopod menolak sandbox saat penanda mati. Dua guard ini sengaja saling mengunci, jadi go-live dilakukan **satu langkah**: cabut penanda dan isi URL live dalam satu penggantian `.env` dan satu restart.
 
 ### 5. Cabut penanda dan restart
 
