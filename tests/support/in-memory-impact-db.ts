@@ -133,7 +133,8 @@ function matches(row: Row, where: Row | undefined, resolve: (key: string) => unk
     if (key === 'AND') return (filter as Row[]).every((w) => matches(row, w, resolve));
     if (key === 'OR') return (filter as Row[]).some((w) => matches(row, w, resolve));
     if (key === 'NOT') return !matches(row, filter as Row, resolve);
-    const value = resolve(key);
+    // `sandbox` is NOT NULL DEFAULT false: a fake row without it is real money.
+    const value = key === 'sandbox' ? (resolve(key) ?? false) : resolve(key);
     if (value !== undefined && typeof value === 'object' && value !== null && !Array.isArray(value)) {
       return matches(value as Row, filter as Row, resolve);
     }

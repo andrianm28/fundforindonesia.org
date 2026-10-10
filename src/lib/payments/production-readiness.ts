@@ -33,7 +33,7 @@ const SUMOPOD_SANDBOX_HOST = 'api-pay-sandbox.sumopod.com';
  * the beta reads the answer the other way round, so there a url that merely
  * mentions "sandbox" (a query string, a path, a lookalike host) must not count.
  */
-function isExactlySumopodSandbox(baseUrl: string): boolean {
+export function isExactlySumopodSandbox(baseUrl: string): boolean {
   try {
     const url = new URL(baseUrl);
     return url.protocol === 'https:' && url.hostname === SUMOPOD_SANDBOX_HOST;
@@ -106,4 +106,46 @@ export function paymentProviderProductionRefusal(name: string): string | null {
   }
 
   return PRODUCTION_RULES[registered]();
+}
+
+/**
+ * Why this environment may not start as the public beta, or null if it may
+ * (ticket rilis-1-benda/94, scope 4). Asked at boot, only while BETA_SANDBOX is
+ * on, and it looks at EVERY registered provider's configuration, not only the
+ * one PAYMENT_PROVIDER names today: the active provider can be switched from the
+ * Admin screen without a restart (active-provider.ts), so a live credential
+ * sitting unused in the environment is one click from taking real money while
+ * the banner says nobody pays.
+ *
+ * A provider's credentials are bound to the host they are issued for, so the
+ * host is what separates a test credential from a live one; nothing here
+ * pretends to tell the two apart from the key's text. Typed on the registry's
+ * union for the reason PRODUCTION_RULES is: a provider added later without a
+ * rule here is a compile error, not a provider nobody asked about.
+ */
+const BETA_ENV_RULES: Record<PaymentProviderName, () => string | null> = {
+  // The mock fabricates an account no bank issued and moves nothing, so it has
+  // no live credential to refuse; production already gates it separately.
+  mock: () => null,
+
+  sumopod: () => {
+    const baseUrl = process.env.SUMOPOD_BASE_URL;
+    // Unset is fine here: there is then nothing to charge through. Set, it must
+    // be exactly the sandbox, whichever provider is active right now.
+    if (!baseUrl) return null;
+    return isExactlySumopodSandbox(baseUrl)
+      ? null
+      : 'SUMOPOD_BASE_URL is not the Sumopod sandbox while BETA_SANDBOX is on. A live Sumopod credential ' +
+          'must not be present in the beta, even while another provider is active.';
+  },
+};
+
+export function betaSandboxEnvRefusals(): string[] {
+  if (!isBetaSandbox()) return [];
+  const refusals = Object.values(BETA_ENV_RULES)
+    .map((rule) => rule())
+    .filter((reason): reason is string => reason !== null);
+  const active = paymentProviderProductionRefusal(process.env.PAYMENT_PROVIDER ?? 'mock');
+  if (active !== null && !refusals.includes(active)) refusals.push(active);
+  return refusals;
 }

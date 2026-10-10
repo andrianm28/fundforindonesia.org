@@ -260,7 +260,7 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(data).toEqual({ escrowHold: 300_000, tripBalance: 150_000, withdrawable: 150_000 });
+    expect(data).toEqual({ escrowHold: 300_000, tripBalance: 150_000, withdrawable: 150_000, sandbox: false });
   });
 
   it('withdrawable is the Trip Balance less what a not-COMPLETED Batch still holds (ticket 49)', async () => {
@@ -275,7 +275,7 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
     const response = await GET(getRequest(), routeContext());
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ escrowHold: 0, tripBalance: 150_000, withdrawable: 110_000 });
+    expect(await response.json()).toEqual({ escrowHold: 0, tripBalance: 150_000, withdrawable: 110_000, sandbox: false });
   });
 
   it('withdrawable is 0, never negative, when held exceeds the balance', async () => {

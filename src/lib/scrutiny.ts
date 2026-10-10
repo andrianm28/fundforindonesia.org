@@ -1,5 +1,6 @@
 import type { CampaignAuditMarker, DonationReviewMarker, Prisma } from "@/generated/prisma/client";
 import { resolveAbuseThresholds } from "./abuse-thresholds";
+import { withCountedCollectedAmount } from "./money/counted-payment";
 import { raiseAmountReviewVerificationRequest, type VerificationRequestState } from "./campaign-lifecycle";
 
 /**
@@ -92,9 +93,17 @@ export async function evaluateSettledDonationScrutiny(
       id: true,
       amount: true,
       campaign: { select: { id: true, collectedAmount: true, isDemo: true } },
+      // The mode of what settled it (ticket 94).
+      payments: { select: { sandbox: true } },
     },
   });
   if (!donation) throw new DonationNotSettledForReviewError(donationId);
+
+  // A Donation paid with test money (the public beta) is not judged: it must
+  // never put a marker on a Campaign or an Admin's review queue.
+  if (donation.payments.some((p) => p.sandbox)) {
+    return { donationMarker: null, auditMarker: null, amountReview: null };
+  }
 
   // A Demo Campaign's collectedAmount came from a seed file (prd-compliance
   // 26), so a figure invented at seed time must never raise a real marker
@@ -120,7 +129,9 @@ export async function evaluateSettledDonationScrutiny(
         })
       : null;
 
-  const cumulativeGross = donation.campaign.collectedAmount;
+  // The Gross that counts: the stored counter less what beta Payments put in it.
+  const [counted] = await withCountedCollectedAmount(db, [donation.campaign]);
+  const cumulativeGross = counted.collectedAmount;
   const auditMarker =
     cumulativeGross > thresholds.campaignAuditGross
       ? await db.campaignAuditMarker.upsert({

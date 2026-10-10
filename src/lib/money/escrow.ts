@@ -7,6 +7,7 @@ import {
   type LedgerSubject,
 } from './ledger';
 import { assertExactlyOnePaymentSubject } from './payment-subject';
+import { sandboxModeOf } from './sandbox-mode';
 import { isRefundStanding, readRefundFreezeEntries } from './refund-standing';
 import { isEscrowReleaseFrozen, lockAndLoad } from '@/lib/subject-guard';
 
@@ -320,6 +321,9 @@ export async function releaseMaturedEscrow(
       // alone, which over-drew ESCROW_HOLD by the Platform Fee and paid it
       // out again as withdrawable Campaign Balance.
       platformFee: true,
+      // The mode the release is posted in: the Payment's own stamp, never the
+      // marker now in force (ticket 94).
+      sandbox: true,
       donationId: true,
       registrationId: true,
       donation: { select: { campaignId: true } },
@@ -498,7 +502,7 @@ export async function releaseMaturedEscrow(
           await postTransaction(
             tx,
             escrowReleaseLegs({ subject: paymentSubject, amount: amountToRelease }),
-            { paymentId: payment.id, transactionId: `escrow-release:${payment.id}` },
+            { paymentId: payment.id, sandbox: sandboxModeOf(payment), transactionId: `escrow-release:${payment.id}` },
           );
         }
         // amountToRelease <= 0 means a COMPLETED refund already took all of

@@ -94,7 +94,8 @@ export async function dormantBalanceReport(
     // impact.ts's own batching, for the same reason).
     const balanceRows = await tx.ledgerEntry.groupBy({
       by: ['campaignId', 'direction'],
-      where: { account: 'CAMPAIGN_BALANCE', campaignId: { in: campaignIds } },
+      // Real money only (ticket 94): a Campaign holding nothing but beta test money has nothing dormant.
+      where: { account: 'CAMPAIGN_BALANCE', campaignId: { in: campaignIds }, sandbox: false },
       _sum: { amount: true },
     });
     const balances = new Map<string, number>();

@@ -1,43 +1,16 @@
 // @vitest-environment node
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { beforeAll, describe, it, expect } from 'vitest';
-import { findPrismaFieldReferences } from '../../tests/support/prisma-field-references';
+import { describe, it, expect } from 'vitest';
 
 /**
  * The Role hierarchy and the self-claimed verification are retired (spec
  * retire-role-hierarchy, ADR 0005). Authority comes from assignments and the
- * Capacity judgement; nothing reads or writes User `role`, `isVerified` or
- * `verificationType`. The columns stay, nullable and ignored, until ticket 03
- * drops them. This guard keeps it that way for application code and the seed.
+ * Capacity judgement. The columns are dropped (ticket 03; see
+ * user-role-dropped.test.ts); this guard keeps the hand-written fields and
+ * helpers out of application code and the seed.
  */
 const SEED = 'prisma/seed.ts';
-const CANARY = 'tests/support/user-role-canary.ts';
-const RETIRED = ['role', 'isVerified', 'verificationType'];
-
-describe('the retired User columns role, isVerified and verificationType', () => {
-  let references: string[] = [];
-
-  // Type-checks all of src, which takes a few seconds (more under load).
-  beforeAll(() => {
-    references = findPrismaFieldReferences({ model: 'User', fields: RETIRED, alsoScan: [SEED, CANARY] });
-  }, 120_000);
-
-  it('are named by no src file', () => {
-    expect(references.filter((ref) => ref.startsWith('src/'))).toEqual([]);
-  });
-
-  it('are named nowhere in the seed', () => {
-    expect(references.filter((ref) => ref.startsWith(`${SEED}:`))).toEqual([]);
-  });
-
-  // Proves the detector still sees the columns: if a change to Prisma's
-  // generated types blinded it, the two tests above would pass vacuously.
-  it('are still found in the canary that names them on purpose', () => {
-    const canaryHits = references.filter((ref) => ref.startsWith(`${CANARY}:`));
-    expect(canaryHits).toHaveLength(3);
-  });
-});
 
 function applicationFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {

@@ -1,3 +1,4 @@
+import { isBetaSandbox } from '@/lib/deploy-environment';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { campaignNotFound, findViewableCampaign } from '@/lib/campaign-visibility-route';
@@ -29,13 +30,17 @@ export async function GET(
     // disputedById: those name a person, and this route answers to anyone,
     // signed in or not.
     const payouts = await prisma.payout.findMany({
-      where: { campaignId: campaign.id, status: 'COMPLETED' },
+      // Real disbursements only, except while the beta marker is on, when the
+      // simulated ones show too, each flagged `sandbox` so the page marks it UJI
+      // (ticket 94). Once the marker is gone they are left out for good.
+      where: { campaignId: campaign.id, status: 'COMPLETED', ...(isBetaSandbox() ? {} : { sandbox: false }) },
       select: {
         id: true,
         amount: true,
         description: true,
         proofImage: true,
         createdAt: true,
+        sandbox: true,
         usageReport: {
           select: {
             id: true,

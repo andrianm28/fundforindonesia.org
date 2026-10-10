@@ -131,7 +131,10 @@ function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
   // in force, exactly as on a database no Admin has configured yet.
   const thresholds: { kind: string; value: number }[] = [];
   const tx = {
-    payment: { updateMany: vi.fn().mockResolvedValue({ count: paymentUpdateManyCount }) },
+    payment: {
+      updateMany: vi.fn().mockResolvedValue({ count: paymentUpdateManyCount }),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     donation: {
       update: vi.fn().mockResolvedValue({}),
       // Read by the abuse thresholds (prd-compliance 38) after the
@@ -141,6 +144,7 @@ function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
         id: where.id,
         amount: 100_000,
         campaign: { id: 'campaign-1', collectedAmount: 100_000, isDemo: false },
+        payments: [],
       })),
     },
     campaign: {
@@ -659,6 +663,7 @@ describe('POST /api/webhooks/[provider]', () => {
       id: 'donation-1',
       amount: 600_000_000,
       campaign: { id: 'campaign-1', collectedAmount: 600_000_000, isDemo: false },
+      payments: [],
     });
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
 
