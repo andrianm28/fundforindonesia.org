@@ -254,6 +254,9 @@ export async function recordProviderWithdrawal(
         // Stamped on both legs, so the Provider Balance shrinks for THIS
         // provider and the movement can be attributed to this recorded sweep.
         provider,
+        // Real money by construction: recordProviderWithdrawal refuses while the
+        // beta marker is on (ticket 94), so there is no sandbox sweep to stamp.
+        sandbox: false,
         transactionId: `provider-withdrawal-${withdrawal.id}`,
       },
     );

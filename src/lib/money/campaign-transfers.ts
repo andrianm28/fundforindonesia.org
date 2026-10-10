@@ -351,7 +351,9 @@ export async function approveCampaignTransfer(
         targetCampaignId: record.targetId,
         amount: record.amount,
       }),
-      { campaignTransferId: record.id, transactionId: `campaign-transfer-${record.id}` },
+      // Real money by construction: lockAndJudge refuses while the beta marker is
+      // on (ticket 94), so there is no sandbox transfer to stamp.
+      { campaignTransferId: record.id, sandbox: false, transactionId: `campaign-transfer-${record.id}` },
     );
 
     const donors = await tx.donation.findMany({

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { paymentProviderProductionRefusal } from './production-readiness';
+import { betaSandboxEnvRefusals, paymentProviderProductionRefusal } from './production-readiness';
 import { PAYMENT_PROVIDER_NAMES } from './provider-names';
 
 /**
@@ -130,5 +130,43 @@ describe('paymentProviderProductionRefusal in the beta', () => {
     expect(paymentProviderProductionRefusal('sumopod')).not.toBeNull();
     expect(paymentProviderProductionRefusal('mock')).toMatch(/mock/i);
     expect(paymentProviderProductionRefusal('xendit')).toMatch(/xendit/);
+  });
+});
+
+describe('betaSandboxEnvRefusals (ticket rilis-1-benda/94)', () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    process.env = { ...saved };
+  });
+
+  it('asks nothing of an environment that is not the beta', () => {
+    process.env.BETA_SANDBOX = '';
+    process.env.SUMOPOD_BASE_URL = 'https://api-pay.sumopod.com/api/v1';
+    expect(betaSandboxEnvRefusals()).toEqual([]);
+  });
+
+  it('is satisfied by the exact Sumopod sandbox, or by no Sumopod url at all', () => {
+    process.env.BETA_SANDBOX = 'true';
+    process.env.PAYMENT_PROVIDER = 'sumopod';
+    process.env.SUMOPOD_BASE_URL = 'https://api-pay-sandbox.sumopod.com/api/v1';
+    expect(betaSandboxEnvRefusals()).toEqual([]);
+  });
+
+  it('refuses a live Sumopod url whichever provider is active', () => {
+    process.env.BETA_SANDBOX = 'true';
+    process.env.SUMOPOD_BASE_URL = 'https://api-pay.sumopod.com/api/v1';
+    for (const active of ['sumopod', 'mock']) {
+      process.env.PAYMENT_PROVIDER = active;
+      expect(betaSandboxEnvRefusals().some((r) => r.includes('SUMOPOD_BASE_URL'))).toBe(true);
+    }
+  });
+
+  it('answers once per distinct reason, and never carries the url itself', () => {
+    process.env.BETA_SANDBOX = 'true';
+    process.env.PAYMENT_PROVIDER = 'sumopod';
+    process.env.SUMOPOD_BASE_URL = 'https://api-pay.sumopod.com/api/v1';
+    const refusals = betaSandboxEnvRefusals();
+    expect(new Set(refusals).size).toBe(refusals.length);
+    expect(refusals.join(' ')).not.toContain('api-pay.sumopod.com');
   });
 });
