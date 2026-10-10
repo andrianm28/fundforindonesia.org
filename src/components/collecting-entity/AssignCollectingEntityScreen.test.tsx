@@ -3,7 +3,9 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    campaign: { findMany: vi.fn() },
+    // findFirst is how the public catalogue asks whether a real Campaign is
+    // Active; this screen must never need to.
+    campaign: { findMany: vi.fn(), findFirst: vi.fn() },
     partnerOrganisation: { findMany: vi.fn() },
   },
 }));
@@ -34,6 +36,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 async function renderWith(campaigns: unknown[]) {
@@ -73,6 +76,18 @@ describe('AssignCollectingEntityScreen', () => {
 
     expect(campaignMatches(demo, where)).toBe(true);
     expect(campaignMatches(campaignRow({ lifecycleStatus: 'SUSPENDED', collectingEntityId: null }), where)).toBe(false);
+  });
+
+  it('still offers a Demo Campaign when a real Campaign is Active and SHOW_DEMO_CAMPAIGNS=auto has hidden it from visitors (rilis-1 91)', async () => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'auto');
+    vi.mocked(prisma.campaign.findFirst).mockResolvedValue({ id: 'real-active' } as never);
+    await renderWith([]);
+
+    const { where } = vi.mocked(prisma.campaign.findMany).mock.calls.at(-1)![0] as { where: Record<string, unknown> };
+    const demo = campaignRow({ lifecycleStatus: 'ACTIVE', isDemo: true, collectingEntityId: null });
+
+    expect(campaignMatches(demo, where)).toBe(true);
+    expect(prisma.campaign.findFirst).not.toHaveBeenCalled();
   });
 
   it('assigns the chosen organisation with a reason', async () => {

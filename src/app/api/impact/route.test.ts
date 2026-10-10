@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { manualContributionReceivedLegs } from '@/lib/money/ledger';
 import { ledgerFixture, makeImpactDb, type ImpactDbData } from '../../../../tests/support/in-memory-impact-db';
@@ -695,11 +695,12 @@ describe('GET /api/impact -- a Refund that was rejected or failed (prd-complianc
 });
 
 describe('GET /api/impact -- who the money is for, and what the page must not claim', () => {
-  it('leaves a Demo Campaign out of every figure, including the collected total', async () => {
+  /** A Demo Campaign whose fixture data shows 25 000 000 settled, beside a real one that settled 100 000. */
+  function demoBesideReal(): ReturnType<typeof makeImpactDb> {
     const ledger = ledgerFixture();
     ledger.settle({ paymentId: 'payment-demo', campaignId: 'campaign-demo', gross: 25_000_000, providerFee: 0, platformFee: 0 });
     ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
-    holder.db = makeImpactDb({
+    return makeImpactDb({
       campaigns: [
         { id: 'campaign-demo', title: 'Bantu korban bencana (contoh)', isDemo: true, location: 'Jawa Barat' },
         CAMPAIGN,
@@ -710,11 +711,51 @@ describe('GET /api/impact -- who the money is for, and what the page must not cl
       ],
       ledgerEntries: ledger.rows,
     });
+  }
+
+  it('leaves a Demo Campaign out of every figure, including the collected total', async () => {
+    holder.db = demoBesideReal();
 
     const raw = await getBreakdown();
 
     expect(raw.collected).toBe(100_000);
     expect(sumOf(lines(raw))).toBe(100_000);
+  });
+
+  // SHOW_DEMO_CAMPAIGNS decides what a visitor sees listed, never what is
+  // counted (rilis-1 91): a catalogue that shows a Demo Campaign, by the
+  // override or because no real Campaign is Active yet, still adds none of its
+  // fiction to the totals, and neither does one that has hidden it.
+  describe('whatever SHOW_DEMO_CAMPAIGNS says', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it.each(['true', 'auto', 'false'])('leaves a Demo Campaign out of every figure when it is %j', async (value) => {
+      vi.stubEnv('SHOW_DEMO_CAMPAIGNS', value);
+      holder.db = demoBesideReal();
+
+      const raw = await getBreakdown();
+
+      expect(raw.collected).toBe(100_000);
+      expect(sumOf(lines(raw))).toBe(100_000);
+    });
+
+    it('reports nothing collected when the only Campaigns are Demo ones, though the catalogue lists them', async () => {
+      vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'auto');
+      const ledger = ledgerFixture();
+      ledger.settle({ paymentId: 'payment-demo', campaignId: 'campaign-demo', gross: 25_000_000, providerFee: 0, platformFee: 0 });
+      holder.db = makeImpactDb({
+        campaigns: [{ id: 'campaign-demo', title: 'Bantu korban bencana (contoh)', isDemo: true, location: 'Jawa Barat' }],
+        payments: [{ id: 'payment-demo', campaignId: 'campaign-demo' }],
+        ledgerEntries: ledger.rows,
+      });
+
+      const raw = await getBreakdown();
+
+      expect(raw.collected).toBe(0);
+      expect(sumOf(lines(raw))).toBe(0);
+    });
   });
 
   it('reads zero beneficiaries with the old note while no Usage Report exists', async () => {
