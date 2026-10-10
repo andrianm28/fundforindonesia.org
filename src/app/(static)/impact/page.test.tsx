@@ -327,6 +327,37 @@ describe('ImpactPage', () => {
     expect(rendered.reduce((total, amount) => total + amount, 0)).toBe(100_000);
   });
 
+  // The page follows the books, not the catalogue (rilis-1 91): a visitor who
+  // finds a Demo Campaign in the catalogue, by the override or because no real
+  // Campaign is Active yet, still reads totals with none of its fiction in them.
+  describe('whatever SHOW_DEMO_CAMPAIGNS says', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it.each(['true', 'auto'])('counts no Demo Campaign when it is %j and the catalogue lists one', async (value) => {
+      vi.stubEnv('SHOW_DEMO_CAMPAIGNS', value);
+      const ledger = ledgerFixture();
+      ledger.settle({ paymentId: 'payment-demo', campaignId: 'campaign-demo', gross: 25_000_000, providerFee: 0, platformFee: 0 });
+      ledger.settle({ paymentId: 'payment-1', campaignId: 'campaign-1', gross: 100_000, providerFee: 3_000, platformFee: 5_000 });
+      holder.db = makeImpactDb({
+        campaigns: [
+          { id: 'campaign-demo', title: 'Bantu korban bencana (contoh)', isDemo: true, location: 'Jawa Barat' },
+          CAMPAIGN,
+        ],
+        payments: [
+          { id: 'payment-demo', campaignId: 'campaign-demo' },
+          { id: 'payment-1', campaignId: 'campaign-1' },
+        ],
+        ledgerEntries: ledger.rows,
+      });
+
+      await renderPage();
+
+      expect(screen.getByTestId('impact-collected').textContent).toContain('Rp100.000');
+    });
+  });
+
   it('shows no figures at all, loudly, when the six lines cannot be reconciled', async () => {
     // A Payout instructed out of a Campaign that never settled a Payment.
     const ledger = ledgerFixture();

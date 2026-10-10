@@ -11,12 +11,14 @@ import { AssignCollectingEntityForm, type AssignableCampaign } from "./AssignCol
  * acts for one, else those accepting individual Campaigns.
  */
 export async function AssignCollectingEntityScreen() {
+  // includeDemo: this screen is behind an assignment, and an Admin or
+  // Verifier works on every Campaign, not only the ones the public may
+  // see (CONTEXT.md, Demo Campaign; prd-compliance 26). Whether a real
+  // Campaign is Active changes nothing here.
+  const listable = await listableCampaignWhere(prisma, new Date(), { includeDemo: true });
   const [campaigns, organisations] = await Promise.all([
     prisma.campaign.findMany({
-      // includeDemo: this screen is behind an assignment, and an Admin or
-      // Verifier works on every Campaign, not only the ones the public may
-      // see (CONTEXT.md, Demo Campaign; prd-compliance 26).
-      where: { ...listableCampaignWhere(new Date(), { includeDemo: true }), collectingEntityId: null },
+      where: { ...listable, collectingEntityId: null },
       select: { slug: true, title: true, creatorId: true, creator: { select: { name: true } } },
       orderBy: { createdAt: "asc" },
     }),

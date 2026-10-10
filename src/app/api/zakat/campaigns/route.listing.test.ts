@@ -77,3 +77,38 @@ describe('GET /api/zakat/campaigns lists only effectively Active Campaigns in it
     expect((await response.json()).total).toBe(2);
   });
 });
+
+/**
+ * SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91): the zakat list keeps its Demo
+ * Campaigns until a real Campaign is Active anywhere on the platform, not
+ * only in its own Categories -- one decision for every list.
+ */
+describe('GET /api/zakat/campaigns with SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91)', () => {
+  beforeEach(() => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'auto');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const demo = () => campaign('zakat-demo', { isDemo: true });
+
+  it('lists a Demo Campaign while no real Campaign is Active', async () => {
+    holder.db = makeCampaignDb({ campaigns: [demo(), campaign('zakat-draft', { lifecycleStatus: 'DRAFT' })] });
+
+    expect(await listSlugs()).toEqual(['zakat-demo']);
+  });
+
+  it('lists none once a real Campaign is Active, whatever Category it is in', async () => {
+    holder.db = makeCampaignDb({ campaigns: [demo(), campaign('kesehatan-real', { category: 'kesehatan' })] });
+
+    expect(await listSlugs()).toEqual([]);
+  });
+
+  it('lists the real zakat Campaigns beside nothing fictional', async () => {
+    holder.db = makeCampaignDb({ campaigns: [demo(), campaign('zakat-real')] });
+
+    expect(await listSlugs()).toEqual(['zakat-real']);
+  });
+});

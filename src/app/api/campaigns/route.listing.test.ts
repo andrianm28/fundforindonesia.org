@@ -184,6 +184,72 @@ describe('GET /api/campaigns with SHOW_DEMO_CAMPAIGNS on (prd-compliance 56)', (
   });
 });
 
+/**
+ * SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91, owner decision C19): the Demo Campaigns
+ * keep the site from looking empty until the first real Campaign is Active,
+ * then leave every list by themselves -- no environment change, no deploy.
+ */
+describe('GET /api/campaigns with SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91)', () => {
+  beforeEach(() => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'auto');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const demos = () => [
+    campaign('demo-active', { isDemo: true, title: 'Bantu korban bencana (contoh)' }),
+    campaign('demo-urgent', { isDemo: true, isUrgent: true }),
+  ];
+
+  it('lists the Demo Campaigns, with isDemo so the card can badge them, while no real Campaign is Active', async () => {
+    holder.db = makeCampaignDb({
+      campaigns: [
+        ...demos(),
+        campaign('real-draft', { lifecycleStatus: 'DRAFT' }),
+        campaign('real-suspended', { lifecycleStatus: 'SUSPENDED' }),
+        campaign('real-expired-unrecorded', { deadline: YESTERDAY }),
+      ],
+    });
+
+    const response = await GET(new NextRequest(new URL('http://localhost:3000/api/campaigns')));
+    const body = await response.json();
+
+    expect(body.campaigns.map((c: { slug: string }) => c.slug).sort()).toEqual(['demo-active', 'demo-urgent']);
+    expect(body.campaigns.every((c: { isDemo: boolean }) => c.isDemo)).toBe(true);
+    expect(body.total).toBe(2);
+    expect(await listSlugs('?urgent=true')).toEqual(['demo-urgent']);
+    expect(await listSlugs('?search=korban')).toEqual(['demo-active']);
+  });
+
+  it('lists no Demo Campaign anywhere -- catalogue, urgent list, search, count -- once a real Campaign is Active', async () => {
+    holder.db = makeCampaignDb({ campaigns: [...demos(), campaign('real', { title: 'Pemulihan Gudang' })] });
+
+    expect(await listSlugs()).toEqual(['real']);
+    expect(await listSlugs('?urgent=true')).toEqual([]);
+    expect(await listSlugs('?search=korban')).toEqual([]);
+    expect(await listSlugs('?search=Pemulihan')).toEqual(['real']);
+    const response = await GET(new NextRequest(new URL('http://localhost:3000/api/campaigns')));
+    expect((await response.json()).total).toBe(1);
+  });
+
+  it('brings the Demo Campaigns back when the last real Active Campaign leaves Active', async () => {
+    holder.db = makeCampaignDb({ campaigns: [...demos(), campaign('real', { lifecycleStatus: 'COMPLETED' })] });
+
+    expect(await listSlugs()).toEqual(['demo-active', 'demo-urgent']);
+  });
+
+  it('is one real Campaign anywhere on the platform, whatever Kind or Category the list asks for', async () => {
+    holder.db = makeCampaignDb({
+      campaigns: [...demos(), campaign('real-zakat', { kind: 'ZAKAT', category: 'zakat' })],
+    });
+
+    expect(await listSlugs('?kind=DONATION')).toEqual([]);
+    expect(await listSlugs('?kind=ZAKAT')).toEqual(['real-zakat']);
+  });
+});
+
 describe('GET /api/campaigns filters by Kind', () => {
   beforeEach(() => {
     holder.db = makeCampaignDb({

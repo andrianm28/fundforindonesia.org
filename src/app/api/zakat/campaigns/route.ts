@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
 
     // Only effectively Active Campaigns (CONTEXT.md, Campaign Status).
     const where: Prisma.CampaignWhereInput = {
-      ...listableCampaignWhere(new Date()),
+      ...(await listableCampaignWhere(prisma, new Date())),
       OR: [
         { category: 'zakat' },
         { category: 'kemanusiaan' },

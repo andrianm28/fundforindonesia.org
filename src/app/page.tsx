@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { withCountedCollectedAmount } from '@/lib/money/counted-payment';
-import { catalogueDemoWhere, listableCampaignWhere } from '@/lib/subject-guard';
+import { catalogueDemoWhere, listableCampaignWhere, showDemoCampaigns } from '@/lib/subject-guard';
 import { HeroBanner } from '@/components/home/HeroBanner';
 import QuickActionTiles from '@/components/home/QuickActionTiles';
 import { UrgentCampaigns } from '@/components/home/UrgentCampaigns';
@@ -122,7 +122,13 @@ export default async function HomePage() {
   // Fetch data from Prisma directly (server component). Every Campaign list
   // here shows only effectively Active Campaigns (CONTEXT.md, Campaign
   // Status), so the Urgent rail drops a Campaign once its deadline passes.
-  const listable = listableCampaignWhere(new Date());
+  const now = new Date();
+  // Whether Demo Campaigns are among them is decided once for the whole
+  // render, so the lists and the Prayer Wall agree and the decision costs at
+  // most one read (subject-guard's showDemoCampaigns).
+  const includeDemo = await showDemoCampaigns(prisma, now);
+  const listable = await listableCampaignWhere(prisma, now, { includeDemo });
+  const prayerCampaign = await catalogueDemoWhere(prisma, now, { includeDemo });
   const [urgentCampaigns, newCampaigns, featuredCampaigns, recentPrayers] = await Promise.all([
     prisma.campaign.findMany({
       where: { ...listable, isUrgent: true },
@@ -158,7 +164,7 @@ export default async function HomePage() {
       // links to it, so it may not name one no public list shows: a visitor
       // would meet a Demo Campaign here, and follow the link to its page
       // (CONTEXT.md, Demo Campaign; prd-compliance 26).
-      where: { campaign: catalogueDemoWhere() },
+      where: { campaign: prayerCampaign },
       orderBy: { createdAt: 'desc' },
       take: 10,
       include: {
