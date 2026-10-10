@@ -27,7 +27,7 @@ enum Role {
 // ==================== User & Auth ====================
 
 model User {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   name             String
   password         String?
   avatar           String?
@@ -45,7 +45,7 @@ model User {
   // way out. There is no access log on the panel today, so that is a separate
   // piece of work (ADR 0012, Consequences).
   /// Hex HMAC-SHA256 of the trimmed, lowercased email under FIELD_HMAC_KEY. Searchable.
-  emailHmac        String   @unique
+  emailHmac        String    @unique
   emailHmacKeyId   String
   /// base64(iv | AES-256-GCM ciphertext | tag) of the email under FIELD_ENCRYPTION_KEY.
   emailCiphertext  String
@@ -67,9 +67,9 @@ model User {
   isVerified       Boolean?
   verificationType String?
   role             Role?
-  donationBalance  Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  donationBalance  Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   // Relations
   accounts                         Account[]
@@ -113,7 +113,8 @@ model User {
   payoutsRequested                  Payout[]                         @relation("PayoutRequester")
   payoutsApproved                   Payout[]                         @relation("PayoutApprover")
   payoutsCompleted                  Payout[]                         @relation("PayoutCompleter")
-  payoutBalanceChecksRecorded       PayoutBalanceCheck[]              @relation("PayoutBalanceCheckedBy")
+  payoutBalanceChecksRecorded       PayoutBalanceCheck[]             @relation("PayoutBalanceCheckedBy")
+  payoutAccountReveals              PayoutAccountReveal[]            @relation("PayoutAccountRevealedBy")
   usageReportsSubmitted             UsageReport[]                    @relation("UsageReportSubmitter")
   usageReportsDisputed              UsageReport[]                    @relation("UsageReportDisputer")
   refundsRequested                  Refund[]                         @relation("RefundRequester")
@@ -532,8 +533,8 @@ model Campaign {
   /// Zakat or wakaf money moved out of / into this Campaign by a Campaign
   /// Transfer (CONTEXT.md, Campaign Transfer). Restrict on both ends: the
   /// record of where a Suspended Campaign's money went is evidence.
-  transfersOut          CampaignTransfer[]   @relation("CampaignTransferSource")
-  transfersIn           CampaignTransfer[]   @relation("CampaignTransferTarget")
+  transfersOut          CampaignTransfer[]     @relation("CampaignTransferSource")
+  transfersIn           CampaignTransfer[]     @relation("CampaignTransferTarget")
   auditMarker           CampaignAuditMarker?
   donationReviewMarkers DonationReviewMarker[]
 
@@ -1756,7 +1757,7 @@ model Refund {
   /// Mode of the money this row belongs to: true for the public beta's
   /// sandbox. Added with Payment.sandbox (rilis-1-benda/92); stamped from
   /// the source Payment and read by rilis-1-benda/94, not by anything yet.
-  sandbox       Boolean  @default(false)
+  sandbox       Boolean      @default(false)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -1824,9 +1825,14 @@ model BankAccount {
   bankCode                String
   /// ADR 0012 contract step (prd-compliance 16): a randomized AES-256-GCM of
   /// the account number, and the only form stored. This is a payout
-  /// destination, not a card number, and it is still read in full to instruct
-  /// the transfer -- decrypted at the point of payout, with masking at the UI.
-  /// Never searched, so there is no HMAC for it, same as User.phone.
+  /// destination, not a card number. Amended 2026-10-10 (ticket 89): Sumopod
+  /// has no disbursement API, so the Admin completing a Payout types the full
+  /// number into the provider's dashboard by hand. It is therefore decrypted
+  /// at exactly one place, revealPayoutAccountNumber, only for that Admin and
+  /// only while the Payout is APPROVED, and every reveal writes a
+  /// PayoutAccountReveal row. Nowhere else shows it; the UI shows bank code
+  /// and holder name only. Never searched, so there is no HMAC for it, same
+  /// as User.phone.
   accountNumberCiphertext String
   accountNumberKeyId      String
   /// Plaintext by decision (ADR 0012): Refund compares the holder name against
@@ -2092,13 +2098,14 @@ model Payout {
   /// Mode of the money this row belongs to: true for the public beta's
   /// sandbox. Added with Payment.sandbox (rilis-1-benda/92); stamped from
   /// the source Payment and read by rilis-1-benda/94, not by anything yet.
-  sandbox       Boolean  @default(false)
+  sandbox                 Boolean   @default(false)
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
-  ledgerEntries LedgerEntry[]
-  usageReport   UsageReport?
-  balanceChecks PayoutBalanceCheck[]
+  ledgerEntries  LedgerEntry[]
+  usageReport    UsageReport?
+  balanceChecks  PayoutBalanceCheck[]
+  accountReveals PayoutAccountReveal[]
 
   @@index([campaignId, status])
   @@index([volunteerTripId, status])
@@ -2132,6 +2139,22 @@ model PayoutBalanceCheck {
   checkedAt       DateTime @default(now())
 
   @@index([payoutId])
+}
+
+/// One Admin's opening of a Payout's destination account number (ticket 89;
+/// owner decision C6, 2026-10-04). Append-only audit: who, which Payout, when.
+/// ADR 0012's ciphertext is randomized, so a read cannot be found afterwards
+/// by searching; this row is the only trace that one happened. The number
+/// itself is never stored here or logged.
+model PayoutAccountReveal {
+  id           String   @id @default(cuid())
+  payoutId     String
+  payout       Payout   @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+  revealedById String
+  revealedBy   User     @relation("PayoutAccountRevealedBy", fields: [revealedById], references: [id], onDelete: Restrict)
+  revealedAt   DateTime @default(now())
+
+  @@index([payoutId, revealedAt])
 }
 
 /// A Fundraiser's account of how one Payout's money was used (CONTEXT.md,
