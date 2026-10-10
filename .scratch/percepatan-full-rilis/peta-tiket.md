@@ -36,7 +36,7 @@ Sumber: `.scratch/percepatan-full-rilis/plan.md`, Track B. Dibuat 2026-10-04.
 | P1 | `.scratch/rilis-1-benda/issues/86-admin-moderasi-door.md` | done (PR #227, 9ca0b0c) |
 | P2 | `.scratch/rilis-1-benda/issues/87-checkout-fee-hold-disclosure.md` | done (PR #226, 55cec9a) |
 | A-1 | `.scratch/rilis-1-benda/issues/88-admin-platform-fee-page.md` | done (PR #228, 73a7157). Keputusan C3: tanpa angka awal, Admin mengisi di A5.3 |
-| M-a | `.scratch/rilis-1-benda/issues/89-payout-reveal-account-number.md` | ready-for-agent (C6 dijawab); dibangun di PR #232 |
+| M-a | `.scratch/rilis-1-benda/issues/89-payout-reveal-account-number.md` | done (PR #232, e549020) |
 | E1 | `.scratch/fase-3-perluasan/issues/02-e1-tautan-pendek.md` | ready-for-agent |
 | E2 | `.scratch/fase-3-perluasan/issues/03-e2-dormant-balance-transfer.md` | needs-info (menunggu counsel) |
 | E3 | `.scratch/fase-3-perluasan/issues/04-e3-donor-requested-refund.md` | ready-for-agent |
