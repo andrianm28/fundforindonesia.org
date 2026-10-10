@@ -295,8 +295,6 @@ export async function PATCH(
       return tx.campaign.update({
         where: { id: campaign.id },
         data,
-        // The legacy status string is never sent back (ticket 03 drops it).
-        omit: { status: true },
         include: {
           creator: {
             select: {
