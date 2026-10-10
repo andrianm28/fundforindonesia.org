@@ -17,13 +17,6 @@ enum Assignment {
   ADMIN
 }
 
-enum Role {
-  ADMIN
-  MODERATOR
-  CAMPAIGN_CREATOR
-  DONOR
-}
-
 // ==================== User & Auth ====================
 
 model User {
@@ -60,13 +53,6 @@ model User {
   /// the confirmation link and a successful password reset (rilis-1 93, which
   /// proves the address the same way; docs/adr/0020).
   emailVerifiedAt  DateTime?
-  // Retired: the self-claimed verification and the Role hierarchy. No
-  // application code or seed reads or writes them (retire-role-hierarchy
-  // 02); authority comes only from assignments (ADR 0005). Nullable and
-  // ignored until ticket 03 drops them with the Role enum.
-  isVerified       Boolean?
-  verificationType String?
-  role             Role?
   donationBalance  Int      @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -144,9 +130,8 @@ model User {
 
 /// Verifier and Admin are assignments a person holds, not ranks.
 /// One person may hold both; holding both is two rows, never a special
-/// case. See ADR 0005. The `Role` hierarchy still governs access until
-/// tickets 07-08 migrate the guards; this model only records who holds
-/// what in the meantime.
+/// case. See ADR 0005. Assignments are the only source of authority; the
+/// Role hierarchy that preceded them is gone.
 model UserAssignment {
   userId     String
   assignment Assignment
