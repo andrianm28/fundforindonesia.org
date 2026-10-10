@@ -2,7 +2,7 @@
 
 **Type:** implementation
 
-**Status:** awaiting-merge
+**Status:** done (PR #228, 73a7157)
 
 **Blocked by:** none
 
@@ -67,3 +67,4 @@ esensial, dilaporkan, tidak ditambal di sini.
   Campaign yang diketik (API hanya menerima `campaignId`); tidak ada pemilih
   Campaign. API tidak punya GET, jadi halaman membaca lewat Prisma seperti
   halaman Admin lain.
+- 2026-10-10 (koordinator): di-merge ke `main` lewat PR #228 (73a7157) setelah CI hijau.

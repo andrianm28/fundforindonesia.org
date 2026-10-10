@@ -2,7 +2,7 @@
 
 **Type:** task (fitur keamanan; wajib sebelum beta publik)
 
-**Status:** awaiting-merge
+**Status:** done (PR #231, e4c42a4)
 
 **Blocked by:** none
 
@@ -74,3 +74,4 @@ Sengaja tidak diubah / catatan untuk reviewer:
 - S2: tes baru `src/app/akun/pengaturan/page.test.tsx` (fake timers): `signOut({ callbackUrl: '/login' })` dipanggil 1,5 detik setelah sukses, tidak dipanggil bila ditolak atau halaman ditinggalkan. Timer kini dibersihkan saat unmount.
 - F1 (dicatat, tanpa perubahan kode): sesi yang diterbitkan **sebelum deploy ini** tidak punya klaim `pwf` dan di-upgrade ke klaim saat ini pada pemakaian berikutnya (agar tidak ada logout massal saat deploy). Akibatnya, cookie lama yang belum pernah dipakai ulang sebelum reset tetap berlaku sampai masa JWT habis (default next-auth 30 hari), jadi kriteria "sesi lain tidak berlaku" baru penuh untuk sesi yang terbit setelah deploy. Bila ada dugaan sesi bocor, obatnya memutar `NEXTAUTH_SECRET` (mengakhiri semua sesi). Masukkan batas ini ke badan PR.
 - F2: reset password kini penulis kedua `emailVerifiedAt` (selain tautan konfirmasi). ADR 0020 diamandemen; komentar `guest-donation-claim.ts` dan `email-verification.ts` diperbaiki. Koordinator masih perlu memperbarui komentar `emailVerifiedAt` di `prisma/schema.prisma` dan entri di `CONTEXT.md`.
+- 2026-10-10 (koordinator): di-merge ke `main` lewat PR #231 (e4c42a4) setelah CI hijau.
