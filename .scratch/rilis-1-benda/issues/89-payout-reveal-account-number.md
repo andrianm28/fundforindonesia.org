@@ -32,7 +32,7 @@ Tiket ini **membuka ulang premis** `12-decrypting-a-bank-account-at-payout.md`, 
 - [x] Pembukaan lewat aksi eksplisit di server; nomor tidak ikut dalam payload halaman default dan tidak dicatat di log
 - [x] Tes `page.test.tsx:104` diperbaiki sesuai perilaku baru; tes menolak requester, approver, dan status selain APPROVED
 - [x] Komentar `accountNumberCiphertext` di skema dan jawaban `12` diamandemen bertanggal
-- [ ] Review independen `sonnet` (uang/keamanan) diposting di PR
+- [x] Review independen `sonnet` (uang/keamanan) diposting di PR
 
 ## Comments
 
