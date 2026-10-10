@@ -1,3 +1,4 @@
+import { SandboxBadge } from '@/components/money/SandboxBadge';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
@@ -107,7 +108,10 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
   return (
     <div className="max-w-2xl">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{subject.title}</h1>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {subject.title}
+          <SandboxBadge sandbox={payout.sandbox} />
+        </h1>
         <p className="mt-1 text-sm text-gray-500">{PAYOUT_STATUS_LABEL[payout.status]}</p>
       </div>
 

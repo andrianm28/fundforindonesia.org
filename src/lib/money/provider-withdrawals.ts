@@ -1,3 +1,4 @@
+import { isBetaSandbox } from '@/lib/deploy-environment';
 import type { Prisma, PrismaClient, ProviderWithdrawal } from '@/generated/prisma/client';
 import { collectionAccountWithdrawalLegs, MAX_RUPIAH_AMOUNT, postTransaction, providerBalances, type ProviderBalance } from './ledger';
 import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
@@ -175,6 +176,14 @@ export async function recordProviderWithdrawal(
   prisma: PrismaClient,
   params: RecordProviderWithdrawalParams,
 ): Promise<ProviderWithdrawal> {
+  // The sweep to the bank is a real-money movement with no mode of its own
+  // (ticket 94): it is closed while the beta marker is on, so nothing in the
+  // beta can be mistaken for, or mixed into, a real withdrawal.
+  if (isBetaSandbox()) {
+    throw new ProviderWithdrawalInputError(
+      'Penarikan dari penyedia tidak tersedia selama mode Beta (BETA_SANDBOX aktif): tidak ada uang nyata yang boleh ditarik.',
+    );
+  }
   const provider = canonicalProviderName(params.provider);
   const reference = cleanText(params.reference, 'Referensi penarikan dari penyedia');
   const destinationName = cleanText(params.destinationName, 'Nama pemilik rekening tujuan');

@@ -58,6 +58,17 @@ export interface PostOptions {
    * nothing to think about.
    */
   transactionId?: string;
+  /**
+   * The mode of every leg: true for sandbox (beta) money, false for real money.
+   * Read from the SOURCE row of the movement (its Payment, Refund or Payout --
+   * sandboxModeOf, ./sandbox-mode.ts), never from the environment at the moment
+   * of posting, so a sweep or a Refund that happens after go-live on a beta
+   * Payment still lands as sandbox. Omitted means real money, the safe reading:
+   * a caller that forgets can hide test money from a test screen, but can never
+   * let it into a real figure. Every creation site in src/ passes it
+   * (sandbox-mode.test.ts scans for that).
+   */
+  sandbox?: boolean;
 }
 
 /**
@@ -338,6 +349,7 @@ export async function postTransaction(
         campaignTransferId: options.campaignTransferId ?? null,
         providerWithdrawalId: options.providerWithdrawalId ?? null,
         provider: options.provider ?? null,
+        sandbox: options.sandbox ?? false,
         transactionId,
         // 0 claims the transactionId; the rest are ordinary legs. The index
         // is on the transactionId itself, not on a copy of it, so the claim
@@ -431,11 +443,12 @@ async function accountBalance(
   tx: Prisma.TransactionClient,
   account: LedgerAccount,
   subject: LedgerSubject,
+  sandbox: boolean,
 ): Promise<number> {
   const where =
     subject.type === 'campaign'
-      ? { account, campaignId: subject.campaignId }
-      : { account, volunteerTripId: subject.tripId };
+      ? { account, campaignId: subject.campaignId, sandbox }
+      : { account, volunteerTripId: subject.tripId, sandbox };
 
   return accountTotal(tx, where, 'credit');
 }
@@ -452,8 +465,9 @@ async function accountBalance(
 export async function campaignBalance(
   tx: Prisma.TransactionClient,
   campaignId: string,
+  sandbox = false,
 ): Promise<number> {
-  return accountBalance(tx, 'CAMPAIGN_BALANCE', { type: 'campaign', campaignId });
+  return accountBalance(tx, 'CAMPAIGN_BALANCE', { type: 'campaign', campaignId }, sandbox);
 }
 
 /**
@@ -476,18 +490,27 @@ export async function campaignBalance(
 export async function escrowBalance(
   tx: Prisma.TransactionClient,
   campaignId: string,
+  sandbox = false,
 ): Promise<number> {
-  return accountBalance(tx, 'ESCROW_HOLD', { type: 'campaign', campaignId });
+  return accountBalance(tx, 'ESCROW_HOLD', { type: 'campaign', campaignId }, sandbox);
 }
 
 /** Trip-scoped sibling of campaignBalance -- what a Volunteer Trip may actually withdraw. */
-export async function tripBalance(tx: Prisma.TransactionClient, tripId: string): Promise<number> {
-  return accountBalance(tx, 'TRIP_BALANCE', { type: 'trip', tripId });
+export async function tripBalance(
+  tx: Prisma.TransactionClient,
+  tripId: string,
+  sandbox = false,
+): Promise<number> {
+  return accountBalance(tx, 'TRIP_BALANCE', { type: 'trip', tripId }, sandbox);
 }
 
 /** Trip-scoped sibling of escrowBalance. */
-export async function tripEscrowBalance(tx: Prisma.TransactionClient, tripId: string): Promise<number> {
-  return accountBalance(tx, 'ESCROW_HOLD', { type: 'trip', tripId });
+export async function tripEscrowBalance(
+  tx: Prisma.TransactionClient,
+  tripId: string,
+  sandbox = false,
+): Promise<number> {
+  return accountBalance(tx, 'ESCROW_HOLD', { type: 'trip', tripId }, sandbox);
 }
 
 /**
@@ -502,8 +525,12 @@ export async function tripEscrowBalance(tx: Prisma.TransactionClient, tripId: st
  * Not withdrawable by anything: there is no Payout against a Program, so this
  * figure exists to be reported and to gate a reversal, not to be spent.
  */
-export async function programBalance(tx: Prisma.TransactionClient, programId: string): Promise<number> {
-  return accountTotal(tx, { account: 'PROGRAM_BALANCE', programId }, 'credit');
+export async function programBalance(
+  tx: Prisma.TransactionClient,
+  programId: string,
+  sandbox = false,
+): Promise<number> {
+  return accountTotal(tx, { account: 'PROGRAM_BALANCE', programId, sandbox }, 'credit');
 }
 
 /**
@@ -533,8 +560,11 @@ export async function programBalance(tx: Prisma.TransactionClient, programId: st
  * place a balance is summed, so a new account has to declare its sign rather
  * than copy a query and keep whichever comment was closest.
  */
-export async function collectionAccountBalance(tx: Prisma.TransactionClient): Promise<number> {
-  return accountTotal(tx, { account: 'COLLECTION_ACCOUNT' }, 'debit');
+export async function collectionAccountBalance(
+  tx: Prisma.TransactionClient,
+  sandbox = false,
+): Promise<number> {
+  return accountTotal(tx, { account: 'COLLECTION_ACCOUNT', sandbox }, 'debit');
 }
 
 /**
@@ -1244,10 +1274,13 @@ export interface ProviderBalance {
  * Campaign's ESCROW_HOLD: that money is at the provider but earmarked, and the
  * Provider Balance is the unencumbered pot.
  */
-export async function providerBalances(tx: Prisma.TransactionClient): Promise<ProviderBalance[]> {
+export async function providerBalances(
+  tx: Prisma.TransactionClient,
+  sandbox = false,
+): Promise<ProviderBalance[]> {
   const rows = await tx.ledgerEntry.groupBy({
     by: ['provider', 'direction'],
-    where: { account: 'GATEWAY_CLEARING' },
+    where: { account: 'GATEWAY_CLEARING', sandbox },
     _sum: { amount: true },
   });
 

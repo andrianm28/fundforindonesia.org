@@ -10,6 +10,7 @@ import {
 } from './ledger';
 import { lockAndLoad, requireNotOwnerAsAdmin, type SubjectState } from '@/lib/subject-guard';
 import { OwnSubjectConflictError } from '@/lib/capacity';
+import { currentSandboxStamp, sandboxModeOf } from './sandbox-mode';
 import {
   DemoCampaignError,
   ManualContributionAlreadySpentError,
@@ -341,6 +342,7 @@ async function lockTargetAndJudge(
   tx: Prisma.TransactionClient,
   subject: ManualContributionSubject,
   actorId: string,
+  sandbox: boolean,
 ): Promise<number> {
   if (subject.type === 'campaign') {
     // A null state cannot happen here, and is left alone rather than turned
@@ -356,10 +358,10 @@ async function lockTargetAndJudge(
       requireNotDemoCampaign(state);
       requireNotOwnerAsAdmin(state, actorId);
     }
-    return campaignBalance(tx, subject.campaignId);
+    return campaignBalance(tx, subject.campaignId, sandbox);
   }
   await tx.$queryRaw`SELECT id FROM "Program" WHERE id = ${subject.programId} FOR UPDATE`;
-  return programBalance(tx, subject.programId);
+  return programBalance(tx, subject.programId, sandbox);
 }
 
 /**
@@ -405,7 +407,12 @@ export async function approveManualContribution(
     // a concurrent Payout approval from draining the pool mid-decision and
     // leaving this contribution written against a balance that no longer
     // covers it.
-    await lockTargetAndJudge(tx, subject, decidedById);
+    // A Manual Contribution has no source row to take a mode from, so it takes
+    // the marker in force when the money is booked (ticket 94): one recorded
+    // during the beta is test money, in the sandbox pool, and never counts as
+    // real. Its reversal reads the mode back off these entries below.
+    const sandbox = currentSandboxStamp();
+    await lockTargetAndJudge(tx, subject, decidedById, sandbox);
 
     const claimed = await tx.manualContribution.updateMany({
       where: { id: manualContributionId, status: 'PENDING' },
@@ -426,6 +433,7 @@ export async function approveManualContribution(
       manualContributionReceivedLegs({ subject, amount: contribution.amount }),
       {
         manualContributionId: contribution.id,
+        sandbox,
         transactionId: `manual-contribution-${contribution.id}`,
       },
     );
@@ -433,7 +441,9 @@ export async function approveManualContribution(
     // The display figure moves in the same transaction as the ledger, exactly
     // as the settlement webhook does it, so the two cannot disagree about a
     // rupiah. Only a Campaign has one.
-    if (subject.type === 'campaign') {
+    // Test money never touches the live counter (Campaign.collectedAmount is
+    // public progress, and a sandbox contribution is not a real one).
+    if (subject.type === 'campaign' && !sandbox) {
       await tx.campaign.update({
         where: { id: subject.campaignId },
         data: { collectedAmount: { increment: contribution.amount } },
@@ -536,7 +546,14 @@ export async function reverseManualContribution(
     }
 
     const subject = subjectOf(contribution);
-    const balance = await lockTargetAndJudge(tx, subject, reversedById);
+        // The mode it was booked in, read off its own entries: the marker may have
+    // changed since, and a reversal must come out of the pool the money went in.
+    const booked = await tx.ledgerEntry.findFirst({
+      where: { transactionId: `manual-contribution-${contribution.id}` },
+      select: { sandbox: true },
+    });
+    const sandbox = booked ? sandboxModeOf(booked) : false;
+    const balance = await lockTargetAndJudge(tx, subject, reversedById, sandbox);
 
     // Read under the lock taken above, so this is current for as long as the
     // lock is held: if a Payout drained part of this money in the meantime, it
@@ -558,11 +575,12 @@ export async function reverseManualContribution(
       manualContributionReversedLegs({ subject, amount: contribution.amount }),
       {
         manualContributionId: contribution.id,
+        sandbox,
         transactionId: `manual-contribution-reversed-${contribution.id}`,
       },
     );
 
-    if (subject.type === 'campaign') {
+    if (subject.type === 'campaign' && !sandbox) {
       await tx.campaign.update({
         where: { id: subject.campaignId },
         data: { collectedAmount: { decrement: contribution.amount } },
@@ -595,7 +613,7 @@ export async function programBooks(
   const net = async (extra: Prisma.LedgerEntryWhereInput) => {
     const rows = await tx.ledgerEntry.groupBy({
       by: ['direction'] as const,
-      where: { programId: { in: programIds }, account: 'PROGRAM_BALANCE', ...extra },
+      where: { programId: { in: programIds }, account: 'PROGRAM_BALANCE', sandbox: false, ...extra },
       _sum: { amount: true },
     });
     let credits = 0;

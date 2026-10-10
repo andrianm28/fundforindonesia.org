@@ -1,3 +1,4 @@
+import { isBetaSandbox } from '@/lib/deploy-environment';
 import { CampaignStatus, Kind, type CampaignTransfer, type Prisma, type PrismaClient } from '@/generated/prisma/client';
 import { OwnSubjectConflictError } from '@/lib/capacity';
 import { lockAndLoad, requireNotOwnerAsAdmin, type SubjectState } from '@/lib/subject-guard';
@@ -181,6 +182,15 @@ async function lockAndJudge(
   params: { sourceId: string; targetId: string; actorId: string; atApproval?: boolean },
 ): Promise<Judged> {
   const { sourceId, targetId, actorId, atApproval } = params;
+  // A Campaign Transfer moves a REAL Campaign Balance between Campaigns, and
+  // it has no mode of its own to keep test and real money apart (ticket 94).
+  // So it does not run while the beta marker is on: no real-money movement is
+  // open in the beta.
+  if (isBetaSandbox()) {
+    throw new CampaignTransferInvalidError(
+      'Pengalihan dana tidak tersedia selama mode Beta (BETA_SANDBOX aktif): tidak ada uang nyata yang boleh dipindahkan.',
+    );
+  }
   const now = new Date();
 
   const states = new Map<string, SubjectState | null>();
