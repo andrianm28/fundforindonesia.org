@@ -443,10 +443,6 @@ model Campaign {
   /// Existing Campaigns were backfilled to DONATION by the migration that
   /// added this column; POST /api/campaigns always writes it explicitly.
   kind                   Kind           @default(DONATION)
-  // Legacy status string: no application code or seed reads or writes it
-  // (legacy-status-contract 02). Nullable and ignored until ticket 03 drops
-  // it with its index.
-  status                 String?
   // A new Campaign is a Draft until its Fundraiser submits it (FFI-04).
   lifecycleStatus        CampaignStatus @default(DRAFT)
   isUrgent               Boolean        @default(false)
@@ -545,7 +541,6 @@ model Campaign {
   @@index([slug])
   @@index([category])
   @@index([kind])
-  @@index([status])
   @@index([lifecycleStatus])
   @@index([creatorId])
   @@index([collectingEntityId])
@@ -555,7 +550,6 @@ model Campaign {
   // index pg_trgm's `similarity()` can use as a search. The extension itself
   // is created by the migration, never by the application.
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
-  @@index([isUrgent, status])
   @@index([lifecycleStatus, deadline])
 }
 
