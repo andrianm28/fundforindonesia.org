@@ -13,13 +13,23 @@
  * the dev seed grows demo content for humans, while these rows are the
  * minimal contract each spec asserts against (slugs, a settled QRIS
  * donation's receipt token, a valid Fundraising Permit so the Active
- * campaign really accepts donations). Nothing here is demo content, so
- * nothing is flagged isDemo.
+ * campaign really accepts donations, a Verifier and an Admin who can sign
+ * in). Nothing here is demo content, so nothing is flagged isDemo.
  */
-import { PrismaClient, Kind, CampaignStatus } from '../../src/generated/prisma/client';
+import { PrismaClient, Kind, CampaignStatus, Assignment } from '../../src/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { sealDonationGuestEmail, sealUserEmail } from '../../src/lib/contact-fields';
-import { ACTIVE_SLUG, DRAFT_SLUG, RECEIPT_TOKEN, RECEIPT_AMOUNT } from './fixtures';
+import { hashPassword } from '../../src/lib/password-hash';
+import { PASSWORD_HASH_COST } from '../../src/lib/password-hash-cost';
+import {
+  ACTIVE_SLUG,
+  ADMIN_EMAIL,
+  DRAFT_SLUG,
+  OPERATOR_PASSWORD,
+  RECEIPT_TOKEN,
+  RECEIPT_AMOUNT,
+  VERIFIER_EMAIL,
+} from './fixtures';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -52,6 +62,34 @@ async function main() {
       id: 'e2e-registrar',
       name: 'E2E Registrar',
       ...sealUserEmail('e2e-registrar@example.org'),
+    },
+  });
+
+  // The Verifier who raises a Flag and the Admin who dismisses it
+  // (flag-dismiss.spec.ts). Neither owns a Campaign, so neither is barred
+  // from acting on the Active one below. They can sign in with credentials;
+  // `update: {}` keeps a rerun from re-granting or re-hashing anything.
+  const operatorPassword = await hashPassword(OPERATOR_PASSWORD, PASSWORD_HASH_COST);
+  await prisma.user.upsert({
+    where: { id: 'e2e-verifier' },
+    update: {},
+    create: {
+      id: 'e2e-verifier',
+      name: 'E2E Verifier',
+      password: operatorPassword,
+      ...sealUserEmail(VERIFIER_EMAIL),
+      assignments: { create: { assignment: Assignment.VERIFIER } },
+    },
+  });
+  await prisma.user.upsert({
+    where: { id: 'e2e-admin' },
+    update: {},
+    create: {
+      id: 'e2e-admin',
+      name: 'E2E Admin',
+      password: operatorPassword,
+      ...sealUserEmail(ADMIN_EMAIL),
+      assignments: { create: { assignment: Assignment.ADMIN } },
     },
   });
 

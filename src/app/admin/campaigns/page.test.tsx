@@ -39,6 +39,32 @@ describe('AdminCampaignsPage actions', () => {
     expect(within(row).getByText('Lihat')).toBeDefined();
     expect(within(row).queryByText(/hapus/i)).toBeNull();
   });
+
+  // rilis-1-benda 66: Urgent is set on any Active Campaign, and the queue at
+  // /admin/campaigns/lifecycle lists only the flagged, suspended and
+  // cancelling ones, so this table is where an Admin finds the rest.
+  it("links each Campaign to its lifecycle screen, where an Admin sets Urgent, handles Flags and Suspension", async () => {
+    vi.mocked(prisma.campaign.findMany).mockResolvedValue([
+      {
+        id: 'campaign-1',
+        slug: 'sumur-desa',
+        title: 'Sumur untuk Desa',
+        lifecycleStatus: 'ACTIVE',
+        deadline: null,
+        targetAmount: 10_000_000,
+        collectedAmount: 2_500_000,
+        createdAt: new Date('2026-09-01T00:00:00.000Z'),
+        creator: { name: 'Budi', email: 'budi@test.com' },
+      },
+    ] as never);
+
+    render(await AdminCampaignsPage());
+
+    const row = screen.getByText('Sumur untuk Desa').closest('tr')!;
+    expect(within(row).getByRole('link', { name: 'Kelola' }).getAttribute('href')).toBe(
+      '/admin/campaigns/lifecycle/sumur-desa',
+    );
+  });
 });
 
 describe('AdminCampaignsPage status badges', () => {

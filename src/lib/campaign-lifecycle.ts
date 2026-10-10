@@ -1589,6 +1589,14 @@ export async function liftSuspension(
 // ==================== Urgent (ticket 04) ====================
 
 /**
+ * The effective statuses Urgent can be set from: it marks a Campaign that can
+ * still take a Donation (CONTEXT.md, Urgent). Clearing is allowed from any.
+ * Exported so the Admin screen offers "Pasang Urgent" by this list rather
+ * than by a copy of it.
+ */
+export const URGENT_SETTABLE_FROM: readonly CampaignStatus[] = [CampaignStatus.ACTIVE];
+
+/**
  * An Admin sets or clears Urgent on a Campaign they do not own, with a
  * reason, so the homepage rail and the `?urgent` filter show an operator's
  * judgement. Urgent is not a status: nothing moves, but each change is
@@ -1617,7 +1625,7 @@ export async function setUrgent(
     },
     reasonPolicy: "required",
     rawReason: params.reason,
-    allowedFrom: urgent ? [CampaignStatus.ACTIVE] : undefined,
+    allowedFrom: urgent ? URGENT_SETTABLE_FROM : undefined,
     step: async ({ tx, campaign, actor, capacity, reason, now }) => {
       if (campaign.isUrgent === urgent) return {};
       // The runner holds the Campaign row lock from before its read, so
@@ -1745,9 +1753,10 @@ export type FlagResult = LifecycleResult & { flag: CampaignFlagState };
 
 /**
  * A Flag asks an Admin to consider Suspension, so it can be raised exactly
- * where Suspension is possible (ADR 0015).
+ * where Suspension is possible (ADR 0015). Exported so the moderation screen
+ * offers its Flag form by this list rather than by a copy of it.
  */
-const FLAGGABLE = SUSPENDABLE;
+export const FLAGGABLE: readonly CampaignStatus[] = SUSPENDABLE;
 
 /**
  * A Verifier raises a Flag on a Campaign, with a reason, so an Admin can

@@ -103,6 +103,12 @@ export default async function AdminCampaignsPage() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <Link
+                          href={`/admin/campaigns/lifecycle/${campaign.slug}`}
+                          className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                        >
+                          Kelola
+                        </Link>
+                        <Link
                           href={`/campaign/${campaign.slug}`}
                           className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
                         >
