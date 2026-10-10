@@ -25,11 +25,24 @@ import {
   ACTIVE_SLUG,
   ADMIN_EMAIL,
   DRAFT_SLUG,
-  OPERATOR_PASSWORD,
   RECEIPT_TOKEN,
   RECEIPT_AMOUNT,
   VERIFIER_EMAIL,
+  operatorPassword,
 } from './fixtures';
+
+// This seed creates an Admin and a Verifier who can sign in, so it runs only
+// against a database someone has declared throwaway: E2E_THROWAWAY_DATABASE=1
+// (set by the CI e2e job; export it yourself for a local throwaway database).
+// A loopback host alone is not proof, because a production database can be
+// reached over loopback on its own host; the host check is a second fence.
+if (process.env.E2E_THROWAWAY_DATABASE !== '1') {
+  throw new Error('seed-e2e refuses to run without E2E_THROWAWAY_DATABASE=1 (throwaway databases only).');
+}
+const databaseHost = new URL(process.env.DATABASE_URL ?? 'postgresql://unset').hostname;
+if (!['localhost', '127.0.0.1', '[::1]'].includes(databaseHost)) {
+  throw new Error(`seed-e2e refuses DATABASE_URL host ${JSON.stringify(databaseHost)}: local databases only.`);
+}
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -69,14 +82,14 @@ async function main() {
   // (flag-dismiss.spec.ts). Neither owns a Campaign, so neither is barred
   // from acting on the Active one below. They can sign in with credentials;
   // `update: {}` keeps a rerun from re-granting or re-hashing anything.
-  const operatorPassword = await hashPassword(OPERATOR_PASSWORD, PASSWORD_HASH_COST);
+  const operatorPasswordHash = await hashPassword(operatorPassword(), PASSWORD_HASH_COST);
   await prisma.user.upsert({
     where: { id: 'e2e-verifier' },
     update: {},
     create: {
       id: 'e2e-verifier',
       name: 'E2E Verifier',
-      password: operatorPassword,
+      password: operatorPasswordHash,
       ...sealUserEmail(VERIFIER_EMAIL),
       assignments: { create: { assignment: Assignment.VERIFIER } },
     },
@@ -87,7 +100,7 @@ async function main() {
     create: {
       id: 'e2e-admin',
       name: 'E2E Admin',
-      password: operatorPassword,
+      password: operatorPasswordHash,
       ...sealUserEmail(ADMIN_EMAIL),
       assignments: { create: { assignment: Assignment.ADMIN } },
     },

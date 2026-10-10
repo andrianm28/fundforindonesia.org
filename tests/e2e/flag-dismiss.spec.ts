@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { ACTIVE_CAMPAIGN_ID, ACTIVE_SLUG, ADMIN_EMAIL, OPERATOR_PASSWORD, VERIFIER_EMAIL } from './fixtures';
+import { ACTIVE_CAMPAIGN_ID, ACTIVE_SLUG, ADMIN_EMAIL, VERIFIER_EMAIL, operatorPassword } from './fixtures';
 
 /**
  * rilis-1-benda 66: a Flag, then its dismissal, through the two screens that
@@ -30,7 +30,7 @@ import { ACTIVE_CAMPAIGN_ID, ACTIVE_SLUG, ADMIN_EMAIL, OPERATOR_PASSWORD, VERIFI
 async function signInAs(page: Page, email: string) {
   const { csrfToken } = await (await page.request.get('/api/auth/csrf')).json();
   const signedIn = await page.request.post('/api/auth/callback/credentials', {
-    form: { csrfToken, email, password: OPERATOR_PASSWORD, json: 'true' },
+    form: { csrfToken, email, password: operatorPassword(), json: 'true' },
   });
   expect(signedIn.ok()).toBe(true);
   // The session is what proves it worked, not the status alone.
