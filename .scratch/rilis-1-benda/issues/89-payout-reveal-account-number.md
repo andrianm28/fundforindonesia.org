@@ -27,11 +27,11 @@ Tiket ini **membuka ulang premis** `12-decrypting-a-bank-account-at-payout.md`, 
 
 ## Acceptance
 
-- [ ] Nomor penuh hanya terlihat oleh Admin penyelesai, hanya saat Payout `APPROVED`, dan tidak oleh requester maupun approver Payout itu
-- [ ] Tiap pembukaan menulis baris di tabel audit reveal (siapa, Payout mana, kapan); migrasi mengikuti aturan satu PR skema
-- [ ] Pembukaan lewat aksi eksplisit di server; nomor tidak ikut dalam payload halaman default dan tidak dicatat di log
-- [ ] Tes `page.test.tsx:104` diperbaiki sesuai perilaku baru; tes menolak requester, approver, dan status selain APPROVED
-- [ ] Komentar `accountNumberCiphertext` di skema dan jawaban `12` diamandemen bertanggal
+- [x] Nomor penuh hanya terlihat oleh Admin penyelesai, hanya saat Payout `APPROVED`, dan tidak oleh requester maupun approver Payout itu
+- [x] Tiap pembukaan menulis baris di tabel audit reveal (siapa, Payout mana, kapan); migrasi mengikuti aturan satu PR skema
+- [x] Pembukaan lewat aksi eksplisit di server; nomor tidak ikut dalam payload halaman default dan tidak dicatat di log
+- [x] Tes `page.test.tsx:104` diperbaiki sesuai perilaku baru; tes menolak requester, approver, dan status selain APPROVED
+- [x] Komentar `accountNumberCiphertext` di skema dan jawaban `12` diamandemen bertanggal
 - [ ] Review independen `sonnet` (uang/keamanan) diposting di PR
 
 ## Comments

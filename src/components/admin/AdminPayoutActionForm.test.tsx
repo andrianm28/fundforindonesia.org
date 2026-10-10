@@ -242,3 +242,43 @@ describe('AdminPayoutActionForm -- a Payout that is neither DRAFT nor APPROVED',
     expect(screen.queryByRole('button')).toBeNull();
   });
 });
+
+describe('AdminPayoutActionForm -- opening the account number (ticket 89)', () => {
+  const approved = {
+    payoutId: 'payout-1',
+    status: 'APPROVED' as const,
+    subject: { type: 'campaign' as const, slug: 'sumur-desa' },
+    actorId: 'admin-3',
+    requestedById: 'fundraiser-1',
+    approvedById: 'admin-2',
+  };
+
+  it('shows no number until asked, then posts to the reveal route and shows what it returns', async () => {
+    mockFetch.mockImplementation(() => ok({ accountNumber: '1234567890' }));
+    render(<AdminPayoutActionForm {...approved} />);
+    expect(screen.queryByText('1234567890')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /tampilkan nomor rekening/i }));
+
+    expect(await screen.findByText('1234567890')).toBeDefined();
+    expect(mockFetch).toHaveBeenCalledWith('/api/admin/payouts/payout-1/reveal-account', { method: 'POST' });
+  });
+
+  it('shows the server refusal and no number', async () => {
+    mockFetch.mockImplementation(() => refused(403, { error: 'Payout harus diselesaikan Admin lain.' }));
+    render(<AdminPayoutActionForm {...approved} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /tampilkan nomor rekening/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Payout harus diselesaikan Admin lain.');
+    expect(screen.queryByTestId('revealed-account-number')).toBeNull();
+  });
+
+  it('offers no reveal button to the approver, on a DRAFT, or to anyone but the completing Admin', () => {
+    render(<AdminPayoutActionForm {...approved} actorId="admin-2" />);
+    expect(screen.queryByRole('button', { name: /tampilkan nomor rekening/i })).toBeNull();
+    cleanup();
+    render(<AdminPayoutActionForm {...approved} status="DRAFT" approvedById={null} actorId="admin-3" />);
+    expect(screen.queryByRole('button', { name: /tampilkan nomor rekening/i })).toBeNull();
+  });
+});
