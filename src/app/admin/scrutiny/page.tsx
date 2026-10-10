@@ -46,7 +46,8 @@ export const dynamic = 'force-dynamic';
  *   - a Penanda Audit shows the Gross as withCountedCollectedAmount reads it,
  *     never the marker's own cumulativeGross snapshot, which cannot be sorted
  *     by mode after the fact. A marker whose counted Gross is not above the
- *     limit it was placed under is left out: only test money put it there. That
+ *     limit it was placed under, while test money is part of the counter, is left
+ *     out: only test money put it there. That
  *     cut comes after the 100-row limit, far above the number of Campaigns that
  *     ever reach the audit limit.
  */
@@ -115,9 +116,17 @@ export default async function AdminScrutinyPage() {
   // withCountedCollectedAmount answers for every Campaign it was given, so the
   // 0 is only there for the type; were it ever used, the marker would be left
   // out, not shown with a made-up number.
+  // Left out only when test money is what put it over: some of the counter is
+  // sandbox Gross AND without it the Campaign is not above the limit the
+  // marker was placed under (placement is strictly above, src/lib/scrutiny.ts).
+  // A Campaign that fell back under the limit for another reason (a reversed
+  // Manual Contribution) keeps its marker: it records what happened.
   const auditMarkers = auditRows
     .map((row) => ({ ...row, gross: grossByCampaign.get(row.campaign.id) ?? 0 }))
-    .filter((row) => row.gross > row.threshold);
+    .filter((row) => {
+      const testGross = row.campaign.collectedAmount - row.gross;
+      return !(testGross > 0 && row.gross <= row.threshold);
+    });
 
   return (
     <div className="max-w-4xl space-y-8">

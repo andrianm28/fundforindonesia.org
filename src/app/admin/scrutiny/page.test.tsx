@@ -153,6 +153,44 @@ describe('AdminScrutinyPage', () => {
     expect(within(section).getByText(/belum ada penanda audit/i)).toBeDefined();
   });
 
+  // "Only test money" means test money is what tipped it: a Campaign whose
+  // counted Gross fell back under the limit for a reason that is not the beta
+  // (a reversed Manual Contribution) keeps its marker, because the marker is a
+  // record of what happened, not a live reading.
+  it('keeps a Penanda Audit whose Gross fell back under the limit without any test money', async () => {
+    givenAdmin();
+    givenRows({
+      audit: [
+        auditMarker({
+          campaign: { id: 'campaign-1', title: 'Dibalik Kontribusi Manual', slug: 'dibalik', collectedAmount: 480_000_000 },
+        }),
+      ],
+      sandboxPayments: [],
+    });
+
+    render(await AdminScrutinyPage());
+
+    expect(screen.getByText('Dibalik Kontribusi Manual')).toBeDefined();
+  });
+
+  // The marker is placed when cumulative Gross is strictly above the limit
+  // (src/lib/scrutiny.ts), so a counted Gross exactly at the limit means the
+  // test money was what pushed it over.
+  it.each([
+    ['exactly at the limit once test money is taken off: left out', 520_000_000, 20_000_000, false],
+    ['one rupiah above it: kept', 520_000_000, 19_999_999, true],
+  ])('%s', async (_case, collectedAmount, sandboxGross, shown) => {
+    givenAdmin();
+    givenRows({
+      audit: [auditMarker({ campaign: { id: 'campaign-1', title: 'Batas', slug: 'batas', collectedAmount } })],
+      sandboxPayments: [{ amount: sandboxGross, donation: { campaignId: 'campaign-1' } }],
+    });
+
+    render(await AdminScrutinyPage());
+
+    expect(screen.queryByText('Batas') !== null).toBe(shown);
+  });
+
   it('says so when a list has no marker', async () => {
     givenAdmin();
     givenRows({});
@@ -212,6 +250,33 @@ describe('AdminScrutinyPage', () => {
     expect(prisma.donationReviewMarker.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ orderBy: { flaggedAt: 'desc' }, take: 100 }),
     );
+  });
+
+  // No Donor data is read at all, not just left unrendered: the query asks
+  // for these columns and nothing else, so a Donor's name or contact never
+  // reaches the page (ADR 0012: contact fields stay sealed).
+  it('selects no Donor column in either query', async () => {
+    givenAdmin();
+    givenRows({});
+
+    await AdminScrutinyPage();
+
+    const auditArgs = vi.mocked(prisma.campaignAuditMarker.findMany).mock.calls[0][0] as { select: object };
+    const donationArgs = vi.mocked(prisma.donationReviewMarker.findMany).mock.calls[0][0] as { select: object };
+    expect(auditArgs.select).toEqual({
+      id: true,
+      threshold: true,
+      placedAt: true,
+      campaign: { select: { id: true, title: true, slug: true, collectedAmount: true } },
+    });
+    expect(donationArgs.select).toEqual({
+      id: true,
+      donationId: true,
+      amount: true,
+      threshold: true,
+      flaggedAt: true,
+      campaign: { select: { title: true, slug: true } },
+    });
   });
 
   // Beta data (ticket 92): a Donation settled by a sandbox Payment is test data.
