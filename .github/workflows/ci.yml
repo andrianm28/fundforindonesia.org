@@ -233,6 +233,9 @@ jobs:
       # opt-out that lets the bundle run on http://localhost:3000 for Playwright.
       JOBS_SECRET: ci-placeholder-jobs-secret-not-real
       ALLOW_LOCAL_AUTH_URL: "1"
+      # The e2e seed creates an Admin and a Verifier who can sign in; it runs
+      # only against a database declared throwaway (tests/e2e/seed-e2e.ts).
+      E2E_THROWAWAY_DATABASE: "1"
       # Inlined into the client bundle at build time: the donate page shows
       # its form. The money itself stays stubbed in the specs: in
       # production `next start` the mock adapter is refused, so CI raises
@@ -253,6 +256,13 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Migrate the throwaway database
         run: npx prisma migrate deploy
+      - name: Draw a throwaway password for the e2e operators
+        # Never in the repository: the seed's Admin and Verifier sign in with
+        # a password drawn here, masked in the log, and gone with the job.
+        run: |
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          echo "E2E_OPERATOR_PASSWORD=$password" >> "$GITHUB_ENV"
       - name: Seed the e2e fixtures
         run: npx tsx tests/e2e/seed-e2e.ts
       - name: Build the bundle under test

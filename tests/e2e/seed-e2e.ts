@@ -2,9 +2,12 @@
  * Fixtures for the Playwright e2e specs (tests/e2e/*.spec.ts).
  *
  * Run once per CI e2e job after `prisma migrate deploy`, against the job's
- * throwaway Postgres:
+ * throwaway Postgres (the job sets the last two; export them yourself
+ * against a local throwaway database, with any password of 16+ characters):
  *
- *   DATABASE_URL=postgresql://ci:ci@localhost:5432/ci npx tsx tests/e2e/seed-e2e.ts
+ *   DATABASE_URL=postgresql://ci:ci@localhost:5432/ci \
+ *   E2E_THROWAWAY_DATABASE=1 E2E_OPERATOR_PASSWORD=<16+ characters> \
+ *   npx tsx tests/e2e/seed-e2e.ts
  *
  * Idempotent (upserts by fixed ids/slugs), so a rerun never duplicates.
  * Fixed ids keep the specs readable; this database is dropped with the job.
@@ -13,13 +16,37 @@
  * the dev seed grows demo content for humans, while these rows are the
  * minimal contract each spec asserts against (slugs, a settled QRIS
  * donation's receipt token, a valid Fundraising Permit so the Active
- * campaign really accepts donations). Nothing here is demo content, so
- * nothing is flagged isDemo.
+ * campaign really accepts donations, a Verifier and an Admin who can sign
+ * in). Nothing here is demo content, so nothing is flagged isDemo.
  */
-import { PrismaClient, Kind, CampaignStatus } from '../../src/generated/prisma/client';
+import { PrismaClient, Kind, CampaignStatus, Assignment } from '../../src/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { sealDonationGuestEmail, sealUserEmail } from '../../src/lib/contact-fields';
-import { ACTIVE_SLUG, DRAFT_SLUG, RECEIPT_TOKEN, RECEIPT_AMOUNT } from './fixtures';
+import { hashPassword } from '../../src/lib/password-hash';
+import { PASSWORD_HASH_COST } from '../../src/lib/password-hash-cost';
+import {
+  ACTIVE_CAMPAIGN_ID,
+  ACTIVE_SLUG,
+  ADMIN_EMAIL,
+  DRAFT_SLUG,
+  RECEIPT_TOKEN,
+  RECEIPT_AMOUNT,
+  VERIFIER_EMAIL,
+  operatorPassword,
+} from './fixtures';
+
+// This seed creates an Admin and a Verifier who can sign in, so it runs only
+// against a database someone has declared throwaway: E2E_THROWAWAY_DATABASE=1
+// (set by the CI e2e job; export it yourself for a local throwaway database).
+// A loopback host alone is not proof, because a production database can be
+// reached over loopback on its own host; the host check is a second fence.
+if (process.env.E2E_THROWAWAY_DATABASE !== '1') {
+  throw new Error('seed-e2e refuses to run without E2E_THROWAWAY_DATABASE=1 (throwaway databases only).');
+}
+const databaseHost = new URL(process.env.DATABASE_URL ?? 'postgresql://unset').hostname;
+if (!['localhost', '127.0.0.1', '[::1]'].includes(databaseHost)) {
+  throw new Error(`seed-e2e refuses DATABASE_URL host ${JSON.stringify(databaseHost)}: local databases only.`);
+}
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -52,6 +79,35 @@ async function main() {
       id: 'e2e-registrar',
       name: 'E2E Registrar',
       ...sealUserEmail('e2e-registrar@example.org'),
+    },
+  });
+
+  // The Verifier who raises a Flag and the Admin who dismisses it
+  // (flag-dismiss.spec.ts). Neither owns a Campaign, so neither is barred
+  // from acting on the Active one below. They can sign in with credentials.
+  // A rerun only refreshes the password hash (the password is drawn per run),
+  // never re-grants an assignment.
+  const operatorPasswordHash = await hashPassword(operatorPassword(), PASSWORD_HASH_COST);
+  await prisma.user.upsert({
+    where: { id: 'e2e-verifier' },
+    update: { password: operatorPasswordHash },
+    create: {
+      id: 'e2e-verifier',
+      name: 'E2E Verifier',
+      password: operatorPasswordHash,
+      ...sealUserEmail(VERIFIER_EMAIL),
+      assignments: { create: { assignment: Assignment.VERIFIER } },
+    },
+  });
+  await prisma.user.upsert({
+    where: { id: 'e2e-admin' },
+    update: { password: operatorPasswordHash },
+    create: {
+      id: 'e2e-admin',
+      name: 'E2E Admin',
+      password: operatorPasswordHash,
+      ...sealUserEmail(ADMIN_EMAIL),
+      assignments: { create: { assignment: Assignment.ADMIN } },
     },
   });
 
@@ -89,7 +145,7 @@ async function main() {
     where: { slug: ACTIVE_SLUG },
     update: {},
     create: {
-      id: 'e2e-campaign-aktif',
+      id: ACTIVE_CAMPAIGN_ID,
       slug: ACTIVE_SLUG,
       title: 'E2E Air Bersih Desa',
       description: 'Campaign fixture untuk e2e donasi QRIS.',
@@ -135,7 +191,7 @@ async function main() {
       amount: RECEIPT_AMOUNT,
       paymentMethod: 'qris',
       paymentStatus: 'confirmed',
-      campaignId: 'e2e-campaign-aktif',
+      campaignId: ACTIVE_CAMPAIGN_ID,
       ...sealDonationGuestEmail('e2e-donor@example.org'),
     },
   });
