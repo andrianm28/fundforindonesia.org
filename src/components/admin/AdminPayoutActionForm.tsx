@@ -41,13 +41,14 @@ import type { PayoutStatus } from '@/generated/prisma/client';
  * trusts. The route sends both fields on their own; `completePayout` joins
  * them into the one string `Payout.proofImage` stores.
  *
- * NO BANK ACCOUNT NUMBER ANYWHERE ON THIS FORM (ticket 12). Sumopod, the
- * only provider active before a disbursement API exists, is withdrawn from
- * by hand in its own dashboard -- the platform never needs to read the
- * plaintext number to instruct a transfer, so this form never asks
- * `readBankAccountNumber` for it and shows only what was always plaintext
- * (bank code, account holder name). Showing the number here would be
- * reading it for a payout that never needed it read.
+ * THE ACCOUNT NUMBER IS OPENED ON REQUEST, FOR THE COMPLETING ADMIN ONLY
+ * (ticket 89, amending ticket 12). Sumopod is withdrawn from by hand in its
+ * own dashboard, so the Admin completing an APPROVED Payout has to type the
+ * full number. It is never part of the page payload: the button posts to
+ * /api/admin/payouts/[id]/reveal-account, which re-checks every rule and
+ * writes the audit row, and the number lives only in this component's state.
+ * It is not logged here. The button exists only in the APPROVED branch below,
+ * after the approver has already been turned away.
  *
  * TWO-PERSON RULE, SAID BEFORE THE SERVER HAS TO. `approvePayout` refuses
  * the requester and `completePayout` refuses the approver
@@ -124,6 +125,7 @@ export function AdminPayoutActionForm({
   // Complete fields
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
+  const [accountNumber, setAccountNumber] = useState<string | null>(null);
 
   async function post(url: string, body: Record<string, unknown>, genericError: string) {
     setSubmitting(true);
@@ -144,6 +146,28 @@ export function AdminPayoutActionForm({
       router.refresh();
     } catch {
       setRefusal(genericError);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function revealAccountNumber() {
+    setSubmitting(true);
+    setRefusal(null);
+    try {
+      const res = await fetch(`/api/admin/payouts/${payoutId}/reveal-account`, { method: 'POST' });
+      const responseBody = await res.json().catch(() => ({}));
+      if (!res.ok || typeof responseBody.accountNumber !== 'string') {
+        setRefusal(
+          typeof responseBody.error === 'string' && responseBody.error !== ''
+            ? responseBody.error
+            : 'Gagal membuka nomor rekening.',
+        );
+        return;
+      }
+      setAccountNumber(responseBody.accountNumber);
+    } catch {
+      setRefusal('Gagal membuka nomor rekening.');
     } finally {
       setSubmitting(false);
     }
@@ -257,6 +281,31 @@ export function AdminPayoutActionForm({
 
     return (
       <div className="space-y-3">
+        <div className="rounded-lg border border-gray-200 p-3">
+          {accountNumber === null ? (
+            <>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={revealAccountNumber}
+                className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-800 disabled:opacity-50"
+              >
+                Tampilkan nomor rekening
+              </button>
+              <p className="mt-2 text-xs text-gray-500">
+                Dibutuhkan untuk mengetik transfer di dashboard penyedia. Setiap pembukaan tercatat atas nama Anda.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-gray-500">Nomor rekening tujuan</p>
+              <p className="font-mono text-base font-semibold text-gray-900" data-testid="revealed-account-number">
+                {accountNumber}
+              </p>
+            </>
+          )}
+        </div>
+
         <label className="block text-sm text-gray-700">
           Referensi transaksi
           <input
