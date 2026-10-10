@@ -6,6 +6,7 @@ import { PaymentMethod } from '@/types/donation';
 import { formatRupiah } from '@/lib/utils/currency';
 import { computePlatformFee, formatFeePercent } from '@/lib/money/platform-fee';
 import { Button } from '@/components/ui/Button';
+import { BetaBanner } from '@/components/layout/BetaBanner';
 
 export interface DonationConfirmationProps {
   campaign: Campaign;
@@ -32,6 +33,8 @@ export interface DonationConfirmationProps {
     onPhoneChange: (value: string) => void;
     error?: string;
   };
+  /** Beta (ticket rilis-1-benda/92): from the server via the layout's context; this component never reads the environment. */
+  betaSandbox?: boolean;
   /**
    * Shown only for a Campaign ber-Kind `wakaf`: the explicit ikrar
    * confirmation checkout carries (CONTEXT.md, Akad Wakaf; PRD user story
@@ -62,6 +65,7 @@ export function DonationConfirmation({
   isSubmitting,
   guestContact,
   ikrarWakaf,
+  betaSandbox = false,
 }: DonationConfirmationProps) {
   const handlePrayerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -85,6 +89,8 @@ export function DonationConfirmation({
 
   return (
     <div className="flex flex-col gap-6">
+      {betaSandbox && <BetaBanner variant="donation" />}
+
       {/* Summary Section */}
       <div className="bg-gray-50 rounded-lg p-4 space-y-3">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">

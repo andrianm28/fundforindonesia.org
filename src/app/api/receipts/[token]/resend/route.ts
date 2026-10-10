@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { sendReportingFailure } from '@/lib/mail';
 import { receiptEmail, resolveReceiptRecipient } from '@/lib/mail/receipt';
 import { publicUrl } from '@/lib/public-url';
+import { receiptNeedsBetaNotice } from '@/lib/money/counted-payment';
 
 /**
  * A Donor can ask for their Receipt again (CONTEXT.md, Receipt; prd-compliance
@@ -29,6 +30,9 @@ export async function POST(
           // come with `include`; naming scalars inside it is a Prisma error.
           campaign: { include: { collectingEntity: true } },
           donor: { select: { id: true, name: true, ...SELECT_USER_EMAIL } },
+          // Only the beta stamp is read: a Receipt for a beta Payment says so
+          // whatever the marker is now (receiptNeedsBetaNotice).
+          payments: { select: { sandbox: true } },
         },
       },
     },
@@ -84,6 +88,7 @@ export async function POST(
       amount: donation.amount,
       paidAt: receipt.sentAt ?? receipt.createdAt,
       printUrl: publicUrl(`/receipt/${token}`),
+      betaSandbox: receiptNeedsBetaNotice(donation.payments),
     }),
     { mail: 'receipt_resend', donationId: donation.id, receiptId: receipt.id },
   );

@@ -71,6 +71,12 @@ services:
       SUMOPOD_API_KEY: ${SUMOPOD_API_KEY:-}
       SUMOPOD_WEBHOOK_SECRET: ${SUMOPOD_WEBHOOK_SECRET:-}
       SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-}
+      # Public beta marker (ticket rilis-1-benda/92), read by the server per
+      # call (not NEXT_PUBLIC_): exactly "true" makes the money path accept
+      # ONLY the Sumopod sandbox, shows the "no real money" banner, and stamps
+      # each new Payment as sandbox. Empty default: unset means production,
+      # where the sandbox is refused. Go-live is removing it from the .env.
+      BETA_SANDBOX: ${BETA_SANDBOX:-}
       PAYMENT_LINK_ALLOWED_HOSTS: ${PAYMENT_LINK_ALLOWED_HOSTS:-}
       # Field-level encryption keys (ADR 0012). No defaults, for the reason
       # MOCK_MIDTRANS_SERVER_KEY above gives: a default key is a published one.

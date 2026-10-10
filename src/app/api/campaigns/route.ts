@@ -3,6 +3,7 @@ import { CampaignStatus, type Prisma } from '@/generated/prisma/client';
 import { z } from 'zod';
 import { coverImageSchema } from '@/lib/cover-image';
 import { prisma } from '@/lib/prisma';
+import { withCountedCollectedAmount } from '@/lib/money/counted-payment';
 import { getServerSession } from '@/lib/auth';
 import { listableCampaignWhere } from '@/lib/subject-guard';
 import { deadlineRequiredMessage, KINDS, missingRequiredDeadline, parseKind } from '@/lib/campaign-kind';
@@ -111,8 +112,12 @@ export async function GET(request: NextRequest) {
 
     const totalPages = Math.ceil(total / limit);
 
+    // Progress as the public may see it: sandbox (beta) Payments
+    // are taken back out of the stored counter (counted-payment.ts).
+    const publicCampaigns = await withCountedCollectedAmount(prisma, campaigns);
+
     const response = NextResponse.json({
-      campaigns,
+      campaigns: publicCampaigns,
       total,
       page,
       limit,

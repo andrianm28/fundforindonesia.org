@@ -44,6 +44,7 @@ function makeReceipt(overrides: Record<string, unknown> = {}) {
       donorId: 'donor-1',
       guestName: null,
       donor: { id: 'donor-1', name: 'Sari' },
+      payments: [{ sandbox: false }],
       campaign: {
         title: 'Bantu Sekolah Yatim',
         collectingEntity: { name: 'Yayasan Insan Ekonomi Mandiri' },
@@ -56,6 +57,7 @@ function makeReceipt(overrides: Record<string, unknown> = {}) {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   view.props = null;
 });
 
@@ -71,6 +73,31 @@ describe('ReceiptPage', () => {
       collectingEntityName: 'Yayasan Insan Ekonomi Mandiri',
       amount: 250_000,
       donorName: 'Sari',
+    });
+  });
+
+  describe('the beta notice (ticket rilis-1-benda/92)', () => {
+    const renderPage = async () => render(await ReceiptPage({ params: Promise.resolve({ token: 'tok-1' }) }));
+
+    it('is not asked for on an ordinary Receipt', async () => {
+      mockFindUnique.mockResolvedValue(makeReceipt());
+      await renderPage();
+      expect(view.props).toMatchObject({ betaSandbox: false });
+    });
+
+    it('is asked for while the beta marker is on', async () => {
+      vi.stubEnv('BETA_SANDBOX', 'true');
+      mockFindUnique.mockResolvedValue(makeReceipt());
+      await renderPage();
+      expect(view.props).toMatchObject({ betaSandbox: true });
+    });
+
+    it('is still asked for after go-live when the Donation was paid in the beta', async () => {
+      mockFindUnique.mockResolvedValue(
+        makeReceipt({ donation: { ...makeReceipt().donation, payments: [{ sandbox: true }] } }),
+      );
+      await renderPage();
+      expect(view.props).toMatchObject({ betaSandbox: true });
     });
   });
 

@@ -18,7 +18,12 @@ export type ReceiptEmailInput = {
   amount: number;
   paidAt: Date;
   printUrl: string;
+  /** Beta Receipt (ticket rilis-1-benda/92): says up front that no real money moved. */
+  betaSandbox?: boolean;
 };
+
+/** The same wording as the Receipt page's banner (BETA_BANNER_COPY.receipt), kept in this server-only file so the email does not import a component. */
+const BETA_NOTICE = 'Beta, tidak ada uang nyata. Bukti ini berasal dari masa uji coba: tidak ada dana yang benar-benar dibayarkan, jadi jangan dipakai sebagai bukti donasi.';
 
 function escapeHtml(value: string): string {
   return value
@@ -68,6 +73,7 @@ export function receiptEmail(input: ReceiptEmailInput): MailMessage {
   const subject = `Bukti Donasi untuk "${input.campaignTitle}"`;
   const greeting = input.donorName ? `Halo ${input.donorName},` : 'Halo,';
   const body = [
+    ...(input.betaSandbox ? [BETA_NOTICE] : []),
     `Terima kasih atas donasi Anda sebesar ${formatRupiah(input.amount)} pada ${formatIndonesianDate(input.paidAt)} untuk Campaign "${input.campaignTitle}".`,
     `Dana ini diterima oleh ${input.collectingEntityName}.`,
     'Bukti donasi ini dapat dibuka dan dicetak kembali kapan saja lewat tautan berikut:',

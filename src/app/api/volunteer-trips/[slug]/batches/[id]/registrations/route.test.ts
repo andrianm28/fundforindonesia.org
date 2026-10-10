@@ -315,6 +315,20 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     );
   });
 
+  it('stamps the Trip Fee Payment as sandbox exactly when BETA_SANDBOX is true (ticket 92)', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    await POST(createRequest(), routeContext());
+    expect(mockPaymentCreate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ sandbox: true }) }),
+    );
+
+    vi.stubEnv('BETA_SANDBOX', '');
+    await POST(createRequest(), routeContext());
+    expect(mockPaymentCreate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ sandbox: false }) }),
+    );
+  });
+
   it.each([
     ['BatchNotFoundError', new BatchNotFoundError('batch-1'), 404, 'BATCH_NOT_FOUND'],
     ['TripNotTakingRegistrationsError', new TripNotTakingRegistrationsError('SUSPENDED'), 400, 'TRIP_NOT_TAKING_REGISTRATIONS'],

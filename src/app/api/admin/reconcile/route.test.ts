@@ -67,6 +67,8 @@ type PaymentRow = {
    */
   platformFee?: number | null;
   status?: string;
+  /** Payment.sandbox, the beta stamp (ticket 92); false when omitted. */
+  sandbox?: boolean;
   escrowReleaseAt?: Date | null;
   escrowReleasedAt?: Date | null;
   registrationStatus?: string;
@@ -122,7 +124,26 @@ type ManualContributionRow = {
  */
 function matchesWhere(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([k, v]) => {
+    // Boolean combinators (ticket 92: the "Payment yang dihitung" filters use
+    // AND / NOT / OR), and a nested relation filter such as
+    // `donation: { campaignId: { in: [...] } }`, matched against the row's own
+    // relation object.
+    if (k === 'AND') return (v as Record<string, unknown>[]).every((w) => matchesWhere(row, w));
+    if (k === 'OR') return (v as Record<string, unknown>[]).some((w) => matchesWhere(row, w));
+    if (k === 'NOT') return !matchesWhere(row, v as Record<string, unknown>);
     const rowValue = row[k] ?? null;
+    const OPERATORS = ['not', 'in', 'notIn', 'lte'];
+    if (
+      v &&
+      typeof v === 'object' &&
+      !(v instanceof Date) &&
+      !Array.isArray(v) &&
+      !OPERATORS.some((op) => op in (v as Record<string, unknown>)) &&
+      rowValue !== null &&
+      typeof rowValue === 'object'
+    ) {
+      return matchesWhere(rowValue as Record<string, unknown>, v as Record<string, unknown>);
+    }
     if (v && typeof v === 'object' && !(v instanceof Date)) {
       if ('not' in (v as Record<string, unknown>)) return rowValue !== (v as { not: unknown }).not;
       if ('in' in (v as Record<string, unknown>)) return (v as { in: unknown[] }).in.includes(rowValue);
@@ -190,6 +211,8 @@ function makeTx(options: {
           const isCampaign = p.campaignId != null;
           return {
             ...p,
+            sandbox: p.sandbox ?? false,
+            donation: isCampaign ? { campaignId: p.campaignId } : null,
             escrowReleasedAt: p.escrowReleasedAt ?? null,
             donationId: isCampaign ? `donation-for-${p.id}` : null,
             registrationId: isTrip ? `registration-for-${p.id}` : null,
@@ -2227,5 +2250,67 @@ describe('GET /api/admin/reconcile -- the Provider Balance and the sweep to the 
 
     expect(data.providerReconciliation.collectedByKind).toEqual([{ kind: 'DONATION', settledGross: 100_000 }]);
     expect(data.providerReconciliation.pots[0].debited).toBe(350_000);
+  });
+});
+
+describe('GET /api/admin/reconcile -- Payment yang dihitung (ticket rilis-1-benda/92)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    mockGetServerSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
+  });
+
+  // One Campaign, one live Payment (100_000) and one beta Payment (50_000),
+  // both settled the way the webhook settles them: ESCROW_HOLD net plus both
+  // fee credits under the Payment's id, and the counter incremented by Gross.
+  function fixture(collectedAmount: number) {
+    return makeTx({
+      ledgerRows: [
+        { transactionId: 't1', direction: 'DEBIT', amount: 100_000, account: 'GATEWAY_CLEARING', campaignId: null, paymentId: 'payment-live' },
+        { transactionId: 't1', direction: 'CREDIT', amount: 92_500, account: 'ESCROW_HOLD', campaignId: 'campaign-1', paymentId: 'payment-live' },
+        { transactionId: 't1', direction: 'CREDIT', amount: 5_000, account: 'PROVIDER_FEE', campaignId: null, paymentId: 'payment-live' },
+        { transactionId: 't1', direction: 'CREDIT', amount: 2_500, account: 'PLATFORM_FEE', campaignId: null, paymentId: 'payment-live' },
+        { transactionId: 't2', direction: 'DEBIT', amount: 50_000, account: 'GATEWAY_CLEARING', campaignId: null, paymentId: 'payment-beta' },
+        { transactionId: 't2', direction: 'CREDIT', amount: 46_250, account: 'ESCROW_HOLD', campaignId: 'campaign-1', paymentId: 'payment-beta' },
+        { transactionId: 't2', direction: 'CREDIT', amount: 2_500, account: 'PROVIDER_FEE', campaignId: null, paymentId: 'payment-beta' },
+        { transactionId: 't2', direction: 'CREDIT', amount: 1_250, account: 'PLATFORM_FEE', campaignId: null, paymentId: 'payment-beta' },
+      ],
+      payments: [
+        { id: 'payment-live', campaignId: 'campaign-1', amount: 100_000, providerFee: 5_000, platformFee: 2_500, status: 'PAID' },
+        { id: 'payment-beta', campaignId: 'campaign-1', amount: 50_000, providerFee: 2_500, platformFee: 1_250, status: 'PAID', sandbox: true },
+      ],
+      campaigns: [{ id: 'campaign-1', title: 'Beta Campaign', collectedAmount }],
+    });
+  }
+
+  async function report(tx: ReturnType<typeof makeTx>) {
+    mockTransaction.mockImplementation((cb: (t: unknown) => unknown) => cb(tx));
+    const response = await GET(createRequest());
+    expect(response.status).toBe(200);
+    return response.json();
+  }
+
+  it('in the beta, reconciles the counter less the beta Gross against the real Payments only', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'true');
+
+    const data = await report(fixture(150_000));
+
+    expect(data.mismatches).toEqual([]);
+    expect(data.providerReconciliation.collectedByKind).toEqual([{ kind: 'DONATION', settledGross: 100_000 }]);
+  });
+
+  it('live, reconciles the counter less the beta Gross against the live Payments only', async () => {
+    const data = await report(fixture(150_000));
+
+    expect(data.mismatches).toEqual([]);
+    expect(data.providerReconciliation.collectedByKind).toEqual([{ kind: 'DONATION', settledGross: 100_000 }]);
+  });
+
+  it('live, still reports a real disagreement, measured against the live Payments alone', async () => {
+    const data = await report(fixture(180_000));
+
+    expect(data.mismatches).toEqual([
+      { campaignId: 'campaign-1', campaignTitle: 'Beta Campaign', collectedAmount: 130_000, ledgerAmount: 100_000, difference: 30_000 },
+    ]);
   });
 });

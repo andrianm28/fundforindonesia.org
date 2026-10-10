@@ -41,6 +41,8 @@ export type PaymentRow = {
   /** Set for a Donation-backed Payment; null for a Trip Fee Payment. */
   campaignId?: string | null;
   status?: string;
+  /** The beta stamp (ticket rilis-1-benda/92); false when omitted, as the column defaults. */
+  sandbox?: boolean;
 };
 
 /** A CSR Program: only the columns the Impact reader touches (csr-08). */
@@ -126,6 +128,11 @@ function matchesField(actual: unknown, filter: unknown): boolean {
 function matches(row: Row, where: Row | undefined, resolve: (key: string) => unknown): boolean {
   if (!where) return true;
   return Object.entries(where).every(([key, filter]) => {
+    // Boolean combinators, which the "Payment yang dihitung" filters use
+    // (counted-payment.ts): AND over a list, OR over a list, NOT over one filter.
+    if (key === 'AND') return (filter as Row[]).every((w) => matches(row, w, resolve));
+    if (key === 'OR') return (filter as Row[]).some((w) => matches(row, w, resolve));
+    if (key === 'NOT') return !matches(row, filter as Row, resolve);
     const value = resolve(key);
     if (value !== undefined && typeof value === 'object' && value !== null && !Array.isArray(value)) {
       return matches(value as Row, filter as Row, resolve);
@@ -344,6 +351,7 @@ export function makeImpactDb(overrides: Partial<ImpactDbData> = {}) {
   // `donation: { campaignId: { in: [...] } }`.
   const paymentRow = (row: PaymentRow): Row => ({
     ...row,
+    sandbox: row.sandbox ?? false,
     donationId: row.campaignId == null ? null : `donation-of-${row.id}`,
     donation: row.campaignId == null ? null : { campaignId: row.campaignId },
   });

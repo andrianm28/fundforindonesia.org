@@ -52,6 +52,7 @@ function makeReceipt(overrides: Record<string, unknown> = {}) {
       guestEmailCiphertext: null,
       guestEmailKeyId: null,
       donor: { id: 'donor-1', name: 'Donor Test', ...sealUserEmail('donor@example.test') },
+      payments: [{ sandbox: false }],
       createdAt: new Date('2026-09-26T09:55:00Z'),
       campaign: {
         id: 'campaign-1',
@@ -118,6 +119,24 @@ describe('POST /api/receipts/[token]/resend', () => {
     });
   });
 
+  it('opens the resent email with the beta notice while the marker is on, or when the Donation was paid in the beta (ticket 92)', async () => {
+    const resendWith = async (receipt: Record<string, unknown>) => {
+      mockSendReportingFailure.mockClear();
+      mockFindUnique.mockResolvedValue(makeReceipt({ lastSentAt: new Date('2026-09-26T09:00:00Z'), ...receipt }));
+      await POST(createRequest(), routeContext());
+      return mockSendReportingFailure.mock.calls[0][0].text as string;
+    };
+
+    expect(await resendWith({})).not.toMatch(/tidak ada uang nyata/i);
+
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    expect(await resendWith({})).toMatch(/Beta, tidak ada uang nyata/);
+    vi.unstubAllEnvs();
+
+    const paidInBeta = { donation: { ...makeReceipt().donation, payments: [{ sandbox: true }] } };
+    expect(await resendWith(paidInBeta)).toMatch(/Beta, tidak ada uang nyata/);
+  });
+
   it('answers 429 without sending again inside the cooldown window', async () => {
     mockFindUnique.mockResolvedValue(makeReceipt({ lastSentAt: new Date() }));
 
@@ -151,6 +170,7 @@ describe('POST /api/receipts/[token]/resend', () => {
           donor: null,
           guestName: 'Guest Test',
           ...sealDonationGuestEmail('guest@example.test'),
+          payments: [{ sandbox: false }],
           createdAt: new Date('2026-09-26T09:55:00Z'),
           campaign: {
             id: 'campaign-1',

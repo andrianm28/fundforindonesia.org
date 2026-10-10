@@ -715,6 +715,21 @@ describe('POST /api/webhooks/[provider]', () => {
     expect(report).toMatchObject({ mail: 'receipt', donationId: 'donation-1', paymentId: 'payment-1' });
   });
 
+  it('opens the Receipt email with the beta notice for a Payment stamped sandbox, and not for a live one (ticket rilis-1-benda/92)', async () => {
+    const receiptTextFor = async (overrides: Record<string, unknown>) => {
+      mockSendReportingFailure.mockClear();
+      mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
+      mockPaymentFindUnique.mockResolvedValue(makePayment(overrides));
+      const { tx } = makeTx();
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+      await POST(createRequest(), routeContext());
+      return mockSendReportingFailure.mock.calls[0][0].text as string;
+    };
+
+    expect(await receiptTextFor({ sandbox: true })).toMatch(/Beta, tidak ada uang nyata/);
+    expect(await receiptTextFor({ sandbox: false })).not.toMatch(/tidak ada uang nyata/i);
+  });
+
   it('re-reads anonymisedAt right before sending, so a Donor anonymised after the Payment was loaded gets no Receipt email (ticket 36)', async () => {
     mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
     mockPaymentFindUnique.mockResolvedValue(makePayment());

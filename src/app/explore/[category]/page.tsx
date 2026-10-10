@@ -1,6 +1,7 @@
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
+import { withCountedCollectedAmount } from '@/lib/money/counted-payment';
 import { listableCampaignWhere } from '@/lib/subject-guard';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import type { CampaignCardData } from '@/types/campaign';
@@ -52,8 +53,12 @@ export default async function CategoryPage({ params }: Props) {
     take: 24,
   });
 
+  // Progress as the public may see it (counted-payment.ts): sandbox (beta)
+  // Payments are taken back out of the stored counter.
+  const publicCampaigns = await withCountedCollectedAmount(prisma, campaigns);
+
   // Map to CampaignCardData format
-  const mappedCampaigns: CampaignCardData[] = campaigns.map((c) => ({
+  const mappedCampaigns: CampaignCardData[] = publicCampaigns.map((c) => ({
     id: c.id,
     slug: c.slug,
     title: c.title,

@@ -17,7 +17,7 @@ import { PAYMENT_PROVIDER_NAMES } from './provider-names';
  * says "refuse" is worth having; a provider nobody thought about is not.
  */
 
-const KEYS = ['PAYMENT_PROVIDER', 'SUMOPOD_BASE_URL'] as const;
+const KEYS = ['PAYMENT_PROVIDER', 'SUMOPOD_BASE_URL', 'BETA_SANDBOX'] as const;
 
 let saved: Record<string, string | undefined>;
 
@@ -70,5 +70,65 @@ describe('paymentProviderProductionRefusal', () => {
 
     process.env.SUMOPOD_BASE_URL = 'https://api-pay-sandbox.sumopod.com/api/v1';
     expect(paymentProviderProductionRefusal('sumopod')).toMatch(/sandbox/i);
+  });
+});
+
+/**
+ * The public beta (ticket rilis-1-benda/92) is the one place the sandbox is
+ * allowed to take charges while the process still runs with NODE_ENV=production
+ * (the image sets it). The permission is an explicit marker, never a default,
+ * and it cuts both ways: a beta stack that points at the live base url is
+ * refused too, because the reason the beta exists is that no real rupiah moves.
+ */
+describe('paymentProviderProductionRefusal in the beta', () => {
+  const SANDBOX = 'https://api-pay-sandbox.sumopod.com/api/v1';
+  const LIVE = 'https://api-pay.sumopod.com/api/v1';
+
+  it('allows the Sumopod sandbox only when BETA_SANDBOX is exactly true', () => {
+    process.env.SUMOPOD_BASE_URL = SANDBOX;
+    expect(paymentProviderProductionRefusal('sumopod')).toMatch(/sandbox/i);
+
+    process.env.BETA_SANDBOX = 'true';
+    expect(paymentProviderProductionRefusal('sumopod')).toBeNull();
+  });
+
+  it('does not read a near miss as the beta: the permissive direction is the dangerous one', () => {
+    process.env.SUMOPOD_BASE_URL = SANDBOX;
+    for (const almost of ['True', 'TRUE', ' true', 'true ', '1', 'yes', 'beta', 'false', '']) {
+      process.env.BETA_SANDBOX = almost;
+      expect(paymentProviderProductionRefusal('sumopod'), JSON.stringify(almost)).toMatch(/sandbox/i);
+    }
+  });
+
+  it('refuses the live base url in the beta, so the beta can never take real money', () => {
+    process.env.BETA_SANDBOX = 'true';
+    process.env.SUMOPOD_BASE_URL = LIVE;
+
+    expect(paymentProviderProductionRefusal('sumopod')).toMatch(/beta/i);
+  });
+
+  it('refuses a live or lookalike url that merely contains "sandbox" in the beta', () => {
+    process.env.BETA_SANDBOX = 'true';
+    for (const lookalike of [
+      'https://api-pay.sumopod.com/api/v1?x=sandbox',
+      'https://api-pay.sumopod.com/sandbox/api/v1',
+      'https://sandbox.evil.example/api/v1',
+      'https://api-pay-sandbox.sumopod.com.evil.example/api/v1',
+      'https://evil.example/api-pay-sandbox.sumopod.com',
+      'https://api-pay-sandbox.sumopod.com@evil.example/api/v1',
+      'http://api-pay-sandbox.sumopod.com/api/v1',
+      'not a url sandbox',
+    ]) {
+      process.env.SUMOPOD_BASE_URL = lookalike;
+      expect(paymentProviderProductionRefusal('sumopod'), lookalike).toMatch(/beta/i);
+    }
+  });
+
+  it('still refuses an unset base url in the beta, and the mock adapter, and an unknown provider', () => {
+    process.env.BETA_SANDBOX = 'true';
+
+    expect(paymentProviderProductionRefusal('sumopod')).not.toBeNull();
+    expect(paymentProviderProductionRefusal('mock')).toMatch(/mock/i);
+    expect(paymentProviderProductionRefusal('xendit')).toMatch(/xendit/);
   });
 });

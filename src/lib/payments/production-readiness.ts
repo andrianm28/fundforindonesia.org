@@ -22,7 +22,25 @@
  * money in.
  */
 
+import { isBetaSandbox } from '@/lib/deploy-environment';
 import { canonicalPaymentProviderName, type PaymentProviderName } from './provider-names';
+
+const SUMOPOD_SANDBOX_HOST = 'api-pay-sandbox.sumopod.com';
+
+/**
+ * Whether the url is, exactly, the Sumopod sandbox over https. The substring
+ * test below is right for production, where a false "sandbox" only refuses;
+ * the beta reads the answer the other way round, so there a url that merely
+ * mentions "sandbox" (a query string, a path, a lookalike host) must not count.
+ */
+function isExactlySumopodSandbox(baseUrl: string): boolean {
+  try {
+    const url = new URL(baseUrl);
+    return url.protocol === 'https:' && url.hostname === SUMOPOD_SANDBOX_HOST;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * One rule per provider this build can speak to: null when it may take money
@@ -44,6 +62,17 @@ const PRODUCTION_RULES: Record<PaymentProviderName, () => string | null> = {
     // money path is "do not take money".
     if (!baseUrl) {
       return 'SUMOPOD_BASE_URL is not set in production, so there is no way to tell sandbox from live.';
+    }
+    // The public beta is the one deployment allowed to charge through the
+    // sandbox, and only on the explicit marker (src/lib/deploy-environment.ts).
+    // It is also the one deployment that must NOT have the live url: the beta
+    // exists so that no real rupiah moves, so the permission is a requirement,
+    // not merely a relaxation.
+    if (isBetaSandbox()) {
+      return isExactlySumopodSandbox(baseUrl)
+        ? null
+        : 'SUMOPOD_BASE_URL is not the Sumopod sandbox while BETA_SANDBOX is on. The beta must never ' +
+            'take real money, so it is refused rather than charged for real.';
     }
     if (baseUrl.includes('sandbox')) {
       return (

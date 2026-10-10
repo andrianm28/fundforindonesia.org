@@ -10,6 +10,9 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     campaign: { findUnique: vi.fn() },
+    // Public progress asks for the beta Gross to take back out of the counter
+    // (counted-payment.ts); none is seeded here.
+    payment: { findMany: vi.fn().mockResolvedValue([]) },
     platformFeeRule: { findFirst: vi.fn() },
     platformFeeThreshold: { findFirst: vi.fn() },
   },
@@ -99,6 +102,20 @@ describe('the Platform Fee rate in force (prd-compliance 17)', () => {
 });
 
 describe('the Campaign page payload', () => {
+  it('carries "Donasi uji" (beta Gross) only while the beta marker is on, and keeps it out of progress', async () => {
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([{ amount: 30_000, donation: { campaignId: 'campaign-1' } }] as never);
+
+    const live = await campaignHandedToView({ collectedAmount: 100_000 });
+    expect(live.testDonationAmount).toBeNull();
+    expect(live.collectedAmount).toBe(70_000);
+
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    const beta = await campaignHandedToView({ collectedAmount: 100_000 });
+    expect(beta.testDonationAmount).toBe(30_000);
+    expect(beta.collectedAmount).toBe(70_000);
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([]);
+  });
+
   it('carries lifecycleStatus and no legacy status string', async () => {
     const campaign = await campaignHandedToView();
 

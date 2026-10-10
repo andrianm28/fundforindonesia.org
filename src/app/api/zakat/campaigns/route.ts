@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { listableCampaignWhere } from '@/lib/subject-guard';
+import { withCountedCollectedAmount } from '@/lib/money/counted-payment';
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,8 +40,12 @@ export async function GET(request: NextRequest) {
 
     const totalPages = Math.ceil(total / limit);
 
+    // Progress as the public may see it: sandbox (beta) Payments
+    // are taken back out of the stored counter (counted-payment.ts).
+    const publicCampaigns = await withCountedCollectedAmount(prisma, campaigns);
+
     const response = NextResponse.json({
-      campaigns,
+      campaigns: publicCampaigns,
       total,
       page,
       limit,

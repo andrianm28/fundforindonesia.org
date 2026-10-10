@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { testDonationAmountForCampaign, withCountedCollectedAmount } from '@/lib/money/counted-payment';
 import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 import { CampaignDetailView } from '@/components/campaign/CampaignDetailView';
@@ -9,8 +10,12 @@ import { publicUrl } from '@/lib/public-url';
 import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
 import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
 
-// ISR: one render per Campaign, cached for every visitor alike and
-// revalidated every 60 seconds. So this page never reads the session, and an
+// Was ISR (one render per Campaign, revalidated every 60 seconds). Since
+// rilis-1-benda/92 the root layout reads the beta marker per request
+// (connection()), which makes every route dynamic, so `revalidate` below no
+// longer caches anything; it stays as the statement of intent should the
+// marker move out of the layout. The rule it imposed still holds: this page
+// never reads the session, and an
 // unapproved Campaign (Draft, Submitted, Rejected) renders the 404 here for
 // everyone: whatever is cached is safe to serve to anyone. Its Fundraiser,
 // Verifiers and Admins see it through ./not-found.tsx, which asks the
@@ -103,6 +108,13 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
   // is what the next Donation's Payment would actually freeze.
   const escrowHoldDays = ESCROW_HOLD_DAYS;
 
+  // Progress as the public may see it (counted-payment.ts): sandbox (beta)
+  // Payments are taken back out of the stored counter.
+  const [{ collectedAmount: collectedAmountForPublic }] = await withCountedCollectedAmount(prisma, [campaign]);
+
+  // "Donasi uji": only while the beta marker is on; null otherwise.
+  const testDonationAmount = await testDonationAmountForCampaign(prisma, campaign.id);
+
   // Transform the data for the client component
   const campaignData = {
     id: campaign.id,
@@ -112,7 +124,8 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     story: campaign.story,
     coverImage: campaign.coverImage,
     targetAmount: campaign.targetAmount,
-    collectedAmount: campaign.collectedAmount,
+    collectedAmount: collectedAmountForPublic,
+    testDonationAmount,
     category: campaign.category,
     // Effective, so an Active Campaign past its deadline shows as ended.
     // The Suspension reason is not rendered here: this page is cached for

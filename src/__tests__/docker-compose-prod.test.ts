@@ -233,6 +233,14 @@ describe("docker-compose.prod.yml env passthrough", () => {
     expect(DYNAMIC_READ.test('process.env["X"]')).toBe(false);
   });
 
+  it("passes BETA_SANDBOX to app with an empty default, so only the owner's .env turns the beta on", () => {
+    const line = service("app").find((l) => /^ {6}BETA_SANDBOX:/.test(l));
+    expect(line, "BETA_SANDBOX must be passed to app (ticket rilis-1-benda/92)").toBeDefined();
+    // Empty default: the beta marker is never on unless the .env says exactly
+    // `true`. A `:-true` default would put a production stack in sandbox mode.
+    expect(line!.trim()).toBe("BETA_SANDBOX: ${BETA_SANDBOX:-}");
+  });
+
   it("gives JOBS_SECRET no non-empty default", () => {
     const line = service("app").find((l) => /^ {6}JOBS_SECRET:/.test(l));
     expect(line, "JOBS_SECRET must be passed to app").toBeDefined();

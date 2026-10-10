@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { withCountedCollectedAmount } from '@/lib/money/counted-payment';
 import { catalogueDemoWhere, listableCampaignWhere } from '@/lib/subject-guard';
 import { HeroBanner } from '@/components/home/HeroBanner';
 import QuickActionTiles from '@/components/home/QuickActionTiles';
@@ -168,10 +169,18 @@ export default async function HomePage() {
     }),
   ]);
 
+  // Progress as the public may see it (counted-payment.ts): sandbox (beta)
+  // Payments are taken back out of the stored counter.
+  const [publicUrgent, publicNew, publicFeatured] = await Promise.all([
+    withCountedCollectedAmount(prisma, urgentCampaigns),
+    withCountedCollectedAmount(prisma, newCampaigns),
+    withCountedCollectedAmount(prisma, featuredCampaigns),
+  ]);
+
   // Transform data to component-friendly shapes
-  const urgentCards = urgentCampaigns.map(toCampaignCardData);
-  const newCards = newCampaigns.map(toCampaignCardData);
-  const featuredCards = featuredCampaigns.map(toCampaignCardData);
+  const urgentCards = publicUrgent.map(toCampaignCardData);
+  const newCards = publicNew.map(toCampaignCardData);
+  const featuredCards = publicFeatured.map(toCampaignCardData);
   const prayerItems = recentPrayers.map(toPrayerStreamItem);
 
   return (

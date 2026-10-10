@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { formatRupiah } from '@/lib/utils/currency';
 import { formatIndonesianDate } from '@/lib/utils/date';
+import { BetaBanner } from '@/components/layout/BetaBanner';
 
 export type ReceiptViewProps = {
   token: string;
@@ -15,6 +16,8 @@ export type ReceiptViewProps = {
   anonymised: boolean;
   /** The Donation belongs to an account: its owner anonymises from account settings, not by this link. */
   accountOwned: boolean;
+  /** Beta (ticket rilis-1-benda/92): decided by the server page; this component never reads the environment. */
+  betaSandbox?: boolean;
 };
 
 type ResendState = { status: 'idle' | 'sending' | 'sent' | 'error'; message?: string };
@@ -68,6 +71,11 @@ export function ReceiptView(props: ReceiptViewProps) {
   return (
     <div className="min-h-screen bg-bg-secondary py-10 px-4 print:bg-white print:py-0">
       <div className="max-w-md mx-auto bg-white rounded-xl shadow-xs p-6 print:shadow-none print:rounded-none">
+        {props.betaSandbox && (
+          <div className="mb-4">
+            <BetaBanner variant="receipt" />
+          </div>
+        )}
         <h1 className="text-lg font-semibold text-text">Bukti Donasi</h1>
 
         <dl className="mt-4 space-y-3 text-sm">

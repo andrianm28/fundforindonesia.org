@@ -6,6 +6,7 @@ import { providerSupportedMethods } from '@/lib/payments/active-provider';
 import { resolvePlatformFeeBasisForCampaign } from './platform-fee-config';
 import { computePlatformFee } from './platform-fee';
 import { ESCROW_HOLD_DAYS } from './escrow';
+import { currentPaymentSandboxStamp } from './counted-payment';
 import { recordChargeWriteFailure, sanitizeError } from './payment-reconciliation';
 
 /**
@@ -118,6 +119,9 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
         providerRef: orderId,
         amount,
         platformFee,
+        // Which mode created it, frozen like the fee: beta rows must stay
+        // identifiable after go-live removes the marker.
+        sandbox: currentPaymentSandboxStamp(),
         escrowHoldDays: ESCROW_HOLD_DAYS,
         status: PaymentStatus.PENDING,
         expiresAt: charge.expiresAt,
