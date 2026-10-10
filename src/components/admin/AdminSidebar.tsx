@@ -10,6 +10,7 @@ const ADMIN_HREFS = [
   "/admin/manual-contributions", "/admin/abuse-thresholds", "/admin/campaigns/lifecycle",
   "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/verification-checklist",
   "/admin/collecting-entities", "/admin/partnership-inquiries", "/admin/payment-providers", "/admin/platform-fee",
+  "/admin/scrutiny",
 ] as const;
 const LINK_BASE = "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors";
 
@@ -101,6 +102,9 @@ export function AdminSidebar() {
         </SidebarLink>
         <SidebarLink current={current} href="/admin/platform-fee" icon="payouts">
           Platform Fee
+        </SidebarLink>
+        <SidebarLink current={current} href="/admin/scrutiny" icon="threshold">
+          Penanda Audit &amp; Donasi
         </SidebarLink>
       </nav>
 
