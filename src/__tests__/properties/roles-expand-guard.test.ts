@@ -147,11 +147,17 @@ import { join } from "node:path";
  * Campaign Transfer (a Suspended zakat or wakaf Campaign's money moving to a
  * Campaign of the same Kind), both on the ADMIN assignment alone, on the same
  * two-person rule as Manual Contribution -- growing this list by two.
+ *
+ * NOTE (ticket 67): `src/app/admin/scrutiny/page.tsx`, the Admin screen over the
+ * markers GET /api/admin/scrutiny lists, asks for the ADMIN assignment itself
+ * and answers 404 to anyone else, the way `src/app/admin/page.tsx` asks for it
+ * and the Moderasi pages ask for VERIFIER -- growing this list by one.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
+  "src/app/admin/scrutiny/page.tsx",
   "src/app/api/admin/abuse-thresholds/route.ts",
   "src/app/api/admin/assignment-grant-requests/[requestId]/decision/route.ts",
   "src/app/api/admin/assignment-grant-requests/route.ts",

@@ -16,6 +16,7 @@ describe("AdminSidebar", () => {
       "/admin/manual-contributions", "/admin/abuse-thresholds", "/admin/campaigns/lifecycle",
       "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/verification-checklist",
       "/admin/collecting-entities", "/admin/partnership-inquiries", "/admin/payment-providers", "/admin/platform-fee",
+      "/admin/scrutiny",
     ]) {
       expect(container.querySelectorAll(`nav a[href="${href}"]`)).toHaveLength(1);
     }
@@ -49,6 +50,18 @@ describe("AdminSidebar", () => {
     const active = container.querySelectorAll('nav a[aria-current="page"]');
     expect(active).toHaveLength(1);
     expect(active[0].getAttribute("href")).toBe("/admin/campaigns/lifecycle");
+  });
+
+  // Ticket 67: GET /api/admin/scrutiny had no screen, and a screen nobody can
+  // reach is the same as none. The link is the only way in, and the page it
+  // opens is the one it marks as current.
+  it("links to the Penanda Audit & Donasi screen and marks it active there", () => {
+    nav.pathname = "/admin/scrutiny";
+    render(<AdminSidebar />);
+
+    const link = screen.getByRole("link", { name: /penanda audit & donasi/i });
+    expect(link.getAttribute("href")).toBe("/admin/scrutiny");
+    expect(link.getAttribute("aria-current")).toBe("page");
   });
 
   it("does not mark Dashboard active on other admin routes", () => {
