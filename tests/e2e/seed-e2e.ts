@@ -2,9 +2,12 @@
  * Fixtures for the Playwright e2e specs (tests/e2e/*.spec.ts).
  *
  * Run once per CI e2e job after `prisma migrate deploy`, against the job's
- * throwaway Postgres:
+ * throwaway Postgres (the job sets the last two; export them yourself
+ * against a local throwaway database, with any password of 16+ characters):
  *
- *   DATABASE_URL=postgresql://ci:ci@localhost:5432/ci npx tsx tests/e2e/seed-e2e.ts
+ *   DATABASE_URL=postgresql://ci:ci@localhost:5432/ci \
+ *   E2E_THROWAWAY_DATABASE=1 E2E_OPERATOR_PASSWORD=<16+ characters> \
+ *   npx tsx tests/e2e/seed-e2e.ts
  *
  * Idempotent (upserts by fixed ids/slugs), so a rerun never duplicates.
  * Fixed ids keep the specs readable; this database is dropped with the job.
@@ -22,6 +25,7 @@ import { sealDonationGuestEmail, sealUserEmail } from '../../src/lib/contact-fie
 import { hashPassword } from '../../src/lib/password-hash';
 import { PASSWORD_HASH_COST } from '../../src/lib/password-hash-cost';
 import {
+  ACTIVE_CAMPAIGN_ID,
   ACTIVE_SLUG,
   ADMIN_EMAIL,
   DRAFT_SLUG,
@@ -80,12 +84,13 @@ async function main() {
 
   // The Verifier who raises a Flag and the Admin who dismisses it
   // (flag-dismiss.spec.ts). Neither owns a Campaign, so neither is barred
-  // from acting on the Active one below. They can sign in with credentials;
-  // `update: {}` keeps a rerun from re-granting or re-hashing anything.
+  // from acting on the Active one below. They can sign in with credentials.
+  // A rerun only refreshes the password hash (the password is drawn per run),
+  // never re-grants an assignment.
   const operatorPasswordHash = await hashPassword(operatorPassword(), PASSWORD_HASH_COST);
   await prisma.user.upsert({
     where: { id: 'e2e-verifier' },
-    update: {},
+    update: { password: operatorPasswordHash },
     create: {
       id: 'e2e-verifier',
       name: 'E2E Verifier',
@@ -96,7 +101,7 @@ async function main() {
   });
   await prisma.user.upsert({
     where: { id: 'e2e-admin' },
-    update: {},
+    update: { password: operatorPasswordHash },
     create: {
       id: 'e2e-admin',
       name: 'E2E Admin',
@@ -140,7 +145,7 @@ async function main() {
     where: { slug: ACTIVE_SLUG },
     update: {},
     create: {
-      id: 'e2e-campaign-aktif',
+      id: ACTIVE_CAMPAIGN_ID,
       slug: ACTIVE_SLUG,
       title: 'E2E Air Bersih Desa',
       description: 'Campaign fixture untuk e2e donasi QRIS.',
@@ -186,7 +191,7 @@ async function main() {
       amount: RECEIPT_AMOUNT,
       paymentMethod: 'qris',
       paymentStatus: 'confirmed',
-      campaignId: 'e2e-campaign-aktif',
+      campaignId: ACTIVE_CAMPAIGN_ID,
       ...sealDonationGuestEmail('e2e-donor@example.org'),
     },
   });

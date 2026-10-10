@@ -223,6 +223,22 @@ describe('AdminCampaignLifecyclePage -- Flags and Urgent (rilis-1-benda 66)', ()
     expect(screen.queryByRole('button', { name: /^pasang urgent$/i })).toBeNull();
   });
 
+  // Expired is an effective status (Active past its deadline), not a stored
+  // one: Urgent cannot be set on it, and with Urgent off there is nothing to
+  // clear either, so no Urgent control at all.
+  it('offers no Urgent control on an Active Campaign past its deadline that is not Urgent', async () => {
+    asAdmin();
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+      ...ACTIVE_CAMPAIGN,
+      deadline: new Date('2020-01-01T00:00:00.000Z'),
+      isUrgent: false,
+    } as never);
+
+    await renderPage();
+
+    expect(screen.queryByRole('button', { name: /urgent/i })).toBeNull();
+  });
+
   it('still offers to clear Urgent once the deadline has passed, though Urgent can no longer be set', async () => {
     asAdmin();
     vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
