@@ -23,6 +23,10 @@ type SeedDonation = {
   campaignId: string;
   collectedAmount: number;
   isDemo?: boolean;
+  /** The Payments that settled it (ticket 94): sandbox ones are test money. */
+  payments?: Array<{ sandbox: boolean }>;
+  /** What beta Payments put into collectedAmount, taken back out before judging. */
+  sandboxGross?: number;
 };
 
 function makeDb(seed: { donation?: SeedDonation | null; thresholds?: { kind: string; value: number }[] } = {}) {
@@ -52,8 +56,15 @@ function makeDb(seed: { donation?: SeedDonation | null; thresholds?: { kind: str
             kind: 'DONATION',
             collectingEntityId: 'partner-1',
           },
+          payments: donation.payments ?? [],
         };
       },
+    },
+    payment: {
+      findMany: async () =>
+        donation?.sandboxGross
+          ? [{ amount: donation.sandboxGross, donation: { campaignId: donation.campaignId } }]
+          : [],
     },
     abuseThreshold: { findMany: async () => seed.thresholds ?? [] },
     donationReviewMarker: {
@@ -270,5 +281,41 @@ describe('evaluateSettledDonationScrutiny', () => {
     await expect(
       evaluateSettledDonationScrutiny(db as never, { donationId: 'donation-404', now: NOW })
     ).rejects.toBeInstanceOf(DonationNotSettledForReviewError);
+  });
+
+  it('does not judge a Donation paid with test money (ticket 94): no marker, no review, however large', async () => {
+    const { db, donationMarkers, auditMarkers, verificationRequests } = makeDb({
+      donation: {
+        id: 'donation-1',
+        amount: 900_000_000,
+        campaignId: 'campaign-1',
+        collectedAmount: 900_000_000,
+        payments: [{ sandbox: true }],
+      },
+    });
+
+    const outcome = await evaluateSettledDonationScrutiny(db as never, { donationId: 'donation-1' });
+
+    expect(outcome).toEqual({ donationMarker: null, auditMarker: null, amountReview: null });
+    expect(donationMarkers).toHaveLength(0);
+    expect(auditMarkers).toHaveLength(0);
+    expect(verificationRequests).toHaveLength(0);
+  });
+
+  it('judges the Campaign on the Gross that counts: beta Gross inside collectedAmount does not trip the audit limit', async () => {
+    const { db, auditMarkers } = makeDb({
+      // 700_000_000 stored, of which 650_000_000 was beta money: 50_000_000 counts.
+      donation: {
+        id: 'donation-1',
+        amount: 10_000_000,
+        campaignId: 'campaign-1',
+        collectedAmount: 700_000_000,
+        sandboxGross: 650_000_000,
+      },
+    });
+
+    await evaluateSettledDonationScrutiny(db as never, { donationId: 'donation-1' });
+
+    expect(auditMarkers).toHaveLength(0);
   });
 });

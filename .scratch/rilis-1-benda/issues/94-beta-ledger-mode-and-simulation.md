@@ -1,8 +1,8 @@
 # 94: Beta: mode di Ledger, simulasi penuh, dan guard go-live
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
-**Blocked by:** 92
+**Blocked by:** 92 (done, merge #230)
 
 **Ukuran:** XL (pecah per bagian bila perlu; urutan di bawah)
 
@@ -40,14 +40,24 @@ M1 menjadi dua tahap (istilah di `CONTEXT.md`, ditulis koordinator): tahap Beta 
 
 ## Acceptance
 
-- [ ] Semua pembuatan LedgerEntry/Payout/Refund/UsageReport mengisi `sandbox` dari mode sumbernya (tes per titik pembuatan; mode dibaca dari baris sumber, bukan env)
-- [ ] Setiap agregat di daftar cakupan 2 memilah per mode; tes dengan data uji dan data nyata sekaligus membuktikan tak ada campuran, di mode beta maupun live
-- [ ] Payout, Usage Report, dan Refund dapat disimulasikan penuh dengan saldo uji, berlabel UJI, tanpa panggilan transfer ke penyedia (tes membuktikan klien penyedia tidak dipanggil)
-- [ ] Saldo uji tidak bisa dipakai untuk Payout/Refund nyata dan sebaliknya
-- [ ] Guard menolak `BETA_SANDBOX=true` bersama kredensial live
-- [ ] Runbook flip beta ke live ditulis; peringatan "jangan aktifkan penanda di produksi sebelum 94 ter-deploy" tercantum
-- [ ] Rekonsiliasi Admin bersih untuk campuran data beta dan nyata
+- [x] Semua pembuatan LedgerEntry/Payout/Refund/UsageReport mengisi `sandbox` dari mode sumbernya (tes per titik pembuatan; mode dibaca dari baris sumber, bukan env)
+- [x] Setiap agregat di daftar cakupan 2 memilah per mode; tes dengan data uji dan data nyata sekaligus membuktikan tak ada campuran, di mode beta maupun live
+- [x] Payout, Usage Report, dan Refund dapat disimulasikan penuh dengan saldo uji, berlabel UJI, tanpa panggilan transfer ke penyedia (tes membuktikan klien penyedia tidak dipanggil)
+- [x] Saldo uji tidak bisa dipakai untuk Payout/Refund nyata dan sebaliknya
+- [x] Guard menolak `BETA_SANDBOX=true` bersama kredensial live
+- [x] Runbook flip beta ke live ditulis; peringatan "jangan aktifkan penanda di produksi sebelum 94 ter-deploy" tercantum
+- [x] Rekonsiliasi Admin bersih untuk campuran data beta dan nyata
 
 ## Comments
 
 - 2026-10-05: ditulis koordinator dari keputusan owner 2026-10-04/05. Kolom skema sudah disediakan tiket 92.
+- 2026-10-10 (builder): dikerjakan di branch `claude/project-thread-1972n2`, di atas main setelah #230 merge. TIDAK memakai slot skema: tidak ada migrasi baru; kolom `sandbox` dari `20261005010000_sandbox_mode_columns` dipakai apa adanya. Keputusan implementasi:
+  - **Seam mode** `src/lib/money/sandbox-mode.ts`: `sandboxModeOf(row)` (mode baris yang sudah ada) dan `currentSandboxStamp()` (baris baru tanpa baris sumber; satu-satunya tempat penanda dibaca untuk cap Ledger). `postTransaction` menerima `sandbox` di `PostOptions` (default false = uang nyata, arah aman); `sandbox-mode.test.ts` memindai semua titik pembuatan `postTransaction` di `src/` dan mewajibkan mereka menyebut `sandbox`.
+  - **Sumber mode:** settlement webhook dan sapuan Escrow dari `Payment.sandbox`; Refund dicap dari Payment-nya saat dibuat, jurnal Refund dari `Refund.sandbox`; Payout dicap `currentSandboxStamp()` saat diminta (penanda aktif = simulasi dengan saldo uji, mati = uang nyata), jurnal dan Usage Report dari `Payout.sandbox`. Manual Contribution dicap dari penanda saat disetujui; pembalikannya membaca mode dari entri aslinya, dan uang uji tidak menyentuh penghitung publik `collectedAmount`.
+  - **Saldo per mode:** `campaignBalance/escrowBalance/tripBalance/tripEscrowBalance/programBalance/collectionAccountBalance/providerBalances` dan `tripHeldBalance/tripWithdrawableBalance` menerima `sandbox` (default false). Pembaca lain memilah: rekonsiliasi (`negativeBalances`, `tripNegativeBalances`, escrow, fee, manual, stranded, Payout stuck), Impact (garis `payouts`, `beneficiaries`, kolam), `dormant-balances`, `programBooks`, `campaignBlockingUsageReport` (blokir Usage Report hanya antar-Payout semode).
+  - **Simulasi:** Payout, Usage Report, dan Refund jalan penuh dengan saldo uji. Modul uang tidak pernah memanggil penyedia (ADR 0006); `sandbox-mode.test.ts` memindai itu dan tes Postgres nyata memata-matai registry penyedia sepanjang siklus. Layar Admin (antrean/detail Payout dan Refund), panel Payout Fundraiser, dan daftar pencairan publik berlabel UJI (`SandboxBadge`).
+  - **Ditutup selama penanda aktif** (uang nyata, tidak punya mode sendiri, tanpa skema baru): Pengalihan dana Campaign dan Penarikan dari penyedia.
+  - **Guard boot** (`betaSandboxEnvRefusals`, dipanggil `assertProductionEnv`): menolak `BETA_SANDBOX=true` bersama URL Sumopod non-sandbox, juga bila penyedia aktif lain, karena penyedia aktif bisa diganti dari layar Admin tanpa restart. Kredensial live hanya dibedakan lewat host; kode tidak menebak dari teks kunci.
+  - **Runbook** `docs/runbooks/beta-ke-live.md`, memuat peringatan jangan aktifkan penanda sebelum 94 ter-deploy.
+  - Diteruskan ke koordinator: `CONTEXT.md` (istilah Beta, M1 dua tahap) dan `.env.example` (`BETA_SANDBOX`) belum disentuh builder.
+  - Belum dikecualikan, sengaja: `scrutiny.ts`, `abuse-thresholds.ts`, `/akun/kampanye-saya`, `/api/user/campaigns`, `/admin/campaigns`, urutan "Pilihan Kami", dan `donationCount` publik membaca `Campaign.collectedAmount` atau hitungan Donation mentah. Itu penghitung seumur hidup, bukan Ledger; angka publiknya sudah disaring oleh tiket 92 (`withCountedCollectedAmount`), tetapi jalur non-publik di atas masih mencampur Donation uji. Lihat bagian PR untuk keputusan owner.

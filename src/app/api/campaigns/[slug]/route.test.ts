@@ -356,6 +356,8 @@ describe('GET /api/campaigns/[slug]', () => {
             donations: {
               where: {
                 paymentStatus: 'confirmed',
+                // Beta (sandbox) Donations are tests, not counted (ticket 94).
+                payments: { none: { sandbox: true } },
               },
             },
           },

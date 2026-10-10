@@ -151,7 +151,10 @@ export default async function HomePage() {
           select: { name: true },
         },
       },
-      take: 12,
+      // More than the 12 shown: the stored counter still holds beta (sandbox)
+      // money, so the order is settled again below on the counted figure and
+      // only then cut to 12 (ticket 94).
+      take: 48,
     }),
     prisma.prayer.findMany({
       // The Prayer Wall is a platform-wide feed that names its Campaign and
@@ -180,7 +183,10 @@ export default async function HomePage() {
   // Transform data to component-friendly shapes
   const urgentCards = publicUrgent.map(toCampaignCardData);
   const newCards = publicNew.map(toCampaignCardData);
-  const featuredCards = publicFeatured.map(toCampaignCardData);
+  const featuredCards = [...publicFeatured]
+    .sort((a, b) => b.collectedAmount - a.collectedAmount)
+    .slice(0, 12)
+    .map(toCampaignCardData);
   const prayerItems = recentPrayers.map(toPrayerStreamItem);
 
   return (

@@ -113,9 +113,12 @@ export async function GET(
         ...COLLECTING_ENTITY_SELECT,
         _count: {
           select: {
+            // Real Donations only (ticket 94): one paid with a beta (sandbox)
+            // Payment is a test and is not counted.
             donations: {
               where: {
                 paymentStatus: 'confirmed',
+                payments: { none: { sandbox: true } },
               },
             },
           },

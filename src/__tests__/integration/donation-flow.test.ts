@@ -113,7 +113,7 @@ type LedgerRow = {
 function makeWebhookTx() {
   const ledgerRows: LedgerRow[] = [];
   const tx = {
-    payment: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    payment: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findMany: vi.fn().mockResolvedValue([]) },
     donation: {
       update: vi.fn().mockResolvedValue({}),
       // The abuse thresholds read the settled Donation back (prd-compliance
@@ -123,6 +123,7 @@ function makeWebhookTx() {
         id: where.id,
         amount: 75_000,
         campaign: { id: 'campaign-webhook-1', collectedAmount: 75_000, isDemo: false },
+        payments: [],
       })),
     },
     campaign: { update: vi.fn().mockResolvedValue({}) },

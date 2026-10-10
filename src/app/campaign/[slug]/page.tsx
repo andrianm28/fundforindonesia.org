@@ -83,7 +83,8 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
       },
       _count: {
         select: {
-          donations: { where: { paymentStatus: 'confirmed' } },
+          // Real Donations only (ticket 94): one paid with a beta (sandbox) Payment is a test.
+          donations: { where: { paymentStatus: 'confirmed', payments: { none: { sandbox: true } } } },
         },
       },
     },
