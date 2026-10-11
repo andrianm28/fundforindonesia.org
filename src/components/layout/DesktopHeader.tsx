@@ -33,7 +33,13 @@ export default function DesktopHeader({
       <div className="mx-auto max-w-[1200px] px-6 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="shrink-0">
-          <span className="text-2xl font-bold text-primary">Fund for Indonesia</span>
+          <img
+            src="/brand/logo-wordmark.webp"
+            alt="Fund for Indonesia"
+            width={900}
+            height={278}
+            className="h-9 w-auto"
+          />
         </Link>
 
         {/* Search Bar */}
