@@ -1,4 +1,5 @@
 import type { MailMessage } from './types';
+import { emailLogoHtml } from './email-logo';
 
 /**
  * What a Verifier's decision on a Verification Request tells its
@@ -81,6 +82,7 @@ export function verificationOutcomeEmail(input: VerificationOutcomeEmailInput): 
   const text = [greeting, ...paragraphs.body, input.campaignUrl, closing].join('\n\n');
   const url = escapeHtml(input.campaignUrl);
   const html = [
+    emailLogoHtml(),
     `<p>${escapeHtml(greeting)}</p>`,
     ...paragraphs.body.map((line) => `<p>${escapeHtml(line)}</p>`),
     `<p><a href="${url}">${url}</a></p>`,
