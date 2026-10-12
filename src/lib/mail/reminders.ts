@@ -1,5 +1,6 @@
 import { formatIndonesianDate } from '@/lib/utils/date';
 import type { MailMessage } from './types';
+import { emailLogoHtml } from './email-logo';
 
 function escapeHtml(value: string): string {
   return value
@@ -13,6 +14,7 @@ function escapeHtml(value: string): string {
 function render(to: string, subject: string, greeting: string, body: string[], closing: string): MailMessage {
   const text = [greeting, ...body, closing].join('\n\n');
   const html = [
+    emailLogoHtml(),
     `<p>${escapeHtml(greeting)}</p>`,
     ...body.map((line) => `<p>${escapeHtml(line)}</p>`),
     `<p>${escapeHtml(closing).replace('\n', '<br>')}</p>`,
