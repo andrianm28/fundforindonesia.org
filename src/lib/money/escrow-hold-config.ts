@@ -35,14 +35,17 @@ export class InvalidEscrowHoldError extends Error {
  * Reads the LATEST row for each scope+key, since rows are append-only.
  */
 export async function resolveEscrowHoldDays(db: ReadDb, params: { category?: string | null } = {}): Promise<number> {
+  // Trimmed like setEscrowHoldSetting trims what it stores, so a Category with
+  // stray whitespace still finds its override.
+  const category = params.category?.trim();
   const [categoryRow, defaultRow] = await Promise.all([
-    params.category
+    category
       ? db.escrowHoldSetting.findFirst({
-          where: { scope: 'CATEGORY', category: params.category },
-          orderBy: { setAt: 'desc' },
+          where: { scope: 'CATEGORY', category },
+          orderBy: [{ setAt: 'desc' }, { id: 'desc' }],
         })
       : Promise.resolve(null),
-    db.escrowHoldSetting.findFirst({ where: { scope: 'DEFAULT' }, orderBy: { setAt: 'desc' } }),
+    db.escrowHoldSetting.findFirst({ where: { scope: 'DEFAULT' }, orderBy: [{ setAt: 'desc' }, { id: 'desc' }] }),
   ]);
   return categoryRow?.days ?? defaultRow?.days ?? ESCROW_HOLD_DAYS;
 }

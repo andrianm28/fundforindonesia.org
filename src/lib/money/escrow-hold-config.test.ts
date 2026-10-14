@@ -79,6 +79,11 @@ describe('resolveEscrowHoldDays', () => {
     expect(await resolveEscrowHoldDays(db as never)).toBe(5);
   });
 
+  it('finds a Category override even when the campaign category carries stray whitespace', async () => {
+    const db = makeDb([row({ id: 'c', scope: 'CATEGORY', category: 'bencana', days: 3 })]);
+    expect(await resolveEscrowHoldDays(db as never, { category: ' bencana ' })).toBe(3);
+  });
+
   it('ignores Category rows when no category is given (Trip Fee)', async () => {
     const db = makeDb([row({ id: 'c', scope: 'CATEGORY', category: 'bencana', days: 3 })]);
     expect(await resolveEscrowHoldDays(db as never)).toBe(ESCROW_HOLD_DAYS);

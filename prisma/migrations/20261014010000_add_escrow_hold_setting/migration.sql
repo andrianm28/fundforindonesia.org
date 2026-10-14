@@ -20,6 +20,13 @@ CREATE TABLE "EscrowHoldSetting" (
     CONSTRAINT "EscrowHoldSetting_pkey" PRIMARY KEY ("id")
 );
 
+-- The bounds and the scope/category pairing, also enforced by the database
+-- (src/lib/money/escrow-hold-config.ts is the first line of defence).
+ALTER TABLE "EscrowHoldSetting" ADD CONSTRAINT "EscrowHoldSetting_days_range" CHECK ("days" BETWEEN 1 AND 30);
+ALTER TABLE "EscrowHoldSetting" ADD CONSTRAINT "EscrowHoldSetting_scope_category" CHECK (
+    ("scope" = 'DEFAULT' AND "category" IS NULL) OR ("scope" = 'CATEGORY' AND "category" IS NOT NULL)
+);
+
 -- CreateIndex
 CREATE INDEX "EscrowHoldSetting_scope_category_setAt_idx" ON "EscrowHoldSetting"("scope", "category", "setAt");
 
