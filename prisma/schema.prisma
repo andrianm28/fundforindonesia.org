@@ -110,6 +110,7 @@ model User {
   refundsFailed                     Refund[]                         @relation("RefundFailer")
   platformFeeRulesSet               PlatformFeeRule[]
   platformFeeThresholdsSet          PlatformFeeThreshold[]
+  escrowHoldSettingsSet             EscrowHoldSetting[]
   manualContributionsRecorded       ManualContribution[]             @relation("ManualContributionRecorder")
   manualContributionsDecided        ManualContribution[]             @relation("ManualContributionDecider")
   manualContributionsReversed       ManualContribution[]             @relation("ManualContributionReverser")
@@ -1418,8 +1419,9 @@ model Payment {
   settledAt      DateTime?
   expiresAt      DateTime?
 
-  /// The Escrow Hold length (CONTEXT.md, Escrow Hold), frozen from
-  /// ESCROW_HOLD_DAYS (src/lib/money/escrow.ts) at Payment creation and shown
+  /// The Escrow Hold length (CONTEXT.md, Escrow Hold), frozen from the Admin
+  /// setting in force (EscrowHoldSetting; the ESCROW_HOLD_DAYS fallback in
+  /// src/lib/money/escrow.ts when none was ever set) at Payment creation and shown
   /// to the Donor before they pay (prd-compliance 18). Read at Settlement
   /// instead of the live constant, so an Admin shortening or lengthening the
   /// default afterwards cannot move a Payment already created under the old
@@ -1524,6 +1526,33 @@ model PlatformFeeRule {
   @@index([scope, kind, setAt])
   @@index([scope, category, setAt])
   @@index([scope, campaignId, setAt])
+}
+
+enum EscrowHoldScope {
+  DEFAULT
+  CATEGORY
+}
+
+/// One Admin-set Escrow Hold length in days (CONTEXT.md, Escrow Hold; PRD
+/// FFI-17; ticket 90). Append-only like PlatformFeeRule: setting a new length
+/// inserts a row, so setById/setAt is the "who and when", and the row with the
+/// latest setAt for a scope+key is the one in force (resolveEscrowHoldDays,
+/// src/lib/money/escrow-hold-config.ts). A Payment copies the resolved value
+/// into Payment.escrowHoldDays when it is created and never re-reads this
+/// table, so a later change moves no Payment that already exists.
+model EscrowHoldSetting {
+  id       String          @id @default(cuid())
+  scope    EscrowHoldScope
+  /// Set only when scope = CATEGORY -- Campaign.category's free-text value.
+  category String?
+  /// Whole days, within the bounds escrow-hold-config.ts enforces.
+  days     Int
+  setById  String
+  setAt    DateTime        @default(now())
+
+  setBy User @relation(fields: [setById], references: [id], onDelete: Restrict)
+
+  @@index([scope, category, setAt])
 }
 
 /// The Admin-set nominal below which Platform Fee is waived entirely, so a

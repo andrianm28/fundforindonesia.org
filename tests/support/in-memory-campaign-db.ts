@@ -1164,6 +1164,7 @@ export function makeCampaignDb(
       platformFeeRule: {
         findFirst: async () => null,
       },
+      escrowHoldSetting: { findFirst: async () => null },
       platformFeeThreshold: {
         findFirst: async () => null,
       },

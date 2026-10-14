@@ -30,6 +30,7 @@ vi.mock('@/lib/prisma', () => ({
     prayer: { create: vi.fn() },
     platformFeeRule: { findFirst: vi.fn() },
     platformFeeThreshold: { findFirst: vi.fn() },
+    escrowHoldSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn(),
   },
 }));
@@ -578,6 +579,16 @@ describe('POST /api/donations freezes the Escrow Hold duration (prd-compliance 1
 
     expect(mockPaymentCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ escrowHoldDays: 7 }),
+    });
+  });
+
+  it('freezes the Admin-set default instead when one exists (ticket 90)', async () => {
+    (prisma.escrowHoldSetting.findFirst as unknown as Mock).mockResolvedValueOnce({ days: 12 });
+
+    await POST(createRequest(QRIS_BODY));
+
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ escrowHoldDays: 12 }),
     });
   });
 });
