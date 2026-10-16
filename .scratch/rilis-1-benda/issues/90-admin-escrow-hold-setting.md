@@ -1,6 +1,6 @@
 # 90: A-7 admin-escrow-hold-setting
 
-**Status:** ready-for-agent
+**Status:** done (PR #247 merged 2026-10-16 sebagai 71c7356; belum di-deploy ke produksi per 2026-10-16 08:55 UTC)
 
 **Blocked by:** none. Satu PR skema pada satu waktu (menambah tabel); timestamp migrasi dibagi koordinator.
 
