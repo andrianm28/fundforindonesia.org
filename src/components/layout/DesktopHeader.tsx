@@ -91,6 +91,12 @@ export default function DesktopHeader({
             >
               Zakat
             </Link>
+            <Link
+              href="/program"
+              className="text-sm font-medium text-text hover:text-primary transition-colors"
+            >
+              CSR
+            </Link>
             {user &&
               staffLinks.map((link) => (
                 <Link

@@ -28,17 +28,15 @@ describe('quickActionTiles', () => {
     expect(galangDana?.comingSoon).toBeFalsy();
   });
 
-  it('marks Kolaborasi CSR, Wakaf, and Hibah as coming soon, with no href', () => {
-    const csr = quickActionTiles.find((tile) => tile.label === 'Kolaborasi CSR');
-    const wakaf = quickActionTiles.find((tile) => tile.label === 'Wakaf');
-    const hibah = quickActionTiles.find((tile) => tile.label === 'Hibah');
+  it('links Kolaborasi CSR, Wakaf, and Hibah to their own landings', () => {
+    const hrefOf = (label: string) => {
+      const tile = quickActionTiles.find((t) => t.label === label);
+      return tile && !tile.comingSoon ? tile.href : undefined;
+    };
 
-    expect(csr).toMatchObject({ comingSoon: true });
-    expect(wakaf).toMatchObject({ comingSoon: true });
-    expect(hibah).toMatchObject({ comingSoon: true });
-    expect(csr).not.toHaveProperty('href');
-    expect(wakaf).not.toHaveProperty('href');
-    expect(hibah).not.toHaveProperty('href');
+    expect(hrefOf('Kolaborasi CSR')).toBe('/kolaborasi-csr');
+    expect(hrefOf('Wakaf')).toBe('/wakaf');
+    expect(hrefOf('Hibah')).toBe('/hibah');
   });
 
   it('gives every real tile a Ledger Line brand color, not the old generic pastels', () => {
