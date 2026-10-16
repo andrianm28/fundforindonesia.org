@@ -390,9 +390,10 @@ describe("roles expand scope", () => {
       file.endsWith("/route.ts")
     );
     expect(routes.length).toBeGreaterThan(30);
-    // escrow-hold (ticket 90 itself) answers 404 to the signed-out as well,
-    // by its own check, so not even the 401 reveals the setting.
-    const OWN_404 = ["src/app/api/admin/escrow-hold/route.ts"];
+    // escrow-hold (ticket 90 itself) and site-settings (#249) answer 404 to
+    // the signed-out as well, by their own check, so not even the 401 reveals
+    // the setting.
+    const OWN_404 = ["src/app/api/admin/escrow-hold/route.ts", "src/app/api/admin/site-settings/route.ts"];
     const offenders = routes
       .filter((file) => !OWN_404.includes(file))
       .filter((file) => !HIDDEN.test(readFileSync(file, "utf8")));
