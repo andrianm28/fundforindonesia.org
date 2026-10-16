@@ -19,14 +19,16 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
  *   how the Donation ended.
  * - **It expires.** The page shows status only, and the Receipt email carries
  *   the lasting proof, so a link forwarded or left in browser history stops
- *   working after {@link PAYMENT_RESULT_TTL_SECONDS}.
+ *   working after {@link PAYMENT_RESULT_TTL_SECONDS}. It cannot be revoked one
+ *   by one: the only early way out is rotating NEXTAUTH_SECRET, which also ends
+ *   every session and reset link. That is why the page shows so little.
  * - **Verification never throws on bad input.** Anything malformed, tampered or
  *   expired is `null`, and the page answers 404 for all of them alike.
  *
  * Server-only: never import this from client code.
  */
 
-export const PAYMENT_RESULT_TTL_SECONDS = 30 * 24 * 60 * 60;
+export const PAYMENT_RESULT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 const DOMAIN = 'fund-for-indonesia:payment-result:v1';
 /** Longer than any token we sign (~90 characters); bounds the work a junk input costs. */
@@ -66,6 +68,9 @@ export function verifyPaymentResultToken(token: unknown, nowMs: number, secret?:
   if (!BASE64URL.test(payload) || !BASE64URL.test(signature)) return null;
 
   const given = Buffer.from(signature, 'base64url');
+  // Node ignores the spare bits of the last base64url character, so several
+  // spellings decode to the same bytes; only the one we would write is accepted.
+  if (given.toString('base64url') !== signature) return null;
   const expected = sign(payload, secret);
   // timingSafeEqual throws on unequal lengths, so a wrong length is refused first.
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;

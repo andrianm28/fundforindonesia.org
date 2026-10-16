@@ -7,6 +7,26 @@ import type { PaymentStatus } from '@/generated/prisma/client';
  * what the database says and nothing more.
  */
 
+/** How long after a charge's expiry a late `paid` is still waited for before a new charge is offered. */
+export const EXPIRY_GRACE_MS = 15 * 60 * 1000;
+
+/**
+ * Whether a Donation's latest attempt may be followed by a new charge now:
+ * FAILED at once; EXPIRED, or PENDING past its own expiry (judged lazily), only
+ * once {@link EXPIRY_GRACE_MS} after `expiresAt` has passed. A provider can still
+ * deliver `paid` for a charge shortly after its expiry (ADR 0021 settles it), and
+ * offering a second charge in that window is how a Donor ends up paying twice.
+ *
+ * Shared by the retry route and the result page, so the page never offers what
+ * the route refuses. Pure, so the page's client component can import this file.
+ */
+export function attemptRetryable(latest: { status: PaymentStatus; expiresAt: Date | null }, now: Date): boolean {
+  if (latest.status === 'FAILED') return true;
+  if (latest.status !== 'EXPIRED' && latest.status !== 'PENDING') return false;
+  if (latest.expiresAt === null) return latest.status === 'EXPIRED';
+  return latest.expiresAt.getTime() + EXPIRY_GRACE_MS <= now.getTime();
+}
+
 export type PaymentResultState = 'menunggu' | 'berhasil' | 'gagal' | 'kedaluwarsa' | 'dikembalikan';
 
 export interface ResultPayment {
@@ -19,7 +39,7 @@ export interface ResultPayment {
 
 export interface PaymentResult {
   state: PaymentResultState;
-  /** Whether POST /api/donations/[id]/retry would accept this Donation now. */
+  /** Whether the latest attempt is over, so a retry may open a new charge (the Campaign is checked separately). */
   canRetry: boolean;
   /** The open charge's own payment link, for a Donor who backed out of it. */
   continueUrl: string | null;
@@ -43,11 +63,12 @@ export function describePaymentResult(
   // route has nothing to retry (it answers 409), so none is offered.
   if (!latest) return done(donation.paymentStatus === 'confirmed' ? 'berhasil' : 'gagal');
 
-  if (latest.status === 'FAILED') return done('gagal', true);
-  // A PENDING Payment past its window is expired in effect, judged the same
-  // lazy way the retry route judges it.
+  if (attemptRetryable(latest, now)) return done(latest.status === 'FAILED' ? 'gagal' : 'kedaluwarsa', true);
+  // Expired (or past its window) but still inside the grace period: a late
+  // `paid` may yet settle it, so the Donor is told to wait, with no way back
+  // into a charge that is closed and no second charge offered.
   if (latest.status === 'EXPIRED' || (latest.expiresAt !== null && latest.expiresAt <= now)) {
-    return done('kedaluwarsa', true);
+    return done('menunggu');
   }
 
   return {

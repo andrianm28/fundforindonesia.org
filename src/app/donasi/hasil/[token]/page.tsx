@@ -4,10 +4,13 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { verifyPaymentResultToken } from '@/lib/money/payment-result-token';
 import { describePaymentResult, type PaymentResultState } from '@/lib/money/payment-result';
+import { campaignRetryRefusal, RETRY_CAMPAIGN_SELECT } from '@/lib/donation-retry';
 import { formatRupiah } from '@/lib/utils/currency';
 import { PaymentResultActions } from './PaymentResultActions';
 
-// Read per request: the status changes the moment the webhook lands.
+// Read per request: the status changes the moment the webhook lands. Next also
+// marks a dynamic page `Cache-Control: private, no-cache, no-store`, so no proxy
+// keeps a copy of what is behind the token.
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
@@ -76,11 +79,9 @@ export default async function PaymentResultPage({ params, searchParams }: Paymen
   const donation = await prisma.donation.findUnique({
     where: { id: donationId },
     select: {
-      id: true,
       amount: true,
       paymentStatus: true,
-      donorId: true,
-      campaign: { select: { title: true, slug: true } },
+      campaign: { select: { ...RETRY_CAMPAIGN_SELECT, slug: true } },
       // No Receipt token: it never expires and the Receipt names the Donor, so
       // linking it would let this short-lived link open lasting Donor data.
       // The Receipt reaches the Donor by email.
@@ -91,6 +92,9 @@ export default async function PaymentResultPage({ params, searchParams }: Paymen
 
   const result = describePaymentResult(donation, now);
   const copy = COPY[result.state];
+  // Offered only when the retry route would accept it: the attempt is over AND
+  // the Campaign can still take a new charge.
+  const canRetry = result.canRetry && campaignRetryRefusal(donation.campaign, now) === null;
   const cancelled = batal === '1' && result.state !== 'berhasil' && result.state !== 'dikembalikan';
 
   return (
@@ -125,14 +129,13 @@ export default async function PaymentResultPage({ params, searchParams }: Paymen
         )}
 
         <PaymentResultActions
-          donationId={donation.id}
+          token={token}
           waiting={result.state === 'menunggu'}
           continueUrl={result.continueUrl}
-          canRetry={result.canRetry}
-          accountOwned={Boolean(donation.donorId)}
+          canRetry={canRetry}
         />
 
-        {result.state === 'gagal' && !result.canRetry && (
+        {(result.state === 'gagal' || result.state === 'kedaluwarsa') && !canRetry && (
           <Link
             href={`/campaign/${donation.campaign.slug}`}
             className="block text-center text-sm font-medium text-[#0073E6] hover:underline"

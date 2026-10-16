@@ -86,10 +86,11 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
   // Donor lands on their own status instead of a login wall. Signed for the
   // Donation, not this attempt, so the page follows every retry. The page reads
   // the status from the database; the redirect itself proves nothing.
-  const resultToken = signPaymentResultToken(donationId, Date.now());
-
   let charge: ChargeResult;
   try {
+    // Inside the try: signing throws only when NEXTAUTH_SECRET is missing in
+    // production, and that is a failed attempt like any other, not a bare 500.
+    const resultToken = signPaymentResultToken(donationId, Date.now());
     charge = await provider.createCharge({
       orderId,
       grossAmount: amount,

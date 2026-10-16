@@ -14,6 +14,11 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+vi.mock('@/lib/donations', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/donations')>('@/lib/donations');
+  return { ...actual, donationsEnabled: () => true, sandboxInProductionReason: () => null };
+});
+
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(() => {
     throw new Error('NEXT_NOT_FOUND');
@@ -27,13 +32,27 @@ import PaymentResultPage from './page';
 
 const mockFindUnique = prisma.donation.findUnique as unknown as ReturnType<typeof vi.fn>;
 
+const ACTIVE_CAMPAIGN = {
+  id: 'campaign-1',
+  slug: 'bantu-sekolah-yatim',
+  title: 'Bantu Sekolah Yatim',
+  lifecycleStatus: 'ACTIVE',
+  deadline: null,
+  isDemo: false,
+  kind: 'DONATION',
+  category: 'pendidikan',
+  collectingEntity: {
+    permits: [{ kinds: ['DONATION'], validFrom: new Date('2020-01-01T00:00:00Z'), validTo: new Date('2099-12-31T00:00:00Z') }],
+  },
+};
+
+const LONG_EXPIRED = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
 function makeDonation(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'donation-1',
     amount: 50_000,
     paymentStatus: 'pending',
-    donorId: null,
-    campaign: { title: 'Bantu Sekolah Yatim', slug: 'bantu-sekolah-yatim' },
+    campaign: ACTIVE_CAMPAIGN,
     payments: [
       {
         status: 'PENDING',
@@ -128,7 +147,7 @@ describe('payment result page', () => {
   it('offers to pay again on the same Donation once the charge has expired', async () => {
     mockFindUnique.mockResolvedValue(
       makeDonation({
-        payments: [{ status: 'EXPIRED', expiresAt: new Date(Date.now() - 1000), redirectUrl: null, vaNumber: null, createdAt: new Date() }],
+        payments: [{ status: 'EXPIRED', expiresAt: LONG_EXPIRED, redirectUrl: null, vaNumber: null, createdAt: new Date() }],
       }),
     );
     await renderPage(signPaymentResultToken('donation-1', Date.now()), { batal: '1' });
@@ -143,5 +162,47 @@ describe('payment result page', () => {
     for (const field of ['guestName', 'guestEmailCiphertext', 'guestPhoneCiphertext', 'donor', 'message']) {
       expect(select).not.toHaveProperty(field);
     }
+  });
+
+  it('does not offer to pay again once the Campaign has closed, and points back to it instead (PR #273 review S3)', async () => {
+    mockFindUnique.mockResolvedValue(
+      makeDonation({
+        campaign: { ...ACTIVE_CAMPAIGN, lifecycleStatus: 'COMPLETED' },
+        payments: [{ status: 'EXPIRED', expiresAt: LONG_EXPIRED, redirectUrl: null, vaNumber: null, createdAt: new Date() }],
+      }),
+    );
+    await renderPage(signPaymentResultToken('donation-1', Date.now()));
+    expect(screen.queryByRole('button', { name: 'Coba bayar lagi' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Kembali ke halaman campaign' }).getAttribute('href')).toBe('/campaign/bantu-sekolah-yatim');
+  });
+
+  it('never mentions a cancel once the Donation is paid or refunded', async () => {
+    for (const status of ['PAID', 'REFUNDED']) {
+      mockFindUnique.mockResolvedValue(
+        makeDonation({ payments: [{ status, expiresAt: null, redirectUrl: null, vaNumber: null, createdAt: new Date() }] }),
+      );
+      await renderPage(signPaymentResultToken('donation-1', Date.now()), { batal: '1' });
+      expect(screen.queryByText('Anda keluar dari halaman pembayaran sebelum selesai.')).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('says the money went back for a refunded Payment', async () => {
+    mockFindUnique.mockResolvedValue(
+      makeDonation({ payments: [{ status: 'REFUNDED', expiresAt: null, redirectUrl: null, vaNumber: null, createdAt: new Date() }] }),
+    );
+    await renderPage(signPaymentResultToken('donation-1', Date.now()));
+    expect(screen.getByRole('heading', { name: 'Dana dikembalikan' })).toBeTruthy();
+  });
+
+  it('never puts the Donation id in the page, since it is not a credential the link should hand out (S2)', async () => {
+    mockFindUnique.mockResolvedValue(
+      makeDonation({
+        payments: [{ status: 'EXPIRED', expiresAt: LONG_EXPIRED, redirectUrl: null, vaNumber: null, createdAt: new Date() }],
+      }),
+    );
+    const { container } = await renderPage(signPaymentResultToken('donation-1', Date.now()));
+    expect(container.innerHTML).not.toContain('donation-1');
+    expect(mockFindUnique.mock.calls[0][0].select).not.toHaveProperty('id');
   });
 });

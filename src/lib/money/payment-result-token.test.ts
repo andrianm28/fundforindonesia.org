@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { createHmac } from 'node:crypto';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   PAYMENT_RESULT_TTL_SECONDS,
   paymentResultPath,
@@ -8,6 +9,10 @@ import {
 
 const SECRET = 'test-secret-for-payment-result';
 const NOW = Date.UTC(2026, 9, 16, 10, 0, 0);
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('payment result token (ticket 98)', () => {
   it('verifies back to the Donation it was signed for', () => {
@@ -43,5 +48,31 @@ describe('payment result token (ticket 98)', () => {
     const token = signPaymentResultToken('cmdonation123', NOW, SECRET);
     expect(paymentResultPath(token)).toBe(`/donasi/hasil/${token}`);
     expect(paymentResultPath(token, { cancelled: true })).toBe(`/donasi/hasil/${token}?batal=1`);
+  });
+
+  it('is refused when signed with the raw secret instead of the derived key', () => {
+    const payload = Buffer.from(`${Math.floor(NOW / 1000) + 3600}:cmdonation123`, 'utf8').toString('base64url');
+    const raw = createHmac('sha256', SECRET).update(payload).digest('base64url');
+    expect(verifyPaymentResultToken(`${payload}.${raw}`, NOW, SECRET)).toBeNull();
+  });
+
+  it('accepts only the canonical spelling of its signature', () => {
+    const token = signPaymentResultToken('cmdonation123', NOW, SECRET);
+    const last = token.at(-1)!;
+    // 32 bytes leave 2 spare bits in the 43rd character: flipping one keeps the bytes.
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const twin = alphabet[alphabet.indexOf(last) ^ 1];
+    expect(verifyPaymentResultToken(`${token.slice(0, -1)}${twin}`, NOW, SECRET)).toBeNull();
+  });
+
+  it('keeps a Donation id containing a colon whole', () => {
+    const token = signPaymentResultToken('odd:id', NOW, SECRET);
+    expect(verifyPaymentResultToken(token, NOW, SECRET)).toBe('odd:id');
+  });
+
+  it('refuses to sign in production without a secret, rather than inventing one', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('NEXTAUTH_SECRET', '');
+    expect(() => signPaymentResultToken('cmdonation123', NOW)).toThrow('NEXTAUTH_SECRET is not set');
   });
 });
