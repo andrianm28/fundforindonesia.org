@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Assignment } from '@/generated/prisma/client';
 import { getServerSession } from '@/lib/auth';
-import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { hasAssignment } from '@/lib/withAssignmentCheck';
 import { prisma } from '@/lib/prisma';
 import { setEscrowHoldSetting, escrowHoldErrorToHttp } from '@/lib/money/escrow-hold-config';
 
@@ -16,11 +16,16 @@ import { setEscrowHoldSetting, escrowHoldErrorToHttp } from '@/lib/money/escrow-
  *   { scope: 'DEFAULT', days }
  *   { scope: 'CATEGORY', category, days }
  *
- * ADMIN only.
+ * ADMIN only, and anyone else -- signed in or not -- gets the same 404 as a
+ * route that does not exist (ticket 90), so the setting's existence is not
+ * revealed. withAssignmentCheck's 401/403 would say otherwise.
  */
-export const POST = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest) => {
+export async function POST(req: NextRequest) {
   const session = await getServerSession();
-  const actorId = session!.user.id as string;
+  if (!session?.user || !hasAssignment(session.user.assignments, Assignment.ADMIN)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+  const actorId = session.user.id as string;
 
   const parsed = await req.json().catch(() => undefined);
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -41,4 +46,4 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (req: NextReques
     if (refusal) return NextResponse.json({ error: refusal.error }, { status: refusal.status });
     throw error;
   }
-});
+}

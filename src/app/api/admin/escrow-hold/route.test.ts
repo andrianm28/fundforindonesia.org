@@ -31,17 +31,17 @@ describe('POST /api/admin/escrow-hold', () => {
     mockCreate.mockImplementation(async ({ data }) => ({ id: 's-1', ...data }));
   });
 
-  it('answers 401 with no session', async () => {
+  it('answers 404 with no session', async () => {
     mockSession.mockResolvedValue(null);
     const res = await post({ scope: 'DEFAULT', days: 7 });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('answers 403 for a session without the ADMIN assignment', async () => {
+  it('answers 404 for a session without the ADMIN assignment', async () => {
     mockSession.mockResolvedValue({ user: { id: 'v-1', assignments: ['VERIFIER'] } });
     const res = await post({ scope: 'DEFAULT', days: 7 });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 

@@ -20,12 +20,13 @@ test.describe('Escrow Hold setting', () => {
   test('an anonymous caller cannot set the Escrow Hold', async ({ request }) => {
     const res = await request.post('/api/admin/escrow-hold', { data: { scope: 'DEFAULT', days: 1 } });
 
-    expect(res.status()).toBe(401);
+    expect(res.status()).toBe(404);
   });
 
-  test('an anonymous visitor to the Admin panel is sent away', async ({ page }) => {
+  test('an anonymous visitor to the Admin panel gets a 404', async ({ page }) => {
     await page.goto('/admin/escrow-hold');
 
-    await expect(page).not.toHaveURL(/\/admin/);
+    await expect(page.getByRole('heading', { name: 'Escrow Hold' })).toHaveCount(0);
+    await expect(page.getByText(/tidak ditemukan|not found/i).first()).toBeVisible();
   });
 });
