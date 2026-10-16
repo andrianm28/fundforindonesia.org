@@ -211,7 +211,7 @@ Baris H-1, H-2, H-3a, dan B-1 pada tabel berikut juga pra-M1.
 - **C4. Dokumen** wajib sebelum M2; untuk M1 dokumen YIEM di luar produk.
 - **C5. Storage:** bucket S3-compatible + signed URL; owner konfirmasi isolasi dari object storage milik stack lain di host.
 - **C6. Reveal rekening:** hanya Admin penyelesai, tercatat di tabel audit.
-- **C7. Kind saat peluncuran:** `donation` saja sampai ada mitra wakaf dan review syariah hibah (zakat dicabut dari cakupan 2026-10-16, ADR 0024).
+- **C7. Kind saat peluncuran:** `donation` saja sampai ada mitra wakaf dan review syariah hibah (zakat dicabut dari cakupan 2026-10-16, ADR 0025).
 - **C8. Lokasi:** provinsi dari daftar statis, kabupaten/kota teks bebas, penerima manfaat + jumlah opsional.
 - **C9. Kategori wakaf:** masjid, sekolah, fasilitas kesehatan, fasilitas umum.
 - **C10.** Admin boleh menangguhkan tanpa Flag Verifier, asal ada alasan.
