@@ -69,12 +69,12 @@ const nextConfig = {
       { source: '/sertifikat/:code', headers: TOKEN_PAGE_HEADERS },
       {
         source: '/akun/verifikasi-email',
-        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+        headers: TOKEN_PAGE_HEADERS,
       },
       {
         // The reset link carries a signed token in its query string (rilis-1 93).
         source: '/reset-password',
-        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+        headers: TOKEN_PAGE_HEADERS,
       },
     ];
   },

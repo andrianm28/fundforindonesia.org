@@ -48,7 +48,12 @@ describe('next.config security headers on every response (audit 2026-10-16)', ()
     expect(rules.flatMap((r) => r.headers).some((h) => h.key === 'Content-Security-Policy')).toBe(false);
   });
 
-  it.each(['/receipt/:token', '/akad-wakaf/:token', '/sertifikat/:code'])(
+  it('puts the site-wide rule first, so a token page rule overrides its Referrer-Policy rather than being overridden', async () => {
+    const rules = await nextConfig.headers!();
+    expect(rules[0].source).toBe('/:path*');
+  });
+
+  it.each(['/receipt/:token', '/akad-wakaf/:token', '/sertifikat/:code', '/reset-password', '/akun/verifikasi-email'])(
     'keeps the token in %s out of the Referer and out of search engines',
     async (source) => {
       const headers = await headersFor(source);
