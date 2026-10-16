@@ -115,22 +115,23 @@ export async function retryDonationPayment(params: RetryDonationParams): Promise
     return { status: 503, body: { error: DONATIONS_DISABLED_MESSAGE } };
   }
 
-  // Fail-open like the donation route: a limiter outage must not stop a Donor
-  // paying. The lock below, not this limit, is what keeps charges single.
-  const limited = await checkRateLimit({
-    scope: 'donation-retry',
-    subject: params.clientAddress,
-    limit: RETRY_LIMIT,
-    windowSeconds: RETRY_WINDOW_SECONDS,
-    onUnavailable: 'open',
-  });
-  if (!limited.ok) {
-    return { status: 429, body: { error: 'Terlalu banyak percobaan pembayaran dari jaringan ini. Coba lagi nanti.' } };
-  }
-
+  // The cap comes first, so a "busy" answer does not spend the Donor's hourly
+  // allowance below.
   if (retriesInFlight >= MAX_RETRIES_IN_FLIGHT) return BUSY;
   retriesInFlight += 1;
   try {
+    // Fail-open like the donation route: a limiter outage must not stop a Donor
+    // paying. The lock below, not this limit, is what keeps charges single.
+    const limited = await checkRateLimit({
+      scope: 'donation-retry',
+      subject: params.clientAddress,
+      limit: RETRY_LIMIT,
+      windowSeconds: RETRY_WINDOW_SECONDS,
+      onUnavailable: 'open',
+    });
+    if (!limited.ok) {
+      return { status: 429, body: { error: 'Terlalu banyak percobaan pembayaran dari jaringan ini. Coba lagi nanti.' } };
+    }
     return await retryUnderLock(donationId, authorize);
   } finally {
     retriesInFlight -= 1;

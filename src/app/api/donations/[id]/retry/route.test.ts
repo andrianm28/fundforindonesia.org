@@ -181,6 +181,20 @@ describe('POST /api/donations/[id]/retry', () => {
     });
   });
 
+  it('still charges when the lazy EXPIRED flip fails, since eligibility was already decided', async () => {
+    mockDonationFindUnique.mockResolvedValue(
+      makeDonation({ payments: [{ id: 'payment-1', status: 'PENDING', expiresAt: new Date('2020-01-01T00:00:00Z') }] }),
+    );
+    mockPaymentUpdateMany.mockRejectedValue(new Error('connection reset'));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(retryRequest(), routeContext());
+
+    expect(response.status).toBe(201);
+    expect(mockPaymentCreate).toHaveBeenCalled();
+    errorLog.mockRestore();
+  });
+
   it('refuses while another retry of the same Donation holds the lock, without charging (PR #273 review S1)', async () => {
     mockQueryRaw.mockResolvedValue([{ locked: false }]);
 
@@ -219,6 +233,41 @@ describe('POST /api/donations/[id]/retry', () => {
     expect((await Promise.all(running)).map((r) => r.status)).toEqual(Array(MAX_RETRIES_IN_FLIGHT).fill(201));
     // The slots come back once those finish.
     expect((await POST(retryRequest(), routeContext())).status).toBe(201);
+  });
+
+  it('gives the slot back when a retry throws, so failures cannot use the cap up', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockQueryRaw.mockRejectedValue(new Error('database down'));
+    for (let i = 0; i < MAX_RETRIES_IN_FLIGHT + 1; i += 1) {
+      expect((await POST(retryRequest(), routeContext())).status).toBe(500);
+    }
+    mockQueryRaw.mockResolvedValue([{ locked: true }]);
+    expect((await POST(retryRequest(), routeContext())).status).toBe(201);
+    errorLog.mockRestore();
+  });
+
+  it('answers "busy" without spending the address\'s retry allowance (re-review N7)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const createCharge = vi.fn(async () => {
+      await gate;
+      return {
+        providerOrderId: 'donation-1-r2',
+        method: 'qris_redirect',
+        redirectUrl: 'https://pay.sumopod.com/pay/def',
+        expiresAt: new Date('2099-01-02T00:00:00.000Z'),
+      };
+    });
+    mockGetPaymentProvider.mockReturnValue({ name: 'sumopod', method: 'qris_redirect', createCharge });
+    const running = Array.from({ length: MAX_RETRIES_IN_FLIGHT }, () => POST(retryRequest(), routeContext()));
+    await vi.waitFor(() => expect(createCharge).toHaveBeenCalledTimes(MAX_RETRIES_IN_FLIGHT));
+    const limiterCalls = mockCheckRateLimit.mock.calls.length;
+
+    expect((await POST(retryRequest(), routeContext())).status).toBe(503);
+    expect(mockCheckRateLimit.mock.calls.length).toBe(limiterCalls);
+
+    release();
+    await Promise.all(running);
   });
 
   it('waits out the grace period after expiry before charging again, since a late paid can still arrive (S4)', async () => {
