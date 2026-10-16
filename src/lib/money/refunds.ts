@@ -181,11 +181,19 @@ const REFUND_ELIGIBILITY_BY_KIND: Record<Kind, 'ordinary' | 'technical failure o
  * picks from -- see the note on requireRefundAllowedForKind for what that
  * costs, and what closing it would need.
  */
-const TECHNICAL_FAILURE_REASONS = [
-  'salah bayar',
-  'bayar ganda',
-  'dana masuk setelah Campaign ditutup',
-] as const;
+/**
+ * The one phrase of the three that fits money which arrived after its Campaign
+ * closed. The closed-Campaign Refund proposals (./campaign-refund-proposals.ts)
+ * use it, and only for a Payment that really settled after the closure.
+ */
+export const CLOSED_CAMPAIGN_REFUND_REASON = 'dana masuk setelah Campaign ditutup';
+
+const TECHNICAL_FAILURE_REASONS = ['salah bayar', 'bayar ganda', CLOSED_CAMPAIGN_REFUND_REASON] as const;
+
+/** Whether this Kind's Refunds need no technical-failure reason (see requireRefundAllowedForKind). */
+export function isRefundOrdinaryForKind(kind: Kind): boolean {
+  return REFUND_ELIGIBILITY_BY_KIND[kind] === 'ordinary';
+}
 
 /**
  * Whether this Campaign's Kind returns a Donor their money on an ordinary

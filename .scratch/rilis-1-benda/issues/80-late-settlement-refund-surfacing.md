@@ -1,8 +1,8 @@
 # 80: M-d refund-diusulkan-untuk-dana-masuk-setelah-Campaign-ditutup
 
-**Status:** needs-info
+**Status:** awaiting-merge
 
-**Blocked by:** keputusan owner tentang aktor sistem (lihat "Pertanyaan terbuka"); `.scratch/audit-2026-10-16/issues/07-refund-massal-campaign-ditutup.md` boleh jalan lebih dulu
+**Blocked by:** none
 
 **Ukuran:** S-M
 
@@ -23,32 +23,23 @@ Yang dicatat PRD 7.2 (Pemicu) adalah peristiwa pada Campaign:
 
 Webhook tetap menerima dan mencatat Settlement apa pun status Campaign-nya (PRD 7.2, paragraf terakhir "Pemicu"). Hari ini webhook tidak punya cabang atas `lifecycleStatus` sama sekali (REQ-03).
 
-## Desain
+## Desain (dibangun 2026-10-16, tanpa aktor sistem, tanpa skema)
 
-**Representasi "diusulkan": Refund berstatus `REQUESTED`, tanpa perubahan skema.** `REQUESTED` sudah berarti "dibuat, nominal ditetapkan, dana dibekukan lewat jurnal, menunggu persetujuan Admin lain" (PRD 7.2, Siklus status). Usulan hanyalah Refund `REQUESTED` yang pemohonnya sistem dan alasannya menyebut status Campaign. Admin menyetujui atau menolaknya lewat `/admin/refunds/[id]` yang sudah ada; menolak mengembalikan dana lewat jurnal cermin (tiket 49). Aturan persetujuan per Refund tidak berubah (`src/lib/money/refunds.ts`).
+Webhook **tidak disentuh**. Daftar kerja di `/admin/refunds`, bagian "Dana masuk setelah Campaign ditutup", berisi Payment Donation `PAID` yang `settledAt`-nya lebih baru dari waktu Campaign-nya ditutup (SUSPENDED, CANCELLED, COMPLETED, EXPIRED) dan yang tidak punya Refund berdiri (`STANDING_REFUND_WHERE`; Refund REJECTED/FAILED mengembalikan Payment ke daftar). Hanya mode yang sama (sandbox tidak muncul di mode live), bukan Donation teranonimkan, bukan Demo Campaign.
 
-Karena `createRefund` membekukan dana seketika, usulan juga membekukannya. Itu disengaja: dana yang diusulkan kembali tidak boleh bisa ikut Payout. Bila Admin menolak, dana kembali ke Campaign Balance.
+Tiap baris punya tombol "Ajukan refund": `POST /api/admin/refunds/late-settlements` (`withHiddenAssignmentCheck(ADMIN)`) memanggil `createRefund` dengan Admin yang menekan sebagai pemohon, nominal penuh Gross. Aturan tiga Admin berbeda utuh (REQ-12). Server menurunkan ulang baris di bawah kunci Campaign, jadi halaman basi tidak menggandakan; dua klik bersamaan menghasilkan satu Refund (kunci Campaign lalu Payment, dan batas kumulatif `createRefund`).
 
-Pembuatnya `createRefund`, di dalam transaksi **terpisah** dari transaksi Settlement (urutan kunci Campaign lalu Payment; kunci Payment tidak boleh diambil dari dalam `tx` Settlement, alasan yang sama dengan `refundLateSettlement` Trip Fee).
+Kode: `src/lib/money/campaign-refund-proposals.ts` (`lateSettlementWorklist`, `proposeLateSettlementRefund`).
 
-Idempoten: tidak membuat usulan bila Payment itu sudah punya Refund yang masih berdiri (`STANDING_REFUND_WHERE`). Replay webhook sudah berhenti di `settled: false`, dan cek ini membuat jalur ini aman sekalipun dipanggil ulang.
+**Waktu penutupan** diambil dari `CampaignStatusChange` (baris terbaru dengan `toStatus` = status Campaign sekarang). Untuk EXPIRED, tenggat dipakai bila lebih awal dari catatan, karena kedaluwarsa dicatat malas oleh pembaca pertama. Campaign tanpa catatan (dan bukan EXPIRED dengan tenggat) tidak muncul: tanpa rekaman, menyebut sebuah Payment "setelah penutupan" adalah tebakan atas uang. Batas: hanya penutupan yang berlaku sekarang yang dikenal; dana yang masuk selama Suspension yang sudah dicabut tidak terdaftar.
 
-Kegagalan membuat usulan tidak boleh melempar ke webhook: ditangkap, dicatat (`sanitizeError`), dan diberi tanda `WEBHOOK_OUTCOME` yang bisa dicari Admin, sama dengan pola `LATE_SETTLEMENT_REFUND_FAILED`. Tetap 200 ke penyedia.
+**ADR 0021 utuh:** Payment yang dibayar setelah EXPIRED/FAILED pada Campaign yang masih terbuka tetap Settlement dan tidak masuk daftar.
 
-Tidak mengubah Settlement: Payment tetap `PAID`, jurnal `paymentSettledLegs` tetap terbit.
+**Alasan Refund** `dana masuk setelah Campaign ditutup`, satu dari tiga frasa PRD 196, sehingga lolos aturan Kind terbatas tanpa penanda tambahan.
 
-Aturan Kind (`requireRefundAllowedForKind`): Campaign Wakaf, Hibah, dan Zakat hanya boleh Refund dengan tiga alasan teknis, dibandingkan sebagai seluruh teks. Usulan memakai frasa persis `dana masuk setelah Campaign ditutup` untuk Kind itu, sehingga awalan "Usulan sistem" tidak bisa ada di `reason`; penanda harus dibaca dari pemohon (pertanyaan 2).
+## Keputusan
 
-## Pertanyaan terbuka (butuh owner sebelum membangun)
-
-1. **Aktor sistem.** `Refund.requestedById` wajib dan berupa FK ke `User`. Tidak ada pengguna sistem di repo, dan Donation tamu tidak punya `donorId`, jadi Donor tidak bisa jadi pemohon. Pilihan:
-   - **A. Skema:** `requestedById` nullable plus kolom asal (`origin`). Migrasi; slot migrasi sedang dipegang PR lain. Dampak merambat ke semua pembaca `requestedBy`.
-   - **B. Baris `User` sistem lewat migrasi data** (tanpa DDL), id tetap dalam konstanta. Tetap butuh slot migrasi.
-   - **C. Baris `User` sistem dibuat malas saat pertama dipakai** (tanpa migrasi, tanpa skema), email disegel lewat `contact-fields`, tanpa kata sandi. Risiko: muncul di daftar pengguna Admin dan perlu dikecualikan dari penghitungan Admin dan alur reset sandi.
-   - Rekomendasi: C untuk jalan cepat, B bila owner ingin jejak yang bersih; A hanya bila owner mau `origin` sebagai kolom.
-   - Konsekuensi aturan dua orang: pemohon sistem berarti Admin mana pun boleh menyetujui dan Admin lain menyelesaikan, jadi usulan sistem butuh **dua** Admin berbeda, bukan tiga. Perlu persetujuan eksplisit owner (terkait REQ-12).
-2. **Penanda usulan untuk Kind terbatas.** Penanda dibaca dari pemohon (aktor sistem), bukan dari teks alasan; `/admin/refunds` menandai baris yang pemohonnya aktor sistem.
-3. **Alasan untuk SUSPENDED/CANCELLED pada Kind terbatas.** Tidak ada frasa yang cocok di daftar PRD 196. Rekomendasi: pakai `dana masuk setelah Campaign ditutup` juga.
+- 2026-10-16: opsi aktor sistem (A/B/C) **tidak diambil** demi menjaga REQ-12 (tiga Admin berbeda) dan tanpa migrasi. Usulan otomatis di webhook diganti daftar kerja yang diajukan Admin satu klik. Konsekuensi: PRD 7.2 menyebut "otomatis masuk antrean" untuk Suspended/Cancelled; yang dibangun adalah daftar kerja, bukan baris Refund yang sudah ada sebelum Admin melihatnya. Dana yang masuk tetap tidak otomatis dibekukan sampai Admin mengajukan.
 
 ## Berkas relevan
 
@@ -61,13 +52,14 @@ Aturan Kind (`requireRefundAllowedForKind`): Campaign Wakaf, Hibah, dan Zakat ha
 
 ## Acceptance
 
-- [ ] Donation yang settle ketika Campaign SUSPENDED, CANCELLED, COMPLETED, atau EXPIRED menghasilkan tepat satu Refund `REQUESTED` (diusulkan) senilai Gross-nya, dengan alasan yang menyebut status Campaign
-- [ ] Settlement tidak berubah: Payment `PAID`, jurnal Settlement terbit, ADR 0021 utuh (Payment yang dibayar setelah EXPIRED/FAILED pada Campaign `ACTIVE` tidak dibuatkan Refund)
-- [ ] Replay webhook yang sama tidak menambah usulan kedua; Payment yang sudah punya Refund berdiri tidak diusulkan lagi
-- [ ] Kegagalan membuat usulan tidak melempar ke webhook, tidak membatalkan Settlement, dan meninggalkan tanda yang bisa dicari Admin
-- [ ] Usulan tampil di `/admin/refunds` dan ditandai sebagai usulan sistem
-- [ ] Payment sandbox dan Trip Fee tidak dibuatkan usulan oleh jalur ini
-- [ ] Tes Postgres sungguhan; review independen `sonnet` diposting di PR
+- [x] Donation yang settle setelah Campaign SUSPENDED, CANCELLED, COMPLETED, atau EXPIRED muncul di daftar kerja; satu klik membuat tepat satu Refund `REQUESTED` senilai Gross-nya
+- [x] Settlement tidak berubah (webhook tidak disentuh): Payment `PAID`, jurnal Settlement terbit, ADR 0021 utuh (Payment yang dibayar setelah EXPIRED/FAILED pada Campaign `ACTIVE` tidak dibuatkan Refund)
+- [x] Payment yang sudah punya Refund berdiri tidak muncul lagi; dua klik bersamaan menghasilkan satu Refund
+- [x] (Tidak berlaku lagi: tidak ada kode di webhook.)
+- [x] Daftar tampil di `/admin/refunds`
+- [x] Payment sandbox dan Trip Fee tidak masuk daftar
+- [x] Tes Postgres sungguhan
+- [ ] Review independen `sonnet` diposting di PR (koordinator)
 
 ## Comments
 
@@ -76,3 +68,5 @@ Aturan Kind (`requireRefundAllowedForKind`): Campaign Wakaf, Hibah, dan Zakat ha
 - 2026-10-04 (ronde C): C11 dijawab owner: usulan Refund kepada Admin, tidak otomatis. Untuk Trip Fee perilaku yang ada tetap (Refund otomatis, tiket 40 dan 43). `needs-info` menjadi `ready-for-agent`.
 
 - 2026-10-16: keputusan owner (kartu keputusan, opsi "Sesuai PRD", audit REQ-03): tiket ditulis ulang di sekitar status Campaign. Premis "Payment kedaluwarsa diusulkan Refund" dihapus karena bertentangan dengan ADR 0021. Status kembali ke `needs-info` karena aktor sistem butuh keputusan owner (pertanyaan 1); desain "REQUESTED tanpa skema" sudah ditetapkan. Bagian massal PRD (Campaign ditutup) dipisah ke `.scratch/audit-2026-10-16/issues/07-refund-massal-campaign-ditutup.md`, yang tidak butuh aktor sistem.
+
+- 2026-10-16: dibangun di cabang `claude/audit-refund-prd72` sebagai daftar kerja, tanpa aktor sistem (opsi A/B/C tidak diambil, demi REQ-12), tanpa skema, webhook tidak berubah. Status `awaiting-merge`; menjadi `done` saat merge. Tes: `src/__tests__/integration/closed-campaign-refund-proposals-real-db.test.ts`, `src/app/api/admin/refund-proposal-routes.test.ts`.

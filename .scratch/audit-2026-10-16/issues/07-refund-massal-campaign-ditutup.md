@@ -1,6 +1,6 @@
 # 07: refund-massal-campaign-ditutup
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -34,7 +34,7 @@ Fungsi lapisan uang `proposeCampaignRefunds(prisma, { campaignId, actorAdminId }
 
 Pengecualian lain dilaporkan, tidak dilempar: `RefundAfterCampaignTransferError` (dana pindah ke Campaign lain), `DonationAnonymisedError`, `DemoCampaignError`, dan Kind terbatas.
 
-**Kind terbatas.** Wakaf, Hibah, dan Zakat hanya boleh Refund dengan tiga alasan teknis (`requireRefundAllowedForKind`, PRD 196). Sampai owner memutuskan (pertanyaan 1), untuk Kind terbatas fungsi melewati semua Payment dengan alasan `kindTerbatas` dan melaporkannya.
+**Kind terbatas.** Wakaf, Hibah, dan Zakat hanya boleh Refund dengan tiga alasan teknis (`requireRefundAllowedForKind`, PRD 196). Keputusan koordinator 2026-10-16: pakai frasa terdekat yang benar. `dana masuk setelah Campaign ditutup` hanya untuk Payment yang settle setelah penutupan; Payment yang masuk sebelumnya dilewati dengan alasan `kindTerbatas` dan dilaporkan, tidak dipaksakan.
 
 **Pintu HTTP.** `POST /api/admin/campaigns/[slug]/refund-proposals`, dibungkus `withHiddenAssignmentCheck(Assignment.ADMIN, ...)` agar non-Admin mendapat 404 (`src/__tests__/properties/roles-expand-guard.test.ts`). Admin yang juga pemilik Campaign ditolak oleh `requireNotOwnerAsAdmin` di dalam `createRefund`. Jawaban memuat hitungan: dibuat, sudah ada, dilewati (dengan alasan), gagal.
 
@@ -56,15 +56,18 @@ Pengecualian lain dilaporkan, tidak dilempar: `RefundAfterCampaignTransferError`
 
 ## Acceptance
 
-- [ ] Satu tindakan Admin membuat Refund `REQUESTED` untuk setiap Payment Donation `PAID` Campaign SUSPENDED atau CANCELLED yang dananya belum keluar
-- [ ] Status selain SUSPENDED/CANCELLED ditolak
-- [ ] Idempoten: tindakan kedua tidak menggandakan usulan
-- [ ] Payment sandbox (mode live), belum dibayar, teranonimkan, dan yang dananya sudah keluar dilewati dan dilaporkan dengan alasan
-- [ ] "Belum keluar" dihitung dari buku besar seperti di atas, dengan tes Payout parsial
-- [ ] Non-Admin mendapat 404 sebelum masuk fungsi uang (roles-expand-guard hijau)
-- [ ] Tombol di halaman Admin Campaign dan usulan terlihat di `/admin/refunds`
-- [ ] Tes Postgres sungguhan; review independen `sonnet` diposting di PR
+- [x] Satu tindakan Admin membuat Refund `REQUESTED` untuk setiap Payment Donation `PAID` Campaign SUSPENDED atau CANCELLED yang dananya belum keluar
+- [x] Status selain SUSPENDED/CANCELLED ditolak
+- [x] Idempoten: tindakan kedua tidak menggandakan usulan
+- [x] Payment sandbox (mode live), belum dibayar, teranonimkan, dan yang dananya sudah keluar dilewati dan dilaporkan dengan alasan
+- [x] "Belum keluar" dihitung dari buku besar seperti di atas, dengan tes Payout parsial
+- [x] Non-Admin mendapat 404 sebelum masuk fungsi uang (roles-expand-guard hijau)
+- [x] Tombol di halaman Admin Campaign dan usulan terlihat di `/admin/refunds`
+- [x] Tes Postgres sungguhan
+- [ ] Review independen `sonnet` diposting di PR (koordinator)
 
 ## Comments
 
 - 2026-10-16: dibuat dari audit REQ-03 dan keputusan owner "Sesuai PRD". Desain ditetapkan di tiket ini tanpa skema; pasangannya tiket `rilis-1-benda/80`.
+
+- 2026-10-16: dibangun di cabang `claude/audit-refund-prd72` (`src/lib/money/campaign-refund-proposals.ts`, route `POST /api/admin/campaigns/[slug]/refund-proposals`, tombol di halaman Admin Campaign). Aturan terbaru-dulu diterima koordinator; sisa "sudah keluar" ditampilkan di hasil dan UI. Status `awaiting-merge`; menjadi `done` saat merge.
