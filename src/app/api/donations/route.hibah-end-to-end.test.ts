@@ -7,7 +7,7 @@ import {
   makeCampaignDb,
   type CampaignRow,
 } from '../../../../tests/support/in-memory-campaign-db';
-import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
+import { COLLECTING_ENTITY_REFUSAL, KIND_CLOSED_REFUSAL } from '@/lib/campaign-page-status';
 
 /**
  * Ticket 02 (docs/adr/0013-hibah-as-fourth-kind.md; CONTEXT.md, Hibah): a
@@ -76,6 +76,7 @@ function donate(body: Record<string, unknown>): Promise<Response> {
 }
 
 beforeEach(() => {
+  vi.stubEnv('WAKAF_HIBAH_OPEN', 'true');
   holder.donation.create = vi.fn(async (args: { data: Record<string, unknown> }) => ({
     id: 'donation-1',
     amount: args.data.amount,
@@ -173,6 +174,29 @@ describe('POST /api/donations for a hibah Campaign, gated by Kind Authorisation 
     });
 
     expect(response.status).toBe(403);
+    expect(holder.donation.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/donations while the platform keeps wakaf and hibah closed (WAKAF_HIBAH_OPEN off)', () => {
+  it('refuses a hibah Donation with the closed-kind copy though permit and Kind Authorisation are valid, writing nothing', async () => {
+    vi.stubEnv('WAKAF_HIBAH_OPEN', '');
+    holder.db = makeCampaignDb({
+      campaigns: [hibahCampaign()],
+      fundraisingPermits: [fundraisingPermitRow({ kinds: ['DONATION', 'ZAKAT', 'WAKAF', 'HIBAH'] })],
+      kindAuthorisations: [kindAuthorisationRow({ kind: 'HIBAH' })],
+    });
+
+    const response = await donate({
+      campaignId: 'campaign-1',
+      amount: 100_000,
+      paymentMethod: 'qris',
+      isAnonymous: false,
+      guestEmail: 'donor@example.com',
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: KIND_CLOSED_REFUSAL });
     expect(holder.donation.create).not.toHaveBeenCalled();
   });
 });
