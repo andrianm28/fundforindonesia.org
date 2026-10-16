@@ -208,7 +208,6 @@ describe('submitCampaign', () => {
   describe('the deadline its Kind requires (CONTEXT.md, Campaign)', () => {
     it.each([
       ['DONATION', 'Donasi'],
-      ['ZAKAT', 'Zakat'],
       ['HIBAH', 'Hibah'],
     ] as const)('refuses a %s Campaign without a deadline with a 422, writing nothing', async (kind, label) => {
       const db = makeCampaignDb({
@@ -280,7 +279,7 @@ describe('submitCampaign', () => {
     it.each([
       ['has lapsed', fundraisingPermitRow({ validTo: new Date('2026-09-26T09:00:00Z') })],
       ['is not valid yet', fundraisingPermitRow({ validFrom: new Date('2026-10-01T00:00:00Z') })],
-      ['covers other Kinds only', fundraisingPermitRow({ kinds: ['ZAKAT', 'WAKAF'] })],
+      ['covers other Kinds only', fundraisingPermitRow({ kinds: ['HIBAH', 'WAKAF'] })],
     ])('refuses when the Collecting Entity\'s only permit %s, with a 422 naming it and the Kind', async (_why, permit) => {
       const db = makeCampaignDb({
         campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', deadline: DEADLINE })],
@@ -377,7 +376,7 @@ describe('submitCampaign', () => {
 
     it('refuses an individual Fundraiser\'s Campaign of a Kind only a Partner Organisation may run, even under a sponsor with a valid permit', async () => {
       const db = makeCampaignDb({
-        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE })],
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', kind: 'WAKAF', deadline: DEADLINE })],
         kindAuthorisations: [kindAuthorisationRow()],
       });
 
@@ -395,7 +394,7 @@ describe('submitCampaign', () => {
     it('lets the linked account submit its own Kind Authorisation-covered Campaign', async () => {
       const db = makeCampaignDb({
         campaigns: [
-          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
+          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'WAKAF', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
         ],
         kindAuthorisations: [kindAuthorisationRow()],
       });
@@ -412,11 +411,11 @@ describe('submitCampaign', () => {
     it.each([
       ['has lapsed', kindAuthorisationRow({ validTo: new Date('2026-09-26T09:00:00Z') })],
       ['is not valid yet', kindAuthorisationRow({ validFrom: new Date('2026-10-01T00:00:00Z') })],
-      ['is for another Kind', kindAuthorisationRow({ kind: 'WAKAF' })],
+      ['is for another Kind', kindAuthorisationRow({ kind: 'HIBAH' })],
     ])('refuses when the Collecting Entity\'s only Kind Authorisation %s, with a 422 naming it and the Kind', async (_why, authorisation) => {
       const db = makeCampaignDb({
         campaigns: [
-          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
+          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'WAKAF', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
         ],
         kindAuthorisations: [authorisation],
       });
@@ -429,7 +428,7 @@ describe('submitCampaign', () => {
         body: {
           code: 'KIND_AUTHORISATION_REQUIRED',
           error:
-            'Yayasan Contoh Peduli belum memegang Kind Authorisation yang berlaku untuk Kind Zakat, sehingga Campaign ini belum dapat diajukan.',
+            'Yayasan Contoh Peduli belum memegang Kind Authorisation yang berlaku untuk Kind Wakaf, sehingga Campaign ini belum dapat diajukan.',
         },
       });
       expect(db.campaign().lifecycleStatus).toBe('DRAFT');
@@ -439,7 +438,7 @@ describe('submitCampaign', () => {
     it('refuses with the Fundraising Permit error first when the Collecting Entity holds neither', async () => {
       const db = makeCampaignDb({
         campaigns: [
-          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
+          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'WAKAF', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
         ],
         fundraisingPermits: [fundraisingPermitRow({ kinds: ['DONATION'] })],
         kindAuthorisations: [],
@@ -454,16 +453,16 @@ describe('submitCampaign', () => {
   describe('the per-Kind checklist (PRD §7.1, ticket 12)', () => {
     const PER_KIND_CHECKLIST = [
       checklistItemRow({ id: 'general', label: 'Rencana anggaran', position: 1, kind: null }),
-      checklistItemRow({ id: 'zakat-amil', label: 'Dokumen lembaga amil', position: 2, kind: 'ZAKAT' }),
+      checklistItemRow({ id: 'hibah-amil', label: 'Dokumen lembaga amil', position: 2, kind: 'HIBAH' }),
       checklistItemRow({ id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', position: 3, kind: 'WAKAF' }),
       checklistItemRow({ id: 'hibah-penerima', label: 'Dokumen lembaga nazhir', position: 4, kind: 'HIBAH' }),
-      checklistItemRow({ id: 'zakat-retired', label: 'Tidak dipakai lagi', position: 0, kind: 'ZAKAT', active: false }),
+      checklistItemRow({ id: 'wakaf-retired', label: 'Tidak dipakai lagi', position: 0, kind: 'WAKAF', active: false }),
     ];
 
     it('snapshots the general items plus only the Campaign Kind items, in position order', async () => {
       const db = makeCampaignDb({
         campaigns: [
-          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'ZAKAT', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
+          campaignRow({ lifecycleStatus: 'DRAFT', kind: 'WAKAF', deadline: DEADLINE, creatorId: 'partner-fundraiser-1' }),
         ],
         checklistItems: PER_KIND_CHECKLIST,
         kindAuthorisations: [kindAuthorisationRow()],
@@ -477,7 +476,7 @@ describe('submitCampaign', () => {
 
       expect(db.verificationRequests[0].checklist).toEqual([
         { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
-        { id: 'zakat-amil', label: 'Dokumen lembaga amil', required: true, position: 2, ticked: false },
+        { id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 3, ticked: false },
       ]);
     });
 

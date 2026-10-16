@@ -22,8 +22,7 @@ export type QuickActionTile = QuickActionWorkingTile | QuickActionComingSoonTile
  * accent's own role as "CTAs that must stand out"). Kolaborasi CSR, Wakaf,
  * and Hibah each open their own landing, which states plainly what is and is not
  * open yet (ticket 75); the `comingSoon` tile shape stays for any future module
- * that has no page. Zakat keeps its own working /zakat route but no longer gets
- * a dedicated homepage tile, per the PRD folding it under Donasi.
+ * that has no page. Zakat is out of scope (2026-10-16).
  */
 export const quickActionTiles: QuickActionTile[] = [
   { icon: '💰', label: 'Donasi', href: '/explore/all', color: '#E7F2ED' },

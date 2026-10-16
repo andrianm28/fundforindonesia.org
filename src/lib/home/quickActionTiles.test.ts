@@ -11,7 +11,7 @@ describe('quickActionTiles', () => {
     expect(labels).not.toContain('Asuransi');
   });
 
-  it('does not include a Zakat or Volunteer tile -- Zakat is folded under Donasi, Volunteer moved to a secondary menu', () => {
+  it('does not include a Zakat or Volunteer tile -- Zakat is out of scope, Volunteer moved to a secondary menu', () => {
     const labels = quickActionTiles.map((tile) => tile.label);
     expect(labels).not.toContain('Zakat');
     expect(labels).not.toContain('Volunteer');

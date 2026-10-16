@@ -86,12 +86,6 @@ export default function DesktopHeader({
               Galang Dana
             </Link>
             <Link
-              href="/zakat"
-              className="text-sm font-medium text-text hover:text-primary transition-colors"
-            >
-              Zakat
-            </Link>
-            <Link
               href="/program"
               className="text-sm font-medium text-text hover:text-primary transition-colors"
             >
