@@ -282,3 +282,54 @@ describe('AdminPayoutActionForm -- opening the account number (ticket 89)', () =
     expect(screen.queryByRole('button', { name: /tampilkan nomor rekening/i })).toBeNull();
   });
 });
+
+describe('AdminPayoutActionForm -- rejecting a DRAFT and failing an APPROVED Payout (PAY-02)', () => {
+  const draftProps = {
+    payoutId: 'payout-1',
+    status: 'DRAFT' as const,
+    subject: { type: 'campaign' as const, slug: 'sumur-desa' },
+    actorId: 'admin-2',
+    requestedById: 'fundraiser-1',
+    approvedById: null,
+  };
+  const approvedProps = { ...draftProps, status: 'APPROVED' as const, approvedById: 'admin-1' };
+
+  it('rejects a DRAFT with a reason through the Payout-id-only reject route, button disabled until the reason is typed', async () => {
+    mockFetch.mockImplementation(() => ok({ id: 'payout-1', status: 'REJECTED' }));
+    render(<AdminPayoutActionForm {...draftProps} />);
+
+    expect(screen.getByRole('button', { name: /tolak payout/i })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/alasan menolak/i), { target: { value: 'Sisa beta' } });
+    fireEvent.click(screen.getByRole('button', { name: /tolak payout/i }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/admin/payouts/payout-1/reject');
+    expect(JSON.parse(init.body)).toEqual({ reason: 'Sisa beta' });
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled());
+  });
+
+  it('marks an APPROVED Payout failed with a reason through the fail route', async () => {
+    mockFetch.mockImplementation(() => ok({ id: 'payout-1', status: 'FAILED' }));
+    render(<AdminPayoutActionForm {...approvedProps} />);
+
+    expect(screen.getByRole('button', { name: /tandai gagal/i })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/alasan gagal/i), { target: { value: 'Rekening ditolak bank' } });
+    fireEvent.click(screen.getByRole('button', { name: /tandai gagal/i }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/admin/payouts/payout-1/fail');
+    expect(JSON.parse(init.body)).toEqual({ reason: 'Rekening ditolak bank' });
+  });
+
+  it('shows the server refusal in its own words', async () => {
+    mockFetch.mockImplementation(() => refused(409, { error: 'Payout tidak lagi menunggu persetujuan.' }));
+    render(<AdminPayoutActionForm {...draftProps} />);
+
+    fireEvent.change(screen.getByLabelText(/alasan menolak/i), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: /tolak payout/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Payout tidak lagi menunggu persetujuan.');
+  });
+});

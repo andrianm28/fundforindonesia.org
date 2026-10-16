@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   requestPayout,
   approvePayout,
@@ -14,6 +14,10 @@ import {
   ProviderBalanceAmountError,
   ProviderBalanceNotShortError,
   UnknownPaymentProviderNameError,
+  SandboxRowInLiveModeError,
+  rejectPayout,
+  failPayout,
+  PayoutReasonInvalidError,
 } from './payouts';
 import { InvalidPayoutSubjectError } from './payout-subject';
 import { PayoutNotAllowedForStatusError } from '@/lib/subject-guard';
@@ -156,6 +160,9 @@ function makeTx(
           return { count: data.length };
         }),
         groupBy: vi.fn(ledgerGroupBy(rows)),
+        findMany: vi.fn(async ({ where }: { where: { transactionId: string } }) =>
+          rows.filter((r) => r.transactionId === where.transactionId),
+        ),
       },
     },
     bankAccountFindUnique,
@@ -1674,5 +1681,203 @@ describe('Trip Fee Payout only from COMPLETED Batches (ticket 49)', () => {
       await complete(tx);
       expect(payoutState).toMatchObject({ status: 'COMPLETED', completedById: 'admin-2' });
     });
+  });
+});
+
+describe('a sandbox Payout after go-live (PAY-01)', () => {
+  const sandboxPayoutRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 'payout-1',
+    campaignId: 'campaign-1',
+    volunteerTripId: null,
+    amount: 500_000,
+    status: 'DRAFT',
+    sandbox: true,
+    requestedById: 'requester-1',
+    approvedById: null,
+    bankAccount: verifiedBankAccount(),
+    ...overrides,
+  });
+  const funded: LedgerRow[] = [
+    { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null, sandbox: true } as LedgerRow,
+  ];
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('refuses to approve it once BETA_SANDBOX is gone, even with a live provider balance that covers it', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'false');
+    const payoutRow = sandboxPayoutRow();
+    const { tx, rows, payoutState } = makeTx({ ledgerRows: funded, payoutRow });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 9_000_000 }),
+    ).rejects.toThrow(SandboxRowInLiveModeError);
+
+    expect(payoutState).toMatchObject({ status: 'DRAFT', approvedById: null });
+    expect(rows.filter((r) => r.transactionId === 'payout-instructed-payout-1')).toEqual([]);
+  });
+
+  it('refuses to complete it once BETA_SANDBOX is gone, posting nothing', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'false');
+    const payoutRow = sandboxPayoutRow({ status: 'APPROVED', approvedById: 'admin-1' });
+    const { tx, rows } = makeTx({ payoutRow });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(
+      completePayout(prisma as never, {
+        payoutId: 'payout-1',
+        completedById: 'admin-2',
+        proofReference: 'TRX-admin-2',
+        proofNote: 'Ditransfer via mobile banking BCA, dicocokkan dengan nominal dan rekening tujuan.',
+      }),
+    ).rejects.toThrow(SandboxRowInLiveModeError);
+
+    expect(rows).toEqual([]);
+  });
+
+  it('still approves a sandbox Payout while the beta marker is on', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    const payoutRow = sandboxPayoutRow();
+    const { tx } = makeTx({ ledgerRows: funded, payoutRow });
+    const prisma = makePrisma(tx, { ...payoutRow, status: 'APPROVED', approvedById: 'admin-1' });
+
+    await expect(
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'admin-1', provider: 'sumopod', providerBalance: 9_000_000 }),
+    ).resolves.toMatchObject({ status: 'APPROVED' });
+  });
+});
+
+describe('rejectPayout and failPayout (PAY-02)', () => {
+  const draftRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 'payout-1',
+    campaignId: 'campaign-1',
+    volunteerTripId: null,
+    amount: 500_000,
+    status: 'DRAFT',
+    requestedById: 'requester-1',
+    approvedById: null,
+    rejectionReason: null,
+    bankAccount: verifiedBankAccount(),
+    ...overrides,
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('rejects a DRAFT Payout with the reason recorded, posting nothing to the ledger', async () => {
+    const payoutRow = draftRow();
+    const { tx, rows, payoutState } = makeTx({ payoutRow });
+    const prisma = makePrisma(tx, { ...payoutRow, status: 'REJECTED' });
+
+    const result = await rejectPayout(prisma as never, { payoutId: 'payout-1', rejectedById: 'admin-1', reason: '  Rekening salah  ' });
+
+    expect(result.status).toBe('REJECTED');
+    expect(payoutState).toMatchObject({ status: 'REJECTED', rejectionReason: 'Rekening salah' });
+    expect(rows).toEqual([]);
+  });
+
+  it('rejects a leftover sandbox Payout after go-live: the way out the runbook asks for', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'false');
+    const payoutRow = draftRow({ sandbox: true });
+    const { tx, payoutState } = makeTx({ payoutRow });
+    const prisma = makePrisma(tx, { ...payoutRow, status: 'REJECTED' });
+
+    await rejectPayout(prisma as never, { payoutId: 'payout-1', rejectedById: 'admin-1', reason: 'Sisa beta' });
+
+    expect(payoutState).toMatchObject({ status: 'REJECTED' });
+  });
+
+  it('refuses a blank reason, leaving the Payout DRAFT', async () => {
+    const payoutRow = draftRow();
+    const { tx, payoutState } = makeTx({ payoutRow });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(rejectPayout(prisma as never, { payoutId: 'payout-1', rejectedById: 'admin-1', reason: '   ' })).rejects.toThrow(
+      PayoutReasonInvalidError,
+    );
+    expect(payoutState).toMatchObject({ status: 'DRAFT' });
+  });
+
+  it('refuses to reject a Payout that is already APPROVED (that one is failed, not rejected)', async () => {
+    const payoutRow = draftRow({ status: 'APPROVED', approvedById: 'admin-2' });
+    const { tx, payoutState, rows } = makeTx({ payoutRow });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(rejectPayout(prisma as never, { payoutId: 'payout-1', rejectedById: 'admin-1', reason: 'x' })).rejects.toThrow(
+      InvalidPayoutStatusError,
+    );
+    expect(payoutState).toMatchObject({ status: 'APPROVED' });
+    expect(rows).toEqual([]);
+  });
+
+  it("refuses the Campaign's own Fundraiser acting as Admin", async () => {
+    const payoutRow = draftRow();
+    const { tx, payoutState } = makeTx({ payoutRow });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(rejectPayout(prisma as never, { payoutId: 'payout-1', rejectedById: 'requester-1', reason: 'x' })).rejects.toThrow(
+      OwnSubjectConflictError,
+    );
+    expect(payoutState).toMatchObject({ status: 'DRAFT' });
+  });
+
+  const INSTRUCTED: LedgerRow[] = [
+    { transactionId: 'payout-instructed-payout-1', direction: 'DEBIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+    { transactionId: 'payout-instructed-payout-1', direction: 'CREDIT', amount: 500_000, account: 'PAYOUT_CLEARING', campaignId: null, volunteerTripId: null },
+  ];
+
+  it('fails an APPROVED Payout: FAILED with the reason, and the exact mirror of the instruction posted under payout-failed-<id>', async () => {
+    const payoutRow = draftRow({ status: 'APPROVED', approvedById: 'admin-2' });
+    const { tx, rows, payoutState } = makeTx({ payoutRow, ledgerRows: INSTRUCTED });
+    const prisma = makePrisma(tx, { ...payoutRow, status: 'FAILED' });
+
+    const result = await failPayout(prisma as never, { payoutId: 'payout-1', failedById: 'admin-1', reason: 'Nama rekening tidak cocok' });
+
+    expect(result.status).toBe('FAILED');
+    expect(payoutState).toMatchObject({ status: 'FAILED', rejectionReason: 'Nama rekening tidak cocok' });
+    const mirror = rows.filter((r) => r.transactionId === 'payout-failed-payout-1');
+    expect(mirror).toEqual([
+      expect.objectContaining({ direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1' }),
+      expect.objectContaining({ direction: 'DEBIT', amount: 500_000, account: 'PAYOUT_CLEARING' }),
+    ]);
+  });
+
+  it('mirrors a sandbox Payout in sandbox mode, and may do so after go-live', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'false');
+    const payoutRow = draftRow({ status: 'APPROVED', approvedById: 'admin-2', sandbox: true });
+    const { tx, rows } = makeTx({ payoutRow, ledgerRows: INSTRUCTED.map((r) => ({ ...r, sandbox: true }) as LedgerRow) });
+    const prisma = makePrisma(tx, { ...payoutRow, status: 'FAILED' });
+
+    await failPayout(prisma as never, { payoutId: 'payout-1', failedById: 'admin-1', reason: 'Sisa beta' });
+
+    const mirror = rows.filter((r) => r.transactionId === 'payout-failed-payout-1');
+    expect(mirror).toHaveLength(2);
+    expect(mirror.every((r) => (r as { sandbox?: boolean }).sandbox === true)).toBe(true);
+  });
+
+  it.each(['DRAFT', 'COMPLETED', 'REJECTED', 'FAILED'])('refuses to fail a Payout that is %s, posting nothing', async (status) => {
+    const payoutRow = draftRow({ status, approvedById: 'admin-2' });
+    const { tx, rows, payoutState } = makeTx({ payoutRow, ledgerRows: INSTRUCTED });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(failPayout(prisma as never, { payoutId: 'payout-1', failedById: 'admin-1', reason: 'x' })).rejects.toThrow(
+      InvalidPayoutStatusError,
+    );
+    expect(payoutState).toMatchObject({ status });
+    expect(rows.filter((r) => r.transactionId === 'payout-failed-payout-1')).toEqual([]);
+  });
+
+  it('refuses to fail an APPROVED Payout whose instruction journal is missing, leaving it APPROVED', async () => {
+    const payoutRow = draftRow({ status: 'APPROVED', approvedById: 'admin-2' });
+    const { tx, payoutState } = makeTx({ payoutRow });
+    const prisma = makePrisma(tx, payoutRow);
+
+    await expect(failPayout(prisma as never, { payoutId: 'payout-1', failedById: 'admin-1', reason: 'x' })).rejects.toThrow(
+      InvalidPayoutStatusError,
+    );
+    expect(payoutState).toMatchObject({ status: 'APPROVED' });
   });
 });
