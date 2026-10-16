@@ -15,7 +15,7 @@ import { useRouter } from 'next/navigation';
 
 type Target = 'KIND' | 'CATEGORY' | 'CAMPAIGN' | 'THRESHOLD';
 
-const KINDS = ['DONATION', 'ZAKAT', 'WAKAF', 'HIBAH'] as const;
+const KINDS = ['DONATION', 'WAKAF', 'HIBAH'] as const;
 
 /** "2,5" or "2.5" -> 250. Pure string arithmetic, so no float ever touches a rate. */
 function percentToBps(text: string): number | null {

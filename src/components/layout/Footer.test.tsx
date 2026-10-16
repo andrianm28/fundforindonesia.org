@@ -34,3 +34,13 @@ describe('Footer public settings', () => {
     expect(screen.queryByRole('link', { name: 'Facebook' })).toBeNull();
   });
 });
+
+describe('Footer module links', () => {
+  it('links the CSR portfolio, Wakaf and Hibah', () => {
+    render(<Footer />);
+
+    expect(screen.getByRole('link', { name: 'Portofolio CSR' })).toHaveAttribute('href', '/program');
+    expect(screen.getByRole('link', { name: 'Wakaf' })).toHaveAttribute('href', '/wakaf');
+    expect(screen.getByRole('link', { name: 'Hibah' })).toHaveAttribute('href', '/hibah');
+  });
+});

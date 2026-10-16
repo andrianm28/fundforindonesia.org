@@ -133,7 +133,7 @@ function cleanKind(raw: unknown): Kind {
   if (!kind) throw new InvalidPartnerOrganisationError("Kind tidak dikenal.", "kind");
   if (!requiresKindAuthorisation(kind)) {
     throw new InvalidPartnerOrganisationError(
-      "Kind Authorisation hanya berlaku untuk Zakat, Wakaf, atau Hibah.",
+      "Kind Authorisation hanya berlaku untuk Wakaf atau Hibah.",
       "kind"
     );
   }

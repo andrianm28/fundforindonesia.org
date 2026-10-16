@@ -12,7 +12,7 @@ import { KIND_LABEL, KINDS, type CampaignKind } from "@/lib/campaign-kind";
  * server; nothing here is ever deleted.
  */
 
-/** Zakat, wakaf and hibah are the only Kinds a Kind Authorisation may name; donation needs none. */
+/** Wakaf and hibah are the only Kinds a Kind Authorisation may name; donation needs none. */
 const AUTHORISABLE_KINDS = KINDS.filter((kind) => kind !== "DONATION");
 
 type Permit = {
@@ -193,7 +193,7 @@ export function PartnerOrganisationRegister() {
           <div>
             <h3 className="text-sm font-medium text-text mb-2">Kind Authorisation</h3>
             <p className="text-xs text-text-secondary mb-2">
-              Izin tambahan agar organisasi ini boleh menjalankan Campaign ber-Kind Zakat, Wakaf, atau Hibah.
+              Izin tambahan agar organisasi ini boleh menjalankan Campaign ber-Kind Wakaf atau Hibah.
             </p>
             {(organisation.kindAuthorisations ?? []).length === 0 ? (
               <p className="text-sm text-text-secondary">Belum ada Kind Authorisation.</p>

@@ -204,7 +204,7 @@ describe('GET /api/campaigns/[slug]', () => {
 
   // ticket 03 (ADR 0013): hibah's rate shown on the Campaign page is exactly
   // what resolvePlatformFeeBasisForCampaign resolves -- 0 by default, since
-  // no Kind rule has been set for it, matching zakat/wakaf.
+  // no Kind rule has been set for it, matching wakaf.
   it('carries a hibah Campaign\'s Platform Fee rate, which defaults to 0 (ADR 0013)', async () => {
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
@@ -1296,16 +1296,16 @@ describe('PATCH /api/campaigns/[slug] -- Kind is fixed once the Campaign leaves 
   it("changes a Draft's Kind", async () => {
     storedAs('DRAFT', 'DONATION');
 
-    const response = await edit({ kind: 'ZAKAT' });
+    const response = await edit({ kind: 'WAKAF' });
 
     expect(response.status).toBe(200);
-    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { kind: 'ZAKAT' } }));
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { kind: 'WAKAF' } }));
   });
 
   it.each(['REJECTED', 'ACTIVE'])('refuses to change the Kind of a %s Campaign with 409 KIND_IMMUTABLE', async (status) => {
     storedAs(status, 'DONATION');
 
-    const response = await edit({ kind: 'ZAKAT', story: '<p>Cerita baru</p>' });
+    const response = await edit({ kind: 'WAKAF', story: '<p>Cerita baru</p>' });
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
@@ -1316,9 +1316,9 @@ describe('PATCH /api/campaigns/[slug] -- Kind is fixed once the Campaign leaves 
   });
 
   it('accepts the Kind it already has on an Active Campaign, so a form resending every field still saves', async () => {
-    storedAs('ACTIVE', 'ZAKAT');
+    storedAs('ACTIVE', 'WAKAF');
 
-    const response = await edit({ kind: 'ZAKAT', story: '<p>Cerita baru</p>' });
+    const response = await edit({ kind: 'WAKAF', story: '<p>Cerita baru</p>' });
 
     expect(response.status).toBe(200);
   });
@@ -1395,7 +1395,7 @@ describe('PATCH /api/campaigns/[slug] -- an individual Fundraiser may only run d
     });
   }
 
-  it.each(['ZAKAT', 'WAKAF', 'HIBAH'])('refuses turning a Draft into %s, writing nothing', async (kind) => {
+  it.each(['WAKAF', 'HIBAH'])('refuses turning a Draft into %s, writing nothing', async (kind) => {
     storedAs('DONATION');
 
     const response = await edit({ kind });
@@ -1414,7 +1414,7 @@ describe('PATCH /api/campaigns/[slug] -- an individual Fundraiser may only run d
   });
 
   it('does not judge the Kind when the edit leaves it unchanged', async () => {
-    storedAs('ZAKAT');
+    storedAs('WAKAF');
 
     const response = await edit({ title: 'Judul Baru' });
 
