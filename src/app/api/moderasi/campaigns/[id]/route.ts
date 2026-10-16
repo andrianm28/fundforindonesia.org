@@ -4,6 +4,8 @@ import {
   LifecycleValidationError,
 } from "@/lib/campaign-lifecycle";
 import { lifecycleRoute } from "@/lib/lifecycle-route";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { Assignment } from "@/generated/prisma/client";
 
 /**
  * A Verifier decides the Campaign's PENDING Verification Request:
@@ -16,8 +18,13 @@ none, so one sent with it is ignored); `identityNote` goes
  * There is no `suspend`: a Verifier raises a Flag and an Admin decides on
  * Suspension (ADR 0005, FFI-07b), so `suspend` is refused like any other
  * unknown action.
+ *
+ * Anyone without the VERIFIER assignment gets the Moderasi APIs' 404 before
+ * the Campaign is looked up (ticket 90), so the answer confirms neither the
+ * route nor the Campaign. That gate is about who may see the panel; who may
+ * decide stays the command's.
  */
-export const PATCH = lifecycleRoute({
+export const PATCH = withHiddenAssignmentCheck(Assignment.VERIFIER, lifecycleRoute({
   campaign: "id",
   command: decideVerificationRequest,
   input: ({ body }) => {
@@ -35,4 +42,4 @@ export const PATCH = lifecycleRoute({
       identityNote: body.identityNote,
     };
   },
-});
+}));

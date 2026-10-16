@@ -368,19 +368,19 @@ describe('GET /api/admin/reconcile', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('returns 403 for a Verifier who does not hold the Admin assignment', async () => {
+  it('returns 404 for a Verifier who does not hold the Admin assignment', async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: 'mod-1', assignments: ['VERIFIER'] } });
     const response = await GET(createRequest());
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('returns 403 for an ADMIN-ranked user who does not hold the ADMIN assignment', async () => {
+  it('returns 404 for an ADMIN-ranked user who does not hold the ADMIN assignment', async () => {
     // The exact scenario ADR 0005 exists to fix: rank alone must never
     // substitute for the assignment this route requires.
     mockGetServerSession.mockResolvedValue({ user: { id: 'someone-1', assignments: [] } });
     const response = await GET(createRequest());
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 

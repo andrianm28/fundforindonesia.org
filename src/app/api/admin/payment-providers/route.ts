@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Assignment } from '@/generated/prisma/client';
 import { getServerSession } from '@/lib/auth';
-import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { prisma } from '@/lib/prisma';
 import {
   paymentProviderSettingErrorToHttp,
@@ -23,7 +23,7 @@ import {
  *
  * ADMIN only.
  */
-export const POST = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest) => {
+export const POST = withHiddenAssignmentCheck(Assignment.ADMIN, async (req: NextRequest) => {
   const session = await getServerSession();
   const actorId = session!.user.id as string;
 

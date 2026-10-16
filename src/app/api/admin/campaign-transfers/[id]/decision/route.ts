@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Assignment } from '@/generated/prisma/client';
 import { getServerSession } from '@/lib/auth';
-import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { prisma } from '@/lib/prisma';
 import { domainErrorToHttp } from '@/lib/domain-errors';
 import { approveCampaignTransfer, rejectCampaignTransfer } from '@/lib/money/campaign-transfers';
@@ -18,7 +18,7 @@ import { approveCampaignTransfer, rejectCampaignTransfer } from '@/lib/money/cam
  * service layer owns the two-person rule, the Kind rules and the balance; the
  * route owns the ADMIN assignment and the HTTP shape.
  */
-export const POST = withAssignmentCheck(
+export const POST = withHiddenAssignmentCheck(
   Assignment.ADMIN,
   async (req: NextRequest, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params;

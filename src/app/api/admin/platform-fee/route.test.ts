@@ -45,12 +45,12 @@ describe('POST /api/admin/platform-fee', () => {
     expect(mockThresholdCreate).not.toHaveBeenCalled();
   });
 
-  it('answers 403 for a session without the ADMIN assignment', async () => {
+  it('answers 404 for a session without the ADMIN assignment', async () => {
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
 
     const res = await post({ target: 'threshold', amount: 50_000 });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     expect(mockThresholdCreate).not.toHaveBeenCalled();
   });
 
