@@ -54,11 +54,16 @@ const TOOLS = [
 // reaches deploy.log in the clear is not masked, so deploy.sh must never print it.
 const SENSITIVE = '(?:bearer|token|secret|password|passwd|pwd|key|authorization|credential)';
 const PAIR = new RegExp(
-  `([a-z0-9_.-]*${SENSITIVE}[a-z0-9_.-]*)(["']?\\s*[=:]\\s*["']?|\\s+)(?:(?:bearer|basic)\\s+)?[^\\s"',;}]+`,
+  `([a-z0-9_.-]*${SENSITIVE}[a-z0-9_.-]*)(["']?\\s*[=:]\\s*["']?)(?:(?:bearer|basic)\\s+)?[^\\s"',;}]+`,
   'gi',
 );
+const MAX_LINE = 2048; // keeps the regexes linear-ish: a 256 KB single line must not stall the server
 export function redact(line) {
-  return line.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s@]*@/gi, '$1***@').replace(PAIR, '$1$2***');
+  const short = line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)} ...[truncated]` : line;
+  return short
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s@]*@/gi, '$1***@')
+    .replace(PAIR, '$1$2***')
+    .replace(/\b(bearer|basic)\s+[a-z0-9._~+/=-]{8,}/gi, '$1 ***');
 }
 
 const text = (s) => ({ content: [{ type: 'text', text: s }] });

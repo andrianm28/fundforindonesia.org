@@ -26,13 +26,16 @@ Semua langkah ini mengubah host produksi, jadi hanya owner (atau agent servernya
 
    ```bash
    setfacl    -m  u:mcp-ops:--x <DEPLOY_DIR>
-   setfacl -R -m  u:mcp-ops:rX  <DEPLOY_DIR>/state <DEPLOY_DIR>/logs <DEPLOY_DIR>/backups
-   setfacl -R -d -m u:mcp-ops:rX <DEPLOY_DIR>/state <DEPLOY_DIR>/logs <DEPLOY_DIR>/backups
+   # state dan logs: baca penuh, termasuk berkas baru (default ACL)
+   setfacl -R -m  u:mcp-ops:rX  <DEPLOY_DIR>/state <DEPLOY_DIR>/logs
+   setfacl -R -d -m u:mcp-ops:rX <DEPLOY_DIR>/state <DEPLOY_DIR>/logs
+   # backups: hanya daftar nama/ukuran/waktu (r-x pada folder), TANPA hak baca pada berkas dump
+   setfacl    -m  u:mcp-ops:r-x <DEPLOY_DIR>/backups
    ```
 
-   Jangan memberi akses ke `.env` atau folder lain. Setelah deploy berikutnya, cek bahwa `backups/*.dump` baru tetap terbaca (`getfacl`). Backup berisi data donor: user ini bisa membaca isinya di disk walau server tidak pernah menampilkannya, jadi lebih ketat lagi: bila hanya perlu nama dan ukuran, cukup beri `--x`/`r` pada foldernya tanpa `r` pada berkasnya, atau hilangkan tool `backups`.
+   Jangan memberi akses ke `.env` atau folder lain. Dump di `backups/` berisi data donor, karena itu ACL di atas sengaja **tidak** diberikan pada berkasnya: `mcp-ops` bisa melihat nama dan ukuran (cukup untuk tool `backups`) tetapi tidak membaca isinya. Jangan menambah `-R` atau default ACL pada `backups/`. Setelah deploy berikutnya, cek dengan `getfacl` bahwa `state/` dan `logs/` baru tetap terbaca dan dump baru tetap tertutup.
 3. Buat token acak panjang (minimal 32 karakter): `openssl rand -hex 32`. Simpan hanya di `/etc/mcp-ops.env` (izin 600, milik root) dengan isi `MCP_OPS_TOKEN=...` dan `DEPLOY_DIR=...`, bukan di repo.
-4. Jalankan `node ops/mcp-ops/server.mjs` sebagai service systemd: `User=mcp-ops`, `EnvironmentFile=/etc/mcp-ops.env`, `NoNewPrivileges=yes`, `PrivateTmp=yes`, `ProtectSystem=strict`, `ProtectHome=read-only` (hanya relevan bila `DEPLOY_DIR` ada di `/home`), `ReadOnlyPaths=` ke tiga folder di atas. Opsional: `HEALTH_URL` (default `http://127.0.0.1:8093/api/health`), `HOST` (default `127.0.0.1`), `PORT` (default `8787`). `DEPLOY_DIR` wajib; server menolak start tanpanya.
+4. Jalankan sebagai service systemd dengan `ExecStart=<path absolut node> <path absolut repo>/ops/mcp-ops/server.mjs`, `User=mcp-ops`, `EnvironmentFile=/etc/mcp-ops.env`, `NoNewPrivileges=yes`, `PrivateTmp=yes`, `ProtectSystem=strict`, `ProtectHome=read-only` (hanya relevan bila `DEPLOY_DIR` ada di `/home`), `ReadOnlyPaths=` ke tiga folder di atas. Opsional: `HEALTH_URL` (default `http://127.0.0.1:8093/api/health`), `HOST` (default `127.0.0.1`), `PORT` (default `8787`). `DEPLOY_DIR` wajib; server menolak start tanpanya.
 5. Di nginx, buat subdomain khusus dengan TLS, `proxy_pass` ke `127.0.0.1:8787` hanya untuk path `/mcp`, `limit_req` yang ketat, dan `allow 160.79.104.0/21; deny all;` (lihat di bawah).
 6. Uji dari luar: tanpa token harus `401`; dengan `Authorization: Bearer <token>`, `tools/list` mengembalikan empat tool. Server hanya menerima awalan `Bearer `; token polos ditolak.
 

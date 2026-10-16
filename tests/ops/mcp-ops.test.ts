@@ -92,7 +92,16 @@ describe('ops MCP server', () => {
       `MCP_OPS_TOKEN=${v}`,
     ];
     for (const line of cases) expect(redact(line), line).not.toContain(v);
+    expect(redact(`Bearer ${v}${v}`)).not.toContain(v);
     expect(redact('deployed ok, kept 7 backups')).toBe('deployed ok, kept 7 backups');
+    expect(redact('token refreshed in 3s')).toBe('token refreshed in 3s');
+  });
+
+  it('truncates very long lines before masking, so they cannot stall the server', () => {
+    const started = Date.now();
+    const out = redact('a'.repeat(256 * 1024));
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(out.length).toBeLessThan(3000);
   });
 
   it('reads only the tail of a big log and honours the line count', async () => {
