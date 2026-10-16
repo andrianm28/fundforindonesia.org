@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 **Blocked by:** none
 
@@ -23,3 +23,6 @@ Ditemukan saat mengisi "Payment Redirect URLs" di dashboard Sumopod sandbox untu
 - Setelah dirilis, URL default di dashboard Sumopod (sandbox dan produksi) diganti ke halaman netral yang tidak mewajibkan login.
 
 ## Comments
+
+- 2026-10-16: dikerjakan (thread "Halaman hasil pembayaran donor tamu"). Halaman `/donasi/hasil/<token>`; token stateless HMAC atas `${expiresAt}:${donationId}` dengan kunci turunan NEXTAUTH_SECRET (domain `fund-for-indonesia:payment-result:v1`), berlaku 30 hari, tanpa kolom baru dan tanpa migrasi. `chargeDonation` mengirim URL sukses dan batal (`?batal=1`) per Payment dan kini menyimpan `Payment.redirectUrl`, sehingga Donor yang batal bisa kembali ke tagihan yang sama selama masih terbuka; tagihan gagal atau kedaluwarsa ditawari "Coba bayar lagi" lewat `POST /api/donations/[id]/retry`. Volunteer Trip dipisah ke tiket 99. Setelah rilis, owner mengganti URL default Success di dashboard Sumopod ke beranda.
+

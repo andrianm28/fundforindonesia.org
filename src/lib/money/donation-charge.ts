@@ -8,6 +8,8 @@ import { computePlatformFee } from './platform-fee';
 import { resolveEscrowHoldDays } from './escrow-hold-config';
 import { currentPaymentSandboxStamp } from './counted-payment';
 import { recordChargeWriteFailure, sanitizeError } from './payment-reconciliation';
+import { paymentResultPath, signPaymentResultToken } from './payment-result-token';
+import { publicUrl } from '@/lib/public-url';
 
 /**
  * One attempt at charging a Donation: resolves and freezes the Platform Fee
@@ -79,9 +81,23 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
     return { ok: false, reason: 'method_unavailable' };
   }
 
+  // Where the provider sends the Donor back (ticket 98): this Donation's own
+  // result page, opened by a signed token rather than a session, so a Guest
+  // Donor lands on their own status instead of a login wall. Signed for the
+  // Donation, not this attempt, so the page follows every retry. The page reads
+  // the status from the database; the redirect itself proves nothing.
+  const resultToken = signPaymentResultToken(donationId, Date.now());
+
   let charge: ChargeResult;
   try {
-    charge = await provider.createCharge({ orderId, grossAmount: amount, currency: 'IDR', method: paymentMethod });
+    charge = await provider.createCharge({
+      orderId,
+      grossAmount: amount,
+      currency: 'IDR',
+      method: paymentMethod,
+      successReturnUrl: publicUrl(paymentResultPath(resultToken)),
+      cancelReturnUrl: publicUrl(paymentResultPath(resultToken, { cancelled: true })),
+    });
   } catch (err) {
     console.error(`[donations] charge failed for donation ${donationId} (order ${orderId}): ${sanitizeError(err)}`);
     return { ok: false, reason: 'provider_error' };
@@ -129,6 +145,10 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
         escrowHoldDays,
         status: PaymentStatus.PENDING,
         expiresAt: charge.expiresAt,
+        // The provider's hosted payment link, so the result page can send a
+        // Donor who backed out straight back to the SAME charge while it is
+        // still open, rather than creating another one.
+        redirectUrl: 'redirectUrl' in charge ? charge.redirectUrl : null,
       },
     });
   } catch (err) {

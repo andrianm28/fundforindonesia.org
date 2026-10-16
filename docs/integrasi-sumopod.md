@@ -28,6 +28,8 @@ Komponen Rp300 membuat biaya relatif jauh lebih berat pada donasi kecil: Rp440 a
 
 `POST /payments` dengan `order_id`, `amount`, `currency: "IDR"`, `expires_in_hours` (opsional, default dan maksimum 24), `success_return_url`, `cancel_return_url`, dan `payment_method_type_code`.
 
+Kedua URL kembali diisi per Payment (tiket rilis-1-benda/98): halaman hasil pembayaran Donation itu, `/donasi/hasil/<token>`, dengan `?batal=1` untuk `cancel_return_url`. Token-nya bertanda tangan HMAC dan kedaluwarsa setelah 30 hari, jadi halaman bisa dibuka Guest Donor tanpa login. URL default di dashboard Sumopod hanya dipakai bila sebuah Payment tidak membawa URL sendiri, dan sebaiknya diarahkan ke halaman netral seperti beranda, bukan `/donasi-saya` yang mewajibkan login.
+
 Respons memuat `payment_id`, `order_id`, `amount`, `fee`, `net_amount`, `payment_link_url`, `payment_code`, `payment_code_type`, `payment_channel_used`, `status`, dan `expires_at`.
 
 Pemetaan ke model kita:
