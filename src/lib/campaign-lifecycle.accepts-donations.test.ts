@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { campaignAcceptsDonations, donationBlock } from './campaign-lifecycle';
 
 /**
@@ -10,6 +10,15 @@ import { campaignAcceptsDonations, donationBlock } from './campaign-lifecycle';
  * read, so a lapsed permit or authorisation stops collection by itself.
  */
 const NOW = new Date('2026-09-26T10:00:00Z');
+
+// The permit and Kind Authorisation rules below are judged with wakaf and hibah
+// open; the WAKAF_HIBAH_OPEN switch has its own describe at the end.
+beforeEach(() => {
+  vi.stubEnv('WAKAF_HIBAH_OPEN', 'true');
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 const permit = (overrides: Partial<{ kinds: ('DONATION' | 'ZAKAT' | 'WAKAF' | 'HIBAH')[]; validFrom: Date; validTo: Date }> = {}) => ({
   kinds: ['DONATION' as const],
@@ -143,4 +152,46 @@ describe('campaignAcceptsDonations, Kind Authorisation (prd-compliance 11, ADR 0
       expect(donationBlock(campaign, NOW)).toBe('NO_VALID_KIND_AUTHORISATION');
     },
   );
+});
+
+// Audit L1 / T2: no wakaf or hibah money until a licensed nazhir and a sharia
+// review are on record. WAKAF_HIBAH_OPEN is the platform switch; only the exact
+// value "true" opens it, and it is judged on every call.
+describe('campaignAcceptsDonations, WAKAF_HIBAH_OPEN switch', () => {
+  const fullyAuthorised = (kind: 'DONATION' | 'WAKAF' | 'HIBAH') =>
+    active({
+      kind,
+      collectingEntity: {
+        permits: [permit({ kinds: ['DONATION', 'WAKAF', 'HIBAH'] })],
+        kindAuthorisations: [kindAuthorisation({ kind: 'WAKAF' }), kindAuthorisation({ kind: 'HIBAH' })],
+      },
+    });
+
+  it.each(['WAKAF', 'HIBAH'] as const)('blocks a %s Campaign with KIND_CLOSED when the switch is unset, whatever it holds', (kind) => {
+    vi.stubEnv('WAKAF_HIBAH_OPEN', '');
+    expect(campaignAcceptsDonations(fullyAuthorised(kind), NOW)).toBe(false);
+    expect(donationBlock(fullyAuthorised(kind), NOW)).toBe('KIND_CLOSED');
+  });
+
+  it.each(['false', 'TRUE', '1', 'yes', ' true'])('treats %j as closed: only the exact "true" opens', (value) => {
+    vi.stubEnv('WAKAF_HIBAH_OPEN', value);
+    expect(donationBlock(fullyAuthorised('WAKAF'), NOW)).toBe('KIND_CLOSED');
+  });
+
+  it('leaves a donation Campaign unaffected while the switch is off', () => {
+    vi.stubEnv('WAKAF_HIBAH_OPEN', '');
+    expect(campaignAcceptsDonations(fullyAuthorised('DONATION'), NOW)).toBe(true);
+    expect(donationBlock(fullyAuthorised('DONATION'), NOW)).toBeNull();
+  });
+
+  it.each(['WAKAF', 'HIBAH'] as const)('changes nothing for a %s Campaign when the switch is "true"', (kind) => {
+    vi.stubEnv('WAKAF_HIBAH_OPEN', 'true');
+    expect(campaignAcceptsDonations(fullyAuthorised(kind), NOW)).toBe(true);
+    expect(donationBlock(fullyAuthorised(kind), NOW)).toBeNull();
+    const noAuthorisation = active({
+      kind,
+      collectingEntity: { permits: [permit({ kinds: [kind] })], kindAuthorisations: [] },
+    });
+    expect(donationBlock(noAuthorisation, NOW)).toBe('NO_VALID_KIND_AUTHORISATION');
+  });
 });

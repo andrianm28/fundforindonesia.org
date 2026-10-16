@@ -11,7 +11,7 @@ import {
 } from '@/lib/donations';
 import { campaignAcceptsDonations, donationBlock } from '@/lib/campaign-lifecycle';
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
-import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
+import { donationRefusalCopy } from '@/lib/campaign-page-status';
 import { chargeDonation } from '@/lib/money/donation-charge';
 import { PROVIDER_METHOD_FOR, paymentInstructionsFor, type DonationPaymentMethod } from '@/lib/money/payment-method-map';
 
@@ -100,8 +100,9 @@ export async function POST(
     }
 
     const now = new Date();
-    if (donationBlock(campaign, now)) {
-      return NextResponse.json({ error: COLLECTING_ENTITY_REFUSAL }, { status: 403 });
+    const block = donationBlock(campaign, now);
+    if (block) {
+      return NextResponse.json({ error: donationRefusalCopy(block) }, { status: 403 });
     }
     if (!campaignAcceptsDonations(campaign, now)) {
       return NextResponse.json(

@@ -12,6 +12,8 @@ Dijalankan **owner** di host produksi. Agent tidak menyentuh host produksi dan t
 
 Cap diambil dari baris sumbernya (Payment, Refund, Payout), bukan dari penanda saat itu. Jadi sapuan Escrow Hold, Refund, atau penyelesaian yang terjadi setelah go-live atas Payment beta tetap ber-cap sandbox, dan tidak masuk angka nyata.
 
+**Wakaf dan hibah punya saklar sendiri**, terpisah dari Beta: `WAKAF_HIBAH_OPEN`. Bawaannya mati (hanya nilai persis `true` yang membuka), dan selama mati Campaign WAKAF/HIBAH menolak semua donasi. Jangan nyalakan di `.env` produksi sebelum nazhir berizin dan tinjauan syariah tercatat. Mencabut `BETA_SANDBOX` tidak membukanya.
+
 Selama penanda aktif, dua hal ini **ditutup** karena memindahkan uang nyata dan tidak punya mode sendiri: Pengalihan dana Campaign (Campaign Transfer) dan Penarikan dari penyedia (Provider Withdrawal). Keduanya kembali normal setelah penanda dicabut.
 
 ## Sebelum mulai
