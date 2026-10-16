@@ -55,7 +55,7 @@ SELECT status, count(*) FROM "Payout" WHERE "sandbox" = false GROUP BY status;
 SELECT status, count(*) FROM "Refund" WHERE "sandbox" = false GROUP BY status;
 ```
 
-Cek juga Refund yang belum final (`AWAITING_DONOR_DETAILS`, `PROCESSING`) dan Payout `DRAFT`/`PENDING` ber-cap sandbox. **Tolak atau selesaikan Payout dan Refund sandbox yang masih menggantung sebelum go-live**: setelah rekening nyata dipakai, Payout sandbox yang masih `DRAFT` tidak boleh disetujui.
+Cek juga Refund yang belum final (`AWAITING_DONOR_DETAILS`, `PROCESSING`) dan Payout `DRAFT`/`PENDING` ber-cap sandbox. **Tolak atau selesaikan Payout dan Refund sandbox yang masih menggantung sebelum go-live**: setelah rekening nyata dipakai, Payout sandbox yang masih `DRAFT` tidak boleh disetujui. Server menegakkannya: `approvePayout`, `completePayout`, `approveRefund`, dan `completeRefund` menolak baris ber-cap sandbox begitu `BETA_SANDBOX` dicabut (409 `SANDBOX_ROW_IN_LIVE_MODE`). Cara menutupnya, di halaman Admin Payout (`/admin/payouts/[id]`): Payout `DRAFT` dengan tombol **Tolak Payout** (`POST /api/admin/payouts/[id]/reject`, alasan wajib, tidak ada jurnal), Payout `APPROVED` dengan **Tandai gagal** (`POST /api/admin/payouts/[id]/fail`, alasan wajib, memposting jurnal cermin `payout-failed-<id>` yang mengembalikan dana dari `PAYOUT_CLEARING` ke saldo). Refund sandbox ditolak lewat `PATCH /api/campaigns/[slug]/refunds/[id]/reject` (`REQUESTED`) atau `.../fail` (`APPROVED`).
 
 ```sql
 SELECT status, count(*) FROM "Payout" WHERE "sandbox" = true AND status NOT IN ('COMPLETED','REJECTED','FAILED') GROUP BY status;

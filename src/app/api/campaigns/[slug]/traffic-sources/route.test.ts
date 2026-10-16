@@ -113,14 +113,14 @@ describe('GET /api/campaigns/[slug]/traffic-sources', () => {
     );
   });
 
-  it('counts only confirmed donations', async () => {
+  it('counts only confirmed donations, never one paid with a beta (sandbox) Payment (PAY-06)', async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1' } });
 
     await GET(createRequest(), { params: Promise.resolve({ slug: 'test-slug' }) });
 
     expect(mockDonationGroupBy).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { campaignId: 'campaign-1', paymentStatus: 'confirmed' },
+        where: { campaignId: 'campaign-1', paymentStatus: 'confirmed', payments: { none: { sandbox: true } } },
       }),
     );
   });
