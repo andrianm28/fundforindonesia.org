@@ -86,7 +86,7 @@ describe('AdminPayoutDetailPage', () => {
     expect(screen.getByLabelText(/^penyedia pembayaran$/i)).toBeDefined();
   });
 
-  it('never reads or shows the Bank Account number (ticket 12: not read at payout while Sumopod has no disbursement API)', async () => {
+  it('never selects the Bank Account number into the page payload (ticket 89: it is opened only by the explicit reveal action)', async () => {
     vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
     vi.mocked(prisma.payout.findUnique).mockResolvedValue(DRAFT_PAYOUT as never);
     vi.mocked(prisma.campaign.findUnique).mockResolvedValue({

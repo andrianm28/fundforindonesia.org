@@ -97,7 +97,8 @@ function makeTx() {
         const buckets = new Map<string, { row: Record<string, unknown>; sum: number }>();
         for (const row of ledgerRows) {
           const w = args.where ?? {};
-          if (!Object.entries(w).every(([k, v]) => (row as unknown as Record<string, unknown>)[k] === v)) continue;
+          // `sandbox` is NOT NULL DEFAULT false: a row without it is real money.
+          if (!Object.entries(w).every(([k, v]) => ((row as unknown as Record<string, unknown>)[k] ?? (k === 'sandbox' ? false : undefined)) === v)) continue;
           const key = args.by.map((k) => String((row as unknown as Record<string, unknown>)[k])).join('|');
           const bucket = buckets.get(key) ?? {
             row: Object.fromEntries(args.by.map((k) => [k, (row as unknown as Record<string, unknown>)[k]])),

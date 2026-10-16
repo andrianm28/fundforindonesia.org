@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { Kind, type Payment, type Prisma, type PrismaClient, type Refund } from '@/generated/prisma/client';
 import { OwnSubjectConflictError } from '@/lib/capacity';
 import { lockAndLoad, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
+import { sandboxModeOf } from './sandbox-mode';
 import { validateProofReference, validateProofNote, buildProofImage } from '@/lib/payout-proof';
 import { sealRefundDonorAccountNumber, readRefundDonorAccountNumber } from '@/lib/contact-fields';
 import {
@@ -94,7 +95,7 @@ export {
   RefundReasonInvalidError,
 };
 
-type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt'> & {
+type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox'> & {
   donation: { campaignId: string; anonymisedAt: Date | null } | null;
   registration: { batch: { tripId: string } } | null;
 };
@@ -136,11 +137,16 @@ async function poolBalanceFor(
   tx: Prisma.TransactionClient,
   subject: LedgerSubject,
   source: 'ESCROW_HOLD' | 'CAMPAIGN_BALANCE' | 'TRIP_BALANCE',
+  sandbox: boolean,
 ): Promise<number> {
   if (source === 'ESCROW_HOLD') {
-    return subject.type === 'campaign' ? escrowBalance(tx, subject.campaignId) : tripEscrowBalance(tx, subject.tripId);
+    return subject.type === 'campaign'
+      ? escrowBalance(tx, subject.campaignId, sandbox)
+      : tripEscrowBalance(tx, subject.tripId, sandbox);
   }
-  return subject.type === 'campaign' ? campaignBalance(tx, subject.campaignId) : tripBalance(tx, subject.tripId);
+  return subject.type === 'campaign'
+    ? campaignBalance(tx, subject.campaignId, sandbox)
+    : tripBalance(tx, subject.tripId, sandbox);
 }
 
 /**
@@ -355,7 +361,7 @@ export async function createRefund(
   if (source === 'CAMPAIGN_BALANCE' && subject.type === 'campaign') {
     const netToFreeze = amount - platformFeePortion - providerFeePortion;
     if (netToFreeze > 0) {
-      const available = await campaignBalance(tx, subject.campaignId);
+      const available = await campaignBalance(tx, subject.campaignId, sandboxModeOf(payment));
       if (available < netToFreeze) {
         const movedOut = await tx.campaignTransfer.count({ where: { sourceId: subject.campaignId, status: 'APPROVED' } });
         if (movedOut > 0) throw new RefundAfterCampaignTransferError(netToFreeze, available);
@@ -364,7 +370,9 @@ export async function createRefund(
   }
 
   const refund = await tx.refund.create({
-    data: { paymentId, amount, reason, requestedById, status: 'REQUESTED' },
+    // The Refund takes its Payment's mode: money that came in as test money
+    // goes back as test money, and its freeze reads the sandbox pool.
+    data: { paymentId, amount, reason, requestedById, status: 'REQUESTED', sandbox: sandboxModeOf(payment) },
   });
 
   // No claim on the Refund row here, unlike approveRefund: this Refund was
@@ -375,7 +383,7 @@ export async function createRefund(
   await postTransaction(
     tx,
     refundRequestedLegs({ subject, amount, source, platformFeePortion, providerFeePortion }),
-    { refundId: refund.id, transactionId: refundFreezeTransactionId(refund.id) },
+    { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: refundFreezeTransactionId(refund.id) },
   );
 
   return refund;
@@ -511,7 +519,7 @@ export async function approveRefund(
     }
 
     const source = sourceFor(payment, subject);
-    const poolBalance = await poolBalanceFor(tx, subject, source);
+    const poolBalance = await poolBalanceFor(tx, subject, source, sandboxModeOf(refund));
 
     // This Refund's own fee shares, READ off the freeze createRefund posted,
     // not worked out again. createRefund split the Refund against the Refunds
@@ -565,7 +573,7 @@ export async function approveRefund(
     await postTransaction(
       tx,
       refundApprovedLegs({ subject, amount: refund.amount, source, shortfall }),
-      { refundId: refund.id, transactionId: `refund-approved-${refund.id}` },
+      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-approved-${refund.id}` },
     );
   });
 
@@ -722,7 +730,7 @@ export async function completeRefund(
     await postTransaction(
       tx,
       refundPaidLegs({ amount: refund.amount }),
-      { refundId: refund.id, transactionId: `refund-completed-${refund.id}` },
+      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-completed-${refund.id}` },
     );
   });
 
@@ -832,6 +840,7 @@ async function resolveRefund(
 
     await postTransaction(tx, reverseEntriesLegs(entries), {
       refundId,
+      sandbox: sandboxModeOf(refund),
       transactionId: `${action === 'reject' ? 'refund-rejected' : 'refund-failed'}-${refundId}`,
     });
 
@@ -844,6 +853,7 @@ async function resolveRefund(
       if (payment.escrowReleasedAt != null) {
         await postTransaction(tx, escrowReleaseLegs({ subject, amount: escrowShare }), {
           paymentId: refund.paymentId,
+          sandbox: sandboxModeOf(refund),
           transactionId: `refund-reversal-release-${refundId}`,
         });
       }

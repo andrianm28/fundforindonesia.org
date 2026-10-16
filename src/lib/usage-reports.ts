@@ -2,6 +2,7 @@ import type { Payout, Prisma, PrismaClient, UsageReport } from '@/generated/pris
 import { lockAndLoad, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
 import { PayoutNotFoundError } from '@/lib/money/errors';
 import type { LedgerSubject } from '@/lib/money/ledger';
+import { sandboxModeOf } from '@/lib/money/sandbox-mode';
 import {
   UsageReportAlreadyDisputedError,
   UsageReportAlreadyExistsError,
@@ -143,6 +144,9 @@ export async function submitUsageReport(
         beneficiaryCount,
         photos,
         submittedById,
+        // The Payout's own mode (ticket 94): a Usage Report on test money is a
+        // test report, labelled UJI wherever it shows and left out of Impact.
+        sandbox: sandboxModeOf(payout),
       },
     });
   });
@@ -222,10 +226,14 @@ export async function disputeUsageReport(
 export async function campaignBlockingUsageReport(
   tx: Prisma.TransactionClient,
   campaignId: string,
+  sandbox = false,
 ): Promise<Payout | null> {
+  // Only Payouts of the same mode block: a simulated Payout's missing report
+  // must not stop a real one, and a real one's must not stop a simulation.
   return tx.payout.findFirst({
     where: {
       campaignId,
+      sandbox,
       status: 'COMPLETED',
       OR: [{ usageReport: null }, { usageReport: { disputedAt: { not: null } } }],
     },

@@ -1,6 +1,6 @@
 # 62: S-0 contract-release
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** konfirmasi `legacy-status-contract` 02 dan `retire-role-hierarchy` 02 sudah live di produksi; tidak lebih awal dari ~2026-10-10 (rencana: setelah hitungan A1). Hitungan A1 sudah aman: tidak ada pemegang `role` lama tanpa assignment.
 
@@ -21,12 +21,14 @@ Tiket ini menjalankan dua tiket yang sudah ada dan berstatus `ready-for-human`: 
 
 ## Acceptance
 
-- [ ] Migrasi menghapus `Campaign.status` beserta indeksnya; skema tidak lagi mendeklarasikannya; tiga `omit: { status: true }` (route list, `POST /api/campaigns`, `PATCH /api/campaigns/[slug]`) dan guard/canary-nya dihapus
-- [ ] Migrasi menghapus `User.role`, `User.isVerified`, `User.verificationType`, dan enum `Role`; tidak ada kode yang masih memakainya
-- [ ] Setiap migrasi diterapkan ke Postgres pada keadaan sebelumnya dan `prisma migrate diff` kosong sesudahnya
-- [ ] `src/lib/drop-migration-guard.test.ts` hijau (migrasi destruktif lolos guard) dan full suite di CI hijau
-- [ ] Status kedua tiket sumber di `legacy-status-contract` dan `retire-role-hierarchy` diubah ke `done` di PR yang sama
+- [x] Migrasi menghapus `Campaign.status` beserta indeksnya; skema tidak lagi mendeklarasikannya; tiga `omit: { status: true }` (route list, `POST /api/campaigns`, `PATCH /api/campaigns/[slug]`) dan guard/canary-nya dihapus
+- [x] Migrasi menghapus `User.role`, `User.isVerified`, `User.verificationType`, dan enum `Role`; tidak ada kode yang masih memakainya
+- [x] Setiap migrasi diterapkan ke Postgres pada keadaan sebelumnya dan `prisma migrate diff` kosong sesudahnya
+- [x] `src/lib/drop-migration-guard.test.ts` hijau (migrasi destruktif lolos guard) dan full suite di CI hijau
+- [x] Status kedua tiket sumber di `legacy-status-contract` dan `retire-role-hierarchy` diubah ke `done` di PR yang sama
 
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-10: done in two PRs, in order: Campaign.status (#233), then User role columns and the Role enum. Ticket 02 of both source tickets was confirmed live via production commit `53fe2d2`. Migrations are `20261010010000` and `20261010020000`, after #230 and the payout-reveal migration of ticket 89 (`20261006010000`).

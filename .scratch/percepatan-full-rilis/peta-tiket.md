@@ -33,10 +33,10 @@ Sumber: `.scratch/percepatan-full-rilis/plan.md`, Track B. Dibuat 2026-10-04.
 | H-3b | `.scratch/go-live-ops/issues/05-csp-report-only.md` | ready-for-agent |
 | H-7 | `.scratch/go-live-ops/issues/06-campaign-transfer-race-loop.md` | ready-for-agent |
 | E9 | `.scratch/fase-3-perluasan/issues/01-tim-csr-account.md` | ready-for-agent |
-| P1 | `.scratch/rilis-1-benda/issues/86-admin-moderasi-door.md` (ditulis builder di branchnya sendiri) | belum ada di branch ini |
-| P2 | `.scratch/rilis-1-benda/issues/87-checkout-fee-hold-disclosure.md` (ditulis builder di branchnya sendiri) | belum ada di branch ini |
-| A-1 | `.scratch/rilis-1-benda/issues/88-admin-platform-fee-page.md` (ditulis builder di branchnya sendiri) | belum ada di branch ini; ada di PR #228 (belum merge). Keputusan C3: tanpa angka awal, Admin mengisi di A5.3 |
-| M-a | `.scratch/rilis-1-benda/issues/89-payout-reveal-account-number.md` | ready-for-agent (C6 dijawab) |
+| P1 | `.scratch/rilis-1-benda/issues/86-admin-moderasi-door.md` (ditulis builder di branchnya sendiri) | done (PR #227) |
+| P2 | `.scratch/rilis-1-benda/issues/87-checkout-fee-hold-disclosure.md` (ditulis builder di branchnya sendiri) | done (PR #226) |
+| A-1 | `.scratch/rilis-1-benda/issues/88-admin-platform-fee-page.md` (ditulis builder di branchnya sendiri) | done (PR #228). Keputusan C3: tanpa angka awal, Admin mengisi di A5.3 |
+| M-a | `.scratch/rilis-1-benda/issues/89-payout-reveal-account-number.md` | done (PR #232) |
 | E1 | `.scratch/fase-3-perluasan/issues/02-e1-tautan-pendek.md` | ready-for-agent |
 | E2 | `.scratch/fase-3-perluasan/issues/03-e2-dormant-balance-transfer.md` | needs-info (menunggu counsel) |
 | E3 | `.scratch/fase-3-perluasan/issues/04-e3-donor-requested-refund.md` | ready-for-agent |

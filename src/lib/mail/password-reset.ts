@@ -1,5 +1,6 @@
 import { escapeHtml } from './escape-html';
 import type { MailMessage } from './types';
+import { emailLogoHtml } from './email-logo';
 
 /**
  * The link that lets an account set a new password (rilis-1 93). Sent only to
@@ -24,6 +25,7 @@ export function passwordResetEmail(input: PasswordResetEmailInput): MailMessage 
   const text = [greeting, ...body, input.resetUrl, closing].join('\n\n');
   const url = escapeHtml(input.resetUrl);
   const html = [
+    emailLogoHtml(),
     `<p>${escapeHtml(greeting)}</p>`,
     ...body.map((line) => `<p>${escapeHtml(line)}</p>`),
     `<p><a href="${url}">${url}</a></p>`,

@@ -1,11 +1,12 @@
 import { readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
+import { withCountedCollectedAmount } from "@/lib/money/counted-payment";
 import Link from "next/link";
 import { effectiveStatus } from "@/lib/campaign-lifecycle";
 import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
 
 export default async function AdminCampaignsPage() {
-  const campaigns = await prisma.campaign.findMany({
+  const stored = await prisma.campaign.findMany({
     take: 50,
     orderBy: { createdAt: "desc" },
     include: {
@@ -16,6 +17,8 @@ export default async function AdminCampaignsPage() {
       },
     },
   });
+  // Real money only (ticket 94): the stored counter also holds beta Payments.
+  const campaigns = await withCountedCollectedAmount(prisma, stored);
   const now = new Date();
 
   return (

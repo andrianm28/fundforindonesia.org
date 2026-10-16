@@ -125,7 +125,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // every campaign at once instead of one at a time.
     const balanceRows = await tx.ledgerEntry.groupBy({
       by: ['campaignId', 'account', 'direction'],
-      where: { campaignId: { not: null } },
+      where: { campaignId: { not: null }, sandbox: false },
       _sum: { amount: true },
     });
 
@@ -155,7 +155,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // ESCROW_HOLD/CAMPAIGN_BALANCE.
     const tripBalanceRows = await tx.ledgerEntry.groupBy({
       by: ['volunteerTripId', 'account', 'direction'],
-      where: { volunteerTripId: { not: null } },
+      where: { volunteerTripId: { not: null }, sandbox: false },
       _sum: { amount: true },
     });
 
@@ -216,6 +216,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         direction: 'CREDIT',
         campaignId: { not: null },
         refundId: null,
+        sandbox: false,
         ...withoutUncounted,
       },
       _sum: { amount: true },
@@ -234,6 +235,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         account: { in: ['PROVIDER_FEE', 'PLATFORM_FEE'] },
         direction: 'CREDIT',
         paymentId: { not: null },
+        sandbox: false,
         ...withoutUncounted,
       },
       select: { amount: true, paymentId: true, account: true },
@@ -277,6 +279,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         account: 'CAMPAIGN_BALANCE',
         campaignId: { not: null },
         manualContributionId: { not: null },
+        sandbox: false,
       },
       _sum: { amount: true },
     });
@@ -417,7 +420,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     const releasedLedgerRows = releasedPaymentIds.length
       ? await tx.ledgerEntry.groupBy({
           by: ['paymentId'],
-          where: { account: 'ESCROW_HOLD', direction: 'DEBIT', paymentId: { in: releasedPaymentIds } },
+          where: { account: 'ESCROW_HOLD', direction: 'DEBIT', sandbox: false, paymentId: { in: releasedPaymentIds } },
           _sum: { amount: true },
         })
       : [];
@@ -462,7 +465,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     const refundDebitRows = refundIds.length
       ? await tx.ledgerEntry.groupBy({
           by: ['refundId'],
-          where: { account: 'ESCROW_HOLD', direction: 'DEBIT', refundId: { in: refundIds } },
+          where: { account: 'ESCROW_HOLD', direction: 'DEBIT', sandbox: false, refundId: { in: refundIds } },
           _sum: { amount: true },
         })
       : [];
@@ -605,6 +608,9 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
         reason: true,
         requestedById: true,
         createdAt: true,
+        // Listed all the same, flagged: a simulated Refund still has to be found
+        // here to be approved (ticket 94), and must read as UJI beside real ones.
+        sandbox: true,
         payment: {
           select: {
             donationId: true,
@@ -623,11 +629,12 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       reason: string;
       requestedById: string;
       createdAt: Date;
+      sandbox: boolean;
       campaignId: string | null;
       volunteerTripId: string | null;
     }> = [];
     for (const r of pendingRefundRows) {
-      const base = { refundId: r.id, paymentId: r.paymentId, amount: r.amount, reason: r.reason, requestedById: r.requestedById, createdAt: r.createdAt };
+      const base = { refundId: r.id, paymentId: r.paymentId, amount: r.amount, reason: r.reason, requestedById: r.requestedById, createdAt: r.createdAt, sandbox: r.sandbox };
       if (r.payment?.donationId != null) {
         pendingRefunds.push({ ...base, campaignId: r.payment.donation!.campaignId, volunteerTripId: null });
       } else if (r.payment?.registrationId != null) {
@@ -676,11 +683,11 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
     // Two payout states an Admin still has work to do -- see the module doc
     // comment above and the notes on each key below.
     const processingPayouts = await tx.payout.findMany({
-      where: { status: 'PROCESSING' },
+      where: { status: 'PROCESSING', sandbox: false },
       select: { id: true, campaignId: true, volunteerTripId: true, amount: true, providerRef: true, approvedAt: true },
     });
     const approvedWithoutProviderRef = await tx.payout.findMany({
-      where: { status: 'APPROVED', providerRef: null },
+      where: { status: 'APPROVED', providerRef: null, sandbox: false },
       select: { id: true, campaignId: true, volunteerTripId: true, amount: true, approvedAt: true },
     });
 
@@ -780,6 +787,7 @@ export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextReques
       where: {
         account: 'GATEWAY_CLEARING',
         direction: 'DEBIT',
+        sandbox: false,
         paymentId: { in: kindPayments.map((p) => p.id) },
       },
       _sum: { amount: true },

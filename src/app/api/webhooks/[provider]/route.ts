@@ -13,6 +13,7 @@ import {
   UnknownPaymentProviderError,
   InvalidWebhookSignatureError,
 } from '@/lib/payments';
+import { sandboxModeOf } from '@/lib/money/sandbox-mode';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { escrowReleaseAt } from '@/lib/money/escrow';
 import { notifyDonationConfirmed, notifyRegistrationConfirmed } from '@/lib/notifications';
@@ -419,6 +420,9 @@ export async function POST(
             }),
             {
               paymentId: payment.id,
+              // The Payment's own stamp, not the marker now in force: a beta
+              // Payment that settles after go-live is still sandbox money.
+              sandbox: sandboxModeOf(payment),
               transactionId: `webhook:${event.provider}:${event.providerEventId}`,
               // A Trip Fee lands at the provider exactly as a Donation does, so
               // the Provider Balance has to grow by it (prd-compliance 35). A
@@ -508,6 +512,9 @@ export async function POST(
             }),
             {
               paymentId: payment.id,
+              // The Payment's own stamp, not the marker now in force: a beta
+              // Payment that settles after go-live is still sandbox money.
+              sandbox: sandboxModeOf(payment),
               transactionId: `webhook:${event.provider}:${event.providerEventId}`,
               // The provider this Gross arrived at, stamped on every leg of the
               // settlement. This is the only thing that makes the Provider

@@ -1,6 +1,7 @@
 import { formatRupiah } from '@/lib/utils/currency';
 import { formatIndonesianDate } from '@/lib/utils/date';
 import type { MailMessage } from './types';
+import { emailLogoHtml } from './email-logo';
 
 /**
  * The Receipt email (CONTEXT.md, Receipt): sent to the Donor once their
@@ -83,6 +84,7 @@ export function receiptEmail(input: ReceiptEmailInput): MailMessage {
   const text = [greeting, ...body, input.printUrl, closing].join('\n\n');
   const url = escapeHtml(input.printUrl);
   const html = [
+    emailLogoHtml(),
     `<p>${escapeHtml(greeting)}</p>`,
     ...body.map((line) => `<p>${escapeHtml(line)}</p>`),
     `<p><a href="${url}">${url}</a></p>`,

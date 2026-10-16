@@ -39,7 +39,15 @@ export type LedgerGroupBy = (args: LedgerGroupByArgs) => Promise<LedgerGroupByRe
  * `{ account, volunteerTripId }`.
  */
 const matchesByEquality = (row: Row, where: Row): boolean =>
-  Object.entries(where).every(([key, value]) => row[key] === value);
+  Object.entries(where).every(([key, value]) => valueOf(row, key) === value);
+
+/**
+ * A fake row written before `sandbox` existed carries no such column; the
+ * column is NOT NULL DEFAULT false, so absent means real money (ticket 94).
+ */
+export function valueOf(row: Row, key: string): unknown {
+  return row[key] === undefined && key === 'sandbox' ? false : row[key];
+}
 
 export function ledgerGroupBy(
   rows: readonly unknown[],

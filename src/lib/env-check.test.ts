@@ -146,3 +146,42 @@ describe('assertProductionEnv', () => {
     expect(message).toMatch(/FIELD_HMAC_KEY/);
   });
 });
+
+describe('assertProductionEnv in the public beta (ticket rilis-1-benda/94)', () => {
+  const SANDBOX = 'https://api-pay-sandbox.sumopod.com/api/v1';
+  const LIVE_URL = 'https://api-pay.sumopod.com/api/v1';
+  const beta = (overrides: Record<string, string> = {}) =>
+    env({ BETA_SANDBOX: 'true', PAYMENT_PROVIDER: 'sumopod', SUMOPOD_BASE_URL: SANDBOX, ...overrides });
+
+  it('boots with the marker on and only the Sumopod sandbox configured', () => {
+    beta();
+    expect(() => assertProductionEnv()).not.toThrow();
+  });
+
+  it('refuses to boot with the marker on beside a live Sumopod url, naming the variable and never echoing its value', () => {
+    beta({ SUMOPOD_BASE_URL: LIVE_URL });
+    expect(() => assertProductionEnv()).toThrow(/SUMOPOD_BASE_URL/);
+    try {
+      assertProductionEnv();
+    } catch (e) {
+      expect((e as Error).message).not.toContain(LIVE_URL);
+    }
+  });
+
+  it('refuses a live Sumopod url even while another provider is the active one: it is one Admin click from taking real money', () => {
+    beta({ PAYMENT_PROVIDER: 'mock', SUMOPOD_BASE_URL: LIVE_URL });
+    expect(() => assertProductionEnv()).toThrow(/live Sumopod credential/);
+  });
+
+  it('refuses a lookalike host that merely contains "sandbox"', () => {
+    for (const url of ['https://api-pay.sumopod.com/sandbox', 'https://api-pay-sandbox.sumopod.com.evil.example/x', 'http://api-pay-sandbox.sumopod.com']) {
+      beta({ SUMOPOD_BASE_URL: url });
+      expect(() => assertProductionEnv()).toThrow(/SUMOPOD_BASE_URL/);
+    }
+  });
+
+  it('applies none of this once the marker is gone: go-live is the live url with no marker', () => {
+    env({ BETA_SANDBOX: '', PAYMENT_PROVIDER: 'sumopod', SUMOPOD_BASE_URL: LIVE_URL });
+    expect(() => assertProductionEnv()).not.toThrow();
+  });
+});

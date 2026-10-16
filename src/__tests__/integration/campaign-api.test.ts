@@ -645,7 +645,7 @@ describe('Campaign API Integration Tests', () => {
 
         expect(mockPayoutFindMany).toHaveBeenCalledWith(
           expect.objectContaining({
-            where: { campaignId: 'campaign-1', status: 'COMPLETED' },
+            where: { campaignId: 'campaign-1', status: 'COMPLETED', sandbox: false },
           })
         );
       });
