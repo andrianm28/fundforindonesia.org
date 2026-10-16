@@ -77,6 +77,9 @@ services:
       # each new Payment as sandbox. Empty default: unset means production,
       # where the sandbox is refused. Go-live is removing it from the .env.
       BETA_SANDBOX: ${BETA_SANDBOX:-}
+      # Wakaf and hibah take money only when this is exactly "true" (audit L1).
+      # Empty default: closed until a licensed nazhir and a sharia review exist.
+      WAKAF_HIBAH_OPEN: ${WAKAF_HIBAH_OPEN:-}
       PAYMENT_LINK_ALLOWED_HOSTS: ${PAYMENT_LINK_ALLOWED_HOSTS:-}
       # Field-level encryption keys (ADR 0012). No defaults, for the reason
       # MOCK_MIDTRANS_SERVER_KEY above gives: a default key is a published one.
