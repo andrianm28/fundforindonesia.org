@@ -68,14 +68,14 @@ describe('POST /api/admin/campaign-transfers', () => {
     mockReject.mockResolvedValue({ id: 'ct-1', status: 'REJECTED' });
   });
 
-  it('answers 401 with no session and 403 without the ADMIN assignment', async () => {
+  it('answers 401 with no session and 404 without the ADMIN assignment', async () => {
     mockSession.mockResolvedValue(null);
     expect((await request(BODY)).status).toBe(401);
     expect((await decide({ decision: 'approve' })).status).toBe(401);
 
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
-    expect((await request(BODY)).status).toBe(403);
-    expect((await decide({ decision: 'approve' })).status).toBe(403);
+    expect((await request(BODY)).status).toBe(404);
+    expect((await decide({ decision: 'approve' })).status).toBe(404);
 
     expect(mockRequest).not.toHaveBeenCalled();
     expect(mockApprove).not.toHaveBeenCalled();

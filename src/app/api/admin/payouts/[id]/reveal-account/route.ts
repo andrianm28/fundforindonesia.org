@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
 import { revealPayoutAccountNumber } from '@/lib/money/payout-reveal';
@@ -13,7 +13,7 @@ import { revealPayoutAccountNumber } from '@/lib/money/payout-reveal';
  * POST, never GET, and `no-store`, so the number is not cached or prefetched;
  * it is never logged here.
  */
-export const POST = withAssignmentCheck(
+export const POST = withHiddenAssignmentCheck(
   Assignment.ADMIN,
   async (_request: NextRequest, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params;

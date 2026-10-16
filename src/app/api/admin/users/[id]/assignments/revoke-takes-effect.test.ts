@@ -116,7 +116,7 @@ describe("a revoked assignment stops working on the very next request", () => {
     cookieUserId = null;
   });
 
-  it("answers 403 to a revoked Verifier on a Verifier-guarded route, having answered 200 before", async () => {
+  it("answers 404 to a revoked Verifier on a Verifier-guarded route, having answered 200 before", async () => {
     cookieUserId = "verifier-1";
     expect((await verifierQueueRequest()).status).toBe(200);
 
@@ -124,10 +124,10 @@ describe("a revoked assignment stops working on the very next request", () => {
     expect((await revokeRequest("verifier-1", "VERIFIER")).status).toBe(200);
 
     cookieUserId = "verifier-1";
-    expect((await verifierQueueRequest()).status).toBe(403);
+    expect((await verifierQueueRequest()).status).toBe(404);
   });
 
-  it("answers 403 to a revoked Admin on an Admin-guarded route, having answered 200 before", async () => {
+  it("answers 404 to a revoked Admin on an Admin-guarded route, having answered 200 before", async () => {
     cookieUserId = "admin-2";
     expect((await auditTrailRequest("admin-1")).status).toBe(200);
 
@@ -135,7 +135,7 @@ describe("a revoked assignment stops working on the very next request", () => {
     expect((await revokeRequest("admin-2", "ADMIN")).status).toBe(200);
 
     cookieUserId = "admin-2";
-    expect((await auditTrailRequest("admin-1")).status).toBe(403);
+    expect((await auditTrailRequest("admin-1")).status).toBe(404);
   });
 
   it("removes only the revoked assignment: a user who holds both keeps the other", async () => {
@@ -143,7 +143,7 @@ describe("a revoked assignment stops working on the very next request", () => {
     expect((await revokeRequest("both-1", "VERIFIER")).status).toBe(200);
 
     cookieUserId = "both-1";
-    expect((await verifierQueueRequest()).status).toBe(403);
+    expect((await verifierQueueRequest()).status).toBe(404);
     expect((await auditTrailRequest("admin-1")).status).toBe(200);
   });
 });

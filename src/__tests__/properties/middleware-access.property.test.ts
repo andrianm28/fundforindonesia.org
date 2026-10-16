@@ -19,7 +19,7 @@ type MiddlewareAssignment = "ADMIN" | "VERIFIER";
 /**
  * Runs the middleware for a signed-in user with this Role and these
  * assignments (the session token carries both; see src/lib/auth.ts).
- * Returns: "allow" | "redirect:/"
+ * Returns: "allow" | "not-found" | "redirect:<path>"
  */
 function checkRouteAccess(
   pathname: string,
@@ -31,6 +31,8 @@ function checkRouteAccess(
   };
   req.nextauth = { token: { role: userRole ?? undefined, assignments } };
   const response = (proxy as unknown as (r: NextRequest) => Response)(req);
+  // A signed-in user without the assignment gets a 404 (ticket 90).
+  if (response.status === 404) return "not-found";
   const location = response.headers.get("location");
   return location ? `redirect:${new URL(location).pathname}` : "allow";
 }
@@ -76,17 +78,17 @@ describe("Feature: user-roles, Property 3: Admin Route Access Control", () => {
         if (assignments.includes("ADMIN")) {
           expect(result).toBe("allow");
         } else {
-          expect(result).toBe("redirect:/");
+          expect(result).toBe("not-found");
         }
       }),
       { numRuns: 200 }
     );
   });
 
-  test("the ADMIN Role without the ADMIN assignment is always redirected from admin routes", () => {
+  test("the ADMIN Role without the ADMIN assignment always gets a 404 from admin routes", () => {
     fc.assert(
       fc.property(adminPathArb, (adminPath) => {
-        expect(checkRouteAccess(adminPath, "ADMIN", [])).toBe("redirect:/");
+        expect(checkRouteAccess(adminPath, "ADMIN", [])).toBe("not-found");
       }),
       { numRuns: 100 }
     );
@@ -107,7 +109,7 @@ describe("Feature: user-roles, Property 3: Admin Route Access Control", () => {
     fc.assert(
       fc.property(missingRoleArb, adminPathArb, (missingRole, adminPath) => {
         const result = checkRouteAccess(adminPath, missingRole);
-        expect(result).toBe("redirect:/");
+        expect(result).toBe("not-found");
       }),
       { numRuns: 100 }
     );
@@ -129,18 +131,18 @@ describe("Feature: user-roles, Property 4: Moderation Route Access Control", () 
         if (assignments.includes("VERIFIER")) {
           expect(result).toBe("allow");
         } else {
-          expect(result).toBe("redirect:/");
+          expect(result).toBe("not-found");
         }
       }),
       { numRuns: 200 }
     );
   });
 
-  test("the MODERATOR or ADMIN Role without the VERIFIER assignment is always redirected from moderasi routes", () => {
+  test("the MODERATOR or ADMIN Role without the VERIFIER assignment always gets a 404 from moderasi routes", () => {
     fc.assert(
       fc.property(fc.constantFrom<Role>("MODERATOR", "ADMIN"), moderasiPathArb, (role, moderasiPath) => {
-        expect(checkRouteAccess(moderasiPath, role, ["ADMIN"])).toBe("redirect:/");
-        expect(checkRouteAccess(moderasiPath, role, [])).toBe("redirect:/");
+        expect(checkRouteAccess(moderasiPath, role, ["ADMIN"])).toBe("not-found");
+        expect(checkRouteAccess(moderasiPath, role, [])).toBe("not-found");
       }),
       { numRuns: 100 }
     );
@@ -161,7 +163,7 @@ describe("Feature: user-roles, Property 4: Moderation Route Access Control", () 
     fc.assert(
       fc.property(missingRoleArb, moderasiPathArb, (missingRole, moderasiPath) => {
         const result = checkRouteAccess(moderasiPath, missingRole);
-        expect(result).toBe("redirect:/");
+        expect(result).toBe("not-found");
       }),
       { numRuns: 100 }
     );

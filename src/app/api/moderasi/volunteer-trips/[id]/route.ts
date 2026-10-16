@@ -1,4 +1,4 @@
-import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
 import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
  * the Fundraiser's notification) are decideTripSubmission's
  * (src/lib/volunteer/trip.ts); this route calls it and maps the result.
  */
-export const PATCH = withAssignmentCheck(Assignment.VERIFIER, async (req: NextRequest, context: any) => {
+export const PATCH = withHiddenAssignmentCheck(Assignment.VERIFIER, async (req: NextRequest, context: any) => {
   const { id } = await context.params;
   const { action, reason } = await req.json();
 

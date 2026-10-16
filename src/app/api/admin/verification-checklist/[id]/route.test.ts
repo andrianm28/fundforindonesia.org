@@ -91,7 +91,7 @@ describe('/api/admin/verification-checklist/[id]', () => {
 
   it.each([
     ['nobody signed in', null, 401],
-    ['a Verifier without the ADMIN assignment', { user: { id: 'verifier-1', assignments: ['VERIFIER'] } }, 403],
+    ['a Verifier without the ADMIN assignment', { user: { id: 'verifier-1', assignments: ['VERIFIER'] } }, 404],
   ])('refuses %s, writing nothing', async (_name, session, status) => {
     mockSession.mockResolvedValue(session);
 
