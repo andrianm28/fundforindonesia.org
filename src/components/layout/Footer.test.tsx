@@ -19,6 +19,22 @@ describe('Footer support menu', () => {
   });
 });
 
+describe('Footer public settings', () => {
+  it('shows the Admin-set text and only the social links that are set', () => {
+    render(
+      <Footer
+        footer={{ about: 'Teks dari Admin.' }}
+        social={{ instagram: 'https://instagram.com/akun', twitter: '', facebook: '' }}
+      />,
+    );
+
+    expect(screen.getByText('Teks dari Admin.')).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Instagram' })).toHaveAttribute('href', 'https://instagram.com/akun');
+    expect(screen.queryByRole('link', { name: 'Twitter' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Facebook' })).toBeNull();
+  });
+});
+
 describe('Footer module links', () => {
   it('links the CSR portfolio, Wakaf and Hibah', () => {
     render(<Footer />);

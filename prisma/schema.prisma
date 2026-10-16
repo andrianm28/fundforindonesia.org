@@ -128,6 +128,7 @@ model User {
   // cannot. That unique index is also the lookup index every `lookupUserEmail`
   // query uses, so the plain `@@index([emailHmac])` the expand step added is
   // dropped with it rather than left as a second index on one column.
+  siteSettingsSet                   SiteSetting[]
 }
 
 /// Verifier and Admin are assignments a person holds, not ranks.
@@ -2666,4 +2667,20 @@ enum CampaignTransferStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+/// One public-page setting an Admin edits from the panel (Pengaturan Laman
+/// Publik): contact details, social links, footer text, hero banner slides and
+/// the copy of a few static pages. One row per `key`; `value` is validated by
+/// src/lib/site-settings.ts before it is written. Nothing is seeded: with no
+/// row the code's defaults (the text the pages carried before) are shown, the
+/// same way an unset Abuse Threshold resolves. Public content only: never a
+/// payment, secret or money setting.
+model SiteSetting {
+  key         String   @id
+  value       Json
+  updatedById String
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  updatedBy User @relation(fields: [updatedById], references: [id], onDelete: Restrict)
 }

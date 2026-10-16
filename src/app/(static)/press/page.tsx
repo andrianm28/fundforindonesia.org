@@ -1,11 +1,16 @@
 import { Metadata } from 'next';
+import { prisma } from '@/lib/prisma';
+import { resolveSiteSettingsOrDefaults } from '@/lib/site-settings';
 
 export const metadata: Metadata = {
   title: 'Media - Fund for Indonesia',
   description: 'Pusat media Fund for Indonesia. Informasi kontak untuk keperluan liputan media.',
 };
 
-export default function PressPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function PressPage() {
+  const { pages } = await resolveSiteSettingsOrDefaults(prisma);
   return (
     <article>
       <h1 className="text-2xl font-bold text-text mb-6">Media</h1>
@@ -36,7 +41,7 @@ export default function PressPage() {
           <h2 className="text-lg font-semibold text-text mb-3">Kontak Media</h2>
           <p>
             Untuk pertanyaan terkait media dan liputan, hubungi:{' '}
-            <span className="text-primary font-medium">press@fundforindonesia.org</span>
+            <span className="text-primary font-medium">{pages.pressEmail}</span>
           </p>
         </section>
       </div>
