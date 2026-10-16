@@ -50,10 +50,16 @@ describe('POST /api/admin/site-settings', () => {
     expect((await post([1])).status).toBe(400);
   });
 
-  it('refuses someone who is not an Admin', async () => {
+  it('answers 404 to a visitor who is not signed in', async () => {
+    mockSession.mockResolvedValue(null);
+    expect((await post({ key: 'footer', value: { about: 'x' } })).status).toBe(404);
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 to someone who is not an Admin', async () => {
     mockSession.mockResolvedValue({ user: { id: 'u-1', assignments: [] } });
     const res = await post({ key: 'footer', value: { about: 'x' } });
-    expect([401, 403]).toContain(res.status);
+    expect(res.status).toBe(404);
     expect(mockUpsert).not.toHaveBeenCalled();
   });
 });
