@@ -71,6 +71,9 @@ describe.skipIf(!DATABASE_URL)('ledger integrity migration against a populated d
     );
     await entry('pre-1', 'tx-pre', 0, 'DEBIT', 50_000);
     await entry('pre-2', 'tx-pre', 1, 'CREDIT', 50_000, 'c1');
+    // A legacy zero-amount leg (history before 2026-10-03 is squashed, so one
+    // cannot be ruled out): it must not stop the migration from applying.
+    await entry('legacy-0', 'tx-legacy', 0, 'DEBIT', 0);
 
     await db.query(sqlOf(THIS_MIGRATION));
   }, 180_000);
@@ -87,6 +90,15 @@ describe.skipIf(!DATABASE_URL)('ledger integrity migration against a populated d
   it('keeps the rows that existed before the migration', async () => {
     const { rows } = await db.query(`SELECT id FROM "LedgerEntry" WHERE "transactionId" = 'tx-pre' ORDER BY id`);
     expect(rows.map((r) => r.id)).toEqual(['pre-1', 'pre-2']);
+  });
+
+  it('applies over a legacy amount <= 0 row: the CHECK is NOT VALID, so it guards new rows only', async () => {
+    const { rows } = await db.query(`SELECT amount FROM "LedgerEntry" WHERE id = 'legacy-0'`);
+    expect(rows[0].amount).toBe(0);
+    const { rows: con } = await db.query(
+      `SELECT convalidated FROM pg_constraint WHERE conname = 'LedgerEntry_amount_positive'`,
+    );
+    expect(con[0].convalidated).toBe(false);
   });
 
   it('still accepts INSERT of a new balanced journal', async () => {
@@ -111,7 +123,7 @@ describe.skipIf(!DATABASE_URL)('ledger integrity migration against a populated d
   });
 
   it('refuses to delete a parent instead of silently detaching its ledger legs (FK RESTRICT)', async () => {
-    await expect(db.query(`DELETE FROM "Campaign" WHERE id = 'c1'`)).rejects.toThrow(/foreign key|append-only/i);
+    await expect(db.query(`DELETE FROM "Campaign" WHERE id = 'c1'`)).rejects.toThrow(/foreign key/i);
     const { rows } = await db.query(`SELECT "campaignId" FROM "LedgerEntry" WHERE id = 'pre-2'`);
     expect(rows[0].campaignId).toBe('c1');
   });
