@@ -1,6 +1,6 @@
 # 75: P3 wakaf-hibah-csr-landings-and-zakat-cta
 
-**Status:** ready-for-agent
+**Status:** in-review (PR draft, branch claude/csr-wakaf-hibah-30w88l)
 
 **Blocked by:** none; C7 dan C9 dijawab owner 2026-10-04
 
@@ -36,3 +36,5 @@ Belum ada landing untuk wakaf, hibah, dan CSR, tautan ke /program belum dipasang
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
 
 - 2026-10-04 (ronde C): C7 dan C9 dijawab owner sesuai rekomendasi: saat peluncuran hanya Kind `donation` yang dibuka; kategori wakaf adalah empat kategori PRD. Akibat untuk salinan: landing wakaf, hibah, dan zakat tidak boleh mengajak orang berdonasi ke Campaign yang belum bisa ada (belum ada Kind Authorisation, mitra zakat, nazhir, atau review syariah hibah); salinan menjelaskan statusnya dan jalur Partnership Inquiry. Builder menandai di PR bila arah CTA zakat memerlukan keputusan salinan dari owner. `needs-info` menjadi `ready-for-agent`.
+
+- 2026-10-16: landing /wakaf, /hibah, /kolaborasi-csr, tile beranda, footer, header, dan sitemap dikerjakan. CTA zakat sengaja tidak dibuat: owner memutuskan zakat dihapus dari platform (thread "Hapus fitur zakat").
