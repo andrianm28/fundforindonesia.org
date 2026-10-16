@@ -144,7 +144,7 @@ services:
       retries: 3
       start_period: 40s
     # Resource caps (audit OPS-4). Owner: tune to what `docker stats` shows.
-    mem_limit: 1g
+    mem_limit: 1536m
     cpus: 1.0
     # Rotated json-file logs (audit OPS-4): unbounded ones refilled the shared
     # host disk once. 5 x 10m per container; raise only if you need more history.
