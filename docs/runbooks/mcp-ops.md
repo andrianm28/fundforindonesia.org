@@ -19,11 +19,22 @@ Yang **sengaja tidak ada**: shell, query database, `.env`, log container (bisa m
 
 ## Pasang (langkah owner)
 
-1. Buat user sistem khusus (bukan `deploy`, bukan root) yang hanya boleh **membaca** `DEPLOY_DIR/state`, `DEPLOY_DIR/logs`, dan `DEPLOY_DIR/backups`. Tanpa sudo, tanpa shell login, tanpa grup docker.
-2. Buat token acak panjang (minimal 32 karakter): `openssl rand -hex 32`. Simpan hanya di file environment milik user itu (izin 600), bukan di repo.
-3. Jalankan `node ops/mcp-ops/server.mjs` sebagai service systemd dengan env `MCP_OPS_TOKEN`, `DEPLOY_DIR`, dan opsional `HEALTH_URL`, `HOST` (default `127.0.0.1`), `PORT` (default `8787`). Kunci service: `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=read-only` dengan `ReadOnlyPaths=` hanya ke tiga folder di atas.
-4. Di nginx, buat subdomain khusus dengan TLS, `proxy_pass` ke `127.0.0.1:8787` hanya untuk path `/mcp`, `limit_req` yang ketat, dan jika memungkinkan `allow`/`deny` per IP.
-5. Uji dari luar: tanpa token harus `401`; dengan token, `tools/list` mengembalikan empat tool. Server hanya menerima `Authorization: Bearer <token>`.
+Semua langkah ini mengubah host produksi, jadi hanya owner (atau agent servernya atas perintah owner) yang menjalankannya. Host harus punya **Node 24** (aplikasi berjalan di Docker, jadi Node di host belum tentu ada; pasang dari sumber resmi atau jalankan server ini di container `node:24-slim` yang hanya me-mount tiga folder di bawah secara read-only dan membuka port ke `127.0.0.1`).
+
+1. Buat user sistem khusus `mcp-ops` (bukan `deploy`, bukan root): tanpa shell login, tanpa sudo, tanpa grup docker.
+2. **Beri hak baca.** `ops/deploy.sh` memakai `umask 077`, jadi `state/`, `logs/`, dan `backups/` milik `deploy` bermode 700 dan berkas di dalamnya 600; user `mcp-ops` tidak bisa membacanya, dan tiga tool file akan selalu menjawab "not readable". Beri akses baca-saja lewat ACL, termasuk default ACL supaya berkas yang dibuat deploy berikutnya ikut terbaca, dan izin lewat (traverse) pada folder induk:
+
+   ```bash
+   setfacl    -m  u:mcp-ops:--x <DEPLOY_DIR>
+   setfacl -R -m  u:mcp-ops:rX  <DEPLOY_DIR>/state <DEPLOY_DIR>/logs <DEPLOY_DIR>/backups
+   setfacl -R -d -m u:mcp-ops:rX <DEPLOY_DIR>/state <DEPLOY_DIR>/logs <DEPLOY_DIR>/backups
+   ```
+
+   Jangan memberi akses ke `.env` atau folder lain. Setelah deploy berikutnya, cek bahwa `backups/*.dump` baru tetap terbaca (`getfacl`). Backup berisi data donor: user ini bisa membaca isinya di disk walau server tidak pernah menampilkannya, jadi lebih ketat lagi: bila hanya perlu nama dan ukuran, cukup beri `--x`/`r` pada foldernya tanpa `r` pada berkasnya, atau hilangkan tool `backups`.
+3. Buat token acak panjang (minimal 32 karakter): `openssl rand -hex 32`. Simpan hanya di `/etc/mcp-ops.env` (izin 600, milik root) dengan isi `MCP_OPS_TOKEN=...` dan `DEPLOY_DIR=...`, bukan di repo.
+4. Jalankan `node ops/mcp-ops/server.mjs` sebagai service systemd: `User=mcp-ops`, `EnvironmentFile=/etc/mcp-ops.env`, `NoNewPrivileges=yes`, `PrivateTmp=yes`, `ProtectSystem=strict`, `ProtectHome=read-only` (hanya relevan bila `DEPLOY_DIR` ada di `/home`), `ReadOnlyPaths=` ke tiga folder di atas. Opsional: `HEALTH_URL` (default `http://127.0.0.1:8093/api/health`), `HOST` (default `127.0.0.1`), `PORT` (default `8787`). `DEPLOY_DIR` wajib; server menolak start tanpanya.
+5. Di nginx, buat subdomain khusus dengan TLS, `proxy_pass` ke `127.0.0.1:8787` hanya untuk path `/mcp`, `limit_req` yang ketat, dan `allow 160.79.104.0/21; deny all;` (lihat di bawah).
+6. Uji dari luar: tanpa token harus `401`; dengan `Authorization: Bearer <token>`, `tools/list` mengembalikan empat tool. Server hanya menerima awalan `Bearer `; token polos ditolak.
 
 ## Daftarkan di claude.ai
 
@@ -46,7 +57,7 @@ MCP tunnels (tanpa membuka port) hanya untuk paket Enterprise, jadi tidak tersed
 ## Risiko
 
 - Pintu masuk baru dari internet ke host yang memuat data donor dan uang. Token bocor berarti orang luar bisa membaca status, log deploy, dan daftar backup.
-- Log deploy dimasker (URL dengan kredensial, `password=`, `token=`, header `Authorization`), tetapi masker bukan jaminan. Jangan menulis rahasia ke `deploy.log`.
+- Log deploy dimasker (URL dengan kredensial, pasangan `kunci=nilai` atau `"kunci":"nilai"` yang kuncinya memuat kata seperti password/secret/token/key, nilai Bearer/Basic), tetapi masker hanya menebak bentuk umum: rahasia dalam bentuk lain lolos. Jangan menulis rahasia ke `deploy.log`.
 - Isi log yang dibaca model bisa memuat teks yang berusaha memberi perintah (prompt injection). Karena semua tool baca-saja dan tidak ada tool tulis, dampaknya dibatasi pada pembacaan.
 - Jangan menambah tool tulis atau generik (`exec`, `query`) tanpa keputusan owner dan ADR.
 

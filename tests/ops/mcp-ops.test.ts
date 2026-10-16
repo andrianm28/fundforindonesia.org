@@ -79,6 +79,50 @@ describe('ops MCP server', () => {
     expect(out).not.toContain('note.txt');
   });
 
+  it('masks the credential shapes a log could carry', () => {
+    const v = PW_VAL;
+    const cases = [
+      `DB_${PW_KEY.toUpperCase()}=${v}`,
+      `SECRET_${'KEY'}=${v}`,
+      `{"${PW_KEY}":"${v}"}`,
+      `postgres://u:${v}/x@h/db`,
+      `postgres://:${v}@h/db`,
+      `Authorization: Basic ${v}`,
+      `Authorization: Bearer ${v}`,
+      `MCP_OPS_TOKEN=${v}`,
+    ];
+    for (const line of cases) expect(redact(line), line).not.toContain(v);
+    expect(redact('deployed ok, kept 7 backups')).toBe('deployed ok, kept 7 backups');
+  });
+
+  it('reads only the tail of a big log and honours the line count', async () => {
+    const big = Array.from({ length: 20000 }, (_, i) => `line ${i}`).join('\n') + '\n';
+    await writeFile(path.join(dir, 'logs', 'deploy.log'), big);
+    const out = (await call('deploy_log_tail', { lines: 3 })).result.content[0].text as string;
+    expect(out).toBe('line 19997\nline 19998\nline 19999');
+    const capped = (await call('deploy_log_tail', { lines: 100000 })).result.content[0].text as string;
+    expect(capped.split('\n').length).toBe(200);
+  });
+
+  it('shows the previous release when there is one', async () => {
+    await writeFile(path.join(dir, 'state', 'previous'), 'b'.repeat(40) + ' sha256:cc sha256:dd\n');
+    const s = JSON.parse((await call('deploy_status')).result.content[0].text);
+    expect(s.previous.sha).toBe('b'.repeat(40));
+  });
+
+  it('negotiates the protocol version', async () => {
+    const r = await handleRpc(
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } },
+      cfg,
+    );
+    expect(r.result.protocolVersion).toBe('2025-03-26');
+    const fallback = await handleRpc(
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '1999-01-01' } },
+      cfg,
+    );
+    expect(fallback.result.protocolVersion).toBe('2025-06-18');
+  });
+
   it('ignores notifications', async () => {
     expect(await handleRpc({ jsonrpc: '2.0', method: 'notifications/initialized' }, cfg)).toBeNull();
   });
@@ -104,6 +148,30 @@ describe('ops MCP server', () => {
       const res = await post({ Authorization: `Bearer ${TOKEN}` });
       expect(res.status).toBe(200);
       expect((await res.json()).result).toEqual({});
+    });
+    it('requires the Bearer scheme and the exact token', async () => {
+      expect((await post({ Authorization: TOKEN })).status).toBe(401);
+      expect((await post({ Authorization: `Bearer ${TOKEN}x` })).status).toBe(401);
+      expect((await post({ Authorization: 'Bearer ' })).status).toBe(401);
+    });
+    it('answers notifications with 202 and no body', async () => {
+      const res = await post(
+        { Authorization: `Bearer ${TOKEN}` },
+        '{"jsonrpc":"2.0","method":"notifications/initialized"}',
+      );
+      expect(res.status).toBe(202);
+    });
+    it('serves only exactly /mcp', async () => {
+      const res = await fetch(`${base}?x=1`, { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` } });
+      expect(res.status).toBe(404);
+    });
+    it('bounds batches and rejects an empty one', async () => {
+      const auth = { Authorization: `Bearer ${TOKEN}` };
+      expect((await post(auth, '[]')).status).toBe(400);
+      const many = JSON.stringify(Array.from({ length: 11 }, (_, i) => ({ jsonrpc: '2.0', id: i, method: 'ping' })));
+      expect((await post(auth, many)).status).toBe(400);
+      const ok = JSON.stringify(Array.from({ length: 3 }, (_, i) => ({ jsonrpc: '2.0', id: i, method: 'ping' })));
+      expect(((await (await post(auth, ok)).json()) as unknown[]).length).toBe(3);
     });
     it('rejects non-POST and oversize bodies', async () => {
       const get = await fetch(base, { headers: { Authorization: `Bearer ${TOKEN}` } });

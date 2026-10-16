@@ -10,12 +10,14 @@
 // needs `Authorization: Bearer <MCP_OPS_TOKEN>`.
 
 import { createServer } from 'node:http';
+import { pathToFileURL } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { open, readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 const SUPPORTED_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_BATCH = 10;
 const MAX_LOG_LINES = 200;
 const LOG_TAIL_BYTES = 256 * 1024;
 
@@ -46,11 +48,17 @@ const TOOLS = [
   },
 ];
 
-// Masks what must never leave the host even if a log line contains it.
+// Masks what must never leave the host even if a log line contains it. Best
+// effort: it knows URL credentials, `key=value` / `"key":"value"` pairs whose
+// key contains a sensitive word, and Bearer/Basic values. Anything else that
+// reaches deploy.log in the clear is not masked, so deploy.sh must never print it.
+const SENSITIVE = '(?:bearer|token|secret|password|passwd|pwd|key|authorization|credential)';
+const PAIR = new RegExp(
+  `([a-z0-9_.-]*${SENSITIVE}[a-z0-9_.-]*)(["']?\\s*[=:]\\s*["']?|\\s+)(?:(?:bearer|basic)\\s+)?[^\\s"',;}]+`,
+  'gi',
+);
 export function redact(line) {
-  return line
-    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1***:***@')
-    .replace(/\b(bearer|token|secret|password|passwd|key|authorization)(\s*[=:]\s*|\s+)(?:bearer\s+)?\S+/gi, '$1$2***');
+  return line.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s@]*@/gi, '$1***@').replace(PAIR, '$1$2***');
 }
 
 const text = (s) => ({ content: [{ type: 'text', text: s }] });
@@ -87,10 +95,17 @@ export async function callTool(name, args, cfg) {
     case 'deploy_log_tail': {
       const n = Number.isInteger(args?.lines) ? Math.min(Math.max(args.lines, 1), MAX_LOG_LINES) : 50;
       try {
-        const file = path.join(cfg.deployDir, 'logs', 'deploy.log');
-        const size = (await stat(file)).size;
-        const buf = await readFile(file);
-        const tail = buf.subarray(Math.max(0, size - LOG_TAIL_BYTES)).toString('utf8');
+        const fh = await open(path.join(cfg.deployDir, 'logs', 'deploy.log'), 'r');
+        let tail;
+        try {
+          const { size } = await fh.stat();
+          const start = Math.max(0, size - LOG_TAIL_BYTES);
+          const buf = Buffer.alloc(size - start);
+          await fh.read(buf, 0, buf.length, start);
+          tail = buf.toString('utf8');
+        } finally {
+          await fh.close();
+        }
         const lines = tail.split('\n').filter(Boolean).slice(-n).map(redact);
         return text(lines.join('\n') || '(log is empty)');
       } catch {
@@ -149,7 +164,9 @@ export async function handleRpc(msg, cfg) {
 }
 
 function tokenOk(header, token) {
-  const given = Buffer.from(String(header ?? '').replace(/^Bearer /i, ''));
+  const m = /^Bearer (.+)$/i.exec(String(header ?? ''));
+  if (!m) return false;
+  const given = Buffer.from(m[1]);
   const want = Buffer.from(token);
   return given.length === want.length && timingSafeEqual(given, want);
 }
@@ -169,10 +186,14 @@ export function createOpsServer(cfg) {
 
     let size = 0;
     const chunks = [];
-    for await (const chunk of req) {
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) return send(413, { error: 'too large' });
-      chunks.push(chunk);
+    try {
+      for await (const chunk of req) {
+        size += chunk.length;
+        if (size > MAX_BODY_BYTES) return send(413, { error: 'too large' });
+        chunks.push(chunk);
+      }
+    } catch {
+      return; // client went away mid-body
     }
     let body;
     try {
@@ -181,6 +202,9 @@ export function createOpsServer(cfg) {
       return send(400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
     }
     if (Array.isArray(body)) {
+      if (body.length === 0 || body.length > MAX_BATCH) {
+        return send(400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid request' } });
+      }
       const out = (await Promise.all(body.map((m) => handleRpc(m, cfg)))).filter(Boolean);
       return out.length ? send(200, out) : send(202);
     }
@@ -189,12 +213,13 @@ export function createOpsServer(cfg) {
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cfg = {
     token: process.env.MCP_OPS_TOKEN ?? '',
-    deployDir: process.env.DEPLOY_DIR ?? '/home/deploy/fundforindonesia-prod',
+    deployDir: process.env.DEPLOY_DIR ?? '',
     healthUrl: process.env.HEALTH_URL ?? 'http://127.0.0.1:8093/api/health',
   };
+  if (!cfg.deployDir) throw new Error('DEPLOY_DIR is required');
   const host = process.env.HOST ?? '127.0.0.1';
   const port = Number(process.env.PORT ?? 8787);
   createOpsServer(cfg).listen(port, host, () => console.log(`ffi-ops-readonly on ${host}:${port}`));
