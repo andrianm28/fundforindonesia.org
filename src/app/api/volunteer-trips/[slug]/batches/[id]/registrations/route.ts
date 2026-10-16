@@ -11,7 +11,7 @@ import { PaymentStatus } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
 import { holdRegistration } from '@/lib/volunteer/trip';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
-import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
+import { resolveEscrowHoldDays } from '@/lib/money/escrow-hold-config';
 import { currentPaymentSandboxStamp } from '@/lib/money/counted-payment';
 import { recordChargeWriteFailure, sanitizeError } from '@/lib/money/payment-reconciliation';
 import {
@@ -169,6 +169,9 @@ export async function POST(
     // daftar ulang" rather than sending a Volunteer to an arbitrary address.
     const redirectUrl = charge.method === 'qris_redirect' ? safePaymentLink(charge.redirectUrl) : null;
 
+    // Frozen onto the Payment below (ticket 90).
+    const escrowHoldDays = await resolveEscrowHoldDays(prisma);
+
     // The charge now exists at the provider. A Payment write that fails here
     // leaves money a Volunteer can still pay with no row expecting it, so it is
     // recorded for reconciliation (ticket 52) before the 503.
@@ -186,18 +189,12 @@ export async function POST(
           sandbox: currentPaymentSandboxStamp(),
           // Trip Fee takes the same Escrow Hold as a Campaign Donation, minus
           // the Platform Fee and the Kind (CONTEXT.md, Trip Fee; ADR 0014), so
-          // it freezes the SAME length here as chargeDonation does on the
-          // donation path. Naming the constant rather than letting the
-          // `escrowHoldDays Int @default(7)` in prisma/schema.prisma supply it
-          // is the whole point: that default is a second copy of the number
-          // that nothing in src/ can see, and the day that 7 is moved to
-          // configuration the two copies drift -- Trip Fee releasing after 7
-          // while Donation releases after N, with the settlement webhook
-          // reading whichever this row happens to carry. Naming it here is also
-          // what makes the frozen-per-Payment rule (prd-compliance 18) true of
-          // this Payment: its length is decided in code at creation, not
-          // inherited from a schema default nobody chose deliberately.
-          escrowHoldDays: ESCROW_HOLD_DAYS,
+          // it freezes the Admin's default length here as chargeDonation does
+          // on the donation path (a Trip has no Category to override it).
+          // Resolved and named in code at creation, never left to the
+          // `escrowHoldDays Int @default(7)` schema default, so the frozen
+          // value is the one in force when THIS Payment was created.
+          escrowHoldDays,
           status: PaymentStatus.PENDING,
           expiresAt: charge.expiresAt,
           // Kept so a Volunteer who closed the payment page can open it again

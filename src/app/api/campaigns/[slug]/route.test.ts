@@ -32,6 +32,9 @@ vi.mock('@/lib/prisma', () => ({
     platformFeeThreshold: {
       findFirst: vi.fn(),
     },
+    escrowHoldSetting: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
   },
 }));
 
@@ -192,6 +195,8 @@ describe('GET /api/campaigns/[slug]', () => {
     } as never);
     mockPlatformFeeRuleFindFirst.mockResolvedValue({ percentBps: 250 } as never);
     mockPlatformFeeThresholdFindFirst.mockResolvedValue({ amount: 50_000 } as never);
+    // The Admin's Escrow Hold default (ticket 90): what the Donor is shown.
+    vi.mocked(prisma.escrowHoldSetting.findFirst).mockResolvedValueOnce(null).mockResolvedValueOnce({ days: 12 } as never);
 
     const response = await GET(createRequest('bantu-korban-bencana'), {
       params: Promise.resolve({ slug: 'bantu-korban-bencana' }),
@@ -200,6 +205,7 @@ describe('GET /api/campaigns/[slug]', () => {
 
     expect(body.campaign.platformFeePercentBps).toBe(250);
     expect(body.campaign.platformFeeThresholdAmount).toBe(50_000);
+    expect(body.campaign.escrowHoldDays).toBe(12);
   });
 
   // ticket 03 (ADR 0013): hibah's rate shown on the Campaign page is exactly

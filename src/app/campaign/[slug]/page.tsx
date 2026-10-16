@@ -8,7 +8,7 @@ import { effectiveStatus } from '@/lib/campaign-lifecycle';
 import { isPubliclyViewable } from '@/lib/campaign-visibility';
 import { publicUrl } from '@/lib/public-url';
 import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
-import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
+import { resolveEscrowHoldDays } from '@/lib/money/escrow-hold-config';
 
 // Was ISR (one render per Campaign, revalidated every 60 seconds). Since
 // rilis-1-benda/92 the root layout reads the beta marker per request
@@ -103,11 +103,10 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
   const { percentBps: platformFeePercentBps } = await resolvePlatformFeeBasisForCampaign(prisma, campaign);
 
   // The Escrow Hold length, shown next to the Platform Fee (CONTEXT.md,
-  // Escrow Hold; prd-compliance 18). Every Payment freezes its own duration
-  // at creation (ESCROW_HOLD_DAYS today -- there is no Admin override per
-  // Kind/Category/Campaign yet, unlike Platform Fee), so what is shown here
-  // is what the next Donation's Payment would actually freeze.
-  const escrowHoldDays = ESCROW_HOLD_DAYS;
+  // Escrow Hold; prd-compliance 18). Resolved the way chargeDonation freezes
+  // it (Category override, then the Admin default, ticket 90), so what is shown
+  // here is what the next Donation's Payment would actually freeze.
+  const escrowHoldDays = await resolveEscrowHoldDays(prisma, { category: campaign.category });
 
   // Progress as the public may see it (counted-payment.ts): sandbox (beta)
   // Payments are taken back out of the stored counter.

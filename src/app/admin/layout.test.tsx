@@ -9,8 +9,8 @@ const mockPathname = vi.hoisted(() => ({ value: "/admin" }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mockPathname.value,
-  redirect: vi.fn((url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
   }),
 }));
 
@@ -24,19 +24,19 @@ describe("AdminLayout", () => {
     vi.clearAllMocks();
   });
 
-  it("redirects home when unauthenticated", async () => {
+  it("is not found when unauthenticated", async () => {
     mockGetServerSession.mockResolvedValue(null);
-    await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("redirects home for someone with the ADMIN Role but not the ADMIN assignment", async () => {
+  it("is not found for someone with the ADMIN Role but not the ADMIN assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: [] } });
-    await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("redirects home for a Verifier: the VERIFIER assignment is not Admin", async () => {
+  it("is not found for a Verifier: the VERIFIER assignment is not Admin", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "ver-1", assignments: ["VERIFIER"] } });
-    await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
   it("renders for someone holding the ADMIN assignment without the ADMIN Role", async () => {
