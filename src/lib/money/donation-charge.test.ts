@@ -11,6 +11,7 @@ function makeDb(overrides: Partial<Record<string, unknown>> = {}) {
     chargeWriteFailure: { create: vi.fn().mockResolvedValue({}) },
     platformFeeRule: { findFirst: vi.fn().mockResolvedValue(null) },
     platformFeeThreshold: { findFirst: vi.fn().mockResolvedValue(null) },
+    escrowHoldSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     ...overrides,
   };
 }
@@ -63,6 +64,29 @@ describe('chargeDonation', () => {
         status: 'PENDING',
       }),
     });
+  });
+
+  it('freezes the Admin-set Escrow Hold: the Category override first, then the default (ticket 90)', async () => {
+    const findFirst = vi.fn(async ({ where }: { where: { scope: string; category?: string } }) =>
+      where.scope === 'CATEGORY' ? (where.category === 'kesehatan' ? { days: 3 } : null) : { days: 12 },
+    );
+    const db = makeDb({ escrowHoldSetting: { findFirst } });
+    const charge = (category: string) =>
+      chargeDonation({
+        db: db as never,
+        provider: makeProvider(),
+        campaign: { ...CAMPAIGN, category },
+        donationId: 'donation-1',
+        amount: 100_000,
+        orderId: 'donation-1',
+        paymentMethod: 'qris_redirect',
+      });
+
+    await charge('kesehatan');
+    await charge('pendidikan');
+
+    const frozen = db.payment.create.mock.calls.map(([arg]) => arg.data.escrowHoldDays);
+    expect(frozen).toEqual([3, 12]);
   });
 
   it('stamps the Payment as sandbox exactly when BETA_SANDBOX is true, and as live otherwise (ticket 92)', async () => {

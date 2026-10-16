@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vite
 
 vi.mock("@/lib/auth", () => ({ getServerSession: vi.fn() }));
 vi.mock("next/navigation", () => ({
-  redirect: vi.fn((url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
   }),
 }));
 vi.mock("@/lib/prisma", () => ({
@@ -38,15 +38,15 @@ describe("KindAuthorisationsPage", () => {
     expect(dynamic).toBe("force-dynamic");
   });
 
-  it("redirects home when unauthenticated", async () => {
+  it("answers 404 when unauthenticated", async () => {
     mockGetServerSession.mockResolvedValue(null);
-    await expect(KindAuthorisationsPage()).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(KindAuthorisationsPage()).rejects.toThrow("NEXT_NOT_FOUND");
     expect(mockOrganisationFindMany).not.toHaveBeenCalled();
   });
 
-  it("redirects home for an Admin who does not hold the Verifier assignment", async () => {
+  it("answers 404 for an Admin who does not hold the Verifier assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: ["ADMIN"] } });
-    await expect(KindAuthorisationsPage()).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(KindAuthorisationsPage()).rejects.toThrow("NEXT_NOT_FOUND");
     expect(mockOrganisationFindMany).not.toHaveBeenCalled();
   });
 

@@ -41,9 +41,9 @@ describe("GET /api/moderasi/bank-accounts", () => {
     expect((await get()).status).toBe(401);
   });
 
-  it("answers 403 for someone without the VERIFIER assignment", async () => {
+  it("answers 404 for someone without the VERIFIER assignment", async () => {
     mockSession.mockResolvedValue({ user: { id: "admin-1", assignments: ["ADMIN"] } });
-    expect((await get()).status).toBe(403);
+    expect((await get()).status).toBe(404);
   });
 
   it("lists PENDING requests with the account's owner, bank code, name and masked number only", async () => {

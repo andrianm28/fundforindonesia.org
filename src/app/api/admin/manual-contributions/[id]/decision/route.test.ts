@@ -64,7 +64,7 @@ describe('POST /api/admin/manual-contributions/[id]/decision', () => {
     mockReverse.mockResolvedValue({ id: 'mc-1', status: 'REVERSED' });
   });
 
-  it('answers 401 with no session and 403 without the ADMIN assignment, for every decision', async () => {
+  it('answers 401 with no session and 404 without the ADMIN assignment, for every decision', async () => {
     mockSession.mockResolvedValue(null);
     for (const decision of ['approve', 'reject', 'reverse']) {
       expect((await post({ decision, reason: 'x' })).status).toBe(401);
@@ -72,7 +72,7 @@ describe('POST /api/admin/manual-contributions/[id]/decision', () => {
 
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
     for (const decision of ['approve', 'reject', 'reverse']) {
-      expect((await post({ decision, reason: 'x' })).status).toBe(403);
+      expect((await post({ decision, reason: 'x' })).status).toBe(404);
     }
 
     expect(mockApprove).not.toHaveBeenCalled();

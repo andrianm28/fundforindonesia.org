@@ -39,9 +39,9 @@ describe("POST /api/moderasi/bank-accounts/[requestId]", () => {
     expect((await post("bank-account-verification-1", { decision: "approve" })).status).toBe(401);
   });
 
-  it("answers 403 for someone without the VERIFIER assignment", async () => {
+  it("answers 404 for someone without the VERIFIER assignment", async () => {
     mockSession.mockResolvedValue({ user: { id: "admin-1", assignments: ["ADMIN"] } });
-    expect((await post("bank-account-verification-1", { decision: "approve" })).status).toBe(403);
+    expect((await post("bank-account-verification-1", { decision: "approve" })).status).toBe(404);
   });
 
   it("approves, writing verifiedAt on the account", async () => {

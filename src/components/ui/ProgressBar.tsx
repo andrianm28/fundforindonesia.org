@@ -13,19 +13,9 @@ export interface ProgressBarProps {
   size?: 'sm' | 'md';
   /** Animate fill on mount */
   animated?: boolean;
-  /**
-   * Renders the Ledger Line motif on the track: a dashed gold
-   * repeating-linear-gradient background plus three fixed milestone
-   * ticks at 25/50/75%, independent of the real current/target values.
-   * This is a promise about the platform's staged-disbursement process,
-   * not a report on this specific campaign's real progress -- the real
-   * progress fill bar still renders on top, unchanged. Defaults to false
-   * so every existing call site renders exactly as it did before.
-   */
-  showLedgerLine?: boolean;
+  /** Accessible name; defaults to "Progres penggalangan dana" */
+  label?: string;
 }
-
-const LEDGER_MILESTONE_POSITIONS = [25, 50, 75] as const;
 
 /**
  * Calculates percentage from current and target values.
@@ -44,7 +34,7 @@ export function ProgressBar({
   showLabel = false,
   size = 'md',
   animated = false,
-  showLedgerLine = false,
+  label = 'Progres penggalangan dana',
 }: ProgressBarProps) {
   const percentage = calculatePercentage(current, target);
   // Only the animated bar keeps a width of its own: it starts empty and fills
@@ -64,51 +54,34 @@ export function ProgressBar({
 
   const heightClass = size === 'sm' ? 'h-1.5' : 'h-2.5';
 
+  const rounded = Math.round(percentage);
+
+  // One continuous bar: a flat neutral track with a single brand-gradient fill.
+  // No stripes, dashes or tick marks, so the card, detail page and every other
+  // call site render the same shape.
   return (
     <div className="w-full">
       <div
-        className={`w-full ${heightClass} rounded-full overflow-hidden ${
-          showLedgerLine ? 'relative' : 'bg-bg-secondary'
-        }`}
-        style={
-          showLedgerLine
-            ? {
-                backgroundImage:
-                  'repeating-linear-gradient(90deg, var(--color-ledger) 0 4px, transparent 4px 8px)',
-              }
-            : undefined
-        }
+        className={`w-full ${heightClass} rounded-full overflow-hidden bg-border`}
         role="progressbar"
-        aria-valuenow={Math.round(percentage)}
+        aria-label={label}
+        aria-valuenow={rounded}
         aria-valuemin={0}
         aria-valuemax={100}
+        aria-valuetext={`${rounded}% terkumpul`}
       >
-        {showLedgerLine &&
-          LEDGER_MILESTONE_POSITIONS.map((position) => (
-            <span
-              key={position}
-              data-testid="ledger-tick"
-              aria-hidden="true"
-              className="absolute top-0 bottom-0 w-0.5 z-20"
-              style={{
-                left: `${position}%`,
-                backgroundColor: 'var(--color-ledger)',
-                boxShadow: '0 0 0 1px #FDFBF8',
-              }}
-            />
-          ))}
         <div
-          className={`${heightClass} rounded-full ${showLedgerLine ? 'relative z-10' : ''}`}
+          className="h-full rounded-full"
           style={{
             width: `${width}%`,
-            background: 'linear-gradient(90deg, #D97748, #D50000)',
+            background: 'linear-gradient(90deg, var(--color-accent), var(--color-danger))',
             transition: animated ? 'width 600ms ease-in-out' : 'none',
           }}
         />
       </div>
       {showLabel && (
         <span className="text-xs text-text-secondary mt-1 block">
-          {Math.round(percentage)}%
+          {rounded}%
         </span>
       )}
     </div>

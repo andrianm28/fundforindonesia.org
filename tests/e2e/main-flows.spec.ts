@@ -9,9 +9,8 @@ test.describe('Homepage', () => {
   test('should display quick action tiles', async ({ page }) => {
     await page.goto('/');
     // The PRD's actual menu (src/lib/home/quickActionTiles.ts): Donasi and
-    // Galang Dana are the two working destinations, and the three modules
-    // with no frontend yet are honestly shown rather than linked into
-    // /explore/all pretending to work. The old "Donasi Otomatis" tile is
+    // Galang Dana are working destinations, and Kolaborasi CSR, Wakaf and
+    // Hibah each open their own landing (ticket 75). The old "Donasi Otomatis" tile is
     // gone on purpose: AutoDonation was parked (plan
     // docs/superpowers/plans/2026-09-20-remove-wallet-park-autodonation.md).
     const tiles = page.getByRole('region', { name: 'Quick action tiles' });
@@ -24,9 +23,13 @@ test.describe('Homepage', () => {
       'href',
       '/campaign/create'
     );
-    for (const label of ['Kolaborasi CSR', 'Wakaf', 'Hibah']) {
-      await expect(tiles.getByText(label)).toBeVisible();
-      await expect(tiles.getByRole('link', { name: new RegExp(label) })).toHaveCount(0);
+    const landings: [string, string][] = [
+      ['Kolaborasi CSR', '/kolaborasi-csr'],
+      ['Wakaf', '/wakaf'],
+      ['Hibah', '/hibah'],
+    ];
+    for (const [label, href] of landings) {
+      await expect(tiles.getByRole('link', { name: new RegExp(label) })).toHaveAttribute('href', href);
     }
   });
 

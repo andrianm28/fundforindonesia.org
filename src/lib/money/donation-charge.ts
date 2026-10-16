@@ -5,7 +5,7 @@ import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
 import { providerSupportedMethods } from '@/lib/payments/active-provider';
 import { resolvePlatformFeeBasisForCampaign } from './platform-fee-config';
 import { computePlatformFee } from './platform-fee';
-import { ESCROW_HOLD_DAYS } from './escrow';
+import { resolveEscrowHoldDays } from './escrow-hold-config';
 import { currentPaymentSandboxStamp } from './counted-payment';
 import { recordChargeWriteFailure, sanitizeError } from './payment-reconciliation';
 
@@ -31,7 +31,7 @@ import { recordChargeWriteFailure, sanitizeError } from './payment-reconciliatio
  * Donation over.
  */
 export interface ChargeDonationParams {
-  db: Pick<PrismaClient, 'payment' | 'platformFeeRule' | 'platformFeeThreshold' | 'chargeWriteFailure'>;
+  db: Pick<PrismaClient, 'payment' | 'platformFeeRule' | 'platformFeeThreshold' | 'escrowHoldSetting' | 'chargeWriteFailure'>;
   provider: PaymentProvider;
   campaign: { id: string; kind: Kind; category: string };
   donationId: string;
@@ -104,6 +104,10 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
   // one included.
   const { percentBps, thresholdAmount } = await resolvePlatformFeeBasisForCampaign(db, campaign);
   const platformFee = computePlatformFee({ grossAmount: amount, percentBps, thresholdAmount });
+  // The Escrow Hold length is frozen the same way (ticket 90): resolved from
+  // the Admin setting at THIS Payment's creation and copied onto the row, so a
+  // later change moves no Payment that already exists.
+  const escrowHoldDays = await resolveEscrowHoldDays(db, { category: campaign.category });
 
   // The charge now exists at the provider. If the Payment that records it
   // cannot be written, the money a donor may still pay into it would arrive with
@@ -122,7 +126,7 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
         // Which mode created it, frozen like the fee: beta rows must stay
         // identifiable after go-live removes the marker.
         sandbox: currentPaymentSandboxStamp(),
-        escrowHoldDays: ESCROW_HOLD_DAYS,
+        escrowHoldDays,
         status: PaymentStatus.PENDING,
         expiresAt: charge.expiresAt,
       },

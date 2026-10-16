@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
 vi.mock("@/lib/auth", () => ({ getServerSession: vi.fn() }));
 vi.mock("next/navigation", () => ({
-  redirect: vi.fn((url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
   }),
   useRouter: vi.fn(() => ({ refresh: vi.fn() })),
 }));
@@ -37,14 +37,14 @@ describe("ModerasiRekeningPage", () => {
     });
   });
 
-  it("redirects home when unauthenticated", async () => {
+  it("answers 404 when unauthenticated", async () => {
     mockGetServerSession.mockResolvedValue(null);
-    await expect(ModerasiRekeningPage()).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(ModerasiRekeningPage()).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("redirects home for someone without the VERIFIER assignment", async () => {
+  it("answers 404 for someone without the VERIFIER assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: ["ADMIN"] } });
-    await expect(ModerasiRekeningPage()).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(ModerasiRekeningPage()).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
   it("shows the owner, bank code, name and the masked number in the queue, and the full number in the decide panel", async () => {

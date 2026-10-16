@@ -78,7 +78,7 @@ describe("PATCH /api/admin/partnership-inquiries/[id]", () => {
     expect((await patch({ status: "IN_PROGRESS" })).status).toBe(401);
 
     mockGetServerSession.mockResolvedValue({ user: { id: "user-2", assignments: ["VERIFIER"] } });
-    expect((await patch({ status: "IN_PROGRESS" })).status).toBe(403);
+    expect((await patch({ status: "IN_PROGRESS" })).status).toBe(404);
 
     expect(db.inquiries[0].status).toBe("NOT_YET_FOLLOWED_UP");
     expect(db.changes).toEqual([]);

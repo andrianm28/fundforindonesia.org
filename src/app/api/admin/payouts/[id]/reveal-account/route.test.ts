@@ -26,11 +26,11 @@ describe('POST /api/admin/payouts/[id]/reveal-account', () => {
     mockReveal.mockResolvedValue('1234567890');
   });
 
-  it('answers 401 with no session and 403 without ADMIN, never revealing', async () => {
+  it('answers 401 with no session and 404 without ADMIN, never revealing', async () => {
     mockSession.mockResolvedValue(null);
     expect((await post()).status).toBe(401);
     mockSession.mockResolvedValue({ user: { id: 'v-1', assignments: ['VERIFIER'] } });
-    expect((await post()).status).toBe(403);
+    expect((await post()).status).toBe(404);
     expect(mockReveal).not.toHaveBeenCalled();
   });
 

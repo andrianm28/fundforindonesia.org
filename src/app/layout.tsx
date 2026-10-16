@@ -8,6 +8,8 @@ import { BetaBanner } from "@/components/layout/BetaBanner";
 import { BetaSandboxProvider } from "@/components/layout/BetaSandboxContext";
 import { publicUrl } from "@/lib/public-url";
 import { betaSandboxForThisRequest } from "@/lib/beta-sandbox-request";
+import { prisma } from "@/lib/prisma";
+import { resolveSiteSettingsOrDefaults } from "@/lib/site-settings";
 
 // Self-hosted, not next/font/google: the Docker build has no reliable route
 // to fonts.googleapis.com, so a build-time fetch there is a build that can
@@ -57,6 +59,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const betaSandbox = await betaSandboxForThisRequest();
+  const { footer, social } = await resolveSiteSettingsOrDefaults(prisma);
 
   return (
     <html lang="id">
@@ -65,7 +68,7 @@ export default async function RootLayout({
           <BetaSandboxProvider active={betaSandbox}>
             {betaSandbox && <BetaBanner variant="site" />}
             <AppShell>{children}</AppShell>
-            <ConditionalFooter />
+            <ConditionalFooter footer={footer} social={social} />
           </BetaSandboxProvider>
         </Providers>
       </body>

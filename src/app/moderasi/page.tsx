@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
 import { Assignment, VerificationOutcome } from "@/generated/prisma/client";
@@ -11,7 +11,7 @@ export default async function ModerasiPage() {
   const session = await getServerSession();
 
   if (!session?.user || !hasAssignment(session.user.assignments, Assignment.VERIFIER)) {
-    redirect("/");
+    notFound();
   }
 
   // What waits for a Verifier is an open Verification Request (CONTEXT.md).

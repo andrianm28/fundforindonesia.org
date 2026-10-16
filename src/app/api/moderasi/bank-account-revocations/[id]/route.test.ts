@@ -44,9 +44,9 @@ describe("POST /api/moderasi/bank-account-revocations/[id]", () => {
     expect((await post("bank-account-1", { action: "revoke", reason: "Alasan." })).status).toBe(401);
   });
 
-  it("answers 403 for someone without the VERIFIER assignment", async () => {
+  it("answers 404 for someone without the VERIFIER assignment", async () => {
     mockSession.mockResolvedValue({ user: { id: "admin-1", assignments: ["ADMIN"] } });
-    expect((await post("bank-account-1", { action: "revoke", reason: "Alasan." })).status).toBe(403);
+    expect((await post("bank-account-1", { action: "revoke", reason: "Alasan." })).status).toBe(404);
   });
 
   it("revokes, clearing verifiedAt", async () => {

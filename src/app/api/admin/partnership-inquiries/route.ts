@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { listPartnershipInquiries } from "@/lib/partnership-inquiry-followup";
 
 /**
@@ -22,7 +22,7 @@ import { listPartnershipInquiries } from "@/lib/partnership-inquiry-followup";
  * an empty list, not a refusal: no company has enquired yet is a fact about the
  * portfolio, not an error.
  */
-export const GET = withAssignmentCheck(Assignment.ADMIN, async (): Promise<NextResponse> => {
+export const GET = withHiddenAssignmentCheck(Assignment.ADMIN, async (): Promise<NextResponse> => {
   const inquiries = await listPartnershipInquiries(prisma);
   return NextResponse.json({ inquiries });
 });

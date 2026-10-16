@@ -45,9 +45,9 @@ describe("GET /api/admin/assignment-grant-requests", () => {
     expect((await get()).status).toBe(401);
   });
 
-  it("returns 403 without the ADMIN assignment", async () => {
+  it("returns 404 without the ADMIN assignment", async () => {
     mockSession.mockResolvedValue({ user: { id: "someone-1", assignments: [] } });
-    expect((await get()).status).toBe(403);
+    expect((await get()).status).toBe(404);
   });
 
   it("lists PENDING requests oldest first", async () => {

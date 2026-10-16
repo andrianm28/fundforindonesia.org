@@ -106,12 +106,12 @@ describe('GET /api/admin/scrutiny', () => {
     expect(body.fundraisersAtActiveLimit).toEqual([{ fundraiserId: 'creator-1', activeCampaigns: 3 }]);
   });
 
-  it('answers 401 with no session, and 403 for anyone who is not an Admin', async () => {
+  it('answers 401 with no session, and 404 for anyone who is not an Admin', async () => {
     mockSession.mockResolvedValue(null);
     expect((await get()).status).toBe(401);
 
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
-    expect((await get()).status).toBe(403);
+    expect((await get()).status).toBe(404);
 
     expect(mockAuditMarkers).not.toHaveBeenCalled();
   });

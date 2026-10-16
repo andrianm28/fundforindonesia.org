@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Assignment } from '@/generated/prisma/client';
 import { getServerSession } from '@/lib/auth';
-import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { prisma } from '@/lib/prisma';
 import { domainErrorToHttp } from '@/lib/domain-errors';
 import {
@@ -27,7 +27,7 @@ import {
  *
  * ADMIN only.
  */
-export const POST = withAssignmentCheck(
+export const POST = withHiddenAssignmentCheck(
   Assignment.ADMIN,
   async (req: NextRequest, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params;
