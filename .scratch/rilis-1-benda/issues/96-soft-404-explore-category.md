@@ -10,7 +10,7 @@ Ditemukan saat memeriksa produksi setelah deploy `e56882e` (PR #251, #255) pada 
 
 ## Gejala
 
-`/explore/zakat` dan slug ngawur seperti `/explore/kategori-ngawur-xyz` menampilkan halaman "404 This page could not be found", dengan judul "Kategori Tidak Ditemukan". Kode HTTP-nya tetap **200**. Sebagai pembanding, `/zakat` menjawab 404 dengan benar.
+`/explore/zakat` dan slug ngawur seperti `/explore/kategori-ngawur-xyz` menampilkan halaman "404 This page could not be found", dengan judul "Kategori Tidak Ditemukan". Kode HTTP-nya tetap **200**. Sebagai pembanding, `/zakat` menjawab 404 dengan benar. `/campaign/<slug-yang-tidak-ada>` juga menjawab 200, jadi polanya tidak terbatas pada `/explore`.
 
 Pengunjung tetap melihat "tidak ditemukan", tetapi mesin pencari bisa mengindeks URL itu sebagai halaman sah. Ini termasuk URL `/explore/zakat` yang sudah terindeks sebelum zakat dicabut (ADR 0025).
 
