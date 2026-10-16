@@ -1,6 +1,6 @@
 # 75: P3 wakaf-hibah-csr-landings-and-zakat-cta
 
-**Status:** in-review (PR draft, branch claude/csr-wakaf-hibah-30w88l)
+**Status:** done (PR #250 merged 2026-10-16; CTA zakat dibatalkan karena zakat dihapus, ADR 0025)
 
 **Blocked by:** none; C7 dan C9 dijawab owner 2026-10-04
 

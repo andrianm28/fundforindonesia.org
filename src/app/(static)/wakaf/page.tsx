@@ -39,8 +39,8 @@ export default function WakafPage() {
           heading: 'Wakaf aset (tanah, bangunan, barang)',
           body: (
             <p>
-              Wakaf non-tunai tidak lewat payment gateway. Hubungi tim kami agar pengajuan Anda
-              diteruskan kepada nazhir terkait.
+              Wakaf non-tunai tidak lewat payment gateway. Hubungi tim kami untuk mencatat minat
+              Anda; kami akan menindaklanjutinya setelah bermitra dengan nazhir berizin.
             </p>
           ),
         },
