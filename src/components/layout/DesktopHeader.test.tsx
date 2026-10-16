@@ -28,8 +28,8 @@ afterEach(() => {
 describe('DesktopHeader', () => {
   it('renders logo with correct text and link', () => {
     render(<DesktopHeader user={null} onSearch={vi.fn()} />);
-    const logo = screen.getByText('Fund for Indonesia');
-    expect(logo).toBeInTheDocument();
+    const logo = screen.getByRole('img', { name: 'Fund for Indonesia' });
+    expect(logo).toHaveAttribute('src', '/brand/logo-wordmark.webp');
     expect(logo.closest('a')).toHaveAttribute('href', '/');
   });
 

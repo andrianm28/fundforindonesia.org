@@ -113,9 +113,12 @@ export async function GET(
         ...COLLECTING_ENTITY_SELECT,
         _count: {
           select: {
+            // Real Donations only (ticket 94): one paid with a beta (sandbox)
+            // Payment is a test and is not counted.
             donations: {
               where: {
                 paymentStatus: 'confirmed',
+                payments: { none: { sandbox: true } },
               },
             },
           },
@@ -295,8 +298,6 @@ export async function PATCH(
       return tx.campaign.update({
         where: { id: campaign.id },
         data,
-        // The legacy status string is never sent back (ticket 03 drops it).
-        omit: { status: true },
         include: {
           creator: {
             select: {

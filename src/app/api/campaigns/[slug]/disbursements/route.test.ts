@@ -46,7 +46,7 @@ describe('GET /api/campaigns/[slug]/disbursements', () => {
     await GET(request(), routeContext());
     expect(mockPayoutFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { campaignId: 'campaign-1', status: 'COMPLETED' },
+        where: { campaignId: 'campaign-1', status: 'COMPLETED', sandbox: false },
         select: expect.objectContaining({
           usageReport: {
             select: {
@@ -63,6 +63,22 @@ describe('GET /api/campaigns/[slug]/disbursements', () => {
         }),
       }),
     );
+  });
+
+  it('shows simulated disbursements too while the beta marker is on, each flagged sandbox so the page marks it UJI (ticket 94)', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    mockPayoutFindMany.mockResolvedValue([
+      { id: 'payout-sim', amount: 100_000, description: 'simulasi', proofImage: null, createdAt: new Date('2026-09-01'), sandbox: true, usageReport: null },
+    ]);
+
+    const response = await GET(request(), routeContext());
+    const data = await response.json();
+
+    expect(mockPayoutFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { campaignId: 'campaign-1', status: 'COMPLETED' } }),
+    );
+    expect(data.disbursements[0].sandbox).toBe(true);
+    vi.unstubAllEnvs();
   });
 
   it('includes usageReport: null for a Payout with no Usage Report yet', async () => {

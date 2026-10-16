@@ -1,3 +1,4 @@
+import { SandboxBadge } from '@/components/money/SandboxBadge';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
@@ -24,16 +25,15 @@ function formatCheckDate(date: Date): string {
  * (CONTEXT.md, Payout; ADR 0006). The form half of /admin/payouts, which
  * only lists.
  *
- * NO BANK ACCOUNT NUMBER, ANYWHERE ON THIS PAGE (ticket 12). The `select`
- * below never names `accountNumberCiphertext` or `accountNumberKeyId`:
- * Sumopod, the only provider active before a disbursement API exists, is
- * withdrawn from by hand in its own dashboard, so nothing on this Payout's
- * path ever needs the plaintext number read. What is shown is what was
- * always plaintext -- bank code and account holder name -- the same two
- * fields the Fundraiser's own picker shows
- * (CampaignPayoutPanel.tsx). Reading the number here would be reading it
- * for a payout that never needed it read, and ADR 0012 says every read is a
- * one-way, unprovable event -- one this page has no reason to spend.
+ * NO BANK ACCOUNT NUMBER IN THIS PAGE'S PAYLOAD (tickets 12 and 89). The
+ * `select` below never names `accountNumberCiphertext` or
+ * `accountNumberKeyId`, so the number is not in the default render. Sumopod
+ * is withdrawn from by hand, so the Admin completing an APPROVED Payout does
+ * need the full number (ticket 89 reopened ticket 12's premise): they open it
+ * with an explicit server action from AdminPayoutActionForm
+ * (/api/admin/payouts/[id]/reveal-account), which allows only that Admin,
+ * only while APPROVED, and writes a PayoutAccountReveal audit row each time.
+ * What this page shows is bank code and account holder name.
  *
  * TWO SUBJECTS, RESOLVED WITHOUT AN .include(). `volunteerTripId` carries no
  * Prisma relation (schema comment on Payout.volunteerTripId), so a Trip
@@ -108,7 +108,10 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
   return (
     <div className="max-w-2xl">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{subject.title}</h1>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {subject.title}
+          <SandboxBadge sandbox={payout.sandbox} />
+        </h1>
         <p className="mt-1 text-sm text-gray-500">{PAYOUT_STATUS_LABEL[payout.status]}</p>
       </div>
 

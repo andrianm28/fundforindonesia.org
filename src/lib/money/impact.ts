@@ -342,7 +342,9 @@ export async function impactBreakdown(
     const refundIds = refunds.map((r) => r.id);
 
     const payouts = await tx.payout.findMany({
-      where: { campaignId: { in: campaignIds } },
+      // Real Payouts only (ticket 94): a simulated Payout moved test money, and
+      // test money is excluded permanently from every figure on this page.
+      where: { campaignId: { in: campaignIds }, sandbox: false },
       select: { id: true, amount: true, status: true },
     });
     const payoutIds = payouts.map((p) => p.id);
@@ -368,7 +370,7 @@ export async function impactBreakdown(
     });
     const campaignPoolRows = await tx.ledgerEntry.groupBy({
       by: ['account', 'direction'] as const,
-      where: { campaignId: { in: campaignIds }, ...withoutUncounted },
+      where: { campaignId: { in: campaignIds }, sandbox: false, ...withoutUncounted },
       _sum: { amount: true },
     });
     const campaignPools = totalsOf(campaignPoolRows);
@@ -376,6 +378,7 @@ export async function impactBreakdown(
       by: ['account', 'direction'] as const,
       where: {
         campaignId: { in: campaignIds },
+        sandbox: false,
         refundId: { in: refundIds },
         account: { in: ['ESCROW_HOLD', 'CAMPAIGN_BALANCE'] },
       },
@@ -390,6 +393,7 @@ export async function impactBreakdown(
       by: ['account', 'direction'] as const,
       where: {
         paymentId: { in: paymentIds },
+        sandbox: false,
         account: { in: ['ESCROW_HOLD', 'PROVIDER_FEE', 'PLATFORM_FEE'] },
       },
       _sum: { amount: true },
@@ -404,6 +408,7 @@ export async function impactBreakdown(
       by: ['account', 'direction'] as const,
       where: {
         refundId: { in: refundIds },
+        sandbox: false,
         account: { in: ['REFUND_CLEARING', 'REFUND_COST', 'PLATFORM_FEE'] },
       },
       _sum: { amount: true },
@@ -412,7 +417,7 @@ export async function impactBreakdown(
 
     const payoutRows = await tx.ledgerEntry.groupBy({
       by: ['account', 'direction'] as const,
-      where: { payoutId: { in: payoutIds }, account: { in: ['PAYOUT_CLEARING'] } },
+      where: { payoutId: { in: payoutIds }, sandbox: false, account: { in: ['PAYOUT_CLEARING'] } },
       _sum: { amount: true },
     });
     const byPayout = totalsOf(payoutRows);
@@ -433,6 +438,7 @@ export async function impactBreakdown(
       by: ['account', 'direction'] as const,
       where: {
         campaignId: { in: campaignIds },
+        sandbox: false,
         manualContributionId: { not: null },
         account: 'CAMPAIGN_BALANCE',
       },

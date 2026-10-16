@@ -132,6 +132,10 @@ function makeTx(
         return { count: data.length };
       }),
       groupBy: vi.fn(ledgerGroupBy(rows)),
+      // The mode a reversal reads back off the original entries (ticket 94).
+      findFirst: vi.fn(async ({ where }: { where: { transactionId: string } }) =>
+        rows.find((r) => r.transactionId === where.transactionId) ?? null,
+      ),
     },
   };
 

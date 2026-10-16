@@ -1,3 +1,4 @@
+import { SandboxBadge } from '@/components/money/SandboxBadge';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { formatRupiah } from '@/lib/utils/currency';
@@ -35,7 +36,7 @@ const QUEUE_STATUSES: PayoutStatus[] = ['DRAFT', 'APPROVED'];
 
 type QueueRow = Pick<
   Payout,
-  'id' | 'campaignId' | 'volunteerTripId' | 'amount' | 'description' | 'status' | 'createdAt'
+  'id' | 'campaignId' | 'volunteerTripId' | 'amount' | 'description' | 'status' | 'createdAt' | 'sandbox'
 > & {
   requestedBy: { name: string | null };
   bankAccount: { bankCode: string; accountName: string };
@@ -87,7 +88,10 @@ function QueueTable({
                   return (
                     <tr key={payout.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
-                        <p className="text-sm font-medium text-gray-900">{subject?.title ?? 'Tidak diketahui'}</p>
+                        <p className="text-sm font-medium text-gray-900">
+                          {subject?.title ?? 'Tidak diketahui'}
+                          <SandboxBadge sandbox={payout.sandbox} />
+                        </p>
                         <p className="text-xs text-gray-500 truncate max-w-xs">{payout.description}</p>
                         {payout.hasUnresolvedBalanceCheck && (
                           <p className="mt-1 text-xs font-medium text-amber-700">Menunggu saldo penyedia</p>
