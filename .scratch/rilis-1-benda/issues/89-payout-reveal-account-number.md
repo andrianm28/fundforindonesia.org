@@ -1,6 +1,6 @@
 # 89: M-a payout-reveal-account-number
 
-**Status:** ready-for-agent
+**Status:** done (PR #232, e549020)
 
 **Blocked by:** none (tiket). C6 dijawab owner 2026-10-04 (hanya Admin penyelesai, tercatat di tabel audit); acceptance final. Memakai "slot skema" Gelombang 1.
 
@@ -39,3 +39,5 @@ Tiket ini **membuka ulang premis** `12-decrypting-a-bank-account-at-payout.md`, 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (baris Pra-M1 M-a, dipulihkan dari relay kedua). C6 masih menunggu jawaban owner.
 
 - 2026-10-04 (ronde C): C6 dijawab owner, sesuai rekomendasi dan sesuai acceptance di atas: hanya Admin penyelesai, tercatat di tabel audit. Tidak ada perubahan acceptance; status tetap `ready-for-agent`.
+
+- 2026-10-10 (koordinator): merge ke `main` sebagai PR #232 (e549020); status dinaikkan ke done.

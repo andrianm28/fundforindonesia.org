@@ -1,6 +1,6 @@
 # 94: Beta: mode di Ledger, simulasi penuh, dan guard go-live
 
-**Status:** awaiting-merge
+**Status:** done (PR #236, a91ed76)
 
 **Blocked by:** 92 (done, merge #230)
 
@@ -61,3 +61,5 @@ M1 menjadi dua tahap (istilah di `CONTEXT.md`, ditulis koordinator): tahap Beta 
   - **Runbook** `docs/runbooks/beta-ke-live.md`, memuat peringatan jangan aktifkan penanda sebelum 94 ter-deploy.
   - Diteruskan ke koordinator: `CONTEXT.md` (istilah Beta, M1 dua tahap) dan `.env.example` (`BETA_SANDBOX`) belum disentuh builder.
   - Penghitung mentah `Campaign.collectedAmount` dan `donationCount` (`scrutiny.ts`, `/api/user/campaigns`, `/admin/campaigns`, urutan "Pilihan Kami", `donationCount` publik) juga sudah hanya menghitung uang nyata (`withCountedCollectedAmount`, filter `payments: { none: { sandbox: true } }`). Yang sengaja belum: panel Trip tidak punya total Payment Trip Fee sendiri; uang Trip ditutup lewat saldo Trip dan rekap, keduanya terpisah per mode. Guard boot hanya memeriksa URL, bukan API key.
+
+- 2026-10-10 (koordinator): merge ke `main` sebagai PR #236 (a91ed76); status dinaikkan ke done.

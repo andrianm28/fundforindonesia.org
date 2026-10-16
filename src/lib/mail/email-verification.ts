@@ -1,5 +1,6 @@
 import { escapeHtml } from './escape-html';
 import type { MailMessage } from './types';
+import { emailLogoHtml } from './email-logo';
 
 /**
  * The confirmation link for an account's own email address (prd-compliance
@@ -25,6 +26,7 @@ export function emailVerificationEmail(input: EmailVerificationEmailInput): Mail
   const text = [greeting, ...body, input.confirmUrl, closing].join('\n\n');
   const url = escapeHtml(input.confirmUrl);
   const html = [
+    emailLogoHtml(),
     `<p>${escapeHtml(greeting)}</p>`,
     ...body.map((line) => `<p>${escapeHtml(line)}</p>`),
     `<p><a href="${url}">${url}</a></p>`,

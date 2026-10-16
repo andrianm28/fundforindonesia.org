@@ -5,6 +5,13 @@ export function Footer() {
     <footer className="hidden lg:block bg-bg-secondary border-t border-border mt-auto">
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="mb-6">
+          <img
+            src="/brand/logo.webp"
+            alt="Fund for Indonesia, from kindness to impact"
+            width={1200}
+            height={251}
+            className="h-12 w-auto mb-4"
+          />
           <h3 className="text-base font-bold text-text mb-3">Tentang Fund for Indonesia</h3>
           <p className="text-sm text-text-secondary leading-relaxed">
             Fund for Indonesia adalah platform teknologi untuk donasi dan penggalangan dana online
