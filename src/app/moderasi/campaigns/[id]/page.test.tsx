@@ -25,6 +25,7 @@ import ModerasiCampaignDetailPage from './page';
 function campaign(lifecycleStatus: CampaignStatus, overrides: Record<string, unknown> = {}) {
   return {
     id: 'campaign-1',
+    slug: 'sumur-untuk-desa',
     title: 'Sumur untuk Desa',
     lifecycleStatus,
     deadline: null,
@@ -355,5 +356,62 @@ describe('the duplicate hints on the moderation page', () => {
     });
 
     expect(screen.getByText('Keluarga Mahdi')).toBeDefined();
+  });
+});
+
+/**
+ * rilis-1-benda 66: the Verifier raises a Flag from this screen. Which
+ * statuses can be flagged is the lifecycle module's list (ADR 0015: the
+ * statuses an Admin can suspend from -- Active, Expired, Completed); the
+ * page asks it rather than keeping a copy, so these cases pin the outcome.
+ */
+describe('the Flag form on the moderation page', () => {
+  const flagButton = () => screen.queryByRole('button', { name: /pasang flag/i });
+
+  it("offers a Flag on an Active Campaign, posted to that Campaign's flags route", async () => {
+    await renderFor(campaign('ACTIVE'));
+
+    fireEvent.change(screen.getByRole('textbox', { name: /alasan flag/i }), {
+      target: { value: 'Foto sampul dipakai ulang.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /pasang flag/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/campaigns/sumur-untuk-desa/flags');
+    expect(JSON.parse(init.body)).toEqual({ reason: 'Foto sampul dipakai ulang.' });
+  });
+
+  it.each<CampaignStatus>(['EXPIRED', 'COMPLETED'])('offers a Flag on a %s Campaign too', async (status) => {
+    await renderFor(campaign(status));
+
+    expect(flagButton()).not.toBeNull();
+  });
+
+  it('offers a Flag on an Active Campaign whose deadline has passed, since it counts as Expired', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-25T12:00:00Z'));
+
+    await renderFor(campaign('ACTIVE', { deadline: new Date('2026-09-24T12:00:00Z') }));
+
+    expect(flagButton()).not.toBeNull();
+  });
+
+  it.each<CampaignStatus>(['DRAFT', 'SUBMITTED', 'REJECTED', 'SUSPENDED', 'CANCELLED'])(
+    'offers no Flag on a %s Campaign',
+    async (status) => {
+      await renderFor(campaign(status));
+
+      expect(flagButton()).toBeNull();
+    },
+  );
+
+  it('keeps the Flag form beside an open Verification Request, since a review is when a Verifier finds a reason to flag', async () => {
+    await renderFor(campaign('ACTIVE'), {
+      request: { ...PENDING_REQUEST, kind: 'AMOUNT_REVIEW' as const, isFirst: false },
+    });
+
+    expect(screen.getByRole('button', { name: /loloskan/i })).toBeDefined();
+    expect(flagButton()).not.toBeNull();
   });
 });

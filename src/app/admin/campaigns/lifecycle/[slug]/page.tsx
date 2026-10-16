@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { effectiveStatus, SUSPENDABLE } from '@/lib/campaign-lifecycle';
+import { effectiveStatus, SUSPENDABLE, URGENT_SETTABLE_FROM } from '@/lib/campaign-lifecycle';
 import { CampaignStatusChangeAction, CancellationRequestStatus } from '@/generated/prisma/client';
 import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 import { AdminCampaignLifecycleActions } from '@/components/admin/AdminCampaignLifecycleActions';
@@ -10,6 +10,15 @@ import { AdminCampaignLifecycleActions } from '@/components/admin/AdminCampaignL
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ slug: string }> };
+
+/**
+ * Jakarta time whatever zone the server runs in, formatted here and not in the
+ * client form so the browser has nothing of its own to format and hydrate
+ * differently (same format as src/app/admin/platform-fee/page.tsx).
+ */
+function formatWhen(at: Date): string {
+  return at.toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Jakarta' }) + ' WIB';
+}
 
 /**
  * One Campaign, for the Admin deciding its Suspension or its pending
@@ -28,6 +37,13 @@ type RouteContext = { params: Promise<{ slug: string }> };
  * Campaign is effectively SUSPENDED -- the same log row liftSuspension
  * itself reads (the most recent SUSPENDED CampaignStatusChange), so this
  * page never disagrees with the command it is asking to run.
+ *
+ * rilis-1-benda 66 adds the open Flags (who raised each, and when), to be
+ * dismissed here, and Urgent, to be set or cleared. Whether Urgent can be set
+ * is asked of the lifecycle module's own list (URGENT_SETTABLE_FROM), as
+ * `canSuspend` is of SUSPENDABLE. A Flag is not told to the Campaign's
+ * Fundraiser, so an Admin who is also its Fundraiser is not handed the
+ * Verifier's reason or name: they see the note that they cannot act here.
  */
 export default async function AdminCampaignLifecyclePage({ params }: RouteContext) {
   const { slug } = await params;
@@ -44,6 +60,7 @@ export default async function AdminCampaignLifecyclePage({ params }: RouteContex
       lifecycleStatus: true,
       deadline: true,
       creatorId: true,
+      isUrgent: true,
     },
   });
   if (!campaign) {
@@ -52,12 +69,16 @@ export default async function AdminCampaignLifecyclePage({ params }: RouteContex
 
   const now = new Date();
   const status = effectiveStatus(campaign, now);
+  const isOwnCampaign = actorId === campaign.creatorId;
 
   const [openFlags, pendingCancellationRequest, latestSuspension] = await Promise.all([
-    prisma.campaignFlag.findMany({
-      where: { campaignId: campaign.id, resolution: null },
-      select: { id: true, reason: true },
-    }),
+    isOwnCampaign
+      ? Promise.resolve([])
+      : prisma.campaignFlag.findMany({
+          where: { campaignId: campaign.id, resolution: null },
+          select: { id: true, reason: true, createdAt: true, verifier: { select: { name: true } } },
+          orderBy: { createdAt: 'asc' },
+        }),
     prisma.cancellationRequest.findFirst({
       where: { campaignId: campaign.id, status: CancellationRequestStatus.PENDING },
       select: { id: true, reason: true, requestedBy: { select: { name: true } } },
@@ -85,9 +106,16 @@ export default async function AdminCampaignLifecyclePage({ params }: RouteContex
           campaignSlug={campaign.slug}
           status={status}
           canSuspend={SUSPENDABLE.includes(status)}
-          isOwnCampaign={actorId === campaign.creatorId}
+          isOwnCampaign={isOwnCampaign}
           suspendedBySameAdmin={latestSuspension?.actorId === actorId}
-          openFlags={openFlags}
+          openFlags={openFlags.map((flag) => ({
+            id: flag.id,
+            reason: flag.reason,
+            verifierName: flag.verifier.name,
+            flaggedAtLabel: formatWhen(flag.createdAt),
+          }))}
+          isUrgent={campaign.isUrgent}
+          canSetUrgent={URGENT_SETTABLE_FROM.includes(status)}
           pendingCancellationRequest={
             pendingCancellationRequest
               ? {
