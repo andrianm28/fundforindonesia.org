@@ -51,13 +51,13 @@ describe('AdminSiteSettingForm', () => {
     render(<AdminSiteSettingForm settingKey="hero" initial={DEFAULT_SITE_SETTINGS.hero} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Tambah slide' }));
-    expect(screen.getByLabelText('Judul (slide 4)')).toBeDefined();
+    expect(screen.getByLabelText('Judul (slide 3)')).toBeDefined();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Hapus slide 4' }));
-    expect(screen.queryByLabelText('Judul (slide 4)')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Hapus slide 3' }));
+    expect(screen.queryByLabelText('Judul (slide 3)')).toBeNull();
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Turun' })[0]);
-    expect((screen.getByLabelText('Label tombol (slide 1)') as HTMLInputElement).value).toBe('Bayar Zakat');
+    expect((screen.getByLabelText('Label tombol (slide 1)') as HTMLInputElement).value).toBe('Galang Dana');
   });
 
   it('splits the About text into paragraphs on blank lines', async () => {

@@ -121,12 +121,6 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
         ctaHref: "/explore/all",
       },
       {
-        image: "/images/hero/banner-2.jpg",
-        headline: "Zakat lebih mudah dan terpercaya di Fund for Indonesia",
-        ctaLabel: "Bayar Zakat",
-        ctaHref: "/zakat",
-      },
-      {
         image: "/images/hero/banner-3.jpg",
         headline: "Galang dana untuk kebaikan bersama Fund for Indonesia",
         ctaLabel: "Galang Dana",
