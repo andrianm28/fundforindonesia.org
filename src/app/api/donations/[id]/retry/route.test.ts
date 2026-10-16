@@ -41,6 +41,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider } from '@/lib/payments';
 import { checkRateLimit } from '@/lib/rate-limit-guard';
+import { MAX_RETRIES_IN_FLIGHT } from '@/lib/donation-retry';
 
 const mockDonationFindUnique = prisma.donation.findUnique as unknown as Mock;
 const mockPaymentUpdateMany = prisma.payment.updateMany as unknown as Mock;
@@ -188,6 +189,36 @@ describe('POST /api/donations/[id]/retry', () => {
     expect(response.status).toBe(409);
     expect(mockDonationFindUnique).not.toHaveBeenCalled();
     expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses at once beyond the in-flight cap, so retries cannot use up the connection pool (PR #273 re-review R1)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const charge = {
+      providerOrderId: 'donation-1-r2',
+      method: 'qris_redirect',
+      redirectUrl: 'https://pay.sumopod.com/pay/def',
+      expiresAt: new Date('2099-01-02T00:00:00.000Z'),
+    };
+    const createCharge = vi.fn(async () => {
+      await gate;
+      return charge;
+    });
+    mockGetPaymentProvider.mockReturnValue({ name: 'sumopod', method: 'qris_redirect', createCharge });
+
+    const running = Array.from({ length: MAX_RETRIES_IN_FLIGHT }, () => POST(retryRequest(), routeContext()));
+    await vi.waitFor(() => expect(createCharge).toHaveBeenCalledTimes(MAX_RETRIES_IN_FLIGHT));
+    const transactionsBefore = mockQueryRaw.mock.calls.length;
+
+    const refused = await POST(retryRequest(), routeContext());
+    expect(refused.status).toBe(503);
+    expect((await refused.json()).error).toBe('Sedang banyak permintaan pembayaran ulang. Coba lagi sebentar.');
+    expect(mockQueryRaw.mock.calls.length).toBe(transactionsBefore);
+
+    release();
+    expect((await Promise.all(running)).map((r) => r.status)).toEqual(Array(MAX_RETRIES_IN_FLIGHT).fill(201));
+    // The slots come back once those finish.
+    expect((await POST(retryRequest(), routeContext())).status).toBe(201);
   });
 
   it('waits out the grace period after expiry before charging again, since a late paid can still arrive (S4)', async () => {

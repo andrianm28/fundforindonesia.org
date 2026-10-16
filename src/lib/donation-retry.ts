@@ -32,7 +32,12 @@ import { PROVIDER_METHOD_FOR, paymentInstructionsFor, type DonationPaymentMethod
  *   happens after the lock, and the new Payment is committed before the lock is
  *   released, so the loser of a race always sees the winner's PENDING Payment.
  *   The cost is one pooled connection held for the length of one provider call
- *   per Donation being retried, bounded by the rate limit below.
+ *   per Donation being retried.
+ * - **Capped in flight.** Each retry holds that connection AND needs a second
+ *   one from the same pool (provider settings, the Payment write), so retries
+ *   on many different Donations at once could take every connection and wait on
+ *   each other forever. At most {@link MAX_RETRIES_IN_FLIGHT} run per process;
+ *   the rest are refused at once (503), before touching the pool.
  * - **A grace period after expiry.** A provider can still deliver `paid` for a
  *   charge shortly after its own expiry (ADR 0021, ticket 52 settle it late).
  *   Offering a second charge in that window is how a Donor ends up paying twice,
@@ -47,6 +52,18 @@ import { PROVIDER_METHOD_FOR, paymentInstructionsFor, type DonationPaymentMethod
 /** Retry attempts per client address per hour; each one that passes opens a charge at the provider. */
 const RETRY_LIMIT = 30;
 const RETRY_WINDOW_SECONDS = 60 * 60;
+
+/**
+ * Retries running at once in this process. Each holds two pool connections at
+ * its peak (Prisma's default pool is 10), so three leave room for every other
+ * request even while all three wait on the provider.
+ */
+export const MAX_RETRIES_IN_FLIGHT = 3;
+let retriesInFlight = 0;
+const BUSY: RetryResult = {
+  status: 503,
+  body: { error: 'Sedang banyak permintaan pembayaran ulang. Coba lagi sebentar.' },
+};
 
 type RetryCampaign = Parameters<typeof campaignAcceptsDonations>[0] & { isDemo: boolean };
 
@@ -111,6 +128,16 @@ export async function retryDonationPayment(params: RetryDonationParams): Promise
     return { status: 429, body: { error: 'Terlalu banyak percobaan pembayaran dari jaringan ini. Coba lagi nanti.' } };
   }
 
+  if (retriesInFlight >= MAX_RETRIES_IN_FLIGHT) return BUSY;
+  retriesInFlight += 1;
+  try {
+    return await retryUnderLock(donationId, authorize);
+  } finally {
+    retriesInFlight -= 1;
+  }
+}
+
+function retryUnderLock(donationId: string, authorize: RetryDonationParams['authorize']): Promise<RetryResult> {
   return prisma.$transaction(
     async (tx) => {
       const [lock] = await tx.$queryRaw<{ locked: boolean }[]>`
@@ -159,10 +186,12 @@ export async function retryDonationPayment(params: RetryDonationParams): Promise
 
       // A PENDING Payment past its expiry and grace is expired in effect; the
       // flip is best-effort, since the eligibility decision already stands and
-      // the next reader corrects the status.
+      // the next reader corrects the status. Through the root client, so it
+      // commits now and holds no row lock on the old Payment during the
+      // provider call (a late webhook for it must not wait on us).
       if (latest.status === 'PENDING') {
         try {
-          await tx.payment.updateMany({ where: { id: latest.id, status: 'PENDING' }, data: { status: 'EXPIRED' } });
+          await prisma.payment.updateMany({ where: { id: latest.id, status: 'PENDING' }, data: { status: 'EXPIRED' } });
         } catch (err) {
           console.error(`[donations/retry] lazy expiry failed for payment ${latest.id}:`, err);
         }

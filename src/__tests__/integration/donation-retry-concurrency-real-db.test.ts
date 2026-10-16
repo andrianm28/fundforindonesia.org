@@ -20,6 +20,10 @@ import type { PrismaClient } from '@/generated/prisma/client';
  * The provider is slowed down so both requests are inside the charge at once.
  * Skipped visibly, not passed, when TEST_DATABASE_URL is unset.
  *
+ * Re-review R1: retries on MANY Donations at once must not use up the
+ * connection pool. Each holds a transaction connection and needs a second one;
+ * past the pool size they waited on each other until the transaction timeout.
+ *
  * (Setup follows webhook-paid-after-expiry-real-db.test.ts.)
  */
 
@@ -189,5 +193,40 @@ describe.skipIf(!DATABASE_URL)('donation retry concurrency -- against real Postg
     const later = await retry(token, '203.0.113.3');
     expect(later.status).toBe(409);
     expect(createCharge).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it('retries on more Donations than the pool has connections finish promptly instead of deadlocking (re-review R1)', async () => {
+    const { MAX_RETRIES_IN_FLIGHT } = await import('@/lib/donation-retry');
+    // Prisma's default pool for this adapter is 10; 14 is what reproduced the hang.
+    const donations = [];
+    for (let i = 0; i < 14; i += 1) donations.push(await expiredGuestDonation());
+    createCharge.mockReset();
+    createCharge.mockImplementation(async ({ orderId }: { orderId: string }) => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return {
+        providerOrderId: orderId,
+        method: 'qris_redirect',
+        redirectUrl: `https://pay.example/${orderId}`,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      };
+    });
+
+    const started = Date.now();
+    const responses = await Promise.all(
+      donations.map((d, i) => retry(signToken(d.id, Date.now()), `198.51.100.${i + 1}`)),
+    );
+    expect(Date.now() - started).toBeLessThan(10_000);
+
+    const statuses = responses.map((r) => r.status);
+    expect(statuses.every((s) => s === 201 || s === 503)).toBe(true);
+    const charged = statuses.filter((s) => s === 201).length;
+    expect(charged).toBeGreaterThanOrEqual(1);
+    expect(charged).toBeLessThanOrEqual(MAX_RETRIES_IN_FLIGHT);
+    expect(createCharge).toHaveBeenCalledTimes(charged);
+    expect(await prisma.payment.count({ where: { donationId: { in: donations.map((d) => d.id) }, status: 'PENDING' } })).toBe(
+      charged,
+    );
+    // The pool is free again for everyone else.
+    expect(await prisma.donation.count({ where: { id: { in: donations.map((d) => d.id) } } })).toBe(14);
   }, 30_000);
 });
