@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { VolunteerTripStatus, VolunteerTripStatusChangeAction } from '@/generated/prisma/client';
@@ -74,7 +74,7 @@ function TripTable({
 
 export default async function AdminVolunteerTripsPage() {
   const session = await getServerSession();
-  if (!session?.user) redirect('/');
+  if (!session?.user) notFound();
   const actorId = session.user.id as string;
 
   const select = { id: true, slug: true, title: true, fundraiserId: true } as const;

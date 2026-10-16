@@ -54,7 +54,7 @@ describe('AdminPlatformFeePage', () => {
     render(await AdminPlatformFeePage());
 
     const current = screen.getByRole('region', { name: /aturan yang berlaku/i });
-    for (const kind of ['donation', 'zakat', 'wakaf', 'hibah']) {
+    for (const kind of ['donation', 'wakaf', 'hibah']) {
       expect(within(current).getByText(kind).closest('tr')!.textContent).toMatch(/belum diatur/i);
     }
     expect(within(current).queryByText(/\d+(,\d+)?%/)).toBeNull();

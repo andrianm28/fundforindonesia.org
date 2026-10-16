@@ -53,12 +53,12 @@ describe('POST /api/admin/manual-contributions', () => {
     mockProgramFind.mockResolvedValue({ id: 'program-1' });
   });
 
-  it('answers 401 with no session, and 403 without the ADMIN assignment', async () => {
+  it('answers 401 with no session, and 404 without the ADMIN assignment', async () => {
     mockSession.mockResolvedValue(null);
     expect((await post({ campaignId: 'campaign-1', amount: 1_000, proofReference: 'bukti.pdf' })).status).toBe(401);
 
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
-    expect((await post({ campaignId: 'campaign-1', amount: 1_000, proofReference: 'bukti.pdf' })).status).toBe(403);
+    expect((await post({ campaignId: 'campaign-1', amount: 1_000, proofReference: 'bukti.pdf' })).status).toBe(404);
 
     expect(mockCreate).not.toHaveBeenCalled();
   });

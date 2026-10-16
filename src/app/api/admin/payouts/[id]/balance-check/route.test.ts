@@ -50,12 +50,12 @@ describe('POST /api/admin/payouts/[id]/balance-check', () => {
     });
   });
 
-  it('answers 401 with no session and 403 without the ADMIN assignment', async () => {
+  it('answers 401 with no session and 404 without the ADMIN assignment', async () => {
     mockSession.mockResolvedValue(null);
     expect((await post({ provider: 'sumopod', providerBalance: 300_000 })).status).toBe(401);
 
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
-    expect((await post({ provider: 'sumopod', providerBalance: 300_000 })).status).toBe(403);
+    expect((await post({ provider: 'sumopod', providerBalance: 300_000 })).status).toBe(404);
 
     expect(mockRecord).not.toHaveBeenCalled();
   });

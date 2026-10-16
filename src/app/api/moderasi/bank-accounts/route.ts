@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
-import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { prisma } from "@/lib/prisma";
 import { readBankAccountNumber } from "@/lib/contact-fields";
 import { maskBankAccountNumber } from "@/lib/bank-account-mask";
@@ -13,7 +13,7 @@ import { pendingBankAccountVerifications } from "@/lib/bank-account-verification
  * server-rendered decide page (`/moderasi/rekening`), not through this JSON
  * route, so it never crosses the wire as an API response.
  */
-export const GET = withAssignmentCheck(Assignment.VERIFIER, async () => {
+export const GET = withHiddenAssignmentCheck(Assignment.VERIFIER, async () => {
   const requests = await pendingBankAccountVerifications(prisma);
 
   return NextResponse.json({

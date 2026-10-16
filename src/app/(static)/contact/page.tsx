@@ -1,4 +1,6 @@
 import { Metadata } from 'next';
+import { prisma } from '@/lib/prisma';
+import { dialTarget, resolveSiteSettingsOrDefaults, socialHandle } from '@/lib/site-settings';
 
 export const metadata: Metadata = {
   title: 'Kontak - Fund for Indonesia',
@@ -6,7 +8,15 @@ export const metadata: Metadata = {
     'Hubungi tim Fund for Indonesia melalui email, telepon, atau media sosial. Kami siap membantu Anda.',
 };
 
-export default function ContactPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function ContactPage() {
+  const { contact, social } = await resolveSiteSettingsOrDefaults(prisma);
+  const socialLinks = [
+    { label: 'Instagram', url: social.instagram },
+    { label: 'Twitter', url: social.twitter },
+    { label: 'Facebook', url: social.facebook },
+  ].filter((l) => l.url !== '');
   return (
     <article>
       <h1 className="text-2xl font-bold text-text mb-6">Kontak</h1>
@@ -26,12 +36,13 @@ export default function ContactPage() {
             <h2 className="font-semibold text-text">Email</h2>
           </div>
           <p className="text-text-secondary text-sm mb-2">Kirim pertanyaan atau saran Anda via email.</p>
-          <a href="mailto:support@fundforindonesia.id" className="text-primary text-sm font-medium hover:underline">
-            support@fundforindonesia.id
+          <a href={`mailto:${contact.email}`} className="text-primary text-sm font-medium hover:underline">
+            {contact.email}
           </a>
         </div>
 
         {/* Phone */}
+        {contact.phone !== '' && (
         <div className="border border-border rounded-lg p-6">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
@@ -41,13 +52,15 @@ export default function ContactPage() {
             </div>
             <h2 className="font-semibold text-text">Telepon</h2>
           </div>
-          <p className="text-text-secondary text-sm mb-2">Hubungi layanan pelanggan kami (Senin-Jumat, 09:00-17:00 WIB).</p>
-          <a href="tel:+622112345678" className="text-primary text-sm font-medium hover:underline">
-            (021) 1234-5678
+          <p className="text-text-secondary text-sm mb-2">Hubungi layanan pelanggan kami{contact.hours !== '' && ` (${contact.hours})`}.</p>
+          <a href={`tel:+${dialTarget(contact.phone)}`} className="text-primary text-sm font-medium hover:underline">
+            {contact.phone}
           </a>
         </div>
+        )}
 
         {/* WhatsApp */}
+        {contact.whatsapp !== '' && (
         <div className="border border-border rounded-lg p-6">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
@@ -59,16 +72,18 @@ export default function ContactPage() {
           </div>
           <p className="text-text-secondary text-sm mb-2">Chat langsung dengan tim support kami.</p>
           <a
-            href="https://wa.me/622112345678"
+            href={`https://wa.me/${dialTarget(contact.whatsapp)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-primary text-sm font-medium hover:underline"
           >
-            +62 21 1234-5678
+            {contact.whatsapp}
           </a>
         </div>
+        )}
 
         {/* Social Media */}
+        {socialLinks.length > 0 && (
         <div className="border border-border rounded-lg p-6">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
@@ -80,43 +95,28 @@ export default function ContactPage() {
           </div>
           <p className="text-text-secondary text-sm mb-3">Ikuti kami untuk update terbaru.</p>
           <div className="flex flex-col gap-2">
-            <a
-              href="https://instagram.com/fundforindonesia"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary text-sm font-medium hover:underline"
-            >
-              Instagram: @fundforindonesia
-            </a>
-            <a
-              href="https://twitter.com/fundforid"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary text-sm font-medium hover:underline"
-            >
-              Twitter: @fundforid
-            </a>
-            <a
-              href="https://facebook.com/fundforindonesia"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary text-sm font-medium hover:underline"
-            >
-              Facebook: Fund for Indonesia
-            </a>
+            {socialLinks.map((l) => (
+              <a
+                key={l.label}
+                href={l.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary text-sm font-medium hover:underline"
+              >
+                {l.label}: {socialHandle(l.url)}
+              </a>
+            ))}
           </div>
         </div>
+        )}
       </div>
 
-      {/* Address */}
-      <div className="mt-8 border border-border rounded-lg p-6">
-        <h2 className="font-semibold text-text mb-3">Alamat Kantor</h2>
-        <p className="text-text-secondary text-sm">
-          Jl. Sudirman No. 123, Lantai 5<br />
-          Jakarta Selatan, DKI Jakarta 12190<br />
-          Indonesia
-        </p>
-      </div>
+      {contact.address !== '' && (
+        <div className="mt-8 border border-border rounded-lg p-6">
+          <h2 className="font-semibold text-text mb-3">Alamat Kantor</h2>
+          <p className="text-text-secondary text-sm whitespace-pre-line">{contact.address}</p>
+        </div>
+      )}
     </article>
   );
 }

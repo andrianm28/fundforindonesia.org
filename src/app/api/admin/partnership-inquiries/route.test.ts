@@ -110,6 +110,6 @@ describe("GET /api/admin/partnership-inquiries", () => {
     expect((await get()).status).toBe(401);
 
     mockGetServerSession.mockResolvedValue({ user: { id: "user-2", assignments: ["VERIFIER"] } });
-    expect((await get()).status).toBe(403);
+    expect((await get()).status).toBe(404);
   });
 });

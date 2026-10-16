@@ -1,4 +1,4 @@
-import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
@@ -22,7 +22,7 @@ const VALID_ASSIGNMENTS: Assignment[] = ["VERIFIER", "ADMIN"];
  * the two-person ADMIN grant, idempotency, who may act -- lives in
  * @/lib/assignments, the same split the money and lifecycle routes use.
  */
-export const POST = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest, context: any) => {
+export const POST = withHiddenAssignmentCheck(Assignment.ADMIN, async (req: NextRequest, context: any) => {
   const { id } = await context.params;
   const body = await req.json().catch(() => ({}));
   const { assignment, reason } = body;
@@ -58,7 +58,7 @@ export const POST = withAssignmentCheck(Assignment.ADMIN, async (req: NextReques
  * decision) -- the known gap this ticket closes was that only ADMIN
  * self-revoke was refused. The last ADMIN can never be revoked.
  */
-export const DELETE = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest, context: any) => {
+export const DELETE = withHiddenAssignmentCheck(Assignment.ADMIN, async (req: NextRequest, context: any) => {
   const { id } = await context.params;
   const body = await req.json().catch(() => ({}));
   const { assignment, reason } = body;
@@ -85,7 +85,7 @@ export const DELETE = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequ
  * trail of one user -- who proposed, granted or revoked which assignment,
  * and when -- newest first. ADMIN only, like POST and DELETE above.
  */
-export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest, context: { params: Promise<{ id: string }> }) => {
+export const GET = withHiddenAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest, context: { params: Promise<{ id: string }> }) => {
   const { id } = await context.params;
   const entries = await assignmentAuditTrail(prisma, id);
   return NextResponse.json({ entries }, { status: 200 });

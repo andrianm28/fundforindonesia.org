@@ -53,10 +53,10 @@ describe('PATCH /api/moderasi/volunteer-trips/[id]', () => {
     expect(mockDecide).not.toHaveBeenCalled();
   });
 
-  it('returns 403 for a user without the VERIFIER assignment', async () => {
+  it('returns 404 for a user without the VERIFIER assignment', async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: 'user-2', assignments: [] } });
     const response = await PATCH(actionRequest('approve'), routeContext());
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
     expect(mockDecide).not.toHaveBeenCalled();
   });
 

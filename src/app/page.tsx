@@ -9,6 +9,7 @@ import { PrayerWall } from '@/components/home/PrayerWall';
 import type { CampaignCardData } from '@/types/campaign';
 import type { PrayerStreamItem } from '@/lib/hooks/usePrayerStream';
 import { quickActionTiles } from '@/lib/home/quickActionTiles';
+import { resolveSiteSettingsOrDefaults } from '@/lib/site-settings';
 
 /**
  * Rendered per request, not prerendered.
@@ -29,25 +30,6 @@ import { quickActionTiles } from '@/lib/home/quickActionTiles';
  * rebuilt it. Four indexed queries per request is the cheaper mistake.
  */
 export const dynamic = 'force-dynamic';
-
-// Hero banner slides
-const heroBannerSlides = [
-  {
-    image: '/images/hero/banner-1.jpg',
-    headline: 'Bantu mereka yang membutuhkan, salurkan donasimu sekarang',
-    cta: { label: 'Donasi Sekarang', href: '/explore/all' },
-  },
-  {
-    image: '/images/hero/banner-2.jpg',
-    headline: 'Zakat lebih mudah dan terpercaya di Fund for Indonesia',
-    cta: { label: 'Bayar Zakat', href: '/zakat' },
-  },
-  {
-    image: '/images/hero/banner-3.jpg',
-    headline: 'Galang dana untuk kebaikan bersama Fund for Indonesia',
-    cta: { label: 'Galang Dana', href: '/campaign/create' },
-  },
-];
 
 /**
  * Map a Prisma campaign result to CampaignCardData for the CampaignGrid component.
@@ -119,6 +101,12 @@ function toPrayerStreamItem(prayer: {
 }
 
 export default async function HomePage() {
+  const { hero } = await resolveSiteSettingsOrDefaults(prisma);
+  const heroBannerSlides = hero.slides.map((s) => ({
+    image: s.image,
+    headline: s.headline,
+    cta: { label: s.ctaLabel, href: s.ctaHref },
+  }));
   // Fetch data from Prisma directly (server component). Every Campaign list
   // here shows only effectively Active Campaigns (CONTEXT.md, Campaign
   // Status), so the Urgent rail drops a Campaign once its deadline passes.

@@ -7,4 +7,3 @@ export {
   validateRequired,
 } from './validation';
 export type { ValidationResult } from './validation';
-export { calculateZakat, calculateZakatFitrah } from './zakat';

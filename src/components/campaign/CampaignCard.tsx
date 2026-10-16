@@ -122,7 +122,6 @@ export function CampaignCard({
             target={campaign.targetAmount}
             size="sm"
             animated={false}
-            showLedgerLine
           />
         </div>
 

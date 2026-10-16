@@ -255,7 +255,6 @@ describe('GET /api/campaigns filters by Kind', () => {
     holder.db = makeCampaignDb({
       campaigns: [
         campaign('donasi', { kind: 'DONATION' }),
-        campaign('zakat', { kind: 'ZAKAT' }),
         campaign('wakaf-no-deadline', { kind: 'WAKAF' }),
         campaign('wakaf-expired-unrecorded', { kind: 'WAKAF', deadline: YESTERDAY }),
         campaign('wakaf-suspended', { kind: 'WAKAF', lifecycleStatus: 'SUSPENDED' }),
@@ -270,11 +269,11 @@ describe('GET /api/campaigns filters by Kind', () => {
   });
 
   it('accepts the Kind in lower case, as links write it', async () => {
-    expect(await listSlugs('?kind=zakat')).toEqual(['zakat']);
+    expect(await listSlugs('?kind=hibah')).toEqual(['hibah']);
   });
 
   it('lists every Kind when none is asked for', async () => {
-    expect(await listSlugs()).toEqual(['donasi', 'hibah', 'wakaf-no-deadline', 'zakat']);
+    expect(await listSlugs()).toEqual(['donasi', 'hibah', 'wakaf-no-deadline']);
   });
 
   it('answers 400 to a Kind the platform does not know, rather than an empty list', async () => {

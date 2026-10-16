@@ -35,6 +35,16 @@ function run(pathname: string, role: TokenRole, assignments?: TokenAssignment[])
   return (proxy as unknown as (req: NextRequest) => Response)(requestAs(pathname, role, assignments));
 }
 
+/**
+ * A signed-in user without the assignment gets the same 404 as a page that
+ * does not exist, never a redirect that confirms the panel is there (owner
+ * decision 2026-10-14, ticket 90: "yang lain 404").
+ */
+function expectNotFound(res: Response) {
+  expect(res.status).toBe(404);
+  expect(res.headers.get('location')).toBeNull();
+}
+
 describe('proxy', () => {
   it.each(['/campaign/create', '/campaign/create/step-2'])(
     'lets any signed-in user, with no Role or assignment, through to %s (FFI-04)',
@@ -118,16 +128,16 @@ describe('proxy', () => {
       },
     );
 
-    it('sends someone with the ADMIN Role but no ADMIN assignment home', () => {
-      expect(run('/admin', 'ADMIN', []).headers.get('location')).toBe('http://localhost:3000/');
+    it('answers someone with the ADMIN Role but no ADMIN assignment with a 404, not a redirect', () => {
+      expectNotFound(run('/admin', 'ADMIN', []));
     });
 
-    it('sends someone whose token carries no assignments home', () => {
-      expect(run('/admin/users', 'ADMIN').headers.get('location')).toBe('http://localhost:3000/');
+    it('answers someone whose token carries no assignments with a 404', () => {
+      expectNotFound(run('/admin/users', 'ADMIN'));
     });
 
     it('does not let the VERIFIER assignment stand in for ADMIN', () => {
-      expect(run('/admin', 'MODERATOR', ['VERIFIER']).headers.get('location')).toBe('http://localhost:3000/');
+      expectNotFound(run('/admin', 'MODERATOR', ['VERIFIER']));
     });
   });
 
@@ -139,16 +149,16 @@ describe('proxy', () => {
       },
     );
 
-    it('sends someone with the MODERATOR Role but no VERIFIER assignment home', () => {
-      expect(run('/moderasi', 'MODERATOR', []).headers.get('location')).toBe('http://localhost:3000/');
+    it('answers someone with the MODERATOR Role but no VERIFIER assignment with a 404, not a redirect', () => {
+      expectNotFound(run('/moderasi', 'MODERATOR', []));
     });
 
-    it('sends someone whose token carries no assignments home', () => {
-      expect(run('/moderasi/campaigns', 'MODERATOR').headers.get('location')).toBe('http://localhost:3000/');
+    it('answers someone whose token carries no assignments with a 404', () => {
+      expectNotFound(run('/moderasi/campaigns', 'MODERATOR'));
     });
 
     it('does not let the ADMIN assignment stand in for VERIFIER', () => {
-      expect(run('/moderasi', 'ADMIN', ['ADMIN']).headers.get('location')).toBe('http://localhost:3000/');
+      expectNotFound(run('/moderasi', 'ADMIN', ['ADMIN']));
     });
   });
 });

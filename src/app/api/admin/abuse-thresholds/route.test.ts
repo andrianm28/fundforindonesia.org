@@ -49,12 +49,12 @@ describe('POST /api/admin/abuse-thresholds', () => {
     expect(res.status).toBe(201);
   });
 
-  it('answers 401 with no session, and 403 for anyone who is not an Admin', async () => {
+  it('answers 401 with no session, and 404 for anyone who is not an Admin', async () => {
     mockSession.mockResolvedValue(null);
     expect((await post({ kind: 'DONATION_REVIEW_AMOUNT', value: 20_000_000 })).status).toBe(401);
 
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
-    expect((await post({ kind: 'DONATION_REVIEW_AMOUNT', value: 20_000_000 })).status).toBe(403);
+    expect((await post({ kind: 'DONATION_REVIEW_AMOUNT', value: 20_000_000 })).status).toBe(404);
 
     expect(mockCreate).not.toHaveBeenCalled();
   });

@@ -69,8 +69,7 @@ describe('DesktopHeader', () => {
     const galangDanaLink = screen.getByRole('link', { name: 'Galang Dana' });
     expect(galangDanaLink).toHaveAttribute('href', '/campaign/create');
 
-    const zakatLink = screen.getByRole('link', { name: 'Zakat' });
-    expect(zakatLink).toHaveAttribute('href', '/zakat');
+    expect(screen.queryByRole('link', { name: 'Zakat' })).toBeNull();
   });
 
   it('shows "Masuk" login button when user is null', () => {

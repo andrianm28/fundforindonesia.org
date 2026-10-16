@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ModerasiMobileNav, ModerasiSideNav } from "@/components/moderasi/ModerasiNav";
 import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
@@ -11,8 +11,10 @@ export default async function ModerasiLayout({
 }) {
   const session = await getServerSession();
 
+  // Anyone without the VERIFIER assignment gets a 404, the same as a page that
+  // does not exist (ticket 90), as the Admin layout does.
   if (!session?.user || !hasAssignment(session.user.assignments, Assignment.VERIFIER)) {
-    redirect("/");
+    notFound();
   }
 
   return (

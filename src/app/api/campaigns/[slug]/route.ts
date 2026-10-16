@@ -20,7 +20,7 @@ import { KINDS } from '@/lib/campaign-kind';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibility-route';
 import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
-import { ESCROW_HOLD_DAYS } from '@/lib/money/escrow';
+import { resolveEscrowHoldDays } from '@/lib/money/escrow-hold-config';
 
 // Rendered per request: a Suspended or unapproved Campaign's answer
 // depends on who asks (suspensionReasonFor, mayViewCampaign), and reading the session inside a route Next
@@ -154,11 +154,10 @@ export async function GET(
     const { percentBps: platformFeePercentBps, thresholdAmount: platformFeeThresholdAmount } =
       await resolvePlatformFeeBasisForCampaign(prisma, campaign);
 
-    // The Escrow Hold length every new Payment freezes at creation
-    // (CONTEXT.md, Escrow Hold; prd-compliance 18) -- there is no per-Kind/
-    // Category/Campaign override yet, unlike Platform Fee, so this is the
-    // one value in force everywhere.
-    const escrowHoldDays = ESCROW_HOLD_DAYS;
+    // The Escrow Hold length every new Payment freezes at creation (CONTEXT.md,
+    // Escrow Hold; prd-compliance 18), resolved the way chargeDonation does:
+    // Category override, then the Admin default (ticket 90).
+    const escrowHoldDays = await resolveEscrowHoldDays(prisma, { category: campaign.category });
 
     // Progress as the public may see it (counted-payment.ts): sandbox (beta)
     // Payments are taken back out of the stored counter.

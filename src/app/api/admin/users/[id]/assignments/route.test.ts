@@ -84,10 +84,10 @@ describe("POST /api/admin/users/[id]/assignments", () => {
     expect(mockUpsert).not.toHaveBeenCalled();
   });
 
-  it("returns 403 for a Verifier who does not hold the Admin assignment", async () => {
+  it("returns 404 for a Verifier who does not hold the Admin assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
     const response = await POST(createRequest({ assignment: "VERIFIER" }), routeContext());
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
     expect(mockUpsert).not.toHaveBeenCalled();
   });
 
@@ -196,10 +196,10 @@ describe("DELETE /api/admin/users/[id]/assignments", () => {
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
-  it("returns 403 for an ADMIN-ranked user who does not hold the ADMIN assignment", async () => {
+  it("returns 404 for an ADMIN-ranked user who does not hold the ADMIN assignment", async () => {
     mockDeleteRequestSession.mockResolvedValue({ user: { id: "someone-1", assignments: [] } });
     const response = await DELETE(deleteRequest({ assignment: "VERIFIER" }), routeContext());
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
@@ -311,9 +311,9 @@ describe("GET /api/admin/users/[id]/assignments (audit trail)", () => {
     expect(mockAuditFindMany).not.toHaveBeenCalled();
   });
 
-  it("returns 403 for a Verifier who does not hold the Admin assignment", async () => {
+  it("returns 404 for a Verifier who does not hold the Admin assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "v-1", assignments: ["VERIFIER"] } });
-    expect((await get()).status).toBe(403);
+    expect((await get()).status).toBe(404);
     expect(mockAuditFindMany).not.toHaveBeenCalled();
   });
 
