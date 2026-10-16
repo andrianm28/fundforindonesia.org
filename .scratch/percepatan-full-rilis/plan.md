@@ -93,7 +93,7 @@ Owner minta rencana percepatan sampai **rilis penuh: semua tiket dan semua fitur
 3. Masukkan aturan Platform Fee lewat panel Admin (A-1, tiket 88). **Tidak ada nilai awal yang ditetapkan di rencana** (keputusan C3): owner mengisi nilainya sendiri di langkah ini.
 4. Rekening YIEM diverifikasi; Campaign pertama dibuat, diajukan, disetujui. **Gerbang F0.**
 
-**A6. Flip ke M1**: isi env Sumopod produksi, SMTP, `PARTNERSHIP_TEAM_EMAIL`; `SHOW_DEMO_CAMPAIGNS` tidak perlu di-flip: Demo Campaign tersembunyi otomatis begitu ada Campaign nyata Active (tiket 91, keputusan C19; flag tetap penimpa manual); repo variable `NEXT_PUBLIC_DONATIONS_ENABLED=true` → CD + Deploy; donasi QRIS kecil dari owner sendiri.
+**A6. Flip ke M1**: isi env Sumopod produksi, SMTP, `PARTNERSHIP_TEAM_EMAIL`; `SHOW_DEMO_CAMPAIGNS=auto` (diset sekali saat tiket 91 ter-deploy; nilai `true` kini penimpa manual yang membuat Demo Campaign tidak pernah hilang): Demo Campaign tersembunyi otomatis begitu ada Campaign nyata Active (tiket 91, keputusan C19); repo variable `NEXT_PUBLIC_DONATIONS_ENABLED=true` → CD + Deploy; donasi QRIS kecil dari owner sendiri.
 
 **A7. Drill M2** (≥7 hari setelah M1; butuh 3 Admin + Fundraiser YIEM).
 
