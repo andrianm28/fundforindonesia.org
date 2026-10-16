@@ -60,9 +60,9 @@ export function AdminCampaignRefundProposals({ campaignSlug }: { campaignSlug: s
     <div className="mt-4 border-t border-gray-200 pt-4">
       <h2 className="text-sm font-semibold text-gray-900">Refund untuk semua Donor</h2>
       <p className="mt-1 text-sm text-gray-600">
-        Membuat Refund berstatus Diajukan untuk setiap Payment yang dananya belum keluar. Anda menjadi pengaju;
-        dua Admin berbeda dari Anda menyetujui dan menyelesaikannya. Aman diulang: Payment yang sudah punya Refund
-        tidak diusulkan lagi.
+        Membuat Refund berstatus Diajukan untuk setiap Payment yang dananya belum keluar. Anda menjadi pengaju; dua
+        Admin berbeda dari Anda menyetujui dan menyelesaikannya. Aman diulang: Payment yang sudah punya Refund tidak
+        diusulkan lagi.
       </p>
       <button
         type="button"
@@ -86,8 +86,8 @@ export function AdminCampaignRefundProposals({ campaignSlug }: { campaignSlug: s
           <p>{result.alreadyProposed} Payment sudah punya Refund.</p>
           {result.paidOut.count > 0 && (
             <p>
-              {result.paidOut.count} Payment dilewati karena dananya sudah keluar lewat Payout,
-              senilai {formatRupiah(result.paidOut.amount)}. Penagihan ke Fundraiser berjalan di luar sistem.
+              {result.paidOut.count} Payment dilewati karena dananya sudah keluar lewat Payout, senilai{' '}
+              {formatRupiah(result.paidOut.amount)}. Penagihan ke Fundraiser berjalan di luar sistem.
             </p>
           )}
           {result.gagal.length > 0 && (

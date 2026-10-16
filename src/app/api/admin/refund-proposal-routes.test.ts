@@ -33,7 +33,12 @@ const bulk = () =>
     params: Promise.resolve({ slug: 'c' }),
   });
 const late = (body: unknown) =>
-  LATE(new NextRequest('http://localhost:3000/api/admin/refunds/late-settlements', { method: 'POST', body: JSON.stringify(body) }));
+  LATE(
+    new NextRequest('http://localhost:3000/api/admin/refunds/late-settlements', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  );
 
 beforeEach(() => {
   vi.clearAllMocks();

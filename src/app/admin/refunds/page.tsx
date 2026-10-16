@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { formatRupiah } from '@/lib/utils/currency';
 import { loadRefundSubjects, refundSubjectKey, type RefundSubjectInfo } from '@/lib/refund-subject-lookup';
 import type { Refund } from '@/generated/prisma/client';
-import { lateSettlementWorklist } from '@/lib/money/campaign-refund-proposals';
+import { lateSettlementWorklistPage } from '@/lib/money/campaign-refund-proposals';
 import { AdminLateSettlementRefundButton } from '@/components/admin/AdminLateSettlementRefundButton';
 
 export const dynamic = 'force-dynamic';
@@ -122,7 +122,7 @@ export default async function AdminRefundsPage() {
   })) as QueueRow[];
 
   const subjects = await loadRefundSubjects(prisma, refunds);
-  const lateSettlements = await lateSettlementWorklist(prisma);
+  const { rows: lateSettlements, truncated: lateTruncated } = await lateSettlementWorklistPage(prisma);
   const awaitingApproval = refunds.filter((r) => r.status === 'REQUESTED');
   const awaitingCompletion = refunds.filter((r) => r.status === 'APPROVED');
 
@@ -156,6 +156,11 @@ export default async function AdminRefundsPage() {
           punya Refund. Dana tetap tercatat sebagai Settlement; Admin memutuskan apakah dikembalikan. Waktu
           penutupan diambil dari catatan perubahan status Campaign (untuk Kedaluwarsa, tenggat bila lebih awal).
         </p>
+        {lateTruncated && (
+          <p role="status" className="mb-3 text-sm font-medium text-amber-700">
+            Menampilkan {lateSettlements.length} terlama; selesaikan dulu untuk melihat sisanya.
+          </p>
+        )}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">

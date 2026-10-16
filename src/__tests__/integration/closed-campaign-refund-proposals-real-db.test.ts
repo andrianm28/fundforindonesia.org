@@ -82,7 +82,14 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
   async function makeUser(): Promise<string> {
     const id = `u-${process.pid}-${next()}`;
     await prisma.user.create({
-      data: { id, name: 'Test', emailHmac: `${id}-hmac`, emailHmacKeyId: 'k', emailCiphertext: `${id}-c`, emailKeyId: 'k' },
+      data: {
+        id,
+        name: 'Test',
+        emailHmac: `${id}-hmac`,
+        emailHmacKeyId: 'k',
+        emailCiphertext: `${id}-c`,
+        emailKeyId: 'k',
+      },
     });
     return id;
   }
@@ -135,7 +142,9 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
   async function settle(
     campaignId: string,
     gross: number,
-    o: { settledDaysAgo: number; released?: boolean; sandbox?: boolean; status?: 'PAID' | 'PENDING' } = { settledDaysAgo: 1 },
+    o: { settledDaysAgo: number; released?: boolean; sandbox?: boolean; status?: 'PAID' | 'PENDING' } = {
+      settledDaysAgo: 1,
+    },
   ): Promise<string> {
     const status = o.status ?? 'PAID';
     const donationId = `donation-${process.pid}-${next()}`;
@@ -155,7 +164,11 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
         status,
         sandbox: o.sandbox ?? false,
         ...(status === 'PAID'
-          ? { settledAt, paidAt: settledAt, escrowReleaseAt: o.released ? new Date(Date.now() - DAY) : new Date(Date.now() + 5 * DAY) }
+          ? {
+              settledAt,
+              paidAt: settledAt,
+              escrowReleaseAt: o.released ? new Date(Date.now() - DAY) : new Date(Date.now() + 5 * DAY),
+            }
           : {}),
       },
     });
@@ -200,7 +213,10 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
 
       // A Payout instructed the oldest money out: only the newer Payment's net is left.
       await prisma.$transaction((tx) =>
-        ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) })),
+        ledger.postTransaction(
+          tx,
+          ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) }),
+        ),
       );
 
       const first = await proposals.proposeCampaignRefunds(prisma, { campaignId, actorAdminId: admin });
@@ -253,7 +269,11 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
     });
 
     it('restricted Kind: allowed phrase only for money that came in after the closure; the rest is reported, not forced', async () => {
-      const campaignId = await seedCampaign({ status: 'SUSPENDED', kind: 'WAKAF', closedAt: new Date(Date.now() - 4 * DAY) });
+      const campaignId = await seedCampaign({
+        status: 'SUSPENDED',
+        kind: 'WAKAF',
+        closedAt: new Date(Date.now() - 4 * DAY),
+      });
       const admin = await makeUser();
       const before = await settle(campaignId, 100_000, { settledDaysAgo: 8 });
       const after = await settle(campaignId, 120_000, { settledDaysAgo: 1 });
@@ -295,13 +315,27 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
       const anonymised = await settle(campaignId, 100_000, { settledDaysAgo: 3 });
       const moved = await settle(campaignId, 200_000, { settledDaysAgo: 3, released: true });
       await release(campaignId);
-      await prisma.donation.updateMany({ where: { payments: { some: { id: anonymised } } }, data: { anonymisedAt: new Date() } });
+      await prisma.donation.updateMany({
+        where: { payments: { some: { id: anonymised } } },
+        data: { anonymisedAt: new Date() },
+      });
       // The whole released balance was transferred to another Campaign.
       await prisma.campaignTransfer.create({
-        data: { sourceId: campaignId, targetId: target, amount: netOf(200_000), reason: 'x', status: 'APPROVED', requestedById: admin },
+        data: {
+          sourceId: campaignId,
+          targetId: target,
+          amount: netOf(200_000),
+          reason: 'x',
+          status: 'APPROVED',
+          requestedById: admin,
+          decidedAt: new Date(),
+        },
       });
       await prisma.$transaction((tx) =>
-        ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) })),
+        ledger.postTransaction(
+          tx,
+          ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) }),
+        ),
       );
       await prisma.campaign.update({ where: { id: campaignId }, data: { lifecycleStatus: 'SUSPENDED' } });
 
@@ -313,9 +347,44 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
       expect(result.paidOut).toEqual({ count: 0, amount: 0 });
     });
 
+    it("a payout shortfall stays sudahKeluar when the only approved transfer predates the Payment's release", async () => {
+      const campaignId = await seedCampaign({ status: 'ACTIVE' });
+      const target = await seedCampaign({ status: 'ACTIVE' });
+      const admin = await makeUser();
+      const paid = await settle(campaignId, 200_000, { settledDaysAgo: 3, released: true });
+      await release(campaignId);
+      // An approved transfer from long before this Payment's money was released.
+      await prisma.campaignTransfer.create({
+        data: {
+          sourceId: campaignId,
+          targetId: target,
+          amount: 1,
+          reason: 'x',
+          status: 'APPROVED',
+          requestedById: admin,
+          decidedAt: new Date(Date.now() - 30 * DAY),
+        },
+      });
+      await prisma.$transaction((tx) =>
+        ledger.postTransaction(
+          tx,
+          ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) }),
+        ),
+      );
+      await prisma.campaign.update({ where: { id: campaignId }, data: { lifecycleStatus: 'SUSPENDED' } });
+
+      const result = await proposals.proposeCampaignRefunds(prisma, { campaignId, actorAdminId: admin });
+
+      expect(result.skipped).toEqual([{ paymentId: paid, amount: 200_000, reason: 'sudahKeluar' }]);
+      expect(result.paidOut).toEqual({ count: 1, amount: 200_000 });
+    });
+
     it('an Admin who owns the Campaign lands every Payment in gagal and the run still ends normally', async () => {
       const campaignId = await seedCampaign({ status: 'SUSPENDED', closedAt: new Date(Date.now() - DAY) });
-      const { creatorId } = await prisma.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { creatorId: true } });
+      const { creatorId } = await prisma.campaign.findUniqueOrThrow({
+        where: { id: campaignId },
+        select: { creatorId: true },
+      });
       const a = await settle(campaignId, 100_000, { settledDaysAgo: 3 });
       const b = await settle(campaignId, 110_000, { settledDaysAgo: 3 });
 
@@ -352,7 +421,10 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
       // A Refund that stands takes the Payment off the list; a rejected one puts it back.
       const refunded = await settle(suspended, 170_000, { settledDaysAgo: 1 });
       const rejected = await settle(suspended, 180_000, { settledDaysAgo: 1 });
-      for (const [paymentId, status] of [[refunded, 'REQUESTED'], [rejected, 'REJECTED']] as const) {
+      for (const [paymentId, status] of [
+        [refunded, 'REQUESTED'],
+        [rejected, 'REJECTED'],
+      ] as const) {
         await prisma.refund.create({ data: { paymentId, amount: 1, reason: 'x', status, requestedById: admin } });
       }
 
@@ -360,7 +432,8 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
       const ids = rows.map((r) => r.paymentId);
 
       for (const id of [lateSuspended, lateCompleted, lateCancelled, lateExpired, rejected]) expect(ids).toContain(id);
-      for (const id of [earlySuspended, earlyExpired, onOpen, pending, sandbox, refunded]) expect(ids).not.toContain(id);
+      for (const id of [earlySuspended, earlyExpired, onOpen, pending, sandbox, refunded])
+        expect(ids).not.toContain(id);
       const row = rows.find((r) => r.paymentId === lateCompleted)!;
       expect(row).toMatchObject({ amount: 110_000, campaign: { id: completed, status: 'COMPLETED' } });
     });
@@ -371,8 +444,15 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
       const paymentId = await settle(campaignId, 100_000, { settledDaysAgo: 1 });
 
       const refund = await proposals.proposeLateSettlementRefund(prisma, { paymentId, actorAdminId: admin });
-      expect(refund).toMatchObject({ amount: 100_000, status: 'REQUESTED', requestedById: admin, reason: 'dana masuk setelah Campaign ditutup' });
-      await expect(proposals.proposeLateSettlementRefund(prisma, { paymentId, actorAdminId: admin })).rejects.toMatchObject({
+      expect(refund).toMatchObject({
+        amount: 100_000,
+        status: 'REQUESTED',
+        requestedById: admin,
+        reason: 'dana masuk setelah Campaign ditutup',
+      });
+      await expect(
+        proposals.proposeLateSettlementRefund(prisma, { paymentId, actorAdminId: admin }),
+      ).rejects.toMatchObject({
         code: 'LATE_SETTLEMENT_NOT_PROPOSABLE',
       });
 
@@ -385,6 +465,18 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
       expect(await standing(racing)).toHaveLength(1);
       // Gone from the list once proposed.
       expect((await proposals.lateSettlementWorklist(prisma)).map((r) => r.paymentId)).not.toContain(racing);
+    });
+
+    it('says so when the worklist is cut at its limit', async () => {
+      const campaignId = await seedCampaign({ status: 'SUSPENDED', closedAt: new Date(Date.now() - 5 * DAY) });
+      for (let i = 0; i < 3; i++) await settle(campaignId, 100_000 + i, { settledDaysAgo: 1 });
+
+      const cut = await proposals.lateSettlementWorklistPage(prisma, { limit: 2 });
+      expect(cut.rows).toHaveLength(2);
+      expect(cut.truncated).toBe(true);
+
+      const whole = await proposals.lateSettlementWorklistPage(prisma, { limit: 1000 });
+      expect(whole.truncated).toBe(false);
     });
 
     it('refuses a Payment that is not on the worklist', async () => {

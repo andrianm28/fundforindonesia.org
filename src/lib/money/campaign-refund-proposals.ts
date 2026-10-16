@@ -1,11 +1,7 @@
 import { CampaignStatus, type Prisma, type PrismaClient, type Refund } from '@/generated/prisma/client';
 import { effectiveStatus, lockAndLoad } from '@/lib/subject-guard';
 import { campaignBalance, platformFeePortionFor, providerFeePortionFor } from './ledger';
-import {
-  CLOSED_CAMPAIGN_REFUND_REASON,
-  createRefund,
-  isRefundOrdinaryForKind,
-} from './refunds';
+import { CLOSED_CAMPAIGN_REFUND_REASON, createRefund, isRefundOrdinaryForKind } from './refunds';
 import { STANDING_REFUND_WHERE } from './refund-standing';
 import { currentSandboxStamp } from './sandbox-mode';
 import {
@@ -125,6 +121,14 @@ export async function lateSettlementWorklist(
   db: Db,
   opts: { paymentId?: string; now?: Date; limit?: number } = {},
 ): Promise<LateSettlementRow[]> {
+  return (await lateSettlementWorklistPage(db, opts)).rows;
+}
+
+/** The worklist plus whether more rows exist beyond `limit` (the screen says so). */
+export async function lateSettlementWorklistPage(
+  db: Db,
+  opts: { paymentId?: string; now?: Date; limit?: number } = {},
+): Promise<{ rows: LateSettlementRow[]; truncated: boolean }> {
   const now = opts.now ?? new Date();
   const limit = opts.limit ?? WORKLIST_LIMIT;
 
@@ -143,7 +147,7 @@ export async function lateSettlementWorklist(
     select: { id: true, slug: true, title: true, lifecycleStatus: true, deadline: true },
   });
   const closures = await closureTimes(db, campaigns, now);
-  if (closures.size === 0) return [];
+  if (closures.size === 0) return { rows: [], truncated: false };
   const byId = new Map(campaigns.map((c) => [c.id, c]));
 
   const payments = await db.payment.findMany({
@@ -158,11 +162,11 @@ export async function lateSettlementWorklist(
       })),
     },
     orderBy: { settledAt: 'asc' },
-    take: limit,
+    take: limit + 1,
     select: { id: true, amount: true, settledAt: true, donation: { select: { campaignId: true } } },
   });
 
-  return payments.map((p) => {
+  const rows = payments.slice(0, limit).map((p) => {
     const campaign = byId.get(p.donation!.campaignId)!;
     const closure = closures.get(campaign.id)!;
     return {
@@ -178,6 +182,7 @@ export async function lateSettlementWorklist(
       },
     };
   });
+  return { rows, truncated: payments.length > limit };
 }
 
 /**
@@ -328,66 +333,74 @@ export async function proposeCampaignRefunds(
     let outcome: TxOutcome;
     try {
       outcome = await prisma.$transaction(async (tx): Promise<TxOutcome> => {
-      const state = await lockAndLoad(tx, { type: 'campaign', campaignId }, now);
-      if (!state || state.kind !== 'campaign' || !BULK_STATUSES.includes(state.effectiveStatus)) {
-        throw new CampaignNotClosedForRefundProposalError();
-      }
-
-      // The Payment lock, taken here (Campaign then Payment, the order
-      // createRefund keeps), so escrowReleasedAt below cannot change under the
-      // balance check.
-      await tx.$queryRaw`SELECT id FROM "Payment" WHERE id = ${candidate.id} FOR UPDATE`;
-      const payment = await tx.payment.findUniqueOrThrow({
-        where: { id: candidate.id },
-        select: {
-          status: true,
-          amount: true,
-          providerFee: true,
-          platformFee: true,
-          sandbox: true,
-          escrowReleasedAt: true,
-          settledAt: true,
-        },
-      });
-      if (payment.status !== 'PAID') throw new LateSettlementNotProposableError();
-
-      let reason = `Usulan penutupan Campaign: Campaign berstatus ${STATUS_LABEL[state.effectiveStatus]}`;
-      if (!isRefundOrdinaryForKind(state.campaignKind)) {
-        // Only money that really came in after the closure fits an allowed
-        // phrase; anything else is reported, not given a phrase it does not fit.
-        const late = closure && payment.settledAt && payment.settledAt > closure.closedAt;
-        if (!late) return { skip: 'kindTerbatas' as const };
-        reason = CLOSED_CAMPAIGN_REFUND_REASON;
-      }
-
-      if (payment.escrowReleasedAt != null) {
-        const net =
-          payment.amount -
-          platformFeePortionFor(payment, payment.amount, []) -
-          providerFeePortionFor(payment, payment.amount, []);
-        const available = await campaignBalance(tx, campaignId, payment.sandbox);
-        if (available < net) {
-          // Money an APPROVED Campaign Transfer moved to another Campaign is
-          // not "paid out to the Fundraiser": it still exists, elsewhere.
-          const movedOut = await tx.campaignTransfer.count({ where: { sourceId: campaignId, status: 'APPROVED' } });
-          return { skip: movedOut > 0 ? ('dipindahkan' as const) : ('sudahKeluar' as const) };
+        const state = await lockAndLoad(tx, { type: 'campaign', campaignId }, now);
+        if (!state || state.kind !== 'campaign' || !BULK_STATUSES.includes(state.effectiveStatus)) {
+          throw new CampaignNotClosedForRefundProposalError();
         }
-      }
 
-      const refund = await createRefund(tx, {
-        subject: { type: 'campaign', campaignId },
-        paymentId: candidate.id,
-        amount: payment.amount,
-        reason,
-        requestedById: actorAdminId,
-      }).catch((err: unknown) => {
-        if (err instanceof RefundExceedsRemainingError) return 'already' as const;
-        if (err instanceof DonationAnonymisedError) return 'anonim' as const;
-        if (err instanceof RefundAfterCampaignTransferError) return 'dipindahkan' as const;
-        if (err instanceof RefundNotAllowedForKindError) return 'kindTerbatas' as const;
-        throw err;
-      });
-      return { refund };
+        // The Payment lock, taken here (Campaign then Payment, the order
+        // createRefund keeps), so escrowReleasedAt below cannot change under the
+        // balance check.
+        await tx.$queryRaw`SELECT id FROM "Payment" WHERE id = ${candidate.id} FOR UPDATE`;
+        const payment = await tx.payment.findUniqueOrThrow({
+          where: { id: candidate.id },
+          select: {
+            status: true,
+            amount: true,
+            providerFee: true,
+            platformFee: true,
+            sandbox: true,
+            escrowReleasedAt: true,
+            settledAt: true,
+          },
+        });
+        if (payment.status !== 'PAID') throw new LateSettlementNotProposableError();
+
+        let reason = `Usulan penutupan Campaign: Campaign berstatus ${STATUS_LABEL[state.effectiveStatus]}`;
+        if (!isRefundOrdinaryForKind(state.campaignKind)) {
+          // Only money that really came in after the closure fits an allowed
+          // phrase; anything else is reported, not given a phrase it does not fit.
+          const late = closure && payment.settledAt && payment.settledAt > closure.closedAt;
+          if (!late) return { skip: 'kindTerbatas' as const };
+          reason = CLOSED_CAMPAIGN_REFUND_REASON;
+        }
+
+        if (payment.escrowReleasedAt != null) {
+          const net =
+            payment.amount -
+            platformFeePortionFor(payment, payment.amount, []) -
+            providerFeePortionFor(payment, payment.amount, []);
+          const available = await campaignBalance(tx, campaignId, payment.sandbox);
+          if (available < net) {
+            // Money an APPROVED Campaign Transfer moved to another Campaign is
+            // not "paid out to the Fundraiser": it still exists, elsewhere.
+            // Attributed per Payment: only a transfer approved after this
+            // Payment's money reached the Campaign Balance can have moved it.
+            const movedOut = await tx.campaignTransfer.count({
+              where: {
+                sourceId: campaignId,
+                status: 'APPROVED',
+                decidedAt: { gte: payment.escrowReleasedAt },
+              },
+            });
+            return { skip: movedOut > 0 ? ('dipindahkan' as const) : ('sudahKeluar' as const) };
+          }
+        }
+
+        const refund = await createRefund(tx, {
+          subject: { type: 'campaign', campaignId },
+          paymentId: candidate.id,
+          amount: payment.amount,
+          reason,
+          requestedById: actorAdminId,
+        }).catch((err: unknown) => {
+          if (err instanceof RefundExceedsRemainingError) return 'already' as const;
+          if (err instanceof DonationAnonymisedError) return 'anonim' as const;
+          if (err instanceof RefundAfterCampaignTransferError) return 'dipindahkan' as const;
+          if (err instanceof RefundNotAllowedForKindError) return 'kindTerbatas' as const;
+          throw err;
+        });
+        return { refund };
       });
     } catch (err) {
       // The Campaign stopped being closed: every later Payment would fail the

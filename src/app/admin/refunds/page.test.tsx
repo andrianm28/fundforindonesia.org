@@ -9,17 +9,17 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-vi.mock('@/lib/money/campaign-refund-proposals', () => ({ lateSettlementWorklist: vi.fn() }));
+vi.mock('@/lib/money/campaign-refund-proposals', () => ({ lateSettlementWorklistPage: vi.fn() }));
 vi.mock('@/components/admin/AdminLateSettlementRefundButton', () => ({
   AdminLateSettlementRefundButton: ({ paymentId }: { paymentId: string }) => <button>Ajukan refund {paymentId}</button>,
 }));
 
 import { prisma } from '@/lib/prisma';
-import { lateSettlementWorklist } from '@/lib/money/campaign-refund-proposals';
+import { lateSettlementWorklistPage } from '@/lib/money/campaign-refund-proposals';
 import AdminRefundsPage from './page';
 
 beforeEach(() => {
-  vi.mocked(lateSettlementWorklist).mockResolvedValue([]);
+  vi.mocked(lateSettlementWorklistPage).mockResolvedValue({ rows: [], truncated: false });
 });
 
 afterEach(() => {
@@ -124,7 +124,9 @@ describe('AdminRefundsPage', () => {
   it('lists late-settlement Payments under "Dana masuk setelah Campaign ditutup" with a one-click button', async () => {
     vi.mocked(prisma.refund.findMany).mockResolvedValue([] as never);
     vi.mocked(prisma.campaign.findMany).mockResolvedValue([] as never);
-    vi.mocked(lateSettlementWorklist).mockResolvedValue([
+    vi.mocked(lateSettlementWorklistPage).mockResolvedValue({
+      truncated: true,
+      rows: [
       {
         paymentId: 'pay-late',
         amount: 150_000,
@@ -137,12 +139,14 @@ describe('AdminRefundsPage', () => {
           closedAt: new Date('2026-10-01T00:00:00.000Z'),
         },
       },
-    ] as never);
+      ],
+    } as never);
 
     render(await AdminRefundsPage());
 
     expect(screen.getByRole('heading', { name: 'Dana masuk setelah Campaign ditutup' })).toBeTruthy();
     expect(screen.getByText('Campaign Ditutup')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Ajukan refund pay-late' })).toBeTruthy();
+    expect(screen.getByText(/Menampilkan .* terlama; selesaikan dulu untuk melihat sisanya/)).toBeTruthy();
   });
 });

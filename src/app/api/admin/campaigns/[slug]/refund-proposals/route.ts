@@ -19,22 +19,25 @@ import { proposeCampaignRefunds } from '@/lib/money/campaign-refund-proposals';
  *
  * ADMIN only, through the ADMIN assignment; anyone else gets 404.
  */
-export const POST = withHiddenAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest, context?: { params: Promise<{ slug: string }> }) => {
-  const { slug } = await context!.params;
-  const session = await getServerSession();
-  const actorAdminId = session!.user!.id as string;
+export const POST = withHiddenAssignmentCheck(
+  Assignment.ADMIN,
+  async (_req: NextRequest, context?: { params: Promise<{ slug: string }> }) => {
+    const { slug } = await context!.params;
+    const session = await getServerSession();
+    const actorAdminId = session!.user!.id as string;
 
-  const campaign = await prisma.campaign.findUnique({ where: { slug }, select: { id: true } });
-  if (!campaign) {
-    return NextResponse.json({ error: 'Campaign tidak ditemukan' }, { status: 404 });
-  }
+    const campaign = await prisma.campaign.findUnique({ where: { slug }, select: { id: true } });
+    if (!campaign) {
+      return NextResponse.json({ error: 'Campaign tidak ditemukan' }, { status: 404 });
+    }
 
-  try {
-    const result = await proposeCampaignRefunds(prisma, { campaignId: campaign.id, actorAdminId });
-    return NextResponse.json(result, { status: 200 });
-  } catch (error) {
-    const refusal = domainErrorToHttp(error);
-    if (refusal) return NextResponse.json(refusal.body, { status: refusal.status });
-    throw error;
-  }
-});
+    try {
+      const result = await proposeCampaignRefunds(prisma, { campaignId: campaign.id, actorAdminId });
+      return NextResponse.json(result, { status: 200 });
+    } catch (error) {
+      const refusal = domainErrorToHttp(error);
+      if (refusal) return NextResponse.json(refusal.body, { status: refusal.status });
+      throw error;
+    }
+  },
+);
