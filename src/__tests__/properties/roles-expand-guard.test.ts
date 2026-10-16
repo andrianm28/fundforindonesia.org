@@ -153,6 +153,11 @@ import { join } from "node:path";
  * Campaign of the same Kind), both on the ADMIN assignment alone, on the same
  * two-person rule as Manual Contribution -- growing this list by two.
  *
+ * NOTE (audit REQ-01): `GET`/`POST /api/admin/categories` and
+ * `PATCH`/`DELETE /api/admin/categories/[id]` are the Admin's Category list,
+ * all through withHiddenAssignmentCheck on the ADMIN assignment -- growing this
+ * list by two.
+ *
  * NOTE (ticket 67): `src/app/admin/scrutiny/page.tsx`, the Admin screen over the
  * markers GET /api/admin/scrutiny lists, asks for the ADMIN assignment itself
  * and answers 404 to anyone else, the way `src/app/admin/page.tsx` asks for it
@@ -168,6 +173,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/assignment-grant-requests/route.ts",
   "src/app/api/admin/campaign-transfers/[id]/decision/route.ts",
   "src/app/api/admin/campaign-transfers/route.ts",
+  "src/app/api/admin/categories/[id]/route.ts",
+  "src/app/api/admin/categories/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/escrow-hold/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",

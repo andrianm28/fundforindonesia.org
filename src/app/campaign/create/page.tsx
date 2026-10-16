@@ -10,16 +10,11 @@ import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaig
 import { submitToVerifier } from '@/lib/verification-submission';
 import { deadlineRequired, KIND_LABEL, KINDS, type CampaignKind } from '@/lib/campaign-kind';
 
-const categories = [
-  { value: 'bencana-alam', label: 'Bencana Alam' },
-  { value: 'kesehatan', label: 'Bantuan Medis & Kesehatan' },
-  { value: 'pendidikan', label: 'Pendidikan' },
-  { value: 'anak', label: 'Balita & Anak Sakit' },
-  { value: 'lingkungan', label: 'Lingkungan' },
-  { value: 'kemanusiaan', label: 'Kemanusiaan' },
-  { value: 'infrastruktur', label: 'Infrastruktur' },
-  { value: 'lainnya', label: 'Lainnya' },
-];
+/** One Category from GET /api/categories, the Category table. */
+interface CategoryOption {
+  slug: string;
+  name: string;
+}
 
 /** What GET /api/partner-organisations/sponsors answers (prd-compliance 10). */
 interface SponsorOptions {
@@ -64,6 +59,9 @@ export default function CampaignCreatePage() {
   const [errors, setErrors] = useState<FormErrors>({});
   // Who may collect this Campaign's money (ADR 0010): null while loading.
   const [sponsorOptions, setSponsorOptions] = useState<SponsorOptions | null>(null);
+  // The Categories an Admin keeps; empty while loading or if the read fails.
+  // null while loading; [] when none exist or the request failed.
+  const [categories, setCategories] = useState<CategoryOption[] | null>(null);
   const [formData, setFormData] = useState<FormData>({
     kind: '',
     collectingEntityId: '',
@@ -93,6 +91,21 @@ export default function CampaignCreatePage() {
       cancelled = true;
     };
   }, [status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/categories')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: { categories: CategoryOption[] }) => {
+        if (!cancelled) setCategories(data.categories);
+      })
+      .catch(() => {
+        if (!cancelled) setCategories([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // An individual Fundraiser must pick a sponsor when there is one to pick.
   const mustPickSponsor = !!sponsorOptions && !sponsorOptions.own && sponsorOptions.sponsors.length > 0;
@@ -427,12 +440,17 @@ export default function CampaignCreatePage() {
                   }`}
                 >
                   <option value="">Pilih Kategori</option>
-                  {categories.map((cat) => (
-                    <option key={cat.value} value={cat.value}>
-                      {cat.label}
+                  {(categories ?? []).map((cat) => (
+                    <option key={cat.slug} value={cat.slug}>
+                      {cat.name}
                     </option>
                   ))}
                 </select>
+                {categories?.length === 0 && (
+                  <p className="mt-1 text-xs text-danger">
+                    Kategori belum tersedia. Muat ulang halaman atau hubungi Admin.
+                  </p>
+                )}
                 {errors.category && (
                   <p className="mt-1 text-xs text-danger">{errors.category}</p>
                 )}
@@ -630,7 +648,7 @@ export default function CampaignCreatePage() {
                   <div className="py-3">
                     <p className="text-xs text-text-secondary mb-0.5">Kategori</p>
                     <p className="text-sm font-medium text-text">
-                      {categories.find((c) => c.value === formData.category)?.label || '-'}
+                      {(categories ?? []).find((c) => c.slug === formData.category)?.name || '-'}
                     </p>
                   </div>
                   <div className="py-3">
