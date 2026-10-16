@@ -120,3 +120,12 @@ Mundur hanya aman **sebelum** ada Payment nyata pertama. Setelah itu, jangan men
 
 - Sebelum Payment nyata pertama: kembalikan `.env` dari cadangan langkah "Sebelum mulai" (penanda aktif, URL sandbox) dan restart.
 - Sesudahnya: perbaiki ke depan (roll forward). Hubungi pengembang dengan hasil `GET /api/admin/reconcile`.
+
+## Pemantauan galat (GlitchTip)
+
+Tiket `.scratch/go-live-ops/issues/04-glitchtip-error-monitoring.md`. Dijalankan owner.
+
+1. Di GlitchTip, buat project (platform Node/Next.js) dan salin DSN-nya.
+2. Isi `SENTRY_DSN=<dsn>` di `.env` produksi (bukan `NEXT_PUBLIC_`, jangan ke repo atau chat), lalu restart app lewat alur deploy biasa. Kosong berarti tidak ada pelaporan.
+3. Verifikasi: picu galat uji, mis. buka URL yang memicu galat server (atau, di browser, jalankan `fetch('/api/client-error',{method:'POST',body:JSON.stringify({name:'TestError',message:'uji pemantauan'})})` di konsol). Dalam beberapa detik, isu `TestError` harus muncul di GlitchTip; periksa bahwa tidak ada email, nomor rekening, atau token di dalamnya.
+4. Kesehatan lebih dalam: `GET /api/health/deep` (503 bila DB mati; jumlah Payment `PENDING` lebih dari 24 jam). `/api/health` tetap ringan untuk CD. Usia eksekusi terakhir pekerjaan terjadwal belum dicatat di mana pun, jadi belum dilaporkan.
