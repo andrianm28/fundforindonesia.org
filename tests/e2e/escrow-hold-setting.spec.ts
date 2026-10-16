@@ -23,14 +23,15 @@ test.describe('Escrow Hold setting', () => {
     expect(res.status()).toBe(404);
   });
 
-  test('an anonymous visitor to the Admin panel is not shown the panel, and is not redirected', async ({ page }) => {
-    // The page streams, so the document status is already 200 when notFound()
-    // throws (see privileged-not-found.spec.ts); what is provable is that the
-    // panel never renders and the URL is kept rather than redirected home.
+  test('an anonymous visitor to the Admin panel is sent to login by the middleware, never shown the panel', async ({
+    page,
+  }) => {
+    // The 404 for a signed-in non-Admin comes from the /admin layout, which an
+    // anonymous visitor never reaches: the middleware sends them to login first
+    // (src/__tests__ and src/app/admin/layout.test.tsx cover the 404 itself).
     await page.goto('/admin/escrow-hold');
 
-    await expect(page).toHaveURL(/\/admin\/escrow-hold$/);
-    await expect(page.getByRole('heading', { name: 'Escrow Hold' })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/login\?callbackUrl=%2Fadmin%2Fescrow-hold/);
     await expect(page.getByText('Lama yang berlaku')).toHaveCount(0);
   });
 });
