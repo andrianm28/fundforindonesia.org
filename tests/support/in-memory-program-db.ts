@@ -1,5 +1,5 @@
 import type { Sector } from '@/generated/prisma/client';
-import { ledgerGroupBy } from './ledger-group-by';
+import { ledgerGroupBy, valueOf } from './ledger-group-by';
 
 /**
  * In-memory stand-in for the slice of PrismaClient that the public Program
@@ -141,10 +141,10 @@ export function makeProgramDb(seed: { programs?: ProgramRow[]; ledgerEntries?: P
         matches: (row, where) =>
           Object.entries(where).every(([key, value]) => {
             if (value !== null && typeof value === 'object') {
-              if ('in' in value) return (value as { in: unknown[] }).in.includes(row[key]);
-              if ('not' in value) return row[key] !== (value as { not: unknown }).not;
+              if ('in' in value) return (value as { in: unknown[] }).in.includes(valueOf(row, key));
+              if ('not' in value) return valueOf(row, key) !== (value as { not: unknown }).not;
             }
-            return row[key] === value;
+            return valueOf(row, key) === value;
           }),
       }),
     },

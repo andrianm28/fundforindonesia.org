@@ -118,6 +118,10 @@ import { join } from "node:path";
  * withAssignmentCheck on the ADMIN assignment, like every other Admin money
  * action here. Growing this list by one.
  *
+ * NOTE (ticket 89): adds `POST /api/admin/payouts/[id]/reveal-account`, the
+ * Admin completing a Payout opening its account number -- wrapped in
+ * withAssignmentCheck on ADMIN. Growing this list by one.
+ *
  * NOTE (ticket 31): adds
  * `POST /api/campaigns/[slug]/refunds/[id]/complete` and
  * `POST /api/volunteer-trips/[slug]/refunds/[id]/complete`, the third Admin
@@ -160,6 +164,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/partnership-inquiries/route.ts",
   "src/app/api/admin/payment-providers/route.ts",
   "src/app/api/admin/payouts/[id]/balance-check/route.ts",
+  "src/app/api/admin/payouts/[id]/reveal-account/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/provider-withdrawals/route.ts",
   "src/app/api/admin/reconcile/route.ts",

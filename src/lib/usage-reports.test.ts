@@ -299,6 +299,7 @@ describe('campaignBlockingUsageReport', () => {
     expect(payoutFindFirst).toHaveBeenCalledWith({
       where: {
         campaignId: 'campaign-1',
+        sandbox: false,
         status: 'COMPLETED',
         OR: [{ usageReport: null }, { usageReport: { disputedAt: { not: null } } }],
       },

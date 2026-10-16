@@ -1,5 +1,6 @@
 'use client';
 
+import { SandboxBadge } from '@/components/money/SandboxBadge';
 import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -75,6 +76,8 @@ interface DisbursementRow {
   description: string;
   proofImage: string | null;
   createdAt: string;
+  /** Test money from the beta (ticket 94): shown with the UJI mark, never as a real disbursement. */
+  sandbox?: boolean;
   usageReport: UsageReportSummary | null;
 }
 
@@ -119,7 +122,10 @@ function DisbursementsTab({ slug }: { slug: string }) {
         return (
         <div key={row.id} className="border-b border-border pb-4 last:border-b-0">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-sm font-semibold text-text">{formatRupiah(row.amount)}</p>
+            <p className="text-sm font-semibold text-text">
+              {formatRupiah(row.amount)}
+              <SandboxBadge sandbox={row.sandbox === true} />
+            </p>
           </div>
           <p className="text-sm text-text-secondary">{row.description}</p>
 

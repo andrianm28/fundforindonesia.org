@@ -6,6 +6,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ConditionalFooter } from "@/components/layout/ConditionalFooter";
 import { BetaBanner } from "@/components/layout/BetaBanner";
 import { BetaSandboxProvider } from "@/components/layout/BetaSandboxContext";
+import { publicUrl } from "@/lib/public-url";
 import { betaSandboxForThisRequest } from "@/lib/beta-sandbox-request";
 
 // Self-hosted, not next/font/google: the Docker build has no reliable route
@@ -41,6 +42,7 @@ const jetbrainsMono = localFont({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(publicUrl()),
   title: "Fund for Indonesia - Platform Donasi dan Penggalangan Dana Online",
   description:
     "Fund for Indonesia adalah platform teknologi untuk donasi dan penggalangan dana online terpercaya di Indonesia.",

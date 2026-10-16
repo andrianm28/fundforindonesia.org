@@ -1,5 +1,6 @@
 'use client';
 
+import { SandboxBadge } from '@/components/money/SandboxBadge';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -104,6 +105,12 @@ interface PayoutRead {
   lifecycleStatus: CampaignLifecycleStatus;
   escrowHold: number;
   campaignBalance: number;
+  /**
+   * True when the figures and Payouts below are the beta's TEST money (ticket
+   * 94): the screen is then a simulation, labelled UJI, and nothing on it can
+   * reach a real transfer. Absent on an older answer, read as real money.
+   */
+  sandbox?: boolean;
   payouts: PayoutRow[];
   bankAccounts: BankAccountOption[];
   /**
@@ -434,6 +441,14 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
         </p>
       )}
 
+      {data.sandbox && (
+        <p role="note" className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong className="font-semibold">Simulasi (UJI).</strong> Saldo dan pencairan di sini memakai uang uji dari
+          masa Beta. Tidak ada transfer nyata ke rekening mana pun, dan saldo uji tidak dapat dipakai untuk
+          pencairan sungguhan.
+        </p>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-border bg-white p-4">
           <p className="text-xs text-text-secondary">Belum bisa dicairkan</p>
@@ -443,7 +458,10 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
           </p>
         </div>
         <div className="rounded-xl border border-border bg-white p-4">
-          <p className="text-xs text-text-secondary">Bisa dicairkan</p>
+          <p className="text-xs text-text-secondary">
+            Bisa dicairkan
+            <SandboxBadge sandbox={data.sandbox === true} />
+          </p>
           <p className="text-lg font-semibold text-text">{formatRupiah(data.campaignBalance)}</p>
           <p className="mt-1 text-xs text-text-secondary">Campaign Balance, dihitung dari buku besar.</p>
         </div>

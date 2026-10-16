@@ -131,7 +131,7 @@ function matchesWhere(row: Record<string, unknown>, where: Record<string, unknow
     if (k === 'AND') return (v as Record<string, unknown>[]).every((w) => matchesWhere(row, w));
     if (k === 'OR') return (v as Record<string, unknown>[]).some((w) => matchesWhere(row, w));
     if (k === 'NOT') return !matchesWhere(row, v as Record<string, unknown>);
-    const rowValue = row[k] ?? null;
+    const rowValue = row[k] ?? (k === 'sandbox' ? false : null);
     const OPERATORS = ['not', 'in', 'notIn', 'lte'];
     if (
       v &&

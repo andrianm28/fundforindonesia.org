@@ -6,6 +6,7 @@ import { refusalResponse, refuseUnlessFundraiser } from '@/lib/refusal-response'
 import { requestPayout } from '@/lib/money/payouts';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 import { tripBalance, tripEscrowBalance } from '@/lib/money/ledger';
+import { currentSandboxStamp } from '@/lib/money/sandbox-mode';
 import { tripWithdrawableBalance } from '@/lib/money/trip-payout-funds';
 
 const requestPayoutSchema = z.object({
@@ -120,11 +121,14 @@ export async function GET(_request: NextRequest, context: any) {
   // `withdrawable` is what a Payout may ask for now (ticket 49): the Trip
   // Balance less the part still in a Batch that has not completed, which a
   // Volunteer can still have refunded.
+  // The mode in force (ticket 94): test money while the beta marker is on, real
+  // money otherwise, and the answer says which so the screen can label it UJI.
+  const sandbox = currentSandboxStamp();
   const { escrowHold, tripBalanceAmount, withdrawable } = await prisma.$transaction(async (tx) => ({
-    escrowHold: await tripEscrowBalance(tx, trip.id),
-    tripBalanceAmount: await tripBalance(tx, trip.id),
-    withdrawable: await tripWithdrawableBalance(tx, trip.id),
+    escrowHold: await tripEscrowBalance(tx, trip.id, sandbox),
+    tripBalanceAmount: await tripBalance(tx, trip.id, sandbox),
+    withdrawable: await tripWithdrawableBalance(tx, trip.id, sandbox),
   }));
 
-  return NextResponse.json({ escrowHold, tripBalance: tripBalanceAmount, withdrawable });
+  return NextResponse.json({ escrowHold, tripBalance: tripBalanceAmount, withdrawable, sandbox });
 }

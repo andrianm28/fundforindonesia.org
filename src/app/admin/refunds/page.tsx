@@ -1,3 +1,4 @@
+import { SandboxBadge } from '@/components/money/SandboxBadge';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { formatRupiah } from '@/lib/utils/currency';
@@ -24,7 +25,7 @@ export const dynamic = 'force-dynamic';
 
 const QUEUE_STATUSES: Refund['status'][] = ['REQUESTED', 'APPROVED'];
 
-type QueueRow = Pick<Refund, 'id' | 'amount' | 'reason' | 'status' | 'createdAt'> & {
+type QueueRow = Pick<Refund, 'id' | 'amount' | 'reason' | 'status' | 'createdAt' | 'sandbox'> & {
   requestedBy: { name: string | null };
   payment: {
     donation: { campaignId: string } | null;
@@ -75,7 +76,10 @@ function QueueTable({
                   const subject = subjects.get(refundSubjectKey(refund));
                   return (
                     <tr key={refund.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{subject?.title ?? 'Tidak diketahui'}</td>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                        {subject?.title ?? 'Tidak diketahui'}
+                        <SandboxBadge sandbox={refund.sandbox} />
+                      </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{refund.requestedBy.name}</td>
                       <td className="px-6 py-4 text-sm text-gray-900">{formatRupiah(refund.amount)}</td>
                       <td className="px-6 py-4 text-sm text-gray-500 truncate max-w-xs">{refund.reason}</td>

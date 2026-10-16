@@ -17,17 +17,10 @@ enum Assignment {
   ADMIN
 }
 
-enum Role {
-  ADMIN
-  MODERATOR
-  CAMPAIGN_CREATOR
-  DONOR
-}
-
 // ==================== User & Auth ====================
 
 model User {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   name             String
   password         String?
   avatar           String?
@@ -45,7 +38,7 @@ model User {
   // way out. There is no access log on the panel today, so that is a separate
   // piece of work (ADR 0012, Consequences).
   /// Hex HMAC-SHA256 of the trimmed, lowercased email under FIELD_HMAC_KEY. Searchable.
-  emailHmac        String   @unique
+  emailHmac        String    @unique
   emailHmacKeyId   String
   /// base64(iv | AES-256-GCM ciphertext | tag) of the email under FIELD_ENCRYPTION_KEY.
   emailCiphertext  String
@@ -60,16 +53,9 @@ model User {
   /// the confirmation link and a successful password reset (rilis-1 93, which
   /// proves the address the same way; docs/adr/0020).
   emailVerifiedAt  DateTime?
-  // Retired: the self-claimed verification and the Role hierarchy. No
-  // application code or seed reads or writes them (retire-role-hierarchy
-  // 02); authority comes only from assignments (ADR 0005). Nullable and
-  // ignored until ticket 03 drops them with the Role enum.
-  isVerified       Boolean?
-  verificationType String?
-  role             Role?
-  donationBalance  Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  donationBalance  Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   // Relations
   accounts                         Account[]
@@ -113,7 +99,8 @@ model User {
   payoutsRequested                  Payout[]                         @relation("PayoutRequester")
   payoutsApproved                   Payout[]                         @relation("PayoutApprover")
   payoutsCompleted                  Payout[]                         @relation("PayoutCompleter")
-  payoutBalanceChecksRecorded       PayoutBalanceCheck[]              @relation("PayoutBalanceCheckedBy")
+  payoutBalanceChecksRecorded       PayoutBalanceCheck[]             @relation("PayoutBalanceCheckedBy")
+  payoutAccountReveals              PayoutAccountReveal[]            @relation("PayoutAccountRevealedBy")
   usageReportsSubmitted             UsageReport[]                    @relation("UsageReportSubmitter")
   usageReportsDisputed              UsageReport[]                    @relation("UsageReportDisputer")
   refundsRequested                  Refund[]                         @relation("RefundRequester")
@@ -144,9 +131,8 @@ model User {
 
 /// Verifier and Admin are assignments a person holds, not ranks.
 /// One person may hold both; holding both is two rows, never a special
-/// case. See ADR 0005. The `Role` hierarchy still governs access until
-/// tickets 07-08 migrate the guards; this model only records who holds
-/// what in the meantime.
+/// case. See ADR 0005. Assignments are the only source of authority; the
+/// Role hierarchy that preceded them is gone.
 model UserAssignment {
   userId     String
   assignment Assignment
@@ -442,10 +428,6 @@ model Campaign {
   /// Existing Campaigns were backfilled to DONATION by the migration that
   /// added this column; POST /api/campaigns always writes it explicitly.
   kind                   Kind           @default(DONATION)
-  // Legacy status string: no application code or seed reads or writes it
-  // (legacy-status-contract 02). Nullable and ignored until ticket 03 drops
-  // it with its index.
-  status                 String?
   // A new Campaign is a Draft until its Fundraiser submits it (FFI-04).
   lifecycleStatus        CampaignStatus @default(DRAFT)
   isUrgent               Boolean        @default(false)
@@ -536,15 +518,14 @@ model Campaign {
   /// Zakat or wakaf money moved out of / into this Campaign by a Campaign
   /// Transfer (CONTEXT.md, Campaign Transfer). Restrict on both ends: the
   /// record of where a Suspended Campaign's money went is evidence.
-  transfersOut          CampaignTransfer[]   @relation("CampaignTransferSource")
-  transfersIn           CampaignTransfer[]   @relation("CampaignTransferTarget")
+  transfersOut          CampaignTransfer[]     @relation("CampaignTransferSource")
+  transfersIn           CampaignTransfer[]     @relation("CampaignTransferTarget")
   auditMarker           CampaignAuditMarker?
   donationReviewMarkers DonationReviewMarker[]
 
   @@index([slug])
   @@index([category])
   @@index([kind])
-  @@index([status])
   @@index([lifecycleStatus])
   @@index([creatorId])
   @@index([collectingEntityId])
@@ -554,7 +535,6 @@ model Campaign {
   // index pg_trgm's `similarity()` can use as a search. The extension itself
   // is created by the migration, never by the application.
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
-  @@index([isUrgent, status])
   @@index([lifecycleStatus, deadline])
 }
 
@@ -1762,7 +1742,7 @@ model Refund {
   /// Mode of the money this row belongs to: true for the public beta's
   /// sandbox. Added with Payment.sandbox (rilis-1-benda/92); stamped from
   /// the source Payment and read by rilis-1-benda/94, not by anything yet.
-  sandbox       Boolean  @default(false)
+  sandbox       Boolean      @default(false)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -1830,9 +1810,14 @@ model BankAccount {
   bankCode                String
   /// ADR 0012 contract step (prd-compliance 16): a randomized AES-256-GCM of
   /// the account number, and the only form stored. This is a payout
-  /// destination, not a card number, and it is still read in full to instruct
-  /// the transfer -- decrypted at the point of payout, with masking at the UI.
-  /// Never searched, so there is no HMAC for it, same as User.phone.
+  /// destination, not a card number. Amended 2026-10-10 (ticket 89): Sumopod
+  /// has no disbursement API, so the Admin completing a Payout types the full
+  /// number into the provider's dashboard by hand. It is therefore decrypted
+  /// at exactly one place, revealPayoutAccountNumber, only for that Admin and
+  /// only while the Payout is APPROVED, and every reveal writes a
+  /// PayoutAccountReveal row. Nowhere else shows it; the UI shows bank code
+  /// and holder name only. Never searched, so there is no HMAC for it, same
+  /// as User.phone.
   accountNumberCiphertext String
   accountNumberKeyId      String
   /// Plaintext by decision (ADR 0012): Refund compares the holder name against
@@ -2098,13 +2083,14 @@ model Payout {
   /// Mode of the money this row belongs to: true for the public beta's
   /// sandbox. Added with Payment.sandbox (rilis-1-benda/92); stamped from
   /// the source Payment and read by rilis-1-benda/94, not by anything yet.
-  sandbox       Boolean  @default(false)
+  sandbox                 Boolean   @default(false)
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
-  ledgerEntries LedgerEntry[]
-  usageReport   UsageReport?
-  balanceChecks PayoutBalanceCheck[]
+  ledgerEntries  LedgerEntry[]
+  usageReport    UsageReport?
+  balanceChecks  PayoutBalanceCheck[]
+  accountReveals PayoutAccountReveal[]
 
   @@index([campaignId, status])
   @@index([volunteerTripId, status])
@@ -2138,6 +2124,22 @@ model PayoutBalanceCheck {
   checkedAt       DateTime @default(now())
 
   @@index([payoutId])
+}
+
+/// One Admin's opening of a Payout's destination account number (ticket 89;
+/// owner decision C6, 2026-10-04). Append-only audit: who, which Payout, when.
+/// ADR 0012's ciphertext is randomized, so a read cannot be found afterwards
+/// by searching; this row is the only trace that one happened. The number
+/// itself is never stored here or logged.
+model PayoutAccountReveal {
+  id           String   @id @default(cuid())
+  payoutId     String
+  payout       Payout   @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+  revealedById String
+  revealedBy   User     @relation("PayoutAccountRevealedBy", fields: [revealedById], references: [id], onDelete: Restrict)
+  revealedAt   DateTime @default(now())
+
+  @@index([payoutId, revealedAt])
 }
 
 /// A Fundraiser's account of how one Payout's money was used (CONTEXT.md,

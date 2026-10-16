@@ -65,3 +65,5 @@ keputusan satu kalimat, murah.
 ## Comments
 
 - 2026-10-04: premis jawaban di atas dibuka ulang oleh [89](89-payout-reveal-account-number.md): transfer manual menuntut Admin mengetik nomor penuh, jadi "nomor tak pernah dibaca di payout" tidak berlaku. Menunggu C6.
+
+- 2026-10-10 (amandemen, dari [89](89-payout-reveal-account-number.md)): Jawaban di atas **tidak berlaku lagi untuk transfer manual**. Admin penyelesai harus mengetik nomor penuh di dashboard penyedia, jadi nomor dibaca saat Payout `APPROVED`. Keputusan C6 (2026-10-04): hanya Admin penyelesai (bukan requester maupun approver) yang boleh membukanya, lewat aksi eksplisit di server `revealPayoutAccountNumber`, dan tiap pembukaan menulis baris `PayoutAccountReveal` (siapa, Payout mana, kapan). Butir (2) dan (3) kini dijawab: pembaca = Admin penyelesai, UI menampilkan nomor penuh hanya setelah tombol ditekan (tanpa masking). Komentar skema `accountNumberCiphertext` ikut diamandemen. Isi jawaban asli di atas dibiarkan sebagai catatan sejarah.

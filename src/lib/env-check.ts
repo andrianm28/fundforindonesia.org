@@ -1,4 +1,5 @@
 import { loadFieldKeys } from './field-encryption';
+import { betaSandboxEnvRefusals } from './payments/production-readiness';
 
 /**
  * Boot-time environment check, called from src/instrumentation.ts (the Node
@@ -82,6 +83,12 @@ export function assertProductionEnv(): void {
   }
 
   checkAuthUrl(process.env.NEXTAUTH_URL, problems);
+
+  // The public beta moves no real money (ticket rilis-1-benda/94): refuse to
+  // boot it beside any live payment credential rather than find out from a
+  // donor. Only while BETA_SANDBOX is on; at go-live the marker is removed and
+  // the ordinary production rules apply.
+  problems.push(...betaSandboxEnvRefusals());
 
   if (problems.length > 0) {
     throw new Error(`Invalid production environment:\n- ${problems.join('\n- ')}`);

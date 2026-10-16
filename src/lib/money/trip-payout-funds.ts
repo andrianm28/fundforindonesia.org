@@ -26,7 +26,11 @@ import { TripPayoutFundsNotCompletedError } from '@/lib/volunteer-trip-errors';
  * takes (lockAndLoad), so completing or cancelling a Batch cannot interleave
  * with the read.
  */
-export async function tripHeldBalance(tx: Prisma.TransactionClient, tripId: string): Promise<number> {
+export async function tripHeldBalance(
+  tx: Prisma.TransactionClient,
+  tripId: string,
+  sandbox = false,
+): Promise<number> {
   const rows = await tx.$queryRaw<Array<{ held: bigint | number | string | null }>>`
     SELECT COALESCE(SUM(CASE WHEN le."direction" = 'CREDIT' THEN le."amount" ELSE -le."amount" END), 0) AS held
     FROM "LedgerEntry" le
@@ -36,6 +40,7 @@ export async function tripHeldBalance(tx: Prisma.TransactionClient, tripId: stri
     JOIN "VolunteerBatch" b ON b."id" = reg."batchId"
     WHERE le."account" = 'TRIP_BALANCE'
       AND le."volunteerTripId" = ${tripId}
+      AND le."sandbox" = ${sandbox}
       AND b."status" <> 'COMPLETED'
   `;
   const held = Number(rows[0]?.held ?? 0);
@@ -48,9 +53,13 @@ export async function tripHeldBalance(tx: Prisma.TransactionClient, tripId: stri
 }
 
 /** What a Trip may pay out now: its balance less the part still refundable. Never above the balance. */
-export async function tripWithdrawableBalance(tx: Prisma.TransactionClient, tripId: string): Promise<number> {
-  const balance = await tripBalance(tx, tripId);
-  const held = await tripHeldBalance(tx, tripId);
+export async function tripWithdrawableBalance(
+  tx: Prisma.TransactionClient,
+  tripId: string,
+  sandbox = false,
+): Promise<number> {
+  const balance = await tripBalance(tx, tripId, sandbox);
+  const held = await tripHeldBalance(tx, tripId, sandbox);
   return balance - Math.max(held, 0);
 }
 
@@ -65,11 +74,12 @@ export async function requireTripFundsFromCompletedBatches(
   tx: Prisma.TransactionClient,
   tripId: string,
   amount: number,
+  sandbox = false,
 ): Promise<void> {
   if (!Number.isFinite(amount)) {
     throw new Error(`requireTripFundsFromCompletedBatches: non-finite amount ${String(amount)}`);
   }
-  const withdrawable = await tripWithdrawableBalance(tx, tripId);
+  const withdrawable = await tripWithdrawableBalance(tx, tripId, sandbox);
   if (amount > withdrawable) {
     throw new TripPayoutFundsNotCompletedError(amount, Math.max(withdrawable, 0));
   }

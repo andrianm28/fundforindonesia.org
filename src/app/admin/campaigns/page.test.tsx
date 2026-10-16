@@ -7,6 +7,8 @@ vi.mock('@/lib/prisma', () => ({
     campaign: {
       findMany: vi.fn(),
     },
+    // The counted progress figure asks which Payments are beta money (ticket 94).
+    payment: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 

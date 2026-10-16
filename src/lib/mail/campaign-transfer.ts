@@ -1,5 +1,6 @@
 import { escapeHtml } from './escape-html';
 import type { MailMessage } from './types';
+import { emailLogoHtml } from './email-logo';
 
 /**
  * What a Donor of a Suspended zakat, wakaf or hibah Campaign is told once its money
@@ -31,6 +32,7 @@ export function campaignTransferEmail(input: CampaignTransferEmailInput): MailMe
   const text = [...body, input.targetUrl, closing].join('\n\n');
   const url = escapeHtml(input.targetUrl);
   const html = [
+    emailLogoHtml(),
     ...body.map((line) => `<p>${escapeHtml(line)}</p>`),
     `<p><a href="${url}">${url}</a></p>`,
     `<p>${escapeHtml(closing).replace('\n', '<br>')}</p>`,
