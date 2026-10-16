@@ -5,8 +5,8 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  redirect: vi.fn((url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
   }),
 }));
 
@@ -47,15 +47,15 @@ describe("ModerasiPage", () => {
     mockOrganisationFindMany.mockResolvedValue([]);
   });
 
-  it("redirects home when unauthenticated", async () => {
+  it("answers 404 when unauthenticated", async () => {
     mockGetServerSession.mockResolvedValue(null);
-    await expect(ModerasiPage()).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(ModerasiPage()).rejects.toThrow("NEXT_NOT_FOUND");
     expect(mockRequestCount).not.toHaveBeenCalled();
   });
 
-  it("redirects home for an ADMIN-ranked user who does not hold the Verifier assignment", async () => {
+  it("answers 404 for an ADMIN-ranked user who does not hold the Verifier assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: [] } });
-    await expect(ModerasiPage()).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(ModerasiPage()).rejects.toThrow("NEXT_NOT_FOUND");
     expect(mockRequestCount).not.toHaveBeenCalled();
   });
 

@@ -171,6 +171,9 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/scrutiny/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/route.ts",
+  // ticket 90: the Admin APIs' 404 for anyone without ADMIN, in front of the
+  // Trip suspension module, which still decides who may suspend or lift.
+  "src/app/api/admin/volunteer-trips/[id]/suspension/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/complete/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/usage-report/route.ts",
@@ -182,6 +185,9 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/moderasi/bank-account-revocations/[id]/route.ts",
   "src/app/api/moderasi/bank-accounts/[requestId]/route.ts",
   "src/app/api/moderasi/bank-accounts/route.ts",
+  // ticket 90: the Moderasi APIs' 404 for anyone without VERIFIER, in front of
+  // the lifecycle adapter; who may decide stays the command's.
+  "src/app/api/moderasi/campaigns/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/route.ts",
   "src/app/api/programs/[slug]/route.ts",
@@ -358,12 +364,31 @@ describe("roles expand scope", () => {
   });
 
   it("every lifecycle route goes through the lifecycle adapter, never a route-level gate", () => {
+    // The Moderasi APIs' hidden 404 (withHiddenAssignmentCheck, ticket 90) is
+    // allowed in front of the adapter: it hides the panel from anyone without
+    // the assignment, and deciding stays the command's.
     const offenders = LIFECYCLE_ROUTES.filter((file) => {
       const source = readFileSync(file, "utf8");
-      return !source.includes("lifecycleRoute(") || source.includes("withAssignmentCheck") || usesHierarchy(source);
+      return !source.includes("lifecycleRoute(") || /\bwithAssignmentCheck\(/.test(source) || usesHierarchy(source);
     });
 
     expect(offenders).toEqual([]);
+  });
+
+  it("every Admin and Moderasi API route answers a missing assignment with 404 (ticket 90)", () => {
+    // Directly, or through the register's and checklist editor's wrappers,
+    // which are themselves withHiddenAssignmentCheck.
+    const HIDDEN = /\bwithHiddenAssignmentCheck\(|\bpartnerOrganisationRoute\(|\bchecklistRoute\(/;
+    const routes = [...walk("src/app/api/admin"), ...walk("src/app/api/moderasi")].filter((file) =>
+      file.endsWith("/route.ts")
+    );
+    expect(routes.length).toBeGreaterThan(30);
+    const offenders = routes.filter((file) => !HIDDEN.test(readFileSync(file, "utf8")));
+    expect(offenders).toEqual([]);
+
+    for (const wrapper of ["src/lib/partner-organisation-route.ts", "src/lib/verification-checklist-route.ts"]) {
+      expect(readFileSync(wrapper, "utf8")).toMatch(/\bwithHiddenAssignmentCheck\(/);
+    }
   });
 
   it("the assignment model references ADR 0005", () => {

@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
 import { Assignment } from "@/generated/prisma/client";
@@ -27,7 +27,7 @@ const formatDate = (date: Date) =>
 export default async function KindAuthorisationsPage() {
   const session = await getServerSession();
   if (!session?.user || !hasAssignment(session.user.assignments, Assignment.VERIFIER)) {
-    redirect("/");
+    notFound();
   }
 
   const organisations = await prisma.partnerOrganisation.findMany({

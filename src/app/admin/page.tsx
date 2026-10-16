@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
@@ -9,7 +9,7 @@ export default async function AdminDashboardPage() {
 
   // Admin power comes only from the ADMIN assignment, never the Role (ADR 0005).
   if (!session?.user || !hasAssignment(session.user.assignments, Assignment.ADMIN)) {
-    redirect("/");
+    notFound();
   }
 
   const [totalUsers, totalCampaigns, totalDonations] = await Promise.all([
