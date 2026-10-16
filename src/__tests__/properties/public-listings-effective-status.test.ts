@@ -104,7 +104,6 @@ describe('the catalogue guards that read the database are awaited', () => {
 const CATALOGUE_DECISION_READERS = [
   'src/app/api/campaigns/route.ts',
   'src/app/api/prayers/route.ts',
-  'src/app/api/zakat/campaigns/route.ts',
   'src/app/explore/[category]/page.tsx',
   'src/app/page.tsx',
   'src/components/collecting-entity/AssignCollectingEntityScreen.tsx',

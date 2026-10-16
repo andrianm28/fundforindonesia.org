@@ -242,11 +242,11 @@ describe('GET /api/campaigns with SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91)', () => 
 
   it('is one real Campaign anywhere on the platform, whatever Kind or Category the list asks for', async () => {
     holder.db = makeCampaignDb({
-      campaigns: [...demos(), campaign('real-zakat', { kind: 'ZAKAT', category: 'zakat' })],
+      campaigns: [...demos(), campaign('real-wakaf', { kind: 'WAKAF', category: 'wakaf' })],
     });
 
     expect(await listSlugs('?kind=DONATION')).toEqual([]);
-    expect(await listSlugs('?kind=ZAKAT')).toEqual(['real-zakat']);
+    expect(await listSlugs('?kind=WAKAF')).toEqual(['real-wakaf']);
   });
 });
 
