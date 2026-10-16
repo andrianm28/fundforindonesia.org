@@ -24,9 +24,9 @@ test.describe('Escrow Hold setting', () => {
   });
 
   test('an anonymous visitor to the Admin panel gets a 404', async ({ page }) => {
-    await page.goto('/admin/escrow-hold');
+    const response = await page.goto('/admin/escrow-hold');
 
+    expect(response?.status()).toBe(404);
     await expect(page.getByRole('heading', { name: 'Escrow Hold' })).toHaveCount(0);
-    await expect(page.getByText(/tidak ditemukan|not found/i).first()).toBeVisible();
   });
 });
