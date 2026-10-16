@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
-import { runScheduledJobs } from '@/lib/scheduled-jobs';
+import { recordJobsRun } from '@/lib/jobs-heartbeat';
+import { runScheduledJobsReport } from '@/lib/scheduled-jobs';
 
 // Ticket 45: the production trigger for runScheduledJobs. Before this route
 // existed, nothing in the repo called that function -- matured escrow was
@@ -48,6 +49,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
   }
 
-  const result = await runScheduledJobs();
+  const now = new Date();
+  const { ok, failedPhases, result } = await runScheduledJobsReport(now);
+  recordJobsRun({ ok, failedPhases }, now);
+
+  // A phase that threw is zeroed in `result`, which looks like "nothing to do".
+  // Answer 500 so the host's `curl -f` fails and a monitor sees it (audit
+  // OPS-2). Phase names only: error details stay in the server log.
+  if (!ok) {
+    return NextResponse.json({ ok: false, failedPhases, result }, { status: 500, headers: NO_STORE });
+  }
   return NextResponse.json({ ok: true, result }, { headers: NO_STORE });
 }

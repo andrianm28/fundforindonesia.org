@@ -1,5 +1,5 @@
 # Stage 1: Dependencies
-FROM node:24-alpine AS deps
+FROM node:24.22.0-alpine AS deps
 WORKDIR /app
 
 # npm ci installs the optional @node-rs/bcrypt-linux-*-musl package matching
@@ -9,7 +9,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 # Stage 2: Build
-FROM node:24-alpine AS builder
+FROM node:24.22.0-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -92,7 +92,7 @@ RUN cp -r public .next/standalone/public \
 # is most of a gigabyte), it installs just the two packages the CLI and
 # prisma.config.ts need, at the exact versions package-lock.json pins, so it
 # migrates with the same Prisma the app was built and CI-tested with.
-FROM node:24-alpine AS migrate
+FROM node:24.22.0-alpine AS migrate
 WORKDIR /app
 
 COPY package-lock.json /tmp/package-lock.json
@@ -128,14 +128,14 @@ CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
 # standalone node_modules. The base image is the runner's, so npm fetches the
 # prebuilt binaries for the image's platform (linuxmusl, amd64 or arm64). The
 # version is exact, not whatever is latest at build time; bump it here.
-FROM node:24-alpine AS sharp
+FROM node:24.22.0-alpine AS sharp
 WORKDIR /opt/sharp
 ARG SHARP_VERSION="0.35.4"
 RUN npm install --no-save --no-package-lock --no-audit --no-fund sharp@$SHARP_VERSION \
     && npm cache clean --force
 
 # Stage 3: Production
-FROM node:24-alpine AS runner
+FROM node:24.22.0-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

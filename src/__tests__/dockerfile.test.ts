@@ -107,6 +107,13 @@ describe("Dockerfile", () => {
     expect(cd).toMatch(/docker image inspect --format '\{\{\.Size\}\}' local\/migrate:candidate/);
   });
 
+  // Audit OPS-4: a floating `node:24-alpine` moves on any rebuild.
+  it("pins every base image to an exact Node version, not a floating major tag", () => {
+    const froms = readFileSync(resolve("Dockerfile"), "utf8").split("\n").filter((l) => /^FROM\s/.test(l));
+    expect(froms.length).toBeGreaterThan(0);
+    for (const f of froms) expect(f, f).toMatch(/^FROM node:24\.\d+\.\d+-alpine AS /);
+  });
+
   it("builds the app runtime by default, as the non-root nextjs user", () => {
     expect(Array.from(byStage.keys()).at(-1)).toBe("runner");
     expect(stage("runner")).toContain("USER nextjs");
