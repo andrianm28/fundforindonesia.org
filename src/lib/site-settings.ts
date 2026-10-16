@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
+import { SITE_IDENTITY } from "@/lib/site-identity";
 
 /**
  * Pengaturan Laman Publik: the public-page content an Admin edits from the
@@ -97,11 +98,13 @@ export type SiteSettings = { [K in SiteSettingKey]: z.infer<(typeof SITE_SETTING
 /** What the pages said before they were editable. */
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   contact: {
-    email: "support@fundforindonesia.id",
-    phone: "(021) 1234-5678",
-    whatsapp: "+62 21 1234-5678",
-    hours: "Senin-Jumat, 09:00-17:00 WIB",
-    address: "Jl. Sudirman No. 123, Lantai 5\nJakarta Selatan, DKI Jakarta 12190\nIndonesia",
+    email: SITE_IDENTITY.contactEmail,
+    // Telepon, WhatsApp, jam layanan, dan alamat kosong sampai owner memberi nilai nyata (L8);
+    // halaman Kontak menyembunyikan bagian yang kosong.
+    phone: "",
+    whatsapp: "",
+    hours: "",
+    address: "",
   },
   social: {
     instagram: "https://instagram.com/fundforindonesia",
@@ -110,7 +113,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   },
   footer: {
     about:
-      "Fund for Indonesia adalah platform teknologi untuk donasi dan penggalangan dana online terpercaya di Indonesia. Kami telah membantu jutaan orang menyalurkan kebaikan untuk berbagai kebutuhan sosial.",
+      `Fund for Indonesia adalah platform teknologi untuk donasi dan penggalangan dana online di Indonesia, dioperasikan oleh ${SITE_IDENTITY.operatorName}.`,
   },
   hero: {
     slides: [
@@ -131,8 +134,8 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   pages: {
     aboutParagraphs: [
       "Fund for Indonesia adalah platform penggalangan dana online yang didedikasikan untuk membantu masyarakat Indonesia dalam mengumpulkan dana untuk berbagai kebutuhan sosial, kesehatan, pendidikan, dan kemanusiaan. Kami percaya bahwa setiap orang memiliki kekuatan untuk membuat perubahan positif di lingkungan sekitarnya.",
-      "Didirikan dengan visi untuk menjadi jembatan antara mereka yang membutuhkan bantuan dan mereka yang ingin membantu, platform kami menyediakan infrastruktur teknologi yang aman, transparan, dan mudah digunakan. Setiap kampanye yang terdaftar telah melalui proses verifikasi untuk memastikan keaslian dan akuntabilitas penggalangan dana.",
-      "Kami berkomitmen untuk menjaga kepercayaan donatur dengan menerapkan standar transparansi tertinggi dalam pelaporan penggunaan dana, serta memberikan perlindungan menyeluruh bagi semua pihak yang terlibat dalam ekosistem penggalangan dana kami.",
+      "Didirikan dengan visi untuk menjadi jembatan antara mereka yang membutuhkan bantuan dan mereka yang ingin membantu, platform kami menyediakan infrastruktur teknologi yang aman, transparan, dan mudah digunakan. Setiap Campaign ditinjau oleh Verifier sebelum terbit dan menyebut lembaga yang menghimpun dananya.",
+      "Kami berusaha menjaga kepercayaan donatur dengan menampilkan angka penghimpunan dan penyaluran dana di halaman Impact & Transparansi.",
     ],
     pressEmail: "press@fundforindonesia.org",
     careersEmail: "careers@fundforindonesia.org",

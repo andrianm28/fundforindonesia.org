@@ -42,6 +42,13 @@ export interface DonationConfirmationProps {
    * wakaf and what for, the same Collecting Entity and Campaign title the
    * Akad Wakaf document itself will carry.
    */
+  /**
+   * Shown only for a Campaign ber-Kind `hibah` (ADR 0013; audit L6): a plain
+   * notice before payment, no checkbox. Hibah is not refundable except for a
+   * technical failure, and a suspended Campaign's money moves to another
+   * hibah Campaign instead of back to the Donor.
+   */
+  hibahNotice?: boolean;
   ikrarWakaf?: {
     confirmed: boolean;
     onToggle: (value: boolean) => void;
@@ -65,6 +72,7 @@ export function DonationConfirmation({
   isSubmitting,
   guestContact,
   ikrarWakaf,
+  hibahNotice = false,
   betaSandbox = false,
 }: DonationConfirmationProps) {
   const handlePrayerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -253,6 +261,18 @@ export function DonationConfirmation({
               {ikrarWakaf.error}
             </p>
           )}
+        </div>
+      )}
+
+      {hibahNotice && (
+        <div
+          role="note"
+          aria-label="Ketentuan hibah"
+          className="rounded-md border border-border bg-bg-secondary p-3 text-sm text-text"
+        >
+          Hibah tidak dapat dikembalikan, kecuali karena kegagalan teknis (salah bayar, bayar ganda, atau dana masuk
+          setelah Campaign ditutup). Bila Campaign ini ditangguhkan, dana Anda dialihkan ke Campaign hibah lain, bukan
+          dikembalikan.
         </div>
       )}
 

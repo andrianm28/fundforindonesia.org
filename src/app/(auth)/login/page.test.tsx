@@ -262,3 +262,13 @@ describe('LoginPage', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
+
+describe('LoginPage consent line (audit L3)', () => {
+  it('links the Terms and Privacy policy under the form', () => {
+    mockGetProviders.mockResolvedValue(CREDENTIALS_ONLY);
+    render(<LoginPage />);
+    expect(screen.getByText(/Dengan masuk, Anda menyetujui/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Syarat & Ketentuan/ })).toHaveAttribute('href', '/terms');
+    expect(screen.getByRole('link', { name: 'Kebijakan Privasi' })).toHaveAttribute('href', '/privacy');
+  });
+});

@@ -104,7 +104,7 @@ export default function RegisterPage() {
         <div className="bg-primary rounded-t-lg px-6 py-5 text-center">
           <h1 className="text-xl font-bold text-white">Daftar Akun</h1>
           <p className="text-sm text-white/80 mt-1">
-            Bergabung dengan jutaan orang baik di Fund for Indonesia
+            Bergabung dan mulai berbagi kebaikan di Fund for Indonesia
           </p>
         </div>
 
@@ -184,6 +184,12 @@ export default function RegisterPage() {
               Daftar
             </Button>
           </form>
+
+          <p className="text-center text-xs text-text-secondary mt-4">
+            Dengan mendaftar, Anda menyetujui{' '}
+            <Link href="/terms" className="text-primary hover:underline">Syarat &amp; Ketentuan</Link> dan{' '}
+            <Link href="/privacy" className="text-primary hover:underline">Kebijakan Privasi</Link>.
+          </p>
 
           {/* Login Link */}
           <p className="text-center text-sm text-text-secondary mt-5">

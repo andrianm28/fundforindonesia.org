@@ -22,7 +22,39 @@ Selama penanda aktif, dua hal ini **ditutup** karena memindahkan uang nyata dan 
 
 ## Urutan
 
-Jalankan berurutan. Berhenti di langkah mana pun yang gagal; jangan lanjut.
+Jalankan berurutan, mulai dari langkah 0. Berhenti di langkah mana pun yang gagal; jangan lanjut.
+
+### 0. Prasyarat hukum
+
+Semua butir di bawah harus terpenuhi **sebelum** langkah 1. Mencabut `BETA_SANDBOX` membuka uang nyata, dan kode hanya menjaga izin per Campaign (`collectingEntityBlock`); tidak ada yang menahan go-live bila prasyarat ini terlewat. Catat siapa yang memeriksa dan tanggalnya di tempat catatan owner (bukan di repo).
+
+1. **Penasihat hukum sudah menyetujui susunan PT dan yayasan** (ADR 0009: operator PT Jaya Korpora Prima memegang akun merchant, Lembaga Mitra menghimpun atas izinnya sendiri per ADR 0010). Persetujuan tertulis dan tanggalnya tercatat.
+2. **Syarat & Ketentuan dan Kebijakan Privasi sudah ditinjau penasihat hukum**, dan tanggal "Terakhir diperbarui" di kedua halaman sesudah revisi terakhir. Tinjauan ini mencakup isi UU PDP yang belum ditulis ulang (dasar pemrosesan, transfer lintas negara, pemberitahuan kebocoran).
+3. **Minimal satu Lembaga Mitra memegang Izin Penghimpunan yang berlaku**, dan izin UAT palsu (dummy) sudah diakhiri. Periksa:
+
+```sql
+SELECT po.name, fp.number, fp.issuer, fp.kinds, fp."validFrom", fp."validTo"
+FROM "FundraisingPermit" fp JOIN "PartnerOrganisation" po ON po.id = fp."partnerOrganisationId"
+ORDER BY fp."validTo" DESC;
+```
+
+   Pastikan ada baris yang `validTo` di masa depan dan nomornya nyata, dan tidak ada baris uji yang masih berlaku.
+4. **Tidak ada Kind Authorisation WAKAF atau HIBAH** (keputusan owner: belum ada uang wakaf/hibah sampai nazhir berlisensi dan tinjauan syariah ada). Hasilnya harus nol baris:
+
+```sql
+SELECT id, "partnerOrganisationId", kind, "validFrom", "validTo"
+FROM "KindAuthorisation" WHERE kind IN ('WAKAF', 'HIBAH');
+```
+
+   Bila ada, cabut atau biarkan kedaluwarsa dulu; jangan go-live dengannya.
+5. **Tidak ada data seed atau demo yang terlihat publik.** Campaign contoh tidak boleh tampil sebagai nyata:
+
+```sql
+SELECT count(*) FROM "Campaign" WHERE "isDemo" = false AND "collectingEntityId" IS NULL;
+```
+
+   Harus nol, dan halaman `/explore/all` serta `/impact` tidak menampilkan Campaign atau angka contoh.
+6. **Alamat email kontak aktif**: kotak surat umum dan kotak surat privasi (nilainya di `src/lib/site-identity.ts`) benar-benar menerima email.
 
 ### 1. Bekukan donasi sementara (opsional, disarankan)
 
