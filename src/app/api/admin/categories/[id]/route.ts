@@ -27,8 +27,15 @@ export const PATCH = withHiddenAssignmentCheck(Assignment.ADMIN, async (req: Nex
     if (clash) return NextResponse.json({ error: 'Nama kategori sudah dipakai.' }, { status: 409 });
   }
 
-  const updated = await prisma.category.update({ where: { id }, data: parsed.value });
-  return NextResponse.json({ category: updated });
+  try {
+    const updated = await prisma.category.update({ where: { id }, data: parsed.value });
+    return NextResponse.json({ category: updated });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return NextResponse.json({ error: 'Nama kategori sudah dipakai.' }, { status: 409 });
+    }
+    throw error;
+  }
 });
 
 export const DELETE = withHiddenAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest, context?: Context) => {
@@ -47,3 +54,8 @@ export const DELETE = withHiddenAssignmentCheck(Assignment.ADMIN, async (_req: N
   await prisma.category.delete({ where: { id } });
   return new NextResponse(null, { status: 204 });
 });
+
+/** A unique-constraint race (Prisma P2002) between the pre-check and the write. */
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002';
+}

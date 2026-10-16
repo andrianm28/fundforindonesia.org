@@ -70,6 +70,13 @@ describe('/api/admin/categories/[id]', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  it('answers 409, not 500, when a concurrent rename wins the unique race', async () => {
+    mockFindUnique.mockImplementation(async ({ where }) => (where.id === 'c1' ? existing : null));
+    mockUpdate.mockRejectedValue(Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }));
+    const res = await patch({ name: 'Sekolah' });
+    expect(res.status).toBe(409);
+  });
+
   it('answers 404 for a category that does not exist', async () => {
     mockFindUnique.mockResolvedValue(null);
     expect((await patch({ name: 'Baru' })).status).toBe(404);

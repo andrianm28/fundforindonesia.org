@@ -88,6 +88,12 @@ describe('/api/admin/categories', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it('answers 409, not 500, when a concurrent create wins the unique race', async () => {
+    mockCreate.mockRejectedValue(Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }));
+    const res = await post(valid);
+    expect(res.status).toBe(409);
+  });
+
   it('answers 409 for a slug that is taken', async () => {
     mockFindFirst.mockResolvedValue({ slug: 'masjid' });
     const res = await post(valid);

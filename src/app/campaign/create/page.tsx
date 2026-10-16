@@ -60,7 +60,8 @@ export default function CampaignCreatePage() {
   // Who may collect this Campaign's money (ADR 0010): null while loading.
   const [sponsorOptions, setSponsorOptions] = useState<SponsorOptions | null>(null);
   // The Categories an Admin keeps; empty while loading or if the read fails.
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  // null while loading; [] when none exist or the request failed.
+  const [categories, setCategories] = useState<CategoryOption[] | null>(null);
   const [formData, setFormData] = useState<FormData>({
     kind: '',
     collectingEntityId: '',
@@ -439,12 +440,17 @@ export default function CampaignCreatePage() {
                   }`}
                 >
                   <option value="">Pilih Kategori</option>
-                  {categories.map((cat) => (
+                  {(categories ?? []).map((cat) => (
                     <option key={cat.slug} value={cat.slug}>
                       {cat.name}
                     </option>
                   ))}
                 </select>
+                {categories?.length === 0 && (
+                  <p className="mt-1 text-xs text-danger">
+                    Kategori belum tersedia. Muat ulang halaman atau hubungi Admin.
+                  </p>
+                )}
                 {errors.category && (
                   <p className="mt-1 text-xs text-danger">{errors.category}</p>
                 )}
@@ -642,7 +648,7 @@ export default function CampaignCreatePage() {
                   <div className="py-3">
                     <p className="text-xs text-text-secondary mb-0.5">Kategori</p>
                     <p className="text-sm font-medium text-text">
-                      {categories.find((c) => c.slug === formData.category)?.name || '-'}
+                      {(categories ?? []).find((c) => c.slug === formData.category)?.name || '-'}
                     </p>
                   </div>
                   <div className="py-3">

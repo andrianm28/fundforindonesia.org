@@ -42,6 +42,18 @@ export const POST = withHiddenAssignmentCheck(Assignment.ADMIN, async (req: Next
     );
   }
 
-  const category = await prisma.category.create({ data: parsed.value });
-  return NextResponse.json({ category }, { status: 201 });
+  try {
+    const category = await prisma.category.create({ data: parsed.value });
+    return NextResponse.json({ category }, { status: 201 });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return NextResponse.json({ error: 'Slug atau nama kategori sudah dipakai.' }, { status: 409 });
+    }
+    throw error;
+  }
 });
+
+/** A unique-constraint race (Prisma P2002) between the pre-check and the write. */
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002';
+}
