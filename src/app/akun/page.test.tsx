@@ -88,4 +88,13 @@ describe('AkunPage', () => {
     expect(screen.queryByRole('button', { name: 'Admin' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Moderasi' })).toBeNull();
   });
+
+  it('keeps the Terms and Privacy links reachable on mobile, where the footer is hidden', () => {
+    mockUseSession.mockReturnValue(signedIn());
+
+    render(<AkunPage />);
+
+    expect(screen.getByRole('link', { name: /Syarat & Ketentuan/ })).toHaveAttribute('href', '/terms');
+    expect(screen.getByRole('link', { name: 'Kebijakan Privasi' })).toHaveAttribute('href', '/privacy');
+  });
 });

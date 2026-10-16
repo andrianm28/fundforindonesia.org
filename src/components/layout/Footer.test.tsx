@@ -44,3 +44,11 @@ describe('Footer module links', () => {
     expect(screen.getByRole('link', { name: 'Hibah' })).toHaveAttribute('href', '/hibah');
   });
 });
+
+describe('Footer operator', () => {
+  it('names PT Jaya Korpora Prima as the operator (ADR 0009)', () => {
+    render(<Footer />);
+    expect(screen.getByText(/© \d{4} Fund for Indonesia, dioperasikan oleh PT Jaya Korpora Prima/)).toBeDefined();
+    expect(document.body.textContent).not.toMatch(/jutaan|terpercaya/);
+  });
+});

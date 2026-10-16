@@ -24,14 +24,15 @@ export default function HelpPage() {
               <h3 className="font-medium text-text">Bagaimana cara berdonasi?</h3>
               <p className="text-sm text-text-secondary mt-1">
                 Pilih kampanye yang ingin Anda dukung, klik tombol &quot;Donasi Sekarang&quot;,
-                masukkan jumlah donasi, lalu pilih metode pembayaran yang tersedia.
+                masukkan jumlah donasi, lalu bayar dengan QRIS (saat ini satu-satunya metode yang tersedia).
               </p>
             </div>
             <div className="p-4 bg-bg-secondary rounded-md">
               <h3 className="font-medium text-text">Apakah donasi saya aman?</h3>
               <p className="text-sm text-text-secondary mt-1">
-                Ya, semua transaksi diproses melalui gateway pembayaran yang terenkripsi dan
-                tersertifikasi. Dana Anda akan langsung tersalurkan ke kampanye yang dipilih.
+                Semua transaksi diproses melalui penyedia pembayaran berlisensi dengan koneksi
+                terenkripsi. Dana ditahan di Platform dan disalurkan kepada penggalang dana lewat Pencairan Dana
+                setelah melalui peninjauan, tidak langsung tersalurkan saat Anda membayar.
               </p>
             </div>
           </div>
@@ -45,15 +46,15 @@ export default function HelpPage() {
             <div className="p-4 bg-bg-secondary rounded-md">
               <h3 className="font-medium text-text">Bagaimana cara membuat kampanye?</h3>
               <p className="text-sm text-text-secondary mt-1">
-                Anda perlu melakukan verifikasi identitas terlebih dahulu. Setelah terverifikasi,
-                Anda dapat membuat kampanye melalui halaman &quot;Galang Dana&quot; di menu akun Anda.
+                Ajukan kampanye melalui halaman &quot;Galang Dana&quot; di menu akun Anda.
+                Kampanye menyebut lembaga yang menghimpun dananya dan baru tayang setelah ditinjau Verifier.
               </p>
             </div>
             <div className="p-4 bg-bg-secondary rounded-md">
-              <h3 className="font-medium text-text">Berapa lama proses verifikasi?</h3>
+              <h3 className="font-medium text-text">Berapa lama peninjauan kampanye?</h3>
               <p className="text-sm text-text-secondary mt-1">
-                Proses verifikasi identitas biasanya selesai secara instan setelah Anda mengisi
-                data yang diperlukan dengan benar.
+                Setiap kampanye ditinjau oleh Verifier (manusia), jadi tidak instan. Lama
+                peninjauan bergantung pada kelengkapan data dan antrean peninjauan.
               </p>
             </div>
           </div>
