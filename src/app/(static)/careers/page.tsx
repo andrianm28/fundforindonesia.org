@@ -1,11 +1,16 @@
 import { Metadata } from 'next';
+import { prisma } from '@/lib/prisma';
+import { resolveSiteSettingsOrDefaults } from '@/lib/site-settings';
 
 export const metadata: Metadata = {
   title: 'Karir - Fund for Indonesia',
   description: 'Bergabunglah dengan tim Fund for Indonesia dan jadilah bagian dari misi kami untuk membantu sesama.',
 };
 
-export default function CareersPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function CareersPage() {
+  const { pages } = await resolveSiteSettingsOrDefaults(prisma);
   return (
     <article>
       <h1 className="text-2xl font-bold text-text mb-6">Karir</h1>
@@ -34,7 +39,7 @@ export default function CareersPage() {
 
         <p className="text-sm">
           Tertarik? Kirimkan CV dan portfolio Anda ke{' '}
-          <span className="text-primary font-medium">careers@fundforindonesia.org</span>
+          <span className="text-primary font-medium">{pages.careersEmail}</span>
         </p>
       </div>
     </article>

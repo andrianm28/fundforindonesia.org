@@ -104,6 +104,11 @@ import { join } from "node:path";
  * setting here -- growing this list by one. It carries no credential; those are
  * environment variables only.
  *
+ * NOTE (Pengaturan Laman Publik): POST /api/admin/site-settings lets an Admin edit
+ * the public pages' content (contact, social, footer, hero, pages), through
+ * withAssignmentCheck on the ADMIN assignment -- growing this list by one. It
+ * carries no payment or secret setting.
+ *
  * NOTE (csr-04): the Program edit was keyed by id when csr-01 landed, and the
  * public portfolio read needed the same segment for the slug a public link can
  * carry. Next.js allows one dynamic segment per level, so the segment is the
@@ -169,6 +174,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/provider-withdrawals/route.ts",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/scrutiny/route.ts",
+  "src/app/api/admin/site-settings/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",

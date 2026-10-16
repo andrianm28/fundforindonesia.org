@@ -1,5 +1,11 @@
 import { describe, test, expect } from "vitest";
 import * as fc from "fast-check";
+import { vi } from "vitest";
+
+// The About, Press, Careers and Contact pages read their text from the
+// settings table; with nothing stored they show the defaults.
+vi.mock("@/lib/prisma", () => ({ prisma: { siteSetting: { findMany: async () => [] } } }));
+
 
 // Feature: platform-polish, Property 1: Static Pages Accessibility
 // **Validates: Requirements 1.9, 1.10**
@@ -30,10 +36,7 @@ describe("Feature: platform-polish, Property 1: Static Pages Accessibility", () 
           const PageComponent = pageModule.default;
 
           // Render the page component and verify heading text exists
-          const { renderToString } = await import("react-dom/server");
-          const { createElement } = await import("react");
-
-          const html = renderToString(createElement(PageComponent));
+          const html = await renderPage(PageComponent);
 
           // Verify the page renders (non-empty response = HTTP 200 equivalent for SSR)
           expect(html.length).toBeGreaterThan(0);
@@ -58,11 +61,8 @@ describe("Feature: platform-polish, Property 1: Static Pages Accessibility", () 
           expect(typeof PageComponent).toBe("function");
 
           // Render without any session context — should succeed without errors
-          const { renderToString } = await import("react-dom/server");
-          const { createElement } = await import("react");
-
           // If this throws, the page requires auth or has dependencies that fail without session
-          const html = renderToString(createElement(PageComponent));
+          const html = await renderPage(PageComponent);
           expect(html).toContain(page.headingHtml);
         }),
         { numRuns: 50 }
@@ -92,10 +92,7 @@ describe("Feature: platform-polish, Property 1: Static Pages Accessibility", () 
         const pageModule = await importPageModule(page.path);
         const PageComponent = pageModule.default;
 
-        const { renderToString } = await import("react-dom/server");
-        const { createElement } = await import("react");
-
-        const html = renderToString(createElement(PageComponent));
+        const html = await renderPage(PageComponent);
 
         // HTTP 200 equivalent: page renders successfully
         expect(html.length).toBeGreaterThan(0);
@@ -139,4 +136,10 @@ async function importPageModule(path: string): Promise<any> {
 // Helper: escape special regex characters in a string
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Helper: a page is a server component, sync or async; render what it returns.
+async function renderPage(PageComponent: () => unknown): Promise<string> {
+  const { renderToString } = await import("react-dom/server");
+  return renderToString((await PageComponent()) as React.ReactElement);
 }
