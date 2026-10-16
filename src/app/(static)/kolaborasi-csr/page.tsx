@@ -12,7 +12,7 @@ export default function KolaborasiCsrPage() {
     <KindLanding
       title="Kolaborasi CSR"
       intro="Perusahaan dan tim CSR dapat memilih Program yang sudah siap dikerjakan, lengkap dengan masalah, sasaran, lokasi, kegiatan, anggaran, jadwal, dan KPI, tanpa menunggu proposal dibuat dari nol."
-      status="Portofolio Program sudah terbuka. Program tidak menerima sumbangan daring: kerja samanya dibicarakan langsung dengan tim kemitraan kami lewat tombol Diskusikan di halaman setiap Program."
+      status="Portofolio Program sudah terbuka. Program tidak menerima sumbangan daring: kerja samanya dibicarakan langsung dengan tim kemitraan kami lewat tombol “Discuss with Our Team” di halaman setiap Program."
       sections={[
         {
           heading: 'Empat sektor',
