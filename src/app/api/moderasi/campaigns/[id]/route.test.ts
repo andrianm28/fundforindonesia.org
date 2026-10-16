@@ -139,16 +139,13 @@ describe('PATCH /api/moderasi/campaigns/[id]', () => {
     expect(state.db.verificationRequests[0].outcome).toBe('PENDING');
   });
 
-  it("answers a missing Verifier assignment with the command's Indonesian refusal, not a bare Forbidden", async () => {
+  it('answers 404 to anyone without the Verifier assignment, the same as a route that does not exist (ticket 90)', async () => {
     mockSession.mockResolvedValue({ user: { id: 'admin-1', assignments: ['ADMIN'] } });
 
     const response = await patch({ action: 'approve', requestId: 'verification-1' });
 
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({
-      error: 'Hanya Verifier yang dapat menyetujui atau menolak Campaign.',
-      code: 'NOT_AUTHORIZED',
-    });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Not Found' });
     expect(state.db.statusChanges).toEqual([]);
   });
 

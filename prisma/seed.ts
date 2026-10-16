@@ -73,7 +73,6 @@ const CATEGORIES = [
   { name: 'Panti Asuhan', slug: 'panti-asuhan', icon: '🏠', order: 5 },
   { name: 'Infrastruktur', slug: 'infrastruktur', icon: '🏗️', order: 6 },
   { name: 'Kemanusiaan', slug: 'kemanusiaan', icon: '🤝', order: 7 },
-  { name: 'Zakat', slug: 'zakat', icon: '🌙', order: 8 },
 ];
 
 // seededAs says what the seed does with each user (which assignments it
@@ -137,9 +136,6 @@ const CAMPAIGNS_DATA = [
   { title: 'Paket Sembako untuk 1000 Keluarga Miskin', category: 'kemanusiaan', target: 400000000, collected: 287000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 22, deadlineDays: 38 },
   { title: 'Bantuan untuk Pengungsi Rohingya di Aceh', category: 'kemanusiaan', target: 600000000, collected: 423000000, isUrgent: true, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 9, deadlineDays: 21 },
   { title: 'Dapur Umum Ramadan untuk Duafa', category: 'kemanusiaan', target: 100000000, collected: 100000000, isUrgent: false, lifecycleStatus: CampaignStatus.COMPLETED, daysOld: 70, deadlineDays: -10 },
-  // Zakat (2)
-  { title: 'Zakat Fitrah untuk Mustahik Sekitar Kita', category: 'zakat', target: 200000000, collected: 156000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 5, deadlineDays: 25 },
-  { title: 'Zakat Maal - Berdayakan Ekonomi Umat', category: 'zakat', target: 500000000, collected: 312000000, isUrgent: false, lifecycleStatus: CampaignStatus.ACTIVE, daysOld: 30, deadlineDays: 60 },
 ];
 
 const STORIES = [
@@ -312,8 +308,7 @@ async function main() {
         targetAmount: campaignData.target,
         collectedAmount: campaignData.collected,
         category: campaignData.category,
-        // The zakat-themed samples are zakat Campaigns; the rest are donations.
-        kind: campaignData.category === 'zakat' ? Kind.ZAKAT : Kind.DONATION,
+        kind: Kind.DONATION,
         lifecycleStatus: campaignData.lifecycleStatus,
         isUrgent: campaignData.isUrgent,
         deadline: campaignData.deadlineDays > 0 ? daysFromNow(campaignData.deadlineDays) : daysAgo(Math.abs(campaignData.deadlineDays)),
@@ -527,7 +522,7 @@ async function main() {
 
   // 9. Seed Auto Donations (4+)
   console.log('🔄 Creating auto donation settings...');
-  const autoDonationCategories = ['bencana-alam', 'bantuan-medis', 'kemanusiaan', 'zakat'];
+  const autoDonationCategories = ['bencana-alam', 'bantuan-medis', 'kemanusiaan'];
   let autoDonationCount = 0;
 
   for (let i = 0; i < 4; i++) {

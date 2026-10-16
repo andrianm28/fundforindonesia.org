@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Assignment } from '@/generated/prisma/client';
 import { getServerSession } from '@/lib/auth';
-import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { prisma } from '@/lib/prisma';
 import { domainErrorToHttp } from '@/lib/domain-errors';
 import { recordProviderWithdrawal } from '@/lib/money/provider-withdrawals';
@@ -33,7 +33,7 @@ import { recordProviderWithdrawal } from '@/lib/money/provider-withdrawals';
  * person, so there is nobody for a second pair of hands to protect it from. That
  * is a judgement, not a default -- see the ticket's Comments.
  */
-export const POST = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest) => {
+export const POST = withHiddenAssignmentCheck(Assignment.ADMIN, async (req: NextRequest) => {
   const session = await getServerSession();
   // From the session, never from the body: a sweep of the platform's own money
   // that named its own author would be a record nobody can audit.

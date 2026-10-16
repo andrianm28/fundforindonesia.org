@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Assignment } from '@/generated/prisma/client';
-import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { prisma } from '@/lib/prisma';
 import { activeCampaignCountsByFundraiser, resolveAbuseThresholds } from '@/lib/abuse-thresholds';
 
@@ -32,7 +32,7 @@ const LIST_LIMIT = 100;
  *
  * ADMIN only.
  */
-export const GET = withAssignmentCheck(Assignment.ADMIN, async () => {
+export const GET = withHiddenAssignmentCheck(Assignment.ADMIN, async () => {
   const now = new Date();
   const [thresholds, auditMarkers, donationReviewMarkers, activeCounts] = await Promise.all([
     resolveAbuseThresholds(prisma),

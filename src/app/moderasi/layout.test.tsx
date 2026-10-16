@@ -7,8 +7,8 @@ vi.mock("@/lib/auth", () => ({
 const nav = vi.hoisted(() => ({ pathname: "/moderasi" }));
 vi.mock("next/navigation", () => ({
   usePathname: () => nav.pathname,
-  redirect: vi.fn((url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
   }),
 }));
 
@@ -23,14 +23,14 @@ describe("ModerasiLayout", () => {
     vi.clearAllMocks();
   });
 
-  it("redirects home when unauthenticated", async () => {
+  it("answers 404 when unauthenticated", async () => {
     mockGetServerSession.mockResolvedValue(null);
-    await expect(ModerasiLayout({ children: null })).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(ModerasiLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("redirects home for an ADMIN-ranked user who does not hold the Verifier assignment", async () => {
+  it("answers 404 for an ADMIN-ranked user who does not hold the Verifier assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: [] } });
-    await expect(ModerasiLayout({ children: null })).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(ModerasiLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
   it("renders for a user who holds the Verifier assignment", async () => {

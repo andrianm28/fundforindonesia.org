@@ -42,17 +42,17 @@ describe("GET /api/admin/users", () => {
     expect(mockFindMany).not.toHaveBeenCalled();
   });
 
-  it("returns 403 for a Verifier who does not hold the Admin assignment", async () => {
+  it("returns 404 for a Verifier who does not hold the Admin assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "mod-1", assignments: ["VERIFIER"] } });
     const response = await GET(createRequest());
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
     expect(mockFindMany).not.toHaveBeenCalled();
   });
 
-  it("returns 403 for a user who does not hold the ADMIN assignment", async () => {
+  it("returns 404 for a user who does not hold the ADMIN assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "someone-1", assignments: [] } });
     const response = await GET(createRequest());
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
     expect(mockFindMany).not.toHaveBeenCalled();
   });
 

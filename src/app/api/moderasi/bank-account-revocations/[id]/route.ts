@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
-import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { reinstateBankAccountVerification, revokeBankAccountVerification } from "@/lib/bank-account-verification";
@@ -16,7 +16,7 @@ import { refusalResponse } from "@/lib/refusal-response";
  * verified/revoked it, the account's current state) is enforced in
  * `src/lib/bank-account-verification.ts`, not here.
  */
-export const POST = withAssignmentCheck(
+export const POST = withHiddenAssignmentCheck(
   Assignment.VERIFIER,
   async (req: NextRequest, context?: { params?: Promise<{ id: string }> }) => {
     const session = await getServerSession();

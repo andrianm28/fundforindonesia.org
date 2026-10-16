@@ -17,7 +17,7 @@ type MiddlewareAssignment = "ADMIN" | "VERIFIER";
  * Runs the middleware for a signed-in user holding these assignments (the
  * session token carries them; see src/lib/auth.ts). The token carries no
  * Role: the Role hierarchy is retired (ADR 0005).
- * Returns: "allow" | "redirect:/"
+ * Returns: "allow" | "not-found" | "redirect:<path>"
  */
 function checkRouteAccess(pathname: string, assignments: MiddlewareAssignment[] = []): string {
   const req = new NextRequest(`http://localhost:3000${pathname}`) as NextRequest & {
@@ -25,6 +25,7 @@ function checkRouteAccess(pathname: string, assignments: MiddlewareAssignment[] 
   };
   req.nextauth = { token: { assignments } };
   const response = (proxy as unknown as (r: NextRequest) => Response)(req);
+  if (response.status === 404) return "not-found";
   const location = response.headers.get("location");
   return location ? `redirect:${new URL(location).pathname}` : "allow";
 }
@@ -32,9 +33,9 @@ function checkRouteAccess(pathname: string, assignments: MiddlewareAssignment[] 
 describe("Route Protection Integration Tests", () => {
   describe("a signed-in user with no assignment", () => {
     it.each(["/admin", "/admin/users", "/admin/campaigns", "/moderasi", "/moderasi/campaigns", "/moderasi/reports"])(
-      "is sent home from %s",
+      "gets a 404 from %s (ticket 90)",
       (path) => {
-        expect(checkRouteAccess(path)).toBe("redirect:/");
+        expect(checkRouteAccess(path)).toBe("not-found");
       },
     );
 
@@ -51,8 +52,8 @@ describe("Route Protection Integration Tests", () => {
       expect(checkRouteAccess(path, ["VERIFIER"])).toBe("allow");
     });
 
-    it.each(["/admin", "/admin/users"])("is sent home from %s", (path) => {
-      expect(checkRouteAccess(path, ["VERIFIER"])).toBe("redirect:/");
+    it.each(["/admin", "/admin/users"])("gets a 404 from %s (ticket 90)", (path) => {
+      expect(checkRouteAccess(path, ["VERIFIER"])).toBe("not-found");
     });
   });
 
@@ -61,8 +62,8 @@ describe("Route Protection Integration Tests", () => {
       expect(checkRouteAccess(path, ["ADMIN"])).toBe("allow");
     });
 
-    it("without VERIFIER is sent home from /moderasi", () => {
-      expect(checkRouteAccess("/moderasi", ["ADMIN"])).toBe("redirect:/");
+    it("without VERIFIER gets a 404 from /moderasi (ticket 90)", () => {
+      expect(checkRouteAccess("/moderasi", ["ADMIN"])).toBe("not-found");
     });
 
     it("with VERIFIER as well may open /moderasi/campaigns", () => {

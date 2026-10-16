@@ -3,6 +3,8 @@ import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { refusalResponse } from '@/lib/refusal-response';
 import { liftTripSuspension, suspendTrip } from '@/lib/volunteer/trip';
+import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { Assignment } from '@/generated/prisma/client';
 
 /**
  * Suspension of a Volunteer Trip as a resource, like a Campaign's
@@ -45,5 +47,9 @@ function handle(command: typeof suspendTrip | typeof liftTripSuspension) {
   };
 }
 
-export const POST = handle(suspendTrip);
-export const DELETE = handle(liftTripSuspension);
+// Anyone without the ADMIN assignment gets the Admin APIs' 404 before the Trip
+// is looked up (ticket 90), so a Trip id is not confirmed to exist. Who may
+// suspend or lift (never on your own Trip, never the imposing Admin's lift)
+// stays the module's.
+export const POST = withHiddenAssignmentCheck(Assignment.ADMIN, handle(suspendTrip));
+export const DELETE = withHiddenAssignmentCheck(Assignment.ADMIN, handle(liftTripSuspension));

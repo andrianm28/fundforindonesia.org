@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
 import { getServerSession } from "@/lib/auth";
-import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { refusalResponse } from "@/lib/refusal-response";
 
 /**
  * Wraps a Verifier's Partner Organisation register handler (prd-compliance
- * 10): only a VERIFIER assignment holder gets through (401 or 403
+ * 10): only a VERIFIER assignment holder gets through (401 or 404
  * otherwise); the handler receives the acting Verifier's id, the route
  * params and the parsed JSON body (400 if a body it reads is not a JSON
  * object); typed refusals answer through `refusalResponse`.
@@ -19,7 +19,7 @@ export function partnerOrganisationRoute(
   }) => Promise<NextResponse>,
   options: { readsBody: boolean } = { readsBody: true }
 ) {
-  return withAssignmentCheck(
+  return withHiddenAssignmentCheck(
     Assignment.VERIFIER,
     async (req: NextRequest, context?: { params?: Promise<Record<string, string>> }) => {
       const session = await getServerSession();

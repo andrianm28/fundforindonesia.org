@@ -198,7 +198,7 @@ describe('recordFundraisingPermit', () => {
   const PERMIT = {
     number: ' 123/PUB/2026 ',
     issuer: 'Kementerian Sosial',
-    kinds: ['DONATION', 'ZAKAT'],
+    kinds: ['DONATION', 'WAKAF'],
     validFrom: '2026-01-01T00:00:00.000Z',
     validTo: '2026-12-31T16:59:59.999Z',
   };
@@ -219,7 +219,7 @@ describe('recordFundraisingPermit', () => {
         partnerOrganisationId: 'partner-1',
         number: '123/PUB/2026',
         issuer: 'Kementerian Sosial',
-        kinds: ['DONATION', 'ZAKAT'],
+        kinds: ['DONATION', 'WAKAF'],
         validFrom: new Date('2026-01-01T00:00:00.000Z'),
         validTo: new Date('2026-12-31T16:59:59.999Z'),
         recordedById: 'verifier-2',
@@ -235,7 +235,7 @@ describe('recordFundraisingPermit', () => {
         after: {
           number: '123/PUB/2026',
           issuer: 'Kementerian Sosial',
-          kinds: ['DONATION', 'ZAKAT'],
+          kinds: ['DONATION', 'WAKAF'],
           validFrom: '2026-01-01T00:00:00.000Z',
           validTo: '2026-12-31T16:59:59.999Z',
         },
@@ -331,8 +331,8 @@ describe('updateFundraisingPermit', () => {
 
 describe('grantKindAuthorisation', () => {
   const AUTHORISATION_PARAMS = {
-    kind: 'ZAKAT',
-    documentReference: ' SK Pengukuhan Amil Zakat 001/2026 ',
+    kind: 'WAKAF',
+    documentReference: ' SK Pengukuhan Nazhir 001/2026 ',
     validFrom: '2026-01-01T00:00:00.000Z',
     validTo: '2026-12-31T16:59:59.999Z',
   };
@@ -351,8 +351,8 @@ describe('grantKindAuthorisation', () => {
       {
         id: authorisation.id,
         partnerOrganisationId: 'partner-1',
-        kind: 'ZAKAT',
-        documentReference: 'SK Pengukuhan Amil Zakat 001/2026',
+        kind: 'WAKAF',
+        documentReference: 'SK Pengukuhan Nazhir 001/2026',
         validFrom: new Date('2026-01-01T00:00:00.000Z'),
         validTo: new Date('2026-12-31T16:59:59.999Z'),
         grantedById: 'verifier-2',
@@ -367,8 +367,8 @@ describe('grantKindAuthorisation', () => {
         action: 'KIND_AUTHORISATION_GRANTED',
         before: null,
         after: {
-          kind: 'ZAKAT',
-          documentReference: 'SK Pengukuhan Amil Zakat 001/2026',
+          kind: 'WAKAF',
+          documentReference: 'SK Pengukuhan Nazhir 001/2026',
           validFrom: '2026-01-01T00:00:00.000Z',
           validTo: '2026-12-31T16:59:59.999Z',
         },
@@ -486,7 +486,7 @@ describe('updateKindAuthorisation', () => {
       actorId: 'verifier-2',
       organisationId: 'partner-1',
       kindAuthorisationId: 'kind-authorisation-1',
-      changes: { kind: 'ZAKAT' },
+      changes: { kind: 'WAKAF' },
       now: NOW,
     });
 

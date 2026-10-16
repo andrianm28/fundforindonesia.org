@@ -19,6 +19,7 @@ vi.mock('@/lib/prisma', () => ({
     chargeWriteFailure: { create: vi.fn() },
     platformFeeRule: { findFirst: vi.fn().mockResolvedValue(null) },
     platformFeeThreshold: { findFirst: vi.fn().mockResolvedValue(null) },
+    escrowHoldSetting: { findFirst: vi.fn().mockResolvedValue(null) },
   },
 }));
 

@@ -2,9 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vite
 
 vi.mock("@/lib/auth", () => ({ getServerSession: vi.fn() }));
 vi.mock("next/navigation", () => ({
-  redirect: vi.fn((url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
-  }),
   notFound: vi.fn(() => {
     throw new Error("NEXT_NOT_FOUND");
   }),
@@ -63,9 +60,9 @@ describe("ModerasiVolunteerTripPage", () => {
     expect(dynamic).toBe("force-dynamic");
   });
 
-  it("redirects home without the VERIFIER assignment", async () => {
+  it("answers 404 without the VERIFIER assignment", async () => {
     mockSession.mockResolvedValue({ user: { id: "a", assignments: [] } });
-    await expect(renderPage()).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(renderPage()).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
   it("is not found for an unknown Trip", async () => {

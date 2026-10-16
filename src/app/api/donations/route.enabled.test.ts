@@ -30,6 +30,7 @@ vi.mock('@/lib/prisma', () => ({
     prayer: { create: vi.fn() },
     platformFeeRule: { findFirst: vi.fn() },
     platformFeeThreshold: { findFirst: vi.fn() },
+    escrowHoldSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn(),
   },
 }));
@@ -556,8 +557,8 @@ describe('POST /api/donations Guest Donor contact details (prd-compliance 18)', 
 });
 
 describe('POST /api/donations minimum amount (prd-compliance 18)', () => {
-  it('refuses an amount below Rp20.000', async () => {
-    const response = await POST(createRequest({ ...QRIS_BODY, amount: 19_999 }));
+  it('refuses an amount below Rp1.000', async () => {
+    const response = await POST(createRequest({ ...QRIS_BODY, amount: 999 }));
     const data = await response.json();
 
     expect(response.status).toBe(400);
@@ -565,8 +566,8 @@ describe('POST /api/donations minimum amount (prd-compliance 18)', () => {
     expect(mockDonationCreate).not.toHaveBeenCalled();
   });
 
-  it('accepts exactly Rp20.000', async () => {
-    const response = await POST(createRequest({ ...QRIS_BODY, amount: 20_000 }));
+  it('accepts exactly Rp1.000', async () => {
+    const response = await POST(createRequest({ ...QRIS_BODY, amount: 1_000 }));
 
     expect(response.status).toBe(201);
   });
@@ -578,6 +579,16 @@ describe('POST /api/donations freezes the Escrow Hold duration (prd-compliance 1
 
     expect(mockPaymentCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ escrowHoldDays: 7 }),
+    });
+  });
+
+  it('freezes the Admin-set default instead when one exists (ticket 90)', async () => {
+    (prisma.escrowHoldSetting.findFirst as unknown as Mock).mockResolvedValueOnce({ days: 12 });
+
+    await POST(createRequest(QRIS_BODY));
+
+    expect(mockPaymentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ escrowHoldDays: 12 }),
     });
   });
 });

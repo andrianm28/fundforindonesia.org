@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
 import { Assignment } from "@/generated/prisma/client";
@@ -12,8 +12,10 @@ export default async function AdminLayout({
   const session = await getServerSession();
 
   // Admin power comes only from the ADMIN assignment, never the Role (ADR 0005).
+  // Anyone else gets a 404, the same as a page that does not exist (ticket 90),
+  // so the Admin panel's pages are not revealed to them.
   if (!session?.user || !hasAssignment(session.user.assignments, Assignment.ADMIN)) {
-    redirect("/");
+    notFound();
   }
 
   return (

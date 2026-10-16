@@ -35,10 +35,10 @@ describe('GET /api/moderasi/volunteer-trips', () => {
     expect(response.status).toBe(401);
   });
 
-  it('returns 403 for a user without the VERIFIER assignment', async () => {
+  it('returns 404 for a user without the VERIFIER assignment', async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: 'user-2', assignments: [] } });
     const response = await GET(listRequest());
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
   });
 
   it('queries only SUBMITTED trips', async () => {
