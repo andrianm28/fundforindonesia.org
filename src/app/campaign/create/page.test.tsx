@@ -163,13 +163,18 @@ describe('CampaignCreatePage review step', () => {
     expect(calls.filter((c) => c.url.endsWith('/verification-requests'))).toHaveLength(2);
   });
 
+  it('does not offer Zakat as a Kind (out of scope since 2026-10-16)', () => {
+    render(<CampaignCreatePage />);
+    expect(screen.queryByRole('option', { name: 'Zakat' })).toBeNull();
+  });
+
   it('sends the Kind the Fundraiser chose', async () => {
-    await fillInToReview({ kind: 'ZAKAT' });
+    await fillInToReview({ kind: 'WAKAF' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
 
     await waitFor(() => expect(mockPush).toHaveBeenCalled());
-    expect(calls.find((c) => c.url === '/api/campaigns')?.body).toMatchObject({ kind: 'ZAKAT' });
+    expect(calls.find((c) => c.url === '/api/campaigns')?.body).toMatchObject({ kind: 'WAKAF' });
   });
 
   it('offers Hibah as a Kind choice, labelled in Indonesian (CONTEXT.md, Kind), and sends it', async () => {

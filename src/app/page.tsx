@@ -38,11 +38,6 @@ const heroBannerSlides = [
     cta: { label: 'Donasi Sekarang', href: '/explore/all' },
   },
   {
-    image: '/images/hero/banner-2.jpg',
-    headline: 'Zakat lebih mudah dan terpercaya di Fund for Indonesia',
-    cta: { label: 'Bayar Zakat', href: '/zakat' },
-  },
-  {
     image: '/images/hero/banner-3.jpg',
     headline: 'Galang dana untuk kebaikan bersama Fund for Indonesia',
     cta: { label: 'Galang Dana', href: '/campaign/create' },
