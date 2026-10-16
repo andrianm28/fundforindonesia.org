@@ -23,10 +23,14 @@ test.describe('Escrow Hold setting', () => {
     expect(res.status()).toBe(404);
   });
 
-  test('an anonymous visitor to the Admin panel gets a 404', async ({ page }) => {
-    const response = await page.goto('/admin/escrow-hold');
+  test('an anonymous visitor to the Admin panel gets the not-found view, not the panel', async ({ page }) => {
+    // Streamed routes answer 200 before notFound() throws (see
+    // privileged-not-found.spec.ts), so what shows non-Admins a 404 is the
+    // noindex not-found view and the absence of the panel.
+    await page.goto('/admin/escrow-hold');
 
-    expect(response?.status()).toBe(404);
+    await expect(page.locator('meta[name="robots"]').first()).toHaveAttribute('content', /noindex/);
     await expect(page.getByRole('heading', { name: 'Escrow Hold' })).toHaveCount(0);
+    await expect(page.getByText('Lama yang berlaku')).toHaveCount(0);
   });
 });
