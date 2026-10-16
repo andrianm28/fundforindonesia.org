@@ -19,7 +19,6 @@ const PUBLIC_LISTINGS: Record<string, 'listableCampaignWhere' | 'sitemapCampaign
   'src/app/page.tsx': 'listableCampaignWhere',
   'src/app/explore/[category]/page.tsx': 'listableCampaignWhere',
   'src/app/api/campaigns/route.ts': 'listableCampaignWhere',
-  'src/app/api/zakat/campaigns/route.ts': 'listableCampaignWhere',
   'src/app/sitemap.ts': 'sitemapCampaignWhere',
 };
 

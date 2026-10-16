@@ -158,6 +158,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/campaign-transfers/[id]/decision/route.ts",
   "src/app/api/admin/campaign-transfers/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
+  "src/app/api/admin/escrow-hold/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
   "src/app/api/admin/manual-contributions/route.ts",
   "src/app/api/admin/partnership-inquiries/[id]/route.ts",
@@ -383,7 +384,15 @@ describe("roles expand scope", () => {
       file.endsWith("/route.ts")
     );
     expect(routes.length).toBeGreaterThan(30);
-    const offenders = routes.filter((file) => !HIDDEN.test(readFileSync(file, "utf8")));
+    // escrow-hold (ticket 90 itself) answers 404 to the signed-out as well,
+    // by its own check, so not even the 401 reveals the setting.
+    const OWN_404 = ["src/app/api/admin/escrow-hold/route.ts"];
+    const offenders = routes
+      .filter((file) => !OWN_404.includes(file))
+      .filter((file) => !HIDDEN.test(readFileSync(file, "utf8")));
+    for (const file of OWN_404) {
+      expect(readFileSync(file, "utf8")).toMatch(/status: 404/);
+    }
     expect(offenders).toEqual([]);
 
     for (const wrapper of ["src/lib/partner-organisation-route.ts", "src/lib/verification-checklist-route.ts"]) {

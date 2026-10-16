@@ -396,14 +396,14 @@ export function fundraisingPermitRow(overrides: Partial<FundraisingPermitRow> = 
 }
 
 /**
- * A Kind Authorisation of `partner-1` for zakat, covering 2020 through 2099.
+ * A Kind Authorisation of `partner-1` for wakaf, covering 2020 through 2099.
  */
 export function kindAuthorisationRow(overrides: Partial<KindAuthorisationRow> = {}): KindAuthorisationRow {
   return {
     id: 'kind-authorisation-1',
     partnerOrganisationId: 'partner-1',
-    kind: 'ZAKAT',
-    documentReference: 'SK Pengukuhan Amil Zakat 001/2026',
+    kind: 'WAKAF',
+    documentReference: 'SK Pengukuhan Nazhir 001/2026',
     validFrom: new Date('2020-01-01T00:00:00Z'),
     validTo: new Date('2099-12-31T23:59:59Z'),
     grantedById: 'verifier-1',
@@ -1164,6 +1164,7 @@ export function makeCampaignDb(
       platformFeeRule: {
         findFirst: async () => null,
       },
+      escrowHoldSetting: { findFirst: async () => null },
       platformFeeThreshold: {
         findFirst: async () => null,
       },

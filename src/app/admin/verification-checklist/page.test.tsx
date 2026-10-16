@@ -11,7 +11,7 @@ import AdminChecklistPage from './page';
 const ITEMS = [
   { id: 'a', label: 'KTP Fundraiser', required: true, position: 1, active: true, kind: null },
   { id: 'b', label: 'Rencana anggaran', required: false, position: 2, active: true, kind: null },
-  { id: 'c', label: 'Bukti lama', required: true, position: 3, active: false, kind: 'ZAKAT' },
+  { id: 'c', label: 'Bukti lama', required: true, position: 3, active: false, kind: 'WAKAF' },
 ];
 
 function jsonResponse(body: unknown, ok = true) {
@@ -84,17 +84,17 @@ describe('AdminChecklistPage', () => {
     const rows = screen.getAllByRole('listitem');
     expect(within(rows[0]).getByText('Semua', { selector: 'span' })).toBeTruthy();
     expect(within(rows[1]).getByText('Semua', { selector: 'span' })).toBeTruthy();
-    expect(within(rows[2]).getByText('Zakat', { selector: 'span' })).toBeTruthy();
+    expect(within(rows[2]).getByText('Wakaf', { selector: 'span' })).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText('Item baru'), { target: { value: 'Dokumen lembaga amil' } });
-    fireEvent.change(screen.getByLabelText('Cakupan Kind item baru'), { target: { value: 'ZAKAT' } });
+    fireEvent.change(screen.getByLabelText('Cakupan Kind item baru'), { target: { value: 'WAKAF' } });
     fireEvent.click(screen.getByRole('button', { name: 'Tambah item' }));
 
     await waitFor(() => expect(callsTo('/api/admin/verification-checklist')).toHaveLength(1));
     expect(JSON.parse(callsTo('/api/admin/verification-checklist')[0][1].body)).toEqual({
       label: 'Dokumen lembaga amil',
       required: true,
-      kind: 'ZAKAT',
+      kind: 'WAKAF',
     });
   });
 

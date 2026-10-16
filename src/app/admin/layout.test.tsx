@@ -24,17 +24,17 @@ describe("AdminLayout", () => {
     vi.clearAllMocks();
   });
 
-  it("answers 404 when unauthenticated", async () => {
+  it("is not found when unauthenticated", async () => {
     mockGetServerSession.mockResolvedValue(null);
     await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("answers 404 for someone with the ADMIN Role but not the ADMIN assignment", async () => {
+  it("is not found for someone with the ADMIN Role but not the ADMIN assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: [] } });
     await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("answers 404 for a Verifier: the VERIFIER assignment is not Admin", async () => {
+  it("is not found for a Verifier: the VERIFIER assignment is not Admin", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "ver-1", assignments: ["VERIFIER"] } });
     await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
   });

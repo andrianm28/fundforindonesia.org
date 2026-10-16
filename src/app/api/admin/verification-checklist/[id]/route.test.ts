@@ -61,8 +61,8 @@ describe('/api/admin/verification-checklist/[id]', () => {
   });
 
   it('PATCH scopes an item to one Kind and back to general, refusing an unknown Kind', async () => {
-    expect((await patch('b', { kind: 'ZAKAT' })).status).toBe(200);
-    expect(state.db.checklistItems.find((i) => i.id === 'b')).toMatchObject({ kind: 'ZAKAT' });
+    expect((await patch('b', { kind: 'WAKAF' })).status).toBe(200);
+    expect(state.db.checklistItems.find((i) => i.id === 'b')).toMatchObject({ kind: 'WAKAF' });
 
     expect((await patch('b', { kind: null })).status).toBe(200);
     expect(state.db.checklistItems.find((i) => i.id === 'b')).toMatchObject({ kind: null });

@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic';
  * it are the "who and when".
  */
 
-const KINDS: Kind[] = ['DONATION', 'ZAKAT', 'WAKAF', 'HIBAH'];
+const KINDS: Kind[] = ['DONATION', 'WAKAF', 'HIBAH'];
 
 function formatPercent(percentBps: number): string {
   return `${(percentBps / 100).toLocaleString('id-ID', { maximumFractionDigits: 2 })}%`;

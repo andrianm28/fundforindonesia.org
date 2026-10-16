@@ -528,7 +528,7 @@ describe('POST /api/campaigns', () => {
       expect(mockCreate.mock.calls[0][0]).toMatchObject({ data: { kind: 'DONATION' } });
     });
 
-    it.each(['ZAKAT', 'WAKAF', 'HIBAH'])(
+    it.each(['WAKAF', 'HIBAH'])(
       'creates a %s Campaign for an organisation\'s linked account, carrying its Kind',
       async (kind) => {
         mockOrganisationFindUnique.mockResolvedValue({
@@ -545,7 +545,7 @@ describe('POST /api/campaigns', () => {
       }
     );
 
-    it.each(['ZAKAT', 'WAKAF', 'HIBAH'])(
+    it.each(['WAKAF', 'HIBAH'])(
       'refuses a %s Campaign for an individual Fundraiser (CONTEXT.md, Kind Authorisation), writing nothing',
       async (kind) => {
         mockOrganisationFindUnique.mockResolvedValue(null);
@@ -576,7 +576,7 @@ describe('POST /api/campaigns', () => {
       expect(mockCreate).not.toHaveBeenCalled();
     });
 
-    it.each(['DONATION', 'ZAKAT', 'HIBAH'])('refuses a %s Campaign without a deadline', async (kind) => {
+    it.each(['DONATION', 'HIBAH'])('refuses a %s Campaign without a deadline', async (kind) => {
       const withoutDeadline: Record<string, unknown> = { ...validBody };
       delete withoutDeadline.deadline;
 
@@ -584,7 +584,7 @@ describe('POST /api/campaigns', () => {
 
       expect(response.status).toBe(400);
       expect((await response.json()).fieldErrors).toEqual({
-        deadline: ['Tenggat wajib diisi untuk Campaign ber-Kind ' + { DONATION: 'Donasi', ZAKAT: 'Zakat', HIBAH: 'Hibah' }[kind] + '.'],
+        deadline: ['Tenggat wajib diisi untuk Campaign ber-Kind ' + { DONATION: 'Donasi', HIBAH: 'Hibah' }[kind] + '.'],
       });
       expect(mockCreate).not.toHaveBeenCalled();
     });

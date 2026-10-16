@@ -45,12 +45,12 @@ describe('AdminPlatformFeeForm', () => {
     render(<AdminPlatformFeeForm />);
 
     fireEvent.change(screen.getByLabelText(/^Yang diubah/i), { target: { value: 'KIND' } });
-    fireEvent.change(screen.getByLabelText(/^Kind/i), { target: { value: 'ZAKAT' } });
+    fireEvent.change(screen.getByLabelText(/^Kind/i), { target: { value: 'WAKAF' } });
     fireEvent.change(screen.getByLabelText(/^Persen/i), { target: { value: '2,5' } });
     fireEvent.click(screen.getByRole('button', { name: /simpan/i }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(postedBody(fetchMock)).toEqual({ target: 'rule', scope: 'KIND', kind: 'ZAKAT', percentBps: 250 });
+    expect(postedBody(fetchMock)).toEqual({ target: 'rule', scope: 'KIND', kind: 'WAKAF', percentBps: 250 });
     expect(await screen.findByRole('status')).toBeDefined();
     expect(mockRefresh).toHaveBeenCalled();
   });

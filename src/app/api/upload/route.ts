@@ -3,13 +3,13 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { getServerSession } from '@/lib/auth';
 import { guardRoute } from '@/lib/rate-limit-guard';
+import { UPLOAD_DIR } from '@/lib/uploads';
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 export const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 /** Uploads per account per hour. */
 const UPLOAD_LIMIT = 30;
 const UPLOAD_WINDOW_SECONDS = 60 * 60;
-const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
 
 const MIME_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',

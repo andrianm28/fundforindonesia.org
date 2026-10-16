@@ -28,9 +28,10 @@ export default function HibahPage() {
           heading: 'Aturan dana',
           body: (
             <p>
-              Biaya platform untuk hibah nol secara bawaan. Pengembalian dana hanya untuk kesalahan
-              pembayaran, pembayaran ganda, atau dana yang masuk setelah Campaign ditutup. Bila sebuah
-              Campaign hibah ditangguhkan, dananya dialihkan ke Campaign hibah lain, bukan dikembalikan.
+              Aturan berikut masih sementara dan dapat berubah setelah tinjauan penasihat syariah. Biaya
+              platform untuk hibah nol secara bawaan. Pengembalian dana hanya untuk kesalahan pembayaran,
+              pembayaran ganda, atau dana yang masuk setelah Campaign ditutup. Bila sebuah Campaign hibah
+              ditangguhkan, dananya dialihkan ke Campaign hibah lain, bukan dikembalikan.
             </p>
           ),
         },
