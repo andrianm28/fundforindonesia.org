@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
-import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
 import { refusalResponse } from '@/lib/refusal-response';
 import { rejectPayout } from '@/lib/money/payouts';
@@ -17,7 +17,7 @@ import { rejectPayout } from '@/lib/money/payouts';
  * through refusalResponse: 409 (INVALID_PAYOUT_STATUS) for any other status
  * or a lost race, 400 (PAYOUT_REASON_INVALID) for a blank or long reason.
  */
-export const POST = withAssignmentCheck(
+export const POST = withHiddenAssignmentCheck(
   Assignment.ADMIN,
   async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params;

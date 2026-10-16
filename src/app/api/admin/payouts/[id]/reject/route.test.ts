@@ -39,12 +39,12 @@ describe('POST /api/admin/payouts/[id]/reject', () => {
     mockAction.mockResolvedValue({ id: 'payout-1', amount: 500_000, status: 'REJECTED', rejectionReason: 'Alasan' });
   });
 
-  it('answers 401 with no session and 403 without the ADMIN assignment', async () => {
+  it('answers 401 with no session and 404 without the ADMIN assignment (ticket 90)', async () => {
     mockSession.mockResolvedValue(null);
     expect((await post({ reason: 'x' })).status).toBe(401);
 
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
-    expect((await post({ reason: 'x' })).status).toBe(403);
+    expect((await post({ reason: 'x' })).status).toBe(404);
 
     expect(mockAction).not.toHaveBeenCalled();
   });
