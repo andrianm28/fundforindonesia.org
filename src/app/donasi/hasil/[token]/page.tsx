@@ -31,7 +31,7 @@ const COPY: Record<PaymentResultState, { title: string; body: string; tone: 'wai
   },
   berhasil: {
     title: 'Pembayaran berhasil',
-    body: 'Terima kasih, donasi Anda sudah kami terima. Bukti donasi juga dikirim ke email Anda.',
+    body: 'Terima kasih, donasi Anda sudah kami terima. Bukti donasi dikirim ke email Anda.',
     tone: 'good',
   },
   gagal: {
@@ -81,8 +81,10 @@ export default async function PaymentResultPage({ params, searchParams }: Paymen
       paymentStatus: true,
       donorId: true,
       campaign: { select: { title: true, slug: true } },
-      receipt: { select: { token: true } },
-      payments: { select: { status: true, expiresAt: true, redirectUrl: true, createdAt: true } },
+      // No Receipt token: it never expires and the Receipt names the Donor, so
+      // linking it would let this short-lived link open lasting Donor data.
+      // The Receipt reaches the Donor by email.
+      payments: { select: { status: true, expiresAt: true, redirectUrl: true, vaNumber: true, createdAt: true } },
     },
   });
   if (!donation) notFound();
@@ -115,13 +117,11 @@ export default async function PaymentResultPage({ params, searchParams }: Paymen
           <p className="mt-1 text-sm">{copy.body}</p>
         </div>
 
-        {result.state === 'berhasil' && donation.receipt && (
-          <Link
-            href={`/receipt/${donation.receipt.token}`}
-            className="block rounded-xl bg-[#0073E6] px-4 py-3 text-center text-sm font-semibold text-white"
-          >
-            Lihat bukti donasi
-          </Link>
+        {result.vaNumber && (
+          <div className="rounded-xl bg-white p-4 shadow-xs">
+            <p className="text-text-secondary text-xs">Nomor Virtual Account</p>
+            <p className="mt-1 font-mono text-base font-semibold text-text">{result.vaNumber}</p>
+          </div>
         )}
 
         <PaymentResultActions

@@ -13,6 +13,7 @@ export interface ResultPayment {
   status: PaymentStatus;
   expiresAt: Date | null;
   redirectUrl: string | null;
+  vaNumber: string | null;
   createdAt: Date;
 }
 
@@ -22,13 +23,15 @@ export interface PaymentResult {
   canRetry: boolean;
   /** The open charge's own payment link, for a Donor who backed out of it. */
   continueUrl: string | null;
+  /** The open charge's Virtual Account number, when it is a bank transfer. */
+  vaNumber: string | null;
 }
 
 export function describePaymentResult(
   donation: { paymentStatus: string; payments: ResultPayment[] },
   now: Date,
 ): PaymentResult {
-  const done = (state: PaymentResultState, canRetry = false): PaymentResult => ({ state, canRetry, continueUrl: null });
+  const done = (state: PaymentResultState, canRetry = false): PaymentResult => ({ state, canRetry, continueUrl: null, vaNumber: null });
 
   // At most one Payment per Donation can ever be PAID (Payment_donationId_paid_key),
   // and once it is, later attempts do not change that the Donation was paid.
@@ -47,11 +50,16 @@ export function describePaymentResult(
     return done('kedaluwarsa', true);
   }
 
-  return { state: 'menunggu', canRetry: false, continueUrl: safePaymentLink(latest.redirectUrl) };
+  return {
+    state: 'menunggu',
+    canRetry: false,
+    continueUrl: safePaymentLink(latest.redirectUrl),
+    vaNumber: latest.vaNumber,
+  };
 }
 
 /** Only an https link is ever handed to the browser; anything else is dropped. */
-function safePaymentLink(url: string | null): string | null {
+export function safePaymentLink(url: string | null): string | null {
   if (!url) return null;
   try {
     return new URL(url).protocol === 'https:' ? url : null;

@@ -10,6 +10,7 @@ function payment(overrides: Partial<ResultPayment> = {}): ResultPayment {
     status: 'PENDING',
     expiresAt: LATER,
     redirectUrl: 'https://pay.example/order-1',
+    vaNumber: null,
     createdAt: new Date('2026-10-16T09:30:00.000Z'),
     ...overrides,
   };
@@ -21,6 +22,7 @@ describe('describePaymentResult (ticket 98)', () => {
       state: 'menunggu',
       canRetry: false,
       continueUrl: 'https://pay.example/order-1',
+      vaNumber: null,
     });
   });
 
@@ -28,6 +30,14 @@ describe('describePaymentResult (ticket 98)', () => {
     for (const redirectUrl of [null, 'javascript:alert(1)', 'http://pay.example/x']) {
       expect(describePaymentResult({ paymentStatus: 'pending', payments: [payment({ redirectUrl })] }, NOW).continueUrl).toBeNull();
     }
+  });
+
+  it('gives the Virtual Account number of an open bank transfer', () => {
+    const result = describePaymentResult(
+      { paymentStatus: 'pending', payments: [payment({ redirectUrl: null, vaNumber: '8808123456789' })] },
+      NOW,
+    );
+    expect(result).toEqual({ state: 'menunggu', canRetry: false, continueUrl: null, vaNumber: '8808123456789' });
   });
 
   it('is settled once any Payment on the Donation is PAID, whatever came after it', () => {
@@ -41,7 +51,7 @@ describe('describePaymentResult (ticket 98)', () => {
       },
       NOW,
     );
-    expect(result).toEqual({ state: 'berhasil', canRetry: false, continueUrl: null });
+    expect(result).toEqual({ state: 'berhasil', canRetry: false, continueUrl: null, vaNumber: null });
   });
 
   it('says the money went back when the Payment was refunded', () => {
@@ -55,11 +65,13 @@ describe('describePaymentResult (ticket 98)', () => {
       state: 'gagal',
       canRetry: true,
       continueUrl: null,
+      vaNumber: null,
     });
     expect(describePaymentResult({ paymentStatus: 'pending', payments: [payment({ status: 'EXPIRED' })] }, NOW)).toEqual({
       state: 'kedaluwarsa',
       canRetry: true,
       continueUrl: null,
+      vaNumber: null,
     });
   });
 
@@ -68,6 +80,7 @@ describe('describePaymentResult (ticket 98)', () => {
       state: 'kedaluwarsa',
       canRetry: true,
       continueUrl: null,
+      vaNumber: null,
     });
   });
 
@@ -87,6 +100,7 @@ describe('describePaymentResult (ticket 98)', () => {
       state: 'gagal',
       canRetry: false,
       continueUrl: null,
+      vaNumber: null,
     });
   });
 });

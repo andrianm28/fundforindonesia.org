@@ -145,10 +145,11 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
         escrowHoldDays,
         status: PaymentStatus.PENDING,
         expiresAt: charge.expiresAt,
-        // The provider's hosted payment link, so the result page can send a
-        // Donor who backed out straight back to the SAME charge while it is
+        // How to pay THIS charge, kept so the result page (ticket 98) can send a
+        // Donor who backed out straight back to the same charge while it is
         // still open, rather than creating another one.
-        redirectUrl: 'redirectUrl' in charge ? charge.redirectUrl : null,
+        redirectUrl: charge.method === 'bank_transfer_va' ? null : charge.redirectUrl,
+        vaNumber: charge.method === 'bank_transfer_va' ? charge.vaNumber : null,
       },
     });
   } catch (err) {

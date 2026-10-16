@@ -342,7 +342,7 @@ describe('chargeDonation', () => {
     expect(verifyPaymentResultToken(token, Date.now())).toBe('donation-1');
 
     expect(db.payment.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ redirectUrl: 'https://pay.example/order-1' }),
+      data: expect.objectContaining({ redirectUrl: 'https://pay.example/order-1', vaNumber: null }),
     });
   });
 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { safePaymentLink } from '@/lib/money/payment-result';
 
 /** How often, and for how long, a waiting page re-reads the status: 5 s for 2 minutes. */
 const REFRESH_INTERVAL_MS = 5_000;
@@ -60,11 +61,12 @@ export function PaymentResultActions({ donationId, waiting, continueUrl, canRetr
         );
         return;
       }
-      const redirectUrl: string | undefined = data?.paymentInstructions?.redirectUrl;
+      const redirectUrl = safePaymentLink(data?.paymentInstructions?.redirectUrl ?? null);
       if (redirectUrl) {
         window.location.assign(redirectUrl);
         return;
       }
+      // A bank transfer has no link: the refreshed page shows its new VA number.
       router.refresh();
     } catch {
       setError('Gagal memproses pembayaran ulang. Silakan coba lagi.');
