@@ -85,12 +85,6 @@ export default function DesktopHeader({
             >
               Galang Dana
             </Link>
-            <Link
-              href="/zakat"
-              className="text-sm font-medium text-text hover:text-primary transition-colors"
-            >
-              Zakat
-            </Link>
             {user &&
               staffLinks.map((link) => (
                 <Link

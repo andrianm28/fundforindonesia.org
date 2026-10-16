@@ -7,7 +7,7 @@ Istilah di dokumen ini mengikuti glosarium di [CONTEXT.md](../CONTEXT.md). Keput
 
 ## 1. Ringkasan
 
-Fund for Indonesia adalah platform social impact yang menyatukan donasi, galang dana, zakat, wakaf, hibah, dan kolaborasi CSR dalam satu ekosistem. Volunteer tetap menjadi bagian produk tetapi tidak lagi memegang slot menu utama; lihat pasal 3 dan pasal 14.
+Fund for Indonesia adalah platform social impact yang menyatukan donasi, galang dana, wakaf, hibah, dan kolaborasi CSR dalam satu ekosistem. Volunteer tetap menjadi bagian produk tetapi tidak lagi memegang slot menu utama; lihat pasal 3 dan pasal 14.
 
 Proposisi nilai: satu pintu bagi individu, komunitas, perusahaan, influencer, dan filantropi untuk berkontribusi, dengan program terverifikasi dan pelaporan dampak yang bisa ditelusuri.
 
@@ -27,7 +27,7 @@ Deck memberi dua versi menu, bahasa Indonesia pada slide 6 untuk pengunjung loka
 
 | Bahasa Indonesia | Deskripsi versi Indonesia | English | Deskripsi versi Inggris |
 | --- | --- | --- | --- |
-| Donasi | Pilih campaign dan berdonasi langsung; zakat ada di dalam menu ini | Donate | Explore verified campaigns and make a contribution; zakat lives here |
+| Donasi | Pilih campaign dan berdonasi langsung | Donate | Explore verified campaigns and make a contribution |
 | Galang Dana | Buat campaign bersama individu, influencer, atau komunitas | Start a Fundraiser | Create a fundraising campaign for a social cause |
 | Kolaborasi CSR | Program siap kolaborasi, portfolio, dan diskusi dengan tim | CSR Collaboration | Explore programs, impact portfolios, and discuss partnership |
 | Wakaf | Wakaf masjid, sekolah, fasilitas kesehatan, fasilitas umum | Waqf | Support waqf for mosques, schools, healthcare, and public facilities |
@@ -35,7 +35,7 @@ Deck memberi dua versi menu, bahasa Indonesia pada slide 6 untuk pengunjung loka
 
 Menu pendukung versi Indonesia: Tentang Kami, Impact & Transparency, Stories, Mitra, Volunteer, FAQ, Hubungi Kami, dan Masuk atau Dashboard. Versi Inggris: About Us, Impact & Transparency, Stories, Partners, Volunteer, FAQ, Contact, dan Sign In atau Dashboard. Volunteer pindah ke menu pendukung sejak revisi 19 September 2026; cakupannya (FFI-11, FFI-12) diperluas pada revisi 22 September 2026 menjadi jalur berbayar, lihat pasal 14.
 
-Keputusan penulisan: "Wakaf" pada versi Indonesia, "Waqf" pada versi Inggris untuk menu dan CTA. Slug URL tetap /wakaf pada kedua bahasa. Zakat tidak menjadi menu tersendiri agar menu utama tetap ringkas; zakat adalah halaman di bawah Donasi. "Hibah" dipertahankan sebagai transliterasi pada kedua versi bahasa, mengikuti pola Wakaf/Waqf, karena istilah ini tidak punya padanan Inggris yang presisi. Slug URL /hibah pada kedua bahasa.
+Keputusan penulisan: "Wakaf" pada versi Indonesia, "Waqf" pada versi Inggris untuk menu dan CTA. Slug URL tetap /wakaf pada kedua bahasa. Zakat dikeluarkan dari cakupan produk pada 2026-10-16 (ADR 0024); bagian PRD yang menyebut zakat di bawah ini dibaca sebagai tidak berlaku. "Hibah" dipertahankan sebagai transliterasi pada kedua versi bahasa, mengikuti pola Wakaf/Waqf, karena istilah ini tidak punya padanan Inggris yang presisi. Slug URL /hibah pada kedua bahasa.
 
 ## 4. Target pengguna
 
@@ -54,7 +54,7 @@ Verifier dan Admin adalah penugasan terpisah; satu orang boleh memegang keduanya
 
 ## 5. Tujuan dan metrik keberhasilan
 
-1. Menyatukan tujuh jalur kontribusi (donasi, galang dana, zakat, wakaf, hibah, CSR, volunteer) dalam satu akun dan satu riwayat dampak.
+1. Menyatukan tujuh jalur kontribusi (donasi, galang dana, wakaf, hibah, CSR, volunteer) dalam satu akun dan satu riwayat dampak.
 2. Membuat donasi selesai dalam hitungan menit dari tautan yang dibagikan, tanpa wajib mendaftar.
 3. Menjadikan transparansi sebagai fitur, bukan halaman terpisah: setiap kontribusi punya jejak penyaluran.
 
@@ -131,7 +131,7 @@ Rilis pertama mencakup Fase 0 sampai 2 pada pasal 11. Fase 3 menyusul.
 | FFI-07c | Manual Contribution | Sebagai Admin saya mencatat dana yang masuk di luar gateway | Hanya Admin; bukti transfer wajib; aturan dua orang seperti Payout; langsung menjadi Campaign Balance, atau Program Balance bila menunjuk ke Program, tanpa Escrow Hold dan tanpa kedua fee; tercatat di buku besar pada akun terpisah; masuk angka terkumpul dengan penanda tersendiri; bisa dibalikkan lewat jurnal lawan selama belum ada Payout yang memakai dana itu, tidak pernah dihapus | M | 2 |
 | FFI-07d | Refund | Sebagai Donor saya menerima kembali uang saya ketika Donation saya dibatalkan | Lihat pasal 7.2 untuk rancangan lengkap: pemicu, siklus status, sumber dana, batas per Kind, dan pencatatan | M | 2 |
 | FFI-08 | Wakaf | Sebagai Wakif saya berwakaf pada kategori dan Campaign tertentu | Kind `wakaf` hanya oleh organisasi yang memegang Kind Authorisation `wakaf` dari Verifier; kategori masjid, sekolah, fasilitas kesehatan, fasilitas umum; target wajib, tenggat opsional; Platform Fee default nol; ikrar lewat centang persetujuan saat checkout; Akad Wakaf otomatis per Donation dikirim bersama Receipt; wakaf aset lewat Asset Waqf Inquiry dengan status tindak lanjut; pembaruan implementasi lewat Campaign Update | M | 1 |
-| FFI-08a | Zakat | Sebagai muzaki saya menunaikan zakat lewat Campaign zakat | Kind `zakat` hanya oleh organisasi yang memegang Kind Authorisation `zakat` dari Verifier; nama organisasi tampil sebagai Fundraiser; kalkulator zakat; Platform Fee default nol; halaman zakat di bawah menu Donasi | M | 1 |
+| FFI-08a | ~~Zakat~~ (dicabut 2026-10-16, ADR 0024) | Sebagai muzaki saya menunaikan zakat lewat Campaign zakat | Kind `zakat` hanya oleh organisasi yang memegang Kind Authorisation `zakat` dari Verifier; nama organisasi tampil sebagai Fundraiser; kalkulator zakat; Platform Fee default nol; halaman zakat di bawah menu Donasi | M | 1 |
 | FFI-08b | Hibah | Sebagai Donor Hibah saya memberi hibah untuk lembaga atau tujuan tertentu | Kind `hibah` hanya oleh organisasi yang memegang Kind Authorisation `hibah` dari Verifier; target wajib, tenggat mengikuti aturan umum Campaign; Platform Fee default nol; sementara mengikuti batas Refund dan dokumen wajib `wakaf` sampai ditinjau ulang terhadap ketentuan syariah (lihat pasal 14 dan [ADR 0013](./adr/0013-hibah-as-fourth-kind.md)); pembaruan implementasi lewat Campaign Update | M | 1 |
 | FFI-09 | Portofolio CSR | Sebagai tim CSR saya menelusuri Program per Sector | Kartu Sector Health, Education, Environment, Disability Inclusion; halaman Program memuat Problem, Target beneficiaries, Location, Activities, Budget, Timeline, KPI, Documentation, Impact Report, lalu CTA Discuss with Our Team; Program tidak menerima uang daring; dana CSR yang melewati rekening platform dicatat sebagai Manual Contribution yang menunjuk ke Program dan dikreditkan ke Program Balance, akun buku besar tersendiri yang tidak pernah bisa dicairkan lewat Payout karena Program bukan Campaign, dengan aturan dua orang yang sama; dana CSR yang tidak pernah melewati rekening platform hanya ditampilkan sebagai angka laporan dan ditandai jelas sebagai di luar pembukuan platform | M | 1 |
 | FFI-10 | Diskusi kemitraan | Sebagai tim CSR saya menghubungi tim untuk membahas Program | Formulir Discuss with Our Team membuat Partnership Inquiry dengan data perusahaan dan kebutuhan; notifikasi email ke tim kemitraan; status tindak lanjut | M | 1 |
@@ -201,9 +201,9 @@ Refund sebagian diperbolehkan. Akumulasi seluruh Refund atas satu Payment tidak 
 
 #### Batas per Kind
 
-Kind `zakat`, `wakaf`, dan `hibah` tidak mengembalikan dana atas keputusan pengelola, karena zakat yang sudah ditunaikan dan wakaf yang sudah diikrarkan tidak kembali kepada pemberinya; `hibah` mengikuti batas yang sama sebagai asumsi sementara (pasal 14, [ADR 0013](./adr/0013-hibah-as-fourth-kind.md)), bukan keputusan final yang sudah diperiksa terhadap ketentuan syariah untuk hibah. Untuk ketiga Kind itu Refund hanya sah pada kegagalan teknis: salah bayar, bayar ganda, atau dana masuk setelah Campaign ditutup.
+Kind `wakaf` dan `hibah` tidak mengembalikan dana atas keputusan pengelola, karena zakat yang sudah ditunaikan dan wakaf yang sudah diikrarkan tidak kembali kepada pemberinya; `hibah` mengikuti batas yang sama sebagai asumsi sementara (pasal 14, [ADR 0013](./adr/0013-hibah-as-fourth-kind.md)), bukan keputusan final yang sudah diperiksa terhadap ketentuan syariah untuk hibah. Untuk ketiga Kind itu Refund hanya sah pada kegagalan teknis: salah bayar, bayar ganda, atau dana masuk setelah Campaign ditutup.
 
-Bila Campaign `zakat`, `wakaf`, atau `hibah` disuspensi, dananya tidak dikembalikan melainkan dialihkan ke Campaign lain dengan Kind yang sama, dan untuk `wakaf` juga kategori yang sama. Sistem menolak pengalihan lintas Kind, bukan sekadar memperingatkan. Setiap Donor yang terdampak diberi tahu ke mana dananya pergi.
+Bila Campaign `wakaf` atau `hibah` disuspensi, dananya tidak dikembalikan melainkan dialihkan ke Campaign lain dengan Kind yang sama, dan untuk `wakaf` juga kategori yang sama. Sistem menolak pengalihan lintas Kind, bukan sekadar memperingatkan. Setiap Donor yang terdampak diberi tahu ke mana dananya pergi.
 
 #### Pencatatan
 

@@ -105,6 +105,6 @@ describe('the sitemap links the canonical public site', () => {
     const urls = (await sitemap()).map((entry) => entry.url);
 
     expect(urls).toContain('https://staging.example.test');
-    expect(urls).toContain('https://staging.example.test/zakat');
+    expect(urls).not.toContain('https://staging.example.test/zakat');
   });
 });

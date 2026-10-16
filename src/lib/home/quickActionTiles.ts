@@ -23,8 +23,7 @@ export type QuickActionTile = QuickActionWorkingTile | QuickActionComingSoonTile
  * and Hibah are honestly marked `comingSoon` -- none of these modules has a
  * frontend yet -- so QuickActionTiles renders them as visually muted,
  * non-clickable tiles instead of silently falling back to /explore/all
- * pretending to be a real feature. Zakat keeps its own working /zakat route but no longer gets
- * a dedicated homepage tile, per the PRD folding it under Donasi.
+ * pretending to be a real feature. Zakat is out of scope (2026-10-16).
  */
 export const quickActionTiles: QuickActionTile[] = [
   { icon: '💰', label: 'Donasi', href: '/explore/all', color: '#E7F2ED' },
