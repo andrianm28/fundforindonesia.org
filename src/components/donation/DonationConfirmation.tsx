@@ -36,19 +36,19 @@ export interface DonationConfirmationProps {
   /** Beta (ticket rilis-1-benda/92): from the server via the layout's context; this component never reads the environment. */
   betaSandbox?: boolean;
   /**
-   * Shown only for a Campaign ber-Kind `wakaf`: the explicit ikrar
-   * confirmation checkout carries (CONTEXT.md, Akad Wakaf; PRD user story
-   * 17), never assumed. `nazhirName` and `purpose` name who receives the
-   * wakaf and what for, the same Collecting Entity and Campaign title the
-   * Akad Wakaf document itself will carry.
-   */
-  /**
    * Shown only for a Campaign ber-Kind `hibah` (ADR 0013; audit L6): a plain
    * notice before payment, no checkbox. Hibah is not refundable except for a
    * technical failure, and a suspended Campaign's money moves to another
    * hibah Campaign instead of back to the Donor.
    */
   hibahNotice?: boolean;
+  /**
+   * Shown only for a Campaign ber-Kind `wakaf`: the explicit ikrar
+   * confirmation checkout carries (CONTEXT.md, Akad Wakaf; PRD user story
+   * 17), never assumed. `nazhirName` and `purpose` name who receives the
+   * wakaf and what for, the same Collecting Entity and Campaign title the
+   * Akad Wakaf document itself will carry.
+   */
   ikrarWakaf?: {
     confirmed: boolean;
     onToggle: (value: boolean) => void;

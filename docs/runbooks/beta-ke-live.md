@@ -55,6 +55,7 @@ SELECT count(*) FROM "Campaign" WHERE "isDemo" = false AND "collectingEntityId" 
 
    Harus nol, dan halaman `/explore/all` serta `/impact` tidak menampilkan Campaign atau angka contoh.
 6. **Alamat email kontak aktif**: kotak surat umum dan kotak surat privasi (nilainya di `src/lib/site-identity.ts`) benar-benar menerima email.
+7. **Pengaturan Laman Publik di produksi sudah bersih.** Default baru di kode hanya berlaku bila belum ada baris `SiteSetting`; baris yang sudah tersimpan tetap memuat teks lama. Buka Admin, Pengaturan Laman Publik, dan pastikan tidak ada nomor telepon, alamat, atau klaim ("jutaan orang") contoh.
 
 ### 1. Bekukan donasi sementara (opsional, disarankan)
 

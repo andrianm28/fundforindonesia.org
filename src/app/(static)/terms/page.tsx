@@ -106,8 +106,8 @@ export default function TermsPage() {
           </p>
           <ul className="list-disc pl-5 space-y-2 mt-2">
             <li>
-              <strong>Donasi:</strong> Donatur dapat mengajukan pengembalian dana. Permintaan ditinjau oleh Admin
-              Platform.
+              <strong>Donasi:</strong> Donatur dapat meminta pengembalian dana melalui kontak Platform. Permintaan ditinjau
+              oleh Admin Platform.
             </li>
             <li>
               <strong>Wakaf:</strong> Tidak dapat dikembalikan, kecuali karena kegagalan teknis, yaitu salah bayar,
