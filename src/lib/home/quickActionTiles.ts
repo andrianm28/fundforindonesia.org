@@ -20,15 +20,14 @@ export type QuickActionTile = QuickActionWorkingTile | QuickActionComingSoonTile
  * are real, working destinations, restyled in tints of the Ledger Line brand
  * colors (`primary` for Donasi, `accent` for the fundraising CTA, matching
  * accent's own role as "CTAs that must stand out"). Kolaborasi CSR, Wakaf,
- * and Hibah are honestly marked `comingSoon` -- none of these modules has a
- * frontend yet -- so QuickActionTiles renders them as visually muted,
- * non-clickable tiles instead of silently falling back to /explore/all
- * pretending to be a real feature. Zakat is out of scope (2026-10-16).
+ * and Hibah each open their own landing, which states plainly what is and is not
+ * open yet (ticket 75); the `comingSoon` tile shape stays for any future module
+ * that has no page. Zakat is out of scope (2026-10-16).
  */
 export const quickActionTiles: QuickActionTile[] = [
   { icon: '💰', label: 'Donasi', href: '/explore/all', color: '#E7F2ED' },
   { icon: '📢', label: 'Galang Dana', href: '/campaign/create', color: '#FBEAE3' },
-  { icon: '🤝', label: 'Kolaborasi CSR', comingSoon: true },
-  { icon: '🕌', label: 'Wakaf', comingSoon: true },
-  { icon: '🎁', label: 'Hibah', comingSoon: true },
+  { icon: '🤝', label: 'Kolaborasi CSR', href: '/kolaborasi-csr', color: '#EAF0F8' },
+  { icon: '🕌', label: 'Wakaf', href: '/wakaf', color: '#EEF3E4' },
+  { icon: '🎁', label: 'Hibah', href: '/hibah', color: '#F6ECF1' },
 ];

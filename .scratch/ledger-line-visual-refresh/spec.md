@@ -154,7 +154,10 @@ for whoever implements this, not a detail to skip.
 
 **Signature: the Ledger Line motif** — same three-place rule as the plan, adapted
 to what exists here:
-1. Under a campaign card's progress bar, as milestone ticks (fixed at 25/50/75%
+1. *(Dicabut 2026-10-16 atas permintaan owner: di kartu kampanye motif ini
+   terbaca sebagai progress bar yang rusak. Progress bar kini satu bar polos di
+   semua tempat; jangan pasang lagi tick/garis putus-putus di atas track.)*
+   Under a campaign card's progress bar, as milestone ticks (fixed at 25/50/75%
    for every campaign, not derived from real disbursement data — same
    "a promise about the platform's process, not a report on this campaign"
    reasoning the plan gives, and for the same reason: no disbursement-ledger
