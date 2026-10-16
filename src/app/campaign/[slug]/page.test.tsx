@@ -15,6 +15,7 @@ vi.mock('@/lib/prisma', () => ({
     payment: { findMany: vi.fn().mockResolvedValue([]) },
     platformFeeRule: { findFirst: vi.fn() },
     platformFeeThreshold: { findFirst: vi.fn() },
+    escrowHoldSetting: { findFirst: vi.fn().mockResolvedValue(null) },
   },
 }));
 

@@ -10,8 +10,8 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/auth', () => ({ getServerSession: vi.fn() }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn() }),
-  redirect: vi.fn((url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
   }),
 }));
 
@@ -44,9 +44,9 @@ describe('AdminVolunteerTripsPage', () => {
     expect(dynamic).toBe('force-dynamic');
   });
 
-  it('redirects home when there is no session user, reading nothing', async () => {
+  it('answers 404 when there is no session user, reading nothing', async () => {
     vi.mocked(getServerSession).mockResolvedValue(null as never);
-    await expect(AdminVolunteerTripsPage()).rejects.toThrow('NEXT_REDIRECT:/');
+    await expect(AdminVolunteerTripsPage()).rejects.toThrow('NEXT_NOT_FOUND');
     expect(prisma.volunteerTrip.findMany).not.toHaveBeenCalled();
   });
 

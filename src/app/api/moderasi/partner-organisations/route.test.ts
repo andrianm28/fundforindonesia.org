@@ -60,7 +60,7 @@ describe('POST /api/moderasi/partner-organisations', () => {
   });
 
   it.each([
-    ['an Admin who is not a Verifier', { user: { id: 'admin-1', assignments: ['ADMIN'] } }, 403],
+    ['an Admin who is not a Verifier', { user: { id: 'admin-1', assignments: ['ADMIN'] } }, 404],
     ['nobody signed in', null, 401],
   ])('refuses %s, writing nothing', async (_who, session, status) => {
     mockSession.mockResolvedValue(session);

@@ -47,12 +47,12 @@ describe('POST /api/admin/payment-providers', () => {
     });
   });
 
-  it('answers 401 with no session, and 403 for anyone who is not an Admin', async () => {
+  it('answers 401 with no session, and 404 for anyone who is not an Admin', async () => {
     mockSession.mockResolvedValue(null);
     expect((await post({ provider: 'sumopod', methods: ['qris_redirect'] })).status).toBe(401);
 
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
-    expect((await post({ provider: 'sumopod', methods: ['qris_redirect'] })).status).toBe(403);
+    expect((await post({ provider: 'sumopod', methods: ['qris_redirect'] })).status).toBe(404);
 
     expect(mockCreate).not.toHaveBeenCalled();
   });

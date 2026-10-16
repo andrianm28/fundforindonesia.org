@@ -38,6 +38,10 @@ vi.mock('@/lib/prisma', () => ({
     platformFeeThreshold: {
       findFirst: vi.fn(async () => null),
     },
+    // No Admin Escrow Hold set (ticket 90): resolves to the 7-day fallback.
+    escrowHoldSetting: {
+      findFirst: vi.fn(async () => null),
+    },
   },
 }));
 

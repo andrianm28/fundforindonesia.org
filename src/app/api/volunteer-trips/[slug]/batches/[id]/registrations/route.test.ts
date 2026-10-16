@@ -6,6 +6,7 @@ vi.mock('@/lib/prisma', () => ({
     volunteerTrip: { findUnique: vi.fn() },
     paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     payment: { create: vi.fn() },
+    escrowHoldSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     chargeWriteFailure: { create: vi.fn() },
   },
 }));
@@ -312,6 +313,16 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
       expect.objectContaining({
         data: expect.objectContaining({ escrowHoldDays: ESCROW_HOLD_DAYS }),
       }),
+    );
+  });
+
+  it('freezes the Admin-set default Escrow Hold, which a Trip (having no Category) takes (ticket 90)', async () => {
+    vi.mocked(prisma.escrowHoldSetting.findFirst).mockResolvedValueOnce({ days: 12 } as never);
+
+    await POST(createRequest(), routeContext());
+
+    expect(mockPaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ escrowHoldDays: 12 }) }),
     );
   });
 

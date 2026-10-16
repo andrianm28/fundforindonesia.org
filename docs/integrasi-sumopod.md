@@ -22,7 +22,7 @@ Biaya ini adalah Provider Fee dan ditanggung Campaign. Sumopod mengembalikan `fe
 
 Default platform adalah `QRIS`. Karena Escrow Hold dihitung sejak `settled_at`, `QRIS_INSTANT` memajukan titik mulai Escrow Hold dua hari, jadi dana tersedia dua hari lebih cepat. Harganya 0,8 persen dari setiap donasi. Pada Campaign biasa percepatan itu tidak sepadan; `QRIS_INSTANT` disediakan sebagai pilihan Admin untuk Campaign bencana, di mana dua hari benar-benar berarti.
 
-Komponen Rp300 membuat biaya relatif jauh lebih berat pada donasi kecil: Rp440 atas Rp20.000 adalah 2,2 persen, sedangkan Rp7.300 atas Rp1 juta hanya 0,73 persen. Karena itu minimum donasi Rp20.000 dan Platform Fee dibebaskan di bawah Rp50.000.
+Komponen Rp300 membuat biaya relatif jauh lebih berat pada donasi kecil: Rp440 atas Rp20.000 adalah 2,2 persen, sedangkan Rp7.300 atas Rp1 juta hanya 0,73 persen. Karena itu Platform Fee dibebaskan di bawah Rp50.000. Minimum donasi semula Rp20.000; owner menurunkannya ke Rp1.000 pada 2026-10-16, dengan sadar bahwa Rp307 atas Rp1.000 adalah sekitar 31 persen.
 
 ## Membuat Payment
 

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { Assignment } from "@/generated/prisma/client";
 import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
 
-export const GET = withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest) => {
+export const GET = withHiddenAssignmentCheck(Assignment.ADMIN, async (req: NextRequest) => {
   const { searchParams } = new URL(req.url);
 
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));

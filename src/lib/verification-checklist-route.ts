@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
 import { getServerSession } from "@/lib/auth";
-import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { checklistErrorToHttp } from "@/lib/verification-checklist";
 
 /**
  * Wraps an Admin checklist-editor handler (verification-request 04): only an
- * ADMIN assignment holder gets through (401 or 403 otherwise), the handler
+ * ADMIN assignment holder gets through (401 or 404 otherwise), the handler
  * receives the acting Admin's id, the route params, the query string and the
  * parsed JSON body (400 if it is not JSON), and the checklist module's
  * refusals become 400 or 404 with their Indonesian message.
@@ -15,7 +15,7 @@ export function checklistRoute(
   handler: (input: { actorId: string; params: Record<string, string>; query: URLSearchParams; body: Record<string, unknown> }) => Promise<NextResponse>,
   options: { readsBody: boolean } = { readsBody: true }
 ) {
-  return withAssignmentCheck(Assignment.ADMIN, async (req: NextRequest, context?: { params?: Promise<Record<string, string>> }) => {
+  return withHiddenAssignmentCheck(Assignment.ADMIN, async (req: NextRequest, context?: { params?: Promise<Record<string, string>> }) => {
     const session = await getServerSession();
     const actorId = session!.user.id as string;
     const params = (await context?.params) ?? {};

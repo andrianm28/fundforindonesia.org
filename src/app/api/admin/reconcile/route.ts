@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { withAssignmentCheck } from '@/lib/withAssignmentCheck';
+import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { Assignment } from '@/generated/prisma/client';
 import { collectionAccountBalance, findUnbalancedTransactions, providerBalances } from '@/lib/money/ledger';
 import { reconcileProviderBalances } from '@/lib/money/provider-withdrawals';
@@ -114,7 +114,7 @@ import {
  *    a recorded sweep to the Collection Account (prd-compliance 35; ADR 0011).
  *    See the long note on the block that builds it.
  */
-export const GET = withAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest) => {
+export const GET = withHiddenAssignmentCheck(Assignment.ADMIN, async (_req: NextRequest) => {
   const report = await prisma.$transaction(async (tx) => {
     const reportNow = new Date();
     const unbalancedTransactions = await findUnbalancedTransactions(tx);

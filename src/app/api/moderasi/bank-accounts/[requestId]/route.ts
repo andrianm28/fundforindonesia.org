@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
-import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { decideBankAccountVerification, type BankAccountDecision } from "@/lib/bank-account-verification";
@@ -12,7 +12,7 @@ import { refusalResponse } from "@/lib/refusal-response";
  * Approval requires both checked fields; a rejection requires `reason`. Both
  * are enforced in `decideBankAccountVerification`, not here.
  */
-export const POST = withAssignmentCheck(
+export const POST = withHiddenAssignmentCheck(
   Assignment.VERIFIER,
   async (req: NextRequest, context?: { params?: Promise<{ requestId: string }> }) => {
     const session = await getServerSession();

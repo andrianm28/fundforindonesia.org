@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
-import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 import { prisma } from "@/lib/prisma";
 import { pendingAdminGrantRequests } from "@/lib/assignments";
 
@@ -10,7 +10,7 @@ import { pendingAdminGrantRequests } from "@/lib/assignments";
  * an Admin other than the proposer can see what is waiting for them to
  * confirm on POST .../[requestId]/decision. ADMIN only.
  */
-export const GET = withAssignmentCheck(Assignment.ADMIN, async () => {
+export const GET = withHiddenAssignmentCheck(Assignment.ADMIN, async () => {
   const requests = await pendingAdminGrantRequests(prisma);
   return NextResponse.json({ requests }, { status: 200 });
 });

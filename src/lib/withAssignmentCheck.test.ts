@@ -6,7 +6,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { getServerSession } from "@/lib/auth";
-import { withAssignmentCheck } from "./withAssignmentCheck";
+import { withAssignmentCheck, withHiddenAssignmentCheck } from "./withAssignmentCheck";
 
 const mockGetServerSession = vi.mocked(getServerSession);
 
@@ -122,5 +122,45 @@ describe("withAssignmentCheck", () => {
 
     expect(response.status).toBe(500);
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The Admin and Moderasi APIs answer a signed-in user without the assignment
+ * the same 404 as a route that does not exist, so they do not confirm the
+ * panel exists (owner decision 2026-10-14, ticket 90: "yang lain 404").
+ * Signed-out callers still get 401, as the login redirect still applies to
+ * the pages.
+ */
+type Session = Awaited<ReturnType<typeof getServerSession>>;
+
+describe("withHiddenAssignmentCheck", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 when no session exists", async () => {
+    mockGetServerSession.mockResolvedValue(null);
+    const handler = vi.fn();
+    const response = await withHiddenAssignmentCheck("ADMIN", handler)(createMockRequest());
+    expect(response.status).toBe(401);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("returns 404, not 403, when the required assignment is missing", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "user-1", assignments: ["VERIFIER"] } } as Session);
+    const handler = vi.fn();
+    const response = await withHiddenAssignmentCheck("ADMIN", handler)(createMockRequest());
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toBe("Not Found");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("calls the handler when the required assignment is present", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "user-1", assignments: ["ADMIN"] } } as Session);
+    const handler = vi.fn().mockResolvedValue(NextResponse.json({ ok: true }));
+    const response = await withHiddenAssignmentCheck("ADMIN", handler)(createMockRequest());
+    expect(response.status).toBe(200);
+    expect(handler).toHaveBeenCalledOnce();
   });
 });
