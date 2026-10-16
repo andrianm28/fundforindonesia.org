@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { SumopodProvider, SumopodNotSupportedError } from './sumopod-provider';
+import { describe, it, expect, vi } from 'vitest';
+import { SumopodProvider, SumopodNotSupportedError, SUMOPOD_CHARGE_TIMEOUT_MS } from './sumopod-provider';
 import { InvalidWebhookSignatureError } from './mock-provider';
 import { computeSumopodSignature } from './sumopod-signature';
 
@@ -121,6 +121,29 @@ describe('SumopodProvider.createCharge', () => {
       redirectUrl: 'https://pay.sumopod.com/pay/6f1c2f7e',
       expiresAt: new Date('2026-09-20T12:00:00Z'),
     });
+  });
+
+  it('gives up on a charge Sumopod never answers, well inside the retry transaction (PR #273 re-review R2)', async () => {
+    expect(SUMOPOD_CHARGE_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
+    let signal: AbortSignal | undefined;
+    const hanging = ((_url: string, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise((_resolve, reject) => {
+        if (signal?.aborted) reject(signal.reason);
+        signal?.addEventListener('abort', () => reject(signal?.reason));
+      });
+    }) as unknown as typeof fetch;
+    // The real timeout is 25 s; the same mechanism, shortened, so the test is quick.
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => AbortSignal.abort(new DOMException('timed out', 'TimeoutError')));
+    try {
+      await expect(
+        provider(hanging).createCharge({ orderId: 'donation-1', grossAmount: 50000, currency: 'IDR' }),
+      ).rejects.toThrow('timed out');
+      expect(timeout).toHaveBeenCalledWith(SUMOPOD_CHARGE_TIMEOUT_MS);
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it('throws when the provider answers a non-2xx status', async () => {
