@@ -19,6 +19,7 @@ interface ProposalResult {
   alreadyProposed: number;
   skipped: Array<{ paymentId: string; amount: number; reason: SkipReason }>;
   paidOut: { count: number; amount: number };
+  gagal: Array<{ paymentId: string; amount: number; error: string }>;
 }
 
 const SKIP_LABEL: Record<SkipReason, string> = {
@@ -88,6 +89,18 @@ export function AdminCampaignRefundProposals({ campaignSlug }: { campaignSlug: s
               {result.paidOut.count} Payment dilewati karena dananya sudah keluar lewat Payout,
               senilai {formatRupiah(result.paidOut.amount)}. Penagihan ke Fundraiser berjalan di luar sistem.
             </p>
+          )}
+          {result.gagal.length > 0 && (
+            <div role="alert" className="text-red-600">
+              <p>{result.gagal.length} Payment gagal diusulkan; sisanya tetap diproses:</p>
+              <ul className="list-disc pl-5">
+                {result.gagal.map((g) => (
+                  <li key={g.paymentId}>
+                    {formatRupiah(g.amount)}: {g.error}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           {otherSkips.length > 0 && (
             <ul className="list-disc pl-5">

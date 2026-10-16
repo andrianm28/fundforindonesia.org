@@ -103,6 +103,9 @@ async function closureTimes(
 // Late settlements: the worklist.
 // ---------------------------------------------------------------------------
 
+/** The most rows the worklist shows at once; the oldest come first and the rest follow as these are worked. */
+const WORKLIST_LIMIT = 200;
+
 export type LateSettlementRow = {
   paymentId: string;
   amount: number;
@@ -120,55 +123,61 @@ export type LateSettlementRow = {
  */
 export async function lateSettlementWorklist(
   db: Db,
-  opts: { paymentId?: string; now?: Date } = {},
+  opts: { paymentId?: string; now?: Date; limit?: number } = {},
 ): Promise<LateSettlementRow[]> {
   const now = opts.now ?? new Date();
+  const limit = opts.limit ?? WORKLIST_LIMIT;
+
+  // Closed Campaigns first (few), then only the Payments that settled after
+  // each one's own closure, in SQL: a closed Campaign's earlier history is
+  // never loaded.
+  const campaigns = await db.campaign.findMany({
+    where: {
+      isDemo: false,
+      ...(opts.paymentId ? { donations: { some: { payments: { some: { id: opts.paymentId } } } } } : {}),
+      OR: [
+        { lifecycleStatus: { in: CLOSED_STATUSES } },
+        { lifecycleStatus: CampaignStatus.ACTIVE, deadline: { lt: now } },
+      ],
+    },
+    select: { id: true, slug: true, title: true, lifecycleStatus: true, deadline: true },
+  });
+  const closures = await closureTimes(db, campaigns, now);
+  if (closures.size === 0) return [];
+  const byId = new Map(campaigns.map((c) => [c.id, c]));
+
   const payments = await db.payment.findMany({
     where: {
       ...(opts.paymentId ? { id: opts.paymentId } : {}),
       status: 'PAID',
-      donationId: { not: null },
-      settledAt: { not: null },
       sandbox: currentSandboxStamp(),
       refunds: { none: STANDING_REFUND_WHERE },
-      donation: {
-        anonymisedAt: null,
-        campaign: {
-          isDemo: false,
-          OR: [
-            { lifecycleStatus: { in: CLOSED_STATUSES } },
-            { lifecycleStatus: CampaignStatus.ACTIVE, deadline: { lt: now } },
-          ],
-        },
-      },
+      OR: [...closures].map(([campaignId, c]) => ({
+        settledAt: { gt: c.closedAt },
+        donation: { campaignId, anonymisedAt: null },
+      })),
     },
     orderBy: { settledAt: 'asc' },
-    select: {
-      id: true,
-      amount: true,
-      settledAt: true,
-      donation: {
-        select: { campaign: { select: { id: true, slug: true, title: true, lifecycleStatus: true, deadline: true } } },
-      },
-    },
+    take: limit,
+    select: { id: true, amount: true, settledAt: true, donation: { select: { campaignId: true } } },
   });
 
-  const campaigns = new Map(payments.map((p) => [p.donation!.campaign.id, p.donation!.campaign]));
-  const closures = await closureTimes(db, [...campaigns.values()], now);
-
-  const rows: LateSettlementRow[] = [];
-  for (const p of payments) {
-    const campaign = p.donation!.campaign;
-    const closure = closures.get(campaign.id);
-    if (!closure || !p.settledAt || p.settledAt <= closure.closedAt) continue;
-    rows.push({
+  return payments.map((p) => {
+    const campaign = byId.get(p.donation!.campaignId)!;
+    const closure = closures.get(campaign.id)!;
+    return {
       paymentId: p.id,
       amount: p.amount,
-      settledAt: p.settledAt,
-      campaign: { id: campaign.id, slug: campaign.slug, title: campaign.title, status: closure.status, closedAt: closure.closedAt },
-    });
-  }
-  return rows;
+      settledAt: p.settledAt!,
+      campaign: {
+        id: campaign.id,
+        slug: campaign.slug,
+        title: campaign.title,
+        status: closure.status,
+        closedAt: closure.closedAt,
+      },
+    };
+  });
 }
 
 /**
@@ -227,6 +236,8 @@ export type ProposeCampaignRefundsResult = {
   skipped: Array<{ paymentId: string; amount: number; reason: ProposalSkipReason }>;
   /** The skipped Payments whose money has left: collected from the Fundraiser outside the system. */
   paidOut: { count: number; amount: number };
+  /** Payments whose proposal failed for another reason; the run went on without them. */
+  gagal: Array<{ paymentId: string; amount: number; error: string }>;
 };
 
 /**
@@ -286,6 +297,7 @@ export async function proposeCampaignRefunds(
     alreadyProposed: 0,
     skipped: [],
     paidOut: { count: 0, amount: 0 },
+    gagal: [],
   };
   const skip = (id: string, amount: number, reason: ProposalSkipReason) => {
     result.skipped.push({ paymentId: id, amount, reason });
@@ -313,12 +325,18 @@ export async function proposeCampaignRefunds(
   });
 
   for (const candidate of todo) {
-    const outcome = await prisma.$transaction(async (tx): Promise<TxOutcome> => {
+    let outcome: TxOutcome;
+    try {
+      outcome = await prisma.$transaction(async (tx): Promise<TxOutcome> => {
       const state = await lockAndLoad(tx, { type: 'campaign', campaignId }, now);
       if (!state || state.kind !== 'campaign' || !BULK_STATUSES.includes(state.effectiveStatus)) {
         throw new CampaignNotClosedForRefundProposalError();
       }
 
+      // The Payment lock, taken here (Campaign then Payment, the order
+      // createRefund keeps), so escrowReleasedAt below cannot change under the
+      // balance check.
+      await tx.$queryRaw`SELECT id FROM "Payment" WHERE id = ${candidate.id} FOR UPDATE`;
       const payment = await tx.payment.findUniqueOrThrow({
         where: { id: candidate.id },
         select: {
@@ -348,7 +366,12 @@ export async function proposeCampaignRefunds(
           platformFeePortionFor(payment, payment.amount, []) -
           providerFeePortionFor(payment, payment.amount, []);
         const available = await campaignBalance(tx, campaignId, payment.sandbox);
-        if (available < net) return { skip: 'sudahKeluar' as const };
+        if (available < net) {
+          // Money an APPROVED Campaign Transfer moved to another Campaign is
+          // not "paid out to the Fundraiser": it still exists, elsewhere.
+          const movedOut = await tx.campaignTransfer.count({ where: { sourceId: campaignId, status: 'APPROVED' } });
+          return { skip: movedOut > 0 ? ('dipindahkan' as const) : ('sudahKeluar' as const) };
+        }
       }
 
       const refund = await createRefund(tx, {
@@ -365,7 +388,20 @@ export async function proposeCampaignRefunds(
         throw err;
       });
       return { refund };
-    });
+      });
+    } catch (err) {
+      // The Campaign stopped being closed: every later Payment would fail the
+      // same way, so the run stops. Anything else is this Payment's alone.
+      if (err instanceof CampaignNotClosedForRefundProposalError) throw err;
+      const known = err instanceof Error && 'code' in err;
+      if (!known) console.error('[proposeCampaignRefunds] unexpected failure', candidate.id, err);
+      result.gagal.push({
+        paymentId: candidate.id,
+        amount: candidate.amount,
+        error: known ? (err as Error).message : 'Gagal tidak terduga.',
+      });
+      continue;
+    }
 
     if ('skip' in outcome) skip(candidate.id, candidate.amount, outcome.skip);
     else if (outcome.refund === 'already') result.alreadyProposed += 1;

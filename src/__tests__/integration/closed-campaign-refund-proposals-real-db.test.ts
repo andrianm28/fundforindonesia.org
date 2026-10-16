@@ -266,6 +266,68 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
     });
   });
 
+  describe('proposeCampaignRefunds: failure, race and skip reasons', () => {
+    it('two bulk runs at once make exactly one Refund per Payment', async () => {
+      const campaignId = await seedCampaign({ status: 'CANCELLED', closedAt: new Date(Date.now() - DAY) });
+      const admin = await makeUser();
+      const other = await makeUser();
+      const ids = [
+        await settle(campaignId, 100_000, { settledDaysAgo: 3 }),
+        await settle(campaignId, 110_000, { settledDaysAgo: 3 }),
+        await settle(campaignId, 120_000, { settledDaysAgo: 3 }),
+      ];
+
+      const [a, b] = await Promise.all([
+        proposals.proposeCampaignRefunds(prisma, { campaignId, actorAdminId: admin }),
+        proposals.proposeCampaignRefunds(prisma, { campaignId, actorAdminId: other }),
+      ]);
+
+      expect(a.created.length + b.created.length).toBe(3);
+      expect(a.gagal).toEqual([]);
+      expect(b.gagal).toEqual([]);
+      for (const id of ids) expect(await standing(id)).toHaveLength(1);
+    });
+
+    it('skips an anonymised Donation (anonim) and money a Campaign Transfer moved away (dipindahkan)', async () => {
+      const campaignId = await seedCampaign({ status: 'ACTIVE' });
+      const target = await seedCampaign({ status: 'ACTIVE' });
+      const admin = await makeUser();
+      const anonymised = await settle(campaignId, 100_000, { settledDaysAgo: 3 });
+      const moved = await settle(campaignId, 200_000, { settledDaysAgo: 3, released: true });
+      await release(campaignId);
+      await prisma.donation.updateMany({ where: { payments: { some: { id: anonymised } } }, data: { anonymisedAt: new Date() } });
+      // The whole released balance was transferred to another Campaign.
+      await prisma.campaignTransfer.create({
+        data: { sourceId: campaignId, targetId: target, amount: netOf(200_000), reason: 'x', status: 'APPROVED', requestedById: admin },
+      });
+      await prisma.$transaction((tx) =>
+        ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) })),
+      );
+      await prisma.campaign.update({ where: { id: campaignId }, data: { lifecycleStatus: 'SUSPENDED' } });
+
+      const result = await proposals.proposeCampaignRefunds(prisma, { campaignId, actorAdminId: admin });
+
+      expect(result.created).toEqual([]);
+      expect(result.skipped).toContainEqual({ paymentId: anonymised, amount: 100_000, reason: 'anonim' });
+      expect(result.skipped).toContainEqual({ paymentId: moved, amount: 200_000, reason: 'dipindahkan' });
+      expect(result.paidOut).toEqual({ count: 0, amount: 0 });
+    });
+
+    it('an Admin who owns the Campaign lands every Payment in gagal and the run still ends normally', async () => {
+      const campaignId = await seedCampaign({ status: 'SUSPENDED', closedAt: new Date(Date.now() - DAY) });
+      const { creatorId } = await prisma.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { creatorId: true } });
+      const a = await settle(campaignId, 100_000, { settledDaysAgo: 3 });
+      const b = await settle(campaignId, 110_000, { settledDaysAgo: 3 });
+
+      const result = await proposals.proposeCampaignRefunds(prisma, { campaignId, actorAdminId: creatorId });
+
+      expect(result.created).toEqual([]);
+      expect(result.gagal.map((g) => g.paymentId).sort()).toEqual([a, b].sort());
+      expect(result.gagal[0].error).toBeTruthy();
+      expect(await prisma.refund.count({ where: { paymentId: { in: [a, b] } } })).toBe(0);
+    });
+  });
+
   describe('late-settlement worklist', () => {
     it('lists Payments that settled after their Campaign closed, in every closed status, and nothing else', async () => {
       const admin = await makeUser();

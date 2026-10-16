@@ -174,6 +174,13 @@ const REFUND_ELIGIBILITY_BY_KIND: Record<Kind, 'ordinary' | 'technical failure o
 };
 
 /**
+ * The one phrase of the three that fits money which arrived after its Campaign
+ * closed. The closed-Campaign Refund proposals (./campaign-refund-proposals.ts)
+ * use it, and only for a Payment that really settled after the closure.
+ */
+export const CLOSED_CAMPAIGN_REFUND_REASON = 'dana masuk setelah Campaign ditutup';
+
+/**
  * The three failures PRD §196 calls the only ones a Refund on a zakat, Wakaf
  * or Hibah Campaign may be for, quoted from that sentence rather than phrased
  * here: wrong payment, double payment, and funds that arrived after the
@@ -181,13 +188,6 @@ const REFUND_ELIGIBILITY_BY_KIND: Record<Kind, 'ordinary' | 'technical failure o
  * picks from -- see the note on requireRefundAllowedForKind for what that
  * costs, and what closing it would need.
  */
-/**
- * The one phrase of the three that fits money which arrived after its Campaign
- * closed. The closed-Campaign Refund proposals (./campaign-refund-proposals.ts)
- * use it, and only for a Payment that really settled after the closure.
- */
-export const CLOSED_CAMPAIGN_REFUND_REASON = 'dana masuk setelah Campaign ditutup';
-
 const TECHNICAL_FAILURE_REASONS = ['salah bayar', 'bayar ganda', CLOSED_CAMPAIGN_REFUND_REASON] as const;
 
 /** Whether this Kind's Refunds need no technical-failure reason (see requireRefundAllowedForKind). */
