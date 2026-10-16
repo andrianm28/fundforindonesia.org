@@ -51,23 +51,23 @@ describe('/api/admin/verification-checklist', () => {
     state.db = makeCampaignDb({
       checklistItems: [
         checklistItemRow({ id: 'general', label: 'Umum', position: 1, kind: null }),
-        checklistItemRow({ id: 'zakat-1', label: 'Amil', position: 2, kind: 'ZAKAT' }),
-        checklistItemRow({ id: 'wakaf-1', label: 'Nazhir', position: 3, kind: 'WAKAF' }),
+        checklistItemRow({ id: 'wakaf-1', label: 'Amil', position: 2, kind: 'WAKAF' }),
+        checklistItemRow({ id: 'hibah-1', label: 'Nazhir', position: 3, kind: 'HIBAH' }),
       ],
     });
 
-    const res = await GET(new NextRequest(`${URL}?kind=zakat`));
+    const res = await GET(new NextRequest(`${URL}?kind=wakaf`));
     expect(res.status).toBe(200);
-    expect((await res.json()).items.map((i: { id: string }) => i.id)).toEqual(['general', 'zakat-1']);
+    expect((await res.json()).items.map((i: { id: string }) => i.id)).toEqual(['general', 'wakaf-1']);
 
     expect((await GET(new NextRequest(`${URL}?kind=sedekah`))).status).toBe(400);
   });
 
   it('adds an item scoped to one Kind when asked', async () => {
-    const res = await post({ label: 'Dokumen lembaga amil', required: true, kind: 'ZAKAT' });
+    const res = await post({ label: 'Dokumen lembaga amil', required: true, kind: 'WAKAF' });
 
     expect(res.status).toBe(201);
-    expect((await res.json()).item).toMatchObject({ label: 'Dokumen lembaga amil', kind: 'ZAKAT' });
+    expect((await res.json()).item).toMatchObject({ label: 'Dokumen lembaga amil', kind: 'WAKAF' });
   });
 
   it('adds an item as the acting Admin, answering 201', async () => {
@@ -94,8 +94,8 @@ describe('/api/admin/verification-checklist', () => {
 
   it.each([
     ['nobody signed in', null, 401],
-    ['a Verifier without the ADMIN assignment', { user: { id: 'verifier-1', assignments: ['VERIFIER'] } }, 403],
-    ['a Fundraiser', { user: { id: 'creator-1', assignments: [] } }, 403],
+    ['a Verifier without the ADMIN assignment', { user: { id: 'verifier-1', assignments: ['VERIFIER'] } }, 404],
+    ['a Fundraiser', { user: { id: 'creator-1', assignments: [] } }, 404],
   ])('refuses %s, reading and writing nothing', async (_name, session, status) => {
     mockSession.mockResolvedValue(session);
 

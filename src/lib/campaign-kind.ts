@@ -13,8 +13,12 @@ import type { Kind } from "@/generated/prisma/client";
  */
 export type CampaignKind = Kind;
 
-/** Every Kind, in the order the creation form and the catalogue offer them. */
-export const KINDS = ["DONATION", "ZAKAT", "WAKAF", "HIBAH"] as const satisfies readonly CampaignKind[];
+/**
+ * Every Kind the platform offers, in the order the creation form and the
+ * catalogue show them. `ZAKAT` is deliberately absent: Zakat was taken out of
+ * scope (2026-10-16) but stays in the Prisma enum so existing rows still load.
+ */
+export const KINDS = ["DONATION", "WAKAF", "HIBAH"] as const satisfies readonly CampaignKind[];
 
 /** The Indonesian name of each Kind, as screens show it. */
 export const KIND_LABEL: Record<CampaignKind, string> = {

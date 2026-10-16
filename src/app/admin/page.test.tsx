@@ -13,8 +13,8 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  redirect: vi.fn((url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
   }),
 }));
 
@@ -28,14 +28,14 @@ describe("AdminDashboardPage", () => {
     vi.clearAllMocks();
   });
 
-  it("redirects home when unauthenticated", async () => {
+  it("answers 404 when unauthenticated", async () => {
     mockGetServerSession.mockResolvedValue(null);
-    await expect(AdminDashboardPage()).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(AdminDashboardPage()).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("redirects home for someone with the ADMIN Role but not the ADMIN assignment", async () => {
+  it("answers 404 for someone with the ADMIN Role but not the ADMIN assignment", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "admin-1", assignments: [] } });
-    await expect(AdminDashboardPage()).rejects.toThrow("NEXT_REDIRECT:/");
+    await expect(AdminDashboardPage()).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
   it("renders for someone holding the ADMIN assignment without the ADMIN Role", async () => {

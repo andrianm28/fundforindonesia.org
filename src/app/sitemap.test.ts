@@ -105,6 +105,15 @@ describe('the sitemap links the canonical public site', () => {
     const urls = (await sitemap()).map((entry) => entry.url);
 
     expect(urls).toContain('https://staging.example.test');
-    expect(urls).toContain('https://staging.example.test/zakat');
+    expect(urls).not.toContain('https://staging.example.test/zakat');
+  });
+});
+
+describe('the sitemap lists the module landings', () => {
+  it('includes the CSR portfolio, the CSR, Wakaf and Hibah landings', async () => {
+    holder.db = makeCampaignDb({ campaigns: [] });
+    const urls = (await sitemap()).map((entry) => new URL(entry.url).pathname);
+
+    expect(urls).toEqual(expect.arrayContaining(['/program', '/kolaborasi-csr', '/wakaf', '/hibah']));
   });
 });

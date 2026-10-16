@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { withAssignmentCheck } from "@/lib/withAssignmentCheck";
+import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 import {
   followUpPartnershipInquiry,
   partnershipInquiryFollowUpErrorToHttp,
@@ -23,7 +23,7 @@ import {
  * including one that lost a race with another admin's move, so the team sees
  * one history rather than two.
  */
-export const PATCH = withAssignmentCheck(
+export const PATCH = withHiddenAssignmentCheck(
   Assignment.ADMIN,
   async (
     req: NextRequest,
@@ -35,7 +35,7 @@ export const PATCH = withAssignmentCheck(
       return NextResponse.json({ error: "Body permintaan harus berupa objek JSON." }, { status: 400 });
     }
 
-    // withAssignmentCheck has already refused anyone without a session, so the
+    // withHiddenAssignmentCheck has already refused anyone without a session, so the
     // person is known here; the audit trail names them, never a guess.
     const session = await getServerSession();
 

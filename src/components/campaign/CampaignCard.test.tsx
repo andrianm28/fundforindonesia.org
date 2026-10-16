@@ -171,12 +171,12 @@ describe('CampaignCard', () => {
     expect(progressBar).not.toBeNull();
   });
 
-  it('renders the Ledger Line motif with three fixed milestone ticks under the progress bar', () => {
+  it('renders the progress bar as one continuous bar without milestone ticks or a dashed track', () => {
     const { container } = render(<CampaignCard campaign={mockCampaign} variant="standard" />);
-    const ticks = container.querySelectorAll('[data-testid="ledger-tick"]');
-    expect(ticks).toHaveLength(3);
-    const positions = Array.from(ticks).map((tick) => (tick as HTMLElement).style.left);
-    expect(positions).toEqual(['25%', '50%', '75%']);
+    expect(container.querySelectorAll('[data-testid="ledger-tick"]')).toHaveLength(0);
+    const track = container.querySelector('[role="progressbar"]') as HTMLElement;
+    expect(track.style.backgroundImage).toBe('');
+    expect(track.children).toHaveLength(1);
   });
 
   it('does not apply the ledger gold token to the urgent badge, demo badge, or collected amount', () => {

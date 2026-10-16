@@ -104,6 +104,11 @@ import { join } from "node:path";
  * setting here -- growing this list by one. It carries no credential; those are
  * environment variables only.
  *
+ * NOTE (Pengaturan Laman Publik): POST /api/admin/site-settings lets an Admin edit
+ * the public pages' content (contact, social, footer, hero, pages), through
+ * withAssignmentCheck on the ADMIN assignment -- growing this list by one. It
+ * carries no payment or secret setting.
+ *
  * NOTE (csr-04): the Program edit was keyed by id when csr-01 landed, and the
  * public portfolio read needed the same segment for the slug a public link can
  * carry. Next.js allows one dynamic segment per level, so the segment is the
@@ -164,6 +169,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/campaign-transfers/[id]/decision/route.ts",
   "src/app/api/admin/campaign-transfers/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
+  "src/app/api/admin/escrow-hold/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
   "src/app/api/admin/manual-contributions/route.ts",
   "src/app/api/admin/partnership-inquiries/[id]/route.ts",
@@ -175,8 +181,12 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/provider-withdrawals/route.ts",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/scrutiny/route.ts",
+  "src/app/api/admin/site-settings/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/route.ts",
+  // ticket 90: the Admin APIs' 404 for anyone without ADMIN, in front of the
+  // Trip suspension module, which still decides who may suspend or lift.
+  "src/app/api/admin/volunteer-trips/[id]/suspension/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/approve/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/complete/route.ts",
   "src/app/api/campaigns/[slug]/payouts/[id]/usage-report/route.ts",
@@ -188,6 +198,9 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/moderasi/bank-account-revocations/[id]/route.ts",
   "src/app/api/moderasi/bank-accounts/[requestId]/route.ts",
   "src/app/api/moderasi/bank-accounts/route.ts",
+  // ticket 90: the Moderasi APIs' 404 for anyone without VERIFIER, in front of
+  // the lifecycle adapter; who may decide stays the command's.
+  "src/app/api/moderasi/campaigns/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/[id]/route.ts",
   "src/app/api/moderasi/volunteer-trips/route.ts",
   "src/app/api/programs/[slug]/route.ts",
@@ -364,12 +377,40 @@ describe("roles expand scope", () => {
   });
 
   it("every lifecycle route goes through the lifecycle adapter, never a route-level gate", () => {
+    // The Moderasi APIs' hidden 404 (withHiddenAssignmentCheck, ticket 90) is
+    // allowed in front of the adapter: it hides the panel from anyone without
+    // the assignment, and deciding stays the command's.
     const offenders = LIFECYCLE_ROUTES.filter((file) => {
       const source = readFileSync(file, "utf8");
-      return !source.includes("lifecycleRoute(") || source.includes("withAssignmentCheck") || usesHierarchy(source);
+      return !source.includes("lifecycleRoute(") || /\bwithAssignmentCheck\(/.test(source) || usesHierarchy(source);
     });
 
     expect(offenders).toEqual([]);
+  });
+
+  it("every Admin and Moderasi API route answers a missing assignment with 404 (ticket 90)", () => {
+    // Directly, or through the register's and checklist editor's wrappers,
+    // which are themselves withHiddenAssignmentCheck.
+    const HIDDEN = /\bwithHiddenAssignmentCheck\(|\bpartnerOrganisationRoute\(|\bchecklistRoute\(/;
+    const routes = [...walk("src/app/api/admin"), ...walk("src/app/api/moderasi")].filter((file) =>
+      file.endsWith("/route.ts")
+    );
+    expect(routes.length).toBeGreaterThan(30);
+    // escrow-hold (ticket 90 itself) and site-settings (#249) answer 404 to
+    // the signed-out as well, by their own check, so not even the 401 reveals
+    // the setting.
+    const OWN_404 = ["src/app/api/admin/escrow-hold/route.ts", "src/app/api/admin/site-settings/route.ts"];
+    const offenders = routes
+      .filter((file) => !OWN_404.includes(file))
+      .filter((file) => !HIDDEN.test(readFileSync(file, "utf8")));
+    for (const file of OWN_404) {
+      expect(readFileSync(file, "utf8")).toMatch(/status: 404/);
+    }
+    expect(offenders).toEqual([]);
+
+    for (const wrapper of ["src/lib/partner-organisation-route.ts", "src/lib/verification-checklist-route.ts"]) {
+      expect(readFileSync(wrapper, "utf8")).toMatch(/\bwithHiddenAssignmentCheck\(/);
+    }
   });
 
   it("the assignment model references ADR 0005", () => {

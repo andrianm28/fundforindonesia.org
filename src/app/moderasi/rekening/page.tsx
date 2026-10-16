@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
 import { Assignment } from "@/generated/prisma/client";
@@ -35,7 +35,7 @@ export const dynamic = "force-dynamic";
 export default async function ModerasiRekeningPage() {
   const session = await getServerSession();
   if (!session?.user || !hasAssignment(session.user.assignments, Assignment.VERIFIER)) {
-    redirect("/");
+    notFound();
   }
 
   const [requests, verified, revoked] = await Promise.all([

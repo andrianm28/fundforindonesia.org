@@ -158,7 +158,7 @@ Baris H-1, H-2, H-3a, dan B-1 pada tabel berikut juga pra-M1.
 | F4 | draft-rejected-edit-screen | Layar edit + change request target/tenggat; perbaiki link mati `admin/campaigns/page.tsx:112` | M |
 | F5 | fundraiser-donation-list | Daftar donasi untuk Fundraiser, aman anonimitas | S |
 | F6 | location-beneficiaries | Lokasi + penerima manfaat | M, skema |
-| P3 | wakaf-hibah-csr-landings-and-zakat-cta | Landing wakaf/hibah/CSR, tautan /program, CTA zakat | M |
+| P3 | wakaf-hibah-csr-landings-and-zakat-cta | Landing wakaf/hibah/CSR, tautan /program (CTA zakat dicabut 2026-10-16) | M |
 | P4 / P5 | contact, Terms dan Privacy | Copy menunggu A4 | S-M |
 | A-4 | admin-campaign-transfers-screen | Layar transfer Campaign | M, review uang |
 | A-5 | admin-program-crud | CRUD Program | M |
@@ -207,11 +207,11 @@ Baris H-1, H-2, H-3a, dan B-1 pada tabel berikut juga pra-M1.
 
 - **C1. Uang sebelum gerbang F2.** `CONTEXT.md:291` melarang uang publik sebelum gerbang F2. Rekomendasi: izinkan **gladi tertutup** setelah M-a + A-1 merge (satu Campaign YIEM, tanpa promosi, nominal kecil). Soft Launch = promosi publik setelah M2. Amandemen `CONTEXT.md`.
 - **C2. "Dua penyedia terekonsiliasi"** pindah dari gerbang M2 ke M3 (Xendit belum mulai); Soft Launch cukup Sumopod.
-- **C3. Platform Fee:** 5% untuk `donation`; 0 untuk bencana, zakat, wakaf, hibah; tanpa fee di bawah Rp50.000.
+- **C3. Platform Fee:** 5% untuk `donation`; 0 untuk bencana, wakaf, hibah; tanpa fee di bawah Rp50.000.
 - **C4. Dokumen** wajib sebelum M2; untuk M1 dokumen YIEM di luar produk.
 - **C5. Storage:** bucket S3-compatible + signed URL; owner konfirmasi isolasi dari object storage milik stack lain di host.
 - **C6. Reveal rekening:** hanya Admin penyelesai, tercatat di tabel audit.
-- **C7. Kind saat peluncuran:** `donation` saja sampai ada mitra zakat/wakaf dan review syariah hibah.
+- **C7. Kind saat peluncuran:** `donation` saja sampai ada mitra wakaf dan review syariah hibah (zakat dicabut dari cakupan 2026-10-16, ADR 0025).
 - **C8. Lokasi:** provinsi dari daftar statis, kabupaten/kota teks bebas, penerima manfaat + jumlah opsional.
 - **C9. Kategori wakaf:** masjid, sekolah, fasilitas kesehatan, fasilitas umum.
 - **C10.** Admin boleh menangguhkan tanpa Flag Verifier, asal ada alasan.

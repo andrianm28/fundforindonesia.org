@@ -56,7 +56,7 @@ describe('POST /api/admin/provider-withdrawals', () => {
     mockCreateMany.mockResolvedValue({ count: 2 });
   });
 
-  it('answers 401 with no session, and 403 without the ADMIN assignment', async () => {
+  it('answers 401 with no session, and 404 without the ADMIN assignment', async () => {
     // The sweep moves the platform's own money, which is squarely in the Admin's
     // remit in CONTEXT.md. A Verifier checks documents and does not move money,
     // exactly as with a Payout approval.
@@ -64,7 +64,7 @@ describe('POST /api/admin/provider-withdrawals', () => {
     expect((await post(VALID)).status).toBe(401);
 
     mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
-    expect((await post(VALID)).status).toBe(403);
+    expect((await post(VALID)).status).toBe(404);
 
     expect(mockCreate).not.toHaveBeenCalled();
     expect(mockCreateMany).not.toHaveBeenCalled();

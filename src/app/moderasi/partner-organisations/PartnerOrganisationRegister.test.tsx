@@ -63,7 +63,7 @@ describe('PartnerOrganisationRegister', () => {
       kindAuthorisations: [
         {
           id: 'auth-1',
-          kind: 'ZAKAT',
+          kind: 'WAKAF',
           documentReference: 'SK-1',
           validFrom: '2020-01-01T00:00:00.000Z',
           validTo: '2999-12-31T00:00:00.000Z',
@@ -124,7 +124,7 @@ describe('PartnerOrganisationRegister', () => {
     fireEvent.change(permitForm.getByLabelText('Penerbit'), { target: { value: 'Dinas Sosial' } });
     fireEvent.change(permitForm.getByLabelText('Berlaku dari'), { target: { value: '2027-01-01' } });
     fireEvent.change(permitForm.getByLabelText('Berlaku sampai'), { target: { value: '2027-12-31' } });
-    fireEvent.click(permitForm.getByLabelText('Zakat'));
+    fireEvent.click(permitForm.getByLabelText('Wakaf'));
     fireEvent.click(permitForm.getByRole('button', { name: 'Catat izin' }));
 
     await waitFor(() =>
@@ -134,7 +134,7 @@ describe('PartnerOrganisationRegister', () => {
         body: {
           number: '456/PUB/2027',
           issuer: 'Dinas Sosial',
-          kinds: ['ZAKAT'],
+          kinds: ['WAKAF'],
           validFrom: '2026-12-31T17:00:00.000Z',
           validTo: '2027-12-31T16:59:59.999Z',
         },
@@ -148,8 +148,8 @@ describe('PartnerOrganisationRegister', () => {
       kindAuthorisations: [
         {
           id: 'kind-authorisation-1',
-          kind: 'ZAKAT',
-          documentReference: 'SK Pengukuhan Amil Zakat 001/2026',
+          kind: 'WAKAF',
+          documentReference: 'SK Pengukuhan Nazhir 001/2026',
           validFrom: '2020-01-01T00:00:00.000Z',
           validTo: '2020-12-31T00:00:00.000Z',
         },
@@ -166,7 +166,7 @@ describe('PartnerOrganisationRegister', () => {
 
     render(<PartnerOrganisationRegister />);
 
-    expect(await screen.findByText('Zakat · SK Pengukuhan Amil Zakat 001/2026')).toBeDefined();
+    expect(await screen.findByText('Wakaf · SK Pengukuhan Nazhir 001/2026')).toBeDefined();
     expect(screen.getAllByText('(tidak berlaku)')).toHaveLength(2);
   });
 

@@ -52,6 +52,17 @@ describe.each([
     expect(command).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['a Verifier', { user: { id: 'verifier-1', assignments: ['VERIFIER'] } }],
+    ['a Fundraiser', { user: { id: 'creator-1', assignments: [] } }],
+  ])('answers %s 404, calling nothing, so a Trip id is not confirmed to exist (ticket 90)', async (_who, other) => {
+    mockGetServerSession.mockResolvedValue(other);
+    const response = await handler(request(method), context);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Not Found' });
+    expect(command).not.toHaveBeenCalled();
+  });
+
   it('passes the Trip id, the session as actor and the reason to the module', async () => {
     const response = await handler(request(method, { reason: 'Laporan penipuan' }), context);
     expect(response.status).toBe(200);

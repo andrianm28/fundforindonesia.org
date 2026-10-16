@@ -15,10 +15,12 @@ import { isEscrowReleaseFrozen, lockAndLoad } from '@/lib/subject-guard';
  * The escrow hold: how long settled money sits in ESCROW_HOLD before it
  * becomes withdrawable CAMPAIGN_BALANCE.
  *
- * One constant, in one file. Task M8 extends this same file with the sweep
- * that releases holds once they mature -- the hold length is not duplicated
- * anywhere else, because two copies of "7" in two files is how a hold period
- * silently becomes two different hold periods.
+ * Since ticket 90 the length is an Admin setting (EscrowHoldSetting,
+ * ./escrow-hold-config.ts), and this constant is only the fallback for a
+ * platform where none was ever set -- so behaviour without a setting is the
+ * seven days it always was. It stays one constant in one file: two copies of
+ * "7" in two files is how a hold period silently becomes two different hold
+ * periods.
  */
 export const ESCROW_HOLD_DAYS = 7;
 

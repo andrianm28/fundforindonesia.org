@@ -59,12 +59,12 @@ describe('addChecklistItem', () => {
       actorId: admin,
       label: 'Dokumen lembaga amil',
       required: true,
-      kind: 'ZAKAT',
+      kind: 'WAKAF',
       now: NOW,
     });
 
-    expect(item).toMatchObject({ kind: 'ZAKAT', position: 4, active: true });
-    expect(db.checklistAudits[0].after).toMatchObject({ kind: 'ZAKAT' });
+    expect(item).toMatchObject({ kind: 'WAKAF', position: 4, active: true });
+    expect(db.checklistAudits[0].after).toMatchObject({ kind: 'WAKAF' });
   });
 
   it('refuses an unknown Kind, writing nothing', async () => {
@@ -148,19 +148,19 @@ describe('editChecklistItem', () => {
     const db = makeCampaignDb({
       checklistItems: [
         checklistItemRow({ id: 'general', position: 1, kind: null }),
-        checklistItemRow({ id: 'zakat-1', position: 2, kind: 'ZAKAT' }),
-        checklistItemRow({ id: 'wakaf-1', position: 3, kind: 'WAKAF' }),
+        checklistItemRow({ id: 'wakaf-1', position: 2, kind: 'WAKAF' }),
+        checklistItemRow({ id: 'hibah-1', position: 3, kind: 'HIBAH' }),
       ],
     });
 
-    expect((await listChecklistItems(db.prisma as never, { kind: 'ZAKAT' })).map((i) => i.id)).toEqual([
+    expect((await listChecklistItems(db.prisma as never, { kind: 'WAKAF' })).map((i) => i.id)).toEqual([
       'general',
-      'zakat-1',
+      'wakaf-1',
     ]);
     expect((await listChecklistItems(db.prisma as never)).map((i) => i.id)).toEqual([
       'general',
-      'zakat-1',
       'wakaf-1',
+      'hibah-1',
     ]);
   });
 

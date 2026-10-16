@@ -21,8 +21,13 @@ export default withAuth(
     const assignments = (token?.assignments as Assignment[] | undefined) ?? [];
 
     for (const route of ASSIGNMENT_ROUTES) {
+      // The same 404 as a page that does not exist, not a redirect home that
+      // confirms the panel is there (owner decision 2026-10-14, ticket 90).
+      // Rewriting to an unmatched path renders the app's not-found page;
+      // the status is set here because a notFound() in the layout would come
+      // too late, behind the root loading.tsx, to change it from 200.
       if (pathname.startsWith(route.pattern) && !assignments.includes(route.assignment)) {
-        return NextResponse.redirect(new URL("/", req.url));
+        return NextResponse.rewrite(new URL("/_not-found", req.url), { status: 404 });
       }
     }
 

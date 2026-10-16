@@ -538,7 +538,7 @@ describe('decideVerificationRequest', () => {
     });
 
     it('words the permit refusal for the approval', async () => {
-      const db = seeded({ fundraisingPermits: [fundraisingPermitRow({ kinds: ['ZAKAT'] })] });
+      const db = seeded({ fundraisingPermits: [fundraisingPermitRow({ kinds: ['HIBAH'] })] });
 
       const error = await approve(db);
 
@@ -564,10 +564,10 @@ describe('decideVerificationRequest', () => {
   });
 
   describe('confirming the Kind Authorisation (prd-compliance 11, CONTEXT.md, ADR 0013)', () => {
-    function zakatSeeded(overrides: Parameters<typeof makeCampaignDb>[0] = {}) {
+    function wakafSeeded(overrides: Parameters<typeof makeCampaignDb>[0] = {}) {
       return seeded({
-        campaigns: [campaignRow({ kind: 'ZAKAT', creatorId: 'partner-fundraiser-1' })],
-        fundraisingPermits: [fundraisingPermitRow({ kinds: ['ZAKAT'] })],
+        campaigns: [campaignRow({ kind: 'WAKAF', creatorId: 'partner-fundraiser-1' })],
+        fundraisingPermits: [fundraisingPermitRow({ kinds: ['WAKAF'] })],
         kindAuthorisations: [kindAuthorisationRow()],
         users: [
           userRow(),
@@ -592,7 +592,7 @@ describe('decideVerificationRequest', () => {
       }).catch((e: unknown) => e);
 
     it('approves a Kind that needs one while the Collecting Entity still holds a valid Kind Authorisation', async () => {
-      const db = zakatSeeded();
+      const db = wakafSeeded();
 
       const result = await approve(db);
 
@@ -600,7 +600,7 @@ describe('decideVerificationRequest', () => {
     });
 
     it('refuses to approve when the Kind Authorisation lapsed while it waited, leaving the request pending', async () => {
-      const db = zakatSeeded({ kindAuthorisations: [kindAuthorisationRow({ validTo: new Date('2026-09-24T09:00:00Z') })] });
+      const db = wakafSeeded({ kindAuthorisations: [kindAuthorisationRow({ validTo: new Date('2026-09-24T09:00:00Z') })] });
 
       const error = await approve(db);
 
@@ -610,7 +610,7 @@ describe('decideVerificationRequest', () => {
         body: {
           code: 'KIND_AUTHORISATION_REQUIRED',
           error:
-            'Yayasan Contoh Peduli belum memegang Kind Authorisation yang berlaku untuk Kind Zakat, sehingga Campaign ini belum dapat diloloskan.',
+            'Yayasan Contoh Peduli belum memegang Kind Authorisation yang berlaku untuk Kind Wakaf, sehingga Campaign ini belum dapat diloloskan.',
         },
       });
       expect(db.campaign().lifecycleStatus).toBe('SUBMITTED');
@@ -618,7 +618,7 @@ describe('decideVerificationRequest', () => {
     });
 
     it('refuses to approve an individual Fundraiser\'s Campaign of a Kind only a Partner Organisation may run', async () => {
-      const db = zakatSeeded({ campaigns: [campaignRow({ kind: 'ZAKAT', creatorId: 'creator-1' })] });
+      const db = wakafSeeded({ campaigns: [campaignRow({ kind: 'WAKAF', creatorId: 'creator-1' })] });
 
       const error = await approve(db);
 
@@ -627,7 +627,7 @@ describe('decideVerificationRequest', () => {
     });
 
     it('still lets a Verifier reject a Campaign whose Collecting Entity holds no valid Kind Authorisation', async () => {
-      const db = zakatSeeded({ kindAuthorisations: [] });
+      const db = wakafSeeded({ kindAuthorisations: [] });
 
       const result = await decideVerificationRequest(db.prisma as never, {
         campaignId: 'campaign-1',

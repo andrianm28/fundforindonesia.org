@@ -29,6 +29,27 @@ export function withAssignmentCheck(
   requiredAssignment: Assignment,
   handler: RouteHandler
 ): RouteHandler {
+  return assignmentCheck(requiredAssignment, handler, { status: 403, error: "Forbidden" });
+}
+
+/**
+ * withAssignmentCheck for the Admin and Moderasi APIs: a signed-in user
+ * without the assignment gets 404, the same as a route that does not exist,
+ * so the API does not confirm the panel is there (owner decision 2026-10-14,
+ * ticket 90). Signed out is still 401.
+ */
+export function withHiddenAssignmentCheck(
+  requiredAssignment: Assignment,
+  handler: RouteHandler
+): RouteHandler {
+  return assignmentCheck(requiredAssignment, handler, { status: 404, error: "Not Found" });
+}
+
+function assignmentCheck(
+  requiredAssignment: Assignment,
+  handler: RouteHandler,
+  refusal: { status: 403 | 404; error: string }
+): RouteHandler {
   return async (req: NextRequest, context?: any) => {
     try {
       const session = await getServerSession();
@@ -41,10 +62,7 @@ export function withAssignmentCheck(
       }
 
       if (!hasAssignment(session.user.assignments, requiredAssignment)) {
-        return NextResponse.json(
-          { error: "Forbidden" },
-          { status: 403 }
-        );
+        return NextResponse.json({ error: refusal.error }, { status: refusal.status });
       }
 
       return await handler(req, context);

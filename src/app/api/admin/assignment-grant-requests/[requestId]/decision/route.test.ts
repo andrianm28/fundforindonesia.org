@@ -66,9 +66,9 @@ describe("POST /api/admin/assignment-grant-requests/[requestId]/decision", () =>
     expect((await post({ decision: "confirm" })).status).toBe(401);
   });
 
-  it("returns 403 without the ADMIN assignment", async () => {
+  it("returns 404 without the ADMIN assignment", async () => {
     mockSession.mockResolvedValue({ user: { id: "someone-1", assignments: [] } });
-    expect((await post({ decision: "confirm" })).status).toBe(403);
+    expect((await post({ decision: "confirm" })).status).toBe(404);
   });
 
   it("returns 400 for an unrecognised decision", async () => {
