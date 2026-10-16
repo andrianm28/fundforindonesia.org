@@ -50,12 +50,17 @@ describe('CampaignCreatePage review step', () => {
   const calls: Array<{ url: string; method: string; body?: unknown }> = [];
   let uploadAnswer: () => Response | Promise<Response>;
   let submission: { status: number; body: unknown };
+  let categoryRows: { slug: string; name: string }[];
   let sponsorOptions: { own: { id: string; name: string } | null; sponsors: { id: string; name: string }[] };
 
   beforeEach(() => {
     calls.length = 0;
     uploadAnswer = () => Response.json({ url: 'https://cdn.test/cover.jpg' });
     submission = { status: 201, body: { campaign: { lifecycleStatus: 'SUBMITTED' } } };
+    categoryRows = [
+      { slug: 'bencana-alam', name: 'Bencana Alam' },
+      { slug: 'rumah-ibadah', name: 'Rumah Ibadah' },
+    ];
     sponsorOptions = { own: null, sponsors: [{ id: 'sponsor', name: 'Yayasan Penaung' }] };
     mockUseSession.mockReturnValue(signedIn());
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:cover' }));
@@ -68,6 +73,7 @@ describe('CampaignCreatePage review step', () => {
           body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
         });
         if (url === '/api/partner-organisations/sponsors') return Response.json(sponsorOptions);
+        if (url === '/api/categories') return Response.json({ categories: categoryRows });
         if (url === '/api/upload') return uploadAnswer();
         if (url === '/api/campaigns') return Response.json({ slug: 'bantu-banjir-abc123' }, { status: 201 });
         return Response.json(submission.body, { status: submission.status });
@@ -85,6 +91,7 @@ describe('CampaignCreatePage review step', () => {
   async function fillInToReview({ kind = 'DONATION', deadline = '2099-12-31' } = {}) {
     const { container } = render(<CampaignCreatePage />);
     await screen.findByTestId('collecting-entity');
+    await screen.findByRole('option', { name: 'Bencana Alam' });
     fireEvent.change(screen.getByRole('combobox', { name: 'Collecting Entity' }), { target: { value: 'sponsor' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), { target: { value: kind } });
     fireEvent.change(screen.getByPlaceholderText('Contoh: Bantu Korban Banjir Jakarta'), {
@@ -102,6 +109,21 @@ describe('CampaignCreatePage review step', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Lanjutkan' }));
   }
+
+  it('offers exactly the Categories the table holds, by slug, and no hardcoded ones', async () => {
+    categoryRows = [{ slug: 'masjid', name: 'Masjid' }, { slug: 'sekolah', name: 'Sekolah' }];
+    render(<CampaignCreatePage />);
+
+    await screen.findByRole('option', { name: 'Masjid' });
+    const select = screen.getByRole('combobox', { name: 'Kategori' }) as HTMLSelectElement;
+    expect([...select.options].map((o) => [o.value, o.textContent])).toEqual([
+      ['', 'Pilih Kategori'],
+      ['masjid', 'Masjid'],
+      ['sekolah', 'Sekolah'],
+    ]);
+    expect(screen.queryByRole('option', { name: 'Lainnya' })).toBeNull();
+    expect(screen.queryByRole('option', { name: 'Bantuan Medis & Kesehatan' })).toBeNull();
+  });
 
   it('offers "Simpan Draft" and "Ajukan ke Verifier"', async () => {
     await fillInToReview();

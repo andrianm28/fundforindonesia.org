@@ -9,6 +9,7 @@ import { listableCampaignWhere } from '@/lib/subject-guard';
 import { deadlineRequiredMessage, KINDS, missingRequiredDeadline, parseKind } from '@/lib/campaign-kind';
 import { organisationOf, requireDonationOnlyForIndividual, resolveCollectingEntity } from '@/lib/collecting-entity-guard';
 import { refusalResponse } from '@/lib/refusal-response';
+import { categoryExists, UNKNOWN_CATEGORY_MESSAGE } from '@/lib/categories';
 
 const createCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
@@ -162,6 +163,15 @@ export async function POST(request: NextRequest) {
 
     const { title, description, story, coverImage, targetAmount, category, kind, deadline } = result.data;
     const beneficiaryName = result.data.beneficiaryName?.trim() || null;
+
+    // The Category must be one the Admin keeps in the Category table: a slug
+    // with no row there files the Campaign under a Category page that 404s.
+    if (!(await categoryExists(prisma, category))) {
+      return NextResponse.json(
+        { error: UNKNOWN_CATEGORY_MESSAGE, fieldErrors: { category: [UNKNOWN_CATEGORY_MESSAGE] } },
+        { status: 400 }
+      );
+    }
 
     // An individual Fundraiser may only run Kind donation (CONTEXT.md, Kind
     // Authorisation; ADR 0013); zakat, wakaf and hibah need an institution.
