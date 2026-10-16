@@ -210,7 +210,7 @@ describe('POST /api/donations, a Donor Hibah gets the same nominal, Receipt and 
     });
   });
 
-  it('accepts a free nominal, above the Rp20.000 minimum, exactly as any Kind does', async () => {
+  it('accepts a free nominal, above the Rp1.000 minimum, exactly as any Kind does', async () => {
     const response = await donate({
       campaignId: 'campaign-1',
       amount: 1_234_000,
@@ -225,10 +225,10 @@ describe('POST /api/donations, a Donor Hibah gets the same nominal, Receipt and 
     );
   });
 
-  it('refuses a nominal below the Rp20.000 minimum, same as any other Kind', async () => {
+  it('refuses a nominal below the Rp1.000 minimum, same as any other Kind', async () => {
     const response = await donate({
       campaignId: 'campaign-1',
-      amount: 19_999,
+      amount: 999,
       paymentMethod: 'qris',
       isAnonymous: false,
       guestEmail: 'donor@example.com',

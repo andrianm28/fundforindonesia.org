@@ -11,7 +11,9 @@ import {
   donationsEnabled,
   sandboxInProductionReason,
   DONATIONS_DISABLED_MESSAGE,
+  MIN_DONATION_AMOUNT,
 } from '@/lib/donations';
+import { formatRupiah } from '@/lib/utils/currency';
 import { campaignAcceptsDonations, donationBlock, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import { donationRefusalCopy } from '@/lib/campaign-page-status';
@@ -19,12 +21,9 @@ import { chargeDonation } from '@/lib/money/donation-charge';
 import { VALID_PAYMENT_METHODS, PROVIDER_METHOD_FOR, paymentInstructionsFor } from '@/lib/money/payment-method-map';
 import { sanitizeTrafficSource } from '@/lib/traffic-source';
 
-/** CONTEXT.md, "Minimum Rp20.000, dengan nominal cepat dan nominal bebas" (prd-compliance 18). */
-const MIN_DONATION_AMOUNT = 20_000;
-
 const createDonationSchema = z.object({
   campaignId: z.string().min(1, "Campaign ID harus diisi"),
-  amount: z.number().int().min(MIN_DONATION_AMOUNT, "Minimum donasi Rp20.000"),
+  amount: z.number().int().min(MIN_DONATION_AMOUNT, `Minimum donasi ${formatRupiah(MIN_DONATION_AMOUNT)}`),
   paymentMethod: z.enum(VALID_PAYMENT_METHODS, {
     error: "Metode pembayaran tidak valid. Pilih: bank_transfer, qris, ewallet, atau credit_card",
   }),

@@ -9,13 +9,12 @@ import { PaymentMethodSelector } from '@/components/donation/PaymentMethodSelect
 import { DonationConfirmation } from '@/components/donation/DonationConfirmation';
 import { useBetaSandbox } from '@/components/layout/BetaSandboxContext';
 import { formatRupiah } from '@/lib/utils/currency';
-import { donationsEnabled, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
+import { donationsEnabled, DONATIONS_DISABLED_MESSAGE, MIN_DONATION_AMOUNT } from '@/lib/donations';
 import { donationRefusalCopy, offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
 import { readCapturedTrafficSource } from '@/lib/traffic-source-capture';
 import type { PaymentMethod } from '@/types/donation';
 
 const PRESET_AMOUNTS = [20000, 50000, 100000, 250000, 500000];
-const MIN_AMOUNT = 20000;
 const MAX_AMOUNT = 1000000000;
 
 /**
@@ -332,7 +331,7 @@ export default function DonatePage() {
         {currentStep === 1 && (
           <DonationAmountSelector
             presets={PRESET_AMOUNTS}
-            minAmount={MIN_AMOUNT}
+            minAmount={MIN_DONATION_AMOUNT}
             maxAmount={MAX_AMOUNT}
             selectedAmount={selectedAmount}
             onAmountChange={setSelectedAmount}

@@ -557,8 +557,8 @@ describe('POST /api/donations Guest Donor contact details (prd-compliance 18)', 
 });
 
 describe('POST /api/donations minimum amount (prd-compliance 18)', () => {
-  it('refuses an amount below Rp20.000', async () => {
-    const response = await POST(createRequest({ ...QRIS_BODY, amount: 19_999 }));
+  it('refuses an amount below Rp1.000', async () => {
+    const response = await POST(createRequest({ ...QRIS_BODY, amount: 999 }));
     const data = await response.json();
 
     expect(response.status).toBe(400);
@@ -566,8 +566,8 @@ describe('POST /api/donations minimum amount (prd-compliance 18)', () => {
     expect(mockDonationCreate).not.toHaveBeenCalled();
   });
 
-  it('accepts exactly Rp20.000', async () => {
-    const response = await POST(createRequest({ ...QRIS_BODY, amount: 20_000 }));
+  it('accepts exactly Rp1.000', async () => {
+    const response = await POST(createRequest({ ...QRIS_BODY, amount: 1_000 }));
 
     expect(response.status).toBe(201);
   });

@@ -168,7 +168,7 @@ Peran di sisi Platform Operator yang menyetujui Payout, melihat rekonsiliasi, me
 ### Uang
 
 **Donation**:
-Niat memberi dari satu Donor ke satu Campaign dengan nominal tertentu. Donation belum memindahkan uang sampai Payment-nya settle.
+Niat memberi dari satu Donor ke satu Campaign dengan nominal tertentu. Donation belum memindahkan uang sampai Payment-nya settle. Nominal minimum Rp1.000 (keputusan owner 2026-10-16).
 _Avoid_: Donasi (di kode), transaction, contribution
 
 **Trip Fee**:
