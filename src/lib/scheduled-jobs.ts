@@ -82,29 +82,60 @@ const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consid
  * failing phase cannot silently skip the others in the same run.
  */
 export async function runScheduledJobs(now: Date = new Date(), mailer?: Mailer): Promise<ScheduledJobsResult> {
-  const escrowRelease = await runPhase('escrowRelease', FALLBACK_RELEASE_SWEEP, () =>
+  return (await runScheduledJobsReport(now, mailer)).result;
+}
+
+export interface ScheduledJobsReport {
+  /** False when any phase threw and fell back to its zeroed result. */
+  ok: boolean;
+  /** Names of the phases that fell back, in run order. */
+  failedPhases: string[];
+  result: ScheduledJobsResult;
+}
+
+/**
+ * runScheduledJobs plus which phases fell back. A fallback zero is
+ * indistinguishable from "nothing to do" in the result alone, so the trigger
+ * route answers from this to tell the scheduler a phase failed (audit OPS-2).
+ *
+ * Refund link expiry and the dormant-balance report are deliberately still not
+ * phases: no refund-link expiry code exists to call, and dormantBalanceReport
+ * is a read-only listing for an Admin page that notifies nobody, so running it
+ * every 15 minutes would do nothing.
+ */
+export async function runScheduledJobsReport(now: Date = new Date(), mailer?: Mailer): Promise<ScheduledJobsReport> {
+  const failedPhases: string[] = [];
+  const phase = <T>(name: string, fallback: T, run: () => Promise<T>) =>
+    runPhase(name, fallback, run, () => failedPhases.push(name));
+
+  const escrowRelease = await phase('escrowRelease', FALLBACK_RELEASE_SWEEP, () =>
     releaseMaturedEscrow(undefined, now),
   );
-  const campaignDeadlineReminders = await runPhase('campaignDeadlineReminders', FALLBACK_REMINDER_SWEEP, () =>
+  const campaignDeadlineReminders = await phase('campaignDeadlineReminders', FALLBACK_REMINDER_SWEEP, () =>
     sendCampaignDeadlineReminders(now, mailer),
   );
-  const kindAuthorisationExpiryWarnings = await runPhase(
+  const kindAuthorisationExpiryWarnings = await phase(
     'kindAuthorisationExpiryWarnings',
     FALLBACK_REMINDER_SWEEP,
     () => sendKindAuthorisationExpiryWarnings(now, mailer),
   );
-  const lateSettlementRefunds = await runPhase('lateSettlementRefunds', FALLBACK_REFUND_SWEEP, () =>
+  const lateSettlementRefunds = await phase('lateSettlementRefunds', FALLBACK_REFUND_SWEEP, () =>
     sweepStuckLateSettlementRefunds(now),
   );
 
-  return { escrowRelease, campaignDeadlineReminders, kindAuthorisationExpiryWarnings, lateSettlementRefunds };
+  return {
+    ok: failedPhases.length === 0,
+    failedPhases,
+    result: { escrowRelease, campaignDeadlineReminders, kindAuthorisationExpiryWarnings, lateSettlementRefunds },
+  };
 }
 
-async function runPhase<T>(name: string, fallback: T, run: () => Promise<T>): Promise<T> {
+async function runPhase<T>(name: string, fallback: T, run: () => Promise<T>, onFail: () => void): Promise<T> {
   try {
     return await run();
   } catch (err) {
     console.error(`runScheduledJobs: phase "${name}" failed`, err);
+    onFail();
     return fallback;
   }
 }

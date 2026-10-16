@@ -19,7 +19,7 @@ vi.mock('@/lib/reminders', () => ({
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 import { sendCampaignDeadlineReminders, sendKindAuthorisationExpiryWarnings } from '@/lib/reminders';
 import { sweepStuckLateSettlementRefunds } from '@/lib/volunteer/refund-sweep';
-import { runScheduledJobs } from './scheduled-jobs';
+import { runScheduledJobs, runScheduledJobsReport } from './scheduled-jobs';
 
 const mockReleaseMaturedEscrow = releaseMaturedEscrow as unknown as Mock;
 const mockSendCampaignDeadlineReminders = sendCampaignDeadlineReminders as unknown as Mock;
@@ -94,5 +94,35 @@ describe('runScheduledJobs', () => {
 
     const [, passedNow] = mockReleaseMaturedEscrow.mock.calls[0];
     expect(passedNow).toBeInstanceOf(Date);
+  });
+
+  describe('runScheduledJobsReport (what the trigger route answers from)', () => {
+    it('is ok with no failed phases when every phase succeeds, and carries the same result', async () => {
+      const report = await runScheduledJobsReport(NOW);
+
+      expect(report.ok).toBe(true);
+      expect(report.failedPhases).toEqual([]);
+      expect(report.result).toEqual(await runScheduledJobs(NOW));
+    });
+
+    it('names the phase that fell back, and is not ok, while the others still run', async () => {
+      mockReleaseMaturedEscrow.mockRejectedValueOnce(new Error('db blip'));
+
+      const report = await runScheduledJobsReport(NOW);
+
+      expect(report.ok).toBe(false);
+      expect(report.failedPhases).toEqual(['escrowRelease']);
+      expect(report.result.campaignDeadlineReminders).toEqual({ attemptedCount: 1, consideredCount: 1 });
+    });
+
+    it('lists every failed phase, in run order', async () => {
+      mockSweepRefunds.mockRejectedValueOnce(new Error('x'));
+      mockSendKindAuthorisationExpiryWarnings.mockRejectedValueOnce(new Error('y'));
+      mockReleaseMaturedEscrow.mockRejectedValueOnce(new Error('z'));
+
+      const report = await runScheduledJobsReport(NOW);
+
+      expect(report.failedPhases).toEqual(['escrowRelease', 'kindAuthorisationExpiryWarnings', 'lateSettlementRefunds']);
+    });
   });
 });
