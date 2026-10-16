@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { clientAddress } from '@/lib/client-ip';
+import { guardRoute } from '@/lib/rate-limit-guard';
 
 // Readiness beyond "the DB answers" (audit OPS-3). Kept apart from /api/health,
 // which the CD smoke test and rollback poll and which must stay cheap. Only
@@ -12,7 +14,15 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const STALE_PENDING_MS = 24 * 60 * 60 * 1000;
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Unauthenticated and uncached, so bound it per caller; open when the
+  // limiter is down, since a health probe must still answer.
+  const refused = await guardRoute(
+    { scope: 'health-deep', subject: clientAddress(request.headers), limit: 30, windowSeconds: 60, onUnavailable: 'open' },
+    { limited: 'Terlalu banyak permintaan.' },
+  );
+  if (refused) return refused;
+
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch (error) {

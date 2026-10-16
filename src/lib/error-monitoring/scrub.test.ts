@@ -17,6 +17,7 @@ describe('scrub', () => {
     expect(scrubString('GET /akad-wakaf/zzTOKENzz')).toBe('GET /akad-wakaf/[redacted]');
     expect(scrubString('/reset-password/tok_9?x=1')).toBe('/reset-password/[redacted]?x=1');
     expect(scrubString('/verify?token=abcdef&next=/home')).toBe('/verify?token=[redacted]&next=/home');
+    expect(scrubString('GET /api/receipts/shortTok9')).toBe('GET /api/receipts/[redacted]');
   });
 
   it('removes bearer tokens and svix signatures', () => {
@@ -27,6 +28,8 @@ describe('scrub', () => {
 
   it('removes long opaque tokens', () => {
     expect(scrubString('token 0123456789abcdef0123456789abcdef seen')).toBe('token [redacted] seen');
+    // base64url tokens may start or end with - or _, where \b would leave a tail.
+    expect(scrubString('x -0123456789abcdef0123456789abcdef_ y')).toBe('x [redacted] y');
   });
 
   it('drops Authorization and Cookie headers and request bodies, deeply', () => {

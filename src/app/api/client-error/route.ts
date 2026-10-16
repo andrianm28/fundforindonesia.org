@@ -28,6 +28,9 @@ export async function POST(request: NextRequest) {
   );
   if (refused) return refused;
 
+  const declared = Number(request.headers.get('content-length') ?? '0');
+  if (declared > MAX_BODY_BYTES) return new NextResponse(null, { status: 413 });
+
   let payload: Record<string, unknown> = {};
   try {
     const text = await request.text();

@@ -13,7 +13,7 @@ const SECRET_KEY =
   /^(authorization|proxy-authorization|cookie|set-cookie|cookies|x-jobs-secret|x-api-key|x-signature|x-callback-token|svix-signature|svix-id|svix-timestamp|password|secret|token|access_token|refresh_token|body|data|rawbody|requestbody|payload|formdata)$/i;
 
 /** Path segments that carry a capability token (receipt, akad, reset links). */
-const TOKEN_PATH = /\/(receipt|akad-wakaf|sertifikat|reset-password|password-reset|verify-email|verify|reset)\/[^/?#\s]+/gi;
+const TOKEN_PATH = /\/(receipts?|akad-wakaf|sertifikat|reset-password|password-reset|verify-email|verify|reset)\/[^/?#\s]+/gi;
 const TOKEN_QUERY = /([?&](?:token|t|key|sig|signature|code|secret|access_token)=)[^&#\s]*/gi;
 const BEARER = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
 const BASIC = /\bBasic\s+[A-Za-z0-9+/=]{8,}/g;
@@ -21,7 +21,7 @@ const BASIC = /\bBasic\s+[A-Za-z0-9+/=]{8,}/g;
 const SVIX_SIGNATURE = /\bv1[,=][A-Za-z0-9+/=_-]{16,}/g;
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 /** Long opaque strings (hex or base64url of 32+ chars) are treated as tokens. */
-const OPAQUE = /\b[A-Za-z0-9_-]{32,}\b/g;
+const OPAQUE = /(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])/g;
 /** 8+ digits, optionally grouped by single spaces or dashes: account numbers. */
 const DIGIT_RUN = /\d(?:[ -]?\d){7,}/g;
 
