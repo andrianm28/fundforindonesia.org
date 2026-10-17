@@ -20,7 +20,7 @@
     "@node-rs/bcrypt": "^1.10.9",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
-    "dotenv": "^18.0.6",
+    "dotenv": "^18.0.7",
     "framer-motion": "^13.5.0",
     "next": "^16.4.0",
     "next-auth": "^4.24.15",
@@ -31,14 +31,14 @@
     "react-dom": "^19.3.0",
     "swr": "^2.5.1",
     "tsx": "^4.23.15",
-    "zod": "^4.6.5",
+    "zod": "^4.6.7",
     "zustand": "^5.0.15"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
