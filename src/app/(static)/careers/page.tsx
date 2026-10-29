@@ -17,7 +17,7 @@ export default async function CareersPage() {
       <div className="space-y-6 text-text-secondary leading-relaxed">
         <p>
           Bergabunglah dengan tim kami dan jadilah bagian dari misi untuk membantu masyarakat
-          Indonesia melalui platform penggalangan dana yang terpercaya.
+          Indonesia melalui platform penggalangan dana.
         </p>
 
         <section>
