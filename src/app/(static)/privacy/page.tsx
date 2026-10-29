@@ -179,7 +179,8 @@ export default function PrivacyPage() {
             <li>
               <strong>Mengakses dan memperoleh salinan data Anda.</strong> Pengguna terdaftar dapat memakai
               tombol &quot;Unduh data saya&quot; di halaman Akun (profil, donasi, galang dana, dan penugasan
-              dalam format JSON). Donatur Tamu dapat meminta lewat email.
+              dalam format JSON). Data lain, seperti pendaftaran perjalanan relawan, doa, notifikasi, dan
+              donasi otomatis, dapat diminta lewat email. Donatur Tamu dapat meminta lewat email.
             </li>
             <li>
               <strong>Memperbaiki data</strong> yang tidak akurat; profil dapat diubah di Pengaturan.
