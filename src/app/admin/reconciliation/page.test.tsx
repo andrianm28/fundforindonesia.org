@@ -170,7 +170,7 @@ describe('AdminReconciliationPage', () => {
           { id: 'e1', provider: 'sumopod', providerEventId: 'evt-77', outcome: 'AMOUNT_MISMATCH', receivedAt: AT, processedAt: AT },
         ],
         chargeWriteFailures: [
-          { id: 'c1', provider: 'sumopod', providerRef: 'don-9', subjectType: 'donation', subjectId: 'don-9', amount: 25_000, createdAt: AT },
+          { id: 'c1', provider: 'sumopod', providerRef: 'don-9', subjectType: 'donation', amount: 25_000, createdAt: AT },
         ],
       }),
     );

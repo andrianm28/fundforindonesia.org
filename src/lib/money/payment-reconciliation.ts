@@ -148,7 +148,6 @@ export async function listReconciliationQueue(db: Pick<PrismaClient, 'webhookEve
         provider: true,
         providerRef: true,
         subjectType: true,
-        subjectId: true,
         amount: true,
         createdAt: true,
       },

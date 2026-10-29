@@ -7,14 +7,17 @@ import { useRouter } from 'next/navigation';
  * Records a sweep from a Payment Provider to a Collection Account (ticket 63;
  * prd-compliance 35, ADR 0011). Posts to POST /api/admin/provider-withdrawals.
  * Every rule lives on the server (src/lib/money/provider-withdrawals.ts), whose
- * refusal is shown here in its own words; this form only keeps the rupiah
- * fields to digits so "1.000.000" as typed from a dashboard posts 1000000.
+ * refusal is shown here in its own words. Rupiah fields accept thousands
+ * dots ("1.000.000" posts 1000000) and nothing else: a comma or a minus is not
+ * stripped into a different number, it keeps the button disabled.
  */
 
 type CollectingEntityOption = { id: string; name: string };
 
-function digits(value: string): string {
-  return value.replace(/\D/g, '');
+/** Whole rupiah as typed, thousands dots and spaces allowed; null when anything else is in it. */
+function rupiah(value: string): number | null {
+  const bare = value.replace(/[.\s]/g, '');
+  return /^\d+$/.test(bare) ? Number(bare) : null;
 }
 
 export function AdminProviderWithdrawalForm({
@@ -37,13 +40,17 @@ export function AdminProviderWithdrawalForm({
   const [refusal, setRefusal] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  const amountValue = rupiah(amount);
+  const beforeValue = rupiah(balanceBefore);
+  const afterValue = rupiah(balanceAfter);
+  const malformed = [amount, balanceBefore, balanceAfter].some((v) => v.trim() !== '' && rupiah(v) === null);
   const complete =
     provider !== '' &&
     reference.trim() !== '' &&
-    amount !== '' &&
+    amountValue !== null &&
     destinationName.trim() !== '' &&
-    balanceBefore !== '' &&
-    balanceAfter !== '' &&
+    beforeValue !== null &&
+    afterValue !== null &&
     proofReference.trim() !== '';
   const canSave = complete && !submitting;
 
@@ -59,11 +66,11 @@ export function AdminProviderWithdrawalForm({
         body: JSON.stringify({
           provider,
           reference: reference.trim(),
-          amount: Number(amount),
+          amount: amountValue,
           destinationName: destinationName.trim(),
           ...(collectingEntityId !== '' ? { collectingEntityId } : {}),
-          providerBalanceBefore: Number(balanceBefore),
-          providerBalanceAfter: Number(balanceAfter),
+          providerBalanceBefore: beforeValue,
+          providerBalanceAfter: afterValue,
           proofReference: proofReference.trim(),
         }),
       });
@@ -112,7 +119,7 @@ export function AdminProviderWithdrawalForm({
 
       <label className="block text-sm text-gray-700">
         Nominal ditarik (Rp)
-        <input inputMode="numeric" value={amount} onChange={(e) => setAmount(digits(e.target.value))} className={inputClass} />
+        <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} />
       </label>
 
       <label className="block text-sm text-gray-700">
@@ -139,7 +146,7 @@ export function AdminProviderWithdrawalForm({
           <input
             inputMode="numeric"
             value={balanceBefore}
-            onChange={(e) => setBalanceBefore(digits(e.target.value))}
+            onChange={(e) => setBalanceBefore(e.target.value)}
             className={inputClass}
           />
         </label>
@@ -148,7 +155,7 @@ export function AdminProviderWithdrawalForm({
           <input
             inputMode="numeric"
             value={balanceAfter}
-            onChange={(e) => setBalanceAfter(digits(e.target.value))}
+            onChange={(e) => setBalanceAfter(e.target.value)}
             className={inputClass}
           />
         </label>
@@ -163,6 +170,10 @@ export function AdminProviderWithdrawalForm({
         <input value={proofReference} onChange={(e) => setProofReference(e.target.value)} className={inputClass} />
         <span className={hintClass}>Di mana buktinya disimpan, misalnya tautan tangkapan layar atau nomor mutasi bank.</span>
       </label>
+
+      {malformed && (
+        <p className="text-sm text-danger">Nominal dan saldo hanya berisi angka rupiah bulat, boleh dengan titik ribuan.</p>
+      )}
 
       <button
         type="button"

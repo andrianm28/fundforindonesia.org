@@ -122,7 +122,7 @@ describe('listReconciliationQueue', () => {
 
   it('lists only unresolved charge write failures', async () => {
     const createdAt = new Date('2026-10-21T03:00:00.000Z');
-    const row = { id: 'c1', provider: 'sumopod', providerRef: 'don-1', subjectType: 'donation', subjectId: 'don-1', amount: 50_000, createdAt };
+    const row = { id: 'c1', provider: 'sumopod', providerRef: 'don-1', subjectType: 'donation', amount: 50_000, createdAt };
     const webhookEvent = { findMany: vi.fn().mockResolvedValue([]) };
     const chargeWriteFailure = { findMany: vi.fn().mockResolvedValue([row]) };
 

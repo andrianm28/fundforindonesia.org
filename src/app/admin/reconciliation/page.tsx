@@ -110,7 +110,9 @@ export default async function AdminReconciliationPage() {
     queue.webhookEvents.length +
     queue.chargeWriteFailures.length;
 
-  const sweeps = providerReport.withdrawals.flatMap((r) => r.withdrawals).reverse();
+  const sweeps = providerReport.withdrawals
+    .flatMap((r) => r.withdrawals)
+    .sort((a, b) => (a.recordedAt < b.recordedAt ? 1 : a.recordedAt > b.recordedAt ? -1 : 0));
   // The registry's real providers first, so the form opens on one; mock stays
   // selectable for a beta or local database.
   const providerOptions = [...PAYMENT_PROVIDER_NAMES].sort((a, b) => Number(a === 'mock') - Number(b === 'mock'));

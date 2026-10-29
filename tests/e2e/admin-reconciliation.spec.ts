@@ -26,6 +26,22 @@ async function signInAs(page: Page, email: string) {
 }
 
 test.describe('Admin reconciliation page', () => {
+  test('an anonymous visitor is sent to login by the middleware, never shown the page', async ({ page }) => {
+    // The 404 for a signed-in non-Admin comes from the /admin layout
+    // (src/app/admin/layout.test.tsx); an anonymous visitor never reaches it.
+    await page.goto('/admin/reconciliation');
+
+    await expect(page).toHaveURL(/\/login\?callbackUrl=%2Fadmin%2Freconciliation/);
+    await expect(page.getByText('Saldo per penyedia')).toHaveCount(0);
+  });
+
+  test('an anonymous caller cannot record a provider withdrawal', async ({ request }) => {
+    // Signed out is 401; a signed-in non-Admin gets 404 (withHiddenAssignmentCheck).
+    const res = await request.post('/api/admin/provider-withdrawals', { data: { provider: 'sumopod' } });
+
+    expect(res.status()).toBe(401);
+  });
+
   test('an Admin reads the report and records a provider withdrawal from the screen', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'Desktop', 'one Admin sign-in per run; see the file comment');
     const reference = `E2E-WD-${Date.now()}`;

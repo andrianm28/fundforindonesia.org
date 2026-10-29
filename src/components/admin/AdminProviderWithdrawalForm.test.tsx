@@ -88,6 +88,19 @@ describe('AdminProviderWithdrawalForm', () => {
     expect(screen.getByRole('button', { name: /catat penarikan/i })).toBeEnabled();
   });
 
+  it('refuses a comma or a minus instead of reading it as a different number', () => {
+    mockFetch({ ok: true });
+    render(<AdminProviderWithdrawalForm providers={['sumopod']} collectingEntities={ENTITIES} />);
+
+    fillRequired();
+    fireEvent.change(screen.getByLabelText(/^Nominal ditarik/i), { target: { value: '1.000,50' } });
+    expect(screen.getByRole('button', { name: /catat penarikan/i })).toBeDisabled();
+    expect(screen.getByText(/hanya berisi angka rupiah bulat/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/^Nominal ditarik/i), { target: { value: '-1000' } });
+    expect(screen.getByRole('button', { name: /catat penarikan/i })).toBeDisabled();
+  });
+
   it("shows the server's refusal in its own words and does not refresh", async () => {
     mockFetch({ ok: false, body: { error: 'Penarikan dengan referensi WD-001 dari penyedia sudah tercatat.' } });
     render(<AdminProviderWithdrawalForm providers={['sumopod']} collectingEntities={ENTITIES} />);
