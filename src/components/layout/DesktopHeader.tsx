@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { signOut } from 'next-auth/react';
 import { User } from '@/types';
 import type { StaffEntryLink } from '@/lib/staff-entry-links';
 
@@ -20,6 +21,29 @@ export default function DesktopHeader({
   onSearch,
 }: DesktopHeaderProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Close the account menu on Escape (focus back to the button) or an outside click.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    const onPointerDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('mousedown', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onPointerDown);
+    };
+  }, [menuOpen]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,28 +158,61 @@ export default function DesktopHeader({
 
           {/* User Section */}
           {user ? (
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full overflow-hidden bg-bg-secondary flex items-center justify-center">
-                {user.avatar ? (
-                  <img
-                    src={user.avatar}
-                    alt={user.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <svg
-                    className="w-5 h-5 text-text-secondary"
-                    fill="currentColor"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
+            <div ref={menuRef} className="relative">
+              <button
+                ref={triggerRef}
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-label={`Menu akun ${user.name}`}
+                className="flex items-center gap-2 rounded-full pr-2 hover:bg-bg-secondary transition-colors focus-visible:outline-2 focus-visible:outline-primary"
+              >
+                <div className="w-8 h-8 rounded-full overflow-hidden bg-bg-secondary flex items-center justify-center">
+                  {user.avatar ? (
+                    <img
+                      src={user.avatar}
+                      alt={user.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <svg
+                      className="w-5 h-5 text-text-secondary"
+                      fill="currentColor"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-sm font-medium text-text max-w-[120px] truncate">
+                  {user.name}
+                </span>
+              </button>
+              {menuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full mt-2 w-44 py-1 bg-white border border-border rounded-xl shadow-md"
+                >
+                  <Link
+                    href="/akun"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                    className="block px-4 py-2 text-sm text-text hover:bg-bg-secondary transition-colors"
                   >
-                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-                  </svg>
-                )}
-              </div>
-              <span className="text-sm font-medium text-text max-w-[120px] truncate">
-                {user.name}
-              </span>
+                    Akun
+                  </Link>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => signOut({ callbackUrl: '/login' })}
+                    className="block w-full text-left px-4 py-2 text-sm text-danger hover:bg-bg-secondary transition-colors"
+                  >
+                    Keluar
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <Link

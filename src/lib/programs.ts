@@ -29,6 +29,11 @@ export const SECTOR_LABEL: Record<SectorValue, string> = {
   DISABILITY_INCLUSION: 'Inklusi Penyandang Disabilitas',
 };
 
+/** The id of a Sector's section on /program, so other pages can link straight to it. */
+export function sectorAnchor(sector: SectorValue): string {
+  return SECTOR_LABEL[sector].toLowerCase().replace(/\s+/g, '-');
+}
+
 /** The Sector a link or a query names, in whatever case it was written, or null. */
 export function parseSector(value: unknown): SectorValue | null {
   if (typeof value !== 'string') return null;
