@@ -1,14 +1,14 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Two languages through next-intl: Indonesian unprefixed, English under `/en`, pathnames translated, data slugs shared
 
 Status per decision: the library, the two languages, pathnames translated per language and a sitemap listing
 every language version are **decided by the owner** (2026-10-04, round C, E7:
-`percepatan-full-rilis/keputusan-ronde-c.md`, ticket `fase-3-perluasan/issues/08`). The rest is **Proposed**
-and becomes Accepted when the owner approves this PR; where it still waits on an answer it says **[Q1]** to
-**[Q7]**, listed at the end.
+`percepatan-full-rilis/keputusan-ronde-c.md`, ticket `fase-3-perluasan/issues/08`). The rest was accepted by
+the owner on 2026-10-29, who answered **[Q1]** to **[Q7]** (listed at the end with each answer). Where an
+answer differs from what the text above it assumed (Q4), the answer wins.
 
 Nothing is translated today: no i18n library, every string a literal, `<html lang="id">` fixed in the root
 layout. PRD FFI-15 and section 3 say the English version keeps the Indonesian slugs (`/wakaf` and `/hibah`
@@ -241,31 +241,26 @@ Formats, set once in `src/i18n/request.ts` through global `formats` and `timeZon
 - Outside the repo: the reverse proxy must pass `/en/...` through unchanged (the owner confirms no rule there
   assumes today's paths). CONTEXT.md needs no new term.
 
-## Open questions
+## Owner decisions on the open questions (2026-10-29)
 
-Each says what the proposal assumes meanwhile.
+Answered one by one on decision cards in the project thread "swept seluruh prs".
 
-- **Q1. Renaming eleven Indonesian URLs during the beta.** Assumed: rename, with 308s, since the beta has little
-  link equity yet and a rename only gets dearer. If not, those rows keep today's Indonesian spelling and nothing
-  else here changes.
-- **Q2. English pages whose body a user wrote** (Campaign, Volunteer Trip, Program detail): English chrome around
-  text in the author's language. Assumed, following E7's wording: both versions paired and in the sitemap.
-  Alternative: the English URL canonicalises to the Indonesian one and stays out of the sitemap until the entity
-  has English text. Also open: whether FFI-15 ("halaman Campaign serta Program tersedia dalam dua bahasa")
-  means translated content, which needs per-language fields in the schema.
-- **Q3. Language detection.** Assumed off. Alternative: on (cookie, then `Accept-Language`), so a shared
-  Indonesian link redirects some visitors to `/en`.
-- **Q4. Language outside the browser:** emails, notifications (a `Notification` row stores its finished
-  Indonesian `title` and `message`) and the Receipt and Akad Wakaf links in emails. Assumed: Indonesian emails and
-  notifications, token pages in the language of their URL, link builders taking a locale argument. English for
-  English donors needs a stored `locale` on User or Donation (schema).
-- **Q5. Legal and religious texts** (Terms, Privacy, Akad Wakaf, ikrar, zakat guidance): who translates, which
-  language prevails. Assumed: no machine translation in the extraction ticket, and the English page says the
-  Indonesian text prevails until the owner and counsel decide.
-- **Q6. The approximate foreign-currency display in FFI-15:** needs a rate source, refresh rule and disclaimer.
-  Assumed: not built in E7.
-- **Q7. `/wakaf` and `/hibah` landing pages** (PRD section 3, not built). Assumed `/wakaf` with `/waqf`, and
-  `/hibah` in both.
+- **Q1. Renaming eleven Indonesian URLs during the beta:** rename now, old paths answer with 308 to the new ones.
+- **Q2. English pages whose body a user wrote:** both versions paired and in the sitemap; English chrome around
+  text in the author's language. No per-language content fields, so no schema change.
+- **Q3. Language detection:** off. The URL alone sets the language; the switcher is the only way across.
+- **Q4. Language outside the browser:** **follow the donor's language** (this reverses the assumption above).
+  The User stores a `locale`; emails and notifications are written in it, and link builders take that locale.
+  This needs a schema change, so it waits for the schema slot (one migration PR at a time) and its own ticket.
+- **Q5. Legal and religious texts:** no machine translation. The English Terms, Privacy and Akad Wakaf pages show
+  the Indonesian text with a note that the Indonesian version prevails. A human translation reviewed by counsel
+  may replace it later.
+- **Q6. Approximate foreign-currency display (FFI-15):** not now. English pages show IDR only; a rate feature
+  is its own ticket later.
+- **Q7. `/wakaf` and `/hibah` landing pages:** `/wakaf` in Indonesian and `/waqf` in English; `/hibah` in both.
+
+Zakat left scope after this ADR was drafted (ADR 0025), so the `/zakat` row in the map and zakat guidance in Q5
+no longer apply.
 
 Not decided here: the English wording of any screen (the extraction ticket) and a third language (one more
 `locales` entry, map column, messages file and prefix).
