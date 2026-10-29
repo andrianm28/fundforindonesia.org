@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { domainErrorToHttp } from './domain-errors';
+import { CampaignNotClosedForRefundProposalError, LateSettlementNotProposableError } from './money/errors';
 import {
   BankAccountNotEligibleError,
   DemoCampaignError,
@@ -37,6 +38,8 @@ describe('domainErrorToHttp for the money refusals', () => {
     [new PaymentSubjectMismatchError('pay1'), 404, 'PAYMENT_SUBJECT_MISMATCH'],
     [new RefundExceedsRemainingError(20_000, 10_000), 400, 'REFUND_EXCEEDS_REMAINING'],
     [new RefundAfterCampaignTransferError(20_000, 0), 409, 'REFUND_AFTER_CAMPAIGN_TRANSFER'],
+    [new CampaignNotClosedForRefundProposalError(), 409, 'CAMPAIGN_NOT_CLOSED_FOR_REFUND_PROPOSAL'],
+    [new LateSettlementNotProposableError(), 409, 'LATE_SETTLEMENT_NOT_PROPOSABLE'],
     [new OwnSubjectConflictError('trip', 'ADMIN'), 403, 'OWN_TRIP_CONFLICT'],
     [new OwnSubjectConflictError('campaign', 'ADMIN'), 403, 'OWN_CAMPAIGN_CONFLICT'],
   ])('%s answers %i with code %s and its Indonesian message', (error, status, code) => {

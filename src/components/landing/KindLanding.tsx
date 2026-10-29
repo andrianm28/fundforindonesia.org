@@ -12,7 +12,9 @@ export interface KindLandingProps {
   /** Honest statement of where the module stands today (CONTEXT.md, launch Kinds). */
   status: string;
   sections: { heading: string; body: ReactNode }[];
-  primary: KindLandingAction;
+  /** A closing block after the sections, such as the Wakaf land-wakaf invitation with its own buttons. */
+  children?: ReactNode;
+  primary?: KindLandingAction;
   secondary?: KindLandingAction;
 }
 
@@ -22,7 +24,7 @@ export interface KindLandingProps {
  * step. A landing never invites a visitor to give to a Campaign that cannot
  * exist yet, so the status box says what is and is not open.
  */
-export function KindLanding({ title, intro, status, sections, primary, secondary }: KindLandingProps) {
+export function KindLanding({ title, intro, status, sections, children, primary, secondary }: KindLandingProps) {
   return (
     <article>
       <h1 className="text-2xl font-bold text-text mb-3">{title}</h1>
@@ -43,22 +45,28 @@ export function KindLanding({ title, intro, status, sections, primary, secondary
         </section>
       ))}
 
-      <div className="flex flex-wrap gap-3">
-        <Link
-          href={primary.href}
-          className="inline-flex items-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-        >
-          {primary.label}
-        </Link>
-        {secondary && (
-          <Link
-            href={secondary.href}
-            className="inline-flex items-center rounded-lg border border-border px-5 py-2.5 text-sm font-semibold text-text hover:border-primary"
-          >
-            {secondary.label}
-          </Link>
-        )}
-      </div>
+      {children}
+
+      {(primary || secondary) && (
+        <div className="flex flex-wrap gap-3">
+          {primary && (
+            <Link
+              href={primary.href}
+              className="inline-flex items-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+            >
+              {primary.label}
+            </Link>
+          )}
+          {secondary && (
+            <Link
+              href={secondary.href}
+              className="inline-flex items-center rounded-lg border border-border px-5 py-2.5 text-sm font-semibold text-text hover:border-primary"
+            >
+              {secondary.label}
+            </Link>
+          )}
+        </div>
+      )}
     </article>
   );
 }

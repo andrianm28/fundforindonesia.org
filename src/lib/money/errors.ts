@@ -890,3 +890,32 @@ export class CampaignTransferTargetNotEligibleError extends MoneyError {
     this.name = 'CampaignTransferTargetNotEligibleError';
   }
 }
+
+/**
+ * The bulk Refund proposal (ticket audit-2026-10-16/07) was asked of a
+ * Campaign that is not Suspended or Cancelled, or stopped being one between
+ * the click and the lock (a Suspension lifted).
+ */
+export class CampaignNotClosedForRefundProposalError extends MoneyError {
+  readonly code = 'CAMPAIGN_NOT_CLOSED_FOR_REFUND_PROPOSAL';
+  constructor() {
+    super('Refund massal hanya bisa diusulkan untuk Campaign yang berstatus Ditangguhkan atau Dibatalkan.');
+    this.name = 'CampaignNotClosedForRefundProposalError';
+  }
+}
+
+/**
+ * A late-settlement Refund (ticket rilis-1-benda/80) was asked of a Payment
+ * that is not on the worklist: not a PAID Donation Payment, its Campaign was
+ * not closed before it settled, or it already has a Refund that stands.
+ */
+export class LateSettlementNotProposableError extends MoneyError {
+  readonly code = 'LATE_SETTLEMENT_NOT_PROPOSABLE';
+  constructor() {
+    super(
+      'Payment ini tidak ada di daftar dana masuk setelah Campaign ditutup: sudah punya Refund, belum dibayar, ' +
+        'atau Campaign-nya belum ditutup ketika dana masuk.',
+    );
+    this.name = 'LateSettlementNotProposableError';
+  }
+}

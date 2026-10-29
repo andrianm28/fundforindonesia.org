@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { signOut } from 'next-auth/react';
 import DesktopHeader from './DesktopHeader';
 import { User } from '@/types';
 
@@ -9,6 +10,8 @@ vi.mock('next/link', () => ({
     <a href={href} {...props}>{children}</a>
   ),
 }));
+
+vi.mock('next-auth/react', () => ({ signOut: vi.fn() }));
 
 const mockUser: User = {
   id: 'user-1',
@@ -23,6 +26,7 @@ const mockUser: User = {
 
 afterEach(() => {
   cleanup();
+  vi.clearAllMocks();
 });
 
 describe('DesktopHeader', () => {
@@ -134,5 +138,64 @@ describe('DesktopHeader', () => {
     render(<DesktopHeader user={mockUser} onSearch={vi.fn()} />);
     expect(screen.queryByRole('link', { name: 'Admin' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Moderasi' })).toBeNull();
+  });
+
+  describe('menu akun (ticket 95)', () => {
+    const openMenu = () => {
+      const trigger = screen.getByRole('button', { name: /John Doe/ });
+      fireEvent.click(trigger);
+      return trigger;
+    };
+
+    it('gives a signed-in user a button that opens a menu with Akun and Keluar', () => {
+      render(<DesktopHeader user={mockUser} onSearch={vi.fn()} />);
+      const trigger = screen.getByRole('button', { name: /John Doe/ });
+      expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('menuitem', { name: 'Akun' })).toBeNull();
+
+      fireEvent.click(trigger);
+
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('menuitem', { name: 'Akun' })).toHaveAttribute('href', '/akun');
+      expect(screen.getByRole('menuitem', { name: 'Keluar' })).toBeInTheDocument();
+    });
+
+    it('signs out to /login when Keluar is chosen', () => {
+      render(<DesktopHeader user={mockUser} onSearch={vi.fn()} />);
+      openMenu();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Keluar' }));
+      expect(signOut).toHaveBeenCalledWith({ callbackUrl: '/login' });
+    });
+
+    it('closes on Escape and returns focus to the button', () => {
+      render(<DesktopHeader user={mockUser} onSearch={vi.fn()} />);
+      const trigger = openMenu();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByRole('menu')).toBeNull();
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(trigger).toHaveFocus();
+    });
+
+    it('closes on a click outside the menu', () => {
+      render(<DesktopHeader user={mockUser} onSearch={vi.fn()} />);
+      openMenu();
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('toggles closed when the button is clicked again', () => {
+      render(<DesktopHeader user={mockUser} onSearch={vi.fn()} />);
+      const trigger = openMenu();
+      fireEvent.click(trigger);
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('shows no account button or menu to a guest, only Masuk', () => {
+      render(<DesktopHeader user={null} onSearch={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: /akun/i })).toBeNull();
+      expect(screen.queryByRole('menuitem')).toBeNull();
+      expect(screen.getByRole('link', { name: 'Masuk' })).toBeInTheDocument();
+    });
   });
 });
