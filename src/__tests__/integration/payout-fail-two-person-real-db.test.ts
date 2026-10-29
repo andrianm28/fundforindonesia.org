@@ -8,7 +8,7 @@ import type { PrismaClient } from '@/generated/prisma/client';
 
 /**
  * failPayout's two-person edge against a REAL Postgres (owner decision
- * 2026-10-29): the Admin who completed a Payout may not be the one who marks
+ * 2026-10-29): the Admin who approved a Payout may not be the one who marks
  * it failed; a different Admin may. Same throwaway-database setup as
  * campaign-transfer-real-db.test.ts, and a visible skip without TEST_DATABASE_URL.
  */
@@ -73,11 +73,10 @@ describe.skipIf(!DATABASE_URL)('failPayout two-person rule -- against real Postg
     return id;
   }
 
-  /** An APPROVED Payout (instruction journal posted) that records `completedById`. */
-  async function makeApprovedPayout(completedById: string): Promise<string> {
+  /** An APPROVED Payout (instruction journal posted), approved by `approverId`. */
+  async function makeApprovedPayout(approverId: string): Promise<string> {
     const ownerId = await makeUser();
     const requesterId = await makeUser();
-    const approverId = await makeUser();
     const campaignId = `campaign-${process.pid}-${next()}`;
     await prisma.campaign.create({
       data: {
@@ -114,7 +113,6 @@ describe.skipIf(!DATABASE_URL)('failPayout two-person rule -- against real Postg
         requestedById: requesterId,
         approvedById: approverId,
         approvedAt: new Date(),
-        completedById,
       },
     });
     await prisma.$transaction(async (tx) => {
@@ -130,11 +128,11 @@ describe.skipIf(!DATABASE_URL)('failPayout two-person rule -- against real Postg
     return payout.id;
   }
 
-  it('refuses the Admin who completed the Payout, writing nothing', async () => {
-    const completer = await makeUser();
-    const payoutId = await makeApprovedPayout(completer);
+  it('refuses the Admin who approved the Payout, writing nothing', async () => {
+    const approver = await makeUser();
+    const payoutId = await makeApprovedPayout(approver);
 
-    await expect(payouts.failPayout(prisma, { payoutId, failedById: completer, reason: 'Transfer ditolak' })).rejects.toThrow(
+    await expect(payouts.failPayout(prisma, { payoutId, failedById: approver, reason: 'Transfer ditolak' })).rejects.toThrow(
       payouts.TwoPersonRuleError,
     );
 
@@ -144,9 +142,9 @@ describe.skipIf(!DATABASE_URL)('failPayout two-person rule -- against real Postg
   });
 
   it('lets a different Admin mark it failed, returning the money', async () => {
-    const completer = await makeUser();
+    const approver = await makeUser();
     const other = await makeUser();
-    const payoutId = await makeApprovedPayout(completer);
+    const payoutId = await makeApprovedPayout(approver);
 
     const result = await payouts.failPayout(prisma, { payoutId, failedById: other, reason: 'Transfer ditolak' });
 

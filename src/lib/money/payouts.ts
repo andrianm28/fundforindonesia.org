@@ -910,7 +910,8 @@ function cleanResolutionReason(raw: unknown): string {
  * Both are open to a sandbox row after go-live: that is how a leftover is
  * closed (approve and complete are refused for it, requireNotSandboxInLiveMode).
  * Fail has exactly one two-person edge (owner, 2026-10-29): the Admin who
- * completed the Payout may not be the one who marks it failed. Neither is
+ * approved the Payout may not be the one who marks it failed. (An APPROVED
+ * Payout has no completer yet, so the approver is the only Admin on record.) Neither is
  * otherwise a two-person act: nothing leaves the platform, and the balance
  * only ever returns to the Campaign or Trip it came from. They are Admin acts,
  * refused to that subject's own Fundraiser.
@@ -937,10 +938,10 @@ async function resolvePayout(
     }
 
     // Owner decision 2026-10-29: marking a Payout failed is done by a
-    // different Admin than the one who completed it. Same code and status as
+    // different Admin than the one who approved it. Same code and status as
     // completePayout's refusal of the approver (TWO_PERSON_RULE, 403). Before
     // any write.
-    if (action === 'fail' && payout.completedById && payout.completedById === actorId) {
+    if (action === 'fail' && payout.approvedById === actorId) {
       throw new TwoPersonRuleError('Payout failure');
     }
 

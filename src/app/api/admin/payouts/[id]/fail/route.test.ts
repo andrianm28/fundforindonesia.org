@@ -66,7 +66,7 @@ describe('POST /api/admin/payouts/[id]/fail', () => {
     expect((await res.json()).code).toBe('INVALID_PAYOUT_STATUS');
   });
 
-  it('answers 403 TWO_PERSON_RULE when the Admin who completed the Payout tries to fail it', async () => {
+  it('answers 403 TWO_PERSON_RULE when the Admin who approved the Payout tries to fail it', async () => {
     mockAction.mockRejectedValue(new TwoPersonRuleError('Payout failure'));
 
     const res = await post({ reason: 'x' });

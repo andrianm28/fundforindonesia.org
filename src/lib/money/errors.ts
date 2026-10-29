@@ -180,7 +180,7 @@ export class TwoPersonRuleError extends MoneyError {
       what === 'Refund'
         ? 'Refund harus diselesaikan oleh Admin yang berbeda dari yang mengajukan maupun yang menyetujuinya (aturan dua orang).'
         : what === 'Payout failure'
-          ? 'Payout tidak dapat ditandai gagal oleh Admin yang menyelesaikannya; harus Admin yang berbeda (aturan dua orang).'
+          ? 'Payout tidak dapat ditandai gagal oleh Admin yang menyetujuinya; harus Admin yang berbeda (aturan dua orang).'
           : 'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
     );
     this.name = 'TwoPersonRuleError';

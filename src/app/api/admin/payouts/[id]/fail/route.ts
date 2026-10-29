@@ -17,7 +17,7 @@ import { failPayout } from '@/lib/money/payouts';
  * subject refused as Admin, the reason) is the money layer's, answered
  * through refusalResponse: 409 (INVALID_PAYOUT_STATUS) for any other status
  * or a lost race, 403 (TWO_PERSON_RULE) when the actor is the Admin who
- * completed the Payout (owner, 2026-10-29), 400 (PAYOUT_REASON_INVALID) for a blank or long reason.
+ * approved the Payout (owner, 2026-10-29), 400 (PAYOUT_REASON_INVALID) for a blank or long reason.
  */
 export const POST = withHiddenAssignmentCheck(
   Assignment.ADMIN,
