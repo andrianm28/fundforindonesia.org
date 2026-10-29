@@ -17,7 +17,7 @@ vi.mock('@/lib/money/payouts', async (importOriginal) => {
 
 import { POST } from './route';
 import { getServerSession } from '@/lib/auth';
-import { failPayout, InvalidPayoutStatusError } from '@/lib/money/payouts';
+import { failPayout, InvalidPayoutStatusError, TwoPersonRuleError } from '@/lib/money/payouts';
 
 const mockSession = getServerSession as unknown as Mock;
 const mockAction = failPayout as unknown as Mock;
@@ -64,5 +64,14 @@ describe('POST /api/admin/payouts/[id]/fail', () => {
 
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe('INVALID_PAYOUT_STATUS');
+  });
+
+  it('answers 403 TWO_PERSON_RULE when the Admin who completed the Payout tries to fail it', async () => {
+    mockAction.mockRejectedValue(new TwoPersonRuleError('Payout failure'));
+
+    const res = await post({ reason: 'x' });
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe('TWO_PERSON_RULE');
   });
 });

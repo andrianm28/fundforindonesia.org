@@ -175,11 +175,13 @@ export class PayoutProofInvalidError extends MoneyError {
  */
 export class TwoPersonRuleError extends MoneyError {
   readonly code = 'TWO_PERSON_RULE';
-  constructor(readonly what: 'Payout' | 'Refund' = 'Payout') {
+  constructor(readonly what: 'Payout' | 'Refund' | 'Payout failure' = 'Payout') {
     super(
       what === 'Refund'
         ? 'Refund harus diselesaikan oleh Admin yang berbeda dari yang mengajukan maupun yang menyetujuinya (aturan dua orang).'
-        : 'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
+        : what === 'Payout failure'
+          ? 'Payout tidak dapat ditandai gagal oleh Admin yang menyelesaikannya; harus Admin yang berbeda (aturan dua orang).'
+          : 'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
     );
     this.name = 'TwoPersonRuleError';
   }

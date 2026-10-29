@@ -7,6 +7,7 @@ import {
   InvalidPayoutStatusError,
   PayoutNotFoundError,
   SelfApprovalError,
+  TwoPersonRuleError,
 } from './money/payouts';
 import {
   InvalidRefundStatusError,
@@ -27,6 +28,7 @@ describe('domainErrorToHttp for the money refusals', () => {
     [new InsufficientBalanceError(100, 40), 400, 'INSUFFICIENT_BALANCE'],
     [new SelfApprovalError('Payout'), 403, 'SELF_APPROVAL'],
     [new SelfApprovalError('Refund'), 403, 'SELF_APPROVAL'],
+    [new TwoPersonRuleError('Payout failure'), 403, 'TWO_PERSON_RULE'],
     [new InvalidPayoutStatusError('COMPLETED'), 409, 'INVALID_PAYOUT_STATUS'],
     [new InvalidRefundStatusError('APPROVED'), 409, 'INVALID_REFUND_STATUS'],
     [new PayoutNotFoundError('p1'), 404, 'PAYOUT_NOT_FOUND'],
