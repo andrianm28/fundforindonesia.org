@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaignStepIndicator';
 import { submitToVerifier } from '@/lib/verification-submission';
+import { endOfWibDay, formatWibLongDate, todayWibDate } from '@/lib/utils/date';
 import { deadlineRequired, KIND_LABEL, KINDS, type CampaignKind } from '@/lib/campaign-kind';
 
 const categories = [
@@ -144,7 +145,8 @@ export default function CampaignCreatePage() {
         newErrors.deadline = 'Batas waktu harus dipilih';
       }
     } else {
-      const deadlineDate = new Date(formData.deadline);
+      // The deadline is the end of the picked WIB day, so today is still valid.
+      const deadlineDate = endOfWibDay(formData.deadline);
       if (deadlineDate <= new Date()) {
         newErrors.deadline = 'Batas waktu harus di masa depan';
       }
@@ -248,7 +250,7 @@ export default function CampaignCreatePage() {
       category: formData.category,
       kind: formData.kind,
       deadline: formData.deadline
-        ? new Date(formData.deadline).toISOString()
+        ? endOfWibDay(formData.deadline).toISOString()
         : undefined,
       // An organisation's own account gets its organisation on the server.
       collectingEntityId:
@@ -398,7 +400,7 @@ export default function CampaignCreatePage() {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, deadline: e.target.value }))
                   }
-                  min={new Date().toISOString().split('T')[0]}
+                  min={todayWibDate()}
                   className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary ${
                     errors.deadline
                       ? 'border-danger focus:ring-danger/20 focus:border-danger'
@@ -617,11 +619,7 @@ export default function CampaignCreatePage() {
                     <p className="text-xs text-text-secondary mb-0.5">Batas Waktu</p>
                     <p className="text-sm font-medium text-text">
                       {formData.deadline
-                        ? new Date(formData.deadline).toLocaleDateString('id-ID', {
-                            day: '2-digit',
-                            month: 'long',
-                            year: 'numeric',
-                          })
+                        ? formatWibLongDate(formData.deadline)
                         : formData.kind === 'WAKAF'
                           ? 'Tanpa batas waktu'
                           : '-'}
