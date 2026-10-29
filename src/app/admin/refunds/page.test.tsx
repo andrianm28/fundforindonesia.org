@@ -1,5 +1,5 @@
 import { render, screen, cleanup, within } from '@testing-library/react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -9,8 +9,18 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+vi.mock('@/lib/money/campaign-refund-proposals', () => ({ lateSettlementWorklistPage: vi.fn() }));
+vi.mock('@/components/admin/AdminLateSettlementRefundButton', () => ({
+  AdminLateSettlementRefundButton: ({ paymentId }: { paymentId: string }) => <button>Ajukan refund {paymentId}</button>,
+}));
+
 import { prisma } from '@/lib/prisma';
+import { lateSettlementWorklistPage } from '@/lib/money/campaign-refund-proposals';
 import AdminRefundsPage from './page';
+
+beforeEach(() => {
+  vi.mocked(lateSettlementWorklistPage).mockResolvedValue({ rows: [], truncated: false });
+});
 
 afterEach(() => {
   cleanup();
@@ -110,5 +120,33 @@ describe('AdminRefundsPage', () => {
     const row = screen.getByText('Wakaf Sumur').closest('tr')!;
     const link = within(row).getByRole('link', { name: /tinjau/i });
     expect(link.getAttribute('href')).toBe('/admin/refunds/refund-2');
+  });
+  it('lists late-settlement Payments under "Dana masuk setelah Campaign ditutup" with a one-click button', async () => {
+    vi.mocked(prisma.refund.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.campaign.findMany).mockResolvedValue([] as never);
+    vi.mocked(lateSettlementWorklistPage).mockResolvedValue({
+      truncated: true,
+      rows: [
+      {
+        paymentId: 'pay-late',
+        amount: 150_000,
+        settledAt: new Date('2026-10-02T00:00:00.000Z'),
+        campaign: {
+          id: 'c1',
+          slug: 'c-1',
+          title: 'Campaign Ditutup',
+          status: 'SUSPENDED',
+          closedAt: new Date('2026-10-01T00:00:00.000Z'),
+        },
+      },
+      ],
+    } as never);
+
+    render(await AdminRefundsPage());
+
+    expect(screen.getByRole('heading', { name: 'Dana masuk setelah Campaign ditutup' })).toBeTruthy();
+    expect(screen.getByText('Campaign Ditutup')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Ajukan refund pay-late' })).toBeTruthy();
+    expect(screen.getByText(/Menampilkan .* terlama; selesaikan dulu untuk melihat sisanya/)).toBeTruthy();
   });
 });
