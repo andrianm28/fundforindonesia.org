@@ -196,6 +196,11 @@ describe("Feature: platform-polish, Property 4: Avatar Size Constraint", () => {
 
   // Valid MIME types for avatar
   const validMimeArb = fc.constantFrom("image/jpeg", "image/png", "image/webp");
+  const MAGIC_BYTES: Record<string, number[]> = {
+    "image/jpeg": [0xff, 0xd8, 0xff],
+    "image/png": [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    "image/webp": [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50],
+  };
 
   test("files exceeding 2MB are always rejected before writing to disk", async () => {
     const { POST } = await import("@/app/api/user/avatar/route");
@@ -266,7 +271,12 @@ describe("Feature: platform-polish, Property 4: Avatar Size Constraint", () => {
             name: "avatar.jpg",
             type: mimeType,
             size: fileSize,
-            arrayBuffer: async () => new ArrayBuffer(fileSize),
+            // Real magic bytes for the declared type: the route sniffs content (audit SEC-02).
+            arrayBuffer: async () => {
+              const buf = new Uint8Array(fileSize);
+              buf.set(MAGIC_BYTES[mimeType]);
+              return buf.buffer;
+            },
           };
 
           const request = {
