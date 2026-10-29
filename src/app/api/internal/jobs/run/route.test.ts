@@ -28,9 +28,14 @@ vi.mock('@/lib/mail', () => ({
   sendReportingFailure: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock('@/lib/jobs-heartbeat', () => ({
+  recordJobsRun: vi.fn(),
+}));
+
 import { sealUserEmail } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { sendReportingFailure } from '@/lib/mail';
+import { recordJobsRun } from '@/lib/jobs-heartbeat';
 import { POST } from './route';
 
 const mockPaymentFindMany = prisma.payment.findMany as unknown as Mock;
@@ -344,5 +349,49 @@ describe('POST /api/internal/jobs/run -- a repeated call', () => {
 
     expect(db.ledger).toEqual([]);
     expect(db.payment.escrowReleasedAt).toBeNull();
+  });
+});
+
+describe('POST /api/internal/jobs/run -- a phase that failed', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.JOBS_SECRET = SECRET;
+    mockPaymentFindMany.mockResolvedValue([]);
+    mockCampaignFindMany.mockResolvedValue([]);
+    mockKindAuthFindMany.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    delete process.env.JOBS_SECRET;
+    vi.restoreAllMocks();
+  });
+
+  it('answers 500 with the failed phase named, so curl -f and a monitor see it', async () => {
+    mockPaymentFindMany.mockRejectedValue(new Error('db down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(post({ 'x-jobs-secret': SECRET }));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.ok).toBe(false);
+    expect(body.failedPhases).toEqual(['escrowRelease']);
+    expect(body.result).toBeDefined();
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(JSON.stringify(body)).not.toContain('db down');
+    expect(recordJobsRun).toHaveBeenCalledWith({ ok: false, failedPhases: ['escrowRelease'] }, expect.any(Date));
+  });
+
+  it('answers 200 and records a success heartbeat when every phase succeeded', async () => {
+    const response = await POST(post({ 'x-jobs-secret': SECRET }));
+
+    expect(response.status).toBe(200);
+    expect(recordJobsRun).toHaveBeenCalledWith({ ok: true, failedPhases: [] }, expect.any(Date));
+  });
+
+  it('records no heartbeat for a refused request', async () => {
+    await POST(post());
+
+    expect(recordJobsRun).not.toHaveBeenCalled();
   });
 });

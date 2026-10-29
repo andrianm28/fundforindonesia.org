@@ -3,7 +3,12 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { guardRoute } from '@/lib/rate-limit-guard';
+import { matchesDeclaredImageType } from '@/lib/uploads';
 
+/** Avatar uploads per account per hour. */
+const AVATAR_LIMIT = 10;
+const AVATAR_WINDOW_SECONDS = 60 * 60;
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
@@ -20,6 +25,20 @@ export async function POST(request: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // After the session check so anonymous floods cost no write. Fail-open:
+    // a limiter outage must not block a profile photo.
+    const refused = await guardRoute(
+      {
+        scope: 'avatar',
+        subject: session.user.id ?? 'unknown',
+        limit: AVATAR_LIMIT,
+        windowSeconds: AVATAR_WINDOW_SECONDS,
+        onUnavailable: 'open',
+      },
+      { limited: 'Terlalu banyak unggahan. Coba lagi nanti.' },
+    );
+    if (refused) return refused;
 
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
@@ -47,6 +66,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // The declared type is the uploader's claim: check the bytes themselves.
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (!matchesDeclaredImageType(bytes, file.type)) {
+      return NextResponse.json(
+        { error: 'Isi file tidak sesuai dengan tipenya. Gunakan PNG, JPG, atau WebP.' },
+        { status: 415 }
+      );
+    }
+
     // Ensure upload directory exists
     await mkdir(UPLOAD_DIR, { recursive: true });
 
@@ -58,7 +86,6 @@ export async function POST(request: NextRequest) {
     const filepath = join(UPLOAD_DIR, filename);
 
     // Write file to disk
-    const bytes = await file.arrayBuffer();
     await writeFile(filepath, Buffer.from(bytes));
 
     // Update user avatar in DB

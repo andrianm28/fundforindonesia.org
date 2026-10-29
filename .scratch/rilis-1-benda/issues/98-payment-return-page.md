@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none
 
@@ -30,3 +30,4 @@ Ditemukan saat mengisi "Payment Redirect URLs" di dashboard Sumopod sandbox untu
 
 - 2026-10-16, setelah re-review (R1-R3): paling banyak 3 retry berjalan bersamaan per proses (`MAX_RETRIES_IN_FLIGHT`); sisanya langsung dijawab 503, karena tiap retry memegang dua koneksi pool dan 14 retry lintas donasi sebelumnya macet (terbukti di tes Postgres asli, gagal tanpa batas ini). Panggilan `createCharge` Sumopod kini berbatas waktu 25 detik (`AbortSignal.timeout`), jauh di bawah timeout transaksi 60 detik. Flip lazy EXPIRED ditulis lewat klien root sehingga tidak memegang kunci baris Payment lama selama panggilan penyedia.
 - 2026-10-16, re-review df4424b lulus. Nit N7 dikerjakan: cek batas retry kini sebelum rate limit, jadi jawaban "sibuk" tidak memakan kuota 30/jam. Ditambah tes slot dilepas saat retry melempar error dan tes flip EXPIRED yang gagal. N6 (log/alert webhook untuk orderId tak dikenal), N8 (batas per proses) dan N9 menjadi tindak lanjut.
+- 2026-10-29: #273 di-merge (dd7b08a). Atas permintaan owner, halaman konfirmasi kini juga menampilkan nomor referensi (order id di Sumopod), metode pembayaran, dan waktu pembayaran (WIB) dari Payment yang dibayar, atau dari percobaan terbaru bila belum dibayar. Nomor referensi memuat id Donation; ini aman karena id itu sudah terbaca dari token dan sejak S2 bukan lagi kredensial.

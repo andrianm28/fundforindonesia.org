@@ -85,4 +85,14 @@ describe('GET /api/campaigns/[slug]/donations -- Guest Donor names (prd-complian
 
     expect(data.donations[0].donorName).toBe('Andi Wijaya');
   });
+
+  it('lists and counts only real Donations, never one paid with a beta (sandbox) Payment (PAY-06)', async () => {
+    mockDonationFindMany.mockResolvedValue([]);
+
+    await GET(listRequest(), { params: Promise.resolve({ slug: 'banjir' }) });
+
+    const realOnly = { campaignId: 'campaign-1', paymentStatus: 'confirmed', payments: { none: { sandbox: true } } };
+    expect(mockDonationFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: realOnly }));
+    expect(mockDonationCount).toHaveBeenCalledWith({ where: realOnly });
+  });
 });

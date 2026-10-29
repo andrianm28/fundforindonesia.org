@@ -5,7 +5,7 @@ import { resolveActivePaymentProvider } from '@/lib/payments/active-provider';
 import { donationsEnabled, sandboxInProductionReason, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 import { campaignAcceptsDonations, donationBlock } from '@/lib/campaign-lifecycle';
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
-import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
+import { donationRefusalCopy } from '@/lib/campaign-page-status';
 import { checkRateLimit } from '@/lib/rate-limit-guard';
 import { chargeDonation } from '@/lib/money/donation-charge';
 import { attemptRetryable } from '@/lib/money/payment-result';
@@ -73,7 +73,8 @@ export function campaignRetryRefusal(campaign: RetryCampaign, now: Date): { stat
   if (campaign.isDemo) {
     return { status: 403, error: 'Ini adalah campaign contoh dan tidak dapat menerima donasi.' };
   }
-  if (donationBlock(campaign, now)) return { status: 403, error: COLLECTING_ENTITY_REFUSAL };
+  const block = donationBlock(campaign, now);
+  if (block) return { status: 403, error: donationRefusalCopy(block) };
   if (!campaignAcceptsDonations(campaign, now)) {
     return { status: 400, error: 'Campaign tidak aktif. Hanya campaign aktif yang dapat menerima donasi.' };
   }

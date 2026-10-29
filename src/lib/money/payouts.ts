@@ -1,6 +1,6 @@
 import type { Payout, PayoutBalanceCheck, Prisma, PrismaClient } from '@/generated/prisma/client';
-import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, type LedgerSubject } from './ledger';
-import { currentSandboxStamp, sandboxModeOf } from './sandbox-mode';
+import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, reverseEntriesLegs, type LedgerSubject } from './ledger';
+import { currentSandboxStamp, requireNotSandboxInLiveMode, sandboxModeOf } from './sandbox-mode';
 import { requireTripFundsFromCompletedBatches } from './trip-payout-funds';
 import { assertNever } from '@/lib/assert-never';
 import { assertExactlyOnePayoutSubject, InvalidPayoutSubjectError } from './payout-subject';
@@ -24,6 +24,8 @@ import {
   ProviderBalanceNotShortError,
   TwoPersonRuleError,
   UnknownPaymentProviderNameError,
+  SandboxRowInLiveModeError,
+  PayoutReasonInvalidError,
 } from './errors';
 
 /**
@@ -59,6 +61,8 @@ export {
   ProviderBalanceNotShortError,
   TwoPersonRuleError,
   UnknownPaymentProviderNameError,
+  SandboxRowInLiveModeError,
+  PayoutReasonInvalidError,
 };
 export { UsageReportRequiredError };
 
@@ -416,6 +420,11 @@ export async function approvePayout(
     if (!payout) {
       throw new PayoutNotFoundError(payoutId);
     }
+
+    // A beta Payout left over at go-live is rejected, never approved: the
+    // sandbox balance check below would pass and the Admin's typed live
+    // provider balance would cover it (PAY-01).
+    requireNotSandboxInLiveMode(payout, 'Payout');
 
     // The entire two-person rule, checked before any write: a self-approval
     // attempt leaves the payout completely untouched, because it is an
@@ -781,6 +790,9 @@ export async function completePayout(
       throw new PayoutNotFoundError(payoutId);
     }
 
+    // Same guard as approvePayout: no real transfer is recorded for beta data.
+    requireNotSandboxInLiveMode(payout, 'Payout');
+
     // Only the Payout's own row is read before the lock, and every check
     // below needs nothing from the subject: status, approver, amount and the
     // destination account all live on this row. The subject itself is read
@@ -869,4 +881,120 @@ export async function completePayout(
   });
 
   return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
+}
+
+const MAX_RESOLUTION_REASON_LENGTH = 500;
+
+function cleanResolutionReason(raw: unknown): string {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (text === '') throw new PayoutReasonInvalidError('Alasan wajib diisi.');
+  if (text.length > MAX_RESOLUTION_REASON_LENGTH) {
+    throw new PayoutReasonInvalidError(`Alasan maksimal ${MAX_RESOLUTION_REASON_LENGTH} karakter.`);
+  }
+  return text;
+}
+
+/**
+ * The way out for a Payout that will not be paid (PAY-02), through one door
+ * like the rest of the lifecycle.
+ *
+ * Reject (DRAFT -> REJECTED) posts nothing: a DRAFT moved no money. Fail
+ * (APPROVED -> FAILED) is for the transfer the bank refused or that was never
+ * made: approval already debited the balance into PAYOUT_CLEARING
+ * (payoutInstructedLegs), so the exact mirror of that journal is posted, read
+ * off the posted entries (reverseEntriesLegs), not recomputed, under the same
+ * subject lock and keyed `payout-failed-<id>` so a repeat is a no-op. Never an
+ * edit of the original rows. The reason goes in `rejectionReason`, the one
+ * column a Payout has for it (no schema change).
+ *
+ * Both are open to a sandbox row after go-live: that is how a leftover is
+ * closed (approve and complete are refused for it, requireNotSandboxInLiveMode).
+ * Fail has exactly one two-person edge (owner, 2026-10-29): the Admin who
+ * approved the Payout may not be the one who marks it failed. (An APPROVED
+ * Payout has no completer yet, so the approver is the only Admin on record.) Neither is
+ * otherwise a two-person act: nothing leaves the platform, and the balance
+ * only ever returns to the Campaign or Trip it came from. They are Admin acts,
+ * refused to that subject's own Fundraiser.
+ */
+async function resolvePayout(
+  prisma: PrismaClient,
+  params: { payoutId: string; actorId: string; reason: string; action: 'reject' | 'fail' },
+): Promise<Payout> {
+  const { payoutId, actorId, action } = params;
+  const reason = cleanResolutionReason(params.reason);
+  const from = action === 'reject' ? 'DRAFT' : 'APPROVED';
+
+  await prisma.$transaction(async (tx) => {
+    const payout = await tx.payout.findUnique({ where: { id: payoutId } });
+    if (!payout) {
+      throw new PayoutNotFoundError(payoutId);
+    }
+
+    const { state: subjectState } = await lockPayoutSubject(tx, payout);
+    if (subjectState) requireNotOwnerAsAdmin(subjectState, actorId);
+
+    if (payout.status !== from) {
+      throw new InvalidPayoutStatusError(payout.status);
+    }
+
+    // Owner decision 2026-10-29: marking a Payout failed is done by a
+    // different Admin than the one who approved it. Same code and status as
+    // completePayout's refusal of the approver (TWO_PERSON_RULE, 403). Before
+    // any write.
+    if (action === 'fail' && payout.approvedById === actorId) {
+      throw new TwoPersonRuleError('Payout failure');
+    }
+
+    // Read before the claim, so a Payout with no instruction journal stays
+    // APPROVED and nothing is written: never guess the legs to mirror.
+    const instructedId = `payout-instructed-${payoutId}`;
+    const entries =
+      action === 'fail'
+        ? await tx.ledgerEntry.findMany({
+            where: { payoutId, transactionId: instructedId },
+            orderBy: { legIndex: 'asc' },
+            select: { account: true, direction: true, amount: true, campaignId: true, volunteerTripId: true },
+          })
+        : [];
+    if (action === 'fail' && entries.length === 0) {
+      throw new InvalidPayoutStatusError(payout.status, 'its instruction journal is missing');
+    }
+
+    const claimed = await tx.payout.updateMany({
+      where: { id: payoutId, status: from },
+      data: { status: action === 'reject' ? 'REJECTED' : 'FAILED', rejectionReason: reason },
+    });
+    if (claimed.count === 0) {
+      throw new InvalidPayoutStatusError('unknown (changed concurrently)', `lost the ${action} race`);
+    }
+
+    if (action === 'fail') {
+      await postTransaction(tx, reverseEntriesLegs(entries), {
+        payoutId,
+        sandbox: sandboxModeOf(payout),
+        transactionId: `payout-failed-${payoutId}`,
+      });
+    }
+  });
+
+  return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
+}
+
+/** An Admin rejects a DRAFT Payout, with a reason. Posts nothing. */
+export function rejectPayout(
+  prisma: PrismaClient,
+  params: { payoutId: string; rejectedById: string; reason: string },
+): Promise<Payout> {
+  return resolvePayout(prisma, { payoutId: params.payoutId, actorId: params.rejectedById, reason: params.reason, action: 'reject' });
+}
+
+/**
+ * An Admin marks an APPROVED Payout failed because the transfer was refused
+ * or never made, and the instructed money returns to the subject's balance.
+ */
+export function failPayout(
+  prisma: PrismaClient,
+  params: { payoutId: string; failedById: string; reason: string },
+): Promise<Payout> {
+  return resolvePayout(prisma, { payoutId: params.payoutId, actorId: params.failedById, reason: params.reason, action: 'fail' });
 }

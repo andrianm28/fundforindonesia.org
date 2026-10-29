@@ -77,9 +77,31 @@ export function holdsValidKindAuthorisation(
  * - NO_VALID_PERMIT: its Collecting Entity holds no permit valid now for
  *   its Kind (lapsed, not valid yet, or another Kind);
  * - NO_VALID_KIND_AUTHORISATION: its Kind needs a Kind Authorisation (every
- *   Kind but donation) and its Collecting Entity holds none valid now for it.
+ *   Kind but donation) and its Collecting Entity holds none valid now for it;
+ * - KIND_CLOSED: its Kind is wakaf or hibah and the platform switch
+ *   WAKAF_HIBAH_OPEN is off (see wakafHibahOpen). Judged first, whatever the
+ *   entity holds.
  */
-export type CollectingEntityBlock = "NO_COLLECTING_ENTITY" | "NO_VALID_PERMIT" | "NO_VALID_KIND_AUTHORISATION";
+export type CollectingEntityBlock =
+  | "KIND_CLOSED"
+  | "NO_COLLECTING_ENTITY"
+  | "NO_VALID_PERMIT"
+  | "NO_VALID_KIND_AUTHORISATION";
+
+/**
+ * Whether the platform takes wakaf and hibah money at all. Off unless the
+ * server's WAKAF_HIBAH_OPEN is exactly "true"; it stays off until a licensed
+ * nazhir and a sharia review are on record (docs/runbooks/beta-ke-live.md).
+ * Read at call time, server-side only (never NEXT_PUBLIC_).
+ */
+export function wakafHibahOpen(): boolean {
+  return process.env.WAKAF_HIBAH_OPEN === "true";
+}
+
+/** Wakaf and hibah are the Kinds the WAKAF_HIBAH_OPEN switch closes. */
+function isKindClosed(kind: Kind): boolean {
+  return (kind === "WAKAF" || kind === "HIBAH") && !wakafHibahOpen();
+}
 
 export function collectingEntityBlock(
   campaign: {
@@ -91,6 +113,7 @@ export function collectingEntityBlock(
   },
   now: Date
 ): CollectingEntityBlock | null {
+  if (isKindClosed(campaign.kind)) return "KIND_CLOSED";
   if (!campaign.collectingEntity) return "NO_COLLECTING_ENTITY";
   if (!holdsValidPermit(campaign.collectingEntity, campaign.kind, now)) return "NO_VALID_PERMIT";
   if (

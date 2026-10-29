@@ -52,12 +52,21 @@ function createUploadRequest(file: File | null): NextRequest {
   });
 }
 
+// Real leading bytes: the route checks content, not just the declared type.
+const MAGIC: Record<string, number[]> = {
+  'image/jpeg': [0xff, 0xd8, 0xff, 0xe0],
+  'image/png': [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  'image/webp': [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50],
+};
+
 function createMockFile(
   name: string,
   size: number,
   type: string
 ): File {
   const content = new Uint8Array(size);
+  const sig = MAGIC[type];
+  if (sig && size >= sig.length) content.set(sig);
   return new File([content], name, { type });
 }
 
@@ -274,6 +283,31 @@ describe('POST /api/upload', () => {
 
     const data = await response.json();
     expect(data.error).toBe('Gagal mengunggah file');
+  });
+
+  describe('content sniffing (SEC-02)', () => {
+    it('rejects SVG sent as image/png with 415 and writes nothing', async () => {
+      const svg = new File(['<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>'], 'a.png', {
+        type: 'image/png',
+      });
+      const res = await POST(createUploadRequest(svg));
+      expect(res.status).toBe(415);
+      expect(mockWriteFile).not.toHaveBeenCalled();
+    });
+
+    it('rejects a PNG declared as image/jpeg with 415', async () => {
+      const png = createMockFile('a.jpg', 64, 'image/png');
+      const lying = new File([await png.arrayBuffer()], 'a.jpg', { type: 'image/jpeg' });
+      const res = await POST(createUploadRequest(lying));
+      expect(res.status).toBe(415);
+      expect(mockWriteFile).not.toHaveBeenCalled();
+    });
+
+    it('rejects an image/svg+xml declaration with 400', async () => {
+      const svg = new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' });
+      const res = await POST(createUploadRequest(svg));
+      expect(res.status).toBe(400);
+    });
   });
 
   describe('authentication gate', () => {
