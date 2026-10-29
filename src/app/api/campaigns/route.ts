@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
 
     // Only effectively Active Campaigns are listed (CONTEXT.md, Campaign
     // Status); a `?status=` in the query is ignored.
-    const where: Prisma.CampaignWhereInput = listableCampaignWhere(new Date());
+    const where: Prisma.CampaignWhereInput = await listableCampaignWhere(prisma, new Date());
 
     if (category) {
       where.category = category;

@@ -148,3 +148,60 @@ describe('the home page with SHOW_DEMO_CAMPAIGNS on (prd-compliance 56)', () => 
     expect(where).toEqual({ campaign: {} });
   });
 });
+
+/**
+ * SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91): the page keeps the Demo Campaigns
+ * until the first real Campaign is Active, in the lists and in the Prayer
+ * Wall alike, and drops them from both together.
+ */
+describe('the home page with SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91)', () => {
+  beforeEach(() => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'auto');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('shows a Demo Campaign in the Urgent rail, and lets the Prayer Wall name its Campaign, while no real Campaign is Active', async () => {
+    holder.db = makeCampaignDb({
+      campaigns: [
+        campaign('demo-urgent', { isDemo: true, isUrgent: true, deadline: TOMORROW }),
+        campaign('real-draft', { lifecycleStatus: 'DRAFT' }),
+      ],
+    });
+
+    const page = await HomePage();
+
+    expect(campaignsPassedTo(page, UrgentCampaigns)).toEqual([['demo-urgent']]);
+    expect(campaignsPassedTo(page, CampaignGrid)).toEqual([['demo-urgent'], ['demo-urgent']]);
+    const { where } = holder.prayerFindMany.mock.calls.at(-1)![0];
+    expect(where).toEqual({ campaign: {} });
+  });
+
+  it('shows no Demo Campaign in any list, and the Prayer Wall names none, once a real Campaign is Active', async () => {
+    holder.db = makeCampaignDb({
+      campaigns: [
+        campaign('real', { isUrgent: true }),
+        campaign('demo-urgent', { isDemo: true, isUrgent: true, deadline: TOMORROW }),
+        campaign('demo-newest', { isDemo: true }),
+      ],
+    });
+
+    const page = await HomePage();
+
+    expect(campaignsPassedTo(page, UrgentCampaigns)).toEqual([['real']]);
+    expect(campaignsPassedTo(page, CampaignGrid)).toEqual([['real'], ['real']]);
+    const { where } = holder.prayerFindMany.mock.calls.at(-1)![0];
+    expect(where).toEqual({ campaign: { isDemo: false } });
+  });
+
+  it('decides once for the whole page, with one bounded read of the Campaigns', async () => {
+    holder.db = makeCampaignDb({ campaigns: [campaign('real'), campaign('demo', { isDemo: true })] });
+    const findFirst = vi.spyOn(holder.db.prisma.campaign, 'findFirst');
+
+    await HomePage();
+
+    expect(findFirst).toHaveBeenCalledTimes(1);
+  });
+});

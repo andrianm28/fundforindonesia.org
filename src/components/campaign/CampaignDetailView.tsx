@@ -513,13 +513,12 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
 
         {activeTab === 'story' ? (
           <div
-            className="prose prose-sm max-w-none text-text leading-relaxed
-              prose-headings:text-text prose-headings:font-semibold
-              prose-p:text-text prose-p:leading-relaxed
-              prose-img:rounded-lg prose-img:my-4
-              prose-a:text-primary prose-a:no-underline hover:prose-a:underline"
-            dangerouslySetInnerHTML={{ __html: campaign.story }}
-          />
+            // The story is the Fundraiser's own plain text (a textarea), so it
+            // renders as text: markup in it shows as typed and never runs.
+            className="text-sm max-w-none text-text leading-relaxed whitespace-pre-line break-words"
+          >
+            {campaign.story}
+          </div>
         ) : (
           <DisbursementsTab slug={campaign.slug} />
         )}
