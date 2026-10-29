@@ -66,6 +66,7 @@ export default function DonatePage() {
   const [ikrarConfirmed, setIkrarConfirmed] = useState(false);
   const [ikrarError, setIkrarError] = useState<string | null>(null);
   const isWakaf = campaign?.kind === 'WAKAF';
+  const isHibah = campaign?.kind === 'HIBAH';
 
   const handleConfirm = async () => {
     if (!campaign || !selectedAmount || !selectedPaymentMethod) return;
@@ -363,6 +364,7 @@ export default function DonatePage() {
               onConfirm={handleConfirm}
               isSubmitting={isSubmitting}
               betaSandbox={betaSandbox}
+              hibahNotice={isHibah}
               ikrarWakaf={
                 isWakaf
                   ? {

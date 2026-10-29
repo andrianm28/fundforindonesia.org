@@ -120,6 +120,13 @@ export default function AkunPage() {
         <SettingsLink label="Pengaturan" href="/akun/pengaturan" isLast />
       </div>
 
+      {/* Legal links: the footer is desktop-only, so phones reach them here (UU PDP notice). */}
+      <p className="mx-4 mt-4 text-center text-xs text-text-secondary">
+        <Link href="/terms" className="hover:underline">Syarat &amp; Ketentuan</Link>
+        {' · '}
+        <Link href="/privacy" className="hover:underline">Kebijakan Privasi</Link>
+      </p>
+
       {/* Logout Button */}
       <div className="mx-4 mt-4">
         <button

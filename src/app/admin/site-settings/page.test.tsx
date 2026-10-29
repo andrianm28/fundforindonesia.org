@@ -19,7 +19,7 @@ describe('AdminSiteSettingsPage', () => {
     render(await AdminSiteSettingsPage());
 
     expect(screen.getByRole('heading', { level: 1, name: 'Pengaturan Laman Publik' })).toBeDefined();
-    expect(screen.getByLabelText('Email dukungan')).toHaveValue('support@fundforindonesia.id');
+    expect(screen.getByLabelText('Email dukungan')).toHaveValue('halo@fundforindonesia.org');
     expect(screen.getByLabelText('Judul (slide 1)')).toHaveValue(
       'Bantu mereka yang membutuhkan, salurkan donasimu sekarang',
     );
