@@ -1,6 +1,6 @@
 # 68: N-1 payout-refund-suspension-emails
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none (lanjutan `prd-compliance-fase-0-2` 32)
 
@@ -31,3 +31,4 @@ PRD 7.2 meminta email untuk Payout, Refund, dan suspensi. Hanya email verifikasi
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
 - 2026-10-29: dibangun di branch `claude/project-thread-pl4ztw` (draft PR). Email dikirim setelah commit lewat `src/lib/status-emails.ts`; Refund ditolak (sebelum approve) sengaja tidak dikirimi email, alasan gagal dari Admin tidak ikut ke email Donor.
+- 2026-10-29: merged ke `main` lewat #287 (squash 9fc0480): email Payout, Refund dan Suspension (PRD 7.2). Live setelah owner men-deploy main.
