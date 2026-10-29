@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GET } from './route';
 import { NextRequest } from 'next/server';
 
@@ -9,6 +9,10 @@ vi.mock('@/lib/prisma', () => ({
       findMany: vi.fn(),
       count: vi.fn(),
     },
+    // Asked only when SHOW_DEMO_CAMPAIGNS is "auto": is a real Campaign Active?
+    campaign: {
+      findFirst: vi.fn(),
+    },
   },
 }));
 
@@ -16,6 +20,7 @@ import { prisma } from '@/lib/prisma';
 
 const mockFindMany = vi.mocked(prisma.prayer.findMany);
 const mockCount = vi.mocked(prisma.prayer.count);
+const mockRealActive = vi.mocked(prisma.campaign.findFirst);
 
 function createRequest(url: string): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'));
@@ -273,5 +278,51 @@ describe('GET /api/prayers', () => {
     expect(response.status).toBe(500);
     const data = await response.json();
     expect(data.error).toBe('Failed to fetch prayers');
+  });
+});
+
+/**
+ * SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91): the Prayer Wall follows the same
+ * decision as the lists it links into -- it may name a Demo Campaign only
+ * while the lists show one.
+ */
+describe('GET /api/prayers with SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'auto');
+    mockFindMany.mockResolvedValue([]);
+    mockCount.mockResolvedValue(0);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('may name a Demo Campaign while no real Campaign is Active', async () => {
+    mockRealActive.mockResolvedValue(null);
+
+    await GET(createRequest('http://localhost:3000/api/prayers'));
+
+    const { where } = mockFindMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    expect(where).toEqual({ campaign: {} });
+    expect(mockCount).toHaveBeenCalledWith({ where: { campaign: {} } });
+  });
+
+  it('names none once a real Campaign is Active', async () => {
+    mockRealActive.mockResolvedValue({ id: 'campaign-real' } as never);
+
+    await GET(createRequest('http://localhost:3000/api/prayers'));
+
+    const { where } = mockFindMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    expect(where).toEqual({ campaign: { isDemo: false } });
+    expect(mockCount).toHaveBeenCalledWith({ where: { campaign: { isDemo: false } } });
+  });
+
+  it('answers about the one Campaign asked for by slug without asking whether a real one is Active', async () => {
+    await GET(createRequest('http://localhost:3000/api/prayers?campaignSlug=bantu-anak'));
+
+    const { where } = mockFindMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    expect(where).toEqual({ campaign: { slug: 'bantu-anak' } });
+    expect(mockRealActive).not.toHaveBeenCalled();
   });
 });

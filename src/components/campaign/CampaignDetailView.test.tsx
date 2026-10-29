@@ -22,7 +22,7 @@ const mockCampaign: CampaignDetailData = {
   slug: 'bantu-korban-bencana',
   title: 'Bantu Korban Bencana Alam di Cianjur',
   description: 'Bantuan untuk korban bencana',
-  story: '<p>Cerita lengkap</p>',
+  story: 'Cerita lengkap',
   coverImage: '/images/campaign-1.jpg',
   targetAmount: 50000000,
   collectedAmount: 25841000,
@@ -145,6 +145,16 @@ describe('CampaignDetailView', () => {
     expect(screen.getByText('Cerita')).toBeDefined();
     expect(screen.getByText('Kabar Terbaru')).toBeDefined();
     expect(screen.getByText('Pencairan Dana')).toBeDefined();
+  });
+
+  it('shows the story as plain text with its line breaks, never as markup (a Fundraiser writes it)', () => {
+    const story = 'Paragraf satu.\n\n<img src=x onerror="window.__pwned=1"><script>window.__pwned=1</script>';
+    const { container } = render(<CampaignDetailView campaign={{ ...mockCampaign, story }} />);
+    expect(container.querySelector('img[src="x"]')).toBeNull();
+    expect(container.querySelector('script')).toBeNull();
+    const body = screen.getByText(/Paragraf satu\./);
+    expect(body.textContent).toBe(story);
+    expect(body.className).toContain('whitespace-pre-line');
   });
 
   it('makes no identity claim for a creator stored as verified -- that flag is self-declared (gap C2)', () => {
