@@ -100,6 +100,19 @@ export function effectiveStatus(
 }
 
 /**
+ * `effectiveStatus` === ACTIVE, as a `where`: stored ACTIVE with no deadline
+ * or one not yet passed. The one place a query says what Active means
+ * (CONTEXT.md, Campaign Status): the public lists and the Demo Campaign
+ * decision both read it, so neither can count a Campaign the other would not.
+ */
+function effectivelyActiveWhere(now: Date): Prisma.CampaignWhereInput {
+  return {
+    lifecycleStatus: CampaignStatus.ACTIVE,
+    OR: [{ deadline: null }, { deadline: { gte: now } }],
+  };
+}
+
+/**
  * The clause that keeps a Demo Campaign (CONTEXT.md, Demo Campaign) out of a
  * list a visitor reads. Its data is fiction -- the `collectedAmount` on its
  * row came from a seed file, not from a settled Payment -- so listing it
@@ -118,59 +131,111 @@ export function effectiveStatus(
  */
 export const NOT_A_DEMO_CAMPAIGN: Prisma.CampaignWhereInput = { isDemo: false };
 
+/** What the catalogue's Demo Campaign decision reads: Campaigns, and nothing else. */
+type CatalogueDb = Pick<Prisma.TransactionClient, 'campaign'>;
+
+/** What `SHOW_DEMO_CAMPAIGNS` asks for; see `showDemoCampaigns`. */
+type DemoCampaignSwitch = 'on' | 'auto' | 'off';
+
+function demoCampaignSwitch(): DemoCampaignSwitch {
+  switch (process.env.SHOW_DEMO_CAMPAIGNS) {
+    case 'true':
+      return 'on';
+    case 'auto':
+      return 'auto';
+    default:
+      return 'off';
+  }
+}
+
 /**
- * Whether the public catalogue shows Demo Campaigns (CONTEXT.md, Demo
- * Campaign): the pre-launch switch `SHOW_DEMO_CAMPAIGNS`, off unless it is
- * exactly `"true"` (the rule `donationsEnabled` uses: a near-miss value must
- * not turn it on).
+ * Whether the public catalogue shows Demo Campaigns right now (CONTEXT.md,
+ * Demo Campaign), by the switch `SHOW_DEMO_CAMPAIGNS`. Two values mean
+ * something, each matched exactly -- the rule `donationsEnabled` uses: a
+ * near-miss value must not turn it on:
+ *
+ * - `"true"`: always show them, beside the real ones. The manual override,
+ *   for trying the catalogue on staging.
+ * - `"auto"`: show them only while no real Campaign is Active, so the site is
+ *   not empty before the first one, and stop showing them from the first real
+ *   Campaign that is effectively Active, with no change to the environment
+ *   (rilis-1 91, owner decision C19). Nothing is stored: when the last real
+ *   Active Campaign leaves Active (Completed, Expired, Suspended) they show
+ *   again, because the answer is read from the data on every call.
+ *
+ * Anything else -- unset, empty, `"false"` -- never shows them. An unset
+ * switch stays off, as the owner decided on 2026-10-03, and the compose files
+ * turn an empty one into `"false"`, so `"auto"` has to be written out.
+ *
+ * "A real Campaign is Active" is `effectiveStatus` === ACTIVE of a Campaign
+ * whose `isDemo` is false: the same columns every list reads, never a name,
+ * slug or list of Campaigns. In `auto` it costs one `findFirst` that selects
+ * only the id (a LIMIT 1 on the `lifecycleStatus, deadline` index), never a
+ * read per Campaign; the other values read nothing. A page that builds several
+ * lists decides once and hands the answer to each as `includeDemo`.
  *
  * Read from the server environment on each call, never `NEXT_PUBLIC_`: it is
  * not inlined at build, so a restart changes it, and a client component that
  * needs to know is handed the Campaigns it may show, each with its `isDemo`
  * badge. It governs only what a visitor sees listed. Money, Impact, abuse,
- * dormant balances, the sitemap, Donation and Payout refusal read
+ * dormant balances, reminders, the sitemap, Donation and Payout refusal read
  * `NOT_A_DEMO_CAMPAIGN` or `isDemo` directly and never this.
  */
-export function showDemoCampaigns(): boolean {
-  return process.env.SHOW_DEMO_CAMPAIGNS === 'true';
+export async function showDemoCampaigns(db: CatalogueDb, now: Date): Promise<boolean> {
+  switch (demoCampaignSwitch()) {
+    case 'on':
+      return true;
+    case 'off':
+      return false;
+    case 'auto': {
+      const realActive = await db.campaign.findFirst({
+        where: { AND: [NOT_A_DEMO_CAMPAIGN, effectivelyActiveWhere(now)] },
+        select: { id: true },
+      });
+      return realActive === null;
+    }
+  }
 }
 
 /**
  * The one place that decides whether a public catalogue reader (home,
  * explore, search, the Prayer Wall) leaves Demo Campaigns out. Spread it
- * where `NOT_A_DEMO_CAMPAIGN` would have gone for a listing.
+ * where `NOT_A_DEMO_CAMPAIGN` would have gone for a listing, and `await` it:
+ * with the switch on `auto` the answer comes from the data.
+ *
+ * `includeDemo` is a decision the caller already holds: a privileged screen
+ * that must see them, or a page that asked `showDemoCampaigns` once for all
+ * its lists. Left out, the decision is `showDemoCampaigns`.
  */
-export function catalogueDemoWhere(): Prisma.CampaignWhereInput {
-  return showDemoCampaigns() ? {} : NOT_A_DEMO_CAMPAIGN;
+export async function catalogueDemoWhere(
+  db: CatalogueDb,
+  now: Date,
+  options: { includeDemo?: boolean } = {}
+): Promise<Prisma.CampaignWhereInput> {
+  return (options.includeDemo ?? (await showDemoCampaigns(db, now))) ? {} : NOT_A_DEMO_CAMPAIGN;
 }
 
 /**
  * The Campaigns a public list shows (CONTEXT.md, Campaign Status; Demo
  * Campaign): exactly those `effectiveStatus` calls ACTIVE, i.e. stored ACTIVE
- * with no deadline or one not yet passed, and no Demo Campaign among them.
+ * with no deadline or one not yet passed, that `catalogueDemoWhere` admits.
  *
  * The rule sits inside an AND so callers can spread it next to their own
  * filters, an OR of their own included, without overwriting it. Readers
- * only filter; lazy expiry is for commands.
+ * only filter; lazy expiry is for commands. Spread it only after `await`: a
+ * Promise spreads into nothing, and the list would lose both rules.
  *
  * `includeDemo` is for a privileged screen that must still see them -- an
  * Admin working on a Campaign the public cannot see. Left out, it follows
- * `showDemoCampaigns()`, off by default, so a listing cannot end up showing
- * fiction by forgetting an argument.
+ * `showDemoCampaigns`, off unless the switch says otherwise, so a listing
+ * cannot end up showing fiction by forgetting an argument.
  */
-export function listableCampaignWhere(
+export async function listableCampaignWhere(
+  db: CatalogueDb,
   now: Date,
   options: { includeDemo?: boolean } = {}
-): Prisma.CampaignWhereInput {
-  return {
-    AND: [
-      ...((options.includeDemo ?? showDemoCampaigns()) ? [] : [NOT_A_DEMO_CAMPAIGN]),
-      {
-        lifecycleStatus: CampaignStatus.ACTIVE,
-        OR: [{ deadline: null }, { deadline: { gte: now } }],
-      },
-    ],
-  };
+): Promise<Prisma.CampaignWhereInput> {
+  return { AND: [await catalogueDemoWhere(db, now, options), effectivelyActiveWhere(now)] };
 }
 
 /** The effective statuses whose Campaign pages the sitemap lists. */
