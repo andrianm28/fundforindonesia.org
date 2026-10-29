@@ -92,6 +92,13 @@ function parseProviderTimestamp(raw: unknown): Date | undefined {
  * return `paid` on the notification alone, and why it does not need the
  * status API it does not have.
  */
+/**
+ * How long a charge request may take before we give up on it. A retry holds a
+ * database lock and a pooled connection for the whole call (donation-retry.ts,
+ * 60 s transaction), so a hung Sumopod must fail well inside that.
+ */
+export const SUMOPOD_CHARGE_TIMEOUT_MS = 25_000;
+
 export class SumopodProvider implements PaymentProvider {
   readonly name = 'sumopod';
   readonly method = 'qris_redirect' as const;
@@ -125,6 +132,7 @@ export class SumopodProvider implements PaymentProvider {
   async createCharge(input: ChargeInput): Promise<ChargeResult> {
     const response = await this.fetchImpl(`${this.baseUrl}/payments`, {
       method: 'POST',
+      signal: AbortSignal.timeout(SUMOPOD_CHARGE_TIMEOUT_MS),
       headers: {
         'Content-Type': 'application/json',
         'X-Api-Key': this.apiKey,
