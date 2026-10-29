@@ -24,17 +24,19 @@ Keputusan di `.scratch/rilis-1-benda/issues/03-documents.md`: dokumen yang diaju
 
 ## Acceptance
 
-- [ ] Model `Document` (migrasi) dengan pemilik, jenis dokumen §7.1, ukuran, tipe, dan path relatif berkas pada volume (bukan path host absolut); tanpa URL publik
-- [ ] Penyimpanan privat di volume lokal host, terpisah dari `public/uploads`, tidak di bawah `public/`, dan tidak dilayani nginx atau static; satu-satunya jalur baca adalah route ber-ACL yang meng-stream berkas
-- [ ] ACL: hanya pengunggah, Verifier yang menangani Verification Request-nya, dan Admin yang boleh membuka dokumen; yang lain 404
-- [ ] Unggah dokumen tersedia saat membuat dan mengedit Campaign/Partner Organisation
-- [ ] Viewer dokumen untuk Verifier di layar moderasi
-- [ ] Baris checklist ternonaktif sampai dokumen terkait ada
-- [ ] Validasi tipe berkas dan magic byte; ukuran dibatasi
-- [ ] Tes unit ACL, tes route, dan e2e unggah lalu lihat; tidak ada kredensial atau path host di repo
+- [x] Model `Document` (migrasi) dengan pemilik, jenis dokumen §7.1, ukuran, tipe, dan path relatif berkas pada volume (bukan path host absolut); tanpa URL publik
+- [x] Penyimpanan privat di volume lokal host, terpisah dari `public/uploads`, tidak di bawah `public/`, dan tidak dilayani nginx atau static; satu-satunya jalur baca adalah route ber-ACL yang meng-stream berkas
+- [x] ACL: hanya pengunggah, Verifier yang menangani Verification Request-nya, dan Admin yang boleh membuka dokumen; yang lain 404
+- [x] Unggah dokumen tersedia saat membuat dan mengedit Campaign/Partner Organisation
+- [x] Viewer dokumen untuk Verifier di layar moderasi
+- [x] Baris checklist ternonaktif sampai dokumen terkait ada
+- [x] Validasi tipe berkas dan magic byte; ukuran dibatasi
+- [x] Tes unit ACL, tes route, dan e2e unggah lalu lihat; tidak ada kredensial atau path host di repo
 
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
 
 - 2026-10-04 (ronde C, C4 dan C5 dijawab owner): **C5, menyimpang dari rekomendasi awal (bukan S3).** Dokumen disimpan di **volume lokal di host**. Untuk D-1: volume privat terpisah (bukan `public/uploads`), disajikan **hanya** lewat route ber-ACL (Verifier yang menangani Verification Request-nya, Fundraiser pemilik, Admin), tidak lewat nginx atau static. Konsekuensi untuk builder: tidak ada signed URL dan tidak ada SDK object storage; lokasi volume dibaca dari env (nilai tidak di repo); route meng-stream berkas dengan `Cache-Control: no-store` dan nama berkas yang tidak ditebak. Perubahan compose atau volume produksi dan memasukkan volume ke backup malam serta offsite terenkripsi dikerjakan sesi VPS saat D-1 dideploy; itu di luar lingkup builder dan koordinator tidak men-deploy-nya sendiri. **C4:** dokumen wajib sebelum M2; untuk M1 dokumen YIEM diperiksa di luar produk dan Verifier mencatatnya. Status `needs-info` menjadi `ready-for-agent`.
+
+- 2026-10-29 (builder, thread "Kerjakan tiket 64 dokumen privat"): dibangun di branch `claude/project-thread-5iqono`, migrasi `20261029180000_private_documents` (setelah #264). Keputusan builder: (1) `VerificationChecklistItem.requiresDocument` baru, di-seed `true` untuk butir §7.1 yang berupa kertas, `false` untuk Kind Authorisation dan "bukan duplikat"; Admin mengubahnya di editor checklist. (2) Server menolak centang butir ber-dokumen tanpa dokumen pada keputusan apa pun (`CHECKLIST_DOCUMENT_MISSING`, 422); snapshot lama tanpa flag dinilai dari setelan butir saat ini. (3) ACL dokumen Lembaga Mitra: semua Verifier, Admin, pengunggah, dan akun organisasi itu; dokumen Campaign: pengunggah, Fundraiser pemilik, Admin, dan Verifier selama ada Verification Request PENDING atau yang pernah memutuskan salah satunya. (4) Tidak ada hapus dokumen (keputusan 03). (5) Compose prod memasang volume eksternal `ffi_private_documents` di `/app/private-documents`; host harus `docker volume create ffi_private_documents` sebelum deploy dan memasukkannya ke backup. Tanpa `PRIVATE_DOCUMENT_DIR` di produksi, unggah menjawab 503.

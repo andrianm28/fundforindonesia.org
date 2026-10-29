@@ -90,6 +90,7 @@ model User {
   fundraisingPermitsRecorded       FundraisingPermit[]
   kindAuthorisationsGranted        KindAuthorisation[]
   partnerOrganisationAudits        PartnerOrganisationAuditEntry[]
+  documentsUploaded                Document[]                        @relation("DocumentUploader")
 
   // Money layer
   bankAccounts                      BankAccount[]
@@ -524,6 +525,7 @@ model Campaign {
   transfersIn           CampaignTransfer[]     @relation("CampaignTransferTarget")
   auditMarker           CampaignAuditMarker?
   donationReviewMarkers DonationReviewMarker[]
+  documents             Document[]
 
   @@index([slug])
   @@index([category])
@@ -798,6 +800,7 @@ model PartnerOrganisation {
   providerWithdrawals  ProviderWithdrawal[]
   verificationRequests VerificationRequest[]
   auditEntries         PartnerOrganisationAuditEntry[]
+  documents            Document[]
 }
 
 /// A dated permit to collect public donations held by a Partner Organisation
@@ -900,11 +903,55 @@ model VerificationChecklistItem {
   position Int
   active   Boolean @default(true)
   kind     Kind?
+  /// Whether ticking this item needs an uploaded Document behind it (ticket
+  /// 64): the Verifier's box stays disabled, and the server refuses the tick,
+  /// until the Campaign holds a Document for this item. False for items that
+  /// are a check rather than a paper (a Kind Authorisation on record, "bukan
+  /// duplikat").
+  requiresDocument Boolean @default(false)
 
   auditEntries VerificationChecklistAuditEntry[]
+  documents    Document[]
 
   @@index([active, position])
   @@index([kind, active, position])
+}
+
+/// A private document uploaded as evidence (ticket 64, PRD §7.1): a
+/// Fundraiser's paper behind a Campaign's checklist item, or a Partner
+/// Organisation's legal document recorded by a Verifier. Exactly one of
+/// `campaignId` / `partnerOrganisationId` is set. The file lives on a private
+/// host volume (PRIVATE_DOCUMENT_DIR), never under public/, and is only ever
+/// read through the ACL route that streams it; `storagePath` is relative to
+/// that volume and is random, so it neither names the host nor can be
+/// guessed. Never deleted: a rejected submission's documents are still kept
+/// (decision 03), just never public.
+model Document {
+  id                    String   @id @default(cuid())
+  uploadedById          String
+  campaignId            String?
+  partnerOrganisationId String?
+  /// The §7.1 checklist item this document evidences. Required on a Campaign
+  /// document, null on a Partner Organisation one.
+  checklistItemId       String?
+  /// What the document is, as the uploader saw it: the checklist item's label
+  /// at upload time, or the title a Verifier typed for an organisation's.
+  label                 String
+  /// The validated content type (magic bytes checked), never the uploader's claim.
+  contentType           String
+  sizeBytes             Int
+  /// Relative to PRIVATE_DOCUMENT_DIR, e.g. "ab/ab3f...": never absolute.
+  storagePath           String   @unique
+  uploadedAt            DateTime @default(now())
+
+  // Relations
+  uploadedBy          User                       @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  campaign            Campaign?                  @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  partnerOrganisation PartnerOrganisation?       @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
+  checklistItem       VerificationChecklistItem? @relation(fields: [checklistItemId], references: [id], onDelete: Restrict)
+
+  @@index([campaignId, checklistItemId])
+  @@index([partnerOrganisationId, uploadedAt])
 }
 
 enum VerificationChecklistAuditAction {

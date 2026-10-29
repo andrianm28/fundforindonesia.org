@@ -236,6 +236,9 @@ jobs:
       # The e2e seed creates an Admin and a Verifier who can sign in; it runs
       # only against a database declared throwaway (tests/e2e/seed-e2e.ts).
       E2E_THROWAWAY_DATABASE: "1"
+      # Ticket 64: production refuses document uploads without a private
+      # volume; the job's throwaway one is a temp folder outside the tree.
+      PRIVATE_DOCUMENT_DIR: /tmp/ffi-e2e-private-documents
       # Inlined into the client bundle at build time: the donate page shows
       # its form. The money itself stays stubbed in the specs: in
       # production `next start` the mock adapter is refused, so CI raises

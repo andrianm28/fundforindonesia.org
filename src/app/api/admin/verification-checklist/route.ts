@@ -7,7 +7,7 @@ import { parseKind } from "@/lib/campaign-kind";
 /**
  * GET /api/admin/verification-checklist: every checklist item, inactive ones
  * included, in order; `?kind=` narrows it to that Kind's items plus the
- * general ones. POST adds one: `{ label, required, kind? }`, where an absent
+ * general ones. POST adds one: `{ label, required, kind?, requiresDocument? }`, where an absent
  * or null Kind is general ("Semua"). ADMIN only; every change is audited
  * (verification-request 04, ticket 12 per-Kind checklists).
  */
@@ -24,6 +24,6 @@ export const GET = checklistRoute(
 );
 
 export const POST = checklistRoute(async ({ actorId, body }) => {
-  const item = await addChecklistItem(prisma, { actorId, label: body.label, required: body.required, kind: body.kind });
+  const item = await addChecklistItem(prisma, { actorId, label: body.label, required: body.required, kind: body.kind, requiresDocument: body.requiresDocument });
   return NextResponse.json({ item }, { status: 201 });
 });

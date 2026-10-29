@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { KIND_LABEL, KINDS, type CampaignKind } from "@/lib/campaign-kind";
+import { DocumentList } from "@/components/documents/DocumentList";
+import { DocumentUpload } from "@/components/documents/DocumentUpload";
 
 /**
  * The Verifier's register of Partner Organisations, their Fundraising
@@ -39,6 +41,16 @@ type Organisation = {
   fundraiser: { name: string; email: string };
   permits: Permit[];
   kindAuthorisations?: KindAuthorisation[];
+  /** The organisation's legal documents in the private store (ticket 64). */
+  documents?: OrganisationDocument[];
+};
+
+type OrganisationDocument = {
+  id: string;
+  label: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
 };
 
 const API = "/api/moderasi/partner-organisations";
@@ -222,6 +234,23 @@ export function PartnerOrganisationRegister() {
               act(send(`${API}/${organisation.id}/kind-authorisations`, "POST", body), "Kind Authorisation diberikan.")
             }
           />
+
+          <div>
+            <h3 className="text-sm font-medium text-text mb-2">Dokumen Legal</h3>
+            <p className="text-xs text-text-secondary mb-2">
+              Akta pendirian, SK, NPWP, izin, dan dokumen lain yang Anda periksa. Disimpan privat: hanya
+              Verifier, Admin, dan akun organisasi ini yang dapat membukanya.
+            </p>
+            <DocumentList documents={organisation.documents ?? []} empty="Belum ada dokumen tercatat." />
+            <div className="mt-3">
+              <DocumentUpload
+                fields={{ partnerOrganisationId: organisation.id }}
+                askLabel
+                name={`dokumen ${organisation.name}`}
+                onUploaded={() => void load()}
+              />
+            </div>
+          </div>
         </section>
       ))}
     </div>

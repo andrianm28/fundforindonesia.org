@@ -78,12 +78,18 @@ RUN npm run build
 #            denied, mkdir '/app/.next/cache'`, recomputed every optimized
 #            image on every request, and kept ISR from ever refreshing a page.
 #            (The homepage is force-dynamic regardless; see src/app/page.tsx.)
+#   private-documents/  where PRIVATE_DOCUMENT_DIR points in production
+#            (ticket 64): identity papers, outside public/ so nothing serves
+#            them statically. Owned by nextjs and closed to everyone else, so
+#            a named volume mounted here starts with that owner and mode. The
+#            volume itself, and its backup, are host-side (ticket notes).
 # The rest (server.js, node_modules) stays root-owned: the app has no reason
 # to rewrite its own code.
 RUN cp -r public .next/standalone/public \
     && cp -r .next/static .next/standalone/.next/static \
-    && mkdir -p .next/standalone/public/uploads .next/standalone/.next/cache \
-    && chown -R 1001:1001 .next/standalone/public .next/standalone/.next
+    && mkdir -p .next/standalone/public/uploads .next/standalone/.next/cache .next/standalone/private-documents \
+    && chown -R 1001:1001 .next/standalone/public .next/standalone/.next .next/standalone/private-documents \
+    && chmod 700 .next/standalone/private-documents
 
 # Stage: migrate (`docker build --target migrate`). A small one-off image that
 # runs `prisma migrate deploy` against $DATABASE_URL and exits. The app image
