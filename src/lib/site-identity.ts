@@ -4,9 +4,9 @@
  * Privasi, Footer, dan sebagai bawaan halaman Kontak (DEFAULT_SITE_SETTINGS).
  *
  * Operator adalah PT Jaya Korpora Prima (ADR 0009). Nomor NIB, alamat kantor,
- * dan telepon sengaja tidak ada di sini sampai owner memberikan nilai yang
- * benar; jangan diisi dengan nilai contoh. Admin dapat mengisi alamat dan
- * telepon dari Pengaturan Laman Publik.
+ * dan telepon sengaja tidak ada di sini; jangan diisi dengan nilai contoh.
+ * Keputusan owner 2026-10-29: dibiarkan kosong, Admin mengisinya dari
+ * Pengaturan Laman Publik (kontak: alamat, telepon, WhatsApp, NIB).
  */
 export const SITE_IDENTITY = {
   /** Penyelenggara platform dan Pengendali Data Pribadi (ADR 0009). */

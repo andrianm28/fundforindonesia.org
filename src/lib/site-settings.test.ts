@@ -106,4 +106,12 @@ describe('helpers', () => {
     expect(socialHandle('https://instagram.com/fundforindonesia')).toBe('@fundforindonesia');
     expect(socialHandle('https://example.org')).toBe('example.org');
   });
+  it('reads a contact row saved before the NIB field existed, with an empty NIB', async () => {
+    const legacy: Record<string, unknown> = { ...DEFAULT_SITE_SETTINGS.contact };
+    delete legacy.nib;
+    const db = { siteSetting: { findMany: async () => [{ key: 'contact', value: { ...legacy, address: 'Jl. Lama 2' } }] } };
+    const settings = await resolveSiteSettings(db as never);
+    expect(settings.contact.address).toBe('Jl. Lama 2');
+    expect(settings.contact.nib).toBe('');
+  });
 });

@@ -61,6 +61,8 @@ export const SITE_SETTING_SCHEMAS = {
     whatsapp: phone,
     hours: z.string().trim().max(200),
     address: z.string().trim().max(500),
+    // Nomor Induk Berusaha of the operator. Optional so a row saved before it existed still parses.
+    nib: z.string().trim().max(40).default(""),
   }),
   social: z.object({
     instagram: optionalHttpsUrl,
@@ -105,6 +107,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
     whatsapp: "",
     hours: "",
     address: "",
+    nib: "",
   },
   social: {
     instagram: "https://instagram.com/fundforindonesia",
