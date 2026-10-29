@@ -27,3 +27,24 @@ export function uploadContentType(name: string): string | null {
   const match = UPLOAD_NAME.exec(name);
   return match ? UPLOAD_CONTENT_TYPES[match[1]] : null;
 }
+
+/**
+ * The image type the leading bytes of a file actually are, or null when they
+ * are none of JPEG, PNG or WebP (SVG, HTML, PDF and anything else included).
+ * An upload's declared MIME type is the uploader's claim; this is the check
+ * against the content (audit SEC-02).
+ */
+export function sniffImageType(bytes: Uint8Array): 'image/jpeg' | 'image/png' | 'image/webp' | null {
+  const startsWith = (sig: number[], offset = 0) =>
+    bytes.length >= offset + sig.length && sig.every((b, i) => bytes[offset + i] === b);
+  if (startsWith([0xff, 0xd8, 0xff])) return 'image/jpeg';
+  if (startsWith([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png';
+  // "RIFF" <size> "WEBP"
+  if (startsWith([0x52, 0x49, 0x46, 0x46]) && startsWith([0x57, 0x45, 0x42, 0x50], 8)) return 'image/webp';
+  return null;
+}
+
+/** Whether the bytes are an image of exactly the declared type. */
+export function matchesDeclaredImageType(bytes: Uint8Array, declared: string): boolean {
+  return sniffImageType(bytes) === declared;
+}

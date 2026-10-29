@@ -198,6 +198,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
               <InfoItem
                 label="Batas Waktu"
                 value={new Date(campaign.deadline).toLocaleDateString("id-ID", {
+                  timeZone: "Asia/Jakarta",
                   day: "numeric",
                   month: "long",
                   year: "numeric",

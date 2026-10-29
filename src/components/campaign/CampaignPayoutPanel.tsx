@@ -126,7 +126,7 @@ interface PayoutRead {
 }
 
 function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+  return new Date(value).toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 interface UsageReportLineItemInput {
