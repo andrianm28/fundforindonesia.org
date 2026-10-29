@@ -26,6 +26,10 @@ vi.mock('@/lib/prisma', () => ({
     payout: {
       findMany: vi.fn(),
     },
+    // The create route checks the slug against the Category table (audit REQ-01).
+    category: {
+      findUnique: vi.fn().mockResolvedValue({ slug: 'bencana-alam' }),
+    },
     // Creating a Campaign asks whether the creator's account acts for a
     // Partner Organisation (prd-compliance 10); none here.
     partnerOrganisation: {
