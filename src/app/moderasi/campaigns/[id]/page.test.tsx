@@ -31,7 +31,7 @@ function campaign(lifecycleStatus: CampaignStatus, overrides: Record<string, unk
     deadline: null,
     coverImage: '',
     description: 'Deskripsi',
-    story: '<p>Cerita</p>',
+    story: 'Cerita',
     category: 'lingkungan',
     targetAmount: 10_000_000,
     createdAt: new Date('2026-09-01T00:00:00Z'),
@@ -413,5 +413,14 @@ describe('the Flag form on the moderation page', () => {
 
     expect(screen.getByRole('button', { name: /loloskan/i })).toBeDefined();
     expect(flagButton()).not.toBeNull();
+  });
+});
+
+describe('the story on the moderation page', () => {
+  it('is shown as plain text, so markup a Fundraiser types never runs in a Verifier session', async () => {
+    const story = 'Baris satu\n<img src=x onerror="window.__pwned=1">';
+    await renderFor(campaign('SUBMITTED', { story }));
+    expect(document.querySelector('img[src="x"]')).toBeNull();
+    expect(screen.getByText(/Baris satu/).textContent).toBe(story);
   });
 });

@@ -222,10 +222,11 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
             <h2 className="text-sm font-semibold text-text mb-2">
               Cerita Kampanye
             </h2>
-            <div
-              className="text-sm text-[#424242] prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{ __html: campaign.story }}
-            />
+            {/* Plain text, as the public page shows it: markup the
+                Fundraiser typed must never run in a Verifier's session. */}
+            <div className="text-sm text-[#424242] max-w-none whitespace-pre-line break-words">
+              {campaign.story}
+            </div>
           </div>
         </div>
       </div>

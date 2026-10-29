@@ -16,7 +16,7 @@ const mockCampaign: CampaignDetailProps['campaign'] = {
   slug: 'bantu-korban-bencana',
   title: 'Bantu Korban Bencana Alam di Cianjur',
   description: 'Donasi untuk korban bencana',
-  story: '<p>Cerita lengkap kampanye ini tentang korban bencana alam.</p>',
+  story: 'Cerita lengkap kampanye ini tentang korban bencana alam.',
   coverImage: '/images/campaign-1.jpg',
   targetAmount: 50000000,
   collectedAmount: 25841000,
@@ -149,6 +149,25 @@ describe('CampaignDetail', () => {
     expect(
       screen.getByText('Cerita lengkap kampanye ini tentang korban bencana alam.')
     ).toBeDefined();
+  });
+
+  it('shows an update as plain text, never as markup', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          updates: [
+            { id: 'u1', title: 'Kabar', content: 'Dana tersalur <img src=x onerror="window.__pwned=1">', images: [], createdAt: '2026-10-01T00:00:00Z' },
+          ],
+        }),
+    });
+    const { container } = render(
+      <CampaignDetail campaign={mockCampaign} onDonate={mockOnDonate} onShare={mockOnShare} />
+    );
+    fireEvent.click(screen.getByText('Kabar Terbaru'));
+    const body = await screen.findByText(/Dana tersalur/);
+    expect(body.textContent).toBe('Dana tersalur <img src=x onerror="window.__pwned=1">');
+    expect(container.querySelector('img[src="x"]')).toBeNull();
   });
 
   it('switches to Kabar Terbaru tab and fetches updates', async () => {

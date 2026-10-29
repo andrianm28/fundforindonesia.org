@@ -351,14 +351,14 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
 }
 
 /**
- * CampaignStory renders the campaign's story HTML content safely.
+ * CampaignStory renders the campaign's story as plain text: the Fundraiser
+ * types it into a textarea, so markup in it shows as typed and never runs.
  */
 function CampaignStory({ story }: { story: string }) {
   return (
-    <div
-      className="prose prose-sm max-w-none text-text leading-relaxed"
-      dangerouslySetInnerHTML={{ __html: story }}
-    />
+    <div className="text-sm max-w-none text-text leading-relaxed whitespace-pre-line break-words">
+      {story}
+    </div>
   );
 }
 
@@ -408,10 +408,9 @@ function CampaignUpdates({
           <article key={update.id} className="border-b border-border pb-4 last:border-b-0">
             <p className="text-xs text-text-secondary mb-1">{formattedDate}</p>
             <h4 className="text-sm font-semibold text-text mb-2">{update.title}</h4>
-            <div
-              className="text-sm text-text-secondary leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: update.content }}
-            />
+            <div className="text-sm text-text-secondary leading-relaxed whitespace-pre-line break-words">
+              {update.content}
+            </div>
             {update.images && update.images.length > 0 && (
               <div className="mt-3 flex gap-2 overflow-x-auto">
                 {update.images.map((img, idx) => (
