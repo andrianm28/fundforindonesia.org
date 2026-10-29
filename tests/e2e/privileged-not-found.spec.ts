@@ -12,10 +12,11 @@ import { DRAFT_SLUG } from './fixtures';
  * mocked fetch; these specs prove the real wiring in a real browser: the
  * server boundary, the request the view sends, and what each answer renders.
  *
- * The privileged answer is stubbed at the network edge because CI has no
- * login harness (no passwordless session fixture): the stub stands in for
- * the API that route unit tests cover, while the browser side — the fetch,
- * the status banner, the missing donate CTA — is all real code.
+ * The privileged answer is stubbed at the network edge: these specs were
+ * written before the e2e seed had operators who can sign in (flag-dismiss.spec.ts
+ * now signs in through the credentials endpoint). The stub stands in for the
+ * API that route unit tests cover, while the browser side — the fetch, the
+ * status banner, the missing donate CTA — is all real code.
  *
  * On the status code: the cached Campaign page cannot answer with HTTP 404.
  * `notFound()` throws behind the segment's loading.tsx, so the document has

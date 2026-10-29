@@ -17,20 +17,29 @@ import type { CampaignStatus } from '@/generated/prisma/client';
  * requires one) and showing the server's own refusal, in its own words,
  * when it says no. The same choice AdminPayoutActionForm makes.
  *
- * THREE INDEPENDENT SECTIONS, NOT A WIZARD. A Campaign can be effectively
+ * INDEPENDENT SECTIONS, NOT A WIZARD. A Campaign can be effectively
  * ACTIVE with open Flags and a pending Cancellation request at once (a
  * Verifier's Flag and a Fundraiser's own Cancellation ask are unrelated),
- * so this renders whichever of the three forms currently applies, each with
- * its own reason field: suspend (SUSPENDABLE status), lift (SUSPENDED), and
- * decide a pending Cancellation request. `isOwnCampaign` and
+ * so this renders whichever of the forms currently applies, each with its
+ * own reason field: dismiss an open Flag (rilis-1-benda 66), suspend
+ * (SUSPENDABLE status), lift (SUSPENDED), decide a pending Cancellation
+ * request, and set or clear Urgent (rilis-1-benda 66). `isOwnCampaign` and
  * `suspendedBySameAdmin` are read here only to show a sentence explaining
  * why up front -- OwnSubjectConflictError and SameAdminLiftError
  * (src/lib/capacity.ts, src/lib/campaign-lifecycle-errors.ts) are what
  * actually refuse it, exactly as CampaignPayoutPanel and
  * AdminPayoutActionForm already do for their own two-person rules.
+ *
+ * The Flag and Urgent sections of rilis-1-benda 66 go one step further and
+ * read neither: dismissFlag and setUrgent (same module) refuse an Admin on
+ * their own Campaign, and setUrgent refuses to set Urgent from any status but
+ * Active, so those rules stay with the server and arrive here as the refusal
+ * it sends. Only what the Admin needs to decide arrives as props: the open
+ * Flags, whether the Campaign is Urgent, and whether Urgent can be set.
  */
 
-type OpenFlag = { id: string; reason: string };
+/** An open Flag as the screen shows it; `flaggedAtLabel` is when it was raised, already formatted by the page. */
+type OpenFlag = { id: string; reason: string; verifierName: string; flaggedAtLabel: string };
 type PendingCancellationRequest = { id: string; reason: string; requestedByName: string | null };
 
 interface AdminCampaignLifecycleActionsProps {
@@ -48,6 +57,14 @@ interface AdminCampaignLifecycleActionsProps {
   /** The signed-in Admin is the one who imposed the current Suspension (SameAdminLiftError). */
   suspendedBySameAdmin: boolean;
   openFlags: OpenFlag[];
+  /** The Campaign is Urgent now (Campaign.isUrgent). */
+  isUrgent: boolean;
+  /**
+   * Whether `status` is one Urgent can be set from, decided server-side by the
+   * lifecycle module's own list (URGENT_SETTABLE_FROM) so this form never keeps
+   * a second copy of it. Clearing Urgent does not depend on it.
+   */
+  canSetUrgent: boolean;
   pendingCancellationRequest: PendingCancellationRequest | null;
 }
 
@@ -76,10 +93,14 @@ export function AdminCampaignLifecycleActions({
   isOwnCampaign,
   suspendedBySameAdmin,
   openFlags,
+  isUrgent,
+  canSetUrgent,
   pendingCancellationRequest,
 }: AdminCampaignLifecycleActionsProps) {
   return (
     <div className="space-y-6">
+      {openFlags.length > 0 && <FlagsSection campaignSlug={campaignSlug} flags={openFlags} />}
+
       {status === 'SUSPENDED' ? (
         <LiftSuspensionSection
           campaignSlug={campaignSlug}
@@ -87,9 +108,7 @@ export function AdminCampaignLifecycleActions({
           suspendedBySameAdmin={suspendedBySameAdmin}
         />
       ) : (
-        canSuspend && (
-          <SuspendSection campaignSlug={campaignSlug} isOwnCampaign={isOwnCampaign} openFlags={openFlags} />
-        )
+        canSuspend && <SuspendSection campaignSlug={campaignSlug} isOwnCampaign={isOwnCampaign} />
       )}
 
       {pendingCancellationRequest && (
@@ -99,11 +118,13 @@ export function AdminCampaignLifecycleActions({
           request={pendingCancellationRequest}
         />
       )}
+
+      {(isUrgent || canSetUrgent) && <UrgentSection campaignSlug={campaignSlug} isUrgent={isUrgent} />}
     </div>
   );
 }
 
-async function postJson(url: string, method: 'POST' | 'DELETE', body: Record<string, unknown>) {
+async function postJson(url: string, method: 'POST' | 'PUT' | 'DELETE', body: Record<string, unknown>) {
   return fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -111,15 +132,93 @@ async function postJson(url: string, method: 'POST' | 'DELETE', body: Record<str
   });
 }
 
-function SuspendSection({
-  campaignSlug,
-  isOwnCampaign,
-  openFlags,
-}: {
-  campaignSlug: string;
-  isOwnCampaign: boolean;
-  openFlags: OpenFlag[];
-}) {
+/** The sentence the server refused with, or `fallback` when its answer carries none. */
+async function refusalOf(res: Response, fallback: string): Promise<string> {
+  const body = await res.json().catch(() => ({}));
+  return typeof body.error === 'string' && body.error !== '' ? body.error : fallback;
+}
+
+function FlagsSection({ campaignSlug, flags }: { campaignSlug: string; flags: OpenFlag[] }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-semibold text-gray-900">Flag terbuka</h2>
+      <p className="text-xs text-gray-500">
+        Flag dari Verifier meminta Admin mempertimbangkan Suspension. Sebuah Flag berakhir karena Suspension atau
+        ditolak Admin beserta alasannya.
+      </p>
+      <ul className="space-y-3">
+        {flags.map((flag) => (
+          <FlagItem key={flag.id} campaignSlug={campaignSlug} flag={flag} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function FlagItem({ campaignSlug, flag }: { campaignSlug: string; flag: OpenFlag }) {
+  const router = useRouter();
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const flagReasonId = `flag-${flag.id}-reason`;
+  const dismissalId = `flag-${flag.id}-dismissal`;
+
+  async function dismiss() {
+    setSubmitting(true);
+    setRefusal(null);
+    try {
+      const res = await postJson(`/api/campaigns/${campaignSlug}/flags/${flag.id}/dismiss`, 'POST', { reason });
+      if (!res.ok) {
+        setRefusal(await refusalOf(res, 'Gagal menolak Flag.'));
+        return;
+      }
+      router.refresh();
+    } catch {
+      setRefusal('Gagal menolak Flag.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <li className="space-y-3 rounded-lg bg-red-50 p-3 text-sm">
+      <div>
+        <p id={flagReasonId} className="text-red-800">
+          {flag.reason}
+        </p>
+        <p className="mt-1 text-xs text-red-700">
+          Dipasang oleh {flag.verifierName}, {flag.flaggedAtLabel}
+        </p>
+      </div>
+
+      <div>
+        <label htmlFor={dismissalId} className="block text-gray-700">
+          Alasan penolakan Flag
+        </label>
+        <textarea
+          id={dismissalId}
+          aria-describedby={flagReasonId}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"
+        />
+      </div>
+
+      <button
+        type="button"
+        disabled={reason.trim() === '' || submitting}
+        onClick={dismiss}
+        className="w-full rounded-lg bg-gray-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        Tolak Flag
+      </button>
+
+      <Refusal message={refusal} />
+    </li>
+  );
+}
+
+function SuspendSection({ campaignSlug, isOwnCampaign }: { campaignSlug: string; isOwnCampaign: boolean }) {
   const router = useRouter();
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -155,14 +254,6 @@ function SuspendSection({
   return (
     <section className="space-y-3">
       <h2 className="text-sm font-semibold text-gray-900">Suspension</h2>
-
-      {openFlags.length > 0 && (
-        <ul className="space-y-1 rounded-lg bg-red-50 p-3 text-sm text-red-800">
-          {openFlags.map((flag) => (
-            <li key={flag.id}>{flag.reason}</li>
-          ))}
-        </ul>
-      )}
 
       <label className="block text-sm text-gray-700">
         Alasan Suspension
@@ -359,6 +450,70 @@ function CancellationDecisionSection({
         </button>
       </div>
 
+      <Refusal message={refusal} />
+    </section>
+  );
+}
+
+function UrgentSection({ campaignSlug, isUrgent }: { campaignSlug: string; isUrgent: boolean }) {
+  const router = useRouter();
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<string | null>(null);
+
+  async function toggle() {
+    const setting = !isUrgent;
+    setSubmitting(true);
+    setRefusal(null);
+    setConfirmation(null);
+    try {
+      const res = await postJson(`/api/campaigns/${campaignSlug}/urgent`, 'PUT', { urgent: setting, reason });
+      if (!res.ok) {
+        setRefusal(await refusalOf(res, setting ? 'Gagal memasang Urgent.' : 'Gagal melepas Urgent.'));
+        return;
+      }
+      setReason('');
+      setConfirmation(setting ? 'Urgent dipasang.' : 'Urgent dilepas.');
+      router.refresh();
+    } catch {
+      setRefusal(setting ? 'Gagal memasang Urgent.' : 'Gagal melepas Urgent.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-semibold text-gray-900">Urgent</h2>
+      <p className="text-xs text-gray-500">
+        Urgent menonjolkan Campaign Active di beranda dan penjelajahan sebagai mendesak.
+      </p>
+      <p className="text-sm text-gray-700">{isUrgent ? 'Campaign ini sedang Urgent.' : 'Campaign ini tidak Urgent.'}</p>
+
+      <label className="block text-sm text-gray-700">
+        {isUrgent ? 'Alasan melepas Urgent' : 'Alasan memasang Urgent'}
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+        />
+      </label>
+
+      <button
+        type="button"
+        disabled={reason.trim() === '' || submitting}
+        onClick={toggle}
+        className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        {isUrgent ? 'Lepas Urgent' : 'Pasang Urgent'}
+      </button>
+
+      {confirmation && (
+        <p role="status" className="text-sm text-green-700">
+          {confirmation}
+        </p>
+      )}
       <Refusal message={refusal} />
     </section>
   );
