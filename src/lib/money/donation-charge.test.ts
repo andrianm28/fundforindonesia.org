@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { chargeDonation } from './donation-charge';
 import type { PaymentProvider } from '@/lib/payments';
 import { UnknownPaymentProviderError } from '@/lib/payments/provider-names';
+import { verifyPaymentResultToken } from './payment-result-token';
 
 function makeDb(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -308,6 +309,40 @@ describe('chargeDonation', () => {
         subjectId: 'donation-1',
         amount: 100_000,
       }),
+    });
+  });
+
+  it('sends the provider back to this Donation\'s own result page on success and on cancel, and keeps the payment link (ticket 98)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://ffi.example');
+    const db = makeDb();
+    const provider = makeProvider();
+
+    const result = await chargeDonation({
+      db: db as never,
+      provider,
+      campaign: CAMPAIGN,
+      donationId: 'donation-1',
+      amount: 100_000,
+      orderId: 'donation-1-rabc12345',
+      paymentMethod: 'qris_redirect',
+    });
+    vi.unstubAllEnvs();
+
+    expect(result.ok).toBe(true);
+    const input = (provider.createCharge as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const success = new URL(input.successReturnUrl);
+    const cancel = new URL(input.cancelReturnUrl);
+    expect(success.origin).toBe('https://ffi.example');
+    expect(success.pathname).toMatch(/^\/donasi\/hasil\/[^/]+$/);
+    expect(success.search).toBe('');
+    expect(cancel.pathname).toBe(success.pathname);
+    expect(cancel.searchParams.get('batal')).toBe('1');
+    // Bound to the Donation, not to this attempt's order id.
+    const token = success.pathname.split('/').pop();
+    expect(verifyPaymentResultToken(token, Date.now())).toBe('donation-1');
+
+    expect(db.payment.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ redirectUrl: 'https://pay.example/order-1', vaNumber: null }),
     });
   });
 });

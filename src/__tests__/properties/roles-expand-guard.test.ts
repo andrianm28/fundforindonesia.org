@@ -175,6 +175,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/campaign-transfers/route.ts",
   "src/app/api/admin/categories/[id]/route.ts",
   "src/app/api/admin/categories/route.ts",
+  "src/app/api/admin/campaigns/[slug]/refund-proposals/route.ts",
+  "src/app/api/admin/refunds/late-settlements/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/escrow-hold/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",

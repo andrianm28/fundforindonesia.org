@@ -3,8 +3,9 @@ import { publicUrl } from '@/lib/public-url';
 
 /**
  * Paths a crawler has no business on: back-office, API, signed-in pages, and
- * pages gated by a token in the URL (Receipt, Akad Wakaf, Sertifikat). Public
- * pages the sitemap lists (including /login and /register) stay crawlable.
+ * pages gated by a token in the URL (Receipt, payment result, Akad Wakaf,
+ * Sertifikat). Public pages the sitemap lists (including /login and
+ * /register) stay crawlable.
  * robots.txt is a courtesy to crawlers, not access control; the proxy and the
  * pages' own checks remain the gate.
  */
@@ -18,6 +19,7 @@ const PRIVATE_PATHS = [
   '/campaign/create',
   '/volunteer-trip/registrasi',
   '/receipt/',
+  '/donasi/hasil/',
   '/akad-wakaf/',
   '/sertifikat/',
 ];

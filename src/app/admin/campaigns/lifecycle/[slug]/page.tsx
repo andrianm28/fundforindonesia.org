@@ -5,6 +5,7 @@ import { effectiveStatus, SUSPENDABLE } from '@/lib/campaign-lifecycle';
 import { CampaignStatusChangeAction, CancellationRequestStatus } from '@/generated/prisma/client';
 import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 import { AdminCampaignLifecycleActions } from '@/components/admin/AdminCampaignLifecycleActions';
+import { AdminCampaignRefundProposals } from '@/components/admin/AdminCampaignRefundProposals';
 
 // Rendered per request: open Flags, Suspensions and Cancellation requests change.
 export const dynamic = 'force-dynamic';
@@ -98,6 +99,9 @@ export default async function AdminCampaignLifecyclePage({ params }: RouteContex
               : null
           }
         />
+        {(status === 'SUSPENDED' || status === 'CANCELLED') && (
+          <AdminCampaignRefundProposals campaignSlug={campaign.slug} />
+        )}
       </div>
     </div>
   );
