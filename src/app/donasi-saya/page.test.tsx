@@ -94,7 +94,7 @@ describe('Donasi Saya', () => {
 
     render(<DonasiSayaPage />);
 
-    const link = await screen.findByRole('link', { name: /akad wakaf/i });
+    const link = await screen.findByRole('link', { name: /tanda terima wakaf/i });
     expect(link.getAttribute('href')).toBe('/akad-wakaf/akad-tok-1');
   });
 
@@ -110,7 +110,7 @@ describe('Donasi Saya', () => {
     render(<DonasiSayaPage />);
 
     await screen.findByText('Test Campaign');
-    expect(screen.queryByRole('link', { name: /akad wakaf/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /tanda terima wakaf/i })).toBeNull();
   });
 
   it('offers the confirmation link when the account email is not yet verified (prd-compliance 23)', async () => {
