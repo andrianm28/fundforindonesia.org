@@ -1,9 +1,10 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { vi } from 'vitest';
 import { CampaignStatus } from '@/generated/prisma/client';
 import {
   campaignMatches,
   campaignRow,
+  makeCampaignDb,
   type CampaignRow,
 } from '../../tests/support/in-memory-campaign-db';
 import {
@@ -22,6 +23,13 @@ import {
  */
 
 const NOW = new Date('2026-09-25T12:00:00Z');
+
+/**
+ * A database with no Campaign in it. Unless a test sets SHOW_DEMO_CAMPAIGNS
+ * to `auto` the catalogue decision reads nothing, so which database it is
+ * handed does not matter; the `auto` tests build the one they need.
+ */
+const NO_CAMPAIGNS = makeCampaignDb().prisma as never;
 
 type DeadlineCase = 'no deadline' | 'a past deadline' | 'a deadline of exactly now' | 'a future deadline';
 
@@ -65,11 +73,11 @@ describe('which Campaigns public listings show', () => {
     expect(new Set(cases.map((c) => c.status))).toEqual(new Set(Object.keys(LISTABLE)));
   });
 
-  it.each(cases)('a $status Campaign with $label', ({ status, label, deadline }) => {
+  it.each(cases)('a $status Campaign with $label', async ({ status, label, deadline }) => {
     const row = campaignRow({ lifecycleStatus: status, deadline });
     const effective = effectiveStatus(row, NOW);
 
-    const listable = campaignMatches(row, listableCampaignWhere(NOW));
+    const listable = campaignMatches(row, await listableCampaignWhere(NO_CAMPAIGNS, NOW));
     const inSitemap = campaignMatches(row, sitemapCampaignWhere());
 
     expect(listable).toBe(LISTABLE[status][label]);
@@ -101,8 +109,12 @@ const DEMO_ROWS: Array<[string, Partial<CampaignRow>]> = [
   ['a Completed Demo Campaign', { isDemo: true, lifecycleStatus: CampaignStatus.COMPLETED }],
 ];
 
-function isListed(row: CampaignRow, options?: { includeDemo?: boolean }): boolean {
-  return campaignMatches(row, listableCampaignWhere(NOW, options));
+async function isListed(
+  row: CampaignRow,
+  options?: { includeDemo?: boolean },
+  db: Parameters<typeof listableCampaignWhere>[0] = NO_CAMPAIGNS
+): Promise<boolean> {
+  return campaignMatches(row, await listableCampaignWhere(db, NOW, options));
 }
 
 function isInSitemap(row: CampaignRow): boolean {
@@ -110,8 +122,8 @@ function isInSitemap(row: CampaignRow): boolean {
 }
 
 describe('which Demo Campaigns public listings show', () => {
-  it.each(DEMO_ROWS)('lists no %s', (_label, overrides) => {
-    expect(isListed(campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE, ...overrides }))).toBe(false);
+  it.each(DEMO_ROWS)('lists no %s', async (_label, overrides) => {
+    expect(await isListed(campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE, ...overrides }))).toBe(false);
   });
 
   it.each(DEMO_ROWS)('puts no %s in the sitemap', (_label, overrides) => {
@@ -125,20 +137,20 @@ describe('which Demo Campaigns public listings show', () => {
     'Beasiswa Anak Pesisir',
     'demo-campaign',
     'Campaign',
-  ])('decides by the isDemo column alone, so "%s" changes nothing', (title) => {
+  ])('decides by the isDemo column alone, so "%s" changes nothing', async (title) => {
     const demo = campaignRow({ title, lifecycleStatus: CampaignStatus.ACTIVE, isDemo: true });
     const real = campaignRow({ title, lifecycleStatus: CampaignStatus.ACTIVE, isDemo: false });
 
-    expect(isListed(demo)).toBe(false);
+    expect(await isListed(demo)).toBe(false);
     expect(isInSitemap(demo)).toBe(false);
-    expect(isListed(real)).toBe(true);
+    expect(await isListed(real)).toBe(true);
     expect(isInSitemap(real)).toBe(true);
   });
 
-  it('still lists one for a privileged screen that asks for them, as an Admin does', () => {
+  it('still lists one for a privileged screen that asks for them, as an Admin does', async () => {
     const demo = campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE, isDemo: true });
 
-    expect(isListed(demo, { includeDemo: true })).toBe(true);
+    expect(await isListed(demo, { includeDemo: true })).toBe(true);
   });
 });
 
@@ -149,36 +161,218 @@ describe('SHOW_DEMO_CAMPAIGNS (prd-compliance 56)', () => {
 
   const demo = () => campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE, isDemo: true });
 
-  it.each([undefined, '', 'false', '1', 'yes', 'TRUE', 'true '])(
+  it.each([undefined, '', 'false', '1', 'yes', 'TRUE', 'true ', 'AUTO', 'Auto', 'auto '])(
     'is off, and the catalogue hides a Demo Campaign, when the value is %j',
-    (value) => {
+    async (value) => {
       vi.stubEnv('SHOW_DEMO_CAMPAIGNS', value as string);
       if (value === undefined) vi.unstubAllEnvs();
 
-      expect(showDemoCampaigns()).toBe(false);
-      expect(isListed(demo())).toBe(false);
-      expect(campaignMatches(demo(), catalogueDemoWhere())).toBe(false);
+      expect(await showDemoCampaigns(NO_CAMPAIGNS, NOW)).toBe(false);
+      expect(await isListed(demo())).toBe(false);
+      expect(campaignMatches(demo(), await catalogueDemoWhere(NO_CAMPAIGNS, NOW))).toBe(false);
     }
   );
 
-  it('lists a Demo Campaign, and a real one, only when it is exactly "true"', () => {
+  it('lists a Demo Campaign, and a real one, when it is exactly "true"', async () => {
     vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'true');
 
-    expect(showDemoCampaigns()).toBe(true);
-    expect(isListed(demo())).toBe(true);
-    expect(isListed(campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE }))).toBe(true);
-    expect(campaignMatches(demo(), catalogueDemoWhere())).toBe(true);
+    expect(await showDemoCampaigns(NO_CAMPAIGNS, NOW)).toBe(true);
+    expect(await isListed(demo())).toBe(true);
+    expect(await isListed(campaignRow({ lifecycleStatus: CampaignStatus.ACTIVE }))).toBe(true);
+    expect(campaignMatches(demo(), await catalogueDemoWhere(NO_CAMPAIGNS, NOW))).toBe(true);
   });
 
-  it('still applies the status rule to a Demo Campaign it lists', () => {
+  it('still applies the status rule to a Demo Campaign it lists', async () => {
     vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'true');
 
-    expect(isListed(campaignRow({ lifecycleStatus: CampaignStatus.SUSPENDED, isDemo: true }))).toBe(false);
+    expect(await isListed(campaignRow({ lifecycleStatus: CampaignStatus.SUSPENDED, isDemo: true }))).toBe(false);
   });
 
   it('never puts a Demo Campaign in the sitemap, even when on', () => {
     vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'true');
 
     expect(isInSitemap(demo())).toBe(false);
+  });
+});
+
+/**
+ * SHOW_DEMO_CAMPAIGNS=auto (rilis-1 ticket 91, owner decision C19): Demo
+ * Campaigns are kept while the site has no real Campaign Active, so it is not
+ * empty, and leave the public lists on their own from the first real Campaign
+ * that is effectively Active.
+ */
+describe('SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91)', () => {
+  beforeEach(() => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'auto');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const demo = (overrides: Partial<CampaignRow> = {}) =>
+    campaignRow({ id: 'demo', lifecycleStatus: CampaignStatus.ACTIVE, isDemo: true, ...overrides });
+  const real = (overrides: Partial<CampaignRow> = {}) =>
+    campaignRow({ id: 'real', lifecycleStatus: CampaignStatus.ACTIVE, isDemo: false, ...overrides });
+  const world = (...campaigns: CampaignRow[]) => makeCampaignDb({ campaigns }).prisma as never;
+
+  it('shows Demo Campaigns while no real Campaign is Active', async () => {
+    expect(await showDemoCampaigns(world(demo()), NOW)).toBe(true);
+  });
+
+  it('hides them from the first real Campaign that is Active, with no change to the environment', async () => {
+    expect(await showDemoCampaigns(world(demo(), real()), NOW)).toBe(false);
+  });
+
+  // "Active" is the effective status (CONTEXT.md, Campaign Status): the same
+  // table that says which Campaigns a list shows says which one counts here,
+  // so a real Campaign past its deadline, or Suspended, does not take the
+  // Demo Campaigns away. The ticket's default: they come back when the last
+  // real Active Campaign leaves Active, with nothing stored to remember it.
+  it.each(cases)('a real $status Campaign with $label', async ({ status, label, deadline }) => {
+    const shown = await showDemoCampaigns(world(demo(), real({ lifecycleStatus: status, deadline })), NOW);
+
+    expect(shown).toBe(!LISTABLE[status][label]);
+  });
+
+  it('counts a real Campaign among many, wherever it sits', async () => {
+    const others = [
+      real({ id: 'draft', lifecycleStatus: CampaignStatus.DRAFT }),
+      real({ id: 'completed', lifecycleStatus: CampaignStatus.COMPLETED }),
+      demo({ id: 'demo-2' }),
+    ];
+
+    expect(await showDemoCampaigns(world(...others, real({ id: 'the-one' })), NOW)).toBe(false);
+    expect(await showDemoCampaigns(world(...others), NOW)).toBe(true);
+  });
+
+  describe('what the public lists then show', () => {
+    it('lists a Demo Campaign, and no real one yet, in the catalogue and the Prayer Wall while nothing real is Active', async () => {
+      const db = world(demo(), real({ lifecycleStatus: CampaignStatus.SUBMITTED }));
+
+      expect(await isListed(demo(), undefined, db)).toBe(true);
+      expect(campaignMatches(demo(), await catalogueDemoWhere(db, NOW))).toBe(true);
+    });
+
+    it('drops every Demo Campaign from both once a real Campaign is Active, and lists the real one', async () => {
+      const db = world(demo(), real());
+
+      expect(await isListed(demo(), undefined, db)).toBe(false);
+      expect(campaignMatches(demo(), await catalogueDemoWhere(db, NOW))).toBe(false);
+      expect(await isListed(real(), undefined, db)).toBe(true);
+      expect(campaignMatches(real(), await catalogueDemoWhere(db, NOW))).toBe(true);
+    });
+
+    it('brings them back when the last real Active Campaign leaves Active, with nothing stored to remember it', async () => {
+      expect(await isListed(demo(), undefined, world(demo(), real()))).toBe(false);
+      expect(await isListed(demo(), undefined, world(demo(), real({ lifecycleStatus: CampaignStatus.COMPLETED })))).toBe(true);
+      expect(await isListed(demo(), undefined, world(demo(), real({ lifecycleStatus: CampaignStatus.SUSPENDED })))).toBe(true);
+      expect(await isListed(demo(), undefined, world(demo(), real({ deadline: new Date('2026-09-24T12:00:00Z') })))).toBe(true);
+    });
+
+    it('still lists a Demo Campaign for a privileged screen that asks for them, real Campaign or not', async () => {
+      expect(await isListed(demo(), { includeDemo: true }, world(demo(), real()))).toBe(true);
+    });
+
+    it('still applies the status rule to a Demo Campaign it lists', async () => {
+      const db = world(demo({ lifecycleStatus: CampaignStatus.SUSPENDED }));
+
+      expect(await isListed(demo({ lifecycleStatus: CampaignStatus.SUSPENDED }), undefined, db)).toBe(false);
+    });
+
+    it('never puts a Demo Campaign in the sitemap, whatever it lists', () => {
+      expect(isInSitemap(demo())).toBe(false);
+    });
+  });
+});
+
+/**
+ * The manual override (rilis-1 91, acceptance 3): exactly "true" lists Demo
+ * Campaigns beside real ones, for testing on staging, and `off` values list
+ * none, whatever the database holds. Neither asks the database anything.
+ */
+describe('SHOW_DEMO_CAMPAIGNS as a manual override (rilis-1 91)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const demo = () => campaignRow({ id: 'demo', lifecycleStatus: CampaignStatus.ACTIVE, isDemo: true });
+  const real = () => campaignRow({ id: 'real', lifecycleStatus: CampaignStatus.ACTIVE, isDemo: false });
+
+  it('"true" keeps listing Demo Campaigns even though a real Campaign is Active', async () => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'true');
+    const db = makeCampaignDb({ campaigns: [demo(), real()] }).prisma as never;
+
+    expect(await showDemoCampaigns(db, NOW)).toBe(true);
+    expect(await isListed(demo(), undefined, db)).toBe(true);
+    expect(campaignMatches(demo(), await catalogueDemoWhere(db, NOW))).toBe(true);
+  });
+
+  it.each([undefined, 'false', 'TRUE'])('%j keeps them hidden although no real Campaign is Active', async (value) => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', value as string);
+    if (value === undefined) vi.unstubAllEnvs();
+    const db = makeCampaignDb({ campaigns: [demo()] }).prisma as never;
+
+    expect(await showDemoCampaigns(db, NOW)).toBe(false);
+  });
+});
+
+/**
+ * What the decision costs (rilis-1 91): at most one bounded read, and only
+ * when the switch is `auto` and the caller has not already decided. Never a
+ * read per Campaign, never a read for the other values.
+ */
+describe('what deciding whether to show Demo Campaigns reads', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function watchedWorld(...campaigns: CampaignRow[]) {
+    const { prisma } = makeCampaignDb({ campaigns });
+    return {
+      db: prisma as never,
+      findFirst: vi.spyOn(prisma.campaign, 'findFirst'),
+      findMany: vi.spyOn(prisma.campaign, 'findMany'),
+      count: vi.spyOn(prisma.campaign, 'count'),
+    };
+  }
+
+  const crowd = Array.from({ length: 40 }, (_, i) =>
+    campaignRow({ id: `real-${i}`, lifecycleStatus: CampaignStatus.ACTIVE, isDemo: false })
+  );
+
+  it('is one findFirst that selects only the id, however many Campaigns exist', async () => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'auto');
+    const { db, findFirst, findMany, count } = watchedWorld(...crowd);
+
+    await listableCampaignWhere(db, NOW);
+
+    expect(findFirst).toHaveBeenCalledTimes(1);
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ select: { id: true } }));
+    expect(findMany).not.toHaveBeenCalled();
+    expect(count).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, 'true', 'false', 'yes'])('is no read at all when the value is %j', async (value) => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', value as string);
+    if (value === undefined) vi.unstubAllEnvs();
+    const { db, findFirst, findMany, count } = watchedWorld(...crowd);
+
+    await listableCampaignWhere(db, NOW);
+    await catalogueDemoWhere(db, NOW);
+
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(findMany).not.toHaveBeenCalled();
+    expect(count).not.toHaveBeenCalled();
+  });
+
+  it('is no read when the caller has already decided, as an Admin screen or a page that decided once does', async () => {
+    vi.stubEnv('SHOW_DEMO_CAMPAIGNS', 'auto');
+    const { db, findFirst } = watchedWorld(...crowd);
+
+    await listableCampaignWhere(db, NOW, { includeDemo: true });
+    await catalogueDemoWhere(db, NOW, { includeDemo: false });
+
+    expect(findFirst).not.toHaveBeenCalled();
   });
 });

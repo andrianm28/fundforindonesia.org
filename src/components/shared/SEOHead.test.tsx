@@ -37,4 +37,15 @@ describe('StructuredData', () => {
     expect(parsed['@context']).toBe('https://schema.org');
     expect(parsed['@type']).toBe('Organization');
   });
+
+  it('cannot be closed early by a value containing </script>, so a Campaign title cannot inject markup', () => {
+    const data = { name: '</script><script>window.__pwned = 1</script>', note: 'a & b <c> \u2028' };
+
+    const { container } = render(<StructuredData data={data} />);
+    const scripts = container.querySelectorAll('script');
+
+    expect(scripts).toHaveLength(1);
+    expect(scripts[0].innerHTML).not.toMatch(/<\/?script/i);
+    expect(JSON.parse(scripts[0].innerHTML)).toEqual(data);
+  });
 });
