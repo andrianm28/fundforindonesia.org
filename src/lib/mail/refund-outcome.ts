@@ -23,7 +23,7 @@ export type RefundOutcomeEmailInput = {
 export function refundOutcomeEmail(input: RefundOutcomeEmailInput): MailMessage {
   const title = oneLine(input.subjectTitle);
   const amount = formatRupiah(input.amount);
-  const contact = `Jika ada pertanyaan, hubungi kami di ${SITE_IDENTITY.contactEmail} dengan menyebut judul "${input.subjectTitle}".`;
+  const contact = `Jika ada pertanyaan, hubungi kami di ${SITE_IDENTITY.contactEmail} dengan menyebut judul "${title}".`;
 
   if (input.outcome === 'completed') {
     return letter({
@@ -45,7 +45,7 @@ export function refundOutcomeEmail(input: RefundOutcomeEmailInput): MailMessage 
     body: [
       `Transfer Refund sebesar ${amount} atas pembayaran Anda untuk "${input.subjectTitle}" belum berhasil dilakukan.`,
       'Dana Anda tidak hilang: transfernya tidak terjadi, dan Refund dapat diajukan kembali setelah data rekening tujuan dipastikan.',
-      `Hubungi kami di ${SITE_IDENTITY.contactEmail} dengan menyebut judul "${input.subjectTitle}" agar kami dapat membantu.`,
+      `Hubungi kami di ${SITE_IDENTITY.contactEmail} dengan menyebut judul "${title}" agar kami dapat membantu.`,
     ],
   });
 }

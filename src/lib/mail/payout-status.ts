@@ -25,7 +25,7 @@ const SUBJECT_LABEL = { campaign: 'Campaign', trip: 'Volunteer Trip' } as const;
 
 export function payoutStatusEmail(input: PayoutStatusEmailInput): MailMessage {
   const title = oneLine(input.subjectTitle);
-  const subjectName = `${SUBJECT_LABEL[input.subjectKind]} "${input.subjectTitle}"`;
+  const subjectName = `${SUBJECT_LABEL[input.subjectKind]} "${title}"`;
   const amount = formatRupiah(input.amount);
   const bank = oneLine(input.bankCode);
 
