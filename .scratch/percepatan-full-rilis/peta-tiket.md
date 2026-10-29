@@ -17,7 +17,7 @@ Sumber: `.scratch/percepatan-full-rilis/plan.md`, Track B. Dibuat 2026-10-04.
 | F4 | `.scratch/rilis-1-benda/issues/72-draft-rejected-edit-screen.md` | ready-for-agent |
 | F5 | `.scratch/rilis-1-benda/issues/73-fundraiser-donation-list.md` | ready-for-agent |
 | F6 | `.scratch/rilis-1-benda/issues/74-location-beneficiaries.md` | ready-for-agent |
-| P3 | `.scratch/rilis-1-benda/issues/75-wakaf-hibah-csr-landings-and-zakat-cta.md` | ready-for-agent |
+| P3 | `.scratch/rilis-1-benda/issues/75-wakaf-hibah-csr-landings-and-zakat-cta.md` | done (PR #250) |
 | P4-P5 | `.scratch/rilis-1-benda/issues/76-contact-terms-privacy.md` | needs-info |
 | A-4 | `.scratch/rilis-1-benda/issues/77-admin-campaign-transfers-screen.md` | ready-for-agent |
 | A-5 | `.scratch/rilis-1-benda/issues/78-admin-program-crud.md` | ready-for-agent |
@@ -53,7 +53,7 @@ Sumber: `.scratch/percepatan-full-rilis/plan.md`, Track B. Dibuat 2026-10-04.
 | H-6 | `.scratch/ci-cd-github-actions/issues/26-vitest-shard.md` | done (PR #220, 5dabf6d) |
 | reminders-skip-demo-campaigns | `.scratch/rilis-1-benda/issues/61-reminders-skip-demo-campaigns.md` | done (PR #219, 464d309) |
 | prd-compliance 45 (cron jobs) | `.scratch/prd-compliance-fase-0-2/issues/45-scheduled-jobs-trigger.md` | done (cron terpasang dan terbukti 2026-10-04) |
-| A-7 | `.scratch/rilis-1-benda/issues/90-admin-escrow-hold-setting.md` (baru, C18) | ready-for-agent |
+| A-7 | `.scratch/rilis-1-benda/issues/90-admin-escrow-hold-setting.md` (baru, C18) | done (PR #247) |
 | A-8 | `.scratch/rilis-1-benda/issues/91-demo-campaigns-auto-hide.md` (baru, C19) | ready-for-agent |
 
 ## Catatan ronde C (2026-10-04)

@@ -60,6 +60,7 @@ export type MoneyErrorCode =
   | "REFUND_DESTINATION_MISMATCH"
   | "REFUND_RESOLUTION_ACTOR"
   | "REFUND_REASON_INVALID"
+  | "PAYOUT_REASON_INVALID"
   | "INVALID_PAYOUT_STATUS"
   | "INVALID_REFUND_STATUS"
   | "REFUND_FREEZE_JOURNAL_MISSING"
@@ -67,6 +68,8 @@ export type MoneyErrorCode =
   | "REFUND_NOT_FOUND"
   | "PAYMENT_NOT_FOUND"
   | "PAYMENT_SUBJECT_MISMATCH"
+  | "PAYMENT_NOT_PAID"
+  | "SANDBOX_ROW_IN_LIVE_MODE"
   | "REFUND_EXCEEDS_REMAINING"
   | "REFUND_NOT_ALLOWED_FOR_KIND"
   | "DONATION_ANONYMISED"
@@ -98,7 +101,9 @@ export type MoneyErrorCode =
   | "CAMPAIGN_TRANSFER_CROSS_KIND"
   | "CAMPAIGN_TRANSFER_CATEGORY_MISMATCH"
   | "CAMPAIGN_TRANSFER_TARGET_NOT_ELIGIBLE"
-  | "REFUND_AFTER_CAMPAIGN_TRANSFER";
+  | "REFUND_AFTER_CAMPAIGN_TRANSFER"
+  | "CAMPAIGN_NOT_CLOSED_FOR_REFUND_PROPOSAL"
+  | "LATE_SETTLEMENT_NOT_PROPOSABLE";
 
 /**
  * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
@@ -305,6 +310,8 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   REFUND_RESOLUTION_ACTOR: 403,
   // A blank or over-length reason: fixable by writing it, so 400.
   REFUND_REASON_INVALID: 400,
+  // Same as REFUND_REASON_INVALID, for a Payout's reject or fail reason.
+  PAYOUT_REASON_INVALID: 400,
   INVALID_PAYOUT_STATUS: 409,
   INVALID_REFUND_STATUS: 409,
   // A standing Refund whose freeze journal is not in the ledger. createRefund
@@ -316,6 +323,10 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   REFUND_NOT_FOUND: 404,
   PAYMENT_NOT_FOUND: 404,
   PAYMENT_SUBJECT_MISMATCH: 404,
+  // States the request cannot change by being resent: the Payment has not
+  // settled (PAY-03), or the row is beta data in live mode (PAY-01).
+  PAYMENT_NOT_PAID: 409,
+  SANDBOX_ROW_IN_LIVE_MODE: 409,
   REFUND_EXCEEDS_REMAINING: 400,
   // A policy refusal about the Campaign itself, not a malformed request: the
   // Campaign's Kind is what forbids the Refund, and no resend of the same
@@ -383,6 +394,9 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // The Campaign's balance already moved to another Campaign by transfer: a
   // conflict with its state, not a malformed request.
   REFUND_AFTER_CAMPAIGN_TRANSFER: 409,
+  // Both conflict with the Campaign's or the Payment's current state.
+  CAMPAIGN_NOT_CLOSED_FOR_REFUND_PROPOSAL: 409,
+  LATE_SETTLEMENT_NOT_PROPOSABLE: 409,
   // Conflicts with the source's own state: it is not Suspended (or stopped
   // being, between request and approval).
   CAMPAIGN_TRANSFER_SOURCE_NOT_SUSPENDED: 409,

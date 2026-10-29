@@ -3,7 +3,7 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { getServerSession } from '@/lib/auth';
 import { guardRoute } from '@/lib/rate-limit-guard';
-import { UPLOAD_DIR } from '@/lib/uploads';
+import { UPLOAD_DIR, matchesDeclaredImageType } from '@/lib/uploads';
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 export const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -105,6 +105,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // The declared type is the uploader's claim: check the bytes themselves.
+    // Catches SVG/HTML/anything else sent with an image Content-Type.
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (!matchesDeclaredImageType(bytes, file.type)) {
+      return NextResponse.json(
+        { error: 'Isi file tidak sesuai dengan tipenya. Gunakan JPEG, PNG, atau WebP.' },
+        { status: 415 }
+      );
+    }
+
     // Ensure upload directory exists
     await mkdir(UPLOAD_DIR, { recursive: true });
 
@@ -113,7 +123,6 @@ export async function POST(request: NextRequest) {
     const filepath = join(UPLOAD_DIR, filename);
 
     // Write file to disk
-    const bytes = await file.arrayBuffer();
     await writeFile(filepath, Buffer.from(bytes));
 
     // Return public URL

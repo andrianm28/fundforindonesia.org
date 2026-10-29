@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { SiteSettings } from '@/lib/site-settings';
 import { DEFAULT_SITE_SETTINGS } from '@/lib/site-settings';
+import { SITE_IDENTITY } from '@/lib/site-identity';
 
 export function Footer({
   footer = DEFAULT_SITE_SETTINGS.footer,
@@ -76,7 +77,7 @@ export function Footer({
           </div>
         </div>
         <div className="border-t border-border mt-6 pt-4 text-center text-xs text-text-secondary">
-          © {new Date().getFullYear()} Fund for Indonesia. Semua hak dilindungi undang-undang.
+          © {new Date().getFullYear()} Fund for Indonesia, dioperasikan oleh {SITE_IDENTITY.operatorName}. Semua hak dilindungi undang-undang.
         </div>
       </div>
     </footer>

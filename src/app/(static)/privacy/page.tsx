@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { LEGAL_DOCS_UPDATED, SITE_IDENTITY } from '@/lib/site-identity';
 
 export const metadata: Metadata = {
   title: 'Kebijakan Privasi - Fund for Indonesia',
@@ -11,14 +12,15 @@ export default function PrivacyPage() {
     <article className="prose prose-sm max-w-none">
       <h1 className="text-2xl font-bold text-text mb-6 not-prose">Kebijakan Privasi</h1>
       <p className="text-text-secondary text-sm mb-6 not-prose">
-        Terakhir diperbarui: 1 Januari 2024
+        Terakhir diperbarui: {LEGAL_DOCS_UPDATED}
       </p>
 
       <div className="space-y-6 text-text-secondary text-sm leading-relaxed">
         <section>
           <h2 className="text-lg font-semibold text-text mb-3">1. Pendahuluan</h2>
           <p>
-            Fund for Indonesia (&quot;Kami&quot;) berkomitmen untuk melindungi privasi dan data pribadi Anda. Kebijakan
+            {SITE_IDENTITY.operatorName} (&quot;Kami&quot;), penyelenggara platform Fund for Indonesia dan
+            Pengendali Data Pribadi, berkomitmen untuk melindungi privasi dan data pribadi Anda. Kebijakan
             Privasi ini menjelaskan bagaimana kami mengumpulkan, menggunakan, menyimpan, dan melindungi informasi
             pribadi Anda ketika Anda menggunakan platform kami. Dengan menggunakan layanan kami, Anda menyetujui
             praktik yang dijelaskan dalam kebijakan ini.
@@ -34,8 +36,24 @@ export default function PrivacyPage() {
               nomor telepon yang Anda berikan saat mendaftar.
             </li>
             <li>
-              <strong>Informasi Verifikasi:</strong> Nomor Induk Kependudukan (NIK), nama lengkap sesuai KTP,
-              atau informasi organisasi untuk proses verifikasi identitas.
+              <strong>Informasi Donatur Tamu:</strong> Nama, email, dan nomor telepon yang Anda isi saat berdonasi
+              tanpa akun, hanya untuk mengirim tanda terima.
+            </li>
+            <li>
+              <strong>Informasi Rekening Bank:</strong> Data rekening bank Penggalang Dana atau Lembaga Mitra
+              untuk pencairan dana, serta data rekening Donatur bila meminta pengembalian dana. Nomor rekening
+              disimpan terenkripsi.
+            </li>
+            <li>
+              <strong>Informasi Volunteer Trip:</strong> Data pendaftaran peserta Volunteer Trip.
+            </li>
+            <li>
+              <strong>Informasi Kolaborasi CSR:</strong> Nama, kontak, dan pesan dari perusahaan yang mengajukan
+              pertanyaan kemitraan CSR.
+            </li>
+            <li>
+              <strong>Doa dan Pesan:</strong> Doa yang Anda tulis pada sebuah donasi, yang dapat ditampilkan pada
+              halaman Kampanye.
             </li>
             <li>
               <strong>Informasi Transaksi:</strong> Riwayat donasi, pencairan dana, metode pembayaran yang
@@ -58,7 +76,7 @@ export default function PrivacyPage() {
           <ul className="list-disc pl-5 space-y-2 mt-2">
             <li>Menyediakan, memelihara, dan meningkatkan layanan Platform</li>
             <li>Memproses transaksi donasi dan pencairan dana</li>
-            <li>Melakukan verifikasi identitas pengguna</li>
+            <li>Meninjau Kampanye dan Lembaga Mitra oleh Verifier sebelum tayang</li>
             <li>Mengirimkan notifikasi terkait aktivitas akun dan kampanye</li>
             <li>Mencegah penipuan dan menjaga keamanan Platform</li>
             <li>Mematuhi kewajiban hukum dan peraturan yang berlaku</li>
@@ -85,7 +103,15 @@ export default function PrivacyPage() {
           <p>Kami tidak menjual data pribadi Anda kepada pihak ketiga. Kami dapat membagikan informasi Anda dengan:</p>
           <ul className="list-disc pl-5 space-y-2 mt-2">
             <li>
-              <strong>Penyedia Layanan Pembayaran:</strong> Untuk memproses transaksi donasi dan pencairan dana.
+              <strong>Sumopod (penyedia layanan pembayaran):</strong> Untuk memproses pembayaran donasi dan
+              pencairan dana.
+            </li>
+            <li>
+              <strong>Penyedia layanan email:</strong> Untuk mengirim tanda terima dan notifikasi.
+            </li>
+            <li>
+              <strong>Google:</strong> Bila Anda memilih masuk dengan Google, Google memproses proses masuk Anda dan
+              memberikan nama, email, dan foto profil akun Google Anda kepada Kami.
             </li>
             <li>
               <strong>Otoritas Hukum:</strong> Jika diwajibkan oleh hukum, proses hukum, atau permintaan
@@ -119,7 +145,11 @@ export default function PrivacyPage() {
             <li>Mengajukan keluhan kepada otoritas perlindungan data yang berwenang</li>
           </ul>
           <p className="mt-2">
-            Untuk menggunakan hak-hak ini, silakan hubungi kami melalui email di privacy@fundforindonesia.id.
+            Untuk menggunakan hak-hak ini, silakan hubungi kami melalui email di{' '}
+            <a href={`mailto:${SITE_IDENTITY.privacyEmail}`} className="text-primary hover:underline">
+              {SITE_IDENTITY.privacyEmail}
+            </a>
+            .
           </p>
         </section>
 
@@ -127,9 +157,11 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-text mb-3">8. Retensi Data</h2>
           <p>
             Kami menyimpan data pribadi Anda selama akun Anda aktif atau selama diperlukan untuk menyediakan
-            layanan. Data transaksi disimpan minimal 5 tahun sesuai dengan peraturan perpajakan dan keuangan
-            yang berlaku. Setelah penghapusan akun, data pribadi akan dihapus dalam waktu 30 hari, kecuali
-            jika ada kewajiban hukum untuk menyimpannya lebih lama.
+            layanan. Catatan keuangan (donasi, pembayaran, pencairan, dan pengembalian dana) disimpan selama 10
+            tahun sesuai kewajiban hukum. Untuk menghapus akun atau data pribadi Anda, ajukan lewat email{' '}
+            {SITE_IDENTITY.privacyEmail}. Catatan keuangan tetap disimpan sesuai kewajiban hukum, tetapi data
+            donasi Anda dapat dianonimkan: nama, email, nomor telepon, dan tautan ke akun Anda dihapus dari
+            donasi tersebut.
           </p>
         </section>
 
@@ -149,10 +181,8 @@ export default function PrivacyPage() {
             silakan hubungi:
           </p>
           <div className="mt-2">
-            <p>Tim Privasi Data - Fund for Indonesia</p>
-            <p>Email: privacy@fundforindonesia.id</p>
-            <p>Telepon: (021) 1234-5678</p>
-            <p>Alamat: Jl. Sudirman No. 123, Lantai 5, Jakarta Selatan 12190</p>
+            <p>{SITE_IDENTITY.operatorName} (Pengendali Data Pribadi)</p>
+            <p>Email: {SITE_IDENTITY.privacyEmail}</p>
           </div>
         </section>
       </div>

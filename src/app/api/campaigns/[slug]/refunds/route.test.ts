@@ -41,6 +41,7 @@ function makeTx(options: { ledgerRows?: LedgerRow[]; isDemo?: boolean; campaignC
       payment: {
         findUniqueOrThrow: vi.fn().mockResolvedValue({
           id: 'payment-1',
+          status: 'PAID',
           amount: 100_000,
           providerFee: 5_000,
           escrowReleasedAt: null,

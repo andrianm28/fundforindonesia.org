@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { Kind, type Payment, type Prisma, type PrismaClient, type Refund } from '@/generated/prisma/client';
 import { OwnSubjectConflictError } from '@/lib/capacity';
 import { lockAndLoad, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
-import { sandboxModeOf } from './sandbox-mode';
+import { requireNotSandboxInLiveMode, sandboxModeOf } from './sandbox-mode';
 import { validateProofReference, validateProofNote, buildProofImage } from '@/lib/payout-proof';
 import { sealRefundDonorAccountNumber, readRefundDonorAccountNumber } from '@/lib/contact-fields';
 import {
@@ -28,6 +28,8 @@ import {
   DonationAnonymisedError,
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
+  PaymentNotPaidError,
+  SandboxRowInLiveModeError,
   RefundExceedsRemainingError,
   RefundNotAllowedForKindError,
   RefundNotFoundError,
@@ -80,6 +82,8 @@ export {
   OwnSubjectConflictError,
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
+  PaymentNotPaidError,
+  SandboxRowInLiveModeError,
   RefundExceedsRemainingError,
   RefundNotAllowedForKindError,
   RefundNotFoundError,
@@ -95,7 +99,7 @@ export {
   RefundReasonInvalidError,
 };
 
-type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox'> & {
+type PaymentWithSubjectLinks = Pick<Payment, 'status' | 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox'> & {
   donation: { campaignId: string; anonymisedAt: Date | null } | null;
   registration: { batch: { tripId: string } } | null;
 };
@@ -174,6 +178,13 @@ const REFUND_ELIGIBILITY_BY_KIND: Record<Kind, 'ordinary' | 'technical failure o
 };
 
 /**
+ * The one phrase of the three that fits money which arrived after its Campaign
+ * closed. The closed-Campaign Refund proposals (./campaign-refund-proposals.ts)
+ * use it, and only for a Payment that really settled after the closure.
+ */
+export const CLOSED_CAMPAIGN_REFUND_REASON = 'dana masuk setelah Campaign ditutup';
+
+/**
  * The three failures PRD §196 calls the only ones a Refund on a zakat, Wakaf
  * or Hibah Campaign may be for, quoted from that sentence rather than phrased
  * here: wrong payment, double payment, and funds that arrived after the
@@ -181,11 +192,12 @@ const REFUND_ELIGIBILITY_BY_KIND: Record<Kind, 'ordinary' | 'technical failure o
  * picks from -- see the note on requireRefundAllowedForKind for what that
  * costs, and what closing it would need.
  */
-const TECHNICAL_FAILURE_REASONS = [
-  'salah bayar',
-  'bayar ganda',
-  'dana masuk setelah Campaign ditutup',
-] as const;
+const TECHNICAL_FAILURE_REASONS = ['salah bayar', 'bayar ganda', CLOSED_CAMPAIGN_REFUND_REASON] as const;
+
+/** Whether this Kind's Refunds need no technical-failure reason (see requireRefundAllowedForKind). */
+export function isRefundOrdinaryForKind(kind: Kind): boolean {
+  return REFUND_ELIGIBILITY_BY_KIND[kind] === 'ordinary';
+}
 
 /**
  * Whether this Campaign's Kind returns a Donor their money on an ordinary
@@ -304,6 +316,12 @@ export async function createRefund(
   const paymentSubject = paymentSubjectOf(payment);
   if (!sameSubject(subject, paymentSubject)) {
     throw new PaymentSubjectMismatchError(paymentId);
+  }
+
+  // Only money that arrived can be given back: a refund on a PENDING, EXPIRED
+  // or FAILED Payment would freeze a pool never credited (PAY-03).
+  if (payment.status !== 'PAID') {
+    throw new PaymentNotPaidError(paymentId, payment.status);
   }
 
   // Ticket 36: read under the Payment lock taken above, the same lock
@@ -496,6 +514,9 @@ export async function approveRefund(
       throw new RefundNotFoundError(refundId);
     }
 
+    // A beta Refund left over at go-live is rejected, never approved (PAY-01).
+    requireNotSandboxInLiveMode(refund, 'Refund');
+
     if (refund.requestedById === approvedById) {
       throw new SelfApprovalError('Refund');
     }
@@ -671,6 +692,9 @@ export async function completeRefund(
     if (!refund) {
       throw new RefundNotFoundError(refundId);
     }
+
+    // Real money must never go out against a beta Refund (PAY-01).
+    requireNotSandboxInLiveMode(refund, 'Refund');
 
     if (refund.status !== 'APPROVED') {
       throw new InvalidRefundStatusError(refund.status);

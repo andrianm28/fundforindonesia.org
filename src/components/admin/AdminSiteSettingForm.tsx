@@ -20,6 +20,7 @@ const FIELDS: Partial<Record<SiteSettingKey, Field[]>> = {
     { name: 'whatsapp', label: 'WhatsApp', hint: 'Kosongkan untuk menyembunyikan kartu WhatsApp.' },
     { name: 'hours', label: 'Jam layanan', hint: 'Mis. Senin-Jumat, 09:00-17:00 WIB.' },
     { name: 'address', label: 'Alamat kantor', multiline: true },
+    { name: 'nib', label: 'NIB operator', hint: 'Nomor Induk Berusaha PT; kosongkan untuk menyembunyikan.' },
   ],
   social: [
     { name: 'instagram', label: 'Instagram', hint: 'Alamat https:// lengkap; kosongkan untuk menyembunyikan.' },

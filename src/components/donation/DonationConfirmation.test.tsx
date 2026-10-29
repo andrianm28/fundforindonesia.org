@@ -297,3 +297,17 @@ describe('DonationConfirmation', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 });
+
+describe('DonationConfirmation hibah notice (ADR 0013; audit L6)', () => {
+  it('tells a hibah Donor before paying: not refundable, transferred on suspension', () => {
+    render(<DonationConfirmation {...defaultProps} hibahNotice />);
+    const note = screen.getByRole('note', { name: 'Ketentuan hibah' });
+    expect(note.textContent).toMatch(/tidak dapat dikembalikan, kecuali karena kegagalan teknis/);
+    expect(note.textContent).toMatch(/dialihkan ke Campaign hibah lain/);
+  });
+
+  it('is absent for any other Kind', () => {
+    render(<DonationConfirmation {...defaultProps} />);
+    expect(screen.queryByRole('note', { name: 'Ketentuan hibah' })).toBeNull();
+  });
+});

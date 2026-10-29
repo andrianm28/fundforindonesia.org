@@ -73,6 +73,18 @@ export class InsufficientBalanceError extends MoneyError {
 }
 
 /**
+ * The reason an Admin gives for rejecting or failing a Payout is blank or too
+ * long. Fixable by writing it, so 400, like REFUND_REASON_INVALID.
+ */
+export class PayoutReasonInvalidError extends MoneyError {
+  readonly code = 'PAYOUT_REASON_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'PayoutReasonInvalidError';
+  }
+}
+
+/**
  * The two-person rule: the approver is the requester. Refused before any
  * write, not recorded as a decision. One class for Payout, Refund and
  * Manual Contribution.
@@ -163,11 +175,13 @@ export class PayoutProofInvalidError extends MoneyError {
  */
 export class TwoPersonRuleError extends MoneyError {
   readonly code = 'TWO_PERSON_RULE';
-  constructor(readonly what: 'Payout' | 'Refund' = 'Payout') {
+  constructor(readonly what: 'Payout' | 'Refund' | 'Payout failure' = 'Payout') {
     super(
       what === 'Refund'
         ? 'Refund harus diselesaikan oleh Admin yang berbeda dari yang mengajukan maupun yang menyetujuinya (aturan dua orang).'
-        : 'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
+        : what === 'Payout failure'
+          ? 'Payout tidak dapat ditandai gagal oleh Admin yang menyetujuinya; harus Admin yang berbeda (aturan dua orang).'
+          : 'Payout harus disetujui oleh Admin yang tercatat dan diselesaikan oleh Admin yang berbeda darinya (aturan dua orang).',
     );
     this.name = 'TwoPersonRuleError';
   }
@@ -329,6 +343,43 @@ export class PaymentSubjectMismatchError extends MoneyError {
   constructor(readonly paymentId: string) {
     super('Payment tidak ditemukan untuk Campaign atau Volunteer Trip ini.');
     this.name = 'PaymentSubjectMismatchError';
+  }
+}
+
+/**
+ * The Payment is not PAID, so no money arrived to give back. A Refund on a
+ * PENDING, EXPIRED or FAILED Payment would freeze a pool that was never
+ * credited and later pay a Donor out of the platform's own pocket. A
+ * state conflict (the Payment may still settle), not a malformed request.
+ */
+export class PaymentNotPaidError extends MoneyError {
+  readonly code = 'PAYMENT_NOT_PAID';
+  constructor(
+    readonly paymentId: string,
+    readonly paymentStatus: string,
+  ) {
+    super('Payment belum dibayar (atau gagal/kedaluwarsa), jadi tidak ada dana yang dapat di-refund.');
+    this.name = 'PaymentNotPaidError';
+  }
+}
+
+/**
+ * A Payout or Refund stamped sandbox (the public beta's test money) is being
+ * moved after go-live, when the BETA_SANDBOX marker is gone. Its own ledger
+ * stays sandbox (sandboxModeOf), but approving or completing it now would
+ * send REAL provider money against a test balance -- the exact path ticket 94
+ * closes. Refused by the row's stamp, not by the amount, so no typed provider
+ * balance can step around it. The operator must reject it instead (runbook
+ * beta-ke-live). A state conflict: 409.
+ */
+export class SandboxRowInLiveModeError extends MoneyError {
+  readonly code = 'SANDBOX_ROW_IN_LIVE_MODE';
+  constructor(readonly what: 'Payout' | 'Refund') {
+    super(
+      `${what} ini adalah data beta/sandbox dan tidak dapat diproses setelah mode live. ` +
+        (what === 'Payout' ? 'Tolak Payout ini.' : 'Tolak Refund ini.'),
+    );
+    this.name = 'SandboxRowInLiveModeError';
   }
 }
 
@@ -837,5 +888,34 @@ export class CampaignTransferTargetNotEligibleError extends MoneyError {
           : 'Campaign tujuan harus berstatus Active agar dana yang dialihkan benar-benar sampai ke penerima.',
     );
     this.name = 'CampaignTransferTargetNotEligibleError';
+  }
+}
+
+/**
+ * The bulk Refund proposal (ticket audit-2026-10-16/07) was asked of a
+ * Campaign that is not Suspended or Cancelled, or stopped being one between
+ * the click and the lock (a Suspension lifted).
+ */
+export class CampaignNotClosedForRefundProposalError extends MoneyError {
+  readonly code = 'CAMPAIGN_NOT_CLOSED_FOR_REFUND_PROPOSAL';
+  constructor() {
+    super('Refund massal hanya bisa diusulkan untuk Campaign yang berstatus Ditangguhkan atau Dibatalkan.');
+    this.name = 'CampaignNotClosedForRefundProposalError';
+  }
+}
+
+/**
+ * A late-settlement Refund (ticket rilis-1-benda/80) was asked of a Payment
+ * that is not on the worklist: not a PAID Donation Payment, its Campaign was
+ * not closed before it settled, or it already has a Refund that stands.
+ */
+export class LateSettlementNotProposableError extends MoneyError {
+  readonly code = 'LATE_SETTLEMENT_NOT_PROPOSABLE';
+  constructor() {
+    super(
+      'Payment ini tidak ada di daftar dana masuk setelah Campaign ditutup: sudah punya Refund, belum dibayar, ' +
+        'atau Campaign-nya belum ditutup ketika dana masuk.',
+    );
+    this.name = 'LateSettlementNotProposableError';
   }
 }

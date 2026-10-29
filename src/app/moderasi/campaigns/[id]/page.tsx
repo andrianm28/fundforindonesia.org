@@ -3,8 +3,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
-import { effectiveStatus, type ChecklistEntry } from "@/lib/campaign-lifecycle";
+import { effectiveStatus, FLAGGABLE, type ChecklistEntry } from "@/lib/campaign-lifecycle";
 import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
+import { CampaignFlagForm } from "./CampaignFlagForm";
 import { CampaignModerationActions } from "./CampaignModerationActions";
 import { holdsValidKindAuthorisation, holdsValidPermit, requiresKindAuthorisation } from "@/lib/collecting-entity";
 import { KIND_LABEL } from "@/lib/campaign-kind";
@@ -15,6 +16,10 @@ import {
   resolveDuplicateSimilarityThreshold,
   type DuplicateHintReason,
 } from "@/lib/duplicate-hints";
+
+// Rendered per request: the open Verification Request and the Campaign's
+// status change under the Verifier.
+export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -193,6 +198,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
               <InfoItem
                 label="Batas Waktu"
                 value={new Date(campaign.deadline).toLocaleDateString("id-ID", {
+                  timeZone: "Asia/Jakarta",
                   day: "numeric",
                   month: "long",
                   year: "numeric",
@@ -217,10 +223,11 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
             <h2 className="text-sm font-semibold text-text mb-2">
               Cerita Kampanye
             </h2>
-            <div
-              className="text-sm text-[#424242] prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{ __html: campaign.story }}
-            />
+            {/* Plain text, as the public page shows it: markup the
+                Fundraiser typed must never run in a Verifier's session. */}
+            <div className="text-sm text-[#424242] max-w-none whitespace-pre-line break-words">
+              {campaign.story}
+            </div>
           </div>
         </div>
       </div>
@@ -305,6 +312,14 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
           collectingEntityName={entity?.name ?? null}
         />
       </div>
+
+      {/* A Flag is raised where an Admin could suspend (ADR 0015); the
+          lifecycle module's own list decides, and refuses again on submit. */}
+      {FLAGGABLE.includes(status) && (
+        <div className="mt-6">
+          <CampaignFlagForm campaignSlug={campaign.slug} />
+        </div>
+      )}
     </div>
   );
 }
