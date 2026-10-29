@@ -84,6 +84,7 @@ import { SUBMITTABLE_STATUSES } from "./verification-submission";
 import { sendReportingFailure, type Mailer, type MailMessage } from "./mail";
 import { verificationOutcomeEmail } from "./mail/verification-outcome";
 import { publicUrl } from "./public-url";
+import { emailSuspension } from "./status-emails";
 
 // ==================== Effective status ====================
 
@@ -1501,9 +1502,13 @@ export async function suspendCampaign(
     actor: LifecycleActor;
     reason: unknown;
     now?: Date;
+    mailer?: Mailer;
   }
 ): Promise<LifecycleResult> {
-  return runCommand(prisma, params, {
+  // Filled under the lock from what was decided; emailed only after commit,
+  // and a failed send never undoes the Suspension (ticket 68).
+  const decided: { reason?: string } = {};
+  const result = await runCommand(prisma, params, {
     authority: {
       capacity: StatusChangeCapacity.ADMIN,
       message: "Hanya Admin yang dapat menjatuhkan Suspension.",
@@ -1529,9 +1534,18 @@ export async function suspendCampaign(
         title: "Campaign Dibekukan",
         message: `Campaign "${campaign.title}" dibekukan (Suspended) oleh Admin. Alasan: ${reason}`,
       });
+      decided.reason = reason;
       return {};
     },
   });
+  if (decided.reason !== undefined) {
+    await emailSuspension(
+      prisma,
+      { campaignId: params.campaignId, event: "suspended", reason: decided.reason },
+      params.mailer
+    );
+  }
+  return result;
 }
 
 /**
@@ -1549,9 +1563,12 @@ export async function liftSuspension(
     actor: LifecycleActor;
     reason: unknown;
     now?: Date;
+    mailer?: Mailer;
   }
 ): Promise<LifecycleResult> {
-  return runCommand(prisma, params, {
+  // As suspendCampaign: emailed after commit, never undoing the lift.
+  const decided: { lift?: { reason: string; statusLabel: string } } = {};
+  const result = await runCommand(prisma, params, {
     authority: {
       capacity: StatusChangeCapacity.ADMIN,
       message: "Hanya Admin yang dapat mencabut Suspension.",
@@ -1581,9 +1598,18 @@ export async function liftSuspension(
         title: "Suspension Dicabut",
         message: `Suspension atas Campaign "${campaign.title}" telah dicabut oleh Admin. Campaign kini ${STATUS_LABEL[to]}. Alasan: ${reason}`,
       });
+      decided.lift = { reason, statusLabel: STATUS_LABEL[to] };
       return {};
     },
   });
+  if (decided.lift) {
+    await emailSuspension(
+      prisma,
+      { campaignId: params.campaignId, event: "lifted", ...decided.lift },
+      params.mailer
+    );
+  }
+  return result;
 }
 
 // ==================== Urgent (ticket 04) ====================
