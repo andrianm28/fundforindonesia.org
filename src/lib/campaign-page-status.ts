@@ -38,3 +38,16 @@ export function statusBannerCopy(status: CampaignLifecycleStatus | undefined): s
 export const COLLECTING_ENTITY_REFUSAL =
   'Campaign ini belum dapat menerima donasi karena belum ada Collecting Entity yang memegang Fundraising Permit yang berlaku untuknya.';
 
+/**
+ * Why a wakaf or hibah Campaign refuses a Donation while the platform switch
+ * WAKAF_HIBAH_OPEN is off (KIND_CLOSED): no wakaf or hibah money until a
+ * licensed nazhir and a sharia review are on record.
+ */
+export const KIND_CLOSED_REFUSAL =
+  'Wakaf dan hibah belum dibuka di platform ini. Kami baru menerimanya setelah nazhir berizin dan tinjauan syariah selesai, jadi donasi untuk Campaign ini belum dapat diterima.';
+
+/** The refusal sentence for a Collecting Entity block, shown on the donate page and returned by the donation routes. */
+export function donationRefusalCopy(block: 'KIND_CLOSED' | 'NO_COLLECTING_ENTITY' | 'NO_VALID_PERMIT' | 'NO_VALID_KIND_AUTHORISATION'): string {
+  return block === 'KIND_CLOSED' ? KIND_CLOSED_REFUSAL : COLLECTING_ENTITY_REFUSAL;
+}
+

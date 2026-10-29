@@ -207,6 +207,14 @@ compose up -d --wait db
 dump="$BACKUP_DIR/$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:12}.dump"
 compose exec -T db pg_dump -U fundindo -d fund_indonesia --format=custom > "$dump.partial"
 [ -s "$dump.partial" ] || { log "pg_dump wrote nothing"; exit 1; }
+# A truncated dump is non-empty too: have pg_restore read its table of contents.
+# Done before the dump is kept, so a bad one never counts as a backup or
+# displaces an older good one (audit OPS-6).
+if ! compose exec -T db pg_restore --list < "$dump.partial" > /dev/null; then
+  rm -f -- "$dump.partial"
+  log "pg_restore --list cannot read the new dump; not migrating"
+  exit 1
+fi
 mv "$dump.partial" "$dump"
 log "Backup: $dump"
 dumps=("$BACKUP_DIR"/*.dump) # sorted by name, so oldest first

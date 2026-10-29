@@ -730,8 +730,17 @@ export async function POST(
         if (isTripPayment) {
           await expireRegistrationHold(tx, { registrationId: payment.registration!.id });
         } else {
-          await tx.donation.update({
-            where: { id: payment.donation!.id },
+          // Only when nothing else keeps this Donation alive: a sibling retry
+          // Payment that is PAID (settled late, ADR 0021) or still PENDING
+          // means the Donation is, or may yet be, confirmed, and a sibling's
+          // expiry must not flip it back to 'failed' (PAY-04). This Payment
+          // already left PENDING above, so it does not count itself.
+          await tx.donation.updateMany({
+            where: {
+              id: payment.donation!.id,
+              paymentStatus: { not: 'confirmed' },
+              payments: { none: { status: { in: [PaymentStatus.PAID, PaymentStatus.PENDING] } } },
+            },
             data: { paymentStatus: 'failed' },
           });
         }

@@ -124,7 +124,7 @@ describe('POST /api/donations, guest', () => {
 describe('POST /api/upload', () => {
   function formRequest(): NextRequest {
     const form = new FormData();
-    form.append('file', new File(['x'], 'a.png', { type: 'image/png' }));
+    form.append('file', new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'a.png', { type: 'image/png' }));
     return new NextRequest('http://localhost:3000/api/upload', { method: 'POST', body: form });
   }
 

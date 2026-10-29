@@ -47,7 +47,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ sl
 
     const grouped = await prisma.donation.groupBy({
       by: ['trafficSource'],
-      where: { campaignId: campaign.id, paymentStatus: 'confirmed' },
+      // Real Donations only, the same rule as the headline count in
+      // campaigns/[slug]/route.ts: a beta (sandbox) Payment is a test (PAY-06).
+      where: { campaignId: campaign.id, paymentStatus: 'confirmed', payments: { none: { sandbox: true } } },
       _count: { _all: true },
     });
 

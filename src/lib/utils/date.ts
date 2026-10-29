@@ -12,10 +12,48 @@ const INDONESIAN_MONTHS = [
  * @example formatIndonesianDate(new Date('2026-06-06')) → "06 Jun 2026"
  */
 export function formatIndonesianDate(date: Date): string {
-  const day = date.getDate().toString().padStart(2, '0');
-  const month = INDONESIAN_MONTHS[date.getMonth()];
-  const year = date.getFullYear();
-  return `${day} ${month} ${year}`;
+  // WIB calendar day whatever timezone the process runs in (audit FE-03):
+  // server and browser must print the same date on a document of record.
+  const wib = new Date(date.getTime() + WIB_OFFSET_MS);
+  const day = wib.getUTCDate().toString().padStart(2, '0');
+  return `${day} ${INDONESIAN_MONTHS[wib.getUTCMonth()]} ${wib.getUTCFullYear()}`;
+}
+
+/** The WIB offset (UTC+7, no daylight saving) in milliseconds. */
+const WIB_OFFSET_MS = 7 * 3600_000;
+
+const LONG_MONTHS = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+];
+
+/**
+ * "31 Desember 2026" for a `YYYY-MM-DD` calendar date (as an <input type=date>
+ * gives) or an instant read in WIB.
+ */
+export function formatWibLongDate(value: Date | string): string {
+  const [y, m, d] =
+    typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? value.split('-').map(Number)
+      : (() => {
+          const wib = new Date(new Date(value).getTime() + WIB_OFFSET_MS);
+          return [wib.getUTCFullYear(), wib.getUTCMonth() + 1, wib.getUTCDate()];
+        })();
+  return `${d} ${LONG_MONTHS[m - 1]} ${y}`;
+}
+
+/** Today's WIB calendar date, `YYYY-MM-DD`. */
+export function todayWibDate(now: Date = new Date()): string {
+  return new Date(now.getTime() + WIB_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * The instant a Campaign deadline picked as the calendar date `YYYY-MM-DD`
+ * ends: 23:59:59.999 Asia/Jakarta on that date (audit FE-02). Campaigns used
+ * to store the date as UTC midnight, which ended them at 07:00 WIB.
+ */
+export function endOfWibDay(date: string): Date {
+  return new Date(`${date}T23:59:59.999+07:00`);
 }
 
 /**

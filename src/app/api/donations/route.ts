@@ -16,7 +16,7 @@ import {
 import { formatRupiah } from '@/lib/utils/currency';
 import { campaignAcceptsDonations, donationBlock, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
-import { COLLECTING_ENTITY_REFUSAL } from '@/lib/campaign-page-status';
+import { donationRefusalCopy } from '@/lib/campaign-page-status';
 import { chargeDonation } from '@/lib/money/donation-charge';
 import { VALID_PAYMENT_METHODS, PROVIDER_METHOD_FOR, paymentInstructionsFor } from '@/lib/money/payment-method-map';
 import { sanitizeTrafficSource } from '@/lib/traffic-source';
@@ -127,8 +127,9 @@ export async function POST(request: NextRequest) {
     // An Active Campaign whose Collecting Entity cannot collect for its Kind
     // right now (none named, or no permit valid now) is refused as such,
     // judged lazily: nothing is recorded when a permit lapses (ADR 0010).
-    if (donationBlock(campaign, now)) {
-      return NextResponse.json({ error: COLLECTING_ENTITY_REFUSAL }, { status: 403 });
+    const block = donationBlock(campaign, now);
+    if (block) {
+      return NextResponse.json({ error: donationRefusalCopy(block) }, { status: 403 });
     }
     if (!campaignAcceptsDonations(campaign, now)) {
       // If the refusal is a deadline that has passed, record the expiry the

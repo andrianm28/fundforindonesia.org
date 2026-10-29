@@ -10,7 +10,7 @@ import { DonationConfirmation } from '@/components/donation/DonationConfirmation
 import { useBetaSandbox } from '@/components/layout/BetaSandboxContext';
 import { formatRupiah } from '@/lib/utils/currency';
 import { donationsEnabled, DONATIONS_DISABLED_MESSAGE, MIN_DONATION_AMOUNT } from '@/lib/donations';
-import { COLLECTING_ENTITY_REFUSAL, offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
+import { donationRefusalCopy, offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
 import { readCapturedTrafficSource } from '@/lib/traffic-source-capture';
 import type { PaymentMethod } from '@/types/donation';
 
@@ -208,7 +208,7 @@ export default function DonatePage() {
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
         <p className="text-text-secondary">
           {offersDonating(campaign.lifecycleStatus)
-            ? COLLECTING_ENTITY_REFUSAL
+            ? donationRefusalCopy(campaign.donationBlock ?? 'NO_VALID_PERMIT')
             : (statusBannerCopy(campaign.lifecycleStatus) ?? 'Campaign ini tidak menerima donasi.')}
         </p>
         <button

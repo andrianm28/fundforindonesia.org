@@ -8,18 +8,14 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaignStepIndicator';
 import { submitToVerifier } from '@/lib/verification-submission';
+import { endOfWibDay, formatWibLongDate, todayWibDate } from '@/lib/utils/date';
 import { deadlineRequired, KIND_LABEL, KINDS, type CampaignKind } from '@/lib/campaign-kind';
 
-const categories = [
-  { value: 'bencana-alam', label: 'Bencana Alam' },
-  { value: 'kesehatan', label: 'Bantuan Medis & Kesehatan' },
-  { value: 'pendidikan', label: 'Pendidikan' },
-  { value: 'anak', label: 'Balita & Anak Sakit' },
-  { value: 'lingkungan', label: 'Lingkungan' },
-  { value: 'kemanusiaan', label: 'Kemanusiaan' },
-  { value: 'infrastruktur', label: 'Infrastruktur' },
-  { value: 'lainnya', label: 'Lainnya' },
-];
+/** One Category from GET /api/categories, the Category table. */
+interface CategoryOption {
+  slug: string;
+  name: string;
+}
 
 /** What GET /api/partner-organisations/sponsors answers (prd-compliance 10). */
 interface SponsorOptions {
@@ -64,6 +60,9 @@ export default function CampaignCreatePage() {
   const [errors, setErrors] = useState<FormErrors>({});
   // Who may collect this Campaign's money (ADR 0010): null while loading.
   const [sponsorOptions, setSponsorOptions] = useState<SponsorOptions | null>(null);
+  // The Categories an Admin keeps; empty while loading or if the read fails.
+  // null while loading; [] when none exist or the request failed.
+  const [categories, setCategories] = useState<CategoryOption[] | null>(null);
   const [formData, setFormData] = useState<FormData>({
     kind: '',
     collectingEntityId: '',
@@ -93,6 +92,21 @@ export default function CampaignCreatePage() {
       cancelled = true;
     };
   }, [status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/categories')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: { categories: CategoryOption[] }) => {
+        if (!cancelled) setCategories(data.categories);
+      })
+      .catch(() => {
+        if (!cancelled) setCategories([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // An individual Fundraiser must pick a sponsor when there is one to pick.
   const mustPickSponsor = !!sponsorOptions && !sponsorOptions.own && sponsorOptions.sponsors.length > 0;
@@ -144,7 +158,8 @@ export default function CampaignCreatePage() {
         newErrors.deadline = 'Batas waktu harus dipilih';
       }
     } else {
-      const deadlineDate = new Date(formData.deadline);
+      // The deadline is the end of the picked WIB day, so today is still valid.
+      const deadlineDate = endOfWibDay(formData.deadline);
       if (deadlineDate <= new Date()) {
         newErrors.deadline = 'Batas waktu harus di masa depan';
       }
@@ -248,7 +263,7 @@ export default function CampaignCreatePage() {
       category: formData.category,
       kind: formData.kind,
       deadline: formData.deadline
-        ? new Date(formData.deadline).toISOString()
+        ? endOfWibDay(formData.deadline).toISOString()
         : undefined,
       // An organisation's own account gets its organisation on the server.
       collectingEntityId:
@@ -398,7 +413,7 @@ export default function CampaignCreatePage() {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, deadline: e.target.value }))
                   }
-                  min={new Date().toISOString().split('T')[0]}
+                  min={todayWibDate()}
                   className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary ${
                     errors.deadline
                       ? 'border-danger focus:ring-danger/20 focus:border-danger'
@@ -427,12 +442,17 @@ export default function CampaignCreatePage() {
                   }`}
                 >
                   <option value="">Pilih Kategori</option>
-                  {categories.map((cat) => (
-                    <option key={cat.value} value={cat.value}>
-                      {cat.label}
+                  {(categories ?? []).map((cat) => (
+                    <option key={cat.slug} value={cat.slug}>
+                      {cat.name}
                     </option>
                   ))}
                 </select>
+                {categories?.length === 0 && (
+                  <p className="mt-1 text-xs text-danger">
+                    Kategori belum tersedia. Muat ulang halaman atau hubungi Admin.
+                  </p>
+                )}
                 {errors.category && (
                   <p className="mt-1 text-xs text-danger">{errors.category}</p>
                 )}
@@ -617,11 +637,7 @@ export default function CampaignCreatePage() {
                     <p className="text-xs text-text-secondary mb-0.5">Batas Waktu</p>
                     <p className="text-sm font-medium text-text">
                       {formData.deadline
-                        ? new Date(formData.deadline).toLocaleDateString('id-ID', {
-                            day: '2-digit',
-                            month: 'long',
-                            year: 'numeric',
-                          })
+                        ? formatWibLongDate(formData.deadline)
                         : formData.kind === 'WAKAF'
                           ? 'Tanpa batas waktu'
                           : '-'}
@@ -630,7 +646,7 @@ export default function CampaignCreatePage() {
                   <div className="py-3">
                     <p className="text-xs text-text-secondary mb-0.5">Kategori</p>
                     <p className="text-sm font-medium text-text">
-                      {categories.find((c) => c.value === formData.category)?.label || '-'}
+                      {(categories ?? []).find((c) => c.slug === formData.category)?.name || '-'}
                     </p>
                   </div>
                   <div className="py-3">

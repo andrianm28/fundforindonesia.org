@@ -143,7 +143,11 @@ done and CI is green.
   throwaway Postgres: the privileged not-found view, the QRIS donation path
   through Receipt, and the pre-existing main flows. Fixtures come from
   `tests/e2e/seed-e2e.ts`; answers that need no login are stubbed at the
-  network edge inside the specs, which say so. The deploy gate only names
+  network edge inside the specs, which say so. The seed creates a Verifier
+  and an Admin who can sign in, so it refuses to run unless
+  `E2E_THROWAWAY_DATABASE=1` and the database is on the same machine; their
+  password is never in the repository but drawn per job into
+  `E2E_OPERATOR_PASSWORD` (export both yourself to run it locally). The deploy gate only names
   the first four jobs, so this one gates deploys through the run's overall
   success instead.
 

@@ -219,8 +219,13 @@ describe.skipIf(!DATABASE_URL)('payment event paid after expiry -- against real 
     return { registration, payment };
   }
 
-  async function sendPaid(providerRef: string, amount: number, eventId = `evt-${providerRef}`): Promise<Response> {
-    const body = await provider.simulateWebhookPayload(providerRef, amount, 'settlement', eventId);
+  async function sendPaid(
+    providerRef: string,
+    amount: number,
+    eventId = `evt-${providerRef}`,
+    transactionStatus = 'settlement',
+  ): Promise<Response> {
+    const body = await provider.simulateWebhookPayload(providerRef, amount, transactionStatus, eventId);
     const request = new NextRequest('http://localhost/api/webhooks/mock', {
       method: 'POST',
       body: JSON.stringify(body),
@@ -254,6 +259,51 @@ describe.skipIf(!DATABASE_URL)('payment event paid after expiry -- against real 
     const event = await eventOf(`evt-${payment.providerRef}`);
     expect(event.processedAt).not.toBeNull();
     expect(event.outcome).toBe(outcome);
+  });
+
+  it('a sibling retry Payment expiring after the first one was paid late leaves the Donation confirmed (PAY-04)', async () => {
+    const { donation, payment: p1 } = await pendingDonationPayment(false);
+    // P1 expired, the donor retried (P2 PENDING), then P1 was paid late.
+    await prisma.payment.update({ where: { id: p1.id }, data: { status: 'EXPIRED' } });
+    await prisma.donation.update({ where: { id: donation.id }, data: { paymentStatus: 'failed' } });
+    const p2 = await prisma.payment.create({
+      data: {
+        donationId: donation.id,
+        provider: 'mock',
+        method: 'bank_transfer',
+        providerRef: `ref-retry-${process.pid}-${next()}`,
+        amount: 100_000,
+        status: 'PENDING',
+      },
+    });
+    expect((await sendPaid(p1.providerRef, 100_000)).status).toBe(200);
+    expect((await prisma.donation.findUniqueOrThrow({ where: { id: donation.id } })).paymentStatus).toBe('confirmed');
+
+    const res = await sendPaid(p2.providerRef, 100_000, `evt-expire-${p2.providerRef}`, 'expire');
+
+    expect(res.status).toBe(200);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: p2.id } })).status).toBe('EXPIRED');
+    expect((await prisma.donation.findUniqueOrThrow({ where: { id: donation.id } })).paymentStatus).toBe('confirmed');
+  });
+
+  it('a retry Payment expiring while its sibling is still PENDING leaves the Donation pending, and a lone expiry still fails it (PAY-04)', async () => {
+    const { donation, payment: p1 } = await pendingDonationPayment(false);
+    const p2 = await prisma.payment.create({
+      data: {
+        donationId: donation.id,
+        provider: 'mock',
+        method: 'bank_transfer',
+        providerRef: `ref-retry-${process.pid}-${next()}`,
+        amount: 100_000,
+        status: 'PENDING',
+      },
+    });
+
+    await sendPaid(p1.providerRef, 100_000, `evt-expire-${p1.providerRef}`, 'expire');
+    expect((await prisma.donation.findUniqueOrThrow({ where: { id: donation.id } })).paymentStatus).toBe('pending');
+
+    await sendPaid(p2.providerRef, 100_000, `evt-expire-${p2.providerRef}`, 'expire');
+    expect((await prisma.donation.findUniqueOrThrow({ where: { id: donation.id } })).paymentStatus).toBe('failed');
   });
 
   it('a Trip Fee paid after its Payment and hold EXPIRED is ledgered and refunded in full, and takes no seat', async () => {
