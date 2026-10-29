@@ -4,7 +4,7 @@
 
 **Blocked by:** none
 
-**Status:** ready-for-human
+**Status:** done (PR #274)
 
 - [x] `/wakaf`: empat kategori (Masjid, Sekolah, Fasilitas Kesehatan, Fasilitas Umum) tampil sebagai kartu ikon, bukan daftar teks
 - [x] `/wakaf`: ajakan wakaf tanah dengan salinan Ira apa adanya, tombol "Ajukan Wakaf Tanah Anda" dan "Konsultasi Wakaf Tanah"
@@ -16,3 +16,5 @@
 ## Comments
 
 2026-10-16 (builder): Pilar CSR diambil dari empat Sector (CONTEXT.md, PRD §8 "Portofolio sektor CSR"), karena repo tidak mencatat pilar yayasan lain. Owner diminta mengonfirmasi. Screenshot sebelum/sesudah di `screenshots/`.
+
+2026-10-29 (builder): Owner mengonfirmasi empat pilar CSR dan menyetujui merge.
