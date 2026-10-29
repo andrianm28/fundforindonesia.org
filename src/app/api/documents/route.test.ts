@@ -82,6 +82,33 @@ describe('POST /api/documents (ticket 64)', () => {
     expect(upload.mock.calls[0][1].target).toEqual({ partnerOrganisationId: 'org1', label: 'Akta' });
   });
 
+  it('refuses a body past the cap with 413 even when Content-Length is missing or lies', async () => {
+    const big = new Uint8Array(10 * 1024 * 1024 + 128 * 1024);
+    const chunked = () =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let i = 0; i < big.length; i += 1024 * 1024) controller.enqueue(big.subarray(i, i + 1024 * 1024));
+          controller.close();
+        },
+      });
+    const headers = { 'content-type': 'multipart/form-data; boundary=x' };
+
+    const noLength = new NextRequest('http://localhost/api/documents', {
+      method: 'POST', headers, body: chunked(), duplex: 'half',
+    } as never);
+    const lying = new NextRequest('http://localhost/api/documents', {
+      method: 'POST', headers: { ...headers, 'content-length': '100' }, body: chunked(), duplex: 'half',
+    } as never);
+    const declared = new NextRequest('http://localhost/api/documents', {
+      method: 'POST', headers: { ...headers, 'content-length': String(big.length) }, body: big,
+    });
+
+    for (const request of [noLength, lying, declared]) {
+      expect((await POST(request)).status).toBe(413);
+    }
+    expect(upload).not.toHaveBeenCalled();
+  });
+
   it('refuses a body that names no target, or no file, with 400', async () => {
     expect((await POST(postWith({}))).status).toBe(400);
     expect((await POST(postWith({ campaignId: 'c1' }))).status).toBe(400);

@@ -291,7 +291,13 @@ export async function uploadDocument(
   const storagePath = newStoragePath();
   const full = absoluteStoragePath(root, storagePath)!;
   await mkdir(dirname(full), { recursive: true, mode: 0o700 });
-  await writeFile(full, params.file.bytes, { mode: 0o600, flag: "wx" });
+  try {
+    await writeFile(full, params.file.bytes, { mode: 0o600, flag: "wx" });
+  } catch (error) {
+    // A half-written file is ours to remove; an existing one (EEXIST) is not.
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") await unlink(full).catch(() => undefined);
+    throw error;
+  }
 
   try {
     return await prisma.document.create({

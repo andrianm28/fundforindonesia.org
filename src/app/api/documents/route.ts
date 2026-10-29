@@ -7,6 +7,34 @@ import { DocumentRefusedError, MAX_DOCUMENT_SIZE, uploadDocument, type DocumentT
 /** Documents per account per hour. */
 const DOCUMENT_UPLOAD_LIMIT = 30;
 const DOCUMENT_UPLOAD_WINDOW_SECONDS = 60 * 60;
+/** The file plus room for the multipart framing and the other fields. */
+const MAX_BODY_SIZE = MAX_DOCUMENT_SIZE + 64 * 1024;
+
+/** The request body, or 'too-large' as soon as it passes `cap` bytes. */
+async function readCapped(request: NextRequest, cap: number): Promise<Uint8Array<ArrayBuffer> | 'too-large'> {
+  if (Number(request.headers.get('content-length') ?? '0') > cap) return 'too-large';
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > cap) {
+      await reader.cancel().catch(() => undefined);
+      return 'too-large';
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
 
 /**
  * Uploads one private document (ticket 64): multipart with `file` and either
@@ -37,15 +65,18 @@ export async function POST(request: NextRequest) {
   );
   if (refused) return refused;
 
-  // Refuse an oversized body before parsing it, when the client says how big.
-  const length = Number(request.headers.get('content-length') ?? '0');
-  if (length > MAX_DOCUMENT_SIZE + 64 * 1024) {
+  // Read at most the cap before parsing: formData() would buffer a body of any
+  // size, and Content-Length can be missing (chunked) or lie.
+  const body = await readCapped(request, MAX_BODY_SIZE);
+  if (body === 'too-large') {
     return NextResponse.json({ error: 'Ukuran berkas terlalu besar. Maksimal 10MB.' }, { status: 413 });
   }
 
   let form: FormData;
   try {
-    form = await request.formData();
+    form = await new Response(body, {
+      headers: { 'content-type': request.headers.get('content-type') ?? '' },
+    }).formData();
   } catch {
     return NextResponse.json({ error: 'Formulir unggah tidak valid.' }, { status: 400 });
   }
