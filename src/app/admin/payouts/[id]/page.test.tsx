@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, within } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('@/lib/prisma', () => ({
@@ -54,6 +54,7 @@ const DRAFT_PAYOUT = {
     checkedAt: Date;
     checkedBy: { name: string };
   }>,
+  accountReveals: [] as Array<{ id: string; revealedAt: Date; revealedBy: { name: string } }>,
 };
 
 describe('AdminPayoutDetailPage', () => {
@@ -342,6 +343,56 @@ describe('AdminPayoutDetailPage', () => {
 
       expect(screen.queryByText(/Menunggu saldo penyedia/)).toBeNull();
       expect(screen.getByText(/Rp2\.000\.000/)).toBeDefined();
+    });
+  });
+
+  describe('account number reveal history (M2 drill: reveal tercatat without SQL)', () => {
+    it('lists every reveal of the account number with who and when, newest first as loaded', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+      vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+        ...DRAFT_PAYOUT,
+        accountReveals: [
+          { id: 'rev-2', revealedAt: new Date('2026-10-29T03:15:00.000Z'), revealedBy: { name: 'Admin Dua' } },
+          { id: 'rev-1', revealedAt: new Date('2026-10-28T02:00:00.000Z'), revealedBy: { name: 'Admin Satu' } },
+        ],
+      } as never);
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+        id: 'campaign-1',
+        slug: 'sumur-desa',
+        title: 'Sumur untuk Desa',
+      } as never);
+
+      render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+      const history = screen.getByRole('region', { name: /riwayat buka nomor rekening/i });
+      const items = within(history).getAllByRole('listitem');
+      expect(items).toHaveLength(2);
+      expect(items[0].textContent).toContain('Admin Dua');
+      expect(items[0].textContent).toContain('29 Oktober 2026');
+      expect(items[0].textContent).toContain('10.15 WIB');
+      expect(items[1].textContent).toContain('Admin Satu');
+
+      const query = vi.mocked(prisma.payout.findUnique).mock.calls[0][0] as { include: Record<string, unknown> };
+      expect(query.include.accountReveals).toEqual({
+        orderBy: { revealedAt: 'desc' },
+        select: { id: true, revealedAt: true, revealedBy: { select: { name: true } } },
+      });
+    });
+
+    it('says the number has never been opened when there is no reveal', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+      vi.mocked(prisma.payout.findUnique).mockResolvedValue(DRAFT_PAYOUT as never);
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+        id: 'campaign-1',
+        slug: 'sumur-desa',
+        title: 'Sumur untuk Desa',
+      } as never);
+
+      render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+      expect(screen.getByRole('region', { name: /riwayat buka nomor rekening/i }).textContent).toMatch(
+        /belum pernah dibuka/i,
+      );
     });
   });
 });

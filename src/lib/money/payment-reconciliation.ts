@@ -125,3 +125,35 @@ export async function recordChargeWriteFailure(
     );
   }
 }
+
+/**
+ * The Admin's work list for money that may sit at a provider with no booking
+ * (ticket 63): webhook events whose outcome is in WEBHOOK_OUTCOMES_NEEDING_REVIEW
+ * and unresolved ChargeWriteFailure rows, oldest first. Read-only, and the
+ * webhook payload is left out on purpose: it can carry a Donor's details, and the
+ * provider, outcome and event id are what an Admin matches in the dashboard.
+ */
+export async function listReconciliationQueue(db: Pick<PrismaClient, 'webhookEvent' | 'chargeWriteFailure'>) {
+  const [webhookEvents, chargeWriteFailures] = await Promise.all([
+    db.webhookEvent.findMany({
+      where: { outcome: { in: [...WEBHOOK_OUTCOMES_NEEDING_REVIEW] } },
+      orderBy: { receivedAt: 'asc' },
+      select: { id: true, provider: true, providerEventId: true, outcome: true, receivedAt: true, processedAt: true },
+    }),
+    db.chargeWriteFailure.findMany({
+      where: { resolvedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        provider: true,
+        providerRef: true,
+        subjectType: true,
+        amount: true,
+        createdAt: true,
+      },
+    }),
+  ]);
+  return { webhookEvents, chargeWriteFailures };
+}
+
+export type ReconciliationQueue = Awaited<ReturnType<typeof listReconciliationQueue>>;
