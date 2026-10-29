@@ -684,6 +684,16 @@ export function makeCampaignDb(
         },
         count: async ({ where = {} }: { where?: Where } = {}) =>
           getData().campaigns.filter((c) => matches(c, where)).length,
+        // What the catalogue's Demo Campaign decision asks (subject-guard's
+        // showDemoCampaigns): is there one Campaign matching, and which.
+        findFirst: async ({ where = {}, select }: { where?: Where; select?: Record<string, boolean> } = {}) => {
+          const row = getData().campaigns.find((c) => matches(c, where));
+          if (!row) return null;
+          if (!select) return { ...row };
+          return Object.fromEntries(
+            Object.keys(select).filter((key) => select[key]).map((key) => [key, row[key as keyof CampaignRow]]),
+          );
+        },
         findUniqueOrThrow: async ({ where, select }: { where: Where; select?: Record<string, boolean> }) => {
           const row = getData().campaigns.find((c) => matches(c, where));
           if (!row) throw new Error('No Campaign found');
