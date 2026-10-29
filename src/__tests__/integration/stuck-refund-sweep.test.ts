@@ -168,15 +168,18 @@ describe.skipIf(!DATABASE_URL)('sweepStuckLateSettlementRefunds -- against real 
         { paymentId: payment.id, transactionId: `settle-${payment.id}` },
       );
     });
-    // Pin the settlement's database time relative to the status change.
-    await prisma.ledgerEntry.updateMany({
-      where: { paymentId: payment.id },
-      data: {
-        createdAt:
-          settled === 'after'
-            ? new Date(changedAt.getTime() + 60 * 60 * 1000)
-            : new Date(changedAt.getTime() - 60 * 60 * 1000),
-      },
+    // Pin the settlement's database time relative to the status change. The
+    // ledger is append-only (migration 20261016090000_ledger_integrity), so the
+    // fixture lifts the trigger inside one transaction -- DDL is transactional,
+    // so it is back on whatever happens -- and never in the code under test.
+    const pinnedAt =
+      settled === 'after'
+        ? new Date(changedAt.getTime() + 60 * 60 * 1000)
+        : new Date(changedAt.getTime() - 60 * 60 * 1000);
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('ALTER TABLE "LedgerEntry" DISABLE TRIGGER "LedgerEntry_append_only"');
+      await tx.ledgerEntry.updateMany({ where: { paymentId: payment.id }, data: { createdAt: pinnedAt } });
+      await tx.$executeRawUnsafe('ALTER TABLE "LedgerEntry" ENABLE TRIGGER "LedgerEntry_append_only"');
     });
     return { registrationId: registration.id, paymentId: payment.id };
   }

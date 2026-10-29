@@ -47,6 +47,32 @@ describe('legal pages name the operator (ADR 0009, audit L2/L8)', () => {
     expect(body).toMatch(/CSR/);
   });
 
+  it('Privacy opens with the draft-pending-legal-review notice (audit T5)', () => {
+    const body = text(<PrivacyPage />);
+    expect(body).toContain('Versi draf, menunggu tinjauan penasihat hukum');
+    expect(body.indexOf('Versi draf')).toBeLessThan(body.indexOf('Pendahuluan'));
+  });
+
+  it('Privacy covers processors, cross-border transfer, breach notice and UU PDP rights (audit T5)', () => {
+    const body = text(<PrivacyPage />);
+    expect(body).toMatch(/Pemroses Data/);
+    expect(body).toMatch(/penyedia hosting/i);
+    expect(body).toMatch(/Transfer Data Lintas Negara/);
+    expect(body).toMatch(/Pemberitahuan Kebocoran Data/);
+    expect(body).toContain('3 x 24 jam');
+    expect(body).toMatch(/UU No\. 27 Tahun 2022/);
+    expect(body).toContain('Unduh data saya');
+    expect(body).toMatch(/Minta hapus akun/);
+  });
+
+  it('Privacy promises nothing the product does not do: no automatic deletion, no 5-year retention (audit T5)', () => {
+    const body = text(<PrivacyPage />);
+    expect(body).not.toMatch(/5 tahun|lima tahun/i);
+    expect(body).not.toMatch(/dalam waktu \d+ hari/);
+    expect(body).toMatch(/catatan keuangan tetap disimpan/i);
+    expect(body).toMatch(/diproses secara manual/i);
+  });
+
   it("Terms say the Partner Organisation is the Donor's counterparty under its own permit", () => {
     const body = text(<TermsPage />);
     expect(body).toMatch(/Lembaga Mitra yang tertera pada Kampanye adalah pihak lawan Donatur/);

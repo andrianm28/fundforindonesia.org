@@ -10,6 +10,8 @@ import { exceedsPayoutBalance } from '@/lib/payout-balance-rule';
 import { validateProofReference, validateProofNote, buildProofImage } from '@/lib/payout-proof';
 import { campaignBlockingUsageReport } from '@/lib/usage-reports';
 import { UsageReportRequiredError } from '@/lib/usage-report-errors';
+import { emailPayoutStatus } from '@/lib/status-emails';
+import type { Mailer } from '@/lib/mail';
 import {
   DemoCampaignError,
   BankAccountNotEligibleError,
@@ -354,6 +356,8 @@ export async function approvePayout(
     provider: string;
     /** What that dashboard showed, in rupiah, immediately before approving. */
     providerBalance: number;
+    /** For tests; the Fundraiser's email goes through the configured Mailer otherwise. */
+    mailer?: Mailer;
   },
 ): Promise<Payout> {
   const { payoutId, approvedById, providerBalance } = params;
@@ -564,6 +568,10 @@ export async function approvePayout(
     );
   });
 
+  // After commit, never inside it: the approval stands whether or not the
+  // Fundraiser's email goes out, and nothing here throws (ticket 68).
+  await emailPayoutStatus(prisma, { payoutId, event: 'approved' }, params.mailer);
+
   return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
 }
 
@@ -762,6 +770,8 @@ export async function completePayout(
      */
     proofReference: string;
     proofNote: string;
+    /** For tests; the Fundraiser's email goes through the configured Mailer otherwise. */
+    mailer?: Mailer;
   },
 ): Promise<Payout> {
   const { payoutId, completedById, proofReference, proofNote } = params;
@@ -879,6 +889,14 @@ export async function completePayout(
       { payoutId: payout.id, sandbox: sandboxModeOf(payout), transactionId: `payout-completed-${payout.id}` },
     );
   });
+
+  // After commit, like approval: the transfer is recorded whether or not the
+  // email arrives (ticket 68).
+  await emailPayoutStatus(
+    prisma,
+    { payoutId, event: 'completed', proofReference: proofReference.trim() },
+    params.mailer,
+  );
 
   return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
 }

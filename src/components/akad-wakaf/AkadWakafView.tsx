@@ -21,7 +21,15 @@ export function AkadWakafView(props: AkadWakafViewProps) {
   return (
     <div className="min-h-screen bg-bg-secondary py-10 px-4 print:bg-white print:py-0">
       <div className="max-w-md mx-auto bg-white rounded-xl shadow-xs p-6 print:shadow-none print:rounded-none">
-        <h1 className="text-lg font-semibold text-text">Akad Wakaf</h1>
+        <h1 className="text-lg font-semibold text-text">Tanda Terima Wakaf</h1>
+        <p
+          data-testid="wakaf-draft-notice"
+          role="note"
+          className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        >
+          Beta / draf: dokumen ini adalah tanda terima yang dibuat otomatis oleh platform dan bukan Akta Ikrar
+          Wakaf. Akta Ikrar Wakaf diterbitkan terpisah oleh pihak yang berwenang.
+        </p>
 
         <dl className="mt-4 space-y-3 text-sm">
           <div>
