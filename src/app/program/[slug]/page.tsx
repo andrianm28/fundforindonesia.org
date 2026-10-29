@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
-import { ProgramNotFoundError, readProgram, SECTOR_LABEL, type ProgramDetail } from '@/lib/programs';
+import { ProgramNotFoundError, readProgram, SECTOR_LABEL, sectorAnchor, type ProgramDetail } from '@/lib/programs';
 import { readProgramMoney } from '@/lib/program-money';
 import { formatRupiah } from '@/lib/utils/currency';
 import { PartnershipInquiryForm } from '@/components/program/PartnershipInquiryForm';
@@ -90,10 +90,6 @@ function formatDate(date: Date): string {
 }
 
 /** The portfolio anchor of the Sector this Program belongs to. */
-function sectorAnchor(program: ProgramDetail): string {
-  return SECTOR_LABEL[program.sector].toLowerCase().replace(/\s+/g, '-');
-}
-
 export default async function ProgramDetailPage({ params }: ProgramDetailPageProps) {
   const { slug } = await params;
   const program = await programOrNull(slug);
@@ -107,7 +103,7 @@ export default async function ProgramDetailPage({ params }: ProgramDetailPagePro
           Portfolio CSR
         </Link>
         {' / '}
-        <Link href={`/program#${sectorAnchor(program)}`} className="text-primary hover:underline">
+        <Link href={`/program#${sectorAnchor(program.sector)}`} className="text-primary hover:underline">
           {SECTOR_LABEL[program.sector]}
         </Link>
       </p>

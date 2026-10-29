@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
-import { listProgramPortfolio } from '@/lib/programs';
+import { listProgramPortfolio, sectorAnchor } from '@/lib/programs';
 import { formatRupiah } from '@/lib/utils/currency';
 
 /**
@@ -29,11 +29,6 @@ export const metadata: Metadata = {
     'Program CSR yang siap dikolaborasi, dikelompokkan menurut keempat sektor: Kesehatan, Pendidikan, Lingkungan, dan Inklusi Penyandang Disabilitas.',
 };
 
-/** The anchor a Sector card is known by, so a Program page can link back to it. */
-function anchorOf(label: string): string {
-  return label.toLowerCase().replace(/\s+/g, '-');
-}
-
 export default async function ProgramPortfolioPage() {
   const portfolio = await listProgramPortfolio(prisma);
 
@@ -52,7 +47,7 @@ export default async function ProgramPortfolioPage() {
       {portfolio.sectors.map((group) => (
         <section
           key={group.sector}
-          id={anchorOf(group.label)}
+          id={sectorAnchor(group.sector)}
           aria-labelledby={`sector-${group.sector}`}
           className="mb-12"
         >
