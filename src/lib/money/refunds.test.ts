@@ -38,7 +38,8 @@ import {
   type LedgerLeg,
   type LedgerSubject,
 } from './ledger';
-import { readRefundDonorAccountNumber, sealRefundDonorAccountNumber } from '@/lib/contact-fields';
+import { readRefundDonorAccountNumber, sealRefundDonorAccountNumber, sealUserEmail } from '@/lib/contact-fields';
+import { MockMailer, type Mailer } from '@/lib/mail';
 import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
 
 type LedgerRow = {
@@ -265,6 +266,31 @@ function makeTx(
     queryRawCalls,
   };
 }
+
+/** The Refund as the ticket-68 email reads it after commit: a registered Donor's Donation. */
+function refundEmailRow() {
+  return {
+    amount: 100_000,
+    payment: {
+      donation: {
+        anonymisedAt: null,
+        guestName: null,
+        guestEmailCiphertext: null,
+        guestEmailKeyId: null,
+        donor: { name: 'Budi Santoso', ...sealUserEmail('budi@example.test') },
+        campaign: { title: 'Sumur Desa' },
+      },
+      registration: null,
+    },
+  };
+}
+
+const failingMailer: Mailer = {
+  name: 'failing',
+  send: async () => {
+    throw new Error('relay down');
+  },
+};
 
 function makePrisma(tx: ReturnType<typeof makeTx>['tx'], finalRow: Record<string, unknown>) {
   return {
@@ -1631,6 +1657,45 @@ describe('completeRefund', () => {
     ]);
   });
 
+  it('emails the Donor once the completion has committed, never the account number (ticket 68)', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx } = makeTx({ refundRow });
+    const emailRead = vi.fn().mockResolvedValue(refundEmailRow());
+    const base = makePrisma(tx, { ...refundRow, status: 'COMPLETED', completedById: 'completer-1' });
+    const prisma = { ...base, refund: { ...base.refund, findUnique: emailRead } };
+    const mailer = new MockMailer();
+
+    await completeRefund(prisma as never, { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validRetype, mailer });
+
+    expect(emailRead).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'refund-1' } }));
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0]).toMatchObject({ to: 'budi@example.test' });
+    expect(mailer.sent[0].subject).toContain('sudah ditransfer');
+    expect(mailer.sent[0].text).not.toContain('1234567890');
+    expect(mailer.sent[0].html).not.toContain('1234567890');
+  });
+
+  it('keeps the completion and its legs when the Donor email cannot be sent (ticket 68)', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const refundRow = baseApprovedRefundRow();
+    const { tx, rows } = makeTx({ refundRow });
+    const base = makePrisma(tx, { ...refundRow, status: 'COMPLETED', completedById: 'completer-1' });
+    const prisma = { ...base, refund: { ...base.refund, findUnique: vi.fn().mockResolvedValue(refundEmailRow()) } };
+
+    const result = await completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validRetype,
+      mailer: failingMailer,
+    });
+
+    expect(result.status).toBe('COMPLETED');
+    expect(rows.filter((r) => r.transactionId === 'refund-completed-refund-1')).toHaveLength(2);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"mail_send_failed"'));
+    errors.mockRestore();
+  });
+
   it('records completedById, completedAt and the joined proof, writing no destination fields of its own (Q7(c))', async () => {
     const refundRow = baseApprovedRefundRow();
     const { tx } = makeTx({ refundRow });
@@ -2033,6 +2098,30 @@ describe('rejectRefund and failRefund (ticket 49)', () => {
 
     expect(netByAccount(rows)['REFUND_CLEARING:']).toBe(0);
     expect(allZero(netByAccount(rows))).toBe(true);
+  });
+
+  it('fail emails the Donor without the Admin reason; reject emails nobody (ticket 68)', async () => {
+    const failed = setup({ status: 'APPROVED', source: 'CAMPAIGN_BALANCE', approved: true, row: { approvedById: 'approver-1' } });
+    const failRead = vi.fn().mockResolvedValue(refundEmailRow());
+    const mailer = new MockMailer();
+    await failRefund({ ...failed.prisma, refund: { ...failed.prisma.refund, findUnique: failRead } } as never, {
+      refundId: 'refund-1',
+      failedById: 'admin-3',
+      reason: 'rekening 9876543210 ditutup',
+      mailer,
+    });
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0].subject).toContain('belum berhasil');
+    expect(mailer.sent[0].text).not.toContain('9876543210');
+
+    const rejected = setup({ status: 'REQUESTED', source: 'CAMPAIGN_BALANCE' });
+    const rejectRead = vi.fn().mockResolvedValue(refundEmailRow());
+    await rejectRefund({ ...rejected.prisma, refund: { ...rejected.prisma.refund, findUnique: rejectRead } } as never, {
+      refundId: 'refund-1',
+      rejectedById: 'admin-2',
+      reason: 'salah input',
+    });
+    expect(rejectRead).not.toHaveBeenCalled();
   });
 
   it('fail covers the shortfall REFUND_COST closed at approval: the top-up is taken back out of the same pool', async () => {
