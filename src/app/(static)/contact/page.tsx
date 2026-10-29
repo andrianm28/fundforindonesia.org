@@ -113,7 +113,8 @@ export default async function ContactPage() {
       </div>
 
       <p className="mt-8 text-text-secondary text-sm">
-        Fund for Indonesia dioperasikan oleh {SITE_IDENTITY.operatorName}. Permintaan terkait data pribadi dapat
+        Fund for Indonesia dioperasikan oleh {SITE_IDENTITY.operatorName}
+        {contact.nib !== '' && <> (NIB {contact.nib})</>}. Permintaan terkait data pribadi dapat
         dikirim ke{' '}
         <a href={`mailto:${SITE_IDENTITY.privacyEmail}`} className="text-primary font-medium hover:underline">
           {SITE_IDENTITY.privacyEmail}

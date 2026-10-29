@@ -22,7 +22,7 @@ Temuan di audit hukum 2026-10-16 yang hanya menyentuh teks, tautan, dan runbook;
 
 - **Tinjauan penasihat hukum** atas Terms dan Privacy, termasuk isi UU PDP penuh (dasar pemrosesan, transfer lintas negara, pemberitahuan kebocoran 3x24 jam, DPO, anak di bawah umur) dan klausul usia 17 tahun.
 - **Kolom persetujuan** (`termsAcceptedAt`, versi Terms/Privacy) pada User dan Donation tamu, termasuk persetujuan saat donasi tamu dan login Google pertama: perubahan skema, PR tersendiri.
-- **Data dari owner:** NIB, alamat kantor, telepon/WhatsApp (isi lewat Pengaturan Laman Publik), dan konfirmasi bahwa kotak surat `.org` di atas aktif.
+- **Data dari owner:** konfirmasi bahwa kotak surat `.org` di atas aktif. NIB, alamat kantor, dan telepon/WhatsApp dibiarkan kosong (owner 2026-10-29); Admin mengisinya lewat Pengaturan Laman Publik, dan halaman Kontak menyembunyikan yang kosong.
 - L1, L5, L9, L11, L12, L13 tidak disentuh.
 
 ## Verifikasi
