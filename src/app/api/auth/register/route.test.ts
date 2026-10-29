@@ -132,9 +132,10 @@ describe('POST /api/auth/register', () => {
 
     // A 64-hex HMAC and never the address itself, which is what closes the
     // case-sensitivity gap the old case-sensitive `email @unique` had.
-    const where = vi.mocked(prisma.user.findFirst).mock.calls[0]![0]!.where as Record<string, unknown>;
-    expect(Object.keys(where).sort()).toEqual(['emailHmac', 'emailHmacKeyId']);
-    expect(where.emailHmac).toMatch(/^[0-9a-f]{64}$/);
+    const where = vi.mocked(prisma.user.findFirst).mock.calls[0]![0]!.where as { OR: Record<string, unknown>[] };
+    expect(Object.keys(where)).toEqual(['OR']);
+    expect(Object.keys(where.OR[0]!).sort()).toEqual(['emailHmac', 'emailHmacKeyId']);
+    expect(where.OR[0]!.emailHmac).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('should hash the password before storing', async () => {

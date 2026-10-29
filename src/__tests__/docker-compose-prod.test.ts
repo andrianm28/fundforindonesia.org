@@ -195,6 +195,8 @@ describe("docker-compose.prod.yml env passthrough", () => {
       "FIELD_ENCRYPTION_KEY_ID",
       "FIELD_HMAC_KEY",
       "FIELD_HMAC_KEY_ID",
+      "FIELD_ENCRYPTION_PREVIOUS_KEYS",
+      "FIELD_HMAC_PREVIOUS_KEYS",
     ],
     // loadFieldKeys(process.env); the names are VARS in field-encryption.ts.
     "src/lib/contact-fields.ts": [
@@ -202,6 +204,8 @@ describe("docker-compose.prod.yml env passthrough", () => {
       "FIELD_ENCRYPTION_KEY_ID",
       "FIELD_HMAC_KEY",
       "FIELD_HMAC_KEY_ID",
+      "FIELD_ENCRYPTION_PREVIOUS_KEYS",
+      "FIELD_HMAC_PREVIOUS_KEYS",
     ],
   };
 
@@ -248,7 +252,7 @@ describe("docker-compose.prod.yml env passthrough", () => {
       expect(src, `${file} no longer exists`).toBeDefined();
       expect(DYNAMIC_READ.test(src!.text), `${file} no longer reads env dynamically`).toBe(true);
       for (const name of names) {
-        const inFile = src!.text.includes(name) || (file.endsWith("contact-fields.ts") &&
+        const inFile = src!.text.includes(name) || ((file.endsWith("contact-fields.ts") || file.endsWith("env-check.ts")) &&
           sources.find((s) => s.rel === "src/lib/field-encryption.ts")!.text.includes(name));
         expect(inFile, `${name} not found for ${file}`).toBe(true);
       }

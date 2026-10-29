@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { clientAddress } from '@/lib/client-ip';
 import { guardRoute } from '@/lib/rate-limit-guard';
-import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
+import { currentEmailHmac, lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { signPasswordResetToken } from '@/lib/password-reset';
 import { passwordResetEmail } from '@/lib/mail/password-reset';
 import { sendReportingFailure } from '@/lib/mail';
@@ -63,11 +63,10 @@ export async function POST(request: NextRequest) {
     }
     const { email } = parsed.data;
 
-    const lookup = lookupUserEmail(email);
     const emailRefused = await guardRoute(
       {
         scope: 'password-reset-request-email',
-        subject: lookup.emailHmac,
+        subject: currentEmailHmac(email),
         limit: EMAIL_LIMIT,
         windowSeconds: WINDOW_SECONDS,
         onUnavailable: 'closed',
@@ -77,7 +76,7 @@ export async function POST(request: NextRequest) {
     if (emailRefused) return emailRefused;
 
     const account = await prisma.user.findFirst({
-      where: lookup,
+      where: lookupUserEmail(email),
       select: { id: true, name: true, password: true, emailHmac: true, ...SELECT_USER_EMAIL },
     });
     const to = account ? readUserEmail(account) : null;

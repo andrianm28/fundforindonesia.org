@@ -146,9 +146,12 @@ function emailMatches(
   donation: { guestEmailHmac: string | null; guestEmailHmacKeyId: string | null },
 ): boolean {
   if (!donation.guestEmailHmac) return false;
-  const found = lookupDonationGuestEmail(typed);
-  // A different key id means the stored HMAC was made under another key: no match, never a guess.
-  if (found.guestEmailHmacKeyId !== donation.guestEmailHmacKeyId) return false;
+  // The lookup under the key that made the stored HMAC (current or retired). A
+  // key id that is not configured has no lookup: no match, never a guess.
+  const found = lookupDonationGuestEmail(typed).OR.find(
+    (l) => l.guestEmailHmacKeyId === donation.guestEmailHmacKeyId,
+  );
+  if (!found) return false;
   const a = Buffer.from(found.guestEmailHmac, 'utf8');
   const b = Buffer.from(donation.guestEmailHmac, 'utf8');
   return a.length === b.length && timingSafeEqual(a, b);
