@@ -137,6 +137,7 @@ function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
     },
     donation: {
       update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       // Read by the abuse thresholds (prd-compliance 38) after the
       // collectedAmount increment. An ordinary Donation by default, so a test
       // about thresholds overrides this with the amount it needs.
@@ -1061,8 +1062,17 @@ describe('POST /api/webhooks/[provider]', () => {
       // Donation.paymentStatus only ever has pending/confirmed/failed -- both
       // provider outcomes land on 'failed' so the donor's own page stops
       // reading "pending" for an attempt that will never complete.
-      expect(tx.donation.update).toHaveBeenCalledWith({
-        where: { id: 'donation-1' },
+      // ...but never over a Donation a sibling Payment keeps alive (PAY-04): the
+      // write is conditional on it not being confirmed and having no other
+      // PAID or PENDING Payment. The late-paid-then-sibling-expires scenario
+      // itself runs against real Postgres in
+      // src/__tests__/integration/webhook-paid-after-expiry-real-db.test.ts.
+      expect(tx.donation.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'donation-1',
+          paymentStatus: { not: 'confirmed' },
+          payments: { none: { status: { in: ['PAID', 'PENDING'] } } },
+        },
         data: { paymentStatus: 'failed' },
       });
       // No money moved: postTransaction/the campaign are never touched.

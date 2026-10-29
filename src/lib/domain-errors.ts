@@ -60,6 +60,7 @@ export type MoneyErrorCode =
   | "REFUND_DESTINATION_MISMATCH"
   | "REFUND_RESOLUTION_ACTOR"
   | "REFUND_REASON_INVALID"
+  | "PAYOUT_REASON_INVALID"
   | "INVALID_PAYOUT_STATUS"
   | "INVALID_REFUND_STATUS"
   | "REFUND_FREEZE_JOURNAL_MISSING"
@@ -67,6 +68,8 @@ export type MoneyErrorCode =
   | "REFUND_NOT_FOUND"
   | "PAYMENT_NOT_FOUND"
   | "PAYMENT_SUBJECT_MISMATCH"
+  | "PAYMENT_NOT_PAID"
+  | "SANDBOX_ROW_IN_LIVE_MODE"
   | "REFUND_EXCEEDS_REMAINING"
   | "REFUND_NOT_ALLOWED_FOR_KIND"
   | "DONATION_ANONYMISED"
@@ -307,6 +310,8 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   REFUND_RESOLUTION_ACTOR: 403,
   // A blank or over-length reason: fixable by writing it, so 400.
   REFUND_REASON_INVALID: 400,
+  // Same as REFUND_REASON_INVALID, for a Payout's reject or fail reason.
+  PAYOUT_REASON_INVALID: 400,
   INVALID_PAYOUT_STATUS: 409,
   INVALID_REFUND_STATUS: 409,
   // A standing Refund whose freeze journal is not in the ledger. createRefund
@@ -318,6 +323,10 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   REFUND_NOT_FOUND: 404,
   PAYMENT_NOT_FOUND: 404,
   PAYMENT_SUBJECT_MISMATCH: 404,
+  // States the request cannot change by being resent: the Payment has not
+  // settled (PAY-03), or the row is beta data in live mode (PAY-01).
+  PAYMENT_NOT_PAID: 409,
+  SANDBOX_ROW_IN_LIVE_MODE: 409,
   REFUND_EXCEEDS_REMAINING: 400,
   // A policy refusal about the Campaign itself, not a malformed request: the
   // Campaign's Kind is what forbids the Refund, and no resend of the same

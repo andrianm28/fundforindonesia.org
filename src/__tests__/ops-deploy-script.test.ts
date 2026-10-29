@@ -139,6 +139,7 @@ describe("ops/deploy.sh", () => {
       `tag ${IMAGE}@${r.migrate} ${IMAGE}:${r.sha}-migrate`,
       `[app=${r.app}] compose up -d --wait db`,
       "compose exec -T db pg_dump -U fundindo -d fund_indonesia --format=custom",
+      "compose exec -T db pg_restore --list",
       "compose --profile migrate run --rm -T migrate",
       `[app=${r.app}] compose up -d app`,
     ]);
@@ -447,6 +448,14 @@ describe("ops/deploy.sh", () => {
     const { status } = deployRelease(release(1), { DOCKER_FAIL_ON: "*pg_dump*" });
     expect(status).not.toBe(0);
     expect(backups().filter((f) => f.endsWith(".dump"))).toEqual([]);
+  });
+
+  // Audit OPS-6: a truncated but non-empty dump passed the size check.
+  it("refuses a dump that pg_restore --list cannot read, keeps none, and stops before migrating", () => {
+    const { status, calls } = deployRelease(release(1), { DOCKER_FAIL_ON: "*pg_restore*" });
+    expect(status).not.toBe(0);
+    expect(backups().filter((f) => f.endsWith(".dump") || f.endsWith(".partial"))).toEqual([]);
+    expect(calls.some((c) => c.includes("migrate run"))).toBe(false);
   });
 
   it("waits for a slow app to come up", () => {

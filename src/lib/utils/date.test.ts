@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatIndonesianDate, getRelativeTimestamp, getRemainingDays } from './date';
+import { formatIndonesianDate, endOfWibDay, todayWibDate, formatWibLongDate, getRelativeTimestamp, getRemainingDays } from './date';
 
 describe('formatIndonesianDate', () => {
   it('formats date correctly', () => {
@@ -16,6 +16,30 @@ describe('formatIndonesianDate', () => {
 
   it('pads single-digit days', () => {
     expect(formatIndonesianDate(new Date('2024-03-01'))).toBe('01 Mar 2024');
+  });
+});
+
+describe('WIB calendar (FE-02, FE-03)', () => {
+  it('formatIndonesianDate shows the WIB day, not the process day', () => {
+    // 19:00Z on the 16th is 02:00 WIB on the 17th.
+    expect(formatIndonesianDate(new Date('2026-10-16T19:00:00Z'))).toBe('17 Okt 2026');
+    expect(formatIndonesianDate(new Date('2026-10-16T16:59:59Z'))).toBe('16 Okt 2026');
+  });
+
+  it('endOfWibDay is 23:59:59.999 WIB on the chosen date', () => {
+    expect(endOfWibDay('2026-12-31').toISOString()).toBe('2026-12-31T16:59:59.999Z');
+    expect(endOfWibDay('2026-03-01').toISOString()).toBe('2026-03-01T16:59:59.999Z');
+  });
+
+  it('todayWibDate rolls over at 17:00Z', () => {
+    expect(todayWibDate(new Date('2026-10-16T16:59:00Z'))).toBe('2026-10-16');
+    expect(todayWibDate(new Date('2026-10-16T17:00:00Z'))).toBe('2026-10-17');
+  });
+
+  it('formatWibLongDate names the month in full, in WIB', () => {
+    expect(formatWibLongDate('2026-12-31')).toBe('31 Desember 2026');
+    expect(formatWibLongDate(new Date('2026-12-31T16:59:59.999Z'))).toBe('31 Desember 2026');
+    expect(formatWibLongDate(new Date('2026-12-31T17:00:00Z'))).toBe('1 Januari 2027');
   });
 });
 

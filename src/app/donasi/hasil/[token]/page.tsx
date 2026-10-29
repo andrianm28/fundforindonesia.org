@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { verifyPaymentResultToken } from '@/lib/money/payment-result-token';
-import { describePaymentResult, type PaymentResultState } from '@/lib/money/payment-result';
+import { describePaymentResult, transactionDetails, type PaymentResultState } from '@/lib/money/payment-result';
 import { campaignRetryRefusal, RETRY_CAMPAIGN_SELECT } from '@/lib/donation-retry';
 import { formatRupiah } from '@/lib/utils/currency';
 import { PaymentResultActions } from './PaymentResultActions';
@@ -54,6 +54,10 @@ const COPY: Record<PaymentResultState, { title: string; body: string; tone: 'wai
   },
 };
 
+function formatJakartaTime(at: Date): string {
+  return `${at.toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Jakarta' })} WIB`;
+}
+
 const TONE_CLASS = {
   wait: 'bg-[#FFF8E1] text-[#8D6E00]',
   good: 'bg-[#E8F5E9] text-[#2E7D32]',
@@ -85,7 +89,18 @@ export default async function PaymentResultPage({ params, searchParams }: Paymen
       // No Receipt token: it never expires and the Receipt names the Donor, so
       // linking it would let this short-lived link open lasting Donor data.
       // The Receipt reaches the Donor by email.
-      payments: { select: { status: true, expiresAt: true, redirectUrl: true, vaNumber: true, createdAt: true } },
+      payments: {
+        select: {
+          status: true,
+          expiresAt: true,
+          redirectUrl: true,
+          vaNumber: true,
+          createdAt: true,
+          method: true,
+          providerRef: true,
+          paidAt: true,
+        },
+      },
     },
   });
   if (!donation) notFound();
@@ -95,6 +110,7 @@ export default async function PaymentResultPage({ params, searchParams }: Paymen
   // Offered only when the retry route would accept it: the attempt is over AND
   // the Campaign can still take a new charge.
   const canRetry = result.canRetry && campaignRetryRefusal(donation.campaign, now) === null;
+  const transaction = transactionDetails(donation.payments);
   const cancelled = batal === '1' && result.state !== 'berhasil' && result.state !== 'dikembalikan';
 
   return (
@@ -120,6 +136,25 @@ export default async function PaymentResultPage({ params, searchParams }: Paymen
           <h1 className="text-base font-semibold">{copy.title}</h1>
           <p className="mt-1 text-sm">{copy.body}</p>
         </div>
+
+        {transaction && (
+          <dl className="rounded-xl bg-white p-4 shadow-xs space-y-2 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-text-secondary">Nomor referensi</dt>
+              <dd className="font-mono text-text break-all text-right">{transaction.reference}</dd>
+            </div>
+            {transaction.methodLabel && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-text-secondary">Metode pembayaran</dt>
+                <dd className="text-text text-right">{transaction.methodLabel}</dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-4">
+              <dt className="text-text-secondary">{transaction.paid ? 'Waktu pembayaran' : 'Waktu transaksi'}</dt>
+              <dd className="text-text text-right">{formatJakartaTime(transaction.at)}</dd>
+            </div>
+          </dl>
+        )}
 
         {result.vaNumber && (
           <div className="rounded-xl bg-white p-4 shadow-xs">

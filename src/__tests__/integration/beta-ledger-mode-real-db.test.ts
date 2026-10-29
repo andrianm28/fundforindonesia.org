@@ -304,8 +304,18 @@ describe.skipIf(!DATABASE_URL)('Ledger per mode -- against real Postgres (ticket
       provider: 'sumopod',
       providerBalance: 10_000_000,
     });
-    // The marker goes away between the steps: the Payout keeps its own mode.
+    // The marker goes away between the steps: the Payout keeps its own mode,
+    // and real money can no longer be recorded against it (PAY-01).
     vi.stubEnv('BETA_SANDBOX', '');
+    await expect(
+      payouts.completePayout(prisma, {
+        payoutId: requested.id,
+        completedById: completer,
+        proofReference: 'SIM-0001',
+        proofNote: 'Simulasi: tidak ada transfer nyata.',
+      }),
+    ).rejects.toThrow(payouts.SandboxRowInLiveModeError);
+    vi.stubEnv('BETA_SANDBOX', 'true');
     const completed = await payouts.completePayout(prisma, {
       payoutId: requested.id,
       completedById: completer,

@@ -100,6 +100,39 @@ describe("docker-compose.prod.yml", () => {
       'db - "127.0.0.1:18093:5432"',
     ]);
   });
+
+  // Audit OPS-4. A hung-but-running Node is never restarted by
+  // `restart: unless-stopped`, json-file logs are unbounded on a shared disk,
+  // and one leaking service can starve the others on the host.
+  it("gives the app a healthcheck on the existing /api/health endpoint, using only what the image has", () => {
+    const hc = block("    healthcheck:", service("app")).join("\n");
+    expect(hc).toContain("/api/health");
+    expect(hc).toContain("node");
+    expect(hc).not.toMatch(/curl|wget/);
+    expect(hc).toMatch(/interval:/);
+    expect(hc).toMatch(/start_period:/);
+  });
+
+  it("rotates the json-file logs of every service", () => {
+    for (const name of serviceNames) {
+      const logging = block("    logging:", service(name)).map((l) => l.trim());
+      expect(logging, name).toContain("driver: json-file");
+      expect(logging.some((l) => /^max-size: "?\d+m"?$/.test(l)), name).toBe(true);
+      expect(logging.some((l) => /^max-file: "?\d+"?$/.test(l)), name).toBe(true);
+    }
+  });
+
+  it("caps memory and CPU of the long-running services (the one-off migrate is exempt)", () => {
+    for (const name of ["app", "db"]) {
+      const svc = service(name);
+      expect(svc.some((l) => /^ {4}mem_limit: \S+/.test(l)), name).toBe(true);
+      expect(svc.some((l) => /^ {4}cpus: \S+/.test(l)), name).toBe(true);
+    }
+  });
+
+  it("pins the postgres image to an exact minor, not a floating major tag", () => {
+    expect(service("db")).toContain("    image: postgres:16.15-alpine");
+  });
 });
 
 /**
