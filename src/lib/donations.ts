@@ -82,3 +82,10 @@ export function sandboxInProductionReason(): string | null {
  */
 export const DONATIONS_DISABLED_MESSAGE =
   'Donasi sedang tidak tersedia karena sistem pembayaran sedang disiapkan.';
+
+/**
+ * The smallest Donation, in rupiah: Rp1.000 (owner decision 2026-10-16,
+ * down from prd-compliance 18's Rp20.000). One value for POST /api/donations
+ * and the donate page, so the form never offers an amount the API refuses.
+ */
+export const MIN_DONATION_AMOUNT = 1_000;
