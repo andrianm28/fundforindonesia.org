@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Kind } from '@/generated/prisma/client';
 import {
   createRefund,
@@ -23,6 +23,8 @@ import {
   failRefund,
   RefundResolutionActorError,
   RefundReasonInvalidError,
+  PaymentNotPaidError,
+  SandboxRowInLiveModeError,
 } from './refunds';
 import {
   paymentSettledLegs,
@@ -98,6 +100,7 @@ const entriesByTransactionId = (rows: LedgerRow[], where: { transactionId: strin
 function makePayment(overrides: Record<string, unknown> = {}) {
   return {
     id: 'payment-1',
+    status: 'PAID',
     amount: 100_000,
     providerFee: 5_000,
     // 0 by default (prd-compliance 17): every existing test in this file
@@ -669,6 +672,19 @@ describe('createRefund', () => {
       createRefund(tx as never, { subject: { type: 'campaign', campaignId: 'campaign-1' }, paymentId: 'missing', amount: 1, reason: 'x', requestedById: 'admin-1' }),
     ).rejects.toThrow(PaymentNotFoundError);
   });
+
+  it.each(['PENDING', 'EXPIRED', 'FAILED'])(
+    'refuses a Payment that is %s: money that never arrived cannot be refunded, and nothing is posted (PAY-03)',
+    async (status) => {
+      const { tx, refundCreate, rows } = makeTx({ payment: makePayment({ status }) });
+
+      await expect(
+        createRefund(tx as never, { subject: { type: 'campaign', campaignId: 'campaign-1' }, paymentId: 'payment-1', amount: 1_000, reason: 'x', requestedById: 'admin-1' }),
+      ).rejects.toThrow(PaymentNotPaidError);
+      expect(refundCreate).not.toHaveBeenCalled();
+      expect(rows).toHaveLength(0);
+    },
+  );
 
   it('throws PaymentSubjectMismatchError when the Payment belongs to a different Campaign than the subject given', async () => {
     const { tx } = makeTx({ payment: makePayment({ donation: { campaignId: 'a-different-campaign' } }) });
@@ -2074,5 +2090,75 @@ describe('rejectRefund and failRefund (ticket 49)', () => {
     const { tx, rows } = makeTx({ ledgerRows: [], refundRow: row, payment: paymentFor() });
     await expect(rejectRefund(makePrisma(tx, row) as never, { refundId: 'refund-1', rejectedById: 'admin-2', reason: 'x' })).rejects.toBeInstanceOf(InvalidRefundStatusError);
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe('a sandbox Refund after go-live (PAY-01)', () => {
+  const sandboxRefund = (overrides: Record<string, unknown> = {}) => ({
+    id: 'refund-1',
+    paymentId: 'payment-1',
+    amount: 100_000,
+    reason: 'x',
+    status: 'REQUESTED',
+    sandbox: true,
+    requestedById: 'requester-1',
+    approvedById: null,
+    ...sealRefundDonorAccountNumber('1234567890'),
+    payment: makePayment({ amount: 100_000, providerFee: 0, sandbox: true }),
+    ...overrides,
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('refuses to approve it once BETA_SANDBOX is gone, posting nothing and leaving it REQUESTED', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'false');
+    const refundRow = sandboxRefund();
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    await expect(
+      approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination }),
+    ).rejects.toThrow(SandboxRowInLiveModeError);
+
+    expect(rows).toHaveLength(0);
+    expect(refundRow.status).toBe('REQUESTED');
+  });
+
+  it('refuses to complete it once BETA_SANDBOX is gone, posting nothing', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'false');
+    const refundRow = sandboxRefund({ status: 'APPROVED', approvedById: 'approver-1' });
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    await expect(
+      completeRefund(prisma as never, {
+        refundId: 'refund-1',
+        completedById: 'completer-1',
+        proofReference: 'TRX-refund-1',
+        proofNote: 'Ditransfer via mobile banking BCA, dicocokkan dengan nama dan rekening Donor.',
+        donorAccountNumber: '1234567890',
+      }),
+    ).rejects.toThrow(SandboxRowInLiveModeError);
+
+    expect(rows).toHaveLength(0);
+  });
+
+  it('still lets the beta approve a sandbox Refund while the marker is on (the guard is for go-live only)', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    const refundRow = sandboxRefund();
+    const { tx } = makeTx({
+      refundRow,
+      ledgerRows: [
+        { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+        ...freezeRows('refund-1', { amount: 100_000, source: 'ESCROW_HOLD' }),
+      ],
+    });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED', approvedById: 'admin-1' });
+
+    await expect(
+      approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination }),
+    ).resolves.toBeDefined();
   });
 });

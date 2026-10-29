@@ -74,6 +74,14 @@ import type { PayoutStatus } from '@/generated/prisma/client';
  * is NOT short (ProviderBalanceNotShortError) -- this form does not
  * duplicate that arithmetic, only requires the same two fields to be filled
  * before enabling the button, exactly like `canApprove`.
+ *
+ * THE WAY OUT (PAY-02). A DRAFT can be rejected ("Tolak Payout"), which is
+ * also how a leftover beta Payout is closed at go-live (approve and complete
+ * refuse it, runbooks/beta-ke-live.md), and an APPROVED one whose transfer
+ * the bank refused or that was never made can be marked failed ("Tandai
+ * gagal"), which returns the instructed money to the balance. Both need a
+ * reason, post to Payout-id-only routes (/api/admin/payouts/[id]/reject and
+ * /fail, like balance-check) and leave every other rule to the server.
  */
 
 interface PayoutSubject {
@@ -106,6 +114,11 @@ function balanceCheckUrl(payoutId: string): string {
   return `/api/admin/payouts/${payoutId}/balance-check`;
 }
 
+/** The reject (DRAFT) and fail (APPROVED) routes: Payout-id-only like balance-check. */
+function resolveUrl(payoutId: string, action: 'reject' | 'fail'): string {
+  return `/api/admin/payouts/${payoutId}/${action}`;
+}
+
 export function AdminPayoutActionForm({
   payoutId,
   status,
@@ -126,6 +139,9 @@ export function AdminPayoutActionForm({
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
   const [accountNumber, setAccountNumber] = useState<string | null>(null);
+
+  // Reject / fail reason
+  const [reason, setReason] = useState('');
 
   async function post(url: string, body: Record<string, unknown>, genericError: string) {
     setSubmitting(true);
@@ -256,6 +272,30 @@ export function AdminPayoutActionForm({
           menunggu persetujuan dan riwayat cek ini tercatat untuk Fundraiser dan Admin lain.
         </p>
 
+        <div className="space-y-2 border-t border-gray-200 pt-3">
+          <label className="block text-sm text-gray-700">
+            Alasan menolak
+            <input
+              aria-label="Alasan menolak"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="mis. Payout uji dari beta, rekening salah"
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={reason.trim() === '' || submitting}
+            onClick={() => post(resolveUrl(payoutId, 'reject'), { reason }, 'Gagal menolak Payout.')}
+            className="w-full rounded-lg border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-800 disabled:opacity-50"
+          >
+            Tolak Payout
+          </button>
+          <p className="text-xs text-gray-500">
+            Tidak ada uang yang bergerak. Dipakai juga untuk menutup Payout sisa beta sebelum go-live.
+          </p>
+        </div>
+
         {refusal && (
           <p role="alert" className="text-sm text-danger">
             {refusal}
@@ -346,6 +386,30 @@ export function AdminPayoutActionForm({
         >
           Tandai selesai
         </button>
+
+        <div className="space-y-2 border-t border-gray-200 pt-3">
+          <label className="block text-sm text-gray-700">
+            Alasan gagal
+            <input
+              aria-label="Alasan gagal"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="mis. bank menolak transfer, nama rekening tidak cocok"
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={reason.trim() === '' || submitting}
+            onClick={() => post(resolveUrl(payoutId, 'fail'), { reason }, 'Gagal menandai Payout gagal.')}
+            className="w-full rounded-lg border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-800 disabled:opacity-50"
+          >
+            Tandai gagal
+          </button>
+          <p className="text-xs text-gray-500">
+            Untuk transfer yang ditolak bank atau tidak pernah dilakukan: dana yang sudah dialokasikan kembali ke saldo.
+          </p>
+        </div>
 
         {refusal && (
           <p role="alert" className="text-sm text-danger">
