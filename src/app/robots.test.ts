@@ -11,6 +11,7 @@ const PRIVATE = [
   '/campaign/create',
   '/volunteer-trip/registrasi',
   '/receipt/',
+  '/donasi/hasil/',
   '/akad-wakaf/',
   '/sertifikat/',
 ];

@@ -8,6 +8,8 @@ import { computePlatformFee } from './platform-fee';
 import { resolveEscrowHoldDays } from './escrow-hold-config';
 import { currentPaymentSandboxStamp } from './counted-payment';
 import { recordChargeWriteFailure, sanitizeError } from './payment-reconciliation';
+import { paymentResultPath, signPaymentResultToken } from './payment-result-token';
+import { publicUrl } from '@/lib/public-url';
 
 /**
  * One attempt at charging a Donation: resolves and freezes the Platform Fee
@@ -79,9 +81,24 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
     return { ok: false, reason: 'method_unavailable' };
   }
 
+  // Where the provider sends the Donor back (ticket 98): this Donation's own
+  // result page, opened by a signed token rather than a session, so a Guest
+  // Donor lands on their own status instead of a login wall. Signed for the
+  // Donation, not this attempt, so the page follows every retry. The page reads
+  // the status from the database; the redirect itself proves nothing.
   let charge: ChargeResult;
   try {
-    charge = await provider.createCharge({ orderId, grossAmount: amount, currency: 'IDR', method: paymentMethod });
+    // Inside the try: signing throws only when NEXTAUTH_SECRET is missing in
+    // production, and that is a failed attempt like any other, not a bare 500.
+    const resultToken = signPaymentResultToken(donationId, Date.now());
+    charge = await provider.createCharge({
+      orderId,
+      grossAmount: amount,
+      currency: 'IDR',
+      method: paymentMethod,
+      successReturnUrl: publicUrl(paymentResultPath(resultToken)),
+      cancelReturnUrl: publicUrl(paymentResultPath(resultToken, { cancelled: true })),
+    });
   } catch (err) {
     console.error(`[donations] charge failed for donation ${donationId} (order ${orderId}): ${sanitizeError(err)}`);
     return { ok: false, reason: 'provider_error' };
@@ -129,6 +146,11 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
         escrowHoldDays,
         status: PaymentStatus.PENDING,
         expiresAt: charge.expiresAt,
+        // How to pay THIS charge, kept so the result page (ticket 98) can send a
+        // Donor who backed out straight back to the same charge while it is
+        // still open, rather than creating another one.
+        redirectUrl: charge.method === 'bank_transfer_va' ? null : charge.redirectUrl,
+        vaNumber: charge.method === 'bank_transfer_va' ? charge.vaNumber : null,
       },
     });
   } catch (err) {
