@@ -4,7 +4,7 @@ import { KindLanding } from '@/components/landing/KindLanding';
 export const metadata: Metadata = {
   title: 'Wakaf - Fund for Indonesia',
   description:
-    'Wakaf tunai untuk masjid, sekolah, fasilitas kesehatan, dan fasilitas umum, disalurkan lewat nazhir berizin dengan Akad Wakaf untuk setiap pemberian.',
+    'Wakaf tunai untuk masjid, sekolah, fasilitas kesehatan, dan fasilitas umum, disalurkan lewat nazhir berizin dengan Tanda Terima Wakaf untuk setiap pemberian.',
 };
 
 export default function WakafPage() {
@@ -26,11 +26,12 @@ export default function WakafPage() {
           ),
         },
         {
-          heading: 'Akad Wakaf',
+          heading: 'Tanda Terima Wakaf',
           body: (
             <p>
-              Setiap pemberian wakaf disertai Akad Wakaf yang memuat nama Wakif, nominal, peruntukan,
-              dan nazhir, dikirim bersama tanda terima. Wakaf tunai tidak dapat ditarik kembali, kecuali
+              Setiap pemberian wakaf disertai Tanda Terima Wakaf yang memuat nama Wakif, nominal, peruntukan,
+              dan nazhir, dikirim bersama tanda terima donasi. Dokumen ini masih versi beta/draf dan bukan
+              Akta Ikrar Wakaf. Wakaf tunai tidak dapat ditarik kembali, kecuali
               bila terjadi kesalahan pembayaran, pembayaran ganda, atau dana masuk setelah Campaign ditutup.
             </p>
           ),

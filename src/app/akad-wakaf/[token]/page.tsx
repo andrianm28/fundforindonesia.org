@@ -1,6 +1,11 @@
+import type { Metadata } from 'next';
 import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import { AkadWakafView } from '@/components/akad-wakaf/AkadWakafView';
+
+export const metadata: Metadata = {
+  title: 'Tanda Terima Wakaf - Fund for Indonesia',
+};
 
 // Rendered per request: the pledge shows a Wakif's identity, which anonymisation
 // (ticket 36) can remove at any moment, so it must never be served from a cache.
