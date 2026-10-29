@@ -26,5 +26,5 @@ Sejak deploy, baris lama tetap terbaca dan baris baru memakai key baru. Boleh be
 
 - **Key pensiun jangan dibuang** selama masih ada baris yang menyebut id-nya. Id yang tidak dikenal membuat dekripsi gagal, dan backup lama butuh key pensiun saat restore (lihat `restore.md`).
 - **Belum ada skrip re-encrypt.** Baris lama tidak otomatis pindah ke key baru. Itu pekerjaan lanjutan; cek baris yang masih memakai id lama dengan `SELECT "emailKeyId", count(*) FROM "User" GROUP BY 1` (juga kolom `*KeyId` dan `*HmacKeyId` di tabel lain).
-- **Klaim riwayat Guest Donor** (`src/lib/guest-donation-claim.ts`) mencocokkan HMAC tersimpan antar tabel beserta id key-nya. Akun yang di-HMAC dengan key lama tidak akan cocok dengan donasi tamu baru yang di-HMAC dengan key baru sampai baris akun itu di-hash ulang. Pencarian login dan registrasi tidak terpengaruh.
+- Klaim riwayat Guest Donor mencocokkan HMAC dari semua key (saat ini dan pensiun), jadi akun dan donasi tamu yang di-hash dengan key berbeda tetap saling cocok.
 - Anonimisasi Guest Donor mencocokkan email lewat key yang menyegel HMAC tersimpan, jadi tetap bekerja untuk baris lama.
