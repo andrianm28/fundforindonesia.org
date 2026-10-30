@@ -10,8 +10,11 @@ ALTER TABLE "Campaign"
     ADD COLUMN "beneficiaryDescription" TEXT,
     ADD COLUMN "beneficiaryCount" INTEGER;
 
--- A beneficiary count, when given, is positive. Every existing row is NULL,
--- so adding the constraint cannot fail on current data.
+-- A beneficiary count, when given, is positive. NOT VALID: every new or
+-- updated row is checked, but rows already in the table are not scanned, so
+-- the migration cannot fail on existing data (all are NULL today). Same
+-- pattern as 20261016090000_ledger_integrity; VALIDATE CONSTRAINT is left
+-- out on purpose.
 ALTER TABLE "Campaign"
     ADD CONSTRAINT "Campaign_beneficiaryCount_positive"
-    CHECK ("beneficiaryCount" IS NULL OR "beneficiaryCount" > 0);
+    CHECK ("beneficiaryCount" IS NULL OR "beneficiaryCount" > 0) NOT VALID;

@@ -40,4 +40,8 @@ describe('campaign_location_beneficiaries migration', () => {
   it('keeps a given beneficiary count positive', () => {
     expect(SQL).toContain('CHECK ("beneficiaryCount" IS NULL OR "beneficiaryCount" > 0)');
   });
+
+  it('adds the CHECK NOT VALID so a legacy row can never fail the deploy', () => {
+    expect(SQL).toMatch(/CHECK \("beneficiaryCount" IS NULL OR "beneficiaryCount" > 0\)\s+NOT VALID/);
+  });
 });
