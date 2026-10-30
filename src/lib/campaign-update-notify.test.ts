@@ -52,8 +52,11 @@ function guest(id: string, email: string, over: Record<string, unknown> = {}) {
 function prismaWith(donations: unknown[], update: unknown = UPDATE, recentUpdates = 0) {
   const findMany = vi.fn().mockResolvedValueOnce(donations).mockResolvedValue([]);
   const count = vi.fn().mockResolvedValue(recentUpdates);
+  const campaignFind = vi.fn().mockResolvedValue({ lifecycleStatus: 'ACTIVE' });
   return {
+    campaignFind,
     prisma: {
+      campaign: { findUnique: campaignFind },
       campaignUpdate: { findUnique: vi.fn().mockResolvedValue(update), count },
       donation: { findMany },
     },
@@ -204,26 +207,48 @@ describe('notifyDonorsOfCampaignUpdate', () => {
     }
   });
 
-  describe('frequency limit', () => {
-    it('counts the Campaign\'s other updates in the 24 hours before this one', async () => {
+  describe('frequency limit (one emailed update per Campaign per WIB calendar day)', () => {
+    it('counts the Campaign\'s earlier updates since the start of this update\'s WIB day', async () => {
       const { prisma, count } = prismaWith([]);
       await notifyDonorsOfCampaignUpdate(prisma as never, { updateId: 'upd-1' }, new MockMailer());
+      // 10:00Z on 30 Oct = 17:00 WIB on 30 Oct; the WIB day began 29 Oct 17:00Z.
       expect(count).toHaveBeenCalledWith({
         where: {
           campaignId: 'c-1',
           id: { not: 'upd-1' },
-          createdAt: { gte: new Date('2026-10-29T10:00:00Z'), lt: UPDATE.createdAt },
+          createdAt: { gte: new Date('2026-10-29T17:00:00Z'), lt: UPDATE.createdAt },
         },
       });
     });
 
-    it('sends nothing when an earlier update fell inside that window', async () => {
+    it('moves the day boundary at 17:00Z (midnight WIB)', async () => {
+      for (const [at, from] of [
+        ['2026-10-30T16:59:00Z', '2026-10-29T17:00:00Z'],
+        ['2026-10-30T17:00:00Z', '2026-10-30T17:00:00Z'],
+      ]) {
+        const { prisma, count } = prismaWith([], { ...UPDATE, createdAt: new Date(at) });
+        await notifyDonorsOfCampaignUpdate(prisma as never, { updateId: 'upd-1' }, new MockMailer());
+        expect(count.mock.calls[0][0].where.createdAt.gte).toEqual(new Date(from));
+      }
+    });
+
+    it('sends nothing when an earlier update exists on the same WIB day', async () => {
       const mailer = new MockMailer();
       const { prisma, findMany } = prismaWith([registered('d1', 'siti@example.test')], UPDATE, 1);
       const result = await notifyDonorsOfCampaignUpdate(prisma as never, { updateId: 'upd-1' }, mailer);
       expect(result).toEqual({ recipients: 0, sent: 0 });
       expect(mailer.sent).toHaveLength(0);
       expect(findMany).not.toHaveBeenCalled();
+    });
+
+    it('still emails an update 23 hours after the previous one when that falls on another WIB day', async () => {
+      // previous update 30 Oct 16:30Z (23:30 WIB, the 30th); this one is 1 hour later, 00:30 WIB on the 31st.
+      const mailer = new MockMailer();
+      const update = { ...UPDATE, createdAt: new Date('2026-10-30T17:30:00Z') }; // 00:30 WIB on the 31st
+      const { prisma, count } = prismaWith([registered('d1', 'siti@example.test')], update, 0);
+      const result = await notifyDonorsOfCampaignUpdate(prisma as never, { updateId: 'upd-1' }, mailer);
+      expect(count.mock.calls[0][0].where.createdAt.gte).toEqual(new Date('2026-10-30T17:00:00Z'));
+      expect(result.sent).toBe(1);
     });
   });
 
@@ -262,14 +287,33 @@ describe('notifyDonorsOfCampaignUpdate', () => {
   });
 
   describe('state at send time', () => {
-    it('sends nothing when the Campaign is no longer publicly viewable', async () => {
+    it.each(['DRAFT', 'SUBMITTED', 'REJECTED', 'SUSPENDED', 'CANCELLED'])('sends nothing for a %s Campaign', async (status) => {
       const mailer = new MockMailer();
-      const update = { ...UPDATE, campaign: { ...UPDATE.campaign, lifecycleStatus: 'DRAFT' } };
+      const update = { ...UPDATE, campaign: { ...UPDATE.campaign, lifecycleStatus: status } };
       const { prisma, findMany } = prismaWith([registered('d1', 'siti@example.test')], update);
       const result = await notifyDonorsOfCampaignUpdate(prisma as never, { updateId: 'upd-1' }, mailer);
       expect(result).toEqual({ recipients: 0, sent: 0 });
       expect(mailer.sent).toHaveLength(0);
       expect(findMany).not.toHaveBeenCalled();
+    });
+
+    it.each(['ACTIVE', 'COMPLETED', 'EXPIRED'])('sends for a %s Campaign', async (status) => {
+      const mailer = new MockMailer();
+      const update = { ...UPDATE, campaign: { ...UPDATE.campaign, lifecycleStatus: status } };
+      const { prisma } = prismaWith([registered('d1', 'siti@example.test')], update);
+      expect((await notifyDonorsOfCampaignUpdate(prisma as never, { updateId: 'upd-1' }, mailer)).sent).toBe(1);
+    });
+
+    it('re-reads the status every 50 recipients and stops when the Campaign is suspended meanwhile', async () => {
+      const mailer = new MockMailer();
+      const donations = Array.from({ length: 120 }, (_, i) => registered(`d${i}`, `donor${i}@example.test`));
+      const { prisma, campaignFind } = prismaWith(donations);
+      campaignFind.mockResolvedValue({ lifecycleStatus: 'SUSPENDED' });
+
+      const result = await notifyDonorsOfCampaignUpdate(prisma as never, { updateId: 'upd-1' }, mailer);
+
+      expect(result.sent).toBe(50);
+      expect(result.recipients).toBe(120);
     });
   });
 });

@@ -6,7 +6,6 @@ import {
   SELECT_USER_EMAIL,
 } from './contact-fields';
 import { sendReportingFailure, type Mailer } from './mail';
-import { isPubliclyViewable } from './campaign-visibility';
 import { campaignUpdateEmail } from './mail/campaign-update';
 import { publicUrl } from './public-url';
 
@@ -29,9 +28,9 @@ import { publicUrl } from './public-url';
  * Donation is greeted without a name. An anonymised Donation has no address left
  * and is skipped.
  *
- * Limits: only the first update of a Campaign in any 24 hours is emailed (later
- * ones still publish); nothing is sent when the Campaign is no longer publicly
- * viewable when this runs; and sending stops after 5 failed sends in a row.
+ * Limits: only the first update of a Campaign on a WIB calendar day is emailed
+ * (later ones still publish); nothing is sent unless the Campaign is ACTIVE,
+ * COMPLETED or EXPIRED, re-read every 50 recipients; and sending stops after 5 failed sends in a row.
  * The User model has no suspended or deleted marker to filter on.
  *
  * One email per distinct address per update, however many Donations carry it:
@@ -43,7 +42,21 @@ import { publicUrl } from './public-url';
  */
 
 const PAGE = 200;
-const WINDOW_MS = 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+const RECHECK_EVERY = 50;
+
+/**
+ * Statuses whose Campaign may still email its Donors. An explicit list, not
+ * isPubliclyViewable: that treats SUSPENDED and CANCELLED as viewable, and a
+ * suspended Campaign must not mail anyone.
+ */
+const MAY_EMAIL_STATUSES = new Set(['ACTIVE', 'COMPLETED', 'EXPIRED']);
+
+/** Midnight WIB (UTC+7) starting the calendar day that contains `at`. */
+function startOfWibDay(at: Date): Date {
+  return new Date(Math.floor((at.getTime() + WIB_OFFSET_MS) / DAY_MS) * DAY_MS - WIB_OFFSET_MS);
+}
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 /** Whether Guest Donors (no account) are emailed too. Off until opt-out exists. */
@@ -85,13 +98,13 @@ export async function notifyDonorsOfCampaignUpdate(
       );
       return result;
     }
-    if (!isPubliclyViewable(update.campaign.lifecycleStatus)) return result;
+    if (!MAY_EMAIL_STATUSES.has(update.campaign.lifecycleStatus)) return result;
 
     const earlier = await prisma.campaignUpdate.count({
       where: {
         campaignId: update.campaignId,
         id: { not: update.id },
-        createdAt: { gte: new Date(update.createdAt.getTime() - WINDOW_MS), lt: update.createdAt },
+        createdAt: { gte: startOfWibDay(update.createdAt), lt: update.createdAt },
       },
     });
     if (earlier > 0) return result;
@@ -140,7 +153,16 @@ export async function notifyDonorsOfCampaignUpdate(
     result.recipients = byAddress.size;
 
     let failures = 0;
+    let attempted = 0;
     for (const { donation, anonymous } of byAddress.values()) {
+      if (attempted > 0 && attempted % RECHECK_EVERY === 0) {
+        const current = await prisma.campaign.findUnique({
+          where: { id: update.campaignId },
+          select: { lifecycleStatus: true },
+        });
+        if (!current || !MAY_EMAIL_STATUSES.has(current.lifecycleStatus)) break;
+      }
+      attempted += 1;
       let to: string | null;
       try {
         to = donation.donor ? readUserEmail(donation.donor) : readDonationGuestEmail(donation);
@@ -152,7 +174,7 @@ export async function notifyDonorsOfCampaignUpdate(
             updateId: update.id,
             donationId: donation.id,
             reason: 'the address could not be read',
-            error: error instanceof Error ? error.message : String(error),
+            error: error instanceof Error ? error.name : 'unknown',
           }),
         );
         continue;
