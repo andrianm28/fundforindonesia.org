@@ -163,4 +163,57 @@ describe('Donasi Saya', () => {
 
     expect(router.push).toHaveBeenCalledWith('/campaign/test-campaign');
   });
+
+  describe('Refund request', () => {
+    function stubFetch(refundResponse: { ok: boolean; status?: number; json: () => Promise<unknown> }) {
+      const fetchMock = vi.fn(async (...args: [string, RequestInit?]) =>
+        args[0].includes('refund-request')
+          ? refundResponse
+          : { ok: true, json: async () => ({ donations: [donation()], total: 1, page: 1, limit: 10, totalPages: 1 }) },
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      return fetchMock;
+    }
+
+    it('offers no request for a Donation that is not confirmed', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ donations: [donation({ paymentStatus: 'pending' })], total: 1, page: 1, limit: 10, totalPages: 1 }),
+        }),
+      );
+      render(<DonasiSayaPage />);
+      await screen.findByText('Test Campaign');
+      expect(screen.queryByRole('button', { name: /ajukan refund/i })).toBeNull();
+    });
+
+    it('sends the reason and the Donation amount, then says the request was sent', async () => {
+      const fetchMock = stubFetch({ ok: true, json: async () => ({ id: 'refund-1' }) });
+      render(<DonasiSayaPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ajukan refund/i }));
+      const send = screen.getByRole('button', { name: /kirim permintaan/i });
+      expect((send as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Salah nominal' } });
+      fireEvent.click(send);
+
+      await screen.findByText(/permintaan refund terkirim/i);
+      const call = fetchMock.mock.calls.find(([url]) => String(url).includes('refund-request'))!;
+      expect(call[0]).toBe('/api/donations/donation-1/refund-request');
+      expect(JSON.parse((call[1] as unknown as RequestInit).body as string)).toEqual({ amount: 100_000, reason: 'Salah nominal' });
+    });
+
+    it('shows the server refusal and keeps the form open', async () => {
+      stubFetch({ ok: false, status: 409, json: async () => ({ error: 'Batas waktu sudah lewat.' }) });
+      render(<DonasiSayaPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ajukan refund/i }));
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Salah nominal' } });
+      fireEvent.click(screen.getByRole('button', { name: /kirim permintaan/i }));
+
+      expect((await screen.findByRole('alert')).textContent).toBe('Batas waktu sudah lewat.');
+      expect(screen.getByRole('button', { name: /kirim permintaan/i })).toBeTruthy();
+    });
+  });
 });
