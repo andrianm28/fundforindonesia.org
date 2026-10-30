@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { randomBytes } from 'node:crypto';
 
 /**
  * A Guest Donor who later registers finds their past gifts waiting, and nobody
@@ -18,6 +19,7 @@ vi.mock('@/lib/prisma', () => ({
 
 import { claimGuestDonations } from './guest-donation-claim';
 import { prisma } from '@/lib/prisma';
+import { lookupDonationGuestEmail, sealDonationGuestEmail, sealUserEmail } from './contact-fields';
 
 const findUser = prisma.user.findUnique as unknown as Mock;
 const findDonations = prisma.donation.findMany as unknown as Mock;
@@ -25,8 +27,7 @@ const updateDonations = prisma.donation.updateMany as unknown as Mock;
 
 const account = (overrides: Record<string, unknown> = {}) => ({
   id: 'user-1',
-  emailHmac: 'hmac-of-sari',
-  emailHmacKeyId: 'k1',
+  ...sealUserEmail('sari@test.com'),
   emailVerifiedAt: new Date('2026-10-02T00:00:00Z'),
   ...overrides,
 });
@@ -62,7 +63,7 @@ describe('claimGuestDonations', () => {
     const result = await claimGuestDonations('user-1');
 
     expect(findDonations).toHaveBeenCalledWith({
-      where: { donorId: null, anonymisedAt: null, guestEmailHmac: 'hmac-of-sari', guestEmailHmacKeyId: 'k1' },
+      where: { donorId: null, anonymisedAt: null, ...lookupDonationGuestEmail('sari@test.com') },
       // Ids only: no guest name, message or ciphertext is read for the claim.
       select: { id: true },
     });
@@ -73,16 +74,15 @@ describe('claimGuestDonations', () => {
         id: { in: ['d1', 'd2'] },
         donorId: null,
         anonymisedAt: null,
-        guestEmailHmac: 'hmac-of-sari',
-        guestEmailHmacKeyId: 'k1',
+        ...lookupDonationGuestEmail('sari@test.com'),
       },
       data: { donorId: 'user-1' },
     });
     expect(result).toEqual({ verified: true, claimed: 2 });
   });
 
-  it('an account with an empty HMAC matches nothing, so a cleared Donation HMAC is never a match', async () => {
-    findUser.mockResolvedValue(account({ emailHmac: '' }));
+  it('an account with no readable email matches nothing', async () => {
+    findUser.mockResolvedValue(account({ emailCiphertext: null }));
 
     expect(await claimGuestDonations('user-1')).toEqual({ verified: true, claimed: 0 });
     expect(findDonations).not.toHaveBeenCalled();
@@ -95,5 +95,73 @@ describe('claimGuestDonations', () => {
 
     expect(await claimGuestDonations('user-1')).toEqual({ verified: true, claimed: 0 });
     expect(updateDonations).not.toHaveBeenCalled();
+  });
+
+  describe('across a key rotation', () => {
+    const saved = { ...process.env };
+    afterEach(() => {
+      process.env = { ...saved };
+    });
+
+    function rotate() {
+      process.env.FIELD_ENCRYPTION_PREVIOUS_KEYS = `${process.env.FIELD_ENCRYPTION_KEY_ID}:${process.env.FIELD_ENCRYPTION_KEY}`;
+      process.env.FIELD_HMAC_PREVIOUS_KEYS = `${process.env.FIELD_HMAC_KEY_ID}:${process.env.FIELD_HMAC_KEY}`;
+      process.env.FIELD_ENCRYPTION_KEY = randomBytes(32).toString('base64');
+      process.env.FIELD_ENCRYPTION_KEY_ID = 'enc-test-2';
+      process.env.FIELD_HMAC_KEY = randomBytes(32).toString('base64');
+      process.env.FIELD_HMAC_KEY_ID = 'hmac-test-2';
+    }
+
+    /** A donations table in memory that applies an `OR` of hmac + key id pairs as Prisma does. */
+    function donationsTable(rows: Array<Record<string, unknown>>) {
+      const matches = (row: Record<string, unknown>, where: { id?: { in: unknown[] }; donorId: unknown; anonymisedAt: unknown; OR: Array<Record<string, unknown>> }): boolean =>
+        (where.id === undefined || where.id.in.includes(row.id)) &&
+        row.donorId === where.donorId &&
+        row.anonymisedAt === where.anonymisedAt &&
+        where.OR.some(
+          (pair) => row.guestEmailHmac === pair.guestEmailHmac && row.guestEmailHmacKeyId === pair.guestEmailHmacKeyId,
+        );
+      findDonations.mockImplementation(async ({ where }) => rows.filter((r) => matches(r, where)).map(({ id }) => ({ id })));
+      updateDonations.mockImplementation(async ({ where, data }) => {
+        const hit = rows.filter((r) => matches(r, where));
+        hit.forEach((r) => Object.assign(r, data));
+        return { count: hit.length };
+      });
+      return rows;
+    }
+
+    const guest = (id: string) => {
+      const sealed = sealDonationGuestEmail('sari@test.com');
+      return { id, donorId: null, anonymisedAt: null, guestEmailHmac: sealed.guestEmailHmac, guestEmailHmacKeyId: sealed.guestEmailHmacKeyId };
+    };
+
+    it('an account hashed under the old key claims a guest Donation hashed under the new key', async () => {
+      findUser.mockResolvedValue(account());
+      rotate();
+      const rows = donationsTable([guest('new-key-donation')]);
+
+      expect(await claimGuestDonations('user-1')).toEqual({ verified: true, claimed: 1 });
+      expect(rows[0].donorId).toBe('user-1');
+    });
+
+    it('an account hashed under the new key claims a guest Donation hashed under the old key', async () => {
+      const old = guest('old-key-donation');
+      rotate();
+      findUser.mockResolvedValue(account());
+      const rows = donationsTable([old]);
+
+      expect(await claimGuestDonations('user-1')).toEqual({ verified: true, claimed: 1 });
+      expect(rows[0].donorId).toBe('user-1');
+    });
+
+    it('still claims nothing of another address, nor of an anonymised Donation', async () => {
+      rotate();
+      findUser.mockResolvedValue(account());
+      const other = { ...guest('other'), guestEmailHmac: 'not-sari' };
+      const anonymised = { ...guest('gone'), anonymisedAt: new Date() };
+      donationsTable([other, anonymised]);
+
+      expect(await claimGuestDonations('user-1')).toEqual({ verified: true, claimed: 0 });
+    });
   });
 });
