@@ -8,6 +8,12 @@ export type MailMessage = {
   /** The plain-text body; every message carries one for clients that show no HTML. */
   text: string;
   html: string;
+  /**
+   * Where a reply goes, when not to the sender: e.g. the company behind a
+   * Partnership Inquiry, so the partnership team answers it from their own
+   * mail client. Never the From -- that stays the Mailer's (MAIL_FROM).
+   */
+  replyTo?: string;
 };
 
 /**

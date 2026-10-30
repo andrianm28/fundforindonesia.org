@@ -60,6 +60,7 @@ export class SmtpMailer implements Mailer {
       subject: message.subject,
       text: message.text,
       html: message.html,
+      ...(message.replyTo ? { replyTo: message.replyTo } : {}),
     });
   }
 }
