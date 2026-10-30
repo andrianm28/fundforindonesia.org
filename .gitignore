@@ -53,3 +53,6 @@ next-env.d.ts
 # Harness-managed git worktrees. Never committed.
 .claude/worktrees/
 .ratchet-lint.json
+
+# private documents written outside production (ticket 64)
+/storage

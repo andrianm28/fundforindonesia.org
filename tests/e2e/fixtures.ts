@@ -33,3 +33,10 @@ export function operatorPassword(): string {
   }
   return value;
 }
+
+// Ticket 64: a Fundraiser who can sign in, with a Campaign waiting on a
+// Verifier, and a signed-in stranger who must not see its documents.
+export const DOCUMENT_CAMPAIGN_ID = 'e2e-campaign-dokumen';
+export const DOCUMENT_SLUG = 'e2e-dokumen-diajukan';
+export const DOCUMENT_FUNDRAISER_EMAIL = 'e2e-doc-fundraiser@example.org';
+export const STRANGER_EMAIL = 'e2e-stranger@example.org';

@@ -10,6 +10,7 @@ import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaig
 import { submitToVerifier } from '@/lib/verification-submission';
 import { endOfWibDay, formatWibLongDate, todayWibDate } from '@/lib/utils/date';
 import { deadlineRequired, KIND_LABEL, KINDS, type CampaignKind } from '@/lib/campaign-kind';
+import { DOCUMENT_ACCEPT } from '@/components/documents/DocumentUpload';
 
 /** One Category from GET /api/categories, the Category table. */
 interface CategoryOption {
@@ -21,6 +22,13 @@ interface CategoryOption {
 interface SponsorOptions {
   own: { id: string; name: string } | null;
   sponsors: { id: string; name: string }[];
+}
+
+/** A §7.1 checklist item this Kind must carry a document for (ticket 64). */
+interface DocumentItem {
+  id: string;
+  label: string;
+  required: boolean;
 }
 
 interface FormData {
@@ -56,6 +64,13 @@ export default function CampaignCreatePage() {
   const [pendingAction, setPendingAction] = useState<'draft' | 'submit' | null>(null);
   // The Draft once created, so a retried submission never creates another.
   const [draftSlug, setDraftSlug] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  // The documents the chosen Kind needs, and the file picked for each. An
+  // item is dropped from `documentFiles` once uploaded, so a retry never
+  // uploads it twice.
+  const [documentItems, setDocumentItems] = useState<DocumentItem[]>([]);
+  const [documentFiles, setDocumentFiles] = useState<Record<string, File>>({});
+  const [uploadedItems, setUploadedItems] = useState<ReadonlySet<string>>(new Set());
   const [submitError, setSubmitError] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   // Who may collect this Campaign's money (ADR 0010): null while loading.
@@ -107,6 +122,29 @@ export default function CampaignCreatePage() {
       cancelled = true;
     };
   }, []);
+
+  // The papers PRD §7.1 asks of this Kind, once a Kind is chosen. A failed
+  // read offers none: the Draft can still be saved and the documents added
+  // from Galang Dana Saya.
+  useEffect(() => {
+    if (status !== 'authenticated' || !formData.kind) return;
+    let cancelled = false;
+    fetch(`/api/verification-checklist/documents?kind=${formData.kind}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: { items?: DocumentItem[] }) => {
+        if (!cancelled) setDocumentItems(Array.isArray(data.items) ? data.items : []);
+      })
+      .catch(() => {
+        if (!cancelled) setDocumentItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status, formData.kind]);
+
+  const missingDocuments = documentItems.filter(
+    (item) => item.required && !documentFiles[item.id] && !uploadedItems.has(item.id)
+  );
 
   // An individual Fundraiser must pick a sponsor when there is one to pick.
   const mustPickSponsor = !!sponsorOptions && !sponsorOptions.own && sponsorOptions.sponsors.length > 0;
@@ -230,8 +268,8 @@ export default function CampaignCreatePage() {
   }
 
   /** Creates the Draft (once), returning its slug. */
-  async function createDraft(): Promise<string> {
-    if (draftSlug) return draftSlug;
+  async function createDraft(): Promise<{ slug: string; id: string | null }> {
+    if (draftSlug) return { slug: draftSlug, id: draftId };
 
     // Upload the cover first. A failed upload stops the submit: a placeholder
     // or a blob/data URL would be refused by the API (coverImageSchema).
@@ -283,7 +321,31 @@ export default function CampaignCreatePage() {
 
     const campaign = await res.json();
     setDraftSlug(campaign.slug);
-    return campaign.slug;
+    setDraftId(campaign.id ?? null);
+    return { slug: campaign.slug, id: campaign.id ?? null };
+  }
+
+  /**
+   * Uploads each picked document to the private store (ticket 64), never to
+   * /api/upload, whose files are public. Stops at the first refusal, naming
+   * the document; the ones already stored are not sent again on a retry.
+   */
+  async function uploadDocuments(campaignId: string | null) {
+    for (const item of documentItems) {
+      const file = documentFiles[item.id];
+      if (!file || uploadedItems.has(item.id)) continue;
+      if (!campaignId) throw new Error('Dokumen belum terunggah. Tambahkan dari Galang Dana Saya.');
+      const body = new FormData();
+      body.append('campaignId', campaignId);
+      body.append('checklistItemId', item.id);
+      body.append('file', file);
+      const res = await fetch('/api/documents', { method: 'POST', body });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(`${item.label}: ${typeof data.error === 'string' ? data.error : 'gagal diunggah'}`);
+      }
+      setUploadedItems((current) => new Set(current).add(item.id));
+    }
   }
 
   /**
@@ -297,8 +359,9 @@ export default function CampaignCreatePage() {
 
     let created = false;
     try {
-      const slug = await createDraft();
+      const { slug, id } = await createDraft();
       created = true;
+      await uploadDocuments(id);
       if (action === 'submit') {
         const refused = await submitToVerifier(slug);
         if (refused) throw new Error(refused);
@@ -658,6 +721,53 @@ export default function CampaignCreatePage() {
                 </div>
               </div>
 
+              {/* The private papers a Verifier checks (ticket 64, PRD §7.1). */}
+              {documentItems.length > 0 && (
+                <div className="rounded-lg border border-border p-4 space-y-3" data-testid="campaign-documents">
+                  <div>
+                    <h3 className="text-sm font-semibold text-text">Dokumen</h3>
+                    <p className="text-xs text-text-secondary mt-0.5">
+                      Dokumen privat: hanya Anda, Verifier yang memeriksa pengajuan Anda, dan Admin yang dapat
+                      membukanya. PDF, JPEG, PNG, atau WebP, maksimal 10MB. Dokumen juga dapat ditambahkan nanti
+                      dari Galang Dana Saya.
+                    </p>
+                  </div>
+                  {documentItems.map((item) => (
+                    <div key={item.id}>
+                      <label className="block text-xs font-medium text-text mb-1">
+                        {item.label}
+                        {item.required && <span className="text-danger ml-0.5">*</span>}
+                        {uploadedItems.has(item.id) && (
+                          <span className="ml-2 text-[#2E7D32]">Terunggah</span>
+                        )}
+                        <input
+                          type="file"
+                          accept={DOCUMENT_ACCEPT}
+                          aria-label={`Berkas ${item.label}`}
+                          disabled={pendingAction !== null || uploadedItems.has(item.id)}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            setDocumentFiles((current) => {
+                              const next = { ...current };
+                              if (file) next[item.id] = file;
+                              else delete next[item.id];
+                              return next;
+                            });
+                          }}
+                          className="mt-1 block text-xs"
+                        />
+                      </label>
+                    </div>
+                  ))}
+                  {missingDocuments.length > 0 && (
+                    <p className="text-xs text-danger">
+                      Untuk mengajukan ke Verifier, lengkapi dulu: {missingDocuments.map((item) => item.label).join(', ')}.
+                      Anda tetap dapat menyimpan Draft.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="flex gap-3 pt-4">
                 {/* Once the Draft exists, edits here would not reach it. */}
                 <Button
@@ -682,7 +792,7 @@ export default function CampaignCreatePage() {
                   size="full"
                   onClick={() => handleSave('submit')}
                   isLoading={pendingAction === 'submit'}
-                  disabled={pendingAction !== null}
+                  disabled={pendingAction !== null || missingDocuments.length > 0}
                 >
                   Ajukan ke Verifier
                 </Button>

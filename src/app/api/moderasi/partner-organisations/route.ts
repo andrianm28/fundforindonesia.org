@@ -5,8 +5,9 @@ import { partnerOrganisationRoute } from "@/lib/partner-organisation-route";
 import { registerPartnerOrganisation } from "@/lib/partner-organisations";
 
 /**
- * Every Partner Organisation with its linked account, permits and Kind
- * Authorisations, by name: what the Verifier's register shows.
+ * Every Partner Organisation with its linked account, permits, Kind
+ * Authorisations and legal documents, by name: what the Verifier's register
+ * shows.
  */
 export const GET = partnerOrganisationRoute(
   async () => {
@@ -16,6 +17,11 @@ export const GET = partnerOrganisationRoute(
         fundraiser: { select: { name: true, ...SELECT_USER_EMAIL } },
         permits: { orderBy: { validTo: "desc" } },
         kindAuthorisations: { orderBy: { validTo: "desc" } },
+        // Never the storage path: a document is opened through its ACL route.
+        documents: {
+          orderBy: { uploadedAt: "asc" },
+          select: { id: true, label: true, contentType: true, sizeBytes: true, uploadedAt: true },
+        },
       },
     });
     // Decrypted on the way out, so the register shows the Verifier the address

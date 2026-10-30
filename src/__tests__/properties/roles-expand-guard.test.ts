@@ -253,6 +253,10 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   // anyone holding VERIFIER or ADMIN), which GET /api/campaigns/[slug] asks
   // for every viewer, so no route wrapper can require one assignment.
   "src/lib/campaign-visibility.ts",
+  // Not a route: who may open a private document (ticket 64) -- its
+  // uploader, the Campaign's Fundraiser, a Verifier handling it, an Admin --
+  // which no single-assignment route wrapper can express.
+  "src/lib/documents.ts",
 ];
 
 /** Every route that changes a Campaign's lifecycle through the lifecycle module. */

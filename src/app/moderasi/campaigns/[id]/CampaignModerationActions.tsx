@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ChecklistEntry, VerificationDecision } from "@/lib/campaign-lifecycle";
+import type { DocumentSummary } from "@/lib/documents";
+import { DocumentList } from "@/components/documents/DocumentList";
 
 interface CampaignModerationActionsProps {
   campaignId: string;
@@ -12,6 +14,8 @@ interface CampaignModerationActionsProps {
   identityVerifiedAt: Date | null;
   /** The Collecting Entity approving confirms (prd-compliance 10), or null when it names none. */
   collectingEntityName?: string | null;
+  /** The Campaign's uploaded documents by the checklist item they evidence (ticket 64). */
+  documentsByItem?: Record<string, DocumentSummary[]>;
 }
 
 /**
@@ -22,12 +26,16 @@ interface CampaignModerationActionsProps {
  * Approve stays disabled until every required item is ticked, naming the
  * ones still missing; the server refuses such an approval anyway.
  * Suspension is an Admin decision (ADR 0005), so this panel never offers it.
+ * An item that needs a document stays disabled until the Fundraiser has
+ * uploaded one for it (ticket 64), with the document beside the box; the
+ * server refuses that tick anyway.
  */
 export function CampaignModerationActions({
   campaignId,
   request,
   identityVerifiedAt,
   collectingEntityName = null,
+  documentsByItem = {},
 }: CampaignModerationActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = useState<VerificationDecision | null>(null);
@@ -48,8 +56,11 @@ export function CampaignModerationActions({
     });
   };
 
+  const missingDocument = (entry: ChecklistEntry) =>
+    entry.requiresDocument === true && (documentsByItem[entry.id]?.length ?? 0) === 0;
+
   const untickedRequired = (request?.checklist ?? [])
-    .filter((entry) => entry.required && !ticked.has(entry.id))
+    .filter((entry) => entry.required && (!ticked.has(entry.id) || missingDocument(entry)))
     .map((entry) => entry.label);
 
   const handleAction = async (decision: VerificationDecision) => {
@@ -66,7 +77,9 @@ export function CampaignModerationActions({
       action: decision,
       requestId: request.id,
       // In checklist order, whatever order the boxes were ticked in.
-      ticked: request.checklist.filter((entry) => ticked.has(entry.id)).map((entry) => entry.id),
+      ticked: request.checklist
+        .filter((entry) => ticked.has(entry.id) && !missingDocument(entry))
+        .map((entry) => entry.id),
     };
     if (decision === "reject") body.reason = reason;
     if (decision === "approve" && !identityVerifiedAt && identityNote.trim() !== "") {
@@ -151,17 +164,27 @@ export function CampaignModerationActions({
                       <input
                         type="checkbox"
                         className="mt-0.5"
-                        checked={ticked.has(entry.id)}
+                        checked={ticked.has(entry.id) && !missingDocument(entry)}
                         onChange={() => toggle(entry.id)}
-                        disabled={loading !== null}
+                        disabled={loading !== null || missingDocument(entry)}
                       />
                       <span>
                         {entry.label}
                         {entry.required && (
                           <span className="ml-2 text-xs text-[#C62828]">Wajib</span>
                         )}
+                        {missingDocument(entry) && (
+                          <span className="block text-xs text-text-secondary">
+                            Belum ada dokumen yang diunggah Fundraiser untuk butir ini.
+                          </span>
+                        )}
                       </span>
                     </label>
+                    {entry.requiresDocument && (documentsByItem[entry.id]?.length ?? 0) > 0 && (
+                      <div className="ml-6 mt-1">
+                        <DocumentList documents={documentsByItem[entry.id]} compact />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

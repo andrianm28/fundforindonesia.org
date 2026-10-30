@@ -52,6 +52,8 @@ describe('CampaignCreatePage review step', () => {
   let submission: { status: number; body: unknown };
   let categoryRows: { slug: string; name: string }[];
   let sponsorOptions: { own: { id: string; name: string } | null; sponsors: { id: string; name: string }[] };
+  let documentItems: { id: string; label: string; required: boolean }[];
+  let documentAnswer: () => Response;
 
   beforeEach(() => {
     calls.length = 0;
@@ -62,6 +64,8 @@ describe('CampaignCreatePage review step', () => {
       { slug: 'rumah-ibadah', name: 'Rumah Ibadah' },
     ];
     sponsorOptions = { own: null, sponsors: [{ id: 'sponsor', name: 'Yayasan Penaung' }] };
+    documentItems = [];
+    documentAnswer = () => Response.json({ document: { id: 'doc-1' } }, { status: 201 });
     mockUseSession.mockReturnValue(signedIn());
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:cover' }));
     vi.stubGlobal(
@@ -75,7 +79,13 @@ describe('CampaignCreatePage review step', () => {
         if (url === '/api/partner-organisations/sponsors') return Response.json(sponsorOptions);
         if (url === '/api/categories') return Response.json({ categories: categoryRows });
         if (url === '/api/upload') return uploadAnswer();
-        if (url === '/api/campaigns') return Response.json({ slug: 'bantu-banjir-abc123' }, { status: 201 });
+        if (url.startsWith('/api/verification-checklist/documents')) return Response.json({ items: documentItems });
+        if (url === '/api/documents') {
+          const form = init?.body as FormData;
+          calls[calls.length - 1].body = { campaignId: form.get('campaignId'), checklistItemId: form.get('checklistItemId') };
+          return documentAnswer();
+        }
+        if (url === '/api/campaigns') return Response.json({ id: 'campaign-new', slug: 'bantu-banjir-abc123' }, { status: 201 });
         return Response.json(submission.body, { status: submission.status });
       }),
     );
@@ -123,6 +133,57 @@ describe('CampaignCreatePage review step', () => {
     ]);
     expect(screen.queryByRole('option', { name: 'Lainnya' })).toBeNull();
     expect(screen.queryByRole('option', { name: 'Bantuan Medis & Kesehatan' })).toBeNull();
+  });
+
+  describe('the documents PRD §7.1 asks for (ticket 64)', () => {
+    const KTP = { id: 'ktp', label: 'KTP Fundraiser', required: true };
+    const FOTO = { id: 'foto', label: 'Foto kondisi', required: false };
+    const pdf = () => new File(['%PDF-1.7'], 'ktp.pdf', { type: 'application/pdf' });
+
+    it("asks for the Kind's documents on the review step, and holds back submitting until the required ones are picked", async () => {
+      documentItems = [KTP, FOTO];
+      await fillInToReview();
+
+      await screen.findByLabelText('Berkas KTP Fundraiser');
+      const submit = screen.getByRole('button', { name: 'Ajukan ke Verifier' }) as HTMLButtonElement;
+      expect(submit.disabled).toBe(true);
+      expect(screen.getByText(/Untuk mengajukan ke Verifier, lengkapi dulu: KTP Fundraiser\./)).toBeDefined();
+      expect((screen.getByRole('button', { name: 'Simpan Draft' }) as HTMLButtonElement).disabled).toBe(false);
+
+      fireEvent.change(screen.getByLabelText('Berkas KTP Fundraiser'), { target: { files: [pdf()] } });
+
+      expect(submit.disabled).toBe(false);
+    });
+
+    it('uploads each picked document to the private store after creating the Draft, before submitting it', async () => {
+      documentItems = [KTP];
+      await fillInToReview();
+      fireEvent.change(await screen.findByLabelText('Berkas KTP Fundraiser'), { target: { files: [pdf()] } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/akun/kampanye-saya'));
+      expect(calls.filter((c) => c.method === 'POST').map((c) => c.url)).toEqual([
+        '/api/upload',
+        '/api/campaigns',
+        '/api/documents',
+        '/api/campaigns/bantu-banjir-abc123/verification-requests',
+      ]);
+      expect(calls.find((c) => c.url === '/api/documents')?.body).toEqual({ campaignId: 'campaign-new', checklistItemId: 'ktp' });
+    });
+
+    it('keeps the Draft and does not submit when a document is refused, naming it', async () => {
+      documentItems = [KTP];
+      documentAnswer = () => Response.json({ error: 'Isi berkas tidak sesuai dengan tipenya.' }, { status: 415 });
+      await fillInToReview();
+      fireEvent.change(await screen.findByLabelText('Berkas KTP Fundraiser'), { target: { files: [pdf()] } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
+
+      expect(await screen.findByText(/Campaign tersimpan sebagai Draft, tetapi belum diajukan: KTP Fundraiser: Isi berkas tidak sesuai/)).toBeDefined();
+      expect(calls.filter((c) => c.url.endsWith('/verification-requests'))).toHaveLength(0);
+      expect(mockPush).not.toHaveBeenCalled();
+    });
   });
 
   it('offers "Simpan Draft" and "Ajukan ke Verifier"', async () => {
