@@ -84,6 +84,9 @@ export const tripFeeAmountSchema = z
  * LOCK ORDER, for every Trip operation, and documented only here:
  *   1. the Trip, through the subject guard's `lockAndLoad`;
  *   2. its Batch (`lockBatch`, `lockOpenBatch`);
+ *      in `holdRegistration` only, then the Volunteer's account (an
+ *      advisory lock keyed `volunteer-holds:<userId>`), so the live-hold
+ *      cap counts under a lock; nothing else takes it;
  *   3. Registrations: a Batch's live ones in id order
  *      (`lockLiveRegistrations`), or one by id (`lockRegistration`);
  *   4. each Payment, inside `createRefund`, which first re-enters the Trip
