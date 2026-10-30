@@ -172,10 +172,11 @@ Refund selalu mengembalikan **Gross**, yaitu persis yang Donor bayar. Provider F
 | Suspension karena penyalahgunaan | Seluruh Payment Campaign yang dananya belum keluar | Admin, satu keputusan untuk seluruh Campaign |
 | Cancelled, Fundraiser menarik diri sebelum ada Payout Completed | Seluruh Payment Campaign | Fundraiser mengajukan, Admin menyetujui |
 | Donor salah bayar, ganda, atau salah Campaign | Satu Payment, penuh atau sebagian | Donor menghubungi, Admin membuat |
+| Donor meminta sendiri Refund atas Donation miliknya (amandemen 2026-10-30, keputusan owner E3, 2026-10-04) | Satu Payment Donation milik Donor itu, penuh atau sebagian | Donor mengajukan lewat antarmuka, Admin menyetujui atau menolak dengan alasan tercatat |
 | Dana masuk setelah Campaign Completed atau Expired | Payment yang bersangkutan | Otomatis diusulkan sistem, Admin memutuskan |
 | Dana masuk setelah Campaign Suspended atau Cancelled | Payment yang bersangkutan | Otomatis masuk antrean Refund dengan alasan yang sama seperti Campaign-nya |
 
-Donor tidak bisa memulai Refund sendiri lewat antarmuka. Permintaan masuk lewat kontak dan Admin yang membuatnya, karena refund menyentuh uang yang sudah dibukukan.
+Donor memulai Refund sendiri lewat antarmuka hanya bila semua syarat ini terpenuhi (amandemen 2026-10-30; teks asli: "Donor tidak bisa memulai Refund sendiri lewat antarmuka"): Donation itu miliknya dan ia masuk dengan akun; belum ada Payout Campaign itu yang diajukan, disetujui, diproses, atau selesai; masih dalam jendela waktu sejak Settlement; nominalnya di bawah batas untuk Kind Campaign itu (sebuah Kind boleh tidak diizinkan sama sekali); dan jumlah permintaan yang masih menunggu tidak melewati batas per Donor. Permintaan itu adalah Refund berstatus `Requested` dengan Donor sebagai pengaju, jadi dananya dibekukan seketika dan tidak ada uang keluar sebelum Admin menyetujui; Admin yang menolak wajib mencatat alasan. Jendela waktu, batas per Kind, dan batas per Donor tidak ditulis di repositori publik ini: nilainya diatur lewat konfigurasi lingkungan, dan bila konfigurasi itu tidak ada fitur ini mati. Refund yang diminta Donor tetap tunduk pada batas per Kind di bawah. Permintaan di luar syarat itu tetap masuk lewat kontak dan Admin yang membuatnya, karena refund menyentuh uang yang sudah dibukukan.
 
 Webhook Settlement selalu diterima dan dicatat, apa pun status Campaign saat itu. Menolaknya berarti uang Donor ada di penyedia tanpa jejak di sistem, yang jauh lebih buruk daripada satu Refund tambahan.
 

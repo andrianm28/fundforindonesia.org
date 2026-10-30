@@ -8,6 +8,7 @@ import { loadRefundSubject } from '@/lib/refund-subject-lookup';
 import { REFUND_STATUS_LABEL } from '@/lib/refund-status-label';
 import { readRefundDonorAccountNumber } from '@/lib/contact-fields';
 import { maskBankAccountNumber } from '@/lib/bank-account-mask';
+import { isDonorInitiatedRefund } from '@/lib/money/donor-refunds';
 import { AdminRefundApproveForm } from '@/components/admin/AdminRefundApproveForm';
 import { AdminRefundCompleteForm } from '@/components/admin/AdminRefundCompleteForm';
 import { AdminRefundResolveForm } from '@/components/admin/AdminRefundResolveForm';
@@ -66,7 +67,7 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
       payment: {
         select: {
           amount: true,
-          donation: { select: { campaignId: true } },
+          donation: { select: { campaignId: true, donorId: true } },
           registration: { select: { batch: { select: { tripId: true } } } },
         },
       },
@@ -113,6 +114,12 @@ export default async function AdminRefundDetailPage({ params }: RouteContext) {
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-xs text-gray-500">Diajukan oleh</p>
           <p className="text-lg font-semibold text-gray-900">{refund.requestedBy.name}</p>
+          {isDonorInitiatedRefund(refund) && (
+            <p className="mt-1 text-xs text-amber-700">
+              Permintaan dari Donor sendiri. Tidak ada uang keluar sampai Anda menyetujuinya; menolak
+              mengembalikan dana yang dibekukan dan mencatat alasannya.
+            </p>
+          )}
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
           <p className="text-xs text-gray-500">Alasan</p>
