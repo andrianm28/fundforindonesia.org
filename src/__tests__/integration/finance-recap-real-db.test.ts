@@ -106,10 +106,18 @@ describe.skipIf(!DATABASE_URL)('Finance recap -- against real Postgres (ticket 7
   }
 
   /** Moves every entry of every transaction that touches `campaignId` to `at`. */
+  // The ledger is append-only (migration 20261016090000_ledger_integrity), so
+  // the fixture lifts the trigger inside one transaction -- DDL is
+  // transactional, so it is back on whatever happens -- and never in the code
+  // under test (same pattern as stuck-refund-sweep.test.ts).
   async function moveCampaignEntriesTo(campaignId: string, at: Date) {
-    await prisma.$executeRaw`
-      UPDATE "LedgerEntry" SET "createdAt" = ${at}
-      WHERE "transactionId" IN (SELECT "transactionId" FROM "LedgerEntry" WHERE "campaignId" = ${campaignId})`;
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('ALTER TABLE "LedgerEntry" DISABLE TRIGGER "LedgerEntry_append_only"');
+      await tx.$executeRaw`
+        UPDATE "LedgerEntry" SET "createdAt" = ${at}
+        WHERE "transactionId" IN (SELECT "transactionId" FROM "LedgerEntry" WHERE "campaignId" = ${campaignId})`;
+      await tx.$executeRawUnsafe('ALTER TABLE "LedgerEntry" ENABLE TRIGGER "LedgerEntry_append_only"');
+    });
   }
 
   /**
@@ -330,7 +338,11 @@ describe.skipIf(!DATABASE_URL)('Finance recap -- against real Postgres (ticket 7
     );
     await manual.approveManualContribution(prisma, { manualContributionId: contribution.id, decidedById: await makeUser() });
     await moveCampaignEntriesTo(a.campaignId, new Date('2027-01-15T05:00:00Z'));
-    await prisma.$executeRaw`UPDATE "LedgerEntry" SET "createdAt" = ${new Date('2027-01-15T05:00:00Z')} WHERE "manualContributionId" = ${contribution.id}`;
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('ALTER TABLE "LedgerEntry" DISABLE TRIGGER "LedgerEntry_append_only"');
+      await tx.$executeRaw`UPDATE "LedgerEntry" SET "createdAt" = ${new Date('2027-01-15T05:00:00Z')} WHERE "manualContributionId" = ${contribution.id}`;
+      await tx.$executeRawUnsafe('ALTER TABLE "LedgerEntry" ENABLE TRIGGER "LedgerEntry_append_only"');
+    });
 
     const recap = await recapLib.financeRecap(prisma, { from: '2027-01', to: '2027-01' });
     const row = recap.rows.find((r) => r.campaignId === a.campaignId)!;
