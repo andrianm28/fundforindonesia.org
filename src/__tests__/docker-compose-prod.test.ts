@@ -196,6 +196,15 @@ describe("docker-compose.prod.yml env passthrough", () => {
       "SUMOPOD_BASE_URL",
     ],
     "src/lib/partnership-inquiries.ts": ["PARTNERSHIP_TEAM_EMAIL"],
+    // readDonorRefundConfig(env = process.env), names built per Kind (E3/04).
+    "src/lib/money/donor-refund-config.ts": [
+      "DONOR_REFUND_WINDOW_HOURS",
+      "DONOR_REFUND_MAX_OPEN_PER_DONOR",
+      "DONOR_REFUND_MAX_AMOUNT_DONATION",
+      "DONOR_REFUND_MAX_AMOUNT_ZAKAT",
+      "DONOR_REFUND_MAX_AMOUNT_WAKAF",
+      "DONOR_REFUND_MAX_AMOUNT_HIBAH",
+    ],
     // documentRoot(env = process.env), so tests can hand it their own (ticket 64).
     "src/lib/documents.ts": ["PRIVATE_DOCUMENT_DIR"],
     // loadFieldKeys(process.env) at boot; the names are VARS in field-encryption.ts.

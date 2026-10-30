@@ -198,6 +198,7 @@ function DonationCard({
           Lihat &amp; Cetak Bukti Donasi
         </a>
       )}
+      {donation.paymentStatus === 'confirmed' && <RefundRequest donation={donation} />}
       {donation.paymentStatus === 'confirmed' && donation.akadWakafToken && (
         <a
           href={`/akad-wakaf/${donation.akadWakafToken}`}
@@ -207,6 +208,91 @@ function DonationCard({
           Lihat &amp; Cetak Tanda Terima Wakaf
         </a>
       )}
+    </div>
+  );
+}
+
+/**
+ * A Donor's own Refund request (CONTEXT.md, Refund). The button only asks:
+ * the window, the Kind's limit and "before Payout" are judged by the server,
+ * which answers in words that are shown here as they come. An Admin still has
+ * to approve, so nothing is paid back by pressing it.
+ */
+function RefundRequest({ donation }: { donation: DonationItem }) {
+  const [state, setState] = useState<'closed' | 'open' | 'sending' | 'done'>('closed');
+  const [reason, setReason] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function submit() {
+    setState('sending');
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/donations/${donation.id}/refund-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: donation.amount, reason }),
+      });
+      if (res.ok) {
+        setState('done');
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      setMessage(data?.error ?? 'Gagal mengajukan Refund. Coba lagi nanti.');
+    } catch {
+      setMessage('Gagal mengajukan Refund. Coba lagi nanti.');
+    }
+    setState('open');
+  }
+
+  if (state === 'done') {
+    return (
+      <p className="mt-2 text-xs font-medium text-[#2E7D32]">
+        Permintaan Refund terkirim. Tim kami akan meninjau dan menghubungi Anda.
+      </p>
+    );
+  }
+  if (state === 'closed') {
+    return (
+      <button
+        type="button"
+        onClick={() => setState('open')}
+        className="mt-2 block text-[#0073E6] text-xs font-medium hover:underline"
+      >
+        Ajukan Refund
+      </button>
+    );
+  }
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <label className="block text-xs text-text-secondary" htmlFor={`refund-reason-${donation.id}`}>
+        Alasan meminta Refund sebesar {formatRupiah(donation.amount)}
+      </label>
+      <textarea
+        id={`refund-reason-${donation.id}`}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        maxLength={500}
+        rows={2}
+        className="mt-1 w-full rounded-lg border border-border p-2 text-sm"
+      />
+      {message && (
+        <p role="alert" className="mt-1 text-xs text-[#C62828]">
+          {message}
+        </p>
+      )}
+      <div className="mt-2 flex gap-3">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={state === 'sending' || reason.trim() === ''}
+          className="rounded-lg bg-[#0073E6] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+        >
+          {state === 'sending' ? 'Mengirim...' : 'Kirim permintaan'}
+        </button>
+        <button type="button" onClick={() => setState('closed')} className="text-xs text-text-secondary hover:underline">
+          Batal
+        </button>
+      </div>
     </div>
   );
 }

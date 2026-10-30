@@ -25,11 +25,13 @@ Tautan pendek per Campaign untuk dibagikan, supaya Traffic Source per tautan (PR
 ## Acceptance
 
 - [x] Domain/prefix diputuskan dan dicatat di tiket: prefix di apex (mis. `/s/<kode>`), 2026-10-04
-- [ ] Model tautan pendek + migrasi; pengalihan mencatat Traffic Source
-- [ ] Tes route dan e2e
+- [x] Model tautan pendek + migrasi; pengalihan mencatat Traffic Source (PR #296)
+- [x] Tes route dan e2e (PR #296)
 
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Lajur E, relay kedua) dan `keputusan-ronde-c.md` (C23). Status `needs-info` karena grilling singkat dulu; acceptance di bawah sementara.
 
 - 2026-10-04 (ronde C): E1 dijawab owner: prefix di apex, mis. `/s/<kode>`. Tidak ada pertanyaan terbuka; builder memilih bentuk persis prefix dan kode, memastikan tidak bentrok dengan rute yang ada (lihat tiket `32-route-slug-collision-guard`). `needs-info` menjadi `ready-for-agent`.
+
+- 2026-10-30: dikerjakan di branch `claude/project-thread-5dujal` (lajur perluasan M3). Model `ShortLink` + migrasi `20261030090000_short_links` (tabel baru saja, tanpa backfill); `/s/<kode>` (route handler, 302 ke `publicUrl`, 404 nyata); `POST /api/campaigns/[slug]/short-links` tanpa sesi, hanya Campaign publik, dibatasi empat kanal `SHARE_CHANNELS`; ShareModal memakai tautan pendek bila tersedia dan tetap memakai tautan panjang bila gagal. Tes unit, route, dan e2e `tests/e2e/short-links.spec.ts`. Menunggu CI dan merge owner.

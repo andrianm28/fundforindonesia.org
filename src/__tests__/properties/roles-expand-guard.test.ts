@@ -167,6 +167,10 @@ import { join } from "node:path";
  * `GET`/`PATCH /api/admin/programs/[id]` are the Admin's Program screen, all
  * through withHiddenAssignmentCheck on the ADMIN assignment -- growing this
  * list by two.
+ *
+ * NOTE (ticket 79): `GET /api/admin/finance/recap` serves the finance recap
+ * CSV through withHiddenAssignmentCheck on the ADMIN assignment -- read-only,
+ * growing this list by one.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -202,6 +206,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/users/route.ts",
   "src/app/api/admin/programs/[id]/route.ts",
   "src/app/api/admin/programs/route.ts",
+  "src/app/api/admin/finance/recap/route.ts",
   // ticket 90: the Admin APIs' 404 for anyone without ADMIN, in front of the
   // Trip suspension module, which still decides who may suspend or lift.
   "src/app/api/admin/volunteer-trips/[id]/suspension/route.ts",

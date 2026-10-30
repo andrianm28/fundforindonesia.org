@@ -526,6 +526,7 @@ model Campaign {
   auditMarker           CampaignAuditMarker?
   donationReviewMarkers DonationReviewMarker[]
   documents             Document[]
+  shortLinks            ShortLink[]
 
   @@index([slug])
   @@index([category])
@@ -915,6 +916,31 @@ model VerificationChecklistItem {
 
   @@index([active, position])
   @@index([kind, active, position])
+}
+
+/// A short link to a Campaign for sharing (ticket E1/02, PRD FFI-06):
+/// `/s/<code>` on the apex domain redirects to the Campaign page with this
+/// link's Traffic Source as `?src=`, so a Donation that arrives through it
+/// records the same `Donation.trafficSource` a long shared link would.
+/// One row per (Campaign, source): the share channels each get one stable
+/// code, created on first share and reused after, so the table grows by at
+/// most one row per channel per Campaign. Points at the Campaign by id, not
+/// slug, so a renamed slug never breaks a link already shared.
+model ShortLink {
+  id         String   @id @default(cuid())
+  /// Random, case-sensitive, from src/lib/short-links.ts. Never derived from
+  /// the Campaign, so codes cannot be walked to enumerate Campaigns.
+  code       String   @unique @db.VarChar(16)
+  campaignId String
+  /// Already sanitized by src/lib/traffic-source.ts, one of the share channels.
+  source     String   @db.VarChar(40)
+  /// Times the redirect was followed. A count, not analytics: no visitor data.
+  clickCount Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, source])
 }
 
 /// A private document uploaded as evidence (ticket 64, PRD §7.1): a

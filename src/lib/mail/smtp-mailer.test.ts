@@ -87,4 +87,15 @@ describe('SmtpMailer', () => {
       '535 Authentication failed',
     );
   });
+
+  it('passes a Reply-To through when the message names one, and none otherwise', async () => {
+    const { calls, createTransport } = recordingTransport();
+    const mailer = new SmtpMailer(CONFIG, createTransport);
+
+    await mailer.send({ ...MESSAGE, replyTo: 'rina@sinarabadi.test' });
+    await mailer.send(MESSAGE);
+
+    expect(calls.mails[0]).toMatchObject({ from: 'no-reply@example.test', replyTo: 'rina@sinarabadi.test' });
+    expect(calls.mails[1]).not.toHaveProperty('replyTo');
+  });
 });

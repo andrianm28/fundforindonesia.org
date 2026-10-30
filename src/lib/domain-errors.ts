@@ -105,7 +105,10 @@ export type MoneyErrorCode =
   | "CAMPAIGN_TRANSFER_TARGET_NOT_ELIGIBLE"
   | "REFUND_AFTER_CAMPAIGN_TRANSFER"
   | "CAMPAIGN_NOT_CLOSED_FOR_REFUND_PROPOSAL"
-  | "LATE_SETTLEMENT_NOT_PROPOSABLE";
+  | "LATE_SETTLEMENT_NOT_PROPOSABLE"
+  | "DONOR_REFUND_DISABLED"
+  | "DONOR_REFUND_NOT_ELIGIBLE"
+  | "DONOR_REFUND_TOO_MANY_OPEN";
 
 /**
  * Refusals of a Volunteer Trip's own lifecycle, kept apart from the
@@ -338,6 +341,13 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // Campaign's Kind is what forbids the Refund, and no resend of the same
   // body changes that. 403 with the other policy refusals.
   REFUND_NOT_ALLOWED_FOR_KIND: 403,
+  // Donor-initiated Refund (ticket fase-3/04). Off by configuration, or not
+  // allowed by the window, the Kind's cap or a Payout that already drew on
+  // the Campaign: states a resend cannot change, so 403 / 409. The open-
+  // request limit is a rate refusal, 429.
+  DONOR_REFUND_DISABLED: 403,
+  DONOR_REFUND_NOT_ELIGIBLE: 409,
+  DONOR_REFUND_TOO_MANY_OPEN: 429,
   // Both are states the request cannot change by being resent: the Donation
   // was anonymised (ticket 36), or a Refund on it has not finished yet.
   DONATION_ANONYMISED: 409,
