@@ -246,7 +246,8 @@ async function main() {
       category: 'lingkungan',
       kind: Kind.DONATION,
       lifecycleStatus: CampaignStatus.DRAFT,
-      deadline: new Date('2030-06-01T00:00:00.000Z'),
+      // Within the 12-month limit (ticket 81): saving the Draft re-checks it.
+      deadline: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
       creatorId: 'e2e-edit-fundraiser',
       collectingEntityId: 'e2e-org',
     },
