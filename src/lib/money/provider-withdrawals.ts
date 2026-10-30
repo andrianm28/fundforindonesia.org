@@ -291,9 +291,9 @@ export interface WithdrawalReconciliation {
 export interface ProviderReconciliation {
   provider: string;
   /**
-   * The ledger's own pot for this provider. A FLOOR, not the whole Provider
-   * Balance: movements naming no provider (a completed Payout, a paid Refund)
-   * are deliberately not folded in. See ledger.ts's providerBalances.
+   * The ledger's own pot for this provider. A FLOOR while unattributed rows
+   * exist: movements naming no provider (rows posted before ticket 69, and
+   * Payouts approved without a provider reading) are deliberately not folded in. See ledger.ts's providerBalances.
    */
   pot: ProviderBalance;
   /** What has been swept to the bank for this provider, per the ledger. */
