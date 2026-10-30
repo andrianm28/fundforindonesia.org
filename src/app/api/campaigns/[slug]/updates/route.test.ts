@@ -38,7 +38,7 @@ function signedInAs(id: string) {
 describe('POST /api/campaigns/[slug]/updates', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCampaignFind.mockResolvedValue({ id: 'campaign-1', creatorId: 'owner-1' } as any);
+    mockCampaignFind.mockResolvedValue({ id: 'campaign-1', creatorId: 'owner-1', lifecycleStatus: 'ACTIVE' } as never);
     mockUpdateCreate.mockResolvedValue({ id: 'update-1', ...validBody, images: [], createdAt: new Date() } as any);
   });
 
@@ -59,4 +59,56 @@ describe('POST /api/campaigns/[slug]/updates', () => {
     });
     expect(mockUpdateCreate).not.toHaveBeenCalled();
   });
+
+  it('accepts an image the upload route hosted (a relative /uploads path)', async () => {
+    signedInAs('owner-1');
+    const response = await post({ ...validBody, images: ['/uploads/abc-123.jpg'] });
+    expect(response.status).toBe(201);
+    expect(mockUpdateCreate.mock.calls[0][0].data.images).toEqual(['/uploads/abc-123.jpg']);
+  });
+
+  it('refuses an image that is neither http(s) nor an /uploads path', async () => {
+    signedInAs('owner-1');
+    const response = await post({ ...validBody, images: ['javascript:alert(1)'] });
+    expect(response.status).toBe(400);
+    expect(mockUpdateCreate).not.toHaveBeenCalled();
+  });
+
+  it.each(['..', '.', '...'])('refuses an /uploads name made only of dots (%s)', async (name) => {
+    signedInAs('owner-1');
+    const response = await post({ ...validBody, images: [`/uploads/${name}`] });
+    expect(response.status).toBe(400);
+  });
+
+  it('refuses a third-party https image: the form only ever yields /uploads paths', async () => {
+    signedInAs('owner-1');
+    const response = await post({ ...validBody, images: ['https://tracker.example/p.gif'] });
+    expect(response.status).toBe(400);
+  });
+
+  it('answers 404, like a missing slug, when a non-owner asks about an unapproved Campaign', async () => {
+    signedInAs('someone-else');
+    mockCampaignFind.mockResolvedValue({ id: 'campaign-1', creatorId: 'owner-1', lifecycleStatus: 'DRAFT' } as never);
+    const response = await post();
+    expect(response.status).toBe(404);
+    expect(mockUpdateCreate).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for a slug that does not exist', async () => {
+    signedInAs('owner-1');
+    mockCampaignFind.mockResolvedValue(null);
+    expect((await post()).status).toBe(404);
+  });
+
+  it.each(['DRAFT', 'SUBMITTED', 'REJECTED'])(
+    'tells the owner plainly that a %s Campaign takes no update yet, and writes nothing',
+    async (status) => {
+      signedInAs('owner-1');
+      mockCampaignFind.mockResolvedValue({ id: 'campaign-1', creatorId: 'owner-1', lifecycleStatus: status } as never);
+      const response = await post();
+      expect(response.status).toBe(409);
+      expect((await response.json()).code).toBe('CAMPAIGN_NOT_PUBLIC');
+      expect(mockUpdateCreate).not.toHaveBeenCalled();
+    },
+  );
 });
