@@ -278,7 +278,7 @@ export async function PATCH(
         ...fields,
         ...(deadline !== undefined && { deadline: deadline === null ? null : new Date(deadline) }),
       };
-      requireKindAndDeadlineEditable(state, data);
+      requireKindAndDeadlineEditable(state, data, new Date());
       // An individual Fundraiser may only run Kind donation (CONTEXT.md,
       // Kind Authorisation; ADR 0013): refused here too, not only at
       // submission, so a Draft can never even be edited into one.

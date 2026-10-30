@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { lookupDonationGuestEmail, readUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 
 /**
  * A Guest Donor who later registers finds their past gifts waiting
@@ -12,33 +13,35 @@ import { prisma } from '@/lib/prisma';
  *   (src/app/api/auth/password-reset/confirm/route.ts, ADR 0020 amendment),
  *   nothing else. An account registered with someone else's address, however
  *   exactly it matches, sees nothing.
- * - **Matching is HMAC to HMAC (ADR 0012).** The account's stored lookup is
- *   compared with the Donation's stored lookup under the same key id. No
- *   address is decrypted, and no scan runs over decrypted rows.
+ * - **Matching is by HMAC (ADR 0012).** The account's address is read once
+ *   (it is already verified) and looked up under every configured HMAC key,
+ *   each pair of hash and key id kept together; the Donation's stored lookup
+ *   must equal one pair. No Donation is decrypted, and no scan runs over
+ *   decrypted rows.
  * - **An anonymised Donation cannot match.** Anonymising (ticket 36, PR #172)
  *   clears `guestEmailHmac` and sets `anonymisedAt`. Both `where`s below
  *   require `anonymisedAt: null`, so such a row is excluded even if an HMAC
  *   were ever left on it; an empty HMAC equals no account's lookup either.
- * - **A rotated key fails safe.** The key id is part of the match. A guest
- *   Donation sealed under an older HMAC key id is not claimed by an account
- *   whose lookup uses a newer one, until the Donation's HMAC is re-keyed
- *   (ADR 0020, key rotation).
+ * - **A rotated key still matches.** Because the lookup covers current and
+ *   retired HMAC keys, an account hashed under an old key claims a Donation
+ *   hashed under the new one, and the reverse, with no re-hash needed.
  */
 export async function claimGuestDonations(userId: string): Promise<{ verified: boolean; claimed: number }> {
   const account = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, emailHmac: true, emailHmacKeyId: true, emailVerifiedAt: true },
+    select: { id: true, emailVerifiedAt: true, ...SELECT_USER_EMAIL },
   });
   if (!account || !account.emailVerifiedAt) return { verified: false, claimed: 0 };
-  // An empty lookup would equal a cleared one; it must never match.
-  if (!account.emailHmac) return { verified: true, claimed: 0 };
+  // No readable address means nothing to look up; never fall back to a match on a cleared HMAC.
+  const email = readUserEmail(account);
+  if (!email) return { verified: true, claimed: 0 };
+  const lookup = lookupDonationGuestEmail(email);
 
   const candidates = await prisma.donation.findMany({
     where: {
       donorId: null,
       anonymisedAt: null,
-      guestEmailHmac: account.emailHmac,
-      guestEmailHmacKeyId: account.emailHmacKeyId,
+      ...lookup,
     },
     // Ids only: the read must not pull a guest's name, message or ciphertext
     // into memory for a list the caller is not entitled to see yet.
@@ -46,7 +49,7 @@ export async function claimGuestDonations(userId: string): Promise<{ verified: b
   });
   if (candidates.length === 0) return { verified: true, claimed: 0 };
 
-  // The write carries the same conditions as the read (donorId, anonymisedAt, HMAC, key id)
+  // The write carries the same conditions as the read (donorId, anonymisedAt, the HMAC / key id pairs)
   // rather than trusting it: a Donation linked, anonymised or re-keyed in
   // between no longer matches, and one row is never taken from another account.
   const { count } = await prisma.donation.updateMany({
@@ -54,8 +57,7 @@ export async function claimGuestDonations(userId: string): Promise<{ verified: b
       id: { in: candidates.map((row) => row.id) },
       donorId: null,
       anonymisedAt: null,
-      guestEmailHmac: account.emailHmac,
-      guestEmailHmacKeyId: account.emailHmacKeyId,
+      ...lookup,
     },
     data: { donorId: account.id },
   });

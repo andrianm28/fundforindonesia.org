@@ -17,3 +17,14 @@ The PRD asks for email, phone, name, and bank account encrypted at column level.
 - Two secrets, not one. The HMAC key and the encryption key are separate: losing the HMAC key costs matching, losing the encryption key costs the data. Both need a key id column so rotation is possible without a flag day.
 - Anonymising a Donor under FFI-16 clears the plaintext, the ciphertext, and the HMAC, and leaves the ledger untouched. A Donation that has been anonymised can no longer be refunded through the system, which the Refund design already states.
 - This scheme defends against a stolen dump and nothing else. It does not stop an Admin with panel access from reading a Donor's details; that needs an access log on the panel, which does not exist today and is separate work.
+
+## Rotation
+
+Amendment 2026-10-29 (audit ADR-01). Rotation needs no flag day and no schema change, because every value already stores the id of the key that sealed it. The app takes retired keys from `FIELD_ENCRYPTION_PREVIOUS_KEYS` and `FIELD_HMAC_PREVIOUS_KEYS`, each a comma-separated list of `id:base64key`. Retired keys are only ever read with:
+
+- Encrypt and the written email HMAC always use the current key.
+- Decrypt picks the key by the stored key id, current or retired. An id that is neither still throws.
+- An email lookup filters on every configured HMAC key (`OR` of `hmac` + `keyId` pairs), so rows hashed before the rotation are still found.
+- Startup refuses a key that is not 32 bytes, an id that repeats across current and retired, an encryption id equal to an HMAC id, and one secret used for both jobs. Messages name variables, never values.
+
+Steps are in `docs/runbooks/rotasi-kunci-field.md`. Not yet automated: re-encrypting old rows to the current key. Until that exists, a retired key cannot be dropped while any row still names its id.

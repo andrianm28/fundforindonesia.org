@@ -27,11 +27,16 @@ import { PASSWORD_HASH_COST } from '../../src/lib/password-hash-cost';
 import {
   ACTIVE_CAMPAIGN_ID,
   ACTIVE_SLUG,
+  CATEGORY_SLUG,
   ADMIN_EMAIL,
   DOCUMENT_CAMPAIGN_ID,
   DOCUMENT_FUNDRAISER_EMAIL,
   DOCUMENT_SLUG,
+  KABAR_FUNDRAISER_EMAIL,
+  KABAR_SLUG,
   DRAFT_SLUG,
+  EDIT_FUNDRAISER_EMAIL,
+  EDIT_SLUG,
   RECEIPT_TOKEN,
   STRANGER_EMAIL,
   RECEIPT_AMOUNT,
@@ -145,6 +150,13 @@ async function main() {
     },
   });
 
+  // The Category /explore/<slug> answers 200 for (explore-category.spec.ts).
+  await prisma.category.upsert({
+    where: { slug: CATEGORY_SLUG },
+    update: {},
+    create: { id: 'e2e-kategori', name: 'E2E Bencana', slug: CATEGORY_SLUG, icon: 'heart', order: 99 },
+  });
+
   await prisma.campaign.upsert({
     where: { slug: ACTIVE_SLUG },
     update: {},
@@ -191,6 +203,8 @@ async function main() {
   for (const [id, name, email] of [
     ['e2e-doc-fundraiser', 'E2E Doc Fundraiser', DOCUMENT_FUNDRAISER_EMAIL],
     ['e2e-stranger', 'E2E Stranger', STRANGER_EMAIL],
+    ['e2e-edit-fundraiser', 'E2E Edit Fundraiser', EDIT_FUNDRAISER_EMAIL],
+    ['e2e-kabar-fundraiser', 'E2E Kabar Fundraiser', KABAR_FUNDRAISER_EMAIL],
   ] as const) {
     await prisma.user.upsert({
       where: { id },
@@ -214,6 +228,46 @@ async function main() {
       lifecycleStatus: CampaignStatus.SUBMITTED,
       deadline: new Date('2030-06-01T00:00:00.000Z'),
       creatorId: 'e2e-doc-fundraiser',
+      collectingEntityId: 'e2e-org',
+    },
+  });
+  // Tickets 72, 65: a Draft its Fundraiser edits from the manage screen.
+  await prisma.campaign.upsert({
+    where: { slug: EDIT_SLUG },
+    update: {},
+    create: {
+      id: 'e2e-campaign-draft-edit',
+      slug: EDIT_SLUG,
+      title: 'E2E Draft Untuk Diedit',
+      description: 'Campaign fixture untuk e2e layar edit Fundraiser.',
+      story: 'Cerita fixture untuk e2e layar edit Fundraiser, cukup panjang untuk lolos batas lima puluh karakter.',
+      coverImage: 'https://example.org/e2e-edit.jpg',
+      targetAmount: 2_000_000,
+      category: 'lingkungan',
+      kind: Kind.DONATION,
+      lifecycleStatus: CampaignStatus.DRAFT,
+      // Within the 12-month limit (ticket 81): saving the Draft re-checks it.
+      deadline: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+      creatorId: 'e2e-edit-fundraiser',
+      collectingEntityId: 'e2e-org',
+    },
+  });
+  await prisma.campaign.upsert({
+    where: { slug: KABAR_SLUG },
+    update: {},
+    create: {
+      id: 'e2e-campaign-kabar',
+      slug: KABAR_SLUG,
+      title: 'E2E Kabar Aktif',
+      description: 'Campaign fixture untuk e2e Kabar Terbaru.',
+      story: 'Cerita fixture untuk e2e Kabar Terbaru.',
+      coverImage: 'https://example.org/e2e-kabar.jpg',
+      targetAmount: 4_000_000,
+      category: 'lingkungan',
+      kind: Kind.DONATION,
+      lifecycleStatus: CampaignStatus.ACTIVE,
+      deadline: new Date('2030-06-01T00:00:00.000Z'),
+      creatorId: 'e2e-kabar-fundraiser',
       collectingEntityId: 'e2e-org',
     },
   });

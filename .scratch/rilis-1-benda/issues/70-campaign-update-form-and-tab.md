@@ -1,6 +1,6 @@
 # 70: F1 campaign-update-form-and-tab
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none (`POST /api/campaigns/[slug]/updates` dan `CampaignUpdate` sudah ada)
 
@@ -30,3 +30,5 @@ Fundraiser tidak punya form untuk menulis Kabar Terbaru dan halaman publik Campa
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+- 2026-10-30: form di `/akun/kampanye-saya/[slug]/kabar`, tab publik via `CampaignUpdatesTab`; schema gambar POST kini menerima `/uploads/...` (sebelumnya `.url()` menolak hasil `/api/upload`). E2E belum ditulis (butuh fixture DB; jalan di CI).
+- 2026-10-30: merged ke main lewat #295 (squash 1fee2d8), atas persetujuan owner. Belum ter-deploy.

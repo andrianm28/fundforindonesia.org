@@ -34,6 +34,14 @@ describe('legal pages name the operator (ADR 0009, audit L2/L8)', () => {
     expect(body).toContain(SITE_IDENTITY.privacyEmail);
   });
 
+  it('Privacy describes the private verification documents instead of denying they are stored', () => {
+    const body = text(<PrivacyPage />);
+    expect(body).not.toMatch(/tidak menyimpan nomor atau salinan dokumen identitas/);
+    expect(body).toContain('Dokumen verifikasi');
+    expect(body).toMatch(/tidak pernah ditampilkan publik/);
+    expect(body).toMatch(/Dokumen verifikasi tidak dihapus otomatis/);
+  });
+
   it('Privacy drops the NIK claim, names the processors, and states 10-year retention', () => {
     const body = text(<PrivacyPage />);
     expect(body).not.toMatch(/NIK|KTP/);

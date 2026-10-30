@@ -6,6 +6,7 @@ import { Client } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PrismaClient } from '@/generated/prisma/client';
+import { sealUserEmail } from '@/lib/contact-fields';
 
 /**
  * prd-compliance 23: confirming an email is a transaction, against a REAL
@@ -90,10 +91,11 @@ describe.skipIf(!DATABASE_URL)('Email confirmation -- against real Postgres (prd
   async function makeUserWithToken(tokenEmailHmac?: string) {
     const n = counter++;
     const id = `u-${process.pid}-${n}`;
-    const emailHmac = `${id}-hmac`;
-    await prisma.user.create({
-      data: { id, name: 'Test', emailHmac, emailHmacKeyId: 'k', emailCiphertext: `${id}-c`, emailKeyId: 'k' },
-    });
+    // Sealed with the real keys: the claim that follows a confirmation reads
+    // the address back, so a placeholder ciphertext would not decrypt.
+    const sealed = sealUserEmail(`${id}@test.com`);
+    const emailHmac = sealed.emailHmac;
+    await prisma.user.create({ data: { id, name: 'Test', ...sealed } });
     const token = randomBytes(32).toString('base64url');
     const row = await prisma.emailVerificationToken.create({
       data: {

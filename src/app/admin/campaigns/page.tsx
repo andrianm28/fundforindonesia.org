@@ -117,12 +117,6 @@ export default async function AdminCampaignsPage() {
                         >
                           Lihat
                         </Link>
-                        <Link
-                          href={`/campaign/${campaign.slug}/edit`}
-                          className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded bg-yellow-50 text-yellow-700 hover:bg-yellow-100 transition-colors"
-                        >
-                          Edit
-                        </Link>
                       </div>
                     </td>
                   </tr>

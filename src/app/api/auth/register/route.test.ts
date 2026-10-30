@@ -132,9 +132,32 @@ describe('POST /api/auth/register', () => {
 
     // A 64-hex HMAC and never the address itself, which is what closes the
     // case-sensitivity gap the old case-sensitive `email @unique` had.
-    const where = vi.mocked(prisma.user.findFirst).mock.calls[0]![0]!.where as Record<string, unknown>;
-    expect(Object.keys(where).sort()).toEqual(['emailHmac', 'emailHmacKeyId']);
-    expect(where.emailHmac).toMatch(/^[0-9a-f]{64}$/);
+    const where = vi.mocked(prisma.user.findFirst).mock.calls[0]![0]!.where as { OR: Record<string, unknown>[] };
+    expect(Object.keys(where)).toEqual(['OR']);
+    expect(Object.keys(where.OR[0]!).sort()).toEqual(['emailHmac', 'emailHmacKeyId']);
+    expect(where.OR[0]!.emailHmac).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('rejects a duplicate whose stored address was hashed under a retired HMAC key', async () => {
+    const saved = { ...process.env };
+    try {
+      const old = sealUserEmail('dup@example.com');
+      process.env.FIELD_HMAC_PREVIOUS_KEYS = `${process.env.FIELD_HMAC_KEY_ID}:${process.env.FIELD_HMAC_KEY}`;
+      process.env.FIELD_HMAC_KEY = Buffer.alloc(32, 9).toString('base64');
+      process.env.FIELD_HMAC_KEY_ID = 'hmac-test-2';
+      // Like the database: a row matches when any OR branch equals its stored pair.
+      vi.mocked(prisma.user.findFirst).mockImplementation((async ({ where }: { where: { OR: Record<string, string>[] } }) =>
+        where.OR.some((p) => p.emailHmac === old.emailHmac && p.emailHmacKeyId === old.emailHmacKeyId)
+          ? { id: 'existing' }
+          : null) as never);
+
+      const response = await POST(createRequest({ name: 'Test', email: 'DUP@example.com', password: '12345678' }));
+
+      expect(response.status).toBe(409);
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    } finally {
+      process.env = saved;
+    }
   });
 
   it('should hash the password before storing', async () => {

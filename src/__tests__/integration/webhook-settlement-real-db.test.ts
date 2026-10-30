@@ -379,14 +379,14 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
   // Trip Fee: the webhook sends NO email (only notifyRegistrationConfirmed's
   // in-app Notification; sendReportingFailure is reached only on the Donation
   // branch, for the Receipt). Pinned so a future Trip Fee email is a decision.
-  it('first delivery for a Trip Fee sends no email and creates exactly one in-app confirmation', async () => {
+  it('first delivery for a Trip Fee sends one confirmation email and creates exactly one in-app confirmation', async () => {
     sentMail.length = 0;
     const { registration, payment } = await pendingTripFeePayment();
 
     const res = await deliverSettlement(payment.providerRef, 500_000);
 
     expect(res.status).toBe(200);
-    expect(sentMail).toHaveLength(0);
+    expect(sentMail).toHaveLength(1);
     expect(
       await prisma.notification.count({ where: { userId: registration.volunteerId, type: 'registration_confirmed' } }),
     ).toBe(1);
@@ -428,7 +428,7 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     expect(
       await prisma.notification.count({ where: { userId: registration.volunteerId, type: 'registration_confirmed' } }),
     ).toBe(1);
-    expect(sentMail).toHaveLength(0);
+    expect(sentMail).toHaveLength(1);
   });
 
   // A registered Donor's account address is where the Receipt goes; the

@@ -653,3 +653,29 @@ describe('CampaignDetailView -- Pencairan Dana tab (ticket 22)', () => {
     expect(screen.queryByText('Cerita lengkap')).toBeNull();
   });
 });
+
+describe('CampaignDetailView -- Kabar Terbaru tab', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ updates: [{ id: 'u1', title: 'Kabar satu', content: 'isi', images: [], createdAt: '2026-10-01T00:00:00.000Z' }], total: 1, page: 1, limit: 10, totalPages: 1 }),
+      }),
+    ));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('opens the updates list when the tab is pressed', async () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Kabar Terbaru' }));
+    expect(await screen.findByText('Kabar satu')).toBeDefined();
+  });
+
+  it.each(['DRAFT', 'SUBMITTED', 'REJECTED'] as const)('does not offer the tab while %s (not public)', (status) => {
+    render(<CampaignDetailView campaign={{ ...mockCampaign, lifecycleStatus: status }} />);
+    expect(screen.queryByRole('button', { name: 'Kabar Terbaru' })).toBeNull();
+  });
+});
