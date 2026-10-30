@@ -3,12 +3,18 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { campaignNotFound, findViewableCampaign } from '@/lib/campaign-visibility-route';
 import { getServerSession } from '@/lib/auth';
+import { isPubliclyViewable } from '@/lib/campaign-visibility';
 import { refuseUnlessFundraiser } from '@/lib/refusal-response';
+import { isUploadedImagePath } from '@/lib/campaign-update-images';
 
 const createUpdateSchema = z.object({
   title: z.string().min(1, 'Judul harus diisi').max(200, 'Judul maksimal 200 karakter'),
   content: z.string().min(1, 'Konten harus diisi'),
-  images: z.array(z.string().url()).optional().default([]),
+  images: z
+    .array(z.string().refine(isUploadedImagePath, 'Alamat gambar tidak valid'))
+    .max(4, 'Maksimal 4 gambar')
+    .optional()
+    .default([]),
 });
 
 // Rendered per request: an unapproved Campaign's answer depends on who asks
@@ -85,18 +91,29 @@ export async function POST(
     // Resolve campaign by slug
     const campaign = await prisma.campaign.findUnique({
       where: { slug },
-      select: { id: true, creatorId: true },
+      select: { id: true, creatorId: true, lifecycleStatus: true },
     });
 
     if (!campaign) {
-      return NextResponse.json(
-        { code: 'NOT_FOUND', message: 'Campaign tidak ditemukan', status: 404 },
-        { status: 404 }
-      );
+      return campaignNotFound();
     }
 
     // Only the Campaign's Fundraiser posts its updates (CONTEXT.md, Capacity).
     const refusal = refuseUnlessFundraiser({ kind: 'campaign', ownerId: campaign.creatorId }, session.user);
+
+    // Kabar Terbaru is a public record: not before the Campaign is approved.
+    // Someone else's unapproved Campaign answers like a missing slug (as GET
+    // does), so a signed-in stranger cannot tell a Draft's slug from none.
+    if (!isPubliclyViewable(campaign.lifecycleStatus)) {
+      if (refusal) return campaignNotFound();
+      return NextResponse.json(
+        {
+          code: 'CAMPAIGN_NOT_PUBLIC',
+          error: 'Kabar terbaru baru bisa diterbitkan setelah Campaign disetujui Verifier.',
+        },
+        { status: 409 }
+      );
+    }
     if (refusal) return refusal;
 
     // Validate request body

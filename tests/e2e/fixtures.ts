@@ -45,3 +45,8 @@ export const STRANGER_EMAIL = 'e2e-stranger@example.org';
 // edit on /akun/kampanye-saya/[slug]. STRANGER_EMAIL must get a 404 there.
 export const EDIT_SLUG = 'e2e-draft-edit';
 export const EDIT_FUNDRAISER_EMAIL = 'e2e-edit-fundraiser@example.org';
+
+// Kabar Terbaru (ticket 70): an Active Campaign whose Fundraiser can sign in
+// and write an update, then read it on the public page.
+export const KABAR_SLUG = 'e2e-kabar-aktif';
+export const KABAR_FUNDRAISER_EMAIL = 'e2e-kabar-fundraiser@example.org';

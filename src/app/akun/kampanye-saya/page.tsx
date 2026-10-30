@@ -236,6 +236,15 @@ export default function MyCampaignsPage() {
                   Kelola
                 </Link>
               )}
+              {/* Kabar Terbaru is public, so only once the Campaign is approved. */}
+              {['ACTIVE', 'SUSPENDED', 'EXPIRED', 'COMPLETED'].includes(campaign.lifecycleStatus) && (
+                <Link
+                  href={`/akun/kampanye-saya/${campaign.slug}/kabar`}
+                  className="border-t border-border px-3 py-2 text-xs font-medium text-[#0073E6] hover:bg-bg-secondary transition-colors"
+                >
+                  Tulis kabar
+                </Link>
+              )}
               {/* The private papers a Verifier checks (ticket 64, PRD §7.1). */}
               {DOCUMENT_UPLOADABLE_STATUSES.includes(campaign.lifecycleStatus) && (
                 <Link
