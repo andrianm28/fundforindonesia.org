@@ -8,6 +8,8 @@ import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
 import { safePaymentLink } from '@/lib/payments/payment-link';
 import { PROVIDER_METHOD_FOR } from '@/lib/volunteer/payment-method';
 import { PaymentStatus } from '@/generated/prisma/client';
+import { publicUrl } from '@/lib/public-url';
+import { registrationResultPath, signRegistrationResultToken } from '@/lib/money/registration-result-token';
 import { refusalResponse } from '@/lib/refusal-response';
 import { holdRegistration } from '@/lib/volunteer/trip';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
@@ -135,11 +137,18 @@ export async function POST(
     // round trip. Mirrors POST /api/donations's own reasoning exactly.
     let charge;
     try {
+      // Where the provider sends the Volunteer back (ticket 99): this
+      // Registration's own result page, opened by a signed token. Signed inside
+      // the try: it throws only when NEXTAUTH_SECRET is missing in production,
+      // which is a failed charge like any other, not a bare 500.
+      const resultToken = signRegistrationResultToken(registration.id, Date.now());
       charge = await provider.createCharge({
         orderId: registration.id,
         grossAmount: tripFeeAmount,
         currency: 'IDR',
         method: wantedMethod,
+        successReturnUrl: publicUrl(registrationResultPath(resultToken)),
+        cancelReturnUrl: publicUrl(registrationResultPath(resultToken, { cancelled: true })),
       });
     } catch (err) {
       console.error(`[registrations] charge failed for registration ${registration.id}: ${sanitizeError(err)}`);

@@ -8,6 +8,8 @@ vi.mock('@/lib/prisma', () => ({
     verificationRequest: { findFirst: vi.fn() },
     identityVerification: { findUnique: vi.fn() },
     duplicateSimilarityThreshold: { findFirst: vi.fn() },
+    document: { findMany: vi.fn(async () => []) },
+    verificationChecklistItem: { findMany: vi.fn(async () => []) },
     $queryRaw: vi.fn(),
   },
 }));
@@ -422,5 +424,61 @@ describe('the story on the moderation page', () => {
     await renderFor(campaign('SUBMITTED', { story }));
     expect(document.querySelector('img[src="x"]')).toBeNull();
     expect(screen.getByText(/Baris satu/).textContent).toBe(story);
+  });
+});
+
+describe('the documents on the moderation page (ticket 64)', () => {
+  const WITH_DOCUMENT_ITEM = {
+    ...PENDING_REQUEST,
+    checklist: [
+      { id: 'ktp', label: 'KTP Fundraiser', required: true, position: 1, ticked: false, requiresDocument: true },
+      { id: 'bukan-duplikat', label: 'Bukan duplikat', required: true, position: 2, ticked: false, requiresDocument: false },
+    ],
+  };
+  const KTP_DOCUMENT = {
+    id: 'doc-1',
+    label: 'KTP Fundraiser',
+    checklistItemId: 'ktp',
+    contentType: 'application/pdf',
+    sizeBytes: 250_000,
+    uploadedAt: new Date('2026-10-28T03:00:00Z'),
+  };
+  const ktpBox = () => screen.getByRole('checkbox', { name: /KTP Fundraiser/ }) as HTMLInputElement;
+
+  it('keeps a document item disabled, and says why, while the Fundraiser has uploaded nothing for it', async () => {
+    vi.mocked(prisma.document.findMany).mockResolvedValue([] as never);
+    await renderFor(campaign('SUBMITTED'), { request: WITH_DOCUMENT_ITEM });
+
+    expect(ktpBox().disabled).toBe(true);
+    expect(screen.getByText('Belum ada dokumen yang diunggah Fundraiser untuk butir ini.')).toBeDefined();
+    expect(screen.getByText('Fundraiser belum mengunggah dokumen.')).toBeDefined();
+    expect((screen.getByRole('checkbox', { name: /Bukan duplikat/ }) as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('enables the item once a document exists, linking it only through the ACL route', async () => {
+    vi.mocked(prisma.document.findMany).mockResolvedValue([KTP_DOCUMENT] as never);
+    await renderFor(campaign('SUBMITTED'), { request: WITH_DOCUMENT_ITEM });
+
+    expect(ktpBox().disabled).toBe(false);
+    const links = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/api/documents/'));
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.getAttribute('href')).toBe('/api/documents/doc-1');
+      expect(link.getAttribute('target')).toBe('_blank');
+    }
+    expect(document.body.innerHTML).not.toMatch(/\/uploads\//);
+  });
+
+  it('judges a request snapshotted before ticket 64 by the current setting of its items', async () => {
+    vi.mocked(prisma.document.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.verificationChecklistItem.findMany).mockResolvedValue([
+      { id: 'item-1', requiresDocument: true },
+      { id: 'item-2', requiresDocument: false },
+    ] as never);
+    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
+
+    expect((screen.getByRole('checkbox', { name: /KTP penanggung jawab/ }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('checkbox', { name: /Foto kondisi/ }) as HTMLInputElement).disabled).toBe(false);
+    vi.mocked(prisma.verificationChecklistItem.findMany).mockResolvedValue([] as never);
   });
 });

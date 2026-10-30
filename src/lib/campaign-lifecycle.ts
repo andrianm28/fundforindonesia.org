@@ -463,6 +463,12 @@ export type ChecklistEntry = {
   required: boolean;
   position: number;
   ticked: boolean;
+  /**
+   * Whether ticking needs a Document for this item on the Campaign (ticket
+   * 64). Absent on snapshots taken before the column existed; those are
+   * judged by the item's current setting instead.
+   */
+  requiresDocument?: boolean;
 };
 
 /**
@@ -482,6 +488,7 @@ async function snapshotChecklist(tx: Tx, kind: Kind): Promise<ChecklistEntry[]> 
     required: item.required,
     position: item.position,
     ticked: false,
+    requiresDocument: item.requiresDocument,
   }));
 }
 
@@ -582,6 +589,50 @@ export class RequiredChecklistItemsUntickedError extends CampaignLifecycleError 
     super(`Campaign belum dapat diloloskan. Butir wajib yang belum dicentang: ${labels.join(", ")}.`);
     this.name = "RequiredChecklistItemsUntickedError";
   }
+}
+
+/**
+ * The Verifier ticked a checklist item that needs a Document while the
+ * Campaign holds none for it (ticket 64): the tick would be assurance with
+ * nothing behind it. `labels` lists the items, in checklist order.
+ */
+export class ChecklistDocumentMissingError extends CampaignLifecycleError {
+  readonly code = "CHECKLIST_DOCUMENT_MISSING";
+  constructor(readonly labels: string[]) {
+    super(`Butir checklist ini belum memiliki dokumen yang diunggah Fundraiser: ${labels.join(", ")}.`);
+    this.name = "ChecklistDocumentMissingError";
+  }
+}
+
+/**
+ * The ticked entries that need a Document and have none on the Campaign.
+ * A snapshot without `requiresDocument` (taken before ticket 64) is judged by
+ * the item's current setting.
+ */
+async function tickedWithoutDocument(
+  tx: Tx,
+  campaignId: string,
+  checklist: ChecklistEntry[]
+): Promise<ChecklistEntry[]> {
+  const ticked = checklist.filter((entry) => entry.ticked);
+  if (ticked.length === 0) return [];
+  const unknown = ticked.filter((entry) => entry.requiresDocument === undefined).map((entry) => entry.id);
+  const live = unknown.length
+    ? await tx.verificationChecklistItem.findMany({
+        where: { id: { in: unknown } },
+        select: { id: true, requiresDocument: true },
+      })
+    : [];
+  const liveFlag = new Map(live.map((item) => [item.id, item.requiresDocument]));
+  const needing = ticked.filter((entry) => entry.requiresDocument ?? liveFlag.get(entry.id) ?? false);
+  if (needing.length === 0) return [];
+  const documented = await tx.document.findMany({
+    where: { campaignId, checklistItemId: { in: needing.map((entry) => entry.id) } },
+    select: { checklistItemId: true },
+    distinct: ["checklistItemId"],
+  });
+  const has = new Set(documented.map((doc) => doc.checklistItemId));
+  return needing.filter((entry) => !has.has(entry.id));
 }
 
 /** The request was already decided or withdrawn; a closed request is never changed again. */
@@ -893,6 +944,12 @@ export async function decideVerificationRequest(
         ...entry,
         ticked: ticked.has(entry.id),
       }));
+      // A tick on a document item says the Verifier looked at the paper, so
+      // either decision is refused while the paper is not there (ticket 64).
+      const undocumented = await tickedWithoutDocument(tx, campaign.id, checklist);
+      if (undocumented.length > 0) {
+        throw new ChecklistDocumentMissingError(undocumented.map((entry) => entry.label));
+      }
       if (decision.outcome === VerificationOutcome.APPROVED) {
         const unticked = checklist.filter((entry) => entry.required && !entry.ticked);
         if (unticked.length > 0) {

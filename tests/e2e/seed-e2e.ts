@@ -28,8 +28,12 @@ import {
   ACTIVE_CAMPAIGN_ID,
   ACTIVE_SLUG,
   ADMIN_EMAIL,
+  DOCUMENT_CAMPAIGN_ID,
+  DOCUMENT_FUNDRAISER_EMAIL,
+  DOCUMENT_SLUG,
   DRAFT_SLUG,
   RECEIPT_TOKEN,
+  STRANGER_EMAIL,
   RECEIPT_AMOUNT,
   VERIFIER_EMAIL,
   operatorPassword,
@@ -178,6 +182,60 @@ async function main() {
       kind: Kind.DONATION,
       lifecycleStatus: CampaignStatus.DRAFT,
       creatorId: 'e2e-fundraiser',
+    },
+  });
+
+  // Ticket 64: a submitted Campaign whose open request needs the KTP paper
+  // (the migration marks "identitas-fundraiser" as a document item), its
+  // Fundraiser, and a stranger, both able to sign in like the operators.
+  for (const [id, name, email] of [
+    ['e2e-doc-fundraiser', 'E2E Doc Fundraiser', DOCUMENT_FUNDRAISER_EMAIL],
+    ['e2e-stranger', 'E2E Stranger', STRANGER_EMAIL],
+  ] as const) {
+    await prisma.user.upsert({
+      where: { id },
+      update: { password: operatorPasswordHash },
+      create: { id, name, password: operatorPasswordHash, ...sealUserEmail(email) },
+    });
+  }
+  await prisma.campaign.upsert({
+    where: { slug: DOCUMENT_SLUG },
+    update: {},
+    create: {
+      id: DOCUMENT_CAMPAIGN_ID,
+      slug: DOCUMENT_SLUG,
+      title: 'E2E Dokumen Diajukan',
+      description: 'Campaign fixture untuk e2e dokumen privat.',
+      story: 'Cerita fixture untuk e2e dokumen privat.',
+      coverImage: 'https://example.org/e2e-dokumen.jpg',
+      targetAmount: 3_000_000,
+      category: 'lingkungan',
+      kind: Kind.DONATION,
+      lifecycleStatus: CampaignStatus.SUBMITTED,
+      deadline: new Date('2030-06-01T00:00:00.000Z'),
+      creatorId: 'e2e-doc-fundraiser',
+      collectingEntityId: 'e2e-org',
+    },
+  });
+  await prisma.verificationRequest.upsert({
+    where: { id: 'e2e-vr-dokumen' },
+    update: {},
+    create: {
+      id: 'e2e-vr-dokumen',
+      campaignId: DOCUMENT_CAMPAIGN_ID,
+      submittedById: 'e2e-doc-fundraiser',
+      isFirst: true,
+      collectingEntityId: 'e2e-org',
+      checklist: [
+        {
+          id: 'identitas-fundraiser',
+          label: 'KTP Fundraiser perorangan atau akta pendirian organisasi',
+          required: true,
+          position: 1,
+          ticked: false,
+          requiresDocument: true,
+        },
+      ],
     },
   });
 

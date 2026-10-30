@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { emailPayoutStatus, emailRefundOutcome, emailSuspension } from './status-emails';
+import {
+  emailPayoutStatus,
+  emailRefundOutcome,
+  emailRegistrationConfirmed,
+  emailSuspension,
+  emailTripFeeRefundApproved,
+} from './status-emails';
 import { sealDonationGuestEmail, sealUserEmail } from './contact-fields';
 import { MockMailer, type Mailer } from './mail';
 
@@ -37,6 +43,7 @@ function prismaWith(rows: {
   payout?: unknown;
   trip?: unknown;
   refund?: unknown;
+  registration?: unknown;
   campaign?: unknown;
   user?: unknown;
 }) {
@@ -44,6 +51,7 @@ function prismaWith(rows: {
     payout: { findUnique: vi.fn().mockResolvedValue(rows.payout ?? null) },
     volunteerTrip: { findUnique: vi.fn().mockResolvedValue(rows.trip ?? null) },
     refund: { findUnique: vi.fn().mockResolvedValue(rows.refund ?? null) },
+    registration: { findUnique: vi.fn().mockResolvedValue(rows.registration ?? null) },
     campaign: { findUnique: vi.fn().mockResolvedValue(rows.campaign ?? null) },
     user: { findUnique: vi.fn().mockResolvedValue(rows.user ?? null) },
   };
@@ -108,7 +116,7 @@ describe('emailPayoutStatus', () => {
 
 describe('emailRefundOutcome', () => {
   function refundFor(payment: Record<string, unknown>) {
-    return { amount: 100_000, payment: { donation: null, registration: null, ...payment } };
+    return { amount: 100_000, payment: { amount: 100_000, donation: null, registration: null, ...payment } };
   }
   const campaign = { title: 'Sumur Desa' };
 
@@ -147,13 +155,33 @@ describe('emailRefundOutcome', () => {
     const refund = refundFor({
       registration: {
         volunteer: { name: 'Rina', ...sealUserEmail('rina@example.test') },
-        batch: { trip: { title: 'Trip Lombok' } },
+        batch: { trip: { title: 'Trip Lombok', slug: 'lombok' } },
       },
     });
     await emailRefundOutcome(prismaWith({ refund }) as never, { refundId: 'r-1', outcome: 'completed' }, mailer);
 
     expect(mailer.sent[0].to).toBe('rina@example.test');
     expect(mailer.sent[0].text).toContain('"Trip Lombok"');
+    expect(mailer.sent[0].subject).toBe('Refund Trip Fee "Trip Lombok" sudah ditransfer');
+    expect(mailer.sent[0].text).toContain('penuh');
+  });
+
+  it('words a half Trip Fee Refund by its tier when it is completed', async () => {
+    const mailer = new MockMailer();
+    const refund = {
+      amount: 50_000,
+      payment: {
+        amount: 100_000,
+        donation: null,
+        registration: {
+          volunteer: { name: 'Rina', ...sealUserEmail('rina@example.test') },
+          batch: { trip: { title: 'Trip Lombok', slug: 'lombok' } },
+        },
+      },
+    };
+    await emailRefundOutcome(prismaWith({ refund }) as never, { refundId: 'r-1', outcome: 'completed' }, mailer);
+
+    expect(mailer.sent[0].text).toContain('separuh');
   });
 
   it('sends nothing for an anonymised Donation', async () => {
@@ -200,5 +228,82 @@ describe('emailSuspension', () => {
       emailSuspension(prisma as never, { campaignId: 'c-1', event: 'lifted', reason: 'OK', statusLabel: 'Active' }, failing),
     ).resolves.toBeUndefined();
     expect(logged(errors)[0]).toMatchObject({ event: 'mail_send_failed', mail: 'suspension_lifted', campaignId: 'c-1' });
+  });
+});
+
+describe('emailRegistrationConfirmed', () => {
+  const registration = {
+    volunteer: { name: 'Rina', ...sealUserEmail('rina@example.test') },
+    payment: { amount: 500_000 },
+    batch: {
+      startDate: new Date('2026-12-01T00:00:00+07:00'),
+      endDate: new Date('2026-12-05T23:59:59+07:00'),
+      trip: { title: 'Trip Lombok', slug: 'lombok' },
+    },
+  };
+
+  it('emails the Volunteer, linking the Trip page', async () => {
+    const mailer = new MockMailer();
+    await emailRegistrationConfirmed(prismaWith({ registration }) as never, { registrationId: 'reg-1' }, mailer);
+
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0].to).toBe('rina@example.test');
+    expect(mailer.sent[0].subject).toBe('Pendaftaran "Trip Lombok" dikonfirmasi');
+    expect(mailer.sent[0].text).toContain('/volunteer-trip/lombok');
+  });
+
+  it('never throws and logs by id when the Registration is gone or the send fails', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      emailRegistrationConfirmed(prismaWith({}) as never, { registrationId: 'reg-0' }, new MockMailer()),
+    ).resolves.toBeUndefined();
+    await expect(
+      emailRegistrationConfirmed(prismaWith({ registration }) as never, { registrationId: 'reg-1' }, failing),
+    ).resolves.toBeUndefined();
+
+    const lines = logged(errors);
+    expect(lines[0]).toMatchObject({ event: 'mail_skipped', mail: 'registration_confirmed', registrationId: 'reg-0' });
+    expect(lines[1]).toMatchObject({ event: 'mail_send_failed', registrationId: 'reg-1' });
+    expect(JSON.stringify(lines)).not.toContain('rina@example.test');
+  });
+});
+
+describe('emailTripFeeRefundApproved', () => {
+  const volunteerRefund = {
+    amount: 250_000,
+    payment: {
+      amount: 500_000,
+      registration: {
+        volunteer: { name: 'Rina', ...sealUserEmail('rina@example.test') },
+        batch: { trip: { title: 'Trip Lombok', slug: 'lombok' } },
+      },
+    },
+  };
+
+  it('emails the Volunteer, worded by the tier of the amount', async () => {
+    const mailer = new MockMailer();
+    await emailTripFeeRefundApproved(prismaWith({ refund: volunteerRefund }) as never, { refundId: 'r-1' }, mailer);
+
+    expect(mailer.sent[0].to).toBe('rina@example.test');
+    expect(mailer.sent[0].subject).toBe('Refund Trip Fee "Trip Lombok" disetujui');
+    expect(mailer.sent[0].text).toContain('separuh');
+  });
+
+  it('sends and logs nothing for a Refund of a Donation', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mailer = new MockMailer();
+    const refund = { amount: 1, payment: { amount: 1, registration: null } };
+    await emailTripFeeRefundApproved(prismaWith({ refund }) as never, { refundId: 'r-2' }, mailer);
+
+    expect(mailer.sent).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('never throws when the send fails', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      emailTripFeeRefundApproved(prismaWith({ refund: volunteerRefund }) as never, { refundId: 'r-1' }, failing),
+    ).resolves.toBeUndefined();
+    expect(logged(errors)[0]).toMatchObject({ event: 'mail_send_failed', mail: 'trip_fee_refund_approved', refundId: 'r-1' });
   });
 });

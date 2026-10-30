@@ -20,6 +20,7 @@ const PRIVATE_PATHS = [
   '/volunteer-trip/registrasi',
   '/receipt/',
   '/donasi/hasil/',
+  '/volunteer-trip/hasil/',
   '/akad-wakaf/',
   '/sertifikat/',
 ];

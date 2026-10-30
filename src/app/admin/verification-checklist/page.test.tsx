@@ -9,7 +9,7 @@ import AdminChecklistPage from './page';
  * file proves each control sends the right request and shows the result.
  */
 const ITEMS = [
-  { id: 'a', label: 'KTP Fundraiser', required: true, position: 1, active: true, kind: null },
+  { id: 'a', label: 'KTP Fundraiser', required: true, position: 1, active: true, kind: null, requiresDocument: true },
   { id: 'b', label: 'Rencana anggaran', required: false, position: 2, active: true, kind: null },
   { id: 'c', label: 'Bukti lama', required: true, position: 3, active: false, kind: 'WAKAF' },
 ];
@@ -74,7 +74,7 @@ describe('AdminChecklistPage', () => {
     await waitFor(() => expect(callsTo('/api/admin/verification-checklist')).toHaveLength(1));
     const [, init] = callsTo('/api/admin/verification-checklist')[0];
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({ label: 'Surat keterangan RT', required: true, kind: null });
+    expect(JSON.parse(init.body)).toEqual({ label: 'Surat keterangan RT', required: true, requiresDocument: false, kind: null });
   });
 
   it('adds an item scoped to one Kind, and shows each row scope', async () => {
@@ -94,6 +94,7 @@ describe('AdminChecklistPage', () => {
     expect(JSON.parse(callsTo('/api/admin/verification-checklist')[0][1].body)).toEqual({
       label: 'Dokumen lembaga amil',
       required: true,
+      requiresDocument: false,
       kind: 'WAKAF',
     });
   });
@@ -157,6 +158,17 @@ describe('AdminChecklistPage', () => {
 
     await waitFor(() => expect(callsTo('/api/admin/verification-checklist/b')).toHaveLength(1));
     expect(JSON.parse(callsTo('/api/admin/verification-checklist/b')[0][1].body)).toEqual({ required: true });
+  });
+
+  it('marks whether an item needs an uploaded document (ticket 64)', async () => {
+    const row = await rowOf('KTP Fundraiser');
+    const box = within(row).getByLabelText('Butuh dokumen') as HTMLInputElement;
+    expect(box.checked).toBe(true);
+
+    fireEvent.click(box);
+
+    await waitFor(() => expect(callsTo('/api/admin/verification-checklist/a')).toHaveLength(1));
+    expect(JSON.parse(callsTo('/api/admin/verification-checklist/a')[0][1].body)).toEqual({ requiresDocument: false });
   });
 
   it('deactivates an active item and reactivates an inactive one', async () => {

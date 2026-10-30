@@ -56,7 +56,7 @@ describe('/api/admin/verification-checklist/[id]', () => {
     const res = await patch('b', { label: 'Kedua, revisi', required: false, active: false });
 
     expect(res.status).toBe(200);
-    expect((await res.json()).item).toEqual({ id: 'b', label: 'Kedua, revisi', required: false, position: 2, active: false, kind: null });
+    expect((await res.json()).item).toEqual({ id: 'b', label: 'Kedua, revisi', required: false, position: 2, active: false, kind: null, requiresDocument: false });
     expect(state.db.checklistAudits).toEqual([expect.objectContaining({ itemId: 'b', action: 'UPDATED', actedById: 'admin-1' })]);
   });
 

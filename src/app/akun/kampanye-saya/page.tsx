@@ -11,6 +11,7 @@ import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { SUBMITTABLE_STATUSES, submitToVerifier, withdrawFromVerifier } from '@/lib/verification-submission';
 import { PAYOUT_REQUESTABLE_STATUSES } from '@/lib/payout-requestable-statuses';
+import { DOCUMENT_UPLOADABLE_STATUSES } from '@/lib/document-uploadable-statuses';
 
 interface Campaign {
   id: string;
@@ -212,6 +213,15 @@ export default function MyCampaignsPage() {
                   className="border-t border-border px-3 py-2 text-xs font-medium text-[#0073E6] hover:bg-bg-secondary transition-colors"
                 >
                   Cairkan dana
+                </Link>
+              )}
+              {/* The private papers a Verifier checks (ticket 64, PRD §7.1). */}
+              {DOCUMENT_UPLOADABLE_STATUSES.includes(campaign.lifecycleStatus) && (
+                <Link
+                  href={`/akun/kampanye-saya/${campaign.slug}/dokumen`}
+                  className="border-t border-border px-3 py-2 text-xs font-medium text-[#0073E6] hover:bg-bg-secondary transition-colors"
+                >
+                  Dokumen
                 </Link>
               )}
               {SUBMITTABLE_STATUSES.includes(campaign.lifecycleStatus) && (
