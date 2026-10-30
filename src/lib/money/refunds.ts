@@ -45,7 +45,7 @@ import {
   RefundReasonInvalidError,
 } from './errors';
 import { STANDING_REFUND_WHERE, isRefundStanding, readRefundFreezeEntries } from './refund-standing';
-import { emailRefundOutcome } from '@/lib/status-emails';
+import { emailRefundOutcome, emailTripFeeRefundApproved } from '@/lib/status-emails';
 import type { Mailer } from '@/lib/mail';
 
 /**
@@ -492,6 +492,8 @@ export async function approveRefund(
     donorBankCode: string;
     donorAccountName: string;
     donorAccountNumber: string;
+    /** For tests; the Volunteer's email goes through the configured Mailer otherwise. */
+    mailer?: Mailer;
   },
 ): Promise<Refund> {
   const { refundId, approvedById, donorBankCode, donorAccountName, donorAccountNumber } = params;
@@ -599,6 +601,11 @@ export async function approveRefund(
       { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-approved-${refund.id}`, provider: payment.provider },
     );
   });
+
+  // After commit, never inside it, and nothing here throws (ticket 84). Only a
+  // Volunteer's Trip Fee Refund is told of its approval; a Donor's is not
+  // (ticket 68 asks for completed and failed only). Never the account number.
+  await emailTripFeeRefundApproved(prisma, { refundId }, params.mailer);
 
   return prisma.refund.findUniqueOrThrow({ where: { id: refundId } });
 }

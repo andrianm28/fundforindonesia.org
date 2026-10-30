@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** awaiting-merge
+**Status:** done
 
 **Blocked by:** none
 
@@ -27,3 +27,4 @@ Ganti izin dummy YIEM dengan data dari dokumen asli lewat aksi ini.
 
 ## Comments
 - 2026-10-30: aksi "Koreksi" di kartu Fundraising Permit (PermitRow) memakai PATCH yang sudah ada, hanya mengirim field yang berubah; tes komponen ditambahkan. Menunggu merge; setelah itu owner mengganti izin dummy YIEM lewat panel.
+- 2026-10-30: merged ke main lewat #293 (squash 422334f), atas persetujuan owner. Belum ter-deploy.

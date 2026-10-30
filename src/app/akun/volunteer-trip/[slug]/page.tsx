@@ -11,6 +11,7 @@ import { BatchActions } from '../_components/BatchActions';
 import { BatchForm } from '../_components/BatchForm';
 import { SubmitTripButton } from '../_components/SubmitTripButton';
 import { TripForm } from '../_components/TripForm';
+import { TripPayoutPanel } from '../_components/TripPayoutPanel';
 
 // Reads the database: never served stale from a cache.
 export const dynamic = 'force-dynamic';
@@ -113,6 +114,11 @@ export default async function FundraiserTripPage({ params }: PageProps) {
             )}
           </div>
         ))}
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-text">Pencairan Trip Fee</h2>
+        <TripPayoutPanel slug={trip.slug} />
       </section>
 
       {/* Dates are WIB calendar dates; a Trip in any status but Ditarik or Selesai takes new Batches. */}

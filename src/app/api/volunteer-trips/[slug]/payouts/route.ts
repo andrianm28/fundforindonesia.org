@@ -130,5 +130,37 @@ export async function GET(_request: NextRequest, context: any) {
     withdrawable: await tripWithdrawableBalance(tx, trip.id, sandbox),
   }));
 
-  return NextResponse.json({ escrowHold, tripBalance: tripBalanceAmount, withdrawable, sandbox });
+  // Every status, so the Fundraiser sees where each request stands. Scoped to
+  // this Trip and to the mode in force.
+  const payouts = await prisma.payout.findMany({
+    where: { volunteerTripId: trip.id, sandbox },
+    select: { id: true, amount: true, description: true, status: true, createdAt: true, approvedAt: true, completedAt: true },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  // The picker offers exactly what requestPayout accepts: this person's own
+  // VERIFIED accounts. The account NUMBER is never selected (ADR 0012): only
+  // the bank code and the account name leave the server.
+  const userId = session.user.id as string;
+  const bankAccounts = await prisma.bankAccount.findMany({
+    where: { ownerId: userId, verifiedAt: { not: null } },
+    select: { id: true, bankCode: true, accountName: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  // Ticket 17: tells "never added one" from "added one that is pending or was
+  // rejected". Asked only when the picker is otherwise empty.
+  const hasUnverifiedBankAccount =
+    bankAccounts.length === 0
+      ? (await prisma.bankAccount.count({ where: { ownerId: userId, verifiedAt: null } })) > 0
+      : false;
+
+  return NextResponse.json({
+    escrowHold,
+    tripBalance: tripBalanceAmount,
+    withdrawable,
+    sandbox,
+    payouts,
+    bankAccounts,
+    hasUnverifiedBankAccount,
+  });
 }
