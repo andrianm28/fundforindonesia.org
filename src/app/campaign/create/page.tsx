@@ -1,27 +1,35 @@
 'use client';
 
 /* eslint-disable @next/next/no-img-element */
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaignStepIndicator';
 import { submitToVerifier } from '@/lib/verification-submission';
-import { endOfWibDay, formatWibLongDate, todayWibDate } from '@/lib/utils/date';
-import { deadlineRequired, KIND_LABEL, KINDS, type CampaignKind } from '@/lib/campaign-kind';
+import { formatWibLongDate } from '@/lib/utils/date';
+import { KIND_LABEL, type CampaignKind } from '@/lib/campaign-kind';
+import {
+  contentPayload,
+  deadlineError,
+  formatRupiahInput,
+  parseRupiahInput,
+  storyError,
+  titleError,
+  uploadCoverImage,
+} from '@/lib/campaign-form';
+import { CollectingEntityField, type SponsorOptions } from '@/components/campaign/CollectingEntityField';
+import { CampaignKindField } from '@/components/campaign/CampaignKindField';
+import { CampaignDeadlineField } from '@/components/campaign/CampaignDeadlineField';
+import { CoverImageField } from '@/components/campaign/CoverImageField';
+import { CampaignStoryField } from '@/components/campaign/CampaignStoryField';
 import { DOCUMENT_ACCEPT } from '@/components/documents/DocumentUpload';
 
 /** One Category from GET /api/categories, the Category table. */
 interface CategoryOption {
   slug: string;
   name: string;
-}
-
-/** What GET /api/partner-organisations/sponsors answers (prd-compliance 10). */
-interface SponsorOptions {
-  own: { id: string; name: string } | null;
-  sponsors: { id: string; name: string }[];
 }
 
 /** A §7.1 checklist item this Kind must carry a document for (ticket 64). */
@@ -57,7 +65,6 @@ interface FormErrors {
 export default function CampaignCreatePage() {
   const { status } = useSession();
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [currentStep, setCurrentStep] = useState(1);
   // Which review action is running: saving the Draft, or submitting it.
@@ -171,13 +178,10 @@ export default function CampaignCreatePage() {
   function validateStep1(): boolean {
     const newErrors: FormErrors = {};
 
-    if (!formData.title.trim()) {
-      newErrors.title = 'Judul campaign harus diisi';
-    } else if (formData.title.length > 200) {
-      newErrors.title = 'Judul maksimal 200 karakter';
-    }
+    const titleProblem = titleError(formData.title);
+    if (titleProblem) newErrors.title = titleProblem;
 
-    const amount = parseInt(formData.targetAmount.replace(/\D/g, ''), 10);
+    const amount = parseRupiahInput(formData.targetAmount);
     if (!formData.targetAmount.trim() || isNaN(amount) || amount <= 0) {
       newErrors.targetAmount = 'Target donasi harus lebih dari 0';
     }
@@ -191,17 +195,8 @@ export default function CampaignCreatePage() {
     }
 
     // Every Kind but wakaf needs a deadline (CONTEXT.md, Campaign).
-    if (!formData.deadline) {
-      if (!formData.kind || deadlineRequired(formData.kind)) {
-        newErrors.deadline = 'Batas waktu harus dipilih';
-      }
-    } else {
-      // The deadline is the end of the picked WIB day, so today is still valid.
-      const deadlineDate = endOfWibDay(formData.deadline);
-      if (deadlineDate <= new Date()) {
-        newErrors.deadline = 'Batas waktu harus di masa depan';
-      }
-    }
+    const deadlineProblem = deadlineError(formData.kind, formData.deadline);
+    if (deadlineProblem) newErrors.deadline = deadlineProblem;
 
     if (!formData.category) {
       newErrors.category = 'Kategori harus dipilih';
@@ -218,11 +213,8 @@ export default function CampaignCreatePage() {
       newErrors.coverImage = 'Gambar cover harus diunggah';
     }
 
-    if (!formData.story.trim()) {
-      newErrors.story = 'Cerita campaign harus diisi';
-    } else if (formData.story.trim().length < 50) {
-      newErrors.story = 'Cerita campaign minimal 50 karakter';
-    }
+    const storyProblem = storyError(formData.story);
+    if (storyProblem) newErrors.story = storyProblem;
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -241,68 +233,22 @@ export default function CampaignCreatePage() {
     setCurrentStep((prev) => Math.max(1, prev - 1));
   }
 
-  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (!file.type.startsWith('image/')) {
-        setErrors((prev) => ({ ...prev, coverImage: 'File harus berupa gambar' }));
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        setErrors((prev) => ({ ...prev, coverImage: 'Ukuran file maksimal 5MB' }));
-        return;
-      }
-      setErrors((prev) => ({ ...prev, coverImage: undefined }));
-      setFormData((prev) => ({
-        ...prev,
-        coverImage: file,
-        coverImagePreview: URL.createObjectURL(file),
-      }));
-    }
-  }
-
-  function formatCurrency(value: string): string {
-    const numbers = value.replace(/\D/g, '');
-    if (!numbers) return '';
-    return parseInt(numbers, 10).toLocaleString('id-ID');
-  }
-
   /** Creates the Draft (once), returning its slug. */
   async function createDraft(): Promise<{ slug: string; id: string | null }> {
     if (draftSlug) return { slug: draftSlug, id: draftId };
 
     // Upload the cover first. A failed upload stops the submit: a placeholder
     // or a blob/data URL would be refused by the API (coverImageSchema).
-    const uploadError = 'Gagal mengunggah gambar sampul. Silakan coba lagi.';
     if (!formData.coverImage) throw new Error('Gambar sampul wajib diunggah.');
-    const uploadFormData = new FormData();
-    uploadFormData.append('file', formData.coverImage);
+    const coverImageUrl = await uploadCoverImage(formData.coverImage);
 
-    let uploaded: { url?: string } | null = null;
-    try {
-      const uploadRes = await fetch('/api/upload', {
-        method: 'POST',
-        body: uploadFormData,
-      });
-      if (uploadRes.ok) uploaded = (await uploadRes.json()) as { url?: string };
-    } catch {
-      uploaded = null;
-    }
-    if (!uploaded?.url) throw new Error(uploadError);
-    const coverImageUrl = uploaded.url;
-
-    const amount = parseInt(formData.targetAmount.replace(/\D/g, ''), 10);
+    const amount = parseRupiahInput(formData.targetAmount);
     const payload = {
-      title: formData.title.trim(),
-      description: formData.story.trim().substring(0, 200),
-      story: formData.story.trim(),
+      ...contentPayload(formData),
       coverImage: coverImageUrl,
       targetAmount: amount,
       category: formData.category,
       kind: formData.kind,
-      deadline: formData.deadline
-        ? endOfWibDay(formData.deadline).toISOString()
-        : undefined,
       // An organisation's own account gets its organisation on the server.
       collectingEntityId:
         !sponsorOptions?.own && formData.collectingEntityId ? formData.collectingEntityId : undefined,
@@ -403,38 +349,11 @@ export default function CampaignCreatePage() {
             <div className="space-y-5">
               <h2 className="text-lg font-semibold text-text mb-4">Informasi Dasar</h2>
 
-              <div className="w-full">
-                <label htmlFor="campaign-kind" className="block text-sm font-medium text-text mb-1.5">
-                  Kind <span className="text-danger ml-0.5">*</span>
-                </label>
-                <select
-                  id="campaign-kind"
-                  aria-label="Kind"
-                  value={formData.kind}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, kind: e.target.value as CampaignKind | '' }))
-                  }
-                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary ${
-                    errors.kind
-                      ? 'border-danger focus:ring-danger/20 focus:border-danger'
-                      : 'border-border hover:border-text-secondary/50'
-                  }`}
-                >
-                  <option value="">Pilih Kind</option>
-                  {KINDS.map((kind) => (
-                    <option key={kind} value={kind}>
-                      {KIND_LABEL[kind]}
-                    </option>
-                  ))}
-                </select>
-                {errors.kind ? (
-                  <p className="mt-1 text-xs text-danger">{errors.kind}</p>
-                ) : (
-                  <p className="mt-1 text-xs text-text-secondary">
-                    Kind menentukan aturan dana Campaign dan tidak dapat diubah setelah diajukan.
-                  </p>
-                )}
-              </div>
+              <CampaignKindField
+                value={formData.kind}
+                error={errors.kind}
+                onChange={(kind) => setFormData((prev) => ({ ...prev, kind }))}
+              />
 
               <Input
                 label="Judul Campaign"
@@ -453,7 +372,7 @@ export default function CampaignCreatePage() {
                 onChange={(val) =>
                   setFormData((prev) => ({
                     ...prev,
-                    targetAmount: formatCurrency(val),
+                    targetAmount: formatRupiahInput(val),
                   }))
                 }
                 error={errors.targetAmount}
@@ -461,32 +380,12 @@ export default function CampaignCreatePage() {
                 required
               />
 
-              <div className="w-full">
-                <label className="block text-sm font-medium text-text mb-1.5">
-                  Batas Waktu{' '}
-                  {formData.kind === 'WAKAF' ? (
-                    <span className="text-text-secondary font-normal">(opsional untuk Wakaf)</span>
-                  ) : (
-                    <span className="text-danger ml-0.5">*</span>
-                  )}
-                </label>
-                <input
-                  type="date"
-                  value={formData.deadline}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, deadline: e.target.value }))
-                  }
-                  min={todayWibDate()}
-                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary ${
-                    errors.deadline
-                      ? 'border-danger focus:ring-danger/20 focus:border-danger'
-                      : 'border-border hover:border-text-secondary/50'
-                  }`}
-                />
-                {errors.deadline && (
-                  <p className="mt-1 text-xs text-danger">{errors.deadline}</p>
-                )}
-              </div>
+              <CampaignDeadlineField
+                kind={formData.kind}
+                value={formData.deadline}
+                error={errors.deadline}
+                onChange={(deadline) => setFormData((prev) => ({ ...prev, deadline }))}
+              />
 
               <div className="w-full">
                 <label className="block text-sm font-medium text-text mb-1.5">
@@ -541,104 +440,21 @@ export default function CampaignCreatePage() {
             <div className="space-y-5">
               <h2 className="text-lg font-semibold text-text mb-4">Konten Campaign</h2>
 
-              {/* Cover Image Upload */}
-              <div className="w-full">
-                <label className="block text-sm font-medium text-text mb-1.5">
-                  Gambar Cover <span className="text-danger ml-0.5">*</span>
-                </label>
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
-                    errors.coverImage
-                      ? 'border-danger bg-danger/5'
-                      : 'border-border hover:border-primary hover:bg-primary/5'
-                  }`}
-                >
-                  {formData.coverImagePreview ? (
-                    <div className="relative">
-                      <img
-                        src={formData.coverImagePreview}
-                        alt="Preview cover"
-                        className="w-full h-48 object-cover rounded-md"
-                      />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setFormData((prev) => ({
-                            ...prev,
-                            coverImage: null,
-                            coverImagePreview: '',
-                          }));
-                        }}
-                        className="absolute top-2 right-2 bg-white/90 rounded-full p-1 hover:bg-white"
-                      >
-                        <svg className="w-4 h-4 text-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="py-8">
-                      <svg
-                        className="w-12 h-12 mx-auto text-text-secondary mb-2"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={1.5}
-                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                        />
-                      </svg>
-                      <p className="text-sm text-text-secondary">
-                        Klik untuk unggah gambar cover
-                      </p>
-                      <p className="text-xs text-text-secondary mt-1">
-                        Format: JPG, PNG. Maks 5MB
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="hidden"
-                />
-                {errors.coverImage && (
-                  <p className="mt-1 text-xs text-danger">{errors.coverImage}</p>
-                )}
-              </div>
+              <CoverImageField
+                preview={formData.coverImagePreview}
+                error={errors.coverImage}
+                onPick={(file) =>
+                  setFormData((prev) => ({ ...prev, coverImage: file, coverImagePreview: URL.createObjectURL(file) }))
+                }
+                onError={(coverImage) => setErrors((prev) => ({ ...prev, coverImage }))}
+                onClear={() => setFormData((prev) => ({ ...prev, coverImage: null, coverImagePreview: '' }))}
+              />
 
-              {/* Story textarea */}
-              <div className="w-full">
-                <label className="block text-sm font-medium text-text mb-1.5">
-                  Cerita Campaign <span className="text-danger ml-0.5">*</span>
-                </label>
-                <textarea
-                  value={formData.story}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, story: e.target.value }))
-                  }
-                  placeholder="Ceritakan alasan Anda membuat penggalangan dana ini. Sertakan detail tentang siapa yang akan dibantu dan bagaimana dana akan digunakan."
-                  rows={8}
-                  className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 resize-y focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-text-secondary/60 ${
-                    errors.story
-                      ? 'border-danger focus:ring-danger/20 focus:border-danger'
-                      : 'border-border hover:border-text-secondary/50'
-                  }`}
-                />
-                {errors.story && (
-                  <p className="mt-1 text-xs text-danger">{errors.story}</p>
-                )}
-                <p className="mt-1 text-xs text-text-secondary">
-                  {formData.story.length} karakter (minimal 50)
-                </p>
-              </div>
+              <CampaignStoryField
+                value={formData.story}
+                error={errors.story}
+                onChange={(story) => setFormData((prev) => ({ ...prev, story }))}
+              />
 
               <div className="flex gap-3 pt-4">
                 <Button variant="secondary" size="md" onClick={handleBack}>
@@ -801,74 +617,6 @@ export default function CampaignCreatePage() {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-/**
- * Who collects the Campaign's money (CONTEXT.md, Collecting Entity; ADR
- * 0010), said plainly: an organisation's own account collects in its
- * organisation's name; an individual Fundraiser picks a sponsoring Partner
- * Organisation, which a Verifier confirms when approving.
- */
-function CollectingEntityField({
-  options,
-  value,
-  error,
-  onChange,
-}: {
-  options: SponsorOptions | null;
-  value: string;
-  error?: string;
-  onChange: (id: string) => void;
-}) {
-  if (!options) {
-    return <p className="text-xs text-text-secondary">Memuat Partner Organisation...</p>;
-  }
-  if (options.own) {
-    return (
-      <div data-testid="collecting-entity" className="w-full rounded-md bg-bg-secondary p-3">
-        <p className="text-sm font-medium text-text mb-1">Collecting Entity</p>
-        <p className="text-sm text-text">
-          Dana Campaign ini dihimpun atas nama {options.own.name}, organisasi yang diwakili akun Anda.
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div data-testid="collecting-entity" className="w-full">
-      <label htmlFor="collecting-entity" className="block text-sm font-medium text-text mb-1.5">
-        Collecting Entity <span className="text-danger ml-0.5">*</span>
-      </label>
-      <p className="mb-2 text-xs text-text-secondary">
-        Fundraiser perorangan menggalang dana di bawah naungan Partner Organisation yang memegang Fundraising
-        Permit: dana Campaign dihimpun atas nama Partner Organisation itu, bukan atas nama Anda atau platform.
-        Verifier mengonfirmasi Partner Organisation yang menaungi saat meloloskan pengajuan.
-      </p>
-      {options.sponsors.length === 0 ? (
-        <p className="text-sm text-danger">
-          Belum ada Partner Organisation yang menaungi Campaign perorangan. Anda tetap dapat menyimpan Draft,
-          tetapi belum dapat mengajukannya ke Verifier.
-        </p>
-      ) : (
-        <select
-          id="collecting-entity"
-          aria-label="Collecting Entity"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary ${
-            error ? 'border-danger focus:ring-danger/20 focus:border-danger' : 'border-border hover:border-text-secondary/50'
-          }`}
-        >
-          <option value="">Pilih Partner Organisation</option>
-          {options.sponsors.map((sponsor) => (
-            <option key={sponsor.id} value={sponsor.id}>
-              {sponsor.name}
-            </option>
-          ))}
-        </select>
-      )}
-      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
     </div>
   );
 }
