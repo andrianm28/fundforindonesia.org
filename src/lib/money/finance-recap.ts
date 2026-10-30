@@ -30,7 +30,7 @@ import { Prisma, type PrismaClient, type Kind } from '@/generated/prisma/client'
  * ("Tanpa Campaign"), whose Kind is null.
  *
  * WHAT EACH COLUMN IS (classifyMovement is the one definition; a leg that
- * matches none of these is not in the recap, e.g. PROGRAM_BALANCE, escrow
+ * matches none of these is not in the recap, e.g. escrow
  * releases, Campaign Transfers, withdrawals to the bank):
  *
  *   donasiDiterima     GATEWAY_CLEARING DEBIT of a settlement: the Gross the
@@ -41,10 +41,13 @@ import { Prisma, type PrismaClient, type Kind } from '@/generated/prisma/client'
  *   danaBersih         ESCROW_HOLD CREDIT of a settlement: the net owed to the
  *                      Campaign. donasiDiterima = biayaPenyedia + biayaPlatform
  *                      + danaBersih for every row (paymentSettledLegs).
- *   kontribusiManual   CAMPAIGN_BALANCE credit minus debit with a
+ *   kontribusiManual   CAMPAIGN_BALANCE or PROGRAM_BALANCE credit minus debit with a
  *                      manualContributionId (off-gateway money, reversals net).
  *   refundDisetujui    REFUND_CLEARING CREDIT with a refundId: Refunds approved
- *                      (the full amount owed back to the Donor).
+ *                      (the full amount owed back to the Donor), minus the
+ *                      REFUND_CLEARING DEBIT of a FAILED Refund's mirror
+ *                      (transactionId `refund-failed-`). The debit that PAYS a
+ *                      Refund (`refund-completed-`) is not subtracted.
  *   refundTertahan     FROZEN_BALANCE credit minus debit with a refundId:
  *                      Refunds requested and not yet decided; an approved or
  *                      rejected one nets to zero.
@@ -89,6 +92,8 @@ export interface MovementSignature {
   hasPayout: boolean;
   hasManual: boolean;
   hasWithdrawal: boolean;
+  /** The mirror posted by a FAILED Refund (transactionId `refund-failed-<id>`, refunds.ts resolveRefund). */
+  isRefundFailure?: boolean;
 }
 
 export function emptyAmounts(): FinanceRecapAmounts {
@@ -106,11 +111,16 @@ export function classifyMovement(m: MovementSignature): { column: FinanceRecapCo
     if (m.account === 'PLATFORM_FEE' && credit) return { column: 'biayaPlatform', sign: 1 };
     if (m.account === 'ESCROW_HOLD' && credit) return { column: 'danaBersih', sign: 1 };
   }
-  if (m.hasManual && m.account === 'CAMPAIGN_BALANCE') {
+  // PROGRAM_BALANCE is real money too; it has no campaignId, so it lands in the
+  // "Tanpa Campaign" row with Trip legs.
+  if (m.hasManual && (m.account === 'CAMPAIGN_BALANCE' || m.account === 'PROGRAM_BALANCE')) {
     return { column: 'kontribusiManual', sign: credit ? 1 : -1 };
   }
   if (m.hasRefund) {
     if (m.account === 'REFUND_CLEARING' && credit) return { column: 'refundDisetujui', sign: 1 };
+    // A failed Refund mirrors its approval. The other REFUND_CLEARING debit
+    // (`refund-completed-<id>`) is the payment to the Donor and does not undo it.
+    if (m.account === 'REFUND_CLEARING' && !credit && m.isRefundFailure) return { column: 'refundDisetujui', sign: -1 };
     if (m.account === 'FROZEN_BALANCE') return { column: 'refundTertahan', sign: credit ? 1 : -1 };
     if (m.account === 'PLATFORM_FEE' && !credit) return { column: 'biayaPlatformDikembalikan', sign: 1 };
     if (m.account === 'PLATFORM_FEE' && credit) return { column: 'biayaPlatformDikembalikan', sign: -1 };
@@ -160,6 +170,7 @@ interface RawRow {
   hasPayout: boolean;
   hasManual: boolean;
   hasWithdrawal: boolean;
+  isRefundFailure: boolean;
   total: bigint | number;
 }
 
@@ -171,7 +182,7 @@ export async function financeRecap(
 
   const raw = await db.$queryRaw<RawRow[]>(Prisma.sql`
     SELECT period, "campaignId", account::text AS account, direction::text AS direction,
-           "hasRefund", "hasPayout", "hasManual", "hasWithdrawal", SUM(amount) AS total
+           "hasRefund", "hasPayout", "hasManual", "hasWithdrawal", "isRefundFailure", SUM(amount) AS total
     FROM (
       SELECT to_char(("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM') AS period,
              COALESCE("campaignId", MAX("campaignId") OVER (PARTITION BY "transactionId")) AS "campaignId",
@@ -179,11 +190,12 @@ export async function financeRecap(
              ("refundId" IS NOT NULL) AS "hasRefund",
              ("payoutId" IS NOT NULL) AS "hasPayout",
              ("manualContributionId" IS NOT NULL) AS "hasManual",
-             ("providerWithdrawalId" IS NOT NULL) AS "hasWithdrawal"
+             ("providerWithdrawalId" IS NOT NULL) AS "hasWithdrawal",
+             ("transactionId" LIKE 'refund-failed-%') AS "isRefundFailure"
       FROM "LedgerEntry"
       WHERE sandbox = false AND "createdAt" >= ${from} AND "createdAt" < ${toExclusive}
     ) legs
-    GROUP BY period, "campaignId", account, direction, "hasRefund", "hasPayout", "hasManual", "hasWithdrawal"
+    GROUP BY period, "campaignId", account, direction, "hasRefund", "hasPayout", "hasManual", "hasWithdrawal", "isRefundFailure"
   `);
 
   const byKey = new Map<string, FinanceRecapRow>();

@@ -39,6 +39,9 @@ describe('classifyMovement', () => {
     expect(classifyMovement(leg({ account: 'FROZEN_BALANCE', direction: 'CREDIT', hasRefund: true }))).toEqual({ column: 'refundTertahan', sign: 1 });
     expect(classifyMovement(leg({ account: 'FROZEN_BALANCE', direction: 'DEBIT', hasRefund: true }))).toEqual({ column: 'refundTertahan', sign: -1 });
     expect(classifyMovement(leg({ account: 'PLATFORM_FEE', direction: 'DEBIT', hasRefund: true }))).toEqual({ column: 'biayaPlatformDikembalikan', sign: 1 });
+    // A failed Refund undoes the approval; the paying debit does not.
+    expect(classifyMovement(leg({ account: 'REFUND_CLEARING', direction: 'DEBIT', hasRefund: true, isRefundFailure: true }))).toEqual({ column: 'refundDisetujui', sign: -1 });
+    expect(classifyMovement(leg({ account: 'PROGRAM_BALANCE', direction: 'CREDIT', hasManual: true }))).toEqual({ column: 'kontribusiManual', sign: 1 });
     // A refund's paid leg moves the clearing account, not the recap.
     expect(classifyMovement(leg({ account: 'REFUND_CLEARING', direction: 'DEBIT', hasRefund: true }))).toBeNull();
   });
@@ -62,7 +65,7 @@ describe('period', () => {
 });
 
 describe('CSV', () => {
-  it.each(['=1+1', '+1', '-1', '@SUM(A1)', '\tx', '\rx'])('neutralises %j', (cell) => {
+  it.each(['=1+1', '+1', '-1', '@SUM(A1)', '\tx', '\rx', ' =1+1', '  @SUM(A1)', '\n-1'])('neutralises %j', (cell) => {
     expect(neutraliseFormula(cell)).toBe(`'${cell}`);
   });
   it('leaves ordinary text alone', () => {
@@ -79,7 +82,7 @@ describe('CSV', () => {
     };
     const lines = financeRecapCsv(recap).split('\r\n');
     expect(lines[0]).toBe(
-      'Periode,Jenis,Campaign,Donasi diterima,Biaya penyedia,Biaya platform,Dana bersih Campaign,Kontribusi manual,Refund disetujui,Refund tertahan,Biaya platform dikembalikan,Payout',
+      'Periode,Jenis,Campaign,Donasi diterima,Biaya penyedia,Biaya platform,Dana bersih Campaign,Kontribusi manual,Refund disetujui,Refund tertahan,Biaya platform dikembalikan,Payout diinstruksikan (bersih dari gagal)',
     );
     expect(lines[1]).toBe(`2026-10,ZAKAT,"'=cmd|""x"", y",1000,0,0,0,0,0,0,0,-5`);
     expect(lines[2]).toBe('2026-10,,Tanpa Campaign (Volunteer Trip/Program),0,0,0,0,0,0,0,0,7');

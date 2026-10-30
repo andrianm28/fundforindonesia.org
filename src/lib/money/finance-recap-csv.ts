@@ -13,20 +13,20 @@ export const FINANCE_RECAP_HEADERS = {
   refundDisetujui: 'Refund disetujui',
   refundTertahan: 'Refund tertahan',
   biayaPlatformDikembalikan: 'Biaya platform dikembalikan',
-  payout: 'Payout',
+  payout: 'Payout diinstruksikan (bersih dari gagal)',
 } as const;
 
 export const NO_CAMPAIGN_LABEL = 'Tanpa Campaign (Volunteer Trip/Program)';
 
 /**
- * Spreadsheet formula injection: a text cell that starts with = + - @, a tab or
+ * Spreadsheet formula injection: a text cell that starts with = + - @ (also after leading whitespace), a tab or
  * a carriage return is run as a formula by Excel and Sheets. Prefix it with an
  * apostrophe, which they show as nothing and treat as "this is text".
  * Applied to every TEXT cell (Campaign titles are user input); amounts are
  * written as bare integers and never pass through here.
  */
 export function neutraliseFormula(text: string): string {
-  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return /^\s*[=+\-@]|^[\t\r]/.test(text) ? `'${text}` : text;
 }
 
 function quote(text: string): string {

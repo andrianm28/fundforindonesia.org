@@ -278,6 +278,70 @@ describe.skipIf(!DATABASE_URL)('Finance recap -- against real Postgres (ticket 7
     }
   }, 120_000);
 
+  it('takes failed Refunds out of "disetujui" but not paid ones, nets a rejected one to zero, and counts a Program Manual Contribution under Tanpa Campaign', async () => {
+    const a = await seedCampaign('DONATION', 'Campaign Refund');
+    const subject: LedgerSubject = { type: 'campaign', campaignId: a.campaignId };
+    const payment = await prisma.payment.findFirstOrThrow({ where: { donation: { campaignId: a.campaignId }, sandbox: false } });
+    const approve = async (amount: number) => {
+      const requestedById = await makeUser();
+      const refund = await prisma.$transaction((tx) =>
+        refunds.createRefund(tx, { subject, paymentId: payment.id, amount, reason: refunds.CLOSED_CAMPAIGN_REFUND_REASON, requestedById }),
+      );
+      return { refund, requestedById };
+    };
+    const approveIt = async (refundId: string) =>
+      refunds.approveRefund(prisma, {
+        refundId,
+        approvedById: await makeUser(),
+        donorBankCode: 'BCA',
+        donorAccountName: 'Donor Uji',
+        donorAccountNumber: '1234567890',
+      });
+
+    // Seed already holds one approved (100_000) and one pending (20_000) Refund.
+    const failed = await approve(30_000);
+    await approveIt(failed.refund.id);
+    await refunds.failRefund(prisma, { refundId: failed.refund.id, failedById: await makeUser(), reason: 'transfer gagal' });
+
+    const paid = await approve(10_000);
+    await approveIt(paid.refund.id);
+    await refunds.completeRefund(prisma, {
+      refundId: paid.refund.id,
+      completedById: await makeUser(),
+      proofReference: 'REF-1',
+      proofNote: 'uji',
+      donorAccountNumber: '1234567890',
+    });
+
+    const rejected = await approve(5_000);
+    await refunds.rejectRefund(prisma, { refundId: rejected.refund.id, rejectedById: await makeUser(), reason: 'uji' });
+
+    const program = await prisma.program.create({
+      data: {
+        slug: `program-${process.pid}-${next()}`, title: 'Program', sector: 'EDUCATION', problem: 'p', beneficiaries: 'b',
+        location: 'l', activities: 'a', budget: 1, timeline: 't', kpis: [], documentation: [],
+      },
+    });
+    const programRecorder = await makeUser();
+    const contribution = await prisma.$transaction((tx) =>
+      manual.recordManualContribution(tx, {
+        target: { programId: program.id }, amount: 70_000, proofReference: `MCP-${program.id}`, recordedById: programRecorder,
+      }),
+    );
+    await manual.approveManualContribution(prisma, { manualContributionId: contribution.id, decidedById: await makeUser() });
+    await moveCampaignEntriesTo(a.campaignId, new Date('2027-01-15T05:00:00Z'));
+    await prisma.$executeRaw`UPDATE "LedgerEntry" SET "createdAt" = ${new Date('2027-01-15T05:00:00Z')} WHERE "manualContributionId" = ${contribution.id}`;
+
+    const recap = await recapLib.financeRecap(prisma, { from: '2027-01', to: '2027-01' });
+    const row = recap.rows.find((r) => r.campaignId === a.campaignId)!;
+    // Approved 100_000 and paid 10_000 count; failed 30_000 does not; rejected 5_000 neither.
+    expect(row.refundDisetujui).toBe(REFUND_APPROVED + 10_000);
+    expect(row.refundTertahan).toBe(REFUND_PENDING);
+    const none = recap.rows.find((r) => r.campaignId === null)!;
+    expect(none.kontribusiManual).toBe(70_000);
+    expect(none.kind).toBeNull();
+  }, 120_000);
+
   it('reads a month as a WIB month: 16:59:59 UTC on the 30th is still September, 17:00:00 UTC is October', async () => {
     const c = await seedCampaign('DONATION', 'Campaign Batas');
     await moveCampaignEntriesTo(c.campaignId, new Date('2026-09-30T16:59:59.999Z'));
