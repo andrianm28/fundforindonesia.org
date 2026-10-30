@@ -16,7 +16,7 @@ describe("AdminSidebar", () => {
       "/admin/manual-contributions", "/admin/abuse-thresholds", "/admin/campaigns/lifecycle",
       "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/finance", "/admin/verification-checklist",
       "/admin/collecting-entities", "/admin/partnership-inquiries", "/admin/payment-providers", "/admin/platform-fee", "/admin/escrow-hold",
-      "/admin/reconciliation", "/admin/scrutiny",
+      "/admin/reconciliation", "/admin/scrutiny", "/admin/campaign-transfers",
     ]) {
       expect(container.querySelectorAll(`nav a[href="${href}"]`)).toHaveLength(1);
     }

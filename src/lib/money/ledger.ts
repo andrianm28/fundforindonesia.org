@@ -44,8 +44,10 @@ export interface PostOptions {
    *
    * Omitted, and null on every row, wherever nobody records which provider a
    * movement belongs to -- a Manual Contribution arrived off-gateway, and a
-   * completed Payout or a paid Refund drains the Provider Balance without
-   * anybody writing down which provider paid it. Omitting it is a fact about
+   * Payout completed or Refund paid BEFORE ticket 69 drained the Provider
+   * Balance without anybody writing down which provider paid it (new Payout
+   * legs carry Payout.approvedProvider, new Refund legs the Payment's
+   * provider; history is not migrated). Omitting it is a fact about
    * the data, not a gap to be filled in later: providerBalances below returns
    * those rows as their own bucket rather than resolving them, so a per-provider
    * figure can never be quietly wrong by being complete-looking.
@@ -1260,11 +1262,10 @@ export interface ProviderBalance {
  * own rows rather than from any stored figure, and a second place to keep in
  * step is a second thing that can go stale.
  *
- * WHY THE NULL BUCKET IS RETURNED RATHER THAN ATTRIBUTED. Two of the three
- * movements that credit the Provider Balance -- a completed Payout and a paid
- * Refund -- are posted with no `provider`, because no code records which
- * provider paid them. With one provider live that is untidy; with two it means
- * a per-provider balance is a FLOOR, and attributing the unnamed credits
+ * WHY THE NULL BUCKET IS RETURNED RATHER THAN ATTRIBUTED. A completed Payout
+ * and a paid Refund were posted with no `provider` before ticket 69, and
+ * Payouts approved without a provider reading still are. That history is not
+ * migrated, so while it exists a per-provider balance is a FLOOR, and attributing the unnamed credits
  * proportionally or to the only provider that exists would produce a number
  * that is complete-looking and wrong. So the caller is handed the remainder and
  * asked to say so. See LedgerEntry.provider's own comment and the per-provider
