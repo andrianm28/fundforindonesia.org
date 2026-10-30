@@ -39,6 +39,7 @@ export type LifecycleErrorCode =
   | "REQUIRED_CHECKLIST_ITEMS_UNTICKED"
   | "CHECKLIST_DOCUMENT_MISSING"
   | "DEADLINE_REQUIRED"
+  | "CAMPAIGN_DURATION_EXCEEDED"
   | "DEADLINE_NOT_EDITABLE"
   | "KIND_IMMUTABLE"
   | "COLLECTING_ENTITY_REQUIRED"
@@ -265,6 +266,8 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   CHECKLIST_DOCUMENT_MISSING: 422,
   // The Fundraiser can fix it by setting a deadline, as above.
   DEADLINE_REQUIRED: 422,
+  // The Fundraiser can fix it by naming a deadline within 12 months.
+  CAMPAIGN_DURATION_EXCEEDED: 422,
   KIND_IMMUTABLE: 409,
   DEADLINE_NOT_EDITABLE: 409,
   // Unmet preconditions the actor can fix (name an entity, have a permit
