@@ -21,12 +21,13 @@ PRD 7.2 meminta email untuk Payout, Refund, dan suspensi. Hanya email verifikasi
 
 ## Acceptance
 
-- [ ] Fundraiser menerima email saat Payout disetujui dan saat selesai
-- [ ] Donor menerima email saat Refund selesai atau gagal, tanpa membocorkan nomor rekening
-- [ ] Fundraiser menerima email saat Campaign ditangguhkan dan saat dicabut
-- [ ] Kegagalan kirim email tidak membatalkan transaksi uang (pola klaim yang sudah ada)
-- [ ] Isi email di-escape dan hanya memuat data yang boleh dilihat penerima; tes untuk tiap templat
+- [x] Fundraiser menerima email saat Payout disetujui dan saat selesai
+- [x] Donor menerima email saat Refund selesai atau gagal, tanpa membocorkan nomor rekening
+- [x] Fundraiser menerima email saat Campaign ditangguhkan dan saat dicabut
+- [x] Kegagalan kirim email tidak membatalkan transaksi uang (pola klaim yang sudah ada)
+- [x] Isi email di-escape dan hanya memuat data yang boleh dilihat penerima; tes untuk tiap templat
 
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+- 2026-10-29: dibangun di branch `claude/project-thread-pl4ztw` (draft PR). Email dikirim setelah commit lewat `src/lib/status-emails.ts`; Refund ditolak (sebelum approve) sengaja tidak dikirimi email, alasan gagal dari Admin tidak ikut ke email Donor.

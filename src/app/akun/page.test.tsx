@@ -97,4 +97,29 @@ describe('AkunPage', () => {
     expect(screen.getByRole('link', { name: /Syarat & Ketentuan/ })).toHaveAttribute('href', '/terms');
     expect(screen.getByRole('link', { name: 'Kebijakan Privasi' })).toHaveAttribute('href', '/privacy');
   });
+
+  it('offers "Unduh data saya" pointing at the export download (audit L5)', () => {
+    mockUseSession.mockReturnValue(signedIn());
+
+    render(<AkunPage />);
+
+    const link = screen.getByRole('link', { name: 'Unduh data saya' });
+    expect(link).toHaveAttribute('href', '/api/account/export');
+    expect(link).toHaveAttribute('download');
+  });
+
+  it('explains that account deletion is a request to the privacy contact, with a prefilled mailto (audit L5)', () => {
+    mockUseSession.mockReturnValue(signedIn());
+
+    render(<AkunPage />);
+
+    expect(screen.getByText('Minta hapus akun')).toBeTruthy();
+    const link = screen.getByRole('link', { name: /Kirim permintaan hapus akun/ });
+    const href = link.getAttribute('href') ?? '';
+    expect(href.startsWith('mailto:privasi@fundforindonesia.org?subject=')).toBe(true);
+    expect(decodeURIComponent(href)).toMatch(/Permintaan hapus akun/);
+    // Honest about what happens: nothing is deleted from here, ledger stays.
+    expect(screen.getByText(/tidak langsung dihapus/i)).toBeTruthy();
+    expect(screen.getByText(/catatan keuangan/i)).toBeTruthy();
+  });
 });

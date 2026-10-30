@@ -37,6 +37,7 @@ export type LifecycleErrorCode =
   | "CHANGE_REQUEST_ALREADY_PENDING"
   | "TOO_MANY_ACTIVE_CAMPAIGNS"
   | "REQUIRED_CHECKLIST_ITEMS_UNTICKED"
+  | "CHECKLIST_DOCUMENT_MISSING"
   | "DEADLINE_REQUIRED"
   | "DEADLINE_NOT_EDITABLE"
   | "KIND_IMMUTABLE"
@@ -263,6 +264,8 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // Like MISSING_CAMPAIGN_UPDATE: an unmet precondition the actor can fix
   // (tick the items), not a status conflict another actor caused.
   REQUIRED_CHECKLIST_ITEMS_UNTICKED: 422,
+  // The Fundraiser can fix it by uploading the document (ticket 64).
+  CHECKLIST_DOCUMENT_MISSING: 422,
   // The Fundraiser can fix it by setting a deadline, as above.
   DEADLINE_REQUIRED: 422,
   KIND_IMMUTABLE: 409,

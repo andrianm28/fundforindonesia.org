@@ -45,6 +45,8 @@ import {
   RefundReasonInvalidError,
 } from './errors';
 import { STANDING_REFUND_WHERE, isRefundStanding, readRefundFreezeEntries } from './refund-standing';
+import { emailRefundOutcome } from '@/lib/status-emails';
+import type { Mailer } from '@/lib/mail';
 
 /**
  * Refund: request, approve, complete.
@@ -662,6 +664,8 @@ export async function completeRefund(
     proofReference: string;
     proofNote: string;
     donorAccountNumber: string;
+    /** For tests; the Donor's email goes through the configured Mailer otherwise. */
+    mailer?: Mailer;
   },
 ): Promise<Refund> {
   const { refundId, completedById, proofReference, proofNote, donorAccountNumber } = params;
@@ -758,6 +762,11 @@ export async function completeRefund(
     );
   });
 
+  // After commit, never inside it: the Refund is paid whether or not the
+  // Donor's email goes out, and nothing here throws (ticket 68). The email
+  // never carries the account number (refundOutcomeEmail).
+  await emailRefundOutcome(prisma, { refundId, outcome: 'completed' }, params.mailer);
+
   return prisma.refund.findUniqueOrThrow({ where: { id: refundId } });
 }
 
@@ -801,7 +810,7 @@ function cleanResolutionReason(raw: unknown): string {
  */
 async function resolveRefund(
   prisma: PrismaClient,
-  params: { refundId: string; actorId: string; reason: string; action: 'reject' | 'fail' },
+  params: { refundId: string; actorId: string; reason: string; action: 'reject' | 'fail'; mailer?: Mailer },
 ): Promise<Refund> {
   const { refundId, actorId, action } = params;
   const reason = cleanResolutionReason(params.reason);
@@ -884,6 +893,14 @@ async function resolveRefund(
     }
   });
 
+  // A failure is the Donor's news; a rejection before approval is not sent
+  // (ticket 68 asks for completed and failed only). After commit, never
+  // inside it, and nothing here throws. The Admin's failure reason stays out
+  // of the email: it may name the account (refundOutcomeEmail).
+  if (action === 'fail') {
+    await emailRefundOutcome(prisma, { refundId, outcome: 'failed' }, params.mailer);
+  }
+
   return prisma.refund.findUniqueOrThrow({ where: { id: refundId } });
 }
 
@@ -906,7 +923,13 @@ export function rejectRefund(
  */
 export function failRefund(
   prisma: PrismaClient,
-  params: { refundId: string; failedById: string; reason: string },
+  params: { refundId: string; failedById: string; reason: string; mailer?: Mailer },
 ): Promise<Refund> {
-  return resolveRefund(prisma, { refundId: params.refundId, actorId: params.failedById, reason: params.reason, action: 'fail' });
+  return resolveRefund(prisma, {
+    refundId: params.refundId,
+    actorId: params.failedById,
+    reason: params.reason,
+    action: 'fail',
+    mailer: params.mailer,
+  });
 }

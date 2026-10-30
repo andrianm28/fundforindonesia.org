@@ -59,9 +59,9 @@ describe('submitCampaign', () => {
         submittedById: 'creator-1',
         submittedAt: NOW,
         checklist: [
-          { id: 'identitas-fundraiser', label: 'KTP Fundraiser perorangan atau akta pendirian organisasi', required: true, position: 1, ticked: false },
-          { id: 'rencana-anggaran', label: 'Rencana anggaran', required: true, position: 2, ticked: false },
-          { id: 'bukti-masalah', label: 'Bukti masalah', required: true, position: 3, ticked: false },
+          { id: 'identitas-fundraiser', label: 'KTP Fundraiser perorangan atau akta pendirian organisasi', required: true, position: 1, ticked: false, requiresDocument: false },
+          { id: 'rencana-anggaran', label: 'Rencana anggaran', required: true, position: 2, ticked: false, requiresDocument: false },
+          { id: 'bukti-masalah', label: 'Bukti masalah', required: true, position: 3, ticked: false, requiresDocument: false },
         ],
         outcome: 'PENDING',
         reason: null,
@@ -127,8 +127,8 @@ describe('submitCampaign', () => {
     await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
 
     expect(db.verificationRequests[0].checklist).toEqual([
-      { id: 'first', label: 'Pertama', required: false, position: 1, ticked: false },
-      { id: 'second', label: 'Kedua', required: true, position: 2, ticked: false },
+      { id: 'first', label: 'Pertama', required: false, position: 1, ticked: false, requiresDocument: false },
+      { id: 'second', label: 'Kedua', required: true, position: 2, ticked: false, requiresDocument: false },
     ]);
   });
 
@@ -475,8 +475,8 @@ describe('submitCampaign', () => {
       });
 
       expect(db.verificationRequests[0].checklist).toEqual([
-        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
-        { id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 3, ticked: false },
+        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false, requiresDocument: false },
+        { id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 3, ticked: false, requiresDocument: false },
       ]);
     });
 
@@ -489,7 +489,7 @@ describe('submitCampaign', () => {
       await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
 
       expect(db.verificationRequests[0].checklist).toEqual([
-        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
+        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false, requiresDocument: false },
       ]);
     });
   });
@@ -535,8 +535,8 @@ describe('submitCampaign', () => {
       // hibah's rows, not wakaf's, even though the two carry the same labels —
       // and wakaf's akad, active and in scope, stays out of this snapshot.
       expect(db.verificationRequests[0].checklist).toEqual([
-        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
-        { id: 'hibah-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 3, ticked: false },
+        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false, requiresDocument: false },
+        { id: 'hibah-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 3, ticked: false, requiresDocument: false },
       ]);
     });
 
@@ -555,9 +555,9 @@ describe('submitCampaign', () => {
       });
 
       expect(db.verificationRequests[0].checklist).toEqual([
-        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
-        { id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 2, ticked: false },
-        { id: 'wakaf-akad', label: 'Draf akad wakaf', required: true, position: 4, ticked: false },
+        { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false, requiresDocument: false },
+        { id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', required: true, position: 2, ticked: false, requiresDocument: false },
+        { id: 'wakaf-akad', label: 'Draf akad wakaf', required: true, position: 4, ticked: false, requiresDocument: false },
       ]);
     });
 

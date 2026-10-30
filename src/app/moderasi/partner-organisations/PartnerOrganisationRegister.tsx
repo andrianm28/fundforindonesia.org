@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { KIND_LABEL, KINDS, type CampaignKind } from "@/lib/campaign-kind";
+import { DocumentList } from "@/components/documents/DocumentList";
+import { DocumentUpload } from "@/components/documents/DocumentUpload";
 
 /**
  * The Verifier's register of Partner Organisations, their Fundraising
@@ -39,6 +41,16 @@ type Organisation = {
   fundraiser: { name: string; email: string };
   permits: Permit[];
   kindAuthorisations?: KindAuthorisation[];
+  /** The organisation's legal documents in the private store (ticket 64). */
+  documents?: OrganisationDocument[];
+};
+
+type OrganisationDocument = {
+  id: string;
+  label: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
 };
 
 const API = "/api/moderasi/partner-organisations";
@@ -62,6 +74,11 @@ function dayStart(day: string): string {
 }
 function dayEnd(day: string): string {
   return new Date(`${day}T23:59:59.999+07:00`).toISOString();
+}
+
+/** The WIB calendar day (yyyy-mm-dd) an instant falls on, for a date input. */
+function toDayInput(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
 }
 
 function formatDay(iso: string): string {
@@ -178,6 +195,13 @@ export function PartnerOrganisationRegister() {
                         "Masa berlaku izin diperbarui."
                       )
                     }
+                    onCorrect={async (changes) => {
+                      const refused = await send(`${API}/${organisation.id}/permits/${permit.id}`, "PATCH", changes);
+                      if (refused) return refused;
+                      setMessage({ type: "success", text: "Fundraising Permit dikoreksi." });
+                      await load();
+                      return null;
+                    }}
                   />
                 ))}
               </ul>
@@ -222,6 +246,23 @@ export function PartnerOrganisationRegister() {
               act(send(`${API}/${organisation.id}/kind-authorisations`, "POST", body), "Kind Authorisation diberikan.")
             }
           />
+
+          <div>
+            <h3 className="text-sm font-medium text-text mb-2">Dokumen Legal</h3>
+            <p className="text-xs text-text-secondary mb-2">
+              Akta pendirian, SK, NPWP, izin, dan dokumen lain yang Anda periksa. Disimpan privat: hanya
+              Verifier, Admin, dan akun organisasi ini yang dapat membukanya.
+            </p>
+            <DocumentList documents={organisation.documents ?? []} empty="Belum ada dokumen tercatat." />
+            <div className="mt-3">
+              <DocumentUpload
+                fields={{ partnerOrganisationId: organisation.id }}
+                askLabel
+                name={`dokumen ${organisation.name}`}
+                onUploaded={() => void load()}
+              />
+            </div>
+          </div>
         </section>
       ))}
     </div>
@@ -282,8 +323,18 @@ function RegisterForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) 
   );
 }
 
-function PermitRow({ permit, onRenew }: { permit: Permit; onRenew: (validTo: string) => Promise<boolean> }) {
+function PermitRow({
+  permit,
+  onRenew,
+  onCorrect,
+}: {
+  permit: Permit;
+  onRenew: (validTo: string) => Promise<boolean>;
+  /** Saves a correction; resolves to the server's refusal text, or null once saved. */
+  onCorrect: (changes: Record<string, unknown>) => Promise<string | null>;
+}) {
   const [validTo, setValidTo] = useState("");
+  const [correcting, setCorrecting] = useState(false);
   const now = useNow();
   const valid = new Date(permit.validFrom).getTime() <= now && now <= new Date(permit.validTo).getTime();
 
@@ -311,8 +362,113 @@ function PermitRow({ permit, onRenew }: { permit: Permit; onRenew: (validTo: str
         <button type="submit" className="px-3 py-2 border border-border rounded-lg text-xs">
           Perbarui
         </button>
+        {!correcting && (
+          <button
+            type="button"
+            className="px-3 py-2 border border-border rounded-lg text-xs"
+            onClick={() => setCorrecting(true)}
+          >
+            Koreksi
+          </button>
+        )}
       </form>
+      {correcting && <PermitCorrectionForm permit={permit} onSave={onCorrect} onClose={() => setCorrecting(false)} />}
     </li>
+  );
+}
+
+/** Corrects a recorded permit's number, issuer, Kinds and dates; sends only what differs from the record. */
+function PermitCorrectionForm({
+  permit,
+  onSave,
+  onClose,
+}: {
+  permit: Permit;
+  onSave: (changes: Record<string, unknown>) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const [number, setNumber] = useState(permit.number);
+  const [issuer, setIssuer] = useState(permit.issuer);
+  const [kinds, setKinds] = useState<CampaignKind[]>(permit.kinds);
+  const [validFrom, setValidFrom] = useState(toDayInput(permit.validFrom));
+  const [validTo, setValidTo] = useState(toDayInput(permit.validTo));
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = (kind: CampaignKind) =>
+    setKinds((current) => (current.includes(kind) ? current.filter((k) => k !== kind) : [...current, kind]));
+
+  return (
+    <form
+      aria-label="Koreksi Fundraising Permit"
+      className="mt-3 rounded-lg bg-bg-secondary p-3 space-y-2"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const changes: Record<string, unknown> = {};
+        if (number !== permit.number) changes.number = number;
+        if (issuer !== permit.issuer) changes.issuer = issuer;
+        if (kinds.length !== permit.kinds.length || kinds.some((kind) => !permit.kinds.includes(kind))) {
+          changes.kinds = kinds;
+        }
+        if (validFrom !== toDayInput(permit.validFrom)) changes.validFrom = validFrom ? dayStart(validFrom) : "";
+        if (validTo !== toDayInput(permit.validTo)) changes.validTo = validTo ? dayEnd(validTo) : "";
+        if (Object.keys(changes).length === 0) {
+          setError("Tidak ada perubahan untuk Fundraising Permit.");
+          return;
+        }
+        setBusy(true);
+        const refused = await onSave(changes);
+        setBusy(false);
+        if (refused) setError(refused);
+        else onClose();
+      }}
+    >
+      <h4 className="text-sm font-medium text-text">Koreksi Fundraising Permit</h4>
+      {error && (
+        <p role="alert" className="p-2 rounded-lg text-sm bg-[#FFEBEE] text-[#C62828]">
+          {error}
+        </p>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <label className="text-xs text-text-secondary">
+          Nomor izin
+          <input className={inputClass} value={number} onChange={(e) => setNumber(e.target.value)} />
+        </label>
+        <label className="text-xs text-text-secondary">
+          Penerbit
+          <input className={inputClass} value={issuer} onChange={(e) => setIssuer(e.target.value)} />
+        </label>
+        <label className="text-xs text-text-secondary">
+          Berlaku dari
+          <input className={inputClass} type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} />
+        </label>
+        <label className="text-xs text-text-secondary">
+          Berlaku sampai
+          <input className={inputClass} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} />
+        </label>
+      </div>
+      <fieldset className="flex flex-wrap gap-3 text-sm text-[#424242]">
+        <legend className="text-xs text-text-secondary">Kind yang dicakup</legend>
+        {KINDS.map((kind) => (
+          <label key={kind} className="flex items-center gap-1">
+            <input type="checkbox" checked={kinds.includes(kind)} onChange={() => toggle(kind)} />
+            {KIND_LABEL[kind]}
+          </label>
+        ))}
+      </fieldset>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={busy}
+          className="px-4 py-2 bg-[#0073E6] text-white text-sm font-medium rounded-lg disabled:opacity-50"
+        >
+          Simpan koreksi
+        </button>
+        <button type="button" className="px-4 py-2 border border-border rounded-lg text-sm" onClick={onClose}>
+          Batal
+        </button>
+      </div>
+    </form>
   );
 }
 

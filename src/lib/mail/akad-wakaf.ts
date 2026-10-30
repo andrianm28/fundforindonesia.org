@@ -33,14 +33,15 @@ function escapeHtml(value: string): string {
  * `to` and `subject` stay the Receipt's own; only `text` and `html` grow.
  */
 export function withAkadWakaf(message: MailMessage, input: AkadWakafInput): MailMessage {
-  const heading = 'Akad Wakaf';
+  const heading = 'Tanda Terima Wakaf';
   const wakif = input.wakifName ?? 'Wakif';
   const lines = [
     `Wakif: ${wakif}`,
     `Nominal: ${formatRupiah(input.amount)}`,
     `Peruntukan: ${input.purpose}`,
     `Nazhir: ${input.nazhirName}`,
-    'Dokumen Akad Wakaf ini dapat dibuka dan dicetak kembali kapan saja lewat tautan berikut:',
+    'Beta / draf: ini adalah tanda terima yang dibuat otomatis oleh platform dan bukan Akta Ikrar Wakaf.',
+    'Tanda Terima Wakaf ini dapat dibuka dan dicetak kembali kapan saja lewat tautan berikut:',
   ];
 
   const text = [message.text, heading, ...lines, input.printUrl].join('\n\n');
