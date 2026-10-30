@@ -83,7 +83,7 @@ export function exceedsMaxDuration(
 }
 
 /** The one sentence every refusal of a too-distant deadline shows. */
-export const MAX_DURATION_MESSAGE = `Tenggat Campaign paling lama ${MAX_CAMPAIGN_MONTHS} bulan dari sekarang; hanya Campaign wakaf yang dikecualikan. Bila ini Draft lama, perbarui tenggat sebelum mengajukan.`;
+export const MAX_DURATION_MESSAGE = `Tenggat Campaign paling lama ${MAX_CAMPAIGN_MONTHS} bulan dari sekarang; hanya Campaign wakaf yang dikecualikan. Pilih tenggat yang lebih awal.`;
 
 /** The one sentence every refusal of a missing deadline shows. */
 export function deadlineRequiredMessage(kind: CampaignKind): string {
