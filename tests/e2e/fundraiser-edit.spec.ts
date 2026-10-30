@@ -26,22 +26,25 @@ test('a Fundraiser edits their Draft and the edit is kept', async ({ browser }, 
   const fundraiser = await signedInPage(browser, EDIT_FUNDRAISER_EMAIL);
   const { page } = fundraiser;
 
+  // Scoped to <main>: the router can keep a hidden copy of an earlier
+  // render in the DOM, which makes a page-wide test id match twice.
+  const main = page.getByRole('main');
   await page.goto(`/akun/kampanye-saya/${EDIT_SLUG}`);
-  await expect(page.getByRole('heading', { name: 'Kelola Campaign' })).toBeVisible();
-  await expect(page.getByTestId('edit-target')).toContainText('2.000.000');
+  await expect(main.getByRole('heading', { name: 'Kelola Campaign' })).toBeVisible();
+  await expect(main.getByTestId('edit-target')).toContainText('2.000.000');
   // Not an Active Campaign: no way to end it from here.
-  await expect(page.getByRole('button', { name: 'Tandai Selesai' })).toHaveCount(0);
+  await expect(main.getByRole('button', { name: 'Tandai Selesai' })).toHaveCount(0);
 
-  await page.getByLabel(/Judul Campaign/).fill(title);
+  await main.getByLabel(/Judul Campaign/).fill(title);
   const saved = page.waitForResponse(
     (r) => r.request().method() === 'PATCH' && new URL(r.url()).pathname === `/api/campaigns/${EDIT_SLUG}`,
   );
-  await page.getByRole('button', { name: 'Simpan Perubahan' }).click();
+  await main.getByRole('button', { name: 'Simpan Perubahan' }).click();
   expect((await saved).status()).toBe(200);
   await expect(page).toHaveURL(/\/akun\/kampanye-saya$/);
 
   await page.goto(`/akun/kampanye-saya/${EDIT_SLUG}`);
-  await expect(page.getByLabel(/Judul Campaign/)).toHaveValue(title);
+  await expect(main.getByLabel(/Judul Campaign/)).toHaveValue(title);
   await fundraiser.close();
 });
 
