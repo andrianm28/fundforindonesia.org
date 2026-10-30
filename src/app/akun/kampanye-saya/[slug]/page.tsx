@@ -7,6 +7,7 @@ import { todayWibDate } from '@/lib/utils/date';
 import { SUBMITTABLE_STATUSES } from '@/lib/verification-submission';
 import { CampaignEditForm } from '@/components/campaign/CampaignEditForm';
 import { ChangeRequestForm } from '@/components/campaign/ChangeRequestForm';
+import { CampaignCloseActions } from '@/components/campaign/CampaignCloseActions';
 import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 
 // What this screen offers follows the Campaign's status, which changes under it.
@@ -19,7 +20,9 @@ interface PageProps {
 /**
  * A Fundraiser's screen for one of their Campaigns (tickets 72, 65): the
  * edit form for a Draft or Rejected Campaign (PATCH /api/campaigns/[slug]),
- * and for an Active one the change request for target and deadline.
+ * for an Active one the change request for target and deadline (ticket 72),
+ * and the two ways to end it: mark it Completed or ask for Cancellation
+ * (ticket 65).
  *
  * Guarded on the server like the Payout and Documents screens beside it:
  * signed out goes to sign in, and a Campaign that is not this account's
@@ -58,11 +61,13 @@ export default async function ManageCampaignPage({ params }: PageProps) {
   const editable = SUBMITTABLE_STATUSES.includes(status);
   const canRequestChange = status === 'ACTIVE';
 
-  const [category, waitingChange] = await Promise.all([
+  const [category, waitingChange, updateCount, waitingCancellation] = await Promise.all([
     editable ? prisma.category.findUnique({ where: { slug: campaign.category }, select: { name: true } }) : null,
     canRequestChange
       ? prisma.verificationRequest.count({ where: { campaignId: campaign.id, outcome: 'PENDING', kind: 'CHANGE' } })
       : 0,
+    canRequestChange ? prisma.campaignUpdate.count({ where: { campaignId: campaign.id } }) : 0,
+    canRequestChange ? prisma.cancellationRequest.count({ where: { campaignId: campaign.id, status: 'PENDING' } }) : 0,
   ]);
   const deadline = campaign.deadline ? todayWibDate(campaign.deadline) : '';
 
@@ -109,6 +114,10 @@ export default async function ManageCampaignPage({ params }: PageProps) {
               waiting={waitingChange > 0}
             />
           </section>
+        )}
+
+        {canRequestChange && (
+          <CampaignCloseActions slug={campaign.slug} hasUpdate={updateCount > 0} cancellationPending={waitingCancellation > 0} />
         )}
 
         {!editable && !canRequestChange && (

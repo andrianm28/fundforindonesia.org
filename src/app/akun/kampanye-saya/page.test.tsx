@@ -91,7 +91,7 @@ describe('Kampanye Saya', () => {
     expect(link.getAttribute('href')).toBe('/akun/kampanye-saya/running/pencairan');
   });
 
-  it('links a Draft or Rejected Campaign to its edit screen, and an Active one to asking for a change (ticket 72)', () => {
+  it('links a Draft or Rejected Campaign to its edit screen, and an Active one to managing it: change, complete, cancel (tickets 72, 65)', () => {
     swr.data = {
       campaigns: [campaign('draf', 'DRAFT'), campaign('ditolak', 'REJECTED'), campaign('berjalan', 'ACTIVE'), campaign('selesai', 'COMPLETED')],
       total: 4,
@@ -105,11 +105,11 @@ describe('Kampanye Saya', () => {
       const link = within(screen.getByTestId(`campaign-${slug}`)).getByRole('link', { name: 'Edit' });
       expect(link.getAttribute('href')).toBe(`/akun/kampanye-saya/${slug}`);
     }
-    const change = within(screen.getByTestId('campaign-berjalan')).getByRole('link', { name: 'Ajukan perubahan' });
+    const change = within(screen.getByTestId('campaign-berjalan')).getByRole('link', { name: 'Kelola' });
     expect(change.getAttribute('href')).toBe('/akun/kampanye-saya/berjalan');
     const done = screen.getByTestId('campaign-selesai');
     expect(within(done).queryByRole('link', { name: 'Edit' })).toBeNull();
-    expect(within(done).queryByRole('link', { name: 'Ajukan perubahan' })).toBeNull();
+    expect(within(done).queryByRole('link', { name: 'Kelola' })).toBeNull();
   });
 
   it('offers "Ajukan ke Verifier" on a Draft or Rejected Campaign only, and submits it', async () => {

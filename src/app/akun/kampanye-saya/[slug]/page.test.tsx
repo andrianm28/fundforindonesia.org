@@ -7,6 +7,8 @@ vi.mock('@/lib/prisma', () => ({
     campaign: { findUnique: vi.fn() },
     category: { findUnique: vi.fn() },
     verificationRequest: { count: vi.fn() },
+    campaignUpdate: { count: vi.fn() },
+    cancellationRequest: { count: vi.fn() },
   },
 }));
 vi.mock('next/navigation', () => ({
@@ -50,6 +52,8 @@ beforeEach(() => {
   vi.mocked(prisma.campaign.findUnique).mockResolvedValue(CAMPAIGN as never);
   vi.mocked(prisma.category.findUnique).mockResolvedValue({ name: 'Bencana Alam' } as never);
   vi.mocked(prisma.verificationRequest.count).mockResolvedValue(0 as never);
+  vi.mocked(prisma.campaignUpdate.count).mockResolvedValue(1 as never);
+  vi.mocked(prisma.cancellationRequest.count).mockResolvedValue(0 as never);
 });
 
 afterEach(() => {
@@ -125,5 +129,61 @@ describe('the Fundraiser manage page', () => {
 
     expect(screen.getByTestId('manage-not-editable')).toBeDefined();
     expect(screen.queryByRole('button', { name: 'Simpan Perubahan' })).toBeNull();
+  });
+
+  describe('ending the Campaign (ticket 65)', () => {
+    it('offers Tandai Selesai and Ajukan Pembatalan on an Active Campaign', async () => {
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ ...CAMPAIGN, lifecycleStatus: 'ACTIVE' } as never);
+
+      render(await page());
+
+      expect(screen.getByRole('button', { name: 'Tandai Selesai' })).toBeDefined();
+      expect(screen.getByRole('button', { name: 'Ajukan Pembatalan' })).toBeDefined();
+      expect(screen.queryByTestId('complete-needs-update')).toBeNull();
+    });
+
+    it('warns up front when the Campaign has no Campaign Update yet', async () => {
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ ...CAMPAIGN, lifecycleStatus: 'ACTIVE' } as never);
+      vi.mocked(prisma.campaignUpdate.count).mockResolvedValue(0 as never);
+
+      render(await page());
+
+      expect(screen.getByTestId('complete-needs-update')).toBeDefined();
+    });
+
+    it('shows a waiting Cancellation request instead of the form', async () => {
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ ...CAMPAIGN, lifecycleStatus: 'ACTIVE' } as never);
+      vi.mocked(prisma.cancellationRequest.count).mockResolvedValue(1 as never);
+
+      render(await page());
+
+      expect(screen.getByTestId('cancellation-waiting')).toBeDefined();
+      expect(screen.queryByRole('button', { name: 'Ajukan Pembatalan' })).toBeNull();
+    });
+
+    it.each(['DRAFT', 'SUBMITTED', 'REJECTED', 'COMPLETED', 'CANCELLED', 'SUSPENDED'])(
+      'offers neither on a %s Campaign',
+      async (lifecycleStatus) => {
+        vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ ...CAMPAIGN, lifecycleStatus } as never);
+
+        render(await page());
+
+        expect(screen.queryByRole('button', { name: 'Tandai Selesai' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Ajukan Pembatalan' })).toBeNull();
+      },
+    );
+
+    it('offers neither on an Active Campaign past its deadline, which is Expired', async () => {
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+        ...CAMPAIGN,
+        lifecycleStatus: 'ACTIVE',
+        deadline: new Date('2020-01-01T00:00:00Z'),
+      } as never);
+
+      render(await page());
+
+      expect(screen.queryByRole('button', { name: 'Tandai Selesai' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Ajukan Pembatalan' })).toBeNull();
+    });
   });
 });
