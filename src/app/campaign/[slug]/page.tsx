@@ -127,6 +127,11 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     collectedAmount: collectedAmountForPublic,
     testDonationAmount,
     category: campaign.category,
+    location: campaign.location,
+    province: campaign.province,
+    regency: campaign.regency,
+    beneficiaryDescription: campaign.beneficiaryDescription,
+    beneficiaryCount: campaign.beneficiaryCount,
     // Effective, so an Active Campaign past its deadline shows as ended.
     // The Suspension reason is not rendered here: this page is cached for
     // every visitor alike, so the view asks the API for it, which answers

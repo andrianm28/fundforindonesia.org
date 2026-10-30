@@ -17,6 +17,7 @@ import {
 } from '@/lib/subject-guard';
 import { organisationOf, requireDonationOnlyForIndividual, resolveCollectingEntity } from '@/lib/collecting-entity-guard';
 import { KINDS } from '@/lib/campaign-kind';
+import { campaignLocationSchema } from '@/lib/campaign-location';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibility-route';
 import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
@@ -45,6 +46,10 @@ const editCampaignSchema = z.object({
   // (requireCollectingEntityEditable) and only one the Fundraiser may
   // collect under (resolveCollectingEntity).
   collectingEntityId: z.string().min(1),
+  // Province, regency and beneficiaries (ticket 74): null or blank clears
+  // one. Not frozen on an Active Campaign, as `location` never was; only
+  // title and description are (requireActiveContentFieldsEditable).
+  ...campaignLocationSchema.shape,
 }).partial();
 
 /**
@@ -175,6 +180,13 @@ export async function GET(
         collectedAmount: collectedAmountForPublic,
         category: campaign.category,
         kind: campaign.kind,
+        // Where it happens and who it helps (ticket 74); `location` is the
+        // free text that predates the structured fields.
+        location: campaign.location,
+        province: campaign.province,
+        regency: campaign.regency,
+        beneficiaryDescription: campaign.beneficiaryDescription,
+        beneficiaryCount: campaign.beneficiaryCount,
         lifecycleStatus,
         isUrgent: campaign.isUrgent,
         isDemo: campaign.isDemo,

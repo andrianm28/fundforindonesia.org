@@ -98,7 +98,11 @@ describe('CampaignCreatePage review step', () => {
     mockPush.mockReset();
   });
 
-  async function fillInToReview({ kind = 'DONATION', deadline = '2099-12-31' } = {}) {
+  async function fillInToReview({
+    kind = 'DONATION',
+    deadline = '2099-12-31',
+    location,
+  }: { kind?: string; deadline?: string; location?: { province: string; regency: string; description: string; count: string } } = {}) {
     const { container } = render(<CampaignCreatePage />);
     await screen.findByTestId('collecting-entity');
     await screen.findByRole('option', { name: 'Bencana Alam' });
@@ -110,6 +114,12 @@ describe('CampaignCreatePage review step', () => {
     fireEvent.change(screen.getByPlaceholderText('1.000.000'), { target: { value: '5000000' } });
     fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: deadline } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Kategori' }), { target: { value: 'bencana-alam' } });
+    if (location) {
+      fireEvent.change(screen.getByLabelText('Provinsi'), { target: { value: location.province } });
+      fireEvent.change(screen.getByLabelText('Kabupaten/Kota'), { target: { value: location.regency } });
+      fireEvent.change(screen.getByLabelText('Penerima Manfaat'), { target: { value: location.description } });
+      fireEvent.change(screen.getByLabelText('Jumlah Penerima Manfaat'), { target: { value: location.count } });
+    }
     fireEvent.click(screen.getByRole('button', { name: 'Lanjutkan' }));
 
     const cover = new File(['x'], 'cover.png', { type: 'image/png' });
@@ -249,6 +259,47 @@ describe('CampaignCreatePage review step', () => {
   it('does not offer Zakat as a Kind (out of scope since 2026-10-16)', () => {
     render(<CampaignCreatePage />);
     expect(screen.queryByRole('option', { name: 'Zakat' })).toBeNull();
+  });
+
+  it('sends the province, regency and beneficiaries when filled in (ticket 74)', async () => {
+    await fillInToReview({
+      location: { province: '32', regency: ' Kabupaten Garut ', description: 'Anak yatim', count: '40' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalled());
+    expect(calls.find((c) => c.url === '/api/campaigns')?.body).toMatchObject({
+      province: '32',
+      regency: 'Kabupaten Garut',
+      beneficiaryDescription: 'Anak yatim',
+      beneficiaryCount: 40,
+    });
+  });
+
+  it('lets all four go blank: they are optional, and are sent as null', async () => {
+    await fillInToReview();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalled());
+    expect(calls.find((c) => c.url === '/api/campaigns')?.body).toMatchObject({
+      province: null,
+      regency: null,
+      beneficiaryDescription: null,
+      beneficiaryCount: null,
+    });
+  });
+
+  it('holds the first step on a beneficiary count that is not a positive whole number', async () => {
+    render(<CampaignCreatePage />);
+    await screen.findByTestId('collecting-entity');
+    fireEvent.change(screen.getByLabelText('Jumlah Penerima Manfaat'), { target: { value: '0' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lanjutkan' }));
+
+    expect(await screen.findByText(/harus bilangan bulat lebih dari 0/)).toBeDefined();
+    expect(screen.getByLabelText('Provinsi')).toBeDefined();
   });
 
   it('sends the Kind the Fundraiser chose', async () => {

@@ -380,6 +380,63 @@ describe('POST /api/campaigns', () => {
     expect(mockCreate.mock.calls[0][0].data.beneficiaryName).toBeNull();
   });
 
+  it('stores the province, regency and beneficiaries of a Campaign (ticket 74)', async () => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+    mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
+
+    const response = await POST(
+      createPostRequest({
+        ...validBody,
+        province: '32',
+        regency: '  Kabupaten Garut ',
+        beneficiaryDescription: 'Anak yatim di panti',
+        beneficiaryCount: 40,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const { data } = mockCreate.mock.calls[0][0];
+    expect(data).toMatchObject({
+      province: '32',
+      regency: 'Kabupaten Garut',
+      beneficiaryDescription: 'Anak yatim di panti',
+      beneficiaryCount: 40,
+    });
+  });
+
+  it('stores null for the location fields when none are given', async () => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+    mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
+
+    await POST(createPostRequest({ ...validBody, province: '', regency: '  ' }));
+
+    expect(mockCreate.mock.calls[0][0].data).toMatchObject({
+      province: null,
+      regency: null,
+      beneficiaryDescription: null,
+      beneficiaryCount: null,
+    });
+  });
+
+  it.each([
+    ['province', { province: '99' }],
+    ['province', { province: 'Jawa Barat' }],
+    ['regency', { regency: 'a'.repeat(101) }],
+    ['beneficiaryDescription', { beneficiaryDescription: 'a'.repeat(201) }],
+    ['beneficiaryCount', { beneficiaryCount: 0 }],
+    ['beneficiaryCount', { beneficiaryCount: -5 }],
+    ['beneficiaryCount', { beneficiaryCount: 1.5 }],
+    ['beneficiaryCount', { beneficiaryCount: '12' }],
+  ])('refuses an invalid %s, writing nothing', async (field, extra) => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+
+    const response = await POST(createPostRequest({ ...validBody, ...extra }));
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).fieldErrors[field]).toBeDefined();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
   it('returns 400 with field errors for invalid body', async () => {
     mockGetServerSession.mockResolvedValue(verifiedSession as never);
 
