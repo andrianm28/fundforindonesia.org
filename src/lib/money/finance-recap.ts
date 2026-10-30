@@ -41,7 +41,7 @@ import { Prisma, type PrismaClient, type Kind } from '@/generated/prisma/client'
  *   danaBersih         ESCROW_HOLD CREDIT of a settlement: the net owed to the
  *                      Campaign. donasiDiterima = biayaPenyedia + biayaPlatform
  *                      + danaBersih for every row (paymentSettledLegs).
- *   kontribusiManual   CAMPAIGN_BALANCE or PROGRAM_BALANCE credit minus debit with a
+ *   kontribusiManual   MANUAL_INTAKE_CLEARING debit minus credit with a
  *                      manualContributionId (off-gateway money, reversals net).
  *   refundDisetujui    REFUND_CLEARING CREDIT with a refundId: Refunds approved
  *                      (the full amount owed back to the Donor), minus the
@@ -111,10 +111,13 @@ export function classifyMovement(m: MovementSignature): { column: FinanceRecapCo
     if (m.account === 'PLATFORM_FEE' && credit) return { column: 'biayaPlatform', sign: 1 };
     if (m.account === 'ESCROW_HOLD' && credit) return { column: 'danaBersih', sign: 1 };
   }
-  // PROGRAM_BALANCE is real money too; it has no campaignId, so it lands in the
-  // "Tanpa Campaign" row with Trip legs.
-  if (m.hasManual && (m.account === 'CAMPAIGN_BALANCE' || m.account === 'PROGRAM_BALANCE')) {
-    return { column: 'kontribusiManual', sign: credit ? 1 : -1 };
+  // Read off the intake side, which every Manual Contribution posts whatever
+  // its target, so a Program one (no campaignId, so the "Tanpa Campaign" row)
+  // is counted without this report naming the Program Balance account, which
+  // manual-contribution-isolation.test.ts keeps to ledger.ts and
+  // manual-contributions.ts alone.
+  if (m.hasManual && m.account === 'MANUAL_INTAKE_CLEARING') {
+    return { column: 'kontribusiManual', sign: credit ? -1 : 1 };
   }
   if (m.hasRefund) {
     if (m.account === 'REFUND_CLEARING' && credit) return { column: 'refundDisetujui', sign: 1 };

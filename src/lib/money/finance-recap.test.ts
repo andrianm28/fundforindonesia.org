@@ -28,8 +28,10 @@ describe('classifyMovement', () => {
   });
 
   it('nets a Manual Contribution with its reversal, and a Payout with its failure', () => {
-    expect(classifyMovement(leg({ account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', hasManual: true }))).toEqual({ column: 'kontribusiManual', sign: 1 });
-    expect(classifyMovement(leg({ account: 'CAMPAIGN_BALANCE', direction: 'DEBIT', hasManual: true }))).toEqual({ column: 'kontribusiManual', sign: -1 });
+    // Counted once, on the intake side, whatever the target (Campaign or Program).
+    expect(classifyMovement(leg({ account: 'MANUAL_INTAKE_CLEARING', direction: 'DEBIT', hasManual: true }))).toEqual({ column: 'kontribusiManual', sign: 1 });
+    expect(classifyMovement(leg({ account: 'MANUAL_INTAKE_CLEARING', direction: 'CREDIT', hasManual: true }))).toEqual({ column: 'kontribusiManual', sign: -1 });
+    expect(classifyMovement(leg({ account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', hasManual: true }))).toBeNull();
     expect(classifyMovement(leg({ account: 'CAMPAIGN_BALANCE', direction: 'DEBIT', hasPayout: true }))).toEqual({ column: 'payout', sign: 1 });
     expect(classifyMovement(leg({ account: 'TRIP_BALANCE', direction: 'CREDIT', hasPayout: true }))).toEqual({ column: 'payout', sign: -1 });
   });
@@ -41,7 +43,6 @@ describe('classifyMovement', () => {
     expect(classifyMovement(leg({ account: 'PLATFORM_FEE', direction: 'DEBIT', hasRefund: true }))).toEqual({ column: 'biayaPlatformDikembalikan', sign: 1 });
     // A failed Refund undoes the approval; the paying debit does not.
     expect(classifyMovement(leg({ account: 'REFUND_CLEARING', direction: 'DEBIT', hasRefund: true, isRefundFailure: true }))).toEqual({ column: 'refundDisetujui', sign: -1 });
-    expect(classifyMovement(leg({ account: 'PROGRAM_BALANCE', direction: 'CREDIT', hasManual: true }))).toEqual({ column: 'kontribusiManual', sign: 1 });
     // A refund's paid leg moves the clearing account, not the recap.
     expect(classifyMovement(leg({ account: 'REFUND_CLEARING', direction: 'DEBIT', hasRefund: true }))).toBeNull();
   });
