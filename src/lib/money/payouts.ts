@@ -564,7 +564,7 @@ export async function approvePayout(
     await postTransaction(
       tx,
       payoutInstructedLegs({ subject, amount: payout.amount }),
-      { payoutId: payout.id, sandbox: sandboxModeOf(payout), transactionId: `payout-instructed-${payout.id}` },
+      { payoutId: payout.id, sandbox: sandboxModeOf(payout), transactionId: `payout-instructed-${payout.id}`, provider },
     );
   });
 
@@ -883,10 +883,21 @@ export async function completePayout(
     // PAYOUT_CLEARING would never drain. transactionId is keyed on the
     // payout id, so this post is idempotent on top of (not instead of) the
     // updateMany guard above.
+    //
+    // The provider is the one the approving Admin read the balance from
+    // (approvePayout stamps it on the row), so this credit to GATEWAY_CLEARING
+    // lands in that provider's pot. A Payout approved before approvedProvider
+    // existed has none, and is posted unnamed on purpose: providerBalances
+    // keeps such history in its own bucket rather than guessing a provider.
     await postTransaction(
       tx,
       payoutCompletedLegs({ amount: payout.amount }),
-      { payoutId: payout.id, sandbox: sandboxModeOf(payout), transactionId: `payout-completed-${payout.id}` },
+      {
+        payoutId: payout.id,
+        sandbox: sandboxModeOf(payout),
+        transactionId: `payout-completed-${payout.id}`,
+        provider: payout.approvedProvider ?? undefined,
+      },
     );
   });
 
@@ -991,6 +1002,7 @@ async function resolvePayout(
         payoutId,
         sandbox: sandboxModeOf(payout),
         transactionId: `payout-failed-${payoutId}`,
+        provider: payout.approvedProvider ?? undefined,
       });
     }
   });
