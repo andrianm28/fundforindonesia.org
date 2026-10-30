@@ -1,6 +1,6 @@
 # 06: H-7 campaign-transfer-race-loop
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none
 
@@ -31,3 +31,5 @@ Tes race Postgres sungguhan untuk `campaign-transfer` harus terbukti stabil, buk
 
 - 2026-10-30: loop dijalankan di cloud session (4 vCPU) terhadap Postgres lokal, `TEST_DATABASE_URL` diset sehingga tes benar-benar berjalan (log tiap run dicek: tidak ada `skipped`). `src/__tests__/integration/campaign-transfer-real-db.test.ts` (11 tes, termasuk dua approve dari satu sumber, A→B vs B→A tanpa deadlock, dan transfer vs Refund) dijalankan **50 kali berturut-turut: 50 lulus, 0 gagal**. Selama loop, tiga builder lain menjalankan vitest berkas terkait di container yang sama, jadi loop ini juga berjalan di bawah kontensi CPU; tidak ada full suite yang berjalan bersamaan. Tidak ada kegagalan, jadi tidak ada perubahan domain. Satu run ~2,4 detik untuk 11 tes.
 - 2026-10-30 (ulang di atas main 7f0dee0, termasuk migrasi `ledger_integrity` append-only): loop kedua 50 kali, kriteria lulus `Tests  11 passed (11)` per run: **50 lulus, 0 gagal**. Total 100 run tanpa kegagalan.
+
+- 2026-10-30: status `done` saat PR dokumen ini merge.
