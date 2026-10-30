@@ -32,3 +32,4 @@ Campaign Draft atau Rejected tidak bisa diedit dari layar, dan Active tidak puny
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
 - 2026-10-30: dikerjakan di claude/project-thread-iou1om-fundraiser-kelola: layar `/akun/kampanye-saya/[slug]` (edit Draft/Rejected lewat PATCH, form change request Active lewat route baru `change-requests`), form dipakai ulang dari wizard; tautan Edit mati di daftar Admin dihapus; e2e `tests/e2e/fundraiser-edit.spec.ts` ditulis (belum dijalankan lokal, butuh DB; jalan di CI).
+- 2026-10-30: PR #301 (commit 3f7c807 perbaikan review; a43203d menggabungkan main setelah #295). Review independen dan CI hijau; merge disetujui owner.
