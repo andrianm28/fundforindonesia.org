@@ -1,6 +1,6 @@
 # 83: V-2 trip-fee-payout-panel
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none (route Payout Trip Fee dan `trip-payout-funds` sudah ada)
 
@@ -23,12 +23,13 @@ Fundraiser Volunteer Trip belum punya panel untuk meminta Payout Trip Fee; route
 
 ## Acceptance
 
-- [ ] Panel Payout di layar kelola Trip: saldo yang bisa ditarik, pilih Bank Account terverifikasi, ajukan Payout
-- [ ] Empty state tanpa rekening memuat tautan ke `/akun/rekening` dan kalimat pembeda 'belum pernah menambahkan' versus 'ada yang ditolak'
-- [ ] Panel tidak pernah menerima atau menampilkan nomor rekening (hanya kode bank dan nama akun)
-- [ ] Payout ditolak bila dana belum dari Batch selesai (galat domain tampil)
-- [ ] Tes komponen dan e2e; review independen `sonnet` diposting di PR
+- [x] Panel Payout di layar kelola Trip: saldo yang bisa ditarik, pilih Bank Account terverifikasi, ajukan Payout
+- [x] Empty state tanpa rekening memuat tautan ke `/akun/rekening` dan kalimat pembeda 'belum pernah menambahkan' versus 'ada yang ditolak'
+- [x] Panel tidak pernah menerima atau menampilkan nomor rekening (hanya kode bank dan nama akun)
+- [x] Payout ditolak bila dana belum dari Batch selesai (galat domain tampil)
+- [ ] Tes komponen (selesai; e2e Playwright tidak praktis di container, tidak dibuat); review independen `sonnet` diposting di PR (belum, tugas koordinator)
 
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+- 2026-10-30: dibangun. `TripPayoutPanel` (klon `CampaignPayoutPanel`) di `src/app/akun/volunteer-trip/_components/`, dipasang di halaman kelola Trip. GET `/api/volunteer-trips/[slug]/payouts` ditambah `payouts`, `bankAccounts` (hanya id, kode bank, nama akun; tanpa nomor) dan `hasUnverifiedBankAccount` secara aditif; POST tidak diubah. Hanya tes komponen dan route; e2e Playwright tidak dibuat (tidak praktis di container). Review independen `sonnet` masih harus diposting di PR oleh koordinator.

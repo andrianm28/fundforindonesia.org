@@ -825,6 +825,70 @@ describe('approveRefund', () => {
     );
   });
 
+  describe('the Volunteer email (ticket 84)', () => {
+    const tripEmailRow = () => ({
+      amount: 50_000,
+      payment: {
+        amount: 100_000,
+        registration: {
+          volunteer: { name: 'Rina', ...sealUserEmail('rina@example.test') },
+          batch: { trip: { title: 'Trip Lombok', slug: 'lombok' } },
+        },
+      },
+    });
+
+    function approvable(emailRow: unknown) {
+      const ledgerRows: LedgerRow[] = [
+        { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+        ...freezeRows('refund-1', { amount: 100_000, source: 'ESCROW_HOLD' }),
+      ];
+      const refundRow = baseRefundRow({ amount: 100_000, payment: makePayment({ amount: 100_000, providerFee: 0 }) });
+      const { tx, rows } = makeTx({ ledgerRows, refundRow });
+      const base = makePrisma(tx, { ...refundRow, status: 'APPROVED', approvedById: 'admin-1' });
+      const prisma = { ...base, refund: { ...base.refund, findUnique: vi.fn().mockResolvedValue(emailRow) } };
+      return { prisma, rows };
+    }
+
+    it('tells the Volunteer once the approval has committed, never the account number', async () => {
+      const { prisma } = approvable(tripEmailRow());
+      const mailer = new MockMailer();
+
+      await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination, mailer });
+
+      expect(mailer.sent).toHaveLength(1);
+      expect(mailer.sent[0]).toMatchObject({ to: 'rina@example.test' });
+      expect(mailer.sent[0].subject).toContain('disetujui');
+      expect(mailer.sent[0].text).not.toContain(validDestination.donorAccountNumber);
+      expect(mailer.sent[0].html).not.toContain(validDestination.donorAccountNumber);
+    });
+
+    it('sends nothing for a Donor Refund', async () => {
+      const { prisma } = approvable(refundEmailRow());
+      const mailer = new MockMailer();
+
+      await approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination, mailer });
+
+      expect(mailer.sent).toEqual([]);
+    });
+
+    it('keeps the approval and its legs when the email cannot be sent', async () => {
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { prisma, rows } = approvable(tripEmailRow());
+
+      const result = await approveRefund(prisma as never, {
+        refundId: 'refund-1',
+        approvedById: 'admin-1',
+        ...validDestination,
+        mailer: failingMailer,
+      });
+
+      expect(result.status).toBe('APPROVED');
+      expect(rows.filter((r) => r.transactionId === 'refund-approved-refund-1')).toHaveLength(2);
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"mail_send_failed"'));
+      errors.mockRestore();
+    });
+  });
+
   it('settles a full refund with a nonzero Provider Fee cleanly at approval, since the fee was already split out at freeze time', async () => {
     // Gross 100_000, Provider Fee 5_000. The freeze (createRefund, tested
     // separately above) already debited ESCROW_HOLD only the refund's own

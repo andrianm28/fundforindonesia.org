@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ChangeRequestAlreadyPendingError,
   DeadlineRequiredError,
+  MaxDurationExceededError,
   domainErrorToHttp,
   InvalidTransitionError,
   LifecycleValidationError,
@@ -200,6 +201,33 @@ describe('requestCampaignChange', () => {
 
     expect(error).toBeInstanceOf(DeadlineRequiredError);
     expect(db.verificationRequests).toEqual([]);
+  });
+
+  it('refuses a new deadline beyond 12 months with a 422, writing nothing (C12)', async () => {
+    const db = activeDb();
+
+    const error = await requestCampaignChange(db.prisma as never, {
+      campaignId: 'campaign-1',
+      actor: fundraiser,
+      changes: { deadline: '2027-10-01T00:00:00Z' },
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MaxDurationExceededError);
+    expect(db.verificationRequests).toEqual([]);
+  });
+
+  it('lets a wakaf Campaign ask for a deadline beyond 12 months (C12)', async () => {
+    const db = activeDb({ kind: 'WAKAF' });
+
+    await requestCampaignChange(db.prisma as never, {
+      campaignId: 'campaign-1',
+      actor: fundraiser,
+      changes: { deadline: '2030-01-01T00:00:00Z' },
+      now: NOW,
+    });
+
+    expect(db.verificationRequests).toHaveLength(1);
   });
 
   it('refuses a change that changes nothing with a 400, writing nothing', async () => {

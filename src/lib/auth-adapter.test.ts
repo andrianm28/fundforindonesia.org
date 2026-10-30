@@ -60,13 +60,16 @@ function modelOf(name: string) {
     /** Prisma's own complaint, so a failure here reads like the production one. */
     reject(operation: string, fields: Data) {
       for (const field of Object.keys(fields)) {
-        if (!columns.includes(field) && !composites.has(field)) {
+        if (field === 'OR') {
+          for (const branch of fields.OR as Data[]) this.reject(operation, branch);
+        } else if (!columns.includes(field) && !composites.has(field)) {
           throw new Error(`Invalid \`prisma.${name}.${operation}()\`: Unknown argument \`${field}\``);
         }
       }
     },
-    matches(row: Data, where: Data) {
+    matches(row: Data, where: Data): boolean {
       return Object.entries(where).every(([field, value]) => {
+        if (field === 'OR') return (value as Data[]).some((branch) => this.matches(row, branch));
         const parts = composites.get(field);
         if (!parts) return row[field] === value;
         // A composite is filtered either by a value it was passed whole

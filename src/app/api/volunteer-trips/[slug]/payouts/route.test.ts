@@ -6,6 +6,8 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     volunteerTrip: { findUnique: vi.fn() },
     payment: { findMany: vi.fn() },
+    bankAccount: { findMany: vi.fn(), count: vi.fn() },
+    payout: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -21,6 +23,9 @@ import { ledgerGroupBy } from '../../../../../../tests/support/ledger-group-by';
 const mockTripFindUnique = prisma.volunteerTrip.findUnique as unknown as Mock;
 const mockPaymentFindMany = prisma.payment.findMany as unknown as Mock;
 const mockTransaction = prisma.$transaction as unknown as Mock;
+const mockBankAccountFindMany = prisma.bankAccount.findMany as unknown as Mock;
+const mockBankAccountCount = prisma.bankAccount.count as unknown as Mock;
+const mockPayoutFindMany = prisma.payout.findMany as unknown as Mock;
 const mockGetServerSession = getServerSession as unknown as Mock;
 
 type LedgerRow = {
@@ -223,6 +228,9 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
     vi.clearAllMocks();
     mockGetServerSession.mockResolvedValue({ user: { id: 'fundraiser-1', assignments: [] } });
     mockTripFindUnique.mockResolvedValue({ id: 'trip-1', fundraiserId: 'fundraiser-1' });
+    mockBankAccountFindMany.mockResolvedValue([]);
+    mockBankAccountCount.mockResolvedValue(0);
+    mockPayoutFindMany.mockResolvedValue([]);
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -260,7 +268,7 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(data).toEqual({ escrowHold: 300_000, tripBalance: 150_000, withdrawable: 150_000, sandbox: false });
+    expect(data).toMatchObject({ escrowHold: 300_000, tripBalance: 150_000, withdrawable: 150_000, sandbox: false });
   });
 
   it('withdrawable is the Trip Balance less what a not-COMPLETED Batch still holds (ticket 49)', async () => {
@@ -275,7 +283,7 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
     const response = await GET(getRequest(), routeContext());
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ escrowHold: 0, tripBalance: 150_000, withdrawable: 110_000, sandbox: false });
+    expect(await response.json()).toMatchObject({ escrowHold: 0, tripBalance: 150_000, withdrawable: 110_000, sandbox: false });
   });
 
   it('withdrawable is 0, never negative, when held exceeds the balance', async () => {
@@ -289,6 +297,50 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
     const data = await (await GET(getRequest(), routeContext())).json();
 
     expect(data.withdrawable).toBe(0);
+  });
+
+  it("lists only this owner's VERIFIED Bank Accounts and never reads or sends an account number (ticket 83)", async () => {
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+    mockBankAccountFindMany.mockResolvedValue([{ id: 'bank-1', bankCode: 'BCA', accountName: 'Fundraiser One' }]);
+
+    const response = await GET(getRequest(), routeContext());
+    const data = await response.json();
+
+    expect(data.bankAccounts).toEqual([{ id: 'bank-1', bankCode: 'BCA', accountName: 'Fundraiser One' }]);
+    expect(data.hasUnverifiedBankAccount).toBe(false);
+    const args = mockBankAccountFindMany.mock.calls[0][0];
+    expect(args.where).toEqual({ ownerId: 'fundraiser-1', verifiedAt: { not: null } });
+    expect(args.select).toEqual({ id: true, bankCode: true, accountName: true });
+    expect(JSON.stringify(data)).not.toMatch(/accountNumber|ciphertext/i);
+  });
+
+  it('says an unverified (pending or rejected) account exists only when the verified list is empty (ticket 17)', async () => {
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+    mockBankAccountCount.mockResolvedValue(1);
+
+    const data = await (await GET(getRequest(), routeContext())).json();
+
+    expect(data.bankAccounts).toEqual([]);
+    expect(data.hasUnverifiedBankAccount).toBe(true);
+    expect(mockBankAccountCount).toHaveBeenCalledWith({ where: { ownerId: 'fundraiser-1', verifiedAt: null } });
+  });
+
+  it("lists this Trip's Payouts in the mode in force, scoped to the Trip", async () => {
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+    const createdAt = new Date('2026-10-01T00:00:00Z');
+    mockPayoutFindMany.mockResolvedValue([
+      { id: 'p1', amount: 50_000, description: 'Tahap 1', status: 'DRAFT', createdAt, approvedAt: null, completedAt: null },
+    ]);
+
+    const data = await (await GET(getRequest(), routeContext())).json();
+
+    expect(data.payouts).toEqual([
+      { id: 'p1', amount: 50_000, description: 'Tahap 1', status: 'DRAFT', createdAt: createdAt.toISOString(), approvedAt: null, completedAt: null },
+    ]);
+    expect(mockPayoutFindMany.mock.calls[0][0].where).toEqual({ volunteerTripId: 'trip-1', sandbox: false });
   });
 
   it('a non-Fundraiser never reaches the ledger, so withdrawable is not exposed to them', async () => {

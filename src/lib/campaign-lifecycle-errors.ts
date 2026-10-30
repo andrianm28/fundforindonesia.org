@@ -1,7 +1,7 @@
 import type { CampaignStatus } from "@/generated/prisma/client";
 import { DomainError, type LifecycleErrorCode } from "./domain-errors";
 import { STATUS_LABEL } from "./campaign-status-label";
-import { deadlineRequiredMessage, KIND_LABEL, type CampaignKind } from "./campaign-kind";
+import { deadlineRequiredMessage, KIND_LABEL, MAX_DURATION_MESSAGE, type CampaignKind } from "./campaign-kind";
 
 /**
  * The lifecycle module's typed refusals. Kept apart from the command module
@@ -122,6 +122,18 @@ export class DeadlineRequiredError extends CampaignLifecycleError {
   constructor(readonly kind: CampaignKind) {
     super(deadlineRequiredMessage(kind));
     this.name = "DeadlineRequiredError";
+  }
+}
+
+/**
+ * The deadline lies more than 12 months away on a Kind other than wakaf (C12,
+ * 2026-10-04). The Fundraiser can fix it by naming an earlier one, so 422.
+ */
+export class MaxDurationExceededError extends CampaignLifecycleError {
+  readonly code = "CAMPAIGN_DURATION_EXCEEDED";
+  constructor() {
+    super(MAX_DURATION_MESSAGE);
+    this.name = "MaxDurationExceededError";
   }
 }
 

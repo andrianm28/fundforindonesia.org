@@ -1,6 +1,6 @@
 # 81: M-e active-limit-usage-report-exemption-and-max-duration
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none; C12 dijawab owner 2026-10-04. Tidak boleh berjalan bersamaan dengan F4 (72); bagian lanjutan batasan itu terpotong dalam rencana.
 
@@ -33,3 +33,6 @@ Dua aturan lifecycle: batas tiga Campaign Active dicabut setelah Usage Report pe
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
 
 - 2026-10-04 (ronde C): C12 dijawab owner sesuai rekomendasi: batas tiga Active dicabut setelah Usage Report pertama Fundraiser itu; durasi maksimum 12 bulan, wakaf dikecualikan. Acceptance di atas sudah memakai bentuk itu. `needs-info` menjadi `ready-for-agent`.
+
+- 2026-10-30: dikerjakan di `claude/project-thread-iou1om-batas-aktif`. "Usage Report pertama" ditafsirkan: ada satu Usage Report milik Fundraiser (lewat Payout Campaign-nya) yang bukan sandbox dan belum ditandai dipertanyakan; Usage Report tidak punya tahap persetujuan, jadi "dikirim" adalah satu-satunya tahap. Durasi 12 bulan dihitung dari saat create/PATCH/submit/change request, tepat 12 bulan lolos; galat `CAMPAIGN_DURATION_EXCEEDED` (422). Layar admin scrutiny tidak lagi menyebut Fundraiser yang sudah bebas. `CONTEXT.md` (entri Batas Campaign Active, Usage Report, Campaign) menunggu koordinator.
+- 2026-10-30: merged ke main lewat #303 (squash 8bad10d), atas persetujuan owner. Belum ter-deploy.

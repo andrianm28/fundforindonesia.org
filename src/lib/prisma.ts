@@ -46,8 +46,9 @@ function createPrismaClient(): PrismaClient {
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+// Cached in every environment, not only in development: src/proxy.ts runs in
+// its own module graph in production, and without the global it would open a
+// second client and connection pool next to the pages' (rilis-1-benda/96).
+globalForPrisma.prisma = prisma;
 
 export default prisma;
