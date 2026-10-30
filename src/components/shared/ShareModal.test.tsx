@@ -33,10 +33,13 @@ describe('ShareModal', () => {
       writable: true,
     });
     onClose.mockClear();
+    // No short links by default: the long-link tests below are the fallback.
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
   });
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it('renders modal with share title when open', () => {
@@ -163,5 +166,56 @@ describe('ShareModal', () => {
     const callArg = mockOpen.mock.calls[0][0] as string;
     const u = new URL(callArg);
     expect(u.searchParams.get('u')).toBe('https://fundforindonesia.org/campaign/a%20b%26c?src=facebook');
+  });
+  describe('short links (ticket E1/02)', () => {
+    const links = {
+      whatsapp: 'https://fundforindonesia.org/s/Wa234567',
+      facebook: 'https://fundforindonesia.org/s/Fb234567',
+      twitter: 'https://fundforindonesia.org/s/Tw234567',
+      copy: 'https://fundforindonesia.org/s/Cp234567',
+    };
+
+    it('asks for the Campaign short links once opened and shares them instead of the long link', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ links }) });
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<ShareModal isOpen={true} onClose={onClose} campaign={mockCampaign} />);
+
+      expect(fetchMock).toHaveBeenCalledWith(`/api/campaigns/${mockCampaign.slug}/short-links`, { method: 'POST' });
+      await waitFor(() => {
+        fireEvent.click(screen.getByLabelText('Bagikan via WhatsApp'));
+        expect(mockOpen).toHaveBeenLastCalledWith(
+          expect.stringContaining(encodeURIComponent(links.whatsapp)),
+          '_blank',
+          'noopener,noreferrer',
+        );
+      });
+    });
+
+    it('does not ask while closed', () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<ShareModal isOpen={false} onClose={onClose} campaign={mockCampaign} />);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps sharing the long link when the server refuses', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) });
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<ShareModal isOpen={true} onClose={onClose} campaign={mockCampaign} />);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      fireEvent.click(screen.getByLabelText('Bagikan via Facebook'));
+
+      expect(mockOpen).toHaveBeenCalledWith(
+        expect.stringContaining(
+          encodeURIComponent(`https://fundforindonesia.org/campaign/${mockCampaign.slug}?src=facebook`),
+        ),
+        '_blank',
+        'noopener,noreferrer',
+      );
+    });
   });
 });

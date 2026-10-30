@@ -5,6 +5,7 @@ import { formatRupiah } from '@/lib/utils/currency';
 import { loadRefundSubjects, refundSubjectKey, type RefundSubjectInfo } from '@/lib/refund-subject-lookup';
 import type { Refund } from '@/generated/prisma/client';
 import { lateSettlementWorklistPage } from '@/lib/money/campaign-refund-proposals';
+import { isDonorInitiatedRefund } from '@/lib/money/donor-refunds';
 import { AdminLateSettlementRefundButton } from '@/components/admin/AdminLateSettlementRefundButton';
 
 export const dynamic = 'force-dynamic';
@@ -28,9 +29,10 @@ export const dynamic = 'force-dynamic';
 const QUEUE_STATUSES: Refund['status'][] = ['REQUESTED', 'APPROVED'];
 
 type QueueRow = Pick<Refund, 'id' | 'amount' | 'reason' | 'status' | 'createdAt' | 'sandbox'> & {
+  requestedById: string;
   requestedBy: { name: string | null };
   payment: {
-    donation: { campaignId: string } | null;
+    donation: { campaignId: string; donorId: string | null } | null;
     registration: { batch: { tripId: string } } | null;
   };
 };
@@ -82,7 +84,12 @@ function QueueTable({
                         {subject?.title ?? 'Tidak diketahui'}
                         <SandboxBadge sandbox={refund.sandbox} />
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{refund.requestedBy.name}</td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {refund.requestedBy.name}
+                        {isDonorInitiatedRefund(refund) && (
+                          <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">Donor</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{formatRupiah(refund.amount)}</td>
                       <td className="px-6 py-4 text-sm text-gray-500 truncate max-w-xs">{refund.reason}</td>
                       <td className="px-6 py-4 text-sm text-gray-500">{formatDate(refund.createdAt)}</td>
@@ -114,7 +121,7 @@ export default async function AdminRefundsPage() {
       requestedBy: { select: { name: true } },
       payment: {
         select: {
-          donation: { select: { campaignId: true } },
+          donation: { select: { campaignId: true, donorId: true } },
           registration: { select: { batch: { select: { tripId: true } } } },
         },
       },
