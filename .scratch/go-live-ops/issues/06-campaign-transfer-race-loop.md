@@ -28,3 +28,5 @@ Tes race Postgres sungguhan untuk `campaign-transfer` harus terbukti stabil, buk
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+
+- 2026-10-30: loop dijalankan di cloud session (4 vCPU) terhadap Postgres lokal, `TEST_DATABASE_URL` diset sehingga tes benar-benar berjalan (log tiap run dicek: tidak ada `skipped`). `src/__tests__/integration/campaign-transfer-real-db.test.ts` (11 tes, termasuk dua approve dari satu sumber, A→B vs B→A tanpa deadlock, dan transfer vs Refund) dijalankan **50 kali berturut-turut: 50 lulus, 0 gagal**. Selama loop, tiga builder lain menjalankan vitest berkas terkait di container yang sama, jadi loop ini juga berjalan di bawah kontensi CPU; tidak ada full suite yang berjalan bersamaan. Tidak ada kegagalan, jadi tidak ada perubahan domain. Satu run ~2,4 detik untuk 11 tes.
