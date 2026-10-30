@@ -4,11 +4,16 @@ import { prisma } from '@/lib/prisma';
 import { campaignNotFound, findViewableCampaign } from '@/lib/campaign-visibility-route';
 import { getServerSession } from '@/lib/auth';
 import { refuseUnlessFundraiser } from '@/lib/refusal-response';
+import { isUpdateImageUrl } from '@/lib/campaign-update-images';
 
 const createUpdateSchema = z.object({
   title: z.string().min(1, 'Judul harus diisi').max(200, 'Judul maksimal 200 karakter'),
   content: z.string().min(1, 'Konten harus diisi'),
-  images: z.array(z.string().url()).optional().default([]),
+  images: z
+    .array(z.string().refine(isUpdateImageUrl, 'Alamat gambar tidak valid'))
+    .max(4, 'Maksimal 4 gambar')
+    .optional()
+    .default([]),
 });
 
 // Rendered per request: an unapproved Campaign's answer depends on who asks

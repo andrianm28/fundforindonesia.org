@@ -18,6 +18,9 @@ import { formatFeePercent } from '@/lib/money/platform-fee';
 import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
 import { ShareModal } from '@/components/shared/ShareModal';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
+import { CampaignUpdatesTab } from './CampaignUpdatesTab';
+
+const UNAPPROVED_STATUSES: readonly CampaignLifecycleStatus[] = ['DRAFT', 'SUBMITTED', 'REJECTED'];
 
 export interface CampaignDetailData {
   id: string;
@@ -213,7 +216,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   // stays a plain, unwired button, exactly as all three were before this
   // ticket -- adding it is a separate concern this ticket does not touch.
   const [shareOpen, setShareOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'story' | 'disbursements'>('story');
+  const [activeTab, setActiveTab] = useState<'story' | 'updates' | 'disbursements'>('story');
 
   const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
   const withdrawal = useWithdrawableSubmission(campaign.slug, lifecycleStatus, setLifecycleStatus);
@@ -482,9 +485,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           </div>
         </div>
 
-        {/* Tab navigation. Only Cerita and Pencairan Dana are wired (ticket
-            22): Kabar Terbaru stays a plain button, as all three were
-            before this ticket -- wiring it is a separate concern. */}
+        {/* Tab navigation: Cerita, Kabar Terbaru, Pencairan Dana. */}
         <div className="flex gap-4 border-b border-border mb-4">
           <button
             onClick={() => setActiveTab('story')}
@@ -496,9 +497,19 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           >
             Cerita
           </button>
-          <button className="pb-2 text-sm font-medium text-text-secondary hover:text-text transition-colors">
-            Kabar Terbaru
-          </button>
+          {/* An unapproved Campaign is not public, so it shows no public tab. */}
+          {!UNAPPROVED_STATUSES.includes(lifecycleStatus) && (
+            <button
+              onClick={() => setActiveTab('updates')}
+              className={
+                activeTab === 'updates'
+                  ? 'pb-2 text-sm font-medium text-primary border-b-2 border-primary'
+                  : 'pb-2 text-sm font-medium text-text-secondary hover:text-text transition-colors'
+              }
+            >
+              Kabar Terbaru
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('disbursements')}
             className={
@@ -519,6 +530,8 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           >
             {campaign.story}
           </div>
+        ) : activeTab === 'updates' ? (
+          <CampaignUpdatesTab slug={campaign.slug} />
         ) : (
           <DisbursementsTab slug={campaign.slug} />
         )}

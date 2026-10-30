@@ -59,4 +59,18 @@ describe('POST /api/campaigns/[slug]/updates', () => {
     });
     expect(mockUpdateCreate).not.toHaveBeenCalled();
   });
+
+  it('accepts an image the upload route hosted (a relative /uploads path)', async () => {
+    signedInAs('owner-1');
+    const response = await post({ ...validBody, images: ['/uploads/abc-123.jpg'] });
+    expect(response.status).toBe(201);
+    expect(mockUpdateCreate.mock.calls[0][0].data.images).toEqual(['/uploads/abc-123.jpg']);
+  });
+
+  it('refuses an image that is neither http(s) nor an /uploads path', async () => {
+    signedInAs('owner-1');
+    const response = await post({ ...validBody, images: ['javascript:alert(1)'] });
+    expect(response.status).toBe(400);
+    expect(mockUpdateCreate).not.toHaveBeenCalled();
+  });
 });
