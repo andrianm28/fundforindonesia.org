@@ -27,6 +27,7 @@ import {
   BatchFullError,
   BatchLockedByRegistrationsError,
   BatchQuotaBelowSeatsError,
+  HoldLimitReachedError,
   OwnTripRegistrationError,
   BatchMinQuotaMetError,
   BatchNotEndedError,
@@ -512,7 +513,12 @@ export const BATCH_DATE_FIELDS = ['startDate', 'endDate', 'registrationDeadline'
  * read and `editBatch`.
  */
 export function liveRegistrationWhere(now: Date) {
-  return { OR: [{ status: RegistrationStatus.CONFIRMED }, { status: RegistrationStatus.HOLD, holdExpiresAt: { gt: now } }] };
+  return { OR: [{ status: RegistrationStatus.CONFIRMED }, liveHoldWhere(now)] };
+}
+
+/** A HOLD whose window has not lapsed: a seat kept but not yet paid for. */
+function liveHoldWhere(now: Date) {
+  return { status: RegistrationStatus.HOLD, holdExpiresAt: { gt: now } };
 }
 
 /** A date being set must lie after `now`: a Batch is never scheduled into the past (ticket 48). */
@@ -821,6 +827,26 @@ async function expireLapsedHolds(tx: Tx, batchId: string, now: Date): Promise<vo
   });
 }
 
+/**
+ * The most live (unexpired, unpaid) holds one account may keep across all
+ * Batches (owner decision 2026-10-30, tickets 50 and 82). Paid and lapsed
+ * holds do not count. The number lives only here, never in `.scratch`.
+ */
+export const MAX_LIVE_HOLDS_PER_VOLUNTEER = 2;
+
+/**
+ * Serialise one account's holds across every Batch for the rest of the
+ * transaction. A transaction-scoped advisory lock rather than a row lock:
+ * it touches no table, so it cannot collide with the Batch and Registration
+ * locks pinned elsewhere. Wrapped in a SELECT because Prisma cannot read the
+ * `void` the lock function returns.
+ */
+async function lockVolunteerHolds(tx: Tx, volunteerId: string): Promise<void> {
+  await tx.$queryRaw`
+    SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(${`volunteer-holds:${volunteerId}`}))) AS l
+  `;
+}
+
 export type HoldRegistrationResult = { registration: Registration; tripFeeAmount: number };
 
 /**
@@ -836,7 +862,12 @@ export type HoldRegistrationResult = { registration: Registration; tripFeeAmount
  * Refusals: TripNotFoundError and BatchNotFoundError (404), the latter
  * also for a Batch of another Trip; OwnTripRegistrationError (403); TripNotTakingRegistrationsError,
  * BatchNotTakingRegistrationsError, RegistrationDeadlinePassedError,
- * BatchFullError and AlreadyRegisteredError (400).
+ * BatchFullError, AlreadyRegisteredError and HoldLimitReachedError (400).
+ *
+ * The per-account cap spans Batches, so the Batch lock cannot serialise it:
+ * after the Batch, the account's own advisory lock (`lockVolunteerHolds`) is
+ * taken, and only then are its live holds counted. It is last in the order
+ * and nothing is taken after it, so it cannot deadlock.
  */
 export async function holdRegistration(
   prisma: PrismaClient,
@@ -867,6 +898,10 @@ export async function holdRegistration(
       select: { id: true },
     });
     if (existing) throw new AlreadyRegisteredError();
+
+    await lockVolunteerHolds(tx, volunteerId);
+    const liveHolds = await tx.registration.count({ where: { volunteerId, ...liveHoldWhere(now) } });
+    if (liveHolds >= MAX_LIVE_HOLDS_PER_VOLUNTEER) throw new HoldLimitReachedError();
 
     const registration = await tx.registration.create({
       data: {
