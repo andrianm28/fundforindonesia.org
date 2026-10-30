@@ -18,7 +18,7 @@ import { RESET_REQUESTED_MESSAGE } from '@/lib/password-reset-copy';
 import { prisma } from '@/lib/prisma';
 import { consumeRateLimit } from '@/lib/rate-limit';
 import { sendReportingFailure } from '@/lib/mail';
-import { lookupUserEmail, sealUserEmail } from '@/lib/contact-fields';
+import { currentEmailHmac, lookupUserEmail, sealUserEmail } from '@/lib/contact-fields';
 import { checkPasswordResetToken } from '@/lib/password-reset';
 
 const findUser = prisma.user.findFirst as unknown as Mock;
@@ -134,7 +134,7 @@ describe('POST /api/auth/password-reset', () => {
     const scopes = consume.mock.calls.map(([, input]) => input);
     expect(scopes).toContainEqual(expect.objectContaining({ scope: 'password-reset-request', subject: '198.51.100.9' }));
     expect(scopes).toContainEqual(
-      expect.objectContaining({ scope: 'password-reset-request-email', subject: lookupUserEmail(EMAIL).emailHmac }),
+      expect.objectContaining({ scope: 'password-reset-request-email', subject: currentEmailHmac(EMAIL) }),
     );
     expect(Math.max(...consume.mock.invocationCallOrder)).toBeLessThan(findUser.mock.invocationCallOrder[0]);
   });

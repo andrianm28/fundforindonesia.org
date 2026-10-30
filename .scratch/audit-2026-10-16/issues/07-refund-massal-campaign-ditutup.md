@@ -1,6 +1,6 @@
 # 07: refund-massal-campaign-ditutup
 
-**Status:** awaiting-merge
+**Status:** done
 
 **Blocked by:** none
 
@@ -71,3 +71,4 @@ Pengecualian lain dilaporkan, tidak dilempar: `RefundAfterCampaignTransferError`
 - 2026-10-16: dibuat dari audit REQ-03 dan keputusan owner "Sesuai PRD". Desain ditetapkan di tiket ini tanpa skema; pasangannya tiket `rilis-1-benda/80`.
 
 - 2026-10-16: dibangun di cabang `claude/audit-refund-prd72` (`src/lib/money/campaign-refund-proposals.ts`, route `POST /api/admin/campaigns/[slug]/refund-proposals`, tombol di halaman Admin Campaign). Aturan terbaru-dulu diterima koordinator; sisa "sudah keluar" ditampilkan di hasil dan UI. Status `awaiting-merge`; menjadi `done` saat merge.
+- 2026-10-29: merged ke `main` lewat #272 (squash cccf2e5). Live setelah owner men-deploy main.

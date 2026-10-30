@@ -3,8 +3,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PrismaClient } from '@/generated/prisma/client';
+import { sealDonationGuestEmail, sealUserEmail } from '@/lib/contact-fields';
 
 /**
  * prd-compliance 23: the Guest Donor claim against a REAL Postgres, because
@@ -68,7 +69,7 @@ describe.skipIf(!DATABASE_URL)('Guest Donor claim -- against real Postgres (prd-
     holder.client = prisma;
     ({ claimGuestDonations } = await import('@/lib/guest-donation-claim'));
 
-    await makeUser('owner', { hmac: 'hmac-owner' });
+    await makeUser('owner', 'owner@test.com');
     campaignId = `${tag}-campaign`;
     await prisma.campaign.create({
       data: {
@@ -94,23 +95,22 @@ describe.skipIf(!DATABASE_URL)('Guest Donor claim -- against real Postgres (prd-
     await admin.end();
   }, 60_000);
 
-  async function makeUser(name: string, opts: { hmac: string; keyId?: string; verified?: boolean }) {
+  // Rows are sealed with the real keys of the moment, so a rotation between
+  // two calls yields rows under different HMAC key ids, as in production.
+  async function makeUser(name: string, email: string, opts: { verified?: boolean } = {}) {
     const id = `${tag}-${name}`;
     await prisma.user.create({
       data: {
         id,
         name,
-        emailHmac: opts.hmac,
-        emailHmacKeyId: opts.keyId ?? 'k1',
-        emailCiphertext: `${id}-c`,
-        emailKeyId: 'k1',
+        ...sealUserEmail(email),
         emailVerifiedAt: opts.verified ? new Date('2026-10-02T00:00:00Z') : null,
       },
     });
     return id;
   }
 
-  async function makeGuestDonation(name: string, hmac: string | null, keyId: string | null = 'k1') {
+  async function makeGuestDonation(name: string, email: string | null) {
     const id = `${tag}-d-${name}`;
     await prisma.donation.create({
       data: {
@@ -119,20 +119,31 @@ describe.skipIf(!DATABASE_URL)('Guest Donor claim -- against real Postgres (prd-
         paymentMethod: 'bank_transfer',
         campaignId,
         guestName: 'Guest',
-        guestEmailHmac: hmac,
-        guestEmailHmacKeyId: hmac ? keyId : null,
+        ...(email
+          ? sealDonationGuestEmail(email)
+          : { guestEmailHmac: null, guestEmailHmacKeyId: null }),
       },
     });
     return id;
+  }
+
+  /** Retire the current keys and install new ones, as the runbook does. */
+  function rotateKeys() {
+    process.env.FIELD_ENCRYPTION_PREVIOUS_KEYS = `${process.env.FIELD_ENCRYPTION_KEY_ID}:${process.env.FIELD_ENCRYPTION_KEY}`;
+    process.env.FIELD_HMAC_PREVIOUS_KEYS = `${process.env.FIELD_HMAC_KEY_ID}:${process.env.FIELD_HMAC_KEY}`;
+    process.env.FIELD_ENCRYPTION_KEY = Buffer.alloc(32, 5).toString('base64');
+    process.env.FIELD_ENCRYPTION_KEY_ID = 'enc-rot-2';
+    process.env.FIELD_HMAC_KEY = Buffer.alloc(32, 6).toString('base64');
+    process.env.FIELD_HMAC_KEY_ID = 'hmac-rot-2';
   }
 
   const donorOf = async (id: string) =>
     (await prisma.donation.findUniqueOrThrow({ where: { id }, select: { donorId: true } })).donorId;
 
   it("a verified account claims its own address's Donations and not another guest's", async () => {
-    const accountA = await makeUser('a', { hmac: 'hmac-a', verified: true });
-    const mine = await makeGuestDonation('a-mine', 'hmac-a');
-    const theirs = await makeGuestDonation('a-theirs', 'hmac-b');
+    const accountA = await makeUser('a', 'a@test.com', { verified: true });
+    const mine = await makeGuestDonation('a-mine', 'a@test.com');
+    const theirs = await makeGuestDonation('a-theirs', 'someone-else@test.com');
 
     const result = await claimGuestDonations(accountA);
 
@@ -142,36 +153,64 @@ describe.skipIf(!DATABASE_URL)('Guest Donor claim -- against real Postgres (prd-
   });
 
   it('an unverified account claims nothing, even with the exact same address', async () => {
-    const accountB = await makeUser('b', { hmac: 'hmac-b2', verified: false });
-    const guest = await makeGuestDonation('b-guest', 'hmac-b2');
+    const accountB = await makeUser('b', 'b@test.com');
+    const guest = await makeGuestDonation('b-guest', 'b@test.com');
 
     expect(await claimGuestDonations(accountB)).toEqual({ verified: false, claimed: 0 });
     expect(await donorOf(guest)).toBeNull();
   });
 
   it('is idempotent: a second claim changes nothing and takes nothing from the first claimant', async () => {
-    const accountC = await makeUser('c', { hmac: 'hmac-c', verified: true });
-    const guest = await makeGuestDonation('c-guest', 'hmac-c');
+    const accountC = await makeUser('c', 'c@test.com', { verified: true });
+    const guest = await makeGuestDonation('c-guest', 'c@test.com');
 
     expect(await claimGuestDonations(accountC)).toEqual({ verified: true, claimed: 1 });
     expect(await claimGuestDonations(accountC)).toEqual({ verified: true, claimed: 0 });
     expect(await donorOf(guest)).toBe(accountC);
   });
 
-  it('fails safe after a key rotation: a Donation under the old key id is not claimed by an account on the new one', async () => {
-    const rotated = await makeUser('rot', { hmac: 'hmac-rot', keyId: 'k2', verified: true });
-    const oldKey = await makeGuestDonation('rot-old', 'hmac-rot', 'k1');
-    const newKey = await makeGuestDonation('rot-new', 'hmac-rot', 'k2');
+  describe('across a key rotation (ADR 0012, Rotation)', () => {
+    const saved = { ...process.env };
+    afterEach(() => {
+      process.env = { ...saved };
+    });
 
-    expect(await claimGuestDonations(rotated)).toEqual({ verified: true, claimed: 1 });
-    expect(await donorOf(oldKey)).toBeNull();
-    expect(await donorOf(newKey)).toBe(rotated);
+    it('an account hashed under the old key claims a guest Donation hashed under the new key', async () => {
+      const account = await makeUser('rot1', 'rot1@test.com', { verified: true });
+      rotateKeys();
+      const guest = await makeGuestDonation('rot1-guest', 'rot1@test.com');
+
+      expect(await claimGuestDonations(account)).toEqual({ verified: true, claimed: 1 });
+      expect(await donorOf(guest)).toBe(account);
+    });
+
+    it('an account hashed under the new key claims a guest Donation hashed under the old key', async () => {
+      const guest = await makeGuestDonation('rot2-guest', 'rot2@test.com');
+      rotateKeys();
+      const account = await makeUser('rot2', 'rot2@test.com', { verified: true });
+
+      expect(await claimGuestDonations(account)).toEqual({ verified: true, claimed: 1 });
+      expect(await donorOf(guest)).toBe(account);
+    });
+
+    it('claims both generations at once, and still not another address', async () => {
+      const oldGuest = await makeGuestDonation('rot3-old', 'rot3@test.com');
+      const account = await makeUser('rot3', 'rot3@test.com', { verified: true });
+      rotateKeys();
+      const newGuest = await makeGuestDonation('rot3-new', 'rot3@test.com');
+      const stranger = await makeGuestDonation('rot3-other', 'stranger@test.com');
+
+      expect(await claimGuestDonations(account)).toEqual({ verified: true, claimed: 2 });
+      expect(await donorOf(oldGuest)).toBe(account);
+      expect(await donorOf(newGuest)).toBe(account);
+      expect(await donorOf(stranger)).toBeNull();
+    });
   });
 
   it('never claims a Donation marked anonymisedAt, even if its HMAC still matches', async () => {
-    const accountE = await makeUser('e', { hmac: 'hmac-e', verified: true });
-    const anonymised = await makeGuestDonation('e-anon', 'hmac-e');
-    const live = await makeGuestDonation('e-live', 'hmac-e');
+    const accountE = await makeUser('e', 'e@test.com', { verified: true });
+    const anonymised = await makeGuestDonation('e-anon', 'e@test.com');
+    const live = await makeGuestDonation('e-live', 'e@test.com');
     await prisma.donation.update({ where: { id: anonymised }, data: { anonymisedAt: new Date('2026-10-02T00:00:00Z') } });
 
     expect(await claimGuestDonations(accountE)).toEqual({ verified: true, claimed: 1 });
@@ -180,7 +219,7 @@ describe.skipIf(!DATABASE_URL)('Guest Donor claim -- against real Postgres (prd-
   });
 
   it('never claims a Donation whose HMAC was cleared (the anonymised shape, PR #172)', async () => {
-    const accountD = await makeUser('d', { hmac: 'hmac-d', verified: true });
+    const accountD = await makeUser('d', 'd@test.com', { verified: true });
     const cleared = await makeGuestDonation('d-cleared', null);
 
     expect(await claimGuestDonations(accountD)).toEqual({ verified: true, claimed: 0 });

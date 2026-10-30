@@ -76,6 +76,21 @@ describe('assertProductionEnv', () => {
       }
     });
 
+    it('fails for a malformed retired key, naming the variable and never the value', () => {
+      env({ FIELD_HMAC_PREVIOUS_KEYS: 'hmac-old:c2hvcnQ=' });
+      expect(() => assertProductionEnv()).toThrow(/FIELD_HMAC_PREVIOUS_KEYS.*32 bytes/);
+      try {
+        assertProductionEnv();
+      } catch (e) {
+        expect(String(e)).not.toContain('c2hvcnQ=');
+      }
+    });
+
+    it('passes with a well-formed retired key beside the current ones', () => {
+      env({ FIELD_ENCRYPTION_PREVIOUS_KEYS: `enc-old:${Buffer.alloc(32, 7).toString('base64')}` });
+      expect(() => assertProductionEnv()).not.toThrow();
+    });
+
     it('fails when one key serves both jobs', () => {
       env({ FIELD_HMAC_KEY: ENC });
       expect(() => assertProductionEnv()).toThrow(/separate secrets/);

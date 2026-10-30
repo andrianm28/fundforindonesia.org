@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** needs-triage
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -26,3 +26,4 @@ Panel `/moderasi/partner-organisations` (`src/app/moderasi/partner-organisations
 Ganti izin dummy YIEM dengan data dari dokumen asli lewat aksi ini.
 
 ## Comments
+- 2026-10-30: aksi "Koreksi" di kartu Fundraising Permit (PermitRow) memakai PATCH yang sudah ada, hanya mengirim field yang berubah; tes komponen ditambahkan. Menunggu merge; setelah itu owner mengganti izin dummy YIEM lewat panel.
