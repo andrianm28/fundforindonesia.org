@@ -4,6 +4,7 @@ import {
   domainErrorToHttp,
   InvalidTransitionError,
   LifecycleValidationError,
+  MaxDurationExceededError,
   RequiredChecklistItemsUntickedError,
   withdrawVerificationRequest,
 } from './campaign-lifecycle';
@@ -56,6 +57,44 @@ function sentMails() {
   const mailer = { name: 'test', send: async (message: (typeof sent)[number]) => void sent.push(message) };
   return { sent, mailer };
 }
+
+describe('deciding a change request: the 12 month limit is judged again at approval (C12)', () => {
+  it('refuses to apply a deadline that has drifted beyond 12 months of the approval date', async () => {
+    const db = changeDb();
+    const late = new Date('2026-12-01T10:00:00Z');
+    db.verificationRequests[0].proposedChanges = { deadline: '2027-12-31T00:00:00Z' };
+
+    const error = await decideVerificationRequest(db.prisma as never, {
+      campaignId: 'campaign-1',
+      requestId: 'verification-change',
+      actor: verifier,
+      decision: 'approve',
+      ticked: ['rencana-anggaran'],
+      now: late,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MaxDurationExceededError);
+    expect(db.campaign().deadline).toEqual(DEADLINE);
+    expect(db.verificationRequests[0].outcome).toBe('PENDING');
+  });
+
+  it('still lets a Verifier reject such a request', async () => {
+    const db = changeDb();
+    db.verificationRequests[0].proposedChanges = { deadline: '2027-12-31T00:00:00Z' };
+
+    const result = await decideVerificationRequest(db.prisma as never, {
+      campaignId: 'campaign-1',
+      requestId: 'verification-change',
+      actor: verifier,
+      decision: 'reject',
+      reason: 'Terlalu jauh.',
+      now: new Date('2026-12-01T10:00:00Z'),
+    });
+
+    expect(result.campaign.lifecycleStatus).toBe('ACTIVE');
+  });
+
+});
 
 describe('deciding a change request', () => {
   it('approving applies the proposed target and deadline, keeping the Campaign Active with no status change logged', async () => {

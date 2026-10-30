@@ -996,7 +996,13 @@ export async function decideVerificationRequest(
         // old values either way, so approving only writes the proposal onto
         // the row and logs no status change (ticket 12).
         if (decision.outcome === VerificationOutcome.APPROVED) {
-          await applyProposedChanges(tx, campaign.id, proposedChangesOf(request));
+          const proposed = proposedChangesOf(request);
+          // The 12 month limit is judged again at approval: weeks may have
+          // passed since the request was made (C12).
+          if (proposed.deadline && exceedsMaxDuration({ kind: campaign.kind, deadline: proposed.deadline }, now)) {
+            throw new MaxDurationExceededError();
+          }
+          await applyProposedChanges(tx, campaign.id, proposed);
         }
       } else {
         await transition(decision.to, decision.action);

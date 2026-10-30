@@ -220,6 +220,7 @@ describe('submitCampaign', () => {
 
       expect(error).toBeInstanceOf(MaxDurationExceededError);
       expect(domainErrorToHttp(error)).toMatchObject({ status: 422, body: { code: 'CAMPAIGN_DURATION_EXCEEDED' } });
+      expect((error as Error).message).toContain('perbarui tenggat');
       expect(db.campaign().lifecycleStatus).toBe('DRAFT');
       expect(db.verificationRequests).toEqual([]);
     });

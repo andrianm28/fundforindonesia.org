@@ -184,6 +184,14 @@ describe('the first Usage Report lifts the limit (C12, 2026-10-04)', () => {
     expect(error).toBeInstanceOf(TooManyActiveCampaignsError);
   });
 
+  it('does not count a report on a Demo Campaign, whose figures are fiction', async () => {
+    const db = submittedDb(FOUR, undefined, [report({ isDemo: true })]);
+
+    const error = await approve(db).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TooManyActiveCampaignsError);
+  });
+
   it('does not count a Beta sandbox report', async () => {
     const db = submittedDb(FOUR, undefined, [report({ sandbox: true })]);
 

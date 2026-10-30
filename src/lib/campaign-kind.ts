@@ -53,15 +53,20 @@ export function missingRequiredDeadline(campaign: {
 /** The longest a Campaign may run from now to its deadline, wakaf excepted (C12, 2026-10-04). */
 export const MAX_CAMPAIGN_MONTHS = 12;
 
-/** The latest deadline a Campaign judged at `from` may name: exactly 12 calendar months on. */
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/**
+ * The latest deadline a Campaign judged at `from` may name: the end of the WIB
+ * calendar day that is 12 months after `from`'s WIB date (day clamped to the
+ * month's end), so a form filled in WIB is judged by date, not by clock time.
+ */
 export function latestAllowedDeadline(from: Date): Date {
-  const latest = new Date(from.getTime());
-  const day = latest.getUTCDate();
-  latest.setUTCDate(1);
-  latest.setUTCMonth(latest.getUTCMonth() + MAX_CAMPAIGN_MONTHS);
-  const daysInMonth = new Date(Date.UTC(latest.getUTCFullYear(), latest.getUTCMonth() + 1, 0)).getUTCDate();
-  latest.setUTCDate(Math.min(day, daysInMonth));
-  return latest;
+  const wib = new Date(from.getTime() + WIB_OFFSET_MS);
+  const year = wib.getUTCFullYear() + Math.floor((wib.getUTCMonth() + MAX_CAMPAIGN_MONTHS) / 12);
+  const month = (wib.getUTCMonth() + MAX_CAMPAIGN_MONTHS) % 12;
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const day = Math.min(wib.getUTCDate(), daysInMonth);
+  return new Date(Date.UTC(year, month, day, 23, 59, 59, 999) - WIB_OFFSET_MS);
 }
 
 /**
@@ -78,7 +83,7 @@ export function exceedsMaxDuration(
 }
 
 /** The one sentence every refusal of a too-distant deadline shows. */
-export const MAX_DURATION_MESSAGE = `Tenggat Campaign paling lama ${MAX_CAMPAIGN_MONTHS} bulan dari sekarang; hanya Campaign wakaf yang dikecualikan.`;
+export const MAX_DURATION_MESSAGE = `Tenggat Campaign paling lama ${MAX_CAMPAIGN_MONTHS} bulan dari sekarang; hanya Campaign wakaf yang dikecualikan. Bila ini Draft lama, perbarui tenggat sebelum mengajukan.`;
 
 /** The one sentence every refusal of a missing deadline shows. */
 export function deadlineRequiredMessage(kind: CampaignKind): string {

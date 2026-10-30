@@ -167,6 +167,8 @@ export type UsageReportRow = {
   creatorId: string | null;
   sandbox: boolean;
   disputedAt: Date | null;
+  /** Whether the Campaign is a Demo Campaign; defaults to false. */
+  isDemo?: boolean;
 };
 
 export type PayoutRow = {
@@ -1218,9 +1220,10 @@ export function makeCampaignDb(
       },
       usageReport: {
         // Answers only the shape fundraisersExemptFromActiveLimit asks.
-        findMany: async ({ where }: { where: { sandbox: boolean; disputedAt: null; payout: { campaign: { creatorId: { in: string[] } } } } }) =>
+        findMany: async ({ where }: { where: { sandbox: boolean; disputedAt: null; payout: { campaign: { isDemo: boolean; creatorId: { in: string[] } } } } }) =>
           (seed.usageReports ?? [])
             .filter((r) => r.sandbox === where.sandbox && r.disputedAt === where.disputedAt)
+            .filter((r) => (r.isDemo ?? false) === where.payout.campaign.isDemo)
             .filter((r) => r.creatorId !== null && where.payout.campaign.creatorId.in.includes(r.creatorId))
             .map((r) => ({ payout: { campaign: { creatorId: r.creatorId } } })),
       },

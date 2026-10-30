@@ -201,7 +201,7 @@ export async function activeCampaignCountsByFundraiser(
  * "First Usage Report" is read as the safest reading CONTEXT.md allows: a
  * Usage Report is public the moment it is sent and has no approval step, so
  * "submitted" is the only stage there is -- but a report an Admin has marked
- * "dipertanyakan" does not count, and neither does one born in the Beta
+ * "dipertanyakan" does not count, and neither does one on a Demo Campaign or born in the Beta
  * sandbox (its money is fiction). A Volunteer Trip payout carries no
  * Campaign, so its report never lifts the limit.
  *
@@ -216,7 +216,7 @@ export async function fundraisersExemptFromActiveLimit(
     where: {
       sandbox: false,
       disputedAt: null,
-      payout: { campaign: { creatorId: { in: [...fundraiserIds] } } },
+      payout: { campaign: { isDemo: false, creatorId: { in: [...fundraiserIds] } } },
     },
     select: { payout: { select: { campaign: { select: { creatorId: true } } } } },
   });
