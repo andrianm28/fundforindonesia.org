@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
@@ -36,7 +37,10 @@ export function CampaignCloseActions({
     setCompleteRefusal('');
     const refused = await completeCampaignRequest(slug);
     setCompleting(false);
-    if (refused) setCompleteRefusal(refused);
+    if (refused) {
+      setCompleteRefusal(refused);
+      setConfirming(false);
+    }
     else router.refresh();
   }
 
@@ -64,7 +68,10 @@ export function CampaignCloseActions({
         </p>
         {!hasUpdate && (
           <p data-testid="complete-needs-update" className="text-xs text-[#C62828] mt-2">
-            Campaign harus punya minimal satu Campaign Update sebelum dapat ditandai selesai. Tulis kabar terbaru
+            Campaign harus punya minimal satu Campaign Update sebelum dapat ditandai selesai.{' '}
+            <Link href={`/akun/kampanye-saya/${slug}/kabar`} className="font-medium underline">
+              Tulis kabar
+            </Link>{' '}
             untuk para donatur dulu.
           </p>
         )}

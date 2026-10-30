@@ -29,4 +29,4 @@ Fundraiser belum punya tombol untuk menandai Campaign Completed atau mengajukan 
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
-- 2026-10-30: dikerjakan di claude/project-thread-iou1om-fundraiser-kelola: Tandai Selesai dan Ajukan Pembatalan pada `/akun/kampanye-saya/[slug]` (CampaignCloseActions) lewat route yang ada; galat domain tampil apa adanya; e2e Playwright belum dijalankan (butuh DB).
+- 2026-10-30: dikerjakan di claude/project-thread-iou1om-fundraiser-kelola: Tandai Selesai dan Ajukan Pembatalan pada `/akun/kampanye-saya/[slug]` (CampaignCloseActions) lewat route yang ada; galat domain tampil apa adanya; e2e `tests/e2e/fundraiser-edit.spec.ts` ditulis (belum dijalankan lokal, butuh DB; jalan di CI).

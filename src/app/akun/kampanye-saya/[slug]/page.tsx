@@ -102,6 +102,17 @@ export default async function ManageCampaignPage({ params }: PageProps) {
         )}
 
         {canRequestChange && (
+          <nav aria-label="Pintasan Campaign" className="flex gap-3 text-sm font-medium text-[#0073E6]">
+            <Link href={`/akun/kampanye-saya/${campaign.slug}/donasi`} className="hover:underline">
+              Daftar donasi
+            </Link>
+            <Link href={`/akun/kampanye-saya/${campaign.slug}/kabar`} className="hover:underline">
+              Tulis kabar
+            </Link>
+          </nav>
+        )}
+
+        {canRequestChange && (
           <section className="bg-white rounded-xl shadow-xs p-4" aria-labelledby="change-request-heading">
             <h2 id="change-request-heading" className="text-sm font-semibold text-text mb-3">
               Ajukan perubahan target atau tenggat
@@ -122,8 +133,9 @@ export default async function ManageCampaignPage({ params }: PageProps) {
 
         {!editable && !canRequestChange && (
           <p data-testid="manage-not-editable" className="bg-white rounded-xl shadow-xs p-4 text-sm text-text-secondary">
-            Campaign dengan status ini tidak dapat diedit. Draft dan Campaign yang ditolak dapat diedit; Campaign
-            yang sedang diperiksa Verifier harus ditarik dulu dari Galang Dana Saya.
+            {status === 'SUBMITTED'
+              ? 'Campaign sedang diperiksa Verifier dan tidak dapat diedit. Pengajuannya harus ditarik dulu dari Galang Dana Saya; setelah itu ia kembali menjadi Draft dan dapat diedit.'
+              : 'Campaign dengan status ini tidak dapat diedit.'}
           </p>
         )}
       </div>

@@ -66,11 +66,15 @@ describe('Tandai Selesai', () => {
 
     expect(await screen.findByText('Campaign belum punya Campaign Update.')).toBeDefined();
     expect(mockRefresh).not.toHaveBeenCalled();
+    // Back to the first step: another press needs a fresh confirmation.
+    expect(screen.queryByRole('button', { name: 'Ya, tandai selesai' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Tandai Selesai' })).toBeDefined();
   });
 
   it('tells the Fundraiser up front that a Campaign Update is needed when there is none', () => {
     renderActions({ hasUpdate: false });
     expect(screen.getByTestId('complete-needs-update')).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Tulis kabar' }).getAttribute('href')).toBe('/akun/kampanye-saya/sumur/kabar');
   });
 });
 

@@ -122,13 +122,35 @@ describe('the Fundraiser manage page', () => {
     expect(screen.getByTestId('manage-not-editable')).toBeDefined();
   });
 
-  it.each(['SUBMITTED', 'COMPLETED', 'SUSPENDED'])('explains that a %s Campaign has nothing to edit', async (lifecycleStatus) => {
-    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ ...CAMPAIGN, lifecycleStatus } as never);
+  it('tells a Fundraiser with a Submitted Campaign to withdraw it first', async () => {
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ ...CAMPAIGN, lifecycleStatus: 'SUBMITTED' } as never);
 
     render(await page());
 
-    expect(screen.getByTestId('manage-not-editable')).toBeDefined();
+    expect(screen.getByTestId('manage-not-editable').textContent).toContain('ditarik dulu');
     expect(screen.queryByRole('button', { name: 'Simpan Perubahan' })).toBeNull();
+  });
+
+  it.each(['COMPLETED', 'SUSPENDED', 'CANCELLED', 'EXPIRED'])(
+    'says plainly that a %s Campaign cannot be edited, without asking for a withdrawal',
+    async (lifecycleStatus) => {
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ ...CAMPAIGN, lifecycleStatus } as never);
+
+      render(await page());
+
+      const note = screen.getByTestId('manage-not-editable').textContent ?? '';
+      expect(note).toContain('tidak dapat diedit');
+      expect(note).not.toContain('ditarik dulu');
+    },
+  );
+
+  it('links an Active Campaign to its donations and to writing an update', async () => {
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ ...CAMPAIGN, lifecycleStatus: 'ACTIVE' } as never);
+
+    render(await page());
+
+    expect(screen.getByRole('link', { name: 'Daftar donasi' }).getAttribute('href')).toBe('/akun/kampanye-saya/sumur/donasi');
+    expect(screen.getByRole('link', { name: 'Tulis kabar' }).getAttribute('href')).toBe('/akun/kampanye-saya/sumur/kabar');
   });
 
   describe('ending the Campaign (ticket 65)', () => {
