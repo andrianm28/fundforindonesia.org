@@ -31,6 +31,8 @@ import {
   DOCUMENT_CAMPAIGN_ID,
   DOCUMENT_FUNDRAISER_EMAIL,
   DOCUMENT_SLUG,
+  KABAR_FUNDRAISER_EMAIL,
+  KABAR_SLUG,
   DRAFT_SLUG,
   RECEIPT_TOKEN,
   STRANGER_EMAIL,
@@ -191,6 +193,7 @@ async function main() {
   for (const [id, name, email] of [
     ['e2e-doc-fundraiser', 'E2E Doc Fundraiser', DOCUMENT_FUNDRAISER_EMAIL],
     ['e2e-stranger', 'E2E Stranger', STRANGER_EMAIL],
+    ['e2e-kabar-fundraiser', 'E2E Kabar Fundraiser', KABAR_FUNDRAISER_EMAIL],
   ] as const) {
     await prisma.user.upsert({
       where: { id },
@@ -214,6 +217,25 @@ async function main() {
       lifecycleStatus: CampaignStatus.SUBMITTED,
       deadline: new Date('2030-06-01T00:00:00.000Z'),
       creatorId: 'e2e-doc-fundraiser',
+      collectingEntityId: 'e2e-org',
+    },
+  });
+  await prisma.campaign.upsert({
+    where: { slug: KABAR_SLUG },
+    update: {},
+    create: {
+      id: 'e2e-campaign-kabar',
+      slug: KABAR_SLUG,
+      title: 'E2E Kabar Aktif',
+      description: 'Campaign fixture untuk e2e Kabar Terbaru.',
+      story: 'Cerita fixture untuk e2e Kabar Terbaru.',
+      coverImage: 'https://example.org/e2e-kabar.jpg',
+      targetAmount: 4_000_000,
+      category: 'lingkungan',
+      kind: Kind.DONATION,
+      lifecycleStatus: CampaignStatus.ACTIVE,
+      deadline: new Date('2030-06-01T00:00:00.000Z'),
+      creatorId: 'e2e-kabar-fundraiser',
       collectingEntityId: 'e2e-org',
     },
   });

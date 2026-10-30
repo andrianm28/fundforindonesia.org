@@ -3,14 +3,15 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { campaignNotFound, findViewableCampaign } from '@/lib/campaign-visibility-route';
 import { getServerSession } from '@/lib/auth';
+import { isPubliclyViewable } from '@/lib/campaign-visibility';
 import { refuseUnlessFundraiser } from '@/lib/refusal-response';
-import { isUpdateImageUrl } from '@/lib/campaign-update-images';
+import { isUploadedImagePath } from '@/lib/campaign-update-images';
 
 const createUpdateSchema = z.object({
   title: z.string().min(1, 'Judul harus diisi').max(200, 'Judul maksimal 200 karakter'),
   content: z.string().min(1, 'Konten harus diisi'),
   images: z
-    .array(z.string().refine(isUpdateImageUrl, 'Alamat gambar tidak valid'))
+    .array(z.string().refine(isUploadedImagePath, 'Alamat gambar tidak valid'))
     .max(4, 'Maksimal 4 gambar')
     .optional()
     .default([]),
@@ -90,19 +91,31 @@ export async function POST(
     // Resolve campaign by slug
     const campaign = await prisma.campaign.findUnique({
       where: { slug },
-      select: { id: true, creatorId: true },
+      select: { id: true, creatorId: true, lifecycleStatus: true },
     });
 
-    if (!campaign) {
-      return NextResponse.json(
-        { code: 'NOT_FOUND', message: 'Campaign tidak ditemukan', status: 404 },
-        { status: 404 }
-      );
+    // A missing slug and an unapproved Campaign of someone else answer alike
+    // (as GET does), so a signed-in stranger cannot tell a Draft's slug from
+    // no slug at all.
+    const isOwner = campaign?.creatorId === session.user.id;
+    if (!campaign || (!isPubliclyViewable(campaign.lifecycleStatus) && !isOwner)) {
+      return campaignNotFound();
     }
 
     // Only the Campaign's Fundraiser posts its updates (CONTEXT.md, Capacity).
     const refusal = refuseUnlessFundraiser({ kind: 'campaign', ownerId: campaign.creatorId }, session.user);
     if (refusal) return refusal;
+
+    // Kabar Terbaru is a public record: not before the Campaign is approved.
+    if (!isPubliclyViewable(campaign.lifecycleStatus)) {
+      return NextResponse.json(
+        {
+          code: 'CAMPAIGN_NOT_PUBLIC',
+          error: 'Kabar terbaru baru bisa diterbitkan setelah Campaign disetujui Verifier.',
+        },
+        { status: 409 }
+      );
+    }
 
     // Validate request body
     const body = await request.json();

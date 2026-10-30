@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
+import { isPubliclyViewable } from '@/lib/campaign-visibility';
 import { offersDonating } from '@/lib/campaign-page-status';
 import { useSuspensionReason } from '@/lib/hooks/useSuspensionReason';
 import { useWithdrawableSubmission } from '@/lib/hooks/useWithdrawableSubmission';
@@ -19,8 +20,6 @@ import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
 import { ShareModal } from '@/components/shared/ShareModal';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
 import { CampaignUpdatesTab } from './CampaignUpdatesTab';
-
-const UNAPPROVED_STATUSES: readonly CampaignLifecycleStatus[] = ['DRAFT', 'SUBMITTED', 'REJECTED'];
 
 export interface CampaignDetailData {
   id: string;
@@ -498,7 +497,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
             Cerita
           </button>
           {/* An unapproved Campaign is not public, so it shows no public tab. */}
-          {!UNAPPROVED_STATUSES.includes(lifecycleStatus) && (
+          {isPubliclyViewable(lifecycleStatus) && (
             <button
               onClick={() => setActiveTab('updates')}
               className={

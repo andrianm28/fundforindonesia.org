@@ -40,3 +40,8 @@ export const DOCUMENT_CAMPAIGN_ID = 'e2e-campaign-dokumen';
 export const DOCUMENT_SLUG = 'e2e-dokumen-diajukan';
 export const DOCUMENT_FUNDRAISER_EMAIL = 'e2e-doc-fundraiser@example.org';
 export const STRANGER_EMAIL = 'e2e-stranger@example.org';
+
+// Kabar Terbaru (ticket 70): an Active Campaign whose Fundraiser can sign in
+// and write an update, then read it on the public page.
+export const KABAR_SLUG = 'e2e-kabar-aktif';
+export const KABAR_FUNDRAISER_EMAIL = 'e2e-kabar-fundraiser@example.org';

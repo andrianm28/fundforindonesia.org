@@ -100,7 +100,7 @@ export function CampaignUpdatesTab({ slug }: { slug: string }) {
           {row.images.filter(isUpdateImageUrl).length > 0 && (
             <ul className="mt-2 flex flex-wrap gap-2">
               {row.images.filter(isUpdateImageUrl).map((src, idx) => (
-                <li key={idx}>
+                <li key={src}>
                   <a
                     href={src}
                     target="_blank"
