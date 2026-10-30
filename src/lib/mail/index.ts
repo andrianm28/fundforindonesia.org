@@ -78,8 +78,10 @@ const BUILDERS: Record<string, () => Mailer> = {
   },
 };
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+export function errorText(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  // An SMTP refusal often quotes the recipient; an address never goes to a log.
+  return text.replace(/[^\s<>"',;()]+@[^\s<>"',;()]+/g, '[email]');
 }
 
 /**
