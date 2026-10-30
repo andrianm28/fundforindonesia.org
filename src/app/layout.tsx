@@ -47,7 +47,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(publicUrl()),
   title: "Fund for Indonesia - Platform Donasi dan Penggalangan Dana Online",
   description:
-    "Fund for Indonesia adalah platform teknologi untuk donasi dan penggalangan dana online terpercaya di Indonesia.",
+    "Fund for Indonesia adalah platform teknologi untuk donasi dan penggalangan dana online di Indonesia.",
 };
 
 // The public beta (ticket rilis-1-benda/92) is announced on every page, read

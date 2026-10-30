@@ -11,27 +11,27 @@ const faqs = [
   {
     question: 'Bagaimana cara membuat kampanye penggalangan dana?',
     answer:
-      'Untuk membuat kampanye, Anda perlu mendaftar dan melakukan verifikasi identitas terlebih dahulu. Setelah terverifikasi, Anda dapat membuat kampanye melalui halaman "Galang Dana" dengan mengisi judul, deskripsi, target dana, dan durasi kampanye.',
+      'Untuk membuat kampanye, Anda perlu mendaftar lalu mengajukan kampanye melalui halaman "Galang Dana" dengan mengisi judul, deskripsi, target dana, dan durasi kampanye. Kampanye ditinjau oleh Verifier sebelum tayang dan menyebut lembaga yang menghimpun dananya.',
   },
   {
     question: 'Apakah donasi saya aman?',
     answer:
-      'Ya, semua transaksi di Fund for Indonesia diproses melalui sistem pembayaran yang terenkripsi dan aman. Kami bekerja sama dengan penyedia layanan pembayaran terpercaya untuk memastikan keamanan dana Anda. Setiap kampanye juga melewati proses verifikasi.',
+      'Ya, semua transaksi di Fund for Indonesia diproses melalui sistem pembayaran yang terenkripsi dan aman. Pembayaran diproses melalui penyedia layanan pembayaran berlisensi. Setiap kampanye juga ditinjau oleh Verifier sebelum tayang.',
   },
   {
     question: 'Berapa biaya yang dikenakan untuk penggalangan dana?',
     answer:
-      'Fund for Indonesia mengenakan biaya platform sebesar 5% dari total dana yang terkumpul. Biaya ini digunakan untuk pemeliharaan platform, verifikasi kampanye, dan layanan dukungan pengguna. Tidak ada biaya pendaftaran atau biaya bulanan.',
+      'Biaya platform, bila ada, ditampilkan pada halaman setiap kampanye dan dapat berbeda antar kampanye. Biaya ini digunakan untuk pemeliharaan platform, peninjauan kampanye, dan layanan dukungan pengguna. Tidak ada biaya pendaftaran atau biaya bulanan.',
   },
   {
     question: 'Bagaimana cara mencairkan dana yang terkumpul?',
     answer:
-      'Dana yang terkumpul dapat dicairkan ke rekening bank yang telah didaftarkan. Proses pencairan membutuhkan waktu 1-3 hari kerja setelah permintaan pencairan disetujui. Anda dapat mengajukan pencairan kapan saja selama kampanye berjalan.',
+      'Dana yang terkumpul ditahan di Platform dan dicairkan ke rekening bank yang telah didaftarkan melalui Pencairan Dana. Proses pencairan membutuhkan waktu 1-3 hari kerja setelah permintaan pencairan disetujui, dan hanya dana yang sudah dapat dicairkan yang bisa diajukan.',
   },
   {
     question: 'Apa saja metode pembayaran yang tersedia?',
     answer:
-      'Kami menerima berbagai metode pembayaran termasuk transfer bank (BCA, Mandiri, BNI), e-wallet (GoPay, OVO, Dana), dan kartu kredit/debit. Pilihan metode pembayaran mungkin berbeda tergantung pada jenis transaksi.',
+      'Saat ini satu-satunya metode pembayaran yang tersedia adalah QRIS. Metode lain akan diumumkan di Platform setelah tersedia.',
   },
   {
     question: 'Bagaimana jika kampanye tidak mencapai target?',

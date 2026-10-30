@@ -27,7 +27,7 @@ name: fundforindonesia-prod
 
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:16.15-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: fundindo
@@ -44,6 +44,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    # Resource caps (audit OPS-4), conservative starting points for a shared
+    # 4 vCPU host. Owner: tune to what `docker stats` shows under real load.
+    mem_limit: 1g
+    cpus: 1.0
+    # Rotated json-file logs (audit OPS-4): unbounded ones refilled the shared
+    # host disk once. 5 x 10m per container; raise only if you need more history.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   app:
     image: ghcr.io/andrianm28/fundforindonesia.org@${APP_DIGEST:?set APP_DIGEST}
@@ -59,6 +70,8 @@ services:
       # Pre-launch switch, read by the server per request (not NEXT_PUBLIC_):
       # a restart applies it. Exact "true" shows Demo Campaigns in the catalogue.
       SHOW_DEMO_CAMPAIGNS: ${SHOW_DEMO_CAMPAIGNS:-false}
+      # Error monitoring DSN (GlitchTip); empty disables reporting. Server-only.
+      SENTRY_DSN: ${SENTRY_DSN:-}
       # No default, for the reason given in docker-compose.yml: a default
       # webhook secret is a published one. Not required here (ticket 51): the
       # mock adapter is disabled under NODE_ENV=production unless
@@ -77,6 +90,9 @@ services:
       # each new Payment as sandbox. Empty default: unset means production,
       # where the sandbox is refused. Go-live is removing it from the .env.
       BETA_SANDBOX: ${BETA_SANDBOX:-}
+      # Wakaf and hibah take money only when this is exactly "true" (audit L1).
+      # Empty default: closed until a licensed nazhir and a sharia review exist.
+      WAKAF_HIBAH_OPEN: ${WAKAF_HIBAH_OPEN:-}
       PAYMENT_LINK_ALLOWED_HOSTS: ${PAYMENT_LINK_ALLOWED_HOSTS:-}
       # Field-level encryption keys (ADR 0012). No defaults, for the reason
       # MOCK_MIDTRANS_SERVER_KEY above gives: a default key is a published one.
@@ -95,6 +111,9 @@ services:
       # Scheduled jobs trigger. Empty means the endpoint answers 503 to
       # everything, never an unauthenticated run (see .env.example).
       JOBS_SECRET: ${JOBS_SECRET:-}
+      # Where the private_documents volume is mounted (ticket 64). Fixed, not
+      # from .env: the mount below and this path are one decision.
+      PRIVATE_DOCUMENT_DIR: /app/private-documents
       # Mailer. Unset in production, mail is logged as mail_not_configured and
       # not sent; the SMTP_PORT default matches the smtps relay in .env.example.
       MAIL_PROVIDER: ${MAIL_PROVIDER:-}
@@ -117,6 +136,38 @@ services:
       # Uploads live in the volume, never in the image, or they would vanish on
       # every deploy. No bind mounts under public/ (see docker-compose.yml).
       - uploads:/app/public/uploads
+      # Private documents (ticket 64): identity papers, outside public/ so
+      # neither nginx nor Next serves them; read only through the ACL route.
+      # External like the others, so `down -v` can never delete them; create it
+      # on the host before the first deploy that carries this line
+      # (`docker volume create ffi_private_documents`) and include it in the
+      # nightly and offsite backups.
+      - private_documents:/app/private-documents
+    # A hung-but-running Node is never restarted by `restart: unless-stopped`;
+    # this marks it unhealthy (audit OPS-4). The image has no curl or wget, so
+    # node's own fetch asks the existing /api/health. `docker ps` shows the
+    # state; compose does not restart on unhealthy by itself (host-side step
+    # in the ticket notes).
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    # Resource caps (audit OPS-4). Owner: tune to what `docker stats` shows.
+    mem_limit: 1536m
+    cpus: 1.0
+    # Rotated json-file logs (audit OPS-4): unbounded ones refilled the shared
+    # host disk once. 5 x 10m per container; raise only if you need more history.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   # One-off: `docker compose --profile migrate run --rm migrate`. Runs
   # `prisma migrate deploy` from the migrate target of the same Dockerfile and
@@ -131,6 +182,13 @@ services:
         condition: service_healthy
     profiles:
       - migrate
+    # Rotated json-file logs (audit OPS-4): unbounded ones refilled the shared
+    # host disk once. 5 x 10m per container; raise only if you need more history.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
 # The existing production data, created by the kibi-clone compose project.
 # External, under their exact names, so that `down -v` can never delete them
@@ -144,3 +202,7 @@ volumes:
   uploads:
     external: true
     name: kibi-clone_uploads
+  # New with ticket 64, so it has no kibi-clone predecessor.
+  private_documents:
+    external: true
+    name: ffi_private_documents

@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { Kind, type Payment, type Prisma, type PrismaClient, type Refund } from '@/generated/prisma/client';
 import { OwnSubjectConflictError } from '@/lib/capacity';
 import { lockAndLoad, requireNotOwnerAsAdmin } from '@/lib/subject-guard';
-import { sandboxModeOf } from './sandbox-mode';
+import { requireNotSandboxInLiveMode, sandboxModeOf } from './sandbox-mode';
 import { validateProofReference, validateProofNote, buildProofImage } from '@/lib/payout-proof';
 import { sealRefundDonorAccountNumber, readRefundDonorAccountNumber } from '@/lib/contact-fields';
 import {
@@ -28,6 +28,8 @@ import {
   DonationAnonymisedError,
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
+  PaymentNotPaidError,
+  SandboxRowInLiveModeError,
   RefundExceedsRemainingError,
   RefundNotAllowedForKindError,
   RefundNotFoundError,
@@ -43,6 +45,8 @@ import {
   RefundReasonInvalidError,
 } from './errors';
 import { STANDING_REFUND_WHERE, isRefundStanding, readRefundFreezeEntries } from './refund-standing';
+import { emailRefundOutcome } from '@/lib/status-emails';
+import type { Mailer } from '@/lib/mail';
 
 /**
  * Refund: request, approve, complete.
@@ -80,6 +84,8 @@ export {
   OwnSubjectConflictError,
   PaymentNotFoundError,
   PaymentSubjectMismatchError,
+  PaymentNotPaidError,
+  SandboxRowInLiveModeError,
   RefundExceedsRemainingError,
   RefundNotAllowedForKindError,
   RefundNotFoundError,
@@ -95,7 +101,7 @@ export {
   RefundReasonInvalidError,
 };
 
-type PaymentWithSubjectLinks = Pick<Payment, 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox'> & {
+type PaymentWithSubjectLinks = Pick<Payment, 'status' | 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox'> & {
   donation: { campaignId: string; anonymisedAt: Date | null } | null;
   registration: { batch: { tripId: string } } | null;
 };
@@ -314,6 +320,12 @@ export async function createRefund(
     throw new PaymentSubjectMismatchError(paymentId);
   }
 
+  // Only money that arrived can be given back: a refund on a PENDING, EXPIRED
+  // or FAILED Payment would freeze a pool never credited (PAY-03).
+  if (payment.status !== 'PAID') {
+    throw new PaymentNotPaidError(paymentId, payment.status);
+  }
+
   // Ticket 36: read under the Payment lock taken above, the same lock
   // anonymiseDonations takes, so an anonymisation and a Refund on one
   // Donation cannot both succeed.
@@ -504,6 +516,9 @@ export async function approveRefund(
       throw new RefundNotFoundError(refundId);
     }
 
+    // A beta Refund left over at go-live is rejected, never approved (PAY-01).
+    requireNotSandboxInLiveMode(refund, 'Refund');
+
     if (refund.requestedById === approvedById) {
       throw new SelfApprovalError('Refund');
     }
@@ -649,6 +664,8 @@ export async function completeRefund(
     proofReference: string;
     proofNote: string;
     donorAccountNumber: string;
+    /** For tests; the Donor's email goes through the configured Mailer otherwise. */
+    mailer?: Mailer;
   },
 ): Promise<Refund> {
   const { refundId, completedById, proofReference, proofNote, donorAccountNumber } = params;
@@ -679,6 +696,9 @@ export async function completeRefund(
     if (!refund) {
       throw new RefundNotFoundError(refundId);
     }
+
+    // Real money must never go out against a beta Refund (PAY-01).
+    requireNotSandboxInLiveMode(refund, 'Refund');
 
     if (refund.status !== 'APPROVED') {
       throw new InvalidRefundStatusError(refund.status);
@@ -742,6 +762,11 @@ export async function completeRefund(
     );
   });
 
+  // After commit, never inside it: the Refund is paid whether or not the
+  // Donor's email goes out, and nothing here throws (ticket 68). The email
+  // never carries the account number (refundOutcomeEmail).
+  await emailRefundOutcome(prisma, { refundId, outcome: 'completed' }, params.mailer);
+
   return prisma.refund.findUniqueOrThrow({ where: { id: refundId } });
 }
 
@@ -785,7 +810,7 @@ function cleanResolutionReason(raw: unknown): string {
  */
 async function resolveRefund(
   prisma: PrismaClient,
-  params: { refundId: string; actorId: string; reason: string; action: 'reject' | 'fail' },
+  params: { refundId: string; actorId: string; reason: string; action: 'reject' | 'fail'; mailer?: Mailer },
 ): Promise<Refund> {
   const { refundId, actorId, action } = params;
   const reason = cleanResolutionReason(params.reason);
@@ -868,6 +893,14 @@ async function resolveRefund(
     }
   });
 
+  // A failure is the Donor's news; a rejection before approval is not sent
+  // (ticket 68 asks for completed and failed only). After commit, never
+  // inside it, and nothing here throws. The Admin's failure reason stays out
+  // of the email: it may name the account (refundOutcomeEmail).
+  if (action === 'fail') {
+    await emailRefundOutcome(prisma, { refundId, outcome: 'failed' }, params.mailer);
+  }
+
   return prisma.refund.findUniqueOrThrow({ where: { id: refundId } });
 }
 
@@ -890,7 +923,13 @@ export function rejectRefund(
  */
 export function failRefund(
   prisma: PrismaClient,
-  params: { refundId: string; failedById: string; reason: string },
+  params: { refundId: string; failedById: string; reason: string; mailer?: Mailer },
 ): Promise<Refund> {
-  return resolveRefund(prisma, { refundId: params.refundId, actorId: params.failedById, reason: params.reason, action: 'fail' });
+  return resolveRefund(prisma, {
+    refundId: params.refundId,
+    actorId: params.failedById,
+    reason: params.reason,
+    action: 'fail',
+    mailer: params.mailer,
+  });
 }

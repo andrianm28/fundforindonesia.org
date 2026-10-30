@@ -82,6 +82,7 @@ function wakafCampaign(overrides: Partial<CampaignRow> = {}): CampaignRow {
 }
 
 beforeEach(() => {
+  vi.stubEnv('WAKAF_HIBAH_OPEN', 'true');
   holder.donation.create = vi.fn(async () => ({
     id: 'donation-1',
     amount: 50_000,

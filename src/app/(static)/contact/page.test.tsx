@@ -40,5 +40,16 @@ describe('Kontak page', () => {
     expect(screen.queryByText('WhatsApp')).toBeNull();
     expect(screen.queryByText('Media Sosial')).toBeNull();
     expect(screen.queryByText('Alamat Kantor')).toBeNull();
+    expect(screen.queryByText(/NIB/)).toBeNull();
+  });
+
+  it('names the operator NIB once an Admin sets it', async () => {
+    mockResolve.mockResolvedValue({
+      ...DEFAULT_SITE_SETTINGS,
+      contact: { ...DEFAULT_SITE_SETTINGS.contact, nib: '1234567890123' },
+    });
+    render(await ContactPage());
+
+    expect(screen.getByText(/NIB 1234567890123/)).toBeDefined();
   });
 });

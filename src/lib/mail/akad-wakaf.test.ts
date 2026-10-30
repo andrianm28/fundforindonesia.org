@@ -36,6 +36,16 @@ describe('withAkadWakaf', () => {
     expect(merged.html).toContain(receipt.html);
   });
 
+  it('is labelled a wakaf receipt, not an Akta Ikrar Wakaf (audit L9)', () => {
+    const merged = withAkadWakaf(receipt, akadWakafInput);
+
+    expect(merged.text).toContain('Tanda Terima Wakaf');
+    expect(merged.html).toContain('<h2>Tanda Terima Wakaf</h2>');
+    expect(merged.text).toMatch(/bukan Akta Ikrar Wakaf/);
+    expect(merged.html).toMatch(/bukan Akta Ikrar Wakaf/);
+    expect(merged.text).not.toContain('Akad Wakaf');
+  });
+
   it('carries the Wakif, the amount, the purpose and the nazhir', () => {
     const merged = withAkadWakaf(receipt, akadWakafInput);
 

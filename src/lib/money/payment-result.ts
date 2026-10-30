@@ -88,3 +88,46 @@ export function safePaymentLink(url: string | null): string | null {
     return null;
   }
 }
+
+export interface TransactionPayment {
+  status: PaymentStatus;
+  method: string;
+  providerRef: string;
+  paidAt: Date | null;
+  createdAt: Date;
+}
+
+export interface TransactionDetails {
+  /** Our order id at the provider: the number a Donor or an Admin finds in the provider's dashboard. */
+  reference: string;
+  /** The method as a Donor knows it, or null for a method this page has no name for. */
+  methodLabel: string | null;
+  /** When the money arrived, for a paid (or later refunded) Payment; otherwise when the charge was made. */
+  at: Date;
+  paid: boolean;
+}
+
+const METHOD_LABELS: Record<string, string> = {
+  qris_redirect: 'QRIS',
+  bank_transfer_va: 'Virtual Account (transfer bank)',
+  ewallet_redirect: 'E-wallet',
+};
+
+/**
+ * The attempt the result page reports on (ticket 98, transaction details): the
+ * one that was paid when there is one -- the same Payment that settled the
+ * Donation, so its reference matches the provider's record of the money --
+ * and otherwise the newest attempt. Null when no charge was ever made.
+ */
+export function transactionDetails(payments: TransactionPayment[]): TransactionDetails | null {
+  const settled = payments.find((p) => p.status === 'PAID' || p.status === 'REFUNDED');
+  const shown = settled ?? [...payments].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  if (!shown) return null;
+  const paid = settled !== undefined && shown.paidAt !== null;
+  return {
+    reference: shown.providerRef,
+    methodLabel: METHOD_LABELS[shown.method] ?? null,
+    at: paid ? shown.paidAt! : shown.createdAt,
+    paid,
+  };
+}

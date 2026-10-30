@@ -4,7 +4,7 @@ import { resolveSiteSettingsOrDefaults } from '@/lib/site-settings';
 
 export const metadata: Metadata = {
   title: 'Tentang Kami - Fund for Indonesia',
-  description: 'Pelajari lebih lanjut tentang Fund for Indonesia, platform penggalangan dana terpercaya yang menghubungkan donatur dengan kampanye sosial di seluruh Indonesia.',
+  description: 'Pelajari lebih lanjut tentang Fund for Indonesia, platform penggalangan dana yang menghubungkan donatur dengan kampanye sosial di seluruh Indonesia.',
 };
 
 export const dynamic = 'force-dynamic';

@@ -20,6 +20,12 @@ function formatCheckDate(date: Date): string {
   }).format(new Date(date));
 }
 
+function formatWib(date: Date): string {
+  return (
+    new Date(date).toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Jakarta' }) + ' WIB'
+  );
+}
+
 /**
  * One Payout, for the Admin acting on it: request → approve → complete
  * (CONTEXT.md, Payout; ADR 0006). The form half of /admin/payouts, which
@@ -92,6 +98,13 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
           checkedAt: true,
           checkedBy: { select: { name: true } },
         },
+      },
+      // Every time an Admin opened the account number (ticket 89's reveal,
+      // src/lib/money/payout-reveal.ts), so the M2 drill can confirm the reveal
+      // was recorded without SQL. Who and when only; the number never.
+      accountReveals: {
+        orderBy: { revealedAt: 'desc' },
+        select: { id: true, revealedAt: true, revealedBy: { select: { name: true } } },
       },
     },
   });
@@ -196,6 +209,23 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
           </ul>
         </div>
       )}
+
+      <section aria-labelledby="payout-reveals" className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
+        <h2 id="payout-reveals" className="mb-3 text-sm font-semibold text-gray-900">
+          Riwayat buka nomor rekening
+        </h2>
+        {payout.accountReveals.length === 0 ? (
+          <p className="text-sm text-gray-500">Nomor rekening belum pernah dibuka.</p>
+        ) : (
+          <ul className="space-y-2">
+            {payout.accountReveals.map((reveal) => (
+              <li key={reveal.id} className="text-sm text-gray-900">
+                Dibuka {reveal.revealedBy.name}, {formatWib(reveal.revealedAt)}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <div className="rounded-xl border border-gray-200 bg-white p-4">
         <h2 className="mb-3 text-sm font-semibold text-gray-900">Tindakan</h2>

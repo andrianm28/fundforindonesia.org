@@ -84,6 +84,7 @@ import { SUBMITTABLE_STATUSES } from "./verification-submission";
 import { sendReportingFailure, type Mailer, type MailMessage } from "./mail";
 import { verificationOutcomeEmail } from "./mail/verification-outcome";
 import { publicUrl } from "./public-url";
+import { emailSuspension } from "./status-emails";
 
 // ==================== Effective status ====================
 
@@ -462,6 +463,12 @@ export type ChecklistEntry = {
   required: boolean;
   position: number;
   ticked: boolean;
+  /**
+   * Whether ticking needs a Document for this item on the Campaign (ticket
+   * 64). Absent on snapshots taken before the column existed; those are
+   * judged by the item's current setting instead.
+   */
+  requiresDocument?: boolean;
 };
 
 /**
@@ -481,6 +488,7 @@ async function snapshotChecklist(tx: Tx, kind: Kind): Promise<ChecklistEntry[]> 
     required: item.required,
     position: item.position,
     ticked: false,
+    requiresDocument: item.requiresDocument,
   }));
 }
 
@@ -581,6 +589,50 @@ export class RequiredChecklistItemsUntickedError extends CampaignLifecycleError 
     super(`Campaign belum dapat diloloskan. Butir wajib yang belum dicentang: ${labels.join(", ")}.`);
     this.name = "RequiredChecklistItemsUntickedError";
   }
+}
+
+/**
+ * The Verifier ticked a checklist item that needs a Document while the
+ * Campaign holds none for it (ticket 64): the tick would be assurance with
+ * nothing behind it. `labels` lists the items, in checklist order.
+ */
+export class ChecklistDocumentMissingError extends CampaignLifecycleError {
+  readonly code = "CHECKLIST_DOCUMENT_MISSING";
+  constructor(readonly labels: string[]) {
+    super(`Butir checklist ini belum memiliki dokumen yang diunggah Fundraiser: ${labels.join(", ")}.`);
+    this.name = "ChecklistDocumentMissingError";
+  }
+}
+
+/**
+ * The ticked entries that need a Document and have none on the Campaign.
+ * A snapshot without `requiresDocument` (taken before ticket 64) is judged by
+ * the item's current setting.
+ */
+async function tickedWithoutDocument(
+  tx: Tx,
+  campaignId: string,
+  checklist: ChecklistEntry[]
+): Promise<ChecklistEntry[]> {
+  const ticked = checklist.filter((entry) => entry.ticked);
+  if (ticked.length === 0) return [];
+  const unknown = ticked.filter((entry) => entry.requiresDocument === undefined).map((entry) => entry.id);
+  const live = unknown.length
+    ? await tx.verificationChecklistItem.findMany({
+        where: { id: { in: unknown } },
+        select: { id: true, requiresDocument: true },
+      })
+    : [];
+  const liveFlag = new Map(live.map((item) => [item.id, item.requiresDocument]));
+  const needing = ticked.filter((entry) => entry.requiresDocument ?? liveFlag.get(entry.id) ?? false);
+  if (needing.length === 0) return [];
+  const documented = await tx.document.findMany({
+    where: { campaignId, checklistItemId: { in: needing.map((entry) => entry.id) } },
+    select: { checklistItemId: true },
+    distinct: ["checklistItemId"],
+  });
+  const has = new Set(documented.map((doc) => doc.checklistItemId));
+  return needing.filter((entry) => !has.has(entry.id));
 }
 
 /** The request was already decided or withdrawn; a closed request is never changed again. */
@@ -892,6 +944,12 @@ export async function decideVerificationRequest(
         ...entry,
         ticked: ticked.has(entry.id),
       }));
+      // A tick on a document item says the Verifier looked at the paper, so
+      // either decision is refused while the paper is not there (ticket 64).
+      const undocumented = await tickedWithoutDocument(tx, campaign.id, checklist);
+      if (undocumented.length > 0) {
+        throw new ChecklistDocumentMissingError(undocumented.map((entry) => entry.label));
+      }
       if (decision.outcome === VerificationOutcome.APPROVED) {
         const unticked = checklist.filter((entry) => entry.required && !entry.ticked);
         if (unticked.length > 0) {
@@ -1501,9 +1559,13 @@ export async function suspendCampaign(
     actor: LifecycleActor;
     reason: unknown;
     now?: Date;
+    mailer?: Mailer;
   }
 ): Promise<LifecycleResult> {
-  return runCommand(prisma, params, {
+  // Filled under the lock from what was decided; emailed only after commit,
+  // and a failed send never undoes the Suspension (ticket 68).
+  const decided: { reason?: string } = {};
+  const result = await runCommand(prisma, params, {
     authority: {
       capacity: StatusChangeCapacity.ADMIN,
       message: "Hanya Admin yang dapat menjatuhkan Suspension.",
@@ -1529,9 +1591,18 @@ export async function suspendCampaign(
         title: "Campaign Dibekukan",
         message: `Campaign "${campaign.title}" dibekukan (Suspended) oleh Admin. Alasan: ${reason}`,
       });
+      decided.reason = reason;
       return {};
     },
   });
+  if (decided.reason !== undefined) {
+    await emailSuspension(
+      prisma,
+      { campaignId: params.campaignId, event: "suspended", reason: decided.reason },
+      params.mailer
+    );
+  }
+  return result;
 }
 
 /**
@@ -1549,9 +1620,12 @@ export async function liftSuspension(
     actor: LifecycleActor;
     reason: unknown;
     now?: Date;
+    mailer?: Mailer;
   }
 ): Promise<LifecycleResult> {
-  return runCommand(prisma, params, {
+  // As suspendCampaign: emailed after commit, never undoing the lift.
+  const decided: { lift?: { reason: string; statusLabel: string } } = {};
+  const result = await runCommand(prisma, params, {
     authority: {
       capacity: StatusChangeCapacity.ADMIN,
       message: "Hanya Admin yang dapat mencabut Suspension.",
@@ -1581,12 +1655,29 @@ export async function liftSuspension(
         title: "Suspension Dicabut",
         message: `Suspension atas Campaign "${campaign.title}" telah dicabut oleh Admin. Campaign kini ${STATUS_LABEL[to]}. Alasan: ${reason}`,
       });
+      decided.lift = { reason, statusLabel: STATUS_LABEL[to] };
       return {};
     },
   });
+  if (decided.lift) {
+    await emailSuspension(
+      prisma,
+      { campaignId: params.campaignId, event: "lifted", ...decided.lift },
+      params.mailer
+    );
+  }
+  return result;
 }
 
 // ==================== Urgent (ticket 04) ====================
+
+/**
+ * The effective statuses Urgent can be set from: it marks a Campaign that can
+ * still take a Donation (CONTEXT.md, Urgent). Clearing is allowed from any.
+ * Exported so the Admin screen offers "Pasang Urgent" by this list rather
+ * than by a copy of it.
+ */
+export const URGENT_SETTABLE_FROM: readonly CampaignStatus[] = [CampaignStatus.ACTIVE];
 
 /**
  * An Admin sets or clears Urgent on a Campaign they do not own, with a
@@ -1617,7 +1708,7 @@ export async function setUrgent(
     },
     reasonPolicy: "required",
     rawReason: params.reason,
-    allowedFrom: urgent ? [CampaignStatus.ACTIVE] : undefined,
+    allowedFrom: urgent ? URGENT_SETTABLE_FROM : undefined,
     step: async ({ tx, campaign, actor, capacity, reason, now }) => {
       if (campaign.isUrgent === urgent) return {};
       // The runner holds the Campaign row lock from before its read, so
@@ -1745,9 +1836,10 @@ export type FlagResult = LifecycleResult & { flag: CampaignFlagState };
 
 /**
  * A Flag asks an Admin to consider Suspension, so it can be raised exactly
- * where Suspension is possible (ADR 0015).
+ * where Suspension is possible (ADR 0015). Exported so the moderation screen
+ * offers its Flag form by this list rather than by a copy of it.
  */
-const FLAGGABLE = SUSPENDABLE;
+export const FLAGGABLE: readonly CampaignStatus[] = SUSPENDABLE;
 
 /**
  * A Verifier raises a Flag on a Campaign, with a reason, so an Admin can

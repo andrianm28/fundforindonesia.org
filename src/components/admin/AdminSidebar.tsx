@@ -10,7 +10,7 @@ const ADMIN_HREFS = [
   "/admin/manual-contributions", "/admin/abuse-thresholds", "/admin/campaigns/lifecycle",
   "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/verification-checklist",
   "/admin/collecting-entities", "/admin/partnership-inquiries", "/admin/payment-providers", "/admin/platform-fee", "/admin/escrow-hold",
-  "/admin/site-settings", "/admin/scrutiny",
+  "/admin/reconciliation", "/admin/site-settings", "/admin/kategori", "/admin/scrutiny",
 ] as const;
 const LINK_BASE = "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors";
 
@@ -106,8 +106,14 @@ export function AdminSidebar() {
         <SidebarLink current={current} href="/admin/escrow-hold" icon="payouts">
           Escrow Hold
         </SidebarLink>
+        <SidebarLink current={current} href="/admin/reconciliation" icon="payouts">
+          Rekonsiliasi
+        </SidebarLink>
         <SidebarLink current={current} href="/admin/site-settings" icon="checklist">
           Laman Publik
+        </SidebarLink>
+        <SidebarLink current={current} href="/admin/kategori" icon="campaigns">
+          Kategori
         </SidebarLink>
         <SidebarLink current={current} href="/admin/scrutiny" icon="threshold">
           Penanda Audit &amp; Donasi

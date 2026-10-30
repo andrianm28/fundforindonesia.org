@@ -1,6 +1,6 @@
 # 04: H-5 glitchtip-error-monitoring
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none; DSN GlitchTip dari owner (A3) hanya untuk aktivasi, bukan untuk kode
 
@@ -30,3 +30,4 @@ Belum ada pemantauan galat. GlitchTip kompatibel Sentry; PII tidak boleh ikut te
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+- 2026-10-16: selesai tanpa dependensi baru (pelapor protokol Sentry minimal di `src/lib/error-monitoring/`, `onRequestError`, `error.tsx`/`global-error.tsx`, relay `POST /api/client-error`, `/api/health/deep`). Aktivasi: owner mengisi `SENTRY_DSN` (lihat `docs/runbooks/beta-ke-live.md`).

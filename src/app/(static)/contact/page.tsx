@@ -1,11 +1,12 @@
 import { Metadata } from 'next';
 import { prisma } from '@/lib/prisma';
+import { SITE_IDENTITY } from '@/lib/site-identity';
 import { dialTarget, resolveSiteSettingsOrDefaults, socialHandle } from '@/lib/site-settings';
 
 export const metadata: Metadata = {
   title: 'Kontak - Fund for Indonesia',
   description:
-    'Hubungi tim Fund for Indonesia melalui email, telepon, atau media sosial. Kami siap membantu Anda.',
+    'Hubungi tim Fund for Indonesia melalui email atau media sosial. Kami siap membantu Anda.',
 };
 
 export const dynamic = 'force-dynamic';
@@ -110,6 +111,16 @@ export default async function ContactPage() {
         </div>
         )}
       </div>
+
+      <p className="mt-8 text-text-secondary text-sm">
+        Fund for Indonesia dioperasikan oleh {SITE_IDENTITY.operatorName}
+        {contact.nib !== '' && <> (NIB {contact.nib})</>}. Permintaan terkait data pribadi dapat
+        dikirim ke{' '}
+        <a href={`mailto:${SITE_IDENTITY.privacyEmail}`} className="text-primary font-medium hover:underline">
+          {SITE_IDENTITY.privacyEmail}
+        </a>
+        .
+      </p>
 
       {contact.address !== '' && (
         <div className="mt-8 border border-border rounded-lg p-6">

@@ -60,6 +60,9 @@ function makeDonation(overrides: Record<string, unknown> = {}) {
         redirectUrl: 'https://pay.example/order-1',
         vaNumber: null,
         createdAt: new Date(),
+        method: 'qris_redirect',
+        providerRef: 'donation-1',
+        paidAt: null,
       },
     ],
     ...overrides,
@@ -109,7 +112,7 @@ describe('payment result page', () => {
     mockFindUnique.mockResolvedValue(
       makeDonation({
         paymentStatus: 'confirmed',
-        payments: [{ status: 'PAID', expiresAt: null, redirectUrl: null, vaNumber: null, createdAt: new Date() }],
+        payments: [{ status: 'PAID', expiresAt: null, redirectUrl: null, vaNumber: null, createdAt: new Date(), method: 'qris_redirect', providerRef: 'donation-1', paidAt: null }],
       }),
     );
     const { container } = await renderPage(signPaymentResultToken('donation-1', Date.now()));
@@ -128,6 +131,9 @@ describe('payment result page', () => {
             redirectUrl: null,
             vaNumber: '8808123456789',
             createdAt: new Date(),
+            method: 'bank_transfer_va',
+            providerRef: 'donation-1',
+            paidAt: null,
           },
         ],
       }),
@@ -147,7 +153,7 @@ describe('payment result page', () => {
   it('offers to pay again on the same Donation once the charge has expired', async () => {
     mockFindUnique.mockResolvedValue(
       makeDonation({
-        payments: [{ status: 'EXPIRED', expiresAt: LONG_EXPIRED, redirectUrl: null, vaNumber: null, createdAt: new Date() }],
+        payments: [{ status: 'EXPIRED', expiresAt: LONG_EXPIRED, redirectUrl: null, vaNumber: null, createdAt: new Date(), method: 'qris_redirect', providerRef: 'donation-1', paidAt: null }],
       }),
     );
     await renderPage(signPaymentResultToken('donation-1', Date.now()), { batal: '1' });
@@ -168,7 +174,7 @@ describe('payment result page', () => {
     mockFindUnique.mockResolvedValue(
       makeDonation({
         campaign: { ...ACTIVE_CAMPAIGN, lifecycleStatus: 'COMPLETED' },
-        payments: [{ status: 'EXPIRED', expiresAt: LONG_EXPIRED, redirectUrl: null, vaNumber: null, createdAt: new Date() }],
+        payments: [{ status: 'EXPIRED', expiresAt: LONG_EXPIRED, redirectUrl: null, vaNumber: null, createdAt: new Date(), method: 'qris_redirect', providerRef: 'donation-1', paidAt: null }],
       }),
     );
     await renderPage(signPaymentResultToken('donation-1', Date.now()));
@@ -179,7 +185,7 @@ describe('payment result page', () => {
   it('never mentions a cancel once the Donation is paid or refunded', async () => {
     for (const status of ['PAID', 'REFUNDED']) {
       mockFindUnique.mockResolvedValue(
-        makeDonation({ payments: [{ status, expiresAt: null, redirectUrl: null, vaNumber: null, createdAt: new Date() }] }),
+        makeDonation({ payments: [{ status, expiresAt: null, redirectUrl: null, vaNumber: null, createdAt: new Date(), method: 'qris_redirect', providerRef: 'donation-1', paidAt: null }] }),
       );
       await renderPage(signPaymentResultToken('donation-1', Date.now()), { batal: '1' });
       expect(screen.queryByText('Anda keluar dari halaman pembayaran sebelum selesai.')).toBeNull();
@@ -189,20 +195,35 @@ describe('payment result page', () => {
 
   it('says the money went back for a refunded Payment', async () => {
     mockFindUnique.mockResolvedValue(
-      makeDonation({ payments: [{ status: 'REFUNDED', expiresAt: null, redirectUrl: null, vaNumber: null, createdAt: new Date() }] }),
+      makeDonation({ payments: [{ status: 'REFUNDED', expiresAt: null, redirectUrl: null, vaNumber: null, createdAt: new Date(), method: 'qris_redirect', providerRef: 'donation-1', paidAt: null }] }),
     );
     await renderPage(signPaymentResultToken('donation-1', Date.now()));
     expect(screen.getByRole('heading', { name: 'Dana dikembalikan' })).toBeTruthy();
   });
 
-  it('never puts the Donation id in the page, since it is not a credential the link should hand out (S2)', async () => {
+  it('shows the paid attempt\'s reference, method and payment time, so the Donor can match it against their own records', async () => {
     mockFindUnique.mockResolvedValue(
       makeDonation({
-        payments: [{ status: 'EXPIRED', expiresAt: LONG_EXPIRED, redirectUrl: null, vaNumber: null, createdAt: new Date() }],
+        paymentStatus: 'confirmed',
+        payments: [
+          {
+            status: 'PAID',
+            expiresAt: null,
+            redirectUrl: null,
+            vaNumber: null,
+            createdAt: new Date('2026-10-29T03:00:00Z'),
+            method: 'qris_redirect',
+            providerRef: 'donation-1-rabc12345',
+            paidAt: new Date('2026-10-29T03:05:00Z'),
+          },
+        ],
       }),
     );
-    const { container } = await renderPage(signPaymentResultToken('donation-1', Date.now()));
-    expect(container.innerHTML).not.toContain('donation-1');
-    expect(mockFindUnique.mock.calls[0][0].select).not.toHaveProperty('id');
+    await renderPage(signPaymentResultToken('donation-1', Date.now()));
+    expect(screen.getByText('donation-1-rabc12345')).toBeTruthy();
+    expect(screen.getByText('QRIS')).toBeTruthy();
+    expect(screen.getByText('Waktu pembayaran')).toBeTruthy();
+    // 03:05 UTC is 10:05 in Jakarta.
+    expect(screen.getByText(/10[.:]05 WIB/)).toBeTruthy();
   });
 });

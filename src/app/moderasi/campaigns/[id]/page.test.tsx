@@ -8,6 +8,8 @@ vi.mock('@/lib/prisma', () => ({
     verificationRequest: { findFirst: vi.fn() },
     identityVerification: { findUnique: vi.fn() },
     duplicateSimilarityThreshold: { findFirst: vi.fn() },
+    document: { findMany: vi.fn(async () => []) },
+    verificationChecklistItem: { findMany: vi.fn(async () => []) },
     $queryRaw: vi.fn(),
   },
 }));
@@ -25,6 +27,7 @@ import ModerasiCampaignDetailPage from './page';
 function campaign(lifecycleStatus: CampaignStatus, overrides: Record<string, unknown> = {}) {
   return {
     id: 'campaign-1',
+    slug: 'sumur-untuk-desa',
     title: 'Sumur untuk Desa',
     lifecycleStatus,
     deadline: null,
@@ -358,11 +361,124 @@ describe('the duplicate hints on the moderation page', () => {
   });
 });
 
+/**
+ * rilis-1-benda 66: the Verifier raises a Flag from this screen. Which
+ * statuses can be flagged is the lifecycle module's list (ADR 0015: the
+ * statuses an Admin can suspend from -- Active, Expired, Completed); the
+ * page asks it rather than keeping a copy, so these cases pin the outcome.
+ */
+describe('the Flag form on the moderation page', () => {
+  const flagButton = () => screen.queryByRole('button', { name: /pasang flag/i });
+
+  it("offers a Flag on an Active Campaign, posted to that Campaign's flags route", async () => {
+    await renderFor(campaign('ACTIVE'));
+
+    fireEvent.change(screen.getByRole('textbox', { name: /alasan flag/i }), {
+      target: { value: 'Foto sampul dipakai ulang.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /pasang flag/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/campaigns/sumur-untuk-desa/flags');
+    expect(JSON.parse(init.body)).toEqual({ reason: 'Foto sampul dipakai ulang.' });
+  });
+
+  it.each<CampaignStatus>(['EXPIRED', 'COMPLETED'])('offers a Flag on a %s Campaign too', async (status) => {
+    await renderFor(campaign(status));
+
+    expect(flagButton()).not.toBeNull();
+  });
+
+  it('offers a Flag on an Active Campaign whose deadline has passed, since it counts as Expired', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-25T12:00:00Z'));
+
+    await renderFor(campaign('ACTIVE', { deadline: new Date('2026-09-24T12:00:00Z') }));
+
+    expect(flagButton()).not.toBeNull();
+  });
+
+  it.each<CampaignStatus>(['DRAFT', 'SUBMITTED', 'REJECTED', 'SUSPENDED', 'CANCELLED'])(
+    'offers no Flag on a %s Campaign',
+    async (status) => {
+      await renderFor(campaign(status));
+
+      expect(flagButton()).toBeNull();
+    },
+  );
+
+  it('keeps the Flag form beside an open Verification Request, since a review is when a Verifier finds a reason to flag', async () => {
+    await renderFor(campaign('ACTIVE'), {
+      request: { ...PENDING_REQUEST, kind: 'AMOUNT_REVIEW' as const, isFirst: false },
+    });
+
+    expect(screen.getByRole('button', { name: /loloskan/i })).toBeDefined();
+    expect(flagButton()).not.toBeNull();
+  });
+});
+
 describe('the story on the moderation page', () => {
   it('is shown as plain text, so markup a Fundraiser types never runs in a Verifier session', async () => {
     const story = 'Baris satu\n<img src=x onerror="window.__pwned=1">';
     await renderFor(campaign('SUBMITTED', { story }));
     expect(document.querySelector('img[src="x"]')).toBeNull();
     expect(screen.getByText(/Baris satu/).textContent).toBe(story);
+  });
+});
+
+describe('the documents on the moderation page (ticket 64)', () => {
+  const WITH_DOCUMENT_ITEM = {
+    ...PENDING_REQUEST,
+    checklist: [
+      { id: 'ktp', label: 'KTP Fundraiser', required: true, position: 1, ticked: false, requiresDocument: true },
+      { id: 'bukan-duplikat', label: 'Bukan duplikat', required: true, position: 2, ticked: false, requiresDocument: false },
+    ],
+  };
+  const KTP_DOCUMENT = {
+    id: 'doc-1',
+    label: 'KTP Fundraiser',
+    checklistItemId: 'ktp',
+    contentType: 'application/pdf',
+    sizeBytes: 250_000,
+    uploadedAt: new Date('2026-10-28T03:00:00Z'),
+  };
+  const ktpBox = () => screen.getByRole('checkbox', { name: /KTP Fundraiser/ }) as HTMLInputElement;
+
+  it('keeps a document item disabled, and says why, while the Fundraiser has uploaded nothing for it', async () => {
+    vi.mocked(prisma.document.findMany).mockResolvedValue([] as never);
+    await renderFor(campaign('SUBMITTED'), { request: WITH_DOCUMENT_ITEM });
+
+    expect(ktpBox().disabled).toBe(true);
+    expect(screen.getByText('Belum ada dokumen yang diunggah Fundraiser untuk butir ini.')).toBeDefined();
+    expect(screen.getByText('Fundraiser belum mengunggah dokumen.')).toBeDefined();
+    expect((screen.getByRole('checkbox', { name: /Bukan duplikat/ }) as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('enables the item once a document exists, linking it only through the ACL route', async () => {
+    vi.mocked(prisma.document.findMany).mockResolvedValue([KTP_DOCUMENT] as never);
+    await renderFor(campaign('SUBMITTED'), { request: WITH_DOCUMENT_ITEM });
+
+    expect(ktpBox().disabled).toBe(false);
+    const links = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/api/documents/'));
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.getAttribute('href')).toBe('/api/documents/doc-1');
+      expect(link.getAttribute('target')).toBe('_blank');
+    }
+    expect(document.body.innerHTML).not.toMatch(/\/uploads\//);
+  });
+
+  it('judges a request snapshotted before ticket 64 by the current setting of its items', async () => {
+    vi.mocked(prisma.document.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.verificationChecklistItem.findMany).mockResolvedValue([
+      { id: 'item-1', requiresDocument: true },
+      { id: 'item-2', requiresDocument: false },
+    ] as never);
+    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
+
+    expect((screen.getByRole('checkbox', { name: /KTP penanggung jawab/ }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('checkbox', { name: /Foto kondisi/ }) as HTMLInputElement).disabled).toBe(false);
+    vi.mocked(prisma.verificationChecklistItem.findMany).mockResolvedValue([] as never);
   });
 });
