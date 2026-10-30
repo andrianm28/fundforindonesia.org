@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { withCountedCollectedAmount } from '@/lib/money/counted-payment';
 import { getServerSession } from '@/lib/auth';
 import { listableCampaignWhere } from '@/lib/subject-guard';
-import { deadlineRequiredMessage, KINDS, missingRequiredDeadline, parseKind } from '@/lib/campaign-kind';
+import { deadlineRequiredMessage, exceedsMaxDuration, KINDS, MAX_DURATION_MESSAGE, missingRequiredDeadline, parseKind } from '@/lib/campaign-kind';
 import { organisationOf, requireDonationOnlyForIndividual, resolveCollectingEntity } from '@/lib/collecting-entity-guard';
 import { refusalResponse } from '@/lib/refusal-response';
 import { categoryExists, UNKNOWN_CATEGORY_MESSAGE } from '@/lib/categories';
@@ -36,6 +36,10 @@ const createCampaignSchema = z.object({
       message: deadlineRequiredMessage(body.kind),
       path: ['deadline'],
     });
+  }
+  // At most 12 months from now, wakaf excepted (C12).
+  if (exceedsMaxDuration(body, new Date())) {
+    ctx.addIssue({ code: 'custom', message: MAX_DURATION_MESSAGE, path: ['deadline'] });
   }
 });
 

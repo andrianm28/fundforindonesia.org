@@ -1499,6 +1499,24 @@ describe('PATCH /api/campaigns/[slug] -- the deadline is set before a Verifier s
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  it('refuses a deadline more than 12 months away with a 422 (C12)', async () => {
+    storedAs('DRAFT', 'DONATION', DEADLINE);
+
+    const response = await edit({ deadline: new Date(Date.now() + 400 * 86_400_000).toISOString() });
+
+    expect(response.status).toBe(422);
+    expect((await response.json()).code).toBe('CAMPAIGN_DURATION_EXCEEDED');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('lets a wakaf Draft name a deadline more than 12 months away (C12)', async () => {
+    storedAs('DRAFT', 'WAKAF', DEADLINE);
+
+    const response = await edit({ deadline: new Date(Date.now() + 800 * 86_400_000).toISOString() });
+
+    expect(response.status).toBe(200);
+  });
+
   it("clears a wakaf Draft's deadline", async () => {
     storedAs('DRAFT', 'WAKAF', DEADLINE);
 
