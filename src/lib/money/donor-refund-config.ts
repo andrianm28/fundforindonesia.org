@@ -13,8 +13,12 @@ import { Kind } from '@/generated/prisma/client';
  *
  *   DONOR_REFUND_WINDOW_HOURS         hours after Settlement a request is allowed
  *   DONOR_REFUND_MAX_OPEN_PER_DONOR   requests one Donor may have waiting at once
- *   DONOR_REFUND_MAX_AMOUNT_<KIND>    cap in rupiah per request for that Kind
- *                                     (DONATION, ZAKAT, WAKAF, HIBAH)
+ *   DONOR_REFUND_MAX_AMOUNT_<KIND>    cap in rupiah per request for that Kind:
+ *     DONOR_REFUND_MAX_AMOUNT_DONATION, DONOR_REFUND_MAX_AMOUNT_ZAKAT,
+ *     DONOR_REFUND_MAX_AMOUNT_WAKAF, DONOR_REFUND_MAX_AMOUNT_HIBAH
+ *
+ * Every name is passed to the app container by docker-compose.prod.yml; a
+ * Kind added later needs its name there too (docker-compose-prod.test.ts).
  */
 export interface DonorRefundConfig {
   windowHours: number;
