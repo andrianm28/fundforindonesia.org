@@ -36,6 +36,10 @@ describe('the 12 month limit on a deadline (C12, 2026-10-04), by WIB calendar da
     ['2026-01-31T03:00:00Z', '2027-01-31T16:59:59.999Z'],
     ['2023-02-28T03:00:00Z', '2024-02-28T16:59:59.999Z'],
     ['2024-02-29T03:00:00Z', '2025-02-28T16:59:59.999Z'],
+    // 18:00Z on 28 Feb is already 29 Feb in WIB, so the clamp still applies.
+    ['2028-02-28T18:00:00Z', '2029-02-28T16:59:59.999Z'],
+    // 16:59Z on 28 Feb is still 28 Feb in WIB.
+    ['2028-02-28T16:59:00Z', '2029-02-28T16:59:59.999Z'],
   ])('starting %s the latest deadline is %s', (start, latest) => {
     expect(latestAllowedDeadline(new Date(start)).toISOString()).toBe(latest);
   });
