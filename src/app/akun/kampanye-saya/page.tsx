@@ -215,6 +215,27 @@ export default function MyCampaignsPage() {
                   Cairkan dana
                 </Link>
               )}
+              {/*
+                The Fundraiser's own manage screen (ticket 72): editing a Draft
+                or Rejected Campaign, or asking for a new target or deadline on
+                an Active one. Other statuses have nothing to change there.
+              */}
+              {SUBMITTABLE_STATUSES.includes(campaign.lifecycleStatus) && (
+                <Link
+                  href={`/akun/kampanye-saya/${campaign.slug}`}
+                  className="border-t border-border px-3 py-2 text-xs font-medium text-[#0073E6] hover:bg-bg-secondary transition-colors"
+                >
+                  Edit
+                </Link>
+              )}
+              {campaign.lifecycleStatus === 'ACTIVE' && (
+                <Link
+                  href={`/akun/kampanye-saya/${campaign.slug}`}
+                  className="border-t border-border px-3 py-2 text-xs font-medium text-[#0073E6] hover:bg-bg-secondary transition-colors"
+                >
+                  Ajukan perubahan
+                </Link>
+              )}
               {/* The private papers a Verifier checks (ticket 64, PRD §7.1). */}
               {DOCUMENT_UPLOADABLE_STATUSES.includes(campaign.lifecycleStatus) && (
                 <Link

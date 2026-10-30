@@ -91,6 +91,27 @@ describe('Kampanye Saya', () => {
     expect(link.getAttribute('href')).toBe('/akun/kampanye-saya/running/pencairan');
   });
 
+  it('links a Draft or Rejected Campaign to its edit screen, and an Active one to asking for a change (ticket 72)', () => {
+    swr.data = {
+      campaigns: [campaign('draf', 'DRAFT'), campaign('ditolak', 'REJECTED'), campaign('berjalan', 'ACTIVE'), campaign('selesai', 'COMPLETED')],
+      total: 4,
+      page: 1,
+      totalPages: 1,
+    };
+
+    render(<MyCampaignsPage />);
+
+    for (const slug of ['draf', 'ditolak']) {
+      const link = within(screen.getByTestId(`campaign-${slug}`)).getByRole('link', { name: 'Edit' });
+      expect(link.getAttribute('href')).toBe(`/akun/kampanye-saya/${slug}`);
+    }
+    const change = within(screen.getByTestId('campaign-berjalan')).getByRole('link', { name: 'Ajukan perubahan' });
+    expect(change.getAttribute('href')).toBe('/akun/kampanye-saya/berjalan');
+    const done = screen.getByTestId('campaign-selesai');
+    expect(within(done).queryByRole('link', { name: 'Edit' })).toBeNull();
+    expect(within(done).queryByRole('link', { name: 'Ajukan perubahan' })).toBeNull();
+  });
+
   it('offers "Ajukan ke Verifier" on a Draft or Rejected Campaign only, and submits it', async () => {
     swr.data = {
       campaigns: [campaign('draft', 'DRAFT'), campaign('refused', 'REJECTED'), campaign('waiting', 'SUBMITTED'), campaign('running', 'ACTIVE')],

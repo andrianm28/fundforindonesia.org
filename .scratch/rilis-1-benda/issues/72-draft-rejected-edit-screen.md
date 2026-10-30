@@ -1,6 +1,6 @@
 # 72: F4 draft-rejected-edit-screen
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none. Tidak boleh berjalan bersamaan dengan M-e (81); rencana menyebut batasan ini tetapi bagian lanjutannya terpotong.
 
@@ -31,3 +31,4 @@ Campaign Draft atau Rejected tidak bisa diedit dari layar, dan Active tidak puny
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+- 2026-10-30: dikerjakan di claude/project-thread-iou1om-fundraiser-kelola: layar `/akun/kampanye-saya/[slug]` (edit Draft/Rejected lewat PATCH, form change request Active lewat route baru `change-requests`), form dipakai ulang dari wizard; tautan Edit mati di daftar Admin dihapus; e2e Playwright belum dijalankan (butuh DB).
