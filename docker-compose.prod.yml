@@ -113,6 +113,9 @@ services:
       # Scheduled jobs trigger. Empty means the endpoint answers 503 to
       # everything, never an unauthenticated run (see .env.example).
       JOBS_SECRET: ${JOBS_SECRET:-}
+      # Where the private_documents volume is mounted (ticket 64). Fixed, not
+      # from .env: the mount below and this path are one decision.
+      PRIVATE_DOCUMENT_DIR: /app/private-documents
       # Mailer. Unset in production, mail is logged as mail_not_configured and
       # not sent; the SMTP_PORT default matches the smtps relay in .env.example.
       MAIL_PROVIDER: ${MAIL_PROVIDER:-}
@@ -135,6 +138,13 @@ services:
       # Uploads live in the volume, never in the image, or they would vanish on
       # every deploy. No bind mounts under public/ (see docker-compose.yml).
       - uploads:/app/public/uploads
+      # Private documents (ticket 64): identity papers, outside public/ so
+      # neither nginx nor Next serves them; read only through the ACL route.
+      # External like the others, so `down -v` can never delete them; create it
+      # on the host before the first deploy that carries this line
+      # (`docker volume create ffi_private_documents`) and include it in the
+      # nightly and offsite backups.
+      - private_documents:/app/private-documents
     # A hung-but-running Node is never restarted by `restart: unless-stopped`;
     # this marks it unhealthy (audit OPS-4). The image has no curl or wget, so
     # node's own fetch asks the existing /api/health. `docker ps` shows the
@@ -194,3 +204,7 @@ volumes:
   uploads:
     external: true
     name: kibi-clone_uploads
+  # New with ticket 64, so it has no kibi-clone predecessor.
+  private_documents:
+    external: true
+    name: ffi_private_documents

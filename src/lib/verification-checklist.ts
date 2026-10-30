@@ -26,7 +26,7 @@ import { KINDS, type CampaignKind } from "./campaign-kind";
 export const MAX_LABEL_LENGTH = 300;
 
 /** The audited shape of an item: everything but its id. */
-type ItemState = Pick<VerificationChecklistItem, "label" | "required" | "position" | "active" | "kind">;
+type ItemState = Pick<VerificationChecklistItem, "label" | "required" | "position" | "active" | "kind" | "requiresDocument">;
 
 export class ChecklistItemNotFoundError extends Error {
   constructor() {
@@ -66,7 +66,14 @@ export async function listChecklistItems(
 }
 
 function stateOf(item: ItemState): ItemState {
-  return { label: item.label, required: item.required, position: item.position, active: item.active, kind: item.kind };
+  return {
+    label: item.label,
+    required: item.required,
+    position: item.position,
+    active: item.active,
+    kind: item.kind,
+    requiresDocument: item.requiresDocument,
+  };
 }
 
 function cleanLabel(label: unknown): string {
@@ -134,18 +141,21 @@ async function lockChecklist(tx: Tx) {
 /** Adds an item, active, after the last one. `kind` scopes it to one Kind; absent is general. */
 export async function addChecklistItem(
   prisma: PrismaClient,
-  params: { actorId: string; label: unknown; required: unknown; kind?: unknown; now?: Date }
+  params: { actorId: string; label: unknown; required: unknown; kind?: unknown; requiresDocument?: unknown; now?: Date }
 ): Promise<VerificationChecklistItem> {
   const label = cleanLabel(params.label);
   const required = cleanFlag(params.required, "Wajib");
   const kind = cleanKind(params.kind);
+  // Absent is a check rather than a paper, as every item was before ticket 64.
+  const requiresDocument =
+    params.requiresDocument === undefined ? false : cleanFlag(params.requiresDocument, "Butuh dokumen");
   const now = params.now ?? new Date();
 
   return prisma.$transaction(async (tx) => {
     await lockChecklist(tx);
     const items = await tx.verificationChecklistItem.findMany({ orderBy: { position: "asc" } });
     const position = items.length === 0 ? 1 : items[items.length - 1].position + 1;
-    const item = await tx.verificationChecklistItem.create({ data: { label, required, position, active: true, kind } });
+    const item = await tx.verificationChecklistItem.create({ data: { label, required, position, active: true, kind, requiresDocument } });
     await audit(tx, { itemId: item.id, action: "CREATED", before: null, after: stateOf(item), actorId: params.actorId, now });
     return item;
   });
@@ -153,8 +163,9 @@ export async function addChecklistItem(
 
 /**
  * Rewords an item, marks it required or optional, scopes it to one Kind or
- * back to general, or deactivates or reactivates it: any of `label`,
- * `required`, `kind` and `active`, at least one. A change that leaves the
+ * back to general, says whether it needs an uploaded document (ticket 64), or
+ * deactivates or reactivates it: any of `label`, `required`, `kind`,
+ * `requiresDocument` and `active`, at least one. A change that leaves the
  * item as it was writes no audit entry.
  */
 export async function editChecklistItem(
@@ -162,7 +173,7 @@ export async function editChecklistItem(
   params: {
     actorId: string;
     itemId: string;
-    changes: { label?: unknown; required?: unknown; kind?: unknown; active?: unknown };
+    changes: { label?: unknown; required?: unknown; kind?: unknown; active?: unknown; requiresDocument?: unknown };
     now?: Date;
   }
 ): Promise<VerificationChecklistItem> {
@@ -172,6 +183,9 @@ export async function editChecklistItem(
   if (changes.required !== undefined) data.required = cleanFlag(changes.required, "Wajib");
   if (changes.kind !== undefined) data.kind = cleanKind(changes.kind);
   if (changes.active !== undefined) data.active = cleanFlag(changes.active, "Aktif");
+  if (changes.requiresDocument !== undefined) {
+    data.requiresDocument = cleanFlag(changes.requiresDocument, "Butuh dokumen");
+  }
   if (Object.keys(data).length === 0) {
     throw new InvalidChecklistChangeError("Tidak ada perubahan untuk item checklist.");
   }
@@ -232,5 +246,12 @@ export async function moveChecklistItem(
 }
 
 function sameState(a: ItemState, b: ItemState): boolean {
-  return a.label === b.label && a.required === b.required && a.position === b.position && a.active === b.active && a.kind === b.kind;
+  return (
+    a.label === b.label &&
+    a.required === b.required &&
+    a.position === b.position &&
+    a.active === b.active &&
+    a.kind === b.kind &&
+    a.requiresDocument === b.requiresDocument
+  );
 }

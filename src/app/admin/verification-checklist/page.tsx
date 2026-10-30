@@ -18,6 +18,8 @@ interface ChecklistItem {
   position: number;
   active: boolean;
   kind: CampaignKind | null;
+  /** Whether the Verifier may tick it only once the Fundraiser has uploaded a document for it. */
+  requiresDocument: boolean;
 }
 
 function kindLabel(kind: CampaignKind | null): string {
@@ -33,6 +35,7 @@ export default function AdminChecklistPage() {
   const [error, setError] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState("");
   const [newRequired, setNewRequired] = useState(true);
+  const [newRequiresDocument, setNewRequiresDocument] = useState(false);
   const [newKind, setNewKind] = useState<CampaignKind | "">("");
 
   const load = useCallback(async () => {
@@ -81,9 +84,15 @@ export default function AdminChecklistPage() {
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
-    if (await send(API, "POST", { label: newLabel, required: newRequired, kind: newKind === "" ? null : newKind })) {
+    if (await send(API, "POST", {
+        label: newLabel,
+        required: newRequired,
+        requiresDocument: newRequiresDocument,
+        kind: newKind === "" ? null : newKind,
+      })) {
       setNewLabel("");
       setNewRequired(true);
+      setNewRequiresDocument(false);
       setNewKind("");
     }
   }
@@ -137,6 +146,14 @@ export default function AdminChecklistPage() {
           Wajib
         </label>
         <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={newRequiresDocument}
+            onChange={(e) => setNewRequiresDocument(e.target.checked)}
+          />
+          Butuh dokumen yang diunggah Fundraiser
+        </label>
+        <label className="flex items-center gap-2 text-sm text-gray-700">
           Berlaku untuk
           <select
             aria-label="Cakupan Kind item baru"
@@ -176,7 +193,7 @@ function ChecklistRow({
   isFirst: boolean;
   isLast: boolean;
   busy: boolean;
-  onSave: (changes: Partial<Pick<ChecklistItem, "label" | "required" | "active" | "kind">>) => Promise<boolean>;
+  onSave: (changes: Partial<Pick<ChecklistItem, "label" | "required" | "active" | "kind" | "requiresDocument">>) => Promise<boolean>;
   onMove: (direction: MoveDirection) => Promise<boolean>;
 }) {
   const [label, setLabel] = useState(item.label);
@@ -209,6 +226,15 @@ function ChecklistRow({
             onChange={(e) => onSave({ required: e.target.checked })}
           />
           Wajib
+        </label>
+        <label className="flex items-center gap-2 text-gray-700">
+          <input
+            type="checkbox"
+            checked={item.requiresDocument}
+            disabled={busy}
+            onChange={(e) => onSave({ requiresDocument: e.target.checked })}
+          />
+          Butuh dokumen
         </label>
         <label className="flex items-center gap-2 text-gray-700">
           Berlaku untuk
