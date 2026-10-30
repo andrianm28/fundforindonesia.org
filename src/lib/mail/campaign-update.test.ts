@@ -31,6 +31,12 @@ describe('campaignUpdateEmail', () => {
     expect(mail.text).not.toContain('a'.repeat(281));
   });
 
+  it('says why the Donor receives it', () => {
+    const mail = campaignUpdateEmail(base);
+    expect(mail.text).toContain('Anda menerima email ini karena Anda mendukung Campaign ini');
+    expect(mail.html).toContain('karena Anda mendukung Campaign ini');
+  });
+
   it('greets without a name when there is none', () => {
     expect(campaignUpdateEmail({ ...base, donorName: null }).text.startsWith('Halo,')).toBe(true);
   });

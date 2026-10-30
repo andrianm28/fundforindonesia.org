@@ -6,6 +6,7 @@ import {
   SELECT_USER_EMAIL,
 } from './contact-fields';
 import { sendReportingFailure, type Mailer } from './mail';
+import { isPubliclyViewable } from './campaign-visibility';
 import { campaignUpdateEmail } from './mail/campaign-update';
 import { publicUrl } from './public-url';
 
@@ -15,24 +16,48 @@ import { publicUrl } from './public-url';
  * saved when this runs, so nothing here throws and a failure is logged as one
  * JSON line carrying ids only, never an address (`mail_send_failed`,
  * `mail_not_configured` from sendReportingFailure; `campaign_update_notify_failed`
- * here).
+ * and `campaign_update_notify_aborted` here).
  *
- * Who is told: every Donor, registered or Guest, with a Donation that is
- * confirmed and whose Payment settled as real money (PAID and not sandbox) --
- * beta test money does not make anyone a Donor of record. A Donor who gave
- * anonymously is told too (anonymity hides their name from the public, not
- * from the Campaign they chose to follow), and is greeted without a name. An
- * anonymised Donation has no address left and is skipped.
+ * Who is told: every registered Donor with a Donation that is confirmed and
+ * whose Payment settled as real money (PAID and not sandbox) -- beta test money
+ * does not make anyone a Donor of record. Guest Donors are NOT told while there
+ * is no way for them to opt out (privacy review of PR 304; the Privacy Policy
+ * names receipts as the only use of a Guest address). That choice lives in
+ * NOTIFY_GUEST_DONORS alone: flip it once the owner decides. A Donor who gave
+ * anonymously is told too (anonymity hides their name from the public, not from
+ * the Campaign they chose to follow); a Donor with both an anonymous and a named
+ * Donation is greeted without a name. An anonymised Donation has no address left
+ * and is skipped.
  *
- * One email per distinct address per update, whether the Donor gave once or
- * five times, or as a registered Donor and as a guest: addresses are compared
- * by their lookup HMAC, never by decrypting to compare. Each address is
- * decrypted only here, by the approved readers in contact-fields.ts, held for
- * the length of one send, and handed to the Mailer; it is never returned,
- * stored or logged, so the Fundraiser and the API see no recipient list.
+ * Limits: only the first update of a Campaign in any 24 hours is emailed (later
+ * ones still publish); nothing is sent when the Campaign is no longer publicly
+ * viewable when this runs; and sending stops after 5 failed sends in a row.
+ * The User model has no suspended or deleted marker to filter on.
+ *
+ * One email per distinct address per update, however many Donations carry it:
+ * addresses are compared by their lookup HMAC, never by decrypting to compare.
+ * Each address is decrypted only here, by the approved readers in
+ * contact-fields.ts, held for the length of one send, and handed to the Mailer;
+ * it is never returned, stored or logged, so the Fundraiser and the API see no
+ * recipient list.
  */
 
 const PAGE = 200;
+const WINDOW_MS = 24 * 60 * 60 * 1000;
+const MAX_CONSECUTIVE_FAILURES = 5;
+
+/** Whether Guest Donors (no account) are emailed too. Off until opt-out exists. */
+const NOTIFY_GUEST_DONORS = false;
+
+type RecipientRow = {
+  id: string;
+  isAnonymous: boolean;
+  guestName: string | null;
+  guestEmailHmac: string | null;
+  guestEmailCiphertext: string | null;
+  guestEmailKeyId: string | null;
+  donor: { name: string; emailHmac: string; emailCiphertext: string; emailKeyId: string } | null;
+};
 
 export type CampaignUpdateNotifyResult = { recipients: number; sent: number };
 
@@ -50,7 +75,8 @@ export async function notifyDonorsOfCampaignUpdate(
         title: true,
         content: true,
         campaignId: true,
-        campaign: { select: { title: true, slug: true } },
+        createdAt: true,
+        campaign: { select: { title: true, slug: true, lifecycleStatus: true } },
       },
     });
     if (!update) {
@@ -59,9 +85,23 @@ export async function notifyDonorsOfCampaignUpdate(
       );
       return result;
     }
+    if (!isPubliclyViewable(update.campaign.lifecycleStatus)) return result;
+
+    const earlier = await prisma.campaignUpdate.count({
+      where: {
+        campaignId: update.campaignId,
+        id: { not: update.id },
+        createdAt: { gte: new Date(update.createdAt.getTime() - WINDOW_MS), lt: update.createdAt },
+      },
+    });
+    if (earlier > 0) return result;
+
     const campaignUrl = publicUrl(`/campaign/${update.campaign.slug}`);
 
-    const seen = new Set<string>();
+    // One Donation stands for each distinct address; the others only decide
+    // whether the greeting may carry a name. Only the sealed row is held, never
+    // a decrypted address.
+    const byAddress = new Map<string, { donation: RecipientRow; anonymous: boolean }>();
     let cursor: string | undefined;
     for (;;) {
       const donations = await prisma.donation.findMany({
@@ -69,6 +109,7 @@ export async function notifyDonorsOfCampaignUpdate(
           campaignId: update.campaignId,
           paymentStatus: 'confirmed',
           anonymisedAt: null,
+          ...(NOTIFY_GUEST_DONORS ? {} : { donorId: { not: null } }),
           payments: { some: { status: 'PAID', sandbox: false } },
         },
         select: {
@@ -87,45 +128,65 @@ export async function notifyDonorsOfCampaignUpdate(
       cursor = donations[donations.length - 1].id;
 
       for (const donation of donations) {
+        if (!NOTIFY_GUEST_DONORS && !donation.donor) continue;
         const key = donation.donor?.emailHmac ?? donation.guestEmailHmac;
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        result.recipients += 1;
-
-        let to: string | null;
-        try {
-          to = donation.donor ? readUserEmail(donation.donor) : readDonationGuestEmail(donation);
-        } catch (error) {
-          console.error(
-            JSON.stringify({
-              event: 'mail_skipped',
-              mail: 'campaign_update',
-              updateId: update.id,
-              donationId: donation.id,
-              reason: 'the address could not be read',
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          );
-          continue;
-        }
-        if (!to) continue;
-
-        const name = donation.isAnonymous ? null : (donation.donor?.name ?? donation.guestName ?? null);
-        const sent = await sendReportingFailure(
-          campaignUpdateEmail({
-            to,
-            donorName: name,
-            campaignTitle: update.campaign.title,
-            updateTitle: update.title,
-            updateContent: update.content,
-            campaignUrl,
-          }),
-          { mail: 'campaign_update', updateId: update.id, donationId: donation.id },
-          mailer,
-        );
-        if (sent) result.sent += 1;
+        if (!key) continue;
+        const known = byAddress.get(key);
+        if (known) known.anonymous ||= donation.isAnonymous;
+        else byAddress.set(key, { donation, anonymous: donation.isAnonymous });
       }
       if (donations.length < PAGE) break;
+    }
+    result.recipients = byAddress.size;
+
+    let failures = 0;
+    for (const { donation, anonymous } of byAddress.values()) {
+      let to: string | null;
+      try {
+        to = donation.donor ? readUserEmail(donation.donor) : readDonationGuestEmail(donation);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: 'mail_skipped',
+            mail: 'campaign_update',
+            updateId: update.id,
+            donationId: donation.id,
+            reason: 'the address could not be read',
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        continue;
+      }
+      if (!to) continue;
+
+      const name = anonymous ? null : (donation.donor?.name ?? donation.guestName ?? null);
+      const sent = await sendReportingFailure(
+        campaignUpdateEmail({
+          to,
+          donorName: name,
+          campaignTitle: update.campaign.title,
+          updateTitle: update.title,
+          updateContent: update.content,
+          campaignUrl,
+        }),
+        { mail: 'campaign_update', updateId: update.id, donationId: donation.id },
+        mailer,
+      );
+      if (sent) {
+        result.sent += 1;
+        failures = 0;
+      } else if (++failures >= MAX_CONSECUTIVE_FAILURES) {
+        console.error(
+          JSON.stringify({
+            event: 'campaign_update_notify_aborted',
+            updateId: update.id,
+            consecutiveFailures: failures,
+            sent: result.sent,
+            recipients: result.recipients,
+          }),
+        );
+        break;
+      }
     }
   } catch (error) {
     console.error(

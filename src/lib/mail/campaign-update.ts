@@ -33,15 +33,17 @@ export function campaignUpdateEmail(input: CampaignUpdateEmailInput): MailMessag
     excerpt(input.updateContent),
     'Baca selengkapnya di tab Kabar Terbaru pada halaman Campaign:',
   ];
+  const reason = 'Anda menerima email ini karena Anda mendukung Campaign ini lewat donasi.';
   const closing = 'Salam,\nTim Fund for Indonesia';
 
-  const text = [greeting, ...body, input.campaignUrl, closing].join('\n\n');
+  const text = [greeting, ...body, input.campaignUrl, reason, closing].join('\n\n');
   const url = escapeHtml(input.campaignUrl);
   const html = [
     emailLogoHtml(),
     `<p>${escapeHtml(greeting)}</p>`,
     ...body.map((line) => `<p>${escapeHtml(line)}</p>`),
     `<p><a href="${url}">${url}</a></p>`,
+    `<p>${escapeHtml(reason)}</p>`,
     `<p>${escapeHtml(closing).replace('\n', '<br>')}</p>`,
   ].join('\n');
 
