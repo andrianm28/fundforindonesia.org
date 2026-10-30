@@ -87,5 +87,43 @@ export function partnershipInquiryEmail(input: PartnershipInquiryEmailInput): Ma
     subject: `Inquiry kemitraan baru: ${oneLine(input.companyName)} — ${oneLine(input.programTitle)}`,
     text,
     html,
+    // A reply from the partnership team's mail client reaches the company,
+    // not the platform's no-reply sender (ticket E9/01, tahap 1).
+    replyTo: input.contactEmail,
+  };
+}
+
+export type PartnershipInquiryConfirmationInput = {
+  /** The address the company typed, the one the Inquiry was sealed with. */
+  to: string;
+  companyName: string;
+  contactName: string;
+  programTitle: string;
+};
+
+/**
+ * The confirmation the company itself receives once its Inquiry is
+ * recorded (ticket E9/01, tahap 1): until this, a company that asked heard
+ * nothing at all. It repeats nothing the company did not already know --
+ * not the needs description, not the Inquiry's id or the Admin link --
+ * so a mistyped address leaks no more than the company and Program names.
+ */
+export function partnershipInquiryConfirmationEmail(input: PartnershipInquiryConfirmationInput): MailMessage {
+  const greeting = `Halo ${oneLine(input.contactName)},`;
+  const body = [
+    `Terima kasih. Partnership Inquiry dari ${oneLine(input.companyName)} untuk Program "${oneLine(input.programTitle)}" sudah kami terima.`,
+    'Tim kemitraan Fund for Indonesia akan menghubungi Anda melalui email ini untuk membicarakan kolaborasinya. Anda tidak perlu mengirim ulang formulirnya.',
+    'Bila Anda tidak merasa mengirim Inquiry ini, abaikan saja email ini.',
+  ];
+  const closing = 'Salam,\nTim Fund for Indonesia';
+
+  return {
+    to: input.to,
+    subject: `Inquiry kemitraan Anda sudah kami terima — ${oneLine(input.programTitle)}`,
+    text: [greeting, ...body, closing].join('\n\n'),
+    html: [greeting, ...body]
+      .map((line) => `<p>${escapeHtml(line)}</p>`)
+      .concat(`<p>${escapeHtml(closing).replace('\n', '<br>')}</p>`)
+      .join('\n'),
   };
 }

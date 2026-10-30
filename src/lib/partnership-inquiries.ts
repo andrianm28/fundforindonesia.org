@@ -1,7 +1,7 @@
 import type { PartnershipInquiry, PrismaClient, Program } from "@/generated/prisma/client";
 import { sealInquiryContactEmail, sealInquiryContactPhone } from "./contact-fields";
 import { MailerNotConfiguredError, sendReportingFailure, type Mailer } from "./mail";
-import { partnershipInquiryEmail } from "./mail/partnership-inquiry";
+import { partnershipInquiryConfirmationEmail, partnershipInquiryEmail } from "./mail/partnership-inquiry";
 import { publicUrl } from "./public-url";
 
 /**
@@ -230,6 +230,30 @@ export async function createPartnershipInquiry(
   });
   const inquiryId = String(inquiry.id);
 
+  await notifyPartnershipTeam(cleaned, program, inquiryId, mailer);
+
+  // The company's own confirmation (ticket E9/01, tahap 1), sent whether or
+  // not the team's address is configured: it goes to the address the
+  // company typed, through the same best-effort send.
+  await sendReportingFailure(
+    partnershipInquiryConfirmationEmail({
+      to: cleaned.contactEmail,
+      companyName: cleaned.companyName,
+      contactName: cleaned.contactName,
+      programTitle: program.title,
+    }),
+    { mail: 'partnership_inquiry_confirmation', inquiryId },
+    mailer,
+  );
+  return inquiry;
+}
+
+async function notifyPartnershipTeam(
+  cleaned: CleanedInquiry,
+  program: { title: string; sector: string },
+  inquiryId: string,
+  mailer?: Mailer,
+): Promise<void> {
   let recipient: string | null;
   try {
     recipient = partnershipTeamRecipient();
@@ -242,9 +266,9 @@ export async function createPartnershipInquiry(
         error: error instanceof Error ? error.message : String(error),
       }),
     );
-    return inquiry;
+    return;
   }
-  if (recipient === null) return inquiry;
+  if (recipient === null) return;
 
   await sendReportingFailure(
     partnershipInquiryEmail({
@@ -263,5 +287,4 @@ export async function createPartnershipInquiry(
     { mail: 'partnership_inquiry', inquiryId },
     mailer,
   );
-  return inquiry;
 }
