@@ -2,7 +2,7 @@
 
 **Type:** bug
 
-**Status:** needs-triage
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -28,3 +28,5 @@ Belum diverifikasi. Langkah pertama: reproduksi dengan `curl -o /dev/null -w '%{
 - Cek route dinamis lain yang memakai `notFound()` di bawah `loading.tsx` root (mis. `/campaign/[slug]`) untuk pola yang sama, dan catat temuannya di Comments.
 
 ## Comments
+
+- 2026-10-30: Direproduksi di build produksi lokal (`/explore/<ngawur>` dan `/campaign/<ngawur>` 200, `/zakat` 404); sebabnya memang `notFound()` di balik `src/app/loading.tsx`. Perbaikan untuk `/explore/<category>`: `src/proxy.ts` mencari Category dan menjawab 404 (rewrite ke `/_not-found`, pola tiket 90) sebelum render; slug yang ada tetap 200, `/explore/all` lewat, galat DB jatuh ke halaman. Tes: `src/proxy.test.ts`, `tests/e2e/explore-category.spec.ts` (+ seed Category). Temuan pola serupa, TIDAK diperbaiki di sini: `/campaign/[slug]` (dan rute dinamis lain di bawah `loading.tsx` root, mis. `/program/[slug]`, `/volunteer-trip/[slug]`, `/sertifikat/[code]`) tetap soft 404; `/campaign/[slug]` sengaja begitu (lihat `privileged-not-found.spec.ts`, tampilan not-found berbasis sesi) jadi perlu keputusan terpisah, atau memindahkan `loading.tsx` ke beranda saja.
