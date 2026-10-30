@@ -14,7 +14,7 @@ describe("AdminSidebar", () => {
     for (const href of [
       "/admin", "/admin/users", "/admin/campaigns", "/admin/payouts", "/admin/refunds",
       "/admin/manual-contributions", "/admin/abuse-thresholds", "/admin/campaigns/lifecycle",
-      "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/verification-checklist",
+      "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/finance", "/admin/verification-checklist",
       "/admin/collecting-entities", "/admin/partnership-inquiries", "/admin/payment-providers", "/admin/platform-fee", "/admin/escrow-hold",
       "/admin/reconciliation", "/admin/scrutiny",
     ]) {
