@@ -34,6 +34,7 @@ describe.skipIf(!DATABASE_URL)('Payout and Refund legs carry the provider -- aga
   let payouts: typeof import('@/lib/money/payouts');
   let refunds: typeof import('@/lib/money/refunds');
   let ledger: typeof import('@/lib/money/ledger');
+  let withdrawals: typeof import('@/lib/money/provider-withdrawals');
 
   beforeAll(async () => {
     if (!DATABASE_URL) return;
@@ -61,6 +62,7 @@ describe.skipIf(!DATABASE_URL)('Payout and Refund legs carry the provider -- aga
     payouts = await import('@/lib/money/payouts');
     refunds = await import('@/lib/money/refunds');
     ledger = await import('@/lib/money/ledger');
+    withdrawals = await import('@/lib/money/provider-withdrawals');
   }, 120_000);
 
   afterAll(async () => {
@@ -262,19 +264,79 @@ describe.skipIf(!DATABASE_URL)('Payout and Refund legs carry the provider -- aga
     expect(legs.every((l) => l.provider === 'sumopod')).toBe(true);
   }, 60_000);
 
-  it('two providers: every Payout and Refund above leaves no unnamed remainder (perProviderIsExact) and each pot equals its own stamped legs', async () => {
-    const rows = await prisma.ledgerEntry.groupBy({
-      by: ['provider', 'direction'],
-      where: { account: 'GATEWAY_CLEARING', provider: { not: null } },
-      _sum: { amount: true },
+  it('a rejected Refund reverses its freeze under the Payment provider', async () => {
+    const campaign = await makeCampaign();
+    const payment = await seedPayment(campaign.id, 'sumopod');
+    const requestedById = await makeUser();
+    const refund = await prisma.$transaction((tx) =>
+      refunds.createRefund(tx, {
+        subject: { type: 'campaign', campaignId: campaign.id },
+        paymentId: payment.id,
+        amount: GROSS,
+        reason: 'salah bayar',
+        requestedById,
+      }),
+    );
+    await refunds.rejectRefund(prisma, { refundId: refund.id, rejectedById: await makeUser(), reason: 'Salah Payment' });
+
+    const reversal = await prisma.ledgerEntry.findMany({ where: { transactionId: `refund-rejected-${refund.id}` } });
+    expect(reversal.length).toBeGreaterThan(0);
+    expect(reversal.every((l) => l.provider === 'sumopod')).toBe(true);
+  }, 60_000);
+
+  it('two providers in isolation: exact pots from hard-coded amounts, no unnamed bucket, reconciled per provider', async () => {
+    // Own database state: remove everything the tests above posted, so the
+    // expected figures below come from this scenario's inputs alone.
+    await prisma.$executeRawUnsafe('TRUNCATE "LedgerEntry" CASCADE');
+    const campaign = await makeCampaign();
+    // Settlement debits GATEWAY_CLEARING by GROSS (300_000) per Payment.
+    await seedPayment(campaign.id, 'mock');
+    const sumopodPayment = await seedPayment(campaign.id, 'sumopod');
+    await seedPayment(campaign.id, 'sumopod');
+    // Payout of 277_500 completes through sumopod; a full Refund of the first
+    // sumopod Payment (300_000) completes through sumopod's Payment too.
+    const payout = await draftPayout(campaign, 277_500);
+    await payouts.approvePayout(prisma, { payoutId: payout.id, approvedById: await makeUser(), provider: 'sumopod', providerBalance: 10_000_000 });
+    await payouts.completePayout(prisma, { payoutId: payout.id, completedById: await makeUser(), ...proof });
+    const requestedById = await makeUser();
+    const refund = await prisma.$transaction((tx) =>
+      refunds.createRefund(tx, {
+        subject: { type: 'campaign', campaignId: campaign.id },
+        paymentId: sumopodPayment.id,
+        amount: GROSS,
+        reason: 'salah bayar',
+        requestedById,
+      }),
+    );
+    await refunds.approveRefund(prisma, { refundId: refund.id, approvedById: await makeUser(), ...destination });
+    await refunds.completeRefund(prisma, {
+      refundId: refund.id,
+      completedById: await makeUser(),
+      ...proof,
+      donorAccountNumber: destination.donorAccountNumber,
     });
+    await prisma.providerWithdrawal.create({
+      data: {
+        provider: 'mock',
+        reference: `wd-${process.pid}`,
+        amount: 100_000,
+        destinationName: 'Bank',
+        providerBalanceBefore: 500_000,
+        providerBalanceAfter: 400_000,
+        proofReference: 'WD-1',
+        recordedById: await makeUser(),
+      } as never,
+    });
+
     const pot = await pots();
-    expect(pot.UNNAMED ?? 0).toBe(0);
-    for (const provider of ['mock', 'sumopod']) {
-      const debit = rows.find((r) => r.provider === provider && r.direction === 'DEBIT')?._sum.amount ?? 0;
-      const credit = rows.find((r) => r.provider === provider && r.direction === 'CREDIT')?._sum.amount ?? 0;
-      expect(pot[provider]).toBe(debit - credit);
-    }
+    expect(pot).toEqual({ mock: 300_000, sumopod: 2 * 300_000 - 277_500 - 300_000 });
+    expect(pot.UNNAMED).toBeUndefined();
+
+    const report = await prisma.$transaction((tx) => withdrawals.reconcileProviderBalances(tx));
+    expect(report.map((r) => [r.provider, r.pot.balance])).toEqual([['mock', 300_000]]);
+    // perProviderIsExact in the reconcile route is exactly "unnamed bucket balance === 0".
+    const unnamed = (await prisma.$transaction((tx) => ledger.providerBalances(tx))).find((p) => p.provider === null);
+    expect((unnamed?.balance ?? 0) === 0).toBe(true);
   }, 60_000);
 
   it('a legacy Payout approved with no provider on its row stays in the unnamed bucket, not migrated', async () => {

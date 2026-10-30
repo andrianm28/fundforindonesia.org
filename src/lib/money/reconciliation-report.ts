@@ -723,9 +723,10 @@ export async function buildReconciliationReport(tx: Prisma.TransactionClient) {
   // The Provider Balance as a whole, which is the account ADR 0011's
   // invariant is stated over ("the Provider Balance equals GATEWAY_CLEARING
   // less what an Admin has withdrawn") -- deliberately not per provider,
-  // because a completed Payout and a paid Refund credit GATEWAY_CLEARING
-  // without naming a provider and a per-provider total cannot claim to be the
-  // whole pot while that is true. `perProviderIsExact` says so out loud rather
+  // because rows posted before ticket 69 (a completed Payout or paid
+    // Refund, and a Payout approved without approvedProvider) credit
+    // GATEWAY_CLEARING without naming a provider, and a per-provider total
+    // cannot claim to be the whole pot while any such row exists. `perProviderIsExact` says so out loud rather
   // than leaving a reader to assume a slice is the total.
   const providerBalanceTotal = providerPots.reduce((total, pot) => total + pot.balance, 0);
   const unattributedProviderBalance =
@@ -869,7 +870,7 @@ export async function buildReconciliationReport(tx: Prisma.TransactionClient) {
         .map(([kind, settledGross]) => ({ kind, settledGross }))
         .sort((a, b) => (a.kind < b.kind ? -1 : 1)),
       caveat:
-        'Provider Balance pots are per payment provider, and any movement that names no provider is kept in its own bucket rather than folded into a named one. A completed Payout and a paid Refund both credit GATEWAY_CLEARING without recording which provider paid them, so until one of those paths records a provider the per-provider pots are a FLOOR, not the whole pot -- read perProviderIsExact and unattributedBalance before treating one as a total. divergence is what the providers dashboards said left them, against what the books recorded leaving, over the sweeps in withdrawals; it is reported and never corrected, because a reconciliation that fixes its own findings destroys the evidence of what went wrong. A provider absent from withdrawals has not been checked, not passed. collectedByKind counts the money that ARRIVED under each Fundraising Permit and excludes Demo Campaigns; a Trip Fee belongs to no Kind (ADR 0014) and so to no permit.',
+        'Provider Balance pots are per payment provider, and any movement that names no provider is kept in its own bucket rather than folded into a named one. A Payout completed or Refund paid since ticket 69 records the provider that moved the money; rows posted before that, and Payouts approved without a provider reading, stay unattributed, so while unattributedBalance is non-zero the per-provider pots are a FLOOR, not the whole pot -- read perProviderIsExact and unattributedBalance before treating one as a total. divergence is what the providers dashboards said left them, against what the books recorded leaving, over the sweeps in withdrawals; it is reported and never corrected, because a reconciliation that fixes its own findings destroys the evidence of what went wrong. A provider absent from withdrawals has not been checked, not passed. collectedByKind counts the money that ARRIVED under each Fundraising Permit and excludes Demo Campaigns; a Trip Fee belongs to no Kind (ADR 0014) and so to no permit.',
     },
     stuckPayouts: {
       // Nothing in this codebase writes PROCESSING today -- approval stops
