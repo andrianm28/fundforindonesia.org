@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
+import { verifyRegistrationResultToken } from '@/lib/money/registration-result-token';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -204,6 +205,29 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
       }),
     );
     expect(await response.json()).toMatchObject({ registrationId: 'registration-1', amount: 1_500_000 });
+  });
+
+  it("sends the Volunteer back to this Registration's own result page, signed for it (ticket 99)", async () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://ffi.example');
+    const createCharge = vi.fn().mockResolvedValue({
+      method: 'qris_redirect',
+      redirectUrl: 'https://pay.sumopod.com/x',
+      expiresAt: new Date('2026-12-01'),
+    });
+    mockGetPaymentProvider.mockReturnValue({ name: 'sumopod', method: 'qris_redirect', createCharge });
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(201);
+    const input = createCharge.mock.calls[0][0];
+    const success = new URL(input.successReturnUrl);
+    const cancel = new URL(input.cancelReturnUrl);
+    expect(success.origin).toBe('https://ffi.example');
+    expect(success.pathname).toMatch(/^\/volunteer-trip\/hasil\/[^/]+$/);
+    expect(success.search).toBe('');
+    expect(cancel.pathname).toBe(success.pathname);
+    expect(cancel.searchParams.get('batal')).toBe('1');
+    expect(verifyRegistrationResultToken(success.pathname.split('/').pop(), Date.now())).toBe('registration-1');
   });
 
   it('stores the QRIS link on the Payment so "Lanjutkan pembayaran" can show it again (ticket 37)', async () => {

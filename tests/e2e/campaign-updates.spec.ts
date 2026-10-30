@@ -17,7 +17,8 @@ async function signInAs(page: Page, email: string) {
 
 test('a Fundraiser writes an update and the public reads it as text', async ({ browser }, testInfo) => {
   const title = `Kabar e2e ${testInfo.project.name} ${Date.now()}`;
-  const body = '<b>bukan markup</b>\nbaris kedua';
+  const marker = `<b>bukan markup ${testInfo.project.name} ${Date.now()}</b>`;
+  const body = `${marker}\nbaris kedua`;
 
   const owner = await browser.newContext();
   const page = await owner.newPage();
@@ -35,7 +36,7 @@ test('a Fundraiser writes an update and the public reads it as text', async ({ b
   await publicPage.goto(`/campaign/${KABAR_SLUG}`);
   await publicPage.getByRole('button', { name: 'Kabar Terbaru' }).click();
   await expect(publicPage.getByText(title)).toBeVisible();
-  await expect(publicPage.getByText('<b>bukan markup</b>')).toBeVisible();
+  await expect(publicPage.getByText(marker)).toBeVisible();
   await visitor.close();
 });
 
