@@ -190,6 +190,15 @@ describe('notifyDonorsOfCampaignUpdate', () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
+  it('does not log an address that a failure message carries', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const broken = {
+      campaignUpdate: { findUnique: vi.fn().mockRejectedValue(new Error('boom for siti@example.test')) },
+    };
+    await notifyDonorsOfCampaignUpdate(broken as never, { updateId: 'upd-1' }, new MockMailer());
+    expect(String(spy.mock.calls[0][0])).not.toContain('example.test');
+  });
+
   it('names the reason for the email: the Donor supports this Campaign', async () => {
     const mailer = new MockMailer();
     const { prisma } = prismaWith([registered('d1', 'siti@example.test')]);
@@ -305,6 +314,7 @@ describe('notifyDonorsOfCampaignUpdate', () => {
     });
 
     it('re-reads the status every 50 recipients and stops when the Campaign is suspended meanwhile', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const mailer = new MockMailer();
       const donations = Array.from({ length: 120 }, (_, i) => registered(`d${i}`, `donor${i}@example.test`));
       const { prisma, campaignFind } = prismaWith(donations);
@@ -314,6 +324,10 @@ describe('notifyDonorsOfCampaignUpdate', () => {
 
       expect(result.sent).toBe(50);
       expect(result.recipients).toBe(120);
+      const stopped = spy.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('campaign_update_notify_stopped'));
+      expect(stopped).toHaveLength(1);
+      expect(JSON.parse(stopped[0])).toMatchObject({ campaignId: 'c-1', status: 'SUSPENDED', sent: 50 });
+      expect(stopped[0]).not.toContain('example.test');
     });
   });
 });

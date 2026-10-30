@@ -5,7 +5,7 @@ import {
   SELECT_DONATION_GUEST_EMAIL,
   SELECT_USER_EMAIL,
 } from './contact-fields';
-import { sendReportingFailure, type Mailer } from './mail';
+import { errorText, sendReportingFailure, type Mailer } from './mail';
 import { campaignUpdateEmail } from './mail/campaign-update';
 import { publicUrl } from './public-url';
 
@@ -160,7 +160,19 @@ export async function notifyDonorsOfCampaignUpdate(
           where: { id: update.campaignId },
           select: { lifecycleStatus: true },
         });
-        if (!current || !MAY_EMAIL_STATUSES.has(current.lifecycleStatus)) break;
+        if (!current || !MAY_EMAIL_STATUSES.has(current.lifecycleStatus)) {
+          console.error(
+            JSON.stringify({
+              event: 'campaign_update_notify_stopped',
+              updateId: update.id,
+              campaignId: update.campaignId,
+              status: current?.lifecycleStatus ?? 'missing',
+              sent: result.sent,
+              recipients: result.recipients,
+            }),
+          );
+          break;
+        }
       }
       attempted += 1;
       let to: string | null;
@@ -215,7 +227,7 @@ export async function notifyDonorsOfCampaignUpdate(
       JSON.stringify({
         event: 'campaign_update_notify_failed',
         updateId: params.updateId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorText(error),
       }),
     );
   }
