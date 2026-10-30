@@ -43,7 +43,7 @@ function signedInAs(id: string) {
 describe('POST /api/campaigns/[slug]/updates', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCampaignFind.mockResolvedValue({ id: 'campaign-1', creatorId: 'owner-1', lifecycleStatus: 'ACTIVE' } as any);
+    mockCampaignFind.mockResolvedValue({ id: 'campaign-1', creatorId: 'owner-1', lifecycleStatus: 'ACTIVE' } as never);
     mockUpdateCreate.mockResolvedValue({ id: 'update-1', ...validBody, images: [], createdAt: new Date() } as any);
   });
 
@@ -95,7 +95,7 @@ describe('POST /api/campaigns/[slug]/updates', () => {
 
   it('answers 404, like a missing slug, when a non-owner asks about an unapproved Campaign', async () => {
     signedInAs('someone-else');
-    mockCampaignFind.mockResolvedValue({ id: 'campaign-1', creatorId: 'owner-1', lifecycleStatus: 'DRAFT' } as any);
+    mockCampaignFind.mockResolvedValue({ id: 'campaign-1', creatorId: 'owner-1', lifecycleStatus: 'DRAFT' } as never);
     const response = await post();
     expect(response.status).toBe(404);
     expect(mockUpdateCreate).not.toHaveBeenCalled();
@@ -111,7 +111,7 @@ describe('POST /api/campaigns/[slug]/updates', () => {
     'tells the owner plainly that a %s Campaign takes no update yet, and writes nothing',
     async (status) => {
       signedInAs('owner-1');
-      mockCampaignFind.mockResolvedValue({ id: 'campaign-1', creatorId: 'owner-1', lifecycleStatus: status } as any);
+      mockCampaignFind.mockResolvedValue({ id: 'campaign-1', creatorId: 'owner-1', lifecycleStatus: status } as never);
       const response = await post();
       expect(response.status).toBe(409);
       expect((await response.json()).code).toBe('CAMPAIGN_NOT_PUBLIC');
