@@ -42,6 +42,11 @@ export const DOCUMENT_SLUG = 'e2e-dokumen-diajukan';
 export const DOCUMENT_FUNDRAISER_EMAIL = 'e2e-doc-fundraiser@example.org';
 export const STRANGER_EMAIL = 'e2e-stranger@example.org';
 
+// Tickets 72, 65: a Fundraiser who can sign in, with a Draft of their own to
+// edit on /akun/kampanye-saya/[slug]. STRANGER_EMAIL must get a 404 there.
+export const EDIT_SLUG = 'e2e-draft-edit';
+export const EDIT_FUNDRAISER_EMAIL = 'e2e-edit-fundraiser@example.org';
+
 // Kabar Terbaru (ticket 70): an Active Campaign whose Fundraiser can sign in
 // and write an update, then read it on the public page.
 export const KABAR_SLUG = 'e2e-kabar-aktif';

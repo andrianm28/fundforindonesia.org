@@ -129,4 +129,27 @@ describe('AdminCampaignsPage status badges', () => {
     expect(await badgeOf('lapsed')).toBe('Berakhir');
     expect(await badgeOf('running')).toBe('Aktif');
   });
+
+  // rilis-1-benda 72: /campaign/[slug]/edit never existed. The owner edits at
+  // /akun/kampanye-saya/[slug]; an Admin works through the lifecycle screen.
+  it('has no link to the dead /campaign/[slug]/edit route', async () => {
+    vi.mocked(prisma.campaign.findMany).mockResolvedValue([
+      {
+        id: 'campaign-1',
+        slug: 'sumur-desa',
+        title: 'Sumur untuk Desa',
+        lifecycleStatus: 'DRAFT',
+        deadline: null,
+        targetAmount: 10_000_000,
+        collectedAmount: 0,
+        createdAt: new Date('2026-09-01T00:00:00.000Z'),
+        creator: { name: 'Budi', email: 'budi@test.com' },
+      },
+    ] as never);
+
+    const { container } = render(await AdminCampaignsPage());
+
+    expect(container.querySelector('a[href$="/edit"]')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Edit' })).toBeNull();
+  });
 });

@@ -8,6 +8,7 @@ import {
   campaignRow,
   checklistItemRow,
   makeCampaignDb,
+  type UsageReportRow,
   verificationRequestRow,
 } from '../../tests/support/in-memory-campaign-db';
 
@@ -28,7 +29,8 @@ const CHECKLIST = [checklistItemRow({ id: 'rencana-anggaran', label: 'Rencana an
 
 function submittedDb(
   others: { id: string; lifecycleStatus?: 'ACTIVE' | 'EXPIRED' | 'COMPLETED'; deadline?: Date | null; creatorId?: string; isDemo?: boolean }[] = [],
-  abuseThresholds?: { kind: string; value: number; setAt: string }[]
+  abuseThresholds?: { kind: string; value: number; setAt: string }[],
+  usageReports: UsageReportRow[] = []
 ) {
   return makeCampaignDb({
     campaigns: [
@@ -52,6 +54,7 @@ function submittedDb(
       }),
     ],
     abuseThresholds,
+    usageReports,
   });
 }
 
@@ -144,5 +147,56 @@ describe('the Active Campaign limit on approving a submission', () => {
     await approve(db);
 
     expect(db.campaign('campaign-1').lifecycleStatus).toBe('ACTIVE');
+  });
+});
+
+describe('the first Usage Report lifts the limit (C12, 2026-10-04)', () => {
+  const FOUR = [{ id: 'campaign-2' }, { id: 'campaign-3' }, { id: 'campaign-4' }];
+  const report = (overrides: Partial<UsageReportRow> = {}): UsageReportRow => ({
+    id: 'usage-report-1',
+    creatorId: 'creator-1',
+    sandbox: false,
+    disputedAt: null,
+    ...overrides,
+  });
+
+  it('lets a Fundraiser with a Usage Report open a fourth Active Campaign', async () => {
+    const db = submittedDb(FOUR, undefined, [report()]);
+
+    await approve(db);
+
+    expect(db.campaign('campaign-1').lifecycleStatus).toBe('ACTIVE');
+  });
+
+  it('still refuses one who has none', async () => {
+    const db = submittedDb(FOUR, undefined, [report({ creatorId: 'creator-2' })]);
+
+    const error = await approve(db).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TooManyActiveCampaignsError);
+  });
+
+  it('does not count a report an Admin has marked dipertanyakan', async () => {
+    const db = submittedDb(FOUR, undefined, [report({ disputedAt: NOW })]);
+
+    const error = await approve(db).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TooManyActiveCampaignsError);
+  });
+
+  it('does not count a report on a Demo Campaign, whose figures are fiction', async () => {
+    const db = submittedDb(FOUR, undefined, [report({ isDemo: true })]);
+
+    const error = await approve(db).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TooManyActiveCampaignsError);
+  });
+
+  it('does not count a Beta sandbox report', async () => {
+    const db = submittedDb(FOUR, undefined, [report({ sandbox: true })]);
+
+    const error = await approve(db).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TooManyActiveCampaignsError);
   });
 });

@@ -10,9 +10,10 @@ import {
   CampaignLifecycleError,
   CollectingEntityNotEditableError,
   DeadlineRequiredError,
+  MaxDurationExceededError,
   STATUS_LABEL,
 } from "./campaign-lifecycle-errors";
-import { missingRequiredDeadline } from "./campaign-kind";
+import { exceedsMaxDuration, missingRequiredDeadline } from "./campaign-kind";
 import { judgeCapacity } from "./capacity";
 import { PAYOUT_REQUESTABLE_STATUSES } from "./payout-requestable-statuses";
 import type { LedgerSubject } from "./money/ledger";
@@ -467,7 +468,8 @@ const DEADLINE_EDITABLE_STATUSES: readonly CampaignStatus[] = [
  */
 export function requireKindAndDeadlineEditable(
   state: SubjectState,
-  edit: { kind?: Kind; deadline?: Date | null }
+  edit: { kind?: Kind; deadline?: Date | null },
+  now: Date = new Date()
 ): void {
   if (state.kind !== "campaign") return;
   const kindChanges = edit.kind !== undefined && edit.kind !== state.campaignKind;
@@ -485,6 +487,7 @@ export function requireKindAndDeadlineEditable(
     deadline: edit.deadline !== undefined ? edit.deadline : state.deadline,
   };
   if (missingRequiredDeadline(after)) throw new DeadlineRequiredError(after.kind);
+  if (exceedsMaxDuration(after, now)) throw new MaxDurationExceededError();
 }
 
 /**

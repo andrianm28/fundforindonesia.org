@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { latestAllowedDeadline } from './campaign-kind';
 import {
   CollectingEntityNotEligibleError,
   CollectingEntityRequiredError,
   DeadlineRequiredError,
+  MaxDurationExceededError,
   FundraisingPermitRequiredError,
   IndividualFundraiserKindError,
   KindAuthorisationRequiredError,
@@ -203,6 +205,36 @@ describe('submitCampaign', () => {
 
     expect(error).toBeInstanceOf(InvalidTransitionError);
     expect(db.verificationRequests.map((r) => r.id)).toEqual(['verification-first']);
+  });
+
+  describe('the 12 month limit (C12, 2026-10-04)', () => {
+    it('refuses a donation deadline beyond 12 months with a 422, writing nothing', async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', kind: 'DONATION', deadline: new Date(NOW.getTime() + 400 * 86_400_000) })],
+        checklistItems: CHECKLIST,
+      });
+
+      const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW }).catch(
+        (e: unknown) => e,
+      );
+
+      expect(error).toBeInstanceOf(MaxDurationExceededError);
+      expect(domainErrorToHttp(error)).toMatchObject({ status: 422, body: { code: 'CAMPAIGN_DURATION_EXCEEDED' } });
+      expect((error as Error).message).toContain('tenggat yang lebih awal');
+      expect(db.campaign().lifecycleStatus).toBe('DRAFT');
+      expect(db.verificationRequests).toEqual([]);
+    });
+
+    it('accepts a deadline of exactly 12 months', async () => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ lifecycleStatus: 'DRAFT', kind: 'DONATION', deadline: latestAllowedDeadline(NOW) })],
+        checklistItems: CHECKLIST,
+      });
+
+      await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
+
+      expect(db.campaign().lifecycleStatus).toBe('SUBMITTED');
+    });
   });
 
   describe('the deadline its Kind requires (CONTEXT.md, Campaign)', () => {

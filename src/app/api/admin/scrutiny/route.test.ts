@@ -18,6 +18,7 @@ vi.mock('@/lib/prisma', () => ({
     campaignAuditMarker: { findMany: vi.fn() },
     donationReviewMarker: { findMany: vi.fn() },
     campaign: { findMany: vi.fn() },
+    usageReport: { findMany: vi.fn() },
   },
 }));
 
@@ -30,6 +31,7 @@ const mockThresholds = prisma.abuseThreshold.findMany as unknown as Mock;
 const mockAuditMarkers = prisma.campaignAuditMarker.findMany as unknown as Mock;
 const mockDonationMarkers = prisma.donationReviewMarker.findMany as unknown as Mock;
 const mockCampaigns = prisma.campaign.findMany as unknown as Mock;
+const mockUsageReports = prisma.usageReport.findMany as unknown as Mock;
 const URL = 'http://localhost:3000/api/admin/scrutiny';
 
 function get(): Promise<Response> {
@@ -44,6 +46,7 @@ describe('GET /api/admin/scrutiny', () => {
     mockAuditMarkers.mockResolvedValue([]);
     mockDonationMarkers.mockResolvedValue([]);
     mockCampaigns.mockResolvedValue([]);
+    mockUsageReports.mockResolvedValue([]);
   });
 
   it('answers the limits in force, so the panel shows what the platform is actually applying', async () => {
@@ -104,6 +107,22 @@ describe('GET /api/admin/scrutiny', () => {
     const body = await (await get()).json();
 
     expect(body.fundraisersAtActiveLimit).toEqual([{ fundraiserId: 'creator-1', activeCampaigns: 3 }]);
+  });
+
+  it('leaves out a Fundraiser whose first Usage Report has lifted the limit', async () => {
+    mockCampaigns.mockResolvedValue(
+      ['c1', 'c2', 'c3'].map((id) => ({
+        id,
+        creatorId: 'creator-1',
+        lifecycleStatus: 'ACTIVE',
+        deadline: new Date('2026-12-31T00:00:00Z'),
+      }))
+    );
+    mockUsageReports.mockResolvedValue([{ payout: { campaign: { creatorId: 'creator-1' } } }]);
+
+    const body = await (await get()).json();
+
+    expect(body.fundraisersAtActiveLimit).toEqual([]);
   });
 
   it('answers 401 with no session, and 404 for anyone who is not an Admin', async () => {

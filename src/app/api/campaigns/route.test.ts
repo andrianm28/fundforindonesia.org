@@ -609,6 +609,16 @@ describe('POST /api/campaigns', () => {
       expect(mockCreate).not.toHaveBeenCalled();
     });
 
+    it('refuses a deadline more than 12 months away, naming the limit (C12)', async () => {
+      const farAway = new Date(Date.now() + 400 * 86_400_000).toISOString();
+
+      const response = await create({ ...validBody, kind: 'DONATION', deadline: farAway });
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).fieldErrors.deadline[0]).toContain('12 bulan');
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
     it('creates a wakaf Campaign without a deadline, which stays open', async () => {
       // Wakaf needs a Kind Authorisation (prd-compliance 11), which only a
       // Partner Organisation may hold, so this is the linked account's own.
