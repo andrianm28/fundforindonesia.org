@@ -44,8 +44,10 @@ export interface PostOptions {
    *
    * Omitted, and null on every row, wherever nobody records which provider a
    * movement belongs to -- a Manual Contribution arrived off-gateway, and a
-   * completed Payout or a paid Refund drains the Provider Balance without
-   * anybody writing down which provider paid it. Omitting it is a fact about
+   * Payout completed or Refund paid BEFORE ticket 69 drained the Provider
+   * Balance without anybody writing down which provider paid it (new Payout
+   * legs carry Payout.approvedProvider, new Refund legs the Payment's
+   * provider; history is not migrated). Omitting it is a fact about
    * the data, not a gap to be filled in later: providerBalances below returns
    * those rows as their own bucket rather than resolving them, so a per-provider
    * figure can never be quietly wrong by being complete-looking.

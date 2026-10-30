@@ -31,3 +31,4 @@ Kaki jurnal Payout dan Refund belum diberi penanda penyedia, sehingga `providerB
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+- 2026-10-30: dikerjakan (builder, branch `claude/project-thread-dcqhpw-t69`). `payouts.ts`: kaki instructed distempel `provider` yang dibaca saat approve; kaki completed dan failed-reversal memakai `payout.approvedProvider` (null pada Payout lama -> tetap tak ber-penyedia, tidak dimigrasi). `refunds.ts`: kaki freeze, approved, paid, dan reject/fail-reversal memakai `payment.provider`; kaki `refund-reversal-release` (ESCROW_HOLD, tidak menyentuh GATEWAY_CLEARING) sengaja tidak distempel. Tanpa perubahan skema; `reconcileProviderBalances`/route tidak diubah (sudah membaca bucket per penyedia). Tes baru `src/__tests__/integration/provider-stamp-payout-refund-real-db.test.ts` (Postgres sungguhan, dua penyedia). Review independen `sonnet` dan PR belum.

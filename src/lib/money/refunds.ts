@@ -101,7 +101,7 @@ export {
   RefundReasonInvalidError,
 };
 
-type PaymentWithSubjectLinks = Pick<Payment, 'status' | 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox'> & {
+type PaymentWithSubjectLinks = Pick<Payment, 'status' | 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox' | 'provider'> & {
   donation: { campaignId: string; anonymisedAt: Date | null } | null;
   registration: { batch: { tripId: string } } | null;
 };
@@ -403,7 +403,7 @@ export async function createRefund(
   await postTransaction(
     tx,
     refundRequestedLegs({ subject, amount, source, platformFeePortion, providerFeePortion }),
-    { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: refundFreezeTransactionId(refund.id) },
+    { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: refundFreezeTransactionId(refund.id), provider: payment.provider },
   );
 
   return refund;
@@ -596,7 +596,7 @@ export async function approveRefund(
     await postTransaction(
       tx,
       refundApprovedLegs({ subject, amount: refund.amount, source, shortfall }),
-      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-approved-${refund.id}` },
+      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-approved-${refund.id}`, provider: payment.provider },
     );
   });
 
@@ -758,7 +758,7 @@ export async function completeRefund(
     await postTransaction(
       tx,
       refundPaidLegs({ amount: refund.amount }),
-      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-completed-${refund.id}` },
+      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-completed-${refund.id}`, provider: payment.provider },
     );
   });
 
@@ -875,6 +875,7 @@ async function resolveRefund(
       refundId,
       sandbox: sandboxModeOf(refund),
       transactionId: `${action === 'reject' ? 'refund-rejected' : 'refund-failed'}-${refundId}`,
+      provider: refund.payment.provider,
     });
 
     const escrowShare = refundFreezeDebit(entries, refundId, 'ESCROW_HOLD');
