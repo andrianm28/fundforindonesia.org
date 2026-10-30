@@ -70,13 +70,14 @@ import {
   PayoutAlreadyCompletedError,
   CancellationAlreadyPendingError,
   DeadlineRequiredError,
+  MaxDurationExceededError,
   SameAdminLiftError,
   STATUS_LABEL,
   CollectingEntityAlreadySetError,
 } from "./campaign-lifecycle-errors";
-import { missingRequiredDeadline } from "./campaign-kind";
+import { exceedsMaxDuration, missingRequiredDeadline } from "./campaign-kind";
 import { organisationOf, requireOpenable, resolveCollectingEntity } from "./collecting-entity-guard";
-import { activeCampaignCountsByFundraiser, resolveAbuseThresholds } from "./abuse-thresholds";
+import { activeCampaignCountsByFundraiser, fundraisersExemptFromActiveLimit, resolveAbuseThresholds } from "./abuse-thresholds";
 import { judgeCapacity, requireAssignmentFor, type RequestedCapacity } from "./capacity";
 import { effectiveStatus, lockAndLoad } from "./subject-guard";
 import { recordIdentityVerification } from "./identity-verification";
@@ -543,6 +544,7 @@ export async function submitCampaign(
       if (missingRequiredDeadline(campaign)) {
         throw new DeadlineRequiredError(campaign.kind);
       }
+      if (exceedsMaxDuration(campaign, now)) throw new MaxDurationExceededError();
       // A Draft of an organisation's linked account that names no Collecting
       // Entity gets its organisation now, as it would have at creation.
       const collectingEntityId =
@@ -671,13 +673,12 @@ export class TooManyActiveCampaignsError extends CampaignLifecycleError {
  * "batas tiga Campaign Active sebelum Usage Report pertama"), enforced where
  * it can be: on the approval that would open one more.
  *
- * The PRD's escape is the Fundraiser's first Usage Report, and no Usage
- * Report exists in this schema yet (prd-compliance 29), so today the only way
- * a fourth Active Campaign becomes possible is for one of the first three to
- * leave Active on its own -- reach its deadline, be Completed, be Cancelled,
- * be Suspended. That is why the refusal names those and does not name a Usage
- * Report, and why the count is of Active Campaigns rather than of Campaigns
- * ever created. Campaigns already collecting are never touched by this: no
+ * The escape is the Fundraiser's first Usage Report (C12, 2026-10-04): once
+ * one counts (fundraisersExemptFromActiveLimit) the limit no longer applies
+ * to them. Until then the only way a fourth Active Campaign becomes possible
+ * is for one of the first three to leave Active on its own -- reach its
+ * deadline, be Completed, be Cancelled, be Suspended -- and the count is of
+ * Active Campaigns rather than of Campaigns ever created. Campaigns already collecting are never touched by this: no
  * Donation is held, no Campaign is closed, and only the new one waits.
  *
  * A Demo Campaign does not count, and a Campaign past its deadline has
@@ -699,6 +700,8 @@ async function requireWithinActiveCampaignLimit(
   params: { campaignId: string; fundraiserId: string; now: Date }
 ): Promise<void> {
   const { campaignId, fundraiserId, now } = params;
+  // The first Usage Report lifts the limit for good (C12).
+  if ((await fundraisersExemptFromActiveLimit(tx, [fundraiserId])).has(fundraiserId)) return;
   const { activeCampaignsPerFundraiser: limit } = await resolveAbuseThresholds(tx);
   const counts = await activeCampaignCountsByFundraiser(tx, {
     now,
@@ -1229,6 +1232,9 @@ export async function requestCampaignChange(
       }
       if (missingRequiredDeadline({ kind: campaign.kind, deadline: afterDeadline })) {
         throw new DeadlineRequiredError(campaign.kind);
+      }
+      if (deadline !== undefined && exceedsMaxDuration({ kind: campaign.kind, deadline: afterDeadline }, now)) {
+        throw new MaxDurationExceededError();
       }
       const pending = await tx.verificationRequest.count({
         where: { campaignId: campaign.id, outcome: VerificationOutcome.PENDING, kind: VerificationRequestKind.CHANGE },

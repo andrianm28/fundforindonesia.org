@@ -50,6 +50,36 @@ export function missingRequiredDeadline(campaign: {
   return (campaign.deadline === null || campaign.deadline === undefined) && deadlineRequired(campaign.kind);
 }
 
+/** The longest a Campaign may run from now to its deadline, wakaf excepted (C12, 2026-10-04). */
+export const MAX_CAMPAIGN_MONTHS = 12;
+
+/** The latest deadline a Campaign judged at `from` may name: exactly 12 calendar months on. */
+export function latestAllowedDeadline(from: Date): Date {
+  const latest = new Date(from.getTime());
+  const day = latest.getUTCDate();
+  latest.setUTCDate(1);
+  latest.setUTCMonth(latest.getUTCMonth() + MAX_CAMPAIGN_MONTHS);
+  const daysInMonth = new Date(Date.UTC(latest.getUTCFullYear(), latest.getUTCMonth() + 1, 0)).getUTCDate();
+  latest.setUTCDate(Math.min(day, daysInMonth));
+  return latest;
+}
+
+/**
+ * Whether a Campaign's deadline lies beyond 12 months from `from`. Exactly 12
+ * months is allowed. Wakaf is exempt (its endowment may run on), and so is a
+ * Campaign with no deadline: that case is `missingRequiredDeadline`'s.
+ */
+export function exceedsMaxDuration(
+  campaign: { kind: CampaignKind; deadline?: Date | string | null },
+  from: Date
+): boolean {
+  if (campaign.kind === "WAKAF" || campaign.deadline === null || campaign.deadline === undefined) return false;
+  return new Date(campaign.deadline).getTime() > latestAllowedDeadline(from).getTime();
+}
+
+/** The one sentence every refusal of a too-distant deadline shows. */
+export const MAX_DURATION_MESSAGE = `Tenggat Campaign paling lama ${MAX_CAMPAIGN_MONTHS} bulan dari sekarang; hanya Campaign wakaf yang dikecualikan.`;
+
 /** The one sentence every refusal of a missing deadline shows. */
 export function deadlineRequiredMessage(kind: CampaignKind): string {
   return `Tenggat wajib diisi untuk Campaign ber-Kind ${KIND_LABEL[kind]}.`;

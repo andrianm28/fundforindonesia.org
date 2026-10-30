@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { Assignment } from '@/generated/prisma/client';
 import { withHiddenAssignmentCheck } from '@/lib/withAssignmentCheck';
 import { prisma } from '@/lib/prisma';
-import { activeCampaignCountsByFundraiser, resolveAbuseThresholds } from '@/lib/abuse-thresholds';
+import { activeCampaignCountsByFundraiser, fundraisersExemptFromActiveLimit, resolveAbuseThresholds } from '@/lib/abuse-thresholds';
 
 /**
  * How many rows each marker list carries. This is a screen an Admin opens, not
@@ -49,6 +49,12 @@ export const GET = withHiddenAssignmentCheck(Assignment.ADMIN, async () => {
     activeCampaignCountsByFundraiser(prisma, { now }),
   ]);
 
+  // A Fundraiser past their first Usage Report is no longer limited, so they are not "at" it.
+  const exempt = await fundraisersExemptFromActiveLimit(
+    prisma,
+    [...activeCounts.entries()].filter(([, n]) => n >= thresholds.activeCampaignsPerFundraiser).map(([id]) => id)
+  );
+
   return NextResponse.json({
     thresholds,
     // Said out loud rather than left to be discovered: each list is the most
@@ -75,7 +81,7 @@ export const GET = withHiddenAssignmentCheck(Assignment.ADMIN, async () => {
       flaggedAt: marker.flaggedAt,
     })),
     fundraisersAtActiveLimit: [...activeCounts.entries()]
-      .filter(([, activeCampaigns]) => activeCampaigns >= thresholds.activeCampaignsPerFundraiser)
+      .filter(([id, activeCampaigns]) => !exempt.has(id) && activeCampaigns >= thresholds.activeCampaignsPerFundraiser)
       .map(([fundraiserId, activeCampaigns]) => ({ fundraiserId, activeCampaigns }))
       .sort((a, b) => b.activeCampaigns - a.activeCampaigns || a.fundraiserId.localeCompare(b.fundraiserId)),
   });

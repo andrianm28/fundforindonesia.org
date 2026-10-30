@@ -160,6 +160,15 @@ export type CampaignFlagRow = {
 };
 
 /** Only what the lifecycle module reads of a Payout: its Campaign and status. */
+/** A Usage Report with the owner of the Campaign its Payout belongs to (C12); read-only here. */
+export type UsageReportRow = {
+  id: string;
+  /** The Fundraiser owning the Payout's Campaign; null for a Volunteer Trip payout. */
+  creatorId: string | null;
+  sandbox: boolean;
+  disputedAt: Date | null;
+};
+
 export type PayoutRow = {
   id: string;
   campaignId: string | null;
@@ -637,6 +646,8 @@ export function makeCampaignDb(
     abuseThresholds?: { kind: string; value: number; setAt: string }[];
     /** Read-only, so kept outside the transactional copy; defaults to the Fundraiser of campaignRow(). */
     users?: UserRow[];
+    /** Usage Reports (C12), read-only; defaults to none. */
+    usageReports?: UsageReportRow[];
     /** Bank Accounts (ticket 16); defaults to none. */
     bankAccounts?: BankAccountRow[];
     /** BankAccountVerificationRequest rows (ticket 16); defaults to none. */
@@ -1204,6 +1215,14 @@ export function makeCampaignDb(
           const row = users.find((u) => matches(u, where));
           return row ? { ...row } : null;
         },
+      },
+      usageReport: {
+        // Answers only the shape fundraisersExemptFromActiveLimit asks.
+        findMany: async ({ where }: { where: { sandbox: boolean; disputedAt: null; payout: { campaign: { creatorId: { in: string[] } } } } }) =>
+          (seed.usageReports ?? [])
+            .filter((r) => r.sandbox === where.sandbox && r.disputedAt === where.disputedAt)
+            .filter((r) => r.creatorId !== null && where.payout.campaign.creatorId.in.includes(r.creatorId))
+            .map((r) => ({ payout: { campaign: { creatorId: r.creatorId } } })),
       },
       payout: {
         count: async ({ where }: { where: Where }) =>

@@ -193,3 +193,37 @@ export async function activeCampaignCountsByFundraiser(
   }
   return counts;
 }
+
+/**
+ * Which of these Fundraisers have passed their first Usage Report, and so are
+ * no longer held to the Active Campaign limit (C12, owner 2026-10-04).
+ *
+ * "First Usage Report" is read as the safest reading CONTEXT.md allows: a
+ * Usage Report is public the moment it is sent and has no approval step, so
+ * "submitted" is the only stage there is -- but a report an Admin has marked
+ * "dipertanyakan" does not count, and neither does one born in the Beta
+ * sandbox (its money is fiction). A Volunteer Trip payout carries no
+ * Campaign, so its report never lifts the limit.
+ *
+ * Empty `fundraiserIds` reads nothing.
+ */
+export async function fundraisersExemptFromActiveLimit(
+  db: Pick<PrismaClient, "usageReport">,
+  fundraiserIds: readonly string[]
+): Promise<Set<string>> {
+  if (fundraiserIds.length === 0) return new Set();
+  const reports = await db.usageReport.findMany({
+    where: {
+      sandbox: false,
+      disputedAt: null,
+      payout: { campaign: { creatorId: { in: [...fundraiserIds] } } },
+    },
+    select: { payout: { select: { campaign: { select: { creatorId: true } } } } },
+  });
+  const exempt = new Set<string>();
+  for (const report of reports) {
+    const creatorId = report.payout.campaign?.creatorId;
+    if (creatorId) exempt.add(creatorId);
+  }
+  return exempt;
+}
