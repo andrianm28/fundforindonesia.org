@@ -94,20 +94,18 @@ export async function POST(
       select: { id: true, creatorId: true, lifecycleStatus: true },
     });
 
-    // A missing slug and an unapproved Campaign of someone else answer alike
-    // (as GET does), so a signed-in stranger cannot tell a Draft's slug from
-    // no slug at all.
-    const isOwner = campaign?.creatorId === session.user.id;
-    if (!campaign || (!isPubliclyViewable(campaign.lifecycleStatus) && !isOwner)) {
+    if (!campaign) {
       return campaignNotFound();
     }
 
     // Only the Campaign's Fundraiser posts its updates (CONTEXT.md, Capacity).
     const refusal = refuseUnlessFundraiser({ kind: 'campaign', ownerId: campaign.creatorId }, session.user);
-    if (refusal) return refusal;
 
     // Kabar Terbaru is a public record: not before the Campaign is approved.
+    // Someone else's unapproved Campaign answers like a missing slug (as GET
+    // does), so a signed-in stranger cannot tell a Draft's slug from none.
     if (!isPubliclyViewable(campaign.lifecycleStatus)) {
+      if (refusal) return campaignNotFound();
       return NextResponse.json(
         {
           code: 'CAMPAIGN_NOT_PUBLIC',
@@ -116,6 +114,7 @@ export async function POST(
         { status: 409 }
       );
     }
+    if (refusal) return refusal;
 
     // Validate request body
     const body = await request.json();
