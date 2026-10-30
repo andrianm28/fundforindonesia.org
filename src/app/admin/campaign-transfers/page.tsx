@@ -134,7 +134,7 @@ export default async function AdminCampaignTransfersPage() {
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{formatRupiah(t.amount)}</td>
                       <td className="px-6 py-4 text-sm text-gray-500 max-w-xs">{t.reason}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{t.requestedBy.name}</td>
+                      <td className="px-6 py-4 text-sm text-gray-900">{t.requestedBy.name ?? "(tanpa nama)"}</td>
                       <td className="px-6 py-4 text-sm text-gray-500">{formatDate(t.createdAt)}</td>
                       <td className="px-6 py-4 min-w-64">
                         <AdminCampaignTransferDecisionForm
@@ -186,7 +186,7 @@ export default async function AdminCampaignTransfersPage() {
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{formatRupiah(t.amount)}</td>
                       <td className="px-6 py-4 text-sm text-gray-900">{STATUS_LABEL[t.status] ?? t.status}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{t.decidedBy?.name}</td>
+                      <td className="px-6 py-4 text-sm text-gray-900">{t.decidedBy?.name ?? "(tanpa nama)"}</td>
                       <td className="px-6 py-4 text-sm text-gray-500 max-w-xs">{t.decisionReason}</td>
                       <td className="px-6 py-4 text-sm text-gray-500">{t.decidedAt ? formatDate(t.decidedAt) : ''}</td>
                     </tr>
