@@ -1,6 +1,6 @@
 # 73: F5 fundraiser-donation-list
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** none
 
@@ -29,3 +29,4 @@ Fundraiser belum punya daftar donasi untuk Campaign-nya.
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+- 2026-10-30: dikerjakan di `claude/project-thread-iou1om-daftar-donasi`: GET `/api/user/campaigns/[slug]/donations` (pemilik saja, non-pemilik 404) + layar `/akun/kampanye-saya/[slug]/donasi`. Tautan dari halaman kelola belum ada (file itu sedang diubah builder lain).

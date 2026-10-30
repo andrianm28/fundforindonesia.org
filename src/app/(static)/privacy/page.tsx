@@ -87,8 +87,11 @@ export default function PrivacyPage() {
             </li>
           </ul>
           <p className="mt-2">
-            Kami tidak mengumpulkan dan tidak menyimpan nomor atau salinan dokumen identitas pengguna di
-            Platform. Pemeriksaan identitas, bila diperlukan, dilakukan di luar Platform.
+            <strong>Dokumen verifikasi:</strong> Penggalang Dana dapat mengunggah dokumen yang diminta untuk
+            verifikasi Kampanye (misalnya kartu identitas, akta, atau rencana anggaran), dan Verifier dapat mencatat dokumen
+            legal Lembaga Mitra. Dokumen ini tidak pernah ditampilkan publik. Berkasnya disimpan di penyimpanan
+            privat server, bukan di folder publik, dan hanya bisa dibuka setelah masuk oleh pengunggahnya,
+            Penggalang Dana Kampanye terkait, Verifier yang menangani verifikasinya, dan Admin.
           </p>
         </Section>
 
@@ -212,7 +215,9 @@ export default function PrivacyPage() {
             sesuai kewajiban pembukuan dan hukum. Bila Anda meminta penghapusan akun atau data, catatan
             keuangan tetap disimpan; kami dapat menganonimkan data pribadi pada catatan tersebut (nama, email,
             telepon, dan tautan ke akun) tanpa mengubah nominal atau jurnalnya. Kampanye yang pernah tayang
-            tidak dihapus dari arsip Platform.
+            tidak dihapus dari arsip Platform. Dokumen verifikasi tidak dihapus otomatis, termasuk dokumen
+            pengajuan yang ditolak, karena menjadi bukti pemeriksaan; permintaan penghapusan dapat diajukan
+            lewat kontak privasi di bawah dan kami tanggapi sesuai kewajiban hukum yang berlaku.
           </p>
         </Section>
 

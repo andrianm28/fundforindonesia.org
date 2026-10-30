@@ -131,3 +131,125 @@ describe('field encryption', () => {
     );
   });
 });
+
+describe('rotation: retired keys kept for reading', () => {
+  const oldEnc = randomBytes(32).toString('base64');
+  const oldHmac = randomBytes(32).toString('base64');
+  const rotated = (overrides: Record<string, string | undefined> = {}) =>
+    env({
+      FIELD_ENCRYPTION_PREVIOUS_KEYS: `enc-old:${oldEnc}`,
+      FIELD_HMAC_PREVIOUS_KEYS: `hmac-old:${oldHmac}`,
+      ...overrides,
+    });
+
+  // The env of the deployment before the rotation: what the old key sealed.
+  const before = () =>
+    loadFieldKeys({
+      FIELD_ENCRYPTION_KEY: oldEnc,
+      FIELD_ENCRYPTION_KEY_ID: 'enc-old',
+      FIELD_HMAC_KEY: oldHmac,
+      FIELD_HMAC_KEY_ID: 'hmac-old',
+    })!;
+
+  it('decrypts a value sealed under a retired key, and encrypts under the current one', () => {
+    const old = before().encrypt('User.phone', '+6281234567890');
+    const keys = loadFieldKeys(rotated())!;
+
+    expect(old.keyId).toBe('enc-old');
+    expect(keys.decrypt('User.phone', old)).toBe('+6281234567890');
+    expect(keys.encrypt('User.phone', 'x').keyId).toBe('enc-test-1');
+  });
+
+  it('still refuses a key id that is neither current nor retired', () => {
+    const keys = loadFieldKeys(rotated())!;
+    const sealed = keys.encrypt('User.phone', 'x');
+
+    expect(() => keys.decrypt('User.phone', { ...sealed, keyId: 'enc-unknown' })).toThrow(/enc-unknown/);
+  });
+
+  it('offers a lookup per HMAC key, the current one first, and writes only the current one', () => {
+    const keys = loadFieldKeys(rotated())!;
+    const lookups = keys.emailLookups('Andi@Email.com');
+
+    expect(lookups).toHaveLength(2);
+    expect(lookups[0]).toEqual(keys.emailLookup('andi@email.com'));
+    expect(lookups[0].keyId).toBe('hmac-test-1');
+    expect(lookups[1]).toEqual(before().emailLookup('andi@email.com'));
+  });
+
+  it('has exactly one lookup when nothing is retired', () => {
+    const keys = loadFieldKeys(env())!;
+
+    expect(keys.emailLookups('a@b.co')).toEqual([keys.emailLookup('a@b.co')]);
+  });
+
+  it('accepts several retired keys, spaces and a trailing comma', () => {
+    const k2 = randomBytes(32).toString('base64');
+    const keys = loadFieldKeys(
+      env({ FIELD_ENCRYPTION_PREVIOUS_KEYS: ` enc-old:${oldEnc} , enc-older:${k2}, ` }),
+    )!;
+    const sealed = loadFieldKeys({
+      FIELD_ENCRYPTION_KEY: k2,
+      FIELD_ENCRYPTION_KEY_ID: 'enc-older',
+      FIELD_HMAC_KEY: oldHmac,
+      FIELD_HMAC_KEY_ID: 'h',
+    })!.encrypt('User.phone', 'p');
+
+    expect(keys.decrypt('User.phone', sealed)).toBe('p');
+  });
+
+  it('refuses a retired key that is not 32 bytes, naming the variable and not the value', () => {
+    const short = randomBytes(16).toString('base64');
+    let message = '';
+    try {
+      loadFieldKeys(env({ FIELD_HMAC_PREVIOUS_KEYS: `hmac-old:${short}` }));
+    } catch (e) {
+      message = (e as Error).message;
+    }
+
+    expect(message).toMatch(/FIELD_HMAC_PREVIOUS_KEYS.*32 bytes/);
+    expect(message).not.toContain(short);
+  });
+
+  it('refuses a malformed entry without echoing it', () => {
+    const bad = 'no-colon-here-secretvalue';
+    let message = '';
+    try {
+      loadFieldKeys(env({ FIELD_ENCRYPTION_PREVIOUS_KEYS: bad }));
+    } catch (e) {
+      message = (e as Error).message;
+    }
+
+    expect(message).toMatch(/FIELD_ENCRYPTION_PREVIOUS_KEYS.*id:base64key/);
+    expect(message).not.toContain(bad);
+  });
+
+  it('refuses ids that repeat, within a list or against the current id', () => {
+    expect(() => loadFieldKeys(rotated({ FIELD_ENCRYPTION_PREVIOUS_KEYS: `enc-test-1:${oldEnc}` }))).toThrow(
+      /FIELD_ENCRYPTION_PREVIOUS_KEYS.*unique/,
+    );
+    const k2 = randomBytes(32).toString('base64');
+    expect(() =>
+      loadFieldKeys(rotated({ FIELD_HMAC_PREVIOUS_KEYS: `h:${oldHmac},h:${k2}` })),
+    ).toThrow(/FIELD_HMAC_PREVIOUS_KEYS.*unique/);
+  });
+
+  it('refuses an encryption id that equals an HMAC id, in either direction', () => {
+    expect(() => loadFieldKeys(rotated({ FIELD_ENCRYPTION_PREVIOUS_KEYS: `hmac-old:${oldEnc}` }))).toThrow(
+      /must differ/,
+    );
+    expect(() => loadFieldKeys(rotated({ FIELD_HMAC_PREVIOUS_KEYS: `enc-test-1:${oldHmac}` }))).toThrow(
+      /must differ/,
+    );
+  });
+
+  it('refuses a retired key that is also used for the other job', () => {
+    expect(() => loadFieldKeys(rotated({ FIELD_HMAC_PREVIOUS_KEYS: `hmac-old:${oldEnc}` }))).toThrow(/separate/);
+  });
+
+  it('refuses retired keys with no current keys', () => {
+    expect(() =>
+      loadFieldKeys({ FIELD_ENCRYPTION_PREVIOUS_KEYS: `enc-old:${oldEnc}` }),
+    ).toThrow(/FIELD_ENCRYPTION_PREVIOUS_KEYS/);
+  });
+});

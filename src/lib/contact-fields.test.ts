@@ -1,8 +1,10 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { randomBytes } from 'node:crypto';
 import { loadFieldKeys } from './field-encryption';
 import {
   SELECT_USER_EMAIL,
+  currentEmailHmac,
   lookupInquiryContactEmail,
   lookupUserEmail,
   readBankAccountNumber,
@@ -143,16 +145,64 @@ describe('reading a contact detail back', () => {
 describe('looking a contact detail up', () => {
   it('filters on the HMAC and its key id, so no row is ever decrypted to be compared', () => {
     expect(lookupUserEmail('Andi@Email.com')).toEqual({
-      emailHmac: keys.emailLookup('andi@email.com').hmac,
-      emailHmacKeyId: keys.emailLookup('andi@email.com').keyId,
+      OR: [
+        {
+          emailHmac: keys.emailLookup('andi@email.com').hmac,
+          emailHmacKeyId: keys.emailLookup('andi@email.com').keyId,
+        },
+      ],
     });
   });
 
   it('finds the same Donor whichever address they type', () => {
-    expect(lookupUserEmail('ANDI@EMAIL.COM').emailHmac).toBe(lookupUserEmail('andi@email.com').emailHmac);
-    expect(lookupInquiryContactEmail('budi@sponsor.com').contactEmailHmac).toBe(
+    expect(lookupUserEmail('ANDI@EMAIL.COM')).toEqual(lookupUserEmail('andi@email.com'));
+    expect(lookupInquiryContactEmail('budi@sponsor.com').OR[0].contactEmailHmac).toBe(
       keys.emailLookup('budi@sponsor.com').hmac,
     );
+  });
+
+  it('names the current HMAC alone for a stable subject such as a rate limit', () => {
+    expect(currentEmailHmac('Andi@Email.com')).toBe(keys.emailLookup('andi@email.com').hmac);
+  });
+
+  describe('after a rotation', () => {
+    const saved = { ...process.env };
+    afterEach(() => {
+      process.env = { ...saved };
+    });
+
+    function rotate() {
+      const before = sealUserEmail('andi@email.com');
+      const sealedPhone = sealUserPhone('0812');
+      const oldEnc = process.env.FIELD_ENCRYPTION_KEY!;
+      const oldHmac = process.env.FIELD_HMAC_KEY!;
+      process.env.FIELD_ENCRYPTION_PREVIOUS_KEYS = `${process.env.FIELD_ENCRYPTION_KEY_ID}:${oldEnc}`;
+      process.env.FIELD_HMAC_PREVIOUS_KEYS = `${process.env.FIELD_HMAC_KEY_ID}:${oldHmac}`;
+      process.env.FIELD_ENCRYPTION_KEY = randomBytes(32).toString('base64');
+      process.env.FIELD_ENCRYPTION_KEY_ID = 'enc-test-2';
+      process.env.FIELD_HMAC_KEY = randomBytes(32).toString('base64');
+      process.env.FIELD_HMAC_KEY_ID = 'hmac-test-2';
+      return { before, sealedPhone };
+    }
+
+    it('still reads a row sealed before, and writes new rows under the current keys', () => {
+      const { before, sealedPhone } = rotate();
+
+      expect(readUserEmail(before)).toBe('andi@email.com');
+      expect(readUserPhone(sealedPhone)).toBe('0812');
+      const fresh = sealUserEmail('andi@email.com');
+      expect(fresh.emailKeyId).toBe('enc-test-2');
+      expect(fresh.emailHmacKeyId).toBe('hmac-test-2');
+    });
+
+    it('filters on every HMAC key, so a row hashed before is still found', () => {
+      const { before } = rotate();
+      const { OR } = lookupUserEmail('Andi@Email.com');
+
+      expect(OR).toHaveLength(2);
+      expect(OR).toContainEqual({ emailHmac: before.emailHmac, emailHmacKeyId: before.emailHmacKeyId });
+      expect(OR[0].emailHmacKeyId).toBe('hmac-test-2');
+    });
   });
 
   it('asks for exactly the two columns a reader needs and nothing else', () => {

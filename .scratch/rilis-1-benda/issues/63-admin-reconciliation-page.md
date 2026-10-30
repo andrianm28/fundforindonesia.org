@@ -1,6 +1,6 @@
 # 63: A-2 admin-reconciliation-page
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none (API `/api/admin/reconcile` dan `/api/admin/provider-withdrawals` sudah ada)
 
@@ -34,3 +34,4 @@ Gerbang F2 menuntut rekonsiliasi dari layar Admin tanpa psql. Backend `reconcile
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+- 2026-10-29: merged ke `main` lewat #286 (squash 5a1837d): halaman Admin Rekonsiliasi plus riwayat buka nomor rekening Payout. Live setelah owner men-deploy main.

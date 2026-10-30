@@ -106,8 +106,12 @@ type SealedEmail<L extends string, LK extends string, C extends string, K extend
   [P in L | LK | C | K]: string;
 };
 
-/** The same two lookup columns, for a filter rather than a write. */
-type Lookup<L extends string, LK extends string> = { [P in L | LK]: string };
+/**
+ * The same two lookup columns, for a filter rather than a write: one pair per
+ * configured HMAC key (current first), so a row hashed before a rotation is
+ * still found. Spread into or used as a Prisma `where`.
+ */
+type Lookup<L extends string, LK extends string> = { OR: Array<{ [P in L | LK]: string }> };
 
 /**
  * The keys, or a failure.
@@ -152,9 +156,16 @@ function read(field: ContactField, row: Data): string | null {
 }
 
 function lookup(field: ContactField, email: string): Data {
-  const keys = requireFieldKeys();
-  const found = keys.emailLookup(email);
-  return { [field.lookup!]: found.hmac, [field.lookupKeyId!]: found.keyId };
+  const found = requireFieldKeys().emailLookups(email);
+  return { OR: found.map((l) => ({ [field.lookup!]: l.hmac, [field.lookupKeyId!]: l.keyId })) };
+}
+
+/**
+ * The HMAC under the current key alone, for a value that must be one stable
+ * string (a rate-limit subject), not a filter. A rotation changes it once.
+ */
+export function currentEmailHmac(email: string): string {
+  return requireFieldKeys().emailLookup(email).hmac;
 }
 
 /** The additional authenticated data a ciphertext is bound to. Never changes. */

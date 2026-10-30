@@ -107,8 +107,9 @@ describe("GET /api/admin/users", () => {
     await GET(createRequest("http://localhost:3000/api/admin/users?search=Sari@Test.com"));
 
     const where = mockFindMany.mock.calls[0][0].where;
-    expect(Object.keys(where).sort()).toEqual(["emailHmac", "emailHmacKeyId"]);
-    expect(where.emailHmac).toMatch(/^[0-9a-f]{64}$/);
+    expect(Object.keys(where)).toEqual(["OR"]);
+    expect(Object.keys(where.OR[0]).sort()).toEqual(["emailHmac", "emailHmacKeyId"]);
+    expect(where.OR[0].emailHmac).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("searches names, not addresses, for anything that is not an address", async () => {

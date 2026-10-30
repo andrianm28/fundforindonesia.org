@@ -1,5 +1,5 @@
 import { Assignment, CampaignStatus } from "@/generated/prisma/client";
-import { hasAssignment } from "./withAssignmentCheck";
+import { hasAssignment } from "./assignment";
 
 /**
  * Who may open a Campaign's page (CONTEXT.md, Campaign Status). A Campaign
