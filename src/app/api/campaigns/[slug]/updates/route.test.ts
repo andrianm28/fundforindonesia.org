@@ -13,6 +13,11 @@ vi.mock('@/lib/auth', () => ({
   getServerSession: vi.fn(),
 }));
 
+vi.mock('@/lib/campaign-update-notify', () => ({
+  notifyDonorsOfCampaignUpdate: vi.fn().mockResolvedValue({ recipients: 0, sent: 0 }),
+}));
+
+import { notifyDonorsOfCampaignUpdate } from '@/lib/campaign-update-notify';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 
@@ -47,6 +52,7 @@ describe('POST /api/campaigns/[slug]/updates', () => {
     const response = await post();
     expect(response.status).toBe(201);
     expect(mockUpdateCreate).toHaveBeenCalledOnce();
+    expect(notifyDonorsOfCampaignUpdate).toHaveBeenCalledWith(prisma, { updateId: 'update-1' });
   });
 
   it('refuses anyone else with 403 NOT_AUTHORIZED and writes nothing', async () => {
@@ -58,6 +64,7 @@ describe('POST /api/campaigns/[slug]/updates', () => {
       code: 'NOT_AUTHORIZED',
     });
     expect(mockUpdateCreate).not.toHaveBeenCalled();
+    expect(notifyDonorsOfCampaignUpdate).not.toHaveBeenCalled();
   });
 
   it('accepts an image the upload route hosted (a relative /uploads path)', async () => {

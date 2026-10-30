@@ -1,6 +1,6 @@
 # 71: N-2 campaign-update-email-to-donors
 
-**Status:** ready-for-agent
+**Status:** awaiting-merge
 
 **Blocked by:** 70 (F1)
 
@@ -30,3 +30,4 @@ Donor yang pernah berdonasi seharusnya menerima kabar baru Campaign. Email donor
 ## Comments
 
 - 2026-10-04: ditulis dari `.scratch/percepatan-full-rilis/plan.md` (Track B). Bagian rencana yang terpotong tidak ditebak.
+- 2026-10-30: email ke Donor (confirmed, non-sandbox, dedupe per alamat via HMAC, anonim tetap menerima tanpa nama) dikirim best-effort setelah POST kabar. BELUM: berhenti berlangganan (butuh model skema penyimpanan opt-out; slot skema belum ada) dan review privasi independen di PR.
