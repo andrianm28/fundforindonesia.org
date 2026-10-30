@@ -64,16 +64,27 @@ function exploreCategorySlug(pathname: string): string | null {
   }
 }
 
+// A slow or saturated database must not hold every /explore request in the
+// proxy: past this, the page gets the request, as when the lookup throws.
+const LOOKUP_TIMEOUT_MS = 1000;
+
 async function categoryExists(slug: string): Promise<boolean> {
-  if (!slug) return false;
+  if (!slug || slug.includes("\0")) return false; // Postgres refuses a NUL
   if (slug === "all") return true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const { prisma } = await import("@/lib/prisma");
-    return !!(await prisma.category.findUnique({ where: { slug }, select: { id: true } }));
+    const lookup = prisma.category.findUnique({ where: { slug }, select: { id: true } }).then((row) => !!row);
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(true), LOOKUP_TIMEOUT_MS);
+    });
+    return await Promise.race([lookup, timeout]);
   } catch {
     // The lookup is only an early status: if the database is unreachable the
     // page gets the request and fails or 404s the way it always did.
     return true;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

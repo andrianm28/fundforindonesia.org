@@ -14,13 +14,14 @@ vi.mock('next-auth/middleware', () => ({
   ) => Object.assign(middleware, { withAuthOptions: options }),
 }));
 
-const holder = vi.hoisted(() => ({ categories: new Set<string>(), fail: false }));
+const holder = vi.hoisted(() => ({ categories: new Set<string>(), fail: false, hang: false }));
 
 // The /explore/<category> answer reads the Category table; stand in for it.
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     category: {
       findUnique: async ({ where }: { where: { slug: string } }) => {
+        if (holder.hang) return new Promise(() => {});
         if (holder.fail) throw new Error('db down');
         return holder.categories.has(where.slug) ? { id: where.slug } : null;
       },
@@ -198,6 +199,29 @@ describe('proxy', () => {
       },
     );
 
+    it('rewrites an unknown Category to /_not-found, the page the panels also show', async () => {
+      const res = await get('/explore/zakat');
+      expect(res.headers.get('x-middleware-rewrite')).toBe('http://localhost:3000/_not-found');
+    });
+
+    it('answers 404 for a slug carrying a NUL, which the database would refuse', async () => {
+      const res = await get('/explore/a%00b');
+      expect(res.status).toBe(404);
+    });
+
+    it('falls through to the page when the lookup hangs past the time limit', async () => {
+      vi.useFakeTimers();
+      try {
+        holder.hang = true;
+        const pending = get('/explore/kesehatan');
+        await vi.advanceTimersByTimeAsync(1500);
+        expect((await pending).headers.get('x-middleware-next')).toBe('1');
+      } finally {
+        holder.hang = false;
+        vi.useRealTimers();
+      }
+    });
+
     it('lets a Category that exists through to the page', async () => {
       const res = await get('/explore/kesehatan');
       expect(res.status).toBe(200);
@@ -219,6 +243,20 @@ describe('proxy', () => {
       holder.fail = true;
       const res = await get('/explore/kesehatan');
       expect(res.headers.get('x-middleware-next')).toBe('1');
+    });
+  });
+
+  describe('the default export still sends guarded paths through the guard', () => {
+    const call = (path: string, token: object | null) => {
+      const req = new NextRequest(`http://localhost:3000${path}`) as NextRequest & { nextauth: { token: object | null } };
+      req.nextauth = { token };
+      return (proxy as unknown as (req: NextRequest, event: unknown) => Response)(req, {});
+    };
+
+    it.each(['/admin', '/moderasi', '/donasi-saya'])('%s reaches authProxy: a token without the assignment gets 404 or passes', (path) => {
+      const res = call(path, { role: 'DONOR', assignments: [] });
+      if (path === '/donasi-saya') expect(res.headers.get('x-middleware-next')).toBe('1');
+      else expect(res.status).toBe(404);
     });
   });
 });
