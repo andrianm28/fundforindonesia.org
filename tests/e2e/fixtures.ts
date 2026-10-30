@@ -6,6 +6,7 @@
  */
 export const ACTIVE_SLUG = 'e2e-qris-aktif';
 export const DRAFT_SLUG = 'e2e-draft-tersembunyi';
+export const CATEGORY_SLUG = 'e2e-kategori';
 export const RECEIPT_TOKEN = 'e2e-receipt-token-0001';
 export const RECEIPT_AMOUNT = 75_000;
 

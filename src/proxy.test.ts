@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { unstable_doesMiddlewareMatch } from 'next/experimental/testing/server';
 
@@ -14,9 +14,24 @@ vi.mock('next-auth/middleware', () => ({
   ) => Object.assign(middleware, { withAuthOptions: options }),
 }));
 
-import proxy from './proxy';
+const holder = vi.hoisted(() => ({ categories: new Set<string>(), fail: false, hang: false }));
 
-const withAuthOptions = (proxy as unknown as {
+// The /explore/<category> answer reads the Category table; stand in for it.
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    category: {
+      findUnique: async ({ where }: { where: { slug: string } }) => {
+        if (holder.hang) return new Promise(() => {});
+        if (holder.fail) throw new Error('db down');
+        return holder.categories.has(where.slug) ? { id: where.slug } : null;
+      },
+    },
+  },
+}));
+
+import proxy, { authProxy } from './proxy';
+
+const withAuthOptions = (authProxy as unknown as {
   withAuthOptions: { callbacks: { authorized: (args: { token: unknown }) => boolean }; pages: { signIn: string } };
 }).withAuthOptions;
 
@@ -59,7 +74,7 @@ describe('proxy', () => {
   });
 
   describe('the matcher pins exactly the protected prefixes', () => {
-    it('lists exactly the six guarded prefixes, nothing more or less', async () => {
+    it('lists exactly the six guarded prefixes plus the one status-only /explore/:category entry', async () => {
       const { config } = await import('./proxy');
       expect(config.matcher).toEqual([
         '/donasi-saya/:path*',
@@ -69,6 +84,8 @@ describe('proxy', () => {
         '/campaign/create/:path*',
         '/admin/:path*',
         '/moderasi/:path*',
+        // Not a guard: answers 404 for an unknown Category (see below).
+        '/explore/:category',
       ]);
     });
 
@@ -111,7 +128,7 @@ describe('proxy', () => {
       expect(withAuthOptions.pages.signIn).toBe('/login');
     });
 
-    it.each(['/', '/login', '/register', '/explore/all', '/campaign/abc-123', '/search', '/faq', '/zakat'])(
+    it.each(['/', '/login', '/register', '/explore/all/x', '/campaign/abc-123', '/search', '/faq', '/zakat'])(
       'a public path like %s never reaches the guard: the matcher does not cover it',
       async (path) => {
         const { config } = await import('./proxy');
@@ -159,6 +176,87 @@ describe('proxy', () => {
 
     it('does not let the ADMIN assignment stand in for VERIFIER', () => {
       expectNotFound(run('/moderasi', 'ADMIN', ['ADMIN']));
+    });
+  });
+
+  describe('an unknown Category under /explore answers HTTP 404', () => {
+    // notFound() in the page runs behind the root loading.tsx, after the
+    // document has begun streaming as 200 (rilis-1-benda/96), so the status
+    // is decided here, as for the panels above.
+    const get = (path: string) =>
+      (proxy as unknown as (req: NextRequest) => Promise<Response>)(new NextRequest(`http://localhost:3000${path}`));
+
+    beforeEach(() => {
+      holder.categories = new Set(['kesehatan']);
+      holder.fail = false;
+    });
+
+    it.each(['/explore/zakat', '/explore/kategori-ngawur-xyz', '/explore/%E0%A4%A'])(
+      'answers 404 for %s',
+      async (path) => {
+        const res = await get(path);
+        expect(res.status).toBe(404);
+      },
+    );
+
+    it('rewrites an unknown Category to /_not-found, the page the panels also show', async () => {
+      const res = await get('/explore/zakat');
+      expect(res.headers.get('x-middleware-rewrite')).toBe('http://localhost:3000/_not-found');
+    });
+
+    it('answers 404 for a slug carrying a NUL, which the database would refuse', async () => {
+      const res = await get('/explore/a%00b');
+      expect(res.status).toBe(404);
+    });
+
+    it('falls through to the page when the lookup hangs past the time limit', async () => {
+      vi.useFakeTimers();
+      try {
+        holder.hang = true;
+        const pending = get('/explore/kesehatan');
+        await vi.advanceTimersByTimeAsync(1500);
+        expect((await pending).headers.get('x-middleware-next')).toBe('1');
+      } finally {
+        holder.hang = false;
+        vi.useRealTimers();
+      }
+    });
+
+    it('lets a Category that exists through to the page', async () => {
+      const res = await get('/explore/kesehatan');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-middleware-next')).toBe('1');
+    });
+
+    it('never asks for sign-in: it is a public path', async () => {
+      const res = await get('/explore/zakat');
+      expect(res.headers.get('location')).toBeNull();
+    });
+
+    it('leaves /explore/all, a real page of its own, alone', async () => {
+      holder.fail = true;
+      const res = await get('/explore/all');
+      expect(res.headers.get('x-middleware-next')).toBe('1');
+    });
+
+    it('falls through to the page when the lookup fails, which then renders its own 404 or error', async () => {
+      holder.fail = true;
+      const res = await get('/explore/kesehatan');
+      expect(res.headers.get('x-middleware-next')).toBe('1');
+    });
+  });
+
+  describe('the default export still sends guarded paths through the guard', () => {
+    const call = (path: string, token: object | null) => {
+      const req = new NextRequest(`http://localhost:3000${path}`) as NextRequest & { nextauth: { token: object | null } };
+      req.nextauth = { token };
+      return (proxy as unknown as (req: NextRequest, event: unknown) => Response)(req, {});
+    };
+
+    it.each(['/admin', '/moderasi', '/donasi-saya'])('%s reaches authProxy: a token without the assignment gets 404 or passes', (path) => {
+      const res = call(path, { role: 'DONOR', assignments: [] });
+      if (path === '/donasi-saya') expect(res.headers.get('x-middleware-next')).toBe('1');
+      else expect(res.status).toBe(404);
     });
   });
 });
