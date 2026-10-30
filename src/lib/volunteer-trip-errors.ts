@@ -259,6 +259,21 @@ export class AlreadyRegisteredError extends TripError {
   }
 }
 
+/**
+ * The Volunteer already holds the most live (unexpired, unpaid) seat holds an
+ * account may keep across all Batches (`MAX_LIVE_HOLDS_PER_VOLUNTEER`). 400
+ * through `domainErrorToHttp`. Ticket rilis-1-benda/82.
+ */
+export class HoldLimitReachedError extends TripError {
+  readonly code = 'HOLD_LIMIT_REACHED';
+  constructor() {
+    super(
+      'Anda masih memiliki beberapa penahanan kursi yang belum dibayar. Selesaikan pembayarannya atau batalkan salah satunya sebelum menahan kursi lain.',
+    );
+    this.name = 'HoldLimitReachedError';
+  }
+}
+
 /** No Registration has this id. 404 through `domainErrorToHttp`. */
 export class RegistrationNotFoundError extends TripError {
   readonly code = 'REGISTRATION_NOT_FOUND';

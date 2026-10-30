@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  MAX_LIVE_HOLDS_PER_VOLUNTEER,
   cancelRegistration,
   confirmRegistration,
   expireRegistrationHold,
@@ -8,7 +9,7 @@ import {
 } from './trip';
 import { RefundExceedsRemainingError } from '@/lib/money/errors';
 import { domainErrorToHttp } from '@/lib/domain-errors';
-import { OwnTripRegistrationError } from '@/lib/volunteer-trip-errors';
+import { HoldLimitReachedError, OwnTripRegistrationError } from '@/lib/volunteer-trip-errors';
 import { batchRow, makeTripDb, paymentRow, registrationRow, tripRow } from '../../../tests/support/in-memory-trip-db';
 
 const NOW = new Date('2026-09-26T10:00:00Z');
@@ -34,7 +35,57 @@ describe('holdRegistration', () => {
     expect(result.registration).toMatchObject({ volunteerId: 'volunteer-9', batchId: 'batch-1', status: 'HOLD' });
     expect(result.registration.holdExpiresAt).toEqual(new Date(NOW.getTime() + HOLD_WINDOW_MS));
     expect(db.registrations).toEqual([expect.objectContaining({ volunteerId: 'volunteer-9', status: 'HOLD' })]);
-    expect(db.rowLocks).toEqual(['VolunteerTrip:trip-1', 'VolunteerBatch:batch-1']);
+    expect(db.rowLocks).toEqual(['VolunteerTrip:trip-1', 'VolunteerBatch:batch-1', 'VolunteerHolds:volunteer-9']);
+  });
+
+  describe('the per-account hold cap (ticket 82)', () => {
+    const FUTURE = new Date(NOW.getTime() + HOLD_WINDOW_MS);
+    const liveHold = (id: string, batchId: string) =>
+      registrationRow({ id, volunteerId: 'volunteer-9', batchId, status: 'HOLD', holdExpiresAt: FUTURE });
+    const hold = (db: ReturnType<typeof openTrip>) =>
+      holdRegistration(db.prisma as never, { tripId: 'trip-1', batchId: 'batch-1', volunteerId: 'volunteer-9', now: NOW });
+
+    it('refuses a hold beyond the cap, counted across other Batches, with a domain error and no new row', async () => {
+      const live = Array.from({ length: MAX_LIVE_HOLDS_PER_VOLUNTEER }, (_, i) => liveHold(`reg-${i}`, `other-batch-${i}`));
+      const db = openTrip(live);
+
+      const error = await hold(db).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(HoldLimitReachedError);
+      expect(domainErrorToHttp(error)).toMatchObject({ status: 400, body: { code: 'HOLD_LIMIT_REACHED' } });
+      expect((error as Error).message).toMatch(/penahanan kursi/);
+      expect(db.registrations).toHaveLength(MAX_LIVE_HOLDS_PER_VOLUNTEER);
+    });
+
+    it('allows a hold while one below the cap', async () => {
+      const db = openTrip(Array.from({ length: MAX_LIVE_HOLDS_PER_VOLUNTEER - 1 }, (_, i) => liveHold(`reg-${i}`, `other-${i}`)));
+
+      await expect(hold(db)).resolves.toBeTruthy();
+    });
+
+    it('does not count lapsed holds, paid (CONFIRMED) seats, or other accounts\' holds', async () => {
+      const db = openTrip([
+        registrationRow({ id: 'lapsed-1', volunteerId: 'volunteer-9', batchId: 'o1', status: 'HOLD', holdExpiresAt: NOW }),
+        registrationRow({ id: 'lapsed-2', volunteerId: 'volunteer-9', batchId: 'o2', status: 'HOLD', holdExpiresAt: new Date(NOW.getTime() - 1) }),
+        registrationRow({ id: 'paid-1', volunteerId: 'volunteer-9', batchId: 'o3', status: 'CONFIRMED' }),
+        registrationRow({ id: 'paid-2', volunteerId: 'volunteer-9', batchId: 'o4', status: 'CONFIRMED' }),
+        registrationRow({ id: 'paid-3', volunteerId: 'volunteer-9', batchId: 'o5', status: 'CONFIRMED' }),
+        ...Array.from({ length: 5 }, (_, i) =>
+          registrationRow({ id: `other-${i}`, volunteerId: 'someone-else', batchId: `o${i}`, status: 'HOLD', holdExpiresAt: FUTURE }),
+        ),
+      ]);
+
+      await expect(hold(db)).resolves.toBeTruthy();
+    });
+
+    it('frees the cap when a live hold is cancelled', async () => {
+      const live = Array.from({ length: MAX_LIVE_HOLDS_PER_VOLUNTEER }, (_, i) => liveHold(`reg-${i}`, `other-batch-${i}`));
+      const db = openTrip(live);
+      await expect(hold(db)).rejects.toBeInstanceOf(HoldLimitReachedError);
+      db.registrations.find((r) => r.id === 'reg-0')!.status = 'CANCELLED';
+
+      await expect(hold(db)).resolves.toBeTruthy();
+    });
   });
 
   it('refuses the Trip\'s own Fundraiser with a typed 403, holding nothing', async () => {

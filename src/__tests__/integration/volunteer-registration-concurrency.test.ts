@@ -11,6 +11,7 @@ import {
   BatchLockedByRegistrationsError,
   BatchNotOpenError,
   BatchQuotaBelowSeatsError,
+  HoldLimitReachedError,
   OwnTripRegistrationError,
   RegistrationNotCancellableError,
 } from '@/lib/volunteer-trip-errors';
@@ -175,6 +176,46 @@ describe.skipIf(!DATABASE_URL)('Volunteer Registration concurrency -- against re
       expect(r.reason).toBeInstanceOf(AlreadyRegisteredError);
     }
     expect(await prisma.registration.count({ where: { batchId, volunteerId } })).toBe(1);
+  });
+
+  // Ticket 82: the cap spans Batches (and Trips), so the Batch lock cannot
+  // serialise it; the per-account advisory lock does.
+  it('never lets one account exceed the live-hold cap when holds race across different Batches', async () => {
+    const { MAX_LIVE_HOLDS_PER_VOLUNTEER } = await import('@/lib/volunteer/trip');
+    const volunteerId = await makeUser();
+    const targets = await Promise.all(Array.from({ length: MAX_LIVE_HOLDS_PER_VOLUNTEER + 4 }, () => makeBatch({ maxQuota: 5, departsInDays: 30 })));
+
+    const results = await Promise.allSettled(
+      targets.map(({ tripId, batchId }) => holdRegistration(prisma, { tripId, batchId, volunteerId })),
+    );
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(MAX_LIVE_HOLDS_PER_VOLUNTEER);
+    for (const r of results.filter((x): x is PromiseRejectedResult => x.status === 'rejected')) {
+      expect(r.reason).toBeInstanceOf(HoldLimitReachedError);
+    }
+    expect(await prisma.registration.count({ where: { volunteerId, status: 'HOLD' } })).toBe(MAX_LIVE_HOLDS_PER_VOLUNTEER);
+  });
+
+  it('does not count a lapsed or a paid hold toward the cap, but counts the live ones', async () => {
+    const { MAX_LIVE_HOLDS_PER_VOLUNTEER } = await import('@/lib/volunteer/trip');
+    const volunteerId = await makeUser();
+    const old = await Promise.all(Array.from({ length: MAX_LIVE_HOLDS_PER_VOLUNTEER + 1 }, () => makeBatch({ maxQuota: 5, departsInDays: 30 })));
+    await prisma.registration.create({
+      data: { volunteerId, batchId: old[0].batchId, status: 'HOLD', holdExpiresAt: new Date(Date.now() - 60_000) },
+    });
+    await prisma.registration.create({
+      data: { volunteerId, batchId: old[1].batchId, status: 'CONFIRMED', holdExpiresAt: new Date(Date.now() - 60_000) },
+    });
+    const fresh = await Promise.all(Array.from({ length: MAX_LIVE_HOLDS_PER_VOLUNTEER + 1 }, () => makeBatch({ maxQuota: 5, departsInDays: 30 })));
+
+    const results = await Promise.allSettled(
+      fresh.map(({ tripId, batchId }) => holdRegistration(prisma, { tripId, batchId, volunteerId })),
+    );
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(MAX_LIVE_HOLDS_PER_VOLUNTEER);
+    expect(await prisma.registration.count({ where: { volunteerId, status: 'HOLD', holdExpiresAt: { gt: new Date() } } })).toBe(
+      MAX_LIVE_HOLDS_PER_VOLUNTEER,
+    );
   });
 
   it('frees the seat of a cancelled hold for the next Volunteer', async () => {

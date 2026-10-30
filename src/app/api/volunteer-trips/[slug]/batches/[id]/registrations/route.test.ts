@@ -25,6 +25,9 @@ vi.mock('@/lib/volunteer/trip', () => ({
   holdRegistration: vi.fn(),
 }));
 
+const mockGuard = vi.fn();
+vi.mock('@/lib/rate-limit-guard', () => ({ guardRoute: (...a: unknown[]) => mockGuard(...a) }));
+
 vi.mock('@/lib/donations', () => ({
   donationsEnabled: vi.fn(),
   sandboxInProductionReason: vi.fn(),
@@ -39,6 +42,7 @@ import { holdRegistration } from '@/lib/volunteer/trip';
 import { donationsEnabled, sandboxInProductionReason } from '@/lib/donations';
 import {
   AlreadyRegisteredError,
+  HoldLimitReachedError,
   BatchFullError,
   BatchNotFoundError,
   BatchNotTakingRegistrationsError,
@@ -79,6 +83,7 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', 'true');
     mockDonationsEnabled.mockReturnValue(true);
     mockSandboxInProductionReason.mockReturnValue(null);
+    mockGuard.mockResolvedValue(null);
     mockGetServerSession.mockResolvedValue({ user: { id: 'volunteer-1' } });
     mockTripFindUnique.mockResolvedValue({ id: 'trip-1' });
     mockGetPaymentProvider.mockReturnValue({
@@ -172,6 +177,36 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     const response = await POST(createRequest(), routeContext());
     expect(response.status).toBe(401);
     expect(mockHoldRegistration).not.toHaveBeenCalled();
+  });
+
+  // Ticket 82: a rate limit on hold creation, per account.
+  it('rate-limits hold creation per signed-in account, failing open if the limiter is down', async () => {
+    await POST(createRequest(), routeContext());
+    expect(mockGuard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: 'volunteer-hold',
+        subject: 'volunteer-1',
+        onUnavailable: 'open',
+        limit: expect.any(Number),
+        windowSeconds: expect.any(Number),
+      }),
+      expect.objectContaining({ limited: expect.stringContaining('Terlalu banyak') }),
+    );
+  });
+
+  it('answers 429 from the limiter, holding and charging nothing', async () => {
+    const { NextResponse } = await import('next/server');
+    mockGuard.mockResolvedValue(NextResponse.json({ error: 'Terlalu banyak' }, { status: 429 }));
+    const response = await POST(createRequest(), routeContext());
+    expect(response.status).toBe(429);
+    expect(mockHoldRegistration).not.toHaveBeenCalled();
+    expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('does not spend the limiter on an anonymous request', async () => {
+    mockGetServerSession.mockResolvedValue(null);
+    await POST(createRequest(), routeContext());
+    expect(mockGuard).not.toHaveBeenCalled();
   });
 
   it('returns 404 when no Trip has the URL slug, holding nothing', async () => {
@@ -371,6 +406,7 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     ['RegistrationDeadlinePassedError', new RegistrationDeadlinePassedError(), 400, 'REGISTRATION_DEADLINE_PASSED'],
     ['BatchFullError', new BatchFullError(), 400, 'BATCH_FULL'],
     ['AlreadyRegisteredError', new AlreadyRegisteredError(), 400, 'ALREADY_REGISTERED'],
+    ['HoldLimitReachedError', new HoldLimitReachedError(), 400, 'HOLD_LIMIT_REACHED'],
   ])('answers %s with %i through domainErrorToHttp, charging nothing', async (_name, error, status, code) => {
     mockHoldRegistration.mockRejectedValue(error);
     const response = await POST(createRequest(), routeContext());
