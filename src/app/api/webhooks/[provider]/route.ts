@@ -32,6 +32,7 @@ import { evaluateSettledDonationScrutiny } from '@/lib/scrutiny';
 import { withAkadWakaf } from '@/lib/mail/akad-wakaf';
 import { sendReportingFailure } from '@/lib/mail';
 import { publicUrl } from '@/lib/public-url';
+import { emailRegistrationConfirmed } from '@/lib/status-emails';
 import { receiptNeedsBetaNotice } from '@/lib/money/counted-payment';
 
 /**
@@ -569,6 +570,9 @@ export async function POST(
           // them registration succeeded would be worse than saying nothing.
           const { registration } = payment;
           if (settled.registrationOutcome === 'confirmed') {
+            // The Volunteer's email first (ticket 84): it never throws, and a
+            // failing in-app notification below must not keep it from going out.
+            await emailRegistrationConfirmed(prisma, { registrationId: registration!.id });
             await notifyRegistrationConfirmed({
               volunteerId: registration!.volunteerId,
               tripSlug: registration!.batch.trip.slug,
