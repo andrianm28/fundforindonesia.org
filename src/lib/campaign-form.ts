@@ -1,5 +1,7 @@
 import { deadlineRequired, type CampaignKind } from '@/lib/campaign-kind';
 import { endOfWibDay } from '@/lib/utils/date';
+import { BENEFICIARY_COUNT_MAX, BENEFICIARY_DESCRIPTION_MAX, REGENCY_MAX } from '@/lib/campaign-location';
+import { isProvinceCode } from '@/lib/indonesia-provinces';
 
 /**
  * The parts of the Campaign form that the creation wizard and the Draft or
@@ -77,5 +79,48 @@ export function contentPayload(form: { title: string; story: string; deadline: s
     description: story.substring(0, DESCRIPTION_LENGTH),
     story,
     deadline: form.deadline ? endOfWibDay(form.deadline).toISOString() : undefined,
+  };
+}
+
+/** The location and beneficiary inputs of the Campaign form (ticket 74), as typed. */
+export interface LocationFormValues {
+  province: string;
+  regency: string;
+  beneficiaryDescription: string;
+  beneficiaryCount: string;
+}
+
+export const EMPTY_LOCATION_FORM: LocationFormValues = {
+  province: '',
+  regency: '',
+  beneficiaryDescription: '',
+  beneficiaryCount: '',
+};
+
+export type LocationFormErrors = Partial<Record<keyof LocationFormValues, string>>;
+
+/** All four fields are optional; this only judges what was typed. */
+export function locationErrors(values: LocationFormValues): LocationFormErrors {
+  const errors: LocationFormErrors = {};
+  if (values.province && !isProvinceCode(values.province)) errors.province = 'Provinsi tidak dikenal';
+  if (values.regency.trim().length > REGENCY_MAX) errors.regency = `Kabupaten/kota maksimal ${REGENCY_MAX} karakter`;
+  if (values.beneficiaryDescription.trim().length > BENEFICIARY_DESCRIPTION_MAX) {
+    errors.beneficiaryDescription = `Penerima manfaat maksimal ${BENEFICIARY_DESCRIPTION_MAX} karakter`;
+  }
+  const count = values.beneficiaryCount.trim();
+  if (count && (!/^\d+$/.test(count) || Number(count) <= 0 || Number(count) > BENEFICIARY_COUNT_MAX)) {
+    errors.beneficiaryCount = 'Jumlah penerima manfaat harus bilangan bulat lebih dari 0';
+  }
+  return errors;
+}
+
+/** What the server is told: null for a blank field, so an edit can clear it. */
+export function locationPayload(values: LocationFormValues) {
+  const count = values.beneficiaryCount.trim();
+  return {
+    province: values.province || null,
+    regency: values.regency.trim() || null,
+    beneficiaryDescription: values.beneficiaryDescription.trim() || null,
+    beneficiaryCount: count ? Number(count) : null,
   };
 }

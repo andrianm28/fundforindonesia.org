@@ -91,6 +91,44 @@ describe('CampaignDetailView', () => {
     expect(screen.queryByText(/Donasi uji/)).toBeNull();
   });
 
+  describe('location and beneficiaries (ticket 74)', () => {
+    it('shows regency and province name, and who and how many it helps', () => {
+      render(
+        <CampaignDetailView
+          campaign={{
+            ...mockCampaign,
+            province: '32',
+            regency: 'Kabupaten Garut',
+            beneficiaryDescription: 'Anak yatim di panti',
+            beneficiaryCount: 40,
+          }}
+        />,
+      );
+      expect(screen.getByTestId('campaign-location').textContent).toContain('Kabupaten Garut, Jawa Barat');
+      expect(screen.getByTestId('campaign-beneficiaries').textContent).toContain('Anak yatim di panti');
+      expect(screen.getByTestId('campaign-beneficiaries').textContent).toContain('40 orang');
+    });
+
+    it('falls back to the free-text location that predates the structured fields', () => {
+      render(<CampaignDetailView campaign={{ ...mockCampaign, location: 'Banten' }} />);
+      expect(screen.getByTestId('campaign-location').textContent).toContain('Banten');
+    });
+
+    it('shows a count alone, and a description alone', () => {
+      render(<CampaignDetailView campaign={{ ...mockCampaign, beneficiaryCount: 1200 }} />);
+      expect(screen.getByTestId('campaign-beneficiaries').textContent).toContain('1.200 orang');
+      cleanup();
+      render(<CampaignDetailView campaign={{ ...mockCampaign, beneficiaryDescription: 'Warga desa' }} />);
+      expect(screen.getByTestId('campaign-beneficiaries').textContent).toContain('Warga desa');
+    });
+
+    it('renders neither line when nothing is known', () => {
+      render(<CampaignDetailView campaign={mockCampaign} />);
+      expect(screen.queryByTestId('campaign-location')).toBeNull();
+      expect(screen.queryByTestId('campaign-beneficiaries')).toBeNull();
+    });
+  });
+
   it('shows the Platform Fee rate in force (prd-compliance 17)', () => {
     render(<CampaignDetailView campaign={mockCampaign} />);
     expect(screen.getByText(/2,5%/)).toBeDefined();

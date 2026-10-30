@@ -9,13 +9,25 @@ import { CampaignDeadlineField } from '@/components/campaign/CampaignDeadlineFie
 import { CoverImageField } from '@/components/campaign/CoverImageField';
 import { CampaignStoryField } from '@/components/campaign/CampaignStoryField';
 import { CollectingEntityField, type SponsorOptions } from '@/components/campaign/CollectingEntityField';
+import { CampaignLocationFields } from '@/components/campaign/CampaignLocationFields';
 import type { CampaignKind } from '@/lib/campaign-kind';
-import { contentPayload, deadlineError, storyError, titleError, TITLE_MAX, uploadCoverImage } from '@/lib/campaign-form';
+import {
+  contentPayload,
+  deadlineError,
+  locationErrors,
+  locationPayload,
+  storyError,
+  titleError,
+  TITLE_MAX,
+  uploadCoverImage,
+  type LocationFormErrors,
+  type LocationFormValues,
+} from '@/lib/campaign-form';
 import { saveCampaignEdit } from '@/lib/fundraiser-requests';
 import { submitToVerifier } from '@/lib/verification-submission';
 import { formatRupiah } from '@/lib/utils/currency';
 
-export interface CampaignEditInitial {
+export interface CampaignEditInitial extends LocationFormValues {
   kind: CampaignKind;
   title: string;
   story: string;
@@ -25,7 +37,7 @@ export interface CampaignEditInitial {
   collectingEntityId: string;
 }
 
-interface Errors {
+interface Errors extends LocationFormErrors {
   kind?: string;
   title?: string;
   deadline?: string;
@@ -92,6 +104,7 @@ export function CampaignEditForm({
     if (mustPickSponsor && !form.collectingEntityId) {
       next.collectingEntityId = 'Pilih Partner Organisation yang menaungi Campaign ini';
     }
+    Object.assign(next, locationErrors(form));
     setErrors(next);
     return Object.keys(next).length === 0;
   }
@@ -110,6 +123,7 @@ export function CampaignEditForm({
         deadline: content.deadline ?? null,
         coverImage,
         kind: form.kind,
+        ...locationPayload(form),
         // An organisation's own account gets its organisation on the server.
         ...(!sponsorOptions?.own && form.collectingEntityId && { collectingEntityId: form.collectingEntityId }),
       });
@@ -180,6 +194,17 @@ export function CampaignEditForm({
         value={form.collectingEntityId}
         error={errors.collectingEntityId}
         onChange={(collectingEntityId) => setForm((prev) => ({ ...prev, collectingEntityId }))}
+      />
+
+      <CampaignLocationFields
+        value={{
+          province: form.province,
+          regency: form.regency,
+          beneficiaryDescription: form.beneficiaryDescription,
+          beneficiaryCount: form.beneficiaryCount,
+        }}
+        errors={errors}
+        onChange={(location) => setForm((prev) => ({ ...prev, ...location }))}
       />
 
       <CoverImageField

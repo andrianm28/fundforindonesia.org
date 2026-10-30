@@ -16,6 +16,7 @@ import { useTrafficSources } from '@/lib/hooks/useTrafficSources';
 import { captureTrafficSource } from '@/lib/traffic-source-capture';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { formatFeePercent } from '@/lib/money/platform-fee';
+import { campaignLocationLabel } from '@/lib/campaign-location';
 import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
 import { ShareModal } from '@/components/shared/ShareModal';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
@@ -40,6 +41,13 @@ export interface CampaignDetailData {
   /** Sample content (task M9) -- the badge below is additional, not the refusal mechanism; POST /api/donations refuses it regardless. */
   isDemo: boolean;
   deadline: string | null;
+  /** The free-text location that predates the structured fields (ticket 74). */
+  location?: string | null;
+  /** Kemendagri province code (src/lib/indonesia-provinces.ts), regency or city, and the beneficiaries (ticket 74). */
+  province?: string | null;
+  regency?: string | null;
+  beneficiaryDescription?: string | null;
+  beneficiaryCount?: number | null;
   createdAt: string;
   creator: {
     id: string;
@@ -233,6 +241,14 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
     ? getRemainingDays(new Date(campaign.deadline))
     : null;
 
+  const locationLabel = campaignLocationLabel(campaign);
+  const beneficiariesLabel = [
+    campaign.beneficiaryDescription?.trim(),
+    campaign.beneficiaryCount != null && `${campaign.beneficiaryCount.toLocaleString('id-ID')} orang`,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
   const percentage = campaign.targetAmount > 0
     ? Math.min((campaign.collectedAmount / campaign.targetAmount) * 100, 100)
     : 0;
@@ -370,6 +386,22 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           <h2 className="text-lg font-bold text-text leading-tight mb-3">
             {campaign.title}
           </h2>
+
+          {/* Where it happens and who it helps (ticket 74); each line only when known. */}
+          {(locationLabel || beneficiariesLabel) && (
+            <div className="mb-3 space-y-0.5 text-xs text-text-secondary">
+              {locationLabel && (
+                <p data-testid="campaign-location">
+                  Lokasi: <span className="font-medium text-text">{locationLabel}</span>
+                </p>
+              )}
+              {beneficiariesLabel && (
+                <p data-testid="campaign-beneficiaries">
+                  Penerima manfaat: <span className="font-medium text-text">{beneficiariesLabel}</span>
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Amount collected */}
           <div className="space-y-2 mb-4">

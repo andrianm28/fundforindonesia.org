@@ -51,6 +51,10 @@ export default async function ManageCampaignPage({ params }: PageProps) {
       collectingEntityId: true,
       creatorId: true,
       lifecycleStatus: true,
+      province: true,
+      regency: true,
+      beneficiaryDescription: true,
+      beneficiaryCount: true,
     },
   });
   if (!campaign || campaign.creatorId !== session.user.id) {
@@ -95,6 +99,10 @@ export default async function ManageCampaignPage({ params }: PageProps) {
               deadline,
               coverImage: campaign.coverImage,
               collectingEntityId: campaign.collectingEntityId ?? '',
+              province: campaign.province ?? '',
+              regency: campaign.regency ?? '',
+              beneficiaryDescription: campaign.beneficiaryDescription ?? '',
+              beneficiaryCount: campaign.beneficiaryCount?.toString() ?? '',
             }}
             targetAmount={campaign.targetAmount}
             categoryName={category?.name ?? campaign.category}

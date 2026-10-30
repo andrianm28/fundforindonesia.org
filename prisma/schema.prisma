@@ -471,6 +471,17 @@ model Campaign {
   /// no other Campaign on this, which is what the statement in
   /// src/lib/duplicate-hints.ts relies on.
   beneficiaryName        String?
+  /// Province of the Campaign, the two-digit Kemendagri code from the static
+  /// list in src/lib/indonesia-provinces.ts (ticket 74, decision C8). Null
+  /// until a Campaign form writes one; `location` above is kept, not migrated.
+  province               String?
+  /// Regency or city, free text (ticket 74), at most 100 characters.
+  regency                String?
+  /// Who the Campaign helps, in words (ticket 74), at most 200 characters.
+  /// Not `beneficiaryName`: that one names a person for duplicate hints.
+  beneficiaryDescription String?
+  /// How many people it helps (ticket 74); positive when set.
+  beneficiaryCount       Int?
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
 

@@ -10,6 +10,7 @@ import { deadlineRequiredMessage, exceedsMaxDuration, KINDS, MAX_DURATION_MESSAG
 import { organisationOf, requireDonationOnlyForIndividual, resolveCollectingEntity } from '@/lib/collecting-entity-guard';
 import { refusalResponse } from '@/lib/refusal-response';
 import { categoryExists, UNKNOWN_CATEGORY_MESSAGE } from '@/lib/categories';
+import { campaignLocationSchema } from '@/lib/campaign-location';
 
 const createCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
@@ -28,7 +29,7 @@ const createCampaignSchema = z.object({
   // The sponsoring Partner Organisation an individual Fundraiser picks; an
   // organisation's linked account always gets its own (ADR 0010).
   collectingEntityId: z.string().min(1).optional(),
-}).superRefine((body, ctx) => {
+}).extend(campaignLocationSchema.shape).superRefine((body, ctx) => {
   // Every Kind but wakaf needs a deadline (CONTEXT.md, Campaign).
   if (missingRequiredDeadline(body)) {
     ctx.addIssue({
@@ -167,6 +168,8 @@ export async function POST(request: NextRequest) {
 
     const { title, description, story, coverImage, targetAmount, category, kind, deadline } = result.data;
     const beneficiaryName = result.data.beneficiaryName?.trim() || null;
+    // Where it happens and who it helps (ticket 74): all optional, null when blank.
+    const { province, regency, beneficiaryDescription, beneficiaryCount } = result.data;
 
     // The Category must be one the Admin keeps in the Category table: a slug
     // with no row there files the Campaign under a Category page that 404s.
@@ -207,6 +210,10 @@ export async function POST(request: NextRequest) {
         kind,
         deadline: deadline ? new Date(deadline) : null,
         beneficiaryName,
+        province: province ?? null,
+        regency: regency ?? null,
+        beneficiaryDescription: beneficiaryDescription ?? null,
+        beneficiaryCount: beneficiaryCount ?? null,
         creatorId: session.user.id,
         collectingEntityId,
         // A new campaign is a Draft: visible only to its Fundraiser, and not

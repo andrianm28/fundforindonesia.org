@@ -359,6 +359,35 @@ describe('the duplicate hints on the moderation page', () => {
 
     expect(screen.getByText('Keluarga Mahdi')).toBeDefined();
   });
+
+  it('shows the structured location and the beneficiaries the Fundraiser gave', async () => {
+    await renderFor(
+      campaign('SUBMITTED', {
+        kind: 'DONATION',
+        province: '33',
+        regency: 'Kabupaten Banyumas',
+        beneficiaryDescription: 'Warga RT 03 yang kesulitan air bersih',
+        beneficiaryCount: 120,
+      }),
+      { request: PENDING_REQUEST },
+    );
+
+    expect(screen.getByText('Kabupaten Banyumas, Jawa Tengah')).toBeDefined();
+    expect(screen.getByText(/Warga RT 03 yang kesulitan air bersih/)).toBeDefined();
+    expect(screen.getByText(/120/)).toBeDefined();
+  });
+
+  it('falls back to the legacy free-text location, and says so when nothing was given', async () => {
+    await renderFor(campaign('SUBMITTED', { kind: 'DONATION', location: 'Banyumas, Jawa Tengah' }), {
+      request: PENDING_REQUEST,
+    });
+    expect(screen.getByText('Banyumas, Jawa Tengah')).toBeDefined();
+    cleanup();
+
+    await renderFor(campaign('SUBMITTED', { kind: 'DONATION' }), { request: PENDING_REQUEST });
+    expect(screen.getByText('Lokasi')).toBeDefined();
+    expect(screen.getAllByText('Belum diisi').length).toBeGreaterThan(0);
+  });
 });
 
 /**
