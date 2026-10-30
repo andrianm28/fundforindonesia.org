@@ -25,8 +25,8 @@ Tautan pendek per Campaign untuk dibagikan, supaya Traffic Source per tautan (PR
 ## Acceptance
 
 - [x] Domain/prefix diputuskan dan dicatat di tiket: prefix di apex (mis. `/s/<kode>`), 2026-10-04
-- [ ] Model tautan pendek + migrasi; pengalihan mencatat Traffic Source
-- [ ] Tes route dan e2e
+- [x] Model tautan pendek + migrasi; pengalihan mencatat Traffic Source (PR #296)
+- [x] Tes route dan e2e (PR #296)
 
 ## Comments
 
