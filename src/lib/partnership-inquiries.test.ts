@@ -137,13 +137,55 @@ describe('createPartnershipInquiry', () => {
 
     await createPartnershipInquiry(db as never, VALID, mailer);
 
-    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent).toHaveLength(2);
     expect(mailer.sent[0]).toEqual(
-      expect.objectContaining({ to: 'kemitraan@contoh.test', subject: expect.stringContaining('PT Sinar Abadi') }),
+      expect.objectContaining({
+        to: 'kemitraan@contoh.test',
+        subject: expect.stringContaining('PT Sinar Abadi'),
+        // The team replies straight to the company (ticket E9/01, tahap 1).
+        replyTo: 'rina@sinarabadi.test',
+      }),
     );
     expect(mailer.sent[0].text).toContain('Klinik Keliling Pesisir');
     expect(mailer.sent[0].text).toContain('rina@sinarabadi.test');
     expect(mailer.sent[0].text).toContain('/admin/partnership-inquiries/inquiry-1');
+  });
+
+  it('confirms to the company, at the address it typed, that its Inquiry is in (ticket E9/01, tahap 1)', async () => {
+    const { db } = makeDb();
+
+    await createPartnershipInquiry(db as never, VALID, mailer);
+
+    const confirmation = mailer.sent.find((m) => m.to === 'rina@sinarabadi.test');
+    expect(confirmation?.subject).toContain('Klinik Keliling Pesisir');
+    expect(confirmation?.text).toContain('Rina Wijaya');
+    // Nothing the company did not send, and nothing of the team's own view.
+    expect(confirmation?.text).not.toContain('/admin/');
+    expect(confirmation?.text).not.toContain(VALID.needs);
+  });
+
+  it('keeps the inquiry when only the confirmation fails, naming that mail in the log', async () => {
+    const { db, inquiries } = makeDb();
+    const lines: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+    const sent: string[] = [];
+    const flaky = {
+      name: 'flaky',
+      send: async (message: { to: string }) => {
+        if (message.to === 'rina@sinarabadi.test') throw new Error('mailbox full');
+        sent.push(message.to);
+      },
+    };
+
+    const inquiry = await createPartnershipInquiry(db as never, VALID, flaky);
+
+    expect(inquiry.id).toBe('inquiry-1');
+    expect(inquiries).toHaveLength(1);
+    expect(sent).toEqual(['kemitraan@contoh.test']);
+    expect(lines.join('\n')).toContain('partnership_inquiry_confirmation');
+    expect(lines.join('\n')).not.toContain('rina@sinarabadi.test');
   });
 
   it('refuses a Program that does not exist, writing nothing and mailing nobody', async () => {
@@ -240,11 +282,12 @@ describe('partnershipTeamRecipient', () => {
 
     expect(inquiry.id).toBe('inquiry-1');
     expect(inquiries).toHaveLength(1);
-    expect(mailer.sent).toHaveLength(0);
+    // The team is not told, but the company still gets its confirmation.
+    expect(mailer.sent.map((m) => m.to)).toEqual(['rina@sinarabadi.test']);
     expect(lines.join('\n')).toContain('mail_not_configured');
   });
 
-  it('mails nobody in development when no address is configured, and says nothing', async () => {
+  it('tells no team in development when no address is configured, and says nothing', async () => {
     const { db, inquiries } = makeDb();
     const lines: string[] = [];
     vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
@@ -257,7 +300,7 @@ describe('partnershipTeamRecipient', () => {
 
     expect(inquiry.id).toBe('inquiry-1');
     expect(inquiries).toHaveLength(1);
-    expect(mailer.sent).toHaveLength(0);
+    expect(mailer.sent.map((m) => m.to)).toEqual(['rina@sinarabadi.test']);
     expect(lines).toEqual([]);
   });
 });

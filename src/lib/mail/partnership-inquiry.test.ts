@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { partnershipInquiryEmail } from './partnership-inquiry';
+import { partnershipInquiryConfirmationEmail, partnershipInquiryEmail } from './partnership-inquiry';
 
 const BASE = {
   to: 'kemitraan@contoh.test',
@@ -71,5 +71,49 @@ describe('partnershipInquiryEmail for a new Partnership Inquiry', () => {
     const multiline = partnershipInquiryEmail({ ...BASE, companyName: 'PT Sinar\nAbadi' });
 
     expect(multiline.subject).toBe('Inquiry kemitraan baru: PT Sinar Abadi — Klinik Keliling Pesisir');
+  });
+});
+
+describe('partnershipInquiryEmail Reply-To (ticket E9/01, tahap 1)', () => {
+  it('sends a reply from the team straight to the company', () => {
+    expect(partnershipInquiryEmail(BASE).replyTo).toBe('rina@sinarabadi.test');
+  });
+});
+
+describe('partnershipInquiryConfirmationEmail (ticket E9/01, tahap 1)', () => {
+  const INPUT = {
+    to: 'rina@sinarabadi.test',
+    companyName: 'PT Sinar Abadi',
+    contactName: 'Rina Wijaya',
+    programTitle: 'Klinik Keliling Pesisir',
+  };
+  const email = partnershipInquiryConfirmationEmail(INPUT);
+
+  it('goes to the company contact, with no Reply-To of its own', () => {
+    expect(email.to).toBe('rina@sinarabadi.test');
+    expect(email.replyTo).toBeUndefined();
+  });
+
+  it('names the Program in the subject and the company and contact in the body', () => {
+    expect(email.subject).toBe('Inquiry kemitraan Anda sudah kami terima — Klinik Keliling Pesisir');
+    for (const body of [email.text, email.html]) {
+      expect(body).toContain('Rina Wijaya');
+      expect(body).toContain('PT Sinar Abadi');
+    }
+  });
+
+  it('carries no link into the platform panel', () => {
+    expect(email.text).not.toContain('/admin/');
+    expect(email.html).not.toContain('href');
+  });
+
+  it('escapes what the company typed in the HTML body', () => {
+    const hostile = partnershipInquiryConfirmationEmail({ ...INPUT, companyName: '<script>x</script>' });
+    expect(hostile.html).not.toContain('<script>');
+    expect(hostile.html).toContain('&lt;script&gt;');
+  });
+
+  it('keeps the subject on one line', () => {
+    expect(partnershipInquiryConfirmationEmail({ ...INPUT, programTitle: 'A\nB' }).subject).not.toContain('\n');
   });
 });
