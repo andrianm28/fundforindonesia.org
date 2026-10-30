@@ -6,6 +6,7 @@ import { getServerSession } from '@/lib/auth';
 import { isPubliclyViewable } from '@/lib/campaign-visibility';
 import { refuseUnlessFundraiser } from '@/lib/refusal-response';
 import { isUploadedImagePath } from '@/lib/campaign-update-images';
+import { notifyDonorsOfCampaignUpdate } from '@/lib/campaign-update-notify';
 
 const createUpdateSchema = z.object({
   title: z.string().min(1, 'Judul harus diisi').max(200, 'Judul maksimal 200 karakter'),
@@ -146,6 +147,11 @@ export async function POST(
         createdAt: true,
       },
     });
+
+    // Donors are told after the update is saved, and not waited for: a long
+    // Donor list must not hold this request, and a failed email never undoes
+    // the update (the notifier logs its own failures and never rejects).
+    void notifyDonorsOfCampaignUpdate(prisma, { updateId: update.id });
 
     return NextResponse.json(update, { status: 201 });
   } catch (error) {

@@ -162,6 +162,10 @@ import { join } from "node:path";
  * markers GET /api/admin/scrutiny lists, asks for the ADMIN assignment itself
  * and answers 404 to anyone else, the way `src/app/admin/page.tsx` asks for it
  * and the Moderasi pages ask for VERIFIER -- growing this list by one.
+ *
+ * NOTE (ticket 79): `GET /api/admin/finance/recap` serves the finance recap
+ * CSV through withHiddenAssignmentCheck on the ADMIN assignment -- read-only,
+ * growing this list by one.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -195,6 +199,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/site-settings/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/route.ts",
+  "src/app/api/admin/finance/recap/route.ts",
   // ticket 90: the Admin APIs' 404 for anyone without ADMIN, in front of the
   // Trip suspension module, which still decides who may suspend or lift.
   "src/app/api/admin/volunteer-trips/[id]/suspension/route.ts",

@@ -8,9 +8,9 @@ import { activeHref, NAV_ACTIVE, NAV_IDLE } from "@/lib/navActive";
 const ADMIN_HREFS = [
   "/admin", "/admin/users", "/admin/campaigns", "/admin/payouts", "/admin/refunds",
   "/admin/manual-contributions", "/admin/abuse-thresholds", "/admin/campaigns/lifecycle",
-  "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/verification-checklist",
+  "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/finance", "/admin/verification-checklist",
   "/admin/collecting-entities", "/admin/partnership-inquiries", "/admin/payment-providers", "/admin/platform-fee", "/admin/escrow-hold",
-  "/admin/reconciliation", "/admin/site-settings", "/admin/kategori", "/admin/scrutiny",
+  "/admin/reconciliation", "/admin/site-settings", "/admin/kategori", "/admin/scrutiny", "/admin/campaign-transfers",
 ] as const;
 const LINK_BASE = "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors";
 
@@ -88,6 +88,9 @@ export function AdminSidebar() {
         <SidebarLink current={current} href="/admin/dormant-balances" icon="dormant">
           Dormant Balance
         </SidebarLink>
+        <SidebarLink current={current} href="/admin/finance" icon="payouts">
+          Rekap Keuangan
+        </SidebarLink>
         <SidebarLink current={current} href="/admin/verification-checklist" icon="checklist">
           Checklist Verifikasi
         </SidebarLink>
@@ -117,6 +120,9 @@ export function AdminSidebar() {
         </SidebarLink>
         <SidebarLink current={current} href="/admin/scrutiny" icon="threshold">
           Penanda Audit &amp; Donasi
+        </SidebarLink>
+        <SidebarLink current={current} href="/admin/campaign-transfers" icon="refund">
+          Transfer Campaign
         </SidebarLink>
       </nav>
 
