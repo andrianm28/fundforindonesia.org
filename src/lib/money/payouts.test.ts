@@ -32,6 +32,8 @@ import {
   MAX_PROOF_NOTE_LENGTH,
 } from '@/lib/payout-proof';
 import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
+import { sealUserEmail } from '@/lib/contact-fields';
+import { MockMailer, type Mailer } from '@/lib/mail';
 
 const PAST = new Date('2020-01-01');
 
@@ -1879,5 +1881,133 @@ describe('rejectPayout and failPayout (PAY-02)', () => {
       InvalidPayoutStatusError,
     );
     expect(payoutState).toMatchObject({ status: 'APPROVED' });
+  });
+});
+
+describe('Payout emails to the Fundraiser (ticket rilis-1-benda/68)', () => {
+  const emailRow = {
+    amount: 500_000,
+    requestedById: 'requester-1',
+    volunteerTripId: null,
+    requestedBy: { name: 'Requester One', ...sealUserEmail('requester@example.test') },
+    bankAccount: { bankCode: 'BCA' },
+    campaign: { title: 'Sumur Desa', slug: 'sumur-desa' },
+  };
+  const failing: Mailer = {
+    name: 'failing',
+    send: async () => {
+      throw new Error('relay down');
+    },
+  };
+
+  function approvable() {
+    const payoutRow = {
+      id: 'payout-1',
+      campaignId: 'campaign-1',
+      volunteerTripId: null,
+      amount: 500_000,
+      status: 'DRAFT',
+      requestedById: 'requester-1',
+      approvedById: null,
+      bankAccount: verifiedBankAccount(),
+    };
+    const made = makeTx({
+      bankAccount: verifiedBankAccount(),
+      ledgerRows: [
+        { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+      ],
+      payoutRow,
+    });
+    const prisma = makePrisma(made.tx, { ...payoutRow, status: 'APPROVED', approvedById: 'admin-1' });
+    const emailRead = vi.fn().mockResolvedValue(emailRow);
+    return { ...made, prisma: { ...prisma, payout: { ...prisma.payout, findUnique: emailRead } }, emailRead };
+  }
+
+  function completable() {
+    const payoutRow = {
+      id: 'payout-1',
+      campaignId: 'campaign-1',
+      volunteerTripId: null,
+      amount: 500_000,
+      status: 'APPROVED',
+      requestedById: 'requester-1',
+      approvedById: 'admin-1',
+      bankAccount: verifiedBankAccount(),
+    };
+    const made = makeTx({
+      ledgerRows: [
+        { transactionId: 'payout-instructed-payout-1', direction: 'DEBIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+        { transactionId: 'payout-instructed-payout-1', direction: 'CREDIT', amount: 500_000, account: 'PAYOUT_CLEARING', campaignId: null, volunteerTripId: null },
+      ],
+      payoutRow,
+    });
+    const prisma = makePrisma(made.tx, { ...payoutRow, status: 'COMPLETED', completedById: 'admin-2' });
+    const emailRead = vi.fn().mockResolvedValue(emailRow);
+    return { ...made, prisma: { ...prisma, payout: { ...prisma.payout, findUnique: emailRead } }, emailRead };
+  }
+
+  it('emails the Fundraiser once an approval has committed', async () => {
+    const { prisma, emailRead } = approvable();
+    const mailer = new MockMailer();
+
+    await approvePayout(prisma as never, {
+      payoutId: 'payout-1',
+      approvedById: 'admin-1',
+      provider: 'sumopod',
+      providerBalance: 2_000_000,
+      mailer,
+    });
+
+    expect(emailRead).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'payout-1' } }));
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0]).toMatchObject({ to: 'requester@example.test' });
+    expect(mailer.sent[0].subject).toContain('disetujui');
+  });
+
+  it('emails nothing for a refused approval', async () => {
+    const { prisma } = approvable();
+    const mailer = new MockMailer();
+
+    await expect(
+      approvePayout(prisma as never, { payoutId: 'payout-1', approvedById: 'requester-1', provider: 'sumopod', providerBalance: 2_000_000, mailer }),
+    ).rejects.toBeInstanceOf(SelfApprovalError);
+
+    expect(mailer.sent).toEqual([]);
+  });
+
+  it('emails the transfer reference once a completion has committed', async () => {
+    const { prisma } = completable();
+    const mailer = new MockMailer();
+
+    await completePayout(prisma as never, {
+      payoutId: 'payout-1',
+      completedById: 'admin-2',
+      proofReference: '  TRX-77  ',
+      proofNote: 'Ditransfer via BCA',
+      mailer,
+    });
+
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0].text).toContain('Nomor referensi transfer: TRX-77');
+  });
+
+  it('keeps the completion and its legs when the email cannot be sent', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { prisma, rows, payoutState } = completable();
+
+    await expect(
+      completePayout(prisma as never, {
+        payoutId: 'payout-1',
+        completedById: 'admin-2',
+        proofReference: 'TRX-77',
+        proofNote: 'Ditransfer via BCA',
+        mailer: failing,
+      }),
+    ).resolves.toMatchObject({ status: 'COMPLETED' });
+
+    expect(payoutState).toMatchObject({ status: 'COMPLETED' });
+    expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toHaveLength(2);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"mail_send_failed"'));
+    errors.mockRestore();
   });
 });

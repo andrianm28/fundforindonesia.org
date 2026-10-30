@@ -55,11 +55,12 @@ export default async function WakafPage() {
           ),
         },
         {
-          heading: 'Akad Wakaf',
+          heading: 'Tanda Terima Wakaf',
           body: (
             <p>
-              Setiap pemberian wakaf disertai Akad Wakaf yang memuat nama Wakif, nominal, peruntukan,
-              dan nazhir, dikirim bersama tanda terima. Wakaf tunai tidak dapat ditarik kembali, kecuali
+              Setiap pemberian wakaf disertai Tanda Terima Wakaf yang memuat nama Wakif, nominal, peruntukan,
+              dan nazhir, dikirim bersama tanda terima donasi. Dokumen ini masih versi beta/draf dan bukan
+              Akta Ikrar Wakaf. Wakaf tunai tidak dapat ditarik kembali, kecuali
               bila terjadi kesalahan pembayaran, pembayaran ganda, atau dana masuk setelah Campaign ditutup.
             </p>
           ),

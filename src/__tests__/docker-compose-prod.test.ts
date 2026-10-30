@@ -71,7 +71,7 @@ describe("docker-compose.prod.yml", () => {
     ]);
   });
 
-  it("reuses the kibi-clone data volumes as external, by exact name", () => {
+  it("reuses the kibi-clone data volumes as external, by exact name, and mounts the private documents volume outside public/", () => {
     const volumes = block("volumes:");
     expect(block("  postgres_data:", volumes).map((l) => l.trim())).toEqual([
       "external: true",
@@ -81,12 +81,19 @@ describe("docker-compose.prod.yml", () => {
       "external: true",
       "name: kibi-clone_uploads",
     ]);
+    // Ticket 64: created on the host before the first deploy that mounts it.
+    expect(block("  private_documents:", volumes).map((l) => l.trim())).toEqual([
+      "external: true",
+      "name: ffi_private_documents",
+    ]);
     expect(block("    volumes:", service("db")).map((l) => l.trim())).toEqual([
       "- postgres_data:/var/lib/postgresql/data",
     ]);
-    expect(block("    volumes:", service("app")).map((l) => l.trim())).toEqual([
-      "- uploads:/app/public/uploads",
-    ]);
+    expect(
+      block("    volumes:", service("app"))
+        .map((l) => l.trim())
+        .filter((l) => !l.startsWith("#")),
+    ).toEqual(["- uploads:/app/public/uploads", "- private_documents:/app/private-documents"]);
   });
 
   it("publishes the same ports as today, on loopback only", () => {
@@ -189,6 +196,8 @@ describe("docker-compose.prod.yml env passthrough", () => {
       "SUMOPOD_BASE_URL",
     ],
     "src/lib/partnership-inquiries.ts": ["PARTNERSHIP_TEAM_EMAIL"],
+    // documentRoot(env = process.env), so tests can hand it their own (ticket 64).
+    "src/lib/documents.ts": ["PRIVATE_DOCUMENT_DIR"],
     // loadFieldKeys(process.env) at boot; the names are VARS in field-encryption.ts.
     "src/lib/env-check.ts": [
       "FIELD_ENCRYPTION_KEY",

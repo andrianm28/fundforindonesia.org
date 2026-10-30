@@ -11,6 +11,8 @@ import { holdsValidKindAuthorisation, holdsValidPermit, requiresKindAuthorisatio
 import { KIND_LABEL } from "@/lib/campaign-kind";
 import { STATUS_LABEL } from "@/lib/campaign-status-label";
 import { formatRupiah } from "@/lib/utils/currency";
+import { campaignDocuments, partnerOrganisationDocuments, type DocumentSummary } from "@/lib/documents";
+import { DocumentList } from "@/components/documents/DocumentList";
 import {
   findDuplicateCampaignHints,
   resolveDuplicateSimilarityThreshold,
@@ -110,6 +112,32 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
     findDuplicateCampaignHints(prisma, { campaignId: campaign.id }),
     resolveDuplicateSimilarityThreshold(prisma),
   ]);
+  // The papers behind the checklist (ticket 64): the Campaign's own, by the
+  // item they evidence, and the Collecting Entity's legal documents.
+  const [documents, entityDocuments] = await Promise.all([
+    campaignDocuments(prisma, campaign.id),
+    entity ? partnerOrganisationDocuments(prisma, entity.id) : Promise.resolve([] as DocumentSummary[]),
+  ]);
+  const checklist = (openRequest?.checklist as ChecklistEntry[] | undefined) ?? [];
+  // A snapshot taken before ticket 64 does not say which items need a paper;
+  // the item's current setting does, as the server judges it.
+  const unflagged = checklist.filter((entry) => entry.requiresDocument === undefined).map((entry) => entry.id);
+  const liveFlags = unflagged.length
+    ? await prisma.verificationChecklistItem.findMany({
+        where: { id: { in: unflagged } },
+        select: { id: true, requiresDocument: true },
+      })
+    : [];
+  const liveFlag = new Map(liveFlags.map((item) => [item.id, item.requiresDocument]));
+  const checklistWithFlags = checklist.map((entry) => ({
+    ...entry,
+    requiresDocument: entry.requiresDocument ?? liveFlag.get(entry.id) ?? false,
+  }));
+  const documentsByItem: Record<string, DocumentSummary[]> = {};
+  for (const document of documents) {
+    if (!document.checklistItemId) continue;
+    (documentsByItem[document.checklistItemId] ??= []).push(document);
+  }
 
   return (
     <div>
@@ -297,6 +325,23 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
         )}
       </div>
 
+      {/* The Fundraiser's uploaded papers and the Collecting Entity's own
+          (ticket 64). Opened through the ACL route, never a public URL. */}
+      <div className="mt-6 bg-white rounded-xl border border-border p-6">
+        <h2 className="text-sm font-semibold text-text mb-1">Dokumen</h2>
+        <p className="text-xs text-text-secondary mb-4">
+          Dokumen privat yang diunggah Fundraiser. Hanya Fundraiser pemilik, Verifier yang menangani
+          pengajuan ini, dan Admin yang dapat membukanya.
+        </p>
+        <DocumentList documents={documents} empty="Fundraiser belum mengunggah dokumen." />
+        {entity && (
+          <div className="mt-4">
+            <h3 className="text-xs font-semibold text-text mb-2">Dokumen Lembaga Mitra {entity.name}</h3>
+            <DocumentList documents={entityDocuments} empty="Belum ada dokumen Lembaga Mitra yang dicatat." />
+          </div>
+        )}
+      </div>
+
       {/* Moderation Actions */}
       <div className="mt-6">
         <CampaignModerationActions
@@ -305,9 +350,10 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
             openRequest && {
               id: openRequest.id,
               isFirst: openRequest.isFirst,
-              checklist: openRequest.checklist as ChecklistEntry[],
+              checklist: checklistWithFlags,
             }
           }
+          documentsByItem={documentsByItem}
           identityVerifiedAt={identity?.verifiedAt ?? null}
           collectingEntityName={entity?.name ?? null}
         />

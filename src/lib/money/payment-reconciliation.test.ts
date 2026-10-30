@@ -4,6 +4,7 @@ import {
   WEBHOOK_OUTCOME,
   WEBHOOK_OUTCOMES_NEEDING_REVIEW,
   lateSettlementOutcome,
+  listReconciliationQueue,
   recordChargeWriteFailure,
   sanitizeError,
 } from './payment-reconciliation';
@@ -95,5 +96,39 @@ describe('lateSettlementOutcome and the review list', () => {
 
   it('puts a failed late-settlement refund in front of an Admin', () => {
     expect(WEBHOOK_OUTCOMES_NEEDING_REVIEW).toContain(WEBHOOK_OUTCOME.LATE_SETTLEMENT_REFUND_FAILED);
+  });
+});
+
+describe('listReconciliationQueue', () => {
+  it('lists only webhook events whose outcome needs an Admin, oldest first, without their payload', async () => {
+    const receivedAt = new Date('2026-10-20T03:00:00.000Z');
+    const webhookEvent = {
+      findMany: vi.fn().mockResolvedValue([
+        { id: 'w1', provider: 'sumopod', providerEventId: 'evt-1', outcome: 'AMOUNT_MISMATCH', receivedAt, processedAt: receivedAt },
+      ]),
+    };
+    const chargeWriteFailure = { findMany: vi.fn().mockResolvedValue([]) };
+
+    const queue = await listReconciliationQueue({ webhookEvent, chargeWriteFailure } as never);
+
+    const query = webhookEvent.findMany.mock.calls[0][0];
+    expect(query.where).toEqual({ outcome: { in: [...WEBHOOK_OUTCOMES_NEEDING_REVIEW] } });
+    expect(query.orderBy).toEqual({ receivedAt: 'asc' });
+    expect(query.select.payload).toBeUndefined();
+    expect(queue.webhookEvents).toEqual([
+      { id: 'w1', provider: 'sumopod', providerEventId: 'evt-1', outcome: 'AMOUNT_MISMATCH', receivedAt, processedAt: receivedAt },
+    ]);
+  });
+
+  it('lists only unresolved charge write failures', async () => {
+    const createdAt = new Date('2026-10-21T03:00:00.000Z');
+    const row = { id: 'c1', provider: 'sumopod', providerRef: 'don-1', subjectType: 'donation', amount: 50_000, createdAt };
+    const webhookEvent = { findMany: vi.fn().mockResolvedValue([]) };
+    const chargeWriteFailure = { findMany: vi.fn().mockResolvedValue([row]) };
+
+    const queue = await listReconciliationQueue({ webhookEvent, chargeWriteFailure } as never);
+
+    expect(chargeWriteFailure.findMany.mock.calls[0][0].where).toEqual({ resolvedAt: null });
+    expect(queue.chargeWriteFailures).toEqual([row]);
   });
 });
