@@ -90,6 +90,7 @@ model User {
   fundraisingPermitsRecorded       FundraisingPermit[]
   kindAuthorisationsGranted        KindAuthorisation[]
   partnerOrganisationAudits        PartnerOrganisationAuditEntry[]
+  documentsUploaded                Document[]                        @relation("DocumentUploader")
 
   // Money layer
   bankAccounts                      BankAccount[]
@@ -524,6 +525,7 @@ model Campaign {
   transfersIn           CampaignTransfer[]     @relation("CampaignTransferTarget")
   auditMarker           CampaignAuditMarker?
   donationReviewMarkers DonationReviewMarker[]
+  documents             Document[]
 
   @@index([slug])
   @@index([category])
@@ -798,6 +800,7 @@ model PartnerOrganisation {
   providerWithdrawals  ProviderWithdrawal[]
   verificationRequests VerificationRequest[]
   auditEntries         PartnerOrganisationAuditEntry[]
+  documents            Document[]
 }
 
 /// A dated permit to collect public donations held by a Partner Organisation
@@ -900,11 +903,55 @@ model VerificationChecklistItem {
   position Int
   active   Boolean @default(true)
   kind     Kind?
+  /// Whether ticking this item needs an uploaded Document behind it (ticket
+  /// 64): the Verifier's box stays disabled, and the server refuses the tick,
+  /// until the Campaign holds a Document for this item. False for items that
+  /// are a check rather than a paper (a Kind Authorisation on record, "bukan
+  /// duplikat").
+  requiresDocument Boolean @default(false)
 
   auditEntries VerificationChecklistAuditEntry[]
+  documents    Document[]
 
   @@index([active, position])
   @@index([kind, active, position])
+}
+
+/// A private document uploaded as evidence (ticket 64, PRD §7.1): a
+/// Fundraiser's paper behind a Campaign's checklist item, or a Partner
+/// Organisation's legal document recorded by a Verifier. Exactly one of
+/// `campaignId` / `partnerOrganisationId` is set. The file lives on a private
+/// host volume (PRIVATE_DOCUMENT_DIR), never under public/, and is only ever
+/// read through the ACL route that streams it; `storagePath` is relative to
+/// that volume and is random, so it neither names the host nor can be
+/// guessed. Never deleted: a rejected submission's documents are still kept
+/// (decision 03), just never public.
+model Document {
+  id                    String   @id @default(cuid())
+  uploadedById          String
+  campaignId            String?
+  partnerOrganisationId String?
+  /// The §7.1 checklist item this document evidences. Required on a Campaign
+  /// document, null on a Partner Organisation one.
+  checklistItemId       String?
+  /// What the document is, as the uploader saw it: the checklist item's label
+  /// at upload time, or the title a Verifier typed for an organisation's.
+  label                 String
+  /// The validated content type (magic bytes checked), never the uploader's claim.
+  contentType           String
+  sizeBytes             Int
+  /// Relative to PRIVATE_DOCUMENT_DIR, e.g. "ab/ab3f...": never absolute.
+  storagePath           String   @unique
+  uploadedAt            DateTime @default(now())
+
+  // Relations
+  uploadedBy          User                       @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  campaign            Campaign?                  @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  partnerOrganisation PartnerOrganisation?       @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
+  checklistItem       VerificationChecklistItem? @relation(fields: [checklistItemId], references: [id], onDelete: Restrict)
+
+  @@index([campaignId, checklistItemId])
+  @@index([partnerOrganisationId, uploadedAt])
 }
 
 enum VerificationChecklistAuditAction {
@@ -2320,7 +2367,7 @@ model LedgerEntry {
   /// Which campaign this entry belongs to, where the account is
   /// campaign-scoped. Null for platform-level accounts.
   campaignId      String?
-  campaign        Campaign? @relation(fields: [campaignId], references: [id])
+  campaign        Campaign? @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   /// Trip-scoped sibling of campaignId, same optionality shape. Plain
   /// scalar, no @relation: VolunteerTrip doesn't exist yet -- Ticket 02
   /// adds the relation once it does.
@@ -2337,20 +2384,20 @@ model LedgerEntry {
 
   /// Exactly one of these is set, naming what caused the movement.
   paymentId            String?
-  payment              Payment?            @relation(fields: [paymentId], references: [id])
+  payment              Payment?            @relation(fields: [paymentId], references: [id], onDelete: Restrict)
   refundId             String?
-  refund               Refund?             @relation(fields: [refundId], references: [id])
+  refund               Refund?             @relation(fields: [refundId], references: [id], onDelete: Restrict)
   payoutId             String?
-  payout               Payout?             @relation(fields: [payoutId], references: [id])
+  payout               Payout?             @relation(fields: [payoutId], references: [id], onDelete: Restrict)
   /// Which Manual Contribution this movement belongs to -- set on both the
   /// credit and its reversal, which is what lets a reader tell money that
   /// arrived off-gateway apart from money that came through a Payment.
   manualContributionId String?
-  manualContribution   ManualContribution? @relation(fields: [manualContributionId], references: [id])
+  manualContribution   ManualContribution? @relation(fields: [manualContributionId], references: [id], onDelete: Restrict)
   /// Which Campaign Transfer this movement belongs to: both legs of the
   /// journal (the debit on the Suspended source, the credit on the target).
   campaignTransferId   String?
-  campaignTransfer     CampaignTransfer?   @relation(fields: [campaignTransferId], references: [id])
+  campaignTransfer     CampaignTransfer?   @relation(fields: [campaignTransferId], references: [id], onDelete: Restrict)
   /// Which ProviderWithdrawal this movement belongs to (prd-compliance 35).
   /// The attribution the per-withdrawal reconciliation needs: the GATEWAY_CLEARING
   /// credit and the COLLECTION_ACCOUNT debit are the two legs of one recorded
@@ -2358,7 +2405,7 @@ model LedgerEntry {
   /// movement was would have to reconcile a total against a set of readings and
   /// guess which reading belonged to which movement.
   providerWithdrawalId String?
-  providerWithdrawal   ProviderWithdrawal? @relation(fields: [providerWithdrawalId], references: [id])
+  providerWithdrawal   ProviderWithdrawal? @relation(fields: [providerWithdrawalId], references: [id], onDelete: Restrict)
 
   /// Which Payment Provider this movement went through or was paid out of
   /// (CONTEXT.md, Provider Balance, "Tercatat sebagai akun buku besar
@@ -2418,6 +2465,17 @@ model LedgerEntry {
   @@index([campaignId, createdAt])
   @@index([manualContributionId])
   @@index([providerWithdrawalId])
+  // The public impact queries and the reconcile report filter on these three
+  // FK columns (impact.ts groupBy paymentId/refundId/payoutId); Postgres does
+  // not index an FK column on its own (audit D5).
+  @@index([paymentId])
+  @@index([refundId])
+  @@index([payoutId])
+  // NOT EXPRESSIBLE HERE, in migration 20261016090000_ledger_integrity (audit
+  // D1, PAY-12): trigger "LedgerEntry_append_only" (BEFORE UPDATE OR DELETE,
+  // raises) and CHECK "LedgerEntry_amount_positive" (amount > 0). Every
+  // relation above is onDelete: Restrict, because SET NULL is an UPDATE and
+  // would silently detach a leg from its Campaign/Payment (ADR 0016).
 }
 
 /// The old `Disbursement` table, renamed rather than dropped by the money-layer

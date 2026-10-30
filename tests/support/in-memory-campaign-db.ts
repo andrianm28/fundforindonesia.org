@@ -174,6 +174,17 @@ export type ChecklistItemRow = {
   active: boolean;
   /** Null is the "Semua" row: snapshotted for every Kind (PRD §7.1). */
   kind: Kind | null;
+  /** Whether ticking it needs a Document on the Campaign (ticket 64). */
+  requiresDocument: boolean;
+};
+
+/** A private Document's row (ticket 64): only what the lifecycle reads. */
+export type DocumentRow = {
+  id: string;
+  campaignId: string | null;
+  partnerOrganisationId: string | null;
+  checklistItemId: string | null;
+  uploadedById: string;
 };
 
 export type VerificationRequestRow = {
@@ -264,6 +275,7 @@ type Data = {
   campaignFlags: CampaignFlagRow[];
   checklistItems: ChecklistItemRow[];
   checklistAudits: ChecklistAuditRow[];
+  documents: DocumentRow[];
   verificationRequests: VerificationRequestRow[];
   identityVerifications: IdentityVerificationRow[];
   partnerOrganisations: PartnerOrganisationRow[];
@@ -351,6 +363,7 @@ function clone(data: Data): Data {
     campaignFlags: data.campaignFlags.map((f) => ({ ...f })),
     checklistItems: data.checklistItems.map((i) => ({ ...i })),
     checklistAudits: data.checklistAudits.map((a) => ({ ...a })),
+    documents: data.documents.map((d) => ({ ...d })),
     verificationRequests: data.verificationRequests.map((r) => ({ ...r })),
     identityVerifications: data.identityVerifications.map((v) => ({ ...v })),
     partnerOrganisations: data.partnerOrganisations.map((o) => ({ ...o })),
@@ -452,6 +465,18 @@ export function checklistItemRow(overrides: Partial<ChecklistItemRow> = {}): Che
     position: 1,
     active: true,
     kind: null,
+    requiresDocument: false,
+    ...overrides,
+  };
+}
+
+export function documentRow(overrides: Partial<DocumentRow> = {}): DocumentRow {
+  return {
+    id: 'document-1',
+    campaignId: 'campaign-1',
+    partnerOrganisationId: null,
+    checklistItemId: 'item-1',
+    uploadedById: 'fundraiser-1',
     ...overrides,
   };
 }
@@ -598,6 +623,8 @@ export function makeCampaignDb(
     payouts?: PayoutRow[];
     campaignFlags?: CampaignFlagRow[];
     checklistItems?: ChecklistItemRow[];
+    /** Uploaded Documents (ticket 64); defaults to none. */
+    documents?: DocumentRow[];
     verificationRequests?: VerificationRequestRow[];
     identityVerifications?: IdentityVerificationRow[];
     /** Defaults to `partner-1` alone, so a default Campaign has a Collecting Entity. */
@@ -629,6 +656,7 @@ export function makeCampaignDb(
     campaignFlags: (seed.campaignFlags ?? []).map((f) => ({ ...f })),
     checklistItems: (seed.checklistItems ?? []).map((i) => ({ ...i })),
     checklistAudits: [],
+    documents: (seed.documents ?? []).map((d) => ({ ...d })),
     verificationRequests: (seed.verificationRequests ?? []).map((r) => ({ ...r })),
     identityVerifications: (seed.identityVerifications ?? []).map((v) => ({ ...v })),
     partnerOrganisations: (seed.partnerOrganisations ?? [partnerOrganisationRow()]).map((o) => ({ ...o })),
@@ -836,8 +864,8 @@ export function makeCampaignDb(
           const row = getData().checklistItems.find((i) => matches(i, where));
           return row ? { ...row } : null;
         },
-        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active' | 'kind'> & { active?: boolean; kind?: Kind | null } }) => {
-          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, kind: null, ...data };
+        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active' | 'kind' | 'requiresDocument'> & { active?: boolean; kind?: Kind | null; requiresDocument?: boolean } }) => {
+          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, kind: null, requiresDocument: false, ...data };
           getData().checklistItems.push(row);
           return { ...row };
         },
@@ -846,6 +874,22 @@ export function makeCampaignDb(
           if (!row) throw new Error('No VerificationChecklistItem found');
           Object.assign(row, data);
           return { ...row };
+        },
+      },
+      document: {
+        // `distinct` on one column, the only shape the lifecycle asks for.
+        findMany: async ({ where = {}, distinct }: { where?: Where; distinct?: (keyof DocumentRow)[] } = {}) => {
+          const rows = getData().documents.filter((d) => matches(d, where));
+          if (!distinct?.length) return rows.map((d) => ({ ...d }));
+          const seen = new Set<string>();
+          return rows
+            .filter((d) => {
+              const key = distinct.map((k) => String(d[k])).join('|');
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            })
+            .map((d) => ({ ...d }));
         },
       },
       verificationChecklistAuditEntry: {
@@ -1274,6 +1318,9 @@ export function makeCampaignDb(
     },
     get checklistAudits() {
       return committed.checklistAudits;
+    },
+    get documents() {
+      return committed.documents;
     },
     get identityVerifications() {
       return committed.identityVerifications;

@@ -27,6 +27,10 @@ export async function GET(
     const where = {
       campaignId: campaign.id,
       paymentStatus: 'confirmed',
+      // Real Donations only, the same rule as the headline count in
+      // ../route.ts: one paid with a beta (sandbox) Payment is a test and
+      // stays off the public list and out of `total` after go-live (PAY-06).
+      payments: { none: { sandbox: true } },
     };
 
     const [donations, total] = await Promise.all([

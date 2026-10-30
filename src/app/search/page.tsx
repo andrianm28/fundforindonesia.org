@@ -9,13 +9,6 @@ import { CategoryFilter } from '@/components/search/CategoryFilter';
 import SearchBar from '@/components/shared/SearchBar';
 import Link from 'next/link';
 
-const suggestedCategories = [
-  { name: 'Bencana Alam', slug: 'bencana-alam' },
-  { name: 'Kesehatan', slug: 'kesehatan' },
-  { name: 'Pendidikan', slug: 'pendidikan' },
-  { name: 'Balita & Anak Sakit', slug: 'anak' },
-];
-
 function SearchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -26,6 +19,9 @@ function SearchContent() {
     '/api/categories',
     (url: string) => fetch(url).then((res) => res.json())
   );
+
+  // Suggestions come from the Category table, so each one has a page.
+  const suggestedCategories = (categoriesData?.categories ?? []).slice(0, 4);
 
   const { campaigns, total, isLoading } = useCampaigns({ search: query, category });
 

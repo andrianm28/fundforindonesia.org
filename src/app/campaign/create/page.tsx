@@ -8,23 +8,27 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaignStepIndicator';
 import { submitToVerifier } from '@/lib/verification-submission';
+import { endOfWibDay, formatWibLongDate, todayWibDate } from '@/lib/utils/date';
 import { deadlineRequired, KIND_LABEL, KINDS, type CampaignKind } from '@/lib/campaign-kind';
+import { DOCUMENT_ACCEPT } from '@/components/documents/DocumentUpload';
 
-const categories = [
-  { value: 'bencana-alam', label: 'Bencana Alam' },
-  { value: 'kesehatan', label: 'Bantuan Medis & Kesehatan' },
-  { value: 'pendidikan', label: 'Pendidikan' },
-  { value: 'anak', label: 'Balita & Anak Sakit' },
-  { value: 'lingkungan', label: 'Lingkungan' },
-  { value: 'kemanusiaan', label: 'Kemanusiaan' },
-  { value: 'infrastruktur', label: 'Infrastruktur' },
-  { value: 'lainnya', label: 'Lainnya' },
-];
+/** One Category from GET /api/categories, the Category table. */
+interface CategoryOption {
+  slug: string;
+  name: string;
+}
 
 /** What GET /api/partner-organisations/sponsors answers (prd-compliance 10). */
 interface SponsorOptions {
   own: { id: string; name: string } | null;
   sponsors: { id: string; name: string }[];
+}
+
+/** A §7.1 checklist item this Kind must carry a document for (ticket 64). */
+interface DocumentItem {
+  id: string;
+  label: string;
+  required: boolean;
 }
 
 interface FormData {
@@ -60,10 +64,20 @@ export default function CampaignCreatePage() {
   const [pendingAction, setPendingAction] = useState<'draft' | 'submit' | null>(null);
   // The Draft once created, so a retried submission never creates another.
   const [draftSlug, setDraftSlug] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  // The documents the chosen Kind needs, and the file picked for each. An
+  // item is dropped from `documentFiles` once uploaded, so a retry never
+  // uploads it twice.
+  const [documentItems, setDocumentItems] = useState<DocumentItem[]>([]);
+  const [documentFiles, setDocumentFiles] = useState<Record<string, File>>({});
+  const [uploadedItems, setUploadedItems] = useState<ReadonlySet<string>>(new Set());
   const [submitError, setSubmitError] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   // Who may collect this Campaign's money (ADR 0010): null while loading.
   const [sponsorOptions, setSponsorOptions] = useState<SponsorOptions | null>(null);
+  // The Categories an Admin keeps; empty while loading or if the read fails.
+  // null while loading; [] when none exist or the request failed.
+  const [categories, setCategories] = useState<CategoryOption[] | null>(null);
   const [formData, setFormData] = useState<FormData>({
     kind: '',
     collectingEntityId: '',
@@ -93,6 +107,44 @@ export default function CampaignCreatePage() {
       cancelled = true;
     };
   }, [status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/categories')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: { categories: CategoryOption[] }) => {
+        if (!cancelled) setCategories(data.categories);
+      })
+      .catch(() => {
+        if (!cancelled) setCategories([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The papers PRD §7.1 asks of this Kind, once a Kind is chosen. A failed
+  // read offers none: the Draft can still be saved and the documents added
+  // from Galang Dana Saya.
+  useEffect(() => {
+    if (status !== 'authenticated' || !formData.kind) return;
+    let cancelled = false;
+    fetch(`/api/verification-checklist/documents?kind=${formData.kind}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: { items?: DocumentItem[] }) => {
+        if (!cancelled) setDocumentItems(Array.isArray(data.items) ? data.items : []);
+      })
+      .catch(() => {
+        if (!cancelled) setDocumentItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status, formData.kind]);
+
+  const missingDocuments = documentItems.filter(
+    (item) => item.required && !documentFiles[item.id] && !uploadedItems.has(item.id)
+  );
 
   // An individual Fundraiser must pick a sponsor when there is one to pick.
   const mustPickSponsor = !!sponsorOptions && !sponsorOptions.own && sponsorOptions.sponsors.length > 0;
@@ -144,7 +196,8 @@ export default function CampaignCreatePage() {
         newErrors.deadline = 'Batas waktu harus dipilih';
       }
     } else {
-      const deadlineDate = new Date(formData.deadline);
+      // The deadline is the end of the picked WIB day, so today is still valid.
+      const deadlineDate = endOfWibDay(formData.deadline);
       if (deadlineDate <= new Date()) {
         newErrors.deadline = 'Batas waktu harus di masa depan';
       }
@@ -215,8 +268,8 @@ export default function CampaignCreatePage() {
   }
 
   /** Creates the Draft (once), returning its slug. */
-  async function createDraft(): Promise<string> {
-    if (draftSlug) return draftSlug;
+  async function createDraft(): Promise<{ slug: string; id: string | null }> {
+    if (draftSlug) return { slug: draftSlug, id: draftId };
 
     // Upload the cover first. A failed upload stops the submit: a placeholder
     // or a blob/data URL would be refused by the API (coverImageSchema).
@@ -248,7 +301,7 @@ export default function CampaignCreatePage() {
       category: formData.category,
       kind: formData.kind,
       deadline: formData.deadline
-        ? new Date(formData.deadline).toISOString()
+        ? endOfWibDay(formData.deadline).toISOString()
         : undefined,
       // An organisation's own account gets its organisation on the server.
       collectingEntityId:
@@ -268,7 +321,31 @@ export default function CampaignCreatePage() {
 
     const campaign = await res.json();
     setDraftSlug(campaign.slug);
-    return campaign.slug;
+    setDraftId(campaign.id ?? null);
+    return { slug: campaign.slug, id: campaign.id ?? null };
+  }
+
+  /**
+   * Uploads each picked document to the private store (ticket 64), never to
+   * /api/upload, whose files are public. Stops at the first refusal, naming
+   * the document; the ones already stored are not sent again on a retry.
+   */
+  async function uploadDocuments(campaignId: string | null) {
+    for (const item of documentItems) {
+      const file = documentFiles[item.id];
+      if (!file || uploadedItems.has(item.id)) continue;
+      if (!campaignId) throw new Error('Dokumen belum terunggah. Tambahkan dari Galang Dana Saya.');
+      const body = new FormData();
+      body.append('campaignId', campaignId);
+      body.append('checklistItemId', item.id);
+      body.append('file', file);
+      const res = await fetch('/api/documents', { method: 'POST', body });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(`${item.label}: ${typeof data.error === 'string' ? data.error : 'gagal diunggah'}`);
+      }
+      setUploadedItems((current) => new Set(current).add(item.id));
+    }
   }
 
   /**
@@ -282,8 +359,9 @@ export default function CampaignCreatePage() {
 
     let created = false;
     try {
-      const slug = await createDraft();
+      const { slug, id } = await createDraft();
       created = true;
+      await uploadDocuments(id);
       if (action === 'submit') {
         const refused = await submitToVerifier(slug);
         if (refused) throw new Error(refused);
@@ -398,7 +476,7 @@ export default function CampaignCreatePage() {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, deadline: e.target.value }))
                   }
-                  min={new Date().toISOString().split('T')[0]}
+                  min={todayWibDate()}
                   className={`w-full px-3 py-2.5 text-sm rounded-md border transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary ${
                     errors.deadline
                       ? 'border-danger focus:ring-danger/20 focus:border-danger'
@@ -427,12 +505,17 @@ export default function CampaignCreatePage() {
                   }`}
                 >
                   <option value="">Pilih Kategori</option>
-                  {categories.map((cat) => (
-                    <option key={cat.value} value={cat.value}>
-                      {cat.label}
+                  {(categories ?? []).map((cat) => (
+                    <option key={cat.slug} value={cat.slug}>
+                      {cat.name}
                     </option>
                   ))}
                 </select>
+                {categories?.length === 0 && (
+                  <p className="mt-1 text-xs text-danger">
+                    Kategori belum tersedia. Muat ulang halaman atau hubungi Admin.
+                  </p>
+                )}
                 {errors.category && (
                   <p className="mt-1 text-xs text-danger">{errors.category}</p>
                 )}
@@ -617,11 +700,7 @@ export default function CampaignCreatePage() {
                     <p className="text-xs text-text-secondary mb-0.5">Batas Waktu</p>
                     <p className="text-sm font-medium text-text">
                       {formData.deadline
-                        ? new Date(formData.deadline).toLocaleDateString('id-ID', {
-                            day: '2-digit',
-                            month: 'long',
-                            year: 'numeric',
-                          })
+                        ? formatWibLongDate(formData.deadline)
                         : formData.kind === 'WAKAF'
                           ? 'Tanpa batas waktu'
                           : '-'}
@@ -630,7 +709,7 @@ export default function CampaignCreatePage() {
                   <div className="py-3">
                     <p className="text-xs text-text-secondary mb-0.5">Kategori</p>
                     <p className="text-sm font-medium text-text">
-                      {categories.find((c) => c.value === formData.category)?.label || '-'}
+                      {(categories ?? []).find((c) => c.slug === formData.category)?.name || '-'}
                     </p>
                   </div>
                   <div className="py-3">
@@ -641,6 +720,53 @@ export default function CampaignCreatePage() {
                   </div>
                 </div>
               </div>
+
+              {/* The private papers a Verifier checks (ticket 64, PRD §7.1). */}
+              {documentItems.length > 0 && (
+                <div className="rounded-lg border border-border p-4 space-y-3" data-testid="campaign-documents">
+                  <div>
+                    <h3 className="text-sm font-semibold text-text">Dokumen</h3>
+                    <p className="text-xs text-text-secondary mt-0.5">
+                      Dokumen privat: hanya Anda, Verifier yang memeriksa pengajuan Anda, dan Admin yang dapat
+                      membukanya. PDF, JPEG, PNG, atau WebP, maksimal 10MB. Dokumen juga dapat ditambahkan nanti
+                      dari Galang Dana Saya.
+                    </p>
+                  </div>
+                  {documentItems.map((item) => (
+                    <div key={item.id}>
+                      <label className="block text-xs font-medium text-text mb-1">
+                        {item.label}
+                        {item.required && <span className="text-danger ml-0.5">*</span>}
+                        {uploadedItems.has(item.id) && (
+                          <span className="ml-2 text-[#2E7D32]">Terunggah</span>
+                        )}
+                        <input
+                          type="file"
+                          accept={DOCUMENT_ACCEPT}
+                          aria-label={`Berkas ${item.label}`}
+                          disabled={pendingAction !== null || uploadedItems.has(item.id)}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            setDocumentFiles((current) => {
+                              const next = { ...current };
+                              if (file) next[item.id] = file;
+                              else delete next[item.id];
+                              return next;
+                            });
+                          }}
+                          className="mt-1 block text-xs"
+                        />
+                      </label>
+                    </div>
+                  ))}
+                  {missingDocuments.length > 0 && (
+                    <p className="text-xs text-danger">
+                      Untuk mengajukan ke Verifier, lengkapi dulu: {missingDocuments.map((item) => item.label).join(', ')}.
+                      Anda tetap dapat menyimpan Draft.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="flex gap-3 pt-4">
                 {/* Once the Draft exists, edits here would not reach it. */}
@@ -666,7 +792,7 @@ export default function CampaignCreatePage() {
                   size="full"
                   onClick={() => handleSave('submit')}
                   isLoading={pendingAction === 'submit'}
-                  disabled={pendingAction !== null}
+                  disabled={pendingAction !== null || missingDocuments.length > 0}
                 >
                   Ajukan ke Verifier
                 </Button>

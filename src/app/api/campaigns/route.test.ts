@@ -18,6 +18,9 @@ vi.mock('@/lib/prisma', () => ({
     partnerOrganisation: {
       findUnique: vi.fn(),
     },
+    category: {
+      findUnique: vi.fn(),
+    },
   },
 }));
 
@@ -35,6 +38,7 @@ const mockCount = vi.mocked(prisma.campaign.count);
 const mockCreate = vi.mocked(prisma.campaign.create);
 const mockGetServerSession = vi.mocked(getServerSession);
 const mockOrganisationFindUnique = vi.mocked(prisma.partnerOrganisation.findUnique);
+const mockCategoryFindUnique = vi.mocked(prisma.category.findUnique);
 
 function createRequest(url: string): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'));
@@ -311,6 +315,22 @@ describe('POST /api/campaigns', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // The slug is in the Category table unless a test says otherwise.
+    mockCategoryFindUnique.mockResolvedValue({ id: 'cat-1', slug: 'bencana-alam' } as never);
+  });
+
+  it('refuses a category slug that is not in the Category table with 400 and creates nothing', async () => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+    mockCategoryFindUnique.mockResolvedValue(null);
+
+    const response = await POST(createPostRequest({ ...validBody, category: 'lainnya' }));
+
+    expect(response.status).toBe(400);
+    const data = await response.json();
+    expect(data.error).toBe('Kategori tidak dikenal. Pilih salah satu kategori yang tersedia.');
+    expect(data.fieldErrors.category).toHaveLength(1);
+    expect(mockCategoryFindUnique).toHaveBeenCalledWith({ where: { slug: 'lainnya' } });
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('returns 401 if user is not authenticated', async () => {

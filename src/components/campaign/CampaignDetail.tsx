@@ -399,6 +399,7 @@ function CampaignUpdates({
       {updates.map((update) => {
         const date = new Date(update.createdAt);
         const formattedDate = date.toLocaleDateString('id-ID', {
+          timeZone: 'Asia/Jakarta',
           day: '2-digit',
           month: 'short',
           year: 'numeric',
@@ -466,6 +467,7 @@ function CampaignDisbursements({
       {disbursements.map((record) => {
         const date = new Date(record.createdAt);
         const formattedDate = date.toLocaleDateString('id-ID', {
+          timeZone: 'Asia/Jakarta',
           day: '2-digit',
           month: 'short',
           year: 'numeric',

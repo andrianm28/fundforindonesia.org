@@ -71,7 +71,7 @@ describe("docker-compose.prod.yml", () => {
     ]);
   });
 
-  it("reuses the kibi-clone data volumes as external, by exact name", () => {
+  it("reuses the kibi-clone data volumes as external, by exact name, and mounts the private documents volume outside public/", () => {
     const volumes = block("volumes:");
     expect(block("  postgres_data:", volumes).map((l) => l.trim())).toEqual([
       "external: true",
@@ -81,12 +81,19 @@ describe("docker-compose.prod.yml", () => {
       "external: true",
       "name: kibi-clone_uploads",
     ]);
+    // Ticket 64: created on the host before the first deploy that mounts it.
+    expect(block("  private_documents:", volumes).map((l) => l.trim())).toEqual([
+      "external: true",
+      "name: ffi_private_documents",
+    ]);
     expect(block("    volumes:", service("db")).map((l) => l.trim())).toEqual([
       "- postgres_data:/var/lib/postgresql/data",
     ]);
-    expect(block("    volumes:", service("app")).map((l) => l.trim())).toEqual([
-      "- uploads:/app/public/uploads",
-    ]);
+    expect(
+      block("    volumes:", service("app"))
+        .map((l) => l.trim())
+        .filter((l) => !l.startsWith("#")),
+    ).toEqual(["- uploads:/app/public/uploads", "- private_documents:/app/private-documents"]);
   });
 
   it("publishes the same ports as today, on loopback only", () => {
@@ -99,6 +106,39 @@ describe("docker-compose.prod.yml", () => {
       'app - "127.0.0.1:8093:3000"',
       'db - "127.0.0.1:18093:5432"',
     ]);
+  });
+
+  // Audit OPS-4. A hung-but-running Node is never restarted by
+  // `restart: unless-stopped`, json-file logs are unbounded on a shared disk,
+  // and one leaking service can starve the others on the host.
+  it("gives the app a healthcheck on the existing /api/health endpoint, using only what the image has", () => {
+    const hc = block("    healthcheck:", service("app")).join("\n");
+    expect(hc).toContain("/api/health");
+    expect(hc).toContain("node");
+    expect(hc).not.toMatch(/curl|wget/);
+    expect(hc).toMatch(/interval:/);
+    expect(hc).toMatch(/start_period:/);
+  });
+
+  it("rotates the json-file logs of every service", () => {
+    for (const name of serviceNames) {
+      const logging = block("    logging:", service(name)).map((l) => l.trim());
+      expect(logging, name).toContain("driver: json-file");
+      expect(logging.some((l) => /^max-size: "?\d+m"?$/.test(l)), name).toBe(true);
+      expect(logging.some((l) => /^max-file: "?\d+"?$/.test(l)), name).toBe(true);
+    }
+  });
+
+  it("caps memory and CPU of the long-running services (the one-off migrate is exempt)", () => {
+    for (const name of ["app", "db"]) {
+      const svc = service(name);
+      expect(svc.some((l) => /^ {4}mem_limit: \S+/.test(l)), name).toBe(true);
+      expect(svc.some((l) => /^ {4}cpus: \S+/.test(l)), name).toBe(true);
+    }
+  });
+
+  it("pins the postgres image to an exact minor, not a floating major tag", () => {
+    expect(service("db")).toContain("    image: postgres:16.15-alpine");
   });
 });
 
@@ -156,6 +196,8 @@ describe("docker-compose.prod.yml env passthrough", () => {
       "SUMOPOD_BASE_URL",
     ],
     "src/lib/partnership-inquiries.ts": ["PARTNERSHIP_TEAM_EMAIL"],
+    // documentRoot(env = process.env), so tests can hand it their own (ticket 64).
+    "src/lib/documents.ts": ["PRIVATE_DOCUMENT_DIR"],
     // loadFieldKeys(process.env) at boot; the names are VARS in field-encryption.ts.
     "src/lib/env-check.ts": [
       "FIELD_ENCRYPTION_KEY",

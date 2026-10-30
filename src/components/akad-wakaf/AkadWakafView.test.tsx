@@ -24,6 +24,15 @@ afterEach(() => {
 });
 
 describe('AkadWakafView', () => {
+  it('is labelled a wakaf receipt with a draft marker, not an Akta Ikrar Wakaf (audit L9)', () => {
+    render(<AkadWakafView {...baseProps()} />);
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Tanda Terima Wakaf');
+    expect(screen.queryByText('Akad Wakaf')).toBeNull();
+    expect(screen.getByTestId('wakaf-draft-notice').textContent).toMatch(/beta|draf/i);
+    expect(screen.getByTestId('wakaf-draft-notice').textContent).toMatch(/bukan Akta Ikrar Wakaf/i);
+  });
+
   it('shows the Wakif, the amount, the purpose and the nazhir', () => {
     render(<AkadWakafView {...baseProps()} />);
 

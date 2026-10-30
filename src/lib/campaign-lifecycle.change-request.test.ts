@@ -63,7 +63,7 @@ describe('requestCampaignChange', () => {
         submittedById: 'creator-1',
         submittedAt: NOW,
         checklist: [
-          { id: 'rencana-anggaran', label: 'Rencana anggaran', required: true, position: 1, ticked: false },
+          { id: 'rencana-anggaran', label: 'Rencana anggaran', required: true, position: 1, ticked: false, requiresDocument: false },
         ],
         outcome: 'PENDING',
         reason: null,

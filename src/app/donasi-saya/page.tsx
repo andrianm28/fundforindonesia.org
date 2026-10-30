@@ -204,7 +204,7 @@ function DonationCard({
           onClick={(e) => e.stopPropagation()}
           className="mt-2 ml-3 inline-block text-[#0073E6] text-xs font-medium hover:underline"
         >
-          Lihat &amp; Cetak Akad Wakaf
+          Lihat &amp; Cetak Tanda Terima Wakaf
         </a>
       )}
     </div>

@@ -63,6 +63,12 @@ run_test() {
   # skipped -- visible, but not proof.
   local_database
   export LEDGER_CLAIM_TEST_DATABASE_URL="$DATABASE_URL"
+  # The real-DB money tests (webhook settlement, escrow, refund, concurrency;
+  # 19 files use describe.skipIf(!TEST_DATABASE_URL)) skip silently without
+  # this, and a green run would not have executed them. CI sets it in the test
+  # job; this is the same thing locally (audit OPS-5). Each file creates its own
+  # throwaway database from this server, so the `ci` role's CREATEDB is needed.
+  export TEST_DATABASE_URL="$DATABASE_URL"
   npx vitest run
 }
 

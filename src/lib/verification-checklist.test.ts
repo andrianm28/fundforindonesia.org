@@ -37,7 +37,7 @@ describe('addChecklistItem', () => {
       now: NOW,
     });
 
-    expect(item).toMatchObject({ label: 'Surat keterangan RT', required: false, position: 4, active: true, kind: null });
+    expect(item).toMatchObject({ label: 'Surat keterangan RT', required: false, position: 4, active: true, kind: null, requiresDocument: false });
     expect(db.checklistItems).toHaveLength(4);
     expect(db.checklistAudits).toEqual([
       {
@@ -45,7 +45,7 @@ describe('addChecklistItem', () => {
         itemId: item.id,
         action: 'CREATED',
         before: null,
-        after: { label: 'Surat keterangan RT', required: false, position: 4, active: true, kind: null },
+        after: { label: 'Surat keterangan RT', required: false, position: 4, active: true, kind: null, requiresDocument: false },
         actedById: admin,
         actedAt: NOW,
       },
@@ -64,14 +64,14 @@ describe('addChecklistItem', () => {
     });
 
     expect(item).toMatchObject({ kind: 'WAKAF', position: 4, active: true });
-    expect(db.checklistAudits[0].after).toMatchObject({ kind: 'WAKAF' });
+    expect(db.checklistAudits[0].after).toMatchObject({ kind: 'WAKAF', requiresDocument: false });
   });
 
   it('refuses an unknown Kind, writing nothing', async () => {
     const db = makeCampaignDb({ checklistItems: SEEDED });
 
     await expect(
-      addChecklistItem(db.prisma as never, { actorId: admin, label: 'Baru', required: true, kind: 'SEDEKAH' }),
+      addChecklistItem(db.prisma as never, { actorId: admin, label: 'Baru', required: true, kind: 'SEDEKAH', requiresDocument: false }),
     ).rejects.toBeInstanceOf(InvalidChecklistChangeError);
     expect(db.checklistItems).toEqual(SEEDED);
     expect(db.checklistAudits).toEqual([]);
@@ -89,14 +89,14 @@ describe('editChecklistItem', () => {
       now: NOW,
     });
 
-    expect(item).toEqual({ id: 'rencana-anggaran', label: 'Rencana anggaran rinci', required: false, position: 2, active: true, kind: null });
+    expect(item).toEqual({ id: 'rencana-anggaran', label: 'Rencana anggaran rinci', required: false, position: 2, active: true, kind: null, requiresDocument: false });
     expect(db.checklistAudits).toEqual([
       {
         id: expect.any(String),
         itemId: 'rencana-anggaran',
         action: 'UPDATED',
-        before: { label: 'Rencana anggaran', required: true, position: 2, active: true, kind: null },
-        after: { label: 'Rencana anggaran rinci', required: false, position: 2, active: true, kind: null },
+        before: { label: 'Rencana anggaran', required: true, position: 2, active: true, kind: null, requiresDocument: false },
+        after: { label: 'Rencana anggaran rinci', required: false, position: 2, active: true, kind: null, requiresDocument: false },
         actedById: admin,
         actedAt: NOW,
       },
@@ -120,24 +120,24 @@ describe('editChecklistItem', () => {
 
   it('moves an item between Kinds, auditing the item before and after', async () => {
     const db = makeCampaignDb({
-      checklistItems: [checklistItemRow({ id: 'wakaf-1', label: 'Draf akad wakaf', position: 1, kind: 'WAKAF' })],
+      checklistItems: [checklistItemRow({ id: 'wakaf-1', label: 'Draf akad wakaf', position: 1, kind: 'WAKAF', requiresDocument: false })],
     });
 
     const item = await editChecklistItem(db.prisma as never, {
       actorId: admin,
       itemId: 'wakaf-1',
-      changes: { kind: null },
+      changes: { kind: null, requiresDocument: false },
       now: NOW,
     });
 
-    expect(item).toMatchObject({ kind: null });
+    expect(item).toMatchObject({ kind: null, requiresDocument: false });
     expect(db.checklistAudits).toEqual([
       {
         id: expect.any(String),
         itemId: 'wakaf-1',
         action: 'UPDATED',
-        before: { label: 'Draf akad wakaf', required: true, position: 1, active: true, kind: 'WAKAF' },
-        after: { label: 'Draf akad wakaf', required: true, position: 1, active: true, kind: null },
+        before: { label: 'Draf akad wakaf', required: true, position: 1, active: true, kind: 'WAKAF', requiresDocument: false },
+        after: { label: 'Draf akad wakaf', required: true, position: 1, active: true, kind: null, requiresDocument: false },
         actedById: admin,
         actedAt: NOW,
       },
@@ -147,9 +147,9 @@ describe('editChecklistItem', () => {
   it('lists only one Kind plus the general items when asked', async () => {
     const db = makeCampaignDb({
       checklistItems: [
-        checklistItemRow({ id: 'general', position: 1, kind: null }),
-        checklistItemRow({ id: 'wakaf-1', position: 2, kind: 'WAKAF' }),
-        checklistItemRow({ id: 'hibah-1', position: 3, kind: 'HIBAH' }),
+        checklistItemRow({ id: 'general', position: 1, kind: null, requiresDocument: false }),
+        checklistItemRow({ id: 'wakaf-1', position: 2, kind: 'WAKAF', requiresDocument: false }),
+        checklistItemRow({ id: 'hibah-1', position: 3, kind: 'HIBAH', requiresDocument: false }),
       ],
     });
 
@@ -205,8 +205,8 @@ describe('editChecklistItem', () => {
 // ordinary edit, and the one thing it may not do is reach wakaf's copy.
 describe("diverging hibah's checklist from wakaf's (csr-and-hibah 11)", () => {
   const COPIED = [
-    checklistItemRow({ id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', position: 1, kind: 'WAKAF' }),
-    checklistItemRow({ id: 'hibah-nazhir', label: 'Dokumen lembaga nazhir', position: 2, kind: 'HIBAH' }),
+    checklistItemRow({ id: 'wakaf-nazhir', label: 'Dokumen lembaga nazhir', position: 1, kind: 'WAKAF', requiresDocument: false }),
+    checklistItemRow({ id: 'hibah-nazhir', label: 'Dokumen lembaga nazhir', position: 2, kind: 'HIBAH', requiresDocument: false }),
   ];
 
   it("rewords or retires one Kind's item without touching the other Kind's copy of it", async () => {
@@ -241,7 +241,7 @@ describe("diverging hibah's checklist from wakaf's (csr-and-hibah 11)", () => {
 
     expect(await listChecklistItems(db.prisma as never, { kind: 'HIBAH' })).toMatchObject([
       { id: 'hibah-nazhir' },
-      { label: 'Dokumen penerima-manfaat', kind: 'HIBAH' },
+      { label: 'Dokumen penerima-manfaat', kind: 'HIBAH', requiresDocument: false },
     ]);
     expect((await listChecklistItems(db.prisma as never, { kind: 'WAKAF' })).map((i) => i.id)).toEqual(['wakaf-nazhir']);
   });
@@ -278,14 +278,14 @@ describe('moveChecklistItem', () => {
       {
         itemId: 'bukti-masalah',
         action: 'UPDATED',
-        before: { label: 'Bukti masalah', required: true, position: 3, active: true, kind: null },
-        after: { label: 'Bukti masalah', required: true, position: 2, active: true, kind: null },
+        before: { label: 'Bukti masalah', required: true, position: 3, active: true, kind: null, requiresDocument: false },
+        after: { label: 'Bukti masalah', required: true, position: 2, active: true, kind: null, requiresDocument: false },
       },
       {
         itemId: 'rencana-anggaran',
         action: 'UPDATED',
-        before: { label: 'Rencana anggaran', required: true, position: 2, active: true, kind: null },
-        after: { label: 'Rencana anggaran', required: true, position: 3, active: true, kind: null },
+        before: { label: 'Rencana anggaran', required: true, position: 2, active: true, kind: null, requiresDocument: false },
+        after: { label: 'Rencana anggaran', required: true, position: 3, active: true, kind: null, requiresDocument: false },
       },
     ]);
   });
@@ -339,9 +339,9 @@ describe('existing Verification Requests keep their snapshot', () => {
     const fundraiser = { userId: 'creator-1', assignments: [] };
     await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
     const snapshotAtSubmission = [
-      { id: 'identitas-fundraiser', label: 'KTP Fundraiser', required: true, position: 1, ticked: false },
-      { id: 'rencana-anggaran', label: 'Rencana anggaran', required: true, position: 2, ticked: false },
-      { id: 'bukti-masalah', label: 'Bukti masalah', required: true, position: 3, ticked: false },
+      { id: 'identitas-fundraiser', label: 'KTP Fundraiser', required: true, position: 1, ticked: false, requiresDocument: false },
+      { id: 'rencana-anggaran', label: 'Rencana anggaran', required: true, position: 2, ticked: false, requiresDocument: false },
+      { id: 'bukti-masalah', label: 'Bukti masalah', required: true, position: 3, ticked: false, requiresDocument: false },
     ];
     expect(db.verificationRequests[0].checklist).toEqual(snapshotAtSubmission);
     // Requests in every other state, ticked by a Verifier, snapshotted from an older checklist.
@@ -366,9 +366,9 @@ describe('existing Verification Requests keep their snapshot', () => {
 
     await submitCampaign(db.prisma as never, { campaignId: 'campaign-2', actor: fundraiser, now: NOW });
     expect(db.verificationRequests[3].checklist).toEqual([
-      { id: 'bukti-masalah', label: 'Bukti masalah', required: true, position: 2, ticked: false },
-      { id: 'rencana-anggaran', label: 'RAB rinci', required: false, position: 3, ticked: false },
-      { id: expect.any(String), label: 'Surat keterangan RT', required: true, position: 4, ticked: false },
+      { id: 'bukti-masalah', label: 'Bukti masalah', required: true, position: 2, ticked: false, requiresDocument: false },
+      { id: 'rencana-anggaran', label: 'RAB rinci', required: false, position: 3, ticked: false, requiresDocument: false },
+      { id: expect.any(String), label: 'Surat keterangan RT', required: true, position: 4, ticked: false, requiresDocument: false },
     ]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { attemptRetryable, describePaymentResult, EXPIRY_GRACE_MS, type ResultPayment } from './payment-result';
+import { attemptRetryable, describePaymentResult, EXPIRY_GRACE_MS, transactionDetails, type ResultPayment } from './payment-result';
 
 const NOW = new Date('2026-10-16T10:00:00.000Z');
 const LATER = new Date('2026-10-17T10:00:00.000Z');
@@ -132,5 +132,33 @@ describe('attemptRetryable', () => {
     expect(attemptRetryable({ status: 'REFUNDED', expiresAt: expiredAt }, NOW)).toBe(false);
     expect(attemptRetryable({ status: 'PENDING', expiresAt: null }, NOW)).toBe(false);
     expect(attemptRetryable({ status: 'EXPIRED', expiresAt: null }, NOW)).toBe(true);
+  });
+});
+
+describe('transactionDetails (ticket 98, transaction details)', () => {
+  const base = { method: 'qris_redirect', paidAt: null, createdAt: EARLIER };
+
+  it('reports the paid attempt, with when the money arrived, even when a later attempt exists', () => {
+    const paidAt = new Date('2026-10-16T09:10:00.000Z');
+    expect(
+      transactionDetails([
+        { ...base, status: 'PAID', providerRef: 'd1', paidAt },
+        { ...base, status: 'EXPIRED', providerRef: 'd1-rabc', createdAt: NOW },
+      ]),
+    ).toEqual({ reference: 'd1', methodLabel: 'QRIS', at: paidAt, paid: true });
+  });
+
+  it('reports the newest attempt and when it was made while nothing is paid', () => {
+    expect(
+      transactionDetails([
+        { ...base, status: 'EXPIRED', providerRef: 'd1' },
+        { ...base, status: 'PENDING', providerRef: 'd1-r2', method: 'bank_transfer_va', createdAt: NOW },
+      ]),
+    ).toEqual({ reference: 'd1-r2', methodLabel: 'Virtual Account (transfer bank)', at: NOW, paid: false });
+  });
+
+  it('is null when no charge was ever made, and names no method it does not know', () => {
+    expect(transactionDetails([])).toBeNull();
+    expect(transactionDetails([{ ...base, status: 'PENDING', providerRef: 'd1', method: 'cash' }])?.methodLabel).toBeNull();
   });
 });

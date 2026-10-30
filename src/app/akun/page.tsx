@@ -8,6 +8,7 @@ import { formatRupiah } from '@/lib/utils/currency';
 import Link from 'next/link';
 import { WALLET_DISABLED_MESSAGE } from '@/lib/wallet';
 import { staffEntryLinks } from '@/lib/staff-entry-links';
+import { SITE_IDENTITY } from '@/lib/site-identity';
 
 export default function AkunPage() {
   const { data: session, status } = useSession();
@@ -119,6 +120,45 @@ export default function AkunPage() {
         ))}
         <SettingsLink label="Pengaturan" href="/akun/pengaturan" isLast />
       </div>
+
+      {/* Hak subjek data (UU PDP, audit L5): salinan data lewat unduhan, penghapusan lewat permintaan
+          email ke kontak privasi. Tidak ada yang dihapus dari sini. */}
+      <div className="bg-white mx-4 mt-3 rounded-xl shadow-xs p-4 space-y-4">
+        <div>
+          <h2 className="text-text text-sm font-semibold">Data Saya</h2>
+          <p className="text-text-secondary text-xs mt-1">
+            Unduh salinan profil, donasi, galang dana, dan penugasan akun Anda dalam format JSON.
+          </p>
+          <a
+            href="/api/account/export"
+            download
+            className="mt-2 inline-block bg-[#0073E6] text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#005BB5] transition-colors"
+          >
+            Unduh data saya
+          </a>
+        </div>
+        <div className="border-t border-border pt-4">
+          <h2 className="text-text text-sm font-semibold">Minta hapus akun</h2>
+          <p className="text-text-secondary text-xs mt-1">
+            Akun tidak langsung dihapus dari sini. Permintaan Anda dikirim lewat email ke kontak privasi kami
+            dan diproses manual. Catatan keuangan (donasi, tanda terima, pencairan, pengembalian dana) tetap
+            disimpan sesuai kewajiban hukum; data diri pada donasi dapat dianonimkan.
+          </p>
+          <a
+            href={`mailto:${SITE_IDENTITY.privacyEmail}?subject=${encodeURIComponent(`Permintaan hapus akun - ${user?.email ?? ''}`)}`}
+            className="mt-2 inline-block text-danger text-sm font-medium hover:underline"
+          >
+            Kirim permintaan hapus akun
+          </a>
+        </div>
+      </div>
+
+      {/* Legal links: the footer is desktop-only, so phones reach them here (UU PDP notice). */}
+      <p className="mx-4 mt-4 text-center text-xs text-text-secondary">
+        <Link href="/terms" className="hover:underline">Syarat &amp; Ketentuan</Link>
+        {' · '}
+        <Link href="/privacy" className="hover:underline">Kebijakan Privasi</Link>
+      </p>
 
       {/* Logout Button */}
       <div className="mx-4 mt-4">

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Kind } from '@/generated/prisma/client';
 import {
   createRefund,
@@ -23,6 +23,8 @@ import {
   failRefund,
   RefundResolutionActorError,
   RefundReasonInvalidError,
+  PaymentNotPaidError,
+  SandboxRowInLiveModeError,
 } from './refunds';
 import {
   paymentSettledLegs,
@@ -36,7 +38,8 @@ import {
   type LedgerLeg,
   type LedgerSubject,
 } from './ledger';
-import { readRefundDonorAccountNumber, sealRefundDonorAccountNumber } from '@/lib/contact-fields';
+import { readRefundDonorAccountNumber, sealRefundDonorAccountNumber, sealUserEmail } from '@/lib/contact-fields';
+import { MockMailer, type Mailer } from '@/lib/mail';
 import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
 
 type LedgerRow = {
@@ -98,6 +101,7 @@ const entriesByTransactionId = (rows: LedgerRow[], where: { transactionId: strin
 function makePayment(overrides: Record<string, unknown> = {}) {
   return {
     id: 'payment-1',
+    status: 'PAID',
     amount: 100_000,
     providerFee: 5_000,
     // 0 by default (prd-compliance 17): every existing test in this file
@@ -262,6 +266,31 @@ function makeTx(
     queryRawCalls,
   };
 }
+
+/** The Refund as the ticket-68 email reads it after commit: a registered Donor's Donation. */
+function refundEmailRow() {
+  return {
+    amount: 100_000,
+    payment: {
+      donation: {
+        anonymisedAt: null,
+        guestName: null,
+        guestEmailCiphertext: null,
+        guestEmailKeyId: null,
+        donor: { name: 'Budi Santoso', ...sealUserEmail('budi@example.test') },
+        campaign: { title: 'Sumur Desa' },
+      },
+      registration: null,
+    },
+  };
+}
+
+const failingMailer: Mailer = {
+  name: 'failing',
+  send: async () => {
+    throw new Error('relay down');
+  },
+};
 
 function makePrisma(tx: ReturnType<typeof makeTx>['tx'], finalRow: Record<string, unknown>) {
   return {
@@ -669,6 +698,19 @@ describe('createRefund', () => {
       createRefund(tx as never, { subject: { type: 'campaign', campaignId: 'campaign-1' }, paymentId: 'missing', amount: 1, reason: 'x', requestedById: 'admin-1' }),
     ).rejects.toThrow(PaymentNotFoundError);
   });
+
+  it.each(['PENDING', 'EXPIRED', 'FAILED'])(
+    'refuses a Payment that is %s: money that never arrived cannot be refunded, and nothing is posted (PAY-03)',
+    async (status) => {
+      const { tx, refundCreate, rows } = makeTx({ payment: makePayment({ status }) });
+
+      await expect(
+        createRefund(tx as never, { subject: { type: 'campaign', campaignId: 'campaign-1' }, paymentId: 'payment-1', amount: 1_000, reason: 'x', requestedById: 'admin-1' }),
+      ).rejects.toThrow(PaymentNotPaidError);
+      expect(refundCreate).not.toHaveBeenCalled();
+      expect(rows).toHaveLength(0);
+    },
+  );
 
   it('throws PaymentSubjectMismatchError when the Payment belongs to a different Campaign than the subject given', async () => {
     const { tx } = makeTx({ payment: makePayment({ donation: { campaignId: 'a-different-campaign' } }) });
@@ -1615,6 +1657,45 @@ describe('completeRefund', () => {
     ]);
   });
 
+  it('emails the Donor once the completion has committed, never the account number (ticket 68)', async () => {
+    const refundRow = baseApprovedRefundRow();
+    const { tx } = makeTx({ refundRow });
+    const emailRead = vi.fn().mockResolvedValue(refundEmailRow());
+    const base = makePrisma(tx, { ...refundRow, status: 'COMPLETED', completedById: 'completer-1' });
+    const prisma = { ...base, refund: { ...base.refund, findUnique: emailRead } };
+    const mailer = new MockMailer();
+
+    await completeRefund(prisma as never, { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validRetype, mailer });
+
+    expect(emailRead).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'refund-1' } }));
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0]).toMatchObject({ to: 'budi@example.test' });
+    expect(mailer.sent[0].subject).toContain('sudah ditransfer');
+    expect(mailer.sent[0].text).not.toContain('1234567890');
+    expect(mailer.sent[0].html).not.toContain('1234567890');
+  });
+
+  it('keeps the completion and its legs when the Donor email cannot be sent (ticket 68)', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const refundRow = baseApprovedRefundRow();
+    const { tx, rows } = makeTx({ refundRow });
+    const base = makePrisma(tx, { ...refundRow, status: 'COMPLETED', completedById: 'completer-1' });
+    const prisma = { ...base, refund: { ...base.refund, findUnique: vi.fn().mockResolvedValue(refundEmailRow()) } };
+
+    const result = await completeRefund(prisma as never, {
+      refundId: 'refund-1',
+      completedById: 'completer-1',
+      ...validProof,
+      ...validRetype,
+      mailer: failingMailer,
+    });
+
+    expect(result.status).toBe('COMPLETED');
+    expect(rows.filter((r) => r.transactionId === 'refund-completed-refund-1')).toHaveLength(2);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"mail_send_failed"'));
+    errors.mockRestore();
+  });
+
   it('records completedById, completedAt and the joined proof, writing no destination fields of its own (Q7(c))', async () => {
     const refundRow = baseApprovedRefundRow();
     const { tx } = makeTx({ refundRow });
@@ -2019,6 +2100,30 @@ describe('rejectRefund and failRefund (ticket 49)', () => {
     expect(allZero(netByAccount(rows))).toBe(true);
   });
 
+  it('fail emails the Donor without the Admin reason; reject emails nobody (ticket 68)', async () => {
+    const failed = setup({ status: 'APPROVED', source: 'CAMPAIGN_BALANCE', approved: true, row: { approvedById: 'approver-1' } });
+    const failRead = vi.fn().mockResolvedValue(refundEmailRow());
+    const mailer = new MockMailer();
+    await failRefund({ ...failed.prisma, refund: { ...failed.prisma.refund, findUnique: failRead } } as never, {
+      refundId: 'refund-1',
+      failedById: 'admin-3',
+      reason: 'rekening 9876543210 ditutup',
+      mailer,
+    });
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0].subject).toContain('belum berhasil');
+    expect(mailer.sent[0].text).not.toContain('9876543210');
+
+    const rejected = setup({ status: 'REQUESTED', source: 'CAMPAIGN_BALANCE' });
+    const rejectRead = vi.fn().mockResolvedValue(refundEmailRow());
+    await rejectRefund({ ...rejected.prisma, refund: { ...rejected.prisma.refund, findUnique: rejectRead } } as never, {
+      refundId: 'refund-1',
+      rejectedById: 'admin-2',
+      reason: 'salah input',
+    });
+    expect(rejectRead).not.toHaveBeenCalled();
+  });
+
   it('fail covers the shortfall REFUND_COST closed at approval: the top-up is taken back out of the same pool', async () => {
     const { prisma, rows, before } = setup({ status: 'APPROVED', source: 'CAMPAIGN_BALANCE', approved: true, shortfall: 30_000, row: { approvedById: 'approver-1' } });
     expect(rows.some((r) => r.account === 'REFUND_COST' && r.amount === 30_000 && r.direction === 'DEBIT')).toBe(true);
@@ -2074,5 +2179,75 @@ describe('rejectRefund and failRefund (ticket 49)', () => {
     const { tx, rows } = makeTx({ ledgerRows: [], refundRow: row, payment: paymentFor() });
     await expect(rejectRefund(makePrisma(tx, row) as never, { refundId: 'refund-1', rejectedById: 'admin-2', reason: 'x' })).rejects.toBeInstanceOf(InvalidRefundStatusError);
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe('a sandbox Refund after go-live (PAY-01)', () => {
+  const sandboxRefund = (overrides: Record<string, unknown> = {}) => ({
+    id: 'refund-1',
+    paymentId: 'payment-1',
+    amount: 100_000,
+    reason: 'x',
+    status: 'REQUESTED',
+    sandbox: true,
+    requestedById: 'requester-1',
+    approvedById: null,
+    ...sealRefundDonorAccountNumber('1234567890'),
+    payment: makePayment({ amount: 100_000, providerFee: 0, sandbox: true }),
+    ...overrides,
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('refuses to approve it once BETA_SANDBOX is gone, posting nothing and leaving it REQUESTED', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'false');
+    const refundRow = sandboxRefund();
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    await expect(
+      approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination }),
+    ).rejects.toThrow(SandboxRowInLiveModeError);
+
+    expect(rows).toHaveLength(0);
+    expect(refundRow.status).toBe('REQUESTED');
+  });
+
+  it('refuses to complete it once BETA_SANDBOX is gone, posting nothing', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'false');
+    const refundRow = sandboxRefund({ status: 'APPROVED', approvedById: 'approver-1' });
+    const { tx, rows } = makeTx({ refundRow });
+    const prisma = makePrisma(tx, refundRow);
+
+    await expect(
+      completeRefund(prisma as never, {
+        refundId: 'refund-1',
+        completedById: 'completer-1',
+        proofReference: 'TRX-refund-1',
+        proofNote: 'Ditransfer via mobile banking BCA, dicocokkan dengan nama dan rekening Donor.',
+        donorAccountNumber: '1234567890',
+      }),
+    ).rejects.toThrow(SandboxRowInLiveModeError);
+
+    expect(rows).toHaveLength(0);
+  });
+
+  it('still lets the beta approve a sandbox Refund while the marker is on (the guard is for go-live only)', async () => {
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    const refundRow = sandboxRefund();
+    const { tx } = makeTx({
+      refundRow,
+      ledgerRows: [
+        { transactionId: 'settle-1', direction: 'CREDIT', amount: 100_000, account: 'ESCROW_HOLD', campaignId: 'campaign-1', volunteerTripId: null },
+        ...freezeRows('refund-1', { amount: 100_000, source: 'ESCROW_HOLD' }),
+      ],
+    });
+    const prisma = makePrisma(tx, { ...refundRow, status: 'APPROVED', approvedById: 'admin-1' });
+
+    await expect(
+      approveRefund(prisma as never, { refundId: 'refund-1', approvedById: 'admin-1', ...validDestination }),
+    ).resolves.toBeDefined();
   });
 });

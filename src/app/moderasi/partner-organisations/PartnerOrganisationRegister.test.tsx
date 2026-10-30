@@ -194,4 +194,32 @@ describe('PartnerOrganisationRegister', () => {
       }),
     );
   });
+
+  it("lists an organisation's legal documents through the ACL route, and uploads a new one with its title (ticket 64)", async () => {
+    const documented = {
+      ...ORGANISATION,
+      documents: [
+        { id: 'doc-akta', label: 'Akta pendirian', contentType: 'application/pdf', sizeBytes: 4096, uploadedAt: '2026-10-29T00:00:00.000Z' },
+      ],
+    };
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET', body: init?.body instanceof FormData ? Object.fromEntries([...init.body.entries()].filter(([k]) => k !== 'file')) : undefined });
+      if ((init?.method ?? 'GET') === 'GET') return Response.json({ organisations: [documented] });
+      return Response.json({ document: { id: 'doc-2' } }, { status: 201 });
+    });
+    render(<PartnerOrganisationRegister />);
+
+    const link = await screen.findByRole('link', { name: 'Akta pendirian' });
+    expect(link.getAttribute('href')).toBe('/api/documents/doc-akta');
+
+    fireEvent.change(screen.getByLabelText('Nama dokumen'), { target: { value: 'SK Kemenkumham' } });
+    fireEvent.change(screen.getByLabelText(/Berkas dokumen Yayasan/), {
+      target: { files: [new File(['%PDF-1.7'], 'sk.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Unggah' }));
+
+    await waitFor(() => expect(calls.filter((c) => c.url === '/api/documents')).toHaveLength(1));
+    expect(calls.find((c) => c.url === '/api/documents')?.body).toEqual({ partnerOrganisationId: 'yiem', label: 'SK Kemenkumham' });
+    await screen.findByText('Dokumen terunggah.');
+  });
 });
