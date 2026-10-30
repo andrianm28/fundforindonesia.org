@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
-import { completeCampaignRequest, requestCancellation } from '@/lib/fundraiser-requests';
+import { completeCampaignRequest, askForCancellation } from '@/lib/fundraiser-requests';
 
 /**
  * The two ways a Fundraiser ends an Active Campaign (ticket 65): marking it
@@ -47,7 +47,7 @@ export function CampaignCloseActions({
       return;
     }
     setCancelling(true);
-    const refused = await requestCancellation(slug, reason.trim());
+    const refused = await askForCancellation(slug, reason.trim());
     setCancelling(false);
     if (refused) setCancelRefusal(refused);
     else router.refresh();

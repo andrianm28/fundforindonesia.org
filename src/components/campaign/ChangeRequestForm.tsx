@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { CampaignDeadlineField } from '@/components/campaign/CampaignDeadlineField';
 import type { CampaignKind } from '@/lib/campaign-kind';
 import { deadlineError, formatRupiahInput, parseRupiahInput } from '@/lib/campaign-form';
-import { requestCampaignChange } from '@/lib/fundraiser-requests';
+import { askForCampaignChange } from '@/lib/fundraiser-requests';
 import { endOfWibDay } from '@/lib/utils/date';
 
 /**
@@ -70,7 +70,7 @@ export function ChangeRequestForm({
     }
 
     setPending(true);
-    const refused = await requestCampaignChange(slug, changes);
+    const refused = await askForCampaignChange(slug, changes);
     setPending(false);
     if (refused) {
       setMessage(refused);

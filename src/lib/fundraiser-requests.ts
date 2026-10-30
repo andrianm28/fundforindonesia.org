@@ -26,7 +26,7 @@ export function saveCampaignEdit(slug: string, fields: Record<string, unknown>):
 }
 
 /** Asks for a new target and/or deadline on an Active Campaign. */
-export function requestCampaignChange(
+export function askForCampaignChange(
   slug: string,
   changes: { targetAmount?: number; deadline?: string | null },
 ): Promise<string | null> {
@@ -39,6 +39,6 @@ export function completeCampaignRequest(slug: string): Promise<string | null> {
 }
 
 /** Asks an Admin to cancel an Active Campaign. */
-export function requestCancellation(slug: string, reason: string): Promise<string | null> {
+export function askForCancellation(slug: string, reason: string): Promise<string | null> {
   return send('POST', `/api/campaigns/${slug}/cancellation-requests`, { reason }, 'Gagal mengajukan pembatalan campaign.');
 }
