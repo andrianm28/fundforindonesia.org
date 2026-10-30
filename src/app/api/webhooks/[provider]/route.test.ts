@@ -58,6 +58,12 @@ vi.mock('@/lib/mail', () => ({
   sendReportingFailure: vi.fn().mockResolvedValue(true),
 }));
 
+// The Volunteer's confirmation email is composed and sent by status-emails
+// (src/lib/status-emails.test.ts); this route only has to call it, after commit.
+vi.mock('@/lib/status-emails', () => ({
+  emailRegistrationConfirmed: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { sealDonationGuestEmail, sealUserEmail } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import {
@@ -68,6 +74,7 @@ import {
 } from '@/lib/payments';
 import { confirmRegistration, expireRegistrationHold, refundLateSettlement } from '@/lib/volunteer/trip';
 import { sendReportingFailure } from '@/lib/mail';
+import { emailRegistrationConfirmed } from '@/lib/status-emails';
 import { formatRupiah } from '@/lib/utils/currency';
 import { MockPaymentProvider } from '@/lib/payments';
 import { setEnv } from '../../../../../tests/support/mutable-env';
@@ -1440,6 +1447,9 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
     expect(mockNotificationCreateMany).not.toHaveBeenCalled();
     expect(mockRefundLateSettlement).not.toHaveBeenCalled();
 
+    // The Volunteer is emailed once the settlement has committed (ticket 84).
+    expect(emailRegistrationConfirmed).toHaveBeenCalledWith(prisma, { registrationId: 'registration-1' });
+
     expect(tx.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'we-1' },
       data: { processedAt: expect.any(Date), outcome: 'SETTLED' },
@@ -1478,6 +1488,7 @@ describe('POST /api/webhooks/[provider] -- registration-linked (Trip Fee) paymen
       expect.objectContaining({ account: 'ESCROW_HOLD', direction: 'CREDIT', amount: 250_000, volunteerTripId: 'trip-1' }),
     );
     expect(mockNotificationCreate).not.toHaveBeenCalled();
+    expect(emailRegistrationConfirmed).not.toHaveBeenCalled();
     expect(mockRefundLateSettlement).toHaveBeenCalledTimes(1);
     expect(mockRefundLateSettlement).toHaveBeenCalledWith(prisma, { registrationId: 'registration-1' });
     expect(order).toEqual(['settlement committed', 'late-settlement refund']);
