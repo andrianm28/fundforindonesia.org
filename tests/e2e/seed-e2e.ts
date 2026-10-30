@@ -27,6 +27,7 @@ import { PASSWORD_HASH_COST } from '../../src/lib/password-hash-cost';
 import {
   ACTIVE_CAMPAIGN_ID,
   ACTIVE_SLUG,
+  CATEGORY_SLUG,
   ADMIN_EMAIL,
   DOCUMENT_CAMPAIGN_ID,
   DOCUMENT_FUNDRAISER_EMAIL,
@@ -145,6 +146,13 @@ async function main() {
       validTo: new Date('2030-01-01T00:00:00.000Z'),
       recordedById: 'e2e-registrar',
     },
+  });
+
+  // The Category /explore/<slug> answers 200 for (explore-category.spec.ts).
+  await prisma.category.upsert({
+    where: { slug: CATEGORY_SLUG },
+    update: {},
+    create: { id: 'e2e-kategori', name: 'E2E Bencana', slug: CATEGORY_SLUG, icon: 'heart', order: 99 },
   });
 
   await prisma.campaign.upsert({

@@ -4,12 +4,15 @@ import { sendReportingFailure, type Mailer, type MailMessage } from './mail';
 import { payoutStatusEmail } from './mail/payout-status';
 import { refundOutcomeEmail } from './mail/refund-outcome';
 import { suspensionEmail } from './mail/suspension';
+import { tripFeeEmail } from './mail/trip-fee';
 import { publicUrl } from './public-url';
 
 /**
  * The emails PRD §7.2 asks for when money or a Campaign's standing changes
  * (ticket rilis-1-benda/68): a Payout approved or completed, a Refund
- * completed or failed, a Suspension imposed or lifted.
+ * completed or failed, a Suspension imposed or lifted; and, for a Volunteer
+ * (ticket rilis-1-benda/84), a Registration confirmed and a Trip Fee Refund
+ * approved or completed.
  *
  * Each is called only AFTER the change has committed, and each reads what it
  * needs in its own query rather than in the change's transaction: a read or
@@ -33,11 +36,13 @@ function errorText(error: unknown): string {
 
 async function composeAndSend(
   report: Report,
-  compose: () => Promise<MailMessage | string>,
+  compose: () => Promise<MailMessage | string | null>,
   mailer?: Mailer,
 ): Promise<void> {
   try {
     const composed = await compose();
+    // null: nothing is owed to anyone, which is no anomaly to log.
+    if (composed === null) return;
     if (typeof composed === 'string') {
       console.error(JSON.stringify({ event: 'mail_skipped', ...report, reason: composed }));
       return;
@@ -46,6 +51,16 @@ async function composeAndSend(
   } catch (error) {
     console.error(JSON.stringify({ event: 'mail_compose_failed', ...report, error: errorText(error) }));
   }
+}
+
+/**
+ * The tier of refund-table.ts a Trip Fee Refund falls in, read off its amount
+ * against the Trip Fee paid: all of it is FULL (also a Batch cancelled, or a
+ * late settlement, refunded in full whenever), anything less is HALF. A NONE
+ * tier owes no Refund, so none is ever opened.
+ */
+function tripFeeRefundTierOf(refundAmount: number, paidAmount: number): 'FULL' | 'HALF' {
+  return refundAmount >= paidAmount ? 'FULL' : 'HALF';
 }
 
 /** Tells the Fundraiser who requested a Payout that it was approved, or that the money was sent. */
@@ -127,6 +142,7 @@ export async function emailRefundOutcome(
           amount: true,
           payment: {
             select: {
+              amount: true,
               donation: {
                 select: {
                   anonymisedAt: true,
@@ -139,7 +155,7 @@ export async function emailRefundOutcome(
               registration: {
                 select: {
                   volunteer: { select: { name: true, ...SELECT_USER_EMAIL } },
-                  batch: { select: { trip: { select: { title: true } } } },
+                  batch: { select: { trip: { select: { title: true, slug: true } } } },
                 },
               },
             },
@@ -157,6 +173,22 @@ export async function emailRefundOutcome(
           title: donation.campaign.title,
         };
       } else if (registration) {
+        // A Volunteer's Trip Fee comes back by tier (ticket 84); a failed
+        // transfer is worded like any Donor's.
+        if (params.outcome === 'completed') {
+          const to = readUserEmail(registration.volunteer);
+          if (!to) return 'the Volunteer has no readable email address';
+          return tripFeeEmail({
+            to,
+            volunteerName: registration.volunteer.name,
+            tripTitle: registration.batch.trip.title,
+            tripUrl: publicUrl(`/volunteer-trip/${registration.batch.trip.slug}`),
+            event: 'refund-completed',
+            tier: tripFeeRefundTierOf(refund.amount, refund.payment.amount),
+            amount: refund.amount,
+            paidAmount: refund.payment.amount,
+          });
+        }
         recipient = {
           to: readUserEmail(registration.volunteer),
           name: registration.volunteer.name,
@@ -211,6 +243,97 @@ export async function emailSuspension(
         ...(params.event === 'suspended'
           ? { event: 'suspended' as const }
           : { event: 'lifted' as const, statusLabel: params.statusLabel }),
+      });
+    },
+    mailer,
+  );
+}
+
+/**
+ * Tells a Volunteer their Registration is CONFIRMED because the Trip Fee
+ * settled (ticket 84). Called by the webhook after the settlement committed.
+ */
+export async function emailRegistrationConfirmed(
+  prisma: PrismaClient,
+  params: { registrationId: string },
+  mailer?: Mailer,
+): Promise<void> {
+  const report = { mail: 'registration_confirmed', registrationId: params.registrationId };
+  await composeAndSend(
+    report,
+    async () => {
+      const registration = await prisma.registration.findUnique({
+        where: { id: params.registrationId },
+        select: {
+          volunteer: { select: { name: true, ...SELECT_USER_EMAIL } },
+          payment: { select: { amount: true } },
+          batch: { select: { startDate: true, endDate: true, trip: { select: { title: true, slug: true } } } },
+        },
+      });
+      if (!registration) return 'registration not found';
+      if (!registration.payment) return 'the Registration has no Payment';
+      const to = readUserEmail(registration.volunteer);
+      if (!to) return 'the Volunteer has no readable email address';
+      return tripFeeEmail({
+        to,
+        volunteerName: registration.volunteer.name,
+        tripTitle: registration.batch.trip.title,
+        tripUrl: publicUrl(`/volunteer-trip/${registration.batch.trip.slug}`),
+        event: 'confirmed',
+        amount: registration.payment.amount,
+        startDate: registration.batch.startDate,
+        endDate: registration.batch.endDate,
+      });
+    },
+    mailer,
+  );
+}
+
+/**
+ * Tells a Volunteer their Trip Fee Refund was approved (ticket 84). A Refund
+ * of a Donation is not this email's business: nothing is sent and nothing is
+ * logged for it, so approveRefund may call this for every Refund it approves.
+ */
+export async function emailTripFeeRefundApproved(
+  prisma: PrismaClient,
+  params: { refundId: string },
+  mailer?: Mailer,
+): Promise<void> {
+  const report = { mail: 'trip_fee_refund_approved', refundId: params.refundId };
+  await composeAndSend(
+    report,
+    async () => {
+      const refund = await prisma.refund.findUnique({
+        where: { id: params.refundId },
+        select: {
+          amount: true,
+          payment: {
+            select: {
+              amount: true,
+              registration: {
+                select: {
+                  volunteer: { select: { name: true, ...SELECT_USER_EMAIL } },
+                  batch: { select: { trip: { select: { title: true, slug: true } } } },
+                },
+              },
+            },
+          },
+        },
+      });
+      if (!refund) return 'refund not found';
+      const { registration } = refund.payment;
+      if (!registration) return null;
+      const to = readUserEmail(registration.volunteer);
+      if (!to) return 'the Volunteer has no readable email address';
+      return tripFeeEmail({
+        to,
+        volunteerName: registration.volunteer.name,
+        tripTitle: registration.batch.trip.title,
+        tripUrl: publicUrl(`/volunteer-trip/${registration.batch.trip.slug}`),
+        event: 'refund-approved',
+        tier: tripFeeRefundTierOf(refund.amount, refund.payment.amount),
+        amount: refund.amount,
+        paidAmount: refund.payment.amount,
       });
     },
     mailer,
