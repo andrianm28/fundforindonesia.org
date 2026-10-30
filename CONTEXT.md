@@ -261,6 +261,10 @@ _Avoid_: Impact update, kabar terbaru, news
 Asal kunjungan yang tercatat pada sebuah Donation dari parameter tautan yang dibagikan, untuk menghitung sumber trafik per tautan.
 _Avoid_: UTM, referrer, analytics
 
+**Short Link**:
+Tautan pendek `/s/<kode>` di domain utama untuk satu kanal bagikan sebuah Campaign (FFI-06, tiket E1/02; keputusan owner 2026-10-04). Satu kode acak per kanal per Campaign, dibuat saat pertama dibagikan lalu dipakai ulang. Mengalihkan ke halaman Campaign dengan Traffic Source kanal itu, sehingga Donation-nya mencatat sumber yang sama dengan tautan panjang; jumlah kunjungannya dihitung tanpa data pengunjung. Hanya Campaign yang publik yang dapat dialihkan.
+_Avoid_: shortlink eksternal, bit.ly
+
 **Receipt**:
 Bukti Donation yang dikirim ke email Donor setelah Settlement, dengan halaman cetak yang bisa dibuka ulang dari email atau dashboard.
 _Avoid_: Invoice, tanda terima (di kode), kwitansi

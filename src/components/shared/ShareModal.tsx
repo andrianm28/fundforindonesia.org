@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { publicUrl } from '@/lib/public-url';
 
@@ -22,6 +22,25 @@ export interface ShareModalProps {
 
 export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
   const [copied, setCopied] = useState(false);
+  const [shortLinks, setShortLinks] = useState<Record<string, string> | null>(null);
+
+  // Short links (ticket E1/02): asked for once the modal opens, so a click
+  // can use one synchronously (window.open must run inside the click, or a
+  // popup blocker eats it). Until they arrive, or if asking fails, every
+  // channel hands out the long link below, which carries the same `src`.
+  useEffect(() => {
+    if (!isOpen || shortLinks) return;
+    let cancelled = false;
+    fetch(`/api/campaigns/${encodeURIComponent(campaign.slug)}/short-links`, { method: 'POST' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { links?: Record<string, string> } | null) => {
+        if (!cancelled && body?.links) setShortLinks(body.links);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, shortLinks, campaign.slug]);
 
   /**
    * Traffic Source (ticket 24): each channel tags the link it hands out
@@ -31,7 +50,8 @@ export function ShareModal({ isOpen, onClose, campaign }: ShareModalProps) {
    * this value is never trusted just because this app produced it, since
    * anyone can also hand-edit the query string before sharing it further.
    */
-  const urlWithSource = (source: string) => publicUrl(`/campaign/${encodeURIComponent(campaign.slug)}?src=${source}`);
+  const urlWithSource = (source: string) =>
+    shortLinks?.[source] ?? publicUrl(`/campaign/${encodeURIComponent(campaign.slug)}?src=${source}`);
   const shareText = `Bantu donasi untuk: ${campaign.title} - ${campaign.description.slice(0, 100)}`;
 
   const shareOptions = [
