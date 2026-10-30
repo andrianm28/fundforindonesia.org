@@ -8,7 +8,7 @@ import { activeHref, NAV_ACTIVE, NAV_IDLE } from "@/lib/navActive";
 const ADMIN_HREFS = [
   "/admin", "/admin/users", "/admin/campaigns", "/admin/payouts", "/admin/refunds",
   "/admin/manual-contributions", "/admin/abuse-thresholds", "/admin/campaigns/lifecycle",
-  "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/verification-checklist",
+  "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/finance", "/admin/verification-checklist",
   "/admin/collecting-entities", "/admin/partnership-inquiries", "/admin/payment-providers", "/admin/platform-fee", "/admin/escrow-hold",
   "/admin/reconciliation", "/admin/site-settings", "/admin/kategori", "/admin/scrutiny", "/admin/campaign-transfers",
 ] as const;
@@ -87,6 +87,9 @@ export function AdminSidebar() {
         </SidebarLink>
         <SidebarLink current={current} href="/admin/dormant-balances" icon="dormant">
           Dormant Balance
+        </SidebarLink>
+        <SidebarLink current={current} href="/admin/finance" icon="payouts">
+          Rekap Keuangan
         </SidebarLink>
         <SidebarLink current={current} href="/admin/verification-checklist" icon="checklist">
           Checklist Verifikasi
