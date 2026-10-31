@@ -21,7 +21,7 @@
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "dotenv": "^18.0.9",
-    "framer-motion": "^13.5.0",
+    "framer-motion": "^14.7.1",
     "next": "^16.4.3",
     "next-auth": "^4.24.15",
     "nodemailer": "^7.0.13",
