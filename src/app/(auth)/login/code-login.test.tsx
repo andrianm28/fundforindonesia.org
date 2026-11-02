@@ -14,12 +14,6 @@ vi.mock('next-auth/react', () => ({
 }));
 const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }) }));
-vi.mock('framer-motion', () => ({
-  motion: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    button: ({ children, whileTap: _w, transition: _t, ...props }: any) => <button {...props}>{children}</button>,
-  },
-}));
 
 const fetchMock = vi.fn();
 
