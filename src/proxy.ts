@@ -1,6 +1,11 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import type { NextRequestWithAuth } from "next-auth/middleware";
+import createIntlMiddleware from "next-intl/middleware";
+import { englishEnabled } from "@/i18n/gate";
+import { routing } from "@/i18n/routing";
+import { isLocalizedPath } from "@/i18n/scope";
+import { LOCALE_SIGNATURE_HEADER, signLocale } from "@/i18n/locale-signature";
 
 // Local type to avoid importing from @prisma/client (keeps the proxy lightweight)
 type Assignment = "ADMIN" | "VERIFIER";
@@ -93,7 +98,99 @@ async function answerExploreCategory(req: NextRequest, slug: string) {
   return NextResponse.rewrite(new URL("/_not-found", req.url), { status: 404 });
 }
 
+// --- English (ADR 0024, E7 PR 2) -------------------------------------------
+//
+// Indonesian is unprefixed and never reaches the language middleware: its
+// pages are the app tree as it is. Only /en/* and /id/* are matched below.
+// English is served by the very same pages: the middleware turns /en/<path>
+// into the page at the internal <path> and tags the request with the locale
+// (next-intl's own request header, which src/i18n/request.ts reads).
+
+const intlMiddleware = createIntlMiddleware(routing);
+
+// The same 404 as a page that does not exist (see ASSIGNMENT_ROUTES).
+function notFound(req: NextRequest) {
+  return NextResponse.rewrite(new URL("/_not-found", req.url), { status: 404 });
+}
+
+// The paths the sign-in gate guards, for a path with its language prefix
+// stripped: the same list as the matcher below. /akun/verifikasi-email stays
+// open so its token never lands in a callbackUrl.
+const GATED_PATH =
+  /^\/(?:donasi-saya|inbox|campaign\/create)(?:\/|$)|^\/akun(?:\/?$|\/(?!verifikasi-email(?:\/|$)).+)/i;
+const BACK_OFFICE_PATH = /^\/(?:admin|moderasi)(?:\/|$)/i;
+
+// Decide on the path as the page router will see it: percent escapes decoded,
+// repeated slashes collapsed, so no spelling slips past GATED_PATH.
+function normalise(path: string): string | null {
+  try {
+    const decoded = decodeURIComponent(path).replace(/\/{2,}/g, "/");
+    // A control character or whitespace is trimmed or dropped further down
+    // (the language middleware, the router), so /admin%00 would be /admin there
+    // and something else here. No page has such a path: refuse it.
+    return /[\u0000-\u001f\u007f-\u009f\s\u200b-\u200f\u2028\u2029\ufeff]/.test(decoded) ? null : decoded;
+  } catch {
+    return null; // malformed escape: no page has this path
+  }
+}
+
+function internalTarget(req: NextRequest, intl: NextResponse): URL {
+  const url = new URL(intl.headers.get("x-middleware-rewrite") ?? req.url);
+  url.pathname = url.pathname.replace(/^\/en(?=\/|$)/, "") || "/";
+  return url;
+}
+
+async function answerLocalised(req: NextRequest, event: NextFetchEvent, prefix: "en" | "id") {
+  const stripped = normalise(req.nextUrl.pathname.slice(prefix.length + 1) || "/");
+  // Pages only: not the back-office, /api, /_next, uploads or root files.
+  if (!englishEnabled() || stripped === null || BACK_OFFICE_PATH.test(stripped) || !isLocalizedPath(stripped)) {
+    return notFound(req);
+  }
+
+  let guardedHere = false;
+  if (prefix === "en" && GATED_PATH.test(stripped)) {
+    const guarded = await authProxy(req as NextRequestWithAuth, event);
+    // Anything but "carry on" (a redirect to /login, a 404) is the answer.
+    if (!guarded || guarded.headers.get("x-middleware-next") !== "1") return guarded ?? notFound(req);
+    guardedHere = true;
+  }
+
+  const intl = intlMiddleware(req);
+  // /id/x -> /x, and a path in the other language's spelling -> the right one.
+  if (prefix === "id" || intl.headers.has("location")) return intl;
+
+  // Decide again on the path the router will actually see: what the language
+  // middleware made of the request must be neither back-office nor a gated
+  // page that was not guarded above.
+  const target = internalTarget(req, intl);
+  const seen = normalise(target.pathname);
+  if (seen === null || BACK_OFFICE_PATH.test(seen) || !isLocalizedPath(seen) || (GATED_PATH.test(seen) && !guardedHere)) {
+    return notFound(req);
+  }
+
+  const page = NextResponse.rewrite(target);
+  for (const [name, value] of intl.headers) {
+    if (name === "x-middleware-override-headers" || name.startsWith("x-middleware-request-")) {
+      page.headers.set(name, value);
+    }
+  }
+  // Proof for src/i18n/request.ts that this proxy tagged the request, not a client.
+  const signature = signLocale("en");
+  if (signature) {
+    page.headers.set(`x-middleware-request-${LOCALE_SIGNATURE_HEADER}`, signature);
+    const overridden = page.headers.get("x-middleware-override-headers");
+    page.headers.set("x-middleware-override-headers", overridden ? `${overridden},${LOCALE_SIGNATURE_HEADER}` : LOCALE_SIGNATURE_HEADER);
+  }
+  return page;
+}
+
 export default function proxy(req: NextRequest, event: NextFetchEvent) {
+  const lead = /^\/(en|id)(?=\/|$)/i.exec(req.nextUrl.pathname)?.[1];
+  if (lead) {
+    // Only the lower-case prefix is a language; EN or Id is not a page.
+    if (lead !== "en" && lead !== "id") return notFound(req);
+    return answerLocalised(req, event, lead);
+  }
   const slug = exploreCategorySlug(req.nextUrl.pathname);
   if (slug === null) return authProxy(req as NextRequestWithAuth, event);
   return answerExploreCategory(req, slug);
@@ -113,5 +210,10 @@ export const config = {
     "/moderasi/:path*",
     // Not a guard: see answerExploreCategory.
     "/explore/:category",
+    // The language prefixes (ADR 0024). Indonesian pages are not matched.
+    "/en",
+    "/en/:path*",
+    "/id",
+    "/id/:path*",
   ],
 };

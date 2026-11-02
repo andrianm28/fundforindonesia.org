@@ -78,6 +78,17 @@ const nextConfig = {
         source: '/reset-password',
         headers: TOKEN_PAGE_HEADERS,
       },
+      // The same pages under /en (ADR 0024). Header rules match the URL as
+      // requested, before the proxy maps /en/<path> to the page, and the
+      // certificate page has its English spelling here.
+      ...[
+        '/en/receipt/:token',
+        '/en/akad-wakaf/:token',
+        '/en/certificate/:code',
+        '/en/sertifikat/:code',
+        '/en/akun/verifikasi-email',
+        '/en/reset-password',
+      ].map((source) => ({ source, headers: TOKEN_PAGE_HEADERS })),
     ];
   },
 };

@@ -62,3 +62,16 @@ describe('next.config security headers on every response (audit 2026-10-16)', ()
     },
   );
 });
+
+describe('next.config headers for the English URLs of the token pages (ADR 0024)', () => {
+  // The header rules match the URL as requested, before the proxy turns /en/<path> into <path>.
+  it.each(['/en/receipt/:token', '/en/akad-wakaf/:token', '/en/certificate/:code', '/en/sertifikat/:code', '/en/reset-password', '/en/akun/verifikasi-email'])(
+    'keeps the token in %s out of the Referer and out of search engines',
+    async (source) => {
+      const rules = await nextConfig.headers!();
+      const headers = rules.find((r) => r.source === source)?.headers ?? [];
+      expect(headers).toContainEqual({ key: 'Referrer-Policy', value: 'no-referrer' });
+      expect(headers).toContainEqual({ key: 'X-Robots-Tag', value: 'noindex, nofollow' });
+    },
+  );
+});

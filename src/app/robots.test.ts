@@ -37,6 +37,11 @@ describe('robots.txt', () => {
     for (const path of PRIVATE) expect(disallowed()).toContain(path);
   });
 
+  it('blocks the English copies of the private and tokenised paths too', () => {
+    const english = PRIVATE.filter((p) => !['/admin', '/moderasi', '/api'].includes(p)).map((p) => `/en${p}`);
+    for (const path of [...english, '/en/certificate/']) expect(disallowed()).toContain(path);
+  });
+
   it('does not block pages the sitemap lists', () => {
     const blocked = disallowed();
     for (const path of ['/', '/explore/all', '/zakat', '/login', '/register', '/campaign/some-slug']) {
