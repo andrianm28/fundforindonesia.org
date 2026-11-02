@@ -105,7 +105,7 @@ export default function DesktopHeader({
           {/* Navigation Links */}
           <nav className="flex items-center gap-6">
             <Link
-              href="/explore/all"
+              href="/jelajah/semua"
               className="text-sm font-medium text-text hover:text-primary transition-colors"
             >
               {t('donate')}

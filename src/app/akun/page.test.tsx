@@ -94,8 +94,8 @@ describe('AkunPage', () => {
 
     render(<AkunPage />);
 
-    expect(screen.getByRole('link', { name: /Syarat & Ketentuan/ })).toHaveAttribute('href', '/terms');
-    expect(screen.getByRole('link', { name: 'Kebijakan Privasi' })).toHaveAttribute('href', '/privacy');
+    expect(screen.getByRole('link', { name: /Syarat & Ketentuan/ })).toHaveAttribute('href', '/syarat-dan-ketentuan');
+    expect(screen.getByRole('link', { name: 'Kebijakan Privasi' })).toHaveAttribute('href', '/kebijakan-privasi');
   });
 
   it('offers "Unduh data saya" pointing at the export download (audit L5)', () => {

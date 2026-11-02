@@ -229,7 +229,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   const withdrawal = useWithdrawableSubmission(campaign.slug, lifecycleStatus, setLifecycleStatus);
   // Traffic Source (ticket 24): captured once on arrival, from whatever
   // `src` this exact page load's URL carries -- before it is lost the
-  // moment the visitor navigates on to /donate. trafficSources stays null
+  // moment the visitor navigates on to /donasi. trafficSources stays null
   // for anyone but this Campaign's own Fundraiser or an Admin (the API
   // refuses everyone else), so the panel below renders nothing for a donor.
   useEffect(() => {
@@ -578,7 +578,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-border p-4 z-10">
           <div className="max-w-3xl mx-auto">
             <Link
-              href={`/campaign/${campaign.slug}/donate`}
+              href={`/campaign/${campaign.slug}/donasi`}
               className="block w-full py-3 rounded-lg font-semibold text-base text-center bg-primary text-white hover:bg-primary-dark transition-colors"
             >
               Donasi sekarang

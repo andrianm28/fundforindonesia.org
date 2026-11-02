@@ -47,7 +47,7 @@ export function FeaturedCampaigns({ campaigns, isLoading = false }: FeaturedCamp
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-bold text-text">Pilihan Kami</h2>
         <Link
-          href="/explore/all"
+          href="/jelajah/semua"
           className="text-sm font-medium text-primary hover:text-primary-dark transition-colors"
         >
           Lihat semua

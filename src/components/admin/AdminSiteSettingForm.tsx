@@ -34,7 +34,7 @@ const SLIDE_FIELDS: Field[] = [
   { name: 'image', label: 'Gambar', hint: 'Path (/images/hero/banner-1.jpg) atau alamat https://.' },
   { name: 'headline', label: 'Judul' },
   { name: 'ctaLabel', label: 'Label tombol' },
-  { name: 'ctaHref', label: 'Tujuan tombol', hint: 'Path (/explore/all) atau alamat https://.' },
+  { name: 'ctaHref', label: 'Tujuan tombol', hint: 'Path (/jelajah/semua) atau alamat https://.' },
 ];
 
 type Slide = SiteSettings['hero']['slides'][number];

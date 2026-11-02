@@ -31,12 +31,12 @@ describe('SearchBar', () => {
     expect(svg).toBeInTheDocument();
   });
 
-  it('navigates to /search?q=... on form submit', () => {
+  it('navigates to /cari?q=... on form submit', () => {
     render(<SearchBar />);
     const input = screen.getByPlaceholderText('Cari yang ingin kamu bantu...');
     fireEvent.change(input, { target: { value: 'bencana alam' } });
     fireEvent.submit(input.closest('form')!);
-    expect(mockPush).toHaveBeenCalledWith('/search?q=bencana%20alam');
+    expect(mockPush).toHaveBeenCalledWith('/cari?q=bencana%20alam');
   });
 
   it('does not submit when query is empty', () => {
@@ -69,7 +69,7 @@ describe('SearchBar', () => {
     const input = screen.getByPlaceholderText('Cari yang ingin kamu bantu...');
     fireEvent.change(input, { target: { value: '  anak  ' } });
     fireEvent.submit(input.closest('form')!);
-    expect(mockPush).toHaveBeenCalledWith('/search?q=anak');
+    expect(mockPush).toHaveBeenCalledWith('/cari?q=anak');
   });
 
   it('applies custom className', () => {
@@ -83,6 +83,6 @@ describe('SearchBar', () => {
     const input = screen.getByPlaceholderText('Cari yang ingin kamu bantu...');
     fireEvent.change(input, { target: { value: 'anak & ibu' } });
     fireEvent.submit(input.closest('form')!);
-    expect(mockPush).toHaveBeenCalledWith('/search?q=anak%20%26%20ibu');
+    expect(mockPush).toHaveBeenCalledWith('/cari?q=anak%20%26%20ibu');
   });
 });

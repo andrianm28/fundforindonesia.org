@@ -36,29 +36,29 @@ export function Footer({
           <div>
             <h4 className="font-semibold text-text mb-2">{t('information')}</h4>
             <ul className="space-y-1 text-text-secondary">
-              <li><Link href="/about" className="hover:text-primary">{t('aboutUs')}</Link></li>
+              <li><Link href="/tentang-kami" className="hover:text-primary">{t('aboutUs')}</Link></li>
               <li><Link href="/impact" className="hover:text-primary">{t('impact')}</Link></li>
               <li><Link href="/program" className="hover:text-primary">{t('csrPortfolio')}</Link></li>
               <li><Link href="/wakaf" className="hover:text-primary">{t('waqf')}</Link></li>
               <li><Link href="/hibah" className="hover:text-primary">{t('grant')}</Link></li>
               <li><Link href="/volunteer-trip" className="hover:text-primary">{t('volunteer')}</Link></li>
-              <li><Link href="/careers" className="hover:text-primary">{t('careers')}</Link></li>
-              <li><Link href="/press" className="hover:text-primary">{t('media')}</Link></li>
+              <li><Link href="/karir" className="hover:text-primary">{t('careers')}</Link></li>
+              <li><Link href="/media" className="hover:text-primary">{t('media')}</Link></li>
             </ul>
           </div>
           <div>
             <h4 className="font-semibold text-text mb-2">{t('help')}</h4>
             <ul className="space-y-1 text-text-secondary">
-              <li><Link href="/help" className="hover:text-primary">{t('helpCenter')}</Link></li>
+              <li><Link href="/bantuan" className="hover:text-primary">{t('helpCenter')}</Link></li>
               <li><Link href="/faq" className="hover:text-primary">{t('faq')}</Link></li>
-              <li><Link href="/contact" className="hover:text-primary">{t('contact')}</Link></li>
+              <li><Link href="/kontak" className="hover:text-primary">{t('contact')}</Link></li>
             </ul>
           </div>
           <div>
             <h4 className="font-semibold text-text mb-2">{t('legal')}</h4>
             <ul className="space-y-1 text-text-secondary">
-              <li><Link href="/terms" className="hover:text-primary">{t('terms')}</Link></li>
-              <li><Link href="/privacy" className="hover:text-primary">{t('privacy')}</Link></li>
+              <li><Link href="/syarat-dan-ketentuan" className="hover:text-primary">{t('terms')}</Link></li>
+              <li><Link href="/kebijakan-privasi" className="hover:text-primary">{t('privacy')}</Link></li>
             </ul>
           </div>
           <div>

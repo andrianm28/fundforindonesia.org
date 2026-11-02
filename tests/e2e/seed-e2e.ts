@@ -156,7 +156,7 @@ async function main() {
     },
   });
 
-  // The Category /explore/<slug> answers 200 for (explore-category.spec.ts).
+  // The Category /jelajah/<slug> answers 200 for (explore-category.spec.ts).
   await prisma.category.upsert({
     where: { slug: CATEGORY_SLUG },
     update: {},

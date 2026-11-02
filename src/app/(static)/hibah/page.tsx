@@ -45,8 +45,8 @@ export default function HibahPage() {
           ),
         },
       ]}
-      primary={{ href: '/contact', label: 'Hubungi tim kami' }}
-      secondary={{ href: '/explore/all', label: 'Lihat Campaign donasi' }}
+      primary={{ href: '/kontak', label: 'Hubungi tim kami' }}
+      secondary={{ href: '/jelajah/semua', label: 'Lihat Campaign donasi' }}
     />
   );
 }

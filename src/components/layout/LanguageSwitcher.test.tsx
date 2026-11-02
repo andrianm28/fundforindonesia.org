@@ -36,7 +36,7 @@ describe('LanguageSwitcher', () => {
   });
 
   it('is a plain link: no cookie, no redirect, no script (ADR Q3)', () => {
-    renderAt('/about', 'id');
+    renderAt('/tentang-kami', 'id');
     expect(screen.getByRole('link')).toHaveAttribute('href', '/en/about');
     expect(screen.queryByRole('button')).toBeNull();
   });

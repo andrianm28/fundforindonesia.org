@@ -30,7 +30,7 @@ function SearchContent() {
     if (query) params.set('q', query);
     if (slug) params.set('category', slug);
     const qs = params.toString();
-    router.push(`/search${qs ? `?${qs}` : ''}`);
+    router.push(`/cari${qs ? `?${qs}` : ''}`);
   };
 
   return (
@@ -154,7 +154,7 @@ function SearchContent() {
                   {suggestedCategories.map((cat) => (
                     <Link
                       key={cat.slug}
-                      href={`/explore/${cat.slug}`}
+                      href={`/jelajah/${cat.slug}`}
                       className="px-4 py-2 rounded-full bg-blue-50 text-primary text-sm font-medium hover:bg-blue-100 transition-colors"
                     >
                       {cat.name}
@@ -194,7 +194,7 @@ function SearchContent() {
               {suggestedCategories.map((cat) => (
                 <Link
                   key={cat.slug}
-                  href={`/explore/${cat.slug}`}
+                  href={`/jelajah/${cat.slug}`}
                   className="px-4 py-2 rounded-full bg-blue-50 text-primary text-sm font-medium hover:bg-blue-100 transition-colors"
                 >
                   {cat.name}

@@ -187,8 +187,8 @@ export default function RegisterPage() {
 
           <p className="text-center text-xs text-text-secondary mt-4">
             Dengan mendaftar, Anda menyetujui{' '}
-            <Link href="/terms" className="text-primary hover:underline">Syarat &amp; Ketentuan</Link> dan{' '}
-            <Link href="/privacy" className="text-primary hover:underline">Kebijakan Privasi</Link>.
+            <Link href="/syarat-dan-ketentuan" className="text-primary hover:underline">Syarat &amp; Ketentuan</Link> dan{' '}
+            <Link href="/kebijakan-privasi" className="text-primary hover:underline">Kebijakan Privasi</Link>.
           </p>
 
           {/* Login Link */}

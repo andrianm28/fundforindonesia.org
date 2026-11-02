@@ -89,9 +89,9 @@ describe('English pages with I18N_ENGLISH_ENABLED=true', () => {
 
   it('gives an Indonesian page one URL: /id/... redirects to the unprefixed form', async () => {
     on();
-    const res = await get('/id/about?x=1');
+    const res = await get('/id/tentang-kami?x=1');
     expect(res.status).toBe(307);
-    expect(locationOf(res)).toBe('http://localhost:3000/about?x=1');
+    expect(locationOf(res)).toBe('http://localhost:3000/tentang-kami?x=1');
   });
 
   it('sets no language cookie and no Link header: the URL alone decides', async () => {

@@ -268,7 +268,7 @@ describe('LoginPage consent line (audit L3)', () => {
     mockGetProviders.mockResolvedValue(CREDENTIALS_ONLY);
     render(<LoginPage />);
     expect(screen.getByText(/Dengan masuk, Anda menyetujui/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Syarat & Ketentuan/ })).toHaveAttribute('href', '/terms');
-    expect(screen.getByRole('link', { name: 'Kebijakan Privasi' })).toHaveAttribute('href', '/privacy');
+    expect(screen.getByRole('link', { name: /Syarat & Ketentuan/ })).toHaveAttribute('href', '/syarat-dan-ketentuan');
+    expect(screen.getByRole('link', { name: 'Kebijakan Privasi' })).toHaveAttribute('href', '/kebijakan-privasi');
   });
 });

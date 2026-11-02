@@ -117,3 +117,57 @@ describe('the sitemap lists the module landings', () => {
     expect(urls).toEqual(expect.arrayContaining(['/program', '/kolaborasi-csr', '/wakaf', '/hibah']));
   });
 });
+
+describe('the sitemap uses the renamed Indonesian URLs (Q1)', () => {
+  it('lists /jelajah/semua and /jelajah/<category>, and none of the old /explore URLs', async () => {
+    holder.db = makeCampaignDb({ campaigns: [] });
+    const urls = (await sitemap()).map((entry) => new URL(entry.url).pathname);
+    expect(urls).toContain('/jelajah/semua');
+    expect(urls.some((p) => p.startsWith('/explore'))).toBe(false);
+  });
+});
+
+describe('the sitemap pairs Indonesian and English pages (Q2), only with the English gate open', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+  const BASE = 'https://fundforindonesia.org';
+  const byPath = (entries: Awaited<ReturnType<typeof sitemap>>) =>
+    new Map(entries.map((e) => [new URL(e.url).pathname, e]));
+
+  it('with the gate closed: no /en URL and no alternates', async () => {
+    holder.db = makeCampaignDb({ campaigns: [campaign('active')] });
+    const entries = await sitemap();
+    expect(entries.some((e) => new URL(e.url).pathname.startsWith('/en'))).toBe(false);
+    expect(entries.some((e) => e.alternates !== undefined)).toBe(false);
+  });
+
+  it('with the gate open: each paired page gets an /en entry and id plus en alternates on both', async () => {
+    vi.stubEnv('I18N_ENGLISH_ENABLED', 'true');
+    holder.db = makeCampaignDb({ campaigns: [campaign('active')] });
+    const map = byPath(await sitemap());
+
+    const wakaf = { id: `${BASE}/wakaf`, en: `${BASE}/en/waqf` };
+    expect(map.get('/wakaf')!.alternates).toEqual({ languages: wakaf });
+    expect(map.get('/en/waqf')!.alternates).toEqual({ languages: wakaf });
+
+    expect(map.get('/jelajah/semua')!.alternates).toEqual({
+      languages: { id: `${BASE}/jelajah/semua`, en: `${BASE}/en/explore/all` },
+    });
+    expect(map.has('/en/explore/all')).toBe(true);
+    expect(map.get('/hibah')!.alternates).toEqual({ languages: { id: `${BASE}/hibah`, en: `${BASE}/en/hibah` } });
+    expect(map.get('/campaign/active')!.alternates).toEqual({
+      languages: { id: `${BASE}/campaign/active`, en: `${BASE}/en/campaign/active` },
+    });
+    expect(map.get('/')!.alternates).toEqual({ languages: { id: BASE, en: `${BASE}/en` } });
+    expect(map.has('/en')).toBe(true);
+  });
+
+  it('leaves a page with no English counterpart alone', async () => {
+    vi.stubEnv('I18N_ENGLISH_ENABLED', 'true');
+    holder.db = makeCampaignDb({ campaigns: [] });
+    const map = byPath(await sitemap());
+    expect(map.get('/kolaborasi-csr')!.alternates).toBeUndefined();
+    expect(map.has('/en/kolaborasi-csr')).toBe(false);
+  });
+});

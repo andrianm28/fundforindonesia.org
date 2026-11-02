@@ -155,9 +155,9 @@ export default function AkunPage() {
 
       {/* Legal links: the footer is desktop-only, so phones reach them here (UU PDP notice). */}
       <p className="mx-4 mt-4 text-center text-xs text-text-secondary">
-        <Link href="/terms" className="hover:underline">Syarat &amp; Ketentuan</Link>
+        <Link href="/syarat-dan-ketentuan" className="hover:underline">Syarat &amp; Ketentuan</Link>
         {' · '}
-        <Link href="/privacy" className="hover:underline">Kebijakan Privasi</Link>
+        <Link href="/kebijakan-privasi" className="hover:underline">Kebijakan Privasi</Link>
       </p>
 
       {/* Logout Button */}

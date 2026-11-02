@@ -235,8 +235,8 @@ export default function LoginPage() {
 
         <p className="mt-4 text-center text-xs text-text-secondary">
           Dengan masuk, Anda menyetujui{' '}
-          <Link href="/terms" className="text-primary hover:underline">Syarat &amp; Ketentuan</Link> dan{' '}
-          <Link href="/privacy" className="text-primary hover:underline">Kebijakan Privasi</Link>.
+          <Link href="/syarat-dan-ketentuan" className="text-primary hover:underline">Syarat &amp; Ketentuan</Link> dan{' '}
+          <Link href="/kebijakan-privasi" className="text-primary hover:underline">Kebijakan Privasi</Link>.
         </p>
 
         {/* Register Link */}

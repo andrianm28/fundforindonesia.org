@@ -355,7 +355,7 @@ function EmptyState() {
         Mulai berbagi kebaikan dengan berdonasi
       </p>
       <button
-        onClick={() => router.push('/explore/all')}
+        onClick={() => router.push('/jelajah/semua')}
         className="mt-6 bg-[#0073E6] text-white text-sm font-medium px-6 py-2.5 rounded-lg hover:bg-[#005BB5] transition-colors"
       >
         Mulai Berdonasi

@@ -124,7 +124,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
         image: "/images/hero/banner-1.jpg",
         headline: "Bantu mereka yang membutuhkan, salurkan donasimu sekarang",
         ctaLabel: "Donasi Sekarang",
-        ctaHref: "/explore/all",
+        ctaHref: "/jelajah/semua",
       },
       {
         image: "/images/hero/banner-3.jpg",

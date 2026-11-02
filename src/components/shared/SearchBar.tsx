@@ -21,7 +21,7 @@ export default function SearchBar({ onSearch, defaultValue = '', className = '' 
     if (onSearch) {
       onSearch(trimmed);
     } else {
-      router.push(`/search?q=${encodeURIComponent(trimmed)}`);
+      router.push(`/cari?q=${encodeURIComponent(trimmed)}`);
     }
   };
 

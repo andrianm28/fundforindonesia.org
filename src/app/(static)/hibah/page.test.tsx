@@ -8,7 +8,7 @@ describe('/hibah landing', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'Hibah' })).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Status' })).toHaveTextContent('Status saat ini');
-    expect(screen.getAllByRole('link')[0]).toHaveAttribute('href', '/contact');
+    expect(screen.getAllByRole('link')[0]).toHaveAttribute('href', '/kontak');
   });
 
   it('has SEO metadata', () => {
