@@ -39,6 +39,21 @@ export class DemoCampaignError extends MoneyError {
 }
 
 /**
+ * A person on a Partner Organisation's team (ticket E4; CONTEXT.md, Anggota
+ * tim) asked for something that moves or receives money: a Payout, or adding
+ * or changing a Bank Account. Team members hold no money access, by owner
+ * decision 2026-10-04; both stay with the organisation's primary Fundraiser
+ * account. Raised in the domain commands, so no route and no screen can forget it.
+ */
+export class TeamMemberMoneyAccessError extends MoneyError {
+  readonly code = 'TEAM_MEMBER_NO_MONEY_ACCESS';
+  constructor() {
+    super('Anggota tim organisasi tidak dapat mengajukan Payout atau mengelola rekening bank. Hubungi akun Fundraiser utama organisasi.');
+    this.name = 'TeamMemberMoneyAccessError';
+  }
+}
+
+/**
  * The Bank Account does not exist, is not the requester's, or has no
  * verifiedAt. A Payout destination must be both owned and verified: either
  * gap alone would let money go to a stranger. Re-checked at every step after

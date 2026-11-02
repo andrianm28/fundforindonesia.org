@@ -8,6 +8,7 @@ import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
 import { CampaignFlagForm } from "./CampaignFlagForm";
 import { CampaignModerationActions } from "./CampaignModerationActions";
 import { holdsValidKindAuthorisation, holdsValidPermit, requiresKindAuthorisation } from "@/lib/collecting-entity";
+import { campaignLocationLabel } from "@/lib/campaign-location";
 import { KIND_LABEL } from "@/lib/campaign-kind";
 import { STATUS_LABEL } from "@/lib/campaign-status-label";
 import { formatRupiah } from "@/lib/utils/currency";
@@ -233,7 +234,20 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
                 })}
               />
             )}
+            <InfoItem label="Lokasi" value={campaignLocationLabel(campaign) ?? "Belum diisi"} />
             <InfoItem label="Penerima Manfaat" value={campaign.beneficiaryName || "Belum diisi"} />
+            <InfoItem
+              label="Deskripsi Penerima Manfaat"
+              value={
+                campaign.beneficiaryDescription
+                  ? campaign.beneficiaryCount
+                    ? `${campaign.beneficiaryDescription} (${campaign.beneficiaryCount.toLocaleString("id-ID")} orang)`
+                    : campaign.beneficiaryDescription
+                  : campaign.beneficiaryCount
+                    ? `${campaign.beneficiaryCount.toLocaleString("id-ID")} orang`
+                    : "Belum diisi"
+              }
+            />
           </div>
 
           {/* Description */}

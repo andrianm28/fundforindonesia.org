@@ -68,6 +68,11 @@ model User {
   notifications                    Notification[]
   autoDonations                    AutoDonation[]
   assignments                      UserAssignment[]
+  companyMembership                CompanyMembership?               @relation("CompanyMembershipUser")
+  organisationMember               OrganisationMember?              @relation("OrganisationMemberUser")
+  organisationMembersAdded         OrganisationMember[]             @relation("OrganisationMemberAdder")
+  organisationInvitationsSent      OrganisationInvitation[]         @relation("OrganisationInvitationInviter")
+  organisationInvitationsAccepted  OrganisationInvitation[]         @relation("OrganisationInvitationAcceptor")
   assignmentAuditsAsSubject        AssignmentAuditEntry[]            @relation("AssignmentAuditSubject")
   assignmentAuditsAsActor          AssignmentAuditEntry[]            @relation("AssignmentAuditActor")
   assignmentGrantRequestsAsSubject AssignmentGrantRequest[]          @relation("AssignmentGrantSubject")
@@ -375,12 +380,59 @@ model PartnershipInquiry {
   /// src/lib/partnership-inquiry-followup.ts. The second relation this model
   /// has, and the only one besides its Program: never money.
   statusChanges          PartnershipInquiryStatusChange[]
+  /// The company this Inquiry was filed for by a verified Tim CSR member
+  /// (ticket E9/01, tahap 2). Null for the public form, which has no account,
+  /// and for every Inquiry that predates company accounts: those keep working
+  /// as before and belong to no company.
+  companyId              String?
+  company                Company?                         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// Stamped when the contact fields were replaced by the retention job
+  /// (src/lib/tim-csr.ts). The columns stay NOT NULL, so anonymised rows hold
+  /// placeholders; this says which rows those are.
+  contactAnonymisedAt    DateTime?
   createdAt              DateTime                         @default(now())
   updatedAt              DateTime                         @updatedAt
 
   @@index([programId])
   @@index([status])
   @@index([contactEmailHmac])
+  @@index([companyId])
+}
+
+/// A company whose people use the platform as a Tim CSR (ticket E9/01, tahap 2;
+/// CONTEXT.md, Tim CSR). Not an Assignment and not a role (ADR 0005): it is a
+/// name and the email domain its members prove they own. `emailDomain` is
+/// never a free-mail domain (src/lib/tim-csr.ts). Contact data lives on the
+/// Inquiries, not here; this row holds no person.
+model Company {
+  id           String    @id @default(cuid())
+  name         String
+  /// Lowercase domain every verified member's email must be on.
+  emailDomain  String    @unique
+  /// Stamped by the retention job once the company's members were detached
+  /// and its Inquiries' contact data replaced.
+  anonymisedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  memberships CompanyMembership[]
+  inquiries   PartnershipInquiry[]
+}
+
+/// One person's place in one company. A person belongs to at most one company
+/// at a time (`userId` unique); several people share a company. Whether the
+/// membership is VERIFIED is not stored: it is derived on every read from
+/// `User.emailVerifiedAt` and the user's email domain equalling
+/// `Company.emailDomain`, so it cannot outlive either fact.
+model CompanyMembership {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String   @unique
+  user      User     @relation("CompanyMembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
 }
 
 /// One follow-up step of a Partnership Inquiry (CONTEXT.md, Partnership
@@ -471,6 +523,17 @@ model Campaign {
   /// no other Campaign on this, which is what the statement in
   /// src/lib/duplicate-hints.ts relies on.
   beneficiaryName        String?
+  /// Province of the Campaign, the two-digit Kemendagri code from the static
+  /// list in src/lib/indonesia-provinces.ts (ticket 74, decision C8). Null
+  /// until a Campaign form writes one; `location` above is kept, not migrated.
+  province               String?
+  /// Regency or city, free text (ticket 74), at most 100 characters.
+  regency                String?
+  /// Who the Campaign helps, in words (ticket 74), at most 200 characters.
+  /// Not `beneficiaryName`: that one names a person for duplicate hints.
+  beneficiaryDescription String?
+  /// How many people it helps (ticket 74); positive when set.
+  beneficiaryCount       Int?
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
 
@@ -802,6 +865,65 @@ model PartnerOrganisation {
   verificationRequests VerificationRequest[]
   auditEntries         PartnerOrganisationAuditEntry[]
   documents            Document[]
+  members              OrganisationMember[]
+  invitations          OrganisationInvitation[]
+}
+
+/// What a team member of a Partner Organisation may do (ticket E4; CONTEXT.md,
+/// Anggota tim). One value on purpose: VIEWER reads the organisation's
+/// Campaigns dashboard and nothing else. No value ever carries money access
+/// (Payout, Bank Account); those stay with the organisation's primary
+/// Fundraiser account (owner decision 2026-10-04).
+enum OrganisationMemberRole {
+  VIEWER
+}
+
+/// One person's place in one Partner Organisation's team (ticket E4). Not an
+/// Assignment (ADR 0005) and not the organisation's Fundraiser: the primary
+/// Fundraiser account (`PartnerOrganisation.fundraiserId`) stays the owner and
+/// is never a row here. A person is on at most one team (`userId` unique).
+model OrganisationMember {
+  id                    String                 @id @default(cuid())
+  partnerOrganisationId String
+  userId                String                 @unique
+  role                  OrganisationMemberRole @default(VIEWER)
+  addedById             String
+  createdAt             DateTime               @default(now())
+
+  partnerOrganisation PartnerOrganisation @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
+  user                User                @relation("OrganisationMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  addedBy             User                @relation("OrganisationMemberAdder", fields: [addedById], references: [id], onDelete: Restrict)
+
+  @@index([partnerOrganisationId])
+}
+
+/// An invitation to join a Partner Organisation's team (ticket E4). The token
+/// is random and only its SHA-256 is stored, so a dump of the table replays
+/// nothing; it is single use (`acceptedAt`), expires (`expiresAt`) and can be
+/// revoked (`revokedAt`). The invited address is sealed like any contact
+/// (ADR 0012); accepting needs a signed-in account whose verified email is
+/// that address.
+model OrganisationInvitation {
+  id                    String                 @id @default(cuid())
+  partnerOrganisationId String
+  invitedById           String
+  emailHmac             String
+  emailHmacKeyId        String
+  emailCiphertext       String
+  emailKeyId            String
+  role                  OrganisationMemberRole @default(VIEWER)
+  tokenHash             String                 @unique
+  expiresAt             DateTime
+  acceptedAt            DateTime?
+  acceptedById          String?
+  revokedAt             DateTime?
+  createdAt             DateTime               @default(now())
+
+  partnerOrganisation PartnerOrganisation @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
+  invitedBy           User                @relation("OrganisationInvitationInviter", fields: [invitedById], references: [id], onDelete: Restrict)
+  acceptedBy          User?               @relation("OrganisationInvitationAcceptor", fields: [acceptedById], references: [id], onDelete: Restrict)
+
+  @@index([partnerOrganisationId, createdAt])
 }
 
 /// A dated permit to collect public donations held by a Partner Organisation

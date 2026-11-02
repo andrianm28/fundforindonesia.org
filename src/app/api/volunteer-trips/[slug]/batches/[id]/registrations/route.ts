@@ -12,6 +12,7 @@ import { publicUrl } from '@/lib/public-url';
 import { registrationResultPath, signRegistrationResultToken } from '@/lib/money/registration-result-token';
 import { refusalResponse } from '@/lib/refusal-response';
 import { holdRegistration } from '@/lib/volunteer/trip';
+import { guardRoute } from '@/lib/rate-limit-guard';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
 import { resolveEscrowHoldDays } from '@/lib/money/escrow-hold-config';
 import { currentPaymentSandboxStamp } from '@/lib/money/counted-payment';
@@ -22,6 +23,14 @@ import {
   DONATIONS_DISABLED_MESSAGE,
 } from '@/lib/donations';
 import { volunteerRegistrationEnabled, VOLUNTEER_DISABLED_MESSAGE } from '@/lib/volunteer/registration-flag';
+
+/**
+ * Rate limit on creating holds, per signed-in account (owner decision
+ * 2026-10-30, tickets 50 and 82). The numbers live only here, never in
+ * `.scratch`. Every attempt counts, so a flood stays refused.
+ */
+const HOLD_RATE_LIMIT = 5;
+const HOLD_RATE_WINDOW_SECONDS = 60 * 60;
 
 const VALID_PAYMENT_METHODS = ['bank_transfer', 'qris'] as const;
 
@@ -63,6 +72,21 @@ export async function POST(
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // After the session check so anonymous floods cost no write. Fail-open:
+    // the per-account hold cap in `holdRegistration` is the hard guard, and a
+    // limiter outage must not stop an honest Volunteer from registering.
+    const limited = await guardRoute(
+      {
+        scope: 'volunteer-hold',
+        subject: session.user.id as string,
+        limit: HOLD_RATE_LIMIT,
+        windowSeconds: HOLD_RATE_WINDOW_SECONDS,
+        onUnavailable: 'open',
+      },
+      { limited: 'Terlalu banyak percobaan menahan kursi. Coba lagi nanti.' },
+    );
+    if (limited) return limited;
 
     const { slug, id: batchId } = await params;
 

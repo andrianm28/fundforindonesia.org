@@ -191,6 +191,12 @@ export async function createPartnershipInquiry(
    * that would otherwise be recorded (csr-06b); throwing from it refuses.
    */
   beforeWrite?: () => Promise<void>,
+  /**
+   * Set only by a verified Tim CSR member's own code path (src/lib/tim-csr.ts),
+   * never from a request body: the public form's input type has no such field
+   * and `input` is not read for it.
+   */
+  options?: { companyId?: string },
 ): Promise<PartnershipInquiry> {
   const db = delegatesOf(prisma);
   const programId = cleanProgramId(input.programId);
@@ -224,6 +230,7 @@ export async function createPartnershipInquiry(
       contactName: cleaned.contactName,
       needs: cleaned.needs,
       status: INITIAL_INQUIRY_STATUS,
+      ...(options?.companyId ? { companyId: options.companyId } : {}),
       ...sealInquiryContactEmail(cleaned.contactEmail),
       ...sealInquiryContactPhone(cleaned.contactPhone),
     },

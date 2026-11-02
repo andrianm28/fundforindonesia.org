@@ -1,6 +1,8 @@
 import { releaseMaturedEscrow, type ReleaseSweepResult } from '@/lib/money/escrow';
 import { sendCampaignDeadlineReminders, sendKindAuthorisationExpiryWarnings, type ReminderSweepResult } from '@/lib/reminders';
 import { sweepStuckLateSettlementRefunds, type RefundSweepResult } from '@/lib/volunteer/refund-sweep';
+import { anonymiseExpiredCompanies, type CompanyRetentionResult } from '@/lib/tim-csr';
+import { prisma } from '@/lib/prisma';
 import type { Mailer } from '@/lib/mail';
 
 export interface ScheduledJobsResult {
@@ -8,6 +10,7 @@ export interface ScheduledJobsResult {
   campaignDeadlineReminders: ReminderSweepResult;
   kindAuthorisationExpiryWarnings: ReminderSweepResult;
   lateSettlementRefunds: RefundSweepResult;
+  companyRetention: CompanyRetentionResult;
 }
 
 const FALLBACK_RELEASE_SWEEP: ReleaseSweepResult = { releasedCount: 0, consideredCount: 0 };
@@ -18,11 +21,12 @@ const FALLBACK_REFUND_SWEEP: RefundSweepResult = {
   skippedCount: 0,
   failedCount: 0,
 };
+const FALLBACK_RETENTION_SWEEP: CompanyRetentionResult = { consideredCount: 0, anonymisedCount: 0 };
 const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consideredCount: 0 };
 
 /**
  * The single scheduled entry point (ticket 20; spec.md "Notification and
- * scheduling"). Four phases, each already bounded and idempotent on its
+ * scheduling"). Five phases, each already bounded and idempotent on its
  * own:
  *
  * 1. Releases every matured Escrow Hold into Campaign Balance / Trip
@@ -38,6 +42,10 @@ const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consid
  *    its hold expired but whose automatic Refund never got made
  *    (sweepStuckLateSettlementRefunds, ./volunteer/refund-sweep.ts; ticket 43).
  *    Bounded per run; reports attemptedCount/refundedCount/failedCount.
+ *
+ * 5. Anonymises Tim CSR companies two years after their last activity
+ *    (anonymiseExpiredCompanies, ./tim-csr.ts; ticket E9/01 tahap 2).
+ *    Idempotent; a company is touched once.
  *
  * WHO ACTUALLY CALLS THIS, stated here because this file claimed otherwise
  * for a long time. As of ticket 45 exactly one thing does: the route
@@ -122,11 +130,20 @@ export async function runScheduledJobsReport(now: Date = new Date(), mailer?: Ma
   const lateSettlementRefunds = await phase('lateSettlementRefunds', FALLBACK_REFUND_SWEEP, () =>
     sweepStuckLateSettlementRefunds(now),
   );
+  const companyRetention = await phase('companyRetention', FALLBACK_RETENTION_SWEEP, () =>
+    anonymiseExpiredCompanies(prisma, now),
+  );
 
   return {
     ok: failedPhases.length === 0,
     failedPhases,
-    result: { escrowRelease, campaignDeadlineReminders, kindAuthorisationExpiryWarnings, lateSettlementRefunds },
+    result: {
+      escrowRelease,
+      campaignDeadlineReminders,
+      kindAuthorisationExpiryWarnings,
+      lateSettlementRefunds,
+      companyRetention,
+    },
   };
 }
 

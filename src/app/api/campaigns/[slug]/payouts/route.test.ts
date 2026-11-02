@@ -76,6 +76,8 @@ function makeTx(options: {
         }),
       },
       bankAccount: { findUnique: bankAccountFindUnique },
+      // Nobody in these tests is on an organisation's team (ticket E4).
+      organisationMember: { findUnique: vi.fn().mockResolvedValue(null) },
       // findFirst backs campaignBlockingUsageReport's own query
       // (@/lib/usage-reports.ts): null means no prior COMPLETED Payout is
       // missing an undisputed Usage Report, unchanged from before ticket 22.
