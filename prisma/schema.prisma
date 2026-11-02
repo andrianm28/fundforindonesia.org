@@ -20,10 +20,10 @@ enum Assignment {
 // ==================== User & Auth ====================
 
 model User {
-  id               String    @id @default(cuid())
-  name             String
-  password         String?
-  avatar           String?
+  id              String    @id @default(cuid())
+  name            String
+  password        String?
+  avatar          String?
   // Field-level protection (ADR 0012), contract step (prd-compliance 16): the
   // plaintext `email` and `phone` columns are gone, so a stolen database dump
   // no longer hands over a Donor address. The columns below are written and
@@ -38,13 +38,13 @@ model User {
   // way out. There is no access log on the panel today, so that is a separate
   // piece of work (ADR 0012, Consequences).
   /// Hex HMAC-SHA256 of the trimmed, lowercased email under FIELD_HMAC_KEY. Searchable.
-  emailHmac        String    @unique
-  emailHmacKeyId   String
+  emailHmac       String    @unique
+  emailHmacKeyId  String
   /// base64(iv | AES-256-GCM ciphertext | tag) of the email under FIELD_ENCRYPTION_KEY.
-  emailCiphertext  String
-  emailKeyId       String
-  phoneCiphertext  String?
-  phoneKeyId       String?
+  emailCiphertext String
+  emailKeyId      String
+  phoneCiphertext String?
+  phoneKeyId      String?
   /// Set once, when the owner of this address opened the confirmation link
   /// emailed to it (prd-compliance 23; src/lib/email-verification.ts). Until
   /// then the account has proven nothing about the address: it may have been
@@ -52,10 +52,10 @@ model User {
   /// registering, by signing in, or by an address merely matching. Two writers:
   /// the confirmation link and a successful password reset (rilis-1 93, which
   /// proves the address the same way; docs/adr/0020).
-  emailVerifiedAt  DateTime?
-  donationBalance  Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  emailVerifiedAt DateTime?
+  donationBalance Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   // Relations
   accounts                         Account[]
@@ -68,6 +68,7 @@ model User {
   notifications                    Notification[]
   autoDonations                    AutoDonation[]
   assignments                      UserAssignment[]
+  companyMembership                CompanyMembership?                @relation("CompanyMembershipUser")
   assignmentAuditsAsSubject        AssignmentAuditEntry[]            @relation("AssignmentAuditSubject")
   assignmentAuditsAsActor          AssignmentAuditEntry[]            @relation("AssignmentAuditActor")
   assignmentGrantRequestsAsSubject AssignmentGrantRequest[]          @relation("AssignmentGrantSubject")
@@ -129,7 +130,7 @@ model User {
   // cannot. That unique index is also the lookup index every `lookupUserEmail`
   // query uses, so the plain `@@index([emailHmac])` the expand step added is
   // dropped with it rather than left as a second index on one column.
-  siteSettingsSet                   SiteSetting[]
+  siteSettingsSet SiteSetting[]
 }
 
 /// Verifier and Admin are assignments a person holds, not ranks.
@@ -375,12 +376,59 @@ model PartnershipInquiry {
   /// src/lib/partnership-inquiry-followup.ts. The second relation this model
   /// has, and the only one besides its Program: never money.
   statusChanges          PartnershipInquiryStatusChange[]
+  /// The company this Inquiry was filed for by a verified Tim CSR member
+  /// (ticket E9/01, tahap 2). Null for the public form, which has no account,
+  /// and for every Inquiry that predates company accounts: those keep working
+  /// as before and belong to no company.
+  companyId              String?
+  company                Company?                         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// Stamped when the contact fields were replaced by the retention job
+  /// (src/lib/tim-csr.ts). The columns stay NOT NULL, so anonymised rows hold
+  /// placeholders; this says which rows those are.
+  contactAnonymisedAt    DateTime?
   createdAt              DateTime                         @default(now())
   updatedAt              DateTime                         @updatedAt
 
   @@index([programId])
   @@index([status])
   @@index([contactEmailHmac])
+  @@index([companyId])
+}
+
+/// A company whose people use the platform as a Tim CSR (ticket E9/01, tahap 2;
+/// CONTEXT.md, Tim CSR). Not an Assignment and not a role (ADR 0005): it is a
+/// name and the email domain its members prove they own. `emailDomain` is
+/// never a free-mail domain (src/lib/tim-csr.ts). Contact data lives on the
+/// Inquiries, not here; this row holds no person.
+model Company {
+  id           String    @id @default(cuid())
+  name         String
+  /// Lowercase domain every verified member's email must be on.
+  emailDomain  String    @unique
+  /// Stamped by the retention job once the company's members were detached
+  /// and its Inquiries' contact data replaced.
+  anonymisedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  memberships CompanyMembership[]
+  inquiries   PartnershipInquiry[]
+}
+
+/// One person's place in one company. A person belongs to at most one company
+/// at a time (`userId` unique); several people share a company. Whether the
+/// membership is VERIFIED is not stored: it is derived on every read from
+/// `User.emailVerifiedAt` and the user's email domain equalling
+/// `Company.emailDomain`, so it cannot outlive either fact.
+model CompanyMembership {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String   @unique
+  user      User     @relation("CompanyMembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
 }
 
 /// One follow-up step of a Partnership Inquiry (CONTEXT.md, Partnership
@@ -909,12 +957,12 @@ model PartnerOrganisationAuditEntry {
 /// deleted. `kind` scopes an item to one Kind (PRD §7.1, ticket 12); null is
 /// the "Semua" row, snapshotted for every Kind.
 model VerificationChecklistItem {
-  id       String  @id @default(cuid())
-  label    String
-  required Boolean @default(true)
-  position Int
-  active   Boolean @default(true)
-  kind     Kind?
+  id               String  @id @default(cuid())
+  label            String
+  required         Boolean @default(true)
+  position         Int
+  active           Boolean @default(true)
+  kind             Kind?
   /// Whether ticking this item needs an uploaded Document behind it (ticket
   /// 64): the Verifier's box stays disabled, and the server refuses the tick,
   /// until the Campaign holds a Document for this item. False for items that
@@ -2490,6 +2538,11 @@ model LedgerEntry {
   /// the source Payment and read by rilis-1-benda/94, not by anything yet.
   sandbox       Boolean  @default(false)
   createdAt     DateTime @default(now())
+  // NOT EXPRESSIBLE HERE, in migration 20261016090000_ledger_integrity (audit
+  // D1, PAY-12): trigger "LedgerEntry_append_only" (BEFORE UPDATE OR DELETE,
+  // raises) and CHECK "LedgerEntry_amount_positive" (amount > 0). Every
+  // relation above is onDelete: Restrict, because SET NULL is an UPDATE and
+  // would silently detach a leg from its Campaign/Payment (ADR 0016).
 
   @@index([transactionId])
   @@index([account, campaignId])
@@ -2508,11 +2561,6 @@ model LedgerEntry {
   @@index([paymentId])
   @@index([refundId])
   @@index([payoutId])
-  // NOT EXPRESSIBLE HERE, in migration 20261016090000_ledger_integrity (audit
-  // D1, PAY-12): trigger "LedgerEntry_append_only" (BEFORE UPDATE OR DELETE,
-  // raises) and CHECK "LedgerEntry_amount_positive" (amount > 0). Every
-  // relation above is onDelete: Restrict, because SET NULL is an UPDATE and
-  // would silently detach a leg from its Campaign/Payment (ADR 0016).
 }
 
 /// The old `Disbursement` table, renamed rather than dropped by the money-layer
