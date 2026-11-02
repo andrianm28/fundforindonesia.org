@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   FundraiserAlreadyLinkedError,
+  FundraiserOnOrganisationTeamError,
   FundraisingPermitNotFoundError,
   grantKindAuthorisation,
   InvalidPartnerOrganisationError,
@@ -113,6 +114,22 @@ describe('registerPartnerOrganisation', () => {
     expect(error).toBeInstanceOf(FundraiserAlreadyLinkedError);
     expect(domainErrorToHttp(error)?.status).toBe(409);
     expect(store.partnerOrganisations).toHaveLength(1);
+  });
+
+  it('refuses an account on another organisation\'s team with 409: the primary account holds money access a team member never has (ticket E4)', async () => {
+    const store = db({ organisationMembers: [{ userId: 'yiem-account' }] });
+
+    const error = await registerPartnerOrganisation(store.prisma as never, {
+      actorId: 'verifier-1',
+      name: 'Yayasan Kedua',
+      fundraiserEmail: 'yiem@example.org',
+      acceptsIndividualCampaigns: false,
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FundraiserOnOrganisationTeamError);
+    expect(domainErrorToHttp(error)?.status).toBe(409);
+    expect(store.partnerOrganisations).toEqual([]);
   });
 
   it('refuses a Verifier linking their own account with 403', async () => {

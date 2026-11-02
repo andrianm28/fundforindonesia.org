@@ -21,10 +21,16 @@
  */
 import { PrismaClient, Kind, CampaignStatus, Assignment } from '../../src/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { sealDonationGuestEmail, sealUserEmail } from '../../src/lib/contact-fields';
+import { sealDonationGuestEmail, sealInquiryContactEmail, sealUserEmail } from '../../src/lib/contact-fields';
 import { hashPassword } from '../../src/lib/password-hash';
 import { PASSWORD_HASH_COST } from '../../src/lib/password-hash-cost';
 import {
+  CSR_ALPHA_DOMAIN,
+  CSR_ALPHA_EMAIL,
+  CSR_ALPHA_NEEDS,
+  CSR_BETA_EMAIL,
+  CSR_BETA_NEEDS,
+  CSR_PROGRAM_SLUG,
   ACTIVE_CAMPAIGN_ID,
   ACTIVE_SLUG,
   CATEGORY_SLUG,
@@ -316,6 +322,64 @@ async function main() {
       token: RECEIPT_TOKEN,
     },
   });
+
+  // Tim CSR (E9/01 tahap 2): a Program, and two companies whose verified
+  // members each have one Inquiry.
+  const csrProgram = await prisma.program.upsert({
+    where: { slug: CSR_PROGRAM_SLUG },
+    update: {},
+    create: {
+      slug: CSR_PROGRAM_SLUG,
+      title: 'E2E Program CSR',
+      sector: 'HEALTH',
+      problem: 'Masalah E2E',
+      beneficiaries: '100 orang',
+      location: 'Kupang',
+      activities: 'Kegiatan E2E',
+      budget: 10_000_000,
+      timeline: '2027',
+      kpis: [],
+    },
+  });
+  for (const [key, domain, email, needs, name] of [
+    ['alpha', CSR_ALPHA_DOMAIN, CSR_ALPHA_EMAIL, CSR_ALPHA_NEEDS, 'E2E Alpha'],
+    ['beta', 'e2e-beta.example', CSR_BETA_EMAIL, CSR_BETA_NEEDS, 'E2E Beta'],
+  ] as const) {
+    await prisma.company.upsert({
+      where: { emailDomain: domain },
+      update: {},
+      create: { id: `e2e-company-${key}`, name, emailDomain: domain },
+    });
+    await prisma.user.upsert({
+      where: { id: `e2e-csr-${key}` },
+      update: { password: operatorPasswordHash },
+      create: {
+        id: `e2e-csr-${key}`,
+        name: `${name} Member`,
+        password: operatorPasswordHash,
+        emailVerifiedAt: new Date('2026-10-01T00:00:00Z'),
+        ...sealUserEmail(email),
+      },
+    });
+    await prisma.companyMembership.upsert({
+      where: { userId: `e2e-csr-${key}` },
+      update: {},
+      create: { id: `e2e-membership-${key}`, companyId: `e2e-company-${key}`, userId: `e2e-csr-${key}` },
+    });
+    await prisma.partnershipInquiry.upsert({
+      where: { id: `e2e-inquiry-${key}` },
+      update: {},
+      create: {
+        id: `e2e-inquiry-${key}`,
+        programId: csrProgram.id,
+        companyName: name,
+        companyId: `e2e-company-${key}`,
+        contactName: `${name} Member`,
+        needs,
+        ...sealInquiryContactEmail(email),
+      },
+    });
+  }
 }
 
 main()

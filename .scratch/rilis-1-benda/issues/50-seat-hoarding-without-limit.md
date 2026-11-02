@@ -2,7 +2,7 @@
 
 **Type:** implementation (keamanan)
 
-**Status:** needs-info
+**Status:** done
 
 **Blocked by:** PR #161 (membawa mekanisme rate limit yang dibutuhkan tiket ini). Tiket tetap `needs-info` sampai #161 merge dan owner memutuskan batas yang dipakai.
 
@@ -39,3 +39,5 @@ tidak terblokir.
 - 2026-10-02: status `needs-info` karena terblokir PR #161 dan batas penahanan belum diputuskan owner. Isi tiket diredaksi sampai setingkat peran (gap `.scratch` publik); detail teknis disimpan owner di luar repo.
 
 - 2026-10-04 (ronde C): owner memutuskan batas hold (C16, sesuai rekomendasi); angkanya tersamar dan tidak ditulis di repo. Status tetap `needs-info` sampai PR #161 merge. Tiket build: 82.
+
+- 2026-10-30: `done`. Mekanisme rate limit sudah ada di `main` (blocker PR #161 tidak berlaku lagi), owner memutuskan batas lewat kartu keputusan 2026-10-30, dan build-nya selesai di tiket 82. Angkanya hanya ada di kode.

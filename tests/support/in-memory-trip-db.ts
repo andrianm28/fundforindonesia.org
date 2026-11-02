@@ -479,6 +479,12 @@ export function makeTripDb(seed: Seed = {}) {
         const scopedBatch = /^SELECT id FROM "VolunteerBatch" WHERE id = \? AND "tripId" = \? FOR UPDATE$/.test(sql);
         const table = scopedBatch ? 'VolunteerBatch' : /FROM "(\w+)" WHERE id = \? FOR UPDATE$/.exec(sql)?.[1];
         const liveRegistrations = LIVE_REGISTRATIONS_LOCK.test(sql);
+        if (/pg_advisory_xact_lock\(hashtext\(\?\)\)/.test(sql)) {
+          // The per-Volunteer hold lock, logged as "VolunteerHolds:<id>" so the
+          // lock order stays pinned. The key is "volunteer-holds:<id>".
+          rowLocks.push(`VolunteerHolds:${String(values[0]).replace('volunteer-holds:', '')}`);
+          return [{ locked: 1 }];
+        }
         if (!(table && LOCKABLE[table]) && !liveRegistrations) {
           throw new Error(`in-memory trip db does not understand: ${sql}`);
         }
