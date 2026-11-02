@@ -15,10 +15,12 @@ type Props = {
   /** Where to go after signing in; read at the moment of success. */
   onSignedIn: () => void;
   /**
-   * An address a code was just mailed to elsewhere (the register page): the
-   * form opens at the code step with the resend cooldown running.
+   * An address a code was just asked for elsewhere (the register page): the
+   * form opens at the code step. `sendFailed` says that request was refused,
+   * so the form shows that and lets the code be asked for again at once.
    */
   sendTo?: string;
+  sendFailed?: boolean;
 };
 
 /**
@@ -26,14 +28,14 @@ type Props = {
  * card: the address, then the 6-digit code. The request endpoint answers the
  * same for every address, so this never says whether an account exists.
  */
-export function CodeLoginForm({ onSignedIn, sendTo }: Props) {
+export function CodeLoginForm({ onSignedIn, sendTo, sendFailed = false }: Props) {
   const [step, setStep] = useState<'email' | 'code'>(sendTo ? 'code' : 'email');
   const [email, setEmail] = useState(sendTo ?? '');
   const [code, setCode] = useState('');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState(sendTo ? 'Kode masuk sudah kami kirim.' : '');
+  const [error, setError] = useState(sendTo && sendFailed ? 'Kode belum terkirim. Tekan "Kirim ulang kode".' : '');
+  const [notice, setNotice] = useState(sendTo && !sendFailed ? 'Kode masuk sudah kami kirim.' : '');
   const [isLoading, setIsLoading] = useState(false);
-  const [resendIn, setResendIn] = useState(sendTo ? RESEND_SECONDS : 0);
+  const [resendIn, setResendIn] = useState(sendTo && !sendFailed ? RESEND_SECONDS : 0);
 
   useEffect(() => {
     if (resendIn <= 0) return;

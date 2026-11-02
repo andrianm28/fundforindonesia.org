@@ -22,7 +22,9 @@ way in and the reuse risk that comes with it.
   `NEXTAUTH_SECRET` under its own domain, account id in the MAC). A 6-digit code
   has a million values, so a plain hash in a dump would not protect it.
 - A code lives 10 minutes, is spent by a conditional update (one winner among
-  concurrent sign-ins), dies after 5 wrong guesses, and is retired when a newer
+  concurrent sign-ins), and each guess claims one of its 5 attempts in a
+  conditional update before it is compared, so concurrent guesses cannot
+  exceed the limit. It and is retired when a newer
   code is issued. It carries the address HMAC at issue and stops working if the
   address changes (ADR 0020).
 - Issuing has a 60-second cooldown per account; the request endpoint counts per
@@ -34,8 +36,24 @@ way in and the reuse risk that comes with it.
   proves the address exactly as the confirmation link and a password reset do.
   Like the password reset, it does not run the Guest Donor claim; the
   confirmation link remains the path that claims history.
-- Registration takes a name and an address, no password; the account is signed
-  in by its first code.
+- Registration takes a name and an address and accepts no password; the
+  account is signed in by its first code. A password chosen at registration
+  would be chosen by whoever typed the address (pre-registration takeover).
+  For the same reason the first code sign-in of an account that never proved
+  its address clears any password it carries, which also ends every session
+  issued under that password (`pwf` claim).
+
+## Accepted risks
+
+- **Targeted lockout.** Anyone can ask for a code for any address. Each
+  request retires the previous code and spends the address's hourly budget (5),
+  and wrong guesses kill a code. A stranger can therefore keep one person from
+  signing in by code for a while. Google sign-in and, while it stays, the
+  password fallback remain; the per-address and per-client limits bound how
+  much mail this sends. Revisit if it is seen in practice.
+- **Sessions of passwordless accounts** cannot be ended by changing a password,
+  because there is none: the `pwf` claim is the same for every such session.
+  Ending sessions on demand needs a session version column; not in this change.
 
 ## Open (owner decision cards, 2 Nov 2026)
 

@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { passwordField } from '@/lib/password-schema';
-import { hashPassword } from '@/lib/password-hash';
-import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import { lookupUserEmail, readUserEmail, sealUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { clientAddress } from '@/lib/client-ip';
 import { guardRoute } from '@/lib/rate-limit-guard';
 
+// No password (ADR 0026). One typed here would be typed by whoever typed the
+// address, who may not own it: a password set before the owner ever proved
+// the address is a key the owner never saw (pre-registration takeover). The
+// account is entered only through a code mailed to the address; an unknown
+// `password` key is stripped by zod.
 const registerSchema = z.object({
   name: z.string().min(1, 'Nama harus diisi'),
   email: z.string().email('Format email tidak valid'),
-  // Optional: sign-in is by mailed code (src/lib/login-code.ts). A password
-  // given anyway is still held to the same rules and hashed.
-  password: passwordField.optional(),
 });
 
 /** Per client per hour. Fail-open: a limiter outage must not close registration. */
@@ -52,7 +51,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, email, password } = result.data;
+    const { name, email } = result.data;
 
     // The duplicate check goes through the lookup HMAC, so it finds the address
     // however it was typed -- including the case the old case-sensitive unique
@@ -69,7 +68,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const hashedPassword = password ? await hashPassword(password, PASSWORD_HASH_COST) : null;
 
     // Sealed at the call site rather than by the client hook: the plaintext
     // column is gone, so there is nothing for the hook to add it to. The hook
@@ -77,7 +75,7 @@ export async function POST(request: NextRequest) {
     const user = await prisma.user.create({
       data: {
         name,
-        password: hashedPassword,
+        password: null,
         ...sealUserEmail(email),
       },
       select: { id: true, name: true, ...SELECT_USER_EMAIL },

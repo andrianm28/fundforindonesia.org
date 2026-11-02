@@ -127,12 +127,12 @@ describe('verifyLoginCode', () => {
 
     expect(user).toEqual({ id: 'user-1', email: 'sari@example.test', name: 'Sari', image: null });
     expect(codes.updateMany).toHaveBeenCalledWith({
-      where: { id: 'code-1', usedAt: null, expiresAt: { gt: NOW }, attempts: { lt: LOGIN_CODE_MAX_ATTEMPTS } },
+      where: { id: 'code-1', usedAt: null, expiresAt: { gt: NOW } },
       data: { usedAt: NOW },
     });
     expect(users.updateMany).toHaveBeenCalledWith({
       where: { id: 'user-1', emailHmac: account().emailHmac, emailVerifiedAt: null },
-      data: { emailVerifiedAt: NOW },
+      data: { emailVerifiedAt: NOW, password: null },
     });
   });
 
@@ -143,16 +143,26 @@ describe('verifyLoginCode', () => {
     expect(await verifyLoginCode('sari@example.test', ' 123 456 ', NOW, SECRET)).not.toBeNull();
   });
 
-  it('counts a wrong code against the code and refuses', async () => {
+  it('claims an attempt atomically before comparing, and refuses a wrong code', async () => {
     users.findFirst.mockResolvedValue(account());
     codes.findFirst.mockResolvedValue(liveCode('123456'));
 
     expect(await verifyLoginCode('sari@example.test', '654321', NOW, SECRET)).toBeNull();
+    expect(codes.updateMany).toHaveBeenCalledTimes(1);
     expect(codes.updateMany).toHaveBeenCalledWith({
-      where: { id: 'code-1', usedAt: null },
+      where: { id: 'code-1', usedAt: null, expiresAt: { gt: NOW }, attempts: { lt: LOGIN_CODE_MAX_ATTEMPTS } },
       data: { attempts: { increment: 1 } },
     });
     expect(users.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses without comparing when a concurrent guess took the last attempt', async () => {
+    users.findFirst.mockResolvedValue(account());
+    codes.findFirst.mockResolvedValue(liveCode('123456', { attempts: LOGIN_CODE_MAX_ATTEMPTS - 1 }));
+    codes.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    expect(await verifyLoginCode('sari@example.test', '123456', NOW, SECRET)).toBeNull();
+    expect(transaction).not.toHaveBeenCalled();
   });
 
   it('refuses even the right code once the attempts are used up', async () => {
@@ -179,7 +189,7 @@ describe('verifyLoginCode', () => {
   it('refuses when a concurrent request spent the code first', async () => {
     users.findFirst.mockResolvedValue(account());
     codes.findFirst.mockResolvedValue(liveCode('123456'));
-    codes.updateMany.mockResolvedValue({ count: 0 });
+    codes.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
 
     expect(await verifyLoginCode('sari@example.test', '123456', NOW, SECRET)).toBeNull();
   });

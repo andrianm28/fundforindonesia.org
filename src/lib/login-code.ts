@@ -23,7 +23,8 @@ import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from '@/lib/contact
  *   email HMAC at issue; if the address changed since, it signs nobody in.
  * - **It proves the address.** A code typed back is the same proof the
  *   confirmation link gives, so a successful sign-in sets `emailVerifiedAt`
- *   when empty (the third writer; ADR 0020 names the other two).
+ *   when empty (the third writer; ADR 0020 names the other two), and clears a
+ *   password the unproven account carried (see verifyLoginCode).
  * - **Every refusal is the same `null`.** Unknown address, no code, wrong,
  *   expired, used up or stale all look alike to the caller.
  *
@@ -145,23 +146,34 @@ export async function verifyLoginCode(
     return null;
   }
 
+  // Each guess claims one attempt before it is compared, in one conditional
+  // update, so concurrent guesses cannot all read the same count and slip
+  // past the limit: the database hands out at most MAX attempts per code.
+  const claimed = await prisma.loginCode.updateMany({
+    where: { id: row.id, usedAt: null, expiresAt: { gt: now }, attempts: { lt: LOGIN_CODE_MAX_ATTEMPTS } },
+    data: { attempts: { increment: 1 } },
+  });
+  if (claimed.count !== 1) return null;
+
   const expected = Buffer.from(row.codeHash, 'hex');
   const given = Buffer.from(hashLoginCode(account.id, code, secret), 'hex');
-  if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
-    await prisma.loginCode.updateMany({ where: { id: row.id, usedAt: null }, data: { attempts: { increment: 1 } } });
-    return null;
-  }
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
 
   try {
     await prisma.$transaction(async (tx) => {
       const spent = await tx.loginCode.updateMany({
-        where: { id: row.id, usedAt: null, expiresAt: { gt: now }, attempts: { lt: LOGIN_CODE_MAX_ATTEMPTS } },
+        where: { id: row.id, usedAt: null, expiresAt: { gt: now } },
         data: { usedAt: now },
       });
       if (spent.count !== 1) throw new Refused();
+      // First proof of the address. A password set on an account that had
+      // never proven its address was set by whoever typed the address, which
+      // may not be its owner (pre-registration takeover), so it is cleared
+      // here; clearing it also ends every session issued under it (the `pwf`
+      // claim in src/lib/auth.ts). A verified account keeps its password.
       await tx.user.updateMany({
         where: { id: account.id, emailHmac: row.emailHmac, emailVerifiedAt: null },
-        data: { emailVerifiedAt: now },
+        data: { emailVerifiedAt: now, password: null },
       });
     });
   } catch (error) {

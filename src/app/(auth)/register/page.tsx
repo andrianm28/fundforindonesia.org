@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CodeLoginForm } from '../login/CodeLoginForm';
+import { safeCallbackUrl } from '@/lib/safe-callback-url';
 
 interface FormErrors {
   name?: string;
@@ -18,6 +19,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   // Set once the account exists: the page then asks for the code mailed to it.
   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+  const [codeSendFailed, setCodeSendFailed] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [serverError, setServerError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -87,11 +89,14 @@ export default function RegisterPage() {
 
       // Signed in by the first code, which also proves the address. A failed
       // send is not fatal: the code step offers "Kirim ulang kode".
-      await fetch('/api/auth/login-code', {
+      const sent = await fetch('/api/auth/login-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
-      }).catch(() => undefined);
+      })
+        .then((r) => r.ok)
+        .catch(() => false);
+      setCodeSendFailed(!sent);
       setRegisteredEmail(email.trim());
       setIsLoading(false);
     } catch {
@@ -116,7 +121,13 @@ export default function RegisterPage() {
           {registeredEmail ? (
             <>
               <p className="mb-4 text-sm text-text">Akun berhasil dibuat. Masukkan kode yang kami kirim ke email Anda untuk masuk.</p>
-              <CodeLoginForm sendTo={registeredEmail} onSignedIn={() => router.push('/')} />
+              <CodeLoginForm
+                sendTo={registeredEmail}
+                sendFailed={codeSendFailed}
+                onSignedIn={() =>
+                  router.push(safeCallbackUrl(new URLSearchParams(window.location.search).get('callbackUrl')))
+                }
+              />
             </>
           ) : (
           <form onSubmit={handleSubmit} noValidate>

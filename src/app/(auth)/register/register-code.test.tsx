@@ -31,6 +31,22 @@ afterEach(() => {
 });
 
 describe('RegisterPage, sign-in by code', () => {
+  it('says the code was not sent when the request was refused, and allows a resend at once', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/auth/register'
+        ? { ok: true, status: 201, json: async () => ({ message: 'Registrasi berhasil' }) }
+        : { ok: false, status: 429, json: async () => ({ message: 'Terlalu banyak' }) },
+    );
+    render(<RegisterPage />);
+    fireEvent.change(screen.getByLabelText(/nama lengkap/i), { target: { value: 'Sari' } });
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'sari@example.test' } });
+    fireEvent.click(screen.getByRole('button', { name: /daftar/i }));
+
+    await screen.findByLabelText(/kode masuk/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/belum terkirim/i);
+    expect(screen.getByRole('button', { name: /kirim ulang kode/i })).not.toBeDisabled();
+  });
+
   it('has no password field', () => {
     render(<RegisterPage />);
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
