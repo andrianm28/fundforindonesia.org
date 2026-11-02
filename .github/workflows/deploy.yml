@@ -2,9 +2,11 @@
 # forced command that runs ops/deploy.sh (.scratch/ci-cd-github-actions,
 # ticket 07).
 #
-# Started only by hand, and only by the owner: Actions > Deploy > Run workflow,
-# on main, with an optional commit SHA (empty means main's head). No agent ever
-# dispatches this workflow or approves its deployment (owner's decision,
+# Started only by hand: Actions > Deploy > Run workflow, on main, with an
+# optional commit SHA (empty means main's head). The owner dispatches it, or the
+# owner's own agent on the production host does, only with the owner's explicit
+# permission for that deploy (owner's decision, 2026-11-02). Cloud agents never
+# dispatch it, and no agent ever approves its deployment (owner's decision,
 # 2026-10-04, ticket ci-cd 25: "A + reviewer + protection"). Two jobs: `gate` (no
 # Environment) checks everything itself before anything reaches the host
 # (ci/deploy-gate.sh):

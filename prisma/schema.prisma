@@ -68,6 +68,7 @@ model User {
   notifications                    Notification[]
   autoDonations                    AutoDonation[]
   assignments                      UserAssignment[]
+  companyMembership                CompanyMembership?               @relation("CompanyMembershipUser")
   assignmentAuditsAsSubject        AssignmentAuditEntry[]            @relation("AssignmentAuditSubject")
   assignmentAuditsAsActor          AssignmentAuditEntry[]            @relation("AssignmentAuditActor")
   assignmentGrantRequestsAsSubject AssignmentGrantRequest[]          @relation("AssignmentGrantSubject")
@@ -375,12 +376,59 @@ model PartnershipInquiry {
   /// src/lib/partnership-inquiry-followup.ts. The second relation this model
   /// has, and the only one besides its Program: never money.
   statusChanges          PartnershipInquiryStatusChange[]
+  /// The company this Inquiry was filed for by a verified Tim CSR member
+  /// (ticket E9/01, tahap 2). Null for the public form, which has no account,
+  /// and for every Inquiry that predates company accounts: those keep working
+  /// as before and belong to no company.
+  companyId              String?
+  company                Company?                         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// Stamped when the contact fields were replaced by the retention job
+  /// (src/lib/tim-csr.ts). The columns stay NOT NULL, so anonymised rows hold
+  /// placeholders; this says which rows those are.
+  contactAnonymisedAt    DateTime?
   createdAt              DateTime                         @default(now())
   updatedAt              DateTime                         @updatedAt
 
   @@index([programId])
   @@index([status])
   @@index([contactEmailHmac])
+  @@index([companyId])
+}
+
+/// A company whose people use the platform as a Tim CSR (ticket E9/01, tahap 2;
+/// CONTEXT.md, Tim CSR). Not an Assignment and not a role (ADR 0005): it is a
+/// name and the email domain its members prove they own. `emailDomain` is
+/// never a free-mail domain (src/lib/tim-csr.ts). Contact data lives on the
+/// Inquiries, not here; this row holds no person.
+model Company {
+  id           String    @id @default(cuid())
+  name         String
+  /// Lowercase domain every verified member's email must be on.
+  emailDomain  String    @unique
+  /// Stamped by the retention job once the company's members were detached
+  /// and its Inquiries' contact data replaced.
+  anonymisedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  memberships CompanyMembership[]
+  inquiries   PartnershipInquiry[]
+}
+
+/// One person's place in one company. A person belongs to at most one company
+/// at a time (`userId` unique); several people share a company. Whether the
+/// membership is VERIFIED is not stored: it is derived on every read from
+/// `User.emailVerifiedAt` and the user's email domain equalling
+/// `Company.emailDomain`, so it cannot outlive either fact.
+model CompanyMembership {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String   @unique
+  user      User     @relation("CompanyMembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
 }
 
 /// One follow-up step of a Partnership Inquiry (CONTEXT.md, Partnership

@@ -11,11 +11,16 @@ vi.mock('@/lib/money/escrow', () => ({
 vi.mock('@/lib/volunteer/refund-sweep', () => ({
   sweepStuckLateSettlementRefunds: vi.fn(),
 }));
+vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/tim-csr', () => ({
+  anonymiseExpiredCompanies: vi.fn(),
+}));
 vi.mock('@/lib/reminders', () => ({
   sendCampaignDeadlineReminders: vi.fn(),
   sendKindAuthorisationExpiryWarnings: vi.fn(),
 }));
 
+import { anonymiseExpiredCompanies } from '@/lib/tim-csr';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 import { sendCampaignDeadlineReminders, sendKindAuthorisationExpiryWarnings } from '@/lib/reminders';
 import { sweepStuckLateSettlementRefunds } from '@/lib/volunteer/refund-sweep';
@@ -25,6 +30,7 @@ const mockReleaseMaturedEscrow = releaseMaturedEscrow as unknown as Mock;
 const mockSendCampaignDeadlineReminders = sendCampaignDeadlineReminders as unknown as Mock;
 const mockSendKindAuthorisationExpiryWarnings = sendKindAuthorisationExpiryWarnings as unknown as Mock;
 
+const mockAnonymiseCompanies = anonymiseExpiredCompanies as unknown as Mock;
 const mockSweepRefunds = sweepStuckLateSettlementRefunds as unknown as Mock;
 const SWEEP_RESULT = { consideredCount: 3, attemptedCount: 3, refundedCount: 2, skippedCount: 0, failedCount: 1 };
 const NOW = new Date('2026-09-27T00:00:00.000Z');
@@ -36,6 +42,7 @@ describe('runScheduledJobs', () => {
     mockSendCampaignDeadlineReminders.mockResolvedValue({ attemptedCount: 1, consideredCount: 1 });
     mockSendKindAuthorisationExpiryWarnings.mockResolvedValue({ attemptedCount: 0, consideredCount: 0 });
     mockSweepRefunds.mockResolvedValue(SWEEP_RESULT);
+    mockAnonymiseCompanies.mockResolvedValue({ consideredCount: 2, anonymisedCount: 1 });
   });
 
   it('takes the current time as an argument and drives every phase with it directly, never through a timer', async () => {
@@ -44,6 +51,7 @@ describe('runScheduledJobs', () => {
     expect(mockReleaseMaturedEscrow).toHaveBeenCalledWith(undefined, NOW);
     expect(mockSendCampaignDeadlineReminders).toHaveBeenCalledWith(NOW, undefined);
     expect(mockSendKindAuthorisationExpiryWarnings).toHaveBeenCalledWith(NOW, undefined);
+    expect(mockAnonymiseCompanies).toHaveBeenCalledWith(expect.anything(), NOW);
   });
 
   it('aggregates every phase\'s result under its own key', async () => {
@@ -54,6 +62,7 @@ describe('runScheduledJobs', () => {
       campaignDeadlineReminders: { attemptedCount: 1, consideredCount: 1 },
       kindAuthorisationExpiryWarnings: { attemptedCount: 0, consideredCount: 0 },
       lateSettlementRefunds: SWEEP_RESULT,
+      companyRetention: { consideredCount: 2, anonymisedCount: 1 },
     });
   });
 
