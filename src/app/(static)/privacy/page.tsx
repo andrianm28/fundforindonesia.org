@@ -40,8 +40,7 @@ export default function PrivacyPage() {
       <div className="space-y-6 text-text-secondary text-sm leading-relaxed">
         <Section title="1. Pendahuluan">
           <p>
-            {SITE_IDENTITY.operatorName} (&quot;Kami&quot;), penyelenggara platform {SITE_IDENTITY.brandName} dan
-            Pengendali Data Pribadi, berkomitmen melindungi data pribadi Anda sesuai UU No. 27 Tahun
+            {SITE_IDENTITY.brandName} (&quot;Kami&quot;), penyelenggara platform dan Pengendali Data Pribadi, berkomitmen melindungi data pribadi Anda sesuai UU No. 27 Tahun
             2022 tentang Pelindungan Data Pribadi (&quot;UU PDP&quot;). Kebijakan ini menjelaskan data apa yang
             benar-benar kami kumpulkan, untuk apa, berapa lama disimpan, kepada siapa dibagikan, dan hak Anda.
             Dengan menggunakan layanan kami, Anda menyetujui praktik yang dijelaskan di sini.
@@ -250,7 +249,7 @@ export default function PrivacyPage() {
             Pertanyaan tentang kebijakan ini, permintaan hak subjek data, dan laporan insiden data pribadi:
           </p>
           <div className="mt-2">
-            <p>{SITE_IDENTITY.operatorName} (Pengendali Data Pribadi)</p>
+            <p>{SITE_IDENTITY.brandName} (Pengendali Data Pribadi)</p>
             <p>Email: {mailto}</p>
           </div>
         </Section>

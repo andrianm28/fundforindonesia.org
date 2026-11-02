@@ -16,8 +16,7 @@ export default async function PressPage() {
       <h1 className="text-2xl font-bold text-text mb-6">Media</h1>
       <div className="space-y-6 text-text-secondary leading-relaxed">
         <p>
-          Fund for Indonesia adalah platform social impact yang dioperasikan PT Jaya Korpora
-          Prima. Halaman ini menjadi titik kontak bagi rekan media yang ingin meliput
+          Fund for Indonesia adalah platform social impact. Halaman ini menjadi titik kontak bagi rekan media yang ingin meliput
           platform dan program yang berjalan di atasnya.
         </p>
 
