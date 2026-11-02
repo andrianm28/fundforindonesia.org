@@ -4,6 +4,8 @@ import type { NextRequestWithAuth } from "next-auth/middleware";
 import createIntlMiddleware from "next-intl/middleware";
 import { englishEnabled } from "@/i18n/gate";
 import { routing } from "@/i18n/routing";
+import { isLocalizedPath } from "@/i18n/scope";
+import { LOCALE_SIGNATURE_HEADER, signLocale } from "@/i18n/locale-signature";
 
 // Local type to avoid importing from @prisma/client (keeps the proxy lightweight)
 type Assignment = "ADMIN" | "VERIFIER";
@@ -122,7 +124,11 @@ const BACK_OFFICE_PATH = /^\/(?:admin|moderasi)(?:\/|$)/i;
 // repeated slashes collapsed, so no spelling slips past GATED_PATH.
 function normalise(path: string): string | null {
   try {
-    return decodeURIComponent(path).replace(/\/{2,}/g, "/");
+    const decoded = decodeURIComponent(path).replace(/\/{2,}/g, "/");
+    // A control character or whitespace is trimmed or dropped further down
+    // (the language middleware, the router), so /admin%00 would be /admin there
+    // and something else here. No page has such a path: refuse it.
+    return /[\u0000-\u001f\u007f-\u009f\s\u200b-\u200f\u2028\u2029\ufeff]/.test(decoded) ? null : decoded;
   } catch {
     return null; // malformed escape: no page has this path
   }
@@ -136,23 +142,44 @@ function internalTarget(req: NextRequest, intl: NextResponse): URL {
 
 async function answerLocalised(req: NextRequest, event: NextFetchEvent, prefix: "en" | "id") {
   const stripped = normalise(req.nextUrl.pathname.slice(prefix.length + 1) || "/");
-  if (!englishEnabled() || stripped === null || BACK_OFFICE_PATH.test(stripped)) return notFound(req);
+  // Pages only: not the back-office, /api, /_next, uploads or root files.
+  if (!englishEnabled() || stripped === null || BACK_OFFICE_PATH.test(stripped) || !isLocalizedPath(stripped)) {
+    return notFound(req);
+  }
 
+  let guardedHere = false;
   if (prefix === "en" && GATED_PATH.test(stripped)) {
     const guarded = await authProxy(req as NextRequestWithAuth, event);
     // Anything but "carry on" (a redirect to /login, a 404) is the answer.
     if (!guarded || guarded.headers.get("x-middleware-next") !== "1") return guarded ?? notFound(req);
+    guardedHere = true;
   }
 
   const intl = intlMiddleware(req);
   // /id/x -> /x, and a path in the other language's spelling -> the right one.
   if (prefix === "id" || intl.headers.has("location")) return intl;
 
-  const page = NextResponse.rewrite(internalTarget(req, intl));
+  // Decide again on the path the router will actually see: what the language
+  // middleware made of the request must be neither back-office nor a gated
+  // page that was not guarded above.
+  const target = internalTarget(req, intl);
+  const seen = normalise(target.pathname);
+  if (seen === null || BACK_OFFICE_PATH.test(seen) || !isLocalizedPath(seen) || (GATED_PATH.test(seen) && !guardedHere)) {
+    return notFound(req);
+  }
+
+  const page = NextResponse.rewrite(target);
   for (const [name, value] of intl.headers) {
     if (name === "x-middleware-override-headers" || name.startsWith("x-middleware-request-")) {
       page.headers.set(name, value);
     }
+  }
+  // Proof for src/i18n/request.ts that this proxy tagged the request, not a client.
+  const signature = signLocale("en");
+  if (signature) {
+    page.headers.set(`x-middleware-request-${LOCALE_SIGNATURE_HEADER}`, signature);
+    const overridden = page.headers.get("x-middleware-override-headers");
+    page.headers.set("x-middleware-override-headers", overridden ? `${overridden},${LOCALE_SIGNATURE_HEADER}` : LOCALE_SIGNATURE_HEADER);
   }
   return page;
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 import { unstable_doesMiddlewareMatch } from 'next/experimental/testing/server';
 
@@ -35,6 +35,7 @@ const rewriteOf = (res: Response) => res.headers.get('x-middleware-rewrite');
 const locationOf = (res: Response) => res.headers.get('location');
 const NOT_FOUND = 'http://localhost:3000/_not-found';
 
+beforeEach(() => vi.stubEnv('NEXTAUTH_SECRET', 'test-secret'));
 afterEach(() => vi.unstubAllEnvs());
 
 describe('English gate (I18N_ENGLISH_ENABLED): off by default', () => {
@@ -109,6 +110,34 @@ describe('English pages with I18N_ENGLISH_ENABLED=true', () => {
       expect(rewriteOf(res)).toBe(NOT_FOUND);
     },
   );
+
+  it.each([
+    '/en/admin%00', '/en/admin%20', '/en/admin%0a', '/en/admin%09', '/en/moderasi%00', '/en/moderasi%0d',
+    '/en/akun%00', '/en/inbox%20', '/en/donasi-saya%00', '/en/campaign/create%00', '/en/admin%E2%80%8B',
+    '/en/admin/%00', '/en/%00admin',
+  ])('answers 404 for %s: control characters and whitespace never reach a page', async (path) => {
+    on();
+    const res = await get(path, { role: 'ADMIN', assignments: ['ADMIN', 'VERIFIER'] });
+    expect(res.status).toBe(404);
+    expect(rewriteOf(res)).toBe(NOT_FOUND);
+  });
+
+  it.each([
+    '/en/api/x', '/en/api', '/en/_next/x', '/en/_next/static/a.js', '/en/uploads/f', '/en/robots.txt',
+    '/id/api/x', '/id/_next/x', '/id/uploads/f',
+  ])('answers 404 for %s: not a page', async (path) => {
+    on();
+    const res = await get(path);
+    expect(res.status).toBe(404);
+    expect(rewriteOf(res)).toBe(NOT_FOUND);
+  });
+
+  it('signs the rewritten request so the page can tell the proxy tagged it', async () => {
+    on();
+    const res = await get('/en/about');
+    expect(res.headers.get('x-middleware-override-headers')).toContain('x-ffi-locale-sig');
+    expect(res.headers.get('x-middleware-request-x-ffi-locale-sig')).toMatch(/^[0-9a-f]{64}$/);
+  });
 
   it('answers 404 for a path under an upper-case prefix instead of guessing', async () => {
     on();
