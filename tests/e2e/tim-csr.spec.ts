@@ -1,10 +1,10 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import {
-  CSR_ALPHA_DOMAIN,
   CSR_ALPHA_EMAIL,
   CSR_ALPHA_NEEDS,
   CSR_BETA_EMAIL,
   CSR_BETA_NEEDS,
+  CSR_ALPHA_UNVERIFIED_EMAIL,
   operatorPassword,
 } from './fixtures';
 
@@ -26,13 +26,8 @@ async function signedIn(browser: Browser, email: string, password: string): Prom
   return { page, close: () => context.close() };
 }
 
-test('a person registers on a company domain but cannot join or see anything until the email is verified', async ({ browser, request }, testInfo) => {
-  const email = `orang-${testInfo.project.name.toLowerCase()}-${Date.now()}@${CSR_ALPHA_DOMAIN}`;
-  const password = operatorPassword();
-  const registered = await request.post('/api/auth/register', { data: { name: 'Orang Baru', email, password } });
-  expect(registered.status()).toBe(201);
-
-  const { page, close } = await signedIn(browser, email, password);
+test('a person on a company domain cannot join or see anything until the email is verified', async ({ browser }) => {
+  const { page, close } = await signedIn(browser, CSR_ALPHA_UNVERIFIED_EMAIL, operatorPassword());
   await page.goto('/akun/tim-csr/gabung');
   const joined = page.waitForResponse(
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/csr/membership',
