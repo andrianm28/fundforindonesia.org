@@ -74,7 +74,7 @@ describe('proxy', () => {
   });
 
   describe('the matcher pins exactly the protected prefixes', () => {
-    it('lists exactly the six guarded prefixes plus the one status-only /explore/:category entry', async () => {
+    it('lists exactly the six guarded prefixes, the one status-only /explore/:category entry and the language prefixes', async () => {
       const { config } = await import('./proxy');
       expect(config.matcher).toEqual([
         '/donasi-saya/:path*',
@@ -86,6 +86,11 @@ describe('proxy', () => {
         '/moderasi/:path*',
         // Not a guard: answers 404 for an unknown Category (see below).
         '/explore/:category',
+        // Language prefixes (ADR 0024): see proxy-english.test.ts.
+        '/en',
+        '/en/:path*',
+        '/id',
+        '/id/:path*',
       ]);
     });
 

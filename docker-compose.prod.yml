@@ -90,6 +90,9 @@ services:
       # each new Payment as sandbox. Empty default: unset means production,
       # where the sandbox is refused. Go-live is removing it from the .env.
       BETA_SANDBOX: ${BETA_SANDBOX:-}
+      # English pages (/en/*, E7 PR 2): served only when this is exactly "true".
+      # Empty default: /en answers 404. Read per request by src/proxy.ts.
+      I18N_ENGLISH_ENABLED: ${I18N_ENGLISH_ENABLED:-}
       # Wakaf and hibah take money only when this is exactly "true" (audit L1).
       # Empty default: closed until a licensed nazhir and a sharia review exist.
       WAKAF_HIBAH_OPEN: ${WAKAF_HIBAH_OPEN:-}

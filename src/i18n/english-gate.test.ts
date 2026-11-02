@@ -3,10 +3,10 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '@/proxy';
 
-// Until the page PRs land, /en/* must answer 404 (no half-translated pages).
-// Nothing routes it: the app tree has no `en` folder, no [locale] segment and
-// no root catch-all, and the proxy does not rewrite /en to anything.
-describe('/en stays unserved until the page PRs land', () => {
+// English is served by the same pages as Indonesian (the proxy turns /en/<path>
+// into <path> and tags the locale), so nothing in the app tree may match /en
+// by itself: the only thing that opens it is I18N_ENGLISH_ENABLED in the proxy.
+describe('/en is opened only by the proxy gate', () => {
   const top = readdirSync(join(process.cwd(), 'src/app'), { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name);
@@ -16,7 +16,7 @@ describe('/en stays unserved until the page PRs land', () => {
     expect(top.filter((n) => /^\[.*\]$/.test(n))).toEqual([]);
   });
 
-  it('does not put /en in the proxy matcher', () => {
-    expect(config.matcher.some((m) => m === '/en' || m.startsWith('/en/'))).toBe(false);
+  it('lists /en in the proxy matcher, which is where the gate lives', () => {
+    expect(config.matcher).toEqual(expect.arrayContaining(['/en', '/en/:path*']));
   });
 });

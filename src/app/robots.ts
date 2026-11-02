@@ -25,9 +25,16 @@ const PRIVATE_PATHS = [
   '/sertifikat/',
 ];
 
+// The same pages under /en (ADR 0024); the certificate page has an English
+// spelling of its own. The back-office and /api have no English version.
+const ENGLISH_PRIVATE_PATHS = [
+  ...PRIVATE_PATHS.filter((p) => !/^\/(?:admin|moderasi|api)$/.test(p)).map((p) => `/en${p}`),
+  '/en/certificate/',
+];
+
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: { userAgent: '*', allow: '/', disallow: PRIVATE_PATHS },
+    rules: { userAgent: '*', allow: '/', disallow: [...PRIVATE_PATHS, ...ENGLISH_PRIVATE_PATHS] },
     sitemap: publicUrl('/sitemap.xml'),
     host: publicUrl(),
   };

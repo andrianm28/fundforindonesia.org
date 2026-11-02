@@ -20,12 +20,16 @@ vi.mock('@/components/layout/AppShell', () => ({
   AppShell: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));
 vi.mock('@/components/layout/ConditionalFooter', () => ({ ConditionalFooter: () => null }));
+// The language of the request, as src/i18n/request.ts resolves it.
+const language = vi.hoisted(() => ({ locale: 'id' }));
+vi.mock('next-intl/server', () => ({ getLocale: vi.fn(async () => language.locale) }));
 
 import { connection } from 'next/server';
 import RootLayout, { metadata } from './layout';
 import { useBetaSandbox } from '@/components/layout/BetaSandboxContext';
 
 afterEach(() => {
+  language.locale = 'id';
   vi.unstubAllEnvs();
   vi.clearAllMocks();
 });
@@ -72,5 +76,16 @@ describe('RootLayout beta banner', () => {
 
   it('keeps the site indexable: the beta adds no robots directive', () => {
     expect(metadata.robots).toBeUndefined();
+  });
+});
+
+describe('RootLayout language', () => {
+  it('declares Indonesian, as it always has, for every page that is not English', async () => {
+    expect(await render()).toMatch(/^<html lang="id"/);
+  });
+
+  it('declares English on the English pages', async () => {
+    language.locale = 'en';
+    expect(await render()).toMatch(/^<html lang="en"/);
   });
 });

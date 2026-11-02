@@ -8,6 +8,7 @@ import { BetaBanner } from "@/components/layout/BetaBanner";
 import { BetaSandboxProvider } from "@/components/layout/BetaSandboxContext";
 import { publicUrl } from "@/lib/public-url";
 import { betaSandboxForThisRequest } from "@/lib/beta-sandbox-request";
+import { getLocale } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import { resolveSiteSettingsOrDefaults } from "@/lib/site-settings";
 
@@ -58,11 +59,13 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // "id" unless the proxy tagged the request as English (src/i18n/request.ts).
+  const locale = await getLocale();
   const betaSandbox = await betaSandboxForThisRequest();
   const { footer, social } = await resolveSiteSettingsOrDefaults(prisma);
 
   return (
-    <html lang="id">
+    <html lang={locale}>
       <body className={`${inter.variable} ${newsreader.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
         <Providers>
           <BetaSandboxProvider active={betaSandbox}>
