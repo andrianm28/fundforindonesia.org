@@ -146,7 +146,8 @@ describe('Auth & Notifications Integration Tests', () => {
       expect(body1.errors).toBeDefined();
       expect(body1.errors.name).toBeDefined();
       expect(body1.errors.email).toBeDefined();
-      expect(body1.errors.password).toBeDefined();
+      // Password is optional now: sign-in is by mailed code (ADR 0026).
+      expect(body1.errors.password).toBeUndefined();
 
       // Missing name only
       const req2 = createRequest('/api/auth/register', {
