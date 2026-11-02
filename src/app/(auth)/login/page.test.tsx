@@ -40,27 +40,33 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('LoginPage', () => {
+/** The password form is the fallback now; sign-in by mailed code is the default (code-login.test.tsx). */
+function renderPasswordMode() {
+  render(<LoginPage />);
+  fireEvent.click(screen.getByRole('button', { name: /masuk dengan password/i }));
+}
+
+describe('LoginPage, password fallback', () => {
   beforeEach(() => {
     mockSignIn.mockResolvedValue({ ok: false, error: null });
     mockGetProviders.mockResolvedValue(WITH_GOOGLE);
   });
 
   it('renders login form with email and password fields', () => {
-    render(<LoginPage />);
+    renderPasswordMode();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /masuk$/i })).toBeInTheDocument();
   });
 
   it('renders Google OAuth button when Google is configured', async () => {
-    render(<LoginPage />);
+    renderPasswordMode();
     expect(await screen.findByRole('button', { name: /masuk dengan google/i })).toBeInTheDocument();
   });
 
   it('hides the Google button and the separator when Google is not configured', async () => {
     mockGetProviders.mockResolvedValue(CREDENTIALS_ONLY);
-    render(<LoginPage />);
+    renderPasswordMode();
     await waitFor(() => expect(mockGetProviders).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: /masuk dengan google/i })).not.toBeInTheDocument();
     expect(screen.queryByText('atau')).not.toBeInTheDocument();
@@ -69,25 +75,25 @@ describe('LoginPage', () => {
 
   it('keeps the Google button hidden when the providers request fails', async () => {
     mockGetProviders.mockRejectedValue(new Error('network'));
-    render(<LoginPage />);
+    renderPasswordMode();
     await waitFor(() => expect(mockGetProviders).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: /masuk dengan google/i })).not.toBeInTheDocument();
   });
 
   it('links to the forgot-password page', () => {
-    render(<LoginPage />);
+    renderPasswordMode();
     expect(screen.getByRole('link', { name: /lupa password\?/i })).toHaveAttribute('href', '/lupa-password');
   });
 
   it('renders link to register page', () => {
-    render(<LoginPage />);
+    renderPasswordMode();
     const link = screen.getByRole('link', { name: /daftar di sini/i });
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute('href', '/register');
   });
 
   it('shows validation error when email is empty', async () => {
-    render(<LoginPage />);
+    renderPasswordMode();
     fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Email harus diisi');
@@ -95,7 +101,7 @@ describe('LoginPage', () => {
   });
 
   it('shows validation error for invalid email format', async () => {
-    render(<LoginPage />);
+    renderPasswordMode();
     fireEvent.change(screen.getByLabelText(/email/i), {
       target: { value: 'notanemail' },
     });
@@ -111,7 +117,7 @@ describe('LoginPage', () => {
   });
 
   it('shows validation error when password is empty', async () => {
-    render(<LoginPage />);
+    renderPasswordMode();
     fireEvent.change(screen.getByLabelText(/email/i), {
       target: { value: 'test@example.com' },
     });
@@ -123,7 +129,7 @@ describe('LoginPage', () => {
 
   it('calls signIn with credentials on valid form submission', async () => {
     mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
-    render(<LoginPage />);
+    renderPasswordMode();
 
     fireEvent.change(screen.getByLabelText(/email/i), {
       target: { value: 'test@example.com' },
@@ -144,7 +150,7 @@ describe('LoginPage', () => {
 
   it('redirects to homepage on successful login', async () => {
     mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
-    render(<LoginPage />);
+    renderPasswordMode();
 
     fireEvent.change(screen.getByLabelText(/email/i), {
       target: { value: 'test@example.com' },
@@ -161,7 +167,7 @@ describe('LoginPage', () => {
 
   it('shows error message on failed credentials', async () => {
     mockSignIn.mockResolvedValueOnce({ ok: false, error: 'CredentialsSignin' });
-    render(<LoginPage />);
+    renderPasswordMode();
 
     fireEvent.change(screen.getByLabelText(/email/i), {
       target: { value: 'test@example.com' },
@@ -180,7 +186,7 @@ describe('LoginPage', () => {
 
   it('shows lockout message after 5 failed attempts', async () => {
     mockSignIn.mockResolvedValue({ ok: false, error: 'CredentialsSignin' });
-    render(<LoginPage />);
+    renderPasswordMode();
 
     // Attempt 5 failed logins
     for (let i = 0; i < 5; i++) {
@@ -206,7 +212,7 @@ describe('LoginPage', () => {
   it('returns to the page in ?callbackUrl after a successful login', async () => {
     window.history.pushState({}, '', '/login?callbackUrl=%2Fvolunteer-trip%2Fmengajar');
     mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
-    render(<LoginPage />);
+    renderPasswordMode();
 
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'password123' } });
@@ -221,7 +227,7 @@ describe('LoginPage', () => {
   it('ignores a ?callbackUrl that leaves the site', async () => {
     window.history.pushState({}, '', '/login?callbackUrl=https%3A%2F%2Fevil.example');
     mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
-    render(<LoginPage />);
+    renderPasswordMode();
 
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'password123' } });
@@ -235,14 +241,14 @@ describe('LoginPage', () => {
 
   it('carries ?callbackUrl through Google sign-in', async () => {
     window.history.pushState({}, '', '/login?callbackUrl=%2Fvolunteer-trip%2Fmengajar');
-    render(<LoginPage />);
+    renderPasswordMode();
     fireEvent.click(await screen.findByRole('button', { name: /masuk dengan google/i }));
     expect(mockSignIn).toHaveBeenCalledWith('google', { callbackUrl: '/volunteer-trip/mengajar' });
     window.history.pushState({}, '', '/');
   });
 
   it('calls signIn with google provider when Google button is clicked', async () => {
-    render(<LoginPage />);
+    renderPasswordMode();
     fireEvent.click(
       await screen.findByRole('button', { name: /masuk dengan google/i })
     );
@@ -250,7 +256,7 @@ describe('LoginPage', () => {
   });
 
   it('clears error when user types in email field', async () => {
-    render(<LoginPage />);
+    renderPasswordMode();
     fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -266,7 +272,7 @@ describe('LoginPage', () => {
 describe('LoginPage consent line (audit L3)', () => {
   it('links the Terms and Privacy policy under the form', () => {
     mockGetProviders.mockResolvedValue(CREDENTIALS_ONLY);
-    render(<LoginPage />);
+    renderPasswordMode();
     expect(screen.getByText(/Dengan masuk, Anda menyetujui/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Syarat & Ketentuan/ })).toHaveAttribute('href', '/terms');
     expect(screen.getByRole('link', { name: 'Kebijakan Privasi' })).toHaveAttribute('href', '/privacy');

@@ -30,6 +30,7 @@ import {
   CSR_ALPHA_NEEDS,
   CSR_BETA_EMAIL,
   CSR_BETA_NEEDS,
+  CSR_ALPHA_UNVERIFIED_EMAIL,
   CSR_PROGRAM_SLUG,
   ACTIVE_CAMPAIGN_ID,
   ACTIVE_SLUG,
@@ -339,6 +340,18 @@ async function main() {
       budget: 10_000_000,
       timeline: '2027',
       kpis: [],
+    },
+  });
+  // On Alpha's domain, never verified, no membership (tim-csr.spec.ts).
+  await prisma.user.upsert({
+    where: { id: 'e2e-csr-unverified' },
+    update: { password: operatorPasswordHash, emailVerifiedAt: null },
+    create: {
+      id: 'e2e-csr-unverified',
+      name: 'Orang Baru',
+      password: operatorPasswordHash,
+      emailVerifiedAt: null,
+      ...sealUserEmail(CSR_ALPHA_UNVERIFIED_EMAIL),
     },
   });
   for (const [key, domain, email, needs, name] of [
