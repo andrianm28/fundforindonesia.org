@@ -7,7 +7,7 @@ import { assertExactlyOnePayoutSubject, InvalidPayoutSubjectError } from './payo
 import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
 import { lockAndLoad, requireNotOwnerAsAdmin, requirePayoutAllowed, type SubjectState } from '@/lib/subject-guard';
 import { NotAuthorizedError, fundraiserOnlyRefusal } from '@/lib/capacity';
-import { requireNotTeamMember } from '@/lib/organisation-member-guard';
+import { requireNotTeamMemberLocked } from '@/lib/organisation-member-guard';
 import { exceedsPayoutBalance } from '@/lib/payout-balance-rule';
 import { validateProofReference, validateProofNote, buildProofImage } from '@/lib/payout-proof';
 import { campaignBlockingUsageReport } from '@/lib/usage-reports';
@@ -198,7 +198,7 @@ export async function requestPayout(
   // owner decision 2026-10-04), and only the subject's own Fundraiser does.
   // Both are asked here, in the domain, so a route or screen that forgets
   // cannot let one through. The team check comes first: it names the reason.
-  await requireNotTeamMember(tx, requestedById);
+  await requireNotTeamMemberLocked(tx, requestedById);
   if (subjectState && subjectState.ownerId !== requestedById) {
     throw new NotAuthorizedError(fundraiserOnlyRefusal(subjectState.kind));
   }

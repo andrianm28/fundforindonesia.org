@@ -539,6 +539,33 @@ describe.skipIf(!DATABASE_URL)('organisation team members -- against real Postgr
       ).rejects.toMatchObject({ code: 'NOT_AUTHORIZED' });
     });
 
+    it('an accept waits for an in-flight money transaction of the same person: the two cannot interleave', async () => {
+      const mine = await makeOrganisation('Yayasan Race');
+      const person = await makeUser('race@example.org');
+      await invite(mine.fundraiserId, 'race@example.org');
+      const token = tokenFromLastMail();
+      const { requireNotTeamMemberLocked } = await import('@/lib/organisation-member-guard');
+
+      let acceptDone = false;
+      let acceptPromise: Promise<Response> | undefined;
+      await prisma.$transaction(async (tx) => {
+        // The money write's side: not a member yet, lock held until commit.
+        await requireNotTeamMemberLocked(tx, person);
+        acceptPromise = accept(person, token).then((r) => {
+          acceptDone = true;
+          return r;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        expect(acceptDone).toBe(false);
+      });
+      expect((await acceptPromise!).status).toBe(200);
+
+      // And once the membership exists, the locked check refuses.
+      await expect(prisma.$transaction((tx) => requireNotTeamMemberLocked(tx, person))).rejects.toMatchObject({
+        code: 'TEAM_MEMBER_NO_MONEY_ACCESS',
+      });
+    });
+
     it('a team member cannot add a Bank Account, and the primary Fundraiser still can', async () => {
       const mine = await makeOrganisation('Yayasan Dua Puluh Tujuh');
       const member = await makeUser('bella@example.org');

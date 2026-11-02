@@ -333,6 +333,8 @@ export async function acceptInvitation(
         throw new AcceptRefused();
       }
 
+      // Same lock the money commands take before they read membership (./organisation-member-guard.ts).
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
       const account = await tx.user.findUnique({
         where: { id: userId },
         select: { emailVerifiedAt: true, ...SELECT_USER_EMAIL },
