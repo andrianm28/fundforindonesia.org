@@ -141,6 +141,7 @@ export function CampaignDetail({ campaign, onDonate, onShare }: CampaignDetailPr
           width={1200}
           height={675}
           priority={true}
+          fill
           className="w-full h-full"
         />
         {campaign.isUrgent && (

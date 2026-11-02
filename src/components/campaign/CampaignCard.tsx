@@ -81,6 +81,7 @@ export function CampaignCard({
           alt={campaign.title}
           width={400}
           height={225}
+          fill
           className="w-full h-full"
         />
         {campaign.isUrgent && (

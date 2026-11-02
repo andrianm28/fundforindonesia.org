@@ -65,6 +65,15 @@ describe('CampaignDetail', () => {
     expect(img).toBeDefined();
   });
 
+  it('lets the cover fill its 16:9 frame instead of a fixed 1200x675 box', () => {
+    render(
+      <CampaignDetail campaign={mockCampaign} onDonate={mockOnDonate} onShare={mockOnShare} />
+    );
+    const wrapper = screen.getByAltText(mockCampaign.title).parentElement as HTMLElement;
+    expect(wrapper.style.width).toBe('100%');
+    expect(wrapper.style.height).toBe('100%');
+  });
+
   it('renders DARURAT badge for urgent campaigns', () => {
     render(
       <CampaignDetail campaign={mockCampaign} onDonate={mockOnDonate} onShare={mockOnShare} />
