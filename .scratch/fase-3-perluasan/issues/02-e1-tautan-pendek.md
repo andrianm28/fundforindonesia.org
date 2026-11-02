@@ -1,6 +1,6 @@
 # 02: E1 tautan-pendek
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none; E1 dijawab owner 2026-10-04
 
@@ -35,3 +35,5 @@ Tautan pendek per Campaign untuk dibagikan, supaya Traffic Source per tautan (PR
 - 2026-10-04 (ronde C): E1 dijawab owner: prefix di apex, mis. `/s/<kode>`. Tidak ada pertanyaan terbuka; builder memilih bentuk persis prefix dan kode, memastikan tidak bentrok dengan rute yang ada (lihat tiket `32-route-slug-collision-guard`). `needs-info` menjadi `ready-for-agent`.
 
 - 2026-10-30: dikerjakan di branch `claude/project-thread-5dujal` (lajur perluasan M3). Model `ShortLink` + migrasi `20261030090000_short_links` (tabel baru saja, tanpa backfill); `/s/<kode>` (route handler, 302 ke `publicUrl`, 404 nyata); `POST /api/campaigns/[slug]/short-links` tanpa sesi, hanya Campaign publik, dibatasi empat kanal `SHARE_CHANNELS`; ShareModal memakai tautan pendek bila tersedia dan tetap memakai tautan panjang bila gagal. Tes unit, route, dan e2e `tests/e2e/short-links.spec.ts`. Menunggu CI dan merge owner.
+
+- 2026-11-02: `done`. PR #296 merge ke `main` (4973453); live setelah deploy berikutnya.
