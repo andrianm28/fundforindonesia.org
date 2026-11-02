@@ -10,6 +10,9 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,tsx}', 'tests/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', 'tests/e2e/**'],
     passWithNoTests: true,
+    // next-intl imports 'next/navigation' without the .js extension; inlining
+    // lets Vite resolve it (otherwise Node's ESM resolver rejects it).
+    server: { deps: { inline: ['next-intl'] } },
   },
   resolve: {
     alias: {

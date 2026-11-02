@@ -1,3 +1,5 @@
+import createNextIntlPlugin from 'next-intl/plugin';
+
 // Report-only for now (go-live-ops 05): violations show in the browser
 // console before anything is enforced. Next's own bootstrap is inline, hence
 // 'unsafe-inline' for scripts until enforcement brings nonces (G5). Covers
@@ -80,4 +82,7 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+// ADR 0024: foundation only; the request config pins the locale to 'id'.
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
+
+export default withNextIntl(nextConfig);
