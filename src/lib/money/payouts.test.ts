@@ -21,7 +21,8 @@ import {
 } from './payouts';
 import { InvalidPayoutSubjectError } from './payout-subject';
 import { PayoutNotAllowedForStatusError } from '@/lib/subject-guard';
-import { OwnSubjectConflictError } from '@/lib/capacity';
+import { NotAuthorizedError, OwnSubjectConflictError } from '@/lib/capacity';
+import { TeamMemberMoneyAccessError } from './errors';
 import { TripPayoutFundsNotCompletedError } from '@/lib/volunteer-trip-errors';
 import { UsageReportRequiredError } from '@/lib/usage-report-errors';
 import {
@@ -106,6 +107,10 @@ function makeTx(
      * means nothing blocks, unchanged from before this gate existed.
      */
     blockingPayout?: Record<string, unknown> | null;
+    /** The subject's Fundraiser; 'requester-1' unless a test says otherwise. */
+    ownerId?: string;
+    /** An OrganisationMember row for the requester (ticket E4): a person on an organisation's team. */
+    teamMember?: Record<string, unknown> | null;
   } = {},
 ) {
   const rows: LedgerRow[] = [...(options.ledgerRows ?? [])];
@@ -138,7 +143,7 @@ function makeTx(
       // The Campaign row the subject guard reads under its lock.
       campaign: {
         findUnique: vi.fn().mockResolvedValue({
-          creatorId: 'requester-1',
+          creatorId: options.ownerId ?? 'requester-1',
           isDemo: options.isDemo ?? false,
           lifecycleStatus: options.lifecycleStatus ?? 'ACTIVE',
           deadline: options.deadline ?? null,
@@ -146,8 +151,9 @@ function makeTx(
       },
       // The Trip row the subject guard reads under its lock.
       volunteerTrip: {
-        findUnique: vi.fn().mockResolvedValue({ fundraiserId: 'requester-1', status: options.tripStatus ?? 'ACTIVE' }),
+        findUnique: vi.fn().mockResolvedValue({ fundraiserId: options.ownerId ?? 'requester-1', status: options.tripStatus ?? 'ACTIVE' }),
       },
+      organisationMember: { findUnique: vi.fn().mockResolvedValue(options.teamMember ?? null) },
       bankAccount: { findUnique: bankAccountFindUnique },
       payout: { create: payoutCreate, findUnique: payoutFindUnique, findFirst: payoutFindFirst, updateMany: payoutUpdateMany },
       payoutBalanceCheck: { create: payoutBalanceCheckCreate },
@@ -185,6 +191,65 @@ function makePrisma(tx: ReturnType<typeof makeTx>['tx'], finalRow: Record<string
     payout: { findUniqueOrThrow: vi.fn().mockResolvedValue(finalRow) },
   };
 }
+
+describe('requestPayout: organisation team members (ticket E4)', () => {
+  const ledgerRows: LedgerRow[] = [
+    { transactionId: 't1', direction: 'CREDIT', amount: 500_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+  ];
+  const request = (tx: unknown, requestedById = 'requester-1') =>
+    requestPayout(tx as never, {
+      subject: { type: 'campaign', campaignId: 'campaign-1' },
+      requestedById,
+      bankAccountId: 'bank-1',
+      amount: 100_000,
+      description: 'Pencairan dana',
+    });
+
+  it('refuses a person on an organisation team even with a verified account of their own, and creates nothing', async () => {
+    const { tx, payoutCreate } = makeTx({
+      bankAccount: verifiedBankAccount({ ownerId: 'member-1' }),
+      ledgerRows,
+      ownerId: 'member-1',
+      teamMember: { id: 'm1', userId: 'member-1' },
+    });
+    await expect(request(tx, 'member-1')).rejects.toBeInstanceOf(TeamMemberMoneyAccessError);
+    expect(payoutCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a requester who is not the subject Fundraiser, in the domain and not only in the route', async () => {
+    const { tx, payoutCreate } = makeTx({
+      bankAccount: verifiedBankAccount({ ownerId: 'member-1' }),
+      ledgerRows,
+      ownerId: 'organisation-fundraiser',
+    });
+    await expect(request(tx, 'member-1')).rejects.toBeInstanceOf(NotAuthorizedError);
+    expect(payoutCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a team member for a Volunteer Trip subject too', async () => {
+    const { tx, payoutCreate } = makeTx({
+      bankAccount: verifiedBankAccount({ ownerId: 'member-1' }),
+      ownerId: 'member-1',
+      teamMember: { id: 'm1', userId: 'member-1' },
+    });
+    await expect(
+      requestPayout(tx as never, {
+        subject: { type: 'trip', tripId: 'trip-1' },
+        requestedById: 'member-1',
+        bankAccountId: 'bank-1',
+        amount: 1,
+        description: 'x',
+      }),
+    ).rejects.toBeInstanceOf(TeamMemberMoneyAccessError);
+    expect(payoutCreate).not.toHaveBeenCalled();
+  });
+
+  it('still lets the organisation primary Fundraiser request, unchanged', async () => {
+    const { tx, payoutCreate } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows });
+    await expect(request(tx)).resolves.toMatchObject({ status: 'DRAFT' });
+    expect(payoutCreate).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('requestPayout', () => {
   it('creates a DRAFT Payout with volunteerTripId set and campaignId null for a trip subject', async () => {
@@ -2009,5 +2074,60 @@ describe('Payout emails to the Fundraiser (ticket rilis-1-benda/68)', () => {
     expect(rows.filter((r) => r.transactionId === 'payout-completed-payout-1')).toHaveLength(2);
     expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"mail_send_failed"'));
     errors.mockRestore();
+  });
+});
+
+describe('Payout two-person rule and segregation of duties are unchanged by organisation teams (ticket E4)', () => {
+  const draft = (overrides: Record<string, unknown> = {}) => ({
+    id: 'payout-1',
+    campaignId: 'campaign-1',
+    volunteerTripId: null,
+    amount: 500_000,
+    status: 'DRAFT',
+    requestedById: 'requester-1',
+    approvedById: null,
+    bankAccount: verifiedBankAccount(),
+    ...overrides,
+  });
+  const teamMember = { id: 'm1', userId: 'requester-1' };
+
+  it('the person who requested still cannot approve, whatever team rows exist', async () => {
+    const { tx, payoutState } = makeTx({ payoutRow: draft(), teamMember });
+    await expect(
+      approvePayout(makePrisma(tx, draft()) as never, {
+        payoutId: 'payout-1',
+        approvedById: 'requester-1',
+        provider: 'sumopod',
+        providerBalance: 2_000_000,
+      }),
+    ).rejects.toThrow(SelfApprovalError);
+    expect(payoutState).toMatchObject({ status: 'DRAFT' });
+  });
+
+  it('the Admin who approved still cannot also record the transfer', async () => {
+    const approved = draft({ status: 'APPROVED', approvedById: 'admin-1', approvedAt: new Date('2026-02-01') });
+    const { tx, payoutState } = makeTx({ payoutRow: approved, teamMember });
+    await expect(
+      completePayout(makePrisma(tx, {}) as never, {
+        payoutId: 'payout-1',
+        completedById: 'admin-1',
+        proofReference: 'TRX-1',
+        proofNote: 'Ditransfer via BCA',
+      }),
+    ).rejects.toMatchObject({ code: 'TWO_PERSON_RULE' });
+    expect(payoutState).toMatchObject({ status: 'APPROVED' });
+  });
+
+  it('an Admin still cannot approve a Payout on a Campaign they own', async () => {
+    const row = draft({ requestedById: 'someone-else', bankAccount: verifiedBankAccount({ ownerId: 'someone-else' }) });
+    const { tx } = makeTx({ payoutRow: row, ownerId: 'admin-1', teamMember: null });
+    await expect(
+      approvePayout(makePrisma(tx, draft()) as never, {
+        payoutId: 'payout-1',
+        approvedById: 'admin-1',
+        provider: 'sumopod',
+        providerBalance: 2_000_000,
+      }),
+    ).rejects.toThrow(OwnSubjectConflictError);
   });
 });

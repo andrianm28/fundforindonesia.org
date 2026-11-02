@@ -93,6 +93,15 @@ const CONTACT_PHONE: ContactField = {
   keyId: 'contactPhoneKeyId',
 };
 
+const INVITATION_EMAIL: ContactField = {
+  model: 'OrganisationInvitation',
+  column: 'email',
+  sealed: 'emailCiphertext',
+  keyId: 'emailKeyId',
+  lookup: 'emailHmac',
+  lookupKeyId: 'emailHmacKeyId',
+};
+
 type Data = Record<string, unknown>;
 
 /** The two columns a ciphertext is read from, for a field a row may not have. */
@@ -304,3 +313,18 @@ export function lookupInquiryContactEmail(email: string): Lookup<'contactEmailHm
   return lookup(CONTACT_EMAIL, email) as Lookup<'contactEmailHmac', 'contactEmailHmacKeyId'>;
 }
 export const SELECT_INQUIRY_CONTACT_EMAIL = { contactEmailCiphertext: true, contactEmailKeyId: true } as const;
+
+// --- OrganisationInvitation (the address a team invitation was sent to) --------
+
+export function sealInvitationEmail(
+  email: string,
+): SealedEmail<'emailHmac', 'emailHmacKeyId', 'emailCiphertext', 'emailKeyId'> {
+  return sealEmail(INVITATION_EMAIL, email) as ReturnType<typeof sealInvitationEmail>;
+}
+export function readInvitationEmail(row: Sealed<'emailCiphertext', 'emailKeyId'>): string | null {
+  return read(INVITATION_EMAIL, row);
+}
+export function lookupInvitationEmail(email: string): Lookup<'emailHmac', 'emailHmacKeyId'> {
+  return lookup(INVITATION_EMAIL, email) as Lookup<'emailHmac', 'emailHmacKeyId'>;
+}
+export const SELECT_INVITATION_EMAIL = { emailCiphertext: true, emailKeyId: true } as const;

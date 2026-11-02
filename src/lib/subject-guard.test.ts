@@ -276,3 +276,25 @@ describe('requireNotOwnerAsAdmin', () => {
     expect(() => requireNotOwnerAsAdmin(tripState(VolunteerTripStatus.ACTIVE), 'admin-1')).not.toThrow();
   });
 });
+
+describe('organisation team members and the subject guard (ticket E4)', () => {
+  it('names only the primary Fundraiser as the owner of a Campaign: a team never appears in the subject state', async () => {
+    const { tx } = makeTx({ campaigns: [campaign({ creatorId: 'organisation-fundraiser' })] });
+    const state = await lockAndLoad(tx as never, { type: 'campaign', campaignId: 'campaign-1' }, NOW);
+    expect(state).toMatchObject({ kind: 'campaign', ownerId: 'organisation-fundraiser' });
+    expect(Object.keys(state ?? {})).not.toContain('members');
+  });
+
+  it('names only the primary Fundraiser as the owner of a Volunteer Trip', async () => {
+    const { tx } = makeTx({ trips: [{ id: 'trip-1', fundraiserId: 'organisation-fundraiser', status: VolunteerTripStatus.ACTIVE }] });
+    const state = await lockAndLoad(tx as never, { type: 'trip', tripId: 'trip-1' }, NOW);
+    expect(state).toMatchObject({ kind: 'trip', ownerId: 'organisation-fundraiser' });
+  });
+
+  it('still bars an Admin from acting as Admin on their own Campaign, and lets any other Admin', async () => {
+    const { tx } = makeTx({ campaigns: [campaign({ creatorId: 'organisation-fundraiser' })] });
+    const state = (await lockAndLoad(tx as never, { type: 'campaign', campaignId: 'campaign-1' }, NOW))!;
+    expect(() => requireNotOwnerAsAdmin(state, 'organisation-fundraiser')).toThrow(OwnSubjectConflictError);
+    expect(() => requireNotOwnerAsAdmin(state, 'some-team-member-who-is-admin')).not.toThrow();
+  });
+});

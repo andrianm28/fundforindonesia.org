@@ -28,6 +28,7 @@ import {
   RevokerWasApproverError,
 } from "./bank-account-verification-errors";
 import { readBankAccountNumber } from "./contact-fields";
+import { TeamMemberMoneyAccessError } from "./money/errors";
 import {
   bankAccountRevocationRow,
   bankAccountRow,
@@ -606,5 +607,54 @@ describe("verifiedBankAccounts and revokedBankAccounts", () => {
     expect(await verifiedBankAccounts(store.prisma as never)).toEqual([
       expect.objectContaining({ id: "bank-account-1" }),
     ]);
+  });
+});
+
+describe("organisation team members hold no Bank Account (ticket E4)", () => {
+  const member = { organisationMembers: [{ userId: "owner-1" }] };
+
+  it("a team member cannot add a Bank Account, and nothing is stored", async () => {
+    const store = db(member);
+    await expect(
+      createBankAccount(store.prisma as never, {
+        ownerId: "owner-1",
+        bankCode: "bca",
+        accountName: "Anggota Tim",
+        accountNumber: "9988776655",
+      })
+    ).rejects.toBeInstanceOf(TeamMemberMoneyAccessError);
+    expect(store.bankAccounts).toHaveLength(0);
+  });
+
+  it("a team member cannot submit, withdraw or delete an account", async () => {
+    const store = db({ ...member, bankAccounts: [bankAccountRow()] });
+    await expect(
+      submitBankAccountVerification(store.prisma as never, { accountId: "bank-account-1", ownerId: "owner-1", now: NOW })
+    ).rejects.toBeInstanceOf(TeamMemberMoneyAccessError);
+    await expect(
+      withdrawBankAccountVerification(store.prisma as never, { accountId: "bank-account-1", ownerId: "owner-1", now: NOW })
+    ).rejects.toBeInstanceOf(TeamMemberMoneyAccessError);
+    await expect(
+      deleteBankAccount(store.prisma as never, { accountId: "bank-account-1", ownerId: "owner-1" })
+    ).rejects.toBeInstanceOf(TeamMemberMoneyAccessError);
+    expect(store.bankAccounts).toHaveLength(1);
+  });
+
+  it("the organisation's primary account is not a team member and keeps adding accounts", async () => {
+    const store = db({ organisationMembers: [{ userId: "somebody-else" }] });
+    const account = await createBankAccount(store.prisma as never, {
+      ownerId: "owner-1",
+      bankCode: "bca",
+      accountName: "Siti Fundraiser",
+      accountNumber: "9988776655",
+    });
+    expect(account.ownerId).toBe("owner-1");
+  });
+
+  it("an account belongs to its owner alone: another person cannot reach it (404)", async () => {
+    const store = db({ bankAccounts: [bankAccountRow({ ownerId: "owner-1" })], organisationMembers: [{ userId: "verifier-2" }] });
+    await expect(
+      deleteBankAccount(store.prisma as never, { accountId: "bank-account-1", ownerId: "verifier-1" })
+    ).rejects.toBeInstanceOf(BankAccountNotFoundError);
   });
 });

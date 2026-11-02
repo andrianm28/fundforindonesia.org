@@ -69,6 +69,10 @@ model User {
   autoDonations                    AutoDonation[]
   assignments                      UserAssignment[]
   companyMembership                CompanyMembership?               @relation("CompanyMembershipUser")
+  organisationMember               OrganisationMember?              @relation("OrganisationMemberUser")
+  organisationMembersAdded         OrganisationMember[]             @relation("OrganisationMemberAdder")
+  organisationInvitationsSent      OrganisationInvitation[]         @relation("OrganisationInvitationInviter")
+  organisationInvitationsAccepted  OrganisationInvitation[]         @relation("OrganisationInvitationAcceptor")
   assignmentAuditsAsSubject        AssignmentAuditEntry[]            @relation("AssignmentAuditSubject")
   assignmentAuditsAsActor          AssignmentAuditEntry[]            @relation("AssignmentAuditActor")
   assignmentGrantRequestsAsSubject AssignmentGrantRequest[]          @relation("AssignmentGrantSubject")
@@ -861,6 +865,65 @@ model PartnerOrganisation {
   verificationRequests VerificationRequest[]
   auditEntries         PartnerOrganisationAuditEntry[]
   documents            Document[]
+  members              OrganisationMember[]
+  invitations          OrganisationInvitation[]
+}
+
+/// What a team member of a Partner Organisation may do (ticket E4; CONTEXT.md,
+/// Anggota tim). One value on purpose: VIEWER reads the organisation's
+/// Campaigns dashboard and nothing else. No value ever carries money access
+/// (Payout, Bank Account); those stay with the organisation's primary
+/// Fundraiser account (owner decision 2026-10-04).
+enum OrganisationMemberRole {
+  VIEWER
+}
+
+/// One person's place in one Partner Organisation's team (ticket E4). Not an
+/// Assignment (ADR 0005) and not the organisation's Fundraiser: the primary
+/// Fundraiser account (`PartnerOrganisation.fundraiserId`) stays the owner and
+/// is never a row here. A person is on at most one team (`userId` unique).
+model OrganisationMember {
+  id                    String                 @id @default(cuid())
+  partnerOrganisationId String
+  userId                String                 @unique
+  role                  OrganisationMemberRole @default(VIEWER)
+  addedById             String
+  createdAt             DateTime               @default(now())
+
+  partnerOrganisation PartnerOrganisation @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
+  user                User                @relation("OrganisationMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  addedBy             User                @relation("OrganisationMemberAdder", fields: [addedById], references: [id], onDelete: Restrict)
+
+  @@index([partnerOrganisationId])
+}
+
+/// An invitation to join a Partner Organisation's team (ticket E4). The token
+/// is random and only its SHA-256 is stored, so a dump of the table replays
+/// nothing; it is single use (`acceptedAt`), expires (`expiresAt`) and can be
+/// revoked (`revokedAt`). The invited address is sealed like any contact
+/// (ADR 0012); accepting needs a signed-in account whose verified email is
+/// that address.
+model OrganisationInvitation {
+  id                    String                 @id @default(cuid())
+  partnerOrganisationId String
+  invitedById           String
+  emailHmac             String
+  emailHmacKeyId        String
+  emailCiphertext       String
+  emailKeyId            String
+  role                  OrganisationMemberRole @default(VIEWER)
+  tokenHash             String                 @unique
+  expiresAt             DateTime
+  acceptedAt            DateTime?
+  acceptedById          String?
+  revokedAt             DateTime?
+  createdAt             DateTime               @default(now())
+
+  partnerOrganisation PartnerOrganisation @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
+  invitedBy           User                @relation("OrganisationInvitationInviter", fields: [invitedById], references: [id], onDelete: Restrict)
+  acceptedBy          User?               @relation("OrganisationInvitationAcceptor", fields: [acceptedById], references: [id], onDelete: Restrict)
+
+  @@index([partnerOrganisationId, createdAt])
 }
 
 /// A dated permit to collect public donations held by a Partner Organisation

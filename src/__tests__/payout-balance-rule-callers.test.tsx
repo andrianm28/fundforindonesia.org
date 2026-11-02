@@ -148,6 +148,8 @@ function makeMoney(balance: number, payoutAmount: number) {
         collectingEntityId: null,
       })),
     },
+    // Nobody here is on an organisation's team (ticket E4).
+    organisationMember: { findUnique: vi.fn(async () => null) },
     bankAccount: {
       findUnique: vi.fn(async () => payoutRow.bankAccount),
     },

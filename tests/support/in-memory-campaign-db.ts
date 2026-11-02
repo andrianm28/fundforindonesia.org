@@ -656,9 +656,15 @@ export function makeCampaignDb(
     bankAccountVerificationRequests?: BankAccountVerificationRequestRow[];
     /** BankAccountRevocation rows (ticket 11); defaults to none. */
     bankAccountRevocations?: BankAccountRevocationRow[];
+    /**
+     * People on a Partner Organisation's team (ticket E4); defaults to none.
+     * Read-only, like the Users, so outside the transactional copy.
+     */
+    organisationMembers?: { userId: string; partnerOrganisationId?: string }[];
   } = {},
 ) {
   const users = (seed.users ?? [userRow()]).map((u) => ({ ...u }));
+  const organisationMembers = (seed.organisationMembers ?? []).map((m) => ({ ...m }));
   let committed: Data = {
     campaigns: (seed.campaigns ?? []).map((c) => ({ ...c })),
     statusChanges: (seed.statusChanges ?? []).map((s) => ({ ...s })),
@@ -1061,6 +1067,10 @@ export function makeCampaignDb(
           getData().partnerOrganisationAudits.push(row);
           return { ...row };
         },
+      },
+      organisationMember: {
+        findUnique: async ({ where }: { where: { userId: string } }) =>
+          organisationMembers.find((m) => m.userId === where.userId) ?? null,
       },
       bankAccount: {
         findUnique: async (
