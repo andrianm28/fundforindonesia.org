@@ -88,7 +88,7 @@ export function AppShell({ children, showLanguageSwitcher = false }: AppShellPro
       </Content>
 
       {/* Bottom Nav - visible on mobile/tablet, hidden on lg+ */}
-      <BottomNavBar activeTab={activeTab} unreadCount={unreadCount} />
+      <BottomNavBar activeTab={activeTab} unreadCount={unreadCount} showLanguageSwitcher={showLanguageSwitcher} />
     </>
   );
 }

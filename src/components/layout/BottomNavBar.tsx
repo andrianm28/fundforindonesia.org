@@ -2,11 +2,14 @@
 
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
+import { LanguageSwitcher } from './LanguageSwitcher';
 import { motion } from 'framer-motion';
 
 export interface BottomNavBarProps {
   activeTab: 'home' | 'galang-dana' | 'donasi-saya' | 'inbox' | 'akun';
   unreadCount?: number;
+  /** English gate (I18N_ENGLISH_ENABLED), decided on the server by the root layout. */
+  showLanguageSwitcher?: boolean;
 }
 
 const tabs = [
@@ -67,11 +70,11 @@ const tabs = [
   },
 ];
 
-export default function BottomNavBar({ activeTab, unreadCount }: BottomNavBarProps) {
+export default function BottomNavBar({ activeTab, unreadCount, showLanguageSwitcher = false }: BottomNavBarProps) {
   const t = useTranslations('Nav.bottom');
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
 
-  return (
+  const nav = (
     <nav
       className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-border shadow-[0_-2px_8px_rgba(0,0,0,0.08)] lg:hidden pb-safe"
       aria-label={t('label')}
@@ -112,5 +115,16 @@ export default function BottomNavBar({ activeTab, unreadCount }: BottomNavBarPro
         })}
       </div>
     </nav>
+  );
+
+  if (!showLanguageSwitcher) return nav;
+  // The header and footer are desktop-only; on mobile the switcher floats above the tab bar.
+  return (
+    <>
+      {nav}
+      <div className="fixed bottom-20 right-3 z-50 lg:hidden rounded-full border border-border bg-white px-3 py-1.5 text-xs font-medium shadow-md">
+        <LanguageSwitcher className="text-text hover:text-primary" />
+      </div>
+    </>
   );
 }
