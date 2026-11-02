@@ -12,6 +12,7 @@ import { clientAddress } from "@/lib/client-ip";
 import { checkRateLimit } from "@/lib/rate-limit-guard";
 import { sessionPasswordClaim } from "@/lib/password-reset";
 import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
+import { verifyLoginCode } from "@/lib/login-code";
 
 // Both halves of the adapter need the schema it cannot see: the write goes
 // through the hooked client, so an OAuth sign-in's address is sealed on the
@@ -25,6 +26,14 @@ const adapter = buildAuthAdapter(prisma);
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_PER_ACCOUNT_LIMIT = 10;
 const LOGIN_PER_CLIENT_LIMIT = 50;
+
+/** The caller's address as the limiter counts it, read off the request next-auth hands `authorize`. */
+function requestClient(req: { headers?: Record<string, unknown> } | undefined): string {
+  const forwarded = req?.headers?.["x-forwarded-for"];
+  const headers = new Headers();
+  if (typeof forwarded === "string") headers.set("x-forwarded-for", forwarded);
+  return clientAddress(headers);
+}
 
 export const authOptions: NextAuthOptions = {
   adapter: adapter as NextAuthOptions["adapter"],
@@ -55,10 +64,7 @@ export const authOptions: NextAuthOptions = {
         // accounts). Fail-open, like the other non-mail paths: the lookup
         // below needs the same database, so this only matters when the
         // limiter alone is broken, and that must not lock everyone out.
-        const forwarded = req?.headers?.["x-forwarded-for"];
-        const headers = new Headers();
-        if (typeof forwarded === "string") headers.set("x-forwarded-for", forwarded);
-        const client = clientAddress(headers);
+        const client = requestClient(req);
         for (const attempt of [
           { scope: "auth-login", subject: `${client}|${credentials.email.trim().toLowerCase()}`, limit: LOGIN_PER_ACCOUNT_LIMIT },
           { scope: "auth-login-client", subject: client, limit: LOGIN_PER_CLIENT_LIMIT },
@@ -123,6 +129,38 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           image: user.avatar,
         };
+      },
+    }),
+    // Sign-in with a code mailed to the address (login OTP,
+    // src/lib/login-code.ts). The code is spent and its guesses counted in
+    // the database; the limits here bound guessing across many fresh codes.
+    // Fail-open like the password login: the per-code limit still holds when
+    // only the limiter is down.
+    CredentialsProvider({
+      id: "email-otp",
+      name: "email-otp",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        code: { label: "Kode", type: "text" },
+      },
+      async authorize(credentials, req) {
+        const email = credentials?.email?.trim();
+        if (!email || !credentials?.code) {
+          throw new Error("Email dan kode harus diisi");
+        }
+
+        const client = requestClient(req);
+        for (const attempt of [
+          { scope: "auth-login-code", subject: `${client}|${email.toLowerCase()}`, limit: LOGIN_PER_ACCOUNT_LIMIT },
+          { scope: "auth-login-code-client", subject: client, limit: LOGIN_PER_CLIENT_LIMIT },
+        ]) {
+          const verdict = await checkRateLimit({ ...attempt, windowSeconds: LOGIN_WINDOW_SECONDS, onUnavailable: "open" });
+          if (!verdict.ok) throw new Error("Terlalu banyak percobaan masuk. Coba lagi nanti.");
+        }
+
+        const user = await verifyLoginCode(email, credentials.code);
+        if (!user) throw new Error("Kode salah atau sudah tidak berlaku");
+        return user;
       },
     }),
   ],
