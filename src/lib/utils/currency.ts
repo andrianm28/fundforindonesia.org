@@ -8,11 +8,12 @@
  * @example formatRupiah(25841000) → "Rp25.841.000"
  * @example formatRupiah(0) → "Rp0"
  * @example formatRupiah(-50000) → "-Rp50.000"
+ * @example formatRupiah(25841000, 'en') → "Rp25,841,000" (only the grouping follows the language, ADR 0024)
  */
-export function formatRupiah(amount: number): string {
+export function formatRupiah(amount: number, locale: 'id' | 'en' = 'id'): string {
   const isNegative = amount < 0;
   const absoluteAmount = Math.abs(amount);
-  const formatted = absoluteAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const formatted = absoluteAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, locale === 'en' ? ',' : '.');
   return `${isNegative ? '-' : ''}Rp${formatted}`;
 }
 
