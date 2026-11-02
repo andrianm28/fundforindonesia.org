@@ -1,1 +1,44 @@
-{}
+{
+  "header": {
+    "logoAlt": "Fund for Indonesia",
+    "searchPlaceholder": "Cari yang ingin kamu bantu...",
+    "donate": "Donasi",
+    "fundraise": "Galang Dana",
+    "csr": "CSR",
+    "notifications": "Notifikasi",
+    "accountMenu": "Menu akun {name}",
+    "account": "Akun",
+    "logout": "Keluar",
+    "login": "Masuk"
+  },
+  "bottom": {
+    "label": "Bottom navigation",
+    "home": "Home",
+    "fundraise": "Galang Dana",
+    "myDonations": "Donasi Saya",
+    "inbox": "Inbox",
+    "account": "Akun"
+  },
+  "footer": {
+    "logoAlt": "Fund for Indonesia, from kindness to impact",
+    "aboutHeading": "Tentang Fund for Indonesia",
+    "information": "Informasi",
+    "aboutUs": "Tentang Kami",
+    "impact": "Impact & Transparansi",
+    "csrPortfolio": "Portofolio CSR",
+    "waqf": "Wakaf",
+    "grant": "Hibah",
+    "volunteer": "Volunteer",
+    "careers": "Karir",
+    "media": "Media",
+    "help": "Bantuan",
+    "helpCenter": "Help Center",
+    "faq": "FAQ",
+    "contact": "Kontak",
+    "legal": "Legal",
+    "terms": "Syarat & Ketentuan",
+    "privacy": "Kebijakan Privasi",
+    "follow": "Ikuti Kami",
+    "copyright": "© {year} Fund for Indonesia, dioperasikan oleh {operator}. Semua hak dilindungi undang-undang."
+  }
+}

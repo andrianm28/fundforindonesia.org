@@ -1,5 +1,9 @@
 {
   "language": "Language",
   "currentLanguage": "English",
-  "switchLanguage": "Switch language to {language}"
+  "switchLanguage": "Switch language to {language}",
+  "languageNames": {
+    "id": "Bahasa Indonesia",
+    "en": "English"
+  }
 }

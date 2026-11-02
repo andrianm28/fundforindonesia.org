@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
+import { useLocale } from 'next-intl';
 import { useSession } from 'next-auth/react';
 import BottomNavBar from './BottomNavBar';
 import DesktopHeader from './DesktopHeader';
@@ -8,6 +9,8 @@ import { PageTransition } from './PageTransition';
 import { useUnreadCount } from '@/lib/hooks/useUnreadCount';
 import { User } from '@/types';
 import { staffEntryLinks } from '@/lib/staff-entry-links';
+import { pairedLocalePath, stripLocalePrefix } from '@/i18n/locale-path';
+import type { Locale } from '@/i18n/routing';
 
 type TabId = 'home' | 'galang-dana' | 'donasi-saya' | 'inbox' | 'akun';
 
@@ -29,10 +32,14 @@ function getActiveTab(pathname: string): TabId {
 
 interface AppShellProps {
   children: React.ReactNode;
+  /** English gate (I18N_ENGLISH_ENABLED), decided on the server by the root layout. */
+  showLanguageSwitcher?: boolean;
 }
 
-export function AppShell({ children }: AppShellProps) {
-  const pathname = usePathname();
+export function AppShell({ children, showLanguageSwitcher = false }: AppShellProps) {
+  // /en/admin is the same area as /admin: compare on the unprefixed path.
+  const pathname = stripLocalePrefix(usePathname());
+  const locale = useLocale() as Locale;
   const router = useRouter();
   const { data: session } = useSession();
   const { unreadCount } = useUnreadCount();
@@ -59,7 +66,7 @@ export function AppShell({ children }: AppShellProps) {
     : null;
 
   const handleSearch = (query: string) => {
-    router.push(`/search?q=${encodeURIComponent(query)}`);
+    router.push(`${pairedLocalePath('/search', locale)}?q=${encodeURIComponent(query)}`);
   };
 
   return (
@@ -70,6 +77,7 @@ export function AppShell({ children }: AppShellProps) {
         notificationCount={unreadCount}
         staffLinks={staffEntryLinks(session?.user?.assignments)}
         onSearch={handleSearch}
+        showLanguageSwitcher={showLanguageSwitcher}
       />
 
       {/* Main content area with padding for fixed navigation */}
@@ -80,7 +88,7 @@ export function AppShell({ children }: AppShellProps) {
       </Content>
 
       {/* Bottom Nav - visible on mobile/tablet, hidden on lg+ */}
-      <BottomNavBar activeTab={activeTab} unreadCount={unreadCount} />
+      <BottomNavBar activeTab={activeTab} unreadCount={unreadCount} showLanguageSwitcher={showLanguageSwitcher} />
     </>
   );
 }

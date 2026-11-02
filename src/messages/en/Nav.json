@@ -1,1 +1,44 @@
-{}
+{
+  "header": {
+    "logoAlt": "Fund for Indonesia",
+    "searchPlaceholder": "Search for something you want to help...",
+    "donate": "Donate",
+    "fundraise": "Fundraise",
+    "csr": "CSR",
+    "notifications": "Notifications",
+    "accountMenu": "Account menu {name}",
+    "account": "Account",
+    "logout": "Log out",
+    "login": "Log in"
+  },
+  "bottom": {
+    "label": "Bottom navigation",
+    "home": "Home",
+    "fundraise": "Fundraise",
+    "myDonations": "My Donations",
+    "inbox": "Inbox",
+    "account": "Account"
+  },
+  "footer": {
+    "logoAlt": "Fund for Indonesia, from kindness to impact",
+    "aboutHeading": "About Fund for Indonesia",
+    "information": "Information",
+    "aboutUs": "About Us",
+    "impact": "Impact & Transparency",
+    "csrPortfolio": "CSR Portfolio",
+    "waqf": "Waqf",
+    "grant": "Hibah",
+    "volunteer": "Volunteer",
+    "careers": "Careers",
+    "media": "Press",
+    "help": "Help",
+    "helpCenter": "Help Center",
+    "faq": "FAQ",
+    "contact": "Contact",
+    "legal": "Legal",
+    "terms": "Terms & Conditions",
+    "privacy": "Privacy Policy",
+    "follow": "Follow Us",
+    "copyright": "© {year} Fund for Indonesia, operated by {operator}. All rights reserved."
+  }
+}

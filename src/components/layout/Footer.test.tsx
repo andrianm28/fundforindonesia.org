@@ -1,4 +1,5 @@
-import { render, screen, cleanup } from '@testing-library/react';
+import { screen, cleanup } from '@testing-library/react';
+import { renderIntl as render } from '../../../tests/intl';
 import { describe, it, expect, afterEach } from 'vitest';
 import { Footer } from './Footer';
 

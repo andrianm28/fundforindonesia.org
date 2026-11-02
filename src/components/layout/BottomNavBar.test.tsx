@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { screen, cleanup } from '@testing-library/react';
+import { renderIntl as render } from '../../../tests/intl';
 import BottomNavBar from './BottomNavBar';
 
 // Mock framer-motion to avoid animation-related issues in tests
