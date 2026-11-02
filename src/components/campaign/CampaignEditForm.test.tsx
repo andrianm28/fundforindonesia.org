@@ -18,6 +18,10 @@ const INITIAL = {
   deadline: '2099-12-31',
   coverImage: '/uploads/cover.jpg',
   collectingEntityId: 'mitra-1',
+  province: '32',
+  regency: 'Kabupaten Garut',
+  beneficiaryDescription: 'Anak yatim',
+  beneficiaryCount: '40',
 };
 
 type Call = { url: string; init?: RequestInit };
@@ -92,6 +96,49 @@ describe('CampaignEditForm', () => {
       deadline: '2099-12-31T16:59:59.999Z',
     });
     expect(calls.some((c) => c.url === '/api/upload')).toBe(false);
+  });
+
+  it('shows the stored location and beneficiaries, and sends them back edited (ticket 74)', async () => {
+    renderForm();
+    await screen.findByRole('combobox', { name: 'Collecting Entity' });
+    expect(screen.getByLabelText('Provinsi')).toHaveValue('32');
+    expect(screen.getByLabelText('Kabupaten/Kota')).toHaveValue('Kabupaten Garut');
+    expect(screen.getByLabelText('Penerima Manfaat')).toHaveValue('Anak yatim');
+    expect(screen.getByLabelText('Jumlah Penerima Manfaat')).toHaveValue(40);
+
+    fireEvent.change(screen.getByLabelText('Provinsi'), { target: { value: '33' } });
+    fireEvent.change(screen.getByLabelText('Kabupaten/Kota'), { target: { value: ' Kota Semarang ' } });
+    fireEvent.change(screen.getByLabelText('Jumlah Penerima Manfaat'), { target: { value: '55' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Perubahan' }));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(sentBody(patches()[0])).toMatchObject({
+      province: '33',
+      regency: 'Kota Semarang',
+      beneficiaryDescription: 'Anak yatim',
+      beneficiaryCount: 55,
+    });
+  });
+
+  it('clears what was emptied by sending null', async () => {
+    renderForm();
+    await screen.findByRole('combobox', { name: 'Collecting Entity' });
+    fireEvent.change(screen.getByLabelText('Provinsi'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Jumlah Penerima Manfaat'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Perubahan' }));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(sentBody(patches()[0])).toMatchObject({ province: null, beneficiaryCount: null });
+  });
+
+  it('holds back a beneficiary count that is not a positive whole number', async () => {
+    renderForm();
+    await screen.findByRole('combobox', { name: 'Collecting Entity' });
+    fireEvent.change(screen.getByLabelText('Jumlah Penerima Manfaat'), { target: { value: '-3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Perubahan' }));
+
+    expect(await screen.findByText(/harus bilangan bulat lebih dari 0/)).toBeDefined();
+    expect(patches()).toHaveLength(0);
   });
 
   it('clears the deadline with null when a wakaf Campaign leaves it empty', async () => {

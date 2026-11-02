@@ -13,7 +13,12 @@ import { KIND_LABEL, type CampaignKind } from '@/lib/campaign-kind';
 import {
   contentPayload,
   deadlineError,
+  EMPTY_LOCATION_FORM,
   formatRupiahInput,
+  locationErrors,
+  locationPayload,
+  type LocationFormErrors,
+  type LocationFormValues,
   parseRupiahInput,
   storyError,
   titleError,
@@ -24,6 +29,8 @@ import { CampaignKindField } from '@/components/campaign/CampaignKindField';
 import { CampaignDeadlineField } from '@/components/campaign/CampaignDeadlineField';
 import { CoverImageField } from '@/components/campaign/CoverImageField';
 import { CampaignStoryField } from '@/components/campaign/CampaignStoryField';
+import { CampaignLocationFields } from '@/components/campaign/CampaignLocationFields';
+import { campaignLocationLabel } from '@/lib/campaign-location';
 import { DOCUMENT_ACCEPT } from '@/components/documents/DocumentUpload';
 
 /** One Category from GET /api/categories, the Category table. */
@@ -49,9 +56,11 @@ interface FormData {
   coverImage: File | null;
   coverImagePreview: string;
   story: string;
+  /** Where it happens and who it helps (ticket 74); all optional. */
+  location: LocationFormValues;
 }
 
-interface FormErrors {
+interface FormErrors extends LocationFormErrors {
   kind?: string;
   collectingEntityId?: string;
   title?: string;
@@ -95,6 +104,7 @@ export default function CampaignCreatePage() {
     coverImage: null,
     coverImagePreview: '',
     story: '',
+    location: EMPTY_LOCATION_FORM,
   });
 
   useEffect(() => {
@@ -202,6 +212,8 @@ export default function CampaignCreatePage() {
       newErrors.category = 'Kategori harus dipilih';
     }
 
+    Object.assign(newErrors, locationErrors(formData.location));
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   }
@@ -249,6 +261,7 @@ export default function CampaignCreatePage() {
       targetAmount: amount,
       category: formData.category,
       kind: formData.kind,
+      ...locationPayload(formData.location),
       // An organisation's own account gets its organisation on the server.
       collectingEntityId:
         !sponsorOptions?.own && formData.collectingEntityId ? formData.collectingEntityId : undefined,
@@ -427,6 +440,12 @@ export default function CampaignCreatePage() {
                 onChange={(collectingEntityId) => setFormData((prev) => ({ ...prev, collectingEntityId }))}
               />
 
+              <CampaignLocationFields
+                value={formData.location}
+                errors={errors}
+                onChange={(location) => setFormData((prev) => ({ ...prev, location }))}
+              />
+
               <div className="pt-4">
                 <Button variant="primary" size="full" onClick={handleNext}>
                   Lanjutkan
@@ -526,6 +545,20 @@ export default function CampaignCreatePage() {
                     <p className="text-xs text-text-secondary mb-0.5">Kategori</p>
                     <p className="text-sm font-medium text-text">
                       {(categories ?? []).find((c) => c.slug === formData.category)?.name || '-'}
+                    </p>
+                  </div>
+                  <div className="py-3">
+                    <p className="text-xs text-text-secondary mb-0.5">Lokasi</p>
+                    <p className="text-sm font-medium text-text">
+                      {campaignLocationLabel(formData.location) ?? '-'}
+                    </p>
+                  </div>
+                  <div className="py-3">
+                    <p className="text-xs text-text-secondary mb-0.5">Penerima Manfaat</p>
+                    <p className="text-sm font-medium text-text">
+                      {[formData.location.beneficiaryDescription.trim(), formData.location.beneficiaryCount.trim() && `${formData.location.beneficiaryCount.trim()} orang`]
+                        .filter(Boolean)
+                        .join(', ') || '-'}
                     </p>
                   </div>
                   <div className="py-3">

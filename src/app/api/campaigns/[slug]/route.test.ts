@@ -1608,3 +1608,111 @@ describe('DELETE /api/campaigns/[slug]', () => {
     expect(route).not.toHaveProperty('DELETE');
   });
 });
+
+describe('PATCH /api/campaigns/[slug] -- location and beneficiaries (ticket 74)', () => {
+  const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
+  let status = 'DRAFT';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    status = 'DRAFT';
+    mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as never);
+    mockLockQuery.mockResolvedValue([] as never);
+    mockFindUnique.mockImplementation((async () => ({
+      id: 'campaign-1', slug: 'banjir', creatorId: owner.id, lifecycleStatus: status, deadline: null, kind: 'DONATION',
+    })) as never);
+    mockUpdate.mockImplementation((async (args: { data: object }) => ({ id: 'campaign-1', ...args.data })) as never);
+    mockGetServerSession.mockResolvedValue({ user: owner, expires: '2099-01-01' } as never);
+  });
+
+  const patch = (body: unknown) =>
+    PATCH(createRequest('banjir', 'PATCH', body), { params: Promise.resolve({ slug: 'banjir' }) });
+
+  it('saves the province, regency and beneficiaries of a Draft', async () => {
+    const response = await patch({
+      province: '33',
+      regency: ' Kota Semarang ',
+      beneficiaryDescription: 'Keluarga terdampak banjir',
+      beneficiaryCount: 120,
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockUpdate.mock.calls[0][0].data).toMatchObject({
+      province: '33',
+      regency: 'Kota Semarang',
+      beneficiaryDescription: 'Keluarga terdampak banjir',
+      beneficiaryCount: 120,
+    });
+  });
+
+  it('clears a value sent as null or blank', async () => {
+    const response = await patch({ province: '', regency: null, beneficiaryCount: null });
+
+    expect(response.status).toBe(200);
+    expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ province: null, regency: null, beneficiaryCount: null });
+  });
+
+  it('leaves the fields alone when the body does not name them', async () => {
+    await patch({ story: 'Cerita baru' });
+
+    const data = mockUpdate.mock.calls[0][0].data;
+    for (const key of ['province', 'regency', 'beneficiaryDescription', 'beneficiaryCount']) {
+      expect(data).not.toHaveProperty(key);
+    }
+  });
+
+  it.each([
+    ['province', { province: '00' }],
+    ['regency', { regency: 'x'.repeat(101) }],
+    ['beneficiaryDescription', { beneficiaryDescription: 'x'.repeat(201) }],
+    ['beneficiaryCount', { beneficiaryCount: 0 }],
+    ['beneficiaryCount', { beneficiaryCount: 2.5 }],
+  ])('refuses an invalid %s, writing nothing', async (field, body) => {
+    const response = await patch(body);
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).fieldErrors[field]).toBeDefined();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('stays editable on an Active Campaign, like the story (only title and description freeze)', async () => {
+    status = 'ACTIVE';
+
+    const response = await patch({ regency: 'Kabupaten Bantul' });
+
+    expect(response.status).toBe(200);
+  });
+
+  it.each(['SUBMITTED', 'COMPLETED', 'CANCELLED'])('refuses an edit of a %s Campaign', async (closed) => {
+    status = closed;
+
+    const response = await patch({ province: '33' });
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/campaigns/[slug] -- location and beneficiaries (ticket 74)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPlatformFeeRuleFindFirst.mockResolvedValue(null);
+    mockPlatformFeeThresholdFindFirst.mockResolvedValue(null);
+  });
+
+  it('exposes the structured location, the beneficiaries and the legacy location', async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 'c1', slug: 'banjir', title: 'T', description: 'd', story: 's', coverImage: 'x', targetAmount: 1,
+      collectedAmount: 0, category: 'a', kind: 'DONATION', lifecycleStatus: 'ACTIVE', isUrgent: false, isDemo: false,
+      deadline: null, creatorId: 'u1', createdAt: new Date(), updatedAt: new Date(),
+      location: 'Jateng', province: '33', regency: 'Semarang', beneficiaryDescription: 'Warga', beneficiaryCount: 10,
+      creator: { id: 'u1', name: 'N', avatar: null }, _count: { donations: 0 },
+    } as never);
+
+    const response = await GET(createRequest('banjir'), { params: Promise.resolve({ slug: 'banjir' }) });
+
+    expect((await response.json()).campaign).toMatchObject({
+      location: 'Jateng', province: '33', regency: 'Semarang', beneficiaryDescription: 'Warga', beneficiaryCount: 10,
+    });
+  });
+});

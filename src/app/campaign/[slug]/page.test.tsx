@@ -117,6 +117,24 @@ describe('the Campaign page payload', () => {
     vi.mocked(prisma.payment.findMany).mockResolvedValue([]);
   });
 
+  it('carries the location and beneficiaries to the view (ticket 74)', async () => {
+    const campaign = await campaignHandedToView({
+      location: 'Jabar',
+      province: '32',
+      regency: 'Garut',
+      beneficiaryDescription: 'Anak yatim',
+      beneficiaryCount: 40,
+    });
+
+    expect(campaign).toMatchObject({
+      location: 'Jabar',
+      province: '32',
+      regency: 'Garut',
+      beneficiaryDescription: 'Anak yatim',
+      beneficiaryCount: 40,
+    });
+  });
+
   it('carries lifecycleStatus and no legacy status string', async () => {
     const campaign = await campaignHandedToView();
 

@@ -7,7 +7,7 @@ Platform social impact yang dioperasikan PT Jaya Korpora Prima, menyatukan donas
 ### Jalur kontribusi
 
 **Campaign**:
-Satu ajakan mengumpulkan dana daring dengan target, satu Fundraiser, dan tenggat yang wajib kecuali pada Kind `wakaf`. Tenggat paling lambat akhir hari WIB pada tanggal yang sama 12 bulan sesudah saat pemeriksaan (29 Februari menjadi 28 Februari); batas ini diperiksa saat membuat, mengedit, dan mengajukan Draft, saat meminta perubahan tenggat, dan lagi saat Verifier menyetujui perubahan itu (tiket 81). Semua uang daring masuk lewat Campaign, apa pun Kind-nya. Campaign tidak pernah dihapus; berhentinya selalu tercatat sebagai status (lihat [ADR 0016](./docs/adr/0016-campaigns-are-never-deleted.md)).
+Satu ajakan mengumpulkan dana daring dengan target, satu Fundraiser, dan tenggat yang wajib kecuali pada Kind `wakaf`. Tenggat paling lambat akhir hari WIB pada tanggal yang sama 12 bulan sesudah saat pemeriksaan (29 Februari menjadi 28 Februari); batas ini diperiksa saat membuat, mengedit, dan mengajukan Draft, saat meminta perubahan tenggat, dan lagi saat Verifier menyetujui perubahan itu (tiket 81). Semua uang daring masuk lewat Campaign, apa pun Kind-nya. Campaign tidak pernah dihapus; berhentinya selalu tercatat sebagai status (lihat [ADR 0016](./docs/adr/0016-campaigns-are-never-deleted.md)). Campaign boleh mencatat Provinsi (kode Kemendagri dari daftar statis 38 provinsi), kabupaten/kota (teks bebas), dan Penerima Manfaat (deskripsi bebas dan jumlah opsional); `location` lama tetap sebagai fallback tampilan, dan `beneficiaryName` terpisah, hanya dipakai untuk petunjuk duplikat (tiket 74).
 _Avoid_: Kampanye, program, project, penggalangan (untuk entitasnya)
 
 **Campaign Status**:

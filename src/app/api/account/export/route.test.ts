@@ -95,6 +95,15 @@ describe('GET /api/account/export (audit L5)', () => {
     expect(campaignFind.mock.calls[0][0]).toMatchObject({ where: { creatorId: 'u1' } });
   });
 
+  it('exports the structured location and beneficiaries of the user\'s Campaigns', async () => {
+    await GET();
+
+    const select = (campaignFind.mock.calls[0][0] as { select: Record<string, boolean> }).select;
+    for (const field of ['location', 'province', 'regency', 'beneficiaryDescription', 'beneficiaryCount']) {
+      expect(select[field]).toBe(true);
+    }
+  });
+
   it('leaks no password hash, ciphertext, key id or HMAC', async () => {
     const res = await GET();
     const text = JSON.stringify(await res.json());
