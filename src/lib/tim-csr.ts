@@ -121,6 +121,11 @@ const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
   'maildrop.cc',
   'fakeinbox.com',
   'mailnesia.com',
+  'mohmal.com',
+  '1secmail.com',
+  'emailondeck.com',
+  'tempmailo.com',
+  'jetable.org',
 ]);
 
 /** Providers that sell a mailbox under many country suffixes. */
