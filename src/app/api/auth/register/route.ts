@@ -11,7 +11,9 @@ import { guardRoute } from '@/lib/rate-limit-guard';
 const registerSchema = z.object({
   name: z.string().min(1, 'Nama harus diisi'),
   email: z.string().email('Format email tidak valid'),
-  password: passwordField,
+  // Optional: sign-in is by mailed code (src/lib/login-code.ts). A password
+  // given anyway is still held to the same rules and hashed.
+  password: passwordField.optional(),
 });
 
 /** Per client per hour. Fail-open: a limiter outage must not close registration. */
@@ -67,8 +69,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Hash password
-    const hashedPassword = await hashPassword(password, PASSWORD_HASH_COST);
+    const hashedPassword = password ? await hashPassword(password, PASSWORD_HASH_COST) : null;
 
     // Sealed at the call site rather than by the client hook: the plaintext
     // column is gone, so there is nothing for the hook to add it to. The hook

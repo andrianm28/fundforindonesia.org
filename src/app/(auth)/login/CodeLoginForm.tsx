@@ -14,6 +14,11 @@ const INPUT_CLASS =
 type Props = {
   /** Where to go after signing in; read at the moment of success. */
   onSignedIn: () => void;
+  /**
+   * An address a code was just mailed to elsewhere (the register page): the
+   * form opens at the code step with the resend cooldown running.
+   */
+  sendTo?: string;
 };
 
 /**
@@ -21,14 +26,14 @@ type Props = {
  * card: the address, then the 6-digit code. The request endpoint answers the
  * same for every address, so this never says whether an account exists.
  */
-export function CodeLoginForm({ onSignedIn }: Props) {
-  const [step, setStep] = useState<'email' | 'code'>('email');
-  const [email, setEmail] = useState('');
+export function CodeLoginForm({ onSignedIn, sendTo }: Props) {
+  const [step, setStep] = useState<'email' | 'code'>(sendTo ? 'code' : 'email');
+  const [email, setEmail] = useState(sendTo ?? '');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(sendTo ? 'Kode masuk sudah kami kirim.' : '');
   const [isLoading, setIsLoading] = useState(false);
-  const [resendIn, setResendIn] = useState(0);
+  const [resendIn, setResendIn] = useState(sendTo ? RESEND_SECONDS : 0);
 
   useEffect(() => {
     if (resendIn <= 0) return;
@@ -36,11 +41,11 @@ export function CodeLoginForm({ onSignedIn }: Props) {
     return () => clearTimeout(timer);
   }, [resendIn]);
 
-  const requestCode = async (): Promise<boolean> => {
+  const requestCode = async (address: string = email): Promise<boolean> => {
     const response = await fetch('/api/auth/login-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim() }),
+      body: JSON.stringify({ email: address.trim() }),
     });
     const body = (await response.json().catch(() => ({}))) as { message?: string };
     if (!response.ok) {
@@ -65,7 +70,7 @@ export function CodeLoginForm({ onSignedIn }: Props) {
     }
     setIsLoading(true);
     try {
-      if (await requestCode()) setStep('code');
+      if (await requestCode(email)) setStep('code');
     } catch {
       setError('Terjadi kesalahan. Silakan coba lagi.');
     } finally {
@@ -77,7 +82,7 @@ export function CodeLoginForm({ onSignedIn }: Props) {
     setError('');
     setIsLoading(true);
     try {
-      await requestCode();
+      await requestCode(email);
     } catch {
       setError('Terjadi kesalahan. Silakan coba lagi.');
     } finally {

@@ -160,6 +160,24 @@ describe('POST /api/auth/register', () => {
     }
   });
 
+  // Sign-in is by mailed code now, so an account needs no password; the
+  // address is proven by the first code typed back (src/lib/login-code.ts).
+  it('creates an account without a password and hashes nothing', async () => {
+    const { hashPassword } = await import('@/lib/password-hash');
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue({
+      id: 'new-user-id',
+      name: 'New User',
+      ...sealUserEmail('new@example.com'),
+    } as never);
+
+    const res = await POST(createRequest({ name: 'New User', email: 'new@example.com' }));
+
+    expect(res.status).toBe(201);
+    expect(hashPassword).not.toHaveBeenCalled();
+    expect(vi.mocked(prisma.user.create).mock.calls[0][0].data.password).toBeNull();
+  });
+
   it('should hash the password before storing', async () => {
     vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.user.create).mockResolvedValue({
