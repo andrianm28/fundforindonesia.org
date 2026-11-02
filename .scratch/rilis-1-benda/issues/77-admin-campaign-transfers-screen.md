@@ -1,6 +1,6 @@
 # 77: A-4 admin-campaign-transfers-screen
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none; C14 dijawab owner 2026-10-04
 
@@ -37,3 +37,5 @@ Backend transfer antar Campaign sudah ada (`requestCampaignTransfer`, `approveCa
 - 2026-10-04 (ronde C): C14 dijawab owner sesuai rekomendasi: transfer hibah tanpa batas kategori sampai ada review syariah. Aturan di `campaign-transfers.ts` (hibah hanya ke hibah, lintas Kind ditolak) tidak berubah; layar hanya menampilkannya. `needs-info` menjadi `ready-for-agent`.
 
 - 2026-10-30: layar `/admin/campaign-transfers` dibangun (branch `claude/project-thread-dcqhpw-t77`, belum di-push). Halaman server (antrean PENDING tertua dulu + riwayat 20 keputusan terakhir, kolom sumber/tujuan/jumlah/alasan/pengaju), komponen `AdminCampaignTransferDecisionForm` (setujui/tolak ke `/decision`; galat backend ditampilkan apa adanya; catatan aturan dua orang untuk pengaju), satu baris `AdminSidebar`. Tanpa perubahan skema dan tanpa perubahan `campaign-transfers.ts`; aturan hibah/lintas-Kind hanya dijelaskan di teks layar. Tes: komponen, halaman, sidebar, dan spec e2e penolakan anonim (`tests/e2e/campaign-transfers-not-found.spec.ts`, belum dijalankan: tanpa browser/server). Belum ada form "ajukan transfer" di UI (acceptance tidak memintanya; API sudah ada). Review independen `sonnet` diposting di PR masih harus dilakukan koordinator. Status dibiarkan `ready-for-agent` (tidak ada status in-review).
+
+- 2026-10-30: merged ke `main` lewat #302 (6d17352) setelah CI hijau dan review independen bersih. Live setelah owner men-deploy `main`.

@@ -163,6 +163,11 @@ import { join } from "node:path";
  * and answers 404 to anyone else, the way `src/app/admin/page.tsx` asks for it
  * and the Moderasi pages ask for VERIFIER -- growing this list by one.
  *
+ * NOTE (ticket 78): `GET`/`POST /api/admin/programs` and
+ * `GET`/`PATCH /api/admin/programs/[id]` are the Admin's Program screen, all
+ * through withHiddenAssignmentCheck on the ADMIN assignment -- growing this
+ * list by two.
+ *
  * NOTE (ticket 79): `GET /api/admin/finance/recap` serves the finance recap
  * CSV through withHiddenAssignmentCheck on the ADMIN assignment -- read-only,
  * growing this list by one.
@@ -199,6 +204,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/site-settings/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/route.ts",
+  "src/app/api/admin/programs/[id]/route.ts",
+  "src/app/api/admin/programs/route.ts",
   "src/app/api/admin/finance/recap/route.ts",
   // ticket 90: the Admin APIs' 404 for anyone without ADMIN, in front of the
   // Trip suspension module, which still decides who may suspend or lift.
