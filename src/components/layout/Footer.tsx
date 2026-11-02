@@ -1,4 +1,6 @@
-import Link from 'next/link';
+import { useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
+import { LanguageSwitcher } from './LanguageSwitcher';
 import type { SiteSettings } from '@/lib/site-settings';
 import { DEFAULT_SITE_SETTINGS } from '@/lib/site-settings';
 import { SITE_IDENTITY } from '@/lib/site-identity';
@@ -6,57 +8,61 @@ import { SITE_IDENTITY } from '@/lib/site-identity';
 export function Footer({
   footer = DEFAULT_SITE_SETTINGS.footer,
   social = DEFAULT_SITE_SETTINGS.social,
+  showLanguageSwitcher = false,
 }: {
   footer?: SiteSettings['footer'];
   social?: SiteSettings['social'];
+  /** English gate (I18N_ENGLISH_ENABLED), decided on the server by the root layout. */
+  showLanguageSwitcher?: boolean;
 }) {
+  const t = useTranslations('Nav.footer');
   return (
     <footer className="hidden lg:block bg-bg-secondary border-t border-border mt-auto">
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="mb-6">
           <img
             src="/brand/logo.webp"
-            alt="Fund for Indonesia, from kindness to impact"
+            alt={t('logoAlt')}
             width={1200}
             height={251}
             className="h-12 w-auto mb-4"
           />
-          <h3 className="text-base font-bold text-text mb-3">Tentang Fund for Indonesia</h3>
+          <h3 className="text-base font-bold text-text mb-3">{t('aboutHeading')}</h3>
           <p className="text-sm text-text-secondary leading-relaxed">
             {footer.about}
           </p>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
           <div>
-            <h4 className="font-semibold text-text mb-2">Informasi</h4>
+            <h4 className="font-semibold text-text mb-2">{t('information')}</h4>
             <ul className="space-y-1 text-text-secondary">
-              <li><Link href="/about" className="hover:text-primary">Tentang Kami</Link></li>
-              <li><Link href="/impact" className="hover:text-primary">Impact &amp; Transparansi</Link></li>
-              <li><Link href="/program" className="hover:text-primary">Portofolio CSR</Link></li>
-              <li><Link href="/wakaf" className="hover:text-primary">Wakaf</Link></li>
-              <li><Link href="/hibah" className="hover:text-primary">Hibah</Link></li>
-              <li><Link href="/volunteer-trip" className="hover:text-primary">Volunteer</Link></li>
-              <li><Link href="/careers" className="hover:text-primary">Karir</Link></li>
-              <li><Link href="/press" className="hover:text-primary">Media</Link></li>
+              <li><Link href="/about" className="hover:text-primary">{t('aboutUs')}</Link></li>
+              <li><Link href="/impact" className="hover:text-primary">{t('impact')}</Link></li>
+              <li><Link href="/program" className="hover:text-primary">{t('csrPortfolio')}</Link></li>
+              <li><Link href="/wakaf" className="hover:text-primary">{t('waqf')}</Link></li>
+              <li><Link href="/hibah" className="hover:text-primary">{t('grant')}</Link></li>
+              <li><Link href="/volunteer-trip" className="hover:text-primary">{t('volunteer')}</Link></li>
+              <li><Link href="/careers" className="hover:text-primary">{t('careers')}</Link></li>
+              <li><Link href="/press" className="hover:text-primary">{t('media')}</Link></li>
             </ul>
           </div>
           <div>
-            <h4 className="font-semibold text-text mb-2">Bantuan</h4>
+            <h4 className="font-semibold text-text mb-2">{t('help')}</h4>
             <ul className="space-y-1 text-text-secondary">
-              <li><Link href="/help" className="hover:text-primary">Help Center</Link></li>
-              <li><Link href="/faq" className="hover:text-primary">FAQ</Link></li>
-              <li><Link href="/contact" className="hover:text-primary">Kontak</Link></li>
+              <li><Link href="/help" className="hover:text-primary">{t('helpCenter')}</Link></li>
+              <li><Link href="/faq" className="hover:text-primary">{t('faq')}</Link></li>
+              <li><Link href="/contact" className="hover:text-primary">{t('contact')}</Link></li>
             </ul>
           </div>
           <div>
-            <h4 className="font-semibold text-text mb-2">Legal</h4>
+            <h4 className="font-semibold text-text mb-2">{t('legal')}</h4>
             <ul className="space-y-1 text-text-secondary">
-              <li><Link href="/terms" className="hover:text-primary">Syarat &amp; Ketentuan</Link></li>
-              <li><Link href="/privacy" className="hover:text-primary">Kebijakan Privasi</Link></li>
+              <li><Link href="/terms" className="hover:text-primary">{t('terms')}</Link></li>
+              <li><Link href="/privacy" className="hover:text-primary">{t('privacy')}</Link></li>
             </ul>
           </div>
           <div>
-            <h4 className="font-semibold text-text mb-2">Ikuti Kami</h4>
+            <h4 className="font-semibold text-text mb-2">{t('follow')}</h4>
             <div className="flex gap-3 text-text-secondary">
               {social.instagram !== '' && (
                 <a href={social.instagram} aria-label="Instagram" className="hover:text-primary" target="_blank" rel="noopener noreferrer">
@@ -76,8 +82,13 @@ export function Footer({
             </div>
           </div>
         </div>
+        {showLanguageSwitcher && (
+          <div className="border-t border-border mt-6 pt-4 text-center text-sm">
+            <LanguageSwitcher className="text-text-secondary hover:text-primary" />
+          </div>
+        )}
         <div className="border-t border-border mt-6 pt-4 text-center text-xs text-text-secondary">
-          © {new Date().getFullYear()} Fund for Indonesia, dioperasikan oleh {SITE_IDENTITY.operatorName}. Semua hak dilindungi undang-undang.
+          {t('copyright', { year: String(new Date().getFullYear()), operator: SITE_IDENTITY.operatorName })}
         </div>
       </div>
     </footer>

@@ -1,6 +1,7 @@
 'use client';
 
-import Link from 'next/link';
+import { useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
 import { motion } from 'framer-motion';
 
 export interface BottomNavBarProps {
@@ -11,8 +12,8 @@ export interface BottomNavBarProps {
 const tabs = [
   {
     id: 'home' as const,
-    label: 'Home',
-    href: '/',
+    label: 'home' as const,
+    href: '/' as const,
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z" />
@@ -22,8 +23,8 @@ const tabs = [
   },
   {
     id: 'galang-dana' as const,
-    label: 'Galang Dana',
-    href: '/campaign/create',
+    label: 'fundraise' as const,
+    href: '/campaign/create' as const,
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10z" />
@@ -34,8 +35,8 @@ const tabs = [
   },
   {
     id: 'donasi-saya' as const,
-    label: 'Donasi Saya',
-    href: '/donasi-saya',
+    label: 'myDonations' as const,
+    href: '/donasi-saya' as const,
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21.3l7.8-7.8 1-1.1a5.5 5.5 0 0 0 0-7.8z" />
@@ -44,8 +45,8 @@ const tabs = [
   },
   {
     id: 'inbox' as const,
-    label: 'Inbox',
-    href: '/inbox',
+    label: 'inbox' as const,
+    href: '/inbox' as const,
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -55,8 +56,8 @@ const tabs = [
   },
   {
     id: 'akun' as const,
-    label: 'Akun',
-    href: '/akun',
+    label: 'account' as const,
+    href: '/akun' as const,
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
@@ -67,12 +68,13 @@ const tabs = [
 ];
 
 export default function BottomNavBar({ activeTab, unreadCount }: BottomNavBarProps) {
+  const t = useTranslations('Nav.bottom');
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
 
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-border shadow-[0_-2px_8px_rgba(0,0,0,0.08)] lg:hidden pb-safe"
-      aria-label="Bottom navigation"
+      aria-label={t('label')}
     >
       <div className="relative flex items-center justify-around h-16">
         {/* Sliding active indicator */}
@@ -104,7 +106,7 @@ export default function BottomNavBar({ activeTab, unreadCount }: BottomNavBarPro
                   </span>
                 )}
               </span>
-              <span className="text-[10px] font-medium leading-tight">{tab.label}</span>
+              <span className="text-[10px] font-medium leading-tight">{t(tab.label)}</span>
             </Link>
           );
         })}

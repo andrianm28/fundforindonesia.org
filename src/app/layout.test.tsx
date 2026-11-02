@@ -17,12 +17,21 @@ vi.mock('@/components/layout/Providers', () => ({
   Providers: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock('@/components/layout/AppShell', () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
+  AppShell: ({ children, showLanguageSwitcher }: { children: React.ReactNode; showLanguageSwitcher?: boolean }) => (
+    <main data-switcher={String(showLanguageSwitcher)}>{children}</main>
+  ),
 }));
-vi.mock('@/components/layout/ConditionalFooter', () => ({ ConditionalFooter: () => null }));
+vi.mock('@/components/layout/ConditionalFooter', () => ({
+  ConditionalFooter: ({ showLanguageSwitcher }: { showLanguageSwitcher?: boolean }) => (
+    <footer data-switcher={String(showLanguageSwitcher)} />
+  ),
+}));
 // The language of the request, as src/i18n/request.ts resolves it.
 const language = vi.hoisted(() => ({ locale: 'id' }));
-vi.mock('next-intl/server', () => ({ getLocale: vi.fn(async () => language.locale) }));
+vi.mock('next-intl/server', () => ({
+  getLocale: vi.fn(async () => language.locale),
+  getMessages: vi.fn(async () => ({ Nav: { marker: 'nav' }, Common: {}, Home: { big: 'tidak dikirim ke klien' } })),
+}));
 
 import { connection } from 'next/server';
 import RootLayout, { metadata } from './layout';
@@ -87,5 +96,31 @@ describe('RootLayout language', () => {
   it('declares English on the English pages', async () => {
     language.locale = 'en';
     expect(await render()).toMatch(/^<html lang="en"/);
+  });
+});
+
+describe('RootLayout language switcher (English gate)', () => {
+  it('is off while I18N_ENGLISH_ENABLED is anything but exactly true', async () => {
+    for (const value of [undefined, '', 'TRUE', '1', 'true ']) {
+      vi.stubEnv('I18N_ENGLISH_ENABLED', value ?? '');
+      const html = await render();
+      expect(html, JSON.stringify(value)).not.toContain('data-switcher="true"');
+      expect(html).toContain('data-switcher="false"');
+    }
+  });
+
+  it('is handed to the shell and the footer when English is on', async () => {
+    vi.stubEnv('I18N_ENGLISH_ENABLED', 'true');
+    const html = await render();
+    expect(html.match(/data-switcher="true"/g)).toHaveLength(2);
+  });
+});
+
+describe('RootLayout catalogue for client components', () => {
+  it('provides the Nav and Common namespaces to the client tree', async () => {
+    const tree = (await RootLayout({ children: null })) as React.ReactElement<{ children: React.ReactElement }>;
+    const provider = JSON.stringify(tree, (_k, v) => (typeof v === 'function' ? undefined : v));
+    expect(provider).toContain('"marker":"nav"');
+    expect(provider).not.toContain('tidak dikirim ke klien');
   });
 });

@@ -1,4 +1,5 @@
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { screen, fireEvent, cleanup } from '@testing-library/react';
+import { renderIntl as render } from '../../../tests/intl';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { signOut } from 'next-auth/react';
 import DesktopHeader from './DesktopHeader';

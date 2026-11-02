@@ -8,7 +8,9 @@ import { BetaBanner } from "@/components/layout/BetaBanner";
 import { BetaSandboxProvider } from "@/components/layout/BetaSandboxContext";
 import { publicUrl } from "@/lib/public-url";
 import { betaSandboxForThisRequest } from "@/lib/beta-sandbox-request";
-import { getLocale } from "next-intl/server";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
+import { englishEnabled } from "@/i18n/gate";
 import { prisma } from "@/lib/prisma";
 import { resolveSiteSettingsOrDefaults } from "@/lib/site-settings";
 
@@ -61,19 +63,25 @@ export default async function RootLayout({
 }>) {
   // "id" unless the proxy tagged the request as English (src/i18n/request.ts).
   const locale = await getLocale();
+  // Only what client components read (header, nav, footer, switcher); page
+  // namespaces join as their pages convert. Read per request, like the locale.
+  const { Nav, Common } = (await getMessages()) as { Nav: object; Common: object };
+  const showLanguageSwitcher = englishEnabled();
   const betaSandbox = await betaSandboxForThisRequest();
   const { footer, social } = await resolveSiteSettingsOrDefaults(prisma);
 
   return (
     <html lang={locale}>
       <body className={`${inter.variable} ${newsreader.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
-        <Providers>
-          <BetaSandboxProvider active={betaSandbox}>
-            {betaSandbox && <BetaBanner variant="site" />}
-            <AppShell>{children}</AppShell>
-            <ConditionalFooter footer={footer} social={social} />
-          </BetaSandboxProvider>
-        </Providers>
+        <NextIntlClientProvider locale={locale} messages={{ Nav, Common }}>
+          <Providers>
+            <BetaSandboxProvider active={betaSandbox}>
+              {betaSandbox && <BetaBanner variant="site" />}
+              <AppShell showLanguageSwitcher={showLanguageSwitcher}>{children}</AppShell>
+              <ConditionalFooter footer={footer} social={social} showLanguageSwitcher={showLanguageSwitcher} />
+            </BetaSandboxProvider>
+          </Providers>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

@@ -1,6 +1,7 @@
 import { describe, test, expect, vi } from "vitest";
 import * as fc from "fast-check";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderIntl as render } from "../../../tests/intl";
 import { createElement } from "react";
 import DesktopHeader from "@/components/layout/DesktopHeader";
 import type { User } from "@/types";

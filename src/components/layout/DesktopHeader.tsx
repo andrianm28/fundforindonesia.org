@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
+import NextLink from 'next/link';
+import { useTranslations } from 'next-intl';
 import { signOut } from 'next-auth/react';
+import { Link } from '@/i18n/navigation';
+import { LanguageSwitcher } from './LanguageSwitcher';
 import { User } from '@/types';
 import type { StaffEntryLink } from '@/lib/staff-entry-links';
 
@@ -12,6 +15,8 @@ export interface DesktopHeaderProps {
   /** Doors to /admin and /moderasi for the assignments the user holds (ticket 86). */
   staffLinks?: StaffEntryLink[];
   onSearch: (query: string) => void;
+  /** English gate (I18N_ENGLISH_ENABLED), decided on the server by the root layout. */
+  showLanguageSwitcher?: boolean;
 }
 
 export default function DesktopHeader({
@@ -19,7 +24,9 @@ export default function DesktopHeader({
   notificationCount = 0,
   staffLinks = [],
   onSearch,
+  showLanguageSwitcher = false,
 }: DesktopHeaderProps) {
+  const t = useTranslations('Nav.header');
   const [searchQuery, setSearchQuery] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -59,7 +66,7 @@ export default function DesktopHeader({
         <Link href="/" className="shrink-0">
           <img
             src="/brand/logo-wordmark.webp"
-            alt="Fund for Indonesia"
+            alt={t('logoAlt')}
             width={900}
             height={278}
             className="h-9 w-auto"
@@ -73,7 +80,7 @@ export default function DesktopHeader({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari yang ingin kamu bantu..."
+              placeholder={t('searchPlaceholder')}
               className="w-full h-10 pl-10 pr-4 rounded-full border border-border bg-bg-secondary text-sm text-text placeholder:text-text-secondary focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
             />
             <svg
@@ -101,38 +108,42 @@ export default function DesktopHeader({
               href="/explore/all"
               className="text-sm font-medium text-text hover:text-primary transition-colors"
             >
-              Donasi
+              {t('donate')}
             </Link>
             <Link
               href="/campaign/create"
               className="text-sm font-medium text-text hover:text-primary transition-colors"
             >
-              Galang Dana
+              {t('fundraise')}
             </Link>
             <Link
               href="/program"
               className="text-sm font-medium text-text hover:text-primary transition-colors"
             >
-              CSR
+              {t('csr')}
             </Link>
             {user &&
               staffLinks.map((link) => (
-                <Link
+                <NextLink
                   key={link.href}
                   href={link.href}
                   className="text-sm font-medium text-text hover:text-primary transition-colors"
                 >
                   {link.label}
-                </Link>
+                </NextLink>
               ))}
           </nav>
+
+          {showLanguageSwitcher && (
+            <LanguageSwitcher className="text-sm font-medium text-text hover:text-primary transition-colors" />
+          )}
 
           {/* Notification Bell */}
           {user && (
             <Link
               href="/inbox"
               className="relative p-2 text-text-secondary hover:text-text transition-colors"
-              aria-label="Notifikasi"
+              aria-label={t('notifications')}
             >
               <svg
                 className="w-5 h-5"
@@ -165,7 +176,7 @@ export default function DesktopHeader({
                 onClick={() => setMenuOpen((open) => !open)}
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
-                aria-label={`Menu akun ${user.name}`}
+                aria-label={t('accountMenu', { name: user.name })}
                 className="flex items-center gap-2 rounded-full pr-2 hover:bg-bg-secondary transition-colors focus-visible:outline-2 focus-visible:outline-primary"
               >
                 <div className="w-8 h-8 rounded-full overflow-hidden bg-bg-secondary flex items-center justify-center">
@@ -201,7 +212,7 @@ export default function DesktopHeader({
                     onClick={() => setMenuOpen(false)}
                     className="block px-4 py-2 text-sm text-text hover:bg-bg-secondary transition-colors"
                   >
-                    Akun
+                    {t('account')}
                   </Link>
                   <button
                     type="button"
@@ -209,7 +220,7 @@ export default function DesktopHeader({
                     onClick={() => signOut({ callbackUrl: '/login' })}
                     className="block w-full text-left px-4 py-2 text-sm text-danger hover:bg-bg-secondary transition-colors"
                   >
-                    Keluar
+                    {t('logout')}
                   </button>
                 </div>
               )}
@@ -219,7 +230,7 @@ export default function DesktopHeader({
               href="/login"
               className="inline-flex items-center justify-center h-9 px-5 text-sm font-semibold text-white bg-primary rounded-full hover:bg-primary-dark transition-colors"
             >
-              Masuk
+              {t('login')}
             </Link>
           )}
         </div>
