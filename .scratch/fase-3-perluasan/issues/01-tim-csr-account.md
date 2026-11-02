@@ -24,7 +24,7 @@ Tahap pertama: email konfirmasi ke perusahaan yang mengirim Partnership Inquiry 
 
 ## Acceptance
 
-- [ ] Tahap 1: pengirim Inquiry menerima email konfirmasi; notifikasi ke tim platform memakai `replyTo` perusahaan; gagal kirim tidak menggagalkan Inquiry
+- [x] Tahap 1: pengirim Inquiry menerima email konfirmasi; notifikasi ke tim platform memakai `replyTo` perusahaan; gagal kirim tidak menggagalkan Inquiry (PR #306, b9adc94)
 - [x] Hasil empat sub-pertanyaan dicatat di tiket sebelum tahap 2 dimulai (2026-10-04, lihat Comments)
 - [x] Tahap 2: akun Tim CSR tanpa `Assignment`, beberapa pengguna per perusahaan, daftar Inquiry perusahaan; migrasi tanpa kehilangan data
 - [x] Tahap 2 mengikuti keputusan 2026-10-04: verifikasi ringan lewat domain email, riwayat status inquiry, unduhan laporan dampak Program yang dibiayai perusahaan (tanpa data pribadi donor), retensi aktif + 2 tahun lalu anonimisasi
