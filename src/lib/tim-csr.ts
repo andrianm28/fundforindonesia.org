@@ -71,7 +71,7 @@ export function csrErrorToHttp(error: unknown): { status: number; error: string 
 
 // ==================== Email domain rule ====================
 
-/** Providers anyone can open a mailbox on; none of them identifies a company. */
+/** Providers anyone can open a mailbox on (free or disposable); none of them identifies a company. */
 const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
   'gmail.com',
   'googlemail.com',
@@ -97,10 +97,34 @@ const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
   'mail.ru',
   'tutanota.com',
   'fastmail.com',
+  'web.de',
+  'qq.com',
+  '163.com',
+  '126.com',
+  'naver.com',
+  // Disposable inboxes: anyone can open one for a minute, which proves nothing.
+  'mailinator.com',
+  'guerrillamail.com',
+  'guerrillamail.net',
+  'guerrillamail.org',
+  'guerrillamail.biz',
+  'sharklasers.com',
+  'grr.la',
+  '10minutemail.com',
+  'temp-mail.org',
+  'tempmail.com',
+  'yopmail.com',
+  'throwawaymail.com',
+  'trashmail.com',
+  'dispostable.com',
+  'getnada.com',
+  'maildrop.cc',
+  'fakeinbox.com',
+  'mailnesia.com',
 ]);
 
 /** Providers that sell a mailbox under many country suffixes. */
-const FREE_MAIL_FAMILIES = ['yahoo', 'hotmail', 'outlook', 'live'] as const;
+const FREE_MAIL_FAMILIES = ['yahoo', 'hotmail', 'outlook', 'live', 'gmx'] as const;
 
 /** The lowercase domain of an address, or null when it is not one. */
 export function emailDomainOf(email: string): string | null {
@@ -217,49 +241,58 @@ export async function joinCompany(
     select: { emailVerifiedAt: true, ...SELECT_USER_EMAIL },
   });
   if (!user) throw new CsrNotMemberError();
+  // Before any company is looked up or named: an unverified address gets the
+  // same refusal whether or not the company exists, so this route cannot be
+  // used to find out which companies are on the platform.
+  if (user.emailVerifiedAt === null) throw new CompanyEmailNotVerifiedError();
   const email = readUserEmail(user);
   if (email === null) throw new InvalidCompanyInputError('Email Anda tidak memiliki domain yang valid.');
   const domain = companyDomainFor(email);
-  const verified = user.emailVerifiedAt !== null;
 
   const existing = await prisma.companyMembership.findUnique({
     where: { userId },
-    select: { company: { select: { id: true, name: true, emailDomain: true } } },
+    select: { company: { select: { id: true, name: true, emailDomain: true, anonymisedAt: true } } },
   });
   if (existing) {
-    return {
-      companyId: existing.company.id,
-      companyName: existing.company.name,
-      verified: verified && existing.company.emailDomain === domain,
-      created: false,
-    };
+    // A membership on a domain that is no longer the user's own, or on an
+    // anonymised company, is not theirs to read or to be told about.
+    if (existing.company.emailDomain !== domain || existing.company.anonymisedAt !== null) throw new CsrNotMemberError();
+    return { companyId: existing.company.id, companyName: existing.company.name, verified: true, created: false };
   }
 
-  let created = false;
-  let company = await prisma.company.findUnique({ where: { emailDomain: domain } });
-  if (!company || company.anonymisedAt !== null) {
-    if (!verified) throw new CompanyEmailNotVerifiedError();
-    const name = cleanCompanyName(input.companyName);
+  // One transaction for finding or (re)creating the company and adding the
+  // member. The company row is locked FOR UPDATE first, which serialises this
+  // with the retention job: it cannot anonymise a company between a member
+  // being added and the company being counted as active.
+  for (let attempt = 0; ; attempt += 1) {
     try {
-      // A reactivated company starts clean: Inquiries that were anonymised
-      // under its previous life are detached so new members never see them.
-      if (company) await prisma.partnershipInquiry.updateMany({ where: { companyId: company.id }, data: { companyId: null } });
-      company = company
-        ? await prisma.company.update({ where: { id: company.id }, data: { name, anonymisedAt: null } })
-        : await prisma.company.create({ data: { name, emailDomain: domain } });
-      created = true;
+      return await prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Company" WHERE "emailDomain" = ${domain} FOR UPDATE`;
+        let company = rows.length > 0 ? await tx.company.findUniqueOrThrow({ where: { id: rows[0].id } }) : null;
+        let created = false;
+        if (!company || company.anonymisedAt !== null) {
+          const name = cleanCompanyName(input.companyName);
+          if (company) {
+            // A reactivated company starts clean: Inquiries anonymised in its
+            // previous life are detached so new members never see them.
+            await tx.partnershipInquiry.updateMany({ where: { companyId: company.id }, data: { companyId: null } });
+            company = await tx.company.update({ where: { id: company.id }, data: { name, anonymisedAt: null } });
+          } else {
+            company = await tx.company.create({ data: { name, emailDomain: domain } });
+          }
+          created = true;
+        }
+        // The membership row's createdAt is what keeps retention from
+        // counting a company just reactivated or joined as idle.
+        await tx.companyMembership.create({ data: { companyId: company.id, userId } });
+        return { companyId: company.id, companyName: company.name, verified: true, created };
+      });
     } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-      company = await prisma.company.findUniqueOrThrow({ where: { emailDomain: domain } });
+      // Two people founding the same domain at once: the loser retries as a joiner.
+      if (isUniqueViolation(error) && attempt === 0) continue;
+      throw error;
     }
   }
-
-  try {
-    await prisma.companyMembership.create({ data: { companyId: company.id, userId } });
-  } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
-  }
-  return { companyId: company.id, companyName: company.name, verified, created };
 }
 
 // ==================== Inquiries ====================
@@ -426,7 +459,7 @@ export function renderImpactReportMarkdown(report: CompanyImpactReport): string 
       `- Jadwal: ${program.timeline}`,
     );
     if (program.reportedAsOf) {
-      lines.push(`- Dana CSR tercatat: ${rupiah(program.reportedAmount)} (per ${program.reportedAsOf.toISOString().slice(0, 10)})`);
+      lines.push(`- Total dana yang tercatat pada Program ini (bukan kontribusi perusahaan): ${rupiah(program.reportedAmount)} (per ${program.reportedAsOf.toISOString().slice(0, 10)})`);
     }
     lines.push('', '### Masalah', '', program.problem, '', '### Kegiatan', '', program.activities, '');
     if (program.kpis.length > 0) {
@@ -452,7 +485,7 @@ const ANONYMISED_KEY_ID = 'anonymised';
 export type CompanyRetentionResult = { consideredCount: number; anonymisedCount: number };
 
 /**
- * Anonymises every company whose last activity is more than two years old
+ * Anonymises every company whose last activity is more than two years old, judged again under a row lock
  * (decision 2026-10-04 (d)). "Active" is read from what is on record, because
  * logins are not tracked: the last activity is the latest of the company's
  * creation, a member joining, and an Inquiry being filed.
@@ -474,47 +507,49 @@ export async function anonymiseExpiredCompanies(
 
   const candidates = await prisma.company.findMany({
     where: { anonymisedAt: null, createdAt: { lte: cutoff } },
-    select: {
-      id: true,
-      createdAt: true,
-      inquiries: { select: { createdAt: true } },
-      memberships: { select: { createdAt: true } },
-    },
+    select: { id: true },
   });
 
   let anonymisedCount = 0;
-  for (const company of candidates) {
-    const lastActivity = Math.max(
-      company.createdAt.getTime(),
-      ...company.inquiries.map((i) => i.createdAt.getTime()),
-      ...company.memberships.map((m) => m.createdAt.getTime()),
-    );
-    if (lastActivity > cutoff.getTime()) continue;
+  for (const candidate of candidates) {
+    const done = await prisma.$transaction(
+      async (tx) => {
+        // Lock the company, then judge it again: a member may have joined or an
+        // Inquiry been filed since the candidate list was read, and a join
+        // holds the same lock.
+        const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Company" WHERE id = ${candidate.id} AND "anonymisedAt" IS NULL FOR UPDATE`;
+        if (locked.length === 0) return false;
+        const [company, lastInquiry, lastMember] = await Promise.all([
+          tx.company.findUniqueOrThrow({ where: { id: candidate.id }, select: { createdAt: true } }),
+          tx.partnershipInquiry.aggregate({ where: { companyId: candidate.id }, _max: { createdAt: true } }),
+          tx.companyMembership.aggregate({ where: { companyId: candidate.id }, _max: { createdAt: true } }),
+        ]);
+        const lastActivity = Math.max(
+          company.createdAt.getTime(),
+          lastInquiry._max.createdAt?.getTime() ?? 0,
+          lastMember._max.createdAt?.getTime() ?? 0,
+        );
+        if (lastActivity > cutoff.getTime()) return false;
 
-    await prisma.$transaction(async (tx) => {
-      await tx.companyMembership.deleteMany({ where: { companyId: company.id } });
-      const inquiries = await tx.partnershipInquiry.findMany({
-        where: { companyId: company.id, contactAnonymisedAt: null },
-        select: { id: true },
-      });
-      for (const inquiry of inquiries) {
-        await tx.partnershipInquiry.update({
-          where: { id: inquiry.id },
-          data: {
-            contactName: ANONYMISED_NAME,
-            contactEmailHmac: `anonymised:${inquiry.id}`,
-            contactEmailHmacKeyId: ANONYMISED_KEY_ID,
-            contactEmailCiphertext: '',
-            contactEmailKeyId: ANONYMISED_KEY_ID,
-            contactPhoneCiphertext: null,
-            contactPhoneKeyId: null,
-            contactAnonymisedAt: now,
-          },
-        });
-      }
-      await tx.company.update({ where: { id: company.id }, data: { anonymisedAt: now } });
-    });
-    anonymisedCount += 1;
+        await tx.companyMembership.deleteMany({ where: { companyId: candidate.id } });
+        // One statement for every Inquiry; the HMAC placeholder is unique per row.
+        await tx.$executeRaw`
+          UPDATE "PartnershipInquiry"
+          SET "contactName" = ${ANONYMISED_NAME},
+              "contactEmailHmac" = 'anonymised:' || "id",
+              "contactEmailHmacKeyId" = ${ANONYMISED_KEY_ID},
+              "contactEmailCiphertext" = '',
+              "contactEmailKeyId" = ${ANONYMISED_KEY_ID},
+              "contactPhoneCiphertext" = NULL,
+              "contactPhoneKeyId" = NULL,
+              "contactAnonymisedAt" = ${now}
+          WHERE "companyId" = ${candidate.id} AND "contactAnonymisedAt" IS NULL`;
+        await tx.company.update({ where: { id: candidate.id }, data: { anonymisedAt: now } });
+        return true;
+      },
+      { timeout: 30_000 },
+    );
+    if (done) anonymisedCount += 1;
   }
   return { consideredCount: candidates.length, anonymisedCount };
 }

@@ -175,26 +175,62 @@ describe.skipIf(!DATABASE_URL)('Tim CSR accounts -- against real Postgres (E9/01
       expect(await prisma.company.count({ where: { emailDomain: 'gmail.com' } })).toBe(0);
     });
 
-    it('a person whose email is not verified cannot create a company', async () => {
-      const user = await makeUser('dewi@belum-verifikasi.co.id', { verified: false });
-      const res = await joinAs(user, 'Belum Verifikasi');
-      expect(res.status).toBe(403);
+    it('a person whose email is not verified gets the same 403 whether or not the company exists, and learns nothing', async () => {
+      const founder = await makeUser('eko@pending-co.co.id');
+      await joinAs(founder, 'Pending Co Rahasia');
+      const unverifiedAtExisting = await makeUser('fitri@pending-co.co.id', { verified: false });
+      const unverifiedAtNew = await makeUser('dewi@belum-verifikasi.co.id', { verified: false });
+
+      const atExisting = await joinAs(unverifiedAtExisting);
+      const atNew = await joinAs(unverifiedAtNew, 'Belum Verifikasi');
+      expect(atExisting.status).toBe(403);
+      expect(atNew.status).toBe(403);
+      expect(await atExisting.text()).not.toContain('Pending Co');
+      expect(await atNew.text()).not.toContain('Belum Verifikasi');
+      expect(await prisma.companyMembership.count({ where: { userId: { in: [unverifiedAtExisting, unverifiedAtNew] } } })).toBe(0);
       expect(await prisma.company.count({ where: { emailDomain: 'belum-verifikasi.co.id' } })).toBe(0);
+
+      // Once the address is verified the same person can join and sees the company.
+      await prisma.user.update({ where: { id: unverifiedAtExisting }, data: { emailVerifiedAt: new Date() } });
+      expect((await joinAs(unverifiedAtExisting)).status).toBe(200);
+      as(unverifiedAtExisting);
+      expect((await inquiriesRoute.GET()).status).toBe(200);
     });
 
-    it('an unverified person who joins an existing company is on its list but not yet a verified member', async () => {
-      const founder = await makeUser('eko@pending-co.co.id');
-      await joinAs(founder, 'Pending Co');
-      const pending = await makeUser('fitri@pending-co.co.id', { verified: false });
-      const res = await joinAs(pending);
-      expect((await res.json()).membership.verified).toBe(false);
+    it('a stale membership whose email no longer matches the company gets a 404 with no company data', async () => {
+      const founder = await makeUser('ani@stale-co.co.id');
+      await joinAs(founder, 'Stale Co');
+      const mover = await makeUser('budi@other-co.co.id');
+      const stale = await prisma.company.findUniqueOrThrow({ where: { emailDomain: 'stale-co.co.id' } });
+      await prisma.companyMembership.create({ data: { companyId: stale.id, userId: mover } });
+      const res = await joinAs(mover, 'Other Co');
+      expect(res.status).toBe(404);
+      expect(await res.text()).not.toContain('Stale Co');
+    });
 
-      as(pending);
-      expect((await inquiriesRoute.GET()).status).toBe(404);
+    it('reactivating an anonymised company starts it clean and retention does not undo it', async () => {
+      const programId = await makeProgram('program-reaktivasi');
+      const old = await makeUser('lama@reaktif.co.id', { name: 'Orang Lama Reaktif' });
+      await joinAs(old, 'Reaktif Lama');
+      await file(old, programId, 'Inquiry lama');
+      const company = await prisma.company.findUniqueOrThrow({ where: { emailDomain: 'reaktif.co.id' } });
+      const long_ago = new Date('2020-01-01T00:00:00Z');
+      await prisma.partnershipInquiry.updateMany({ where: { companyId: company.id }, data: { createdAt: long_ago } });
+      await prisma.company.update({ where: { id: company.id }, data: { createdAt: long_ago } });
+      await prisma.companyMembership.updateMany({ where: { companyId: company.id }, data: { createdAt: long_ago } });
+      await lib.anonymiseExpiredCompanies(prisma, new Date());
+      expect((await prisma.company.findUniqueOrThrow({ where: { id: company.id } })).anonymisedAt).not.toBeNull();
 
-      // Verifying the address is what makes the membership count; nothing is rewritten.
-      await prisma.user.update({ where: { id: pending }, data: { emailVerifiedAt: new Date() } });
-      expect((await inquiriesRoute.GET()).status).toBe(200);
+      const fresh = await makeUser('baru@reaktif.co.id');
+      const res = await joinAs(fresh, 'Reaktif Baru');
+      expect(res.status).toBe(201);
+      await lib.anonymiseExpiredCompanies(prisma, new Date(Date.now() + 24 * 3600 * 1000));
+      const after = await prisma.company.findUniqueOrThrow({ where: { id: company.id } });
+      expect(after.anonymisedAt).toBeNull();
+      expect(after.name).toBe('Reaktif Baru');
+      as(fresh);
+      const body = await (await inquiriesRoute.GET()).json();
+      expect(body.inquiries).toHaveLength(0);
     });
 
     it('joining without a company name is refused when there is no company to join', async () => {
@@ -300,6 +336,7 @@ describe.skipIf(!DATABASE_URL)('Tim CSR accounts -- against real Postgres (E9/01
     it('contains only Programs of the company\'s finished Inquiries, with Program data and no donor data', async () => {
       const funded = await makeProgram('program-dibiayai', {
         reportedAmount: 25_000_000,
+        reportedAsOf: new Date('2026-10-15T00:00:00Z'),
         reportedNote: 'Dari Budi Donor, budi.donor@rahasia.example, 0812-RAHASIA',
       });
       const notFunded = await makeProgram('program-belum');
@@ -339,6 +376,7 @@ describe.skipIf(!DATABASE_URL)('Tim CSR accounts -- against real Postgres (E9/01
       const text = await res.text();
       expect(text).toContain('Program program-dibiayai');
       expect(text).toContain('Laporan dampak program-dibiayai');
+      expect(text).toContain('Total dana yang tercatat pada Program ini (bukan kontribusi perusahaan)');
       expect(text).not.toContain('Program program-belum');
       expect(text).not.toContain('Program program-perusahaan-lain');
       for (const secret of ['Budi Donor', 'budi.donor', 'RAHASIA', '9.999.999', '9999999', 'ika@epsilon']) {

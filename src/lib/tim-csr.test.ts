@@ -36,6 +36,16 @@ describe('isFreeMailDomain', () => {
     'zoho.com',
     'yandex.com',
     'aol.com',
+    'web.de',
+    'qq.com',
+    'naver.com',
+    'gmx.de',
+    'mailinator.com',
+    'guerrillamail.com',
+    'sharklasers.com',
+    '10minutemail.com',
+    'temp-mail.org',
+    'yopmail.com',
   ])('refuses %s', (domain) => {
     expect(isFreeMailDomain(domain)).toBe(true);
   });

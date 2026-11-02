@@ -26,7 +26,7 @@ async function signedIn(browser: Browser, email: string, password: string): Prom
   return { page, close: () => context.close() };
 }
 
-test('a person registers, joins the company of their domain, and sees nothing until the email is verified', async ({ browser, request }, testInfo) => {
+test('a person registers on a company domain but cannot join or see anything until the email is verified', async ({ browser, request }, testInfo) => {
   const email = `orang-${testInfo.project.name.toLowerCase()}-${Date.now()}@${CSR_ALPHA_DOMAIN}`;
   const password = operatorPassword();
   const registered = await request.post('/api/auth/register', { data: { name: 'Orang Baru', email, password } });
@@ -38,10 +38,11 @@ test('a person registers, joins the company of their domain, and sees nothing un
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/csr/membership',
   );
   await page.getByRole('button', { name: 'Gabung sebagai Tim CSR' }).click();
-  expect((await joined).status()).toBe(200);
+  expect((await joined).status()).toBe(403);
   await expect(page.getByRole('status')).toContainText('Verifikasi email');
+  await expect(page.getByText('E2E Alpha')).toHaveCount(0);
 
-  // Joined, but not verified: the company's page does not exist for this person.
+  // Not a member, and told nothing about Alpha: the company's page does not exist for this person.
   await page.goto('/akun/tim-csr');
   await expect(page.getByText('This page could not be found.')).toBeVisible();
   expect((await page.request.get('/api/csr/inquiries')).status()).toBe(404);
