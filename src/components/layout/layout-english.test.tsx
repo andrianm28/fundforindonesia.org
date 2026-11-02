@@ -44,9 +44,9 @@ describe('DesktopHeader in English', () => {
   });
 
   it('keeps the Indonesian hrefs exactly as they were', () => {
-    mockPathname.value = '/about';
+    mockPathname.value = '/tentang-kami';
     render(<DesktopHeader user={null} onSearch={vi.fn()} />);
-    expect(hrefs()).toEqual(['/', '/explore/all', '/campaign/create', '/program', '/login']);
+    expect(hrefs()).toEqual(['/', '/jelajah/semua', '/campaign/create', '/program', '/login']);
   });
 
   it('keeps the back-office doors unprefixed: /admin has no English version', () => {
@@ -100,8 +100,8 @@ describe('Footer in English', () => {
     mockPathname.value = '/';
     render(<Footer />);
     expect(hrefs().filter((h) => h?.startsWith('/'))).toEqual([
-      '/about', '/impact', '/program', '/wakaf', '/hibah', '/volunteer-trip', '/careers', '/press',
-      '/help', '/faq', '/contact', '/terms', '/privacy',
+      '/tentang-kami', '/impact', '/program', '/wakaf', '/hibah', '/volunteer-trip', '/karir', '/media',
+      '/bantuan', '/faq', '/kontak', '/syarat-dan-ketentuan', '/kebijakan-privasi',
     ]);
   });
 });
@@ -114,7 +114,7 @@ describe('Footer language switcher', () => {
   });
 
   it('is shown when asked for', () => {
-    mockPathname.value = '/about';
+    mockPathname.value = '/tentang-kami';
     render(<Footer showLanguageSwitcher />);
     expect(screen.getByRole('link', { name: 'Ganti bahasa ke English' })).toHaveAttribute('href', '/en/about');
   });

@@ -65,7 +65,7 @@ describe('AppShell under /en', () => {
     nav.pathname = '/';
     render(<AppShell>isi</AppShell>);
     screen.getByTestId('header').click();
-    expect(nav.push).toHaveBeenCalledWith('/search?q=air%20bersih');
+    expect(nav.push).toHaveBeenCalledWith('/cari?q=air%20bersih');
 
     cleanup();
     nav.locale = 'en';

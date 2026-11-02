@@ -53,14 +53,14 @@ export const authProxy = withAuth(
 
 // The same reason as the panels above: an unknown Category's page calls
 // notFound() behind the root loading.tsx, after the document has begun
-// streaming as 200, so a search engine would index /explore/zakat (removed by
+// streaming as 200, so a search engine would index /jelajah/zakat (removed by
 // ADR 0025) or any made-up slug as a real page (rilis-1-benda/96). The status
 // has to be decided before rendering starts. This is a public path: it never
 // asks for a session, and it only answers 404; the page still renders itself.
-// /explore/all is a page of its own and has no Category row; it is in the
+// /jelajah/semua is a page of its own and has no Category row; it is in the
 // matcher only because the pattern cannot exclude it, and passes straight on.
-function exploreCategorySlug(pathname: string): string | null {
-  const match = /^\/explore\/([^/]+)\/?$/.exec(pathname);
+function jelajahCategorySlug(pathname: string): string | null {
+  const match = /^\/jelajah\/([^/]+)\/?$/.exec(pathname);
   if (!match) return null;
   try {
     return decodeURIComponent(match[1]);
@@ -69,13 +69,13 @@ function exploreCategorySlug(pathname: string): string | null {
   }
 }
 
-// A slow or saturated database must not hold every /explore request in the
+// A slow or saturated database must not hold every /jelajah request in the
 // proxy: past this, the page gets the request, as when the lookup throws.
 const LOOKUP_TIMEOUT_MS = 1000;
 
 async function categoryExists(slug: string): Promise<boolean> {
   if (!slug || slug.includes("\0")) return false; // Postgres refuses a NUL
-  if (slug === "all") return true;
+  if (slug === "semua") return true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const { prisma } = await import("@/lib/prisma");
@@ -93,7 +93,7 @@ async function categoryExists(slug: string): Promise<boolean> {
   }
 }
 
-async function answerExploreCategory(req: NextRequest, slug: string) {
+async function answerJelajahCategory(req: NextRequest, slug: string) {
   if (await categoryExists(slug)) return NextResponse.next();
   return NextResponse.rewrite(new URL("/_not-found", req.url), { status: 404 });
 }
@@ -191,9 +191,9 @@ export default function proxy(req: NextRequest, event: NextFetchEvent) {
     if (lead !== "en" && lead !== "id") return notFound(req);
     return answerLocalised(req, event, lead);
   }
-  const slug = exploreCategorySlug(req.nextUrl.pathname);
+  const slug = jelajahCategorySlug(req.nextUrl.pathname);
   if (slug === null) return authProxy(req as NextRequestWithAuth, event);
-  return answerExploreCategory(req, slug);
+  return answerJelajahCategory(req, slug);
 }
 
 export const config = {
@@ -208,8 +208,8 @@ export const config = {
     "/campaign/create/:path*",
     "/admin/:path*",
     "/moderasi/:path*",
-    // Not a guard: see answerExploreCategory.
-    "/explore/:category",
+    // Not a guard: see answerJelajahCategory.
+    "/jelajah/:category",
     // The language prefixes (ADR 0024). Indonesian pages are not matched.
     "/en",
     "/en/:path*",

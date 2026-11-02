@@ -69,7 +69,7 @@ describe('DesktopHeader', () => {
     render(<DesktopHeader user={null} onSearch={vi.fn()} />);
 
     const donasiLink = screen.getByRole('link', { name: 'Donasi' });
-    expect(donasiLink).toHaveAttribute('href', '/explore/all');
+    expect(donasiLink).toHaveAttribute('href', '/jelajah/semua');
 
     const galangDanaLink = screen.getByRole('link', { name: 'Galang Dana' });
     expect(galangDanaLink).toHaveAttribute('href', '/campaign/create');

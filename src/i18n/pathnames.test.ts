@@ -1,17 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { PATHNAME_MAP, pathnames, PLANNED_INDONESIAN_RENAMES } from './pathnames';
+import { PATHNAME_MAP, pathnames, INDONESIAN_RENAMES } from './pathnames';
 
 describe('pathname map (ADR 0024 section 2)', () => {
-  it("keeps today's Indonesian URL on the id side (the Q1 rename comes in a later PR)", () => {
+  it('keeps every Indonesian URL equal to its folder path (the app tree is the Indonesian site)', () => {
     for (const row of PATHNAME_MAP) {
       expect(row.id, row.internal).toBe(row.internal);
     }
   });
 
-  it('records exactly the eleven Indonesian URLs that Q1 will rename', () => {
-    expect(PLANNED_INDONESIAN_RENAMES).toEqual({
+  it('applies exactly the eleven Indonesian renames that Q1 approved, old path -> new path', () => {
+    expect(INDONESIAN_RENAMES).toEqual({
       '/explore/all': '/jelajah/semua',
       '/explore/[category]': '/jelajah/[category]',
       '/campaign/[slug]/donate': '/campaign/[slug]/donasi',
@@ -24,6 +24,14 @@ describe('pathname map (ADR 0024 section 2)', () => {
       '/terms': '/syarat-dan-ketentuan',
       '/privacy': '/kebijakan-privasi',
     });
+  });
+
+  it('makes the new Indonesian path canonical and keeps the old spelling as the English one', () => {
+    for (const [old, renamed] of Object.entries(INDONESIAN_RENAMES)) {
+      expect(Object.keys(pathnames), old).not.toContain(old);
+      const row = PATHNAME_MAP.find((r) => r.internal === renamed);
+      expect(row, renamed).toEqual({ internal: renamed, id: renamed, en: old });
+    }
   });
 
   it('gives the English spellings from the ADR table', () => {
@@ -54,6 +62,15 @@ describe('pathname map (ADR 0024 section 2)', () => {
         existsSync(join(process.cwd(), 'src/app', g, row.internal.slice(1), 'page.tsx')),
       );
       expect(found || reserved.has(row.internal), row.internal).toBe(true);
+    }
+  });
+
+  it('leaves no page folder at an old path', () => {
+    const groups = ['', '(auth)/', '(static)/'];
+    for (const old of Object.keys(INDONESIAN_RENAMES)) {
+      for (const g of groups) {
+        expect(existsSync(join(process.cwd(), 'src/app', g, old.slice(1), 'page.tsx')), old).toBe(false);
+      }
     }
   });
 });

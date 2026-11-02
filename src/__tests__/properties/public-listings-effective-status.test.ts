@@ -18,7 +18,7 @@ import { join } from 'node:path';
  */
 const PUBLIC_LISTINGS: Record<string, 'listableCampaignWhere' | 'sitemapCampaignWhere'> = {
   'src/app/page.tsx': 'listableCampaignWhere',
-  'src/app/explore/[category]/page.tsx': 'listableCampaignWhere',
+  'src/app/jelajah/[category]/page.tsx': 'listableCampaignWhere',
   'src/app/api/campaigns/route.ts': 'listableCampaignWhere',
   'src/app/sitemap.ts': 'sitemapCampaignWhere',
 };
@@ -104,7 +104,7 @@ describe('the catalogue guards that read the database are awaited', () => {
 const CATALOGUE_DECISION_READERS = [
   'src/app/api/campaigns/route.ts',
   'src/app/api/prayers/route.ts',
-  'src/app/explore/[category]/page.tsx',
+  'src/app/jelajah/[category]/page.tsx',
   'src/app/page.tsx',
   'src/components/collecting-entity/AssignCollectingEntityScreen.tsx',
   'src/lib/subject-guard.ts',

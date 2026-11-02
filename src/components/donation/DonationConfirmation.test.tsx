@@ -82,7 +82,7 @@ describe('DonationConfirmation', () => {
   // atasnya." A per-method "Biaya Layanan" added to a "Total" told the donor
   // they would pay amount + fee, which is exactly the addition Gross rules
   // out -- it never reflected what the API actually charged (spot-check:
-  // src/app/campaign/[slug]/donate/page.tsx's own paymentMethods always set
+  // src/app/campaign/[slug]/donasi/page.tsx's own paymentMethods always set
   // fee: 0, with a comment explaining why). The donor is never shown a
   // second, larger number to pay.
   it('never shows a total larger than the donation amount, whatever paymentMethod.fee says', () => {

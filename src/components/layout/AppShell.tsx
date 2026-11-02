@@ -66,7 +66,7 @@ export function AppShell({ children, showLanguageSwitcher = false }: AppShellPro
     : null;
 
   const handleSearch = (query: string) => {
-    router.push(`${pairedLocalePath('/search', locale)}?q=${encodeURIComponent(query)}`);
+    router.push(`${pairedLocalePath('/cari', locale)}?q=${encodeURIComponent(query)}`);
   };
 
   return (

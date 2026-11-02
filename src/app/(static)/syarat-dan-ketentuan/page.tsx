@@ -178,7 +178,7 @@ export default function TermsPage() {
               {SITE_IDENTITY.contactEmail}
             </a>
             . Pengelolaan data pribadi dijelaskan dalam{' '}
-            <Link href="/privacy" className="text-primary hover:underline">Kebijakan Privasi</Link>.
+            <Link href="/kebijakan-privasi" className="text-primary hover:underline">Kebijakan Privasi</Link>.
           </p>
         </section>
       </div>

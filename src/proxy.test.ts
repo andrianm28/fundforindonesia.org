@@ -16,7 +16,7 @@ vi.mock('next-auth/middleware', () => ({
 
 const holder = vi.hoisted(() => ({ categories: new Set<string>(), fail: false, hang: false }));
 
-// The /explore/<category> answer reads the Category table; stand in for it.
+// The /jelajah/<category> answer reads the Category table; stand in for it.
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     category: {
@@ -74,7 +74,7 @@ describe('proxy', () => {
   });
 
   describe('the matcher pins exactly the protected prefixes', () => {
-    it('lists exactly the six guarded prefixes, the one status-only /explore/:category entry and the language prefixes', async () => {
+    it('lists exactly the six guarded prefixes, the one status-only /jelajah/:category entry and the language prefixes', async () => {
       const { config } = await import('./proxy');
       expect(config.matcher).toEqual([
         '/donasi-saya/:path*',
@@ -85,7 +85,7 @@ describe('proxy', () => {
         '/admin/:path*',
         '/moderasi/:path*',
         // Not a guard: answers 404 for an unknown Category (see below).
-        '/explore/:category',
+        '/jelajah/:category',
         // Language prefixes (ADR 0024): see proxy-english.test.ts.
         '/en',
         '/en/:path*',
@@ -133,7 +133,7 @@ describe('proxy', () => {
       expect(withAuthOptions.pages.signIn).toBe('/login');
     });
 
-    it.each(['/', '/login', '/register', '/explore/all/x', '/campaign/abc-123', '/search', '/faq', '/zakat'])(
+    it.each(['/', '/login', '/register', '/jelajah/semua/x', '/campaign/abc-123', '/cari', '/faq', '/zakat'])(
       'a public path like %s never reaches the guard: the matcher does not cover it',
       async (path) => {
         const { config } = await import('./proxy');
@@ -184,7 +184,7 @@ describe('proxy', () => {
     });
   });
 
-  describe('an unknown Category under /explore answers HTTP 404', () => {
+  describe('an unknown Category under /jelajah answers HTTP 404', () => {
     // notFound() in the page runs behind the root loading.tsx, after the
     // document has begun streaming as 200 (rilis-1-benda/96), so the status
     // is decided here, as for the panels above.
@@ -196,7 +196,7 @@ describe('proxy', () => {
       holder.fail = false;
     });
 
-    it.each(['/explore/zakat', '/explore/kategori-ngawur-xyz', '/explore/%E0%A4%A'])(
+    it.each(['/jelajah/zakat', '/jelajah/kategori-ngawur-xyz', '/jelajah/%E0%A4%A'])(
       'answers 404 for %s',
       async (path) => {
         const res = await get(path);
@@ -205,12 +205,12 @@ describe('proxy', () => {
     );
 
     it('rewrites an unknown Category to /_not-found, the page the panels also show', async () => {
-      const res = await get('/explore/zakat');
+      const res = await get('/jelajah/zakat');
       expect(res.headers.get('x-middleware-rewrite')).toBe('http://localhost:3000/_not-found');
     });
 
     it('answers 404 for a slug carrying a NUL, which the database would refuse', async () => {
-      const res = await get('/explore/a%00b');
+      const res = await get('/jelajah/a%00b');
       expect(res.status).toBe(404);
     });
 
@@ -218,7 +218,7 @@ describe('proxy', () => {
       vi.useFakeTimers();
       try {
         holder.hang = true;
-        const pending = get('/explore/kesehatan');
+        const pending = get('/jelajah/kesehatan');
         await vi.advanceTimersByTimeAsync(1500);
         expect((await pending).headers.get('x-middleware-next')).toBe('1');
       } finally {
@@ -228,25 +228,25 @@ describe('proxy', () => {
     });
 
     it('lets a Category that exists through to the page', async () => {
-      const res = await get('/explore/kesehatan');
+      const res = await get('/jelajah/kesehatan');
       expect(res.status).toBe(200);
       expect(res.headers.get('x-middleware-next')).toBe('1');
     });
 
     it('never asks for sign-in: it is a public path', async () => {
-      const res = await get('/explore/zakat');
+      const res = await get('/jelajah/zakat');
       expect(res.headers.get('location')).toBeNull();
     });
 
-    it('leaves /explore/all, a real page of its own, alone', async () => {
+    it('leaves /jelajah/semua, a real page of its own, alone', async () => {
       holder.fail = true;
-      const res = await get('/explore/all');
+      const res = await get('/jelajah/semua');
       expect(res.headers.get('x-middleware-next')).toBe('1');
     });
 
     it('falls through to the page when the lookup fails, which then renders its own 404 or error', async () => {
       holder.fail = true;
-      const res = await get('/explore/kesehatan');
+      const res = await get('/jelajah/kesehatan');
       expect(res.headers.get('x-middleware-next')).toBe('1');
     });
   });

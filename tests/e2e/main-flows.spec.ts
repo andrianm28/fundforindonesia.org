@@ -17,7 +17,7 @@ test.describe('Homepage', () => {
     await expect(tiles).toBeVisible();
     await expect(tiles.getByRole('link', { name: /Donasi/ })).toHaveAttribute(
       'href',
-      '/explore/all'
+      '/jelajah/semua'
     );
     await expect(tiles.getByRole('link', { name: /Galang Dana/ })).toHaveAttribute(
       'href',
@@ -73,7 +73,7 @@ test.describe('Navigation', () => {
 
 test.describe('Search', () => {
   test('should navigate to search results page', async ({ page }) => {
-    await page.goto('/search?q=bencana');
-    await expect(page).toHaveURL(/\/search\?q=bencana/);
+    await page.goto('/cari?q=bencana');
+    await expect(page).toHaveURL(/\/cari\?q=bencana/);
   });
 });

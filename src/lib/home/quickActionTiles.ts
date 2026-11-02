@@ -25,7 +25,7 @@ export type QuickActionTile = QuickActionWorkingTile | QuickActionComingSoonTile
  * that has no page. Zakat is out of scope (2026-10-16).
  */
 export const quickActionTiles: QuickActionTile[] = [
-  { icon: '💰', label: 'Donasi', href: '/explore/all', color: '#E7F2ED' },
+  { icon: '💰', label: 'Donasi', href: '/jelajah/semua', color: '#E7F2ED' },
   { icon: '📢', label: 'Galang Dana', href: '/campaign/create', color: '#FBEAE3' },
   { icon: '🤝', label: 'Kolaborasi CSR', href: '/kolaborasi-csr', color: '#EAF0F8' },
   { icon: '🕌', label: 'Wakaf', href: '/wakaf', color: '#EEF3E4' },

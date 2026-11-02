@@ -13,14 +13,14 @@ vi.mock("@/lib/prisma", () => ({ prisma: { siteSetting: { findMany: async () => 
 // All 8 static pages with their expected heading text
 // headingHtml is the HTML-encoded version that appears in renderToString output
 const STATIC_PAGES = [
-  { path: "/about", heading: "Tentang Kami", headingHtml: "Tentang Kami" },
-  { path: "/careers", heading: "Karir", headingHtml: "Karir" },
-  { path: "/press", heading: "Media", headingHtml: "Media" },
-  { path: "/help", heading: "Help Center", headingHtml: "Help Center" },
+  { path: "/tentang-kami", heading: "Tentang Kami", headingHtml: "Tentang Kami" },
+  { path: "/karir", heading: "Karir", headingHtml: "Karir" },
+  { path: "/media", heading: "Media", headingHtml: "Media" },
+  { path: "/bantuan", heading: "Help Center", headingHtml: "Help Center" },
   { path: "/faq", heading: "FAQ", headingHtml: "FAQ" },
-  { path: "/contact", heading: "Kontak", headingHtml: "Kontak" },
-  { path: "/terms", heading: "Syarat & Ketentuan", headingHtml: "Syarat &amp; Ketentuan" },
-  { path: "/privacy", heading: "Kebijakan Privasi", headingHtml: "Kebijakan Privasi" },
+  { path: "/kontak", heading: "Kontak", headingHtml: "Kontak" },
+  { path: "/syarat-dan-ketentuan", heading: "Syarat & Ketentuan", headingHtml: "Syarat &amp; Ketentuan" },
+  { path: "/kebijakan-privasi", heading: "Kebijakan Privasi", headingHtml: "Kebijakan Privasi" },
 ] as const;
 
 // Arbitrary that picks any of the 8 static pages
@@ -112,22 +112,22 @@ describe("Feature: platform-polish, Property 1: Static Pages Accessibility", () 
 // Helper: dynamically import the page module based on path
 async function importPageModule(path: string): Promise<any> {
   switch (path) {
-    case "/about":
-      return import("@/app/(static)/about/page");
-    case "/careers":
-      return import("@/app/(static)/careers/page");
-    case "/press":
-      return import("@/app/(static)/press/page");
-    case "/help":
-      return import("@/app/(static)/help/page");
+    case "/tentang-kami":
+      return import("@/app/(static)/tentang-kami/page");
+    case "/karir":
+      return import("@/app/(static)/karir/page");
+    case "/media":
+      return import("@/app/(static)/media/page");
+    case "/bantuan":
+      return import("@/app/(static)/bantuan/page");
     case "/faq":
       return import("@/app/(static)/faq/page");
-    case "/contact":
-      return import("@/app/(static)/contact/page");
-    case "/terms":
-      return import("@/app/(static)/terms/page");
-    case "/privacy":
-      return import("@/app/(static)/privacy/page");
+    case "/kontak":
+      return import("@/app/(static)/kontak/page");
+    case "/syarat-dan-ketentuan":
+      return import("@/app/(static)/syarat-dan-ketentuan/page");
+    case "/kebijakan-privasi":
+      return import("@/app/(static)/kebijakan-privasi/page");
     default:
       throw new Error(`Unknown static page path: ${path}`);
   }

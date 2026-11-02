@@ -15,7 +15,7 @@ export function CampaignCTA({ campaignSlug, onShare }: CampaignCTAProps) {
 
   const handleDonate = () => {
     setIsNavigating(true);
-    router.push(`/campaign/${campaignSlug}/donate`);
+    router.push(`/campaign/${campaignSlug}/donasi`);
   };
 
   return (

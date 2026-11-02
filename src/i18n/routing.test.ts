@@ -18,10 +18,24 @@ describe('routing config (ADR 0024 section 2)', () => {
 describe('getPathname', () => {
   it('leaves Indonesian URLs exactly as they are today', () => {
     expect(getPathname({ href: '/', locale: 'id' })).toBe('/');
-    expect(getPathname({ href: '/about', locale: 'id' })).toBe('/about');
-    expect(getPathname({ href: { pathname: '/campaign/[slug]/donate', params: { slug: 'a-1' } }, locale: 'id' })).toBe(
-      '/campaign/a-1/donate',
+    expect(getPathname({ href: '/tentang-kami', locale: 'id' })).toBe('/tentang-kami');
+    expect(getPathname({ href: { pathname: '/campaign/[slug]/donasi', params: { slug: 'a-1' } }, locale: 'id' })).toBe(
+      '/campaign/a-1/donasi',
     );
+  });
+
+  it('gives a renamed page its new Indonesian URL and its old spelling in English (Q1)', () => {
+    expect(getPathname({ href: { pathname: '/jelajah/[category]', params: { category: 'kesehatan' } }, locale: 'id' })).toBe(
+      '/jelajah/kesehatan',
+    );
+    expect(getPathname({ href: { pathname: '/jelajah/[category]', params: { category: 'kesehatan' } }, locale: 'en' })).toBe(
+      '/en/explore/kesehatan',
+    );
+    expect(getPathname({ href: '/syarat-dan-ketentuan', locale: 'en' })).toBe('/en/terms');
+    expect(alternatesFor({ pathname: '/cari' }, 'id').languages).toMatchObject({
+      id: expect.stringMatching(/\/cari$/),
+      en: expect.stringMatching(/\/en\/search$/),
+    });
   });
 
   it('prefixes English with /en and uses the English spelling', () => {

@@ -44,7 +44,7 @@ describe('robots.txt', () => {
 
   it('does not block pages the sitemap lists', () => {
     const blocked = disallowed();
-    for (const path of ['/', '/explore/all', '/zakat', '/login', '/register', '/campaign/some-slug']) {
+    for (const path of ['/', '/jelajah/semua', '/explore/all', '/zakat', '/login', '/register', '/campaign/some-slug']) {
       expect(blocked.some((b) => path.startsWith(b))).toBe(false);
     }
   });

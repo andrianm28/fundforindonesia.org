@@ -37,7 +37,7 @@ test.describe('QRIS donation flow', () => {
       });
     });
 
-    await page.goto(`/campaign/${ACTIVE_SLUG}/donate`);
+    await page.goto(`/campaign/${ACTIVE_SLUG}/donasi`);
 
     // Step 1: a preset amount, straight from the seeded campaign's page.
     await expect(page.getByText('E2E Air Bersih Desa').first()).toBeVisible();
@@ -80,7 +80,7 @@ test.describe('QRIS donation flow', () => {
       });
     });
 
-    await page.goto(`/campaign/${ACTIVE_SLUG}/donate`);
+    await page.goto(`/campaign/${ACTIVE_SLUG}/donasi`);
     await page.getByRole('button', { name: 'Donasi Rp50.000' }).click();
     await page.getByRole('button', { name: 'Lanjutkan' }).click();
     await page.getByRole('button', { name: /QRIS/ }).click();

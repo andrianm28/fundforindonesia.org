@@ -1,9 +1,9 @@
 import { render, cleanup } from '@testing-library/react';
 import { describe, it, expect, afterEach } from 'vitest';
-import TermsPage from './terms/page';
-import PrivacyPage from './privacy/page';
+import TermsPage from './syarat-dan-ketentuan/page';
+import PrivacyPage from './kebijakan-privasi/page';
 import { FAQAccordion } from './faq/faq-accordion';
-import HelpPage from './help/page';
+import HelpPage from './bantuan/page';
 import { DEFAULT_SITE_SETTINGS } from '@/lib/site-settings';
 import { SITE_IDENTITY } from '@/lib/site-identity';
 

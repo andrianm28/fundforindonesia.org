@@ -49,7 +49,7 @@ describe('CampaignCTA', () => {
   it('navigates to donate page when "Donasi sekarang" is clicked', () => {
     render(<CampaignCTA {...defaultProps} />);
     fireEvent.click(screen.getByText('Donasi sekarang'));
-    expect(mockPush).toHaveBeenCalledWith('/campaign/bantu-korban-bencana/donate');
+    expect(mockPush).toHaveBeenCalledWith('/campaign/bantu-korban-bencana/donasi');
   });
 
   it('calls onShare when share button is clicked', () => {

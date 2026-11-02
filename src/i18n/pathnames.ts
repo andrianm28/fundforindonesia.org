@@ -3,31 +3,32 @@
  * next.config.mjs, robots and the proxy can read it too.
  *
  * `internal` is the folder path under src/app. `id` is the Indonesian URL and
- * `en` the English one (after /en). In this first i18n PR `id` is still
- * today's URL for every row; the eleven renames the owner approved (Q1) are
- * recorded in PLANNED_INDONESIAN_RENAMES and land, with their 308 redirects,
- * in a later PR.
+ * `en` the English one (after /en). `id` always equals `internal`. The eleven
+ * Indonesian renames the owner approved (Q1) are applied: the folder and the
+ * Indonesian URL are the new name, the English URL keeps the old spelling, and
+ * the old Indonesian URL 308s to the new one (next.config.mjs, redirects;
+ * INDONESIAN_RENAMES below is the list both are checked against).
  */
 export const pathnames = {
   '/': '/',
-  '/explore/all': '/explore/all',
-  '/explore/[category]': '/explore/[category]',
+  '/jelajah/semua': { id: '/jelajah/semua', en: '/explore/all' },
+  '/jelajah/[category]': { id: '/jelajah/[category]', en: '/explore/[category]' },
   '/campaign/[slug]': '/campaign/[slug]',
-  '/campaign/[slug]/donate': '/campaign/[slug]/donate',
+  '/campaign/[slug]/donasi': { id: '/campaign/[slug]/donasi', en: '/campaign/[slug]/donate' },
   '/program': '/program',
   '/program/[slug]': '/program/[slug]',
   '/volunteer-trip': '/volunteer-trip',
   '/volunteer-trip/[slug]': '/volunteer-trip/[slug]',
   '/impact': '/impact',
   '/faq': '/faq',
-  '/search': '/search',
-  '/about': '/about',
-  '/careers': '/careers',
-  '/press': '/press',
-  '/help': '/help',
-  '/contact': '/contact',
-  '/terms': '/terms',
-  '/privacy': '/privacy',
+  '/cari': { id: '/cari', en: '/search' },
+  '/tentang-kami': { id: '/tentang-kami', en: '/about' },
+  '/karir': { id: '/karir', en: '/careers' },
+  '/media': { id: '/media', en: '/press' },
+  '/bantuan': { id: '/bantuan', en: '/help' },
+  '/kontak': { id: '/kontak', en: '/contact' },
+  '/syarat-dan-ketentuan': { id: '/syarat-dan-ketentuan', en: '/terms' },
+  '/kebijakan-privasi': { id: '/kebijakan-privasi', en: '/privacy' },
   '/login': '/login',
   '/register': '/register',
   '/reset-password': '/reset-password',
@@ -53,8 +54,8 @@ export const PATHNAME_MAP: readonly PathnameRow[] = Object.entries(pathnames).ma
   typeof v === 'string' ? { internal, id: v, en: v } : { internal, ...v },
 );
 
-/** Q1: internal path -> the Indonesian URL it takes when the rename PR lands. */
-export const PLANNED_INDONESIAN_RENAMES: Readonly<Record<string, string>> = {
+/** Q1: the old Indonesian path (now the English one) -> the Indonesian URL that replaced it. */
+export const INDONESIAN_RENAMES: Readonly<Record<string, string>> = {
   '/explore/all': '/jelajah/semua',
   '/explore/[category]': '/jelajah/[category]',
   '/campaign/[slug]/donate': '/campaign/[slug]/donasi',

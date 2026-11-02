@@ -22,7 +22,7 @@ describe('quickActionTiles', () => {
     const donasi = quickActionTiles.find((tile) => tile.label === 'Donasi');
     const galangDana = quickActionTiles.find((tile) => tile.label === 'Galang Dana');
 
-    expect(donasi).toMatchObject({ href: '/explore/all' });
+    expect(donasi).toMatchObject({ href: '/jelajah/semua' });
     expect(donasi?.comingSoon).toBeFalsy();
     expect(galangDana).toMatchObject({ href: '/campaign/create' });
     expect(galangDana?.comingSoon).toBeFalsy();

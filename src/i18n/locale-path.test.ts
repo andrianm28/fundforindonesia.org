@@ -27,7 +27,8 @@ describe('pairedLocalePath (language switcher target)', () => {
   it('carries dynamic segments across', () => {
     expect(pairedLocalePath('/sertifikat/AB12', 'en')).toBe('/en/certificate/AB12');
     expect(pairedLocalePath('/en/certificate/AB12', 'id')).toBe('/sertifikat/AB12');
-    expect(pairedLocalePath('/campaign/halo-x1/donate', 'en')).toBe('/en/campaign/halo-x1/donate');
+    expect(pairedLocalePath('/campaign/halo-x1/donasi', 'en')).toBe('/en/campaign/halo-x1/donate');
+    expect(pairedLocalePath('/en/campaign/halo-x1/donate', 'id')).toBe('/campaign/halo-x1/donasi');
   });
 
   it('has no counterpart for the back-office or for a path outside the map', () => {

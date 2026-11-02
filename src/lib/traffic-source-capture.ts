@@ -3,7 +3,7 @@ import { sanitizeTrafficSource } from './traffic-source';
 /**
  * Traffic Source capture (ticket 24): the `src` param a shared link carries
  * is only ever on the URL of the Campaign page a visitor first lands on --
- * by the time they reach the separate `/donate` route it is gone. This
+ * by the time they reach the separate `/donasi` route it is gone. This
  * bridges that gap client-side: captured once per Campaign into
  * sessionStorage (private to this tab, gone when it closes, never sent
  * anywhere by itself), read back when the Donation is submitted.

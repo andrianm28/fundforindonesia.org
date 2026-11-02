@@ -17,7 +17,7 @@ import { join } from "node:path";
  * (`src/app/admin/...`) never existed -- the routes live under
  * `src/app/api/admin/...`. Three page files
  * (`src/app/campaign/[slug]/page.tsx`,
- * `src/app/campaign/[slug]/donate/page.tsx`,
+ * `src/app/campaign/[slug]/donasi/page.tsx`,
  * `src/app/moderasi/campaigns/[id]/page.tsx`) contain no hierarchy check
  * at all (public pages).
  *

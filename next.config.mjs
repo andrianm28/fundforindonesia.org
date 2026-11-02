@@ -47,6 +47,30 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Q1 (ADR 0024): eleven Indonesian URLs were renamed. The old URL answers
+  // 308 (permanent: true) to the new one, keeping the dynamic segment and the
+  // query string. This is Indonesian only and does not depend on the English
+  // gate. Mirrors INDONESIAN_RENAMES in src/i18n/pathnames.ts (redirects.test.ts
+  // keeps the two equal). /en/explore/all and the other English spellings are
+  // not matched here: the proxy maps those to the renamed pages. Redirects run
+  // before the proxy, so /explore/<unknown> becomes /jelajah/<unknown>, where
+  // the proxy answers 404. /explore/all comes first so the static page is not
+  // read as a Category.
+  async redirects() {
+    return [
+      { source: '/explore/all', destination: '/jelajah/semua', permanent: true },
+      { source: '/explore/:category', destination: '/jelajah/:category', permanent: true },
+      { source: '/campaign/:slug/donate', destination: '/campaign/:slug/donasi', permanent: true },
+      { source: '/search', destination: '/cari', permanent: true },
+      { source: '/about', destination: '/tentang-kami', permanent: true },
+      { source: '/careers', destination: '/karir', permanent: true },
+      { source: '/press', destination: '/media', permanent: true },
+      { source: '/help', destination: '/bantuan', permanent: true },
+      { source: '/contact', destination: '/kontak', permanent: true },
+      { source: '/terms', destination: '/syarat-dan-ketentuan', permanent: true },
+      { source: '/privacy', destination: '/kebijakan-privasi', permanent: true },
+    ];
+  },
   // The email-confirmation link carries its token in the query string and the
   // page needs no session. Sending no Referer keeps that token from leaking to
   // anything the page loads or links to (prd-compliance 23).
