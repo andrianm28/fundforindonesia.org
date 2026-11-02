@@ -27,23 +27,13 @@ vi.mock("@/lib/auth", () => ({
 
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
-import { POST as register } from "@/app/api/auth/register/route";
+import { hashPassword } from "@/lib/password-hash";
 import { PATCH as changePassword } from "@/app/api/user/password/route";
 import { PASSWORD_HASH_COST, isHashAtCurrentCost } from "@/lib/password-hash-cost";
 
 const mockedUserFindUnique = vi.mocked(prisma.user.findUnique);
-const mockedUserFindFirst = vi.mocked(prisma.user.findFirst);
-const mockedUserCreate = vi.mocked(prisma.user.create);
 const mockedUserUpdate = vi.mocked(prisma.user.update);
 const mockedGetServerSession = vi.mocked(getServerSession);
-
-function post(url: string, body: unknown): NextRequest {
-  return new NextRequest(`http://localhost:3000${url}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
 
 function patch(url: string, body: unknown): NextRequest {
   return new NextRequest(`http://localhost:3000${url}`, {
@@ -53,24 +43,14 @@ function patch(url: string, body: unknown): NextRequest {
   });
 }
 
-/** The hash the register route would have stored for this account. */
+/**
+ * The hash an existing password account holds. Registration stores no password
+ * any more (sign-in is by mailed code, ADR 0026), so the account's hash is made
+ * the way every password write makes it: the app's own hashPassword at the one
+ * factor.
+ */
 async function registerHashFor(password: string): Promise<string> {
-  // No account on that address yet: the register route's duplicate check reads
-  // it through the lookup HMAC (ADR 0012).
-  mockedUserFindFirst.mockResolvedValue(null);
-  mockedUserCreate.mockResolvedValue({ id: "user-1" } as never);
-
-  const response = await register(
-    post("/api/auth/register", {
-      name: "Test",
-      email: "test@test.com",
-      password,
-    })
-  );
-
-  expect(response.status).toBe(201);
-  return vi.mocked(prisma.user.create).mock.calls[0][0].data
-    .password as string;
+  return hashPassword(password, PASSWORD_HASH_COST);
 }
 
 describe("the single password cost factor", () => {
@@ -81,7 +61,7 @@ describe("the single password cost factor", () => {
   // The defect, stated as a property of the stored hash rather than as a
   // number: rotating a password may leave the account exactly as strong as it
   // was, never weaker. Before the fix this compared 10 against 12 and failed.
-  it("a password change does not lower the cost factor the account registered with", async () => {
+  it("a password change does not lower the cost factor the account already had", async () => {
     const registeredHash = await registerHashFor("original-password-123");
 
     mockedGetServerSession.mockResolvedValue({
@@ -112,7 +92,7 @@ describe("the single password cost factor", () => {
     );
   }, 30_000);
 
-  it("registration and a password change both hash at that one factor", async () => {
+  it("an existing password and a password change both hash at that one factor", async () => {
     const registeredHash = await registerHashFor("original-password-123");
 
     mockedGetServerSession.mockResolvedValue({
