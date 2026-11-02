@@ -48,6 +48,8 @@ function makeTx(options: { ledgerRows?: LedgerRow[]; bankAccount?: Record<string
   return {
     tx: {
       bankAccount: { findUnique: bankAccountFindUnique },
+      // Nobody in these tests is on an organisation's team (ticket E4).
+      organisationMember: { findUnique: vi.fn().mockResolvedValue(null) },
       payout: { create: payoutCreate },
       payment: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       refund: { findMany: vi.fn().mockResolvedValue([]) },

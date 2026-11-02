@@ -6,6 +6,7 @@ import type {
   PrismaClient,
 } from "@/generated/prisma/client";
 import { sealBankAccountNumber, SELECT_BANK_ACCOUNT_NUMBER } from "./contact-fields";
+import { requireNotTeamMember } from "./organisation-member-guard";
 import {
   BankAccountAlreadyVerifiedError,
   BankAccountDecisionInvalidError,
@@ -97,12 +98,14 @@ async function loadOwnedBankAccount(tx: Tx, accountId: string, ownerId: string):
  * 0018). Any signed-in user may do this: `Assignment` holds only VERIFIER and
  * ADMIN, so ownership is the rule, not an assignment (ticket 16). The number
  * is sealed (./contact-fields.ts, ADR 0012) and never returned or logged in
- * plaintext.
+ * plaintext. A person on a Partner Organisation's team may not (ticket E4,
+ * `requireNotTeamMember`); the owner commands below ask the same.
  */
 export async function createBankAccount(
-  prisma: Pick<PrismaClient, "bankAccount">,
+  prisma: Pick<PrismaClient, "bankAccount" | "organisationMember">,
   params: { ownerId: string; bankCode: unknown; accountName: unknown; accountNumber: unknown }
 ): Promise<BankAccount> {
+  await requireNotTeamMember(prisma, params.ownerId);
   const bankCode = cleanText(params.bankCode, "Kode bank", "bankCode", 50);
   const accountName = cleanText(params.accountName, "Nama pemilik rekening", "accountName");
   const accountNumber = cleanText(params.accountNumber, "Nomor rekening", "accountNumber", 64);
@@ -128,6 +131,7 @@ export async function submitBankAccountVerification(
   params: { accountId: string; ownerId: string; now?: Date }
 ): Promise<BankAccountVerificationRequest> {
   const now = params.now ?? new Date();
+  await requireNotTeamMember(prisma, params.ownerId);
   return prisma.$transaction(async (tx) => {
     const account = await loadOwnedBankAccount(tx, params.accountId, params.ownerId);
     if (account.verifiedAt !== null) throw new BankAccountAlreadyVerifiedError();
@@ -175,6 +179,7 @@ export async function withdrawBankAccountVerification(
   params: { accountId: string; ownerId: string; now?: Date }
 ): Promise<BankAccountVerificationRequest> {
   const now = params.now ?? new Date();
+  await requireNotTeamMember(prisma, params.ownerId);
   return prisma.$transaction(async (tx) => {
     const account = await loadOwnedBankAccount(tx, params.accountId, params.ownerId);
     const pending = await tx.bankAccountVerificationRequest.findFirst({
@@ -201,6 +206,7 @@ export async function deleteBankAccount(
   prisma: PrismaClient,
   params: { accountId: string; ownerId: string }
 ): Promise<void> {
+  await requireNotTeamMember(prisma, params.ownerId);
   await prisma.$transaction(async (tx) => {
     const account = await loadOwnedBankAccount(tx, params.accountId, params.ownerId);
     const requestCount = await tx.bankAccountVerificationRequest.count({

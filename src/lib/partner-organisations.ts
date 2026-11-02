@@ -77,6 +77,19 @@ export class FundraiserAlreadyLinkedError extends PartnerOrganisationError {
   }
 }
 
+/**
+ * The account sits on an organisation's team (ticket E4). A team member holds
+ * no money access, and the account an organisation acts through holds all of
+ * it, so one account cannot be both; remove it from the team first.
+ */
+export class FundraiserOnOrganisationTeamError extends PartnerOrganisationError {
+  readonly code = "FUNDRAISER_ON_ORGANISATION_TEAM";
+  constructor() {
+    super("Akun ini anggota tim sebuah organisasi dan tidak dapat menjadi akun Fundraiser organisasi. Keluarkan dulu dari tim.");
+    this.name = "FundraiserOnOrganisationTeamError";
+  }
+}
+
 /** The Verifier's own account acts, or would act, for this organisation. */
 export class OwnPartnerOrganisationError extends PartnerOrganisationError {
   readonly code = "OWN_PARTNER_ORGANISATION_CONFLICT";
@@ -263,6 +276,9 @@ export async function registerPartnerOrganisation(
       if (account.id === params.actorId) throw new OwnPartnerOrganisationError();
       if (await tx.partnerOrganisation.findUnique({ where: { fundraiserId: account.id } })) {
         throw new FundraiserAlreadyLinkedError();
+      }
+      if (await tx.organisationMember.findUnique({ where: { userId: account.id }, select: { id: true } })) {
+        throw new FundraiserOnOrganisationTeamError();
       }
       const organisation = await tx.partnerOrganisation.create({
         data: {

@@ -51,6 +51,7 @@ export type LifecycleErrorCode =
   | "KIND_AUTHORISATION_REQUIRED";
 
 export type MoneyErrorCode =
+  | "TEAM_MEMBER_NO_MONEY_ACCESS"
   | "DEMO_CAMPAIGN"
   | "BANK_ACCOUNT_NOT_ELIGIBLE"
   | "INSUFFICIENT_BALANCE"
@@ -164,6 +165,7 @@ export type PartnerOrganisationErrorCode =
   | "FUNDRAISING_PERMIT_NOT_FOUND"
   | "KIND_AUTHORISATION_NOT_FOUND"
   | "FUNDRAISER_ALREADY_LINKED"
+  | "FUNDRAISER_ON_ORGANISATION_TEAM"
   | "OWN_PARTNER_ORGANISATION_CONFLICT";
 
 /**
@@ -288,6 +290,9 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   INDIVIDUAL_FUNDRAISER_KIND_NOT_ALLOWED: 422,
   KIND_AUTHORISATION_REQUIRED: 422,
   OWN_TRIP_CONFLICT: 403,
+  // Ticket E4 (owner decision 2026-10-04): a person on an organisation's team
+  // holds no Payout and no Bank Account. A policy refusal no resend changes.
+  TEAM_MEMBER_NO_MONEY_ACCESS: 403,
   DEMO_CAMPAIGN: 403,
   BANK_ACCOUNT_NOT_ELIGIBLE: 403,
   INSUFFICIENT_BALANCE: 400,
@@ -458,6 +463,7 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   FUNDRAISING_PERMIT_NOT_FOUND: 404,
   KIND_AUTHORISATION_NOT_FOUND: 404,
   FUNDRAISER_ALREADY_LINKED: 409,
+  FUNDRAISER_ON_ORGANISATION_TEAM: 409,
   OWN_PARTNER_ORGANISATION_CONFLICT: 403,
   // A malformed or missing field the owner can fix by resending, like
   // PARTNER_ORGANISATION_INVALID.
