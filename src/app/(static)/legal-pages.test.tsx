@@ -18,14 +18,22 @@ describe('legal pages name the operator (ADR 0009, audit L2/L8)', () => {
   it.each([
     ['Syarat & Ketentuan', TermsPage],
     ['Kebijakan Privasi', PrivacyPage],
-  ])('%s names PT Jaya Korpora Prima, carries the new date, and no placeholder contact', (_name, Page) => {
+  ])('%s names Fund for Indonesia as penyelenggara, not the operating company, and no placeholder contact', (_name, Page) => {
     const body = text(<Page />);
-    expect(body).toContain('PT Jaya Korpora Prima');
+    expect(body).toMatch(/Fund for Indonesia\s+\("Kami"\)/);
+    expect(body).not.toContain('Jaya Korpora');
     expect(body).not.toContain('PT Fund for Indonesia');
-    expect(body).toContain('Terakhir diperbarui: 16 Oktober 2026');
+    expect(body).toContain('Terakhir diperbarui: 2 November 2026');
     expect(body).not.toContain('1234-5678');
     expect(body).not.toContain('Sudirman');
     expect(body).not.toMatch(/fundforindonesia\.id\b/);
+  });
+
+  it.each([
+    ['Syarat & Ketentuan', TermsPage],
+    ['Kebijakan Privasi', PrivacyPage],
+  ])('%s no longer says the platform is "dioperasikan oleh" a company (owner 2026-11-02)', (_name, Page) => {
+    expect(text(<Page />)).not.toMatch(/dioperasikan/);
   });
 
   it('Privacy names the controller and the privacy mailbox from the single constant', () => {
