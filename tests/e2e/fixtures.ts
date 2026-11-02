@@ -51,3 +51,14 @@ export const EDIT_FUNDRAISER_EMAIL = 'e2e-edit-fundraiser@example.org';
 // and write an update, then read it on the public page.
 export const KABAR_SLUG = 'e2e-kabar-aktif';
 export const KABAR_FUNDRAISER_EMAIL = 'e2e-kabar-fundraiser@example.org';
+
+// Tim CSR accounts (ticket E9/01 tahap 2): two companies, each with a member
+// whose email is verified and on the company's domain, and one Inquiry each.
+// A person who registers during the spec on Alpha's domain joins Alpha but,
+// with an unverified address, must still see nothing of it.
+export const CSR_PROGRAM_SLUG = 'e2e-program-csr';
+export const CSR_ALPHA_DOMAIN = 'e2e-alpha.example';
+export const CSR_ALPHA_EMAIL = `csr@${CSR_ALPHA_DOMAIN}`;
+export const CSR_ALPHA_NEEDS = 'Kebutuhan rahasia Alpha E2E';
+export const CSR_BETA_EMAIL = 'csr@e2e-beta.example';
+export const CSR_BETA_NEEDS = 'Kebutuhan rahasia Beta E2E';

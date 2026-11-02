@@ -143,16 +143,20 @@ describe('Program money isolation (ticket 01)', () => {
  * an Inquiry is not a Campaign, so it must reach none of it either.
  */
 describe('PartnershipInquiry money isolation (ticket 05)', () => {
-  it('points at exactly one Program, plus the log of its own follow-up steps', () => {
+  it('points at one Program and, optionally, one Company, plus the log of its own follow-up steps', () => {
     const inquiry = uncommented(blockOf('model', 'PartnershipInquiry'));
 
     expect(inquiry).toMatch(/programId\s+String/);
     // The only @relation is the one naming the Program. Ticket 06 added a
     // second, relation-shaped field -- the Inquiry's own follow-up trail --
     // which is a list of its own log, not a foreign key to anything else, and
-    // so carries no @relation of its own.
-    expect(inquiry.match(/@relation/g)).toHaveLength(1);
+    // so carries no @relation of its own. E9/01 tahap 2 added the second
+    // @relation: the optional Company a Tim CSR member filed it for. A Company
+    // is a name and an email domain, never money.
+    expect(inquiry.match(/@relation/g)).toHaveLength(2);
     expect(inquiry).toMatch(/program\s+Program\s+@relation/);
+    expect(inquiry).toMatch(/company\s+Company\?\s+@relation/);
+    expect(uncommented(blockOf('model', 'Company'))).not.toMatch(/amount|balance|kind|escrow|ledger/i);
     expect(inquiry).toMatch(/statusChanges\s+PartnershipInquiryStatusChange\[\]/);
   });
 
