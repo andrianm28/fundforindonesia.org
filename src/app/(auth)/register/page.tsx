@@ -5,11 +5,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { CodeLoginForm } from '../login/CodeLoginForm';
+import { safeCallbackUrl } from '@/lib/safe-callback-url';
 
 interface FormErrors {
   name?: string;
   email?: string;
-  password?: string;
   whatsapp?: string;
   acceptTerms?: string;
   acceptPrivacy?: string;
@@ -19,11 +20,13 @@ export default function RegisterPage() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [profileType, setProfileType] = useState<'INDIVIDUAL' | 'ORGANISATION'>('INDIVIDUAL');
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
+  // Set once the account exists: the page then asks for the code mailed to it.
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+  const [codeSendFailed, setCodeSendFailed] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [serverError, setServerError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -36,10 +39,6 @@ export default function RegisterPage() {
       case 'email':
         if (!value.trim()) return 'Email harus diisi';
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Format email tidak valid';
-        return undefined;
-      case 'password':
-        if (!value) return 'Password harus diisi';
-        if (value.length < 8) return 'Password minimal 8 karakter';
         return undefined;
       default:
         return undefined;
@@ -55,7 +54,6 @@ export default function RegisterPage() {
     const newErrors: FormErrors = {
       name: validateField('name', name),
       email: validateField('email', email),
-      password: validateField('password', password),
       acceptTerms: acceptTerms ? undefined : 'Anda harus menyetujui Syarat Layanan',
       acceptPrivacy: acceptPrivacy ? undefined : 'Anda harus menyetujui Kebijakan Privasi',
     };
@@ -75,7 +73,7 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, whatsapp, profileType, acceptTerms, acceptPrivacy }),
+        body: JSON.stringify({ name, email: email.trim(), whatsapp, profileType, acceptTerms, acceptPrivacy }),
       });
 
       const data = await res.json();
@@ -98,8 +96,18 @@ export default function RegisterPage() {
         return;
       }
 
-      // Success - redirect to login with success message
-      router.push('/login?registered=true');
+      // Signed in by the first code, which also proves the address. A failed
+      // send is not fatal: the code step offers "Kirim ulang kode".
+      const sent = await fetch('/api/auth/login-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+      })
+        .then((r) => r.ok)
+        .catch(() => false);
+      setCodeSendFailed(!sent);
+      setRegisteredEmail(email.trim());
+      setIsLoading(false);
     } catch {
       setServerError('Terjadi kesalahan jaringan, silakan coba lagi');
       setIsLoading(false);
@@ -119,6 +127,18 @@ export default function RegisterPage() {
 
         {/* Form Card */}
         <div className="bg-white rounded-b-lg shadow-card px-6 py-6">
+          {registeredEmail ? (
+            <>
+              <p className="mb-4 text-sm text-text">Akun berhasil dibuat. Masukkan kode yang kami kirim ke email Anda untuk masuk.</p>
+              <CodeLoginForm
+                sendTo={registeredEmail}
+                sendFailed={codeSendFailed}
+                onSignedIn={() =>
+                  router.push(safeCallbackUrl(new URLSearchParams(window.location.search).get('callbackUrl')))
+                }
+              />
+            </>
+          ) : (
           <form onSubmit={handleSubmit} noValidate>
             {/* Server Error */}
             {serverError && (
@@ -210,24 +230,6 @@ export default function RegisterPage() {
               )}
             </fieldset>
 
-            {/* Password Field */}
-            <div className="mb-6">
-              <Input
-                label="Password"
-                name="password"
-                type="password"
-                placeholder="Minimal 8 karakter"
-                value={password}
-                onChange={(v) => {
-                  setPassword(v);
-                  if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
-                }}
-                onBlur={() => handleBlur('password', password)}
-                error={errors.password}
-                helperText="Minimal 8 karakter"
-                required
-              />
-            </div>
 
             {/* Required consent */}
             <div className="mb-6 space-y-2">
@@ -267,6 +269,7 @@ export default function RegisterPage() {
               {errors.acceptPrivacy && <p className="text-xs text-danger">{errors.acceptPrivacy}</p>}
             </div>
 
+
             {/* Submit Button */}
             <Button
               type="submit"
@@ -278,7 +281,7 @@ export default function RegisterPage() {
               Daftar
             </Button>
           </form>
-
+          )}
 
           {/* Login Link */}
           <p className="text-center text-sm text-text-secondary mt-5">

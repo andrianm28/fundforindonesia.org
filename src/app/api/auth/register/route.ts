@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { passwordField } from '@/lib/password-schema';
-import { hashPassword } from '@/lib/password-hash';
-import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import {
   lookupUserEmail,
   readUserEmail,
@@ -16,10 +13,14 @@ import { prisma } from '@/lib/prisma';
 import { clientAddress } from '@/lib/client-ip';
 import { guardRoute } from '@/lib/rate-limit-guard';
 
+// No password (ADR 0026). One typed here would be typed by whoever typed the
+// address, who may not own it: a password set before the owner ever proved
+// the address is a key the owner never saw (pre-registration takeover). The
+// account is entered only through a code mailed to the address; an unknown
+// `password` key is stripped by zod.
 const registerSchema = z.object({
   name: z.string().min(1, 'Nama harus diisi'),
   email: z.string().email('Format email tidak valid'),
-  password: passwordField,
   /** Opsional (PKS 3.1). Divalidasi dan dinormalkan di bawah, disimpan terenkripsi. */
   whatsapp: z.string().max(30, 'Nomor WhatsApp terlalu panjang').nullish(),
   profileType: z.enum(['INDIVIDUAL', 'ORGANISATION']).default('INDIVIDUAL'),
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, email, password, whatsapp, profileType } = result.data;
+    const { name, email, whatsapp, profileType } = result.data;
 
     const phone = normaliseWhatsapp(whatsapp);
     if (!phone.ok) {
@@ -89,8 +90,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Hash password
-    const hashedPassword = await hashPassword(password, PASSWORD_HASH_COST);
 
     // Sealed at the call site rather than by the client hook: the plaintext
     // column is gone, so there is nothing for the hook to add it to. The hook
@@ -98,7 +97,7 @@ export async function POST(request: NextRequest) {
     const user = await prisma.user.create({
       data: {
         name,
-        password: hashedPassword,
+        password: null,
         profileType,
         ...sealUserEmail(email),
         ...sealUserPhone(phone.value),

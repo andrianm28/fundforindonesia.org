@@ -32,7 +32,6 @@ vi.mock('@/lib/auth', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { hashPassword } from '@/lib/password-hash';
-import { PASSWORD_HASH_COST } from '@/lib/password-hash-cost';
 import { sealUserEmail } from '@/lib/contact-fields';
 import { getServerSession } from '@/lib/auth';
 import { POST as registerPOST } from '@/app/api/auth/register/route';
@@ -68,7 +67,7 @@ describe('Auth & Notifications Integration Tests', () => {
   // ─── Registration Tests ───────────────────────────────────────────────
 
   describe('Registration: POST /api/auth/register', () => {
-    it('should create user with hashed password on successful registration', async () => {
+    it('should create a user with no password on successful registration', async () => {
       mockUserFindFirst.mockResolvedValue(null);
       mockUserCreate.mockResolvedValue({
         id: 'user-1',
@@ -96,16 +95,12 @@ describe('Auth & Notifications Integration Tests', () => {
       expect(body.user.email).toBe('john@example.com');
       expect(body.user.name).toBe('John Doe');
 
-      // Verify bcrypt was used to hash the password
-      expect(mockBcryptHash).toHaveBeenCalledWith('securepass123', PASSWORD_HASH_COST);
-
-      // Verify user was created with hashed password (not plain text), and
-      // with the address sealed rather than in the clear (ADR 0012).
+      // A password sent at registration is ignored (ADR 0026): the account is
+      // entered only through a code mailed to the address. The address is
+      // sealed rather than in the clear (ADR 0012).
+      expect(mockBcryptHash).not.toHaveBeenCalled();
       const { data } = mockUserCreate.mock.calls[0]![0]!;
-      expect(data).toMatchObject({
-        name: 'John Doe',
-        password: '$2a$12$hashed_password_value',
-      });
+      expect(data).toMatchObject({ name: 'John Doe', password: null });
       expect(data).not.toHaveProperty('email');
       expect(data.emailHmac).toBeDefined();
     });
@@ -150,7 +145,8 @@ describe('Auth & Notifications Integration Tests', () => {
       expect(body1.errors).toBeDefined();
       expect(body1.errors.name).toBeDefined();
       expect(body1.errors.email).toBeDefined();
-      expect(body1.errors.password).toBeDefined();
+      // Password is optional now: sign-in is by mailed code (ADR 0026).
+      expect(body1.errors.password).toBeUndefined();
 
       // Missing name only
       const req2 = createRequest('/api/auth/register', {
@@ -178,18 +174,6 @@ describe('Auth & Notifications Integration Tests', () => {
       expect(res3.status).toBe(400);
       expect(body3.errors.email).toBe('Format email tidak valid');
 
-      // Password too short
-      const req4 = createRequest('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Test', email: 'test@example.com', password: '123' }),
-      });
-
-      const res4 = await registerPOST(req4);
-      const body4 = await res4.json();
-
-      expect(res4.status).toBe(400);
-      expect(body4.errors.password).toBe('Password minimal 8 karakter');
     });
   });
 

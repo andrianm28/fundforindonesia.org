@@ -19,7 +19,6 @@ vi.mock('@/lib/donations', async () => {
   const actual = await vi.importActual<typeof import('@/lib/donations')>('@/lib/donations');
   return { ...actual, donationsEnabled: () => true, sandboxInProductionReason: () => null };
 });
-vi.mock('@/lib/password-hash', () => ({ hashPassword: vi.fn().mockResolvedValue('hashed') }));
 vi.mock('fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs/promises')>();
   const mkdir = vi.fn().mockResolvedValue(undefined);

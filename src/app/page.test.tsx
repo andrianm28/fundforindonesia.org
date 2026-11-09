@@ -20,7 +20,7 @@ const holder = vi.hoisted(() => ({
   prayerFindMany: vi.fn(async (_args: { where: Record<string, unknown> }) => []),
   // Admin curation (PKS pemenuhan 15): the marks, as the tables hold them.
   features: [] as Array<{ kind: string; campaignId: string; position: number }>,
-  highlightFindMany: vi.fn(async (_args: { where: Record<string, unknown> }) => [] as unknown[]),
+  highlightFindMany: vi.fn<(args: { where: Record<string, unknown> }) => Promise<unknown[]>>(async () => []),
   categories: [] as Array<{ slug: string; name: string; order: number }>,
 }));
 

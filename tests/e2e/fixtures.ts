@@ -16,13 +16,10 @@ export const RECEIPT_AMOUNT = 75_000;
 export const ACTIVE_CAMPAIGN_ID = 'e2e-campaign-aktif';
 
 // Two operators who are not that Campaign's Fundraiser, one per assignment.
-// There is no passwordless session fixture, so the spec signs in through
-// NextAuth's own credentials endpoint. Their password is never written in the
-// repository: the CI job draws a random one into E2E_OPERATOR_PASSWORD before
-// seeding, and the seed and the spec both read it from there (locally, export
-// any value of 16 characters or more before running either). An Admin with a
-// published password would be a standing risk the day the seed met a database
-// other than the job's throwaway one; seed-e2e.ts also refuses to run unless
+// Specs sign them in by mailed code (signInByCode, tests/e2e/operator-sign-in.ts);
+// there is no password sign-in. The seed still stores a random hash in the
+// legacy `password` column, drawn from E2E_OPERATOR_PASSWORD, so no known value
+// is ever published; seed-e2e.ts also refuses to run unless
 // E2E_THROWAWAY_DATABASE=1 and the database is on this machine.
 export const VERIFIER_EMAIL = 'e2e-verifier@example.org';
 export const ADMIN_EMAIL = 'e2e-admin@example.org';
@@ -54,11 +51,14 @@ export const KABAR_FUNDRAISER_EMAIL = 'e2e-kabar-fundraiser@example.org';
 
 // Tim CSR accounts (ticket E9/01 tahap 2): two companies, each with a member
 // whose email is verified and on the company's domain, and one Inquiry each.
-// A person who registers during the spec on Alpha's domain joins Alpha but,
-// with an unverified address, must still see nothing of it.
+// A person with an account on Alpha's domain whose address is unverified
+// (seeded: registration takes no password any more and a code sign-in proves
+// the address, ADR 0026, so such an account now comes from before that or
+// from Google) must still see nothing of Alpha.
 export const CSR_PROGRAM_SLUG = 'e2e-program-csr';
 export const CSR_ALPHA_DOMAIN = 'e2e-alpha.example';
 export const CSR_ALPHA_EMAIL = `csr@${CSR_ALPHA_DOMAIN}`;
 export const CSR_ALPHA_NEEDS = 'Kebutuhan rahasia Alpha E2E';
 export const CSR_BETA_EMAIL = 'csr@e2e-beta.example';
 export const CSR_BETA_NEEDS = 'Kebutuhan rahasia Beta E2E';
+export const CSR_ALPHA_UNVERIFIED_EMAIL = `belum-verifikasi@${CSR_ALPHA_DOMAIN}`;

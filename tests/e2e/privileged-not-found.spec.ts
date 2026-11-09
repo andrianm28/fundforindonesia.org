@@ -14,7 +14,7 @@ import { DRAFT_SLUG } from './fixtures';
  *
  * The privileged answer is stubbed at the network edge: these specs were
  * written before the e2e seed had operators who can sign in (flag-dismiss.spec.ts
- * now signs in through the credentials endpoint). The stub stands in for the
+ * now signs in by mailed code). The stub stands in for the
  * API that route unit tests cover, while the browser side — the fetch, the
  * status banner, the missing donate CTA — is all real code.
  *

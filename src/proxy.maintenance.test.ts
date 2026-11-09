@@ -144,9 +144,9 @@ describe('maintenance mode on write routes', () => {
     expect((await run('/api/donations')).status).toBe(200);
   });
 
-  it('keeps /api/auth/register and password reset open during maintenance (intent, see runbook insiden)', async () => {
+  it('keeps /api/auth/register and the login code open during maintenance (intent, see runbook insiden)', async () => {
     maintenance(true);
-    for (const path of ['/api/auth/register', '/api/auth/password-reset', '/api/auth/password-reset/confirm']) {
+    for (const path of ['/api/auth/register', '/api/auth/login-code']) {
       expect((await run(path)).status).toBe(200);
     }
   });

@@ -66,10 +66,11 @@ export default function HelpPage() {
           </h2>
           <div className="space-y-3 pl-5">
             <div className="p-4 bg-bg-secondary rounded-md">
-              <h3 className="font-medium text-text">Bagaimana cara mengubah password?</h3>
+              <h3 className="font-medium text-text">Bagaimana cara masuk ke akun saya?</h3>
               <p className="text-sm text-text-secondary mt-1">
-                Buka halaman Pengaturan di menu akun Anda, lalu masukkan password saat ini dan
-                password baru yang diinginkan pada bagian &quot;Ubah Password&quot;.
+                Masukkan alamat email Anda di halaman Masuk, lalu minta kode. Kode dikirim ke
+                email Anda dan dipakai untuk masuk; tidak ada password yang perlu diingat. Anda
+                juga bisa masuk dengan Google.
               </p>
             </div>
             <div className="p-4 bg-bg-secondary rounded-md">

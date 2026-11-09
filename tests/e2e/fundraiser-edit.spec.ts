@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
-import { EDIT_FUNDRAISER_EMAIL, EDIT_SLUG, STRANGER_EMAIL, operatorPassword } from './fixtures';
+import { EDIT_FUNDRAISER_EMAIL, EDIT_SLUG, STRANGER_EMAIL } from './fixtures';
+import { signInByCode } from './operator-sign-in';
 
 /**
  * Tickets 72, 65: a Fundraiser opens their Draft on the manage screen, edits
@@ -13,11 +14,7 @@ import { EDIT_FUNDRAISER_EMAIL, EDIT_SLUG, STRANGER_EMAIL, operatorPassword } fr
 async function signedInPage(browser: Browser, email: string): Promise<{ page: Page; close: () => Promise<void> }> {
   const context = await browser.newContext();
   const page = await context.newPage();
-  const { csrfToken } = await (await page.request.get('/api/auth/csrf')).json();
-  const signedIn = await page.request.post('/api/auth/callback/credentials', {
-    form: { csrfToken, email, password: operatorPassword(), json: 'true' },
-  });
-  expect(signedIn.ok()).toBe(true);
+  await signInByCode(page, email);
   return { page, close: () => context.close() };
 }
 

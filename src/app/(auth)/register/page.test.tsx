@@ -14,7 +14,6 @@ afterEach(() => {
 function fill() {
   fireEvent.change(screen.getByLabelText(/Nama Lengkap/), { target: { value: 'Budi' } });
   fireEvent.change(screen.getByLabelText(/^Email/), { target: { value: 'budi@example.com' } });
-  fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: '12345678' } });
 }
 
 describe('RegisterPage consent and claims (audit L3, L7; PKS 3.1)', () => {
