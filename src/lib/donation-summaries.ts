@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@/generated/prisma/client';
+import { countedPaymentWhere } from '@/lib/money/counted-payment';
 
 /**
  * Totals shown to the people who gave and to the people who raise (PKS 3.8
@@ -9,6 +10,13 @@ import type { PrismaClient } from '@/generated/prisma/client';
 type Db = Pick<PrismaClient, 'donation' | 'campaign'>;
 
 const SETTLED = 'confirmed';
+
+/**
+ * The Donation must have a Payment that counts (counted-payment.ts):
+ * the same rule for the Donor's view and the Fundraiser's, so the two never
+ * disagree about a sandbox Donation.
+ */
+const COUNTED_PAID_PAYMENT = { some: countedPaymentWhere() };
 
 export type SupportedCampaign = {
   slug: string;
@@ -26,7 +34,7 @@ export type SupportedCampaign = {
 export async function supportedCampaignsForDonor(db: Db, donorId: string): Promise<SupportedCampaign[]> {
   const groups = await db.donation.groupBy({
     by: ['campaignId'],
-    where: { donorId, paymentStatus: SETTLED },
+    where: { donorId, paymentStatus: SETTLED, payments: COUNTED_PAID_PAYMENT },
     _sum: { amount: true },
     _count: { _all: true },
   });
@@ -78,7 +86,7 @@ export async function incomeSummaryForFundraiser(db: Db, creatorId: string): Pro
     where: {
       campaignId: { in: campaigns.map((c) => c.id) },
       paymentStatus: SETTLED,
-      NOT: { payments: { some: { sandbox: true } } },
+      payments: COUNTED_PAID_PAYMENT,
     },
     _sum: { amount: true },
     _count: { _all: true },

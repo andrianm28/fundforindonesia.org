@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { verifyPaymentResultToken } from '@/lib/money/payment-result-token';
 import { describePaymentResult, transactionDetails, type PaymentResultState } from '@/lib/money/payment-result';
-import { campaignRetryRefusal, RETRY_CAMPAIGN_SELECT } from '@/lib/donation-retry';
+import { campaignRetryRefusalWithSwitch, RETRY_CAMPAIGN_SELECT } from '@/lib/donation-retry';
 import { formatRupiah } from '@/lib/utils/currency';
 import { PaymentResultActions } from './PaymentResultActions';
 
@@ -109,7 +109,7 @@ export default async function PaymentResultPage({ params, searchParams }: Paymen
   const copy = COPY[result.state];
   // Offered only when the retry route would accept it: the attempt is over AND
   // the Campaign can still take a new charge.
-  const canRetry = result.canRetry && campaignRetryRefusal(donation.campaign, now) === null;
+  const canRetry = result.canRetry && (await campaignRetryRefusalWithSwitch(donation.campaign, now)) === null;
   const transaction = transactionDetails(donation.payments);
   const cancelled = batal === '1' && result.state !== 'berhasil' && result.state !== 'dikembalikan';
 

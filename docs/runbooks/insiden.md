@@ -27,7 +27,8 @@ Mengosongkan `PAYMENT_PROVIDER` **bukan** kill switch: pilihan provider Admin di
    - Semua halaman publik menampilkan banner dengan pesan itu.
    - Semua `POST`, `PUT`, `PATCH`, dan `DELETE` ke `/api/*` dari selain Admin dijawab 503 dengan pesan itu dan header `Retry-After`. Membaca (`GET`) tidak ditolak.
 3. Yang **tetap jalan**: `/admin` dan `/api/admin` (jalan untuk mematikan mode ini), webhook, `/api/health` (dipoll skrip deploy), login/logout, pekerjaan terjadwal (`/api/internal`), dan laporan error browser. Admin yang sedang masuk tetap bisa menulis.
-4. Bila pembacaan setelan gagal (database tak terjangkau), mode ini tidak menolak apa pun: gagal terbuka, supaya setelan yang tak terbaca tidak mematikan API. Saklar donasi sebaliknya gagal **tertutup**.
+4. Bila pembacaan setelan gagal (database tak terjangkau), mode ini tidak menolak apa pun: gagal terbuka, supaya setelan yang tak terbaca tidak mematikan API. Saklar donasi sebaliknya gagal **tertutup**. Kegagalan ini tidak diam: proxy menulis satu baris JSON ke log, `{"event":"maintenance_lookup_failed","reason":"error"|"timeout","policy":"open"}`. Bila Admin menyalakan mode ini tetapi tulisan masih masuk, cari event itu di log aplikasi. Batas waktu pembacaan 1 detik.
+5. **`/api/auth` tetap terbuka** selama pemeliharaan, termasuk pendaftaran (`/api/auth/register`) dan reset kata sandi, karena seluruh awalan itu dikecualikan (perlu supaya login dan logout jalan). Akibatnya akun baru masih bisa dibuat saat situs "berhenti menerima tulisan". Ini disengaja dan dijaga tes `src/proxy.maintenance.test.ts`; bila owner ingin menutupnya, pengecualiannya harus dipersempit di `MAINTENANCE_EXEMPT` (`src/proxy.ts`).
 
 ## Jejak perubahan
 

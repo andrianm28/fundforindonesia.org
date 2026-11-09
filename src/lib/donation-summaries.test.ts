@@ -16,14 +16,14 @@ function fakeDb(rows: Row[], campaigns: Array<{ id: string; slug: string; title:
       donorId?: string;
       paymentStatus?: string;
       campaignId?: { in: string[] };
-      NOT?: unknown;
+      payments?: { some: { sandbox: boolean } };
     };
     const matched = rows.filter(
       (r) =>
         (w.donorId === undefined || r.donorId === w.donorId) &&
         (w.paymentStatus === undefined || r.paymentStatus === w.paymentStatus) &&
         (w.campaignId === undefined || w.campaignId.in.includes(r.campaignId)) &&
-        (w.NOT === undefined || !r.sandboxOnly),
+        (w.payments === undefined || !!r.sandboxOnly === w.payments.some.sandbox),
     );
     const byCampaign = new Map<string, { sum: number; count: number }>();
     for (const r of matched) {
@@ -65,6 +65,20 @@ describe('supportedCampaignsForDonor', () => {
     expect(result).toEqual([
       { slug: 'sekolah', title: 'Sekolah', coverImage: '', totalAmount: 150_000, donationCount: 2 },
       { slug: 'lain', title: 'Lain', coverImage: '', totalAmount: 25_000, donationCount: 1 },
+    ]);
+  });
+
+  it('leaves out a Donation whose Payment is sandbox, like the Fundraiser view', async () => {
+    const db = fakeDb(
+      [
+        { campaignId: 'c1', donorId: 'd1', paymentStatus: 'confirmed', amount: 100_000 },
+        { campaignId: 'c1', donorId: 'd1', paymentStatus: 'confirmed', amount: 3_000_000, sandboxOnly: true },
+        { campaignId: 'c2', donorId: 'd1', paymentStatus: 'confirmed', amount: 9_000_000, sandboxOnly: true },
+      ],
+      campaigns,
+    );
+    expect(await supportedCampaignsForDonor(db, 'd1')).toEqual([
+      { slug: 'sekolah', title: 'Sekolah', coverImage: '', totalAmount: 100_000, donationCount: 1 },
     ]);
   });
 

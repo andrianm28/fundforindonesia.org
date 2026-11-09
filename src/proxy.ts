@@ -116,19 +116,40 @@ function isMaintenanceExempt(pathname: string): boolean {
   return MAINTENANCE_EXEMPT.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-/** The maintenance message while it is on, or null (also when it cannot be read: fail open). */
+// Fail-open stays, but silently is not an option: an operator who turned
+// maintenance on and sees writes still arriving must be able to find why.
+// Class of failure only, no address or message (same style as rate_limit_unavailable).
+function warnMaintenanceUnreadable(reason: "error" | "timeout", error?: unknown) {
+  console.warn(
+    JSON.stringify({
+      event: "maintenance_lookup_failed",
+      reason,
+      policy: "open",
+      ...(error === undefined ? {} : { error: error instanceof Error ? error.name : "UnknownError" }),
+    }),
+  );
+}
+
+const MAINTENANCE_TIMED_OUT = Symbol("maintenance-timed-out");
+
+/** The maintenance message while it is on, or null (also when it cannot be read: fail open, with a warning). */
 async function maintenanceMessage(): Promise<string | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const { prisma } = await import("@/lib/prisma");
-    const timeout = new Promise<null>((resolve) => {
-      timer = setTimeout(() => resolve(null), LOOKUP_TIMEOUT_MS);
+    const timeout = new Promise<typeof MAINTENANCE_TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => resolve(MAINTENANCE_TIMED_OUT), LOOKUP_TIMEOUT_MS);
     });
     const operations = await Promise.race([resolveOperations(prisma), timeout]);
+    if (operations === MAINTENANCE_TIMED_OUT) {
+      warnMaintenanceUnreadable("timeout");
+      return null;
+    }
     if (!operations || !operations.maintenance.on) return null;
     return operations.maintenance.message || MAINTENANCE_DEFAULT_MESSAGE;
-  } catch {
+  } catch (error) {
     // Maintenance is a convenience for the operator: an unreadable row must not take the API down.
+    warnMaintenanceUnreadable("error", error);
     return null;
   } finally {
     clearTimeout(timer);

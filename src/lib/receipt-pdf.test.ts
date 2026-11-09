@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildReceiptPdf } from './receipt-pdf';
+import { buildReceiptPdf, wrapReceiptText } from './receipt-pdf';
 
 const base = {
   campaignTitle: 'Bantu Sekolah Yatim',
@@ -52,5 +52,55 @@ describe('buildReceiptPdf', () => {
   it('adds the beta notice for a sandbox Payment', () => {
     const pdf = buildReceiptPdf({ ...base, betaSandbox: true }).toString('latin1');
     expect(pdf).toContain('beta');
+  });
+});
+
+describe('wrapReceiptText', () => {
+  it('keeps a short value on one line', () => {
+    expect(wrapReceiptText('Bantu Sekolah')).toEqual(['Bantu Sekolah']);
+  });
+
+  it('wraps on word boundaries at 70 characters', () => {
+    const title = Array.from({ length: 30 }, (_, i) => `kata${i}`).join(' ');
+    const lines = wrapReceiptText(title);
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(70);
+    expect(lines.join(' ')).toBe(title);
+  });
+
+  it('hard-breaks a word longer than a line', () => {
+    const lines = wrapReceiptText('a'.repeat(150));
+    expect(lines).toEqual(['a'.repeat(70), 'a'.repeat(70), 'a'.repeat(10)]);
+  });
+
+  it('caps the line count with an ellipsis', () => {
+    const lines = wrapReceiptText('kata '.repeat(200), 70, 3);
+    expect(lines).toHaveLength(3);
+    expect(lines[2].endsWith('...')).toBe(true);
+    expect(lines[2].length).toBeLessThanOrEqual(70);
+  });
+
+  it('turns control characters into spaces', () => {
+    expect(wrapReceiptText('a\u0000b\tc\u007Fd\u001Fe\r\nf')).toEqual(['a b c d e f']);
+  });
+});
+
+describe('buildReceiptPdf long values', () => {
+  it('prints a long Campaign title on several lines, all inside the page and the xref intact', () => {
+    const title = Array.from({ length: 40 }, (_, i) => `judul${i}`).join(' ');
+    const pdf = buildReceiptPdf({ ...base, campaignTitle: title }).toString('latin1');
+    const stream = /stream\n([\s\S]*?)\nendstream/.exec(pdf)![1];
+    const texts = [...stream.matchAll(/^\((.*)\) Tj$/gm)].map((m) => m[1]);
+    expect(texts.every((t) => t.length <= 70)).toBe(true);
+    expect(texts.filter((t) => t.startsWith('judul')).length).toBeGreaterThan(1);
+    const declared = Number(/\/Length (\d+)/.exec(pdf)![1]);
+    expect(stream.length).toBe(declared);
+  });
+
+  it('writes no control character from a value into the content stream', () => {
+    const pdf = buildReceiptPdf({ ...base, donorName: 'Si\u0000ri\u0007\tX\u007F' }).toString('latin1');
+    const stream = /stream\n([\s\S]*?)\nendstream/.exec(pdf)![1];
+    expect(stream).toContain('(Si ri X) Tj');
+    expect(/[\u0000-\u0009\u000B-\u001F\u007F]/.test(stream)).toBe(false);
   });
 });

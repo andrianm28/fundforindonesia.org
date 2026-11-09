@@ -133,6 +133,51 @@ describe('maintenance mode on write routes', () => {
     expect((await run('/api/donations')).status).toBe(200);
   });
 
+  it('keeps /api/auth/register and password reset open during maintenance (intent, see runbook insiden)', async () => {
+    maintenance(true);
+    for (const path of ['/api/auth/register', '/api/auth/password-reset', '/api/auth/password-reset/confirm']) {
+      expect((await run(path)).status).toBe(200);
+    }
+  });
+
+  describe('fail-open logging', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    beforeEach(() => warn.mockClear());
+
+    it('logs a structured warning when the lookup throws', async () => {
+      maintenance(true);
+      holder.fail = true;
+      expect((await run('/api/donations')).status).toBe(200);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(warn.mock.calls[0][0] as string)).toEqual({
+        event: 'maintenance_lookup_failed',
+        reason: 'error',
+        policy: 'open',
+        error: 'Error',
+      });
+    });
+
+    it('logs a structured warning when the lookup times out', async () => {
+      vi.useFakeTimers();
+      try {
+        maintenance(true);
+        holder.hang = true;
+        const pending = run('/api/donations');
+        await vi.advanceTimersByTimeAsync(1500);
+        expect((await pending).status).toBe(200);
+        expect(JSON.parse(warn.mock.calls[0][0] as string)).toMatchObject({ event: 'maintenance_lookup_failed', reason: 'timeout' });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stays quiet when the switch is read fine', async () => {
+      maintenance(true);
+      await run('/api/donations');
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
   it('runs on the API routes only through the matcher', () => {
     expect(unstable_doesMiddlewareMatch({ config, url: 'http://localhost:3000/api/donations' })).toBe(true);
     expect(unstable_doesMiddlewareMatch({ config, url: 'http://localhost:3000/' })).toBe(false);

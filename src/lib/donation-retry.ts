@@ -82,6 +82,22 @@ export function campaignRetryRefusal(campaign: RetryCampaign, now: Date): { stat
   return null;
 }
 
+/**
+ * {@link campaignRetryRefusal} plus the Admin's donation switch, for a reader
+ * outside the retry route (the payment result page): it must not offer a
+ * "coba bayar ulang" button the route would answer with 503. Fails closed like
+ * the route (donationsSwitchedOff treats an unreadable switch as off).
+ */
+export async function campaignRetryRefusalWithSwitch(
+  campaign: RetryCampaign,
+  now: Date,
+): Promise<{ status: number; error: string } | null> {
+  const refusal = campaignRetryRefusal(campaign, now);
+  if (refusal) return refusal;
+  if (await donationsSwitchedOff(prisma)) return { status: 503, error: DONATIONS_DISABLED_MESSAGE };
+  return null;
+}
+
 /** The Campaign fields {@link campaignRetryRefusal} reads. */
 export const RETRY_CAMPAIGN_SELECT = {
   id: true,

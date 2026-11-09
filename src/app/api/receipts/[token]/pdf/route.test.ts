@@ -1,8 +1,12 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 vi.mock('@/lib/prisma', () => ({ prisma: { receipt: { findUnique: vi.fn() } } }));
 
+vi.mock('@/lib/rate-limit-guard', () => ({ guardRoute: vi.fn() }));
+
 import { prisma } from '@/lib/prisma';
+import { NextResponse } from 'next/server';
+import { guardRoute } from '@/lib/rate-limit-guard';
 import { GET } from './route';
 
 const findUnique = prisma.receipt.findUnique as unknown as ReturnType<typeof vi.fn>;
@@ -26,6 +30,11 @@ function receipt(donation: Record<string, unknown> = {}) {
 
 const call = (token: string) => GET(new Request('http://x'), { params: Promise.resolve({ token }) });
 
+const guard = vi.mocked(guardRoute);
+
+beforeEach(() => {
+  guard.mockResolvedValue(null);
+});
 afterEach(() => vi.clearAllMocks());
 
 describe('GET /api/receipts/[token]/pdf', () => {
@@ -41,6 +50,20 @@ describe('GET /api/receipts/[token]/pdf', () => {
     expect(body.startsWith('%PDF-')).toBe(true);
     expect(body).toContain('Bantu Sekolah Yatim');
     expect(body).toContain('Sari');
+  });
+
+  it('returns the rate limiter refusal untouched, without reading the Receipt', async () => {
+    guard.mockResolvedValue(NextResponse.json({ error: 'x' }, { status: 429, headers: { 'Retry-After': '120' } }));
+    const res = await call('tok-1');
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('120');
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+
+  it('counts per address under the receipt-pdf scope and fails open', async () => {
+    findUnique.mockResolvedValue(receipt());
+    await call('tok-1');
+    expect(guard.mock.calls[0][0]).toMatchObject({ scope: 'receipt-pdf', onUnavailable: 'open' });
   });
 
   it('answers 404 for an unknown token', async () => {

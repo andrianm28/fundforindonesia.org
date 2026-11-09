@@ -1,15 +1,34 @@
 import { prisma } from '@/lib/prisma';
+import { clientAddress } from '@/lib/client-ip';
+import { guardRoute } from '@/lib/rate-limit-guard';
 import { receiptNeedsBetaNotice } from '@/lib/money/counted-payment';
 import { buildReceiptPdf } from '@/lib/receipt-pdf';
 import { formatRupiah } from '@/lib/utils/currency';
 import { formatIndonesianDate } from '@/lib/utils/date';
+
+const RECEIPT_PDF_LIMIT = 60;
+const RECEIPT_PDF_WINDOW_SECONDS = 60 * 60;
 
 /**
  * The Receipt as a PDF download (PKS 3.8). Gated exactly like the print page
  * it is offered from: by the token alone (a Guest Donor has no session), and
  * it shows what that page shows, so an anonymised Donor stays anonymous.
  */
-export async function GET(_request: Request, { params }: { params: Promise<{ token: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
+  // Public and unauthenticated, so capped per address. Fail-open: a limiter
+  // outage must not stop a Donor downloading their own Receipt.
+  const refused = await guardRoute(
+    {
+      scope: 'receipt-pdf',
+      subject: clientAddress(request.headers),
+      limit: RECEIPT_PDF_LIMIT,
+      windowSeconds: RECEIPT_PDF_WINDOW_SECONDS,
+      onUnavailable: 'open',
+    },
+    { limited: 'Terlalu banyak permintaan unduh bukti donasi. Coba lagi nanti.' },
+  );
+  if (refused) return refused;
+
   const { token } = await params;
 
   const receipt = await prisma.receipt.findUnique({
