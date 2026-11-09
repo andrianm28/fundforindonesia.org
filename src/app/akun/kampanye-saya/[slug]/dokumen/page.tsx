@@ -41,7 +41,7 @@ export default async function CampaignDocumentsPage({ params }: PageProps) {
   }
 
   const [items, documents] = await Promise.all([
-    documentChecklistItems(prisma, campaign.kind),
+    documentChecklistItems(prisma, campaign.kind, campaign.creatorId),
     campaignDocuments(prisma, campaign.id),
   ]);
   const uploadable = DOCUMENT_UPLOADABLE_STATUSES.includes(campaign.lifecycleStatus);

@@ -6,6 +6,7 @@ import { hasAssignment } from "./assignment";
 import { sniffImageType } from "./uploads";
 import { DOCUMENT_UPLOADABLE_STATUSES } from "./document-uploadable-statuses";
 import { requireFieldKeys } from "./contact-fields";
+import { organisationOf } from "./collecting-entity-guard";
 import { DocumentIntegrityError, isSealedDocument, openDocumentBytes, sealDocumentBytes } from "./document-encryption";
 
 export { DOCUMENT_UPLOADABLE_STATUSES };
@@ -196,10 +197,23 @@ export async function partnerOrganisationDocuments(
   });
 }
 
-/** The active checklist items of a Kind that need a document: what an upload form offers. */
-export async function documentChecklistItems(prisma: PrismaClient, kind: Kind) {
+/**
+ * The active checklist items of a Kind that need a document: what an upload
+ * form offers. Papers are uploaded ahead of a SUBMISSION, so only items asked
+ * on one, and only those for this Fundraiser's applicant type (pks-pemenuhan/08).
+ */
+export async function documentChecklistItems(prisma: PrismaClient, kind: Kind, creatorId: string) {
+  const applicant = (await organisationOf(prisma, creatorId)) ? "ORGANISATION" : "INDIVIDUAL";
   return prisma.verificationChecklistItem.findMany({
-    where: { active: true, requiresDocument: true, OR: [{ kind: null }, { kind }] },
+    where: {
+      active: true,
+      requiresDocument: true,
+      AND: [
+        { OR: [{ kind: null }, { kind }] },
+        { OR: [{ applicant: null }, { applicant }] },
+        { requestKinds: { has: "SUBMISSION" } },
+      ],
+    },
     orderBy: { position: "asc" },
     select: { id: true, label: true, required: true },
   });

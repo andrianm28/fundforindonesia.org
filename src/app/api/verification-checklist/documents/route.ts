@@ -20,6 +20,6 @@ export async function GET(request: NextRequest) {
   if (!kind || !(KINDS as readonly string[]).includes(kind)) {
     return NextResponse.json({ error: 'Kind tidak dikenal.' }, { status: 400 });
   }
-  const items = await documentChecklistItems(prisma, kind as CampaignKind);
+  const items = await documentChecklistItems(prisma, kind as CampaignKind, session.user.id);
   return NextResponse.json({ items });
 }
