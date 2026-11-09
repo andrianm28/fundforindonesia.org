@@ -6,7 +6,7 @@
 
 Owner meminta seluruh kewajiban PKS (kontrak pengembangan dengan YIEM, Release 1) dipenuhi sebelum serah terima. Analisa pasal demi pasal ada di file proyek `riset/analisa-kepatuhan-pks-2026-11-09.md` (bukan di repo; teks kontrak memuat data pribadi para pihak dan tidak boleh di-commit). Spec ini hanya mencatat celah yang bisa ditutup di kode repo ini, dengan nomor pasal sebagai rujukan.
 
-Modul yang kontrak kelaskan BERSYARAT (zakat, CSR pipeline 8 status, donasi rutin, Aamiin anti-ganda + beranda kurasi, kotak masuk) **tidak** ada di sini: owner sedang memutuskan untuk menyatakannya tertulis sebagai Release 2 (kontrak Pasal 10 ayat 7–8).
+Modul yang kontrak kelaskan BERSYARAT (zakat, CSR pipeline 8 status, donasi rutin, Aamiin anti-ganda + beranda kurasi, kotak masuk) **ikut dikerjakan**: owner memutuskan 2026-11-09 lewat kartu keputusan ("Kerjakan semua modul Bersyarat"). Tiket 15–19. Zakat dibangun di balik penanda fitur yang default mati (Pasal 12 ayat 2).
 
 ## Prinsip
 
@@ -33,3 +33,8 @@ Modul yang kontrak kelaskan BERSYARAT (zakat, CSR pipeline 8 status, donasi ruti
 | 12 | Penyaluran: minta revisi, dokumen pendukung, catatan | 4.5 | INTI | ya |
 | 13 | Dokumentasi serah terima: README, runbook insiden, panduan admin per modul | 19 | INTI | tidak |
 | 14 | Enkripsi berkas dokumen privat saat disimpan | 7(1), 8(1), 10(4) | WAJIB | tidak |
+| 15 | Aamiin anti-ganda + beranda kurasi manual | 3.7(5)-(6) | BERSYARAT | ya |
+| 16 | Kotak masuk: notifikasi status pembayaran | 3.10 | BERSYARAT | tidak |
+| 17 | Modul kolaborasi CSR lengkap | 3.6 | BERSYARAT | ya |
+| 18 | Donasi rutin lewat payment link per siklus | 4.7 | BERSYARAT | ya |
+| 19 | Modul zakat di balik penanda fitur | 3.5, 12(2) | BERSYARAT | ya |
