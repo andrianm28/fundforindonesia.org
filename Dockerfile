@@ -104,6 +104,9 @@ COPY package-lock.json /tmp/package-lock.json
 RUN versions="$(node -e 'const p = require("/tmp/package-lock.json").packages; console.log(["prisma", "dotenv"].map((n) => n + "@" + p["node_modules/" + n].version).join(" "))')" \
     && npm install --no-save --no-package-lock --no-audit --no-fund $versions \
     && npm cache clean --force \
+    && apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+              /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
     && rm /tmp/package-lock.json
 
 # --chown for the same reason the runner chowns public/: COPY keeps the build
@@ -135,7 +138,7 @@ CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
 # version is exact, not whatever is latest at build time; bump it here.
 FROM node:24.22.0-alpine AS sharp
 WORKDIR /opt/sharp
-ARG SHARP_VERSION="0.35.4"
+ARG SHARP_VERSION="0.35.5"
 RUN npm install --no-save --no-package-lock --no-audit --no-fund sharp@$SHARP_VERSION \
     && npm cache clean --force
 
@@ -147,6 +150,13 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+
+# Alpine packages patched since the base image was cut (musl, zlib, ...), and
+# no npm, npx or corepack: the server runs `node server.js` only, and npm's own
+# bundled modules carried fixable HIGH advisories that Trivy (cd.yml) blocks.
+RUN apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+              /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs
@@ -162,5 +172,10 @@ ENV NEXT_SHARP_PATH=/opt/sharp/node_modules/sharp
 USER nextjs
 
 EXPOSE 3000
+
+# The commit this image was built from, answered by /api/version (the deploy
+# gate reads it from staging). Last, so a new commit invalidates no layer.
+ARG APP_REVISION=""
+ENV APP_REVISION=$APP_REVISION
 
 CMD ["node", "server.js"]

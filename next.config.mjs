@@ -28,11 +28,17 @@ const TOKEN_PAGE_HEADERS = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  // `next dev` otherwise appends a generated block to AGENTS.md/CLAUDE.md on
+  // every start (scripts/dev-thread.sh runs it in agent threads). Those files
+  // are the owner's curated rules; keep them hand-written.
+  agentRules: false,
   // No X-Powered-By: Next.js header; it only tells a scanner what the stack is.
   poweredByHeader: false,
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // Type errors fail the build: no `typescript.ignoreBuildErrors` here. The
+  // build checks tsconfig.build.json, the app's own code without tests: the
+  // image's build context has no tests/ (.dockerignore), so test files cannot
+  // type-check there. CI's tsc ratchet (baseline 0) checks everything.
+  typescript: { tsconfigPath: 'tsconfig.build.json' },
   // Native addon (ADR 0019): keep it out of the webpack bundle so Node loads the
   // prebuilt .node binary at runtime; Next's standalone trace still copies it.
   serverExternalPackages: ['@node-rs/bcrypt'],

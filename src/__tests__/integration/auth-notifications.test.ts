@@ -54,7 +54,7 @@ const mockNotificationCreateMany = prisma.notification.createMany as unknown as 
 const mockDonationFindMany = prisma.donation.findMany as unknown as Mock;
 const mockBcryptHash = hashPassword as unknown as Mock;
 
-function createRequest(url: string, options?: RequestInit): NextRequest {
+function createRequest(url: string, options?: ConstructorParameters<typeof NextRequest>[1]): NextRequest {
   return new NextRequest(`http://localhost:3000${url}`, options);
 }
 

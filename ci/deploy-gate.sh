@@ -8,8 +8,8 @@
 # and refuses unless all of this holds:
 #
 #   1. the SHA is a full 40-hex commit on main;
-#   2. CI (ci.yml) passed on it, on a push to main, with all four of its jobs
-#      green: test, build, migrations, ratchet;
+#   2. CI (ci.yml) passed on it, on a push to main, with all five of its
+#      gating jobs green: test, build, migrations, ratchet, e2e;
 #   3. GHCR holds cd.yml's two images for it, :<sha> and :<sha>-migrate;
 #   4. each image's buildx provenance (the SLSA v1 attestation stored next to
 #      it) describes that very image, built from <commit-sha> of this
@@ -91,10 +91,13 @@ ci_run="$(gh api "repos/$repo/actions/workflows/ci.yml/runs?head_sha=$sha&branch
 # jobs a deploy depends on having finished green. Each of them is matched on its
 # own `conclusion`, so a job that was skipped or cancelled is refused here even
 # though a run containing only such jobs still reads as successful. e2e is
-# deliberately not in the list (see ci.yml).
+# in the list since 2026-11-09: before, it gated only through branch
+# protection, which a later change to the protection rules could drop
+# silently. `audit` is not: a new advisory can turn it red on an unchanged
+# commit, and that must not block a rollback to it.
 green="$(gh api "repos/$repo/actions/runs/$ci_run/jobs" | jq -r '.jobs[] | select(.conclusion == "success") | .name')" ||
   refuse "could not read the jobs of CI run $ci_run"
-for job in test build migrations ratchet; do
+for job in test build migrations ratchet e2e; do
   grep -qx "$job" <<< "$green" || refuse "CI run $ci_run on $sha has no green \`$job\` job"
 done
 

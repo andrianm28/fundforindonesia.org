@@ -145,7 +145,7 @@ jobs:
     services:
       # A throwaway database, only for the smoke run of the built images.
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16.15-alpine
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
@@ -203,6 +203,14 @@ jobs:
             echo "::notice::main has moved on to $head; pushing :$SHA without moving :latest"
           fi
 
+      # Plain sha256, the value ops/deploy.sh computes on the host. (GitHub's
+      # hashFiles() hashes differently, so it is not used.)
+      - name: Hash the host's ops files
+        id: ops
+        run: |
+          echo "deploy-sh=$(sha256sum ops/deploy.sh | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "compose-prod=$(sha256sum docker-compose.prod.yml | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Image tags and OCI labels
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -214,8 +222,12 @@ jobs:
           # The default revision label is github.sha, which on workflow_run is
           # main's head rather than the tested commit. (`context: git` would
           # read the checkout, but refuses a detached HEAD.)
+          # The sha256 of the two ops files the owner copies to the host by
+          # hand: ops/deploy.sh refuses a new release whose host copies differ.
           labels: |
             org.opencontainers.image.revision=${{ env.SHA }}
+            org.fundforindonesia.ops.deploy-sh.sha256=${{ steps.ops.outputs.deploy-sh }}
+            org.fundforindonesia.ops.compose-prod.sha256=${{ steps.ops.outputs.compose-prod }}
 
       # Build both targets into the local Docker engine first, so they can be
       # smoke-run and scanned before anything is pushed: :latest never moves
@@ -234,6 +246,7 @@ jobs:
           tags: local/app:candidate
           labels: ${{ steps.meta.outputs.labels }}
           build-args: &build-args |
+            APP_REVISION=${{ env.SHA }}
             NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'https://fundforindonesia.org' }}
             NEXTAUTH_URL=${{ vars.NEXTAUTH_URL || 'https://galang.fundforindonesia.org' }}
             NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.NEXT_PUBLIC_DONATIONS_ENABLED || 'false' }}
@@ -303,21 +316,21 @@ jobs:
           docker logs app
           exit 1
 
-      - name: Scan the app image (fail on CRITICAL, fixable vulns and secrets)
+      - name: Scan the app image (fail on HIGH or CRITICAL fixable vulns, and secrets)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: local/app:candidate
           scanners: vuln,secret
-          severity: CRITICAL
+          severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
 
-      - name: Scan the migrate image (fail on CRITICAL, fixable vulns and secrets)
+      - name: Scan the migrate image (fail on HIGH or CRITICAL fixable vulns, and secrets)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: local/migrate:candidate
           scanners: vuln,secret
-          severity: CRITICAL
+          severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
           # The first scan already installed trivy and fetched its database.
@@ -362,6 +375,37 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=migrate
 
+      # Staging (stg.fundforindonesia.org) runs the same commit as a separate
+      # app image, because NEXT_PUBLIC_* and the site URLs are inlined at build
+      # time: the production image would link to, and sign in on, production.
+      # Same Dockerfile target and the same buildx cache, so only the layers
+      # that inline those values differ from the image scanned above. It reuses
+      # this commit's migrate image (no build args there). The host's staging
+      # timer (ops/deploy-staging.sh) pulls :staging, which only moves to
+      # main's head, like :latest. Its values are public, so variables
+      # (STAGING_*), each defaulting to staging's own address; staging is a
+      # sandbox, so donations and Volunteer Trip are on by default.
+      - name: Push the staging app image
+        id: push-staging
+        if: env.PUSH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runner
+          push: true
+          provenance: mode=max,version=v1
+          tags: |
+            ${{ env.IMAGE }}:${{ env.SHA }}-staging
+            ${{ steps.gate.outputs.latest == 'true' && format('{0}:staging', env.IMAGE) || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_REVISION=${{ env.SHA }}
+            NEXT_PUBLIC_BASE_URL=${{ vars.STAGING_NEXT_PUBLIC_BASE_URL || 'https://stg.fundforindonesia.org' }}
+            NEXTAUTH_URL=${{ vars.STAGING_NEXTAUTH_URL || 'https://stg.fundforindonesia.org' }}
+            NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.STAGING_NEXT_PUBLIC_DONATIONS_ENABLED || 'true' }}
+            NEXT_PUBLIC_VOLUNTEER_ENABLED=${{ vars.STAGING_NEXT_PUBLIC_VOLUNTEER_ENABLED || 'true' }}
+          cache-from: type=gha,scope=app
+
       # GitHub artifact attestations need a public repository (or GitHub
       # Enterprise Cloud); on a private user-owned repository the API refuses
       # them. So they run once the repository is public, and until then the
@@ -389,6 +433,7 @@ jobs:
         env:
           APP_DIGEST: ${{ steps.push-app.outputs.digest }}
           MIGRATE_DIGEST: ${{ steps.push-migrate.outputs.digest }}
+          STAGING_DIGEST: ${{ steps.push-staging.outputs.digest }}
         run: |
           {
             echo "### Pushed ${IMAGE}"
@@ -396,4 +441,5 @@ jobs:
             echo "|---|---|---|"
             echo "| app | \`${SHA}\`, \`latest\` | \`${APP_DIGEST}\` |"
             echo "| migrate | \`${SHA}-migrate\` | \`${MIGRATE_DIGEST}\` |"
+            echo "| staging app | \`${SHA}-staging\` | \`${STAGING_DIGEST}\` |"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -34,7 +34,7 @@ import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const mockedGetServerSession = vi.mocked(getServerSession);
-const mockedPrisma = vi.mocked(prisma);
+const mockedPrisma = vi.mocked(prisma, true);
 const mockedWriteFile = fsMocks.writeFile;
 
 // Helper: create a session for an authenticated user

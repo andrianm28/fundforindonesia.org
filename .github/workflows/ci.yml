@@ -34,7 +34,7 @@ jobs:
         shard: [1, 2, 3]
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16.15-alpine
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
@@ -113,7 +113,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16.15-alpine
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
@@ -191,19 +191,37 @@ jobs:
         # back out in the next one. See ci/ratchet.mjs.
         run: node ci/ratchet.mjs
 
+  # Known vulnerabilities in what ships (production dependencies only; dev
+  # tools never reach the image). High or critical fails; moderate is left to
+  # Dependabot's weekly PRs. A new advisory can turn this red on an unchanged
+  # main: that is the point; fix it with a patch/minor bump or an override.
+  audit:
+    name: audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: No high or critical advisory in production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
   e2e:
     # The flows unit tests cannot prove (ticket 11: the privileged
     # not-found view, the QRIS donation path through Receipt), driven in a
     # real browser against the production bundle. Browser-side answers that
     # need no login are stubbed at the network edge (see the specs); the
-    # deploy gate only requires test, build, migrations and ratchet green,
-    # so this job gates deploys through the run's overall success instead.
+    # deploy gate (ci/deploy-gate.sh) requires this job green too, next to
+    # test, build, migrations and ratchet.
     name: e2e
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16.15-alpine
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci

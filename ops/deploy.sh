@@ -43,7 +43,9 @@
 # app had been switched; before step 5 the old app still runs); 2 bad
 # arguments; 3 the new app was unhealthy and the release before it is back and
 # healthy; 4 the new app was unhealthy and there was no healthy release to go
-# back to (production needs a human).
+# back to (production needs a human); 5 a new release whose ops files
+# (this script, docker-compose.prod.yml) differ from the host's copies, refused
+# before anything changed.
 #
 # Layout of the deploy directory (DEPLOY_DIR, by default the parent of this
 # script's directory):
@@ -138,7 +140,7 @@ finish() {
   local rc=$?
   [ -n "$dump" ] && rm -f -- "$dump.partial"
   case "$rc" in
-    0 | 3 | 4) ;;
+    0 | 3 | 4 | 5) ;;
     *)
       if [ -z "$switched" ]; then
         log "FAILED during: $step (exit $rc). The running app was not changed."
@@ -191,6 +193,40 @@ docker pull "$IMAGE@$APP_DIGEST"
 docker pull "$IMAGE@$MIGRATE_DIGEST"
 docker tag "$IMAGE@$APP_DIGEST" "$IMAGE:$sha"
 docker tag "$IMAGE@$MIGRATE_DIGEST" "$IMAGE:$sha-migrate"
+
+# Host copies of this script and the compose file (owner-copied, never
+# shipped by the deploy key) must match the release that is about to run:
+# cd.yml stamps their sha256 on the app image as labels. A NEW release (not yet
+# in state/images) with a mismatch is refused before anything changes (exit
+# 5): that is the "forgot to copy the new ops files" mistake. A release this
+# host already ran (a rollback or redeploy) only warns, because rolling back
+# to an older release must keep working with the newer host files. An image
+# without the labels (built before they existed) warns too. ALLOW_OPS_DRIFT=1
+# turns the refusal into a warning: only for the owner running this script by
+# hand on the host (sshd passes no such variable to the forced command), for a
+# rollback to a release old enough to have left state/images.
+step="checking the host's ops files against the release"
+ops_drift=""
+for pair in "ops.deploy-sh.sha256:$self" "ops.compose-prod.sha256:$DEPLOY_DIR/docker-compose.prod.yml"; do
+  label="${pair%%:*}" file="${pair#*:}"
+  want="$(docker image inspect --format "{{index .Config.Labels \"org.fundforindonesia.$label\"}}" "$IMAGE@$APP_DIGEST" 2> /dev/null || true)"
+  have="$(sha256sum "$file" 2> /dev/null | cut -d' ' -f1 || true)"
+  if [ -z "$want" ] || [ "$want" = "<no value>" ]; then
+    log "warning: the release carries no $label label; cannot check ${file##*/}"
+  elif [ "$want" != "$have" ]; then
+    ops_drift+=" ${file##*/}"
+  fi
+done
+if [ -n "$ops_drift" ]; then
+  if grep -qxF -- "$release" < <(read_state images); then
+    log "warning: host copies differ from this release's:$ops_drift (allowed: $sha already ran on this host)"
+  elif [ "${ALLOW_OPS_DRIFT:-}" = 1 ]; then
+    log "warning: host copies differ from this release's:$ops_drift (allowed: ALLOW_OPS_DRIFT=1)"
+  else
+    log "Refused $sha: the host's copies of$ops_drift differ from this release's. Copy them from the release's commit first."
+    exit 5
+  fi
+fi
 
 # Put this release last in the ledger of pulled releases, which pruning reads.
 pulled=()

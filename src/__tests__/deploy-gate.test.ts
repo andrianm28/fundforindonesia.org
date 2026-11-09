@@ -142,7 +142,7 @@ function releasable(sha = SHA) {
   });
   gh(`repos/${REPO}/actions/runs/${CI_RUN}/jobs`, {
     total_count: 5,
-    jobs: ["test", "ratchet", "migrations", "build"].map((name) => ({ name, conclusion: "success" })),
+    jobs: ["test", "ratchet", "migrations", "build", "e2e"].map((name) => ({ name, conclusion: "success" })),
   });
   gh(`repos/${REPO}/actions/runs/${BUILD_RUN}`, {
     id: BUILD_RUN,
@@ -371,7 +371,7 @@ describe("ci/deploy-gate.sh", () => {
       expectRefused(gate(), /no green `ratchet` job/);
     });
 
-    it("a green CI run that lacks one of test, build, migrations, ratchet", () => {
+    it("a green CI run that lacks one of test, build, migrations, ratchet, e2e", () => {
       gh(`repos/${REPO}/actions/runs/${CI_RUN}/jobs`, {
         total_count: 4,
         jobs: [
@@ -382,6 +382,24 @@ describe("ci/deploy-gate.sh", () => {
         ],
       });
       expectRefused(gate(), /ratchet/);
+    });
+
+    it.each<[string, string | null]>([
+      ["failed", "failure"],
+      ["skipped", "skipped"],
+      ["still running", null],
+    ])("a green CI run whose e2e job is %s", (_, conclusion) => {
+      gh(`repos/${REPO}/actions/runs/${CI_RUN}/jobs`, {
+        total_count: 5,
+        jobs: [
+          { name: "test", conclusion: "success" },
+          { name: "ratchet", conclusion: "success" },
+          { name: "migrations", conclusion: "success" },
+          { name: "build", conclusion: "success" },
+          { name: "e2e", conclusion },
+        ],
+      });
+      expectRefused(gate(), /no green `e2e` job/);
     });
 
     it("a green CI run whose test shards passed but whose `test` aggregate did not (ticket 26)", () => {

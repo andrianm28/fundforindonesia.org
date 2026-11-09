@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -34,7 +35,7 @@ import { join, resolve } from "node:path";
  */
 const SCRIPT = resolve("ops/deploy.sh");
 const IMAGE = "ghcr.io/andrianm28/fundforindonesia.org";
-const REAL_UTILS = ["date", "mkdir", "mv", "rm", "tee", "flock"];
+const REAL_UTILS = ["date", "mkdir", "mv", "rm", "tee", "flock", "sha256sum", "cut", "grep"];
 const SECRET = "s3cret-value-that-must-never-be-logged";
 
 let root: string;
@@ -74,6 +75,10 @@ beforeEach(() => {
     "docker",
     `args="$*"
 args="\${args/compose --project-directory $DEPLOY_DIR -f $DEPLOY_DIR\\/docker-compose.prod.yml --env-file $DEPLOY_DIR\\/.env/compose}"
+case "$args" in
+  "image inspect"*deploy-sh*) echo "$STUB_LABEL_DEPLOY_SH"; exit 0 ;;
+  "image inspect"*compose-prod*) echo "$STUB_LABEL_COMPOSE"; exit 0 ;;
+esac
 case "$args" in
   *" up "*) echo "[app=$APP_DIGEST] $args" >> "$DOCKER_CALL_LOG" ;;
   *) echo "$args" >> "$DOCKER_CALL_LOG" ;;
@@ -469,5 +474,63 @@ describe("ops/deploy.sh", () => {
     const r = release(1);
     expect(deployRelease(r).status).toBe(0);
     expect(stateFile("current")).toBe(`${r.sha} ${r.app} ${r.migrate}`);
+  });
+});
+
+/**
+ * The host's ops files (this script and docker-compose.prod.yml) are copied by
+ * the owner, never by the deploy key. cd.yml stamps their sha256 on the app
+ * image; a NEW release whose stamps differ from the host's copies is refused
+ * before anything changes, while a release the host already ran (a rollback)
+ * only warns.
+ */
+describe("ops/deploy.sh, host ops files against the release", () => {
+  const hash = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+  const labels = (deploySh: string, compose: string) => ({ STUB_LABEL_DEPLOY_SH: deploySh, STUB_LABEL_COMPOSE: compose });
+  const matching = () => labels(hash(SCRIPT), hash(join(deployDir, "docker-compose.prod.yml")));
+
+  it("deploys when both stamps match the host's copies", () => {
+    const r = release(1);
+    const { status, stderr } = deployRelease(r, matching());
+    expect(status, stderr).toBe(0);
+    expect(stateFile("current")).toBe(`${r.sha} ${r.app} ${r.migrate}`);
+  });
+
+  it.each([
+    ["ops/deploy.sh", () => labels("0".repeat(64), hash(join(deployDir, "docker-compose.prod.yml")))],
+    ["docker-compose.prod.yml", () => labels(hash(SCRIPT), "0".repeat(64))],
+  ])("refuses a new release whose %s differs, before the database or app is touched", (file, env) => {
+    const r = release(1);
+    const { status, calls, stdout } = deployRelease(r, env());
+    expect(status).toBe(5);
+    expect(stdout).toContain(file.split("/").pop());
+    expect(calls.some((c) => c.startsWith("compose") || c.includes(" compose "))).toBe(false);
+    expect(stateFile("current")).toBe("");
+    expect(stateFile("images")).toBe("");
+  });
+
+  it("only warns when rolling back to a release this host already ran", () => {
+    const old = release(1);
+    const next = release(2);
+    expect(deployRelease(old, matching()).status).toBe(0);
+    expect(deployRelease(next, matching()).status).toBe(0);
+    const { status, stdout } = deployRelease(old, labels("0".repeat(64), "0".repeat(64)));
+    expect(status).toBe(0);
+    expect(stdout).toMatch(/warning: host copies differ/);
+    expect(stateFile("current")).toBe(`${old.sha} ${old.app} ${old.migrate}`);
+  });
+
+  it("lets the owner override the refusal by hand with ALLOW_OPS_DRIFT=1", () => {
+    const r = release(1);
+    const { status, stdout } = deployRelease(r, { ...labels("0".repeat(64), "0".repeat(64)), ALLOW_OPS_DRIFT: "1" });
+    expect(status).toBe(0);
+    expect(stdout).toMatch(/allowed: ALLOW_OPS_DRIFT=1/);
+  });
+
+  it("treats a missing compose file as drift, not a crash", () => {
+    const r = release(1);
+    const env = matching();
+    rmSync(join(deployDir, "docker-compose.prod.yml"));
+    expect(deployRelease(r, env).status).toBe(5);
   });
 });

@@ -57,7 +57,7 @@ const mockPlatformFeeRuleFindFirst = vi.mocked(prisma.platformFeeRule.findFirst)
 const mockPlatformFeeThresholdFindFirst = vi.mocked(prisma.platformFeeThreshold.findFirst);
 
 function createRequest(slug: string, method = 'GET', body?: unknown) {
-  const init: RequestInit = { method };
+  const init: NonNullable<ConstructorParameters<typeof NextRequest>[1]> = { method };
   if (body) {
     init.body = JSON.stringify(body);
     init.headers = { 'Content-Type': 'application/json' };

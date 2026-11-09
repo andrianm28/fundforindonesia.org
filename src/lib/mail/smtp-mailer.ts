@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { type SendMailOptions } from 'nodemailer';
 import type { Mailer, MailMessage } from './types';
 
 export type SmtpConfig = {
@@ -13,7 +13,7 @@ export type SmtpConfig = {
 };
 
 /** The one call this adapter makes on a nodemailer transport. */
-type Transport = { sendMail(mail: nodemailer.SendMailOptions): Promise<unknown> };
+type Transport = { sendMail(mail: SendMailOptions): Promise<unknown> };
 
 /** How the adapter builds its transport; swapped in tests so none opens a socket. */
 export type CreateTransport = (options: {

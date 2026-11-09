@@ -1,0 +1,12 @@
+# Every 5 minutes, look for a new :staging image (docs/runbooks/staging.md).
+[Unit]
+Description=Fund for Indonesia staging: check for a new :staging image
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
