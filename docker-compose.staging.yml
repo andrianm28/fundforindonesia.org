@@ -72,7 +72,8 @@ services:
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-sumopod}
       SUMOPOD_API_KEY: ${SUMOPOD_API_KEY:-}
       SUMOPOD_WEBHOOK_SECRET: ${SUMOPOD_WEBHOOK_SECRET:-}
-      SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-}
+      # Defaults to the sandbox: staging never has a live base url.
+      SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-https://api-pay-sandbox.sumopod.com/api/v1}
       # Defaults to "true", unlike production: staging is always the sandbox.
       # The boot check then refuses any SUMOPOD_BASE_URL but the sandbox.
       BETA_SANDBOX: ${BETA_SANDBOX:-true}

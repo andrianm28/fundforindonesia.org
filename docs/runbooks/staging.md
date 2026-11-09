@@ -84,6 +84,11 @@ demi langkah ada di folder proyek owner, bukan di sini.
   `sudo -u deploy <dir>/ops/deploy-staging.sh <sha-40-hex>` (timer akan
   memajukan lagi ke `:staging` pada putaran berikutnya bila `:staging` lebih
   baru; hentikan timer dulu bila ingin menahan versi).
+- Rilis yang gagal health check dicatat di `state/failed` dan tidak dicoba
+  ulang oleh timer sampai `:staging` pindah ke commit baru, atau sampai
+  dijalankan dengan `<sha>` atau `FORCE=1`. Setelah rollback, app lama berjalan
+  di atas skema baru (migrasi tidak dibatalkan); untuk staging ini dapat
+  diterima, dan dump di `backups/` adalah jalan pulang datanya.
 - Paksa redeploy: `FORCE=1 sudo -E -u deploy <dir>/ops/deploy-staging.sh`.
 - Hentikan staging seluruhnya: `systemctl disable --now ffi-staging-deploy.timer`
   lalu `docker compose -p fundforindonesia-stg down` (tanpa `-v`; volume

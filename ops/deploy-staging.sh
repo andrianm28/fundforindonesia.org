@@ -90,6 +90,8 @@ write_state() { printf '%s\n' "$2" > "$STATE_DIR/$1.new" && mv "$STATE_DIR/$1.ne
 
 # --- Pull, and stop quietly when nothing moved ------------------------------
 
+step="pulling $IMAGE:$tag"
+trap 'log "FAILED (exit $?) during: $step"' ERR
 docker pull -q "$IMAGE:$tag" > /dev/null
 app_digest="$(digest_of "$IMAGE:$tag")"
 sha="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE:$tag")"
@@ -104,13 +106,22 @@ current="$(read_state current)"
 if [ "${FORCE:-}" != 1 ] && [ "$(echo "$current" | cut -d' ' -f1-2)" = "$sha $app_digest" ] && healthy; then
   exit 0
 fi
+# A release that already failed its health check is not retried by the timer
+# every 5 minutes (each retry would dump and migrate again and rotate the good
+# dumps out). It waits for a newer :staging, an explicit <sha>, or FORCE=1.
+if [ "${FORCE:-}" != 1 ] && [ $# -eq 0 ] && [ "$(read_state failed)" = "$sha $app_digest" ]; then
+  exit 0
+fi
 
 log "Deploying staging $sha (app $app_digest); running now: ${current:-nothing recorded}"
-trap 'log "FAILED (exit $?) during: $step"' ERR
 
 step="pulling the migrate image"
 docker pull -q "$IMAGE:$sha-migrate" > /dev/null
 migrate_digest="$(digest_of "$IMAGE:$sha-migrate")"
+if ! [[ $migrate_digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  log "FAILED: $IMAGE:$sha-migrate has no usable digest ($migrate_digest)"
+  exit 1
+fi
 export APP_DIGEST="$app_digest" MIGRATE_DIGEST="$migrate_digest"
 release="$sha $APP_DIGEST $MIGRATE_DIGEST"
 
@@ -120,10 +131,11 @@ compose up -d --wait db
 step="backing up the database"
 dump="$BACKUP_DIR/$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:12}.dump"
 # shellcheck disable=SC2016 # expanded inside the db container
-compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$dump.partial"
+if ! compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$dump.partial"; then
+  rm -f -- "$dump.partial"
+  false
+fi
 mv "$dump.partial" "$dump"
-backups=("$BACKUP_DIR"/*.dump)
-for ((i = 0; i < ${#backups[@]} - KEEP_BACKUPS; i++)); do rm -f -- "${backups[$i]}"; done
 
 step="running the migrations"
 compose --profile migrate run --rm -T migrate
@@ -132,6 +144,7 @@ step="recreating the app"
 compose up -d app
 trap - ERR
 if ! healthy; then
+  write_state failed "$sha $APP_DIGEST"
   if [ -n "$current" ]; then
     log "Unhealthy after 60 s; going back to $(echo "$current" | cut -d' ' -f1)"
     read -r _ APP_DIGEST MIGRATE_DIGEST <<< "$current"
@@ -144,7 +157,13 @@ fi
 
 [ -n "$current" ] && [ "$current" != "$release" ] && write_state previous "$current"
 write_state current "$release"
+rm -f -- "$STATE_DIR/failed"
 log "Deployed staging $sha; /api/health answers"
+
+# Old dumps go only after a successful deploy, so failures never rotate out the
+# dumps taken before them.
+backups=("$BACKUP_DIR"/*.dump)
+for ((i = 0; i < ${#backups[@]} - KEEP_BACKUPS; i++)); do rm -f -- "${backups[$i]}"; done
 
 # Keep only the images of the current and previous staging releases.
 keep="$(read_state current) $(read_state previous)"
@@ -153,4 +172,4 @@ while read -r ref; do
   t="${ref##*:}"
   s="${t%-staging}"
   [[ $keep == *"$s"* ]] || docker image rm "$ref" > /dev/null 2>&1 || true
-done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' "$IMAGE" | grep -E -- '-staging$' || true)
+done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' "$IMAGE" | grep -E -- ':[0-9a-f]{40}-staging$' || true)

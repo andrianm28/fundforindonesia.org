@@ -149,6 +149,19 @@ describe("ops/deploy-staging.sh", () => {
     expect(stateFile("current")).toBe(`${a.sha} ${a.app} ${a.migrate}`);
   });
 
+  it("does not retry a release that failed its health check until :staging moves or FORCE=1", () => {
+    const a = release(1);
+    const b = release(2);
+    expect(deploy(a).status).toBe(0);
+    expect(deploy(b, [], { UNHEALTHY_DIGEST: b.app }).status).toBe(3);
+    const again = deploy(b, [], { UNHEALTHY_DIGEST: b.app });
+    expect(again.status).toBe(0);
+    expect(again.calls).toEqual([`pull -q ${IMAGE}:staging`, `tag ${IMAGE}:staging ${IMAGE}:${b.sha}-staging`]);
+    expect(deploy(b, [], { FORCE: "1" }).status).toBe(0);
+    expect(stateFile("current")).toBe(`${b.sha} ${b.app} ${b.migrate}`);
+    expect(stateFile("failed")).toBe("");
+  });
+
   it("stops before the app is touched when the migrations fail", () => {
     const r = release(1);
     const { status, calls } = deploy(r, [], { DOCKER_FAIL_ON: "*migrate run*" });
