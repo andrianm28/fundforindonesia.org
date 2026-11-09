@@ -6,6 +6,21 @@ import { PrayerStreamItem } from '@/lib/hooks/usePrayerStream';
 import { getRelativeTimestamp } from '@/lib/utils/date';
 import { useAamiin } from '@/lib/hooks/useAamiin';
 
+/** One row of GET /api/prayers, as the prayer list renders it. */
+export function toPrayerStreamItem(p: Record<string, unknown>): PrayerStreamItem {
+  return {
+    id: p.id as string,
+    text: p.text as string,
+    amiinCount: p.amiinCount as number,
+    donationId: (p.donationId as string) || '',
+    campaignId: (p.campaignId as string) || '',
+    userId: (p.userId as string | null) ?? null,
+    createdAt: new Date(p.createdAt as string),
+    user: p.donorName ? { id: '', name: p.donorName as string, avatar: (p.donorAvatar as string | null) ?? null } : null,
+    campaign: p.campaignSlug ? { id: '', slug: p.campaignSlug as string, title: p.campaignTitle as string } : undefined,
+  };
+}
+
 export interface CampaignPrayersProps {
   campaignSlug: string;
   initialPrayers?: PrayerStreamItem[];
@@ -57,27 +72,7 @@ export function CampaignPrayers({
       }
 
       const data = await res.json();
-      const newPrayers: PrayerStreamItem[] = (data.prayers ?? []).map(
-        (p: Record<string, unknown>) => ({
-          id: p.id as string,
-          text: p.text as string,
-          amiinCount: p.amiinCount as number,
-          donationId: (p.donationId as string) || '',
-          campaignId: (p.campaignId as string) || '',
-          userId: p.userId as string | null,
-          createdAt: new Date(p.createdAt as string),
-          user: p.donorName
-            ? { id: '', name: p.donorName as string, avatar: p.donorAvatar as string | null }
-            : null,
-          campaign: p.campaignSlug
-            ? {
-                id: '',
-                slug: p.campaignSlug as string,
-                title: p.campaignTitle as string,
-              }
-            : undefined,
-        })
-      );
+      const newPrayers: PrayerStreamItem[] = (data.prayers ?? []).map(toPrayerStreamItem);
 
       setPrayers((prev) => {
         // Deduplicate

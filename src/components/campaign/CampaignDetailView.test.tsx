@@ -794,6 +794,32 @@ describe('CampaignDetailView -- Donatur teratas tab (PKS 3.7b)', () => {
   });
 });
 
+describe('CampaignDetailView -- Doa tab (donor prayers)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ prayers: [{ id: 'p1', text: 'Semoga lekas pulih', amiinCount: 2, donorName: 'Sari', createdAt: '2026-11-09T01:00:00.000Z' }] }),
+      }),
+    ));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the donors' prayers for this Campaign when the tab is pressed", async () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Doa' }));
+    expect(await screen.findByText('Semoga lekas pulih')).toBeDefined();
+  });
+
+  it.each(['DRAFT', 'SUBMITTED', 'REJECTED'] as const)('does not offer the tab while %s (not public)', (status) => {
+    render(<CampaignDetailView campaign={{ ...mockCampaign, lifecycleStatus: status }} />);
+    expect(screen.queryByRole('button', { name: 'Doa' })).toBeNull();
+  });
+});
+
 describe('the gallery (PKS pasal 3.3)', () => {
   afterEach(() => {
     cleanup();
