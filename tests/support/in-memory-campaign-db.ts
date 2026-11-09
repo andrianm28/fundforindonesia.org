@@ -1,4 +1,4 @@
-import type { CampaignStatus, Kind } from '@/generated/prisma/client';
+import type { CampaignStatus, Kind, VerificationRequestKind } from '@/generated/prisma/client';
 import { sealBankAccountNumber, sealUserEmail } from '@/lib/contact-fields';
 
 /**
@@ -192,6 +192,10 @@ export type ChecklistItemRow = {
   kind: Kind | null;
   /** Whether ticking it needs a Document on the Campaign (ticket 64). */
   requiresDocument: boolean;
+  /** Which kinds of Verification Request snapshot it; every kind unless narrowed. */
+  requestKinds: VerificationRequestKind[];
+  /** Null asks both an individual and an organisation's account. */
+  applicant: 'INDIVIDUAL' | 'ORGANISATION' | null;
 };
 
 /** A private Document's row (ticket 64): only what the lifecycle reads. */
@@ -341,6 +345,8 @@ function matchesField(actual: unknown, filter: unknown): boolean {
         return matchesField(actual, operand);
       case 'in':
         return (operand as unknown[]).includes(actual);
+      case 'has':
+        return Array.isArray(actual) && actual.includes(operand);
       case 'gt':
         return actual !== null && actual !== undefined && comparable(actual) > comparable(operand);
       case 'gte':
@@ -482,6 +488,8 @@ export function checklistItemRow(overrides: Partial<ChecklistItemRow> = {}): Che
     active: true,
     kind: null,
     requiresDocument: false,
+    requestKinds: ['SUBMISSION', 'CHANGE', 'AMOUNT_REVIEW'],
+    applicant: null,
     ...overrides,
   };
 }
@@ -888,8 +896,8 @@ export function makeCampaignDb(
           const row = getData().checklistItems.find((i) => matches(i, where));
           return row ? { ...row } : null;
         },
-        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active' | 'kind' | 'requiresDocument'> & { active?: boolean; kind?: Kind | null; requiresDocument?: boolean } }) => {
-          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, kind: null, requiresDocument: false, ...data };
+        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active' | 'kind' | 'requiresDocument' | 'requestKinds' | 'applicant'> & { active?: boolean; kind?: Kind | null; requiresDocument?: boolean } }) => {
+          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, kind: null, requiresDocument: false, requestKinds: ['SUBMISSION', 'CHANGE', 'AMOUNT_REVIEW'], applicant: null, ...data };
           getData().checklistItems.push(row);
           return { ...row };
         },

@@ -333,7 +333,11 @@ function ResponsibleForm({
     responsiblePersonPhone: organisation.responsiblePersonPhone ?? "",
   });
   const [busy, setBusy] = useState(false);
-  const missing = !organisation.address || !organisation.responsiblePersonName;
+  const missing =
+    !organisation.address ||
+    !organisation.responsiblePersonName ||
+    !organisation.responsiblePersonTitle ||
+    !organisation.responsiblePersonPhone;
 
   return (
     <form

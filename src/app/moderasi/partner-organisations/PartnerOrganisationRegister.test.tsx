@@ -143,6 +143,28 @@ describe('PartnerOrganisationRegister', () => {
     );
   });
 
+  it.each([
+    ['address', { address: null }],
+    ['person responsible', { responsiblePersonName: null }],
+    ['position', { responsiblePersonTitle: null }],
+    ['phone', { responsiblePersonPhone: null }],
+  ])('flags an organisation still missing only its %s as incomplete', async (_what, gap) => {
+    vi.mocked(fetch).mockImplementationOnce(async () =>
+      Response.json({ organisations: [{ ...ORGANISATION, ...gap }] }),
+    );
+    render(<PartnerOrganisationRegister />);
+    await screen.findByText('Yayasan Indonesia Emas Merdeka');
+
+    expect(screen.getByText(/Data ini belum lengkap/)).toBeTruthy();
+  });
+
+  it('does not flag an organisation whose address and person responsible are all filled in', async () => {
+    render(<PartnerOrganisationRegister />);
+    await screen.findByText('Yayasan Indonesia Emas Merdeka');
+
+    expect(screen.queryByText(/Data ini belum lengkap/)).toBeNull();
+  });
+
   it('turns on accepting individual Campaigns', async () => {
     render(<PartnerOrganisationRegister />);
     await screen.findByText('Yayasan Indonesia Emas Merdeka');

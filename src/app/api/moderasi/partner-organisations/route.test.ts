@@ -18,8 +18,10 @@ vi.mock('@/lib/prisma', () => ({
   ),
 }));
 
-import { POST } from './route';
-import { sealUserEmail } from '@/lib/contact-fields';
+import { GET, POST } from './route';
+import { PATCH } from './[id]/route';
+import { sealResponsiblePersonPhone, sealUserEmail } from '@/lib/contact-fields';
+import { partnerOrganisationRow } from '../../../../../tests/support/in-memory-campaign-db';
 import { getServerSession } from '@/lib/auth';
 
 const mockSession = getServerSession as unknown as Mock;
@@ -100,5 +102,57 @@ describe('POST /api/moderasi/partner-organisations', () => {
 
     expect(res.status).toBe(status);
     expect(state.db.partnerOrganisations).toEqual([]);
+  });
+});
+
+describe('what the register answers the Verifier with (ADR 0012)', () => {
+  const sealed = () => ({
+    address: 'Jl. Merdeka No. 17',
+    responsiblePersonName: 'Siti Rahma',
+    responsiblePersonTitle: 'Ketua Pengurus',
+    ...sealResponsiblePersonPhone('081234567890'),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    state.db = makeCampaignDb({
+      partnerOrganisations: [partnerOrganisationRow(sealed())],
+      users: [{ id: 'partner-fundraiser-1', name: 'YIEM', ...sealUserEmail('yiem@example.org') }],
+    });
+    mockSession.mockResolvedValue({ user: { id: 'verifier-1', assignments: ['VERIFIER'] } });
+  });
+
+  it('lists every organisation with the phone decrypted and no ciphertext or key id', async () => {
+    // The stand-in does not resolve `include`; hand back the row as the real
+    // query would, with its linked account.
+    const stored = state.db.partnerOrganisations[0];
+    vi.spyOn(state.db.prisma.partnerOrganisation, 'findMany').mockResolvedValue([
+      {
+        ...stored,
+        fundraiser: { name: 'YIEM', ...sealUserEmail('yiem@example.org') },
+        permits: [],
+        kindAuthorisations: [],
+        documents: [],
+      },
+    ] as never);
+
+    const res = await GET(new NextRequest(URL));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.organisations[0]).toMatchObject({ responsiblePersonPhone: '081234567890' });
+    expect(JSON.stringify(body)).not.toMatch(/Ciphertext|KeyId/);
+  });
+
+  it('answers a PATCH with the phone decrypted and no ciphertext or key id', async () => {
+    const res = await PATCH(
+      new NextRequest(`${URL}/partner-1`, { method: 'PATCH', body: JSON.stringify({ responsiblePersonPhone: '081999999999' }) }),
+      { params: Promise.resolve({ id: 'partner-1' }) },
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.organisation).toMatchObject({ responsiblePersonPhone: '081999999999' });
+    expect(JSON.stringify(body)).not.toMatch(/Ciphertext|KeyId/);
   });
 });

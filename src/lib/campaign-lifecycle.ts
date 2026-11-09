@@ -473,14 +473,30 @@ export type ChecklistEntry = {
 };
 
 /**
- * The active checklist a submission snapshots: the general ("Semua") items
- * plus the Campaign Kind's own (PRD §7.1), in position order, none ticked.
- * Shared by submissions from Draft/Rejected and by change requests on an
- * Active Campaign, so both are judged against the same list.
+ * The active checklist a request snapshots: the general ("Semua") items plus
+ * the Campaign Kind's own (PRD §7.1), narrowed to the items that apply to this
+ * kind of request (`requestKinds`) and to this Fundraiser (`applicant`), in
+ * position order, none ticked. Shared by submissions from Draft/Rejected, by
+ * change requests and by amount reviews, so each is judged against the list
+ * that fits it: the papers about the Fundraiser are asked on a SUBMISSION only.
  */
-async function snapshotChecklist(tx: Tx, kind: Kind): Promise<ChecklistEntry[]> {
+async function snapshotChecklist(
+  tx: Tx,
+  campaign: { kind: Kind; creatorId: string },
+  requestKind: VerificationRequestKind
+): Promise<ChecklistEntry[]> {
+  // The Fundraiser behind the Campaign: an organisation's linked account or a
+  // person. An item scoped to the other one is not asked.
+  const applicant = (await organisationOf(tx, campaign.creatorId)) ? "ORGANISATION" : "INDIVIDUAL";
   const items = await tx.verificationChecklistItem.findMany({
-    where: { active: true, OR: [{ kind: null }, { kind }] },
+    where: {
+      active: true,
+      AND: [
+        { OR: [{ kind: null }, { kind: campaign.kind }] },
+        { OR: [{ applicant: null }, { applicant }] },
+        { requestKinds: { has: requestKind } },
+      ],
+    },
     orderBy: { position: "asc" },
   });
   return items.map((item) => ({
@@ -553,7 +569,7 @@ export async function submitCampaign(
       if (collectingEntityId !== campaign.collectingEntityId) {
         await tx.campaign.update({ where: { id: campaign.id }, data: { collectingEntityId } });
       }
-      const checklist = await snapshotChecklist(tx, campaign.kind);
+      const checklist = await snapshotChecklist(tx, campaign, VerificationRequestKind.SUBMISSION);
       const verificationRequest = await tx.verificationRequest.create({
         data: {
           campaignId: campaign.id,
@@ -1246,7 +1262,7 @@ export async function requestCampaignChange(
         where: { campaignId: campaign.id, outcome: VerificationOutcome.PENDING, kind: VerificationRequestKind.CHANGE },
       });
       if (pending > 0) throw new ChangeRequestAlreadyPendingError();
-      const checklist = await snapshotChecklist(tx, campaign.kind);
+      const checklist = await snapshotChecklist(tx, campaign, VerificationRequestKind.CHANGE);
       const proposedChanges: ProposedChanges = {
         ...(targetAmount !== undefined && { targetAmount }),
         ...(deadline !== undefined && { deadline: deadline?.toISOString() ?? null }),
@@ -1311,7 +1327,7 @@ export async function raiseAmountReviewVerificationRequest(
     where: { campaignId, kind: VerificationRequestKind.AMOUNT_REVIEW },
   });
   if (existing) return null;
-  const checklist = await snapshotChecklist(tx, campaign.kind);
+  const checklist = await snapshotChecklist(tx, campaign, VerificationRequestKind.AMOUNT_REVIEW);
   return tx.verificationRequest.create({
     data: {
       campaignId,

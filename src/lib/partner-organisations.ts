@@ -122,6 +122,9 @@ function cleanText(raw: unknown, label: string, field: string): string {
 function cleanPhone(raw: unknown, label: string, field: string): string {
   const typed = typeof raw === "string" ? raw.trim() : "";
   if (typed === "") throw new InvalidPartnerOrganisationError(`${label} wajib diisi.`, field);
+  if (typed.length > MAX_TEXT_LENGTH) {
+    throw new InvalidPartnerOrganisationError(`${label} maksimal ${MAX_TEXT_LENGTH} karakter.`, field);
+  }
   const phone = typed.replace(/[\s\-.()]/g, "");
   if (!/^(\+62|62|0)\d{8,13}$/.test(phone)) {
     throw new InvalidPartnerOrganisationError(`${label} bukan nomor telepon Indonesia yang valid.`, field);
@@ -405,13 +408,14 @@ export async function updatePartnerOrganisation(
   if (changes.responsiblePersonTitle !== undefined) {
     data.responsiblePersonTitle = cleanText(changes.responsiblePersonTitle, "Jabatan penanggung jawab", "responsiblePersonTitle");
   }
-  // Sealed with a fresh random nonce each time, so a re-typed identical number
-  // cannot be told from a new one; any phone supplied counts as a change.
-  const phone =
+  // Sealed with a fresh random nonce each time, so the ciphertext cannot say
+  // whether a number is new: the current one is read back inside the
+  // transaction and compared with what was typed.
+  const typedPhone =
     changes.responsiblePersonPhone !== undefined
       ? cleanPhone(changes.responsiblePersonPhone, "Telepon penanggung jawab", "responsiblePersonPhone")
       : undefined;
-  if (Object.keys(data).length === 0 && phone === undefined) {
+  if (Object.keys(data).length === 0 && typedPhone === undefined) {
     throw new InvalidPartnerOrganisationError("Tidak ada perubahan untuk Partner Organisation.");
   }
   const now = params.now ?? new Date();
@@ -419,6 +423,8 @@ export async function updatePartnerOrganisation(
   return prisma.$transaction(async (tx) => {
     const current = await lockOrganisation(tx, params.organisationId, params.actorId);
     const before = organisationState(current);
+    // The same number typed again is no change: no re-seal, no audit entry.
+    const phone = typedPhone !== undefined && typedPhone !== readResponsiblePersonPhone(current) ? typedPhone : undefined;
     if (phone === undefined && same(before, { ...before, ...data })) return current;
     const organisation = await tx.partnerOrganisation.update({
       where: { id: current.id },

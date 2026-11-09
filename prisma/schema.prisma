@@ -1073,6 +1073,14 @@ model PartnerOrganisationAuditEntry {
 /// submission snapshots the active items. Items are deactivated, never
 /// deleted. `kind` scopes an item to one Kind (PRD §7.1, ticket 12); null is
 /// the "Semua" row, snapshotted for every Kind.
+/// Who a checklist item is asked of (the Fundraiser behind the Campaign): a
+/// person running it themselves, or an organisation's linked account. Null on
+/// the item is both.
+enum ChecklistApplicant {
+  INDIVIDUAL
+  ORGANISATION
+}
+
 model VerificationChecklistItem {
   id       String  @id @default(cuid())
   label    String
@@ -1086,6 +1094,14 @@ model VerificationChecklistItem {
   /// are a check rather than a paper (a Kind Authorisation on record, "bukan
   /// duplikat").
   requiresDocument Boolean @default(false)
+  /// Which kinds of Verification Request snapshot this item. Every row added
+  /// before the column existed is judged on all three; an item about the
+  /// Fundraiser's own papers (KTP, address, power of attorney) is SUBMISSION
+  /// only, so it never blocks a CHANGE or AMOUNT_REVIEW on a live Campaign
+  /// that was approved before the item existed.
+  requestKinds VerificationRequestKind[] @default([SUBMISSION, CHANGE, AMOUNT_REVIEW])
+  /// Null is "both"; INDIVIDUAL or ORGANISATION scopes it to that Fundraiser.
+  applicant    ChecklistApplicant?
 
   auditEntries VerificationChecklistAuditEntry[]
   documents    Document[]

@@ -89,7 +89,7 @@ describe('editChecklistItem', () => {
       now: NOW,
     });
 
-    expect(item).toEqual({ id: 'rencana-anggaran', label: 'Rencana anggaran rinci', required: false, position: 2, active: true, kind: null, requiresDocument: false });
+    expect(item).toEqual({ id: 'rencana-anggaran', label: 'Rencana anggaran rinci', required: false, position: 2, active: true, kind: null, requiresDocument: false, requestKinds: ['SUBMISSION', 'CHANGE', 'AMOUNT_REVIEW'], applicant: null });
     expect(db.checklistAudits).toEqual([
       {
         id: expect.any(String),

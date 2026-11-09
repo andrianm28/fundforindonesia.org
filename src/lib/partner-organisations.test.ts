@@ -17,7 +17,7 @@ import {
   updatePartnerOrganisation,
 } from './partner-organisations';
 import { domainErrorToHttp } from './domain-errors';
-import { readResponsiblePersonPhone, sealUserEmail } from './contact-fields';
+import { readResponsiblePersonPhone, sealResponsiblePersonPhone, sealUserEmail } from './contact-fields';
 import {
   fundraisingPermitRow,
   kindAuthorisationRow,
@@ -285,6 +285,59 @@ describe('updatePartnerOrganisation', () => {
       }),
     ]);
     expect(JSON.stringify(store.partnerOrganisationAudits)).not.toMatch(/0812|ciphertext/i);
+  });
+
+  it('does not count the same phone, typed another way, as a change: no audit entry, no re-seal', async () => {
+    const store = db({
+      partnerOrganisations: [
+        partnerOrganisationRow({ address: 'Jl. Merdeka 1', ...sealResponsiblePersonPhone('081234567890') }),
+      ],
+    });
+    const sealedBefore = { ...store.partnerOrganisations[0] };
+
+    await updatePartnerOrganisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      changes: { address: 'Jl. Merdeka 1', responsiblePersonPhone: '0812 3456 7890' },
+      now: NOW,
+    });
+
+    expect(store.partnerOrganisationAudits).toEqual([]);
+    expect(store.partnerOrganisations[0]).toEqual(sealedBefore);
+  });
+
+  it('audits a changed phone, and only that, when the address is saved unchanged beside it', async () => {
+    const store = db({
+      partnerOrganisations: [
+        partnerOrganisationRow({ address: 'Jl. Merdeka 1', ...sealResponsiblePersonPhone('081234567890') }),
+      ],
+    });
+
+    await updatePartnerOrganisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      changes: { address: 'Jl. Merdeka 1', responsiblePersonPhone: '081999999999' },
+      now: NOW,
+    });
+
+    expect(readResponsiblePersonPhone(store.partnerOrganisations[0] as never)).toBe('081999999999');
+    expect(store.partnerOrganisationAudits).toEqual([
+      expect.objectContaining({ after: expect.objectContaining({ responsiblePersonPhoneChanged: true }) }),
+    ]);
+  });
+
+  it('refuses a phone typed longer than the text limit before reading any of it as a number', async () => {
+    const store = db({ partnerOrganisations: [partnerOrganisationRow()] });
+
+    const error = await updatePartnerOrganisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      changes: { responsiblePersonPhone: `0812${' '.repeat(400)}34567890` },
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InvalidPartnerOrganisationError);
+    expect(store.partnerOrganisationAudits).toEqual([]);
   });
 
   it('refuses a phone that is not an Indonesian number, changing nothing', async () => {
