@@ -163,4 +163,9 @@ USER nextjs
 
 EXPOSE 3000
 
+# The commit this image was built from, answered by /api/version (the deploy
+# gate reads it from staging). Last, so a new commit invalidates no layer.
+ARG APP_REVISION=""
+ENV APP_REVISION=$APP_REVISION
+
 CMD ["node", "server.js"]

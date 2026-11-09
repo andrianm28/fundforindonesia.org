@@ -246,6 +246,7 @@ jobs:
           tags: local/app:candidate
           labels: ${{ steps.meta.outputs.labels }}
           build-args: &build-args |
+            APP_REVISION=${{ env.SHA }}
             NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'https://fundforindonesia.org' }}
             NEXTAUTH_URL=${{ vars.NEXTAUTH_URL || 'https://galang.fundforindonesia.org' }}
             NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.NEXT_PUBLIC_DONATIONS_ENABLED || 'false' }}
@@ -398,6 +399,7 @@ jobs:
             ${{ steps.gate.outputs.latest == 'true' && format('{0}:staging', env.IMAGE) || '' }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
+            APP_REVISION=${{ env.SHA }}
             NEXT_PUBLIC_BASE_URL=${{ vars.STAGING_NEXT_PUBLIC_BASE_URL || 'https://stg.fundforindonesia.org' }}
             NEXTAUTH_URL=${{ vars.STAGING_NEXTAUTH_URL || 'https://stg.fundforindonesia.org' }}
             NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.STAGING_NEXT_PUBLIC_DONATIONS_ENABLED || 'true' }}

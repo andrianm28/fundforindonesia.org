@@ -65,7 +65,9 @@ demi langkah ada di folder proyek owner, bukan di sini.
 6. **nginx**: server block `stg.fundforindonesia.org` ke `127.0.0.1:8094`,
    sertifikat TLS (certbot), `add_header X-Robots-Tag "noindex, nofollow" always;`,
    dan basic auth untuk semua path **kecuali** `/api/webhooks/` (Sumopod harus
-   bisa memanggilnya tanpa sandi).
+   bisa memanggilnya tanpa sandi), `= /api/version`, dan `= /api/health`
+   (dibaca gate deploy produksi dari GitHub Actions; keduanya hanya
+   mengembalikan SHA commit dan `{"ok":true}`).
 7. **Systemd**: salin `ops/staging/ffi-staging-deploy.{service,timer}` ke
    `/etc/systemd/system/`, sesuaikan path, `systemctl enable --now
    ffi-staging-deploy.timer`.
@@ -95,6 +97,18 @@ demi langkah ada di folder proyek owner, bukan di sini.
   eksternal tidak ikut terhapus).
 - Reset data staging: hentikan stack, `docker volume rm ffi_stg_postgres_data`,
   buat ulang, deploy ulang. **Pastikan nama volume berawalan `ffi_stg_`.**
+
+## Staging sebagai syarat deploy produksi
+
+`deploy.yml` menolak deploy produksi bila staging belum menjalankan commit yang
+sama dengan sehat: gate memanggil `ci/staging-gate.sh <sha>`, yang menunggu
+sampai 15 menit hingga `https://stg.fundforindonesia.org/api/version`
+mengembalikan SHA itu dan `/api/health` menjawab 200 (alamatnya bisa diganti
+lewat Actions variable `STAGING_URL`).
+
+Input dispatch `skip_staging` melewati cek ini dan dicatat sebagai peringatan
+di ringkasan run. Pakai **hanya** untuk rollback ke commit lama (staging sudah
+maju ke `main`) atau keadaan darurat saat staging mati.
 
 ## Batas
 

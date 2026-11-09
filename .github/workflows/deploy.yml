@@ -61,6 +61,11 @@ on:
         required: false
         default: ""
         type: string
+      skip_staging:
+        description: Skip the staging check (only for a rollback to an older commit, or an emergency while staging is down). Logged in the run summary.
+        required: false
+        default: false
+        type: boolean
 
 # One deploy at a time, and a running one is never cancelled (ops/deploy.sh
 # also takes a lock on the host). GitHub keeps at most one run waiting behind
@@ -76,7 +81,8 @@ jobs:
   gate:
     name: gate
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Up to 15 minutes of it is ci/staging-gate.sh waiting for staging.
+    timeout-minutes: 25
     permissions:
       contents: read # check out ci/deploy-gate.sh
       actions: read # CI's result and the image's build run
@@ -108,6 +114,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA_INPUT: ${{ inputs.sha }}
         run: ci/deploy-gate.sh "$SHA_INPUT"
+
+      # Production deploys only what staging already runs healthily
+      # (docs/runbooks/staging.md). Read-only HTTP; staging's /api/version and
+      # /api/health are exempt from its basic auth.
+      - name: Staging runs this commit and is healthy
+        id: staging
+        if: ${{ !inputs.skip_staging }}
+        env:
+          SHA: ${{ steps.gate.outputs.sha }}
+          STAGING_URL: ${{ vars.STAGING_URL || 'https://stg.fundforindonesia.org' }}
+        run: ci/staging-gate.sh "$SHA"
+
+      - name: Record that the staging check was skipped
+        if: ${{ inputs.skip_staging }}
+        run: |
+          echo "::warning::skip_staging was set: this deploy was not checked against staging."
+          echo "### Staging check skipped by the dispatcher" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Say why the gate refused
         if: failure() && steps.gate.outcome == 'failure'
