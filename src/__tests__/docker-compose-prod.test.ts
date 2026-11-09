@@ -196,6 +196,8 @@ describe("docker-compose.prod.yml env passthrough", () => {
       "SUMOPOD_BASE_URL",
     ],
     "src/lib/partnership-inquiries.ts": ["PARTNERSHIP_TEAM_EMAIL"],
+    // enrollGraceDays(process.env) in the jwt callback (pks-pemenuhan/03).
+    "src/lib/auth.ts": ["MFA_ENROLL_GRACE_DAYS"],
     // readDonorRefundConfig(env = process.env), names built per Kind (E3/04).
     "src/lib/money/donor-refund-config.ts": [
       "DONOR_REFUND_WINDOW_HOURS",

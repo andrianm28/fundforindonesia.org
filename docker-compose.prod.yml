@@ -103,6 +103,9 @@ services:
       # caller's address and falls back to NEXTAUTH_SECRET; HOPS is how many
       # reverse proxies append to X-Forwarded-For (1 = nginx alone).
       RATE_LIMIT_SECRET: ${RATE_LIMIT_SECRET:-}
+      # Days an ADMIN/VERIFIER holder may use the panels before enrolling a
+      # second factor (pks-pemenuhan/03). 0, the default, is strict.
+      MFA_ENROLL_GRACE_DAYS: ${MFA_ENROLL_GRACE_DAYS:-0}
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
       FIELD_ENCRYPTION_KEY_ID: ${FIELD_ENCRYPTION_KEY_ID:-}

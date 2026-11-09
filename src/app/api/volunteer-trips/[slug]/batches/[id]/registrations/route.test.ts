@@ -31,6 +31,7 @@ vi.mock('@/lib/rate-limit-guard', () => ({ guardRoute: (...a: unknown[]) => mock
 
 vi.mock('@/lib/donations', () => ({
   MIN_DONATION_AMOUNT: 1000,
+  MAX_DONATION_AMOUNT: 1_000_000_000,
   donationsEnabled: vi.fn(),
   sandboxInProductionReason: vi.fn(),
   DONATIONS_DISABLED_MESSAGE:

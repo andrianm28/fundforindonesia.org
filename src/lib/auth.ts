@@ -221,7 +221,7 @@ export const authOptions: NextAuthOptions = {
               ? Math.min(...dbUser.assignments.map((a) => a.assignedAt.getTime()))
               : null,
             now: Date.now(),
-            graceDays: enrollGraceDays(process.env),
+            graceDays: enrollGraceDays(process.env), // reads MFA_ENROLL_GRACE_DAYS
           });
           token.assignments = gate.assignments;
           token.mfaState = gate.state;
