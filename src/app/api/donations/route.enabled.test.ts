@@ -272,7 +272,7 @@ describe('POST /api/donations through a provider an Admin switched on (prd-compl
     const response = await POST(createRequest({ ...QRIS_BODY, paymentMethod: 'ewallet' }));
 
     expect(response.status).toBe(201);
-    expect(mockGetPaymentProvider).toHaveBeenCalledWith('sumopod');
+    expect(mockGetPaymentProvider).toHaveBeenCalledWith('sumopod', 'YAYASAN');
     expect(provider.createCharge).toHaveBeenCalledWith(expect.objectContaining({ method: 'ewallet_redirect' }));
     expect(mockPaymentCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ provider: 'sumopod', method: 'ewallet_redirect', providerRef: 'donation-1' }),

@@ -102,7 +102,7 @@ export {
   RefundReasonInvalidError,
 };
 
-type PaymentWithSubjectLinks = Pick<Payment, 'status' | 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox' | 'provider'> & {
+type PaymentWithSubjectLinks = Pick<Payment, 'status' | 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox' | 'provider' | 'merchantEntity'> & {
   donation: { campaignId: string; anonymisedAt: Date | null } | null;
   registration: { batch: { tripId: string } } | null;
 };
@@ -404,7 +404,7 @@ export async function createRefund(
   await postTransaction(
     tx,
     refundRequestedLegs({ subject, amount, source, platformFeePortion, providerFeePortion }),
-    { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: refundFreezeTransactionId(refund.id), provider: payment.provider },
+    { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: refundFreezeTransactionId(refund.id), provider: payment.provider, merchantEntity: payment.merchantEntity, actorId: requestedById },
   );
 
   return refund;
@@ -599,7 +599,7 @@ export async function approveRefund(
     await postTransaction(
       tx,
       refundApprovedLegs({ subject, amount: refund.amount, source, shortfall }),
-      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-approved-${refund.id}`, provider: payment.provider },
+      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-approved-${refund.id}`, provider: payment.provider, merchantEntity: payment.merchantEntity, actorId: approvedById },
     );
   });
 
@@ -769,7 +769,7 @@ export async function completeRefund(
     await postTransaction(
       tx,
       refundPaidLegs({ amount: refund.amount }),
-      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-completed-${refund.id}`, provider: payment.provider },
+      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-completed-${refund.id}`, provider: payment.provider, merchantEntity: payment.merchantEntity, actorId: completedById },
     );
 
     const donation = refund.payment.donation;
@@ -904,6 +904,8 @@ async function resolveRefund(
       sandbox: sandboxModeOf(refund),
       transactionId: `${action === 'reject' ? 'refund-rejected' : 'refund-failed'}-${refundId}`,
       provider: refund.payment.provider,
+      merchantEntity: refund.payment.merchantEntity,
+      actorId,
     });
 
     const escrowShare = refundFreezeDebit(entries, refundId, 'ESCROW_HOLD');
@@ -917,6 +919,8 @@ async function resolveRefund(
           paymentId: refund.paymentId,
           sandbox: sandboxModeOf(refund),
           transactionId: `refund-reversal-release-${refundId}`,
+          merchantEntity: refund.payment.merchantEntity,
+          actorId,
         });
       }
     }

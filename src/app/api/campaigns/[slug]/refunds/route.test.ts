@@ -44,6 +44,7 @@ function makeTx(options: { ledgerRows?: LedgerRow[]; isDemo?: boolean; campaignC
           status: 'PAID',
           amount: 100_000,
           providerFee: 5_000,
+          merchantEntity: 'YAYASAN',
           escrowReleasedAt: null,
           donation: { campaignId: 'campaign-1' },
           registration: null,

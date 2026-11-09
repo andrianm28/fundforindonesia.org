@@ -56,6 +56,7 @@ describe('AdminProviderWithdrawalForm', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(postedBody(fetchMock)).toEqual({
       provider: 'sumopod',
+      merchantEntity: 'YAYASAN',
       reference: 'WD-001',
       amount: 1_000_000,
       destinationName: 'YAY GENERASI JAYA INDO',
@@ -66,6 +67,18 @@ describe('AdminProviderWithdrawalForm', () => {
     });
     expect(await screen.findByRole('status')).toHaveTextContent(/tercatat/i);
     expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  it('posts the merchant account the Admin chose (ADR 0027)', async () => {
+    const fetchMock = mockFetch({ ok: true });
+    render(<AdminProviderWithdrawalForm providers={['sumopod']} collectingEntities={ENTITIES} />);
+
+    fillRequired();
+    fireEvent.change(screen.getByLabelText(/^Merchant account/i), { target: { value: 'BADAN_USAHA' } });
+    fireEvent.click(screen.getByRole('button', { name: /catat penarikan/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(postedBody(fetchMock)).toMatchObject({ merchantEntity: 'BADAN_USAHA' });
   });
 
   it('leaves the Collecting Entity out when none is chosen', async () => {

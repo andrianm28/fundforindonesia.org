@@ -1,4 +1,5 @@
 import type { ManualContribution, Prisma, PrismaClient } from '@/generated/prisma/client';
+import { merchantEntityForPurpose } from '@/lib/payments/merchant';
 import {
   campaignBalance,
   manualContributionReceivedLegs,
@@ -435,6 +436,10 @@ export async function approveManualContribution(
         manualContributionId: contribution.id,
         sandbox,
         transactionId: `manual-contribution-${contribution.id}`,
+        // Off-gateway money: it never touched a merchant account, and is booked to
+        // the yayasan like every other donation (ADR 0027).
+        merchantEntity: merchantEntityForPurpose({ kind: 'off_gateway' }),
+        actorId: decidedById,
       },
     );
 
@@ -577,6 +582,8 @@ export async function reverseManualContribution(
         manualContributionId: contribution.id,
         sandbox,
         transactionId: `manual-contribution-reversed-${contribution.id}`,
+        merchantEntity: merchantEntityForPurpose({ kind: 'off_gateway' }),
+        actorId: reversedById,
       },
     );
 

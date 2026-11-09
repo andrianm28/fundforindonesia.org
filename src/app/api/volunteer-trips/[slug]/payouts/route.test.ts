@@ -201,6 +201,7 @@ describe('POST /api/volunteer-trips/[slug]/payouts', () => {
         id: 'payment-1',
         amount: 200_000,
         providerFee: 0,
+        merchantEntity: 'YAYASAN',
         donationId: null,
         registrationId: 'registration-1',
         donation: null,

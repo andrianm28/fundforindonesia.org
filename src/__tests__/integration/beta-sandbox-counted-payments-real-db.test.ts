@@ -144,7 +144,7 @@ describe.skipIf(!DATABASE_URL)('Payment yang dihitung -- against real Postgres (
           providerFee,
           platformFee,
         }),
-        { paymentId: payment.id },
+        { merchantEntity: 'YAYASAN', paymentId: payment.id },
       );
       await tx.campaign.update({ where: { id: campaignId }, data: { collectedAmount: { increment: gross } } });
     });
@@ -199,7 +199,7 @@ describe.skipIf(!DATABASE_URL)('Payment yang dihitung -- against real Postgres (
       ledger.postTransaction(tx, [
         { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 7_000 },
         { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 7_000, campaignId },
-      ]),
+      ], { merchantEntity: 'YAYASAN' }),
     );
 
     vi.stubEnv('BETA_SANDBOX', '');

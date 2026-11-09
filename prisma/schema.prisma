@@ -20,10 +20,10 @@ enum Assignment {
 // ==================== User & Auth ====================
 
 model User {
-  id               String    @id @default(cuid())
-  name             String
-  password         String?
-  avatar           String?
+  id              String    @id @default(cuid())
+  name            String
+  password        String?
+  avatar          String?
   // Field-level protection (ADR 0012), contract step (prd-compliance 16): the
   // plaintext `email` and `phone` columns are gone, so a stolen database dump
   // no longer hands over a Donor address. The columns below are written and
@@ -38,13 +38,13 @@ model User {
   // way out. There is no access log on the panel today, so that is a separate
   // piece of work (ADR 0012, Consequences).
   /// Hex HMAC-SHA256 of the trimmed, lowercased email under FIELD_HMAC_KEY. Searchable.
-  emailHmac        String    @unique
-  emailHmacKeyId   String
+  emailHmac       String    @unique
+  emailHmacKeyId  String
   /// base64(iv | AES-256-GCM ciphertext | tag) of the email under FIELD_ENCRYPTION_KEY.
-  emailCiphertext  String
-  emailKeyId       String
-  phoneCiphertext  String?
-  phoneKeyId       String?
+  emailCiphertext String
+  emailKeyId      String
+  phoneCiphertext String?
+  phoneKeyId      String?
   /// Set once, when the owner of this address opened the confirmation link
   /// emailed to it (prd-compliance 23; src/lib/email-verification.ts). Until
   /// then the account has proven nothing about the address: it may have been
@@ -52,10 +52,10 @@ model User {
   /// registering, by signing in, or by an address merely matching. Two writers:
   /// the confirmation link and a successful password reset (rilis-1 93, which
   /// proves the address the same way; docs/adr/0020).
-  emailVerifiedAt  DateTime?
-  donationBalance  Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  emailVerifiedAt DateTime?
+  donationBalance Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   // Relations
   accounts                         Account[]
@@ -68,11 +68,11 @@ model User {
   notifications                    Notification[]
   autoDonations                    AutoDonation[]
   assignments                      UserAssignment[]
-  companyMembership                CompanyMembership?               @relation("CompanyMembershipUser")
-  organisationMember               OrganisationMember?              @relation("OrganisationMemberUser")
-  organisationMembersAdded         OrganisationMember[]             @relation("OrganisationMemberAdder")
-  organisationInvitationsSent      OrganisationInvitation[]         @relation("OrganisationInvitationInviter")
-  organisationInvitationsAccepted  OrganisationInvitation[]         @relation("OrganisationInvitationAcceptor")
+  companyMembership                CompanyMembership?                @relation("CompanyMembershipUser")
+  organisationMember               OrganisationMember?               @relation("OrganisationMemberUser")
+  organisationMembersAdded         OrganisationMember[]              @relation("OrganisationMemberAdder")
+  organisationInvitationsSent      OrganisationInvitation[]          @relation("OrganisationInvitationInviter")
+  organisationInvitationsAccepted  OrganisationInvitation[]          @relation("OrganisationInvitationAcceptor")
   assignmentAuditsAsSubject        AssignmentAuditEntry[]            @relation("AssignmentAuditSubject")
   assignmentAuditsAsActor          AssignmentAuditEntry[]            @relation("AssignmentAuditActor")
   assignmentGrantRequestsAsSubject AssignmentGrantRequest[]          @relation("AssignmentGrantSubject")
@@ -123,6 +123,7 @@ model User {
   campaignTransfersRequested        CampaignTransfer[]               @relation("CampaignTransferRequester")
   campaignTransfersDecided          CampaignTransfer[]               @relation("CampaignTransferDecider")
   providerWithdrawalsRecorded       ProviderWithdrawal[]             @relation("ProviderWithdrawalRecorder")
+  ledgerEntriesActed                LedgerEntry[]                    @relation("LedgerEntryActor")
   duplicateSimilarityThresholdsSet  DuplicateSimilarityThreshold[]
   abuseThresholdsSet                AbuseThreshold[]
   paymentProviderSettingsSet        PaymentProviderSetting[]
@@ -134,7 +135,7 @@ model User {
   // cannot. That unique index is also the lookup index every `lookupUserEmail`
   // query uses, so the plain `@@index([emailHmac])` the expand step added is
   // dropped with it rather than left as a second index on one column.
-  siteSettingsSet                   SiteSetting[]
+  siteSettingsSet SiteSetting[]
 }
 
 /// Verifier and Admin are assignments a person holds, not ranks.
@@ -862,6 +863,7 @@ model PartnerOrganisation {
   kindAuthorisations   KindAuthorisation[]
   campaigns            Campaign[]
   providerWithdrawals  ProviderWithdrawal[]
+  ledgerEntries        LedgerEntry[]                   @relation("LedgerEntryCollectingEntity")
   verificationRequests VerificationRequest[]
   auditEntries         PartnerOrganisationAuditEntry[]
   documents            Document[]
@@ -1020,12 +1022,12 @@ model PartnerOrganisationAuditEntry {
 /// deleted. `kind` scopes an item to one Kind (PRD §7.1, ticket 12); null is
 /// the "Semua" row, snapshotted for every Kind.
 model VerificationChecklistItem {
-  id       String  @id @default(cuid())
-  label    String
-  required Boolean @default(true)
-  position Int
-  active   Boolean @default(true)
-  kind     Kind?
+  id               String  @id @default(cuid())
+  label            String
+  required         Boolean @default(true)
+  position         Int
+  active           Boolean @default(true)
+  kind             Kind?
   /// Whether ticking this item needs an uploaded Document behind it (ticket
   /// 64): the Verifier's box stays disabled, and the server refuses the tick,
   /// until the Campaign holds a Document for this item. False for items that
@@ -1416,6 +1418,16 @@ enum PayoutStatus {
   FAILED
 }
 
+/// Which of the two Merchant Accounts inside Fund for Indonesia a charge, a
+/// ledger movement or a sweep belongs to (ADR 0027, extending ADR 0011).
+/// YAYASAN holds donated money (donation, zakat, wakaf/hibah); BADAN_USAHA holds
+/// platform/commercial revenue. The list is mirrored in
+/// src/lib/payments/merchant.ts (MERCHANT_ENTITIES).
+enum MerchantEntity {
+  YAYASAN
+  BADAN_USAHA
+}
+
 enum LedgerAccount {
   // Named accounts rather than free strings, so a typo cannot silently create
   // a new account that never balances.
@@ -1519,7 +1531,7 @@ enum LedgerDirection {
 /// Payment; a retry creates a NEW Payment rather than mutating the old one, so
 /// the history of attempts survives.
 model Payment {
-  id             String        @id @default(cuid())
+  id             String         @id @default(cuid())
   /// Not unique: a retry after FAILED/EXPIRED creates a new Payment on the
   /// same Donation (prd-compliance 18). At most one Payment per Donation may
   /// ever reach PAID -- enforced in the migration by a partial unique index
@@ -1528,7 +1540,7 @@ model Payment {
   /// Donation, races the app-level `status: PENDING` guard alone cannot
   /// close.
   donationId     String?
-  donation       Donation?     @relation(fields: [donationId], references: [id], onDelete: Restrict)
+  donation       Donation?      @relation(fields: [donationId], references: [id], onDelete: Restrict)
   /// Set instead of donationId for a Trip Fee payment -- exactly one of the
   /// two is ever set, enforced by assertExactlyOnePaymentSubject
   /// (./src/lib/money/payment-subject.ts), not by a schema constraint
@@ -1537,8 +1549,8 @@ model Payment {
   /// SetNull otherwise, the exact class of bug a whole-branch review on an
   /// earlier ticket caught for donationId/campaignId. Applied here
   /// proactively.
-  registrationId String?       @unique
-  registration   Registration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  registrationId String?        @unique
+  registration   Registration?  @relation(fields: [registrationId], references: [id], onDelete: Restrict)
   /// How to pay this charge, kept so a Volunteer who closed the payment page
   /// can open it again (ticket 37). Set only for a Trip Fee charge: the QRIS
   /// link or the Virtual Account number the provider returned; null on every
@@ -1566,6 +1578,13 @@ model Payment {
   /// therefore a new name in that registry plus a builder in
   /// src/lib/payments/index.ts, and nothing in this file.
   provider       String
+  /// Which Merchant Account at that provider this charge went through (ADR
+  /// 0026). The default is YAYASAN because every Payment that existed before
+  /// the column did was a yayasan charge; new rows are written explicitly by
+  /// the charge code from merchantEntityForPurpose. The webhook for this
+  /// Payment must arrive on THIS merchant's endpoint and be signed with THIS
+  /// merchant's secret, or it is rejected.
+  merchantEntity MerchantEntity @default(YAYASAN)
   /// Which method the provider charged through, in its own vocabulary rather
   /// than the donor's choice: PaymentMethod in src/lib/payments/types.ts,
   /// "bank_transfer_va" | "qris_redirect". The donor-facing choices
@@ -1576,11 +1595,11 @@ model Payment {
   method         String
   /// The provider's own id for this charge. Unique so a webhook replay cannot
   /// create a second Payment for the same upstream charge.
-  providerRef    String        @unique
+  providerRef    String         @unique
   amount         Int
   /// What the provider kept. Recorded separately so the campaign is credited
   /// the net, and the fee is visible rather than silently missing.
-  providerFee    Int           @default(0)
+  providerFee    Int            @default(0)
   /// What the platform kept (CONTEXT.md, Platform Fee; prd-compliance 17).
   /// Resolved and frozen at POST /api/donations, per Campaign then per
   /// Category then per Kind default, waived below the Admin-set threshold,
@@ -1588,7 +1607,7 @@ model Payment {
   /// the rate cannot alter what this Payment already promised the Donor.
   /// Always 0 for a Trip Fee Payment (registrationId set): Trip Fee is not
   /// subject to Platform Fee (CONTEXT.md, Trip Fee).
-  platformFee    Int           @default(0)
+  platformFee    Int            @default(0)
   /// Whether this Payment was created while the public beta marker
   /// (BETA_SANDBOX, src/lib/deploy-environment.ts) was on, i.e. against the
   /// Sumopod sandbox where no real rupiah moves. Stamped once at creation
@@ -1598,8 +1617,8 @@ model Payment {
   /// go-live): read only through countedPaymentWhere
   /// (src/lib/money/counted-payment.ts), which keeps them out of the public
   /// totals and the reconciliation report (ticket rilis-1-benda/92).
-  sandbox        Boolean       @default(false)
-  status         PaymentStatus @default(PENDING)
+  sandbox        Boolean        @default(false)
+  status         PaymentStatus  @default(PENDING)
   /// Provider payload, kept verbatim for dispute resolution. Never parsed for
   /// business logic -- the typed columns above are what the app reads.
   rawPayload     Json?
@@ -2438,11 +2457,15 @@ model UsageReport {
 /// exists so the gap between "the money is at the provider" and "the money is
 /// in the bank" is a row somebody wrote rather than an assumption.
 model ProviderWithdrawal {
-  id                    String   @id @default(cuid())
+  id                    String         @id @default(cuid())
   /// Which Payment Provider the money was drawn from. The same plain String
   /// Payment.provider holds, and stamped on the ledger entry this row posts
   /// (LedgerEntry.provider) so the Provider Balance can be read per provider.
   provider              String
+  /// Which Merchant Account the money was drawn from (ADR 0027): the pot the
+  /// Admin read on the dashboard is one merchant's, and the reconciliation is
+  /// per entity. Existing rows are YAYASAN.
+  merchantEntity        MerchantEntity @default(YAYASAN)
   /// The provider's own reference for this disbursement, from its dashboard.
   ///
   /// UNIQUE, and that is the whole idempotency story for this table: recording
@@ -2452,7 +2475,7 @@ model ProviderWithdrawal {
   /// on this index before it posts anything, which is the same shape as the
   /// ledger's own claim on a transactionId (prd-compliance 28b) and is checked
   /// for the same reason: a read-then-write would be no constraint at all.
-  reference             String   @unique
+  reference             String         @unique
   /// Whole rupiah taken out of the Provider Balance. Always positive; the
   /// direction is what carries the sign (src/lib/money/ledger.ts).
   amount                Int
@@ -2487,7 +2510,7 @@ model ProviderWithdrawal {
   /// record.
   proofReference        String
   recordedById          String
-  recordedAt            DateTime @default(now())
+  recordedAt            DateTime       @default(now())
 
   collectingEntity PartnerOrganisation? @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
   recordedBy       User                 @relation("ProviderWithdrawalRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
@@ -2578,6 +2601,26 @@ model LedgerEntry {
   /// an older row still carries keeps its own pot in providerBalances.
   provider String?
 
+  /// Which Merchant Account's money this entry is (ADR 0027). REQUIRED and with
+  /// no default, on purpose: a posting that forgot to say would otherwise be
+  /// silently booked to the yayasan. postTransaction takes it as a required
+  /// option, and a scan test pins that every call site names it. Rows from
+  /// before the column existed were backfilled to YAYASAN by the migration
+  /// (which switches the append-only trigger off for that one statement).
+  merchantEntity MerchantEntity
+
+  /// The Partner Organisation that collects the money this entry is about,
+  /// where the movement has one (the Campaign's Collecting Entity at
+  /// settlement, the receiving entity of a sweep). Null where nobody records
+  /// one, and null is a real answer, as with `provider`.
+  collectingEntityId String?
+  collectingEntity   PartnerOrganisation? @relation("LedgerEntryCollectingEntity", fields: [collectingEntityId], references: [id], onDelete: Restrict)
+
+  /// The user who caused the movement, where a person did (an Admin recording
+  /// a sweep). Null for a movement a webhook or a sweep job posted.
+  actorId String?
+  actor   User?   @relation("LedgerEntryActor", fields: [actorId], references: [id], onDelete: Restrict)
+
   /// Groups the entries of one balanced transaction. Every entry sharing a
   /// transactionId must sum to zero; that invariant is asserted in tests and
   /// by a periodic check, since Prisma cannot express it as a constraint.
@@ -2601,6 +2644,11 @@ model LedgerEntry {
   /// the source Payment and read by rilis-1-benda/94, not by anything yet.
   sandbox       Boolean  @default(false)
   createdAt     DateTime @default(now())
+  // NOT EXPRESSIBLE HERE, in migration 20261016090000_ledger_integrity (audit
+  // D1, PAY-12): trigger "LedgerEntry_append_only" (BEFORE UPDATE OR DELETE,
+  // raises) and CHECK "LedgerEntry_amount_positive" (amount > 0). Every
+  // relation above is onDelete: Restrict, because SET NULL is an UPDATE and
+  // would silently detach a leg from its Campaign/Payment (ADR 0016).
 
   @@index([transactionId])
   @@index([account, campaignId])
@@ -2613,17 +2661,16 @@ model LedgerEntry {
   @@index([campaignId, createdAt])
   @@index([manualContributionId])
   @@index([providerWithdrawalId])
+  // The per-entity reconciliation reads GATEWAY_CLEARING by entity and provider.
+  @@index([account, merchantEntity, provider])
+  @@index([collectingEntityId])
+  @@index([actorId])
   // The public impact queries and the reconcile report filter on these three
   // FK columns (impact.ts groupBy paymentId/refundId/payoutId); Postgres does
   // not index an FK column on its own (audit D5).
   @@index([paymentId])
   @@index([refundId])
   @@index([payoutId])
-  // NOT EXPRESSIBLE HERE, in migration 20261016090000_ledger_integrity (audit
-  // D1, PAY-12): trigger "LedgerEntry_append_only" (BEFORE UPDATE OR DELETE,
-  // raises) and CHECK "LedgerEntry_amount_positive" (amount > 0). Every
-  // relation above is onDelete: Restrict, because SET NULL is an UPDATE and
-  // would silently detach a leg from its Campaign/Payment (ADR 0016).
 }
 
 /// The old `Disbursement` table, renamed rather than dropped by the money-layer

@@ -109,7 +109,7 @@ describe.skipIf(!DATABASE_URL)('Refund reject and fail -- against real Postgres 
         ledger.postTransaction(tx, [
           { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: balance },
           { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: balance, campaignId: id },
-        ]),
+        ], { merchantEntity: 'YAYASAN' }),
       );
     }
     return { id, ownerId };
@@ -141,10 +141,10 @@ describe.skipIf(!DATABASE_URL)('Refund reject and fail -- against real Postgres 
       await ledger.postTransaction(
         tx,
         ledger.paymentSettledLegs({ subject, grossAmount: GROSS, providerFee: PROVIDER_FEE, platformFee: PLATFORM_FEE }),
-        { paymentId: payment.id },
+        { merchantEntity: 'YAYASAN', paymentId: payment.id },
       );
       if (released) {
-        await ledger.postTransaction(tx, ledger.escrowReleaseLegs({ subject, amount: GROSS - PROVIDER_FEE - PLATFORM_FEE }));
+        await ledger.postTransaction(tx, ledger.escrowReleaseLegs({ subject, amount: GROSS - PROVIDER_FEE - PLATFORM_FEE }), { merchantEntity: 'YAYASAN' });
       }
     });
     return payment;
@@ -260,7 +260,7 @@ describe.skipIf(!DATABASE_URL)('Refund reject and fail -- against real Postgres 
       ledger.postTransaction(tx, [
         { account: 'CAMPAIGN_BALANCE', direction: 'DEBIT', amount: GROSS - PROVIDER_FEE - PLATFORM_FEE + 50_000, campaignId: campaign.id },
         { account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: GROSS - PROVIDER_FEE - PLATFORM_FEE + 50_000 },
-      ]),
+      ], { merchantEntity: 'YAYASAN' }),
     );
     const before = await snapshot(campaign.id);
 
@@ -343,7 +343,7 @@ describe.skipIf(!DATABASE_URL)('Refund reject and fail -- against real Postgres 
       },
     });
     await prisma.$transaction((tx) =>
-      ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId: campaign.id }, amount: net }), {
+      ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId: campaign.id }, amount: net }), { merchantEntity: 'YAYASAN',
         payoutId: payout.id,
       }),
     );

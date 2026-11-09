@@ -380,7 +380,8 @@ async function main() {
             grossAmount: amount,
             providerFee,
           }),
-          { paymentId: payment.id },
+          // Seed donations are yayasan money, like every donation (ADR 0027).
+          { paymentId: payment.id, merchantEntity: 'YAYASAN' },
         );
       });
       paymentCount++;

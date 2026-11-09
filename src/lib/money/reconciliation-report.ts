@@ -1,6 +1,7 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { collectionAccountBalance, findUnbalancedTransactions, providerBalances } from '@/lib/money/ledger';
 import { reconcileProviderBalances } from '@/lib/money/provider-withdrawals';
+import { MERCHANT_ENTITIES } from '@/lib/payments/merchant';
 import { deferredEscrowWatchdogCutoff } from '@/lib/money/escrow';
 import { STANDING_REFUND_WHERE, isRefundStanding } from '@/lib/money/refund-standing';
 import { effectiveStatus, isEscrowReleaseFrozen } from '@/lib/subject-guard';
@@ -806,6 +807,33 @@ export async function buildReconciliationReport(tx: Prisma.TransactionClient) {
     .map((r) => r.provider);
   const totalDifference = providerWithdrawals.reduce((total, r) => total + r.difference, 0);
 
+  // The same reading once per merchant account (ADR 0027; PKS 4.1(2), 10(4)).
+  // A provider's dashboard shows ONE merchant's balance, so the honest
+  // comparison is that merchant's sweeps against that merchant's pots; the whole
+  // -account figures above are kept because ADR 0011's invariant is stated over
+  // the whole account, and they are exactly the sum of these. Every entity is
+  // listed, including one with no movement at all: an entity that is absent from
+  // a report reads as "not checked", and a zero row says "checked, empty".
+  const byEntity = [];
+  for (const merchantEntity of MERCHANT_ENTITIES) {
+    const pots = await providerBalances(tx, false, merchantEntity);
+    const withdrawals = await reconcileProviderBalances(tx, merchantEntity);
+    const unattributed = pots.find((pot) => pot.provider === null)?.balance ?? 0;
+    byEntity.push({
+      merchantEntity,
+      pots,
+      providerBalanceTotal: pots.reduce((total, pot) => total + pot.balance, 0),
+      unattributedBalance: unattributed,
+      perProviderIsExact: unattributed === 0,
+      withdrawals,
+      divergence: {
+        totalDifference: withdrawals.reduce((total, r) => total + r.difference, 0),
+        providersWithDivergence: withdrawals.filter((r) => r.difference !== 0).map((r) => r.provider),
+      },
+      collectionAccountBalance: await collectionAccountBalance(tx, false, merchantEntity),
+    });
+  }
+
   return {
     generatedAt: reportNow.toISOString(),
     unbalancedTransactions,
@@ -865,6 +893,12 @@ export async function buildReconciliationReport(tx: Prisma.TransactionClient) {
       },
       /** Debit-normal: money that has arrived in a bank account. */
       collectionAccountBalance: collectionAccountTotal,
+      /**
+       * The same figures per Merchant Account (ADR 0027): pots, sweeps, divergence
+       * and collection-account balance for YAYASAN and for BADAN_USAHA separately.
+       * The whole-account figures above are the sum of these.
+       */
+      byEntity,
       /** Gross collected under each Kind -- the licence axis. Inbound only; see above. */
       collectedByKind: Array.from(grossByKind.entries())
         .map(([kind, settledGross]) => ({ kind, settledGross }))

@@ -196,8 +196,12 @@ Pihak ketiga yang menagih Payment atau mengirim Payout: Sumopod sebelum launchin
 _Avoid_: Gateway, PG, merchant
 
 **Merchant Account**:
-Akun di Payment Provider tempat Payment masuk, dipegang Platform Operator dan tidak pernah dipakai bersama platform lain dalam grup. Berbeda dari rekening penghimpunan, yang dimiliki Collecting Entity.
+Akun di Payment Provider tempat Payment masuk, dipegang Platform Operator dan tidak pernah dipakai bersama platform lain dalam grup. Di dalam FFI ada dua, satu per Merchant Entity (ADR 0027). Berbeda dari rekening penghimpunan, yang dimiliki Collecting Entity.
 _Avoid_: Akun gateway, rekening merchant, akun PG
+
+**Merchant Entity**:
+Salah satu dari dua merchant account FFI di satu gateway: `YAYASAN` (donasi, zakat, wakaf/hibah) atau `BADAN_USAHA` (pendapatan platform/komersial). Donasi selalu `YAYASAN`. Tersimpan pada Payment, ProviderWithdrawal, dan setiap baris buku besar; rekonsiliasi dibaca per Merchant Entity.
+_Avoid_: Entitas, akun
 
 **Provider Fee**:
 Biaya yang dipotong penyedia pembayaran atas satu Payment, dibaca dari payload penyedia dan ditanggung Campaign. Bukan pendapatan platform.

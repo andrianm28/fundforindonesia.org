@@ -218,7 +218,7 @@ describe.skipIf(!DATABASE_URL)('Reconcile report on a Refund that ended without 
           providerFee: figures.providerFee,
           platformFee: figures.platformFee,
         }),
-        { paymentId },
+        { merchantEntity: 'YAYASAN', paymentId },
       ),
     );
     return { subject, subjectId, paymentId, net: figures.net, refundAmount: figures.refundAmount };

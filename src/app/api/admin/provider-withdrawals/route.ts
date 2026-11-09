@@ -11,7 +11,7 @@ import { recordProviderWithdrawal } from '@/lib/money/provider-withdrawals';
  * Payment Provider's Merchant Account to a Collection Account
  * (prd-compliance 35; PRD FFI-07; ADR 0011).
  *
- *   { provider, reference, amount, destinationName, collectingEntityId?,
+ *   { provider, merchantEntity?, reference, amount, destinationName, collectingEntityId?,
  *     providerBalanceBefore, providerBalanceAfter, proofReference }
  *
  * The two balance readings are the point of the endpoint, not an extra field on
@@ -48,6 +48,7 @@ export const POST = withHiddenAssignmentCheck(Assignment.ADMIN, async (req: Next
   try {
     const withdrawal = await recordProviderWithdrawal(prisma, {
       provider: body.provider as string,
+      merchantEntity: body.merchantEntity as string | undefined,
       reference: body.reference as string,
       amount: body.amount as number,
       destinationName: body.destinationName as string,

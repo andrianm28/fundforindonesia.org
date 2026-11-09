@@ -1,3 +1,4 @@
+import type { MerchantEntity } from './merchant';
 /**
  * The seam between this platform and whoever actually moves the money.
  *
@@ -141,6 +142,13 @@ export interface PayoutResult {
 }
 
 export interface PaymentProvider {
+  /**
+   * Which Merchant Account at the provider this adapter instance is bound to
+   * (ADR 0027): its credentials, its webhook secret. Absent on an adapter that
+   * has no notion of merchants (the mock). A charge asks this before it is made,
+   * so a donation can never be created on the wrong merchant.
+   */
+  readonly merchant?: MerchantEntity;
   /**
    * How this provider is named in its webhook path, on every Payment row it
    * creates, and on every WebhookEvent recorded for it. One string, used

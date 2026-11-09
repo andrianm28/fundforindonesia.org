@@ -108,6 +108,9 @@ function makePayment(overrides: Record<string, unknown> = {}) {
     // predates the Platform Fee and asserts on Provider-Fee-only math: it
     // must see the fee split unchanged.
     platformFee: 0,
+    // NOT NULL DEFAULT YAYASAN on the real column (ADR 0027): every refund leg is
+    // booked to the Payment's own merchant.
+    merchantEntity: 'YAYASAN' as 'YAYASAN' | 'BADAN_USAHA',
     escrowReleasedAt: null as Date | null,
     donation: { campaignId: 'campaign-1' },
     registration: null as { batch: { tripId: string } } | null,

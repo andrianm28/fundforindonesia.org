@@ -123,7 +123,7 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
         ledger.postTransaction(tx, [
           { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: opts.balance! },
           { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: opts.balance!, campaignId: id },
-        ]),
+        ], { merchantEntity: 'YAYASAN' }),
       );
     }
     return { id, ownerId };
@@ -327,7 +327,7 @@ describe.skipIf(!DATABASE_URL)('Campaign Transfer -- against real Postgres (prd-
       ledger.postTransaction(tx, [
         { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 80_000 },
         { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 80_000, campaignId: source.id },
-      ]),
+      ], { merchantEntity: 'YAYASAN' }),
     );
 
     const second = await requestTransfer(source.id, target.id, requester);

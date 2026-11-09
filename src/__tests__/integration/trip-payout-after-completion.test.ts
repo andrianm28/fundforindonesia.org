@@ -167,8 +167,8 @@ describe.skipIf(!DATABASE_URL)('Trip Fee Payout only from COMPLETED Batches -- a
     const transactionId = `release-${payment.id}`;
     await prisma.ledgerEntry.createMany({
       data: [
-        { transactionId, legIndex: 0, account: 'TRIP_BALANCE', direction: 'CREDIT', amount: fee, volunteerTripId: tripId, paymentId: payment.id },
-        { transactionId, legIndex: 1, account: 'ESCROW_HOLD', direction: 'DEBIT', amount: fee, volunteerTripId: tripId, paymentId: payment.id },
+        { merchantEntity: 'YAYASAN', transactionId, legIndex: 0, account: 'TRIP_BALANCE', direction: 'CREDIT', amount: fee, volunteerTripId: tripId, paymentId: payment.id },
+        { merchantEntity: 'YAYASAN', transactionId, legIndex: 1, account: 'ESCROW_HOLD', direction: 'DEBIT', amount: fee, volunteerTripId: tripId, paymentId: payment.id },
       ],
     });
     return { batchId: batch.id, registrationId: registration.id, paymentId: payment.id };
@@ -206,8 +206,8 @@ describe.skipIf(!DATABASE_URL)('Trip Fee Payout only from COMPLETED Batches -- a
     });
     await prisma.ledgerEntry.createMany({
       data: [
-        { transactionId: `refund-${refund.id}`, legIndex: 0, account: 'TRIP_BALANCE', direction: 'DEBIT', amount, volunteerTripId: t.tripId, refundId: refund.id },
-        { transactionId: `refund-${refund.id}`, legIndex: 1, account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount, refundId: refund.id },
+        { merchantEntity: 'YAYASAN', transactionId: `refund-${refund.id}`, legIndex: 0, account: 'TRIP_BALANCE', direction: 'DEBIT', amount, volunteerTripId: t.tripId, refundId: refund.id },
+        { merchantEntity: 'YAYASAN', transactionId: `refund-${refund.id}`, legIndex: 1, account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount, refundId: refund.id },
       ],
     });
   }
@@ -249,8 +249,8 @@ describe.skipIf(!DATABASE_URL)('Trip Fee Payout only from COMPLETED Batches -- a
     });
     await prisma.ledgerEntry.createMany({
       data: [
-        { transactionId: `refund-${refund.id}`, legIndex: 0, account: 'TRIP_BALANCE', direction: 'DEBIT', amount: 250_000, volunteerTripId: t.tripId, refundId: refund.id },
-        { transactionId: `refund-${refund.id}`, legIndex: 1, account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 250_000, refundId: refund.id },
+        { merchantEntity: 'YAYASAN', transactionId: `refund-${refund.id}`, legIndex: 0, account: 'TRIP_BALANCE', direction: 'DEBIT', amount: 250_000, volunteerTripId: t.tripId, refundId: refund.id },
+        { merchantEntity: 'YAYASAN', transactionId: `refund-${refund.id}`, legIndex: 1, account: 'GATEWAY_CLEARING', direction: 'CREDIT', amount: 250_000, refundId: refund.id },
       ],
     });
 
@@ -344,8 +344,8 @@ describe.skipIf(!DATABASE_URL)('Trip Fee Payout only from COMPLETED Batches -- a
     // A leftover in the CANCELLED Batch: money its Refund did not take back.
     await prisma.ledgerEntry.createMany({
       data: [
-        { transactionId: `residue-${open.paymentId}`, legIndex: 0, account: 'TRIP_BALANCE', direction: 'CREDIT', amount: 50_000, volunteerTripId: t.tripId, paymentId: open.paymentId },
-        { transactionId: `residue-${open.paymentId}`, legIndex: 1, account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 50_000, volunteerTripId: t.tripId, paymentId: open.paymentId },
+        { merchantEntity: 'YAYASAN', transactionId: `residue-${open.paymentId}`, legIndex: 0, account: 'TRIP_BALANCE', direction: 'CREDIT', amount: 50_000, volunteerTripId: t.tripId, paymentId: open.paymentId },
+        { merchantEntity: 'YAYASAN', transactionId: `residue-${open.paymentId}`, legIndex: 1, account: 'ESCROW_HOLD', direction: 'DEBIT', amount: 50_000, volunteerTripId: t.tripId, paymentId: open.paymentId },
       ],
     });
     expect(await balanceOf(t.tripId)).toBe(450_000);
@@ -379,8 +379,8 @@ describe.skipIf(!DATABASE_URL)('Trip Fee Payout only from COMPLETED Batches -- a
     // Something drew the balance below the 300k the OPEN Batch holds after approval.
     await prisma.ledgerEntry.createMany({
       data: [
-        { transactionId: `drawn-${approved.id}`, legIndex: 0, account: 'TRIP_BALANCE', direction: 'DEBIT', amount: 100_000, volunteerTripId: t.tripId },
-        { transactionId: `drawn-${approved.id}`, legIndex: 1, account: 'PAYOUT_CLEARING', direction: 'CREDIT', amount: 100_000 },
+        { merchantEntity: 'YAYASAN', transactionId: `drawn-${approved.id}`, legIndex: 0, account: 'TRIP_BALANCE', direction: 'DEBIT', amount: 100_000, volunteerTripId: t.tripId },
+        { merchantEntity: 'YAYASAN', transactionId: `drawn-${approved.id}`, legIndex: 1, account: 'PAYOUT_CLEARING', direction: 'CREDIT', amount: 100_000 },
       ],
     });
     expect(await balanceOf(t.tripId)).toBe(200_000);

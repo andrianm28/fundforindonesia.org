@@ -172,7 +172,7 @@ describe.skipIf(!DATABASE_URL)('donor anonymisation -- against real Postgres (ti
       await postTransaction(
         tx,
         paymentSettledLegs({ subject: { type: 'campaign', campaignId }, grossAmount: amount, providerFee: 1_000 }),
-        { paymentId, transactionId: `settle-${paymentId}` },
+        { merchantEntity: 'YAYASAN', paymentId, transactionId: `settle-${paymentId}` },
       );
     });
     const receiptToken = `tok-${process.pid}-${n}`;

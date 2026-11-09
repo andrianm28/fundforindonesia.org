@@ -106,7 +106,7 @@ Adapter menolak `createPayout` dan `getStatus` dengan `SumopodNotSupportedError`
 
 Catatan tentang peringatan di `PaymentProvider.parseWebhook`: celah Midtrans tidak berlaku di sini. Midtrans hanya menandatangani `order_id + status_code + gross_amount`, sehingga `transaction_status` di luar pesan yang ditandatangani dan payload bisa diputar ulang dengan status diganti. Skema svix menandatangani seluruh badan mentah, jadi jenis event, nominal, dan fee semuanya tercakup. Karena itu adapter ini boleh mengembalikan `paid` atas dasar notifikasi saja, dan tidak membutuhkan status API yang memang tidak ada.
 
-**Variabel lingkungan:** `SUMOPOD_API_KEY`, `SUMOPOD_WEBHOOK_SECRET`, `SUMOPOD_BASE_URL`, dan `PAYMENT_PROVIDER`. Ketiganya boleh kosong pada deployment yang belum memakai Sumopod: adapter menolak dibangun tanpa mereka, sehingga rute menjawab 503, bukan menerima event yang tidak terverifikasi.
+**Variabel lingkungan:** `SUMOPOD_API_KEY`, `SUMOPOD_WEBHOOK_SECRET`, `SUMOPOD_BASE_URL`, dan `PAYMENT_PROVIDER` (nama lama; sejak ADR 0027 artinya merchant YAYASAN, lihat bagian "Dua merchant account" di bawah). Ketiganya boleh kosong pada deployment yang belum memakai Sumopod: adapter menolak dibangun tanpa mereka, sehingga rute menjawab 503, bukan menerima event yang tidak terverifikasi.
 
 **Jalur donasi sudah tersambung.** Rute donasi menerima metode `qris`, bertanya lebih dulu apakah penyedia aktif bisa melayani metode yang dipilih donatur, lalu membuat Donation, memanggil penyedia di luar transaksi basis data, dan menulis Payment dengan nama penyedia yang benar-benar menerbitkan tagihan. Halaman donasi menawarkan QRIS saja dan mengalihkan donatur ke `payment_link_url`.
 
@@ -117,6 +117,34 @@ Tiga perbaikan ikut masuk karena tersembunyi di balik gerbang 503:
 - Halaman menampilkan "Donasi Berhasil" begitu Donation dibuat, padahal donatur belum membayar apa pun. Sekarang donatur dialihkan ke halaman pembayaran, dan layar itu berbunyi "Donasi Dibuat".
 
 Biaya admin kosmetik per metode, Rp2.500 dan seterusnya, dihapus. Angka itu ditampilkan ke donatur dan ditambahkan ke total di layar, sedangkan API dikirimi nominal saja dan menagih persis itu.
+
+## Dua merchant account (ADR 0027)
+
+Satu gateway, dua merchant account di dalam FFI: `YAYASAN` (donasi, zakat, wakaf/hibah) dan `BADAN_USAHA` (pendapatan platform/komersial). Uang yayasan dan uang badan usaha tidak pernah masuk saldo penyedia yang sama.
+
+**Variabel lingkungan per merchant** (hanya nama; nilainya dari dashboard Sumopod, tidak pernah masuk repositori):
+
+| Merchant | API key | Webhook secret | Base URL |
+| --- | --- | --- | --- |
+| `YAYASAN` | `SUMOPOD_YAYASAN_API_KEY` | `SUMOPOD_YAYASAN_WEBHOOK_SECRET` | `SUMOPOD_YAYASAN_BASE_URL` |
+| `BADAN_USAHA` | `SUMOPOD_BADAN_USAHA_API_KEY` | `SUMOPOD_BADAN_USAHA_WEBHOOK_SECRET` | `SUMOPOD_BADAN_USAHA_BASE_URL` |
+
+`SUMOPOD_YAYASAN_*` jatuh kembali, per variabel, ke `SUMOPOD_API_KEY`, `SUMOPOD_WEBHOOK_SECRET`, `SUMOPOD_BASE_URL`. Jadi produksi yang hanya mengisi nama lama berjalan persis seperti sebelumnya. `SUMOPOD_BADAN_USAHA_*` **tidak punya fallback**: bila kosong, transaksi komersial ditolak (503, dan lognya menyebut variabel yang belum diisi); transaksi itu tidak pernah dibuat di merchant yayasan.
+
+**Routing.** Satu fungsi murni, `merchantEntityForPurpose` (`src/lib/payments/merchant.ts`), memetakan tujuan transaksi ke merchant. Donasi selalu `YAYASAN` dan tidak bisa dioverride. Biaya pendaftaran Volunteer Trip `YAYASAN` kecuali ditandai komersial (penanda itu belum ada, jadi saat ini semuanya `YAYASAN`). Merchant tersimpan di `Payment.merchantEntity`.
+
+**Webhook per merchant.** Daftarkan dua URL di dashboard masing-masing merchant:
+
+| Merchant | URL webhook |
+| --- | --- |
+| `YAYASAN` | `https://fundforindonesia.org/api/webhooks/sumopod` (URL yang sudah terdaftar; atau `.../sumopod/yayasan`) |
+| `BADAN_USAHA` | `https://fundforindonesia.org/api/webhooks/sumopod/badan-usaha` |
+
+Tanda tangan diverifikasi dengan secret milik merchant pada URL itu. Event yang lolos verifikasi untuk satu merchant tidak pernah bisa menyelesaikan Payment milik merchant lain (dijawab 200 dan tidak melakukan apa pun, sama seperti ketidakcocokan penyedia). Webhook tidak pernah dikunci oleh sakelar donasi maupun mode pemeliharaan.
+
+**Pembukuan dan rekonsiliasi.** Setiap baris `LedgerEntry` membawa `merchantEntity` (wajib), `collectingEntityId`, dan `actorId`. Penarikan dari penyedia (`ProviderWithdrawal`) dicatat per merchant, dan `/admin/reconciliation` serta `GET /api/admin/reconcile` (`providerReconciliation.byEntity`) menampilkan saldo, penarikan, dan selisih per merchant. Dashboard penyedia hanya menampilkan satu merchant, jadi saldonya dibandingkan dengan saldo merchant itu saja.
+
+**Mengaktifkan BADAN_USAHA (langkah pemilik).** Buka merchant kedua di Sumopod, daftarkan URL webhook di atas, isi tiga variabel `SUMOPOD_BADAN_USAHA_*` di `.env` server, lalu deploy. Selama belum diisi, tidak ada yang berubah dan transaksi komersial ditolak.
 
 ## Bendera dan pengaman
 

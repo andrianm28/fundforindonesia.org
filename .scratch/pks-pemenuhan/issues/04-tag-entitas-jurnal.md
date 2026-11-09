@@ -2,7 +2,7 @@
 
 **Blocked by:** 03 (slot skema)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **What to build:** Kontrak Pasal 4.1(2) dan Pasal 10(4) (WAJIB). Owner memutuskan 2026-11-09 (kartu keputusan "Dua merchant di dalam FFI") bahwa pemisahan dibangun di dalam FFI, tidak cukup dengan ADR 0011. Tulis ADR baru yang memperluas ADR 0011: per platform tetap satu gateway (Sumopod), tetapi FFI memegang dua merchant account.
 
@@ -12,9 +12,21 @@
 4. **Jurnal ber-tag entitas**: kolom entitas merchant (+ `collectingEntityId` Partner Organisation, + `actorId` untuk 4.3) pada `LedgerEntry`, diisi di setiap posting; backfill baris lama = YAYASAN (diuji terhadap DB berisi baris; trigger append-only harus tetap utuh setelah migrasi).
 5. **Rekonsiliasi per entitas**: /admin/reconciliation dan /api/admin/reconcile menampilkan saldo dan selisih per entitas merchant; penarikan provider (ProviderWithdrawal) dicatat per entitas.
 
-- [ ] Test routing: donasi tidak pernah ke BADAN_USAHA; komersial tanpa kredensial badan usaha ditolak
-- [ ] Test webhook: signature merchant salah ditolak; event lintas merchant ditolak
-- [ ] Test setiap posting ledger membawa entitas; backfill + trigger diuji di DB nyata
-- [ ] Rekonsiliasi per entitas di layar dan API
-- [ ] docs/integrasi-sumopod.md + .env.example memuat env per merchant (tanpa nilai)
+- [x] Test routing: donasi tidak pernah ke BADAN_USAHA; komersial tanpa kredensial badan usaha ditolak
+- [x] Test webhook: signature merchant salah ditolak; event lintas merchant ditolak
+- [x] Test setiap posting ledger membawa entitas; backfill + trigger diuji di DB nyata
+- [x] Rekonsiliasi per entitas di layar dan API
+- [x] docs/integrasi-sumopod.md + .env.example memuat env per merchant (tanpa nilai)
 - [ ] Review independen sonnet (uang)
+
+## Comments
+
+- ADR baru: `docs/adr/0027-two-merchant-accounts-inside-ffi.md` (memperluas 0011; 0011 diberi satu baris pointer).
+- Routing: `merchantEntityForPurpose` (src/lib/payments/merchant.ts, murni). Donasi selalu YAYASAN; `chargeDonation` memanggilnya sendiri dan melempar `MerchantMismatchError` sebelum charge bila provider terikat merchant lain. Trip Fee YAYASAN kecuali `commercial: true`; penanda komersial di Trip BELUM ada, jadi sekarang semuanya YAYASAN (keputusan terbuka).
+- Env: `SUMOPOD_<ENTITAS>_{API_KEY,WEBHOOK_SECRET,BASE_URL}`; YAYASAN jatuh kembali per variabel ke nama lama, BADAN_USAHA tanpa fallback. docker-compose(.prod) meneruskan keenam variabel baru. Production-readiness (sandbox di produksi/beta) dinilai per merchant.
+- Webhook: handler dipindah ke `[provider]/handle-webhook.ts`; `/api/webhooks/[provider]` = YAYASAN (URL lama tetap), `/api/webhooks/[provider]/[merchant]` (`yayasan`, `badan-usaha`). Event terverifikasi merchant A atas Payment merchant B dijawab 200, tidak mengubah apa pun, `processedAt` tidak diisi. Dua allowlist properti (campaign-writers, collected-amount-single-writer) diperbarui ke path baru.
+- Skema + migrasi `20261110090000_merchant_entity_ledger`: `LedgerEntry.merchantEntity` (wajib, tanpa default), `collectingEntityId`, `actorId`; `Payment` dan `ProviderWithdrawal` `merchantEntity` default YAYASAN. Backfill YAYASAN lewat `ADD COLUMN ... NOT NULL DEFAULT 'YAYASAN'` lalu `DROP DEFAULT` (metadata saja, tanpa UPDATE), jadi trigger append-only tidak pernah dimatikan. Diuji di DB berisi baris (`src/__tests__/merchant-entity-migration.test.ts`). `prisma migrate diff` kosong.
+- `postTransaction` mewajibkan `merchantEntity` (tipe + cek runtime); tes properti `ledger-posting-merchant-entity` memindai semua call site dan memastikan tidak ada penulis ledger lain.
+- Rekonsiliasi: `providerReconciliation.byEntity` di API dan bagian "Rekonsiliasi per merchant" di layar; angka seluruh-akun tetap dan sama dengan jumlahnya. Form penarikan punya pilihan merchant.
+- Keputusan terbuka: (1) Payout dan gerakan off-gateway dibukukan YAYASAN; Trip Fee komersial yang kelak dicairkan lewat modul Payout akan salah kantong sampai penandanya ada. (2) `actorId` terisi di semua posting yang punya pelaku (refund, payout, manual contribution, transfer, penarikan); settlement webhook null. (3) Mock provider tidak punya merchant (kedua entitas memakai satu key, hanya dev).
+- Review independen sonnet (uang): didispatch koordinator.

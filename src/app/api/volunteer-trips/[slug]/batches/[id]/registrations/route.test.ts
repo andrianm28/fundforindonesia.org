@@ -259,6 +259,8 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
           donationId: undefined,
           amount: 1_500_000,
           status: 'PENDING',
+          // ADR 0027: a Trip Fee is yayasan money until a Trip can be marked commercial.
+          merchantEntity: 'YAYASAN',
         }),
       }),
     );

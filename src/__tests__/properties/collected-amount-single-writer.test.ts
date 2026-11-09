@@ -22,7 +22,9 @@ import { join } from "node:path";
  * that a reviewer sees in the diff.
  */
 const ALLOWED_WRITERS = [
-  "src/app/api/webhooks/[provider]/route.ts",
+  // pks-pemenuhan/04: the Settlement handler moved from route.ts to handle-webhook.ts so
+  // the two merchant-aware routes (ADR 0027) can share it. Still the one writer.
+  "src/app/api/webhooks/[provider]/handle-webhook.ts",
   "src/lib/money/manual-contributions.ts",
 ];
 

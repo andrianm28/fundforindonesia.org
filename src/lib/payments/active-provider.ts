@@ -7,6 +7,7 @@ import {
   type PaymentProviderName,
 } from './provider-names';
 import type { PaymentMethod, PaymentProvider } from './types';
+import type { MerchantEntity } from './merchant';
 
 /**
  * Which Payment Provider takes NEW charges, and through which methods
@@ -50,14 +51,20 @@ export interface ActivePaymentProvider {
  * or a sandbox, in production). The check repeats at charge time on purpose: an
  * Admin's row says what was valid when it was written, not what is valid now.
  */
-export async function resolveActivePaymentProvider(db: SettingDb): Promise<ActivePaymentProvider> {
+export async function resolveActivePaymentProvider(
+  db: SettingDb,
+  merchant: MerchantEntity = 'YAYASAN',
+): Promise<ActivePaymentProvider> {
   const row = await db.paymentProviderSetting.findFirst({ orderBy: { setAt: 'desc' } });
 
   const name = row ? row.provider : (process.env.PAYMENT_PROVIDER ?? 'mock');
-  const provider = getPaymentProvider(name);
+  // The merchant's own credentials (ADR 0027): a BADAN_USAHA charge with no
+  // BADAN_USAHA credentials throws here, as PaymentProviderNotConfiguredError,
+  // and is never answered by the yayasan's merchant.
+  const provider = getPaymentProvider(name, merchant);
 
   if (row && process.env.NODE_ENV === 'production') {
-    const refusal = paymentProviderProductionRefusal(name);
+    const refusal = paymentProviderProductionRefusal(name, merchant);
     if (refusal) throw new PaymentProviderNotConfiguredError(refusal);
   }
 

@@ -2,6 +2,7 @@ import type { PrismaClient, Kind, Payment } from '@/generated/prisma/client';
 import { PaymentStatus } from '@/generated/prisma/client';
 import type { ChargeResult, PaymentMethod, PaymentProvider } from '@/lib/payments';
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
+import { merchantEntityForPurpose, type MerchantEntity } from '@/lib/payments/merchant';
 import { providerSupportedMethods } from '@/lib/payments/active-provider';
 import { resolvePlatformFeeBasisForCampaign } from './platform-fee-config';
 import { computePlatformFee } from './platform-fee';
@@ -42,6 +43,18 @@ export interface ChargeDonationParams {
   paymentMethod: PaymentMethod;
 }
 
+/**
+ * A provider bound to a merchant other than the one this charge routes to. A
+ * defect in the caller, not an outcome of the Donation: thrown before anything is
+ * charged, so a donation can never be created on the BADAN_USAHA account.
+ */
+export class MerchantMismatchError extends Error {
+  constructor(expected: MerchantEntity, actual: MerchantEntity) {
+    super(`This charge routes to the ${expected} merchant but the provider is bound to ${actual}.`);
+    this.name = 'MerchantMismatchError';
+  }
+}
+
 export type ChargeDonationResult =
   | { ok: true; charge: ChargeResult; paymentId: string; platformFee: number }
   | { ok: false; reason: 'method_unavailable' }
@@ -72,6 +85,14 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
   // a charge created and then abandoned at the provider is a live payment link a
   // donor can still pay into with nothing here expecting the money.
   const providerName = canonicalPaymentProviderName(provider.name);
+
+  // The merchant is decided by the pure routing function, never by the caller:
+  // a donation is YAYASAN, whatever provider object it was handed (ADR 0027).
+  // An adapter that has no merchants (the mock) is read as the default entity.
+  const merchantEntity = merchantEntityForPurpose({ kind: 'donation' });
+  if (provider.merchant !== undefined && provider.merchant !== merchantEntity) {
+    throw new MerchantMismatchError(merchantEntity, provider.merchant);
+  }
 
   // Ask the provider whether it can serve what was picked BEFORE anything is
   // written and before a charge exists anywhere. Checking afterwards would
@@ -136,6 +157,7 @@ export async function chargeDonation(params: ChargeDonationParams): Promise<Char
       data: {
         donationId,
         provider: providerName,
+        merchantEntity,
         method: charge.method,
         providerRef: orderId,
         amount,

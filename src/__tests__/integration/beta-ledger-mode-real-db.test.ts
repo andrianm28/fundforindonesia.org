@@ -199,7 +199,7 @@ describe.skipIf(!DATABASE_URL)('Ledger per mode -- against real Postgres (ticket
             providerFee: figures.providerFee,
             platformFee: figures.platformFee,
           }),
-          { paymentId: payment.id, sandbox, provider: 'sumopod' },
+          { merchantEntity: 'YAYASAN', paymentId: payment.id, sandbox, provider: 'sumopod' },
         ),
       );
       return payment.id;

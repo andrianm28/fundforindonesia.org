@@ -1,4 +1,5 @@
 import { isBetaSandbox } from '@/lib/deploy-environment';
+import { merchantEntityForPurpose } from '@/lib/payments/merchant';
 import { CampaignStatus, Kind, type CampaignTransfer, type Prisma, type PrismaClient } from '@/generated/prisma/client';
 import { OwnSubjectConflictError } from '@/lib/capacity';
 import { lockAndLoad, requireNotOwnerAsAdmin, type SubjectState } from '@/lib/subject-guard';
@@ -353,7 +354,14 @@ export async function approveCampaignTransfer(
       }),
       // Real money by construction: lockAndJudge refuses while the beta marker is
       // on (ticket 94), so there is no sandbox transfer to stamp.
-      { campaignTransferId: record.id, sandbox: false, transactionId: `campaign-transfer-${record.id}` },
+      {
+        campaignTransferId: record.id,
+        sandbox: false,
+        transactionId: `campaign-transfer-${record.id}`,
+        // Between two Campaigns' balances: donated money, the yayasan's (ADR 0027).
+        merchantEntity: merchantEntityForPurpose({ kind: 'off_gateway' }),
+        actorId: decidedById,
+      },
     );
 
     const donors = await tx.donation.findMany({

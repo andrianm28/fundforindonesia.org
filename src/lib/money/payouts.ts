@@ -1,4 +1,5 @@
 import type { Payout, PayoutBalanceCheck, Prisma, PrismaClient } from '@/generated/prisma/client';
+import { merchantEntityForPurpose } from '@/lib/payments/merchant';
 import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, reverseEntriesLegs, type LedgerSubject } from './ledger';
 import { currentSandboxStamp, requireNotSandboxInLiveMode, sandboxModeOf } from './sandbox-mode';
 import { requireTripFundsFromCompletedBatches } from './trip-payout-funds';
@@ -31,6 +32,15 @@ import {
   SandboxRowInLiveModeError,
   PayoutReasonInvalidError,
 } from './errors';
+
+/**
+ * The merchant a Payout's ledger movements belong to (ADR 0027). A Payout moves
+ * a Fundraiser's donated money out of the yayasan's Provider Balance, so it is
+ * YAYASAN. A Trip Fee marked commercial would be BADAN_USAHA money and is not
+ * paid out through this module; until that flag exists there is nothing to
+ * derive it from, and the routing function says YAYASAN for a payout.
+ */
+const PAYOUT_MERCHANT = merchantEntityForPurpose({ kind: 'payout' });
 
 /**
  * Payout: request, approve, release.
@@ -575,7 +585,7 @@ export async function approvePayout(
     await postTransaction(
       tx,
       payoutInstructedLegs({ subject, amount: payout.amount }),
-      { payoutId: payout.id, sandbox: sandboxModeOf(payout), transactionId: `payout-instructed-${payout.id}`, provider },
+      { payoutId: payout.id, sandbox: sandboxModeOf(payout), transactionId: `payout-instructed-${payout.id}`, provider, merchantEntity: PAYOUT_MERCHANT, actorId: approvedById },
     );
   });
 
@@ -908,6 +918,8 @@ export async function completePayout(
         sandbox: sandboxModeOf(payout),
         transactionId: `payout-completed-${payout.id}`,
         provider: payout.approvedProvider ?? undefined,
+        merchantEntity: PAYOUT_MERCHANT,
+        actorId: completedById,
       },
     );
   });
@@ -1014,6 +1026,8 @@ async function resolvePayout(
         sandbox: sandboxModeOf(payout),
         transactionId: `payout-failed-${payoutId}`,
         provider: payout.approvedProvider ?? undefined,
+        merchantEntity: PAYOUT_MERCHANT,
+        actorId,
       });
     }
   });

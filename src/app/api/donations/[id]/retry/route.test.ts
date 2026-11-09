@@ -416,7 +416,7 @@ describe('POST /api/donations/[id]/retry after an Admin switched provider (prd-c
     const response = await POST(retryRequest(), routeContext());
 
     expect(response.status).toBe(201);
-    expect(mockGetPaymentProvider).toHaveBeenCalledWith('mock');
+    expect(mockGetPaymentProvider).toHaveBeenCalledWith('mock', 'YAYASAN');
     expect(createCharge).toHaveBeenCalledWith(expect.objectContaining({ method: 'bank_transfer_va' }));
     expect(mockPaymentCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ provider: 'mock', method: 'bank_transfer_va' }),

@@ -432,7 +432,7 @@ describe.skipIf(!DATABASE_URL)("the ledger transaction claim migration, applied 
         // reaches.
         await client.query(CLAIM_SQL);
         const prisma = prismaFor(url);
-        const post = () => prisma.$transaction((tx) => postTransaction(tx, BALANCED, { transactionId: "evt-1" }));
+        const post = () => prisma.$transaction((tx) => postTransaction(tx, BALANCED, { merchantEntity: 'YAYASAN', transactionId: "evt-1" }));
 
         expect(await post()).toBe("evt-1");
         // A real P2002 from a real partial index, not a hand-built error
@@ -471,6 +471,7 @@ describe.skipIf(!DATABASE_URL)("the ledger transaction claim migration, applied 
           amount: leg.amount,
           transactionId: "evt-2",
           legIndex,
+          merchantEntity: "YAYASAN" as const,
         }));
 
         await prisma.ledgerEntry.createMany({ data: legs });

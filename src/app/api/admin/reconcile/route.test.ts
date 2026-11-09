@@ -39,6 +39,8 @@ type LedgerRow = {
   /** Which payment provider this movement went through; null where unnamed. */
   provider?: string | null;
   providerWithdrawalId?: string | null;
+  /** Which merchant account's money (ADR 0027); absent means YAYASAN, as the backfill made it. */
+  merchantEntity?: 'YAYASAN' | 'BADAN_USAHA';
 };
 
 type PayoutRow = {
@@ -93,6 +95,7 @@ type CampaignRow = { id: string; title: string; collectedAmount: number; isDemo?
 type ProviderWithdrawalRow = {
   id: string;
   provider: string;
+  merchantEntity?: 'YAYASAN' | 'BADAN_USAHA';
   reference: string;
   amount: number;
   destinationName: string;
@@ -131,7 +134,8 @@ function matchesWhere(row: Record<string, unknown>, where: Record<string, unknow
     if (k === 'AND') return (v as Record<string, unknown>[]).every((w) => matchesWhere(row, w));
     if (k === 'OR') return (v as Record<string, unknown>[]).some((w) => matchesWhere(row, w));
     if (k === 'NOT') return !matchesWhere(row, v as Record<string, unknown>);
-    const rowValue = row[k] ?? (k === 'sandbox' ? false : null);
+    // A fixture row without merchantEntity is a yayasan row, as the backfill made every real one.
+    const rowValue = row[k] ?? (k === 'sandbox' ? false : k === 'merchantEntity' ? 'YAYASAN' : null);
     const OPERATORS = ['not', 'in', 'notIn', 'lte'];
     if (
       v &&
@@ -2170,6 +2174,56 @@ describe('GET /api/admin/reconcile -- the Provider Balance and the sweep to the 
     expect(data.providerReconciliation.withdrawals[0].withdrawals[0].difference).toBe(20_000);
     // The ledger's own pot is untouched by the disagreement.
     expect(data.providerReconciliation.withdrawals[0].pot.balance).toBe(450_000);
+  });
+
+  describe('per merchant entity (pks-pemenuhan/04, ADR 0027)', () => {
+    const swept = (entity: 'YAYASAN' | 'BADAN_USAHA', id: string, amount: number) => [
+      { transactionId: `provider-withdrawal-${id}`, direction: 'CREDIT' as const, amount, account: 'GATEWAY_CLEARING', campaignId: null, provider: 'sumopod', providerWithdrawalId: id, merchantEntity: entity },
+      { transactionId: `provider-withdrawal-${id}`, direction: 'DEBIT' as const, amount, account: 'COLLECTION_ACCOUNT', campaignId: null, provider: 'sumopod', providerWithdrawalId: id, merchantEntity: entity },
+    ];
+
+    it('splits pots, sweeps and the collection account by merchant, and the whole-account figures stay their sum', async () => {
+      const data = await reportFor({
+        ledgerRows: [
+          settlement({ merchantEntity: 'YAYASAN' }),
+          settlement({ transactionId: 'b-settle', amount: 400_000, merchantEntity: 'BADAN_USAHA' }),
+          ...swept('YAYASAN', 'pw-1', 750_000),
+          ...swept('BADAN_USAHA', 'pw-2', 100_000),
+        ],
+        providerWithdrawals: [
+          sweep(),
+          sweep({ id: 'pw-2', merchantEntity: 'BADAN_USAHA', reference: 'SP-B-1', amount: 100_000, providerBalanceBefore: 400_000, providerBalanceAfter: 290_000 }),
+        ],
+      });
+
+      const [yayasan, badan] = data.providerReconciliation.byEntity;
+      expect(yayasan.merchantEntity).toBe('YAYASAN');
+      expect(badan.merchantEntity).toBe('BADAN_USAHA');
+
+      expect(yayasan.pots).toEqual([{ provider: 'sumopod', debited: 1_200_000, credited: 750_000, balance: 450_000 }]);
+      expect(yayasan.providerBalanceTotal).toBe(450_000);
+      expect(yayasan.collectionAccountBalance).toBe(750_000);
+      expect(yayasan.divergence).toEqual({ totalDifference: 0, providersWithDivergence: [] });
+
+      expect(badan.pots).toEqual([{ provider: 'sumopod', debited: 400_000, credited: 100_000, balance: 300_000 }]);
+      expect(badan.providerBalanceTotal).toBe(300_000);
+      expect(badan.collectionAccountBalance).toBe(100_000);
+      // The provider's own balance fell by 110_000 against 100_000 swept: a
+      // divergence of the BADAN_USAHA merchant only, never blamed on the yayasan.
+      expect(badan.divergence).toEqual({ totalDifference: 10_000, providersWithDivergence: ['sumopod'] });
+      expect(badan.withdrawals[0].withdrawals.map((w: { reference: string }) => w.reference)).toEqual(['SP-B-1']);
+
+      // Whole account is the sum, as before.
+      expect(data.providerReconciliation.providerBalanceTotal).toBe(750_000);
+      expect(data.providerReconciliation.collectionAccountBalance).toBe(850_000);
+    });
+
+    it('lists both entities even when one has no movement: a zero row says checked-and-empty', async () => {
+      const data = await reportFor({ ledgerRows: [settlement()] });
+      const byEntity = data.providerReconciliation.byEntity;
+      expect(byEntity.map((e: { merchantEntity: string }) => e.merchantEntity)).toEqual(['YAYASAN', 'BADAN_USAHA']);
+      expect(byEntity[1]).toMatchObject({ pots: [], providerBalanceTotal: 0, collectionAccountBalance: 0, perProviderIsExact: true, withdrawals: [] });
+    });
   });
 
   it('reports no withdrawal at all rather than a clean reconciliation when nothing has been swept', async () => {

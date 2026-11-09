@@ -24,6 +24,14 @@
 
 import { isBetaSandbox } from '@/lib/deploy-environment';
 import { canonicalPaymentProviderName, type PaymentProviderName } from './provider-names';
+import { firstSetEnv, MERCHANT_ENTITIES, merchantEnvKeys, type MerchantEntity } from './merchant';
+
+/** A merchant's Sumopod base url, by the same lookup order the registry uses. */
+function sumopodBaseUrl(merchant: MerchantEntity): { key: string; value: string | undefined } {
+  const keys = merchantEnvKeys(merchant).baseUrl;
+  const found = firstSetEnv(keys);
+  return found ? { key: found.key, value: found.value } : { key: keys[0], value: undefined };
+}
 
 const SUMOPOD_SANDBOX_HOST = 'api-pay-sandbox.sumopod.com';
 
@@ -50,18 +58,18 @@ export function isExactlySumopodSandbox(baseUrl: string): boolean {
  * compile error rather than a provider nobody thought about, which is the whole
  * point of moving the knowledge here.
  */
-const PRODUCTION_RULES: Record<PaymentProviderName, () => string | null> = {
+const PRODUCTION_RULES: Record<PaymentProviderName, (merchant: MerchantEntity) => string | null> = {
   mock: () =>
     'PAYMENT_PROVIDER is the mock adapter in production. It fabricates a virtual ' +
     'account number no bank issued, so every donation would be unpayable.',
 
-  sumopod: () => {
-    const baseUrl = process.env.SUMOPOD_BASE_URL;
+  sumopod: (merchant) => {
+    const { key, value: baseUrl } = sumopodBaseUrl(merchant);
     // Missing is refused rather than assumed live: an unset url is a
     // misconfiguration, and the safe reading of a misconfiguration on the
     // money path is "do not take money".
     if (!baseUrl) {
-      return 'SUMOPOD_BASE_URL is not set in production, so there is no way to tell sandbox from live.';
+      return `${key} is not set in production, so there is no way to tell sandbox from live.`;
     }
     // The public beta is the one deployment allowed to charge through the
     // sandbox, and only on the explicit marker (src/lib/deploy-environment.ts).
@@ -71,12 +79,12 @@ const PRODUCTION_RULES: Record<PaymentProviderName, () => string | null> = {
     if (isBetaSandbox()) {
       return isExactlySumopodSandbox(baseUrl)
         ? null
-        : 'SUMOPOD_BASE_URL is not the Sumopod sandbox while BETA_SANDBOX is on. The beta must never ' +
+        : `${key} is not the Sumopod sandbox while BETA_SANDBOX is on. The beta must never ` +
             'take real money, so it is refused rather than charged for real.';
     }
     if (baseUrl.includes('sandbox')) {
       return (
-        'SUMOPOD_BASE_URL points at the Sumopod sandbox in production. Donations would be ' +
+        `${key} points at the Sumopod sandbox in production. Donations would be ` +
         'charged for real and settle nowhere.'
       );
     }
@@ -93,7 +101,7 @@ const PRODUCTION_RULES: Record<PaymentProviderName, () => string | null> = {
  * which used to be the only thing standing between an unknown provider and a
  * live donation route, as a 500 rather than a refusal.
  */
-export function paymentProviderProductionRefusal(name: string): string | null {
+export function paymentProviderProductionRefusal(name: string, merchant: MerchantEntity = 'YAYASAN'): string | null {
   let registered;
   try {
     registered = canonicalPaymentProviderName(name);
@@ -105,7 +113,7 @@ export function paymentProviderProductionRefusal(name: string): string | null {
     );
   }
 
-  return PRODUCTION_RULES[registered]();
+  return PRODUCTION_RULES[registered](merchant);
 }
 
 /**
@@ -129,14 +137,16 @@ const BETA_ENV_RULES: Record<PaymentProviderName, () => string | null> = {
   mock: () => null,
 
   sumopod: () => {
-    const baseUrl = process.env.SUMOPOD_BASE_URL;
+    // EVERY merchant's credential is checked, not only the active one's: a live
+    // BADAN_USAHA url in the beta is as much a live credential as the yayasan's.
+    const live = MERCHANT_ENTITIES.map(sumopodBaseUrl).find(({ value }) => value && !isExactlySumopodSandbox(value));
     // Unset is fine here: there is then nothing to charge through. Set, it must
     // be exactly the sandbox, whichever provider is active right now.
-    if (!baseUrl) return null;
-    return isExactlySumopodSandbox(baseUrl)
-      ? null
-      : 'SUMOPOD_BASE_URL is not the Sumopod sandbox while BETA_SANDBOX is on. A live Sumopod credential ' +
-          'must not be present in the beta, even while another provider is active.';
+    if (!live) return null;
+    return (
+      `${live.key} is not the Sumopod sandbox while BETA_SANDBOX is on. A live Sumopod credential ` +
+      'must not be present in the beta, even while another provider is active.'
+    );
   },
 };
 

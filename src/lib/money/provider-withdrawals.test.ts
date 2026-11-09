@@ -79,7 +79,11 @@ function makeTx() {
         rows.push(row);
         return row;
       }),
-      findMany: vi.fn(async () => rows.slice().sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime())),
+      findMany: vi.fn(async (args?: { where?: { merchantEntity?: string } }) =>
+        rows
+          .filter((r) => !args?.where?.merchantEntity || (r as unknown as { merchantEntity?: string }).merchantEntity === args.where.merchantEntity)
+          .sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime()),
+      ),
     },
     partnerOrganisation: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
@@ -382,6 +386,7 @@ describe('reconcileProviderBalances', () => {
           {
             withdrawalId: 'pw-1',
             provider: 'sumopod',
+            merchantEntity: 'YAYASAN',
             reference: 'SP-2026-09-30-001',
             amount: 750_000,
             destinationName: 'Yayasan Sehat Mandiri',
@@ -478,5 +483,71 @@ describe('reconcileProviderBalances', () => {
     // And the pot is the sum for that provider alone -- which is a floor, not
     // the whole Provider Balance, and the report's caller says so out loud.
     expect(report[0].pot).toEqual({ provider: 'sumopod', debited: 1_200_000, credited: 750_000, balance: 450_000 });
+  });
+});
+
+/**
+ * pks-pemenuhan/04, scope 5: a sweep is recorded against one merchant entity,
+ * its journal carries that entity, and the reconciliation can be read per entity.
+ */
+describe('provider withdrawals per merchant entity (ADR 0027)', () => {
+  it('defaults a sweep to YAYASAN and stamps it on the row and on both legs, with the actor and the receiving entity', async () => {
+    const tx = makeTx();
+    const withdrawal = await recordProviderWithdrawal(makePrisma(tx) as never, validInput());
+
+    expect(tx.providerWithdrawal.create).toHaveBeenCalledWith({ data: expect.objectContaining({ merchantEntity: 'YAYASAN' }) });
+    expect(withdrawal).toMatchObject({ merchantEntity: 'YAYASAN' });
+    expect(ledgerRows).toHaveLength(2);
+    for (const row of ledgerRows) {
+      expect(row).toMatchObject({ merchantEntity: 'YAYASAN', collectingEntityId: 'org-1', actorId: ADMIN });
+    }
+  });
+
+  it('records a BADAN_USAHA sweep against BADAN_USAHA, on the row and on the legs', async () => {
+    const tx = makeTx();
+    await recordProviderWithdrawal(makePrisma(tx) as never, validInput({ merchantEntity: 'BADAN_USAHA' }));
+    expect(tx.providerWithdrawal.create).toHaveBeenCalledWith({ data: expect.objectContaining({ merchantEntity: 'BADAN_USAHA' }) });
+    expect(ledgerRows.map((r) => (r as unknown as { merchantEntity: string }).merchantEntity)).toEqual(['BADAN_USAHA', 'BADAN_USAHA']);
+  });
+
+  it('refuses an unknown entity, writing nothing', async () => {
+    const tx = makeTx();
+    await expect(
+      recordProviderWithdrawal(makePrisma(tx) as never, validInput({ merchantEntity: 'KOPERASI' })),
+    ).rejects.toThrow(ProviderWithdrawalInputError);
+    expect(tx.providerWithdrawal.create).not.toHaveBeenCalled();
+    expect(ledgerRows).toEqual([]);
+  });
+
+  it('reconciles each entity on its own: a sweep of one never appears in, or moves, the other', async () => {
+    const tx = makeTx();
+    const prisma = makePrisma(tx);
+    // Money arrives at both merchants (rows as the settlement posts them).
+    for (const [entity, gross] of [['YAYASAN', 1_000_000], ['BADAN_USAHA', 400_000]] as const) {
+      await tx.ledgerEntry.createMany({
+        data: [
+          { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: gross, provider: 'sumopod', merchantEntity: entity, providerWithdrawalId: null, transactionId: `s-${entity}`, campaignId: null, volunteerTripId: null, programId: null } as unknown as LedgerRow,
+        ],
+      });
+    }
+    await recordProviderWithdrawal(prisma as never, validInput({ reference: 'Y-1', amount: 300_000, providerBalanceBefore: 1_000_000, providerBalanceAfter: 700_000 }));
+    await recordProviderWithdrawal(prisma as never, validInput({ reference: 'B-1', merchantEntity: 'BADAN_USAHA', amount: 100_000, providerBalanceBefore: 400_000, providerBalanceAfter: 290_000 }));
+
+    const yayasan = await reconcileProviderBalances(tx as never, 'YAYASAN');
+    const badan = await reconcileProviderBalances(tx as never, 'BADAN_USAHA');
+
+    expect(yayasan).toHaveLength(1);
+    expect(yayasan[0]).toMatchObject({ provider: 'sumopod', withdrawn: 300_000, difference: 0 });
+    expect(yayasan[0].pot).toMatchObject({ debited: 1_000_000, credited: 300_000, balance: 700_000 });
+    expect(yayasan[0].withdrawals.map((w) => w.reference)).toEqual(['Y-1']);
+
+    expect(badan).toHaveLength(1);
+    expect(badan[0]).toMatchObject({ withdrawn: 100_000, providerMovedBy: 110_000, difference: 10_000 });
+    expect(badan[0].pot).toMatchObject({ debited: 400_000, credited: 100_000, balance: 300_000 });
+    expect(badan[0].withdrawals.map((w) => w.reference)).toEqual(['B-1']);
+
+    // And with no entity named it is the whole account, as before.
+    const all = await reconcileProviderBalances(tx as never);
+    expect(all[0].withdrawn).toBe(400_000);
   });
 });

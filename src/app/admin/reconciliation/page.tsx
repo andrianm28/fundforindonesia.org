@@ -285,6 +285,67 @@ export default async function AdminReconciliationPage() {
         )}
       </section>
 
+      <section aria-labelledby="rec-entities" className="rounded-xl border border-gray-200 bg-white p-4">
+        <h2 id="rec-entities" className="mb-1 text-lg font-semibold text-gray-900">
+          Rekonsiliasi per merchant
+        </h2>
+        <p className="mb-4 text-xs text-gray-500">
+          Yayasan dan Badan Usaha punya merchant account sendiri di penyedia, jadi saldo dan selisihnya dibaca terpisah.
+          Dashboard penyedia hanya menampilkan satu merchant; membandingkannya dengan saldo gabungan akan menghasilkan
+          selisih palsu.
+        </p>
+        <div className="grid gap-4 md:grid-cols-2">
+          {providerReport.byEntity.map((entity) => (
+            <div
+              key={entity.merchantEntity}
+              data-testid={`rec-entity-${entity.merchantEntity}`}
+              className="rounded-lg border border-gray-100 p-3"
+            >
+              <h3 className="text-sm font-semibold text-gray-900">
+                {entity.merchantEntity === 'YAYASAN' ? 'Yayasan' : 'Badan Usaha'}{' '}
+                <span className="font-normal text-gray-400">({entity.merchantEntity})</span>
+              </h3>
+              <p className="mt-1 text-sm text-gray-700">
+                Saldo di penyedia menurut ledger: {formatRupiah(entity.providerBalanceTotal)}. Sudah sampai di rekening:{' '}
+                {formatRupiah(entity.collectionAccountBalance)}.
+              </p>
+              {entity.pots.length === 0 ? (
+                <p className="mt-2 text-sm text-gray-500">Belum ada pergerakan di merchant ini.</p>
+              ) : (
+                <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                  {entity.pots.map((pot) => {
+                    const checked = entity.withdrawals.find((r) => r.provider === pot.provider);
+                    return (
+                      <li key={pot.provider ?? '(tanpa nama)'}>
+                        {pot.provider ?? 'Tanpa nama penyedia'}: {formatRupiah(pot.balance)}{' '}
+                        {pot.provider === null ? null : !checked ? (
+                          <span className={unchecked}>Belum pernah dicek</span>
+                        ) : checked.difference !== 0 ? (
+                          <span className={flagged}>Selisih {formatRupiah(checked.difference)}</span>
+                        ) : (
+                          <span className={fine}>Cocok</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {!entity.perProviderIsExact && (
+                <p className="mt-2 text-xs text-amber-700">
+                  {formatRupiah(entity.unattributedBalance)} bergerak tanpa nama penyedia, jadi angka di atas adalah batas
+                  bawah.
+                </p>
+              )}
+              {entity.divergence.totalDifference !== 0 && (
+                <p className="mt-2 text-xs text-red-700">
+                  Total selisih penarikan merchant ini: {formatRupiah(entity.divergence.totalDifference)}.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section aria-labelledby="rec-withdrawal" className="rounded-xl border border-gray-200 bg-white p-4">
         <h2 id="rec-withdrawal" className="mb-3 text-lg font-semibold text-gray-900">
           Catat penarikan dari penyedia

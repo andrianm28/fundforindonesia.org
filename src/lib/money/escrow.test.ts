@@ -34,6 +34,9 @@ type PaymentRow = {
   // `?? 0` is the only thing standing between a nullish one and a stranded
   // Payment -- see the "nullish platformFee" test below.
   platformFee: number | null | undefined;
+  // Payment.merchantEntity is NOT NULL DEFAULT YAYASAN (ADR 0027); the release is
+  // booked to the Payment's own merchant.
+  merchantEntity: 'YAYASAN' | 'BADAN_USAHA';
   status: string;
   escrowReleaseAt: Date | null;
   escrowReleasedAt: Date | null;
@@ -75,6 +78,7 @@ function makePayment(overrides: Partial<PaymentRow> = {}): PaymentRow {
     // No Platform Fee unless a test asks for one: what the schema's DEFAULT 0
     // gives every Payment created without a rule in force.
     platformFee: 0,
+    merchantEntity: 'YAYASAN',
     status: 'PAID',
     escrowReleaseAt: new Date(Date.now() - MS_PER_DAY), // matured yesterday
     escrowReleasedAt: null,
@@ -160,6 +164,7 @@ function makeDb(
               amount: p.amount,
               providerFee: p.providerFee,
               platformFee: p.platformFee,
+              merchantEntity: p.merchantEntity,
               donationId: `donation-${p.id}`,
               registrationId: null,
               donation: { campaignId: p.campaignId },
@@ -170,6 +175,7 @@ function makeDb(
               amount: p.amount,
               providerFee: p.providerFee,
               platformFee: p.platformFee,
+              merchantEntity: p.merchantEntity,
               donationId: null,
               registrationId: `registration-${p.id}`,
               donation: null,
@@ -251,6 +257,21 @@ const SUSPENDED_CAMPAIGN = { ...ACTIVE_CAMPAIGN, lifecycleStatus: 'SUSPENDED' };
 describe('releaseMaturedEscrow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("books the release to the Payment's own merchant entity, never a default (ADR 0027)", async () => {
+    const eightDaysAgo = new Date(Date.now() - 8 * MS_PER_DAY);
+    const { rows } = makeDb([
+      makePayment({ id: 'payment-yayasan', merchantEntity: 'YAYASAN', escrowReleaseAt: eightDaysAgo, campaignId: 'campaign-1' }),
+      makePayment({ id: 'payment-badan', merchantEntity: 'BADAN_USAHA', escrowReleaseAt: eightDaysAgo, campaignId: 'campaign-1' }),
+    ]);
+
+    await releaseMaturedEscrow({ type: 'campaign', id: 'campaign-1' });
+
+    const entityOf = (paymentId: string) =>
+      rows.filter((r) => r.transactionId === `escrow-release:${paymentId}`).map((r) => (r as unknown as { merchantEntity: string }).merchantEntity);
+    expect(entityOf('payment-yayasan')).toEqual(['YAYASAN', 'YAYASAN']);
+    expect(entityOf('payment-badan')).toEqual(['BADAN_USAHA', 'BADAN_USAHA']);
   });
 
   it('releases a payment whose hold matured (8 days old, 7-day hold)', async () => {

@@ -44,9 +44,15 @@ const matchesByEquality = (row: Row, where: Row): boolean =>
 /**
  * A fake row written before `sandbox` existed carries no such column; the
  * column is NOT NULL DEFAULT false, so absent means real money (ticket 94).
+ * Likewise a fake row written before `merchantEntity` existed is a YAYASAN row:
+ * that is exactly what the backfill in 20261110090000_merchant_entity_ledger
+ * did to every real one (ADR 0027).
  */
 export function valueOf(row: Row, key: string): unknown {
-  return row[key] === undefined && key === 'sandbox' ? false : row[key];
+  if (row[key] !== undefined) return row[key];
+  if (key === 'sandbox') return false;
+  if (key === 'merchantEntity') return 'YAYASAN';
+  return row[key];
 }
 
 export function ledgerGroupBy(

@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient, ProviderWithdrawal } from '@/generated/prism
 import { collectionAccountWithdrawalLegs, MAX_RUPIAH_AMOUNT, postTransaction, providerBalances, type ProviderBalance } from './ledger';
 import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
 import { canonicalPaymentProviderName, UnknownPaymentProviderError } from '@/lib/payments/provider-names';
+import { canonicalMerchantEntity, UnknownMerchantEntityError, type MerchantEntity } from '@/lib/payments/merchant';
 import {
   ProviderWithdrawalAmountError,
   ProviderWithdrawalDuplicateError,
@@ -77,6 +78,12 @@ export interface RecordProviderWithdrawalParams {
    * touches money, so it is the same string the webhooks stamp.
    */
   provider: string;
+  /**
+   * Which of the two Merchant Accounts (ADR 0027) the Admin read the dashboard
+   * of. Omitted means YAYASAN, which is what every sweep was before the
+   * BADAN_USAHA merchant existed.
+   */
+  merchantEntity?: string;
   /** The provider's own reference for this disbursement. The claim. */
   reference: string;
   /** Whole rupiah taken out of the Provider Balance. Positive. */
@@ -134,6 +141,20 @@ function canonicalProviderName(value: unknown): string {
   }
 }
 
+function cleanMerchantEntity(value: unknown): MerchantEntity {
+  if (value === undefined || value === null || value === '') return 'YAYASAN';
+  try {
+    return canonicalMerchantEntity(cleanText(value, 'Merchant'));
+  } catch (err) {
+    if (err instanceof UnknownMerchantEntityError) {
+      throw new ProviderWithdrawalInputError(
+        `Merchant tidak dikenal: ${String(value)}. Pilih YAYASAN atau BADAN_USAHA.`,
+      );
+    }
+    throw err;
+  }
+}
+
 function assertAmount(value: unknown, field: string, rule: 'positive' | 'nonNegative'): number {
   const valid =
     typeof value === 'number' &&
@@ -185,6 +206,7 @@ export async function recordProviderWithdrawal(
     );
   }
   const provider = canonicalProviderName(params.provider);
+  const merchantEntity = cleanMerchantEntity(params.merchantEntity);
   const reference = cleanText(params.reference, 'Referensi penarikan dari penyedia');
   const destinationName = cleanText(params.destinationName, 'Nama pemilik rekening tujuan');
   const amount = assertAmount(params.amount, 'Nominal penarikan', 'positive');
@@ -225,6 +247,7 @@ export async function recordProviderWithdrawal(
       withdrawal = await tx.providerWithdrawal.create({
         data: {
           provider,
+          merchantEntity,
           reference,
           amount,
           destinationName,
@@ -257,6 +280,11 @@ export async function recordProviderWithdrawal(
         // Real money by construction: recordProviderWithdrawal refuses while the
         // beta marker is on (ticket 94), so there is no sandbox sweep to stamp.
         sandbox: false,
+        // The merchant account the money was drawn from, the entity that received
+        // it, and who recorded it (ADR 0027, PKS 4.1(2), 4.3).
+        merchantEntity,
+        collectingEntityId,
+        actorId: recordedById,
         transactionId: `provider-withdrawal-${withdrawal.id}`,
       },
     );
@@ -269,6 +297,7 @@ export async function recordProviderWithdrawal(
 export interface WithdrawalReconciliation {
   withdrawalId: string;
   provider: string;
+  merchantEntity: MerchantEntity;
   reference: string;
   amount: number;
   destinationName: string;
@@ -290,6 +319,7 @@ export interface WithdrawalReconciliation {
 /** One provider's Provider Balance, and every recorded sweep of it. */
 export interface ProviderReconciliation {
   provider: string;
+  merchantEntity?: MerchantEntity;
   /**
    * The ledger's own pot for this provider. A FLOOR while unattributed rows
    * exist: movements naming no provider (rows posted before ticket 69, and
@@ -327,11 +357,21 @@ export interface ProviderReconciliation {
  */
 export async function reconcileProviderBalances(
   tx: Prisma.TransactionClient,
+  /**
+   * Reconcile one merchant account only (ADR 0027): its sweeps against its pots.
+   * Omitted, every entity is read together, as before. Per entity is the honest
+   * reading: a dashboard shows one merchant's balance, so comparing it to a pot
+   * that includes the other merchant's money would be a false divergence.
+   */
+  merchantEntity?: MerchantEntity,
 ): Promise<ProviderReconciliation[]> {
-  const withdrawals = await tx.providerWithdrawal.findMany({ orderBy: { recordedAt: 'asc' } });
+  const withdrawals = await tx.providerWithdrawal.findMany({
+    ...(merchantEntity ? { where: { merchantEntity } } : {}),
+    orderBy: { recordedAt: 'asc' },
+  });
   if (withdrawals.length === 0) return [];
 
-  const pots = await providerBalances(tx);
+  const pots = await providerBalances(tx, false, merchantEntity);
   const potOf = (provider: string): ProviderBalance =>
     pots.find((p) => p.provider === provider) ?? { provider, debited: 0, credited: 0, balance: 0 };
 
@@ -348,6 +388,7 @@ export async function reconcileProviderBalances(
       amount: withdrawal.amount,
       destinationName: withdrawal.destinationName,
       collectingEntityId: withdrawal.collectingEntityId,
+      merchantEntity: withdrawal.merchantEntity,
       providerBalanceBefore: withdrawal.providerBalanceBefore,
       providerBalanceAfter: withdrawal.providerBalanceAfter,
       providerMovedBy,
@@ -359,6 +400,7 @@ export async function reconcileProviderBalances(
     if (!report) {
       report = {
         provider: withdrawal.provider,
+        ...(merchantEntity ? { merchantEntity } : {}),
         pot: potOf(withdrawal.provider),
         withdrawn: 0,
         providerMovedBy: 0,
