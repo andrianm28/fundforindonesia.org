@@ -116,7 +116,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   },
   footer: {
     about:
-      `Fund for Indonesia adalah platform teknologi untuk donasi dan penggalangan dana online di Indonesia, dioperasikan oleh ${SITE_IDENTITY.operatorName}.`,
+      `Fund for Indonesia adalah platform teknologi untuk donasi dan penggalangan dana online di Indonesia.`,
   },
   hero: {
     slides: [

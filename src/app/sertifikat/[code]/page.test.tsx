@@ -57,7 +57,8 @@ describe('/sertifikat/[code]', () => {
     expect(screen.getByText(/Yayasan Penyelenggara/)).toBeTruthy();
     expect(screen.getByText(CODE)).toBeTruthy();
     expect(screen.getByText(/26 Sep 2026/)).toBeTruthy();
-    expect(screen.getByText(/Fund for Indonesia \(PT Jaya Korpora Prima\)/)).toBeTruthy();
+    expect(screen.getByText(/Diterbitkan oleh Fund for Indonesia atas nama penyelenggara/)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/Jaya Korpora/);
   });
 
   it('never reads the session: it is public', async () => {

@@ -58,9 +58,10 @@ describe('Footer module links', () => {
 });
 
 describe('Footer operator', () => {
-  it('names PT Jaya Korpora Prima as the operator (ADR 0009)', () => {
+  it('shows the copyright line without naming an operating company', () => {
     render(<Footer />);
-    expect(screen.getByText(/© \d{4} Fund for Indonesia, dioperasikan oleh PT Jaya Korpora Prima/)).toBeDefined();
+    expect(screen.getByText(/© \d{4} Fund for Indonesia\. Semua hak dilindungi undang-undang\./)).toBeDefined();
+    expect(document.body.textContent).not.toMatch(/dioperasikan|Jaya Korpora/);
     expect(document.body.textContent).not.toMatch(/jutaan|terpercaya/);
   });
 });
