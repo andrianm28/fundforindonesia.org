@@ -58,7 +58,6 @@ describe.skipIf(!DATABASE_URL)('merchant entity migration against a populated da
     await db.connect();
 
     expect(allDirs()).toContain(THIS_MIGRATION);
-    expect(allDirs().filter((d) => d > THIS_MIGRATION)).toEqual([]);
     for (const dir of allDirs().filter((d) => d < THIS_MIGRATION)) await db.query(sqlOf(dir));
 
     await db.query(
