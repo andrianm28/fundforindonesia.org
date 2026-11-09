@@ -100,3 +100,41 @@ describe("Google sign-in for operators", () => {
     expect(findUnique).not.toHaveBeenCalled();
   });
 });
+
+describe("operator authority on a live session", () => {
+  const jwt = (token: Record<string, unknown>, signIn?: { provider: string }) =>
+    authOptions.callbacks!.jwt!({
+      token,
+      user: signIn ? { id: "user-1", email: "sari@example.test" } : undefined,
+      account: signIn ? { provider: signIn.provider, type: "credentials", providerAccountId: "user-1" } : null,
+      profile: undefined,
+      trigger: signIn ? "signIn" : undefined,
+    } as never);
+
+  beforeEach(() => {
+    findUnique.mockResolvedValue({ password: null, assignments: [{ assignment: "ADMIN" }] });
+  });
+
+  it("records how the session was signed in", async () => {
+    expect((await jwt({}, { provider: "email-otp" })).amr).toBe("email-otp");
+    expect((await jwt({}, { provider: "credentials" })).amr).toBe("credentials");
+  });
+
+  it("grants an Assignment only to a session signed in by code", async () => {
+    expect((await jwt({}, { provider: "email-otp" })).assignments).toEqual(["ADMIN"]);
+  });
+
+  it("gives no authority to a password session whose account was granted an Assignment later", async () => {
+    const token = await jwt({ id: "user-1", amr: "credentials" });
+    expect(token.id).toBe("user-1");
+    expect(token.assignments).toEqual([]);
+  });
+
+  it("gives no authority to a session from before this rule (no sign-in method recorded)", async () => {
+    expect((await jwt({ id: "user-1" })).assignments).toEqual([]);
+  });
+
+  it("gives no authority to a Google session", async () => {
+    expect((await jwt({ id: "user-1", amr: "google" })).assignments).toEqual([]);
+  });
+});

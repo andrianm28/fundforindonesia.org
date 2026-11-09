@@ -64,6 +64,14 @@ form refuses it after checking the password (so a stranger learns nothing
 about the role), and a Google sign-in into such an account is sent back to
 `/login?error=OperatorCodeOnly`.
 
+Refusing at sign-in is not enough on its own, so the session records how it
+was signed in (`amr` on the JWT, the provider id) and the jwt callback grants
+Assignments only to an `email-otp` session. A password or Google session whose
+account is granted an Assignment later, and every session from before this
+rule, keeps working as an ordinary account with no authority until its holder
+signs in again by code. After the deploy, Admins and Verifiers sign in once
+more, by code.
+
 ## Open (owner decision card, 9 Nov 2026)
 
 - Whether the password form stays as a fallback for everyone else until after

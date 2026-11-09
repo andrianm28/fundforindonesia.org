@@ -15,5 +15,7 @@ declare module "next-auth/jwt" {
   interface JWT extends DefaultJWT {
     id?: string;
     assignments?: Assignment[];
+    /** The provider this session was signed in with; operator authority needs "email-otp" (ADR 0026). */
+    amr?: string;
   }
 }

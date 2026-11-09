@@ -101,13 +101,13 @@ describe("authOptions.callbacks.jwt", () => {
     vi.clearAllMocks();
   });
 
-  it("carries the user's current assignments onto the token", async () => {
+  it("carries the user's current assignments onto a token signed in by code", async () => {
     mockFindUnique.mockResolvedValue({
       assignments: [{ assignment: "VERIFIER" }, { assignment: "ADMIN" }],
     });
 
     const token = await authOptions.callbacks!.jwt!({
-      token: { id: "user-1" } as any,
+      token: { id: "user-1", amr: "email-otp" } as any,
       user: undefined as any,
       account: null,
       profile: undefined,
@@ -194,7 +194,7 @@ describe("authOptions.callbacks.jwt: password claim", () => {
   it("keeps a session whose claim still matches the stored password", async () => {
     mockFindUnique.mockResolvedValue({ password: HASH, assignments: [{ assignment: "ADMIN" }] });
 
-    const token = await callJwt({ id: "user-1", pwf: sessionPasswordClaim(HASH) });
+    const token = await callJwt({ id: "user-1", pwf: sessionPasswordClaim(HASH), amr: "email-otp" });
 
     expect(token.id).toBe("user-1");
     expect(token.assignments).toEqual(["ADMIN"]);
@@ -513,7 +513,7 @@ describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
     logged.mockRestore();
   });
 
-  it("adds only id, picture, assignments and the password claim to what next-auth already put on the token", async () => {
+  it("adds only id, sign-in method, picture, assignments and the password claim to what next-auth already put on the token", async () => {
     const seeded = { name: "Andi", email: "andi@email.com", sub: "g-1", picture: "https://lh3.googleusercontent.com/old.png" };
     const args = {
       token: { ...seeded },
@@ -528,6 +528,7 @@ describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
     expect(token).toEqual({
       ...seeded,
       id: "user-1",
+      amr: "google",
       picture: "https://lh3.googleusercontent.com/new",
       assignments: [],
       pwf: sessionPasswordClaim(null),

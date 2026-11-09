@@ -199,6 +199,8 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user, account, profile }) {
       if (user) {
         token.id = user.id;
+        // How this session was signed in; read below, every request.
+        token.amr = account?.provider;
 
         // Signing in again with a different picture updates the stored one
         // (ticket 47). A picture the user uploaded here (a local path) is not
@@ -247,7 +249,15 @@ export const authOptions: NextAuthOptions = {
             token.assignments = [];
             return token;
           }
-          token.assignments = dbUser.assignments.map((a) => a.assignment);
+          // Operator authority needs a session signed in by mailed code (the
+          // code stands in for MFA; ADR 0026). Refusing the password and Google
+          // at sign-in is not enough on its own: an Assignment granted to an
+          // account while its password session is live, or a session from
+          // before this rule, would carry authority without a code. Such a
+          // session keeps working as an ordinary account and gets no
+          // authority; signing in again by code brings it.
+          token.assignments =
+            token.amr === "email-otp" ? dbUser.assignments.map((a) => a.assignment) : [];
         }
       }
 
