@@ -22,6 +22,9 @@ export { DOCUMENT_UPLOADABLE_STATUSES };
  * No signed URL, no object storage SDK: a link is only as good as the session
  * that opens it.
  *
+ * A third kind (PKS Pasal 4.5): a supporting paper for a Payout request, readable
+ * by its uploader (the Payout's Fundraiser) and an Admin only.
+ *
  * Who may open one (`canReadDocument`): its uploader, an Admin, and
  *   - for a Campaign document: the Campaign's Fundraiser, and a Verifier while
  *     the Campaign has a Verification Request open, or who decided one of its
@@ -117,6 +120,7 @@ type DocumentForAcl = {
   uploadedById: string;
   campaignId: string | null;
   partnerOrganisationId: string | null;
+  payoutId?: string | null;
 };
 
 /**
@@ -131,6 +135,18 @@ export async function canReadDocument(
 ): Promise<boolean> {
   if (document.uploadedById === viewer.id) return true;
   if (hasAssignment(viewer.assignments, Assignment.ADMIN)) return true;
+
+  // A Payout's supporting paper (PKS Pasal 4.5) is bank and money material:
+  // its uploader, the Payout's Fundraiser and an Admin, and nobody else. Not a
+  // Verifier: they have no part in a Payout.
+  if (document.payoutId) {
+    const payout = await prisma.payout.findUnique({
+      where: { id: document.payoutId },
+      select: { requestedById: true },
+    });
+    return payout?.requestedById === viewer.id;
+  }
+
   const verifier = hasAssignment(viewer.assignments, Assignment.VERIFIER);
 
   if (document.campaignId) {
@@ -186,6 +202,11 @@ export async function campaignDocuments(prisma: PrismaClient, campaignId: string
   return prisma.document.findMany({ where: { campaignId }, select: SUMMARY, orderBy: { uploadedAt: "asc" } });
 }
 
+/** The supporting papers of a Payout, oldest first (the ACL is the route's, not this list's). */
+export async function payoutDocuments(prisma: PrismaClient, payoutId: string): Promise<DocumentSummary[]> {
+  return prisma.document.findMany({ where: { payoutId }, select: SUMMARY, orderBy: { uploadedAt: "asc" } });
+}
+
 export async function partnerOrganisationDocuments(
   prisma: PrismaClient,
   partnerOrganisationId: string
@@ -221,7 +242,8 @@ export async function documentChecklistItems(prisma: PrismaClient, kind: Kind, c
 
 export type DocumentTarget =
   | { campaignId: string; checklistItemId: string }
-  | { partnerOrganisationId: string; label: string };
+  | { partnerOrganisationId: string; label: string }
+  | { payoutId: string; label: string };
 
 type FileInput = { bytes: Uint8Array; declaredType: string; size: number };
 
@@ -252,7 +274,36 @@ async function authorise(
   prisma: PrismaClient,
   actor: DocumentViewer,
   target: DocumentTarget
-): Promise<{ label: string; campaignId: string | null; partnerOrganisationId: string | null; checklistItemId: string | null }> {
+): Promise<{
+  label: string;
+  campaignId: string | null;
+  partnerOrganisationId: string | null;
+  payoutId: string | null;
+  checklistItemId: string | null;
+}> {
+  if ("payoutId" in target) {
+    // Only the Fundraiser who requested the Payout, and only while it can
+    // still be judged or revised: after approval or rejection the papers are
+    // what the decision rested on. Anyone else, an Admin included (an Admin
+    // reads these papers, never adds them), gets the same "missing" answer.
+    const payout = await prisma.payout.findUnique({
+      where: { id: target.payoutId },
+      select: { id: true, requestedById: true, status: true },
+    });
+    if (!payout || payout.requestedById !== actor.id) {
+      throw new DocumentRefusedError("Pencairan tidak ditemukan.", 404);
+    }
+    if (payout.status !== "DRAFT" && payout.status !== "REVISION_REQUESTED") {
+      throw new DocumentRefusedError("Pencairan ini sudah diproses dan tidak menerima dokumen baru.", 409);
+    }
+    const label = typeof target.label === "string" ? target.label.trim() : "";
+    if (label === "") throw new DocumentRefusedError("Nama dokumen wajib diisi.", 400);
+    if (label.length > MAX_DOCUMENT_LABEL_LENGTH) {
+      throw new DocumentRefusedError(`Nama dokumen paling panjang ${MAX_DOCUMENT_LABEL_LENGTH} karakter.`, 400);
+    }
+    return { label, campaignId: null, partnerOrganisationId: null, payoutId: payout.id, checklistItemId: null };
+  }
+
   if ("campaignId" in target) {
     const campaign = await prisma.campaign.findUnique({
       where: { id: target.campaignId },
@@ -271,7 +322,7 @@ async function authorise(
     if (!item || !item.active || !item.requiresDocument || (item.kind !== null && item.kind !== campaign.kind)) {
       throw new DocumentRefusedError("Jenis dokumen tidak berlaku untuk Campaign ini.", 400);
     }
-    return { label: item.label, campaignId: campaign.id, partnerOrganisationId: null, checklistItemId: item.id };
+    return { label: item.label, campaignId: campaign.id, partnerOrganisationId: null, payoutId: null, checklistItemId: item.id };
   }
 
   if (
@@ -290,7 +341,7 @@ async function authorise(
     select: { id: true },
   });
   if (!organisation) throw new DocumentRefusedError("Lembaga Mitra tidak ditemukan.", 404);
-  return { label, campaignId: null, partnerOrganisationId: organisation.id, checklistItemId: null };
+  return { label, campaignId: null, partnerOrganisationId: organisation.id, payoutId: null, checklistItemId: null };
 }
 
 /**
@@ -336,6 +387,7 @@ export async function uploadDocument(
         uploadedById: params.actor.id,
         campaignId: owner.campaignId,
         partnerOrganisationId: owner.partnerOrganisationId,
+        payoutId: owner.payoutId,
         checklistItemId: owner.checklistItemId,
         label: owner.label,
         contentType,
@@ -366,6 +418,7 @@ export async function readDocument(
       uploadedById: true,
       campaignId: true,
       partnerOrganisationId: true,
+      payoutId: true,
       contentType: true,
       storagePath: true,
     },

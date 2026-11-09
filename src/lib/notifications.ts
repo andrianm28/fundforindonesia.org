@@ -194,3 +194,40 @@ export async function notifyRefundCompleted(
     },
   });
 }
+
+/**
+ * Tell a Fundraiser that an Admin sent their Payout request back for revision
+ * (PKS Pasal 4.5; pks-pemenuhan/12). The link goes to the screen that owns the
+ * Payout: a Campaign's payout page, or the Trip page for a Trip Fee Payout.
+ * Called only after the revision committed, and by a caller that tolerates its
+ * failure: the Payout is in revision whether or not this row is written.
+ */
+export async function notifyPayoutRevision(
+  client: Pick<PrismaClient, 'notification' | 'payout' | 'volunteerTrip'>,
+  params: { payoutId: string; userId: string; reason: string },
+) {
+  const payout = await client.payout.findUnique({
+    where: { id: params.payoutId },
+    select: { volunteerTripId: true, campaign: { select: { slug: true } } },
+  });
+  let link = '/akun';
+  if (payout?.campaign) {
+    link = `/akun/kampanye-saya/${payout.campaign.slug}/pencairan`;
+  } else if (payout?.volunteerTripId) {
+    const trip = await client.volunteerTrip.findUnique({
+      where: { id: payout.volunteerTripId },
+      select: { slug: true },
+    });
+    if (trip) link = `/akun/volunteer-trip/${trip.slug}`;
+  }
+
+  await client.notification.create({
+    data: {
+      type: 'payout_revision',
+      title: 'Pencairan Dana Perlu Direvisi',
+      message: `Admin meminta revisi atas pengajuan pencairan dana Anda. Alasan: ${params.reason}`,
+      userId: params.userId,
+      link,
+    },
+  });
+}

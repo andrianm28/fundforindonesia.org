@@ -218,6 +218,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/payouts/[id]/balance-check/route.ts",
   "src/app/api/admin/payouts/[id]/fail/route.ts",
   "src/app/api/admin/payouts/[id]/reject/route.ts",
+  "src/app/api/admin/payouts/[id]/request-revision/route.ts",
   "src/app/api/admin/payouts/[id]/reveal-account/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/provider-withdrawals/route.ts",

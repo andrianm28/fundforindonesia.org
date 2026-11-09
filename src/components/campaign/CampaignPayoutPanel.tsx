@@ -15,6 +15,7 @@ import { PAYOUT_REQUESTABLE_STATUSES } from '@/lib/payout-requestable-statuses';
 import { PAYOUT_STATUS_LABEL } from '@/lib/payout-status-label';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
 import type { PayoutStatus } from '@/generated/prisma/client';
+import { PayoutSupportingPapers, type PayoutPaper } from './PayoutSupportingPapers';
 
 /**
  * A Fundraiser's own money on one Campaign, and the form to ask for some of
@@ -91,6 +92,10 @@ interface PayoutRow {
    * Payout leaves DRAFT (resolved) or has never been checked.
    */
   shortCheckedAt: string | null;
+  /** PKS Pasal 4.5: the Fundraiser's own note, the Admin's revision reason, and the papers attached. */
+  supportingNote?: string | null;
+  revisionReason?: string | null;
+  documents?: PayoutPaper[];
 }
 
 interface BankAccountOption {
@@ -331,6 +336,7 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
+  const [note, setNote] = useState('');
   const [bankAccountId, setBankAccountId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -410,7 +416,12 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
       const res = await fetch(`/api/campaigns/${slug}/payouts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bankAccountId, amount: requested, description: description.trim() }),
+        body: JSON.stringify({
+          bankAccountId,
+          amount: requested,
+          description: description.trim(),
+          ...(note.trim() !== '' ? { note: note.trim() } : {}),
+        }),
       });
       if (!res.ok) {
         // The server's own refusal, in its own words: a Payout can be turned
@@ -423,6 +434,7 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
       }
       setAmount('');
       setDescription('');
+      setNote('');
       setBankAccountId('');
       await load();
       router.refresh();
@@ -560,6 +572,18 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
               />
             </label>
 
+            <label className="block text-sm text-text">
+              Catatan tambahan (opsional)
+              <textarea
+                aria-label="Catatan tambahan"
+                value={note}
+                maxLength={1000}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Dokumen pendukung dapat diunggah dari Riwayat pencairan setelah diajukan."
+                className="mt-1 w-full rounded-lg border border-border px-3 py-2"
+              />
+            </label>
+
             <button
               type="button"
               onClick={submit}
@@ -602,6 +626,20 @@ export function CampaignPayoutPanel({ slug }: { slug: string }) {
                   <p className="mt-2 text-xs text-amber-700">
                     Menunggu saldo penyedia, dicek {formatDate(payout.shortCheckedAt)}.
                   </p>
+                )}
+
+                {(payout.status === 'DRAFT' || payout.status === 'REVISION_REQUESTED') && (
+                  <PayoutSupportingPapers
+                    payoutId={payout.id}
+                    status={payout.status}
+                    note={payout.supportingNote ?? null}
+                    revisionReason={payout.revisionReason ?? null}
+                    documents={payout.documents ?? []}
+                    onChanged={async () => {
+                      await load();
+                      router.refresh();
+                    }}
+                  />
                 )}
 
                 {payout.usageReportStatus === 'submitted' && (

@@ -139,6 +139,7 @@ model User {
   payoutsRequested                  Payout[]                         @relation("PayoutRequester")
   payoutsApproved                   Payout[]                         @relation("PayoutApprover")
   payoutsCompleted                  Payout[]                         @relation("PayoutCompleter")
+  payoutRevisionsRequested          Payout[]                         @relation("PayoutRevisionRequester")
   payoutBalanceChecksRecorded       PayoutBalanceCheck[]             @relation("PayoutBalanceCheckedBy")
   payoutAccountReveals              PayoutAccountReveal[]            @relation("PayoutAccountRevealedBy")
   usageReportsSubmitted             UsageReport[]                    @relation("UsageReportSubmitter")
@@ -1153,7 +1154,7 @@ model ShortLink {
 /// A private document uploaded as evidence (ticket 64, PRD §7.1): a
 /// Fundraiser's paper behind a Campaign's checklist item, or a Partner
 /// Organisation's legal document recorded by a Verifier. Exactly one of
-/// `campaignId` / `partnerOrganisationId` is set. The file lives on a private
+/// `campaignId` / `partnerOrganisationId` / `payoutId` is set. The file lives on a private
 /// host volume (PRIVATE_DOCUMENT_DIR), never under public/, and is only ever
 /// read through the ACL route that streams it; `storagePath` is relative to
 /// that volume and is random, so it neither names the host nor can be
@@ -1164,6 +1165,9 @@ model Document {
   uploadedById          String
   campaignId            String?
   partnerOrganisationId String?
+  /// PKS Pasal 4.5: a supporting paper for a Payout request. Readable only by
+  /// its uploader (the Payout's Fundraiser) and an Admin, never a Verifier.
+  payoutId              String?
   /// The §7.1 checklist item this document evidences. Required on a Campaign
   /// document, null on a Partner Organisation one.
   checklistItemId       String?
@@ -1181,10 +1185,12 @@ model Document {
   uploadedBy          User                       @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
   campaign            Campaign?                  @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   partnerOrganisation PartnerOrganisation?       @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
+  payout              Payout?                    @relation(fields: [payoutId], references: [id], onDelete: Restrict)
   checklistItem       VerificationChecklistItem? @relation(fields: [checklistItemId], references: [id], onDelete: Restrict)
 
   @@index([campaignId, checklistItemId])
   @@index([partnerOrganisationId, uploadedAt])
+  @@index([payoutId, uploadedAt])
 }
 
 enum VerificationChecklistAuditAction {
@@ -1507,6 +1513,12 @@ enum PayoutStatus {
   // step that cannot be skipped by a status write.
   DRAFT // campaigner is filling it in
   SUBMITTED // awaiting review
+  /// PKS Pasal 4.5 (pks-pemenuhan/12): an Admin read a DRAFT Payout and sent it
+  /// back with a reason; the Fundraiser fixes it and resubmits, which puts it
+  /// back to DRAFT. No money moves either way: approvePayout accepts DRAFT
+  /// only, so a Payout in this state cannot be approved, and nothing here
+  /// writes a ledger row.
+  REVISION_REQUESTED
   APPROVED // reviewed, not yet sent
   REJECTED
   PROCESSING // instructed to the bank
@@ -2486,6 +2498,17 @@ model Payout {
   completedById   String?
   completedBy     User?     @relation("PayoutCompleter", fields: [completedById], references: [id])
   rejectionReason String?
+  /// PKS Pasal 4.5: an additional note the Fundraiser wrote for the Admin
+  /// reading the request (what the money is for, what the papers show).
+  /// Optional; supporting papers are Documents carrying this Payout's id.
+  supportingNote  String?   @db.VarChar(1000)
+  /// Why an Admin sent the Payout back, who, and when. Kept after the
+  /// Fundraiser resubmits (the trail), shown only while the status is
+  /// REVISION_REQUESTED.
+  revisionReason        String?   @db.VarChar(500)
+  revisionRequestedById String?
+  revisionRequestedBy   User?     @relation("PayoutRevisionRequester", fields: [revisionRequestedById], references: [id])
+  revisionRequestedAt   DateTime?
 
   providerRef             String?   @unique
   /// FFI-07 story 53: the provider balance the approving Admin read in the
@@ -2519,6 +2542,7 @@ model Payout {
   usageReport    UsageReport?
   balanceChecks  PayoutBalanceCheck[]
   accountReveals PayoutAccountReveal[]
+  documents      Document[]
 
   @@index([campaignId, status])
   @@index([volunteerTripId, status])

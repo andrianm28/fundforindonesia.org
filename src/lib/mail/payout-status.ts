@@ -5,7 +5,8 @@ import type { MailMessage } from './types';
 /**
  * What a Fundraiser is told as their Payout moves (PRD §7.2; ticket
  * rilis-1-benda/68): once an Admin approves it, and once a second Admin
- * records the transfer (CONTEXT.md, Payout). The destination is named by its
+ * records the transfer (CONTEXT.md, Payout); and, when an Admin sends it back
+ * for revision (PKS Pasal 4.5), with the reason. The destination is named by its
  * bank only: the Fundraiser knows their own account, and an email is no
  * place for its number.
  */
@@ -19,7 +20,11 @@ export type PayoutStatusEmailInput = {
   bankCode: string;
   /** The Fundraiser's own screen for this Payout. */
   statusUrl: string;
-} & ({ event: 'approved' } | { event: 'completed'; proofReference: string });
+} & (
+  | { event: 'approved' }
+  | { event: 'completed'; proofReference: string }
+  | { event: 'revision_requested'; reason: string }
+);
 
 const SUBJECT_LABEL = { campaign: 'Campaign', trip: 'Volunteer Trip' } as const;
 
@@ -28,6 +33,20 @@ export function payoutStatusEmail(input: PayoutStatusEmailInput): MailMessage {
   const subjectName = `${SUBJECT_LABEL[input.subjectKind]} "${title}"`;
   const amount = formatRupiah(input.amount);
   const bank = oneLine(input.bankCode);
+
+  if (input.event === 'revision_requested') {
+    return letter({
+      to: input.to,
+      subject: `Pencairan dana "${title}" perlu direvisi`,
+      greeting: greetingFor(input.fundraiserName),
+      body: [
+        `Admin meminta revisi atas pengajuan pencairan dana (Payout) sebesar ${amount} untuk ${subjectName}. Dana belum bergerak dan tidak akan dicairkan sebelum pengajuan diperbaiki dan diajukan ulang.`,
+        `Alasan dari Admin: ${oneLine(input.reason)}`,
+        'Lengkapi dokumen atau catatan yang diminta, lalu ajukan ulang di tautan ini:',
+      ],
+      url: input.statusUrl,
+    });
+  }
 
   if (input.event === 'approved') {
     return letter({

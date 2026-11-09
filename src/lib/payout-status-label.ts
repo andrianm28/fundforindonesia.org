@@ -30,6 +30,7 @@ import type { PayoutStatus } from '@/generated/prisma/client';
 export const PAYOUT_STATUS_LABEL: Record<PayoutStatus, string> = {
   DRAFT: 'Menunggu persetujuan Admin',
   SUBMITTED: 'Diajukan, menunggu ditinjau',
+  REVISION_REQUESTED: 'Perlu direvisi',
   APPROVED: 'Disetujui, menunggu dana dikirim',
   REJECTED: 'Ditolak',
   PROCESSING: 'Sedang dikirim',

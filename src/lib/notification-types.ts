@@ -24,6 +24,7 @@ export const NOTIFICATION_TYPE_META: Record<string, NotificationTypeMeta> = {
   volunteer_trip_moderation: { label: 'Moderasi Trip', tone: 'info' },
   bank_account_verification: { label: 'Verifikasi Rekening', tone: 'info' },
   disbursement: { label: 'Pencairan Dana', tone: 'money' },
+  payout_revision: { label: 'Revisi Pencairan', tone: 'warning' },
   payment_expired: { label: 'Pembayaran Kedaluwarsa', tone: 'warning' },
   payment_failed: { label: 'Pembayaran Gagal', tone: 'error' },
   refund_completed: { label: 'Refund', tone: 'money' },

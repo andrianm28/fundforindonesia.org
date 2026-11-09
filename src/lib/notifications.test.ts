@@ -6,6 +6,7 @@ import {
   notifyRegistrationConfirmed,
   notifyPaymentLapsed,
   notifyRefundCompleted,
+  notifyPayoutRevision,
 } from './notifications';
 
 // Mock prisma
@@ -342,6 +343,36 @@ describe('notifications', () => {
         amount: 50_000,
       });
       expect(create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('notifyPayoutRevision', () => {
+    it("tells the Fundraiser, linking a Campaign's payout screen", async () => {
+      const create = vi.fn().mockResolvedValue({});
+      const client = {
+        notification: { create },
+        payout: { findUnique: vi.fn().mockResolvedValue({ volunteerTripId: null, campaign: { slug: 'sumur-desa' } }) },
+        volunteerTrip: { findUnique: vi.fn() },
+      };
+
+      await notifyPayoutRevision(client as never, { payoutId: 'p-1', userId: 'fundraiser-1', reason: 'Lampirkan RAB' });
+
+      const data = create.mock.calls[0][0].data;
+      expect(data).toMatchObject({ type: 'payout_revision', userId: 'fundraiser-1', link: '/akun/kampanye-saya/sumur-desa/pencairan' });
+      expect(data.message).toContain('Lampirkan RAB');
+    });
+
+    it('links the Trip screen for a Trip Fee Payout', async () => {
+      const create = vi.fn().mockResolvedValue({});
+      const client = {
+        notification: { create },
+        payout: { findUnique: vi.fn().mockResolvedValue({ volunteerTripId: 'trip-1', campaign: null }) },
+        volunteerTrip: { findUnique: vi.fn().mockResolvedValue({ slug: 'trip-lombok' }) },
+      };
+
+      await notifyPayoutRevision(client as never, { payoutId: 'p-1', userId: 'fundraiser-1', reason: 'x' });
+
+      expect(create.mock.calls[0][0].data.link).toBe('/akun/volunteer-trip/trip-lombok');
     });
   });
 });

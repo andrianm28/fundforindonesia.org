@@ -35,6 +35,7 @@ function fakePrisma(seed: {
   requests?: Row[];
   organisations?: Row[];
   items?: Row[];
+  payouts?: Row[];
   documents?: Row[];
 }) {
   const documents = [...(seed.documents ?? [])];
@@ -46,6 +47,7 @@ function fakePrisma(seed: {
       partnerOrganisation: {
         findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.organisations, where.id)),
       },
+      payout: { findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.payouts, where.id)) },
       verificationChecklistItem: {
         findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.items, where.id)),
       },
@@ -82,6 +84,8 @@ const CAMPAIGN = { id: 'c1', creatorId: 'fundraiser', kind: 'DONATION', lifecycl
 const ITEM = { id: 'identitas-fundraiser', label: 'KTP Fundraiser', active: true, requiresDocument: true, kind: null };
 const ORG = { id: 'org1', fundraiserId: 'org-account' };
 
+const PAYOUT = { id: 'p1', requestedById: 'fundraiser', status: 'DRAFT' };
+const payoutDoc = { uploadedById: 'fundraiser', campaignId: null, partnerOrganisationId: null, payoutId: 'p1' };
 const campaignDoc = { uploadedById: 'fundraiser', campaignId: 'c1', partnerOrganisationId: null };
 const orgDoc = { uploadedById: 'verifier-a', campaignId: null, partnerOrganisationId: 'org1' };
 
@@ -342,5 +346,94 @@ describe('uploadDocument and readDocument against a real directory', () => {
         root: null,
       }),
     ).rejects.toEqual(new DocumentRefusedError('Penyimpanan dokumen belum dikonfigurasi.', 503));
+  });
+});
+
+describe('canReadDocument: a Payout supporting document (PKS Pasal 4.5)', () => {
+  const db = () => fakePrisma({ payouts: [PAYOUT] }).prisma as never;
+
+  it('is opened by its uploader and by the Fundraiser who requested the Payout', async () => {
+    expect(await canReadDocument(db(), payoutDoc, viewer('fundraiser'))).toBe(true);
+    expect(await canReadDocument(db(), { ...payoutDoc, uploadedById: 'someone' }, viewer('fundraiser'))).toBe(true);
+  });
+
+  it('is opened by an Admin', async () => {
+    expect(await canReadDocument(db(), payoutDoc, viewer('admin', 'ADMIN'))).toBe(true);
+  });
+
+  it('is refused to a Verifier, a Donor and another Fundraiser: owner and Admin only', async () => {
+    expect(await canReadDocument(db(), payoutDoc, viewer('verifier-a', 'VERIFIER'))).toBe(false);
+    expect(await canReadDocument(db(), payoutDoc, viewer('donor'))).toBe(false);
+    expect(await canReadDocument(db(), payoutDoc, viewer('other-fundraiser'))).toBe(false);
+  });
+
+  it('is refused when the Payout is gone', async () => {
+    const empty = fakePrisma({}).prisma as never;
+    expect(await canReadDocument(empty, { ...payoutDoc, uploadedById: 'someone' }, viewer('fundraiser'))).toBe(false);
+  });
+});
+
+describe('uploadDocument for a Payout (PKS Pasal 4.5)', () => {
+  let root: string;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'ffi-docs-'));
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+  const pdf = { bytes: PDF, declaredType: 'application/pdf', size: PDF.length };
+
+  it("stores the Payout's Fundraiser's paper with a title, owned by the Payout and no checklist item", async () => {
+    const db = fakePrisma({ payouts: [PAYOUT] });
+
+    const summary = await uploadDocument(db.prisma as never, {
+      actor: viewer('fundraiser'),
+      file: pdf,
+      target: { payoutId: 'p1', label: '  Nota pembelian  ' },
+      root,
+    });
+
+    expect(summary).toMatchObject({ label: 'Nota pembelian', checklistItemId: null });
+    expect(db.documents[0]).toMatchObject({ uploadedById: 'fundraiser', payoutId: 'p1', campaignId: null, partnerOrganisationId: null, checklistItemId: null });
+    const mine = await readDocument(db.prisma as never, { documentId: db.documents[0].id as string, viewer: viewer('fundraiser'), root });
+    expect(new Uint8Array(mine!.bytes)).toEqual(PDF);
+    const admin = await readDocument(db.prisma as never, { documentId: db.documents[0].id as string, viewer: viewer('admin', 'ADMIN'), root });
+    expect(admin).not.toBeNull();
+    const verifier = await readDocument(db.prisma as never, { documentId: db.documents[0].id as string, viewer: viewer('v', 'VERIFIER'), root });
+    expect(verifier).toBeNull();
+  });
+
+  it('also takes papers while the Payout is awaiting revision', async () => {
+    const db = fakePrisma({ payouts: [{ ...PAYOUT, status: 'REVISION_REQUESTED' }] });
+    await expect(
+      uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
+    ).resolves.toMatchObject({ label: 'RAB' });
+  });
+
+  it("answers someone else's Payout, and an Admin's attempt, as a missing Payout, writing nothing", async () => {
+    const db = fakePrisma({ payouts: [PAYOUT] });
+    for (const actor of [viewer('stranger'), viewer('admin', 'ADMIN'), viewer('v', 'VERIFIER')]) {
+      await expect(
+        uploadDocument(db.prisma as never, { actor, file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
+      ).rejects.toMatchObject({ status: 404 });
+    }
+    expect(db.documents).toEqual([]);
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  it.each(['APPROVED', 'COMPLETED', 'REJECTED', 'FAILED'])('refuses a Payout that is %s (409): the papers were judged already', async (status) => {
+    const db = fakePrisma({ payouts: [{ ...PAYOUT, status }] });
+    await expect(
+      uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('requires a title within the length limit', async () => {
+    const db = fakePrisma({ payouts: [PAYOUT] });
+    for (const label of ['   ', 'x'.repeat(121)]) {
+      await expect(
+        uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label }, root }),
+      ).rejects.toMatchObject({ status: 400 });
+    }
   });
 });

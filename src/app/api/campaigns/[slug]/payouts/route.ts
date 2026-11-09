@@ -10,6 +10,9 @@ const requestPayoutSchema = z.object({
   bankAccountId: z.string().min(1, 'Rekening bank harus dipilih'),
   amount: z.number().int('Jumlah harus berupa bilangan bulat').min(1, 'Jumlah pencairan harus lebih dari 0'),
   description: z.string().min(1, 'Keterangan harus diisi').max(500, 'Keterangan maksimal 500 karakter'),
+  // PKS Pasal 4.5: an additional note for the Admin; supporting papers are
+  // uploaded as private Documents against the created Payout's id.
+  note: z.string().max(1000, 'Catatan maksimal 1000 karakter').optional(),
 });
 
 /**
@@ -34,7 +37,7 @@ export async function POST(request: NextRequest, context: any) {
     const fieldErrors = parsed.error.flatten().fieldErrors;
     return NextResponse.json({ error: 'Validasi gagal', fieldErrors }, { status: 400 });
   }
-  const { bankAccountId, amount, description } = parsed.data;
+  const { bankAccountId, amount, description, note } = parsed.data;
 
   const campaign = await prisma.campaign.findUnique({
     where: { slug },
@@ -68,6 +71,7 @@ export async function POST(request: NextRequest, context: any) {
         bankAccountId,
         amount,
         description,
+        note,
       }),
     );
 

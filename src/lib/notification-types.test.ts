@@ -7,6 +7,7 @@ const SYSTEM_TYPES = [
   'donation_confirmed',
   'campaign_update',
   'disbursement',
+  'payout_revision',
   'registration_confirmed',
   'campaign_deadline_reminder',
   'kind_authorisation_expiry_warning',

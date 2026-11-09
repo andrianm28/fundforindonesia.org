@@ -87,6 +87,13 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
           disputedReason: true,
         },
       },
+      // PKS Pasal 4.5: the Fundraiser's supporting papers. Summaries only (never
+      // the storage path); each opens through GET /api/documents/[id], which
+      // lets only the owner and an Admin read it.
+      documents: {
+        orderBy: { uploadedAt: 'asc' },
+        select: { id: true, label: true, contentType: true, sizeBytes: true, uploadedAt: true },
+      },
       // Ticket 30: every "sudah dicek, kurang" reading, newest first -- an
       // append-only trail, never filtered by the Payout's current status.
       balanceChecks: {
@@ -128,6 +135,14 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
         <p className="mt-1 text-sm text-gray-500">{PAYOUT_STATUS_LABEL[payout.status]}</p>
       </div>
 
+      {payout.status === 'REVISION_REQUESTED' && (
+        <p role="note" className="mb-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Revisi diminta{payout.revisionRequestedAt ? ` ${formatCheckDate(payout.revisionRequestedAt)}` : ''}:{' '}
+          {payout.revisionReason}. Dana belum bergerak; Payout kembali ke antrean persetujuan setelah Fundraiser
+          mengajukan ulang.
+        </p>
+      )}
+
       {payout.status === 'DRAFT' && payout.balanceChecks.length > 0 && (
         <p className="mb-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Menunggu saldo penyedia -- terakhir dicek {formatCheckDate(payout.balanceChecks[0].checkedAt)} oleh{' '}
@@ -153,6 +168,36 @@ export default async function AdminPayoutDetailPage({ params }: RouteContext) {
         <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
           <p className="text-xs text-gray-500">Keterangan</p>
           <p className="text-sm text-gray-900">{payout.description}</p>
+        </div>
+
+        {payout.supportingNote && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
+            <p className="text-xs text-gray-500">Catatan tambahan dari Fundraiser</p>
+            <p className="whitespace-pre-line text-sm text-gray-900">{payout.supportingNote}</p>
+          </div>
+        )}
+
+        <div className="rounded-xl border border-gray-200 bg-white p-4 sm:col-span-2">
+          <p className="text-xs text-gray-500">Dokumen pendukung</p>
+          {payout.documents.length === 0 ? (
+            <p className="text-sm text-gray-500">Belum ada dokumen pendukung.</p>
+          ) : (
+            <ul className="mt-1 space-y-1">
+              {payout.documents.map((doc) => (
+                <li key={doc.id} className="text-sm">
+                  <a
+                    href={`/api/documents/${doc.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-700 underline"
+                  >
+                    {doc.label}
+                  </a>{' '}
+                  <span className="text-xs text-gray-500">{formatCheckDate(doc.uploadedAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {payout.approvedById && (
