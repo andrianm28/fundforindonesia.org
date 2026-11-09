@@ -34,9 +34,8 @@ const nextConfig = {
   agentRules: false,
   // No X-Powered-By: Next.js header; it only tells a scanner what the stack is.
   poweredByHeader: false,
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // Type errors fail the build (the tsc baseline is 0, ci/baselines.json):
+  // no `typescript.ignoreBuildErrors` here.
   // Native addon (ADR 0019): keep it out of the webpack bundle so Node loads the
   // prebuilt .node binary at runtime; Next's standalone trace still copies it.
   serverExternalPackages: ['@node-rs/bcrypt'],

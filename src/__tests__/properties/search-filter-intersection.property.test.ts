@@ -26,7 +26,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import { prisma } from "@/lib/prisma";
 
-const mockedPrisma = vi.mocked(prisma);
+const mockedPrisma = vi.mocked(prisma, true);
 
 beforeEach(() => {
   vi.clearAllMocks();
