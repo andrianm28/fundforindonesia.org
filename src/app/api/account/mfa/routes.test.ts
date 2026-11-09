@@ -88,6 +88,17 @@ describe("account MFA routes", () => {
       expect((await verify(post({ code: "1" }))).status).toBe(409);
     });
 
+    it("is 429 with a clear message and Retry-After once the daily cap locks the person out", async () => {
+      m.verifySecondFactor.mockResolvedValue({ ok: false, reason: "locked", retryAfterSeconds: 40000 });
+      const res = await verify(post({ code: "1" }));
+      expect(res.status).toBe(429);
+      expect(res.headers.get("Retry-After")).toBe("40000");
+      const body = await res.json();
+      expect(body.error).toMatch(/Admin/);
+      expect(body.error).toMatch(/24 jam/);
+      expect(body).not.toHaveProperty("proof");
+    });
+
     it("is 400 for a missing or non-string code, without calling the service", async () => {
       for (const body of [{}, { code: 123456 }, { code: "" }, null]) {
         expect((await verify(post(body))).status).toBe(400);
@@ -121,6 +132,13 @@ describe("account MFA routes", () => {
     it("is 409 once already enrolled", async () => {
       m.beginEnrollment.mockResolvedValue({ ok: false, reason: "already_enrolled" });
       expect((await setup()).status).toBe(409);
+    });
+
+    it("is 429 with Retry-After when setup is rate limited", async () => {
+      m.beginEnrollment.mockResolvedValue({ ok: false, reason: "limited", retryAfterSeconds: 900 });
+      const res = await setup();
+      expect(res.status).toBe(429);
+      expect(res.headers.get("Retry-After")).toBe("900");
     });
   });
 

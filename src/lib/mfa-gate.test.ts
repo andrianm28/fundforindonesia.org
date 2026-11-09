@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { enrollGraceDays, resolveMfa } from "./mfa-gate";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -77,5 +77,50 @@ describe("enrollGraceDays", () => {
     for (const bad of ["", "-1", "abc", "1.5", "NaN", "Infinity"]) {
       expect(enrollGraceDays({ MFA_ENROLL_GRACE_DAYS: bad })).toBe(0);
     }
+  });
+});
+
+describe("enrollGraceDays: production guard", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  // A fresh module each time: the clamp logs once per process.
+  async function load() {
+    vi.resetModules();
+    return (await import("./mfa-gate")).enrollGraceDays;
+  }
+
+  it("clamps a value above 30 to 30 in production, and says so once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const grace = await load();
+    const env = { NODE_ENV: "production", MFA_ENROLL_GRACE_DAYS: "36500" };
+    expect(grace(env)).toBe(30);
+    expect(grace(env)).toBe(30);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("mfa_grace_clamped");
+  });
+
+  it("leaves 30 and below alone in production, without logging", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const grace = await load();
+    expect(grace({ NODE_ENV: "production", MFA_ENROLL_GRACE_DAYS: "30" })).toBe(30);
+    expect(grace({ NODE_ENV: "production", MFA_ENROLL_GRACE_DAYS: "7" })).toBe(7);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("keeps the big value in CI's e2e, where CI is 'true', even with NODE_ENV=production", async () => {
+    const grace = await load();
+    expect(grace({ NODE_ENV: "production", CI: "true", MFA_ENROLL_GRACE_DAYS: "36500" })).toBe(36500);
+  });
+
+  it("does not clamp outside production", async () => {
+    const grace = await load();
+    expect(grace({ NODE_ENV: "development", MFA_ENROLL_GRACE_DAYS: "36500" })).toBe(36500);
+    expect(grace({ MFA_ENROLL_GRACE_DAYS: "90" })).toBe(90);
+  });
+
+  it("clamps in production when CI is anything but the exact string 'true'", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const grace = await load();
+    expect(grace({ NODE_ENV: "production", CI: "1", MFA_ENROLL_GRACE_DAYS: "100" })).toBe(30);
   });
 });

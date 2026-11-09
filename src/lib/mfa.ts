@@ -3,6 +3,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { requireFieldKeys } from "@/lib/contact-fields";
 import { PASSWORD_HASH_COST } from "@/lib/password-hash-cost";
 import { hashPassword, verifyPassword } from "@/lib/password-hash";
+import { notifyMfaChange } from "@/lib/notifications";
 import { checkRateLimit } from "@/lib/rate-limit-guard";
 import { base32Encode, generateTotpSecret, otpauthUri, verifyTotp } from "@/lib/totp";
 
@@ -26,8 +27,16 @@ const SECRET_FIELD = "UserMfa.secret";
 
 const VERIFY_LIMIT = { scope: "mfa-verify", limit: 5, windowSeconds: 5 * 60 } as const;
 const ENROLL_LIMIT = { scope: "mfa-enroll", limit: 10, windowSeconds: 5 * 60 } as const;
+/**
+ * The cumulative cap on top of the 5-minute limit: 5 guesses per 5 minutes is
+ * 1440 a day, far too many against a 6-digit code. Past this the person is
+ * "locked" until the window passes or another Admin resets the factor. No
+ * schema change: it is the same fixed-window counter with a longer window.
+ */
+const VERIFY_DAILY_LIMIT = { scope: "mfa-verify-daily", limit: 20, windowSeconds: 24 * 60 * 60 } as const;
+const SETUP_LIMIT = { scope: "mfa-setup", limit: 5, windowSeconds: 60 * 60 } as const;
 
-export type Refusal = "invalid" | "limited" | "unavailable";
+export type Refusal = "invalid" | "limited" | "locked" | "unavailable";
 
 function normaliseBackupCode(raw: string): string {
   return raw.replace(/[\s-]/g, "").toLowerCase();
@@ -53,12 +62,30 @@ async function hashBackupCodes(codes: string[]): Promise<string[]> {
   return Promise.all(codes.map((code) => hashPassword(normaliseBackupCode(code), PASSWORD_HASH_COST)));
 }
 
-async function limited(scope: { scope: string; limit: number; windowSeconds: number }, userId: string) {
+async function limited(
+  scope: { scope: string; limit: number; windowSeconds: number },
+  userId: string,
+  limitedAs: "limited" | "locked" = "limited",
+) {
   const verdict = await checkRateLimit({ ...scope, subject: userId, onUnavailable: "closed" });
   if (verdict.ok) return null;
   return verdict.reason === "limited"
-    ? ({ ok: false, reason: "limited", retryAfterSeconds: verdict.retryAfterSeconds } as const)
+    ? ({ ok: false, reason: limitedAs, retryAfterSeconds: verdict.retryAfterSeconds } as const)
     : ({ ok: false, reason: "unavailable" } as const);
+}
+
+/**
+ * Tells the account holder, after the commit, that their second factor changed.
+ * Best-effort: a failure here is logged by class and never undoes or blocks the change.
+ */
+async function tellAccountHolder(prisma: PrismaClient, userId: string, kind: "enabled" | "backup_codes_regenerated") {
+  try {
+    await notifyMfaChange(prisma, { userId, kind });
+  } catch (error) {
+    console.error(
+      JSON.stringify({ event: "mfa_notify_failed", kind, error: error instanceof Error ? error.name : "UnknownError" }),
+    );
+  }
 }
 
 export async function getMfaStatus(prisma: PrismaClient, userId: string) {
@@ -79,7 +106,13 @@ export async function getMfaStatus(prisma: PrismaClient, userId: string) {
 export async function beginEnrollment(
   prisma: PrismaClient,
   params: { userId: string; account: string },
-): Promise<{ ok: true; secret: string; uri: string } | { ok: false; reason: "already_enrolled" }> {
+): Promise<
+  | { ok: true; secret: string; uri: string }
+  | { ok: false; reason: Refusal | "already_enrolled"; retryAfterSeconds?: number }
+> {
+  const blocked = await limited(SETUP_LIMIT, params.userId);
+  if (blocked) return blocked;
+
   const existing = await prisma.userMfa.findUnique({ where: { userId: params.userId }, select: { enabledAt: true } });
   if (existing?.enabledAt) return { ok: false, reason: "already_enrolled" };
 
@@ -131,6 +164,7 @@ export async function confirmEnrollment(
     return true;
   });
   if (!won) return { ok: false, reason: "no_pending" };
+  await tellAccountHolder(prisma, params.userId, "enabled");
   return { ok: true, backupCodes, enabledAt };
 }
 
@@ -148,6 +182,8 @@ export async function verifySecondFactor(
 > {
   const blocked = await limited(VERIFY_LIMIT, params.userId);
   if (blocked) return blocked;
+  const locked = await limited(VERIFY_DAILY_LIMIT, params.userId, "locked");
+  if (locked) return locked;
 
   const row = await prisma.userMfa.findUnique({ where: { userId: params.userId } });
   if (!row?.enabledAt) return { ok: false, reason: "not_enrolled" };
@@ -203,6 +239,7 @@ export async function regenerateBackupCodes(
       data: { userId: params.userId, actedById: params.userId, action: "BACKUP_CODES_REGENERATED" },
     });
   });
+  await tellAccountHolder(prisma, params.userId, "backup_codes_regenerated");
   return { ok: true, backupCodes };
 }
 
@@ -213,10 +250,11 @@ export async function regenerateBackupCodes(
  */
 export async function resetMfa(
   prisma: PrismaClient,
-  params: { userId: string; actedById: string; reason?: string },
-): Promise<{ ok: true } | { ok: false; reason: "self" | "not_enrolled" }> {
+  params: { userId: string; actedById: string; reason: string },
+): Promise<{ ok: true } | { ok: false; reason: "self" | "not_enrolled" | "reason_required" }> {
   if (params.userId === params.actedById) return { ok: false, reason: "self" };
-  const reason = params.reason?.trim().slice(0, 500) || null;
+  const reason = params.reason.trim().slice(0, 500);
+  if (!reason) return { ok: false, reason: "reason_required" };
   const removed = await prisma.$transaction(async (tx) => {
     const gone = await tx.userMfa.deleteMany({ where: { userId: params.userId } });
     if (gone.count === 0) return false;

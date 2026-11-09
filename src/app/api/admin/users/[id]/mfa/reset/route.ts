@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 
 /**
- * POST /api/admin/users/[id]/mfa/reset { reason? } (pks-pemenuhan/03): another
+ * POST /api/admin/users/[id]/mfa/reset { reason } (pks-pemenuhan/03): another
  * Admin removes a person's second factor, e.g. a lost phone, so they enrol
  * again. Recorded in MfaAuditEntry with who acted. Never one's own factor, and
  * only reachable with a satisfied session, since the guard reads the effective
@@ -15,7 +15,11 @@ import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 export const POST = withHiddenAssignmentCheck(Assignment.ADMIN, async (req: NextRequest, context?: { params: Promise<{ id: string }> }) => {
   const { id } = await context!.params;
   const body = await req.json().catch(() => ({}));
-  const reason = typeof body?.reason === "string" ? body.reason : undefined;
+  // The reason is part of the audit trail, so it is required: trimmed, 1 to 500 characters.
+  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+  if (!reason || reason.length > 500) {
+    return NextResponse.json({ error: "Alasan wajib diisi (maksimal 500 karakter)." }, { status: 400 });
+  }
 
   const session = await getServerSession();
   const result = await resetMfa(prisma, { userId: id, actedById: session!.user.id, reason });

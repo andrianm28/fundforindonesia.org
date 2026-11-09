@@ -20,6 +20,16 @@ Layar ini mengatur **penugasan** (Verifier, Admin). Penugasan adalah satu-satuny
 
 Hapus centang **Admin**; pencabutan berlaku seketika. Server menolak mencabut **penugasan milik sendiri** (jenis apa pun) dan menolak mencabut **Admin terakhir**.
 
+## Autentikasi dua faktor (MFA)
+
+**Layar:** Akun > Keamanan (`/akun/keamanan`). Berlaku untuk setiap pemegang Admin atau Verifier.
+
+- Pemegang yang belum mendaftar mendapat **404 di semua panel** sampai mendaftar. Setelah rilis MFA, **Admin harus mendaftar seketika**: buka `/akun/keamanan`, pindai QR dengan aplikasi autentikator, masukkan kode pertama, dan simpan sepuluh kode cadangan (tampil sekali saja).
+- Setiap kali faktor diaktifkan atau kode cadangan dibuat ulang, Anda menerima notifikasi. Bila bukan Anda yang melakukannya, segera hubungi Admin lain.
+- Dua puluh percobaan kode dalam 24 jam mengunci verifikasi; tunggu 24 jam atau minta Admin lain mereset.
+- **Mereset faktor orang lain** (perangkat hilang): di daftar pengguna tekan **Reset MFA** pada barisnya dan isi **alasan** (wajib, maksimal 500 karakter). Orang itu lalu mendaftar ulang. Anda tidak bisa mereset faktor sendiri.
+- Bila Admin tunggal kehilangan perangkat dan kode cadangan, pemulihannya langkah database oleh owner: lihat [runbooks/insiden.md](../runbooks/insiden.md#autentikasi-dua-faktor-mfa-pemegang-admin-dan-verifier). Karena itu, jaga agar selalu ada minimal dua Admin yang sudah mendaftar.
+
 ## Hal yang perlu diwaspadai
 
 - Beri peran sesedikit mungkin, dan cabut segera saat orang berpindah tugas.

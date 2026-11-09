@@ -469,8 +469,13 @@ function UserRow({
   // Another Admin removes this person's second factor (pks-pemenuhan/03, lost
   // phone); the route records who did it and refuses one's own.
   const resetMfa = async () => {
-    const reason = window.prompt(`Reset autentikasi dua faktor ${user.name || user.email}? Alasan (opsional):`);
-    if (reason === null) return;
+    const typed = window.prompt(`Reset autentikasi dua faktor ${user.name || user.email}? Alasan (wajib, maksimal 500 karakter):`);
+    if (typed === null) return;
+    const reason = typed.trim();
+    if (!reason || reason.length > 500) {
+      window.alert("Alasan wajib diisi (maksimal 500 karakter).");
+      return;
+    }
     try {
       const res = await fetch(`/api/admin/users/${user.id}/mfa/reset`, {
         method: "POST",

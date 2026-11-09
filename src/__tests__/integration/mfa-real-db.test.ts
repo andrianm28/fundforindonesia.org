@@ -255,10 +255,10 @@ describe.skipIf(!DATABASE_URL)('MFA TOTP -- against real Postgres (pks-pemenuhan
     it('refuses a self-reset, and a reset of someone with no factor', async () => {
       await newUser('r-self');
       await enrol('r-self');
-      expect(await mfa.resetMfa(prisma, { userId: 'r-self', actedById: 'r-self' })).toEqual({ ok: false, reason: 'self' });
+      expect(await mfa.resetMfa(prisma, { userId: 'r-self', actedById: 'r-self', reason: 'uji' })).toEqual({ ok: false, reason: 'self' });
       await newUser('r-none');
       await newUser('r-admin-2');
-      expect(await mfa.resetMfa(prisma, { userId: 'r-none', actedById: 'r-admin-2' })).toEqual({ ok: false, reason: 'not_enrolled' });
+      expect(await mfa.resetMfa(prisma, { userId: 'r-none', actedById: 'r-admin-2', reason: 'uji' })).toEqual({ ok: false, reason: 'not_enrolled' });
     });
   });
 });

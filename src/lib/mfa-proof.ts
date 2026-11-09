@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 
 /**
  * How a session learns it has passed the second factor (pks-pemenuhan/03).
@@ -7,7 +7,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * can rewrite, and the client can call `update(data)` with anything. So the
  * client is never believed: the API route that actually checked the code
  * returns this short-lived proof, an HMAC over (user, session id, enrolment,
- * expiry) under NEXTAUTH_SECRET, and the jwt callback accepts it only if the
+ * expiry) under a key derived from NEXTAUTH_SECRET, and the jwt callback accepts it only if the
  * MAC verifies and the user and session id match the token it is rewriting.
  * A proof minted for one session therefore cannot be used in another.
  */
@@ -22,8 +22,13 @@ function secret(): string {
   return value;
 }
 
+/** The MAC key is derived (HKDF-SHA256, info "ffi-mfa-proof"), so NEXTAUTH_SECRET itself never keys this HMAC. */
+function proofKey(): Buffer {
+  return Buffer.from(hkdfSync("sha256", secret(), Buffer.alloc(0), "ffi-mfa-proof", 32));
+}
+
 function sign(payload: string): Buffer {
-  return createHmac("sha256", secret()).update(`mfa-proof|${payload}`).digest();
+  return createHmac("sha256", proofKey()).update(`mfa-proof|${payload}`).digest();
 }
 
 export function mintMfaProof(params: Claim & { enabledAtMs: number }, now: number): string {

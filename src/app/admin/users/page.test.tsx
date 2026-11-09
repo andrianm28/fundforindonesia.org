@@ -95,6 +95,16 @@ describe('AdminUsersPage', () => {
       );
     });
 
+    it('asks again instead of posting when the reason is blank', async () => {
+      vi.stubGlobal('prompt', vi.fn(() => '   '));
+      const alertMock = vi.fn();
+      vi.stubGlobal('alert', alertMock);
+      const budi = await openAtRowOf('Budi');
+      fireEvent.click(within(budi).getByRole('button', { name: 'Reset MFA' }));
+      expect(alertMock).toHaveBeenCalledWith(expect.stringMatching(/Alasan wajib/));
+      expect(fetchMock).not.toHaveBeenCalledWith('/api/admin/users/u-1/mfa/reset', expect.anything());
+    });
+
     it('does nothing when the Admin cancels the prompt', async () => {
       vi.stubGlobal('prompt', vi.fn(() => null));
       const budi = await openAtRowOf('Budi');

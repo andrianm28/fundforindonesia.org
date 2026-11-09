@@ -53,9 +53,25 @@ export function resolveMfa(input: MfaInput): { state: MfaState; assignments: Mfa
   return { state: "enroll", assignments: [] };
 }
 
-/** MFA_ENROLL_GRACE_DAYS: a non-negative whole number; anything else is 0, the strict default. */
+const PROD_MAX_GRACE_DAYS = 30;
+let clampLogged = false;
+
+/**
+ * MFA_ENROLL_GRACE_DAYS: a non-negative whole number; anything else is 0, the
+ * strict default. In production (NODE_ENV=production and CI not exactly
+ * "true") a value above 30 is clamped to 30 and logged once, so the huge
+ * value CI's e2e uses cannot ride into a real deploy and switch the factor off.
+ */
 export function enrollGraceDays(env: Record<string, string | undefined>): number {
   const raw = env.MFA_ENROLL_GRACE_DAYS;
   if (!raw || !/^\d+$/.test(raw)) return 0;
-  return Number(raw);
+  const days = Number(raw);
+  if (env.NODE_ENV === "production" && env.CI !== "true" && days > PROD_MAX_GRACE_DAYS) {
+    if (!clampLogged) {
+      clampLogged = true;
+      console.warn(JSON.stringify({ event: "mfa_grace_clamped", requested: days, applied: PROD_MAX_GRACE_DAYS }));
+    }
+    return PROD_MAX_GRACE_DAYS;
+  }
+  return days;
 }

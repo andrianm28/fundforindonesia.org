@@ -50,7 +50,7 @@ export async function readCode(req: NextRequest): Promise<string | null> {
 }
 
 export type MfaRefusal = {
-  reason: "invalid" | "limited" | "unavailable" | "not_enrolled" | "no_pending" | "already_enrolled";
+  reason: "invalid" | "limited" | "locked" | "unavailable" | "not_enrolled" | "no_pending" | "already_enrolled";
   retryAfterSeconds?: number;
 };
 
@@ -62,6 +62,14 @@ export function refusalResponse(refusal: MfaRefusal): NextResponse {
       return NextResponse.json(
         { error: "Terlalu banyak percobaan. Coba lagi nanti." },
         { status: 429, headers: { "Retry-After": String(refusal.retryAfterSeconds ?? 300) } },
+      );
+    case "locked":
+      return NextResponse.json(
+        {
+          error:
+            "Terlalu banyak percobaan gagal hari ini, jadi verifikasi dikunci. Coba lagi setelah 24 jam, atau minta Admin lain mereset autentikasi dua faktor Anda.",
+        },
+        { status: 429, headers: { "Retry-After": String(refusal.retryAfterSeconds ?? 86400) } },
       );
     case "unavailable":
       return NextResponse.json(

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHmac, hkdfSync } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mintMfaProof, readMfaProof } from "./mfa-proof";
 
@@ -49,5 +50,14 @@ describe("mfa proof", () => {
   it("will not mint without a secret", () => {
     vi.stubEnv("NEXTAUTH_SECRET", "");
     expect(() => mintMfaProof({ ...claim, enabledAtMs: 1 }, now)).toThrow();
+  });
+
+  it("is signed with a key derived by HKDF from NEXTAUTH_SECRET, never the raw secret", () => {
+    const proof = mintMfaProof({ ...claim, enabledAtMs: 123 }, now);
+    const [payload, mac] = proof.split(".");
+    const message = `mfa-proof|${payload}`;
+    const derived = Buffer.from(hkdfSync("sha256", "test-secret-one", Buffer.alloc(0), "ffi-mfa-proof", 32));
+    expect(createHmac("sha256", derived).update(message).digest("base64url")).toBe(mac);
+    expect(createHmac("sha256", "test-secret-one").update(message).digest("base64url")).not.toBe(mac);
   });
 });

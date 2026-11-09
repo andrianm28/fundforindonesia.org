@@ -194,3 +194,27 @@ export async function notifyRefundCompleted(
     },
   });
 }
+
+/**
+ * Tell an account holder that their second factor changed (pks-pemenuhan/03):
+ * it was enabled, or the backup codes were replaced. The wording is the point:
+ * if it was not them, they must reach an Admin, since a stolen password plus a
+ * fresh enrolment is exactly how an attacker would plant their own factor.
+ */
+export async function notifyMfaChange(
+  client: Pick<PrismaClient, 'notification'>,
+  params: { userId: string; kind: 'enabled' | 'backup_codes_regenerated' },
+) {
+  const enabled = params.kind === 'enabled';
+  await client.notification.create({
+    data: {
+      type: 'mfa_changed',
+      title: enabled ? 'Autentikasi Dua Faktor Diaktifkan' : 'Kode Cadangan Autentikasi Diganti',
+      message: enabled
+        ? 'Autentikasi dua faktor baru saja diaktifkan pada akun Anda. Jika ini bukan Anda, segera hubungi Admin.'
+        : 'Kode cadangan autentikasi dua faktor akun Anda baru saja dibuat ulang. Jika ini bukan Anda, segera hubungi Admin.',
+      userId: params.userId,
+      link: '/akun/keamanan',
+    },
+  });
+}

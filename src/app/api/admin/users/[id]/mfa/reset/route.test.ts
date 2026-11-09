@@ -44,19 +44,26 @@ describe("POST /api/admin/users/[id]/mfa/reset", () => {
     reset.mockResolvedValue({ ok: true });
     const res = await call({ reason: "  HP hilang " });
     expect(res.status).toBe(200);
-    expect(reset).toHaveBeenCalledWith(expect.anything(), { userId: "u2", actedById: "admin-1", reason: "  HP hilang " });
+    expect(reset).toHaveBeenCalledWith(expect.anything(), { userId: "u2", actedById: "admin-1", reason: "HP hilang" });
   });
 
   it("refuses a self-reset with 400 and a reset of someone with no factor with 409", async () => {
     reset.mockResolvedValue({ ok: false, reason: "self" });
-    expect((await call()).status).toBe(400);
+    expect((await call({ reason: "uji" })).status).toBe(400);
     reset.mockResolvedValue({ ok: false, reason: "not_enrolled" });
-    expect((await call()).status).toBe(409);
+    expect((await call({ reason: "uji" })).status).toBe(409);
   });
 
-  it("ignores a reason that is not a string", async () => {
+  it("is 400 without a usable reason, and never calls the service", async () => {
     reset.mockResolvedValue({ ok: true });
-    await call({ reason: { x: 1 } });
-    expect(reset).toHaveBeenCalledWith(expect.anything(), { userId: "u2", actedById: "admin-1", reason: undefined });
+    for (const body of [{}, { reason: "" }, { reason: "   " }, { reason: { x: 1 } }, { reason: 5 }, { reason: "x".repeat(501) }]) {
+      expect((await call(body)).status).toBe(400);
+    }
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it("accepts a reason of exactly 500 characters once trimmed", async () => {
+    reset.mockResolvedValue({ ok: true });
+    expect((await call({ reason: ` ${"x".repeat(500)} ` })).status).toBe(200);
   });
 });
