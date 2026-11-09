@@ -5,6 +5,7 @@ vi.mock('@/lib/auth', () => ({ getServerSession: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     campaign: { findUnique: vi.fn() },
+    partnerOrganisation: { findUnique: vi.fn().mockResolvedValue(null) },
     verificationChecklistItem: { findMany: vi.fn() },
     document: { findMany: vi.fn() },
   },

@@ -207,6 +207,7 @@ function makeTx(options: { paymentUpdateManyCount?: number } = {}) {
         return row;
       }),
     },
+    partnerOrganisation: { findUnique: vi.fn(async () => null) },
     verificationChecklistItem: { findMany: vi.fn(async () => []) },
     $queryRaw: vi.fn(async () => [{ id: 'campaign-1' }]),
     receipt: { create: vi.fn().mockResolvedValue({}) },
