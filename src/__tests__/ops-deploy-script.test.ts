@@ -519,4 +519,18 @@ describe("ops/deploy.sh, host ops files against the release", () => {
     expect(stdout).toMatch(/warning: host copies differ/);
     expect(stateFile("current")).toBe(`${old.sha} ${old.app} ${old.migrate}`);
   });
+
+  it("lets the owner override the refusal by hand with ALLOW_OPS_DRIFT=1", () => {
+    const r = release(1);
+    const { status, stdout } = deployRelease(r, { ...labels("0".repeat(64), "0".repeat(64)), ALLOW_OPS_DRIFT: "1" });
+    expect(status).toBe(0);
+    expect(stdout).toMatch(/allowed: ALLOW_OPS_DRIFT=1/);
+  });
+
+  it("treats a missing compose file as drift, not a crash", () => {
+    const r = release(1);
+    const env = matching();
+    rmSync(join(deployDir, "docker-compose.prod.yml"));
+    expect(deployRelease(r, env).status).toBe(5);
+  });
 });

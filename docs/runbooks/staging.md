@@ -107,8 +107,9 @@ mengembalikan SHA itu dan `/api/health` menjawab 200 (alamatnya bisa diganti
 lewat Actions variable `STAGING_URL`).
 
 Input dispatch `skip_staging` melewati cek ini dan dicatat sebagai peringatan
-di ringkasan run. Pakai **hanya** untuk rollback ke commit lama (staging sudah
-maju ke `main`) atau keadaan darurat saat staging mati.
+di ringkasan run. Pakai **hanya** untuk rollback ke commit lama (staging hanya
+menjalankan head `main`), selama staging belum terpasang, atau keadaan darurat
+saat staging mati.
 
 ## Batas
 

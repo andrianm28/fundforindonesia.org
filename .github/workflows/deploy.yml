@@ -62,7 +62,7 @@ on:
         default: ""
         type: string
       skip_staging:
-        description: Skip the staging check (only for a rollback to an older commit, or an emergency while staging is down). Logged in the run summary.
+        description: Skip the staging check. Needed for any commit that is not main's head (staging runs only the head, so a rollback otherwise waits 15 min and fails), while staging is not installed, or in an emergency. Logged in the run summary.
         required: false
         default: false
         type: boolean

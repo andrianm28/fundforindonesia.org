@@ -201,13 +201,16 @@ docker tag "$IMAGE@$MIGRATE_DIGEST" "$IMAGE:$sha-migrate"
 # 5): that is the "forgot to copy the new ops files" mistake. A release this
 # host already ran (a rollback or redeploy) only warns, because rolling back
 # to an older release must keep working with the newer host files. An image
-# without the labels (built before they existed) warns too.
+# without the labels (built before they existed) warns too. ALLOW_OPS_DRIFT=1
+# turns the refusal into a warning: only for the owner running this script by
+# hand on the host (sshd passes no such variable to the forced command), for a
+# rollback to a release old enough to have left state/images.
 step="checking the host's ops files against the release"
 ops_drift=""
 for pair in "ops.deploy-sh.sha256:$self" "ops.compose-prod.sha256:$DEPLOY_DIR/docker-compose.prod.yml"; do
   label="${pair%%:*}" file="${pair#*:}"
   want="$(docker image inspect --format "{{index .Config.Labels \"org.fundforindonesia.$label\"}}" "$IMAGE@$APP_DIGEST" 2> /dev/null || true)"
-  have="$(sha256sum "$file" 2> /dev/null | cut -d' ' -f1)"
+  have="$(sha256sum "$file" 2> /dev/null | cut -d' ' -f1 || true)"
   if [ -z "$want" ] || [ "$want" = "<no value>" ]; then
     log "warning: the release carries no $label label; cannot check ${file##*/}"
   elif [ "$want" != "$have" ]; then
@@ -217,6 +220,8 @@ done
 if [ -n "$ops_drift" ]; then
   if grep -qxF -- "$release" < <(read_state images); then
     log "warning: host copies differ from this release's:$ops_drift (allowed: $sha already ran on this host)"
+  elif [ "${ALLOW_OPS_DRIFT:-}" = 1 ]; then
+    log "warning: host copies differ from this release's:$ops_drift (allowed: ALLOW_OPS_DRIFT=1)"
   else
     log "Refused $sha: the host's copies of$ops_drift differ from this release's. Copy them from the release's commit first."
     exit 5
