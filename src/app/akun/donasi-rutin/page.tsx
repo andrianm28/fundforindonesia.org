@@ -47,7 +47,12 @@ function DonasiRutinContent() {
   const params = useSearchParams();
   const [items, setItems] = useState<RecurringView[] | null>(null);
   const [error, setError] = useState('');
-  const [campaignId, setCampaignId] = useState(params.get('campaign') ?? '');
+  // The Campaign the Donor came from (link on its page). The id stays hidden:
+  // the Donor sees the title, and a Campaign that cannot take recurring
+  // donations leaves this null.
+  const wantedCampaign = params.get('campaign');
+  const [campaign, setCampaign] = useState<{ id: string; title: string } | null>(null);
+  const [campaignChecked, setCampaignChecked] = useState(!wantedCampaign);
   const [amount, setAmount] = useState('50000');
   const [period, setPeriod] = useState<RecurringPeriod>('MONTHLY');
   const [startDate, setStartDate] = useState(todayJakarta());
@@ -55,14 +60,19 @@ function DonasiRutinContent() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/donasi-rutin');
+      const query = wantedCampaign ? `?campaign=${encodeURIComponent(wantedCampaign)}` : '';
+      const res = await fetch(`/api/donasi-rutin${query}`);
       if (!res.ok) throw new Error();
-      setItems((await res.json()).recurringDonations);
+      const body = await res.json();
+      setItems(body.recurringDonations);
+      setCampaign(body.campaign ?? null);
     } catch {
       setError('Gagal memuat donasi rutin. Coba lagi.');
       setItems([]);
+    } finally {
+      setCampaignChecked(true);
     }
-  }, []);
+  }, [wantedCampaign]);
 
   useEffect(() => {
     // Loaded once on mount; setState happens in the response callbacks inside load.
@@ -72,13 +82,14 @@ function DonasiRutinContent() {
 
   async function register(e: React.FormEvent) {
     e.preventDefault();
+    if (!campaign) return;
     setError('');
     setBusy(true);
     try {
       const res = await fetch('/api/donasi-rutin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ campaignId: campaignId.trim(), amount: Number(amount), period, startDate }),
+        body: JSON.stringify({ campaignId: campaign.id, amount: Number(amount), period, startDate }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -121,17 +132,21 @@ function DonasiRutinContent() {
 
         {error && <p className="rounded-xl bg-[#FFEBEE] p-3 text-sm text-danger">{error}</p>}
 
+        {campaignChecked && !campaign && (
+          <p className="rounded-xl bg-white p-4 shadow-xs text-sm text-text-secondary">
+            {wantedCampaign
+              ? 'Campaign ini tidak dapat menerima donasi rutin saat ini. '
+              : 'Untuk mendaftarkan donasi rutin, buka halaman Campaign yang Anda dukung lalu pilih "Donasi rutin". '}
+            <Link href="/explore/all" className="text-[#0073E6] font-medium hover:underline">Jelajahi Campaign</Link>
+          </p>
+        )}
+
+        {campaign && (
         <form onSubmit={register} className="rounded-xl bg-white p-4 shadow-xs space-y-3">
           <h2 className="text-sm font-semibold text-text">Daftarkan donasi rutin</h2>
-          <label className="block text-xs text-text-secondary">
-            ID Campaign
-            <input
-              required
-              value={campaignId}
-              onChange={(e) => setCampaignId(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-border px-3 py-2 text-sm text-text"
-            />
-          </label>
+          <p className="text-sm text-text">
+            Untuk Campaign: <span className="font-semibold">{campaign.title}</span>
+          </p>
           <label className="block text-xs text-text-secondary">
             Nominal per siklus (Rp)
             <input
@@ -175,6 +190,7 @@ function DonasiRutinContent() {
             Daftarkan
           </button>
         </form>
+        )}
 
         {items === null && <div className="h-20 rounded-xl bg-border animate-pulse" />}
         {items?.length === 0 && !error && (

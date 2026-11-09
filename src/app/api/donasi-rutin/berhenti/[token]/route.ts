@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { stopRecurringDonationByToken } from '@/lib/recurring-donations/service';
 import { recurringStopPath } from '@/lib/recurring-donations/stop-token';
+import { publicUrl } from '@/lib/public-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,12 +19,13 @@ export const dynamic = 'force-dynamic';
  * Every refusal (bad, expired, unknown) answers the same 404, so the response
  * does not say which of them it was.
  */
-export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+export async function POST(_request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const stopped = await stopRecurringDonationByToken(prisma, token);
   if (!stopped.ok) {
     return NextResponse.json({ error: 'Tautan tidak valid atau sudah kedaluwarsa.' }, { status: 404 });
   }
   // 303: the browser follows a form POST with a GET of the confirmation page.
-  return NextResponse.redirect(new URL(`${recurringStopPath(token)}?selesai=1`, request.url), 303);
+  // publicUrl(), never request.url: behind nginx that is the internal host.
+  return NextResponse.redirect(publicUrl(`${recurringStopPath(token)}?selesai=1`), 303);
 }

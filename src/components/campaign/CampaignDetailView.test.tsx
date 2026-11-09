@@ -99,6 +99,40 @@ describe('CampaignDetailView', () => {
     expect(screen.getByText('Donasi sekarang')).toBeDefined();
   });
 
+  describe('"Donasi rutin" link (PKS 4.7)', () => {
+    const signedIn = { data: { user: { id: 'donor-9', assignments: [] as string[] } } };
+    const asVisitor = () => {
+      mockSession.value = { data: null };
+    };
+    afterEach(() => {
+      mockSession.value = { data: { user: { id: 'user-1', assignments: [] as string[] } } };
+    });
+
+    it('leads a signed-in Donor to the registration page for this Campaign', () => {
+      mockSession.value = signedIn;
+      render(<CampaignDetailView campaign={{ ...mockCampaign, kind: 'DONATION' }} />);
+      expect(screen.getByRole('link', { name: 'Donasi rutin' }).getAttribute('href')).toBe(
+        '/akun/donasi-rutin?campaign=campaign-1',
+      );
+    });
+
+    it('is not offered to a visitor who is not signed in', () => {
+      asVisitor();
+      render(<CampaignDetailView campaign={{ ...mockCampaign, kind: 'DONATION' }} />);
+      expect(screen.queryByRole('link', { name: 'Donasi rutin' })).toBeNull();
+    });
+
+    it.each([
+      ['a wakaf Campaign', { kind: 'WAKAF' as const }],
+      ['a Campaign that no longer takes donations', { lifecycleStatus: 'EXPIRED' as const }],
+      ['a demo Campaign', { isDemo: true }],
+    ])('is not offered on %s', (_name, patch) => {
+      mockSession.value = signedIn;
+      render(<CampaignDetailView campaign={{ ...mockCampaign, kind: 'DONATION', ...patch }} />);
+      expect(screen.queryByRole('link', { name: 'Donasi rutin' })).toBeNull();
+    });
+  });
+
   it('shows one "Donasi uji" line when the beta hands an amount, and none otherwise', () => {
     render(<CampaignDetailView campaign={{ ...mockCampaign, testDonationAmount: 150000 }} />);
     expect(screen.getByText(/Donasi uji: Rp\s?150\.000/)).toBeDefined();

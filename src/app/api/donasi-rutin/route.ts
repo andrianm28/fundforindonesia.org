@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { createRecurringDonation, listRecurringDonations, type CreateRecurringError } from '@/lib/recurring-donations/service';
+import { createRecurringDonation, findRegistrableCampaign, listRecurringDonations, type CreateRecurringError } from '@/lib/recurring-donations/service';
 import { MAX_DONATION_AMOUNT, MIN_DONATION_AMOUNT } from '@/lib/donations';
 import { formatRupiah } from '@/lib/utils/currency';
 
@@ -35,11 +35,17 @@ const ERROR_COPY: Record<CreateRecurringError, { status: number; error: string }
   too_many: { status: 409, error: 'Anda sudah memiliki terlalu banyak donasi rutin aktif. Hentikan sebagian dulu.' },
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getServerSession();
   const donorId = session?.user?.id;
   if (!donorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  return NextResponse.json({ recurringDonations: await listRecurringDonations(prisma, donorId) });
+  const recurringDonations = await listRecurringDonations(prisma, donorId);
+  // ?campaign=<id> (the link on the Campaign page): the page shows the title
+  // of the Campaign it is about to register for instead of asking for an id.
+  const campaignId = request.nextUrl.searchParams.get('campaign');
+  if (!campaignId) return NextResponse.json({ recurringDonations });
+  const campaign = await findRegistrableCampaign(prisma, campaignId, new Date());
+  return NextResponse.json({ recurringDonations, campaign });
 }
 
 export async function POST(request: NextRequest) {

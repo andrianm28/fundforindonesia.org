@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
@@ -39,6 +40,8 @@ export interface CampaignDetailData {
    * as "Donasi uji". `null` (or absent) when the beta marker is off. */
   testDonationAmount?: number | null;
   category: string;
+  /** The Campaign's kind; a `WAKAF` one takes no recurring donation (ikrar each time). */
+  kind?: 'DONATION' | 'ZAKAT' | 'WAKAF' | 'HIBAH';
   /** Effective status: an Active Campaign past its deadline arrives as EXPIRED. */
   lifecycleStatus: CampaignLifecycleStatus;
   isUrgent: boolean;
@@ -232,6 +235,14 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   const [activeTab, setActiveTab] = useState<'story' | 'updates' | 'donors' | 'disbursements'>('story');
   // A second, independent check at render, as the usage report photos get: only an upload path or an https URL is ever shown.
   const galleryImages = (campaign.galleryImages ?? []).filter(isValidCoverImage);
+
+  // "Donasi rutin" (PKS 4.7): the page is cached for every visitor, so whether
+  // to offer it is decided here from the session. Only an account can hold a
+  // recurring donation, and only a Campaign that takes donations and is not
+  // wakaf (a bill cannot carry the ikrar) or a demo. The server decides again.
+  const { data: session } = useSession();
+  const offersRecurring =
+    !!session?.user?.id && offersDonating(lifecycleStatus) && campaign.kind !== 'WAKAF' && !campaign.isDemo;
 
   const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
   const withdrawal = useWithdrawableSubmission(campaign.slug, lifecycleStatus, setLifecycleStatus);
@@ -628,6 +639,14 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
             >
               Donasi sekarang
             </Link>
+            {offersRecurring && (
+              <Link
+                href={`/akun/donasi-rutin?campaign=${campaign.id}`}
+                className="mt-2 block text-center text-sm font-medium text-primary hover:underline"
+              >
+                Donasi rutin
+              </Link>
+            )}
           </div>
         </div>
       )}

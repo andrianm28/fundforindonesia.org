@@ -23,6 +23,14 @@ const HOUR_MS = 3_600_000;
 /** A cycle row with no Donation this long after it was claimed is abandoned (the job died between claim and Donation). */
 export const CLAIM_GRACE_MS = HOUR_MS;
 
+/**
+ * How long past a payment link's expiry a still-pending cycle waits before it
+ * counts as overdue: room for a late expiry or paid webhook to arrive first.
+ */
+export const PENDING_EXPIRY_MARGIN_MS = 6 * HOUR_MS;
+/** For a pending Donation whose Payment has no known expiry: counted from the claim. */
+export const UNKNOWN_EXPIRY_GRACE_MS = 48 * HOUR_MS;
+
 export type CycleStatus = 'PAID' | 'PENDING' | 'OVERDUE';
 
 /**
@@ -37,18 +45,53 @@ export type CycleStatus = 'PAID' | 'PENDING' | 'OVERDUE';
  *   abandoned.
  */
 export function cycleStatus(
-  cycle: { createdAt: Date; donation: { paymentStatus: string } | null },
+  cycle: { createdAt: Date; donation: { paymentStatus: string; payments?: Array<{ expiresAt: Date | null }> } | null },
   now: Date,
 ): CycleStatus {
   if (!cycle.donation) return now.getTime() - cycle.createdAt.getTime() > CLAIM_GRACE_MS ? 'OVERDUE' : 'PENDING';
   if (cycle.donation.paymentStatus === 'confirmed') return 'PAID';
   if (cycle.donation.paymentStatus === 'failed') return 'OVERDUE';
-  return 'PENDING';
+  // Still pending. The webhook is what normally closes an expired link out, but
+  // a provider that never sends an expiry webhook would leave this pending
+  // forever, and "the previous cycle is pending" stops billing. So a link that
+  // is long expired counts as overdue here. The Donation itself is left alone:
+  // if the Donor pays late, the webhook still records it.
+  const expiries = (cycle.donation.payments ?? []).map((p) => p.expiresAt?.getTime() ?? null);
+  const known = expiries.filter((t): t is number => t !== null);
+  const lastOpenUntil =
+    known.length > 0 && known.length === expiries.length
+      ? Math.max(...known)
+      : cycle.createdAt.getTime() + UNKNOWN_EXPIRY_GRACE_MS;
+  return now.getTime() > lastOpenUntil + PENDING_EXPIRY_MARGIN_MS ? 'OVERDUE' : 'PENDING';
 }
 
 /** The calendar date (YYYY-MM-DD) in Jakarta at `now`. */
 function wibDate(now: Date): string {
   return new Date(now.getTime() + 7 * HOUR_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * The Campaign a recurring donation may target, as `{ id, title }`, or null.
+ * It must take donations now: a `wakaf` Campaign needs the Donor's explicit
+ * ikrar each time, which a bill cannot carry, and a Demo Campaign never takes
+ * money. Used to register and to name the Campaign on the registration page.
+ */
+export async function findRegistrableCampaign(
+  db: ServiceDb,
+  campaignId: string,
+  now: Date,
+): Promise<{ id: string; title: string } | null> {
+  const campaign = await db.campaign.findUnique({ where: { id: campaignId }, select: RETRY_CAMPAIGN_SELECT });
+  if (
+    !campaign ||
+    campaign.isDemo ||
+    campaign.kind === 'WAKAF' ||
+    donationBlock(campaign, now) ||
+    !campaignAcceptsDonations(campaign, now)
+  ) {
+    return null;
+  }
+  return { id: campaign.id, title: campaign.title };
 }
 
 export type CreateRecurringError = 'amount_out_of_range' | 'start_in_past' | 'campaign_unavailable' | 'too_many';
@@ -70,14 +113,7 @@ export async function createRecurringDonation(
   // The target must be a Campaign that takes donations now. A `wakaf` Campaign
   // needs the Donor's explicit ikrar each time, which a bill cannot carry, and a
   // Demo Campaign never takes money.
-  const campaign = await db.campaign.findUnique({ where: { id: campaignId }, select: RETRY_CAMPAIGN_SELECT });
-  if (
-    !campaign ||
-    campaign.isDemo ||
-    campaign.kind === 'WAKAF' ||
-    donationBlock(campaign, now) ||
-    !campaignAcceptsDonations(campaign, now)
-  ) {
+  if (!(await findRegistrableCampaign(db, campaignId, now))) {
     return { ok: false, error: 'campaign_unavailable' };
   }
 
@@ -167,7 +203,7 @@ export async function listRecurringDonations(
                 where: { status: 'PENDING' },
                 orderBy: { createdAt: 'desc' },
                 take: 1,
-                select: { redirectUrl: true },
+                select: { redirectUrl: true, expiresAt: true },
               },
             },
           },

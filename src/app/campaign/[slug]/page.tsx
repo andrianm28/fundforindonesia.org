@@ -132,6 +132,7 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     collectedAmount: collectedAmountForPublic,
     testDonationAmount,
     category: campaign.category,
+    kind: campaign.kind,
     location: campaign.location,
     province: campaign.province,
     regency: campaign.regency,

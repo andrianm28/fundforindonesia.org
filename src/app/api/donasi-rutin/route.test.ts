@@ -10,17 +10,25 @@ vi.mock('@/lib/recurring-donations/service', () => ({
   createRecurringDonation: vi.fn(),
   listRecurringDonations: vi.fn(),
   stopRecurringDonation: vi.fn(),
+  findRegistrableCampaign: vi.fn(),
 }));
 
 import { GET, POST } from './route';
 import { POST as stopPost } from './[id]/berhenti/route';
 import { getServerSession } from '@/lib/auth';
-import { createRecurringDonation, listRecurringDonations, stopRecurringDonation } from '@/lib/recurring-donations/service';
+import {
+  createRecurringDonation,
+  findRegistrableCampaign,
+  listRecurringDonations,
+  stopRecurringDonation,
+} from '@/lib/recurring-donations/service';
 
 const mockSession = getServerSession as unknown as Mock;
 const mockCreate = createRecurringDonation as unknown as Mock;
 const mockList = listRecurringDonations as unknown as Mock;
 const mockStop = stopRecurringDonation as unknown as Mock;
+const mockFind = findRegistrableCampaign as unknown as Mock;
+const get = (query = '') => GET(new NextRequest(`http://localhost/api/donasi-rutin${query}`));
 
 const valid = { campaignId: 'c1', amount: 50_000, period: 'MONTHLY', startDate: '2026-12-01' };
 const post = (body: unknown) =>
@@ -34,7 +42,7 @@ describe('/api/donasi-rutin', () => {
 
   it('answers 401 to everyone without a session, for all three calls', async () => {
     mockSession.mockResolvedValue(null);
-    expect((await GET()).status).toBe(401);
+    expect((await get()).status).toBe(401);
     expect((await POST(post(valid))).status).toBe(401);
     expect((await stopPost(new Request('http://localhost'), { params: Promise.resolve({ id: 'r1' }) })).status).toBe(401);
     expect(mockCreate).not.toHaveBeenCalled();
@@ -76,9 +84,24 @@ describe('/api/donasi-rutin', () => {
 
   it("lists the signed-in Donor's own", async () => {
     mockList.mockResolvedValue([]);
-    const res = await GET();
+    const res = await get();
     expect(res.status).toBe(200);
     expect(mockList).toHaveBeenCalledWith(expect.anything(), 'donor-1');
+  });
+
+  it('names the Campaign behind ?campaign=<id> so the page shows its title, not an id', async () => {
+    mockList.mockResolvedValue([]);
+    mockFind.mockResolvedValue({ id: 'c1', title: 'Sumur untuk Desa' });
+    const res = await get('?campaign=c1');
+    expect(await res.json()).toEqual({ recurringDonations: [], campaign: { id: 'c1', title: 'Sumur untuk Desa' } });
+    expect(mockFind).toHaveBeenCalledWith(expect.anything(), 'c1', expect.any(Date));
+  });
+
+  it('answers campaign null for a Campaign that cannot take recurring donations', async () => {
+    mockList.mockResolvedValue([]);
+    mockFind.mockResolvedValue(null);
+    const res = await get('?campaign=wakaf-1');
+    expect((await res.json()).campaign).toBeNull();
   });
 
   it("stops only the signed-in Donor's own and answers 404 otherwise", async () => {

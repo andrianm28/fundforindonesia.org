@@ -46,6 +46,19 @@ import { recurringStopPath, signRecurringStopToken } from './stop-token';
  *   createChargedDonation and is attached to the cycle, so the cycle reads as
  *   overdue and is not tried again this cycle (retrying would leave a failed
  *   Donation in the Donor's history every run). The next cycle bills normally.
+ * - Something throws after the Donation was inserted (the provider call, or
+ *   linking it to the cycle): createChargedDonation hands the Donation to this
+ *   file the moment it exists (onDonationCreated, linked to the cycle before
+ *   the provider is asked) and closes it out `failed` on any throw, so there is
+ *   never an orphan pending row; the ids are logged. The cycle reads as overdue.
+ * - A bill whose payment link expired with no webhook ever arriving: once the
+ *   link expiry plus a margin has passed, the cycle counts as overdue
+ *   (cycleStatus), so "the previous cycle is pending" cannot stop billing
+ *   forever. The Donation is left as is; a late payment still settles through
+ *   the webhook.
+ * - The Donor's account is not checked for a usable state: the User model has
+ *   no banned, disabled, suspended or deleted state to check (anonymisation
+ *   only clears Donations and leaves the account), so there is nothing to skip on.
  * - The job dies between claim and Donation: the cycle row stays without a
  *   Donation. It is never deleted or retried (the Donation may exist and be
  *   payable); after an hour it no longer blocks the next cycle.
@@ -110,7 +123,17 @@ export async function runRecurringDonationBilling(
       cycles: {
         orderBy: { cycleIndex: 'desc' },
         take: 1,
-        select: { cycleIndex: true, createdAt: true, donation: { select: { paymentStatus: true } } },
+        select: {
+          cycleIndex: true,
+          createdAt: true,
+          donation: {
+            select: {
+              paymentStatus: true,
+              // For the time-based overdue fallback (cycleStatus).
+              payments: { where: { status: 'PENDING' }, select: { expiresAt: true } },
+            },
+          },
+        },
       },
     },
   });
@@ -154,22 +177,45 @@ export async function runRecurringDonationBilling(
         continue;
       }
 
-      const created = await createChargedDonation({
-        provider,
-        campaign: recurring.campaign,
-        method: BILL_METHOD,
-        donation: {
-          amount: recurring.amount,
-          isAnonymous: false,
-          paymentMethod: 'qris',
-          message: null,
-          donorId: recurring.donorId,
-          trafficSource: null,
-          ikrarConfirmed: false,
-        },
-      });
-      // Attached either way: a refused bill is a failed Donation on this cycle.
-      await prisma.recurringDonationCycle.update({ where: { id: cycleId }, data: { donationId: created.donation.id } });
+      // The Donation is attached to its cycle the moment it exists, before the
+      // provider is asked (onDonationCreated). Whatever fails after that, the
+      // cycle already points at a Donation that createChargedDonation closes
+      // out as failed, so no orphan pending row and no second bill this cycle.
+      let donationId: string | null = null;
+      const link = (id: string) =>
+        prisma.recurringDonationCycle.update({ where: { id: cycleId }, data: { donationId: id } });
+      let created: Awaited<ReturnType<typeof createChargedDonation>>;
+      try {
+        created = await createChargedDonation({
+          provider,
+          campaign: recurring.campaign,
+          method: BILL_METHOD,
+          donation: {
+            amount: recurring.amount,
+            isAnonymous: false,
+            paymentMethod: 'qris',
+            message: null,
+            donorId: recurring.donorId,
+            trafficSource: null,
+            ikrarConfirmed: false,
+          },
+          onDonationCreated: async (donation) => {
+            donationId = donation.id;
+            await link(donation.id);
+          },
+        });
+      } catch (err) {
+        console.error(
+          `[recurring-donations] bill for recurring ${recurring.id} cycle ${index} (cycle row ${cycleId}, donation ${donationId ?? 'none'}) threw:`,
+          err,
+        );
+        // The Donation is already closed out failed. If linking it was what
+        // failed, try once more so the cycle reads as overdue rather than waiting
+        // out the claim grace; the row cannot be billed twice either way.
+        if (donationId) await link(donationId).catch(() => {});
+        result.failedCount += 1;
+        continue;
+      }
 
       if (!created.ok || created.charge.method !== BILL_METHOD) {
         console.error(`[recurring-donations] bill for recurring ${recurring.id} cycle ${index} not issued`);

@@ -34,6 +34,13 @@ export interface CreateChargedDonationParams {
   method: PaymentMethod;
   /** The Donation row's columns; paymentStatus is always 'pending' here. */
   donation: Omit<Prisma.DonationUncheckedCreateInput, 'paymentStatus' | 'campaignId'> & { amount: number };
+  /**
+   * Called with the Donation right after it is inserted and BEFORE the provider
+   * is asked, so a caller that must record the Donation somewhere (the recurring
+   * bill attaches it to its cycle) has it before anything can go wrong. If it
+   * throws, no charge is made and the Donation is closed out `failed`.
+   */
+  onDonationCreated?: (donation: Donation) => Promise<void>;
 }
 
 export type CreateChargedDonationResult =
@@ -41,7 +48,7 @@ export type CreateChargedDonationResult =
   | { ok: false; reason: Extract<ChargeDonationResult, { ok: false }>['reason']; donation: Donation };
 
 export async function createChargedDonation(params: CreateChargedDonationParams): Promise<CreateChargedDonationResult> {
-  const { provider, campaign, method } = params;
+  const { campaign } = params;
 
   // No ledger entries here: a pending payment has moved no money, and posting
   // on creation is how a campaign would show funds for a donation never paid.
@@ -49,6 +56,28 @@ export async function createChargedDonation(params: CreateChargedDonationParams)
     data: { ...params.donation, paymentStatus: 'pending', campaignId: campaign.id },
   });
 
+  // Anything that throws from here on would leave `donation` an orphan pending
+  // row nobody can pay or understand. Close it out as failed, say which row it
+  // was, and let the original error through.
+  try {
+    await params.onDonationCreated?.(donation);
+    return await chargeAndSettle(params, donation);
+  } catch (err) {
+    console.error(`[donations] donation ${donation.id} failed after it was created, closing it out:`, err);
+    try {
+      await prisma.donation.update({ where: { id: donation.id }, data: { paymentStatus: 'failed' } });
+    } catch (closeErr) {
+      console.error(`[donations] donation ${donation.id} could not be marked failed and is left pending:`, closeErr);
+    }
+    throw err;
+  }
+}
+
+async function chargeAndSettle(
+  params: CreateChargedDonationParams,
+  donation: Donation,
+): Promise<CreateChargedDonationResult> {
+  const { provider, campaign, method } = params;
   // The donation id IS the provider's order id -- the webhook gets only an
   // order id back and finds this Payment by providerRef.
   const charged = await chargeDonation({
