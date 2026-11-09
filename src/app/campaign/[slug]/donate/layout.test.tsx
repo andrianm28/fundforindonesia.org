@@ -9,9 +9,13 @@ import { useDonationPresets } from '@/components/donation/DonationPresetsContext
  * The page itself is a client component, so the server layout decides.
  */
 
-const holder = vi.hoisted(() => ({ row: null as { key: string; value: unknown } | null }));
+const holder = vi.hoisted(() => {
+  const h = { row: null as { key: string; value: unknown } | null, findUnique: null as unknown as ReturnType<typeof vi.fn> };
+  h.findUnique = vi.fn(async () => h.row);
+  return h;
+});
 vi.mock('@/lib/prisma', () => ({
-  prisma: { siteSetting: { findUnique: async () => holder.row } },
+  prisma: { siteSetting: { findUnique: holder.findUnique } },
 }));
 
 import DonateLayout from './layout';
@@ -29,6 +33,7 @@ async function render(): Promise<string> {
 
 beforeEach(() => {
   holder.row = null;
+  holder.findUnique.mockClear();
 });
 
 describe('donate layout', () => {
@@ -67,5 +72,10 @@ describe('donate layout', () => {
 
     holder.row = null;
     expect(await render()).toContain('formulir donasi: 20000,50000,100000,250000,500000');
+  });
+
+  it('reads the operations row once per request, for the switch and the presets together', async () => {
+    await render();
+    expect(holder.findUnique).toHaveBeenCalledTimes(1);
   });
 });

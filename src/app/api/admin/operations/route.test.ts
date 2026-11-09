@@ -88,6 +88,30 @@ describe('/api/admin/operations', () => {
     expect((await res.json()).error).toContain('muat ulang');
   });
 
+  it('answers 409 when the first-row create loses the P2002 race', async () => {
+    mockCreate.mockRejectedValue(Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }));
+
+    const res = await post({ donationsOpen: false });
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('muat ulang');
+  });
+
+  it('answers 422 and writes nothing when the stored row is damaged, and GET reports it', async () => {
+    mockFindUnique.mockResolvedValue({ key: 'operations', value: { donationsOpen: 'ya' }, updatedAt: new Date(1) });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await post({ maintenanceOn: true });
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toContain('rusak');
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+
+    const read = await (await get()).json();
+    expect(read.corrupt).toBe(true);
+    log.mockRestore();
+  });
+
   it.each([
     ['not signed in', null],
     ['signed in without an assignment', { user: { id: 'u-1', assignments: [] } }],

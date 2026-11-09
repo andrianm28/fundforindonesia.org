@@ -11,7 +11,9 @@ import {
   resolveDonationPresetsOrDefaults,
   resolveOperationsOrDefaults,
   setOperations,
+  OperationsCorruptError,
 } from './operations';
+import { MAX_DONATION_AMOUNT } from './donations';
 
 /**
  * A SiteSetting table with at most the one `operations` row, versioned by
@@ -236,12 +238,12 @@ describe('setOperations: donation presets', () => {
   });
 
   it.each([
-    ['below the minimum donation', [999, 5000, 10000], /minimal 1\.000/],
+    ['below the minimum donation', [999, 5000, 10000], /minimal Rp1\.000/],
     ['duplicated', [5000, 5000, 10000], /tidak boleh ada yang sama/],
     ['more than 8 values', [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000], /maksimal 8/],
     ['fewer than 3 values', [5000, 10000], /minimal 3/],
     ['not whole rupiah', [5000.5, 10000, 20000], /bilangan bulat/],
-    ['above the donation ceiling', [5000, 10000, 1_000_000_001], /maksimal 1\.000\.000\.000/],
+    ['above the donation ceiling', [5000, 10000, 1_000_000_001], /maksimal Rp1\.000\.000\.000/],
     ['not numbers', ['5000', 10000, 20000], /angka/],
     ['not a list', 'banyak', /daftar angka/],
   ])('refuses presets %s and writes nothing', async (_why, presets, message) => {
@@ -300,5 +302,72 @@ describe('setOperations: two Admins saving at once', () => {
     await setOperations(f.db, { patch: { maintenanceOn: true }, ...ADMIN });
     await setOperations(f.db, { patch: { donationsOpen: false }, ...ADMIN });
     expect((await resolveOperations(f.db)).history).toHaveLength(2);
+  });
+});
+
+describe('setOperations: preset ceiling and whole rupiah', () => {
+  it('refuses presets above Rp1 miliar, naming the ceiling in rupiah', async () => {
+    const f = fakeDb({ ...DEFAULT_OPERATIONS });
+    const error = await setOperations(f.db, {
+      patch: { donationPresets: [5000, 10000, MAX_DONATION_AMOUNT + 1] },
+      ...ADMIN,
+    }).catch((e) => e);
+    expect(error).toBeInstanceOf(InvalidOperationsError);
+    expect(error.message).toBe('Nominal preset maksimal Rp1.000.000.000.');
+    expect(f.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('accepts a preset of exactly Rp1 miliar', async () => {
+    const f = fakeDb({ ...DEFAULT_OPERATIONS });
+    const next = await setOperations(f.db, { patch: { donationPresets: [5000, 10000, 1_000_000_000] }, ...ADMIN });
+    expect(next.donationPresets).toEqual([5000, 10000, 1_000_000_000]);
+  });
+
+  it('refuses non-integer presets', async () => {
+    const f = fakeDb({ ...DEFAULT_OPERATIONS });
+    await expect(
+      setOperations(f.db, { patch: { donationPresets: [5000, 10000.5, 20000] }, ...ADMIN }),
+    ).rejects.toBeInstanceOf(InvalidOperationsError);
+    expect(f.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('writes the minimum in rupiah, not in the runtime locale', async () => {
+    const f = fakeDb({ ...DEFAULT_OPERATIONS });
+    const error = await setOperations(f.db, { patch: { donationPresets: [500, 10000, 20000] }, ...ADMIN }).catch((e) => e);
+    expect(error.message).toBe('Nominal preset minimal Rp1.000.');
+  });
+});
+
+describe('setOperations: stale version and a damaged row', () => {
+  it('refuses a save that carries a stale updatedAt, and the first save stands', async () => {
+    const f = fakeDb({ ...DEFAULT_OPERATIONS });
+    f.rival(() => f.rivalWrites({ ...DEFAULT_OPERATIONS, donationsOpen: false }));
+    const error = await setOperations(f.db, { patch: { maintenanceOn: true }, ...ADMIN }).catch((e) => e);
+    expect(error).toBeInstanceOf(OperationsConflictError);
+    const kept = await resolveOperations(f.db);
+    expect(kept.donationsOpen).toBe(false);
+    expect(kept.maintenance.on).toBe(false);
+  });
+
+  it('refuses to save over a row that no longer parses, writes nothing, and logs operations_row_corrupt', async () => {
+    const damaged = { donationsOpen: 'ya', history: [{ at: 'x' }] };
+    const f = fakeDb(damaged);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const error = await setOperations(f.db, { patch: { maintenanceOn: true }, ...ADMIN }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(OperationsCorruptError);
+    expect(operationsErrorToHttp(error)?.status).toBe(422);
+    expect(f.updateMany).not.toHaveBeenCalled();
+    expect(f.create).not.toHaveBeenCalled();
+    expect(f.stored()).toEqual(damaged);
+    expect(log.mock.calls.flat().join(' ')).toContain('operations_row_corrupt');
+    log.mockRestore();
+  });
+
+  it('reads a damaged row as the defaults without throwing, as before', async () => {
+    const f = fakeDb({ donationsOpen: 'ya' });
+    expect(await resolveOperations(f.db)).toEqual(DEFAULT_OPERATIONS);
+    expect(await donationsSwitchedOff(f.db)).toBe(false);
   });
 });

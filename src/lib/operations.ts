@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
-import { MIN_DONATION_AMOUNT } from "@/lib/donations";
+import { MAX_DONATION_AMOUNT, MIN_DONATION_AMOUNT } from "@/lib/donations";
+import { formatRupiah } from "@/lib/utils/currency";
 
 /**
  * Setelan operasional: the two switches an Admin flips from the panel
@@ -37,8 +38,6 @@ export const MAX_MAINTENANCE_MESSAGE = 500;
 
 export const MIN_DONATION_PRESETS = 3;
 export const MAX_DONATION_PRESETS = 8;
-/** Same ceiling the donate page and POST /api/donations apply to one Donation. */
-export const MAX_DONATION_PRESET_AMOUNT = 1_000_000_000;
 export const DEFAULT_DONATION_PRESETS: readonly number[] = [20000, 50000, 100000, 250000, 500000];
 
 const rupiahList = z.array(z.number());
@@ -48,8 +47,8 @@ const presetAmounts = z
     z
       .number({ error: "Nominal preset harus berupa angka." })
       .int("Nominal preset harus bilangan bulat rupiah.")
-      .min(MIN_DONATION_AMOUNT, `Nominal preset minimal ${MIN_DONATION_AMOUNT.toLocaleString("id-ID")}.`)
-      .max(MAX_DONATION_PRESET_AMOUNT, `Nominal preset maksimal ${MAX_DONATION_PRESET_AMOUNT.toLocaleString("id-ID")}.`),
+      .min(MIN_DONATION_AMOUNT, `Nominal preset minimal ${formatRupiah(MIN_DONATION_AMOUNT)}.`)
+      .max(MAX_DONATION_AMOUNT, `Nominal preset maksimal ${formatRupiah(MAX_DONATION_AMOUNT)}.`),
     { error: "Preset nominal harus berupa daftar angka." },
   )
   .min(MIN_DONATION_PRESETS, `Preset nominal minimal ${MIN_DONATION_PRESETS} nilai.`)
@@ -115,17 +114,42 @@ export class InvalidOperationsError extends Error {
   }
 }
 
+/** The stored row exists but no longer parses; a save would overwrite what cannot be read. */
+export class OperationsCorruptError extends Error {
+  constructor() {
+    super(
+      "Setelan operasional tersimpan dalam keadaan rusak, sehingga tidak bisa disimpan dari panel. Perbaiki baris 'operations' di database lebih dulu.",
+    );
+    this.name = "OperationsCorruptError";
+  }
+}
+
 type OperationsDb = Pick<PrismaClient, "siteSetting">;
 
 /** The row as stored (null: never written) with what it parses to, and its version. */
-async function readOperations(db: OperationsDb): Promise<{ operations: Operations; version: Date | null }> {
+async function readOperations(db: OperationsDb): Promise<{
+  operations: Operations;
+  version: Date | null;
+  corrupt: boolean;
+}> {
   const row = await db.siteSetting.findUnique({ where: { key: OPERATIONS_KEY } });
-  if (!row) return { operations: structuredClone(DEFAULT_OPERATIONS), version: null };
+  if (!row) return { operations: structuredClone(DEFAULT_OPERATIONS), version: null, corrupt: false };
   const parsed = operationsSchema.safeParse(row.value);
   return {
     operations: parsed.success ? parsed.data : structuredClone(DEFAULT_OPERATIONS),
     version: row.updatedAt,
+    corrupt: !parsed.success,
   };
+}
+
+/**
+ * The switches in force with whether the stored row was unreadable. Reads
+ * still fall back to the defaults (the donation switch is not guessed from a
+ * damaged row), but a caller that shows an Admin the state can say it is damaged.
+ */
+export async function resolveOperationsState(db: OperationsDb): Promise<{ operations: Operations; corrupt: boolean }> {
+  const { operations, corrupt } = await readOperations(db);
+  return { operations, corrupt };
 }
 
 /** The switches in force: the stored row if it parses, else the defaults. */
@@ -183,7 +207,13 @@ export async function setOperations(
     throw new InvalidOperationsError("Tidak ada perubahan yang dikirim.");
   }
 
-  const { operations: current, version } = await readOperations(db);
+  const { operations: current, version, corrupt } = await readOperations(db);
+  if (corrupt) {
+    // Saving would write defaults over the unreadable row: reset donationsOpen
+    // and wipe the history. Refuse instead and leave the row for repair.
+    console.error("operations_row_corrupt", { key: OPERATIONS_KEY, actorId: params.actorId });
+    throw new OperationsCorruptError();
+  }
   const next: Operations = structuredClone(current);
   const changes: OperationsHistoryEntry["changes"] = [];
 
@@ -245,6 +275,7 @@ function sameList(a: readonly number[], b: readonly number[]): boolean {
 
 export function operationsErrorToHttp(error: unknown): { status: number; error: string } | null {
   if (error instanceof InvalidOperationsError) return { status: 400, error: error.message };
+  if (error instanceof OperationsCorruptError) return { status: 422, error: error.message };
   if (error instanceof OperationsConflictError) return { status: 409, error: error.message };
   return null;
 }

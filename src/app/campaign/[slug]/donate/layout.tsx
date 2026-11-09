@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
-import { donationsSwitchedOff, resolveDonationPresetsOrDefaults } from '@/lib/operations';
+import { resolveOperations, type Operations } from '@/lib/operations';
 import { DonationPresetsProvider } from '@/components/donation/DonationPresetsContext';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +22,15 @@ export default async function DonateLayout({
   children: React.ReactNode;
   params: Promise<{ slug: string }>;
 }) {
-  if (await donationsSwitchedOff(prisma)) {
+  // One read of the row serves both the switch and the presets. An unreadable
+  // row fails closed, as donationsSwitchedOff does.
+  let operations: Operations | null = null;
+  try {
+    operations = await resolveOperations(prisma);
+  } catch {
+    operations = null;
+  }
+  if (operations === null || !operations.donationsOpen) {
     const { slug } = await params;
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
@@ -33,6 +41,5 @@ export default async function DonateLayout({
       </div>
     );
   }
-  const presets = await resolveDonationPresetsOrDefaults(prisma);
-  return <DonationPresetsProvider presets={presets}>{children}</DonationPresetsProvider>;
+  return <DonationPresetsProvider presets={operations.donationPresets}>{children}</DonationPresetsProvider>;
 }

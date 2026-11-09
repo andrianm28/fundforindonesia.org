@@ -3,7 +3,7 @@ import { Assignment } from '@/generated/prisma/client';
 import { getServerSession } from '@/lib/auth';
 import { hasAssignment } from '@/lib/withAssignmentCheck';
 import { prisma } from '@/lib/prisma';
-import { operationsErrorToHttp, resolveOperations, setOperations } from '@/lib/operations';
+import { operationsErrorToHttp, resolveOperationsState, setOperations } from '@/lib/operations';
 
 /**
  * Setelan operasional (src/lib/operations.ts): the donation switch and the
@@ -28,7 +28,8 @@ const NOT_FOUND = () => NextResponse.json({ error: 'Not found' }, { status: 404 
 
 export async function GET() {
   if (!(await adminOrNull())) return NOT_FOUND();
-  return NextResponse.json({ operations: await resolveOperations(prisma) });
+  const { operations, corrupt } = await resolveOperationsState(prisma);
+  return NextResponse.json(corrupt ? { operations, corrupt: true } : { operations });
 }
 
 export async function POST(req: NextRequest) {

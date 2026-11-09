@@ -11,12 +11,12 @@ import { DonationConfirmation } from '@/components/donation/DonationConfirmation
 import { useBetaSandbox } from '@/components/layout/BetaSandboxContext';
 import { useDonationPresets } from '@/components/donation/DonationPresetsContext';
 import { formatRupiah } from '@/lib/utils/currency';
-import { donationsEnabled, DONATIONS_DISABLED_MESSAGE, MIN_DONATION_AMOUNT } from '@/lib/donations';
+import { donationsEnabled, DONATIONS_DISABLED_MESSAGE, MAX_DONATION_AMOUNT, MIN_DONATION_AMOUNT } from '@/lib/donations';
 import { donationRefusalCopy, offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
 import { readCapturedTrafficSource } from '@/lib/traffic-source-capture';
 import type { PaymentMethod } from '@/types/donation';
 
-const MAX_AMOUNT = 1000000000;
+const MAX_AMOUNT = MAX_DONATION_AMOUNT;
 
 /**
  * Only what the payment provider can actually charge.

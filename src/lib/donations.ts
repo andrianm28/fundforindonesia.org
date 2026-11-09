@@ -89,3 +89,5 @@ export const DONATIONS_DISABLED_MESSAGE =
  * and the donate page, so the form never offers an amount the API refuses.
  */
 export const MIN_DONATION_AMOUNT = 1_000;
+/** The largest single Donation, in rupiah (Rp1 miliar): the donate page, amount validation and the Admin's presets all share it. */
+export const MAX_DONATION_AMOUNT = 1_000_000_000;

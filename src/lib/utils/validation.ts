@@ -2,13 +2,15 @@
  * Form validation utilities for donation, email, password, and required fields.
  */
 
+import { MAX_DONATION_AMOUNT } from '@/lib/donations';
+
 export interface ValidationResult {
   valid: boolean;
   error?: string;
 }
 
 const DEFAULT_MIN_DONATION = 1000;
-const DEFAULT_MAX_DONATION = 1_000_000_000;
+const DEFAULT_MAX_DONATION = MAX_DONATION_AMOUNT;
 
 /**
  * Validates a donation amount.

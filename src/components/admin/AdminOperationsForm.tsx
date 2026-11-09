@@ -13,14 +13,19 @@ import { useRouter } from 'next/navigation';
 type Value = { donationsOpen: boolean; maintenanceOn: boolean; maintenanceMessage: string; donationPresets: string };
 type Initial = Omit<Value, 'donationPresets'> & { donationPresets: number[] };
 
-/** "5.000; 10000 25000" -> [5000, 10000, 25000]; what is not a number goes up as null for the server to refuse. */
+/**
+ * "5.000; 10000 25000" -> [5000, 10000, 25000]. A dot counts only as a thousands
+ * separator (groups of exactly 3 digits after a 1-3 digit head), so "1.5" is not
+ * 15. Anything else goes up as null for the server to refuse.
+ */
 function parsePresets(text: string): (number | null)[] {
   return text
     .split(/[,;\s]+/)
     .filter((t) => t !== '')
     .map((t) => {
-      const n = Number(t.replace(/\./g, ''));
-      return Number.isFinite(n) ? n : null;
+      if (/^\d+$/.test(t)) return Number(t);
+      if (/^\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ''));
+      return null;
     });
 }
 
