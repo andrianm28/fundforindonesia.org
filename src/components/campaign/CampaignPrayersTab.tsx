@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { PrayerStreamItem } from '@/lib/hooks/usePrayerStream';
-import { CampaignPrayers, toPrayerStreamItem } from './CampaignPrayers';
+import { CampaignPrayers, PRAYER_PAGE_SIZE, toPrayerStreamItem } from './CampaignPrayers';
 
 /**
  * The "Doa" tab of the Campaign page: the donors' prayers for this Campaign,
@@ -17,7 +17,7 @@ export function CampaignPrayersTab({ slug }: { slug: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/prayers?campaignSlug=${encodeURIComponent(slug)}&page=1&limit=5`)
+    fetch(`/api/prayers?campaignSlug=${encodeURIComponent(slug)}&page=1&limit=${PRAYER_PAGE_SIZE}`)
       .then((res) => (res.ok ? res.json() : { prayers: [] }))
       .then((body: { prayers?: Record<string, unknown>[] }) => {
         if (!cancelled) setPrayers((body.prayers ?? []).map(toPrayerStreamItem));

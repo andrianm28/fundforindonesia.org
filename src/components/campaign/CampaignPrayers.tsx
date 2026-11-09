@@ -6,6 +6,9 @@ import { PrayerStreamItem } from '@/lib/hooks/usePrayerStream';
 import { getRelativeTimestamp } from '@/lib/utils/date';
 import { useAamiin } from '@/lib/hooks/useAamiin';
 
+/** Doa per page; the first page (CampaignPrayersTab) and "muat lagi" must agree for hasMore to be right. */
+export const PRAYER_PAGE_SIZE = 5;
+
 /** One row of GET /api/prayers, as the prayer list renders it. */
 export function toPrayerStreamItem(p: Record<string, unknown>): PrayerStreamItem {
   return {
@@ -44,7 +47,7 @@ export function CampaignPrayers({
 }: CampaignPrayersProps) {
   const [prayers, setPrayers] = useState<PrayerStreamItem[]>(initialPrayers);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(initialPrayers.length >= 5);
+  const [hasMore, setHasMore] = useState(initialPrayers.length >= PRAYER_PAGE_SIZE);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -64,7 +67,7 @@ export function CampaignPrayers({
     try {
       const nextPage = page + 1;
       const res = await fetch(
-        `/api/prayers?campaignSlug=${encodeURIComponent(campaignSlug)}&page=${nextPage}&limit=5`
+        `/api/prayers?campaignSlug=${encodeURIComponent(campaignSlug)}&page=${nextPage}&limit=${PRAYER_PAGE_SIZE}`
       );
 
       if (!res.ok) {
@@ -82,7 +85,7 @@ export function CampaignPrayers({
       });
 
       setPage(nextPage);
-      setHasMore(newPrayers.length >= 5);
+      setHasMore(newPrayers.length >= PRAYER_PAGE_SIZE);
     } catch {
       showToast('Gagal memuat doa lainnya. Coba lagi.');
     } finally {
