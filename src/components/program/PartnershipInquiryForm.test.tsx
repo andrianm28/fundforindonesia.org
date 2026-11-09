@@ -102,4 +102,47 @@ describe('PartnershipInquiryForm (full form)', () => {
 
     expect(await screen.findByText('Proposal harus berupa berkas PDF.')).toBeTruthy();
   });
+
+  it('tells the company the proposal was not saved, and to send it again by email, when proposalStored is false', async () => {
+    fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ inquiry: { id: 'i1', status: 'NEW', proposalStored: false } }),
+    }));
+    global.fetch = fetchMock as never;
+    render(<PartnershipInquiryForm programId="program-1" programSlug="klinik" />);
+    fill('Nama perusahaan', 'PT Sinar Abadi');
+    fill('Nama narahubung', 'Rina Wijaya');
+    fill('Email narahubung', 'rina@sinarabadi.test');
+    fill('Apa yang ingin Anda bicarakan', 'Mobilitas tim kesehatan.');
+    const input = screen.getByLabelText(/Proposal \(PDF/) as HTMLInputElement;
+    const file = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])], 'proposal.pdf', { type: 'application/pdf' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    fireEvent.submit(screen.getByRole('button', { name: 'Kirim permintaan diskusi' }).closest('form')!);
+
+    const sent = await screen.findByTestId('inquiry-sent');
+    expect(sent.textContent).toMatch(/Terima kasih/);
+    const warning = await screen.findByRole('alert');
+    expect(warning.textContent).toMatch(/proposal belum tersimpan/i);
+    expect(warning.textContent).toMatch(/kirim ulang/i);
+    expect(warning.textContent).toMatch(/email/i);
+  });
+
+  it('shows no proposal warning when no proposal was attached', async () => {
+    fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ inquiry: { id: 'i1', status: 'NEW', proposalStored: false } }),
+    }));
+    global.fetch = fetchMock as never;
+    render(<PartnershipInquiryForm programId="program-1" programSlug="klinik" />);
+    fill('Nama perusahaan', 'PT Sinar Abadi');
+    fill('Nama narahubung', 'Rina Wijaya');
+    fill('Email narahubung', 'rina@sinarabadi.test');
+    fill('Apa yang ingin Anda bicarakan', 'Mobilitas tim kesehatan.');
+
+    fireEvent.submit(screen.getByRole('button', { name: 'Kirim permintaan diskusi' }).closest('form')!);
+
+    await screen.findByTestId('inquiry-sent');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });

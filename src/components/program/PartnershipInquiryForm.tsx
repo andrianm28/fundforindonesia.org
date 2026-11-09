@@ -25,9 +25,16 @@ import {
  * the text; the PDF is stored as a private document only the partnership team can
  * open.
  */
+/** Whether the visitor chose a proposal file (the field is always in the body, as an empty file when unchosen). */
+function hasProposal(form: HTMLFormElement): boolean {
+  const input = form.elements.namedItem('proposal');
+  return input instanceof HTMLInputElement && (input.files?.length ?? 0) > 0 && (input.files?.[0]?.size ?? 0) > 0;
+}
+
 export function PartnershipInquiryForm({ programId, programSlug }: { programId: string; programSlug: string }) {
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'refused'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [proposalLost, setProposalLost] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,6 +55,10 @@ export function PartnershipInquiryForm({ programId, programSlug }: { programId: 
         setState('refused');
         return;
       }
+      // The Inquiry is recorded even when the file could not be stored; say so,
+      // or the company believes the partnership team has the proposal.
+      const answer = (await response.json().catch(() => null)) as { inquiry?: { proposalStored?: boolean } } | null;
+      setProposalLost(answer?.inquiry?.proposalStored === false && hasProposal(form));
       form.reset();
       setState('sent');
     } catch {
@@ -58,9 +69,17 @@ export function PartnershipInquiryForm({ programId, programSlug }: { programId: 
 
   if (state === 'sent') {
     return (
-      <p data-testid="inquiry-sent" className="rounded-lg border border-green-300 bg-green-50 p-4 text-green-900">
-        Terima kasih. Tim kemitraan kami akan menghubungi Anda lewat email yang Anda tuliskan.
-      </p>
+      <div className="grid gap-3">
+        <p data-testid="inquiry-sent" className="rounded-lg border border-green-300 bg-green-50 p-4 text-green-900">
+          Terima kasih. Tim kemitraan kami akan menghubungi Anda lewat email yang Anda tuliskan.
+        </p>
+        {proposalLost && (
+          <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900">
+            Permintaan Anda sudah kami terima, tetapi proposal belum tersimpan. Mohon kirim ulang proposal Anda lewat
+            email atau kanal kontak resmi di situs ini.
+          </p>
+        )}
+      </div>
     );
   }
 

@@ -117,7 +117,12 @@ export async function POST(req: NextRequest) {
         throw new GlobalLimitReachedError(overall.retryAfterSeconds);
       }
     }, { proposal: proposal ?? undefined });
-    return NextResponse.json({ inquiry }, { status: 201 });
+    // The caller has no account and is not authenticated: answer what the form
+    // needs and nothing of the stored row (no ciphertext, HMAC or key ids).
+    return NextResponse.json(
+      { inquiry: { id: inquiry.id, status: inquiry.status, proposalStored: inquiry.proposalStored } },
+      { status: 201 },
+    );
   } catch (error) {
     if (error instanceof GlobalLimitReachedError) return tooManyRequests(error.retryAfterSeconds);
     const refusal = partnershipInquiryErrorToHttp(error);

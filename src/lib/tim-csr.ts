@@ -1,5 +1,7 @@
 import { Prisma, type PrismaClient } from '@/generated/prisma/client';
 import { readUserEmail, SELECT_USER_EMAIL } from './contact-fields';
+import { unlink } from 'fs/promises';
+import { absoluteStoragePath, documentRoot } from './documents';
 import type { Mailer } from './mail';
 import { createPartnershipInquiry } from './partnership-inquiries';
 import {
@@ -526,7 +528,67 @@ export const COMPANY_RETENTION_YEARS = 2;
 const ANONYMISED_NAME = '[dianonimkan]';
 const ANONYMISED_KEY_ID = 'anonymised';
 
-export type CompanyRetentionResult = { consideredCount: number; anonymisedCount: number };
+export type CompanyRetentionResult = {
+  consideredCount: number;
+  anonymisedCount: number;
+  /** Inquiries of the public form (no company) anonymised on their own, by age. */
+  anonymisedInquiryCount?: number;
+};
+
+/** How many public-form Inquiries one transaction anonymises. */
+const PUBLIC_INQUIRY_BATCH = 200;
+
+type Tx = Prisma.TransactionClient;
+
+/**
+ * Anonymises the given Inquiries and erases their proposal files. The
+ * proposal is the company's own text and letterhead, so it goes with the
+ * contact data; the Document row stays (documents are never deleted, decision
+ * 03, and Document_one_owner / onDelete Restrict forbid dropping it under the
+ * Inquiry), with its path and size as metadata and no bytes behind it. A read
+ * of it then finds no file and answers the same 404 as for any missing
+ * document. Files go before the row update inside the transaction, and a file
+ * already gone is fine, so a rerun after a failed commit finishes the job.
+ *
+ * The contact columns are NOT NULL, so the email columns take placeholders and
+ * `contactAnonymisedAt` marks the rows; the HMAC placeholder is unique per row
+ * so nothing links two anonymised rows.
+ */
+async function anonymiseInquiries(tx: Tx, inquiryIds: string[], now: Date): Promise<void> {
+  if (inquiryIds.length === 0) return;
+  const documents = await tx.document.findMany({
+    where: { partnershipInquiryId: { in: inquiryIds } },
+    select: { storagePath: true },
+  });
+  const root = documentRoot();
+  if (root) {
+    for (const { storagePath } of documents) {
+      const full = absoluteStoragePath(root, storagePath);
+      if (!full) continue;
+      try {
+        await unlink(full);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+  }
+  // One statement for every Inquiry; the HMAC placeholder is unique per row.
+  await tx.$executeRaw`
+    UPDATE "PartnershipInquiry"
+    SET "contactName" = ${ANONYMISED_NAME},
+        "contactEmailHmac" = 'anonymised:' || "id",
+        "contactEmailHmacKeyId" = ${ANONYMISED_KEY_ID},
+        "contactEmailCiphertext" = '',
+        "contactEmailKeyId" = ${ANONYMISED_KEY_ID},
+        "contactPhoneCiphertext" = NULL,
+        "contactPhoneKeyId" = NULL,
+        "companyAddressCiphertext" = NULL,
+        "companyAddressKeyId" = NULL,
+        "companyNpwpCiphertext" = NULL,
+        "companyNpwpKeyId" = NULL,
+        "contactAnonymisedAt" = ${now}
+    WHERE "id" IN (${Prisma.join(inquiryIds)}) AND "contactAnonymisedAt" IS NULL`;
+}
 
 /**
  * Anonymises every company whose last activity is more than two years old, judged again under a row lock
@@ -536,11 +598,13 @@ export type CompanyRetentionResult = { consideredCount: number; anonymisedCount:
  *
  * Per company, in one transaction: its memberships are removed (the people
  * keep their own accounts), and every Inquiry's contact name, email and phone
- * are replaced, and so are the company's address and NPWP. The contact columns are NOT NULL, so the email columns take
- * placeholders and `contactAnonymisedAt` marks the rows; the HMAC placeholder
- * is unique per row so nothing links two anonymised rows. The Inquiry, its
- * Program and its status history stay: they hold no person. Idempotent, and
- * Inquiries that belong to no company are never touched.
+ * are replaced, and so are the company's address and NPWP, and the proposal
+ * files are erased (see anonymiseInquiries). The Inquiry, its Program and its
+ * status history stay: they hold no person. Idempotent.
+ *
+ * Inquiries that belong to no company (the public form has no account) have
+ * no company's "last activity" to wait on, so each is anonymised the same way,
+ * by itself, once it was filed more than two years ago.
  */
 export async function anonymiseExpiredCompanies(
   prisma: PrismaClient,
@@ -576,22 +640,11 @@ export async function anonymiseExpiredCompanies(
         if (lastActivity > cutoff.getTime()) return false;
 
         await tx.companyMembership.deleteMany({ where: { companyId: candidate.id } });
-        // One statement for every Inquiry; the HMAC placeholder is unique per row.
-        await tx.$executeRaw`
-          UPDATE "PartnershipInquiry"
-          SET "contactName" = ${ANONYMISED_NAME},
-              "contactEmailHmac" = 'anonymised:' || "id",
-              "contactEmailHmacKeyId" = ${ANONYMISED_KEY_ID},
-              "contactEmailCiphertext" = '',
-              "contactEmailKeyId" = ${ANONYMISED_KEY_ID},
-              "contactPhoneCiphertext" = NULL,
-              "contactPhoneKeyId" = NULL,
-              "companyAddressCiphertext" = NULL,
-              "companyAddressKeyId" = NULL,
-              "companyNpwpCiphertext" = NULL,
-              "companyNpwpKeyId" = NULL,
-              "contactAnonymisedAt" = ${now}
-          WHERE "companyId" = ${candidate.id} AND "contactAnonymisedAt" IS NULL`;
+        const inquiries = await tx.partnershipInquiry.findMany({
+          where: { companyId: candidate.id, contactAnonymisedAt: null },
+          select: { id: true },
+        });
+        await anonymiseInquiries(tx, inquiries.map((i) => i.id), now);
         await tx.company.update({ where: { id: candidate.id }, data: { anonymisedAt: now } });
         return true;
       },
@@ -599,5 +652,19 @@ export async function anonymiseExpiredCompanies(
     );
     if (done) anonymisedCount += 1;
   }
-  return { consideredCount: candidates.length, anonymisedCount };
+
+  let anonymisedInquiryCount = 0;
+  for (;;) {
+    const batch = await prisma.partnershipInquiry.findMany({
+      where: { companyId: null, contactAnonymisedAt: null, createdAt: { lte: cutoff } },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+      take: PUBLIC_INQUIRY_BATCH,
+    });
+    if (batch.length === 0) break;
+    await prisma.$transaction((tx) => anonymiseInquiries(tx, batch.map((i) => i.id), now), { timeout: 30_000 });
+    anonymisedInquiryCount += batch.length;
+    if (batch.length < PUBLIC_INQUIRY_BATCH) break;
+  }
+  return { consideredCount: candidates.length, anonymisedCount, anonymisedInquiryCount };
 }

@@ -18,6 +18,14 @@ import { MAX_DOCUMENT_SIZE } from "./documents";
 /** The file plus room for the multipart framing and the other fields. */
 export const MAX_INQUIRY_BODY_SIZE = MAX_DOCUMENT_SIZE + 64 * 1024;
 
+/**
+ * A JSON submission is text fields only (the longest, the need, is capped far
+ * below this by the module), so it never needs more than a few kilobytes. The
+ * public route is unauthenticated: without a cap, one request could make the
+ * server buffer a body of any size before the field checks run.
+ */
+export const MAX_INQUIRY_JSON_SIZE = 64 * 1024;
+
 export type InquiryRequestBody = {
   fields: Record<string, unknown>;
   proposal: { bytes: Uint8Array; declaredType: string; size: number } | null;
@@ -54,7 +62,14 @@ export async function readCappedBody(request: NextRequest, cap: number): Promise
 export async function readInquiryRequestBody(req: NextRequest): Promise<InquiryRequestBody | InquiryRequestRefusal> {
   const contentType = req.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
-    const parsed = await req.json().catch(() => undefined);
+    const raw = await readCappedBody(req, MAX_INQUIRY_JSON_SIZE);
+    if (raw === "too-large") return { error: "Isi permintaan terlalu besar.", status: 413 };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(raw));
+    } catch {
+      parsed = undefined;
+    }
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       return { error: "Body permintaan harus berupa objek JSON.", status: 400 };
     }

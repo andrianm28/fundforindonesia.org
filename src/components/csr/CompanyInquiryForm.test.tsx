@@ -46,4 +46,18 @@ describe('CompanyInquiryForm', () => {
     expect(init.headers).toBeUndefined();
     expect(await screen.findByRole('status')).toBeTruthy();
   });
+
+  it('tells the member the proposal was not saved when the route says proposalStored is false', async () => {
+    render(<CompanyInquiryForm programs={[{ id: 'p1', title: 'Klinik' }]} />);
+    fireEvent.change(screen.getByLabelText(/Kebutuhan/), { target: { value: 'Mobilitas tim kesehatan.' } });
+    const file = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])], 'proposal.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText(/Proposal \(PDF/), { target: { files: [file] } });
+
+    fireEvent.submit(screen.getByRole('button', { name: 'Kirim Inquiry' }).closest('form')!);
+
+    const status = await screen.findByRole('status');
+    expect(status.textContent).toMatch(/proposal belum tersimpan/i);
+    expect(status.textContent).toMatch(/kirim ulang/i);
+    expect(status.textContent).toMatch(/email/i);
+  });
 });

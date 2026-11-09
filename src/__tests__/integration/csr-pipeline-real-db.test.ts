@@ -327,4 +327,40 @@ describe.skipIf(!DATABASE_URL)('CSR pipeline -- against real Postgres (pks-pemen
     ).inquiry;
     expect(detail).toMatchObject({ contactEmail: null, contactPhone: null, companyAddress: null, companyNpwp: null });
   });
+
+  it('anonymises a public-form Inquiry after two years and erases its proposal file, keeping the Document row', async () => {
+    const programId = await makeProgram('program-public-retention');
+    const inquiryId = await submitPublic(programId, true);
+    const doc = await prisma.document.findFirstOrThrow({ where: { partnershipInquiryId: inquiryId } });
+    const onDisk = () => readdirSync(join(documentRoot, doc.storagePath.slice(0, 2))).includes(doc.storagePath.slice(3));
+    expect(onDisk()).toBe(true);
+
+    // Not yet: a recent public Inquiry is kept whole.
+    await tim.anonymiseExpiredCompanies(prisma, new Date());
+    expect((await prisma.partnershipInquiry.findUniqueOrThrow({ where: { id: inquiryId } })).contactAnonymisedAt).toBeNull();
+    expect(onDisk()).toBe(true);
+
+    await prisma.partnershipInquiry.update({ where: { id: inquiryId }, data: { createdAt: new Date('2020-01-01T00:00:00Z') } });
+    const result = await tim.anonymiseExpiredCompanies(prisma, new Date('2026-11-09T00:00:00Z'));
+    expect(result.anonymisedInquiryCount).toBeGreaterThanOrEqual(1);
+
+    const after = await prisma.partnershipInquiry.findUniqueOrThrow({ where: { id: inquiryId } });
+    expect(after.contactAnonymisedAt).not.toBeNull();
+    expect(after).toMatchObject({
+      contactName: '[dianonimkan]',
+      contactEmailCiphertext: '',
+      companyAddressCiphertext: null,
+      companyNpwpCiphertext: null,
+    });
+    // The bytes are gone; the Document row and its status history stay.
+    expect(onDisk()).toBe(false);
+    expect(await prisma.document.count({ where: { id: doc.id } })).toBe(1);
+    const adminId = await makeUser('admin@retensi-publik.test', 'Admin Retensi Publik', true);
+    expect(
+      await documents.readDocument(prisma, { documentId: doc.id, viewer: { id: adminId, assignments: ['ADMIN'] as never } }),
+    ).toBeNull();
+
+    // A second run finds nothing left to do.
+    expect((await tim.anonymiseExpiredCompanies(prisma, new Date('2026-11-09T00:00:00Z'))).anonymisedInquiryCount).toBe(0);
+  });
 });

@@ -23,6 +23,9 @@ export function CompanyInquiryForm({ programs }: { programs: Array<{ id: string;
     const form = event.currentTarget;
     const body = new FormData(form);
     body.set("programId", programId);
+    const proposalInput = form.elements.namedItem("proposal");
+    const attachedProposal =
+      proposalInput instanceof HTMLInputElement && (proposalInput.files?.[0]?.size ?? 0) > 0;
     setBusy(true);
     setMessage(null);
     try {
@@ -35,8 +38,8 @@ export function CompanyInquiryForm({ programs }: { programs: Array<{ id: string;
       }
       form.reset();
       setMessage(
-        answer.inquiry?.proposalStored === false && body.get("proposal") instanceof File && (body.get("proposal") as File).size > 0
-          ? "Inquiry terkirim, tetapi proposal belum tersimpan. Kirim ulang proposal lewat tim kemitraan."
+        answer.inquiry?.proposalStored === false && attachedProposal
+          ? "Inquiry terkirim, tetapi proposal belum tersimpan. Mohon kirim ulang proposal lewat email atau kanal kontak tim kemitraan."
           : "Inquiry terkirim.",
       );
       router.refresh();

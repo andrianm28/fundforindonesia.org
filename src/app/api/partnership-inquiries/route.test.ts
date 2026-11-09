@@ -65,6 +65,7 @@ vi.mock('@/lib/prisma', () => ({
 }));
 
 import { POST } from './route';
+import { MAX_INQUIRY_JSON_SIZE } from '@/lib/inquiry-request';
 
 const URL = 'http://localhost:3000/api/partnership-inquiries';
 
@@ -182,13 +183,47 @@ describe('POST /api/partnership-inquiries', () => {
 
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({
-      inquiry: expect.objectContaining({
-        programId: 'program-1',
-        companyName: 'PT Sinar Abadi',
-        status: 'NEW',
-      }),
+      inquiry: { id: 'inquiry-1', status: 'NEW', proposalStored: false },
     });
     expect(state.rows).toHaveLength(1);
+  });
+
+  it('answers the unauthenticated caller with the id, status and proposalStored only: no ciphertext, HMAC or key id', async () => {
+    const res = await postForm(
+      { ...VALID, companyAddress: 'Jl. Contoh Nomor 1', companyNpwp: '0'.repeat(15) },
+      { bytes: PDF, type: 'application/pdf' },
+    );
+
+    expect(res.status).toBe(201);
+    const text = JSON.stringify(await res.json());
+    expect(JSON.parse(text)).toEqual({ inquiry: { id: expect.any(String), status: 'NEW', proposalStored: true } });
+    expect(text).not.toMatch(/ciphertext|hmac|keyid|rina@|sinar abadi|jl\. contoh/i);
+  });
+
+  it('refuses a JSON body over the size cap with 413, writing nothing', async () => {
+    const res = await post({ ...VALID, needs: 'x'.repeat(MAX_INQUIRY_JSON_SIZE + 1) });
+
+    expect(res.status).toBe(413);
+    expect((await res.json()).error).toMatch(/terlalu besar/i);
+    expect(state.rows).toHaveLength(0);
+  });
+
+  it('stops reading a JSON body that lies about its length or sends none, at the cap', async () => {
+    const huge = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(16 * 1024).fill(0x61));
+      },
+    });
+    const res = await POST(
+      new NextRequest(URL, {
+        method: 'POST',
+        body: huge,
+        duplex: 'half',
+        headers: { 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json' },
+      }),
+    );
+
+    expect(res.status).toBe(413);
   });
 
   it('answers 404 for a Program that does not exist, writing nothing', async () => {
