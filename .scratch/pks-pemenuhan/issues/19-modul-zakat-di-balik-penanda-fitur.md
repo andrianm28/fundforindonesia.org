@@ -10,7 +10,7 @@
 - [x] Test kalkulator
 - [x] Test pemisahan zakat di laporan
 - [x] ADR baru menggantikan 0025
-- [ ] Review independen sonnet (uang)
+- [x] Review independen sonnet (uang)
 
 ## Catatan
 

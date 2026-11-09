@@ -9,7 +9,7 @@
 - [x] Test penjadwal: satu tagihan per siklus, idempoten bila job jalan dua kali
 - [x] Test berhenti lewat tautan bertanda tangan
 - [x] Test status lunas/lewat tempo dari webhook
-- [ ] Review independen sonnet (uang)
+- [x] Review independen sonnet (uang)
 
 ## Comments
 

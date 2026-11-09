@@ -8,7 +8,7 @@
 
 - [x] Test transisi revisi tidak memposting ledger
 - [x] Test dokumen hanya bisa dibaca pemilik, Admin
-- [ ] Review independen sonnet (uang)
+- [x] Review independen sonnet (uang)
 
 ## Catatan 2026-11-09 (builder)
 
