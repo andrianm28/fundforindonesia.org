@@ -77,6 +77,12 @@ describe.skipIf(!DATABASE_URL)('merchant entity migration against a populated da
        VALUES ('pw-1', 'sumopod', 'ref-1', 10, 'PT', 100, 90, 'proof', 'u1')`,
     );
 
+    // A webhook event received before the merchants existed.
+    await db.query(
+      `INSERT INTO "WebhookEvent" (id, provider, "providerEventId", payload)
+       VALUES ('we-pre', 'sumopod', 'evt-1', '{}')`,
+    );
+
     await db.query(sqlOf(THIS_MIGRATION));
   }, 180_000);
 
@@ -137,7 +143,41 @@ describe.skipIf(!DATABASE_URL)('merchant entity migration against a populated da
       ['LedgerEntry', null],
       ['Payment', "'YAYASAN'::\"MerchantEntity\""],
       ['ProviderWithdrawal', "'YAYASAN'::\"MerchantEntity\""],
+      ['WebhookEvent', null],
     ]);
+  });
+
+  it('backfills an old WebhookEvent to YAYASAN, and keys idempotency on (provider, merchantEntity, providerEventId)', async () => {
+    const { rows } = await db.query(`SELECT "merchantEntity" FROM "WebhookEvent" WHERE id = 'we-pre'`);
+    expect(rows).toEqual([{ merchantEntity: 'YAYASAN' }]);
+    const insert = (id: string, entity: string) =>
+      db.query(
+        `INSERT INTO "WebhookEvent" (id, provider, "merchantEntity", "providerEventId", payload) VALUES ($1, 'sumopod', $2, 'evt-1', '{}')`,
+        [id, entity],
+      );
+    // The same event id on the other merchant is a different event...
+    await insert('we-bu', 'BADAN_USAHA');
+    // ...but a replay on the same merchant is still refused.
+    await expect(insert('we-dup', 'YAYASAN')).rejects.toThrow(/duplicate key/);
+    await expect(insert('we-dup-bu', 'BADAN_USAHA')).rejects.toThrow(/duplicate key/);
+  });
+
+  it('adds the foreign keys validated, and the two mostly-null indexes as partial indexes', async () => {
+    const fks = await db.query(
+      `SELECT conname, convalidated FROM pg_constraint
+       WHERE conname IN ('LedgerEntry_collectingEntityId_fkey', 'LedgerEntry_actorId_fkey') ORDER BY conname`,
+    );
+    expect(fks.rows).toEqual([
+      { conname: 'LedgerEntry_actorId_fkey', convalidated: true },
+      { conname: 'LedgerEntry_collectingEntityId_fkey', convalidated: true },
+    ]);
+    const idx = await db.query(
+      `SELECT indexname, indexdef FROM pg_indexes
+       WHERE indexname IN ('LedgerEntry_collectingEntityId_idx', 'LedgerEntry_actorId_idx') ORDER BY indexname`,
+    );
+    expect(idx.rows).toHaveLength(2);
+    expect(idx.rows[0].indexdef).toMatch(/WHERE \("actorId" IS NOT NULL\)/);
+    expect(idx.rows[1].indexdef).toMatch(/WHERE \("collectingEntityId" IS NOT NULL\)/);
   });
 
   it('gives the new foreign keys ON DELETE RESTRICT', async () => {

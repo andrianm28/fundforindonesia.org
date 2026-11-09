@@ -74,6 +74,7 @@ function makeDb() {
     status: 'PAID',
     amount: 100_000,
     providerFee: 0,
+    merchantEntity: 'YAYASAN',
     donationId: 'donation-1',
     registrationId: null,
     escrowReleaseAt: new Date(now.getTime() - MS_PER_DAY),

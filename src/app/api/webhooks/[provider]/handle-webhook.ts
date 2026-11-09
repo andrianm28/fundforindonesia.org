@@ -37,6 +37,23 @@ import { emailRegistrationConfirmed } from '@/lib/status-emails';
 import { receiptNeedsBetaNotice } from '@/lib/money/counted-payment';
 
 /**
+ * The ledger transactionId a settlement is posted under. The database claims a
+ * transactionId exactly once (leg 0), which is what makes a redelivered event
+ * unable to post twice. The event id is only unique within a merchant account
+ * (the WebhookEvent key includes the merchant, ADR 0027), so the other
+ * merchant's settlement must not claim the same id: BADAN_USAHA carries its
+ * entity in the id. YAYASAN keeps the original `webhook:<provider>:<eventId>`,
+ * because every ledger row written before the two merchants existed was
+ * posted under it and a redelivery of one of those events must still hit the
+ * same claim.
+ */
+function webhookTransactionId(provider: string, merchant: MerchantEntity, providerEventId: string): string {
+  return merchant === 'YAYASAN'
+    ? `webhook:${provider}:${providerEventId}`
+    : `webhook:${provider}:${merchant}:${providerEventId}`;
+}
+
+/**
  * The single place where money becomes real.
  *
  * Nothing else credits a campaign: POST /api/donations (task M4) only ever
@@ -139,8 +156,10 @@ export async function handleProviderWebhook(
   }
 
   try {
-    // 4. Record the event first. Its @@unique([provider, providerEventId])
-    // is the idempotency mechanism, but a row existing is not by itself
+    // 4. Record the event first. Its @@unique([provider, merchantEntity,
+    // providerEventId]) is the idempotency mechanism (the merchant is part of the
+    // key: the same event id on the other merchant's endpoint is a different
+    // event, ADR 0027), but a row existing is not by itself
     // proof this event was ever finished being handled -- see the
     // processedAt note above the function. A create that hits the
     // constraint has to look at the existing row to tell the two cases
@@ -153,6 +172,7 @@ export async function handleProviderWebhook(
       const created = await prisma.webhookEvent.create({
         data: {
           provider: event.provider,
+          merchantEntity: merchant,
           providerEventId: event.providerEventId,
           payload: event.rawPayload as Prisma.InputJsonValue,
         },
@@ -163,8 +183,9 @@ export async function handleProviderWebhook(
 
       const existing = await prisma.webhookEvent.findUniqueOrThrow({
         where: {
-          provider_providerEventId: {
+          provider_merchantEntity_providerEventId: {
             provider: event.provider,
+            merchantEntity: merchant,
             providerEventId: event.providerEventId,
           },
         },
@@ -229,7 +250,7 @@ export async function handleProviderWebhook(
     // Two deliberate choices. (1) The answer is the same 200 as an unknown
     // providerRef, so a caller cannot probe which refs exist by telling the
     // two apart. (2) processedAt is NOT stamped: the dedupe key is
-    // (provider, providerEventId), and marking a mismatched event processed
+    // (provider, merchantEntity, providerEventId), and marking a mismatched event processed
     // would make a later genuine event with the same id look like a replay and
     // be dropped. Left unprocessed, that later event picks the row up and is
     // handled normally. The log carries ids only, no PII.
@@ -449,7 +470,7 @@ export async function handleProviderWebhook(
               // The Payment's own stamp, not the marker now in force: a beta
               // Payment that settles after go-live is still sandbox money.
               sandbox: sandboxModeOf(payment),
-              transactionId: `webhook:${event.provider}:${event.providerEventId}`,
+              transactionId: webhookTransactionId(event.provider, merchant, event.providerEventId),
               // A Trip Fee lands at the provider exactly as a Donation does, so
               // the Provider Balance has to grow by it (prd-compliance 35). A
               // Trip is not a Kind (ADR 0014); the provider is a separate fact
@@ -542,7 +563,7 @@ export async function handleProviderWebhook(
               // The Payment's own stamp, not the marker now in force: a beta
               // Payment that settles after go-live is still sandbox money.
               sandbox: sandboxModeOf(payment),
-              transactionId: `webhook:${event.provider}:${event.providerEventId}`,
+              transactionId: webhookTransactionId(event.provider, merchant, event.providerEventId),
               // The provider this Gross arrived at, stamped on every leg of the
               // settlement. This is the only thing that makes the Provider
               // Balance readable per provider (prd-compliance 35,

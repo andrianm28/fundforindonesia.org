@@ -17,7 +17,7 @@
 - [x] Test setiap posting ledger membawa entitas; backfill + trigger diuji di DB nyata
 - [x] Rekonsiliasi per entitas di layar dan API
 - [x] docs/integrasi-sumopod.md + .env.example memuat env per merchant (tanpa nilai)
-- [ ] Review independen sonnet (uang)
+- [x] Review independen sonnet (uang)
 
 ## Comments
 
@@ -29,4 +29,4 @@
 - `postTransaction` mewajibkan `merchantEntity` (tipe + cek runtime); tes properti `ledger-posting-merchant-entity` memindai semua call site dan memastikan tidak ada penulis ledger lain.
 - Rekonsiliasi: `providerReconciliation.byEntity` di API dan bagian "Rekonsiliasi per merchant" di layar; angka seluruh-akun tetap dan sama dengan jumlahnya. Form penarikan punya pilihan merchant.
 - Keputusan terbuka: (1) Payout dan gerakan off-gateway dibukukan YAYASAN; Trip Fee komersial yang kelak dicairkan lewat modul Payout akan salah kantong sampai penandanya ada. (2) `actorId` terisi di semua posting yang punya pelaku (refund, payout, manual contribution, transfer, penarikan); settlement webhook null. (3) Mock provider tidak punya merchant (kedua entitas memakai satu key, hanya dev).
-- Review independen sonnet (uang): didispatch koordinator.
+- Review independen sonnet (uang): didispatch koordinator. Tidak ada BLOCKER; SHOULD-FIX ditindaklanjuti di commit "fix: tindak lanjut review independen tiket 04": migrasi diedit di tempat (FK NOT VALID + VALIDATE terpisah, indeks parsial untuk kolom yang hampir selalu null, catatan jalankan di periode sepi di header migrasi dan ADR); `WebhookEvent.merchantEntity` masuk kunci unik `(provider, merchantEntity, providerEventId)` (backfill YAYASAN), dan transactionId settlement BADAN_USAHA membawa entitasnya karena event id yang sama di dua merchant sebelumnya bentrok di klaim ledger (DuplicateLedgerTransactionError, ketemu oleh tes baru); tes secret sama di dua merchant dan 503 lewat env nyata; peringatan `sumopod_merchant_secrets_equal` saat boot; ADR: rekonsiliasi per entitas hanya baris non-sandbox; realign whitespace schema.prisma dibatalkan. Pendaftaran Trip sudah memakai `merchantEntityForPurpose`. Penanda komersial pada Trip: tiket 20.

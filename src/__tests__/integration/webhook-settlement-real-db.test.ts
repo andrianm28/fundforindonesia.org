@@ -51,6 +51,7 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
   const databaseName = `webhook_settlement_${process.pid}`;
   let prisma: PrismaClient;
   let webhook: typeof import('@/app/api/webhooks/[provider]/route').POST;
+  let webhookForMerchant: typeof import('@/app/api/webhooks/[provider]/[merchant]/route').POST;
   let sealUserEmail: typeof import('@/lib/contact-fields').sealUserEmail;
   let sealDonationGuestEmail: typeof import('@/lib/contact-fields').sealDonationGuestEmail;
   let resend: typeof import('@/app/api/receipts/[token]/resend/route').POST;
@@ -98,6 +99,7 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
       };
     });
     ({ POST: webhook } = await import('@/app/api/webhooks/[provider]/route'));
+    ({ POST: webhookForMerchant } = await import('@/app/api/webhooks/[provider]/[merchant]/route'));
     ({ POST: resend } = await import('@/app/api/receipts/[token]/resend/route'));
     ({ sealUserEmail, sealDonationGuestEmail } = await import('@/lib/contact-fields'));
     const payments = await import('@/lib/payments');
@@ -232,6 +234,44 @@ describe.skipIf(!DATABASE_URL)('payment webhook settlement -- against real Postg
     });
     return webhook(request, { params: Promise.resolve({ provider: 'mock' }) });
   }
+
+  // ADR 0027: the dedupe key is (provider, merchantEntity, providerEventId). Two
+  // merchants are two accounts at the provider, so the same event id arriving on
+  // each endpoint is two events, and both settle their own Payment.
+  it('the same provider event id on two merchants is processed by both', async () => {
+    const yayasan = await pendingDonationPayment(false);
+    const badanUsaha = await pendingDonationPayment(false);
+    await prisma.payment.update({ where: { id: badanUsaha.payment.id }, data: { merchantEntity: 'BADAN_USAHA' } });
+    const sharedEventId = `evt-two-merchants-${process.pid}-${next()}`;
+
+    const deliverTo = async (merchantSegment: string, providerRef: string) => {
+      const body = await provider.simulateWebhookPayload(providerRef, 100_000, 'settlement', sharedEventId);
+      return webhookForMerchant(
+        new NextRequest(`http://localhost/api/webhooks/mock/${merchantSegment}`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+          headers: { 'Content-Type': 'application/json' },
+        }),
+        { params: Promise.resolve({ provider: 'mock', merchant: merchantSegment }) },
+      );
+    };
+
+    expect((await deliverTo('yayasan', yayasan.payment.providerRef)).status).toBe(200);
+    expect((await deliverTo('badan-usaha', badanUsaha.payment.providerRef)).status).toBe(200);
+
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: yayasan.payment.id } })).status).toBe('PAID');
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: badanUsaha.payment.id } })).status).toBe('PAID');
+    const events = await prisma.webhookEvent.findMany({ where: { providerEventId: sharedEventId } });
+    expect(events.map((e) => e.merchantEntity).sort()).toEqual(['BADAN_USAHA', 'YAYASAN']);
+    expect(events.every((e) => e.processedAt !== null)).toBe(true);
+    // Each merchant's money is booked to its own pot.
+    const entities = await prisma.ledgerEntry.findMany({
+      where: { paymentId: badanUsaha.payment.id },
+      select: { merchantEntity: true },
+    });
+    expect(entities.length).toBeGreaterThan(0);
+    expect(entities.every((e) => e.merchantEntity === 'BADAN_USAHA')).toBe(true);
+  });
 
   it('settles a Donation by an account holder: Payment PAID, Receipt created, Receipt email to the decrypted donor address', async () => {
     sentMail.length = 0;

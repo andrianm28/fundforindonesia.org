@@ -112,6 +112,14 @@ function laterLedgerEntryColumns(): string {
     for (const match of Array.from(sql.matchAll(/ALTER TABLE "LedgerEntry" ADD COLUMN[^;]*;/g))) {
       statements.push(match[0]);
     }
+    // pks-pemenuhan/04: LedgerEntry.merchantEntity is an enum column, so its
+    // type has to exist before the ADD COLUMN above can run. Only the type is
+    // taken from that migration; the column keeps the migration's own
+    // NOT NULL DEFAULT 'YAYASAN' (its DROP DEFAULT is a separate statement that
+    // is not replayed), so the rows seeded here and the postings the code-path
+    // assertions make on this old schema both get an entity, as in production.
+    const enumType = sql.match(/CREATE TYPE "MerchantEntity" AS ENUM[^;]*;/);
+    if (enumType) statements.unshift(enumType[0]);
   }
   return statements.join("\n");
 }
