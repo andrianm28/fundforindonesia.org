@@ -34,8 +34,11 @@ const nextConfig = {
   agentRules: false,
   // No X-Powered-By: Next.js header; it only tells a scanner what the stack is.
   poweredByHeader: false,
-  // Type errors fail the build (the tsc baseline is 0, ci/baselines.json):
-  // no `typescript.ignoreBuildErrors` here.
+  // Type errors fail the build: no `typescript.ignoreBuildErrors` here. The
+  // build checks tsconfig.build.json, the app's own code without tests: the
+  // image's build context has no tests/ (.dockerignore), so test files cannot
+  // type-check there. CI's tsc ratchet (baseline 0) checks everything.
+  typescript: { tsconfigPath: 'tsconfig.build.json' },
   // Native addon (ADR 0019): keep it out of the webpack bundle so Node loads the
   // prebuilt .node binary at runtime; Next's standalone trace still copies it.
   serverExternalPackages: ['@node-rs/bcrypt'],
