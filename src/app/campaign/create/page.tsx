@@ -571,7 +571,7 @@ export default function CampaignCreatePage() {
                   <div className="py-3">
                     <p className="text-xs text-text-secondary mb-0.5">Penerima Manfaat</p>
                     <p className="text-sm font-medium text-text">
-                      {[formData.location.beneficiaryDescription.trim(), formData.location.beneficiaryCount.trim() && `${formData.location.beneficiaryCount.trim()} orang`]
+                      {[formData.location.beneficiaryName.trim(), formData.location.beneficiaryDescription.trim(), formData.location.beneficiaryCount.trim() && `${formData.location.beneficiaryCount.trim()} orang`]
                         .filter(Boolean)
                         .join(', ') || '-'}
                     </p>

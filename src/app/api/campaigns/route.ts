@@ -27,11 +27,7 @@ const createCampaignSchema = z.object({
   // ZAKAT parses here and is refused below unless the zakat module is ON (ADR 0028).
   kind: z.enum([...KINDS, 'ZAKAT'], { message: "Kind harus dipilih" }),
   deadline: z.string().datetime().optional(),
-  // The beneficiary this Campaign names, stored as typed (PRD FFI-02, and
-  // one of the three matches a Verifier's duplicate hints are built from,
-  // prd-compliance 14). Optional, and a blank one is stored as NULL: two
-  // Campaigns that both leave it out must not look alike.
-  beneficiaryName: z.string().max(200, "Nama penerima manfaat maksimal 200 karakter").optional(),
+  // beneficiaryName comes with the location fields (campaignLocationSchema).
   // The sponsoring Partner Organisation an individual Fundraiser picks; an
   // organisation's linked account always gets its own (ADR 0010).
   collectingEntityId: z.string().min(1).optional(),
@@ -211,7 +207,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const beneficiaryName = result.data.beneficiaryName?.trim() || null;
+    const beneficiaryName = result.data.beneficiaryName ?? null;
     // Where it happens and who it helps (ticket 74): all optional, null when blank.
     const { province, regency, beneficiaryDescription, beneficiaryCount, beneficiaryRelationship } = result.data;
 

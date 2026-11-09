@@ -2,13 +2,14 @@
 
 import { Input } from '@/components/ui/Input';
 import { INDONESIA_PROVINCES } from '@/lib/indonesia-provinces';
-import { BENEFICIARY_DESCRIPTION_MAX, BENEFICIARY_RELATIONSHIP_MAX, REGENCY_MAX } from '@/lib/campaign-location';
+import { BENEFICIARY_DESCRIPTION_MAX, BENEFICIARY_NAME_MAX, BENEFICIARY_RELATIONSHIP_MAX, REGENCY_MAX } from '@/lib/campaign-location';
 import type { LocationFormErrors, LocationFormValues } from '@/lib/campaign-form';
 
 /**
  * Where the Campaign happens and who it helps (ticket 74): province from the
- * static list, regency or city as free text, the beneficiaries, and how the
- * Fundraiser relates to them (PKS pasal 3.2). All five are optional. Shared by the creation wizard and the Draft edit screen.
+ * static list, regency or city as free text, the named beneficiary and who the
+ * beneficiaries are, and how the Fundraiser relates to them (PKS pasal 3.2).
+ * All six are optional. Shared by the creation wizard and the Draft edit screen.
  */
 export function CampaignLocationFields({
   value,
@@ -53,6 +54,16 @@ export function CampaignLocationFields({
         onChange={set('regency')}
         error={errors.regency}
         helperText={`${value.regency.length}/${REGENCY_MAX} karakter (opsional)`}
+      />
+
+      <Input
+        id="campaign-beneficiary-name"
+        label="Nama Penerima Manfaat"
+        placeholder="Contoh: Panti Asuhan Al-Hikmah, atau nama keluarga penerima"
+        value={value.beneficiaryName}
+        onChange={set('beneficiaryName')}
+        error={errors.beneficiaryName}
+        helperText={`${value.beneficiaryName.length}/${BENEFICIARY_NAME_MAX} karakter (opsional)`}
       />
 
       <Input

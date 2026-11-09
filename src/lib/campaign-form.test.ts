@@ -14,6 +14,7 @@ describe('locationErrors', () => {
       expect(locationErrors({ ...EMPTY_LOCATION_FORM, beneficiaryCount: bad }).beneficiaryCount).toBeDefined();
     }
     expect(locationErrors({ ...EMPTY_LOCATION_FORM, beneficiaryRelationship: 'a'.repeat(201) }).beneficiaryRelationship).toBeDefined();
+    expect(locationErrors({ ...EMPTY_LOCATION_FORM, beneficiaryName: 'a'.repeat(201) }).beneficiaryName).toBeDefined();
     expect(
       locationErrors({
         province: '32',
@@ -21,6 +22,7 @@ describe('locationErrors', () => {
         beneficiaryDescription: 'Yatim',
         beneficiaryCount: '40',
         beneficiaryRelationship: 'Guru',
+        beneficiaryName: 'SDN 1 Garut',
       }),
     ).toEqual({});
   });
@@ -34,6 +36,7 @@ describe('locationPayload', () => {
       beneficiaryDescription: null,
       beneficiaryCount: null,
       beneficiaryRelationship: null,
+      beneficiaryName: null,
     });
   });
 
@@ -45,6 +48,7 @@ describe('locationPayload', () => {
         beneficiaryDescription: ' Yatim ',
         beneficiaryCount: '40',
         beneficiaryRelationship: ' Guru ',
+        beneficiaryName: ' SDN 1 Garut ',
       }),
     ).toEqual({
       province: '32',
@@ -52,6 +56,7 @@ describe('locationPayload', () => {
       beneficiaryDescription: 'Yatim',
       beneficiaryCount: 40,
       beneficiaryRelationship: 'Guru',
+      beneficiaryName: 'SDN 1 Garut',
     });
   });
 });

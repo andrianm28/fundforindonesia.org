@@ -14,6 +14,19 @@ describe('campaignLocationSchema beneficiaryRelationship (PKS 3.2)', () => {
   });
 });
 
+describe('campaignLocationSchema beneficiaryName', () => {
+  it('trims the name, and blank clears it', () => {
+    expect(campaignLocationSchema.parse({ beneficiaryName: '  SDN 1 Garut ' }).beneficiaryName).toBe('SDN 1 Garut');
+    expect(campaignLocationSchema.parse({ beneficiaryName: '  ' }).beneficiaryName).toBeNull();
+    expect(campaignLocationSchema.parse({}).beneficiaryName).toBeUndefined();
+  });
+
+  it('refuses more than 200 characters', () => {
+    expect(campaignLocationSchema.safeParse({ beneficiaryName: 'a'.repeat(201) }).success).toBe(false);
+    expect(campaignLocationSchema.safeParse({ beneficiaryName: 'a'.repeat(200) }).success).toBe(true);
+  });
+});
+
 describe('campaignLocationSchema', () => {
   it('accepts a body with none of the fields', () => {
     expect(campaignLocationSchema.safeParse({}).success).toBe(true);

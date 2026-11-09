@@ -24,6 +24,7 @@ const INITIAL = {
   beneficiaryDescription: 'Anak yatim',
   beneficiaryCount: '40',
   beneficiaryRelationship: 'Guru anak-anak itu',
+  beneficiaryName: 'Keluarga Mahdi',
 };
 
 type Call = { url: string; init?: RequestInit };
@@ -122,6 +123,7 @@ describe('CampaignEditForm', () => {
       beneficiaryDescription: 'Anak yatim',
       beneficiaryCount: 55,
       beneficiaryRelationship: 'Guru anak-anak itu',
+      beneficiaryName: 'Keluarga Mahdi',
     });
   });
 

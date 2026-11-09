@@ -1,6 +1,6 @@
 import { deadlineRequired, type CampaignKind } from '@/lib/campaign-kind';
 import { endOfWibDay } from '@/lib/utils/date';
-import { BENEFICIARY_COUNT_MAX, BENEFICIARY_DESCRIPTION_MAX, BENEFICIARY_RELATIONSHIP_MAX, REGENCY_MAX } from '@/lib/campaign-location';
+import { BENEFICIARY_COUNT_MAX, BENEFICIARY_DESCRIPTION_MAX, BENEFICIARY_NAME_MAX, BENEFICIARY_RELATIONSHIP_MAX, REGENCY_MAX } from '@/lib/campaign-location';
 import { isProvinceCode } from '@/lib/indonesia-provinces';
 
 /**
@@ -99,6 +99,7 @@ export function contentPayload(form: { title: string; story: string; deadline: s
 export interface LocationFormValues {
   province: string;
   regency: string;
+  beneficiaryName: string;
   beneficiaryDescription: string;
   beneficiaryCount: string;
   beneficiaryRelationship: string;
@@ -107,6 +108,7 @@ export interface LocationFormValues {
 export const EMPTY_LOCATION_FORM: LocationFormValues = {
   province: '',
   regency: '',
+  beneficiaryName: '',
   beneficiaryDescription: '',
   beneficiaryCount: '',
   beneficiaryRelationship: '',
@@ -114,11 +116,14 @@ export const EMPTY_LOCATION_FORM: LocationFormValues = {
 
 export type LocationFormErrors = Partial<Record<keyof LocationFormValues, string>>;
 
-/** All five fields are optional; this only judges what was typed. */
+/** All six fields are optional; this only judges what was typed. */
 export function locationErrors(values: LocationFormValues): LocationFormErrors {
   const errors: LocationFormErrors = {};
   if (values.province && !isProvinceCode(values.province)) errors.province = 'Provinsi tidak dikenal';
   if (values.regency.trim().length > REGENCY_MAX) errors.regency = `Kabupaten/kota maksimal ${REGENCY_MAX} karakter`;
+  if (values.beneficiaryName.trim().length > BENEFICIARY_NAME_MAX) {
+    errors.beneficiaryName = `Nama penerima manfaat maksimal ${BENEFICIARY_NAME_MAX} karakter`;
+  }
   if (values.beneficiaryDescription.trim().length > BENEFICIARY_DESCRIPTION_MAX) {
     errors.beneficiaryDescription = `Penerima manfaat maksimal ${BENEFICIARY_DESCRIPTION_MAX} karakter`;
   }
@@ -138,6 +143,7 @@ export function locationPayload(values: LocationFormValues) {
   return {
     province: values.province || null,
     regency: values.regency.trim() || null,
+    beneficiaryName: values.beneficiaryName.trim() || null,
     beneficiaryDescription: values.beneficiaryDescription.trim() || null,
     beneficiaryCount: count ? Number(count) : null,
     beneficiaryRelationship: values.beneficiaryRelationship.trim() || null,

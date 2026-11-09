@@ -214,6 +214,7 @@ export function CampaignEditForm({
         value={{
           province: form.province,
           regency: form.regency,
+          beneficiaryName: form.beneficiaryName,
           beneficiaryDescription: form.beneficiaryDescription,
           beneficiaryCount: form.beneficiaryCount,
           beneficiaryRelationship: form.beneficiaryRelationship,
