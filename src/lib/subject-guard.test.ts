@@ -199,7 +199,7 @@ describe('requirePayoutAllowed', () => {
 });
 
 describe('requireActiveContentFieldsEditable', () => {
-  it.each(['title', 'description'])('refuses a %s edit on an Active Campaign, coded and Indonesian', (field) => {
+  it.each(['title', 'description', 'beneficiaryName'])('refuses a %s edit on an Active Campaign, coded and Indonesian', (field) => {
     let caught: unknown;
     try {
       requireActiveContentFieldsEditable(campaignState(CampaignStatus.ACTIVE), { [field]: 'apa saja' });
@@ -209,7 +209,7 @@ describe('requireActiveContentFieldsEditable', () => {
     expect(caught).toBeInstanceOf(ActiveContentFrozenError);
     expect(domainErrorToHttp(caught)).toEqual({
       status: 409,
-      body: { code: 'ACTIVE_CONTENT_FROZEN', error: expect.stringMatching(/Judul dan deskripsi/) },
+      body: { code: 'ACTIVE_CONTENT_FROZEN', error: expect.stringMatching(/Judul, deskripsi, dan nama penerima manfaat/) },
     });
   });
 

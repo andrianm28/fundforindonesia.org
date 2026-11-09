@@ -34,12 +34,15 @@ describe('CampaignLocationFields', () => {
 
     fireEvent.change(screen.getByLabelText('Hubungan dengan Penerima Manfaat'), { target: { value: 'Guru' } });
     expect(onChange).toHaveBeenLastCalledWith({ ...EMPTY_LOCATION_FORM, regency: 'Garut', beneficiaryRelationship: 'Guru' });
+
+    fireEvent.change(screen.getByLabelText('Nama Penerima Manfaat'), { target: { value: 'SDN 1 Garut' } });
+    expect(onChange).toHaveBeenLastCalledWith({ ...EMPTY_LOCATION_FORM, regency: 'Garut', beneficiaryName: 'SDN 1 Garut' });
   });
 
   it('shows the given values and errors', () => {
     render(
       <CampaignLocationFields
-        value={{ province: '33', regency: 'Semarang', beneficiaryDescription: 'Warga', beneficiaryCount: '7', beneficiaryRelationship: 'Tetangga' }}
+        value={{ province: '33', regency: 'Semarang', beneficiaryDescription: 'Warga', beneficiaryCount: '7', beneficiaryRelationship: 'Tetangga', beneficiaryName: 'RT 04 Tembalang' }}
         errors={{ beneficiaryCount: 'Jumlah penerima manfaat harus bilangan bulat lebih dari 0' }}
         onChange={() => {}}
       />,
@@ -49,6 +52,7 @@ describe('CampaignLocationFields', () => {
     expect(screen.getByLabelText('Kabupaten/Kota')).toHaveValue('Semarang');
     expect(screen.getByLabelText('Penerima Manfaat')).toHaveValue('Warga');
     expect(screen.getByLabelText('Hubungan dengan Penerima Manfaat')).toHaveValue('Tetangga');
+    expect(screen.getByLabelText('Nama Penerima Manfaat')).toHaveValue('RT 04 Tembalang');
     expect(screen.getByText(/harus bilangan bulat/)).toBeInTheDocument();
   });
 });

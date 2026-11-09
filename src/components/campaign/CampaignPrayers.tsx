@@ -6,6 +6,24 @@ import { PrayerStreamItem } from '@/lib/hooks/usePrayerStream';
 import { getRelativeTimestamp } from '@/lib/utils/date';
 import { useAamiin } from '@/lib/hooks/useAamiin';
 
+/** Doa per page; the first page (CampaignPrayersTab) and "muat lagi" must agree for hasMore to be right. */
+export const PRAYER_PAGE_SIZE = 5;
+
+/** One row of GET /api/prayers, as the prayer list renders it. */
+export function toPrayerStreamItem(p: Record<string, unknown>): PrayerStreamItem {
+  return {
+    id: p.id as string,
+    text: p.text as string,
+    amiinCount: p.amiinCount as number,
+    donationId: (p.donationId as string) || '',
+    campaignId: (p.campaignId as string) || '',
+    userId: (p.userId as string | null) ?? null,
+    createdAt: new Date(p.createdAt as string),
+    user: p.donorName ? { id: '', name: p.donorName as string, avatar: (p.donorAvatar as string | null) ?? null } : null,
+    campaign: p.campaignSlug ? { id: '', slug: p.campaignSlug as string, title: p.campaignTitle as string } : undefined,
+  };
+}
+
 export interface CampaignPrayersProps {
   campaignSlug: string;
   initialPrayers?: PrayerStreamItem[];
@@ -29,7 +47,7 @@ export function CampaignPrayers({
 }: CampaignPrayersProps) {
   const [prayers, setPrayers] = useState<PrayerStreamItem[]>(initialPrayers);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(initialPrayers.length >= 5);
+  const [hasMore, setHasMore] = useState(initialPrayers.length >= PRAYER_PAGE_SIZE);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -49,7 +67,7 @@ export function CampaignPrayers({
     try {
       const nextPage = page + 1;
       const res = await fetch(
-        `/api/prayers?campaignSlug=${encodeURIComponent(campaignSlug)}&page=${nextPage}&limit=5`
+        `/api/prayers?campaignSlug=${encodeURIComponent(campaignSlug)}&page=${nextPage}&limit=${PRAYER_PAGE_SIZE}`
       );
 
       if (!res.ok) {
@@ -57,27 +75,7 @@ export function CampaignPrayers({
       }
 
       const data = await res.json();
-      const newPrayers: PrayerStreamItem[] = (data.prayers ?? []).map(
-        (p: Record<string, unknown>) => ({
-          id: p.id as string,
-          text: p.text as string,
-          amiinCount: p.amiinCount as number,
-          donationId: (p.donationId as string) || '',
-          campaignId: (p.campaignId as string) || '',
-          userId: p.userId as string | null,
-          createdAt: new Date(p.createdAt as string),
-          user: p.donorName
-            ? { id: '', name: p.donorName as string, avatar: p.donorAvatar as string | null }
-            : null,
-          campaign: p.campaignSlug
-            ? {
-                id: '',
-                slug: p.campaignSlug as string,
-                title: p.campaignTitle as string,
-              }
-            : undefined,
-        })
-      );
+      const newPrayers: PrayerStreamItem[] = (data.prayers ?? []).map(toPrayerStreamItem);
 
       setPrayers((prev) => {
         // Deduplicate
@@ -87,7 +85,7 @@ export function CampaignPrayers({
       });
 
       setPage(nextPage);
-      setHasMore(newPrayers.length >= 5);
+      setHasMore(newPrayers.length >= PRAYER_PAGE_SIZE);
     } catch {
       showToast('Gagal memuat doa lainnya. Coba lagi.');
     } finally {

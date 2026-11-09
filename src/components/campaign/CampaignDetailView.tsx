@@ -24,6 +24,7 @@ import { ShareModal } from '@/components/shared/ShareModal';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
 import { CampaignUpdatesTab } from './CampaignUpdatesTab';
 import { TopDonorsTab } from './TopDonorsTab';
+import { CampaignPrayersTab } from './CampaignPrayersTab';
 
 export interface CampaignDetailData {
   id: string;
@@ -232,7 +233,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   // stays a plain, unwired button, exactly as all three were before this
   // ticket -- adding it is a separate concern this ticket does not touch.
   const [shareOpen, setShareOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'story' | 'updates' | 'donors' | 'disbursements'>('story');
+  const [activeTab, setActiveTab] = useState<'story' | 'updates' | 'donors' | 'prayers' | 'disbursements'>('story');
   // A second, independent check at render, as the usage report photos get: only an upload path or an https URL is ever shown.
   const galleryImages = (campaign.galleryImages ?? []).filter(isValidCoverImage);
 
@@ -543,7 +544,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           </div>
         </div>
 
-        {/* Tab navigation: Cerita, Kabar Terbaru, Donatur teratas, Pencairan Dana. */}
+        {/* Tab navigation: Cerita, Kabar Terbaru, Donatur teratas, Doa, Pencairan Dana. */}
         <div className="flex gap-4 border-b border-border mb-4">
           <button
             onClick={() => setActiveTab('story')}
@@ -578,6 +579,18 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
               }
             >
               Donatur teratas
+            </button>
+          )}
+          {isPubliclyViewable(lifecycleStatus) && (
+            <button
+              onClick={() => setActiveTab('prayers')}
+              className={
+                activeTab === 'prayers'
+                  ? 'pb-2 text-sm font-medium text-primary border-b-2 border-primary'
+                  : 'pb-2 text-sm font-medium text-text-secondary hover:text-text transition-colors'
+              }
+            >
+              Doa
             </button>
           )}
           <button
@@ -619,6 +632,8 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           <CampaignUpdatesTab slug={campaign.slug} />
         ) : activeTab === 'donors' ? (
           <TopDonorsTab slug={campaign.slug} />
+        ) : activeTab === 'prayers' ? (
+          <CampaignPrayersTab slug={campaign.slug} />
         ) : (
           <DisbursementsTab slug={campaign.slug} />
         )}

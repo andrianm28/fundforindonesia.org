@@ -8,6 +8,12 @@ import { isProvinceCode, provinceName } from '@/lib/indonesia-provinces';
  * /api/campaigns/[slug]. Browser-safe.
  */
 export const REGENCY_MAX = 100;
+/**
+ * The beneficiary a Campaign names (PRD FFI-02), and one of the three matches
+ * a Verifier's duplicate hints are built from (prd-compliance 14). A blank one
+ * is stored as NULL: two Campaigns that both leave it out must not look alike.
+ */
+export const BENEFICIARY_NAME_MAX = 200;
 export const BENEFICIARY_DESCRIPTION_MAX = 200;
 /** How the Fundraiser relates to the beneficiary (PKS pasal 3.2). */
 export const BENEFICIARY_RELATIONSHIP_MAX = 200;
@@ -26,6 +32,10 @@ export const campaignLocationSchema = z.object({
   regency: z.preprocess(
     blankToNull,
     z.string().trim().max(REGENCY_MAX, `Kabupaten/kota maksimal ${REGENCY_MAX} karakter`).nullable().optional(),
+  ),
+  beneficiaryName: z.preprocess(
+    blankToNull,
+    z.string().trim().max(BENEFICIARY_NAME_MAX, `Nama penerima manfaat maksimal ${BENEFICIARY_NAME_MAX} karakter`).nullable().optional(),
   ),
   beneficiaryDescription: z.preprocess(
     blankToNull,
