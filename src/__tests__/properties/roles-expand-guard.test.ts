@@ -158,6 +158,12 @@ import { join } from "node:path";
  * all through withHiddenAssignmentCheck on the ADMIN assignment -- growing this
  * list by two.
  *
+ * NOTE (PKS pemenuhan 15): `GET`/`PUT /api/admin/kurasi` are the Admin's
+ * curation of the home page (Pilihan, Unggulan kategori, Sorotan doa), both
+ * through withHiddenAssignmentCheck on the ADMIN assignment alone -- growing
+ * this list by one (the route file). The screen /admin/kurasi sits behind
+ * the ADMIN-only admin layout and names no assignment itself.
+ *
  * NOTE (ticket 67): `src/app/admin/scrutiny/page.tsx`, the Admin screen over the
  * markers GET /api/admin/scrutiny lists, asks for the ADMIN assignment itself
  * and answers 404 to anyone else, the way `src/app/admin/page.tsx` asks for it
@@ -210,6 +216,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/refunds/late-settlements/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/escrow-hold/route.ts",
+  "src/app/api/admin/kurasi/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
   "src/app/api/admin/manual-contributions/route.ts",
   "src/app/api/admin/partnership-inquiries/[id]/route.ts",

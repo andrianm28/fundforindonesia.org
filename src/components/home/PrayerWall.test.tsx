@@ -75,6 +75,28 @@ function createMockPrayers(count: number): PrayerStreamItem[] {
   );
 }
 
+/**
+ * The fetch the Aamiin button talks to: the status read on mount (which
+ * Prayers this visitor already gave an Aamiin) and the POST itself.
+ */
+function mockAamiinApi(post: { amiinCount: number; alreadyAamiin?: boolean } | 'network-error', given: string[] = []) {
+  const fetchMock = vi.fn(async (url: string, init?: { method?: string }) => {
+    if (String(url).startsWith('/api/prayers/aamiin-status')) {
+      return { ok: true, json: async () => ({ given }) };
+    }
+    if (init?.method === 'POST') {
+      if (post === 'network-error') throw new Error('Network error');
+      return { ok: true, json: async () => post };
+    }
+    return { ok: false };
+  });
+  global.fetch = fetchMock as unknown as typeof fetch;
+  return fetchMock;
+}
+
+const posts = (fetchMock: ReturnType<typeof vi.fn>) =>
+  fetchMock.mock.calls.filter(([, init]) => (init as { method?: string } | undefined)?.method === 'POST');
+
 describe('PrayerWall', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -226,10 +248,7 @@ describe('PrayerWall', () => {
   });
 
   it('optimistically increments amiin count on click', async () => {
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ amiinCount: 6 }),
-    });
+    mockAamiinApi({ amiinCount: 6 });
 
     const prayer = createMockPrayer({ amiinCount: 5 });
 
@@ -250,9 +269,7 @@ describe('PrayerWall', () => {
 
   it('reverts amiin count on API failure and shows toast', async () => {
     vi.useRealTimers();
-    (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('Network error')
-    );
+    mockAamiinApi('network-error');
 
     const prayer = createMockPrayer({ amiinCount: 5 });
 
@@ -319,5 +336,58 @@ describe('PrayerWall', () => {
 
     // "Lihat lebih banyak" should be present
     expect(container).toHaveTextContent('Lihat lebih banyak');
+  });
+});
+
+describe('PrayerWall: one Aamiin per visitor (PKS pemenuhan 15)', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('shows an Aamiin as given after the click, and a second click sends nothing', async () => {
+    const fetchMock = mockAamiinApi({ amiinCount: 6 });
+    const { container } = render(<PrayerWall initialPrayers={[createMockPrayer({ amiinCount: 5 })]} variant="homepage" />);
+
+    const button = () => container.querySelector('button[aria-label*="Aamiin"]') as HTMLButtonElement;
+    fireEvent.click(button());
+    await waitFor(() => expect(button()).toHaveTextContent('Sudah Aamiin'));
+    fireEvent.click(button());
+
+    expect(button().getAttribute('aria-pressed')).toBe('true');
+    expect(posts(fetchMock)).toHaveLength(1);
+  });
+
+  it('starts as given for a Prayer the server says this visitor already gave an Aamiin', async () => {
+    mockAamiinApi({ amiinCount: 5 }, ['prayer-1']);
+    const { container } = render(<PrayerWall initialPrayers={[createMockPrayer({ id: 'prayer-1', amiinCount: 5 })]} variant="homepage" />);
+
+    await waitFor(() => expect(container).toHaveTextContent('Sudah Aamiin'));
+    expect(container.querySelector('button[aria-label*="Aamiin"]')).toBeDisabled();
+    expect(container).toHaveTextContent('(5)');
+  });
+
+  it('takes the server count when the Aamiin had already been given, so the optimistic +1 does not stay', async () => {
+    mockAamiinApi({ amiinCount: 5, alreadyAamiin: true });
+    const { container } = render(<PrayerWall initialPrayers={[createMockPrayer({ amiinCount: 5 })]} variant="homepage" />);
+
+    fireEvent.click(container.querySelector('button[aria-label*="Aamiin"]')!);
+
+    await waitFor(() => expect(container).toHaveTextContent('(5)'));
+    expect(container).toHaveTextContent('Sudah Aamiin');
+  });
+
+  it('puts the button back when the request fails, so the visitor can try again', async () => {
+    mockAamiinApi('network-error');
+    const { container } = render(<PrayerWall initialPrayers={[createMockPrayer({ amiinCount: 5 })]} variant="homepage" />);
+
+    fireEvent.click(container.querySelector('button[aria-label*="Aamiin"]')!);
+
+    await waitFor(() => expect(container).toHaveTextContent('(5)'));
+    expect(container.querySelector('button[aria-label*="Aamiin"]')).not.toBeDisabled();
   });
 });

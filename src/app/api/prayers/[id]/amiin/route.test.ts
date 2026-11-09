@@ -1,106 +1,185 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { POST } from './route';
 
-// Mock prisma
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
-    prayer: {
-      findUnique: vi.fn(),
-      update: vi.fn(),
-    },
-  },
+/**
+ * Aamiin (PKS pemenuhan 15, Pasal 3.7(5)): one per (Prayer, marker). The fake
+ * below keeps the Prayers and the marks in memory, with the unique key, the
+ * guarded counter and the rollback the real tables and transaction have, so
+ * the tests read behaviour, not calls.
+ */
+const state = vi.hoisted(() => ({
+  prayers: new Map<string, { id: string; amiinCount: number; hidden: boolean; deletedAt: Date | null }>(),
+  marks: new Set<string>(),
+  session: null as null | { user: { id: string } },
+  /** Runs between the dedupe insert and the counter update: a moderator racing the transaction. */
+  betweenInsertAndIncrement: null as null | (() => void),
 }));
 
-import { prisma } from '@/lib/prisma';
+vi.mock('@/lib/auth', () => ({ getServerSession: async () => state.session }));
 
-const mockPrayerFindUnique = prisma.prayer.findUnique as unknown as Mock;
-const mockPrayerUpdate = prisma.prayer.update as unknown as Mock;
+vi.mock('@/lib/prisma', () => {
+  const db = {
+    prayer: {
+      findUnique: async ({ where }: { where: { id: string } }) => state.prayers.get(where.id) ?? null,
+      findUniqueOrThrow: async ({ where }: { where: { id: string } }) => ({ ...state.prayers.get(where.id)! }),
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { id: string; hidden: boolean; deletedAt: null };
+        data: { amiinCount: { increment: number } };
+      }) => {
+        state.betweenInsertAndIncrement?.();
+        const p = state.prayers.get(where.id);
+        if (!p || p.hidden !== where.hidden || p.deletedAt !== where.deletedAt) return { count: 0 };
+        p.amiinCount += data.amiinCount.increment;
+        return { count: 1 };
+      },
+    },
+    aamiinMark: {
+      createMany: async ({ data }: { data: Array<{ prayerId: string; marker: string }> }) => {
+        let count = 0;
+        for (const d of data) {
+          const key = `${d.prayerId}|${d.marker}`;
+          if (!state.marks.has(key)) {
+            state.marks.add(key);
+            count += 1;
+          }
+        }
+        return { count };
+      },
+    },
+  };
+  return {
+    prisma: {
+      ...db,
+      $transaction: async (fn: (tx: typeof db) => Promise<unknown>) => {
+        const marks = new Set(state.marks);
+        const counts = new Map([...state.prayers].map(([id, p]) => [id, p.amiinCount]));
+        try {
+          return await fn(db);
+        } catch (e) {
+          state.marks = marks;
+          for (const [id, n] of counts) state.prayers.get(id)!.amiinCount = n;
+          throw e;
+        }
+      },
+    },
+  };
+});
 
-function createRequest(id: string): NextRequest {
+import { POST } from './route';
+
+const secret = ['test', 'signing', 'key'].join('-');
+
+function request(id: string, cookie?: string): NextRequest {
   return new NextRequest(`http://localhost:3000/api/prayers/${id}/amiin`, {
     method: 'POST',
+    headers: cookie ? { cookie } : {},
   });
 }
 
-describe('POST /api/prayers/[id]/amiin', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+const call = (id: string, cookie?: string) => POST(request(id, cookie), { params: Promise.resolve({ id }) });
 
-  it('should increment amiin count and return 200 with new count', async () => {
-    mockPrayerFindUnique.mockResolvedValue({ id: 'prayer-1' });
-    mockPrayerUpdate.mockResolvedValue({ id: 'prayer-1', amiinCount: 6 });
+/** The `name=value` of the cookie the response sets, to send back as the visitor's browser would. */
+function cookieFrom(res: Response): string {
+  return (res.headers.get('set-cookie') ?? '').split(';')[0];
+}
 
-    const request = createRequest('prayer-1');
-    const response = await POST(request, { params: Promise.resolve({ id: 'prayer-1' }) });
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.id).toBe('prayer-1');
-    expect(data.amiinCount).toBe(6);
-  });
-
-  it('should return 404 when prayer is not found', async () => {
-    mockPrayerFindUnique.mockResolvedValue(null);
-
-    const request = createRequest('nonexistent');
-    const response = await POST(request, { params: Promise.resolve({ id: 'nonexistent' }) });
-    const data = await response.json();
-
-    expect(response.status).toBe(404);
-    expect(data.error).toBe('Doa tidak ditemukan');
-  });
-
-  it('should call prisma.prayer.update with increment: 1', async () => {
-    mockPrayerFindUnique.mockResolvedValue({ id: 'prayer-1' });
-    mockPrayerUpdate.mockResolvedValue({ id: 'prayer-1', amiinCount: 1 });
-
-    const request = createRequest('prayer-1');
-    await POST(request, { params: Promise.resolve({ id: 'prayer-1' }) });
-
-    expect(mockPrayerUpdate).toHaveBeenCalledWith({
-      where: { id: 'prayer-1' },
-      data: { amiinCount: { increment: 1 } },
-      select: { id: true, amiinCount: true },
-    });
-  });
-
-  it('should return 500 when a database error occurs', async () => {
-    mockPrayerFindUnique.mockRejectedValue(new Error('DB error'));
-
-    const request = createRequest('prayer-1');
-    const response = await POST(request, { params: Promise.resolve({ id: 'prayer-1' }) });
-    const data = await response.json();
-
-    expect(response.status).toBe(500);
-    expect(data.error).toBe('Gagal menambahkan amiin');
-  });
-
-  it('should not call update when prayer does not exist', async () => {
-    mockPrayerFindUnique.mockResolvedValue(null);
-
-    const request = createRequest('nonexistent');
-    await POST(request, { params: Promise.resolve({ id: 'nonexistent' }) });
-
-    expect(mockPrayerUpdate).not.toHaveBeenCalled();
-  });
+beforeEach(() => {
+  vi.stubEnv('NEXTAUTH_SECRET', secret);
+  state.prayers = new Map([['p1', { id: 'p1', amiinCount: 5, hidden: false, deletedAt: null }]]);
+  state.marks = new Set();
+  state.session = null;
+  state.betweenInsertAndIncrement = null;
 });
 
-describe('POST /api/prayers/[id]/amiin on a moderated Prayer (PKS 3.7c)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe('POST /api/prayers/[id]/amiin', () => {
+  it('counts a first Aamiin from a guest and hands them a signed anonymous id', async () => {
+    const res = await call('p1');
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: 'p1', amiinCount: 6, alreadyAamiin: false });
+    expect(res.headers.get('set-cookie')).toMatch(/ffi_aamiin=/);
+    expect(res.headers.get('set-cookie')).toMatch(/HttpOnly/i);
+  });
+
+  it('a second Aamiin from the same guest adds nothing and says it was already given', async () => {
+    const first = await call('p1');
+    const second = await call('p1', cookieFrom(first));
+
+    expect(second.status).toBe(200);
+    expect(await second.json()).toMatchObject({ amiinCount: 6, alreadyAamiin: true });
+    expect(state.prayers.get('p1')!.amiinCount).toBe(6);
+  });
+
+  it('two different guests each count once', async () => {
+    await call('p1');
+    await call('p1');
+    expect(state.prayers.get('p1')!.amiinCount).toBe(7);
+  });
+
+  it('a tampered cookie is not trusted: it is treated as a new guest', async () => {
+    const first = await call('p1');
+    const tampered = cookieFrom(first).replace(/.$/, (c) => (c === 'A' ? 'B' : 'A'));
+    const res = await call('p1', tampered);
+
+    expect((await res.json()).alreadyAamiin).toBe(false);
+    expect(state.prayers.get('p1')!.amiinCount).toBe(7);
+  });
+
+  it('a signed-in visitor counts once, needs no anonymous cookie, and is not counted twice by a cookie', async () => {
+    state.session = { user: { id: 'user-1' } };
+    await call('p1');
+    const again = await call('p1');
+
+    expect((await again.json()).alreadyAamiin).toBe(true);
+    expect(state.prayers.get('p1')!.amiinCount).toBe(6);
+    expect(again.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('a guest Aamiin and a user Aamiin are different markers', async () => {
+    const guest = await call('p1');
+    state.session = { user: { id: 'user-1' } };
+    await call('p1', cookieFrom(guest));
+    expect(state.prayers.get('p1')!.amiinCount).toBe(7);
+  });
+
+  it('answers 404 when the Prayer does not exist', async () => {
+    const res = await call('nope');
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe('Doa tidak ditemukan');
   });
 
   it.each([
-    ['hidden', { id: 'p', hidden: true, deletedAt: null }],
-    ['deleted', { id: 'p', hidden: false, deletedAt: new Date('2026-11-11T00:00:00Z') }],
-  ])('answers 404 for a %s Prayer and counts nothing', async (_label, row) => {
-    mockPrayerFindUnique.mockResolvedValue(row);
+    ['hidden', { hidden: true, deletedAt: null }],
+    ['deleted', { hidden: false, deletedAt: new Date('2026-11-11T00:00:00Z') }],
+  ])('answers 404 for a %s Prayer and records nothing (PKS 3.7c)', async (_label, moderation) => {
+    state.prayers.set('p1', { id: 'p1', amiinCount: 5, ...moderation });
+    const res = await call('p1');
 
-    const response = await POST(createRequest('p'), { params: Promise.resolve({ id: 'p' }) });
+    expect(res.status).toBe(404);
+    expect(state.marks.size).toBe(0);
+    expect(state.prayers.get('p1')!.amiinCount).toBe(5);
+  });
 
-    expect(response.status).toBe(404);
-    expect(mockPrayerUpdate).not.toHaveBeenCalled();
+  it('a Prayer hidden between the check and the increment rolls the whole Aamiin back and answers 404', async () => {
+    state.betweenInsertAndIncrement = () => {
+      state.prayers.get('p1')!.hidden = true;
+    };
+    const res = await call('p1');
+
+    expect(res.status).toBe(404);
+    expect(state.marks.size).toBe(0);
+    expect(state.prayers.get('p1')!.amiinCount).toBe(5);
+  });
+
+  it('answers 500 when the database fails', async () => {
+    state.prayers.get = () => {
+      throw new Error('DB error');
+    };
+    const res = await call('p1');
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe('Gagal menambahkan amiin');
   });
 });

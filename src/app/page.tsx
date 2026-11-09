@@ -11,6 +11,9 @@ import type { PrayerStreamItem } from '@/lib/hooks/usePrayerStream';
 import { quickActionTiles } from '@/lib/home/quickActionTiles';
 import { resolveSiteSettingsOrDefaults } from '@/lib/site-settings';
 import { publicPrayerWhere } from '@/lib/prayer-moderation';
+import { CampaignFeatureKind, loadFeaturedCampaigns, loadHighlightedPrayers } from '@/lib/home-curation';
+import { CategoryFeatured } from '@/components/home/CategoryFeatured';
+import { PrayerHighlights } from '@/components/home/PrayerHighlights';
 
 /**
  * Rendered per request, not prerendered.
@@ -167,21 +170,47 @@ export default async function HomePage() {
     }),
   ]);
 
+  // The Admin's curation (PKS pemenuhan 15): marked Campaigns and Prayers,
+  // already cut down to what the public may see by the same rules as the
+  // lists above. An empty result means "nothing marked (that shows)".
+  const [markedPilihan, markedUnggulan, highlightedPrayers] = await Promise.all([
+    loadFeaturedCampaigns(prisma, CampaignFeatureKind.PILIHAN, listable),
+    loadFeaturedCampaigns(prisma, CampaignFeatureKind.UNGGULAN_KATEGORI, listable),
+    loadHighlightedPrayers(prisma, prayerCampaign),
+  ]);
+  const categories = markedUnggulan.length
+    ? await prisma.category.findMany({ orderBy: [{ order: 'asc' }, { name: 'asc' }], select: { slug: true, name: true } })
+    : [];
+
   // Progress as the public may see it (counted-payment.ts): sandbox (beta)
   // Payments are taken back out of the stored counter.
-  const [publicUrgent, publicNew, publicFeatured] = await Promise.all([
+  const [publicUrgent, publicNew, publicFeatured, publicPilihan, publicUnggulan] = await Promise.all([
     withCountedCollectedAmount(prisma, urgentCampaigns),
     withCountedCollectedAmount(prisma, newCampaigns),
     withCountedCollectedAmount(prisma, featuredCampaigns),
+    withCountedCollectedAmount(prisma, markedPilihan),
+    withCountedCollectedAmount(prisma, markedUnggulan),
   ]);
 
   // Transform data to component-friendly shapes
   const urgentCards = publicUrgent.map(toCampaignCardData);
   const newCards = publicNew.map(toCampaignCardData);
-  const featuredCards = [...publicFeatured]
-    .sort((a, b) => b.collectedAmount - a.collectedAmount)
-    .slice(0, 12)
-    .map(toCampaignCardData);
+  // "Pilihan Kami": the Admin's marked Campaigns in their order, else the
+  // automatic ranking by the amount counted.
+  const featuredCards = publicPilihan.length
+    ? publicPilihan.map(toCampaignCardData)
+    : [...publicFeatured]
+        .sort((a, b) => b.collectedAmount - a.collectedAmount)
+        .slice(0, 12)
+        .map(toCampaignCardData);
+  const unggulanGroups = categories
+    .map((category) => ({
+      slug: category.slug,
+      name: category.name,
+      campaigns: publicUnggulan.filter((c) => c.category === category.slug).map(toCampaignCardData),
+    }))
+    .filter((group) => group.campaigns.length > 0);
+  const highlightItems = highlightedPrayers.map(toPrayerStreamItem);
   const prayerItems = recentPrayers.map(toPrayerStreamItem);
 
   return (
@@ -224,6 +253,12 @@ export default async function HomePage() {
           />
         </section>
       )}
+
+      {/* Unggulan kategori: only Categories with a marked, visible Campaign */}
+      {unggulanGroups.length > 0 && <CategoryFeatured groups={unggulanGroups} />}
+
+      {/* Sorotan doa: the Prayers an Admin marked */}
+      <PrayerHighlights prayers={highlightItems} />
 
       {/* Prayer Wall - "Doa-doa #OrangBaik" */}
       <section className="px-4 py-4">

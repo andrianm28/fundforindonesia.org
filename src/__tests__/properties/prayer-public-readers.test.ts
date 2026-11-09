@@ -17,6 +17,9 @@ const PUBLIC_READERS: Record<string, RegExp> = {
   'src/app/page.tsx': /\bpublicPrayerWhere\(/,
   // Aamiin on a Prayer a visitor can no longer see is refused as not found.
   'src/app/api/prayers/[id]/amiin/route.ts': /\bisPublicPrayer\(/,
+  // The Admin's curation screen offers only Prayers a visitor can see today as
+  // candidates for "Sorotan doa" (PKS pemenuhan 15).
+  'src/app/admin/kurasi/page.tsx': /\bpublicPrayerWhere\(/,
 };
 
 const NON_PUBLIC_READERS = [
@@ -26,6 +29,10 @@ const NON_PUBLIC_READERS = [
   'src/app/api/donations/route.ts',
   // Removes the Donor's link from their own Prayer; shows nothing.
   'src/lib/donor-anonymisation.ts',
+  // The Admin's "Sorotan doa" marks (PKS pemenuhan 15): checks that a Prayer an
+  // Admin marks exists and is not deleted, and shows nothing to a visitor. The
+  // public read of the marks goes through `prayerHighlight` and is pinned below.
+  'src/lib/home-curation.ts',
 ];
 
 const READS_PRAYERS = /\bprisma\.prayer\b|\btx\.prayer\b|\bdb\.prayer\b/;
@@ -46,5 +53,15 @@ describe('every reader of the Prayer table is accounted for', () => {
 
   it.each(Object.entries(PUBLIC_READERS))('%s applies the public Prayer rule', (file, rule) => {
     expect(readFileSync(file, 'utf8')).toMatch(rule);
+  });
+});
+
+describe('"Sorotan doa" (PKS pemenuhan 15) shows only Prayers that pass the public rule', () => {
+  // The public reader of the marks reads the PrayerHighlight table, not
+  // `prisma.prayer`, so the scan above cannot see it: pin it here.
+  it('the home page reads the marked Prayers through publicPrayerWhere', () => {
+    const source = readFileSync('src/lib/home-curation.ts', 'utf8');
+    const reader = source.slice(source.indexOf('export async function loadHighlightedPrayers'));
+    expect(reader).toMatch(/prayer:\s*\{\s*\.\.\.publicPrayerWhere\(\)/);
   });
 });

@@ -47,10 +47,10 @@ model UserConsent {
 }
 
 model User {
-  id               String    @id @default(cuid())
-  name             String
-  password         String?
-  avatar           String?
+  id              String      @id @default(cuid())
+  name            String
+  password        String?
+  avatar          String?
   // Field-level protection (ADR 0012), contract step (prd-compliance 16): the
   // plaintext `email` and `phone` columns are gone, so a stolen database dump
   // no longer hands over a Donor address. The columns below are written and
@@ -65,17 +65,17 @@ model User {
   // way out. There is no access log on the panel today, so that is a separate
   // piece of work (ADR 0012, Consequences).
   /// Hex HMAC-SHA256 of the trimmed, lowercased email under FIELD_HMAC_KEY. Searchable.
-  emailHmac        String    @unique
-  emailHmacKeyId   String
+  emailHmac       String      @unique
+  emailHmacKeyId  String
   /// base64(iv | AES-256-GCM ciphertext | tag) of the email under FIELD_ENCRYPTION_KEY.
-  emailCiphertext  String
-  emailKeyId       String
-  phoneCiphertext  String?
-  phoneKeyId       String?
+  emailCiphertext String
+  emailKeyId      String
+  phoneCiphertext String?
+  phoneKeyId      String?
   /// Individu or Lembaga (PKS Pasal 3.1). Self-declared at registration and
   /// editable in settings. It grants nothing: a Lembaga still has to be
   /// registered by a Verifier as a Partner Organisation.
-  profileType      ProfileType @default(INDIVIDUAL)
+  profileType     ProfileType @default(INDIVIDUAL)
   /// Set once, when the owner of this address opened the confirmation link
   /// emailed to it (prd-compliance 23; src/lib/email-verification.ts). Until
   /// then the account has proven nothing about the address: it may have been
@@ -83,10 +83,10 @@ model User {
   /// registering, by signing in, or by an address merely matching. Two writers:
   /// the confirmation link and a successful password reset (rilis-1 93, which
   /// proves the address the same way; docs/adr/0020).
-  emailVerifiedAt  DateTime?
-  donationBalance  Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  emailVerifiedAt DateTime?
+  donationBalance Int         @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   // Relations
   accounts                         Account[]
@@ -100,11 +100,11 @@ model User {
   notifications                    Notification[]
   autoDonations                    AutoDonation[]
   assignments                      UserAssignment[]
-  companyMembership                CompanyMembership?               @relation("CompanyMembershipUser")
-  organisationMember               OrganisationMember?              @relation("OrganisationMemberUser")
-  organisationMembersAdded         OrganisationMember[]             @relation("OrganisationMemberAdder")
-  organisationInvitationsSent      OrganisationInvitation[]         @relation("OrganisationInvitationInviter")
-  organisationInvitationsAccepted  OrganisationInvitation[]         @relation("OrganisationInvitationAcceptor")
+  companyMembership                CompanyMembership?                @relation("CompanyMembershipUser")
+  organisationMember               OrganisationMember?               @relation("OrganisationMemberUser")
+  organisationMembersAdded         OrganisationMember[]              @relation("OrganisationMemberAdder")
+  organisationInvitationsSent      OrganisationInvitation[]          @relation("OrganisationInvitationInviter")
+  organisationInvitationsAccepted  OrganisationInvitation[]          @relation("OrganisationInvitationAcceptor")
   webhookEventsResolved            WebhookEvent[]                    @relation("WebhookEventResolver")
   failedNotificationsRetried       FailedNotification[]              @relation("FailedNotificationRetrier")
   assignmentAuditsAsSubject        AssignmentAuditEntry[]            @relation("AssignmentAuditSubject")
@@ -170,7 +170,7 @@ model User {
   // cannot. That unique index is also the lookup index every `lookupUserEmail`
   // query uses, so the plain `@@index([emailHmac])` the expand step added is
   // dropped with it rather than left as a second index on one column.
-  siteSettingsSet                   SiteSetting[]
+  siteSettingsSet SiteSetting[]
 }
 
 /// Verifier and Admin are assignments a person holds, not ranks.
@@ -638,6 +638,7 @@ model Campaign {
   donationReviewMarkers DonationReviewMarker[]
   documents             Document[]
   shortLinks            ShortLink[]
+  campaignFeatures      CampaignFeature[]
 
   @@index([slug])
   @@index([category])
@@ -1098,26 +1099,26 @@ enum ChecklistApplicant {
 }
 
 model VerificationChecklistItem {
-  id       String  @id @default(cuid())
-  label    String
-  required Boolean @default(true)
-  position Int
-  active   Boolean @default(true)
-  kind     Kind?
+  id               String                    @id @default(cuid())
+  label            String
+  required         Boolean                   @default(true)
+  position         Int
+  active           Boolean                   @default(true)
+  kind             Kind?
   /// Whether ticking this item needs an uploaded Document behind it (ticket
   /// 64): the Verifier's box stays disabled, and the server refuses the tick,
   /// until the Campaign holds a Document for this item. False for items that
   /// are a check rather than a paper (a Kind Authorisation on record, "bukan
   /// duplikat").
-  requiresDocument Boolean @default(false)
+  requiresDocument Boolean                   @default(false)
   /// Which kinds of Verification Request snapshot this item. Every row added
   /// before the column existed is judged on all three; an item about the
   /// Fundraiser's own papers (KTP, address, power of attorney) is SUBMISSION
   /// only, so it never blocks a CHANGE or AMOUNT_REVIEW on a live Campaign
   /// that was approved before the item existed.
-  requestKinds VerificationRequestKind[] @default([SUBMISSION, CHANGE, AMOUNT_REVIEW])
+  requestKinds     VerificationRequestKind[] @default([SUBMISSION, CHANGE, AMOUNT_REVIEW])
   /// Null is "both"; INDIVIDUAL or ORGANISATION scopes it to that Fundraiser.
-  applicant    ChecklistApplicant?
+  applicant        ChecklistApplicant?
 
   auditEntries VerificationChecklistAuditEntry[]
   documents    Document[]
@@ -1394,13 +1395,70 @@ model Prayer {
   lastModeratedById String?
 
   // Relations
-  donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  donation    Donation         @relation(fields: [donationId], references: [id], onDelete: Cascade)
+  campaign    Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user        User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  aamiinMarks AamiinMark[]
+  highlight   PrayerHighlight?
 
   @@index([campaignId])
   @@index([createdAt])
   @@index([userId])
+}
+
+/// One Aamiin per (Prayer, marker) (PKS pemenuhan 15). The marker is
+/// "u:<userId>" for a signed-in visitor, or "a:<anonymousId>" for a guest, the
+/// id coming from a signed cookie. `Prayer.amiinCount` rises only when a row
+/// here is newly inserted, in the same transaction.
+model AamiinMark {
+  id        String   @id @default(cuid())
+  prayerId  String
+  marker    String
+  createdAt DateTime @default(now())
+
+  prayer Prayer @relation(fields: [prayerId], references: [id], onDelete: Cascade)
+
+  @@unique([prayerId, marker])
+}
+
+enum CampaignFeatureKind {
+  /// "Pilihan Kami" on the home page.
+  PILIHAN
+  /// "Unggulan kategori": featured within the Campaign's own category.
+  UNGGULAN_KATEGORI
+}
+
+/// Admin curation of the home page (PKS pemenuhan 15): a Campaign marked as
+/// Pilihan or as Unggulan of its category, in a manual order (`position`,
+/// lowest first), with who and when. The ids are plain strings for the actor:
+/// the record of who marked must outlive the account. A marked Campaign still
+/// shows only while publicly visible.
+model CampaignFeature {
+  id         String              @id @default(cuid())
+  campaignId String
+  kind       CampaignFeatureKind
+  position   Int                 @default(0)
+  markedById String
+  markedAt   DateTime            @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, kind])
+  @@index([kind, position])
+}
+
+/// "Sorotan doa" on the home page: a Prayer an Admin marked, in manual order,
+/// with who and when. A hidden or deleted Prayer never shows, marked or not.
+model PrayerHighlight {
+  id         String   @id @default(cuid())
+  prayerId   String   @unique
+  position   Int      @default(0)
+  markedById String
+  markedAt   DateTime @default(now())
+
+  prayer Prayer @relation(fields: [prayerId], references: [id], onDelete: Cascade)
+
+  @@index([position])
 }
 
 // ==================== Campaign Update ====================
@@ -1646,7 +1704,7 @@ enum LedgerDirection {
 /// Payment; a retry creates a NEW Payment rather than mutating the old one, so
 /// the history of attempts survives.
 model Payment {
-  id             String        @id @default(cuid())
+  id             String         @id @default(cuid())
   /// Not unique: a retry after FAILED/EXPIRED creates a new Payment on the
   /// same Donation (prd-compliance 18). At most one Payment per Donation may
   /// ever reach PAID -- enforced in the migration by a partial unique index
@@ -1655,7 +1713,7 @@ model Payment {
   /// Donation, races the app-level `status: PENDING` guard alone cannot
   /// close.
   donationId     String?
-  donation       Donation?     @relation(fields: [donationId], references: [id], onDelete: Restrict)
+  donation       Donation?      @relation(fields: [donationId], references: [id], onDelete: Restrict)
   /// Set instead of donationId for a Trip Fee payment -- exactly one of the
   /// two is ever set, enforced by assertExactlyOnePaymentSubject
   /// (./src/lib/money/payment-subject.ts), not by a schema constraint
@@ -1664,8 +1722,8 @@ model Payment {
   /// SetNull otherwise, the exact class of bug a whole-branch review on an
   /// earlier ticket caught for donationId/campaignId. Applied here
   /// proactively.
-  registrationId String?       @unique
-  registration   Registration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  registrationId String?        @unique
+  registration   Registration?  @relation(fields: [registrationId], references: [id], onDelete: Restrict)
   /// How to pay this charge, kept so a Volunteer who closed the payment page
   /// can open it again (ticket 37). Set only for a Trip Fee charge: the QRIS
   /// link or the Virtual Account number the provider returned; null on every
@@ -1710,11 +1768,11 @@ model Payment {
   method         String
   /// The provider's own id for this charge. Unique so a webhook replay cannot
   /// create a second Payment for the same upstream charge.
-  providerRef    String        @unique
+  providerRef    String         @unique
   amount         Int
   /// What the provider kept. Recorded separately so the campaign is credited
   /// the net, and the fee is visible rather than silently missing.
-  providerFee    Int           @default(0)
+  providerFee    Int            @default(0)
   /// What the platform kept (CONTEXT.md, Platform Fee; prd-compliance 17).
   /// Resolved and frozen at POST /api/donations, per Campaign then per
   /// Category then per Kind default, waived below the Admin-set threshold,
@@ -1722,7 +1780,7 @@ model Payment {
   /// the rate cannot alter what this Payment already promised the Donor.
   /// Always 0 for a Trip Fee Payment (registrationId set): Trip Fee is not
   /// subject to Platform Fee (CONTEXT.md, Trip Fee).
-  platformFee    Int           @default(0)
+  platformFee    Int            @default(0)
   /// Whether this Payment was created while the public beta marker
   /// (BETA_SANDBOX, src/lib/deploy-environment.ts) was on, i.e. against the
   /// Sumopod sandbox where no real rupiah moves. Stamped once at creation
@@ -1732,8 +1790,8 @@ model Payment {
   /// go-live): read only through countedPaymentWhere
   /// (src/lib/money/counted-payment.ts), which keeps them out of the public
   /// totals and the reconciliation report (ticket rilis-1-benda/92).
-  sandbox        Boolean       @default(false)
-  status         PaymentStatus @default(PENDING)
+  sandbox        Boolean        @default(false)
+  status         PaymentStatus  @default(PENDING)
   /// Provider payload, kept verbatim for dispute resolution. Never parsed for
   /// business logic -- the typed columns above are what the app reads.
   rawPayload     Json?
@@ -2037,7 +2095,7 @@ model DonationReviewMarker {
 /// retry aggressively and do not promise exactly-once delivery; without this,
 /// a retry credits the campaign twice.
 model WebhookEvent {
-  id              String    @id @default(cuid())
+  id              String         @id @default(cuid())
   provider        String
   /// Which Merchant Account's webhook endpoint delivered this event (ADR 0027).
   /// Part of the idempotency key: two merchants are separate accounts at the
@@ -2052,7 +2110,7 @@ model WebhookEvent {
   /// without touching anything else.
   providerEventId String
   payload         Json
-  receivedAt      DateTime  @default(now())
+  receivedAt      DateTime       @default(now())
   processedAt     DateTime?
   /// What the handler decided this event was, stamped with processedAt (ticket
   /// 52). Null on rows written before the column existed and while an event is
@@ -2672,7 +2730,7 @@ model UsageReport {
 /// exists so the gap between "the money is at the provider" and "the money is
 /// in the bank" is a row somebody wrote rather than an assumption.
 model ProviderWithdrawal {
-  id                    String   @id @default(cuid())
+  id                    String         @id @default(cuid())
   /// Which Payment Provider the money was drawn from. The same plain String
   /// Payment.provider holds, and stamped on the ledger entry this row posts
   /// (LedgerEntry.provider) so the Provider Balance can be read per provider.
@@ -2690,7 +2748,7 @@ model ProviderWithdrawal {
   /// on this index before it posts anything, which is the same shape as the
   /// ledger's own claim on a transactionId (prd-compliance 28b) and is checked
   /// for the same reason: a read-then-write would be no constraint at all.
-  reference             String   @unique
+  reference             String         @unique
   /// Whole rupiah taken out of the Provider Balance. Always positive; the
   /// direction is what carries the sign (src/lib/money/ledger.ts).
   amount                Int
@@ -2725,7 +2783,7 @@ model ProviderWithdrawal {
   /// record.
   proofReference        String
   recordedById          String
-  recordedAt            DateTime @default(now())
+  recordedAt            DateTime       @default(now())
 
   collectingEntity PartnerOrganisation? @relation(fields: [collectingEntityId], references: [id], onDelete: Restrict)
   recordedBy       User                 @relation("ProviderWithdrawalRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
@@ -2865,6 +2923,11 @@ model LedgerEntry {
   // raises) and CHECK "LedgerEntry_amount_positive" (amount > 0). Every
   // relation above is onDelete: Restrict, because SET NULL is an UPDATE and
   // would silently detach a leg from its Campaign/Payment (ADR 0016).
+  // NOT EXPRESSIBLE HERE, in migration 20261016090000_ledger_integrity (audit
+  // D1, PAY-12): trigger "LedgerEntry_append_only" (BEFORE UPDATE OR DELETE,
+  // raises) and CHECK "LedgerEntry_amount_positive" (amount > 0). Every
+  // relation above is onDelete: Restrict, because SET NULL is an UPDATE and
+  // would silently detach a leg from its Campaign/Payment (ADR 0016).
 
   @@index([transactionId])
   @@index([account, campaignId])
@@ -2891,11 +2954,6 @@ model LedgerEntry {
   @@index([paymentId])
   @@index([refundId])
   @@index([payoutId])
-  // NOT EXPRESSIBLE HERE, in migration 20261016090000_ledger_integrity (audit
-  // D1, PAY-12): trigger "LedgerEntry_append_only" (BEFORE UPDATE OR DELETE,
-  // raises) and CHECK "LedgerEntry_amount_positive" (amount > 0). Every
-  // relation above is onDelete: Restrict, because SET NULL is an UPDATE and
-  // would silently detach a leg from its Campaign/Payment (ADR 0016).
 }
 
 /// The old `Disbursement` table, renamed rather than dropped by the money-layer
