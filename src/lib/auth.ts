@@ -27,6 +27,8 @@ const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_PER_ACCOUNT_LIMIT = 10;
 const LOGIN_PER_CLIENT_LIMIT = 50;
 
+const OPERATOR_CODE_ONLY_MESSAGE = "Akun Admin/Verifier masuk dengan kode email.";
+
 /** The caller's address as the limiter counts it, read off the request next-auth hands `authorize`. */
 function requestClient(req: { headers?: Record<string, unknown> } | undefined): string {
   const forwarded = req?.headers?.["x-forwarded-for"];
@@ -78,7 +80,14 @@ export const authOptions: NextAuthOptions = {
         // compare it would be the thing this scheme exists to prevent.
         const user = await prisma.user.findFirst({
           where: lookupUserEmail(credentials.email),
-          select: { ...SELECT_USER_EMAIL, id: true, password: true, name: true, avatar: true },
+          select: {
+            ...SELECT_USER_EMAIL,
+            id: true,
+            password: true,
+            name: true,
+            avatar: true,
+            assignments: { select: { assignment: true } },
+          },
         });
 
         if (!user || !user.password) {
@@ -92,6 +101,14 @@ export const authOptions: NextAuthOptions = {
 
         if (!isPasswordValid) {
           throw new Error("Email atau password salah");
+        }
+
+        // Admin and Verifier sign in only by mailed code: it stands in for
+        // MFA (owner, 9 Nov 2026; PKS Pasal 8(1); ADR 0026), and a password
+        // would walk around it. Checked after the password, so a stranger
+        // learns nothing about the account's role.
+        if (user.assignments?.length) {
+          throw new Error(OPERATOR_CODE_ONLY_MESSAGE);
         }
 
         // An account whose hash sits below the current factor — because an
@@ -168,6 +185,17 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
   },
   callbacks: {
+    // Google would also walk around the operator code requirement above, so
+    // an existing account holding any Assignment is sent back to /login. A
+    // first Google sign-in has no row yet, and so no Assignment.
+    async signIn({ user, account }) {
+      if (account?.provider !== "google" || !user?.id) return true;
+      const row = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { assignments: { select: { assignment: true } } },
+      });
+      return row?.assignments.length ? "/login?error=OperatorCodeOnly" : true;
+    },
     async jwt({ token, user, account, profile }) {
       if (user) {
         token.id = user.id;

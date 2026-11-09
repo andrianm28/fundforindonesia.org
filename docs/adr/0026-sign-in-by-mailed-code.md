@@ -55,8 +55,17 @@ way in and the reuse risk that comes with it.
   because there is none: the `pwf` claim is the same for every such session.
   Ending sessions on demand needs a session version column; not in this change.
 
-## Open (owner decision cards, 2 Nov 2026)
+## Operators: the code replaces MFA
 
-- Whether the password form stays as a fallback until after launch (built that
-  way, behind a "Masuk dengan password" link) or is removed now.
-- Whether Admin and Verifier accounts need password + code.
+The owner decided (9 Nov 2026) that the mailed code is the operators' second
+factor for PKS Pasal 8(1), in place of a separate TOTP MFA. So an account
+holding any Assignment (Admin, Verifier) signs in only by code: the password
+form refuses it after checking the password (so a stranger learns nothing
+about the role), and a Google sign-in into such an account is sent back to
+`/login?error=OperatorCodeOnly`.
+
+## Open (owner decision card, 9 Nov 2026)
+
+- Whether the password form stays as a fallback for everyone else until after
+  launch (built that way, behind a "Masuk dengan password" link) or is removed
+  for everyone now.
