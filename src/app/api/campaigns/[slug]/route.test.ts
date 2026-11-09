@@ -1108,7 +1108,7 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
 
   // The one stored Campaign row; both the slug lookup and the read under
   // the lock see it as it stands at the time of the call.
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string; rejectionFinal?: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1125,8 +1125,8 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
     vi.useRealTimers();
   });
 
-  function storedAs(lifecycleStatus: string, deadline: Date | null = null, kind = 'DONATION') {
-    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline, kind };
+  function storedAs(lifecycleStatus: string, deadline: Date | null = null, kind = 'DONATION', rejectionFinal = false) {
+    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline, kind, rejectionFinal };
   }
 
   function editTitle() {
@@ -1148,6 +1148,28 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
 
     expect(response.status).toBe(200);
     expect((await response.json()).campaign.title).toBe('Judul Baru');
+  });
+
+  it('refuses to edit a Campaign the Verifier rejected for good, with 409 and an Indonesian message', async () => {
+    storedAs('REJECTED', null, 'DONATION', true);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      code: 'REJECTED_FINAL',
+      error: 'Campaign ini ditolak secara final oleh Verifier dan tidak dapat diubah lagi.',
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('leaves the gallery unchanged when the body does not name galleryImages', async () => {
+    storedAs('DRAFT');
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(200);
+    expect(mockUpdate.mock.calls[0][0].data).not.toHaveProperty('galleryImages');
   });
 
   it('lets the Fundraiser edit the story of an Active Campaign whose deadline is still ahead', async () => {
@@ -1245,7 +1267,7 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
 describe('PATCH /api/campaigns/[slug] -- title and description are frozen once Active (verification-request 09)', () => {
   const NOW = new Date('2026-09-26T12:00:00Z');
   const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string; rejectionFinal?: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1326,7 +1348,7 @@ describe('PATCH /api/campaigns/[slug] -- Kind is fixed once the Campaign leaves 
   const NOW = new Date('2026-09-26T12:00:00Z');
   const DEADLINE = new Date('2026-12-31T00:00:00Z');
   const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string; rejectionFinal?: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1436,7 +1458,7 @@ describe('PATCH /api/campaigns/[slug] -- an individual Fundraiser may only run d
   const NOW = new Date('2026-09-26T12:00:00Z');
   const DEADLINE = new Date('2026-12-31T00:00:00Z');
   const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string; rejectionFinal?: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1496,7 +1518,7 @@ describe('PATCH /api/campaigns/[slug] -- the deadline is set before a Verifier s
   const NOW = new Date('2026-09-26T12:00:00Z');
   const DEADLINE = new Date('2026-12-31T00:00:00Z');
   const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string; rejectionFinal?: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();

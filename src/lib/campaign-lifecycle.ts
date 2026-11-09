@@ -1678,8 +1678,8 @@ export async function suspendCampaign(
         },
       });
       await notify({
-        title: "Campaign Dibekukan",
-        message: `Campaign "${campaign.title}" dibekukan (Suspended) oleh Admin. Alasan: ${reason}`,
+        title: "Campaign Ditangguhkan",
+        message: `Campaign "${campaign.title}" ditangguhkan (Suspended) oleh Admin. Alasan: ${reason}`,
       });
       decided.reason = reason;
       return {};
@@ -1903,7 +1903,7 @@ export class FlagAlreadyResolvedError extends CampaignLifecycleError {
   constructor(readonly resolution: FlagResolution) {
     super(
       resolution === FlagResolution.SUSPENDED
-        ? "Flag ini sudah selesai karena Campaign telah dibekukan (Suspended)."
+        ? "Flag ini sudah selesai karena Campaign telah ditangguhkan (Suspended)."
         : "Flag ini sudah ditolak oleh Admin."
     );
     this.name = "FlagAlreadyResolvedError";

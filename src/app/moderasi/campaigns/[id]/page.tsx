@@ -11,6 +11,7 @@ import { CampaignFlagForm } from "./CampaignFlagForm";
 import { CampaignModerationActions } from "./CampaignModerationActions";
 import { holdsValidKindAuthorisation, holdsValidPermit, requiresKindAuthorisation } from "@/lib/collecting-entity";
 import { campaignLocationLabel } from "@/lib/campaign-location";
+import { isValidCoverImage } from "@/lib/cover-image";
 import { KIND_LABEL } from "@/lib/campaign-kind";
 import { STATUS_LABEL } from "@/lib/campaign-status-label";
 import { formatRupiah } from "@/lib/utils/currency";
@@ -122,6 +123,8 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
     campaignDocuments(prisma, campaign.id),
     entity ? partnerOrganisationDocuments(prisma, entity.id) : Promise.resolve([] as DocumentSummary[]),
   ]);
+  // A second, independent check at render, as the public page does: only an upload path or an https URL is ever shown.
+  const galleryImages = campaign.galleryImages.filter(isValidCoverImage);
   const checklist = (openRequest?.checklist as ChecklistEntry[] | undefined) ?? [];
   // A snapshot taken before ticket 64 does not say which items need a paper;
   // the item's current setting does, as the server judges it.
@@ -265,11 +268,11 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
           </div>
 
           {/* Gallery */}
-          {campaign.galleryImages.length > 0 && (
+          {galleryImages.length > 0 && (
             <div className="mt-6">
               <h2 className="text-sm font-semibold text-text mb-2">Galeri</h2>
               <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {campaign.galleryImages.map((src) => (
+                {galleryImages.map((src) => (
                   <li key={src} className="relative h-28 bg-bg-secondary rounded-lg overflow-hidden">
                     <Image src={src} alt={`Galeri ${campaign.title}`} fill className="object-cover" />
                   </li>

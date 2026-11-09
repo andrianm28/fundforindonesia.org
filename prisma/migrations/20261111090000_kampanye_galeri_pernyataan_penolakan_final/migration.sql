@@ -19,5 +19,5 @@ ALTER TABLE "CampaignStatusChange" ADD COLUMN     "final" BOOLEAN NOT NULL DEFAU
 -- AlterTable
 ALTER TABLE "VerificationRequest" ADD COLUMN     "truthStatementAcceptedAt" TIMESTAMP(3);
 
--- At most six gallery images per Campaign.
+-- Paling banyak enam gambar galeri per Campaign.
 ALTER TABLE "Campaign" ADD CONSTRAINT "Campaign_galleryImages_max6" CHECK (cardinality("galleryImages") <= 6);

@@ -30,6 +30,7 @@ export type LifecycleErrorCode =
   | "FLAG_ALREADY_RESOLVED"
   | "PAYOUT_NOT_ALLOWED_FOR_STATUS"
   | "CAMPAIGN_NOT_EDITABLE"
+  | "REJECTED_FINAL"
   | "ACTIVE_CONTENT_FROZEN"
   | "VERIFICATION_REQUEST_NOT_FOUND"
   | "VERIFICATION_REQUEST_NOT_PENDING"
@@ -254,6 +255,7 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // when the Batch completes -- a conflict with state, not a bad input.
   TRIP_PAYOUT_FUNDS_NOT_COMPLETED: 409,
   CAMPAIGN_NOT_EDITABLE: 409,
+  REJECTED_FINAL: 409,
   // The Fundraiser could not fix it by resubmitting: a Verification Request
   // does not reopen title and description, only story and cover image stay
   // editable (verification-request 09), so this is a status conflict, not a

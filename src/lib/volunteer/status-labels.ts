@@ -8,7 +8,7 @@ export const TRIP_STATUS_LABELS: Record<string, string> = {
   SUBMITTED: 'Diajukan',
   REJECTED: 'Ditolak',
   ACTIVE: 'Aktif',
-  SUSPENDED: 'Dibekukan',
+  SUSPENDED: 'Ditangguhkan',
   CANCELLED: 'Ditarik',
   COMPLETED: 'Selesai',
 };

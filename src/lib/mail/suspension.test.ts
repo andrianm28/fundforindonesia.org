@@ -16,7 +16,7 @@ const BASE = {
 describe('suspensionEmail', () => {
   it('tells the Fundraiser their Campaign was suspended, and why', () => {
     const m = suspensionEmail({ ...BASE, event: 'suspended' });
-    expect(m.subject).toBe('Campaign "Bantu Korban Banjir" dibekukan (Suspended)');
+    expect(m.subject).toBe('Campaign "Bantu Korban Banjir" ditangguhkan (Suspended)');
     expect(m.text).toContain('Halo Siti,');
     expect(m.text).toContain('Alasan: Laporan penipuan sedang diperiksa');
     expect(m.text).toContain(BASE.campaignUrl);

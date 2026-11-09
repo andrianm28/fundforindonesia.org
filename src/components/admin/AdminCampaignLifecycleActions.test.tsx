@@ -72,14 +72,14 @@ describe('AdminCampaignLifecycleActions -- suspend (ACTIVE/EXPIRED/COMPLETED)', 
 
   it('shows the server refusal in its own words rather than a generic message', async () => {
     mockFetch.mockImplementation(() =>
-      refused(409, { error: 'Campaign sudah Dibekukan.', code: 'INVALID_TRANSITION' }),
+      refused(409, { error: 'Campaign sudah Ditangguhkan.', code: 'INVALID_TRANSITION' }),
     );
 
     render(<AdminCampaignLifecycleActions {...baseProps} />);
     fireEvent.change(screen.getByLabelText(/alasan suspension/i), { target: { value: 'Alasan.' } });
     fireEvent.click(screen.getByRole('button', { name: /jatuhkan suspension/i }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Campaign sudah Dibekukan.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Campaign sudah Ditangguhkan.');
     expect(mockRefresh).not.toHaveBeenCalled();
   });
 
@@ -264,7 +264,7 @@ describe('AdminCampaignLifecycleActions -- open Flags', () => {
 
   it("shows the server's refusal in its own words, under the Flag it concerns", async () => {
     mockFetch.mockImplementation(() =>
-      refused(409, { error: 'Flag ini sudah selesai karena Campaign telah dibekukan (Suspended).', code: 'FLAG_ALREADY_RESOLVED' }),
+      refused(409, { error: 'Flag ini sudah selesai karena Campaign telah ditangguhkan (Suspended).', code: 'FLAG_ALREADY_RESOLVED' }),
     );
 
     render(<AdminCampaignLifecycleActions {...baseProps} />);
@@ -273,7 +273,7 @@ describe('AdminCampaignLifecycleActions -- open Flags', () => {
     fireEvent.click(first.getByRole('button', { name: /tolak flag/i }));
 
     expect(await first.findByRole('alert')).toHaveTextContent(
-      'Flag ini sudah selesai karena Campaign telah dibekukan (Suspended).',
+      'Flag ini sudah selesai karena Campaign telah ditangguhkan (Suspended).',
     );
     expect(within(flagItem('Nomor rekening beda dari dokumen.')).queryByRole('alert')).toBeNull();
     expect(mockRefresh).not.toHaveBeenCalled();

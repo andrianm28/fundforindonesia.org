@@ -600,6 +600,22 @@ describe('what PKS pasal 3.3 and 3.4 add to the moderation page', () => {
     expect(screen.getByText(/08\.30 WIB/)).toBeTruthy();
   });
 
+  it('filters the gallery at render: only an upload path or an https URL is shown', async () => {
+    await renderFor(
+      campaign('SUBMITTED', {
+        galleryImages: ['/uploads/lx1-ab.jpg', 'https://cdn.example.org/a.jpg', 'javascript:alert(1)', 'http://x.example/a.jpg', '/etc/passwd'],
+      }),
+    );
+
+    expect(screen.getAllByAltText('Galeri Sumur untuk Desa')).toHaveLength(2);
+  });
+
+  it('shows no Galeri heading when every gallery entry is filtered out', async () => {
+    await renderFor(campaign('SUBMITTED', { galleryImages: ['javascript:alert(1)'] }));
+
+    expect(screen.queryByText('Galeri')).toBeNull();
+  });
+
   it('says nothing of a truth statement on a request that predates it', async () => {
     await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
 
