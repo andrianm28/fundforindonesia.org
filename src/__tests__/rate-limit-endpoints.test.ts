@@ -34,6 +34,7 @@ import { writeFile } from 'fs/promises';
 import { POST as register } from '@/app/api/auth/register/route';
 import { POST as donate } from '@/app/api/donations/route';
 import { POST as upload } from '@/app/api/upload/route';
+import { POST as amiin } from '@/app/api/prayers/[id]/amiin/route';
 import { PATCH as patchProfile } from '@/app/api/user/profile/route';
 import { GET as getConsent, POST as postConsent } from '@/app/api/user/consent/route';
 
@@ -199,5 +200,15 @@ describe('user profile and consent endpoints', () => {
     (prisma.user.findUnique as unknown as Mock).mockResolvedValue({ consents: [] });
     expect((await consentPost()).status).toBe(200);
     expect((await getConsent()).status).toBe(200);
+  });
+});
+
+describe('POST /api/prayers/[id]/amiin', () => {
+  it('counts the attempt per client address and answers 429 over the limit before reading the Prayer', async () => {
+    consume.mockResolvedValue(LIMITED);
+    const res = await amiin(json('/api/prayers/p1/amiin', {}), { params: Promise.resolve({ id: 'p1' }) });
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('42');
+    expect(consume).toHaveBeenCalledWith(prisma, expect.objectContaining({ scope: 'prayer-amiin', subject: '203.0.113.7' }));
   });
 });

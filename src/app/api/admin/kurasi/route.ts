@@ -22,7 +22,7 @@ const bodySchema = z.object({
  *   PUT { slot: "PILIHAN" | "UNGGULAN_KATEGORI" | "SOROTAN_DOA", ids: [...] }
  *       sets that slot to exactly `ids`, in that order (at most 50). A mark
  *       that stays keeps its original who and when. 400 when an id names
- *       nothing.
+ *       nothing. 409 when a concurrent save of the same slot collided.
  *
  * A mark does not make a Campaign or Prayer public: the home page still shows
  * only what the public rules allow.
@@ -44,16 +44,30 @@ export const PUT = withHiddenAssignmentCheck(Assignment.ADMIN, async (req: NextR
   const actorId = session!.user!.id as string;
   const now = new Date();
 
-  const outcome = await prisma.$transaction((tx) =>
-    slot === 'SOROTAN_DOA'
-      ? setPrayerHighlights(tx, { prayerIds: ids, actorId, now })
-      : setCampaignFeatures(tx, {
-          kind: slot === 'PILIHAN' ? CampaignFeatureKind.PILIHAN : CampaignFeatureKind.UNGGULAN_KATEGORI,
-          campaignIds: ids,
-          actorId,
-          now,
-        }),
-  );
+  let outcome;
+  try {
+    outcome = await prisma.$transaction((tx) =>
+      slot === 'SOROTAN_DOA'
+        ? setPrayerHighlights(tx, { prayerIds: ids, actorId, now })
+        : setCampaignFeatures(tx, {
+            kind: slot === 'PILIHAN' ? CampaignFeatureKind.PILIHAN : CampaignFeatureKind.UNGGULAN_KATEGORI,
+            campaignIds: ids,
+            actorId,
+            now,
+          }),
+    );
+  } catch (error) {
+    // Two Admins saving the same slot at once can both try to insert the same
+    // mark (unique campaign+kind or prayer): the later one is refused, nothing
+    // half-written (the transaction rolled back).
+    if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002') {
+      return NextResponse.json(
+        { error: 'Slot ini sedang disimpan oleh Admin lain. Coba simpan lagi.' },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
   if (outcome === 'UNKNOWN_ID') {
     return NextResponse.json({ error: 'Ada id yang tidak ditemukan (atau doa yang sudah dihapus).' }, { status: 400 });
   }

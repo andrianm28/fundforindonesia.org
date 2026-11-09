@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { NextRequest } from 'next/server';
 
 /**
@@ -13,7 +13,13 @@ const state = vi.hoisted(() => ({
   session: null as null | { user: { id: string } },
   /** Runs between the dedupe insert and the counter update: a moderator racing the transaction. */
   betweenInsertAndIncrement: null as null | (() => void),
+  /** Thrown by the mark insert: the Prayer hard-deleted after the read (FK violation). */
+  insertError: null as null | Error,
+  /** What the per-address limiter answers. */
+  limiter: { allowed: true, count: 1, retryAfterSeconds: 60 },
 }));
+
+vi.mock('@/lib/rate-limit', () => ({ consumeRateLimit: vi.fn(async () => state.limiter) }));
 
 vi.mock('@/lib/auth', () => ({ getServerSession: async () => state.session }));
 
@@ -38,6 +44,7 @@ vi.mock('@/lib/prisma', () => {
     },
     aamiinMark: {
       createMany: async ({ data }: { data: Array<{ prayerId: string; marker: string }> }) => {
+        if (state.insertError) throw state.insertError;
         let count = 0;
         for (const d of data) {
           const key = `${d.prayerId}|${d.marker}`;
@@ -92,6 +99,8 @@ beforeEach(() => {
   state.marks = new Set();
   state.session = null;
   state.betweenInsertAndIncrement = null;
+  state.insertError = null;
+  state.limiter = { allowed: true, count: 1, retryAfterSeconds: 60 };
 });
 
 describe('POST /api/prayers/[id]/amiin', () => {
@@ -172,6 +181,49 @@ describe('POST /api/prayers/[id]/amiin', () => {
     expect(res.status).toBe(404);
     expect(state.marks.size).toBe(0);
     expect(state.prayers.get('p1')!.amiinCount).toBe(5);
+  });
+
+  it('a Prayer hard-deleted between the read and the insert (FK violation, P2003) answers 404, not 500', async () => {
+    state.insertError = Object.assign(new Error('Foreign key constraint failed'), { code: 'P2003' });
+    const res = await call('p1');
+
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe('Doa tidak ditemukan');
+  });
+
+  it('answers 429 with Retry-After over the per-address limit and counts nothing', async () => {
+    state.limiter = { allowed: false, count: 99, retryAfterSeconds: 42 };
+    const res = await call('p1');
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('42');
+    expect((await res.json()).error).toMatch(/terlalu banyak/i);
+    expect(state.marks.size).toBe(0);
+    expect(state.prayers.get('p1')!.amiinCount).toBe(5);
+  });
+
+  it('counts the attempt per client address, scope amiin', async () => {
+    const { consumeRateLimit } = await import('@/lib/rate-limit');
+    const req = new NextRequest('http://localhost:3000/api/prayers/p1/amiin', {
+      method: 'POST',
+      headers: { 'x-forwarded-for': '203.0.113.9' },
+    });
+    await POST(req, { params: Promise.resolve({ id: 'p1' }) });
+
+    expect(consumeRateLimit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ scope: 'prayer-amiin', subject: '203.0.113.9' }),
+    );
+  });
+
+  it('serves the Aamiin when the limiter itself is down (fail open)', async () => {
+    const { consumeRateLimit } = await import('@/lib/rate-limit');
+    vi.spyOn(console, 'error').mockImplementationOnce(() => {});
+    (consumeRateLimit as unknown as Mock).mockRejectedValueOnce(new Error('limiter down'));
+    const res = await call('p1');
+
+    expect(res.status).toBe(200);
+    expect(state.prayers.get('p1')!.amiinCount).toBe(6);
   });
 
   it('answers 500 when the database fails', async () => {

@@ -18,7 +18,7 @@ function markedNote(by: string | null, at: Date, extra = ''): string {
  * /api/admin/kurasi.
  */
 export default async function AdminKurasiPage() {
-  const [overview, campaigns, prayers] = await Promise.all([
+  const [overview, campaigns, prayers, categoryRows] = await Promise.all([
     listCuration(prisma),
     prisma.campaign.findMany({
       where: { lifecycleStatus: 'ACTIVE' },
@@ -34,13 +34,23 @@ export default async function AdminKurasiPage() {
       orderBy: { createdAt: 'desc' },
       take: 100,
     }),
+    prisma.category.findMany({ select: { slug: true } }),
   ]);
+  const knownCategories = new Set(categoryRows.map((c) => c.slug));
 
   const campaignItem = (c: CuratedCampaign): CurationItem => ({
     id: c.id,
     label: `${c.title} (${c.category})`,
     detail: markedNote(c.markedByName, c.markedAt, c.status === 'ACTIVE' ? '' : `Belum tampil di beranda (status ${c.status}). `),
   });
+  // Unggulan sections are built from the Category table; a Campaign whose
+  // category has no row there would silently never show.
+  const unggulanItem = (c: CuratedCampaign): CurationItem => {
+    const item = campaignItem(c);
+    return knownCategories.has(c.category)
+      ? item
+      : { ...item, detail: `Kategori "${c.category}" belum terdaftar, tidak akan tampil di bagian Unggulan. ${item.detail}` };
+  };
 
   return (
     <div>
@@ -53,7 +63,7 @@ export default async function AdminKurasiPage() {
       </div>
       <AdminHomeCuration
         pilihan={overview.pilihan.map(campaignItem)}
-        unggulan={overview.unggulan.map(campaignItem)}
+        unggulan={overview.unggulan.map(unggulanItem)}
         sorotan={overview.sorotan.map((p) => ({
           id: p.id,
           label: p.text,

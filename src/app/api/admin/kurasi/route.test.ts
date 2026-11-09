@@ -98,4 +98,18 @@ describe('/api/admin/kurasi', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/tidak ditemukan/i);
   });
+
+  it('PUT answers 409 when a concurrent save hit the same slot (unique violation, P2002)', async () => {
+    mockSetCampaigns.mockRejectedValue(Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }));
+    const res = await put({ slot: 'PILIHAN', ids: ['a'] });
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/Coba simpan lagi/);
+  });
+
+  it('PUT does not mistake any other database error for a conflict', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockSetPrayers.mockRejectedValue(new Error('boom'));
+    expect((await put({ slot: 'SOROTAN_DOA', ids: ['p1'] })).status).toBe(500);
+  });
 });

@@ -20,3 +20,11 @@ Pilihan desain:
 - Beranda: Pilihan Kami memakai tanda yang lolos aturan publik (`listable`, jadi hanya Campaign aktif dan tidak demo); jatuh ke urutan otomatis bila tidak ada tanda yang tampil. Bagian baru "Unggulan {kategori}" dan "Sorotan Doa" hanya muncul bila ada isinya; Sorotan doa dibaca lewat `publicPrayerWhere` (dipasang di properti `prayer-public-readers`).
 - Layar `/admin/kurasi` (di balik layout Admin, tautan di sidebar) dan API `GET`/`PUT /api/admin/kurasi` lewat `withHiddenAssignmentCheck(ADMIN)`: non-Admin 404, belum login 401. Allowlist `roles-expand-guard` dan `prayer-public-readers` diperbarui dengan alasan.
 - Migrasi `20261111150000_aamiin_anti_ganda_kurasi_beranda`: diff `prisma migrate diff` kosong terhadap Postgres lokal; tes `aamiin-kurasi-migration.test.ts` memakai database sungguhan (termasuk dua koneksi berlomba pada penanda yang sama).
+
+## Catatan perbaikan review independen (2026-11-09)
+
+- **Batas laju Aamiin**: `POST /api/prayers/[id]/amiin` kini dibatasi per alamat klien (`checkRateLimit` lewat `guardRoute`, scope `prayer-amiin`, 120 per jam, `onUnavailable: 'open'`), 429 + `Retry-After`. Terdaftar di `rate-limit-endpoints.test.ts`. **Risiko sisa**: skrip tanpa cookie tetap mendapat id tamu baru per panggilan, jadi dapat menambah sampai batas itu per alamat per jam; botnet dengan banyak alamat tidak terhenti. Tidak ada penolakan "tanpa cookie" (sengaja sederhana; Aamiin pertama tamu memang datang tanpa cookie).
+- **Doa dihapus permanen di antara baca dan sisip**: pelanggaran FK (P2003) pada sisipan penanda dijawab 404, bukan 500.
+- **PUT bersamaan ke slot kurasi yang sama**: pelanggaran unik (P2002) dijawab 409 "Coba simpan lagi"; transaksi sudah di-rollback.
+- **Layar kurasi**: Campaign unggulan yang kategorinya tidak punya baris `Category` diberi catatan bahwa ia tidak akan tampil di bagian Unggulan.
+

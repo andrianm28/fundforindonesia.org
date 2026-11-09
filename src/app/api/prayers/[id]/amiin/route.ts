@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isPublicPrayer, publicPrayerWhere } from '@/lib/prayer-moderation';
 import { resolveAamiinVisitor, setAamiinCookie } from '@/lib/aamiin';
+import { clientAddress } from '@/lib/client-ip';
+import { guardRoute } from '@/lib/rate-limit-guard';
+
+/**
+ * Per client address per hour. A script without cookies gets a new guest id
+ * per call, so the cookie alone cannot stop inflation; this bounds it. Generous
+ * enough for people behind one shared address (a mosque, an office) giving
+ * Aamiin to many Prayers. Fail-open: a limiter outage must not block a prayer.
+ */
+const AMIIN_LIMIT = 120;
+const AMIIN_WINDOW_SECONDS = 60 * 60;
 
 /** Thrown inside the transaction so everything it wrote is rolled back. */
 class PrayerNoLongerPublic extends Error {}
@@ -20,6 +31,18 @@ class PrayerNoLongerPublic extends Error {}
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const refused = await guardRoute(
+      {
+        scope: 'prayer-amiin',
+        subject: clientAddress(request.headers),
+        limit: AMIIN_LIMIT,
+        windowSeconds: AMIIN_WINDOW_SECONDS,
+        onUnavailable: 'open',
+      },
+      { limited: 'Terlalu banyak Aamiin dari alamat ini. Coba lagi nanti.' },
+    );
+    if (refused) return refused;
+
     const { id } = await params;
 
     const prayer = await prisma.prayer.findUnique({
@@ -50,7 +73,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return { amiinCount: current.amiinCount, alreadyAamiin: inserted.count === 0 };
       });
     } catch (error) {
-      if (error instanceof PrayerNoLongerPublic) {
+      // P2003: the Prayer was hard-deleted between the read and the insert, so
+      // the mark's foreign key has nothing to point at. Same answer as a gone Prayer.
+      const fkViolation = typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2003';
+      if (error instanceof PrayerNoLongerPublic || fkViolation) {
         return NextResponse.json({ error: 'Doa tidak ditemukan' }, { status: 404 });
       }
       throw error;
