@@ -38,6 +38,11 @@ type Organisation = {
   id: string;
   name: string;
   acceptsIndividualCampaigns: boolean;
+  /** Address and the person responsible (PKS pasal 3.2); null on an older organisation. */
+  address?: string | null;
+  responsiblePersonName?: string | null;
+  responsiblePersonTitle?: string | null;
+  responsiblePersonPhone?: string | null;
   fundraiser: { name: string; email: string };
   permits: Permit[];
   kindAuthorisations?: KindAuthorisation[];
@@ -177,6 +182,12 @@ export function PartnerOrganisationRegister() {
             </label>
           </div>
 
+          <ResponsibleForm
+            key={`${organisation.id}:${organisation.address ?? ""}:${organisation.responsiblePersonName ?? ""}:${organisation.responsiblePersonTitle ?? ""}:${organisation.responsiblePersonPhone ?? ""}`}
+            organisation={organisation}
+            onSubmit={(body) => act(send(`${API}/${organisation.id}`, "PATCH", body), "Data penanggung jawab disimpan.")}
+          />
+
           <div>
             <h3 className="text-sm font-medium text-text mb-2">Fundraising Permit</h3>
             {organisation.permits.length === 0 ? (
@@ -269,10 +280,94 @@ export function PartnerOrganisationRegister() {
   );
 }
 
+type Responsible = {
+  address: string;
+  responsiblePersonName: string;
+  responsiblePersonTitle: string;
+  responsiblePersonPhone: string;
+};
+
+const EMPTY_RESPONSIBLE: Responsible = {
+  address: "",
+  responsiblePersonName: "",
+  responsiblePersonTitle: "",
+  responsiblePersonPhone: "",
+};
+
+/** The organisation's address and the person responsible for it (PKS pasal 3.2). */
+function ResponsibleFields({ value, onChange }: { value: Responsible; onChange: (next: Responsible) => void }) {
+  const field = (key: keyof Responsible, label: string, props: { type?: string } = {}) => (
+    <label className="block text-sm text-text">
+      {label}
+      <input
+        className={inputClass}
+        type={props.type}
+        value={value[key]}
+        onChange={(e) => onChange({ ...value, [key]: e.target.value })}
+        required
+      />
+    </label>
+  );
+  return (
+    <>
+      {field("address", "Alamat organisasi")}
+      {field("responsiblePersonName", "Nama penanggung jawab")}
+      {field("responsiblePersonTitle", "Jabatan penanggung jawab")}
+      {field("responsiblePersonPhone", "Telepon penanggung jawab", { type: "tel" })}
+    </>
+  );
+}
+
+/** Saves a correction to, or the first entry of, an organisation's address and responsible person. */
+function ResponsibleForm({
+  organisation,
+  onSubmit,
+}: {
+  organisation: Organisation;
+  onSubmit: (body: Responsible) => Promise<boolean>;
+}) {
+  const [value, setValue] = useState<Responsible>({
+    address: organisation.address ?? "",
+    responsiblePersonName: organisation.responsiblePersonName ?? "",
+    responsiblePersonTitle: organisation.responsiblePersonTitle ?? "",
+    responsiblePersonPhone: organisation.responsiblePersonPhone ?? "",
+  });
+  const [busy, setBusy] = useState(false);
+  const missing = !organisation.address || !organisation.responsiblePersonName;
+
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        await onSubmit(value);
+        setBusy(false);
+      }}
+    >
+      <h3 className="text-sm font-medium text-text">Alamat dan Penanggung Jawab</h3>
+      {missing && (
+        <p className="text-xs text-[#C62828]">
+          Data ini belum lengkap (organisasi didaftarkan sebelum data ini diwajibkan). Lengkapi dari dokumen yang Anda periksa.
+        </p>
+      )}
+      <ResponsibleFields value={value} onChange={setValue} />
+      <button
+        type="submit"
+        disabled={busy}
+        className="px-4 py-2 bg-[#0073E6] text-white text-sm font-medium rounded-lg disabled:opacity-50"
+      >
+        Simpan data penanggung jawab
+      </button>
+    </form>
+  );
+}
+
 function RegisterForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) => Promise<boolean> }) {
   const [name, setName] = useState("");
   const [fundraiserEmail, setFundraiserEmail] = useState("");
   const [acceptsIndividualCampaigns, setAccepts] = useState(false);
+  const [responsible, setResponsible] = useState(EMPTY_RESPONSIBLE);
   const [busy, setBusy] = useState(false);
 
   return (
@@ -281,12 +376,13 @@ function RegisterForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) 
       onSubmit={async (event) => {
         event.preventDefault();
         setBusy(true);
-        const done = await onSubmit({ name, fundraiserEmail, acceptsIndividualCampaigns });
+        const done = await onSubmit({ name, fundraiserEmail, acceptsIndividualCampaigns, ...responsible });
         setBusy(false);
         if (done) {
           setName("");
           setFundraiserEmail("");
           setAccepts(false);
+          setResponsible(EMPTY_RESPONSIBLE);
         }
       }}
     >
@@ -308,6 +404,7 @@ function RegisterForm({ onSubmit }: { onSubmit: (body: Record<string, unknown>) 
           required
         />
       </label>
+      <ResponsibleFields value={responsible} onChange={setResponsible} />
       <label className="flex items-center gap-2 text-sm text-[#424242]">
         <input type="checkbox" checked={acceptsIndividualCampaigns} onChange={(e) => setAccepts(e.target.checked)} />
         Menaungi Campaign Fundraiser perorangan

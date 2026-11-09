@@ -10,7 +10,7 @@ import type {
 import { DomainError, type PartnerOrganisationErrorCode } from "./domain-errors";
 import { parseKind } from "./campaign-kind";
 import { requiresKindAuthorisation } from "./collecting-entity";
-import { lookupUserEmail } from "./contact-fields";
+import { lookupUserEmail, readResponsiblePersonPhone, sealResponsiblePersonPhone } from "./contact-fields";
 
 /**
  * The Verifier's register of Partner Organisations, their Fundraising
@@ -114,6 +114,21 @@ function cleanText(raw: unknown, label: string, field: string): string {
   return text;
 }
 
+/**
+ * An Indonesian telephone number as a Verifier types it: separators (spaces,
+ * dashes, dots, brackets) dropped, then `+62`, `62` or `0` followed by 8 to 13
+ * digits. Kept as typed otherwise; it is sealed (ADR 0012), never searched.
+ */
+function cleanPhone(raw: unknown, label: string, field: string): string {
+  const typed = typeof raw === "string" ? raw.trim() : "";
+  if (typed === "") throw new InvalidPartnerOrganisationError(`${label} wajib diisi.`, field);
+  const phone = typed.replace(/[\s\-.()]/g, "");
+  if (!/^(\+62|62|0)\d{8,13}$/.test(phone)) {
+    throw new InvalidPartnerOrganisationError(`${label} bukan nomor telepon Indonesia yang valid.`, field);
+  }
+  return phone;
+}
+
 function cleanFlag(raw: unknown, label: string, field: string): boolean {
   if (typeof raw !== "boolean") {
     throw new InvalidPartnerOrganisationError(`${label} harus bernilai true atau false.`, field);
@@ -161,7 +176,15 @@ function requireWindow(validFrom: Date, validTo: Date): void {
 
 // ==================== Audit ====================
 
-type OrganisationState = Pick<PartnerOrganisation, "name" | "fundraiserId" | "acceptsIndividualCampaigns">;
+/**
+ * What an audit entry records of an organisation. The responsible person's
+ * phone is a sealed field (ADR 0012) and never enters an audit row; a change to
+ * it is recorded as `responsiblePersonPhoneChanged` on the `after` side only.
+ */
+type OrganisationState = Pick<
+  PartnerOrganisation,
+  "name" | "fundraiserId" | "acceptsIndividualCampaigns" | "address" | "responsiblePersonName" | "responsiblePersonTitle"
+> & { responsiblePersonPhoneChanged?: true };
 
 type PermitState = { number: string; issuer: string; kinds: Kind[]; validFrom: string; validTo: string };
 
@@ -172,6 +195,9 @@ function organisationState(organisation: OrganisationState): OrganisationState {
     name: organisation.name,
     fundraiserId: organisation.fundraiserId,
     acceptsIndividualCampaigns: organisation.acceptsIndividualCampaigns,
+    address: organisation.address ?? null,
+    responsiblePersonName: organisation.responsiblePersonName ?? null,
+    responsiblePersonTitle: organisation.responsiblePersonTitle ?? null,
   };
 }
 
@@ -239,6 +265,24 @@ async function lockOrganisation(tx: Tx, organisationId: string, actorId: string)
   return organisation;
 }
 
+/**
+ * An organisation as the Verifier's register shows it: the sealed phone columns
+ * are dropped and the number decrypted for them, the way the fundraiser's email
+ * is (ADR 0012). The only way a row of this table leaves the server, so a
+ * ciphertext never reaches a response.
+ */
+export function toRegisterView<
+  T extends Pick<PartnerOrganisation, "responsiblePersonPhoneCiphertext" | "responsiblePersonPhoneKeyId">,
+>(organisation: T): Omit<T, "responsiblePersonPhoneCiphertext" | "responsiblePersonPhoneKeyId"> & {
+  responsiblePersonPhone: string | null;
+} {
+  const { responsiblePersonPhoneCiphertext, responsiblePersonPhoneKeyId, ...rest } = organisation;
+  return {
+    ...rest,
+    responsiblePersonPhone: readResponsiblePersonPhone({ responsiblePersonPhoneCiphertext, responsiblePersonPhoneKeyId }),
+  };
+}
+
 // ==================== Commands ====================
 
 /**
@@ -252,10 +296,19 @@ export async function registerPartnerOrganisation(
     name: unknown;
     fundraiserEmail: unknown;
     acceptsIndividualCampaigns: unknown;
+    /** Address and the person responsible, recorded at registration (PKS pasal 3.2). */
+    address: unknown;
+    responsiblePersonName: unknown;
+    responsiblePersonTitle: unknown;
+    responsiblePersonPhone: unknown;
     now?: Date;
   }
 ): Promise<PartnerOrganisation> {
   const name = cleanText(params.name, "Nama Partner Organisation", "name");
+  const address = cleanText(params.address, "Alamat organisasi", "address");
+  const responsiblePersonName = cleanText(params.responsiblePersonName, "Nama penanggung jawab", "responsiblePersonName");
+  const responsiblePersonTitle = cleanText(params.responsiblePersonTitle, "Jabatan penanggung jawab", "responsiblePersonTitle");
+  const responsiblePersonPhone = cleanPhone(params.responsiblePersonPhone, "Telepon penanggung jawab", "responsiblePersonPhone");
   const email = cleanText(params.fundraiserEmail, "Email akun Fundraiser", "fundraiserEmail");
   const acceptsIndividualCampaigns = cleanFlag(
     params.acceptsIndividualCampaigns,
@@ -287,6 +340,10 @@ export async function registerPartnerOrganisation(
           acceptsIndividualCampaigns,
           registeredById: params.actorId,
           registeredAt: now,
+          address,
+          responsiblePersonName,
+          responsiblePersonTitle,
+          ...sealResponsiblePersonPhone(responsiblePersonPhone),
         },
       });
       await audit(tx, {
@@ -320,12 +377,19 @@ export async function updatePartnerOrganisation(
   params: {
     actorId: string;
     organisationId: string;
-    changes: { name?: unknown; acceptsIndividualCampaigns?: unknown };
+    changes: {
+      name?: unknown;
+      acceptsIndividualCampaigns?: unknown;
+      address?: unknown;
+      responsiblePersonName?: unknown;
+      responsiblePersonTitle?: unknown;
+      responsiblePersonPhone?: unknown;
+    };
     now?: Date;
   }
 ): Promise<PartnerOrganisation> {
   const { changes } = params;
-  const data: Partial<OrganisationState> = {};
+  const data: Partial<Pick<OrganisationState, "name" | "acceptsIndividualCampaigns" | "address" | "responsiblePersonName" | "responsiblePersonTitle">> = {};
   if (changes.name !== undefined) data.name = cleanText(changes.name, "Nama Partner Organisation", "name");
   if (changes.acceptsIndividualCampaigns !== undefined) {
     data.acceptsIndividualCampaigns = cleanFlag(
@@ -334,7 +398,20 @@ export async function updatePartnerOrganisation(
       "acceptsIndividualCampaigns"
     );
   }
-  if (Object.keys(data).length === 0) {
+  if (changes.address !== undefined) data.address = cleanText(changes.address, "Alamat organisasi", "address");
+  if (changes.responsiblePersonName !== undefined) {
+    data.responsiblePersonName = cleanText(changes.responsiblePersonName, "Nama penanggung jawab", "responsiblePersonName");
+  }
+  if (changes.responsiblePersonTitle !== undefined) {
+    data.responsiblePersonTitle = cleanText(changes.responsiblePersonTitle, "Jabatan penanggung jawab", "responsiblePersonTitle");
+  }
+  // Sealed with a fresh random nonce each time, so a re-typed identical number
+  // cannot be told from a new one; any phone supplied counts as a change.
+  const phone =
+    changes.responsiblePersonPhone !== undefined
+      ? cleanPhone(changes.responsiblePersonPhone, "Telepon penanggung jawab", "responsiblePersonPhone")
+      : undefined;
+  if (Object.keys(data).length === 0 && phone === undefined) {
     throw new InvalidPartnerOrganisationError("Tidak ada perubahan untuk Partner Organisation.");
   }
   const now = params.now ?? new Date();
@@ -342,13 +419,16 @@ export async function updatePartnerOrganisation(
   return prisma.$transaction(async (tx) => {
     const current = await lockOrganisation(tx, params.organisationId, params.actorId);
     const before = organisationState(current);
-    if (same(before, { ...before, ...data })) return current;
-    const organisation = await tx.partnerOrganisation.update({ where: { id: current.id }, data });
+    if (phone === undefined && same(before, { ...before, ...data })) return current;
+    const organisation = await tx.partnerOrganisation.update({
+      where: { id: current.id },
+      data: { ...data, ...(phone !== undefined && sealResponsiblePersonPhone(phone)) },
+    });
     await audit(tx, {
       organisationId: current.id,
       action: "UPDATED",
       before,
-      after: organisationState(organisation),
+      after: { ...organisationState(organisation), ...(phone !== undefined && { responsiblePersonPhoneChanged: true as const }) },
       actorId: params.actorId,
       now,
     });

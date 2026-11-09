@@ -474,37 +474,37 @@ model PartnershipInquiryStatusChange {
 }
 
 model Campaign {
-  id                     String         @id @default(cuid())
-  slug                   String         @unique
-  title                  String
-  description            String         @db.Text
-  story                  String         @db.Text
-  coverImage             String
-  targetAmount           Int
-  collectedAmount        Int            @default(0)
-  category               String
+  id                      String         @id @default(cuid())
+  slug                    String         @unique
+  title                   String
+  description             String         @db.Text
+  story                   String         @db.Text
+  coverImage              String
+  targetAmount            Int
+  collectedAmount         Int            @default(0)
+  category                String
   /// Existing Campaigns were backfilled to DONATION by the migration that
   /// added this column; POST /api/campaigns always writes it explicitly.
-  kind                   Kind           @default(DONATION)
+  kind                    Kind           @default(DONATION)
   // A new Campaign is a Draft until its Fundraiser submits it (FFI-04).
-  lifecycleStatus        CampaignStatus @default(DRAFT)
-  isUrgent               Boolean        @default(false)
-  deadline               DateTime?
+  lifecycleStatus         CampaignStatus @default(DRAFT)
+  isUrgent                Boolean        @default(false)
+  deadline                DateTime?
   /// Stamped once the scheduled job (runScheduledJobs, ticket 20) sends the
   /// deadline reminder to this Campaign's Fundraiser. Null until then, so the
   /// same reminder is never sent twice -- claimed via a predicated
   /// `updateMany` (WHERE deadlineReminderSentAt IS NULL) before sending,
   /// mirroring Payment.escrowReleasedAt's own claim pattern, so two
   /// overlapping scheduler runs still send exactly one reminder.
-  deadlineReminderSentAt DateTime?
-  creatorId              String
+  deadlineReminderSentAt  DateTime?
+  creatorId               String
   /// The Partner Organisation under whose Fundraising Permit this Campaign
   /// collects (CONTEXT.md, Collecting Entity; ADR 0010). Always a Partner
   /// Organisation, so the Platform Operator can never be one. Null on a
   /// Draft that has not named one yet and on a Campaign that predates this
   /// column; neither accepts a Donation (campaignAcceptsDonations), and
   /// submitCampaign refuses a Campaign without one.
-  collectingEntityId     String?
+  collectingEntityId      String?
   /// Where this Campaign happens, free text and nullable, the way
   /// `category` is (ticket 25, "Impact & Transparency"). One field rather
   /// than a province and a regency/city pair on purpose: nothing in this
@@ -516,7 +516,7 @@ model Campaign {
   /// Tengah. Null until a Campaign form writes one -- a Campaign with no
   /// location simply matches no location filter, which is honest rather
   /// than quietly counted as everywhere.
-  location               String?
+  location                String?
   /// The beneficiary this Campaign names (PRD FFI-02, FFI-05). Plaintext,
   /// never encrypted: ADR 0012 keeps names readable precisely so they can be
   /// compared, and "identical beneficiary name" is one of the three matches
@@ -525,20 +525,24 @@ model Campaign {
   /// Campaign form writes one; a Campaign that names no beneficiary matches
   /// no other Campaign on this, which is what the statement in
   /// src/lib/duplicate-hints.ts relies on.
-  beneficiaryName        String?
+  beneficiaryName         String?
   /// Province of the Campaign, the two-digit Kemendagri code from the static
   /// list in src/lib/indonesia-provinces.ts (ticket 74, decision C8). Null
   /// until a Campaign form writes one; `location` above is kept, not migrated.
-  province               String?
+  province                String?
   /// Regency or city, free text (ticket 74), at most 100 characters.
-  regency                String?
+  regency                 String?
   /// Who the Campaign helps, in words (ticket 74), at most 200 characters.
   /// Not `beneficiaryName`: that one names a person for duplicate hints.
-  beneficiaryDescription String?
+  beneficiaryDescription  String?
   /// How many people it helps (ticket 74); positive when set.
-  beneficiaryCount       Int?
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
+  beneficiaryCount        Int?
+  /// How the Fundraiser relates to the beneficiary, in a few words (PKS pasal
+  /// 3.2; "Keluarga", "Guru", "Pengurus panti"), at most 200 characters. The
+  /// Verifier reads it beside the checklist item that asks for evidence of it.
+  beneficiaryRelationship String?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
 
   /// Sample/demo content, not a real appeal. Set by a one-time migration for
   /// the 30 campaigns that existed before the money layer (task M9) -- every
@@ -847,16 +851,30 @@ model IdentityVerification {
 /// documents, with the one Fundraiser account that acts for it. The only
 /// thing a Campaign's Collecting Entity can be (ADR 0010). Never deleted.
 model PartnerOrganisation {
-  id                         String   @id @default(cuid())
-  name                       String
+  id                               String   @id @default(cuid())
+  name                             String
   /// The linked Fundraiser account. A Campaign it creates gets this
   /// organisation as its Collecting Entity automatically.
-  fundraiserId               String   @unique
+  fundraiserId                     String   @unique
   /// Set by the Verifier: whether an individual Fundraiser may pick it as
   /// the sponsoring Collecting Entity of their Campaign.
-  acceptsIndividualCampaigns Boolean  @default(false)
-  registeredById             String
-  registeredAt               DateTime @default(now())
+  acceptsIndividualCampaigns       Boolean  @default(false)
+  registeredById                   String
+  registeredAt                     DateTime @default(now())
+  /// The organisation's address (PKS pasal 3.2). Plaintext: an institution's
+  /// address is the kind of thing a permit lists, not a person's contact. Null
+  /// on an organisation registered before the column existed; the Verifier
+  /// fills it in from the register.
+  address                          String?
+  /// The person responsible for the organisation (penanggung jawab, PKS pasal
+  /// 3.2): name and position are plaintext, like a Fundraiser's name (ADR 0012).
+  responsiblePersonName            String?
+  responsiblePersonTitle           String?
+  /// Their telephone number, sealed under ADR 0012's field scheme (randomized
+  /// ciphertext, never searched, so no HMAC). Read only through
+  /// src/lib/contact-fields.ts; never in an audit entry or a log.
+  responsiblePersonPhoneCiphertext String?
+  responsiblePersonPhoneKeyId      String?
 
   // Relations
   fundraiser           User                            @relation("PartnerOrganisationFundraiser", fields: [fundraiserId], references: [id], onDelete: Restrict)

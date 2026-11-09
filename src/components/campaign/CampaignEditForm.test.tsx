@@ -22,6 +22,7 @@ const INITIAL = {
   regency: 'Kabupaten Garut',
   beneficiaryDescription: 'Anak yatim',
   beneficiaryCount: '40',
+  beneficiaryRelationship: 'Guru anak-anak itu',
 };
 
 type Call = { url: string; init?: RequestInit };
@@ -105,6 +106,7 @@ describe('CampaignEditForm', () => {
     expect(screen.getByLabelText('Kabupaten/Kota')).toHaveValue('Kabupaten Garut');
     expect(screen.getByLabelText('Penerima Manfaat')).toHaveValue('Anak yatim');
     expect(screen.getByLabelText('Jumlah Penerima Manfaat')).toHaveValue(40);
+    expect(screen.getByLabelText('Hubungan dengan Penerima Manfaat')).toHaveValue('Guru anak-anak itu');
 
     fireEvent.change(screen.getByLabelText('Provinsi'), { target: { value: '33' } });
     fireEvent.change(screen.getByLabelText('Kabupaten/Kota'), { target: { value: ' Kota Semarang ' } });
@@ -117,6 +119,7 @@ describe('CampaignEditForm', () => {
       regency: 'Kota Semarang',
       beneficiaryDescription: 'Anak yatim',
       beneficiaryCount: 55,
+      beneficiaryRelationship: 'Guru anak-anak itu',
     });
   });
 

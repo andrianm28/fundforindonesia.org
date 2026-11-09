@@ -43,6 +43,11 @@ export type PartnerOrganisationRow = {
   acceptsIndividualCampaigns: boolean;
   registeredById: string;
   registeredAt: Date;
+  address?: string | null;
+  responsiblePersonName?: string | null;
+  responsiblePersonTitle?: string | null;
+  responsiblePersonPhoneCiphertext?: string | null;
+  responsiblePersonPhoneKeyId?: string | null;
 };
 
 export type FundraisingPermitRow = {

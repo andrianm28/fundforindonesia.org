@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { campaignLocationSchema, campaignLocationLabel } from './campaign-location';
 
+describe('campaignLocationSchema beneficiaryRelationship (PKS 3.2)', () => {
+  it('trims the relationship text, and blank clears it', () => {
+    expect(campaignLocationSchema.parse({ beneficiaryRelationship: '  Paman kandung ' }).beneficiaryRelationship).toBe('Paman kandung');
+    expect(campaignLocationSchema.parse({ beneficiaryRelationship: '   ' }).beneficiaryRelationship).toBeNull();
+    expect(campaignLocationSchema.parse({}).beneficiaryRelationship).toBeUndefined();
+  });
+
+  it('refuses more than 200 characters', () => {
+    expect(campaignLocationSchema.safeParse({ beneficiaryRelationship: 'a'.repeat(201) }).success).toBe(false);
+    expect(campaignLocationSchema.safeParse({ beneficiaryRelationship: 'a'.repeat(200) }).success).toBe(true);
+  });
+});
+
 describe('campaignLocationSchema', () => {
   it('accepts a body with none of the fields', () => {
     expect(campaignLocationSchema.safeParse({}).success).toBe(true);

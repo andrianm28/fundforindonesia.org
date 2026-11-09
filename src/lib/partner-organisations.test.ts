@@ -11,12 +11,13 @@ import {
   recordFundraisingPermit,
   registerPartnerOrganisation,
   sponsorOptionsFor,
+  toRegisterView,
   updateFundraisingPermit,
   updateKindAuthorisation,
   updatePartnerOrganisation,
 } from './partner-organisations';
 import { domainErrorToHttp } from './domain-errors';
-import { sealUserEmail } from './contact-fields';
+import { readResponsiblePersonPhone, sealUserEmail } from './contact-fields';
 import {
   fundraisingPermitRow,
   kindAuthorisationRow,
@@ -39,6 +40,15 @@ const USERS = [
   { id: 'verifier-1', name: 'Verifier', ...sealUserEmail('verifier@example.org') },
 ];
 
+// The address and the person responsible a Verifier records at registration
+// (PKS pasal 3.2). The telephone is typed in a Verifier's usual way.
+const PROFILE = {
+  address: 'Jl. Merdeka No. 17, Garut, Jawa Barat',
+  responsiblePersonName: 'Siti Rahma',
+  responsiblePersonTitle: 'Ketua Pengurus',
+  responsiblePersonPhone: '0812-3456-7890',
+};
+
 function db(seed: Parameters<typeof makeCampaignDb>[0] = {}) {
   return makeCampaignDb({ partnerOrganisations: [], fundraisingPermits: [], users: USERS, ...seed });
 }
@@ -48,6 +58,7 @@ describe('registerPartnerOrganisation', () => {
     const store = db();
 
     const organisation = await registerPartnerOrganisation(store.prisma as never, {
+      ...PROFILE,
       actorId: 'verifier-1',
       name: '  Yayasan Indonesia Emas Merdeka ',
       fundraiserEmail: ' yiem@example.org ',
@@ -63,6 +74,11 @@ describe('registerPartnerOrganisation', () => {
         acceptsIndividualCampaigns: true,
         registeredById: 'verifier-1',
         registeredAt: NOW,
+        address: 'Jl. Merdeka No. 17, Garut, Jawa Barat',
+        responsiblePersonName: 'Siti Rahma',
+        responsiblePersonTitle: 'Ketua Pengurus',
+        responsiblePersonPhoneCiphertext: expect.any(String),
+        responsiblePersonPhoneKeyId: expect.any(String),
       },
     ]);
     expect(store.partnerOrganisationAudits).toEqual([
@@ -71,11 +87,62 @@ describe('registerPartnerOrganisation', () => {
         permitId: null,
         action: 'REGISTERED',
         before: null,
-        after: { name: 'Yayasan Indonesia Emas Merdeka', fundraiserId: 'yiem-account', acceptsIndividualCampaigns: true },
+        after: {
+          name: 'Yayasan Indonesia Emas Merdeka',
+          fundraiserId: 'yiem-account',
+          acceptsIndividualCampaigns: true,
+          address: 'Jl. Merdeka No. 17, Garut, Jawa Barat',
+          responsiblePersonName: 'Siti Rahma',
+          responsiblePersonTitle: 'Ketua Pengurus',
+        },
         actedById: 'verifier-1',
         actedAt: NOW,
       }),
     ]);
+  });
+
+  it('seals the responsible person\'s phone and keeps it out of the audit entry (ADR 0012)', async () => {
+    const store = db();
+
+    await registerPartnerOrganisation(store.prisma as never, {
+      ...PROFILE,
+      actorId: 'verifier-1',
+      name: 'YIEM',
+      fundraiserEmail: 'yiem@example.org',
+      acceptsIndividualCampaigns: true,
+      now: NOW,
+    });
+
+    const row = store.partnerOrganisations[0];
+    expect(JSON.stringify(row)).not.toContain('081234567890');
+    expect(JSON.stringify(row)).not.toContain('0812-3456-7890');
+    expect(readResponsiblePersonPhone(row as never)).toBe('081234567890');
+    expect(JSON.stringify(store.partnerOrganisationAudits)).not.toMatch(/0812|ciphertext/i);
+  });
+
+  it.each([
+    ['a blank address', { address: ' ' }],
+    ['a blank responsible person', { responsiblePersonName: '' }],
+    ['a missing position', { responsiblePersonTitle: undefined }],
+    ['a missing phone', { responsiblePersonPhone: undefined }],
+    ['a phone that is not an Indonesian number', { responsiblePersonPhone: '12345' }],
+    ['a phone with letters', { responsiblePersonPhone: '0812abc7890' }],
+  ])('refuses %s with 400, writing nothing', async (_what, override) => {
+    const store = db();
+
+    const error = await registerPartnerOrganisation(store.prisma as never, {
+      ...PROFILE,
+      actorId: 'verifier-1',
+      name: 'YIEM',
+      fundraiserEmail: 'yiem@example.org',
+      acceptsIndividualCampaigns: false,
+      now: NOW,
+      ...override,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InvalidPartnerOrganisationError);
+    expect(domainErrorToHttp(error)?.status).toBe(400);
+    expect(store.partnerOrganisations).toEqual([]);
   });
 
   it.each([
@@ -86,6 +153,7 @@ describe('registerPartnerOrganisation', () => {
     const store = db();
 
     const error = await registerPartnerOrganisation(store.prisma as never, {
+      ...PROFILE,
       actorId: 'verifier-1',
       name: 'YIEM',
       fundraiserEmail: 'yiem@example.org',
@@ -104,6 +172,7 @@ describe('registerPartnerOrganisation', () => {
     const store = db({ partnerOrganisations: [partnerOrganisationRow({ fundraiserId: 'yiem-account' })] });
 
     const error = await registerPartnerOrganisation(store.prisma as never, {
+      ...PROFILE,
       actorId: 'verifier-1',
       name: 'Yayasan Kedua',
       fundraiserEmail: 'yiem@example.org',
@@ -120,6 +189,7 @@ describe('registerPartnerOrganisation', () => {
     const store = db({ organisationMembers: [{ userId: 'yiem-account' }] });
 
     const error = await registerPartnerOrganisation(store.prisma as never, {
+      ...PROFILE,
       actorId: 'verifier-1',
       name: 'Yayasan Kedua',
       fundraiserEmail: 'yiem@example.org',
@@ -136,6 +206,7 @@ describe('registerPartnerOrganisation', () => {
     const store = db();
 
     const error = await registerPartnerOrganisation(store.prisma as never, {
+      ...PROFILE,
       actorId: 'verifier-1',
       name: 'Yayasan Sendiri',
       fundraiserEmail: 'verifier@example.org',
@@ -149,7 +220,87 @@ describe('registerPartnerOrganisation', () => {
   });
 });
 
+describe('toRegisterView', () => {
+  it('drops the sealed phone columns and shows the Verifier the number, null when none was recorded', async () => {
+    const store = db();
+    const organisation = await registerPartnerOrganisation(store.prisma as never, {
+      ...PROFILE,
+      actorId: 'verifier-1',
+      name: 'YIEM',
+      fundraiserEmail: 'yiem@example.org',
+      acceptsIndividualCampaigns: true,
+      now: NOW,
+    });
+
+    const view = toRegisterView(organisation as never);
+
+    expect(view).toMatchObject({ address: PROFILE.address, responsiblePersonPhone: '081234567890' });
+    expect(Object.keys(view).some((key) => /Ciphertext|KeyId/.test(key))).toBe(false);
+    expect(
+      toRegisterView({ responsiblePersonPhoneCiphertext: null, responsiblePersonPhoneKeyId: null }).responsiblePersonPhone,
+    ).toBeNull();
+  });
+});
+
 describe('updatePartnerOrganisation', () => {
+  // An organisation registered before PKS 3.2 has no address or responsible person.
+  const ORGANISATION_STATE = {
+    name: 'Yayasan Contoh Peduli',
+    fundraiserId: 'partner-fundraiser-1',
+    acceptsIndividualCampaigns: true,
+    address: null,
+    responsiblePersonName: null,
+    responsiblePersonTitle: null,
+  };
+
+  it('fills in the address and the person responsible of an older organisation, auditing it without the phone', async () => {
+    const store = db({ partnerOrganisations: [partnerOrganisationRow()] });
+
+    await updatePartnerOrganisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      changes: {
+        address: PROFILE.address,
+        responsiblePersonName: PROFILE.responsiblePersonName,
+        responsiblePersonTitle: PROFILE.responsiblePersonTitle,
+        responsiblePersonPhone: PROFILE.responsiblePersonPhone,
+      },
+      now: NOW,
+    });
+
+    const row = store.partnerOrganisations[0];
+    expect(row).toMatchObject({ address: PROFILE.address, responsiblePersonName: 'Siti Rahma', responsiblePersonTitle: 'Ketua Pengurus' });
+    expect(readResponsiblePersonPhone(row as never)).toBe('081234567890');
+    expect(store.partnerOrganisationAudits).toEqual([
+      expect.objectContaining({
+        action: 'UPDATED',
+        before: ORGANISATION_STATE,
+        after: {
+          ...ORGANISATION_STATE,
+          address: PROFILE.address,
+          responsiblePersonName: 'Siti Rahma',
+          responsiblePersonTitle: 'Ketua Pengurus',
+          responsiblePersonPhoneChanged: true,
+        },
+      }),
+    ]);
+    expect(JSON.stringify(store.partnerOrganisationAudits)).not.toMatch(/0812|ciphertext/i);
+  });
+
+  it('refuses a phone that is not an Indonesian number, changing nothing', async () => {
+    const store = db({ partnerOrganisations: [partnerOrganisationRow()] });
+
+    const error = await updatePartnerOrganisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      changes: { responsiblePersonPhone: 'abc' },
+      now: NOW,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InvalidPartnerOrganisationError);
+    expect(store.partnerOrganisationAudits).toEqual([]);
+  });
+
   it('changes whether it accepts individual Campaigns, auditing before and after', async () => {
     const store = db({ partnerOrganisations: [partnerOrganisationRow({ acceptsIndividualCampaigns: true })] });
 
@@ -164,8 +315,8 @@ describe('updatePartnerOrganisation', () => {
     expect(store.partnerOrganisationAudits).toEqual([
       expect.objectContaining({
         action: 'UPDATED',
-        before: { name: 'Yayasan Contoh Peduli', fundraiserId: 'partner-fundraiser-1', acceptsIndividualCampaigns: true },
-        after: { name: 'Yayasan Contoh Peduli', fundraiserId: 'partner-fundraiser-1', acceptsIndividualCampaigns: false },
+        before: { ...ORGANISATION_STATE, acceptsIndividualCampaigns: true },
+        after: { ...ORGANISATION_STATE, acceptsIndividualCampaigns: false },
         actedById: 'verifier-2',
         actedAt: NOW,
       }),

@@ -55,6 +55,7 @@ export default async function ManageCampaignPage({ params }: PageProps) {
       regency: true,
       beneficiaryDescription: true,
       beneficiaryCount: true,
+      beneficiaryRelationship: true,
     },
   });
   if (!campaign || campaign.creatorId !== session.user.id) {
@@ -103,6 +104,7 @@ export default async function ManageCampaignPage({ params }: PageProps) {
               regency: campaign.regency ?? '',
               beneficiaryDescription: campaign.beneficiaryDescription ?? '',
               beneficiaryCount: campaign.beneficiaryCount?.toString() ?? '',
+              beneficiaryRelationship: campaign.beneficiaryRelationship ?? '',
             }}
             targetAmount={campaign.targetAmount}
             categoryName={category?.name ?? campaign.category}

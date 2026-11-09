@@ -1645,6 +1645,15 @@ describe('PATCH /api/campaigns/[slug] -- location and beneficiaries (ticket 74)'
     });
   });
 
+  it('saves and clears the relationship with the beneficiary of a Draft (PKS 3.2)', async () => {
+    await patch({ beneficiaryRelationship: ' Wali murid ' });
+    expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ beneficiaryRelationship: 'Wali murid' });
+
+    mockUpdate.mockClear();
+    await patch({ beneficiaryRelationship: '' });
+    expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ beneficiaryRelationship: null });
+  });
+
   it('clears a value sent as null or blank', async () => {
     const response = await patch({ province: '', regency: null, beneficiaryCount: null });
 
@@ -1656,7 +1665,7 @@ describe('PATCH /api/campaigns/[slug] -- location and beneficiaries (ticket 74)'
     await patch({ story: 'Cerita baru' });
 
     const data = mockUpdate.mock.calls[0][0].data;
-    for (const key of ['province', 'regency', 'beneficiaryDescription', 'beneficiaryCount']) {
+    for (const key of ['province', 'regency', 'beneficiaryDescription', 'beneficiaryCount', 'beneficiaryRelationship']) {
       expect(data).not.toHaveProperty(key);
     }
   });

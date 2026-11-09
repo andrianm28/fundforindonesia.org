@@ -404,6 +404,16 @@ describe('POST /api/campaigns', () => {
     });
   });
 
+  it('stores how the Fundraiser relates to the beneficiary (PKS 3.2), trimmed', async () => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+    mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
+
+    const response = await POST(createPostRequest({ ...validBody, beneficiaryRelationship: '  Guru kelas anak itu ' }));
+
+    expect(response.status).toBe(201);
+    expect(mockCreate.mock.calls[0][0].data.beneficiaryRelationship).toBe('Guru kelas anak itu');
+  });
+
   it('stores null for the location fields when none are given', async () => {
     mockGetServerSession.mockResolvedValue(verifiedSession as never);
     mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
@@ -415,6 +425,7 @@ describe('POST /api/campaigns', () => {
       regency: null,
       beneficiaryDescription: null,
       beneficiaryCount: null,
+      beneficiaryRelationship: null,
     });
   });
 
@@ -423,6 +434,7 @@ describe('POST /api/campaigns', () => {
     ['province', { province: 'Jawa Barat' }],
     ['regency', { regency: 'a'.repeat(101) }],
     ['beneficiaryDescription', { beneficiaryDescription: 'a'.repeat(201) }],
+    ['beneficiaryRelationship', { beneficiaryRelationship: 'a'.repeat(201) }],
     ['beneficiaryCount', { beneficiaryCount: 0 }],
     ['beneficiaryCount', { beneficiaryCount: -5 }],
     ['beneficiaryCount', { beneficiaryCount: 1.5 }],

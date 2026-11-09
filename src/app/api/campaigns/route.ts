@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
     const { title, description, story, coverImage, targetAmount, category, kind, deadline } = result.data;
     const beneficiaryName = result.data.beneficiaryName?.trim() || null;
     // Where it happens and who it helps (ticket 74): all optional, null when blank.
-    const { province, regency, beneficiaryDescription, beneficiaryCount } = result.data;
+    const { province, regency, beneficiaryDescription, beneficiaryCount, beneficiaryRelationship } = result.data;
 
     // The Category must be one the Admin keeps in the Category table: a slug
     // with no row there files the Campaign under a Category page that 404s.
@@ -214,6 +214,7 @@ export async function POST(request: NextRequest) {
         regency: regency ?? null,
         beneficiaryDescription: beneficiaryDescription ?? null,
         beneficiaryCount: beneficiaryCount ?? null,
+        beneficiaryRelationship: beneficiaryRelationship ?? null,
         creatorId: session.user.id,
         collectingEntityId,
         // A new campaign is a Draft: visible only to its Fundraiser, and not

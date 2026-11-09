@@ -11,6 +11,10 @@ const ORGANISATION = {
   name: 'Yayasan Indonesia Emas Merdeka',
   acceptsIndividualCampaigns: false,
   fundraiser: { name: 'YIEM', email: 'yiem@example.org' },
+  address: 'Jl. Merdeka No. 17, Garut',
+  responsiblePersonName: 'Siti Rahma',
+  responsiblePersonTitle: 'Ketua Pengurus',
+  responsiblePersonPhone: '081234567890',
   permits: [
     {
       id: 'permit-1',
@@ -85,17 +89,56 @@ describe('PartnerOrganisationRegister', () => {
     render(<PartnerOrganisationRegister />);
     await screen.findByText('Yayasan Indonesia Emas Merdeka');
 
+    const registerForm = screen.getByText('Daftarkan Partner Organisation').closest('form') as HTMLElement;
     fireEvent.change(screen.getByLabelText('Nama organisasi'), { target: { value: 'Yayasan Baru' } });
     fireEvent.change(screen.getByLabelText('Email akun Fundraiser yang mewakilinya'), {
       target: { value: 'baru@example.org' },
     });
+    fireEvent.change(within(registerForm).getByLabelText('Alamat organisasi'), { target: { value: 'Jl. Baru 1, Bandung' } });
+    fireEvent.change(within(registerForm).getByLabelText('Nama penanggung jawab'), { target: { value: 'Budi' } });
+    fireEvent.change(within(registerForm).getByLabelText('Jabatan penanggung jawab'), { target: { value: 'Direktur' } });
+    fireEvent.change(within(registerForm).getByLabelText('Telepon penanggung jawab'), { target: { value: '0811222333' } });
     fireEvent.click(screen.getByRole('button', { name: 'Daftarkan' }));
 
     await waitFor(() =>
       expect(calls.find((c) => c.method === 'POST')).toEqual({
         url: '/api/moderasi/partner-organisations',
         method: 'POST',
-        body: { name: 'Yayasan Baru', fundraiserEmail: 'baru@example.org', acceptsIndividualCampaigns: false },
+        body: {
+          name: 'Yayasan Baru',
+          fundraiserEmail: 'baru@example.org',
+          acceptsIndividualCampaigns: false,
+          address: 'Jl. Baru 1, Bandung',
+          responsiblePersonName: 'Budi',
+          responsiblePersonTitle: 'Direktur',
+          responsiblePersonPhone: '0811222333',
+        },
+      }),
+    );
+  });
+
+  it('shows an organisation\'s address and person responsible, and saves a correction of them', async () => {
+    render(<PartnerOrganisationRegister />);
+    await screen.findByText('Yayasan Indonesia Emas Merdeka');
+
+    const card = screen.getByText('Yayasan Indonesia Emas Merdeka').closest('section') as HTMLElement;
+    const address = within(card).getByLabelText('Alamat organisasi') as HTMLInputElement;
+    expect(address.value).toBe('Jl. Merdeka No. 17, Garut');
+    expect((within(card).getByLabelText('Telepon penanggung jawab') as HTMLInputElement).value).toBe('081234567890');
+
+    fireEvent.change(address, { target: { value: 'Jl. Pindah No. 2' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Simpan data penanggung jawab' }));
+
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PATCH')).toEqual({
+        url: '/api/moderasi/partner-organisations/yiem',
+        method: 'PATCH',
+        body: {
+          address: 'Jl. Pindah No. 2',
+          responsiblePersonName: 'Siti Rahma',
+          responsiblePersonTitle: 'Ketua Pengurus',
+          responsiblePersonPhone: '081234567890',
+        },
       }),
     );
   });

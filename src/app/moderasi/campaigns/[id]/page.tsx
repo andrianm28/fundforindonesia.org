@@ -248,6 +248,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
                     : "Belum diisi"
               }
             />
+            <InfoItem label="Hubungan dengan Penerima Manfaat" value={campaign.beneficiaryRelationship || "Belum diisi"} />
           </div>
 
           {/* Description */}

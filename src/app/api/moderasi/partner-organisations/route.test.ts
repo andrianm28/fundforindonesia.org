@@ -24,7 +24,15 @@ import { getServerSession } from '@/lib/auth';
 
 const mockSession = getServerSession as unknown as Mock;
 const URL = 'http://localhost:3000/api/moderasi/partner-organisations';
-const BODY = { name: 'Yayasan Indonesia Emas Merdeka', fundraiserEmail: 'yiem@example.org', acceptsIndividualCampaigns: true };
+const BODY = {
+  name: 'Yayasan Indonesia Emas Merdeka',
+  fundraiserEmail: 'yiem@example.org',
+  acceptsIndividualCampaigns: true,
+  address: 'Jl. Merdeka No. 17, Garut, Jawa Barat',
+  responsiblePersonName: 'Siti Rahma',
+  responsiblePersonTitle: 'Ketua Pengurus',
+  responsiblePersonPhone: '081234567890',
+};
 
 function post(body: unknown): Promise<Response> {
   return POST(new NextRequest(URL, { method: 'POST', body: JSON.stringify(body) }));
@@ -50,6 +58,29 @@ describe('POST /api/moderasi/partner-organisations', () => {
     expect(state.db.partnerOrganisationAudits).toEqual([
       expect.objectContaining({ action: 'REGISTERED', actedById: 'verifier-1' }),
     ]);
+  });
+
+  it('saves the address and the person responsible, and answers the Verifier without the sealed phone columns (PKS 3.2)', async () => {
+    const res = await post(BODY);
+
+    expect(res.status).toBe(201);
+    const { organisation } = await res.json();
+    expect(organisation).toMatchObject({
+      address: BODY.address,
+      responsiblePersonName: 'Siti Rahma',
+      responsiblePersonTitle: 'Ketua Pengurus',
+    });
+    expect(JSON.stringify(organisation)).not.toMatch(/Ciphertext|KeyId/);
+    expect(organisation.responsiblePersonPhone).toBe('081234567890');
+    expect(state.db.partnerOrganisations[0]).toMatchObject({ address: BODY.address, responsiblePersonName: 'Siti Rahma' });
+    expect(JSON.stringify(state.db.partnerOrganisations[0])).not.toContain('081234567890');
+  });
+
+  it('refuses a registration without the person responsible with 400', async () => {
+    const res = await post({ ...BODY, responsiblePersonName: undefined });
+
+    expect(res.status).toBe(400);
+    expect(state.db.partnerOrganisations).toEqual([]);
   });
 
   it('answers a refusal with its status and code', async () => {

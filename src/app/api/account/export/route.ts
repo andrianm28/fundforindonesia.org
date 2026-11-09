@@ -87,6 +87,7 @@ export async function GET() {
         beneficiaryName: true,
         beneficiaryDescription: true,
         beneficiaryCount: true,
+        beneficiaryRelationship: true,
         createdAt: true,
       },
     }),

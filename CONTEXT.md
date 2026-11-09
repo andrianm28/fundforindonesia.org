@@ -103,7 +103,7 @@ PT Jaya Korpora Prima, pemilik dan pengelola platform. Memegang akun merchant pe
 _Avoid_: YIEM, penyelenggara, pemilik platform
 
 **Partner Organisation**:
-Organisasi yang menjalankan program di atas platform dan menjadi Fundraiser, seperti YIEM. Didaftarkan Verifier setelah memeriksa dokumen legalnya, bersama satu akun Fundraiser yang bertindak atas namanya, akun utama yang tetap menjadi pemiliknya; orang lain bergabung sebagai **Anggota tim**. Boleh menyatakan bersedia menaungi Campaign Fundraiser perorangan. Kind Authorisation melekat padanya, bukan pada Platform Operator.
+Organisasi yang menjalankan program di atas platform dan menjadi Fundraiser, seperti YIEM. Didaftarkan Verifier setelah memeriksa dokumen legalnya, bersama satu akun Fundraiser yang bertindak atas namanya, akun utama yang tetap menjadi pemiliknya; orang lain bergabung sebagai **Anggota tim**. Boleh menyatakan bersedia menaungi Campaign Fundraiser perorangan. Kind Authorisation melekat padanya, bukan pada Platform Operator. Saat mendaftar, Verifier mengisi alamat dan **penanggung jawab** (nama, jabatan, telepon; PKS pasal 3.2): telepon terenkripsi menurut ADR 0012 dan tidak pernah masuk jurnal audit, sedangkan nama, jabatan, dan alamat berupa teks biasa. Organisasi yang terdaftar sebelum kolom ini ada belum punya datanya; Verifier melengkapinya dari daftar.
 _Avoid_: Mitra, lembaga, yayasan
 
 **Anggota tim**:

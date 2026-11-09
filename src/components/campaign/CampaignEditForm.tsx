@@ -202,6 +202,7 @@ export function CampaignEditForm({
           regency: form.regency,
           beneficiaryDescription: form.beneficiaryDescription,
           beneficiaryCount: form.beneficiaryCount,
+          beneficiaryRelationship: form.beneficiaryRelationship,
         }}
         errors={errors}
         onChange={(location) => setForm((prev) => ({ ...prev, ...location }))}

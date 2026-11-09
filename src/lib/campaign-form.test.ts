@@ -13,7 +13,16 @@ describe('locationErrors', () => {
     for (const bad of ['0', '-4', '2.5', 'abc', '99999999999']) {
       expect(locationErrors({ ...EMPTY_LOCATION_FORM, beneficiaryCount: bad }).beneficiaryCount).toBeDefined();
     }
-    expect(locationErrors({ province: '32', regency: 'Garut', beneficiaryDescription: 'Yatim', beneficiaryCount: '40' })).toEqual({});
+    expect(locationErrors({ ...EMPTY_LOCATION_FORM, beneficiaryRelationship: 'a'.repeat(201) }).beneficiaryRelationship).toBeDefined();
+    expect(
+      locationErrors({
+        province: '32',
+        regency: 'Garut',
+        beneficiaryDescription: 'Yatim',
+        beneficiaryCount: '40',
+        beneficiaryRelationship: 'Guru',
+      }),
+    ).toEqual({});
   });
 });
 
@@ -24,15 +33,25 @@ describe('locationPayload', () => {
       regency: null,
       beneficiaryDescription: null,
       beneficiaryCount: null,
+      beneficiaryRelationship: null,
     });
   });
 
   it('trims text and turns the count into a number', () => {
-    expect(locationPayload({ province: '32', regency: ' Garut ', beneficiaryDescription: ' Yatim ', beneficiaryCount: '40' })).toEqual({
+    expect(
+      locationPayload({
+        province: '32',
+        regency: ' Garut ',
+        beneficiaryDescription: ' Yatim ',
+        beneficiaryCount: '40',
+        beneficiaryRelationship: ' Guru ',
+      }),
+    ).toEqual({
       province: '32',
       regency: 'Garut',
       beneficiaryDescription: 'Yatim',
       beneficiaryCount: 40,
+      beneficiaryRelationship: 'Guru',
     });
   });
 });

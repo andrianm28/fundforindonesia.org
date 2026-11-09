@@ -93,6 +93,13 @@ const CONTACT_PHONE: ContactField = {
   keyId: 'contactPhoneKeyId',
 };
 
+const RESPONSIBLE_PERSON_PHONE: ContactField = {
+  model: 'PartnerOrganisation',
+  column: 'responsiblePersonPhone',
+  sealed: 'responsiblePersonPhoneCiphertext',
+  keyId: 'responsiblePersonPhoneKeyId',
+};
+
 const INVITATION_EMAIL: ContactField = {
   model: 'OrganisationInvitation',
   column: 'email',
@@ -217,6 +224,23 @@ export function readBankAccountNumber(row: Sealed<'accountNumberCiphertext', 'ac
 export const SELECT_BANK_ACCOUNT_NUMBER = {
   accountNumberCiphertext: true,
   accountNumberKeyId: true,
+} as const;
+
+// --- PartnerOrganisation (the person responsible, PKS pasal 3.2) ---------------
+
+export function sealResponsiblePersonPhone(
+  phone: string | null,
+): Sealed<'responsiblePersonPhoneCiphertext', 'responsiblePersonPhoneKeyId'> {
+  return seal(RESPONSIBLE_PERSON_PHONE, phone) as ReturnType<typeof sealResponsiblePersonPhone>;
+}
+export function readResponsiblePersonPhone(
+  row: Sealed<'responsiblePersonPhoneCiphertext', 'responsiblePersonPhoneKeyId'>,
+): string | null {
+  return read(RESPONSIBLE_PERSON_PHONE, row);
+}
+export const SELECT_RESPONSIBLE_PERSON_PHONE = {
+  responsiblePersonPhoneCiphertext: true,
+  responsiblePersonPhoneKeyId: true,
 } as const;
 
 // --- Refund (a Donor's destination account, recorded at approval) ------------
