@@ -204,6 +204,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/operations/route.ts",
   "src/app/api/admin/site-settings/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
+  "src/app/api/admin/users/[id]/mfa/reset/route.ts",
   "src/app/api/admin/users/route.ts",
   "src/app/api/admin/programs/[id]/route.ts",
   "src/app/api/admin/programs/route.ts",
