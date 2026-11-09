@@ -37,6 +37,14 @@ function parseGrossAmount(raw: string): number {
 export class MockPaymentProvider implements PaymentProvider {
   readonly name = 'mock';
   readonly method = 'bank_transfer_va' as const;
+  /**
+   * QRIS too, so a local or staging app can take a Donation through the
+   * real donate screen (which offers only QRIS, the method Sumopod charges in
+   * production). The "hosted page" is the donor's own return URL: there is no
+   * QR to scan, and the charge stays pending until a signed webhook (see
+   * simulateWebhookPayload) settles it.
+   */
+  readonly supportedMethods = ['bank_transfer_va', 'qris_redirect'] as const;
 
   private readonly serverKey: string;
 
@@ -58,6 +66,16 @@ export class MockPaymentProvider implements PaymentProvider {
   }
 
   async createCharge(input: ChargeInput): Promise<ChargeResult> {
+    if (input.method === 'qris_redirect') {
+      const result: ChargeResult = {
+        providerOrderId: input.orderId,
+        method: 'qris_redirect',
+        redirectUrl: input.successReturnUrl ?? `https://mock-payment.invalid/qris/${encodeURIComponent(input.orderId)}`,
+        expiresAt: new Date(Date.now() + VA_EXPIRY_MS),
+      };
+      this.charges.set(input.orderId, result);
+      return result;
+    }
     // A VA number derived from the order id: stable per order and shaped like
     // a real one (banks issue 10-16 digits). Not cryptographically meaningful
     // and not meant to be -- this is the one part that is genuinely a mock.

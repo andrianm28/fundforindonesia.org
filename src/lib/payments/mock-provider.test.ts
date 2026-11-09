@@ -25,6 +25,32 @@ describe('MockPaymentProvider identity', () => {
   });
 });
 
+describe('MockPaymentProvider QRIS (local and staging donate screen)', () => {
+  it('lists QRIS next to the VA so the donate screen can offer it', () => {
+    expect(provider().supportedMethods).toEqual(['bank_transfer_va', 'qris_redirect']);
+  });
+
+  it('answers a QRIS charge with a redirect to the donor return URL, left pending', async () => {
+    const charge = await provider().createCharge({
+      orderId: 'ORDER-Q1',
+      grossAmount: 25_000,
+      currency: 'IDR',
+      method: 'qris_redirect',
+      successReturnUrl: 'http://localhost:3000/donasi/hasil/tok',
+    });
+    expect(charge.method).toBe('qris_redirect');
+    if (charge.method !== 'qris_redirect') throw new Error('unreachable');
+    expect(charge.redirectUrl).toBe('http://localhost:3000/donasi/hasil/tok');
+    expect(charge.providerOrderId).toBe('ORDER-Q1');
+    expect(charge.expiresAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('still charges a VA when no method is asked for', async () => {
+    const charge = await provider().createCharge({ orderId: 'ORDER-Q2', grossAmount: 1, currency: 'IDR' });
+    expect(charge.method).toBe('bank_transfer_va');
+  });
+});
+
 describe('construction', () => {
   it('refuses an empty server key', () => {
     // An empty key verifies every signature against a secret anyone can
