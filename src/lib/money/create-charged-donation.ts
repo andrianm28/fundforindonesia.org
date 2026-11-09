@@ -65,7 +65,15 @@ export async function createChargedDonation(params: CreateChargedDonationParams)
   } catch (err) {
     console.error(`[donations] donation ${donation.id} failed after it was created, closing it out:`, err);
     try {
-      await prisma.donation.update({ where: { id: donation.id }, data: { paymentStatus: 'failed' } });
+      // A Payment already on the row means the provider may have issued a pay
+      // link the donor can still use; closing the Donation out would contradict
+      // a later PAID webhook, so it is left pending for the webhook or expiry.
+      const issued = await prisma.payment.count({ where: { donationId: donation.id } });
+      if (issued === 0) {
+        await prisma.donation.update({ where: { id: donation.id }, data: { paymentStatus: 'failed' } });
+      } else {
+        console.error(`[donations] donation ${donation.id} has a Payment, left pending for the provider's webhook`);
+      }
     } catch (closeErr) {
       console.error(`[donations] donation ${donation.id} could not be marked failed and is left pending:`, closeErr);
     }

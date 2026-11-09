@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
-const db = vi.hoisted(() => ({ donation: { create: vi.fn(), update: vi.fn() } }));
+const db = vi.hoisted(() => ({ donation: { create: vi.fn(), update: vi.fn() }, payment: { count: vi.fn() } }));
 vi.mock('@/lib/prisma', () => ({ prisma: db }));
 vi.mock('@/lib/money/donation-charge', () => ({ chargeDonation: vi.fn() }));
 
@@ -22,6 +22,7 @@ describe('createChargedDonation', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     db.donation.create.mockResolvedValue({ id: 'd1', paymentStatus: 'pending' });
     db.donation.update.mockResolvedValue({});
+    db.payment.count.mockResolvedValue(0);
   });
 
   it('hands the caller the Donation as soon as it exists, before the provider is asked', async () => {
@@ -65,5 +66,14 @@ describe('createChargedDonation', () => {
     await expect(createChargedDonation(params)).rejects.toThrow('provider down');
 
     expect(vi.mocked(console.error).mock.calls.flat().join(' ')).toContain('d1');
+  });
+
+  it('leaves the Donation pending when a Payment was already issued, so a later PAID webhook is not contradicted', async () => {
+    mockCharge.mockRejectedValue(new Error('crash after link'));
+    db.payment.count.mockResolvedValue(1);
+
+    await expect(createChargedDonation(params)).rejects.toThrow('crash after link');
+
+    expect(db.donation.update).not.toHaveBeenCalled();
   });
 });
