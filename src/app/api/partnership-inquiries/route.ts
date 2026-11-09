@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { clientAddress } from "@/lib/client-ip";
@@ -96,7 +97,11 @@ export async function POST(req: NextRequest) {
   const trap = parsed[HONEYPOT_FIELD];
   if (trap !== undefined && trap !== null && (typeof trap !== "string" || trap.trim() !== "")) {
     console.warn(JSON.stringify({ event: "honeypot_triggered", route: "partnership-inquiries" }));
-    return NextResponse.json({ received: true }, { status: 201 });
+    // Same shape as a real answer, with an id that names nothing.
+    return NextResponse.json(
+      { inquiry: { id: `c${randomBytes(12).toString("hex")}`, status: "NEW", proposalStored: false } },
+      { status: 201 },
+    );
   }
 
   try {

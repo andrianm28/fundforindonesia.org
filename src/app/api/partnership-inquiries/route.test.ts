@@ -338,8 +338,12 @@ describe('POST /api/partnership-inquiries', () => {
 
       expect(res.status).toBe(201);
       expect(state.rows).toHaveLength(0);
-      const body = JSON.stringify(await res.json());
+      const json = await res.json();
+      const body = JSON.stringify(json);
       expect(body).not.toMatch(/fax_ref|website|honeypot|spam|bot/i);
+      // The same keys a real submission gets back, so the two cannot be told apart.
+      expect(Object.keys(json)).toEqual(['inquiry']);
+      expect(Object.keys(json.inquiry).sort()).toEqual(['id', 'proposalStored', 'status']);
     });
 
     it('treats a whitespace-only honeypot as empty, but a non-string value as filled', async () => {
