@@ -58,3 +58,16 @@ export async function signInByCode(page: Page, email: string): Promise<void> {
   const session = await (await page.request.get('/api/auth/session')).json();
   expect(session.user?.email).toBe(email);
 }
+
+/**
+ * Signing in by code verifies the address (src/lib/login-code.ts), so an
+ * account can no longer be both signed in and unverified through the sign-in
+ * itself. It still happens to a session from before codes (a password session
+ * of an unverified account outlives the deploy), and the guards for it stay.
+ * This puts the account back to unverified after the sign-in, so a spec can
+ * stand in for that session.
+ */
+export async function markEmailUnverified(email: string): Promise<void> {
+  const { count } = await db().user.updateMany({ where: lookupUserEmail(email), data: { emailVerifiedAt: null } });
+  if (count !== 1) throw new Error(`no seeded account for ${email}`);
+}

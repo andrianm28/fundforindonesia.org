@@ -6,7 +6,7 @@ import {
   CSR_BETA_NEEDS,
   CSR_ALPHA_UNVERIFIED_EMAIL,
 } from './fixtures';
-import { signInByCode } from './operator-sign-in';
+import { markEmailUnverified, signInByCode } from './operator-sign-in';
 
 /**
  * Tim CSR accounts (ticket E9/01, tahap 2): a person registers and joins the
@@ -24,6 +24,7 @@ async function signedIn(browser: Browser, email: string): Promise<{ page: Page; 
 
 test('a person on a company domain cannot join or see anything until the email is verified', async ({ browser }) => {
   const { page, close } = await signedIn(browser, CSR_ALPHA_UNVERIFIED_EMAIL);
+  await markEmailUnverified(CSR_ALPHA_UNVERIFIED_EMAIL);
   await page.goto('/akun/tim-csr/gabung');
   const joined = page.waitForResponse(
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/csr/membership',
