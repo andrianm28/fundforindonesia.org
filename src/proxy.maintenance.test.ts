@@ -101,9 +101,20 @@ describe('maintenance mode on write routes', () => {
     '/api/auth/signout',
     '/api/internal/jobs/run',
     '/api/client-error',
+    '/api/user/consent',
   ])('keeps %s working for everyone', async (path) => {
     maintenance(true);
     expect((await run(path)).status).toBe(200);
+  });
+
+  it('does not lock a pending user out of the consent page while maintenance is on', async () => {
+    maintenance(true);
+    holder.token = { assignments: [] };
+    // The consent POST is the only way out of /akun/persetujuan: it must pass.
+    expect((await run('/api/user/consent', 'POST')).status).toBe(200);
+    // Other writes by the same user stay refused.
+    expect((await run('/api/user/profile', 'PATCH')).status).toBe(503);
+    expect((await run('/api/user/consent-lain', 'POST')).status).toBe(503);
   });
 
   it('does not mistake a lookalike prefix for an exempt route', async () => {

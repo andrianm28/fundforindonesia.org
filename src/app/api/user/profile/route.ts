@@ -9,6 +9,7 @@ import {
   SELECT_USER_PHONE,
 } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
+import { guardRoute } from "@/lib/rate-limit-guard";
 import { normaliseWhatsapp } from "@/lib/whatsapp";
 
 const profileSchema = z
@@ -25,6 +26,10 @@ const profileSchema = z
   .refine((v) => v.name !== undefined || v.whatsapp !== undefined || v.profileType !== undefined, {
     message: "Tidak ada yang diubah",
   });
+
+/** Perubahan profil per akun per jam. */
+const PROFILE_PATCH_LIMIT = 30;
+const PROFILE_PATCH_WINDOW_SECONDS = 60 * 60;
 
 const PROFILE_SELECT = {
   id: true,
@@ -70,7 +75,10 @@ export async function GET() {
     }
     const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: PROFILE_SELECT });
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    return NextResponse.json({ user: present(user as ProfileRow) });
+    return NextResponse.json(
+      { user: present(user as ProfileRow) },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     console.error("Error reading profile:", error);
     return NextResponse.json({ error: "Gagal memuat profil" }, { status: 500 });
@@ -92,6 +100,19 @@ export async function PATCH(request: NextRequest) {
         { status: 401 }
       );
     }
+
+    // Gagal-terbuka: pembatas rusak tidak boleh mengunci orang dari profilnya.
+    const refused = await guardRoute(
+      {
+        scope: "user-profile-patch",
+        subject: session.user.id,
+        limit: PROFILE_PATCH_LIMIT,
+        windowSeconds: PROFILE_PATCH_WINDOW_SECONDS,
+        onUnavailable: "open",
+      },
+      { limited: "Terlalu banyak perubahan profil. Coba lagi nanti." },
+    );
+    if (refused) return refused;
 
     const body = await request.json();
     const result = profileSchema.safeParse(body);

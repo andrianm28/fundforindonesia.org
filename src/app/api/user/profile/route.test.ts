@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PATCH } from "./route";
+import { GET, PATCH } from "./route";
 import { NextRequest } from "next/server";
 
 // Mock dependencies
@@ -7,10 +7,13 @@ vi.mock("@/lib/auth", () => ({
   getServerSession: vi.fn(),
 }));
 
+vi.mock("@/lib/rate-limit-guard", () => ({ guardRoute: vi.fn() }));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
       update: vi.fn(),
+      findUnique: vi.fn(),
     },
   },
 }));
@@ -18,6 +21,8 @@ vi.mock("@/lib/prisma", () => ({
 import { sealUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { guardRoute } from "@/lib/rate-limit-guard";
+import { NextResponse } from "next/server";
 
 const mockedGetServerSession = vi.mocked(getServerSession);
 const mockedUserUpdate = vi.mocked(prisma.user.update);
@@ -33,6 +38,35 @@ function createRequest(body: unknown): NextRequest {
 describe("PATCH /api/user/profile", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(guardRoute).mockResolvedValue(null);
+  });
+
+  it("GET profil tidak boleh disimpan cache (memuat nomor WhatsApp pemilik)", async () => {
+    mockedGetServerSession.mockResolvedValue({
+      user: { id: "user-1", name: "T", email: "t@test.com", assignments: [] },
+      expires: "2099-01-01",
+    });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: "user-1", name: "T", avatar: null, profileType: "INDIVIDUAL",
+      ...sealUserEmail("t@test.com"), phoneCiphertext: null, phoneKeyId: null,
+    } as never);
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("PATCH dibatasi per akun lewat guardRoute dan 429 menghentikan penulisan", async () => {
+    mockedGetServerSession.mockResolvedValue({
+      user: { id: "user-1", name: "T", email: "t@test.com", assignments: [] },
+      expires: "2099-01-01",
+    });
+    vi.mocked(guardRoute).mockResolvedValue(NextResponse.json({ error: "x" }, { status: 429 }));
+    const res = await PATCH(createRequest({ name: "Budi" }));
+    expect(res.status).toBe(429);
+    expect(mockedUserUpdate).not.toHaveBeenCalled();
+    expect(vi.mocked(guardRoute).mock.calls[0][0]).toMatchObject({
+      scope: "user-profile-patch", subject: "user-1", onUnavailable: "open",
+    });
   });
 
   it("returns 401 when not authenticated", async () => {

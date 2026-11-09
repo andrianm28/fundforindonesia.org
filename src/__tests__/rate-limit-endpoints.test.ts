@@ -11,7 +11,7 @@ import { NextRequest } from 'next/server';
  */
 
 vi.mock('@/lib/prisma', () => ({
-  prisma: { siteSetting: { findUnique: vi.fn().mockResolvedValue(null) }, campaign: { findUnique: vi.fn() }, user: { findFirst: vi.fn(), create: vi.fn() } },
+  prisma: { siteSetting: { findUnique: vi.fn().mockResolvedValue(null) }, campaign: { findUnique: vi.fn() }, user: { findFirst: vi.fn(), create: vi.fn(), findUnique: vi.fn(), update: vi.fn() }, userConsent: { createMany: vi.fn() } },
 }));
 vi.mock('@/lib/rate-limit', () => ({ consumeRateLimit: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ getServerSession: vi.fn() }));
@@ -34,6 +34,8 @@ import { writeFile } from 'fs/promises';
 import { POST as register } from '@/app/api/auth/register/route';
 import { POST as donate } from '@/app/api/donations/route';
 import { POST as upload } from '@/app/api/upload/route';
+import { PATCH as patchProfile } from '@/app/api/user/profile/route';
+import { GET as getConsent, POST as postConsent } from '@/app/api/user/consent/route';
 
 const consume = consumeRateLimit as unknown as Mock;
 const session = getServerSession as unknown as Mock;
@@ -148,5 +150,54 @@ describe('POST /api/upload', () => {
     consume.mockRejectedValue(new Error('db down'));
     const res = await upload(formRequest());
     expect(res.status).toBe(201);
+  });
+});
+
+describe('user profile and consent endpoints', () => {
+  const asUser = () => session.mockResolvedValue({ user: { id: 'user-5' } });
+  const patch = () =>
+    patchProfile(
+      new NextRequest('http://localhost:3000/api/user/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Budi' }),
+      }),
+    );
+  const consentBody = { acceptTerms: true, acceptPrivacy: true };
+  const consentPost = () => postConsent(json('/api/user/consent', consentBody));
+
+  it('PATCH profile counts per account and answers 429 over the limit', async () => {
+    asUser();
+    consume.mockResolvedValue(LIMITED);
+    const res = await patch();
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('42');
+    expect(consume).toHaveBeenCalledWith(prisma, expect.objectContaining({ scope: 'user-profile-patch', subject: 'user-5' }));
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('GET and POST consent count per account and answer 429 over the limit', async () => {
+    asUser();
+    consume.mockResolvedValue(LIMITED);
+    expect((await getConsent()).status).toBe(429);
+    expect((await consentPost()).status).toBe(429);
+    expect(consume).toHaveBeenCalledWith(prisma, expect.objectContaining({ scope: 'user-consent-get', subject: 'user-5' }));
+    expect(consume).toHaveBeenCalledWith(prisma, expect.objectContaining({ scope: 'user-consent-post', subject: 'user-5' }));
+    expect(prisma.userConsent.createMany).not.toHaveBeenCalled();
+  });
+
+  it('count nobody who is not signed in', async () => {
+    expect((await getConsent()).status).toBe(401);
+    expect((await patch()).status).toBe(401);
+    expect(consume).not.toHaveBeenCalled();
+  });
+
+  it('fail open when the limiter is down', async () => {
+    asUser();
+    consume.mockRejectedValue(new Error('db down'));
+    (prisma.userConsent.createMany as unknown as Mock).mockResolvedValue({ count: 2 });
+    (prisma.user.findUnique as unknown as Mock).mockResolvedValue({ consents: [] });
+    expect((await consentPost()).status).toBe(200);
+    expect((await getConsent()).status).toBe(200);
   });
 });

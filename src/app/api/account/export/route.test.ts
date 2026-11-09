@@ -36,6 +36,8 @@ const USER_ROW = {
   avatar: null,
   emailVerifiedAt: null,
   donationBalance: 0,
+  profileType: 'ORGANISATION',
+  consents: [{ document: 'TERMS', version: '2026-10-16', acceptedAt: new Date('2026-03-01T00:00:00Z') }],
   createdAt: new Date('2026-01-01T00:00:00Z'),
   assignments: [{ assignment: 'VERIFIER', assignedAt: new Date('2026-02-01T00:00:00Z') }],
   emailCiphertext: 'x',
@@ -85,6 +87,14 @@ describe('GET /api/account/export (audit L5)', () => {
     expect(body.donasi).toEqual([{ id: 'd1', amount: 50000 }]);
     expect(body.kampanye).toEqual([{ id: 'c1', slug: 's', title: 'T' }]);
     expect(body.penugasan).toEqual([{ assignment: 'VERIFIER', assignedAt: '2026-02-01T00:00:00.000Z' }]);
+  });
+
+  it('includes the profile type and the consent records (document, version, acceptedAt)', async () => {
+    const body = await (await GET()).json();
+    expect(body.profil.profileType).toBe('ORGANISATION');
+    expect(body.persetujuan).toEqual([{ document: 'TERMS', version: '2026-10-16', acceptedAt: '2026-03-01T00:00:00.000Z' }]);
+    const select = (userFind.mock.calls[0][0] as { select: { consents: { select: Record<string, boolean> } } }).select;
+    expect(select.consents.select).toEqual({ document: true, version: true, acceptedAt: true });
   });
 
   it('scopes every query to the session user, never a request value', async () => {

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
+import { clearConsentCache } from '@/components/layout/ConsentGate';
 
 /**
  * Persetujuan pertama untuk akun yang dibuat lewat Google (PKS Pasal 3.1):
@@ -36,6 +37,7 @@ export default function ConsentPage() {
         setLoading(false);
         return;
       }
+      clearConsentCache();
       router.replace('/');
     } catch {
       setError('Terjadi kesalahan jaringan, silakan coba lagi');

@@ -83,6 +83,8 @@ describe('Auth & Notifications Integration Tests', () => {
           name: 'John Doe',
           email: 'john@example.com',
           password: 'securepass123',
+          acceptTerms: true,
+          acceptPrivacy: true,
         }),
       });
 
@@ -118,6 +120,8 @@ describe('Auth & Notifications Integration Tests', () => {
           name: 'Another User',
           email: 'existing@example.com',
           password: 'password123',
+          acceptTerms: true,
+          acceptPrivacy: true,
         }),
       });
 

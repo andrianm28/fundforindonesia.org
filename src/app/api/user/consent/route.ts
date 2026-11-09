@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { recordConsent } from "@/lib/consent";
+import { isConsentPending, recordConsent } from "@/lib/consent";
+import { guardRoute } from "@/lib/rate-limit-guard";
 import { LEGAL_DOCS_VERSION } from "@/lib/site-identity";
 
 /**
@@ -10,12 +11,30 @@ import { LEGAL_DOCS_VERSION } from "@/lib/site-identity";
  * formulir daftar: masuk dengan Google pertama kali (PKS 3.1). Hanya untuk
  * pemanggil sendiri; akun diambil dari sesi, bukan dari isian.
  *
- * GET  -> { pending }: true bila akun ini dibuat lewat penyedia (Google) dan
- *         belum punya catatan persetujuan untuk versi dokumen sekarang.
- *         Akun password lama tanpa catatan tidak ditahan: mereka mendaftar
- *         sebelum catatan ada, dan formulir daftar kini mencatatnya.
+ * GET  -> { pending }: true bila akun ini belum punya catatan untuk TERMS dan
+ *         PRIVACY pada versi dokumen sekarang, apa pun jenis akunnya (Google,
+ *         password, OTP). Akun lama ditanya sekali; menaikkan versi meminta
+ *         semua orang menyetujui ulang.
  * POST -> mencatat kedua dokumen pada versi sekarang (idempoten).
  */
+/** Per akun per jam; cukup longgar untuk satu pengecekan per sesi dan beberapa percobaan. */
+const CONSENT_LIMIT = 30;
+const CONSENT_WINDOW_SECONDS = 60 * 60;
+
+/** Setelah cek sesi supaya banjir anonim tidak menulis; gagal-terbuka agar pembatas rusak tidak mengunci orang. */
+function guardConsent(userId: string, method: "GET" | "POST") {
+  return guardRoute(
+    {
+      scope: `user-consent-${method.toLowerCase()}`,
+      subject: userId,
+      limit: CONSENT_LIMIT,
+      windowSeconds: CONSENT_WINDOW_SECONDS,
+      onUnavailable: "open",
+    },
+    { limited: "Terlalu banyak permintaan. Coba lagi nanti." },
+  );
+}
+
 const consentSchema = z.object({
   acceptTerms: z.literal(true, { message: "Anda harus menyetujui Syarat Layanan" }),
   acceptPrivacy: z.literal(true, { message: "Anda harus menyetujui Kebijakan Privasi" }),
@@ -27,14 +46,13 @@ export async function GET() {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const refused = await guardConsent(session.user.id, "GET");
+    if (refused) return refused;
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: {
-        accounts: { select: { id: true }, take: 1 },
-        consents: { where: { version: LEGAL_DOCS_VERSION }, select: { id: true }, take: 1 },
-      },
+      select: { consents: { where: { version: LEGAL_DOCS_VERSION }, select: { document: true } } },
     });
-    const pending = !!user && user.accounts.length > 0 && user.consents.length === 0;
+    const pending = !!user && isConsentPending(user.consents);
     return NextResponse.json({ pending });
   } catch (error) {
     console.error("Error reading consent state:", error);
@@ -48,6 +66,9 @@ export async function POST(request: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const refused = await guardConsent(session.user.id, "POST");
+    if (refused) return refused;
 
     const result = consentSchema.safeParse(await request.json().catch(() => null));
     if (!result.success) {

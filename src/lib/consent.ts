@@ -15,6 +15,16 @@ export function nestedConsentCreate(at: Date = new Date()): Prisma.UserConsentCr
   };
 }
 
+/**
+ * Persetujuan tertunda: pengguna belum punya baris UserConsent untuk versi
+ * dokumen sekarang, untuk TERMS maupun PRIVACY. Berlaku untuk semua jenis akun
+ * (Google, password, OTP): akun lama ditanya sekali, dan menaikkan
+ * LEGAL_DOCS_VERSION meminta persetujuan ulang dari semua orang.
+ */
+export function isConsentPending(rows: ReadonlyArray<{ document: string }>): boolean {
+  return !CONSENT_DOCUMENTS.every((document) => rows.some((r) => r.document === document));
+}
+
 type ConsentClient = {
   userConsent: {
     createMany(args: {

@@ -109,6 +109,9 @@ const MAINTENANCE_EXEMPT = [
   "/api/auth",
   "/api/internal",
   "/api/client-error",
+  // Persetujuan Syarat/Privasi: tanpa ini, pengguna yang tertunda terkunci di
+  // halaman persetujuan selama pemeliharaan (tiket 07).
+  "/api/user/consent",
 ];
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 

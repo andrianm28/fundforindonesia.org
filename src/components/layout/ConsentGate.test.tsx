@@ -11,7 +11,7 @@ vi.mock('next-auth/react', () => ({
   useSession: () => ({ data: state.user ? { user: state.user } : null }),
 }));
 
-import { ConsentGate } from './ConsentGate';
+import { ConsentGate, clearConsentCache } from './ConsentGate';
 
 function answer(body: unknown, ok = true) {
   const fetchMock = vi.fn().mockResolvedValue({ ok, json: async () => body });
@@ -20,6 +20,7 @@ function answer(body: unknown, ok = true) {
 }
 
 beforeEach(() => {
+  window.sessionStorage.clear();
   state.user = { id: 'u1' };
   state.pathname = '/explore';
   state.replace.mockReset();
@@ -61,5 +62,52 @@ describe('ConsentGate (Google first sign-in, PKS 3.1)', () => {
     render(<ConsentGate />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(state.replace).not.toHaveBeenCalled();
+  });
+
+  it('fails open on a network error and asks again next time', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('offline'));
+    vi.stubGlobal('fetch', fetchMock);
+    const { rerender } = render(<ConsentGate />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(state.replace).not.toHaveBeenCalled();
+    state.pathname = '/campaigns';
+    rerender(<ConsentGate />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('asks once per session: later navigations reuse the accepted answer', async () => {
+    const fetchMock = answer({ pending: false });
+    const { rerender } = render(<ConsentGate />);
+    await waitFor(() => expect(window.sessionStorage.getItem('consent-ok:u1')).toBe('1'));
+    for (const path of ['/campaigns', '/akun', '/explore']) {
+      state.pathname = path;
+      rerender(<ConsentGate />);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the answer from sessionStorage for that user id, and not for another', async () => {
+    window.sessionStorage.setItem('consent-ok:u1', '1');
+    const fetchMock = answer({ pending: false });
+    render(<ConsentGate />);
+    expect(fetchMock).not.toHaveBeenCalled();
+    cleanup();
+    state.user = { id: 'u2' };
+    render(<ConsentGate />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not remember a pending answer, and asks again once the cache is cleared', async () => {
+    const fetchMock = answer({ pending: true });
+    render(<ConsentGate />);
+    await waitFor(() => expect(state.replace).toHaveBeenCalled());
+    expect(window.sessionStorage.getItem('consent-ok:u1')).toBeNull();
+
+    window.sessionStorage.setItem('consent-ok:u1', '1');
+    clearConsentCache();
+    expect(window.sessionStorage.getItem('consent-ok:u1')).toBeNull();
+    cleanup();
+    render(<ConsentGate />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
 });
