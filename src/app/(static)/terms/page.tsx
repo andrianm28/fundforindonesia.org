@@ -21,9 +21,8 @@ export default function TermsPage() {
           <h2 className="text-lg font-semibold text-text mb-3">1. Ketentuan Umum</h2>
           <p>
             Dengan mengakses dan menggunakan platform Fund for Indonesia (&quot;Platform&quot;), Anda menyetujui untuk
-            terikat oleh syarat dan ketentuan ini. Platform ini dioperasikan oleh {SITE_IDENTITY.operatorName}
-            (&quot;Kami&quot;), perusahaan berbentuk perseroan terbatas yang berkedudukan di Indonesia. Kami adalah
-            penyelenggara Platform; Kami tidak menghimpun dana atas nama Kami sendiri (lihat bagian 5). Jika Anda tidak menyetujui syarat dan ketentuan
+            terikat oleh syarat dan ketentuan ini. Platform ini diselenggarakan oleh{' '}
+            {SITE_IDENTITY.brandName} (&quot;Kami&quot;); Kami tidak menghimpun dana atas nama Kami sendiri (lihat bagian 5). Jika Anda tidak menyetujui syarat dan ketentuan
             ini, mohon untuk tidak menggunakan Platform kami.
           </p>
         </section>
@@ -76,7 +75,7 @@ export default function TermsPage() {
             Setiap Kampanye menyebut Lembaga Mitra yang menghimpun dananya, dan Kampanye hanya dapat menerima donasi
             bila Lembaga Mitra tersebut memegang izin penghimpunan yang masih berlaku untuk jenis Kampanye itu.
             Lembaga Mitra yang tertera pada Kampanye adalah pihak lawan Donatur atas donasi tersebut, berdasarkan
-            izin penghimpunannya sendiri. {SITE_IDENTITY.operatorName} bertindak sebagai penyelenggara Platform dan
+            izin penghimpunannya sendiri. Kami bertindak sebagai penyelenggara Platform dan
             pengelola pembayaran, bukan sebagai penghimpun dana.
           </p>
         </section>

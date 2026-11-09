@@ -51,5 +51,6 @@ describe('Kontak page', () => {
     render(await ContactPage());
 
     expect(screen.getByText(/NIB 1234567890123/)).toBeDefined();
+    expect(document.body.textContent).not.toMatch(/dioperasikan|Jaya Korpora/);
   });
 });
