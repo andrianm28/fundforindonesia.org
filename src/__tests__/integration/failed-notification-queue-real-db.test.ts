@@ -154,6 +154,13 @@ describe.skipIf(!DATABASE_URL)('failed notification queue -- against real Postgr
       expect(await prisma.failedNotification.count()).toBe(0);
     });
 
+    it('does not queue the public receipt resend, where the Donor waits for the answer and can retry', async () => {
+      const accepted = await mail.sendReportingFailure(message, { mail: 'receipt_resend', donationId: 'd1' }, mailerThat(['fail']));
+
+      expect(accepted).toBe(false);
+      expect(await prisma.failedNotification.count()).toBe(0);
+    });
+
     it('does not queue a mail the provider accepted', async () => {
       const accepted = await mail.sendReportingFailure(message, { mail: 'receipt', donationId: 'd1' }, mailerThat(['ok']));
 
@@ -174,6 +181,25 @@ describe.skipIf(!DATABASE_URL)('failed notification queue -- against real Postgr
       const after = await prisma.failedNotification.findUniqueOrThrow({ where: { id: row.id } });
       expect(after.status).toBe('SENT');
       expect(after.sentAt).not.toBeNull();
+      // Data minimisation: a delivered message is not kept.
+      expect(after.payloadCiphertext).toBeNull();
+      expect(after.payloadKeyId).toBeNull();
+      expect(after.claimToken).toBeNull();
+    });
+
+    it('binds each row to its own sealed payload: the same ciphertext moved to another row does not open', async () => {
+      const a = await enqueue({ ...message, subject: 'a' }, 'receipt', { donationId: 'da' });
+      const b = await enqueue({ ...message, subject: 'b' }, 'receipt', { donationId: 'db' });
+      await prisma.failedNotification.update({
+        where: { id: b.id },
+        data: { payloadCiphertext: a.payloadCiphertext, payloadKeyId: a.payloadKeyId },
+      });
+      const mailer = mailerThat(['ok']);
+
+      const result = await queue.retryDueNotifications(new Date(Date.now() + 10 * HOUR), mailer);
+
+      expect(result).toMatchObject({ attemptedCount: 2, sentCount: 1, failedCount: 1 });
+      expect(mailer.sent.map((m) => m.subject)).toEqual(['a']);
     });
 
     it('leaves a row that is not due yet alone', async () => {
@@ -255,6 +281,86 @@ describe.skipIf(!DATABASE_URL)('failed notification queue -- against real Postgr
       expect((await queue.retryDueNotifications(new Date(now.getTime() + 6 * MINUTE), mailer)).sentCount).toBe(1);
     });
 
+    /** A Mailer whose send waits until the test lets it finish: a runner stuck mid-send. */
+    function stuckMailer(outcome: 'ok' | 'fail') {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      const sent: MailMessage[] = [];
+      const started = new Promise<void>((resolveStarted) => {
+        (stuckMailer as unknown as { _s: () => void })._s = resolveStarted;
+      });
+      const mailer: Mailer = {
+        name: 'stuck',
+        async send(m) {
+          (stuckMailer as unknown as { _s: () => void })._s();
+          await gate;
+          if (outcome === 'fail') throw new Error('550 timeout');
+          sent.push(m);
+        },
+      };
+      return { mailer, sent, release, started };
+    }
+
+    it('a runner whose lease lapsed cannot overwrite SENT with its late failure, and nothing sends a third time', async () => {
+      const row = await enqueue();
+      const due = new Date(row.nextAttemptAt.getTime() + 1);
+      const slow = stuckMailer('fail');
+      const late = queue.retryDueNotifications(due, slow.mailer);
+      await slow.started;
+      const fast = mailerThat(['ok']);
+
+      // Lease (10 min) lapsed: another runner claims the row and delivers it.
+      await queue.retryDueNotifications(new Date(due.getTime() + 11 * MINUTE), fast);
+      expect((await prisma.failedNotification.findUniqueOrThrow({ where: { id: row.id } })).status).toBe('SENT');
+
+      slow.release();
+      await late;
+
+      const after = await prisma.failedNotification.findUniqueOrThrow({ where: { id: row.id } });
+      expect(after).toMatchObject({ status: 'SENT', attempts: 1, payloadCiphertext: null });
+      const third = mailerThat(['ok']);
+      await queue.retryDueNotifications(new Date(due.getTime() + 100 * HOUR), third);
+      expect(third.sent).toEqual([]);
+      expect(fast.sent).toHaveLength(1);
+    });
+
+    it('a runner whose lease lapsed cannot overwrite the newer runner\'s failure either', async () => {
+      const row = await enqueue();
+      const due = new Date(row.nextAttemptAt.getTime() + 1);
+      const slow = stuckMailer('ok');
+      const late = queue.retryDueNotifications(due, slow.mailer);
+      await slow.started;
+
+      await queue.retryDueNotifications(new Date(due.getTime() + 11 * MINUTE), mailerThat(['fail']));
+      slow.release();
+      await late;
+
+      // The late 'ok' did not mark it SENT or wipe the payload the newer runner's retry still needs.
+      const after = await prisma.failedNotification.findUniqueOrThrow({ where: { id: row.id } });
+      expect(after).toMatchObject({ status: 'PENDING', attempts: 2 });
+      expect(after.payloadCiphertext).not.toBeNull();
+    });
+
+    it('a retry racing an Admin resend: the late retry cannot overwrite the resend\'s SENT', async () => {
+      const row = await enqueue();
+      const due = new Date(row.nextAttemptAt.getTime() + 1);
+      const slow = stuckMailer('fail');
+      const late = queue.retryDueNotifications(due, slow.mailer);
+      await slow.started;
+      const adminMailer = mailerThat(['ok']);
+
+      const resendAt = new Date(due.getTime() + 11 * MINUTE);
+      expect(await queue.resendFailedNotification(row.id, adminId, resendAt, adminMailer)).toBe('SENT');
+      slow.release();
+      await late;
+
+      const after = await prisma.failedNotification.findUniqueOrThrow({ where: { id: row.id } });
+      expect(after).toMatchObject({ status: 'SENT', lastRetriedById: adminId, attempts: 1, payloadCiphertext: null });
+      const third = mailerThat(['ok']);
+      await queue.retryDueNotifications(new Date(resendAt.getTime() + 100 * HOUR), third);
+      expect(third.sent).toEqual([]);
+    });
+
     it('counts a Mailer that cannot be built as a failed attempt, not a crash', async () => {
       const row = await enqueue();
       vi.stubEnv('MAIL_PROVIDER', 'sendgrid');
@@ -322,6 +428,44 @@ describe.skipIf(!DATABASE_URL)('failed notification queue -- against real Postgr
 
       expect(mailer.sent).toHaveLength(1);
       expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    });
+  });
+
+  describe('retention', () => {
+    const DAY = 24 * HOUR;
+
+    async function aged(status: 'SENT' | 'DEAD', ageDays: number) {
+      const row = await enqueue();
+      const at = new Date(T0.getTime() - ageDays * DAY);
+      await prisma.failedNotification.update({
+        where: { id: row.id },
+        data: {
+          status,
+          createdAt: at,
+          ...(status === 'SENT' ? { sentAt: at, payloadCiphertext: null, payloadKeyId: null } : {}),
+        },
+      });
+      return row.id;
+    }
+
+    it('purges SENT rows older than 30 days and DEAD rows older than 90 days, and keeps everything younger', async () => {
+      const oldSent = await aged('SENT', 31);
+      const freshSent = await aged('SENT', 29);
+      const oldDead = await aged('DEAD', 91);
+      const freshDead = await aged('DEAD', 89);
+      const pending = await enqueue();
+      await prisma.failedNotification.update({
+        where: { id: pending.id },
+        data: { createdAt: new Date(T0.getTime() - 200 * DAY), nextAttemptAt: new Date(T0.getTime() + 100 * DAY) },
+      });
+
+      const result = await queue.runNotificationQueuePhase(T0, mailerThat(['ok']), { recipients: [] });
+
+      expect(result.purgedCount).toBe(2);
+      const left = (await prisma.failedNotification.findMany()).map((r) => r.id).sort();
+      expect(left).toEqual([freshSent, freshDead, pending.id].sort());
+      expect(left).not.toContain(oldSent);
+      expect(left).not.toContain(oldDead);
     });
   });
 

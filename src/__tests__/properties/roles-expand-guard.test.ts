@@ -177,17 +177,18 @@ import { join } from "node:path";
  * `POST /api/admin/webhook-events/[id]/resolve` (an Admin closes a reviewed
  * webhook event with a note), both through withHiddenAssignmentCheck on the
  * ADMIN assignment, so anyone else gets the literal 404 -- growing this list by
- * two. `src/lib/failed-notifications.ts` joins as a non-route: it reads the
+ * two. The page /admin/notifikasi-gagal asks for the ADMIN assignment itself and
+ * answers 404 to anyone else (as scrutiny does), so it joins the list too.
+ * `src/lib/failed-notifications.ts` joins as a non-route: it reads the
  * ADMIN assignment only to learn WHO to email when notifications pile up
- * (prisma.userAssignment), and decides no one's access. The page
- * /admin/notifikasi-gagal needs no entry: it asks nothing itself and relies on
- * the /admin layout, which answers non-Admins with a 404.
+ * (prisma.userAssignment), and decides no one's access.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
   "src/app/admin/scrutiny/page.tsx",
+  "src/app/admin/notifikasi-gagal/page.tsx",
   "src/app/api/admin/abuse-thresholds/route.ts",
   "src/app/api/admin/assignment-grant-requests/[requestId]/decision/route.ts",
   "src/app/api/admin/assignment-grant-requests/route.ts",

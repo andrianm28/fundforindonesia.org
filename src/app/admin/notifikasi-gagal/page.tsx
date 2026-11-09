@@ -1,3 +1,7 @@
+import { notFound } from 'next/navigation';
+import { getServerSession } from '@/lib/auth';
+import { hasAssignment } from '@/lib/withAssignmentCheck';
+import { Assignment } from '@/generated/prisma/client';
 import { listFailedNotifications } from '@/lib/failed-notifications';
 import { MAX_NOTIFICATION_ATTEMPTS } from '@/lib/mail/failed-queue';
 import { AdminResendNotificationButton } from '@/components/admin/AdminResendNotificationButton';
@@ -8,7 +12,8 @@ export const dynamic = 'force-dynamic';
  * The failed notification queue (PKS Pasal 8(2)): emails the provider refused,
  * still being retried by the scheduled jobs or out of attempts, with a button to
  * send one again. Access is the /admin layout's ADMIN check, which answers
- * anyone else with a 404; the resend itself is POST
+ * anyone else with a 404 (the page checks again itself, because a layout does
+ * not re-run on a client navigation); the resend itself is POST
  * /api/admin/failed-notifications/[id]/resend, which does the same.
  *
  * Shows what an Admin needs to find the person and the cause (kind, the ids of
@@ -18,8 +23,8 @@ export const dynamic = 'force-dynamic';
 
 const KIND_LABEL: Record<string, string> = {
   receipt: 'Bukti donasi',
-  receipt_resend: 'Kirim ulang bukti donasi',
   campaign_update: 'Kabar terbaru Campaign',
+  campaign_transfer: 'Pengalihan dana Campaign (ke Donor Tamu)',
   campaign_deadline_reminder: 'Pengingat tenggat Campaign',
   kind_authorisation_expiry_warning: 'Peringatan izin Kind hampir habis',
   partnership_inquiry: 'Partnership Inquiry (ke tim)',
@@ -48,7 +53,17 @@ function contextText(context: string): string {
 const th = 'px-3 py-2 text-left text-xs font-semibold text-gray-500';
 const td = 'px-3 py-2 text-sm text-gray-800 align-top';
 
+/** Attempts past the automatic limit come from an Admin's resend of a DEAD row; say so instead of "7 / 5". */
+function attemptsText(attempts: number): string {
+  return attempts > MAX_NOTIFICATION_ATTEMPTS
+    ? `${attempts} (batas otomatis ${MAX_NOTIFICATION_ATTEMPTS}, selebihnya kirim ulang Admin)`
+    : `${attempts} / ${MAX_NOTIFICATION_ATTEMPTS}`;
+}
+
 export default async function AdminFailedNotificationsPage() {
+  const session = await getServerSession();
+  if (!session?.user || !hasAssignment(session.user.assignments, Assignment.ADMIN)) notFound();
+
   const { rows, counts } = await listFailedNotifications();
 
   return (
@@ -115,7 +130,7 @@ export default async function AdminFailedNotificationsPage() {
                       )}
                     </td>
                     <td className={td}>
-                      {row.attempts} / {MAX_NOTIFICATION_ATTEMPTS}
+                      {attemptsText(row.attempts)}
                     </td>
                     <td className={td}>{row.lastError}</td>
                     <td className={td}>

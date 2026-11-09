@@ -24,7 +24,7 @@ import { runScheduledJobs, runScheduledJobsReport } from './scheduled-jobs';
 
 const NOW = new Date('2026-11-10T08:00:00.000Z');
 const queue = runNotificationQueuePhase as unknown as Mock;
-const QUEUE_RESULT = { attemptedCount: 2, sentCount: 1, failedCount: 1, alertsSent: ['notification_queue'] };
+const QUEUE_RESULT = { attemptedCount: 2, sentCount: 1, failedCount: 1, alertsSent: ['notification_queue'], purgedCount: 0 };
 
 describe('runScheduledJobs: the failed notification queue phase', () => {
   beforeEach(() => {
@@ -59,7 +59,7 @@ describe('runScheduledJobs: the failed notification queue phase', () => {
 
     expect(report.ok).toBe(false);
     expect(report.failedPhases).toEqual(['notificationQueue']);
-    expect(report.result.notificationQueue).toEqual({ attemptedCount: 0, sentCount: 0, failedCount: 0, alertsSent: [] });
+    expect(report.result.notificationQueue).toEqual({ attemptedCount: 0, sentCount: 0, failedCount: 0, alertsSent: [], purgedCount: 0 });
     expect(anonymiseExpiredCompanies).toHaveBeenCalled();
   });
 

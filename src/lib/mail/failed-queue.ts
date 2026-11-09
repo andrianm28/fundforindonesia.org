@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import { requireFieldKeys } from '@/lib/contact-fields';
 import type { MailMessage } from './types';
@@ -27,10 +28,23 @@ export function backoffAfterFailure(attempts: number): number {
  * database for hours after its owner gave up on it, and a stale link is worth
  * nothing to them; these stay log-only, as before.
  */
-export const NOT_QUEUED_MAIL: ReadonlySet<string> = new Set(['password_reset', 'email_verification']);
+export const NOT_QUEUED_MAIL: ReadonlySet<string> = new Set([
+  'password_reset',
+  'email_verification',
+  // The public receipt resend (POST /api/receipts/[token]/resend): the Donor is
+  // waiting for the answer, is told it failed (502), and can press the button
+  // again. A queued copy would later send a second receipt nobody asked for.
+  'receipt_resend',
+]);
 
-/** The additional authenticated data the payload is sealed with. Never changes. */
-export const PAYLOAD_AAD = 'FailedNotification.payload';
+/**
+ * The additional authenticated data a row's payload is sealed with: the row's
+ * own id, so a ciphertext copied onto another row (or sealed for another
+ * purpose) does not open there.
+ */
+export function payloadAad(id: string): string {
+  return `FailedNotification.payload:${id}`;
+}
 
 const MAX_ERROR_LENGTH = 500;
 
@@ -50,10 +64,12 @@ export async function recordFailedNotification(
   if (NOT_QUEUED_MAIL.has(kind)) return;
   try {
     const keys = requireFieldKeys();
-    const sealed = keys.encrypt(PAYLOAD_AAD, JSON.stringify(message));
+    const id = randomUUID();
+    const sealed = keys.encrypt(payloadAad(id), JSON.stringify(message));
     const recipient = keys.emailLookup(message.to);
     await prisma.failedNotification.create({
       data: {
+        id,
         kind,
         context: JSON.stringify(context),
         recipientHmac: recipient.hmac,

@@ -1,4 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
+
+// A failed Guest Donor email is queued through the shared failure reporting
+// (PKS pemenuhan 05); the queue's database write is the seam, replaced here
+// because this file's Prisma is a hand-made fake.
+const queued = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/mail/failed-queue', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/mail/failed-queue')>()),
+  recordFailedNotification: queued,
+}));
 import {
   requestCampaignTransfer,
   approveCampaignTransfer,
@@ -636,6 +645,24 @@ describe('approveCampaignTransfer', () => {
       ),
     ).resolves.toBeDefined();
     expect(rows.some((r) => r.campaignTransferId === 'ct-1')).toBe(true);
+    log.mockRestore();
+  });
+
+  it('queues the failed Guest Donor email with ids only, so it is retried instead of only logged', async () => {
+    queued.mockClear();
+    const { tx } = makeTx({ guests: [{ guestEmailCiphertext: 'c1', guestEmailKeyId: 'k1' }] });
+    const send = vi.fn().mockRejectedValue(new Error('smtp down'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await approveCampaignTransfer(
+      makePrisma(tx) as never,
+      { campaignTransferId: 'ct-1', decidedById: 'admin-2' },
+      { mailer: { name: 'test', send }, readGuestEmail: () => 'tamu@example.com' },
+    );
+    expect(queued).toHaveBeenCalledTimes(1);
+    const [message, report] = queued.mock.calls[0];
+    expect(message).toMatchObject({ to: 'tamu@example.com' });
+    expect(report).toEqual({ mail: 'campaign_transfer', campaignTransferId: 'ct-1' });
+    expect(JSON.stringify(log.mock.calls)).not.toContain('tamu@example.com');
     log.mockRestore();
   });
 });

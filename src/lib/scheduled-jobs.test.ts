@@ -36,7 +36,7 @@ const mockSendKindAuthorisationExpiryWarnings = sendKindAuthorisationExpiryWarni
 
 const mockAnonymiseCompanies = anonymiseExpiredCompanies as unknown as Mock;
 const mockNotificationQueue = runNotificationQueuePhase as unknown as Mock;
-const QUEUE_RESULT = { attemptedCount: 2, sentCount: 1, failedCount: 1, alertsSent: ['notification_queue'] };
+const QUEUE_RESULT = { attemptedCount: 2, sentCount: 1, failedCount: 1, alertsSent: ['notification_queue'], purgedCount: 0 };
 const mockSweepRefunds = sweepStuckLateSettlementRefunds as unknown as Mock;
 const SWEEP_RESULT = { consideredCount: 3, attemptedCount: 3, refundedCount: 2, skippedCount: 0, failedCount: 1 };
 const NOW = new Date('2026-09-27T00:00:00.000Z');

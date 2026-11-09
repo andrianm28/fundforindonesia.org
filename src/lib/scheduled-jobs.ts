@@ -29,6 +29,7 @@ const FALLBACK_NOTIFICATION_QUEUE: NotificationQueuePhaseResult = {
   sentCount: 0,
   failedCount: 0,
   alertsSent: [],
+  purgedCount: 0,
 };
 const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consideredCount: 0 };
 
@@ -57,7 +58,8 @@ const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consid
  *
  * 6. Retries the failed notification queue with backoff and emails the Admins,
  *    at most once an hour per kind, when notifications are DEAD or webhook
- *    events and charges wait for review (runNotificationQueuePhase,
+ *    events and charges wait for review, and deletes SENT rows after 30 days
+ *    and DEAD rows after 90 (runNotificationQueuePhase,
  *    ./failed-notifications.ts; PKS pemenuhan 05). Rows are claimed atomically,
  *    so overlapping runs never send one twice.
  *

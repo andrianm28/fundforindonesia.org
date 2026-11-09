@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import { readUserEmail, requireFieldKeys } from '@/lib/contact-fields';
 import { errorText, getMailer, type Mailer, type MailMessage } from '@/lib/mail';
@@ -5,7 +6,7 @@ import { escapeHtml } from '@/lib/mail/escape-html';
 import {
   backoffAfterFailure,
   MAX_NOTIFICATION_ATTEMPTS,
-  PAYLOAD_AAD,
+  payloadAad,
 } from '@/lib/mail/failed-queue';
 import { NotificationNotFoundError, NotificationNotResendableError } from '@/lib/money/errors';
 import { WEBHOOK_OUTCOMES_NEEDING_REVIEW } from '@/lib/money/payment-reconciliation';
@@ -26,6 +27,16 @@ export { MAX_NOTIFICATION_ATTEMPTS };
  * processes both read PENDING. The lease lapses on its own, so a runner that
  * dies mid-send does not strand the row; the worst case after a crash is one
  * repeated email, which is the right side to err on for a notification.
+ *
+ * Every result write is guarded the same way: `updateMany` where the row is
+ * still claimable (PENDING or DEAD) AND `claimToken` is the token this runner's
+ * claim set. A runner whose lease lapsed while it was stuck mid-send finds a
+ * newer claim's token (or a SENT row) there, its write matches nothing, and it
+ * cannot turn a SENT row back into PENDING (which would send a third time) or
+ * overwrite the newer runner's outcome.
+ *
+ * Retention: SENT clears the sealed payload; the phase deletes SENT rows after
+ * 30 days and DEAD rows after 90.
  *
  * Nothing here logs a body or an address: errors go through errorText, rows
  * are named by id.
@@ -52,7 +63,19 @@ const PENDING_PILE_UP = 10;
 
 const ALERT_INTERVAL_MS = HOUR;
 
-export type NotificationOutcome = 'SENT' | 'FAILED';
+const DAY = 24 * HOUR;
+
+/** SENT rows have nothing left to retry; they are kept this long for the Admin's questions, then deleted. */
+const SENT_RETENTION_MS = 30 * DAY;
+
+/** DEAD rows wait for an Admin this long (counted from the first failure), then are deleted. */
+const DEAD_RETENTION_MS = 90 * DAY;
+
+/**
+ * SUPERSEDED: this runner's claim was replaced while it was sending (its lease
+ * lapsed), so its outcome was not recorded; whoever holds the row now decides it.
+ */
+export type NotificationOutcome = 'SENT' | 'FAILED' | 'SUPERSEDED';
 
 export interface NotificationRetryResult {
   attemptedCount: number;
@@ -62,12 +85,19 @@ export interface NotificationRetryResult {
 
 type Claimed = { id: string };
 
+/** One claim: the rows taken and the token that proves they are still ours. */
+interface Claim {
+  ids: string[];
+  token: string;
+}
+
 /** Marks due PENDING rows as held by this runner, atomically, and returns their ids. */
-async function claimDue(now: Date, limit: number): Promise<string[]> {
+async function claimDue(now: Date, limit: number): Promise<Claim> {
   const leaseEnd = new Date(now.getTime() + LEASE_MS);
+  const token = randomUUID();
   const rows = await prisma.$queryRaw<Claimed[]>`
     UPDATE "FailedNotification"
-    SET "claimedUntil" = ${leaseEnd}
+    SET "claimedUntil" = ${leaseEnd}, "claimToken" = ${token}
     WHERE "id" IN (
       SELECT "id" FROM "FailedNotification"
       WHERE "status" = 'PENDING'
@@ -78,37 +108,42 @@ async function claimDue(now: Date, limit: number): Promise<string[]> {
       FOR UPDATE SKIP LOCKED
     )
     RETURNING "id"`;
-  return rows.map((r) => r.id);
+  return { ids: rows.map((r) => r.id), token };
 }
 
-/** Marks one PENDING or DEAD row as held, or returns false when it is sent or someone holds it. */
-async function claimOne(id: string, now: Date): Promise<boolean> {
+/** Marks one PENDING or DEAD row as held and returns the token, or null when it is sent or someone holds it. */
+async function claimOne(id: string, now: Date): Promise<string | null> {
   const leaseEnd = new Date(now.getTime() + LEASE_MS);
+  const token = randomUUID();
   const rows = await prisma.$queryRaw<Claimed[]>`
     UPDATE "FailedNotification"
-    SET "claimedUntil" = ${leaseEnd}
+    SET "claimedUntil" = ${leaseEnd}, "claimToken" = ${token}
     WHERE "id" = ${id}
       AND "status" IN ('PENDING', 'DEAD')
       AND ("claimedUntil" IS NULL OR "claimedUntil" <= ${now})
     RETURNING "id"`;
-  return rows.length === 1;
+  return rows.length === 1 ? token : null;
 }
 
 /**
- * Sends one claimed row and records the result. Never throws on a send
- * problem: an unreadable payload or an unbuildable Mailer is a failed attempt
- * like a refused one, so a bad row cannot stop the rest of the batch.
+ * Sends one claimed row and records the result, only if the claim is still
+ * ours (see the header). Never throws on a send problem: an unreadable payload
+ * or an unbuildable Mailer is a failed attempt like a refused one, so a bad row
+ * cannot stop the rest of the batch.
  */
 async function attempt(
   id: string,
+  token: string,
   now: Date,
   mailer: Mailer | undefined,
   retriedById: string | null,
 ): Promise<NotificationOutcome> {
   const row = await prisma.failedNotification.findUniqueOrThrow({ where: { id } });
+  const stillOurs = { id, claimToken: token, status: { in: ['PENDING', 'DEAD'] as Array<'PENDING' | 'DEAD'> } };
   try {
+    if (row.payloadCiphertext === null || row.payloadKeyId === null) throw new Error('the sealed message is gone');
     const message = JSON.parse(
-      requireFieldKeys().decrypt(PAYLOAD_AAD, { ciphertext: row.payloadCiphertext, keyId: row.payloadKeyId }),
+      requireFieldKeys().decrypt(payloadAad(id), { ciphertext: row.payloadCiphertext, keyId: row.payloadKeyId }),
     ) as MailMessage;
     await (mailer ?? getMailer()).send(message);
   } catch (error) {
@@ -117,29 +152,39 @@ async function attempt(
     console.error(
       JSON.stringify({ event: 'mail_retry_failed', mail: row.kind, notificationId: id, attempts, dead, error: errorText(error) }),
     );
-    await prisma.failedNotification.update({
-      where: { id },
+    const written = await prisma.failedNotification.updateMany({
+      where: stillOurs,
       data: {
         attempts,
         status: dead ? 'DEAD' : 'PENDING',
         lastError: errorText(error).slice(0, 500),
         nextAttemptAt: new Date(now.getTime() + backoffAfterFailure(attempts)),
         claimedUntil: null,
+        claimToken: null,
         ...(retriedById ? { lastRetriedById: retriedById } : {}),
       },
     });
-    return 'FAILED';
+    return written.count === 1 ? 'FAILED' : superseded(id);
   }
-  await prisma.failedNotification.update({
-    where: { id },
+  const written = await prisma.failedNotification.updateMany({
+    where: stillOurs,
     data: {
       status: 'SENT',
       sentAt: now,
       claimedUntil: null,
+      claimToken: null,
+      // A delivered message is not kept (data minimisation).
+      payloadCiphertext: null,
+      payloadKeyId: null,
       ...(retriedById ? { lastRetriedById: retriedById } : {}),
     },
   });
-  return 'SENT';
+  return written.count === 1 ? 'SENT' : superseded(id);
+}
+
+function superseded(id: string): NotificationOutcome {
+  console.error(JSON.stringify({ event: 'mail_retry_superseded', notificationId: id }));
+  return 'SUPERSEDED';
 }
 
 /**
@@ -149,12 +194,13 @@ async function attempt(
  * Admin's resend tries it again.
  */
 export async function retryDueNotifications(now: Date = new Date(), mailer?: Mailer): Promise<NotificationRetryResult> {
-  const ids = await claimDue(now, RETRY_BATCH);
+  const { ids, token } = await claimDue(now, RETRY_BATCH);
   const result: NotificationRetryResult = { attemptedCount: ids.length, sentCount: 0, failedCount: 0 };
   for (const id of ids) {
     try {
-      if ((await attempt(id, now, mailer, null)) === 'SENT') result.sentCount++;
-      else result.failedCount++;
+      const outcome = await attempt(id, token, now, mailer, null);
+      if (outcome === 'SENT') result.sentCount++;
+      else if (outcome === 'FAILED') result.failedCount++;
     } catch (error) {
       // The row could not even be read or written back (database trouble).
       // Its lease lapses by itself; the others in the batch still get their turn.
@@ -176,11 +222,16 @@ export async function resendFailedNotification(
   now: Date = new Date(),
   mailer?: Mailer,
 ): Promise<NotificationOutcome> {
-  if (!(await claimOne(id, now))) {
+  const token = await claimOne(id, now);
+  if (!token) {
     const exists = await prisma.failedNotification.findUnique({ where: { id }, select: { id: true } });
     throw exists ? new NotificationNotResendableError(id) : new NotificationNotFoundError(id);
   }
-  return attempt(id, now, mailer, actorId);
+  const outcome = await attempt(id, token, now, mailer, actorId);
+  // Our lease lapsed mid-send and someone else took the row: same answer as
+  // pressing the button on a row another runner holds.
+  if (outcome === 'SUPERSEDED') throw new NotificationNotResendableError(id);
+  return outcome;
 }
 
 /**
@@ -284,6 +335,21 @@ export async function sendAdminAlert(
 export interface NotificationQueuePhaseResult extends NotificationRetryResult {
   /** The alert kinds that actually went out in this run. */
   alertsSent: string[];
+  /** Rows deleted by the retention sweep (SENT after 30 days, DEAD after 90). */
+  purgedCount: number;
+}
+
+/** Deletes rows past retention; a delivered message's payload is already gone, a DEAD one's goes with the row. */
+async function purgeExpired(now: Date): Promise<number> {
+  const deleted = await prisma.failedNotification.deleteMany({
+    where: {
+      OR: [
+        { status: 'SENT', sentAt: { lt: new Date(now.getTime() - SENT_RETENTION_MS) } },
+        { status: 'DEAD', createdAt: { lt: new Date(now.getTime() - DEAD_RETENTION_MS) } },
+      ],
+    },
+  });
+  return deleted.count;
 }
 
 /**
@@ -292,6 +358,7 @@ export interface NotificationQueuePhaseResult extends NotificationRetryResult {
  *  - `notification_queue`: a notification is DEAD (or PENDING rows pile up), or
  *  - `webhook_review`: a webhook event needing review, or a charge with no
  *    Payment, arrived in the last day and nobody has closed it.
+ * Also deletes rows past retention (purgeExpired).
  * Sent from this phase rather than from the webhook handler, so the handler's
  * hot path is untouched and the delay is one job interval (15 minutes).
  */
@@ -301,6 +368,7 @@ export async function runNotificationQueuePhase(
   options: { recipients?: string[] } = {},
 ): Promise<NotificationQueuePhaseResult> {
   const retry = await retryDueNotifications(now, mailer);
+  const purgedCount = await purgeExpired(now);
   const since = new Date(now.getTime() - ALERT_WINDOW_MS);
   const alertsSent: string[] = [];
   const alert = { mailer, recipients: options.recipients };
@@ -337,5 +405,5 @@ export async function runNotificationQueuePhase(
       alertsSent.push('webhook_review');
     }
   }
-  return { ...retry, alertsSent };
+  return { ...retry, alertsSent, purgedCount };
 }

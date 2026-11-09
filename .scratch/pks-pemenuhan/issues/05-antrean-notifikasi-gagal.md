@@ -9,7 +9,7 @@
 - [x] Test: kegagalan kirim masuk antrean; retry sukses mengosongkan; batas percobaan
 - [x] Test: tandai selesai webhook tercatat dengan pelaku
 - [x] Test throttle email error
-- [ ] Review independen sonnet (keamanan dan konkurensi)
+- [x] Review independen sonnet (keamanan dan konkurensi)
 
 ## Comments
 
@@ -24,3 +24,4 @@
 - Layar `/admin/notifikasi-gagal` dan API `POST /api/admin/failed-notifications/[id]/resend` dan `POST /api/admin/webhook-events/[id]/resolve`: 404 literal untuk non-Admin (layout dan `withHiddenAssignmentCheck`). Allowlist `roles-expand-guard` diperbarui dengan alasan.
 - Tidak ada env baru, jadi docker-compose(.prod) dan tesnya tidak berubah.
 - Runbook `insiden.md` (bagian Notifikasi gagal) dan `payment-reconciliation.md` (butir 6) diganti dengan prosedur baru.
+- Tindak lanjut review independen (sonnet): payload tersegel dikosongkan saat SENT; baris SENT dihapus setelah 30 hari dan DEAD setelah 90 hari oleh fase job yang sama; tiap tulis hasil dijaga updateMany (status PENDING/DEAD dan claimToken milik klaim itu) sehingga runner dengan lease lapuk tidak menimpa SENT atau hasil runner baru; receipt_resend tidak diantrekan; email Donor Tamu di campaign-transfers.ts lewat sendReportingFailure (konteks campaignTransferId); AAD payload memuat id baris; kalimat runbook alert disamakan dengan kode; percobaan di atas batas diberi label; halaman memeriksa ADMIN sendiri (404). Migrasi 20261110100000 diubah di tempat (belum di produksi): payload nullable dan kolom claimToken.

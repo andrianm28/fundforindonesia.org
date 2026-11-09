@@ -4,7 +4,7 @@ import { CampaignStatus, Kind, type CampaignTransfer, type Prisma, type PrismaCl
 import { OwnSubjectConflictError } from '@/lib/capacity';
 import { lockAndLoad, requireNotOwnerAsAdmin, type SubjectState } from '@/lib/subject-guard';
 import { readDonationGuestEmail, SELECT_DONATION_GUEST_EMAIL } from '@/lib/contact-fields';
-import { getMailer, type Mailer } from '@/lib/mail';
+import { sendReportingFailure, type Mailer } from '@/lib/mail';
 import { campaignTransferEmail } from '@/lib/mail/campaign-transfer';
 import { publicUrl } from '@/lib/public-url';
 import { formatRupiah } from '@/lib/utils/currency';
@@ -397,7 +397,7 @@ export async function approveCampaignTransfer(
     return { targets: judged.targets, guests: guests as GuestEmailRow[] };
   });
 
-  await emailGuestDonors(outcome.guests, outcome.targets, deps);
+  await emailGuestDonors(outcome.guests, outcome.targets, campaignTransferId, deps);
 
   return prisma.campaignTransfer.findUniqueOrThrow({ where: { id: campaignTransferId } });
 }
@@ -405,6 +405,7 @@ export async function approveCampaignTransfer(
 async function emailGuestDonors(
   guests: GuestEmailRow[],
   targets: { sourceTitle: string; targetTitle: string; targetSlug: string; kindLabel: string },
+  campaignTransferId: string,
   deps: CampaignTransferNotifyDeps,
 ): Promise<void> {
   const read = deps.readGuestEmail ?? readDonationGuestEmail;
@@ -416,21 +417,22 @@ async function emailGuestDonors(
   }
   if (addresses.size === 0) return;
 
-  const mailer = deps.mailer ?? getMailer();
+  // The shared failure reporting logs a refusal (an unconfigured Mailer too) and
+  // queues it for retry (PKS Pasal 8(2)); the context is the transfer's id only,
+  // never a Donor's address or name. Nothing here throws, so one Guest Donor's
+  // failure does not stop the next.
   for (const to of addresses) {
-    try {
-      await mailer.send(
-        campaignTransferEmail({
-          to,
-          sourceTitle: targets.sourceTitle,
-          targetTitle: targets.targetTitle,
-          targetUrl: publicUrl(`/campaign/${targets.targetSlug}`),
-          kindLabel: targets.kindLabel,
-        }),
-      );
-    } catch (error) {
-      console.error('Campaign Transfer: could not email a Guest Donor', error);
-    }
+    await sendReportingFailure(
+      campaignTransferEmail({
+        to,
+        sourceTitle: targets.sourceTitle,
+        targetTitle: targets.targetTitle,
+        targetUrl: publicUrl(`/campaign/${targets.targetSlug}`),
+        kindLabel: targets.kindLabel,
+      }),
+      { mail: 'campaign_transfer', campaignTransferId },
+      deps.mailer,
+    );
   }
 }
 
