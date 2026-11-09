@@ -133,6 +133,27 @@ describe('POST /api/donations/[id]/retry', () => {
     expect(mockDonationFindUnique).not.toHaveBeenCalled();
   });
 
+  it('answers 404 for a pending zakat Donation while the zakat module is OFF, and creates no Payment (ADR 0028)', async () => {
+    mockDonationFindUnique.mockResolvedValue(
+      makeDonation({
+        campaign: {
+          ...ACTIVE_CAMPAIGN,
+          kind: 'ZAKAT',
+          collectingEntity: {
+            id: 'org-1',
+            permits: ACTIVE_CAMPAIGN.collectingEntity.permits.map((p) => ({ ...p, kinds: ['ZAKAT'] })),
+            kindAuthorisations: [{ kind: 'ZAKAT', validFrom: new Date('2020-01-01T00:00:00Z'), validTo: new Date('2099-12-31T00:00:00Z') }],
+          },
+        },
+      }),
+    );
+
+    const response = await POST(retryRequest(), routeContext());
+
+    expect(response.status).toBe(404);
+    expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
   it('creates a new Payment after the last attempt FAILED, with a fresh order id', async () => {
     const response = await POST(retryRequest(), routeContext());
     const data = await response.json();

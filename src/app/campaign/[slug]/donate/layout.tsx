@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 import { resolveOperations, type Operations } from '@/lib/operations';
@@ -29,6 +30,13 @@ export default async function DonateLayout({
     operations = await resolveOperations(prisma);
   } catch {
     operations = null;
+  }
+  // A zakat Campaign's donate page exists only while the zakat module is on
+  // (ADR 0028). Looked up only while it is off, which is the usual case.
+  if (operations !== null && !operations.zakat.enabled) {
+    const { slug } = await params;
+    const campaign = await prisma.campaign.findUnique({ where: { slug }, select: { kind: true } });
+    if (campaign?.kind === 'ZAKAT') notFound();
   }
   if (operations === null || !operations.donationsOpen) {
     const { slug } = await params;

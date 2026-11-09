@@ -10,7 +10,7 @@ const ADMIN_HREFS = [
   "/admin/manual-contributions", "/admin/abuse-thresholds", "/admin/campaigns/lifecycle",
   "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/finance", "/admin/verification-checklist",
   "/admin/collecting-entities", "/admin/partnership-inquiries", "/admin/payment-providers", "/admin/platform-fee", "/admin/escrow-hold",
-  "/admin/reconciliation", "/admin/notifikasi-gagal", "/admin/doa", "/admin/kurasi", "/admin/site-settings", "/admin/operasional", "/admin/kategori", "/admin/programs", "/admin/scrutiny", "/admin/campaign-transfers",
+  "/admin/reconciliation", "/admin/notifikasi-gagal", "/admin/doa", "/admin/kurasi", "/admin/site-settings", "/admin/operasional", "/admin/kategori", "/admin/programs", "/admin/scrutiny", "/admin/campaign-transfers", "/admin/zakat",
 ] as const;
 const LINK_BASE = "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors";
 
@@ -21,7 +21,7 @@ const LINK_BASE = "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-med
  * content and the page scrolled sideways). The brand title is a <p>, not an
  * <h1>: every /admin page owns exactly one h1 of its own.
  */
-export function AdminSidebar() {
+export function AdminSidebar({ zakatOpen = false }: { zakatOpen?: boolean }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const current = activeHref(pathname, ADMIN_HREFS);
@@ -127,6 +127,11 @@ export function AdminSidebar() {
         <SidebarLink current={current} href="/admin/operasional" icon="checklist">
           Operasional
         </SidebarLink>
+        {zakatOpen && (
+          <SidebarLink current={current} href="/admin/zakat" icon="payouts">
+            Zakat
+          </SidebarLink>
+        )}
         <SidebarLink current={current} href="/admin/kategori" icon="campaigns">
           Kategori
         </SidebarLink>

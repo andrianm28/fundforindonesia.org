@@ -209,6 +209,13 @@ import { join } from "node:path";
  * below as a non-route; the two routes and the two pages
  * (/moderasi/doa, /admin/doa, behind their own layouts and the shared
  * PrayerModerationScreen) only ask it, and name no assignment themselves.
+ *
+ * NOTE (PKS pemenuhan 19): `GET /api/admin/zakat/transaksi` (zakat transactions
+ * CSV) and `GET`/`POST /api/admin/zakat/distributions` (distribution records)
+ * go through `zakatAdminRoute` (src/lib/zakat-route.ts): a literal 404 for
+ * everyone while the module is off, then `withHiddenAssignmentCheck` on ADMIN.
+ * That one file names the assignment, so it joins the list as a non-route; the
+ * routes and the page /admin/zakat (behind the Admin layout) name none.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -322,6 +329,10 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   // uploader, the Campaign's Fundraiser, a Verifier handling it, an Admin --
   // which no single-assignment route wrapper can express.
   "src/lib/documents.ts",
+  // Not a route: zakatAdminRoute (PKS pemenuhan 19) wraps the two Admin zakat
+  // APIs (src/app/api/admin/zakat/**) in withHiddenAssignmentCheck on ADMIN,
+  // behind a 404 for everyone while the zakat module is off.
+  "src/lib/zakat-route.ts",
 ];
 
 /** Every route that changes a Campaign's lifecycle through the lifecycle module. */
@@ -471,7 +482,7 @@ describe("roles expand scope", () => {
   it("every Admin and Moderasi API route answers a missing assignment with 404 (ticket 90)", () => {
     // Directly, or through the register's and checklist editor's wrappers,
     // which are themselves withHiddenAssignmentCheck.
-    const HIDDEN = /\bwithHiddenAssignmentCheck\(|\bpartnerOrganisationRoute\(|\bchecklistRoute\(|\bprayerModerationRoute\(/;
+    const HIDDEN = /\bwithHiddenAssignmentCheck\(|\bpartnerOrganisationRoute\(|\bchecklistRoute\(|\bprayerModerationRoute\(|\bzakatAdminRoute\(/;
     const routes = [...walk("src/app/api/admin"), ...walk("src/app/api/moderasi")].filter((file) =>
       file.endsWith("/route.ts")
     );
@@ -501,6 +512,9 @@ describe("roles expand scope", () => {
     expect(prayers).toMatch(/\bwithHiddenAnyAssignmentCheck\(/);
     expect(prayers).toContain("Assignment.VERIFIER");
     expect(prayers).toContain("Assignment.ADMIN");
+    // The zakat wrapper is the same hidden ADMIN check, behind the module's switch.
+    const zakat = readFileSync("src/lib/zakat-route.ts", "utf8");
+    expect(zakat).toMatch(/\bwithHiddenAssignmentCheck\(Assignment\.ADMIN/);
   });
 
   it("the assignment model references ADR 0005", () => {

@@ -17,6 +17,7 @@ import {
 } from '@/lib/subject-guard';
 import { organisationOf, requireDonationOnlyForIndividual, resolveCollectingEntity } from '@/lib/collecting-entity-guard';
 import { KINDS } from '@/lib/campaign-kind';
+import { zakatCampaignHidden } from '@/lib/zakat';
 import { campaignLocationSchema } from '@/lib/campaign-location';
 import { galleryImagesSchema } from '@/lib/campaign-gallery';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
@@ -136,6 +137,8 @@ export async function GET(
     });
 
     if (!campaign) return campaignNotFound();
+    // A zakat Campaign is public only while the zakat module is on (ADR 0028).
+    if (await zakatCampaignHidden(prisma, campaign.kind)) return campaignNotFound();
 
     const now = new Date();
     const lifecycleStatus = effectiveStatus(campaign, now);

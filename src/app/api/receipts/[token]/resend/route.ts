@@ -89,6 +89,7 @@ export async function POST(
       paidAt: receipt.sentAt ?? receipt.createdAt,
       printUrl: publicUrl(`/receipt/${token}`),
       betaSandbox: receiptNeedsBetaNotice(donation.payments),
+      zakat: campaign.kind === 'ZAKAT',
     }),
     { mail: 'receipt_resend', donationId: donation.id, receiptId: receipt.id },
   );

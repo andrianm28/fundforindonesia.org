@@ -12,6 +12,8 @@ export type ReceiptPdfInput = {
   dateLabel: string;
   donorName: string;
   betaSandbox: boolean;
+  /** A payment of zakat (ADR 0028): the same one-page Receipt, titled as such. */
+  zakat?: boolean;
 };
 
 function toLatin1(text: string): string {
@@ -80,7 +82,7 @@ function valueLines(value: string) {
 
 export function buildReceiptPdf(input: ReceiptPdfInput): Buffer {
   const lines: Array<{ size: number; text: string; gap: number }> = [
-    { size: 20, text: 'Bukti Donasi', gap: 0 },
+    { size: 20, text: input.zakat ? 'Bukti Pembayaran Zakat' : 'Bukti Donasi', gap: 0 },
     ...(input.betaSandbox
       ? [{ size: 10, text: 'Donasi uji (beta): tidak ada uang sungguhan yang berpindah.', gap: 24 }]
       : []),

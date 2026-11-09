@@ -14,6 +14,7 @@ import {
 
 const holder = vi.hoisted(() => ({
   db: null as unknown as ReturnType<typeof import('../../tests/support/in-memory-campaign-db').makeCampaignDb>,
+  zakatOn: false,
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -22,6 +23,21 @@ vi.mock('@/lib/prisma', () => ({
     {
       get(_target, key: string) {
         if (key === 'category') return { findMany: async () => [] };
+        // Setelan operasional (src/lib/operations.ts): the zakat switch, off unless a test turns it on.
+        if (key === 'siteSetting') {
+          return {
+            findUnique: async () => ({
+              key: 'operations',
+              value: {
+                donationsOpen: true,
+                maintenance: { on: false, message: '' },
+                zakat: { enabled: holder.zakatOn, nisabAmount: 85_000_000, recipientOrganisationId: 'org-1' },
+                history: [],
+              },
+              updatedAt: new Date(1),
+            }),
+          };
+        }
         if (key === 'partnerOrganisation') return { findMany: async () => [{ id: 'org-1' }, { id: 'org-2' }] };
         return (holder.db.prisma as Record<string, unknown>)[key];
       },
@@ -115,6 +131,32 @@ describe('the sitemap links the canonical public site', () => {
 
     expect(urls).toContain('https://staging.example.test');
     expect(urls).not.toContain('https://staging.example.test/zakat');
+  });
+});
+
+describe('the zakat module in the sitemap (ADR 0028)', () => {
+  const zakatCampaign = () => campaign('zakat-yayasan', { kind: 'ZAKAT' });
+
+  it('lists neither /zakat nor a zakat Campaign while the module is off (the default)', async () => {
+    holder.zakatOn = false;
+    holder.db = makeCampaignDb({ campaigns: [zakatCampaign(), campaign('banjir')] });
+
+    const urls = (await sitemap()).map((entry) => new URL(entry.url).pathname);
+
+    expect(urls).not.toContain('/zakat');
+    expect(urls).not.toContain('/campaign/zakat-yayasan');
+    expect(urls).toContain('/campaign/banjir');
+  });
+
+  it('lists /zakat and its Campaigns once an Admin switched the module on', async () => {
+    holder.zakatOn = true;
+    holder.db = makeCampaignDb({ campaigns: [zakatCampaign()] });
+
+    const urls = (await sitemap()).map((entry) => new URL(entry.url).pathname);
+    holder.zakatOn = false;
+
+    expect(urls).toContain('/zakat');
+    expect(urls).toContain('/campaign/zakat-yayasan');
   });
 });
 

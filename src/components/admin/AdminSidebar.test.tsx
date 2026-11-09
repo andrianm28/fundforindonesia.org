@@ -22,6 +22,15 @@ describe("AdminSidebar", () => {
     }
   });
 
+  it("links the zakat page only while the zakat module is on (ADR 0028)", () => {
+    const off = render(<AdminSidebar />);
+    expect(off.container.querySelectorAll('nav a[href="/admin/zakat"]')).toHaveLength(0);
+    off.unmount();
+
+    const on = render(<AdminSidebar zakatOpen />);
+    expect(on.container.querySelectorAll('nav a[href="/admin/zakat"]')).toHaveLength(1);
+  });
+
   it("uses brand tokens on links and never the ledger gold", () => {
     const { container } = render(<AdminSidebar />);
     const link = container.querySelector('nav a[href="/admin/users"]');

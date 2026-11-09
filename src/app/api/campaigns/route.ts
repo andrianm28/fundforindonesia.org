@@ -13,6 +13,7 @@ import { categoryExists, UNKNOWN_CATEGORY_MESSAGE } from '@/lib/categories';
 import { campaignLocationSchema } from '@/lib/campaign-location';
 import { parseCampaignSort, rankByCountedProgress } from '@/lib/campaign-sort';
 import { galleryImagesSchema } from '@/lib/campaign-gallery';
+import { zakatSwitchedOn } from '@/lib/operations';
 
 const createCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
@@ -23,7 +24,8 @@ const createCampaignSchema = z.object({
   galleryImages: galleryImagesSchema.optional(),
   targetAmount: z.number().positive("Target donasi harus lebih dari 0"),
   category: z.string().min(1, "Kategori harus dipilih"),
-  kind: z.enum(KINDS, { message: "Kind harus dipilih" }),
+  // ZAKAT parses here and is refused below unless the zakat module is ON (ADR 0028).
+  kind: z.enum([...KINDS, 'ZAKAT'], { message: "Kind harus dipilih" }),
   deadline: z.string().datetime().optional(),
   // The beneficiary this Campaign names, stored as typed (PRD FFI-02, and
   // one of the three matches a Verifier's duplicate hints are built from,
@@ -200,6 +202,15 @@ export async function POST(request: NextRequest) {
     }
 
     const { title, description, story, coverImage, targetAmount, category, kind, deadline } = result.data;
+
+    // Kind ZAKAT exists only while the module is switched on; before that it is
+    // as unknown as any other word (ADR 0025, then 0028).
+    if (kind === 'ZAKAT' && !(await zakatSwitchedOn(prisma))) {
+      return NextResponse.json(
+        { error: 'Validasi gagal', fieldErrors: { kind: ['Kind harus dipilih'] } },
+        { status: 400 }
+      );
+    }
     const beneficiaryName = result.data.beneficiaryName?.trim() || null;
     // Where it happens and who it helps (ticket 74): all optional, null when blank.
     const { province, regency, beneficiaryDescription, beneficiaryCount, beneficiaryRelationship } = result.data;

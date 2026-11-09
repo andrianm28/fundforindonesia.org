@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { MAX_DONATION_AMOUNT, MIN_DONATION_AMOUNT } from "@/lib/donations";
 import { formatRupiah } from "@/lib/utils/currency";
+import { holdsValidKindAuthorisation, holdsValidPermit } from "@/lib/collecting-entity";
 
 /**
  * Setelan operasional: the two switches an Admin flips from the panel
@@ -23,6 +24,12 @@ import { formatRupiah } from "@/lib/utils/currency";
  *                  each at least the minimum donation. A stored value that no
  *                  longer qualifies (or is absent) falls back to the defaults
  *                  for the presets only; the switches keep their stored values.
+ *  zakat          the zakat module's switch, nisab and recipient (PKS pemenuhan
+ *                  19, ADR 0028). OFF by default and Admin-only. While off,
+ *                  every zakat route answers 404 and a zakat checkout is
+ *                  refused. It can only be turned on with a nisab, a recipient
+ *                  Partner Organisation, and that organisation holding a
+ *                  permit and a Kind Authorisation for zakat valid now.
  *
  * One SiteSetting row, key `operations`, kept apart from Pengaturan Laman
  * Publik (src/lib/site-settings.ts): that module's schema does not know this
@@ -42,6 +49,25 @@ export const DEFAULT_DONATION_PRESETS: readonly number[] = [20000, 50000, 100000
 
 const rupiahList = z.array(z.number());
 
+export const MAX_ZAKAT_NISAB = 10_000_000_000;
+
+const zakatNisab = z
+  .number({ error: "Nisab harus berupa angka." })
+  .int("Nisab harus bilangan bulat rupiah.")
+  .min(1, "Nisab harus lebih dari Rp0.")
+  .max(MAX_ZAKAT_NISAB, `Nisab maksimal ${formatRupiah(MAX_ZAKAT_NISAB)}.`);
+
+const DEFAULT_ZAKAT = { enabled: false, nisabAmount: 0, recipientOrganisationId: null as string | null };
+
+// A row written before this section existed has no `zakat` key: it reads as OFF.
+const zakatSection = z
+  .object({
+    enabled: z.boolean(),
+    nisabAmount: z.number().int().min(0),
+    recipientOrganisationId: z.string().min(1).nullable(),
+  })
+  .catch(() => ({ ...DEFAULT_ZAKAT }));
+
 const presetAmounts = z
   .array(
     z
@@ -57,9 +83,17 @@ const presetAmounts = z
   .transform((v) => [...v].sort((a, b) => a - b));
 
 const change = z.object({
-  field: z.enum(["donationsOpen", "maintenanceOn", "maintenanceMessage", "donationPresets"]),
-  from: z.union([z.boolean(), z.string(), rupiahList]),
-  to: z.union([z.boolean(), z.string(), rupiahList]),
+  field: z.enum([
+    "donationsOpen",
+    "maintenanceOn",
+    "maintenanceMessage",
+    "donationPresets",
+    "zakatEnabled",
+    "zakatNisabAmount",
+    "zakatRecipientOrganisationId",
+  ]),
+  from: z.union([z.boolean(), z.string(), z.number(), z.null(), rupiahList]),
+  to: z.union([z.boolean(), z.string(), z.number(), z.null(), rupiahList]),
 });
 
 const historyEntry = z.object({
@@ -73,6 +107,7 @@ const operationsSchema = z.object({
   donationsOpen: z.boolean(),
   maintenance: z.object({ on: z.boolean(), message: z.string().max(MAX_MAINTENANCE_MESSAGE) }),
   donationPresets: presetAmounts.catch(() => [...DEFAULT_DONATION_PRESETS]),
+  zakat: zakatSection,
   history: z.array(historyEntry).max(MAX_OPERATIONS_HISTORY),
 });
 
@@ -86,6 +121,9 @@ const patchSchema = z
       .max(MAX_MAINTENANCE_MESSAGE, `Pesan maksimal ${MAX_MAINTENANCE_MESSAGE} karakter.`)
       .optional(),
     donationPresets: presetAmounts.optional(),
+    zakatEnabled: z.boolean().optional(),
+    zakatNisabAmount: zakatNisab.optional(),
+    zakatRecipientOrganisationId: z.string().trim().min(1, "Lembaga penerima zakat tidak valid.").nullable().optional(),
   })
   .strict();
 
@@ -97,6 +135,7 @@ export const DEFAULT_OPERATIONS: Operations = {
   donationsOpen: true,
   maintenance: { on: false, message: "" },
   donationPresets: [...DEFAULT_DONATION_PRESETS],
+  zakat: { ...DEFAULT_ZAKAT },
   history: [],
 };
 
@@ -124,7 +163,7 @@ export class OperationsCorruptError extends Error {
   }
 }
 
-type OperationsDb = Pick<PrismaClient, "siteSetting">;
+export type OperationsDb = Pick<PrismaClient, "siteSetting">;
 
 /** The row as stored (null: never written) with what it parses to, and its version. */
 async function readOperations(db: OperationsDb): Promise<{
@@ -189,12 +228,71 @@ export async function donationsSwitchedOff(db: OperationsDb): Promise<boolean> {
 }
 
 /**
+ * Whether the zakat module is on. Read by every zakat route and by the
+ * donation path before it takes a zakat checkout. It fails CLOSED: an
+ * unreadable row means off, because the module's default is off.
+ */
+export async function zakatSwitchedOn(db: OperationsDb): Promise<boolean> {
+  try {
+    return (await resolveOperations(db)).zakat.enabled;
+  } catch {
+    return false;
+  }
+}
+
+type KindValue = "DONATION" | "ZAKAT" | "WAKAF" | "HIBAH";
+type RecipientLookup = {
+  partnerOrganisation?: {
+    findUnique: (args: {
+      where: { id: string };
+      select: {
+        permits: { select: { kinds: true; validFrom: true; validTo: true } };
+        kindAuthorisations: { select: { kind: true; validFrom: true; validTo: true } };
+      };
+    }) => Promise<{
+      permits: { kinds: KindValue[]; validFrom: Date; validTo: Date }[];
+      kindAuthorisations: { kind: KindValue; validFrom: Date; validTo: Date }[];
+    } | null>;
+  };
+};
+
+/**
+ * The recipient of zakat must be an existing Partner Organisation (a verified
+ * institution: only a Verifier registers one). Turning the module ON also
+ * needs it to hold, now, a Fundraising Permit covering zakat and a zakat Kind
+ * Authorisation: the legal prerequisites of PKS Pasal 12(2) put on record
+ * (ADR 0028). The donation path judges the same two again at each checkout.
+ */
+async function requireLicensedRecipient(
+  db: RecipientLookup,
+  organisationId: string,
+  now: Date,
+  mustBeLicensed: boolean,
+): Promise<void> {
+  const lookup = db.partnerOrganisation;
+  if (!lookup) throw new Error("partnerOrganisation is required to validate the zakat recipient");
+  const org = await lookup.findUnique({
+    where: { id: organisationId },
+    select: {
+      permits: { select: { kinds: true, validFrom: true, validTo: true } },
+      kindAuthorisations: { select: { kind: true, validFrom: true, validTo: true } },
+    },
+  });
+  if (!org) throw new InvalidOperationsError("Lembaga penerima zakat tidak ditemukan.");
+  if (mustBeLicensed && !(holdsValidPermit(org, "ZAKAT", now) && holdsValidKindAuthorisation(org, "ZAKAT", now))) {
+    throw new InvalidOperationsError(
+      "Penanda zakat hanya bisa dihidupkan bila lembaga penerima memegang izin pengumpulan dan Kind Authorisation zakat yang berlaku saat ini.",
+    );
+  }
+}
+
+/**
  * An Admin changes one or more switches. Validated here so the route and any
  * later caller agree. A patch that changes nothing writes nothing, and so
  * adds no history entry.
  */
 export async function setOperations(
-  db: OperationsDb,
+  db: OperationsDb & RecipientLookup,
   params: { patch: unknown; actorId: string; actorName: string; now?: Date },
 ): Promise<Operations> {
   const parsed = patchSchema.safeParse(params.patch);
@@ -233,6 +331,41 @@ export async function setOperations(
   if (patch.donationPresets !== undefined && !sameList(patch.donationPresets, current.donationPresets)) {
     next.donationPresets = patch.donationPresets;
     changes.push({ field: "donationPresets", from: current.donationPresets, to: patch.donationPresets });
+  }
+
+  if (patch.zakatNisabAmount !== undefined && patch.zakatNisabAmount !== current.zakat.nisabAmount) {
+    next.zakat.nisabAmount = patch.zakatNisabAmount;
+    changes.push({ field: "zakatNisabAmount", from: current.zakat.nisabAmount, to: patch.zakatNisabAmount });
+  }
+  if (
+    patch.zakatRecipientOrganisationId !== undefined &&
+    patch.zakatRecipientOrganisationId !== current.zakat.recipientOrganisationId
+  ) {
+    next.zakat.recipientOrganisationId = patch.zakatRecipientOrganisationId;
+    changes.push({
+      field: "zakatRecipientOrganisationId",
+      from: current.zakat.recipientOrganisationId,
+      to: patch.zakatRecipientOrganisationId,
+    });
+  }
+  if (patch.zakatEnabled !== undefined && patch.zakatEnabled !== current.zakat.enabled) {
+    next.zakat.enabled = patch.zakatEnabled;
+    changes.push({ field: "zakatEnabled", from: current.zakat.enabled, to: patch.zakatEnabled });
+  }
+
+  // The recipient is validated whenever it changes or the module is being
+  // turned on; the licence check applies whenever the module ends up on.
+  const zakatTouched = changes.some((c) => c.field === "zakatEnabled" || c.field === "zakatRecipientOrganisationId");
+  if (next.zakat.enabled && zakatTouched) {
+    if (next.zakat.nisabAmount <= 0) throw new InvalidOperationsError("Isi nisab lebih dulu sebelum menghidupkan penanda zakat.");
+    if (next.zakat.recipientOrganisationId === null) {
+      throw new InvalidOperationsError("Pilih lembaga penerima zakat lebih dulu sebelum menghidupkan penanda zakat.");
+    }
+  }
+  const recipientChanged = changes.some((c) => c.field === "zakatRecipientOrganisationId");
+  // Turning OFF needs no check of anyone; only a recipient being set, or the module ending up on, does.
+  if (next.zakat.recipientOrganisationId !== null && (recipientChanged || (next.zakat.enabled && zakatTouched))) {
+    await requireLicensedRecipient(db, next.zakat.recipientOrganisationId, params.now ?? new Date(), next.zakat.enabled);
   }
 
   if (changes.length === 0) return current;

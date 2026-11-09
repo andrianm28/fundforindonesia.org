@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { donationsEnabled } from '@/lib/donations';
 import { resolveOperations, type OperationsHistoryEntry } from '@/lib/operations';
 import { AdminOperationsForm } from '@/components/admin/AdminOperationsForm';
+import { AdminZakatSettingsForm } from '@/components/admin/AdminZakatSettingsForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,16 +18,25 @@ const FIELD_LABEL: Record<OperationsHistoryEntry['changes'][number]['field'], st
   maintenanceOn: 'Mode pemeliharaan',
   maintenanceMessage: 'Pesan pemeliharaan',
   donationPresets: 'Preset nominal donasi',
+  zakatEnabled: 'Modul zakat',
+  zakatNisabAmount: 'Nisab zakat (Rp)',
+  zakatRecipientOrganisationId: 'Lembaga penerima zakat (ID)',
 };
 
-function show(field: OperationsHistoryEntry['changes'][number]['field'], v: boolean | string | number[]): string {
+function show(field: OperationsHistoryEntry['changes'][number]['field'], v: boolean | string | number | number[] | null): string {
+  if (v === null) return '(kosong)';
   if (Array.isArray(v)) return v.join(', ');
+  if (typeof v === 'number') return String(v);
   if (field === 'maintenanceMessage') return v === '' ? '(kosong)' : `"${String(v)}"`;
   return v ? 'hidup' : 'mati';
 }
 
 export default async function AdminOperationsPage() {
   const operations = await resolveOperations(prisma);
+  const organisations = await prisma.partnerOrganisation.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
 
   return (
     <div>
@@ -50,6 +60,8 @@ export default async function AdminOperationsPage() {
           donationPresets: operations.donationPresets,
         }}
       />
+
+      <AdminZakatSettingsForm initial={operations.zakat} organisations={organisations} />
 
       <section className="mt-8 rounded-xl border border-gray-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-gray-900">Riwayat perubahan</h2>

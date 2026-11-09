@@ -62,7 +62,7 @@ export default async function RootLayout({
 }>) {
   const betaSandbox = await betaSandboxForThisRequest();
   const { footer, social } = await resolveSiteSettingsOrDefaults(prisma);
-  const { maintenance } = await resolveOperationsOrDefaults(prisma);
+  const { maintenance, zakat } = await resolveOperationsOrDefaults(prisma);
 
   return (
     <html lang="id">
@@ -72,7 +72,7 @@ export default async function RootLayout({
             {betaSandbox && <BetaBanner variant="site" />}
             {maintenance.on && <MaintenanceBanner message={maintenance.message || MAINTENANCE_DEFAULT_MESSAGE} />}
             <AppShell>{children}</AppShell>
-            <ConditionalFooter footer={footer} social={social} />
+            <ConditionalFooter footer={footer} social={social} zakatOpen={zakat.enabled} />
           </BetaSandboxProvider>
         </Providers>
       </body>

@@ -19,6 +19,17 @@ describe('receiptEmail', () => {
     printUrl: 'https://fundforindonesia.org/receipt/abc123',
   };
 
+  it('is labelled zakat, in the subject, text and html, only for a zakat Receipt (ADR 0028)', () => {
+    const zakat = receiptEmail({ ...base, zakat: true });
+    expect(zakat.subject).toMatch(/^Bukti Pembayaran Zakat/);
+    expect(zakat.text).toMatch(/zakat/i);
+    expect(zakat.html).toMatch(/zakat/i);
+
+    const plain = receiptEmail(base);
+    expect(plain.subject).toMatch(/^Bukti Donasi/);
+    expect(plain.text).not.toMatch(/zakat/i);
+  });
+
   it('names the Collecting Entity as who received the money, never the platform', () => {
     const email = receiptEmail(base);
 

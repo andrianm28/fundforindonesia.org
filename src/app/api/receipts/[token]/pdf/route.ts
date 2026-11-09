@@ -60,6 +60,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     dateLabel: formatIndonesianDate(receipt.sentAt ?? receipt.createdAt),
     donorName,
     betaSandbox: receiptNeedsBetaNotice(donation.payments),
+    zakat: donation.campaign.kind === 'ZAKAT',
   });
 
   return new Response(new Uint8Array(pdf), {

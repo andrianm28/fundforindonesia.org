@@ -158,6 +158,7 @@ model User {
   manualContributionsRecorded       ManualContribution[]             @relation("ManualContributionRecorder")
   manualContributionsDecided        ManualContribution[]             @relation("ManualContributionDecider")
   manualContributionsReversed       ManualContribution[]             @relation("ManualContributionReverser")
+  zakatDistributionsRecorded        ZakatDistribution[]              @relation("ZakatDistributionRecorder")
   campaignTransfersRequested        CampaignTransfer[]               @relation("CampaignTransferRequester")
   campaignTransfersDecided          CampaignTransfer[]               @relation("CampaignTransferDecider")
   providerWithdrawalsRecorded       ProviderWithdrawal[]             @relation("ProviderWithdrawalRecorder")
@@ -985,6 +986,7 @@ model PartnerOrganisation {
   documents            Document[]
   members              OrganisationMember[]
   invitations          OrganisationInvitation[]
+  zakatDistributions   ZakatDistribution[]
 }
 
 /// What a team member of a Partner Organisation may do (ticket E4; CONTEXT.md,
@@ -3321,4 +3323,46 @@ model SiteSetting {
   updatedAt   DateTime @default(now()) @updatedAt
 
   updatedBy User @relation(fields: [updatedById], references: [id], onDelete: Restrict)
+}
+
+/// The eight asnaf, the groups of people zakat may be given to (QS At-Taubah 60).
+/// Used only to classify a Zakat Distribution record.
+enum ZakatAsnaf {
+  FAKIR
+  MISKIN
+  AMIL
+  MUALAF
+  RIQAB
+  GHARIM
+  FISABILILLAH
+  IBNU_SABIL
+}
+
+/// A record that the zakat institution distributed zakat to mustahik (PKS
+/// pemenuhan 19, ADR 0028), entered by an Admin. A RECORD ONLY: it posts no
+/// LedgerEntry and moves no money. The platform's Payout machinery pays the
+/// institution; what the institution then gives to mustahik happens off this
+/// platform and is written down here for the books and the report. The amount
+/// recorded can never exceed the zakat the institution has received (checked
+/// when recording, src/lib/zakat-distributions.ts). Never edited or deleted:
+/// a mistake is corrected by a new record that says so in its note.
+model ZakatDistribution {
+  id               String     @id @default(cuid())
+  /// The zakat institution (Partner Organisation) that distributed.
+  organisationId   String
+  amount           Int
+  asnaf            ZakatAsnaf
+  /// When the institution distributed (a WIB calendar day, stored as an instant).
+  distributedAt    DateTime
+  /// Who received it, in aggregate ("25 keluarga di Desa X"). Never a named
+  /// individual: no personal data of mustahik is kept here.
+  recipientSummary String     @db.VarChar(300)
+  note             String?    @db.VarChar(500)
+  recordedById     String
+  recordedAt       DateTime   @default(now())
+
+  organisation PartnerOrganisation @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  recordedBy   User                @relation("ZakatDistributionRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@index([organisationId, distributedAt])
 }

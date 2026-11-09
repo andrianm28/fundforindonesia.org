@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyMovement, parseRecapPeriod, wibMonthOf, InvalidRecapPeriodError, type MovementSignature } from './finance-recap';
+import { classifyMovement, parseRecapPeriod, splitZakatFromRecap, wibMonthOf, InvalidRecapPeriodError, type MovementSignature } from './finance-recap';
 import { financeRecapCsv, neutraliseFormula } from './finance-recap-csv';
 import { emptyAmounts, type FinanceRecap } from './finance-recap';
 
@@ -89,5 +89,50 @@ describe('CSV', () => {
     expect(lines[2]).toBe('2026-10,,Tanpa Campaign (Volunteer Trip/Program),0,0,0,0,0,0,0,0,7');
     expect(lines[3]).toBe('Total,,,1000,0,0,0,0,0,0,0,2');
     expect(financeRecapCsv(recap)).not.toMatch(/donor|email|nama/i);
+  });
+});
+
+describe('zakat apart from general donations (PKS pemenuhan 19, ADR 0028)', () => {
+  const recap: FinanceRecap = {
+    rows: [
+      { period: '2026-11', campaignId: 'c1', kind: 'DONATION', campaignTitle: 'Banjir', ...emptyAmounts(), donasiDiterima: 1_000_000, danaBersih: 950_000, biayaPlatform: 50_000 },
+      { period: '2026-11', campaignId: 'z1', kind: 'ZAKAT', campaignTitle: 'Zakat Yayasan', ...emptyAmounts(), donasiDiterima: 300_000, danaBersih: 300_000 },
+      { period: '2026-11', campaignId: null, kind: null, campaignTitle: null, ...emptyAmounts(), kontribusiManual: 70_000 },
+    ],
+    totals: { ...emptyAmounts(), donasiDiterima: 1_300_000, danaBersih: 1_250_000, biayaPlatform: 50_000, kontribusiManual: 70_000 },
+  };
+
+  it('puts only the zakat Campaigns in the zakat half and everything else, trips and programs included, in the other', () => {
+    const { zakat, general } = splitZakatFromRecap(recap);
+
+    expect(zakat.rows.map((r) => r.campaignId)).toEqual(['z1']);
+    expect(general.rows.map((r) => r.campaignId)).toEqual(['c1', null]);
+    expect(zakat.totals.donasiDiterima).toBe(300_000);
+    expect(general.totals.donasiDiterima).toBe(1_000_000);
+  });
+
+  it('gives two halves that add up to the whole, column by column', () => {
+    const { zakat, general } = splitZakatFromRecap(recap);
+    for (const column of Object.keys(recap.totals) as (keyof typeof recap.totals)[]) {
+      expect(zakat.totals[column] + general.totals[column]).toBe(recap.totals[column]);
+    }
+  });
+
+  it('has an empty zakat half, with zero totals, when there is no zakat', () => {
+    const { zakat, general } = splitZakatFromRecap({ rows: [recap.rows[0]], totals: { ...emptyAmounts(), donasiDiterima: 1_000_000, danaBersih: 950_000, biayaPlatform: 50_000 } });
+    expect(zakat).toEqual({ rows: [], totals: emptyAmounts() });
+    expect(general.rows).toHaveLength(1);
+  });
+
+  it('writes both subtotals after the Total row of the CSV only when the period holds zakat', () => {
+    const withZakat = financeRecapCsv(recap).trimEnd().split('\r\n');
+    expect(withZakat.slice(-3)).toEqual([
+      'Total,,,1300000,0,50000,1250000,70000,0,0,0,0',
+      'Subtotal donasi umum (tanpa zakat),,,1000000,0,50000,950000,70000,0,0,0,0',
+      'Subtotal zakat,,,300000,0,0,300000,0,0,0,0,0',
+    ]);
+
+    const without = financeRecapCsv({ rows: [recap.rows[0]], totals: splitZakatFromRecap(recap).general.totals }).trimEnd().split('\r\n');
+    expect(without.some((l) => /Subtotal/.test(l))).toBe(false);
   });
 });

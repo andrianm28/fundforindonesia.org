@@ -15,7 +15,7 @@ Tahap hidup Campaign: Draft, Submitted, Rejected, Active, Suspended, Cancelled, 
 _Avoid_: State, pending, published
 
 **Kind**:
-Jenis Campaign yang menentukan aturan uangnya: `donation`, `wakaf`, atau `hibah`. Kind `zakat` dikeluarkan dari cakupan produk pada 2026-10-16 (ADR 0025): nilainya masih ada di enum database agar baris lama tetap terbaca, tetapi tidak bisa dipilih, dibuat, atau diberi Kind Authorisation. Kind menentukan Platform Fee default dan dokumen yang wajib ada. Kind hanya bisa diubah selama Campaign masih Draft. Sejak diajukan, termasuk setelah Rejected, Kind terkunci; Campaign yang salah Kind dibuat ulang sebagai Campaign baru, supaya aturan izin per Kind tidak bisa dihindari lewat pengajuan ulang.
+Jenis Campaign yang menentukan aturan uangnya: `donation`, `wakaf`, atau `hibah`. Kind `zakat` dikeluarkan dari cakupan produk pada 2026-10-16 (ADR 0025), lalu dikembalikan di balik penanda fitur yang default mati karena kewajiban kontrak (ADR 0028): selama penanda mati, Kind `zakat` tidak bisa dipilih, dibuat, atau di-checkout dan semua halaman serta API zakat menjawab 404. Saat menyala, zakat dikumpulkan lewat Campaign zakat milik lembaga penerima yang ditetapkan Admin (Partner Organisation ber-izin ZAKAT), lewat jalur donasi yang sama, dan penyalurannya hanya dicatat (Zakat Distribution), tidak memindahkan uang. Kind menentukan Platform Fee default dan dokumen yang wajib ada. Kind hanya bisa diubah selama Campaign masih Draft. Sejak diajukan, termasuk setelah Rejected, Kind terkunci; Campaign yang salah Kind dibuat ulang sebagai Campaign baru, supaya aturan izin per Kind tidak bisa dihindari lewat pengajuan ulang.
 _Avoid_: Type, jenis campaign, kategori (Category adalah hal lain)
 
 **Hibah**:

@@ -10,12 +10,24 @@ import { useDonationPresets } from '@/components/donation/DonationPresetsContext
  */
 
 const holder = vi.hoisted(() => {
-  const h = { row: null as { key: string; value: unknown } | null, findUnique: null as unknown as ReturnType<typeof vi.fn> };
+  const h = {
+    row: null as { key: string; value: unknown } | null,
+    findUnique: null as unknown as ReturnType<typeof vi.fn>,
+    kind: 'DONATION',
+  };
   h.findUnique = vi.fn(async () => h.row);
   return h;
 });
 vi.mock('@/lib/prisma', () => ({
-  prisma: { siteSetting: { findUnique: holder.findUnique } },
+  prisma: {
+    siteSetting: { findUnique: holder.findUnique },
+    campaign: { findUnique: vi.fn(async () => ({ kind: holder.kind })) },
+  },
+}));
+vi.mock('next/navigation', () => ({
+  notFound: vi.fn(() => {
+    throw new Error('NEXT_NOT_FOUND');
+  }),
 }));
 
 import DonateLayout from './layout';
@@ -32,8 +44,30 @@ async function render(): Promise<string> {
 }
 
 beforeEach(() => {
+  holder.kind = 'DONATION';
   holder.row = null;
   holder.findUnique.mockClear();
+});
+
+describe('donate layout for a zakat Campaign (ADR 0028)', () => {
+  it('is a 404 while the zakat module is off (the default)', async () => {
+    holder.kind = 'ZAKAT';
+    await expect(render()).rejects.toThrow('NEXT_NOT_FOUND');
+  });
+
+  it('shows the form once the module is on', async () => {
+    holder.kind = 'ZAKAT';
+    holder.row = {
+      key: 'operations',
+      value: {
+        donationsOpen: true,
+        maintenance: { on: false, message: '' },
+        history: [],
+        zakat: { enabled: true, nisabAmount: 85_000_000, recipientOrganisationId: 'org-1' },
+      },
+    };
+    expect(await render()).toContain('formulir donasi');
+  });
 });
 
 describe('donate layout', () => {

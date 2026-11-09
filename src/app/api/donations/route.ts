@@ -14,6 +14,7 @@ import {
   MIN_DONATION_AMOUNT,
 } from '@/lib/donations';
 import { donationsSwitchedOff } from '@/lib/operations';
+import { zakatCheckoutRefusal } from '@/lib/zakat';
 import { formatRupiah } from '@/lib/utils/currency';
 import { campaignAcceptsDonations, donationBlock, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
@@ -128,6 +129,14 @@ export async function POST(request: NextRequest) {
         { error: 'Ini adalah campaign contoh dan tidak dapat menerima donasi.' },
         { status: 403 }
       );
+    }
+
+    // Zakat adds no money path: it is this route, for a Campaign of Kind
+    // ZAKAT, behind the module's switch and its configured recipient (ADR
+    // 0028). Judged before anything else about the Campaign is revealed.
+    const zakatRefusal = await zakatCheckoutRefusal(prisma, campaign);
+    if (zakatRefusal) {
+      return NextResponse.json({ error: zakatRefusal.error }, { status: zakatRefusal.status });
     }
 
     const now = new Date();

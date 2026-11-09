@@ -9,6 +9,7 @@ import { isPubliclyViewable } from '@/lib/campaign-visibility';
 import { publicUrl } from '@/lib/public-url';
 import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
 import { resolveEscrowHoldDays } from '@/lib/money/escrow-hold-config';
+import { zakatCampaignHidden } from '@/lib/zakat';
 
 // Was ISR (one render per Campaign, revalidated every 60 seconds). Since
 // rilis-1-benda/92 the root layout reads the beta marker per request
@@ -95,6 +96,8 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
   });
 
   if (!campaign) notFound();
+  // A zakat Campaign is public only while the zakat module is on (ADR 0028).
+  if (await zakatCampaignHidden(prisma, campaign.kind)) notFound();
 
   const lifecycleStatus = effectiveStatus(campaign, new Date());
   if (!isPubliclyViewable(lifecycleStatus)) notFound();

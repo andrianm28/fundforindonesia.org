@@ -10,6 +10,15 @@ const base = {
   betaSandbox: false,
 };
 
+describe('buildReceiptPdf for zakat (ADR 0028)', () => {
+  it('is titled as a zakat receipt, and an ordinary one keeps the donation title', () => {
+    const zakat = buildReceiptPdf({ ...base, zakat: true }).toString('latin1');
+    expect(zakat).toContain('Bukti Pembayaran Zakat');
+    expect(zakat).not.toContain('(Bukti Donasi)');
+    expect(buildReceiptPdf(base).toString('latin1')).toContain('(Bukti Donasi)');
+  });
+});
+
 describe('buildReceiptPdf', () => {
   it('produces a PDF whose xref offsets point at their objects', () => {
     const pdf = buildReceiptPdf(base).toString('latin1');

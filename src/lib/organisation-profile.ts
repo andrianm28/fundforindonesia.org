@@ -13,7 +13,7 @@ import { listableCampaignWhere } from "./subject-guard";
  * labelled, never hidden or dressed up.
  */
 
-type Db = Pick<Prisma.TransactionClient, "partnerOrganisation" | "campaign">;
+type Db = Pick<Prisma.TransactionClient, "partnerOrganisation" | "campaign" | "siteSetting">;
 
 export type PermitState = "valid" | "expired" | "not_yet_valid";
 

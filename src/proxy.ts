@@ -2,7 +2,7 @@ import { withAuth } from "next-auth/middleware";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import type { NextRequestWithAuth } from "next-auth/middleware";
 import { getToken } from "next-auth/jwt";
-import { MAINTENANCE_DEFAULT_MESSAGE, resolveOperations } from "@/lib/operations";
+import { MAINTENANCE_DEFAULT_MESSAGE, resolveOperations, zakatSwitchedOn } from "@/lib/operations";
 
 // Local type to avoid importing from @prisma/client (keeps the proxy lightweight)
 type Assignment = "ADMIN" | "VERIFIER";
@@ -95,6 +95,36 @@ async function answerExploreCategory(req: NextRequest, slug: string) {
   return NextResponse.rewrite(new URL("/_not-found", req.url), { status: 404 });
 }
 
+// Modul zakat (PKS pemenuhan 19, ADR 0028): /zakat and everything under it
+// answers a literal 404 while the module is off, which is the default. Decided
+// here for the same reason as an unknown Category above: a notFound() in the
+// page would come behind the root loading.tsx, after the status was sent as
+// 200. Public path, never asks for a session. It fails CLOSED: a setting that
+// cannot be read in time means off.
+function isZakatPath(pathname: string): boolean {
+  return pathname === "/zakat" || pathname.startsWith("/zakat/");
+}
+
+async function zakatIsOn(): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), LOOKUP_TIMEOUT_MS);
+    });
+    return await Promise.race([zakatSwitchedOn(prisma), timeout]);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function answerZakat(req: NextRequest) {
+  if (await zakatIsOn()) return NextResponse.next();
+  return NextResponse.rewrite(new URL("/_not-found", req.url), { status: 404 });
+}
+
 // Mode pemeliharaan (src/lib/operations.ts, PKS ticket 01). While it is on,
 // a write to the API is refused with 503 unless the caller is an Admin. Left
 // working on purpose: the Admin panel and its API (how maintenance is turned
@@ -177,6 +207,7 @@ export default function proxy(req: NextRequest, event: NextFetchEvent) {
   // The API is not behind the sign-in guard below (each route does its own
   // auth); it only gets the maintenance answer.
   if (req.nextUrl.pathname.startsWith("/api/")) return answerApi(req);
+  if (isZakatPath(req.nextUrl.pathname)) return answerZakat(req);
   const slug = exploreCategorySlug(req.nextUrl.pathname);
   if (slug === null) return authProxy(req as NextRequestWithAuth, event);
   return answerExploreCategory(req, slug);
@@ -196,6 +227,9 @@ export const config = {
     "/moderasi/:path*",
     // Not a guard: see answerExploreCategory.
     "/explore/:category",
+    // Not a guard either: the zakat module's 404 while it is off, see answerZakat.
+    "/zakat",
+    "/zakat/:path*",
     // Not a guard either: only the maintenance answer, see answerApi.
     "/api/:path*",
   ],

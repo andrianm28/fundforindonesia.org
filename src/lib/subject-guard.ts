@@ -15,6 +15,7 @@ import {
 } from "./campaign-lifecycle-errors";
 import { exceedsMaxDuration, missingRequiredDeadline } from "./campaign-kind";
 import { judgeCapacity } from "./capacity";
+import { zakatSwitchedOn, type OperationsDb } from "./operations";
 import { PAYOUT_REQUESTABLE_STATUSES } from "./payout-requestable-statuses";
 import type { LedgerSubject } from "./money/ledger";
 
@@ -234,11 +235,13 @@ export async function catalogueDemoWhere(
  * cannot end up showing fiction by forgetting an argument.
  */
 export async function listableCampaignWhere(
-  db: CatalogueDb,
+  db: CatalogueDb & OperationsDb,
   now: Date,
   options: { includeDemo?: boolean } = {}
 ): Promise<Prisma.CampaignWhereInput> {
-  return { AND: [await catalogueDemoWhere(db, now, options), effectivelyActiveWhere(now)] };
+  // A zakat Campaign is listed only while the zakat module is on (ADR 0028).
+  const zakatHidden: Prisma.CampaignWhereInput[] = (await zakatSwitchedOn(db)) ? [] : [{ kind: { not: 'ZAKAT' } }];
+  return { AND: [await catalogueDemoWhere(db, now, options), effectivelyActiveWhere(now), ...zakatHidden] };
 }
 
 /** The effective statuses whose Campaign pages the sitemap lists. */

@@ -85,6 +85,25 @@ export interface FinanceRecap {
   totals: FinanceRecapAmounts;
 }
 
+/**
+ * The recap split in two (PKS pemenuhan 19, ADR 0028): zakat Campaigns on one
+ * side, everything else on the other (general donations, wakaf, hibah, and the
+ * rows with no Campaign). Pure, over a recap already read, so the halves add up
+ * to the whole by construction. Zakat is thereby never counted into a figure
+ * for general donations.
+ */
+export function splitZakatFromRecap(recap: FinanceRecap): { zakat: FinanceRecap; general: FinanceRecap } {
+  const half = (rows: FinanceRecapRow[]): FinanceRecap => {
+    const totals = emptyAmounts();
+    for (const row of rows) for (const c of FINANCE_RECAP_COLUMNS) totals[c] += row[c];
+    return { rows, totals };
+  };
+  return {
+    zakat: half(recap.rows.filter((r) => r.kind === 'ZAKAT')),
+    general: half(recap.rows.filter((r) => r.kind !== 'ZAKAT')),
+  };
+}
+
 export interface MovementSignature {
   account: string;
   direction: 'DEBIT' | 'CREDIT';

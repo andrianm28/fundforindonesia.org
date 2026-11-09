@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -52,6 +52,16 @@ export default function DonatePage() {
 
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
+
+  // `?jumlah=` from the zakat page (PKS pemenuhan 19): only a prefill, read
+  // after mount so the server render and the first client render agree. Not a
+  // whole amount within the donation limits: ignored.
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get('jumlah');
+    if (raw === null || !/^\d+$/.test(raw)) return;
+    const amount = Number(raw);
+    if (Number.isSafeInteger(amount) && amount >= MIN_DONATION_AMOUNT && amount <= MAX_AMOUNT) setSelectedAmount(amount);
+  }, []);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
   const [prayer, setPrayer] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);

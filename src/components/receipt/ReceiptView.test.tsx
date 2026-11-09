@@ -26,6 +26,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('ReceiptView zakat label (ADR 0028)', () => {
+  it('is titled as a payment of zakat when the server says so, and says what it is for', () => {
+    render(<ReceiptView {...baseProps()} zakat />);
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Bukti Pembayaran Zakat');
+    expect(screen.getByText('Tujuan')).toBeDefined();
+    expect(screen.getByText('Zakat')).toBeDefined();
+  });
+
+  it('keeps the donation title and shows no zakat purpose by default', () => {
+    render(<ReceiptView {...baseProps()} />);
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Bukti Donasi');
+    expect(screen.queryByText('Tujuan')).toBeNull();
+  });
+});
+
 describe('ReceiptView beta notice (ticket rilis-1-benda/92)', () => {
   it('says no real money moved when the server asks for it', () => {
     render(<ReceiptView {...baseProps()} betaSandbox />);

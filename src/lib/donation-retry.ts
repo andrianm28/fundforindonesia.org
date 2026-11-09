@@ -4,6 +4,7 @@ import { PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { resolveActivePaymentProvider } from '@/lib/payments/active-provider';
 import { donationsEnabled, sandboxInProductionReason, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 import { donationsSwitchedOff } from '@/lib/operations';
+import { zakatCheckoutRefusal } from '@/lib/zakat';
 import { campaignAcceptsDonations, donationBlock } from '@/lib/campaign-lifecycle';
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import { donationRefusalCopy } from '@/lib/campaign-page-status';
@@ -66,7 +67,7 @@ const BUSY: RetryResult = {
   body: { error: 'Sedang banyak permintaan pembayaran ulang. Coba lagi sebentar.' },
 };
 
-type RetryCampaign = Parameters<typeof campaignAcceptsDonations>[0] & { isDemo: boolean };
+type RetryCampaign = Parameters<typeof campaignAcceptsDonations>[0] & { isDemo: boolean; collectingEntity: { id: string } | null };
 
 /** Why a new charge cannot be made for this Campaign right now, or null when it can. */
 export function campaignRetryRefusal(campaign: RetryCampaign, now: Date): { status: number; error: string } | null {
@@ -95,7 +96,7 @@ export async function campaignRetryRefusalWithSwitch(
   const refusal = campaignRetryRefusal(campaign, now);
   if (refusal) return refusal;
   if (await donationsSwitchedOff(prisma)) return { status: 503, error: DONATIONS_DISABLED_MESSAGE };
-  return null;
+  return await zakatCheckoutRefusal(prisma, campaign);
 }
 
 /** The Campaign fields {@link campaignRetryRefusal} reads. */
@@ -188,6 +189,10 @@ function retryUnderLock(donationId: string, authorize: RetryDonationParams['auth
       const now = new Date();
       const refusal = campaignRetryRefusal(campaign, now);
       if (refusal) return { status: refusal.status, body: { error: refusal.error } };
+      // Zakat's own switch and recipient (ADR 0028): a pending zakat Donation
+      // cannot be paid again once the module is off.
+      const zakatRefusal = await zakatCheckoutRefusal(prisma, campaign);
+      if (zakatRefusal) return { status: zakatRefusal.status, body: { error: zakatRefusal.error } };
 
       const latest = donation.payments[0];
       if (!latest) {

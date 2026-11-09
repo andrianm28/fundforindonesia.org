@@ -3,6 +3,8 @@ import { getServerSession } from "@/lib/auth";
 import { hasAssignment } from "@/lib/withAssignmentCheck";
 import { Assignment } from "@/generated/prisma/client";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import { prisma } from "@/lib/prisma";
+import { resolveOperationsOrDefaults } from "@/lib/operations";
 
 export default async function AdminLayout({
   children,
@@ -18,9 +20,12 @@ export default async function AdminLayout({
     notFound();
   }
 
+  // The zakat page is in the menu only while the module is on (ADR 0028).
+  const { zakat } = await resolveOperationsOrDefaults(prisma);
+
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 md:flex-row">
-      <AdminSidebar />
+      <AdminSidebar zakatOpen={zakat.enabled} />
       <main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8">{children}</main>
     </div>
   );

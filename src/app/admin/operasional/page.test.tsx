@@ -1,7 +1,9 @@
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-vi.mock('@/lib/prisma', () => ({ prisma: { siteSetting: { findUnique: vi.fn() } } }));
+vi.mock('@/lib/prisma', () => ({
+  prisma: { siteSetting: { findUnique: vi.fn() }, partnerOrganisation: { findMany: vi.fn().mockResolvedValue([]) } },
+}));
 const refresh = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
 

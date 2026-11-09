@@ -719,6 +719,7 @@ export async function handleProviderWebhook(
                   paidAt,
                   printUrl: publicUrl(`/receipt/${settled.receiptToken}`),
                   betaSandbox: receiptNeedsBetaNotice([payment]),
+                  zakat: campaign.kind === 'ZAKAT',
                 });
 
                 // Akad Wakaf rides the same delivery as the Receipt (PRD:

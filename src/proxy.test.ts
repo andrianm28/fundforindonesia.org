@@ -74,7 +74,7 @@ describe('proxy', () => {
   });
 
   describe('the matcher pins exactly the protected prefixes', () => {
-    it('lists exactly the six guarded prefixes plus the two non-guard entries (/explore/:category, /api/:path*)', async () => {
+    it('lists exactly the six guarded prefixes plus the non-guard entries (/explore/:category, /zakat, /api/:path*)', async () => {
       const { config } = await import('./proxy');
       expect(config.matcher).toEqual([
         '/donasi-saya/:path*',
@@ -86,6 +86,9 @@ describe('proxy', () => {
         '/moderasi/:path*',
         // Not a guard: answers 404 for an unknown Category (see below).
         '/explore/:category',
+        // Not a guard either: the zakat module's 404 while it is off (src/proxy.zakat.test.ts).
+        '/zakat',
+        '/zakat/:path*',
         // Not a guard either: only the maintenance answer for writes (src/proxy.maintenance.test.ts).
         '/api/:path*',
       ]);
@@ -130,7 +133,7 @@ describe('proxy', () => {
       expect(withAuthOptions.pages.signIn).toBe('/login');
     });
 
-    it.each(['/', '/login', '/register', '/explore/all/x', '/campaign/abc-123', '/search', '/faq', '/zakat'])(
+    it.each(['/', '/login', '/register', '/explore/all/x', '/campaign/abc-123', '/search', '/faq', '/wakaf'])(
       'a public path like %s never reaches the guard: the matcher does not cover it',
       async (path) => {
         const { config } = await import('./proxy');

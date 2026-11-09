@@ -18,6 +18,8 @@ export type ReceiptViewProps = {
   accountOwned: boolean;
   /** Beta (ticket rilis-1-benda/92): decided by the server page; this component never reads the environment. */
   betaSandbox?: boolean;
+  /** The Donation went to a zakat Campaign (ADR 0028): the same Receipt, labelled as a zakat payment. */
+  zakat?: boolean;
 };
 
 type ResendState = { status: 'idle' | 'sending' | 'sent' | 'error'; message?: string };
@@ -76,9 +78,15 @@ export function ReceiptView(props: ReceiptViewProps) {
             <BetaBanner variant="receipt" />
           </div>
         )}
-        <h1 className="text-lg font-semibold text-text">Bukti Donasi</h1>
+        <h1 className="text-lg font-semibold text-text">{props.zakat ? 'Bukti Pembayaran Zakat' : 'Bukti Donasi'}</h1>
 
         <dl className="mt-4 space-y-3 text-sm">
+          {props.zakat && (
+            <div>
+              <dt className="text-text-secondary">Tujuan</dt>
+              <dd className="text-text font-medium">Zakat</dd>
+            </div>
+          )}
           <div>
             <dt className="text-text-secondary">Campaign</dt>
             <dd className="text-text font-medium">{props.campaignTitle}</dd>

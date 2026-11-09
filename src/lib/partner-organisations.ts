@@ -8,7 +8,7 @@ import type {
   PrismaClient,
 } from "@/generated/prisma/client";
 import { DomainError, type PartnerOrganisationErrorCode } from "./domain-errors";
-import { parseKind } from "./campaign-kind";
+import { parseRecordableKind } from "./campaign-kind";
 import { requiresKindAuthorisation } from "./collecting-entity";
 import { lookupUserEmail, readResponsiblePersonPhone, sealResponsiblePersonPhone } from "./contact-fields";
 
@@ -151,7 +151,7 @@ function cleanKinds(raw: unknown): Kind[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new InvalidPartnerOrganisationError("Pilih minimal satu Kind yang dicakup izin.", "kinds");
   }
-  const kinds = raw.map((value) => (typeof value === "string" ? parseKind(value) : null));
+  const kinds = raw.map((value) => (typeof value === "string" ? parseRecordableKind(value) : null));
   if (kinds.some((kind) => kind === null)) {
     throw new InvalidPartnerOrganisationError("Kind tidak dikenal.", "kinds");
   }
@@ -160,11 +160,11 @@ function cleanKinds(raw: unknown): Kind[] {
 
 /** The single Kind a Kind Authorisation grants; never `donation`, which needs none. */
 function cleanKind(raw: unknown): Kind {
-  const kind = typeof raw === "string" ? parseKind(raw) : null;
+  const kind = typeof raw === "string" ? parseRecordableKind(raw) : null;
   if (!kind) throw new InvalidPartnerOrganisationError("Kind tidak dikenal.", "kind");
   if (!requiresKindAuthorisation(kind)) {
     throw new InvalidPartnerOrganisationError(
-      "Kind Authorisation hanya berlaku untuk Wakaf atau Hibah.",
+      "Kind Authorisation hanya berlaku untuk Zakat, Wakaf, atau Hibah.",
       "kind"
     );
   }

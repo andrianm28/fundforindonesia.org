@@ -123,7 +123,8 @@ describe('POST /api/donations and the Collecting Entity', () => {
       {},
       [fundraisingPermitRow({ validTo: new Date('2026-01-01T00:00:00Z') })],
     ],
-    ['collects under a permit for other Kinds only', { kind: 'ZAKAT' as const }, [fundraisingPermitRow({ kinds: ['DONATION'] })]],
+    // Zakat now answers 404 behind its own switch (ADR 0028), so a Kind the permit does not cover is shown with a donation Campaign.
+    ['collects under a permit for other Kinds only', {}, [fundraisingPermitRow({ kinds: ['ZAKAT'] })]],
   ])('refuses a Campaign that %s with 403, writing nothing and recording nothing', async (_why, overrides, permits) => {
     holder.db = makeCampaignDb({
       campaigns: [activeCampaign({ deadline: FUTURE, ...overrides })],

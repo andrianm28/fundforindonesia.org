@@ -599,6 +599,22 @@ describe('grantKindAuthorisation', () => {
     ]);
   });
 
+  it('records a Kind Authorisation for zakat: recording a licence is not collecting (ADR 0028)', async () => {
+    const store = db({ partnerOrganisations: [partnerOrganisationRow()] });
+
+    const authorisation = await grantKindAuthorisation(store.prisma as never, {
+      actorId: 'verifier-2',
+      organisationId: 'partner-1',
+      ...AUTHORISATION_PARAMS,
+      kind: 'ZAKAT',
+      documentReference: 'SK Pengukuhan Amil 001/2026',
+      now: NOW,
+    });
+
+    expect(authorisation.kind).toBe('ZAKAT');
+    expect(store.kindAuthorisations).toHaveLength(1);
+  });
+
   it.each([
     ['a blank document reference', { documentReference: ' ' }],
     ['an unknown Kind', { kind: 'SEDEKAH' }],

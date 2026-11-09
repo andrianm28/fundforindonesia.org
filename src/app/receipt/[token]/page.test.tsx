@@ -76,6 +76,25 @@ describe('ReceiptPage', () => {
     });
   });
 
+  describe('the zakat label (ADR 0028)', () => {
+    const renderPage = async () => render(await ReceiptPage({ params: Promise.resolve({ token: 'tok-1' }) }));
+
+    it('is asked for on a Receipt of a zakat Campaign, even after the module was switched off', async () => {
+      const base = makeReceipt();
+      mockFindUnique.mockResolvedValue(
+        makeReceipt({ donation: { ...base.donation, campaign: { ...base.donation.campaign, kind: 'ZAKAT' } } }),
+      );
+      await renderPage();
+      expect(view.props).toMatchObject({ zakat: true });
+    });
+
+    it('is not asked for on an ordinary Receipt', async () => {
+      mockFindUnique.mockResolvedValue(makeReceipt());
+      await renderPage();
+      expect(view.props).toMatchObject({ zakat: false });
+    });
+  });
+
   describe('the beta notice (ticket rilis-1-benda/92)', () => {
     const renderPage = async () => render(await ReceiptPage({ params: Promise.resolve({ token: 'tok-1' }) }));
 

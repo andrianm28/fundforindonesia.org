@@ -1,4 +1,4 @@
-import { FINANCE_RECAP_COLUMNS, type FinanceRecap } from './finance-recap';
+import { FINANCE_RECAP_COLUMNS, splitZakatFromRecap, type FinanceRecap } from './finance-recap';
 
 /** Header labels, shared by the screen and the CSV so the columns cannot drift apart. */
 export const FINANCE_RECAP_HEADERS = {
@@ -35,6 +35,9 @@ function quote(text: string): string {
 
 const textCell = (text: string) => quote(neutraliseFormula(text));
 
+/** The same guarded text cell, for other CSV exports (the zakat report). */
+export const csvTextCell = textCell;
+
 /**
  * The recap as CSV: the same columns, in the same order, as the screen, plus a
  * closing Total row. Campaign titles and ids are the only free text; no Donor
@@ -61,5 +64,16 @@ export function financeRecapCsv(recap: FinanceRecap): string {
   lines.push(
     [textCell('Total'), '', '', ...FINANCE_RECAP_COLUMNS.map((c) => String(recap.totals[c]))].join(','),
   );
+  // Zakat is kept apart from general donations (ADR 0028): when the period
+  // holds any, the two halves are written out after the Total.
+  const { zakat, general } = splitZakatFromRecap(recap);
+  if (zakat.rows.length > 0) {
+    for (const [label, half] of [
+      ['Subtotal donasi umum (tanpa zakat)', general],
+      ['Subtotal zakat', zakat],
+    ] as const) {
+      lines.push([textCell(label), '', '', ...FINANCE_RECAP_COLUMNS.map((c) => String(half.totals[c]))].join(','));
+    }
+  }
   return lines.join('\r\n') + '\r\n';
 }
