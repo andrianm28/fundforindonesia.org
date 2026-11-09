@@ -302,6 +302,18 @@ describe('GET /api/volunteer-trips/[slug]/payouts', () => {
     expect(data.withdrawable).toBe(0);
   });
 
+  it("reads each Payout's supporting note, revision reason and papers (PKS Pasal 4.5), papers as summaries without a storage path", async () => {
+    const { tx } = makeTx();
+    mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
+
+    await GET(getRequest(), routeContext());
+
+    const args = mockPayoutFindMany.mock.calls[0][0];
+    expect(args.select).toMatchObject({ supportingNote: true, revisionReason: true });
+    expect(args.select.documents.select).toEqual({ id: true, label: true, contentType: true, sizeBytes: true, uploadedAt: true });
+    expect(args.select.documents.orderBy).toEqual({ uploadedAt: 'asc' });
+  });
+
   it("lists only this owner's VERIFIED Bank Accounts and never reads or sends an account number (ticket 83)", async () => {
     const { tx } = makeTx();
     mockTransaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));

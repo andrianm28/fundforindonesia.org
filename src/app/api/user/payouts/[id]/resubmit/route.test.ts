@@ -9,7 +9,7 @@ import { NextRequest } from 'next/server';
  */
 
 vi.mock('@/lib/auth', () => ({ getServerSession: vi.fn() }));
-vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: vi.fn() } }));
 vi.mock('@/lib/money/payouts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/money/payouts')>();
   return { ...actual, resubmitPayout: vi.fn() };
@@ -19,6 +19,7 @@ import { POST } from './route';
 import { getServerSession } from '@/lib/auth';
 import { resubmitPayout, InvalidPayoutStatusError, PayoutNotFoundError } from '@/lib/money/payouts';
 import { NotAuthorizedError } from '@/lib/capacity';
+import { prisma } from '@/lib/prisma';
 
 const mockSession = getServerSession as unknown as Mock;
 const mockAction = resubmitPayout as unknown as Mock;
@@ -66,9 +67,34 @@ describe('POST /api/user/payouts/[id]/resubmit', () => {
     expect(mockAction).toHaveBeenCalledWith(expect.anything(), { payoutId: 'payout-1', requestedById: 'fundraiser-1', note: undefined, description: undefined });
   });
 
-  it('answers 403 for a user who is not the Fundraiser of the subject', async () => {
-    mockAction.mockRejectedValue(new NotAuthorizedError('Hanya Fundraiser Campaign ini yang dapat melakukan tindakan ini.'));
+  it('answers 403 for a team member the money layer refuses', async () => {
+    mockAction.mockRejectedValue(new NotAuthorizedError('Anggota tim lembaga tidak dapat mengajukan pencairan.'));
     expect((await post({})).status).toBe(403);
+  });
+
+  it('answers a user who did not request the Payout exactly as it answers a Payout that does not exist: no id-existence leak', async () => {
+    // The real money layer over a stub transaction: the route is the thing under test.
+    const actual = await vi.importActual<typeof import('@/lib/money/payouts')>('@/lib/money/payouts');
+    mockAction.mockImplementation(actual.resubmitPayout as never);
+    const answerFor = async (row: Record<string, unknown> | null) => {
+      (prisma.$transaction as unknown as Mock).mockImplementation(async (cb: (tx: unknown) => unknown) =>
+        cb({ payout: { findUnique: vi.fn().mockResolvedValue(row) } }),
+      );
+      const res = await post({});
+      return { status: res.status, body: await res.json() };
+    };
+
+    const missing = await answerFor(null);
+    const someoneElses = await answerFor({
+      id: 'payout-1',
+      campaignId: 'campaign-1',
+      volunteerTripId: null,
+      requestedById: 'another-fundraiser',
+      status: 'REVISION_REQUESTED',
+    });
+
+    expect(missing.status).toBe(404);
+    expect(someoneElses).toEqual(missing);
   });
 
   it('answers 404 for a Payout that does not exist and 409 for the wrong status', async () => {

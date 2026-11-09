@@ -2353,11 +2353,11 @@ describe('Payout revision (PKS Pasal 4.5, pks-pemenuhan/12)', () => {
       expect(payoutState).toMatchObject({ status: 'DRAFT', supportingNote: 'lama', description: 'Tahap 1' });
     });
 
-    it('refuses anyone but the Fundraiser of the subject, changing nothing', async () => {
+    it('answers anyone but the Fundraiser of the subject as a missing Payout, changing nothing', async () => {
       const { prisma, payoutState } = setup(row({ status: 'REVISION_REQUESTED' }));
 
       await expect(resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'someone-else' })).rejects.toThrow(
-        NotAuthorizedError,
+        PayoutNotFoundError,
       );
       expect(payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
     });
@@ -2386,6 +2386,83 @@ describe('Payout revision (PKS Pasal 4.5, pks-pemenuhan/12)', () => {
       await expect(
         resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1', note: 'x'.repeat(1001) }),
       ).rejects.toThrow(PayoutReasonInvalidError);
+      expect(payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+    });
+  });
+
+  describe('a Volunteer Trip Payout', () => {
+    const tripRow = (overrides: Record<string, unknown> = {}) =>
+      row({ campaignId: null, volunteerTripId: 'trip-1', ...overrides });
+
+    function setupTrip(payoutRow: Record<string, unknown>, options: Parameters<typeof makeTx>[0] = {}) {
+      const made = setup(payoutRow, options);
+      const prisma = {
+        ...made.prisma,
+        volunteerTrip: { findUnique: vi.fn().mockResolvedValue({ slug: 'trip-a' }) },
+        payout: {
+          ...made.prisma.payout,
+          findUnique: vi.fn().mockResolvedValue({
+            ...emailRow,
+            volunteerTripId: 'trip-1',
+            campaign: null,
+          }),
+        },
+      };
+      return { ...made, prisma };
+    }
+
+    it('requestPayoutRevision locks the Trip row, refuses the Trip Fundraiser acting as Admin, and links the notice to the Trip page', async () => {
+      const own = setupTrip(tripRow());
+      await expect(
+        requestPayoutRevision(own.prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1', reason: 'x', mailer: new MockMailer() }),
+      ).rejects.toThrow(OwnSubjectConflictError);
+      expect(own.payoutState).toMatchObject({ status: 'DRAFT' });
+
+      const { prisma, payoutState, rows, tx, queryRawCalls, notificationCreate } = setupTrip(tripRow());
+      await requestPayoutRevision(prisma as never, { payoutId: 'payout-1', requestedById: 'admin-1', reason: 'Lampirkan RAB', mailer: new MockMailer() });
+
+      expect(tx.volunteerTrip.findUnique).toHaveBeenCalled();
+      expect(tx.campaign.findUnique).not.toHaveBeenCalled();
+      expect(queryRawCalls.some((q) => q.includes('VolunteerTrip') && q.includes('FOR UPDATE'))).toBe(true);
+      expect(payoutState).toMatchObject({ status: 'REVISION_REQUESTED', revisionRequestedById: 'admin-1' });
+      expect(rows).toEqual([]);
+      expect(notificationCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ type: 'payout_revision', link: '/akun/volunteer-trip/trip-a' }),
+      });
+    });
+
+    it('resubmitPayout locks the Trip row and puts the Payout back to DRAFT for its own Trip Fundraiser, posting nothing', async () => {
+      const { prisma, payoutState, rows, tx, queryRawCalls } = setupTrip(tripRow({ status: 'REVISION_REQUESTED' }));
+
+      await resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1', note: 'RAB terbaru' });
+
+      expect(tx.volunteerTrip.findUnique).toHaveBeenCalled();
+      expect(queryRawCalls.some((q) => q.includes('VolunteerTrip') && q.includes('FOR UPDATE'))).toBe(true);
+      expect(payoutState).toMatchObject({ status: 'DRAFT', supportingNote: 'RAB terbaru' });
+      expect(rows).toEqual([]);
+    });
+
+    it('resubmitPayout answers a user who is not the Trip Fundraiser as a missing Payout, whether they requested the row or not', async () => {
+      const stranger = setupTrip(tripRow({ status: 'REVISION_REQUESTED' }));
+      await expect(resubmitPayout(stranger.prisma as never, { payoutId: 'payout-1', requestedById: 'someone-else' })).rejects.toThrow(
+        PayoutNotFoundError,
+      );
+      expect(stranger.payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+
+      // The row says requester-1 but the Trip's Fundraiser is someone else now.
+      const moved = setupTrip(tripRow({ status: 'REVISION_REQUESTED' }), { ownerId: 'new-owner' });
+      await expect(resubmitPayout(moved.prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1' })).rejects.toThrow(
+        PayoutNotFoundError,
+      );
+      expect(moved.payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+    });
+
+    it('resubmitPayout is refused while the Trip is Suspended', async () => {
+      const { prisma, payoutState } = setupTrip(tripRow({ status: 'REVISION_REQUESTED' }), { tripStatus: 'SUSPENDED' });
+
+      await expect(resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1' })).rejects.toThrow(
+        PayoutNotAllowedForStatusError,
+      );
       expect(payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
     });
   });

@@ -4,15 +4,16 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiser } from '@/lib/refusal-response';
 import { requestPayout } from '@/lib/money/payouts';
+import { MAX_PAYOUT_DESCRIPTION_LENGTH, MAX_PAYOUT_NOTE_LENGTH } from '@/lib/payout-limits';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 
 const requestPayoutSchema = z.object({
   bankAccountId: z.string().min(1, 'Rekening bank harus dipilih'),
   amount: z.number().int('Jumlah harus berupa bilangan bulat').min(1, 'Jumlah pencairan harus lebih dari 0'),
-  description: z.string().min(1, 'Keterangan harus diisi').max(500, 'Keterangan maksimal 500 karakter'),
+  description: z.string().min(1, 'Keterangan harus diisi').max(MAX_PAYOUT_DESCRIPTION_LENGTH, `Keterangan maksimal ${MAX_PAYOUT_DESCRIPTION_LENGTH} karakter`),
   // PKS Pasal 4.5: an additional note for the Admin; supporting papers are
   // uploaded as private Documents against the created Payout's id.
-  note: z.string().max(1000, 'Catatan maksimal 1000 karakter').optional(),
+  note: z.string().max(MAX_PAYOUT_NOTE_LENGTH, `Catatan maksimal ${MAX_PAYOUT_NOTE_LENGTH} karakter`).optional(),
 });
 
 /**

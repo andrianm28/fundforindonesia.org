@@ -264,6 +264,24 @@ export function validateDocumentFile(file: FileInput): DocumentContentType {
 }
 
 /**
+ * A Payout takes a paper only from the Fundraiser who requested it, and only
+ * while it can still be judged or revised. Anyone else gets the "missing"
+ * answer, so the id's existence leaks nothing. Shared by the early check and
+ * the re-check under the row lock.
+ */
+function assertPayoutTakesPapers(
+  payout: { requestedById: string; status: string } | null | undefined,
+  actorId: string
+): void {
+  if (!payout || payout.requestedById !== actorId) {
+    throw new DocumentRefusedError("Pencairan tidak ditemukan.", 404);
+  }
+  if (payout.status !== "DRAFT" && payout.status !== "REVISION_REQUESTED") {
+    throw new DocumentRefusedError("Pencairan ini sudah diproses dan tidak menerima dokumen baru.", 409);
+  }
+}
+
+/**
  * Works out what the upload is for and whether `actor` may add it, returning
  * the label to store. A Campaign document: only its Fundraiser, in a status
  * that still takes papers, for an active document item of the Campaign's Kind.
@@ -290,18 +308,13 @@ async function authorise(
       where: { id: target.payoutId },
       select: { id: true, requestedById: true, status: true },
     });
-    if (!payout || payout.requestedById !== actor.id) {
-      throw new DocumentRefusedError("Pencairan tidak ditemukan.", 404);
-    }
-    if (payout.status !== "DRAFT" && payout.status !== "REVISION_REQUESTED") {
-      throw new DocumentRefusedError("Pencairan ini sudah diproses dan tidak menerima dokumen baru.", 409);
-    }
+    assertPayoutTakesPapers(payout, actor.id);
     const label = typeof target.label === "string" ? target.label.trim() : "";
     if (label === "") throw new DocumentRefusedError("Nama dokumen wajib diisi.", 400);
     if (label.length > MAX_DOCUMENT_LABEL_LENGTH) {
       throw new DocumentRefusedError(`Nama dokumen paling panjang ${MAX_DOCUMENT_LABEL_LENGTH} karakter.`, 400);
     }
-    return { label, campaignId: null, partnerOrganisationId: null, payoutId: payout.id, checklistItemId: null };
+    return { label, campaignId: null, partnerOrganisationId: null, payoutId: target.payoutId, checklistItemId: null };
   }
 
   if ("campaignId" in target) {
@@ -381,21 +394,31 @@ export async function uploadDocument(
     throw error;
   }
 
+  const data = {
+    uploadedById: params.actor.id,
+    campaignId: owner.campaignId,
+    partnerOrganisationId: owner.partnerOrganisationId,
+    payoutId: owner.payoutId,
+    checklistItemId: owner.checklistItemId,
+    label: owner.label,
+    contentType,
+    sizeBytes: params.file.bytes.byteLength,
+    storagePath,
+  };
   try {
-    return await prisma.document.create({
-      data: {
-        uploadedById: params.actor.id,
-        campaignId: owner.campaignId,
-        partnerOrganisationId: owner.partnerOrganisationId,
-        payoutId: owner.payoutId,
-        checklistItemId: owner.checklistItemId,
-        label: owner.label,
-        contentType,
-        sizeBytes: params.file.bytes.byteLength,
-        storagePath,
-      },
-      select: SUMMARY,
-    });
+    if (owner.payoutId) {
+      // The Payout can be approved or rejected between the check above and
+      // this insert. Re-read it under its row lock, in the insert's own
+      // transaction: a decision either committed first (refused here) or waits
+      // for this commit, so no paper lands on a decided Payout.
+      const payoutId = owner.payoutId;
+      return await prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ requestedById: string; status: string }>>`SELECT "requestedById", status::text AS status FROM "Payout" WHERE id = ${payoutId} FOR UPDATE`;
+        assertPayoutTakesPapers(rows[0], params.actor.id);
+        return tx.document.create({ data, select: SUMMARY });
+      });
+    }
+    return await prisma.document.create({ data, select: SUMMARY });
   } catch (error) {
     await unlink(full).catch(() => undefined);
     throw error;

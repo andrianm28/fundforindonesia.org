@@ -14,6 +14,7 @@ import { validateProofReference, validateProofNote, buildProofImage } from '@/li
 import { campaignBlockingUsageReport } from '@/lib/usage-reports';
 import { UsageReportRequiredError } from '@/lib/usage-report-errors';
 import { emailPayoutStatus } from '@/lib/status-emails';
+import { MAX_PAYOUT_DESCRIPTION_LENGTH, MAX_PAYOUT_NOTE_LENGTH } from '@/lib/payout-limits';
 import { notifyPayoutRevision } from '@/lib/notifications';
 import type { Mailer } from '@/lib/mail';
 import {
@@ -153,7 +154,7 @@ function payoutSubjectFk(subject: LedgerSubject): { campaignId: string | null; v
   }
 }
 
-const MAX_SUPPORTING_NOTE_LENGTH = 1000;
+const MAX_SUPPORTING_NOTE_LENGTH = MAX_PAYOUT_NOTE_LENGTH;
 
 /**
  * The additional note on a Payout request (PKS Pasal 4.5): trimmed, null when
@@ -1161,8 +1162,8 @@ export async function resubmitPayout(
   const { payoutId, requestedById } = params;
   const note = params.note === undefined || params.note === null ? undefined : cleanSupportingNote(params.note);
   const description = typeof params.description === 'string' ? params.description.trim() : '';
-  if (description.length > 500) {
-    throw new PayoutReasonInvalidError('Keterangan maksimal 500 karakter.');
+  if (description.length > MAX_PAYOUT_DESCRIPTION_LENGTH) {
+    throw new PayoutReasonInvalidError(`Keterangan maksimal ${MAX_PAYOUT_DESCRIPTION_LENGTH} karakter.`);
   }
 
   await prisma.$transaction(async (tx) => {
@@ -1171,9 +1172,18 @@ export async function resubmitPayout(
       throw new PayoutNotFoundError(payoutId);
     }
 
+    // Not the requester: the same answer as a Payout that is not there, so a
+    // stranger cannot tell which ids exist. requestedById never changes, so it
+    // needs no lock to be judged.
+    if (payout.requestedById !== requestedById) {
+      throw new PayoutNotFoundError(payoutId);
+    }
+
     const { state: subjectState } = await lockPayoutSubject(tx, payout);
-    if (payout.requestedById !== requestedById || (subjectState && subjectState.ownerId !== requestedById)) {
-      throw new NotAuthorizedError(fundraiserOnlyRefusal(subjectState?.kind ?? 'campaign'));
+    // The requester, but no longer the subject's Fundraiser (judged on the
+    // owner read under the lock): the same "missing" answer.
+    if (subjectState && subjectState.ownerId !== requestedById) {
+      throw new PayoutNotFoundError(payoutId);
     }
     await requireNotTeamMemberLocked(tx, requestedById);
     if (subjectState) requirePayoutAllowed(subjectState);

@@ -36,18 +36,25 @@ function fakePrisma(seed: {
   organisations?: Row[];
   items?: Row[];
   payouts?: Row[];
+  /** What the payout row reads as under the lock inside the create transaction, when it moved since the first read. */
+  lockedPayouts?: Row[];
   documents?: Row[];
 }) {
   const documents = [...(seed.documents ?? [])];
   const byId = (rows: Row[] | undefined, id: unknown) => (rows ?? []).find((r) => r.id === id) ?? null;
-  return {
-    documents,
-    prisma: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const prisma: any = {
       campaign: { findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.campaigns, where.id)) },
       partnerOrganisation: {
         findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.organisations, where.id)),
       },
       payout: { findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.payouts, where.id)) },
+      // The create transaction re-reads the Payout row under FOR UPDATE.
+      $queryRaw: vi.fn(async (_strings: TemplateStringsArray, id: unknown) => {
+        const row = byId(seed.lockedPayouts ?? seed.payouts, id);
+        return row ? [{ status: row.status, requestedById: row.requestedById }] : [];
+      }),
+      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(prisma)),
       verificationChecklistItem: {
         findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.items, where.id)),
       },
@@ -76,8 +83,8 @@ function fakePrisma(seed: {
           };
         }),
       },
-    },
   };
+  return { documents, prisma };
 }
 
 const CAMPAIGN = { id: 'c1', creatorId: 'fundraiser', kind: 'DONATION', lifecycleStatus: 'DRAFT' };
@@ -426,6 +433,25 @@ describe('uploadDocument for a Payout (PKS Pasal 4.5)', () => {
     await expect(
       uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
     ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('re-checks the Payout under its row lock when the paper is recorded: one decided in between takes no paper, and its file is removed', async () => {
+    for (const locked of [{ ...PAYOUT, status: 'APPROVED' }, { ...PAYOUT, status: 'REJECTED' }]) {
+      const db = fakePrisma({ payouts: [PAYOUT], lockedPayouts: [locked] });
+      await expect(
+        uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(db.documents).toEqual([]);
+      expect((await readdir(root, { recursive: true, withFileTypes: true })).filter((e) => e.isFile())).toEqual([]);
+    }
+  });
+
+  it('re-checks the requester under the lock too: a Payout that is not the actor\'s answers as missing', async () => {
+    const db = fakePrisma({ payouts: [PAYOUT], lockedPayouts: [{ ...PAYOUT, requestedById: 'someone-else' }] });
+    await expect(
+      uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(db.documents).toEqual([]);
   });
 
   it('requires a title within the length limit', async () => {

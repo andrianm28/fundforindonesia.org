@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { refusalResponse, refuseUnlessFundraiser } from '@/lib/refusal-response';
 import { requestPayout } from '@/lib/money/payouts';
+import { MAX_PAYOUT_DESCRIPTION_LENGTH, MAX_PAYOUT_NOTE_LENGTH } from '@/lib/payout-limits';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 import { tripBalance, tripEscrowBalance } from '@/lib/money/ledger';
 import { currentSandboxStamp } from '@/lib/money/sandbox-mode';
@@ -12,10 +13,10 @@ import { tripWithdrawableBalance } from '@/lib/money/trip-payout-funds';
 const requestPayoutSchema = z.object({
   bankAccountId: z.string().min(1, 'Rekening bank harus dipilih'),
   amount: z.number().int('Jumlah harus berupa bilangan bulat').min(1, 'Jumlah pencairan harus lebih dari 0'),
-  description: z.string().min(1, 'Keterangan harus diisi').max(500, 'Keterangan maksimal 500 karakter'),
+  description: z.string().min(1, 'Keterangan harus diisi').max(MAX_PAYOUT_DESCRIPTION_LENGTH, `Keterangan maksimal ${MAX_PAYOUT_DESCRIPTION_LENGTH} karakter`),
   // PKS Pasal 4.5: an additional note for the Admin; supporting papers are
   // uploaded as private Documents against the created Payout's id.
-  note: z.string().max(1000, 'Catatan maksimal 1000 karakter').optional(),
+  note: z.string().max(MAX_PAYOUT_NOTE_LENGTH, `Catatan maksimal ${MAX_PAYOUT_NOTE_LENGTH} karakter`).optional(),
 });
 
 /**
@@ -138,7 +139,24 @@ export async function GET(_request: NextRequest, context: any) {
   // this Trip and to the mode in force.
   const payouts = await prisma.payout.findMany({
     where: { volunteerTripId: trip.id, sandbox },
-    select: { id: true, amount: true, description: true, status: true, createdAt: true, approvedAt: true, completedAt: true },
+    select: {
+      id: true,
+      amount: true,
+      description: true,
+      status: true,
+      // PKS Pasal 4.5: the Fundraiser's own note, why an Admin sent it back
+      // (shown while REVISION_REQUESTED), and the papers attached so far (never
+      // a storage path: papers open through GET /api/documents/[id]).
+      supportingNote: true,
+      revisionReason: true,
+      documents: {
+        select: { id: true, label: true, contentType: true, sizeBytes: true, uploadedAt: true },
+        orderBy: { uploadedAt: 'asc' },
+      },
+      createdAt: true,
+      approvedAt: true,
+      completedAt: true,
+    },
     orderBy: { createdAt: 'desc' },
   });
 

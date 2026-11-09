@@ -22,4 +22,13 @@ Pilihan desain:
 - Rute: `POST /api/admin/payouts/[id]/request-revision` (`withHiddenAssignmentCheck`, 404 literal bagi non-Admin; masuk allowlist `roles-expand-guard`), `POST /api/user/payouts/[id]/resubmit` (satu rute untuk Campaign dan Trip; kepemilikan dinilai di domain di bawah kunci subjek).
 - Migrasi `20261111120000_penyaluran_revisi_dokumen_catatan`: `prisma migrate diff` kosong terhadap DB hasil `migrate deploy`; ada tes DB nyata (`src/__tests__/payout-revision-migration.test.ts`, butuh `TEST_DATABASE_URL`).
 
-Terbuka: UI Fundraiser baru ada di panel Campaign (`PayoutSupportingPapers`); `TripPayoutPanel` dan GET payout Trip belum menampilkan catatan, dokumen, dan alasan revisi (API Trip sudah menerima `note`). Review independen sonnet (uang) masih perlu di-dispatch koordinator.
+Terbuka: Review independen sonnet (uang) masih perlu di-dispatch koordinator.
+
+## Catatan 2026-11-09 (perbaikan temuan review independen)
+
+- **UI Trip**: GET `/api/volunteer-trips/[slug]/payouts` kini menyertakan `supportingNote`, `revisionReason`, dan `documents` (ringkasan tanpa path penyimpanan); `TripPayoutPanel` memakai ulang `PayoutSupportingPapers` (unggah saat `DRAFT`/`REVISION_REQUESTED`, daftar, alasan revisi, ajukan ulang) dan punya kolom catatan tambahan pada permintaan baru. Notifikasi sudah menaut ke `/akun/volunteer-trip/<slug>`.
+- **Tes subjek Trip** untuk `requestPayoutRevision` dan `resubmitPayout` (kunci `VolunteerTrip ... FOR UPDATE`, pemilik, Trip Suspended).
+- **Unggah dokumen Payout**: status dan pemohon dibaca ulang di transaksi yang sama dengan `Document.create`, dengan `SELECT ... FOR UPDATE` pada baris Payout. Keputusan yang commit lebih dulu menolak unggahan (409/404, berkas dihapus); keputusan yang datang belakangan menunggu commit unggahan.
+- **Resubmit** oleh non-pemohon (atau pemohon yang bukan lagi Fundraiser subjek) dijawab `PayoutNotFoundError` (404), sama persis dengan Payout yang tidak ada; tidak ada kebocoran keberadaan id. Pemeriksaan pemohon pada baris dilakukan sebelum kunci subjek (`requestedById` tidak berubah).
+- **Notifikasi inbox saat revisi**: antrean `failed-notifications` hanya untuk surel (`MailMessage`), bukan baris inbox. Baris inbox `payout_revision` best-effort seperti notifikasi inbox lain di repo; kegagalannya tetap `console.error` (`notification_failed`) dan tidak membatalkan revisi. Surelnya masuk antrean.
+- Batas 500 karakter keterangan (dan 1000 catatan) satu konstanta di `src/lib/payout-limits.ts`, dipakai skema zod kedua rute dan `payouts.ts`.
