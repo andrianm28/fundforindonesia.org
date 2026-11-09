@@ -4,7 +4,6 @@ import {
   ACTIVE_SLUG,
   ADMIN_EMAIL,
   VERIFIER_EMAIL,
-  operatorPassword,
 } from './fixtures';
 import { signInByCode } from './operator-sign-in';
 
@@ -18,9 +17,8 @@ import { signInByCode } from './operator-sign-in';
  * flagCampaign / dismissFlag -> the rows the next screen reads back.
  *
  * The seed (seed-e2e.ts) gives a Verifier and an Admin who own nothing, so
- * neither is barred from the Active fixture Campaign. There is no
- * passwordless session fixture; both sign in through NextAuth's own
- * credentials endpoint, the one the login page calls.
+ * neither is barred from the Active fixture Campaign. Both sign in by
+ * mailed code (signInByCode), the only sign-in there is.
  *
  * One Campaign is shared by the three viewport projects, and a retry runs
  * against the rows a failed attempt left, so each attempt writes reasons of
@@ -35,16 +33,8 @@ import { signInByCode } from './operator-sign-in';
  * without counting them.
  */
 async function signInAs(page: Page, email: string) {
-  // Operators sign in only by mailed code (ADR 0026).
-  if (email === ADMIN_EMAIL || email === VERIFIER_EMAIL) return signInByCode(page, email);
-  const { csrfToken } = await (await page.request.get('/api/auth/csrf')).json();
-  const signedIn = await page.request.post('/api/auth/callback/credentials', {
-    form: { csrfToken, email, password: operatorPassword(), json: 'true' },
-  });
-  expect(signedIn.ok()).toBe(true);
-  // The session is what proves it worked, not the status alone.
-  const session = await (await page.request.get('/api/auth/session')).json();
-  expect(session.user?.email).toBe(email);
+  // Everyone signs in by mailed code (ADR 0026); there is no password sign-in.
+  return signInByCode(page, email);
 }
 
 /**

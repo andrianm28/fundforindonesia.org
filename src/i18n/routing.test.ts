@@ -26,7 +26,7 @@ describe('getPathname', () => {
 
   it('prefixes English with /en and uses the English spelling', () => {
     expect(getPathname({ href: '/', locale: 'en' })).toBe('/en');
-    expect(getPathname({ href: '/lupa-password', locale: 'en' })).toBe('/en/forgot-password');
+    expect(getPathname({ href: '/wakaf', locale: 'en' })).toBe('/en/waqf');
     expect(getPathname({ href: { pathname: '/sertifikat/[code]', params: { code: 'X1' } }, locale: 'en' })).toBe(
       '/en/certificate/X1',
     );
@@ -42,16 +42,16 @@ describe('alternatesFor (canonical + hreflang)', () => {
 
   it('names itself as canonical in its own language and pairs id, en and x-default (the Indonesian URL)', () => {
     delete process.env.NEXT_PUBLIC_BASE_URL;
-    const href = { pathname: '/lupa-password' } as const;
+    const href = { pathname: '/wakaf' } as const;
     expect(alternatesFor(href, 'id')).toEqual({
-      canonical: 'https://fundforindonesia.org/lupa-password',
+      canonical: 'https://fundforindonesia.org/wakaf',
       languages: {
-        id: 'https://fundforindonesia.org/lupa-password',
-        en: 'https://fundforindonesia.org/en/forgot-password',
-        'x-default': 'https://fundforindonesia.org/lupa-password',
+        id: 'https://fundforindonesia.org/wakaf',
+        en: 'https://fundforindonesia.org/en/waqf',
+        'x-default': 'https://fundforindonesia.org/wakaf',
       },
     });
-    expect(alternatesFor(href, 'en').canonical).toBe('https://fundforindonesia.org/en/forgot-password');
+    expect(alternatesFor(href, 'en').canonical).toBe('https://fundforindonesia.org/en/waqf');
   });
 
   it('handles the home page and params, and honours the configured base URL', () => {

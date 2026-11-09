@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { signIn, getProviders } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { CodeLoginForm } from './CodeLoginForm';
-import { PasswordLoginForm } from './PasswordLoginForm';
 import { safeCallbackUrl } from '@/lib/safe-callback-url';
 
 /** Read on click, not render: the page is prerendered, so there is no query string until the browser. */
@@ -39,7 +38,13 @@ function GoogleIcon() {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<'code' | 'password'>('code');
+  // From ?error=: the page is prerendered, so the server snapshot is empty and
+  // the browser's is read after hydration.
+  const operatorCodeOnly = useSyncExternalStore(
+    () => () => {},
+    () => new URLSearchParams(window.location.search).get('error') === 'OperatorCodeOnly',
+    () => false,
+  );
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   // Hidden until /api/auth/providers says Google is configured: an unset client
   // id would otherwise offer a button that can only end on an error page.
@@ -75,17 +80,13 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {mode === 'code' ? <CodeLoginForm onSignedIn={goBack} /> : <PasswordLoginForm onSignedIn={goBack} />}
+        {operatorCodeOnly && (
+          <div className="mb-4 p-3 rounded-md bg-red-50 border border-red-200 text-danger text-sm" role="alert">
+            Akun Admin/Verifier masuk dengan kode email.
+          </div>
+        )}
 
-        <p className="mt-4 text-center text-sm">
-          <button
-            type="button"
-            className="text-primary font-medium hover:underline"
-            onClick={() => setMode(mode === 'code' ? 'password' : 'code')}
-          >
-            {mode === 'code' ? 'Masuk dengan password' : 'Masuk dengan kode email'}
-          </button>
-        </p>
+        <CodeLoginForm onSignedIn={goBack} />
 
         {googleEnabled && (
           <>

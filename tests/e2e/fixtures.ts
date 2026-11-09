@@ -16,13 +16,10 @@ export const RECEIPT_AMOUNT = 75_000;
 export const ACTIVE_CAMPAIGN_ID = 'e2e-campaign-aktif';
 
 // Two operators who are not that Campaign's Fundraiser, one per assignment.
-// There is no passwordless session fixture, so the spec signs in through
-// NextAuth's own credentials endpoint. Their password is never written in the
-// repository: the CI job draws a random one into E2E_OPERATOR_PASSWORD before
-// seeding, and the seed and the spec both read it from there (locally, export
-// any value of 16 characters or more before running either). An Admin with a
-// published password would be a standing risk the day the seed met a database
-// other than the job's throwaway one; seed-e2e.ts also refuses to run unless
+// Specs sign them in by mailed code (signInByCode, tests/e2e/operator-sign-in.ts);
+// there is no password sign-in. The seed still stores a random hash in the
+// legacy `password` column, drawn from E2E_OPERATOR_PASSWORD, so no known value
+// is ever published; seed-e2e.ts also refuses to run unless
 // E2E_THROWAWAY_DATABASE=1 and the database is on this machine.
 export const VERIFIER_EMAIL = 'e2e-verifier@example.org';
 export const ADMIN_EMAIL = 'e2e-admin@example.org';

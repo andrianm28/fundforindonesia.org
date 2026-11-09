@@ -10,7 +10,7 @@ vi.mock('next-auth/react', () => ({
   getProviders: () => mockGetProviders(),
 }));
 
-const CREDENTIALS_ONLY = { credentials: { id: 'credentials', name: 'credentials' } };
+const CREDENTIALS_ONLY = { 'email-otp': { id: 'email-otp', name: 'email-otp' } };
 const WITH_GOOGLE = { ...CREDENTIALS_ONLY, google: { id: 'google', name: 'Google' } };
 
 // Mock next/navigation
@@ -40,231 +40,74 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-/** The password form is the fallback now; sign-in by mailed code is the default (code-login.test.tsx). */
-function renderPasswordMode() {
-  render(<LoginPage />);
-  fireEvent.click(screen.getByRole('button', { name: /masuk dengan password/i }));
-}
-
-describe('LoginPage, password fallback', () => {
+describe('LoginPage', () => {
   beforeEach(() => {
     mockSignIn.mockResolvedValue({ ok: false, error: null });
     mockGetProviders.mockResolvedValue(WITH_GOOGLE);
   });
 
-  it('renders login form with email and password fields', () => {
-    renderPasswordMode();
+  it('shows only the email code form: no password field, toggle or forgot-password link', () => {
+    render(<LoginPage />);
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /masuk$/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /masuk dengan password/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /lupa password/i })).not.toBeInTheDocument();
   });
 
   it('renders Google OAuth button when Google is configured', async () => {
-    renderPasswordMode();
+    render(<LoginPage />);
     expect(await screen.findByRole('button', { name: /masuk dengan google/i })).toBeInTheDocument();
   });
 
   it('hides the Google button and the separator when Google is not configured', async () => {
     mockGetProviders.mockResolvedValue(CREDENTIALS_ONLY);
-    renderPasswordMode();
+    render(<LoginPage />);
     await waitFor(() => expect(mockGetProviders).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: /masuk dengan google/i })).not.toBeInTheDocument();
     expect(screen.queryByText('atau')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /masuk$/i })).toBeInTheDocument();
   });
 
   it('keeps the Google button hidden when the providers request fails', async () => {
     mockGetProviders.mockRejectedValue(new Error('network'));
-    renderPasswordMode();
+    render(<LoginPage />);
     await waitFor(() => expect(mockGetProviders).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: /masuk dengan google/i })).not.toBeInTheDocument();
   });
 
-  it('links to the forgot-password page', () => {
-    renderPasswordMode();
-    expect(screen.getByRole('link', { name: /lupa password\?/i })).toHaveAttribute('href', '/lupa-password');
-  });
-
   it('renders link to register page', () => {
-    renderPasswordMode();
-    const link = screen.getByRole('link', { name: /daftar di sini/i });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute('href', '/register');
-  });
-
-  it('shows validation error when email is empty', async () => {
-    renderPasswordMode();
-    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('Email harus diisi');
-    });
-  });
-
-  it('shows validation error for invalid email format', async () => {
-    renderPasswordMode();
-    fireEvent.change(screen.getByLabelText(/email/i), {
-      target: { value: 'notanemail' },
-    });
-    fireEvent.change(screen.getByLabelText(/password/i), {
-      target: { value: 'password123' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Format email tidak valid'
-      );
-    });
-  });
-
-  it('shows validation error when password is empty', async () => {
-    renderPasswordMode();
-    fireEvent.change(screen.getByLabelText(/email/i), {
-      target: { value: 'test@example.com' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('Password harus diisi');
-    });
-  });
-
-  it('calls signIn with credentials on valid form submission', async () => {
-    mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
-    renderPasswordMode();
-
-    fireEvent.change(screen.getByLabelText(/email/i), {
-      target: { value: 'test@example.com' },
-    });
-    fireEvent.change(screen.getByLabelText(/password/i), {
-      target: { value: 'password123' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-
-    await waitFor(() => {
-      expect(mockSignIn).toHaveBeenCalledWith('credentials', {
-        email: 'test@example.com',
-        password: 'password123',
-        redirect: false,
-      });
-    });
-  });
-
-  it('redirects to homepage on successful login', async () => {
-    mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
-    renderPasswordMode();
-
-    fireEvent.change(screen.getByLabelText(/email/i), {
-      target: { value: 'test@example.com' },
-    });
-    fireEvent.change(screen.getByLabelText(/password/i), {
-      target: { value: 'password123' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/');
-    });
-  });
-
-  it('shows error message on failed credentials', async () => {
-    mockSignIn.mockResolvedValueOnce({ ok: false, error: 'CredentialsSignin' });
-    renderPasswordMode();
-
-    fireEvent.change(screen.getByLabelText(/email/i), {
-      target: { value: 'test@example.com' },
-    });
-    fireEvent.change(screen.getByLabelText(/password/i), {
-      target: { value: 'wrongpassword' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Email atau password salah'
-      );
-    });
-  });
-
-  it('shows lockout message after 5 failed attempts', async () => {
-    mockSignIn.mockResolvedValue({ ok: false, error: 'CredentialsSignin' });
-    renderPasswordMode();
-
-    // Attempt 5 failed logins
-    for (let i = 0; i < 5; i++) {
-      fireEvent.change(screen.getByLabelText(/email/i), {
-        target: { value: 'test@example.com' },
-      });
-      fireEvent.change(screen.getByLabelText(/password/i), {
-        target: { value: 'wrong' },
-      });
-      fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-      await waitFor(() => {
-        expect(mockSignIn).toHaveBeenCalledTimes(i + 1);
-      });
-    }
-
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Terlalu banyak percobaan. Coba lagi nanti.'
-      );
-    });
-  });
-
-  it('returns to the page in ?callbackUrl after a successful login', async () => {
-    window.history.pushState({}, '', '/login?callbackUrl=%2Fvolunteer-trip%2Fmengajar');
-    mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
-    renderPasswordMode();
-
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'password123' } });
-    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/volunteer-trip/mengajar');
-    });
-    window.history.pushState({}, '', '/');
-  });
-
-  it('ignores a ?callbackUrl that leaves the site', async () => {
-    window.history.pushState({}, '', '/login?callbackUrl=https%3A%2F%2Fevil.example');
-    mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
-    renderPasswordMode();
-
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'password123' } });
-    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/');
-    });
-    window.history.pushState({}, '', '/');
+    render(<LoginPage />);
+    expect(screen.getByRole('link', { name: /daftar di sini/i })).toHaveAttribute('href', '/register');
   });
 
   it('carries ?callbackUrl through Google sign-in', async () => {
     window.history.pushState({}, '', '/login?callbackUrl=%2Fvolunteer-trip%2Fmengajar');
-    renderPasswordMode();
+    render(<LoginPage />);
     fireEvent.click(await screen.findByRole('button', { name: /masuk dengan google/i }));
     expect(mockSignIn).toHaveBeenCalledWith('google', { callbackUrl: '/volunteer-trip/mengajar' });
     window.history.pushState({}, '', '/');
   });
 
   it('calls signIn with google provider when Google button is clicked', async () => {
-    renderPasswordMode();
-    fireEvent.click(
-      await screen.findByRole('button', { name: /masuk dengan google/i })
-    );
+    render(<LoginPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /masuk dengan google/i }));
     expect(mockSignIn).toHaveBeenCalledWith('google', { callbackUrl: '/' });
   });
+});
 
-  it('clears error when user types in email field', async () => {
-    renderPasswordMode();
-    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-    });
+describe('LoginPage, ?error=OperatorCodeOnly', () => {
+  beforeEach(() => {
+    mockGetProviders.mockResolvedValue(WITH_GOOGLE);
+  });
+  afterEach(() => window.history.pushState({}, '', '/'));
 
-    fireEvent.change(screen.getByLabelText(/email/i), {
-      target: { value: 'a' },
-    });
+  it('tells an Admin or Verifier turned away from Google to use the email code', async () => {
+    window.history.pushState({}, '', '/login?error=OperatorCodeOnly');
+    render(<LoginPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Akun Admin/Verifier masuk dengan kode email.');
+  });
+
+  it('shows no message without that error', () => {
+    render(<LoginPage />);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
@@ -272,7 +115,7 @@ describe('LoginPage, password fallback', () => {
 describe('LoginPage consent line (audit L3)', () => {
   it('links the Terms and Privacy policy under the form', () => {
     mockGetProviders.mockResolvedValue(CREDENTIALS_ONLY);
-    renderPasswordMode();
+    render(<LoginPage />);
     expect(screen.getByText(/Dengan masuk, Anda menyetujui/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Syarat & Ketentuan/ })).toHaveAttribute('href', '/terms');
     expect(screen.getByRole('link', { name: 'Kebijakan Privasi' })).toHaveAttribute('href', '/privacy');

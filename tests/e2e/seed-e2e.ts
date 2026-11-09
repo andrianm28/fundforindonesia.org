@@ -100,7 +100,7 @@ async function main() {
 
   // The Verifier who raises a Flag and the Admin who dismisses it
   // (flag-dismiss.spec.ts). Neither owns a Campaign, so neither is barred
-  // from acting on the Active one below. They can sign in with credentials.
+  // from acting on the Active one below. They sign in by mailed code.
   // A rerun only refreshes the password hash (the password is drawn per run),
   // never re-grants an assignment.
   const operatorPasswordHash = await hashPassword(operatorPassword(), PASSWORD_HASH_COST);

@@ -7,7 +7,7 @@ import { hashLoginCode } from '../../src/lib/login-code-hash';
 
 /**
  * Signs an Admin or Verifier in the only way the app allows them: by mailed
- * code (ADR 0026; the password form refuses operators). There is no mailbox in
+ * code. There is no mailbox in
  * CI, so the helper plays the mail's part: it writes a fresh code for the
  * account straight into the throwaway database, hashed exactly as the server
  * checks it, and then signs in through NextAuth's own `email-otp` endpoint.

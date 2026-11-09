@@ -2,16 +2,13 @@ import { NextAuthOptions, getServerSession as nextAuthGetServerSession } from "n
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import { isGoogleConfigured } from "@/lib/auth-providers";
-import { hashPassword, verifyPassword } from "@/lib/password-hash";
 import { prisma } from "@/lib/prisma";
-import { PASSWORD_HASH_COST, isHashAtCurrentCost } from "@/lib/password-hash-cost";
 import { Assignment } from "@/generated/prisma/client";
 import { buildAuthAdapter } from "@/lib/auth-adapter";
 import { isRemoteProviderPicture, providerPicture } from "@/lib/provider-picture";
 import { clientAddress } from "@/lib/client-ip";
 import { checkRateLimit } from "@/lib/rate-limit-guard";
 import { sessionPasswordClaim } from "@/lib/password-reset";
-import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { verifyLoginCode } from "@/lib/login-code";
 
 // Both halves of the adapter need the schema it cannot see: the write goes
@@ -26,8 +23,6 @@ const adapter = buildAuthAdapter(prisma);
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_PER_ACCOUNT_LIMIT = 10;
 const LOGIN_PER_CLIENT_LIMIT = 50;
-
-const OPERATOR_CODE_ONLY_MESSAGE = "Akun Admin/Verifier masuk dengan kode email.";
 
 /** The caller's address as the limiter counts it, read off the request next-auth hands `authorize`. */
 function requestClient(req: { headers?: Record<string, unknown> } | undefined): string {
@@ -50,109 +45,10 @@ export const authOptions: NextAuthOptions = {
           }),
         ]
       : []),
-    CredentialsProvider({
-      name: "credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials, req) {
-        if (!credentials?.email || !credentials?.password) {
-          throw new Error("Email dan password harus diisi");
-        }
-
-        // Counted before any lookup or hash, every attempt, right or wrong:
-        // per client + address (guessing one account) and per client (many
-        // accounts). Fail-open, like the other non-mail paths: the lookup
-        // below needs the same database, so this only matters when the
-        // limiter alone is broken, and that must not lock everyone out.
-        const client = requestClient(req);
-        for (const attempt of [
-          { scope: "auth-login", subject: `${client}|${credentials.email.trim().toLowerCase()}`, limit: LOGIN_PER_ACCOUNT_LIMIT },
-          { scope: "auth-login-client", subject: client, limit: LOGIN_PER_CLIENT_LIMIT },
-        ]) {
-          const verdict = await checkRateLimit({ ...attempt, windowSeconds: LOGIN_WINDOW_SECONDS, onUnavailable: "open" });
-          if (!verdict.ok) throw new Error("Terlalu banyak percobaan masuk. Coba lagi nanti.");
-        }
-
-        // Through the HMAC, never a scan over decrypted addresses (ADR 0012):
-        // the plaintext email column is gone, and decrypting every account to
-        // compare it would be the thing this scheme exists to prevent.
-        const user = await prisma.user.findFirst({
-          where: lookupUserEmail(credentials.email),
-          select: {
-            ...SELECT_USER_EMAIL,
-            id: true,
-            password: true,
-            name: true,
-            avatar: true,
-            assignments: { select: { assignment: true } },
-          },
-        });
-
-        if (!user || !user.password) {
-          throw new Error("Email atau password salah");
-        }
-
-        const isPasswordValid = await verifyPassword(
-          credentials.password,
-          user.password
-        );
-
-        if (!isPasswordValid) {
-          throw new Error("Email atau password salah");
-        }
-
-        // Admin and Verifier sign in only by mailed code: it stands in for
-        // MFA (owner, 9 Nov 2026; PKS Pasal 8(1); ADR 0026), and a password
-        // would walk around it. Checked after the password, so a stranger
-        // learns nothing about the account's Assignments.
-        if (user.assignments?.length) {
-          throw new Error(OPERATOR_CODE_ONLY_MESSAGE);
-        }
-
-        // An account whose hash sits below the current factor — because an
-        // older password change re-hashed it more weakly, see ADR 0017 — is
-        // brought back up here, on the login where we hold the plaintext and
-        // without asking the user for anything. The factor is read off the
-        // stored hash's own prefix, so this is not a write on the request path:
-        // `authorize` runs on an actual sign-in, not per request, and once
-        // rewritten the hash reports the current factor and the next login
-        // skips this entirely. Best-effort, because failing to upgrade a hash
-        // must never cost a user their login.
-        if (!isHashAtCurrentCost(user.password)) {
-          try {
-            const rehashed = await hashPassword(
-              credentials.password,
-              PASSWORD_HASH_COST
-            );
-            await prisma.user.update({
-              where: { id: user.id },
-              data: { password: rehashed },
-            });
-          } catch (error) {
-            console.error("Failed to re-hash password at the current cost:", error);
-          }
-        }
-
-        const email = readUserEmail(user);
-        if (!email) {
-          throw new Error("Email atau password salah");
-        }
-
-        return {
-          id: user.id,
-          email,
-          name: user.name,
-          image: user.avatar,
-        };
-      },
-    }),
     // Sign-in with a code mailed to the address (login OTP,
     // src/lib/login-code.ts). The code is spent and its guesses counted in
     // the database; the limits here bound guessing across many fresh codes.
-    // Fail-open like the password login: the per-code limit still holds when
-    // only the limiter is down.
+    // Fail-open: the per-code limit still holds when only the limiter is down.
     CredentialsProvider({
       id: "email-otp",
       name: "email-otp",
@@ -185,7 +81,7 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
   },
   callbacks: {
-    // Google would also walk around the operator code requirement above, so
+    // Google would walk around the operator code requirement, so
     // an existing account holding any Assignment is sent back to /login. A
     // first Google sign-in has no row yet, and so no Assignment.
     async signIn({ user, account }) {
@@ -235,9 +131,8 @@ export const authOptions: NextAuthOptions = {
           // (rilis-1 93): the claim is set at sign-in, and a changed hash ends
           // the session without any stored state. A token from before this
           // claim existed has none and is upgraded to the current one, not
-          // ended, so deploying it signs nobody out. A password change from
-          // the settings page also ends the session it is made in, which is why
-          // that page signs out after it.
+          // ended, so deploying it signs nobody out. The stored hash is only ever
+          // changed outside the app now (there is no password sign-in or change).
           const claim = sessionPasswordClaim(dbUser.password ?? null);
           if (user || token.pwf === undefined) {
             token.pwf = claim;
@@ -250,7 +145,7 @@ export const authOptions: NextAuthOptions = {
             return token;
           }
           // Operator authority needs a session signed in by mailed code (the
-          // code stands in for MFA; ADR 0026). Refusing the password and Google
+          // code stands in for MFA; ADR 0026). Refusing Google
           // at sign-in is not enough on its own: an Assignment granted to an
           // account while its password session is live, or a session from
           // before this rule, would carry authority without a code. Such a

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { emailLogoHtml } from './email-logo';
 import { receiptEmail } from './receipt';
-import { passwordResetEmail } from './password-reset';
 import { emailVerificationEmail } from './email-verification';
 import { campaignTransferEmail } from './campaign-transfer';
 import { campaignDeadlineReminderEmail, kindAuthorisationExpiryWarningEmail } from './reminders';
@@ -27,7 +26,6 @@ describe('emailLogoHtml', () => {
 describe('every email to a Donor or Fundraiser opens with the logo', () => {
   const messages: Array<[string, () => MailMessage]> = [
     ['receipt', () => receiptEmail({ to: 'a@b.test', donorName: 'Sari', campaignTitle: 'C', collectingEntityName: 'Yayasan', amount: 50000, paidAt: new Date('2026-10-05T00:00:00Z'), printUrl: 'https://fundforindonesia.org/receipt/x' })],
-    ['password reset', () => passwordResetEmail({ to: 'a@b.test', name: 'Sari', resetUrl: 'https://fundforindonesia.org/reset-password?token=t' })],
     ['email verification', () => emailVerificationEmail({ to: 'a@b.test', name: 'Sari', confirmUrl: 'https://fundforindonesia.org/akun/verifikasi-email?token=t' })],
     ['campaign transfer', () => campaignTransferEmail({ to: 'a@b.test', sourceTitle: 'A', targetTitle: 'B', targetUrl: 'https://fundforindonesia.org/campaign/b', kindLabel: 'Zakat' })],
     ['deadline reminder', () => campaignDeadlineReminderEmail({ to: 'a@b.test', fundraiserName: 'Budi', campaignTitle: 'C', deadline: new Date('2026-10-05T00:00:00Z'), campaignUrl: 'https://fundforindonesia.org/campaign/c' })],

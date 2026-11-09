@@ -1,8 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
   ADMIN_EMAIL,
-  operatorPassword,
-  VERIFIER_EMAIL,
 } from './fixtures';
 import { signInByCode } from './operator-sign-in';
 
@@ -21,15 +19,8 @@ import { signInByCode } from './operator-sign-in';
  */
 
 async function signInAs(page: Page, email: string) {
-  // Operators sign in only by mailed code (ADR 0026).
-  if (email === ADMIN_EMAIL || email === VERIFIER_EMAIL) return signInByCode(page, email);
-  const { csrfToken } = await (await page.request.get('/api/auth/csrf')).json();
-  const signedIn = await page.request.post('/api/auth/callback/credentials', {
-    form: { csrfToken, email, password: operatorPassword(), json: 'true' },
-  });
-  expect(signedIn.ok()).toBe(true);
-  const session = await (await page.request.get('/api/auth/session')).json();
-  expect(session.user?.email).toBe(email);
+  // Everyone signs in by mailed code (ADR 0026); there is no password sign-in.
+  return signInByCode(page, email);
 }
 
 test.describe('Admin reconciliation page', () => {
