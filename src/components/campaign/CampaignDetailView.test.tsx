@@ -62,6 +62,22 @@ describe('CampaignDetailView', () => {
     expect(screen.getByLabelText('Bagikan via WhatsApp')).toBeDefined();
   });
 
+  it('names who collects the money and links to its public profile (PKS Pasal 12(5))', () => {
+    render(
+      <CampaignDetailView
+        campaign={{ ...mockCampaign, collectingEntity: { id: 'org-1', name: 'Yayasan Indonesia Emas Merdeka' } }}
+      />,
+    );
+    const link = screen.getByRole('link', { name: 'Yayasan Indonesia Emas Merdeka' });
+    expect(link.getAttribute('href')).toBe('/lembaga/org-1');
+    expect(screen.getByText(/Dihimpun oleh/)).toBeDefined();
+  });
+
+  it('shows no "Dihimpun oleh" line when the campaign has no Collecting Entity', () => {
+    render(<CampaignDetailView campaign={{ ...mockCampaign, collectingEntity: null }} />);
+    expect(screen.queryByText(/Dihimpun oleh/)).toBeNull();
+  });
+
   it('does not render a demo badge for a regular campaign', () => {
     render(<CampaignDetailView campaign={mockCampaign} />);
     expect(screen.queryByText(/kampanye contoh/i)).toBeNull();

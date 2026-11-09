@@ -81,6 +81,10 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
           avatar: true,
         },
       },
+      // Who collects the money, with a link to its public profile (PKS
+      // Pasal 12(5)). Id and name only: this payload is serialized into the
+      // page for every visitor.
+      collectingEntity: { select: { id: true, name: true } },
       _count: {
         select: {
           // Real Donations only (ticket 94): one paid with a beta (sandbox) Payment is a test.
@@ -142,6 +146,9 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     deadline: campaign.deadline ? campaign.deadline.toISOString() : null,
     createdAt: campaign.createdAt.toISOString(),
     creator: campaign.creator,
+    collectingEntity: campaign.collectingEntity
+      ? { id: campaign.collectingEntity.id, name: campaign.collectingEntity.name }
+      : null,
     donationCount: campaign._count.donations,
     platformFeePercentBps,
     escrowHoldDays,

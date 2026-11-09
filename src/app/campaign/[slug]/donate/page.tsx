@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCampaignDetail } from '@/lib/hooks/useCampaignDetail';
 import { DonationAmountSelector } from '@/components/donation/DonationAmountSelector';
@@ -319,7 +320,10 @@ export default function DonatePage() {
             {/* The Donor's legal counterparty is the Collecting Entity, not the platform (ADR 0010). */}
             {campaign.collectingEntity && (
               <p className="text-xs text-text-secondary mt-0.5">
-                Dihimpun oleh {campaign.collectingEntity.name}
+                Dihimpun oleh{' '}
+                <Link href={`/lembaga/${campaign.collectingEntity.id}`} className="text-primary hover:underline">
+                  {campaign.collectingEntity.name}
+                </Link>
               </p>
             )}
           </div>

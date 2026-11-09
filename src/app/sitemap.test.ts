@@ -22,6 +22,7 @@ vi.mock('@/lib/prisma', () => ({
     {
       get(_target, key: string) {
         if (key === 'category') return { findMany: async () => [] };
+        if (key === 'partnerOrganisation') return { findMany: async () => [{ id: 'org-1' }, { id: 'org-2' }] };
         return (holder.db.prisma as Record<string, unknown>)[key];
       },
     }
@@ -81,6 +82,14 @@ describe('sitemap Campaign pages', () => {
   it('sends a crawler to no Demo Campaign page, in any status', async () => {
     const slugs = await campaignSlugsInSitemap();
     expect(slugs.filter((slug) => slug.startsWith('demo-'))).toEqual([]);
+  });
+});
+
+describe('sitemap organisation profiles', () => {
+  it('lists every Partner Organisation profile page (PKS Pasal 12(5))', async () => {
+    const urls = (await sitemap()).map((entry) => entry.url);
+    expect(urls).toContain('https://fundforindonesia.org/lembaga/org-1');
+    expect(urls).toContain('https://fundforindonesia.org/lembaga/org-2');
   });
 });
 

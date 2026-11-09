@@ -34,6 +34,10 @@ describe('pathname map (ADR 0024 section 2)', () => {
     expect(pathnames['/campaign/[slug]']).toBe('/campaign/[slug]');
   });
 
+  it('maps the public organisation profile (PKS Pasal 12(5))', () => {
+    expect(pathnames['/lembaga/[id]']).toEqual({ id: '/lembaga/[id]', en: '/organisation/[id]' });
+  });
+
   it('keeps param names equal in both languages and never maps two pages to one path', () => {
     const params = (p: string) => p.match(/\[[^\]]+\]/g) ?? [];
     for (const row of PATHNAME_MAP) {

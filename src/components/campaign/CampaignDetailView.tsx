@@ -54,6 +54,8 @@ export interface CampaignDetailData {
     name: string;
     avatar: string | null;
   };
+  /** Who collects the money (ADR 0010); links to its public profile. */
+  collectingEntity?: { id: string; name: string } | null;
   donationCount: number;
   /** The Platform Fee rate in force for this Campaign right now, in basis
    * points (CONTEXT.md, Platform Fee; prd-compliance 17) -- resolved
@@ -513,6 +515,14 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
                 {campaign.creator.name}
               </span>
             </div>
+            {campaign.collectingEntity && (
+              <p className="text-xs text-text-secondary truncate">
+                Dihimpun oleh{' '}
+                <Link href={`/lembaga/${campaign.collectingEntity.id}`} className="text-primary hover:underline">
+                  {campaign.collectingEntity.name}
+                </Link>
+              </p>
+            )}
           </div>
         </div>
 

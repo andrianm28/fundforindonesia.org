@@ -81,5 +81,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.9,
   }));
 
-  return [...staticPages, ...categoryPages, ...campaignPages];
+  // Partner Organisation profiles (PKS Pasal 12(5)): never deleted, public
+  // fields only, so every one is listed.
+  const organisations = await prisma.partnerOrganisation.findMany({
+    select: { id: true },
+  });
+
+  const organisationPages: MetadataRoute.Sitemap = organisations.map((organisation) => ({
+    url: publicUrl(`/lembaga/${organisation.id}`),
+    changeFrequency: 'weekly' as const,
+    priority: 0.5,
+  }));
+
+  return [...staticPages, ...categoryPages, ...campaignPages, ...organisationPages];
 }
