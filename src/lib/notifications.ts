@@ -164,8 +164,8 @@ export async function notifyPaymentLapsed(params: {
       type: expired ? 'payment_expired' : 'payment_failed',
       title: expired ? 'Pembayaran Kedaluwarsa' : 'Pembayaran Gagal',
       message: expired
-        ? `Pembayaran donasi ${formatRupiah(amount)} untuk "${campaignTitle}" kedaluwarsa. Tidak ada dana yang terpotong.`
-        : `Pembayaran donasi ${formatRupiah(amount)} untuk "${campaignTitle}" gagal. Tidak ada dana yang terpotong.`,
+        ? `Pembayaran donasi ${formatRupiah(amount)} untuk "${campaignTitle}" kedaluwarsa. Jika saldo Anda sudah terpotong, pembayaran akan tetap tercatat otomatis; Anda juga bisa mencoba berdonasi lagi.`
+        : `Pembayaran donasi ${formatRupiah(amount)} untuk "${campaignTitle}" gagal. Jika saldo Anda sudah terpotong, pembayaran akan tetap tercatat otomatis; Anda juga bisa mencoba berdonasi lagi.`,
       userId: donorId,
       link: `/campaign/${campaignId}`,
     },
@@ -188,7 +188,7 @@ export async function notifyRefundCompleted(
     data: {
       type: 'refund_completed',
       title: 'Refund Selesai',
-      message: `Dana sebesar ${formatRupiah(amount)} telah dikembalikan ke rekening Anda`,
+      message: `Dana sebesar ${formatRupiah(amount)} telah dikembalikan ke rekening Anda.`,
       userId: donorId,
       link: `/campaign/${campaignId}`,
     },

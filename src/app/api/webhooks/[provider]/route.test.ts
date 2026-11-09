@@ -1184,6 +1184,7 @@ describe('POST /api/webhooks/[provider]', () => {
       const response = await lapse('failed');
 
       expect(response.status).toBe(200);
+      expect(spy).toHaveBeenCalled();
       spy.mockRestore();
     });
   });

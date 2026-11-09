@@ -1785,6 +1785,41 @@ describe('completeRefund', () => {
     errors.mockRestore();
   });
 
+  it('creates no notification when completeRefund throws inside the transaction (account mismatch)', async () => {
+    const refundRow = baseApprovedRefundRow({
+      payment: makePayment({ amount: 100_000, providerFee: 0, donation: { campaignId: 'campaign-1', donorId: 'donor-1' } }),
+    });
+    const { tx } = makeTx({ refundRow });
+    const base = makePrisma(tx, { ...refundRow, status: 'COMPLETED' });
+    const notificationCreate = vi.fn().mockResolvedValue({});
+
+    await expect(
+      completeRefund({ ...base, notification: { create: notificationCreate } } as never, {
+        refundId: 'refund-1', completedById: 'completer-1', ...validProof, donorAccountNumber: '9999999999',
+      }),
+    ).rejects.toThrow(RefundDestinationMismatchError);
+    expect(notificationCreate).not.toHaveBeenCalled();
+  });
+
+  it('creates no notification when the transaction itself fails (only after it resolves)', async () => {
+    const refundRow = baseApprovedRefundRow({
+      payment: makePayment({ amount: 100_000, providerFee: 0, donation: { campaignId: 'campaign-1', donorId: 'donor-1' } }),
+    });
+    const { tx } = makeTx({ refundRow });
+    const base = makePrisma(tx, { ...refundRow, status: 'COMPLETED' });
+    const notificationCreate = vi.fn().mockResolvedValue({});
+    const prisma = {
+      ...base,
+      $transaction: vi.fn().mockRejectedValue(new Error('commit failed')),
+      notification: { create: notificationCreate },
+    };
+
+    await expect(
+      completeRefund(prisma as never, { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validRetype }),
+    ).rejects.toThrow('commit failed');
+    expect(notificationCreate).not.toHaveBeenCalled();
+  });
+
   it('keeps the completion and its legs when the Donor email cannot be sent (ticket 68)', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const refundRow = baseApprovedRefundRow();

@@ -695,10 +695,9 @@ export async function completeRefund(
   const typedAccountNumber = cleanDestinationText(donorAccountNumber, 'Nomor rekening', 'donorAccountNumber');
 
   // What the in-app notification needs, read inside the transaction from the
-  // row it already loads (no extra query) and used only after commit.
-  let donorNotice: { donorId: string | null; campaignId: string; amount: number } | null = null;
-
-  await prisma.$transaction(async (tx) => {
+  // row it already loads (no extra query), returned from it and used only
+  // after commit.
+  const donorNotice = await prisma.$transaction(async (tx) => {
     const refund = await tx.refund.findUnique({
       where: { id: refundId },
       include: {
@@ -774,9 +773,9 @@ export async function completeRefund(
     );
 
     const donation = refund.payment.donation;
-    if (donation) {
-      donorNotice = { donorId: donation.donorId ?? null, campaignId: donation.campaignId, amount: refund.amount };
-    }
+    return donation
+      ? { donorId: donation.donorId ?? null, campaignId: donation.campaignId, amount: refund.amount }
+      : null;
   });
 
   // After commit, like the email below: a failed in-app notification must
