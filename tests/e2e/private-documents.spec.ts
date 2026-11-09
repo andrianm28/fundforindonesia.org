@@ -6,7 +6,9 @@ import {
   STRANGER_EMAIL,
   VERIFIER_EMAIL,
   operatorPassword,
+  ADMIN_EMAIL,
 } from './fixtures';
+import { signInByCode } from './operator-sign-in';
 
 /**
  * Ticket 64: upload, then view. The Fundraiser uploads their KTP from the
@@ -22,6 +24,8 @@ import {
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n');
 
 async function signInAs(page: Page, email: string) {
+  // Operators sign in only by mailed code (ADR 0026).
+  if (email === ADMIN_EMAIL || email === VERIFIER_EMAIL) return signInByCode(page, email);
   const { csrfToken } = await (await page.request.get('/api/auth/csrf')).json();
   const signedIn = await page.request.post('/api/auth/callback/credentials', {
     form: { csrfToken, email, password: operatorPassword(), json: 'true' },

@@ -1,5 +1,12 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { ACTIVE_CAMPAIGN_ID, ACTIVE_SLUG, ADMIN_EMAIL, VERIFIER_EMAIL, operatorPassword } from './fixtures';
+import {
+  ACTIVE_CAMPAIGN_ID,
+  ACTIVE_SLUG,
+  ADMIN_EMAIL,
+  VERIFIER_EMAIL,
+  operatorPassword,
+} from './fixtures';
+import { signInByCode } from './operator-sign-in';
 
 /**
  * rilis-1-benda 66: a Flag, then its dismissal, through the two screens that
@@ -28,6 +35,8 @@ import { ACTIVE_CAMPAIGN_ID, ACTIVE_SLUG, ADMIN_EMAIL, VERIFIER_EMAIL, operatorP
  * without counting them.
  */
 async function signInAs(page: Page, email: string) {
+  // Operators sign in only by mailed code (ADR 0026).
+  if (email === ADMIN_EMAIL || email === VERIFIER_EMAIL) return signInByCode(page, email);
   const { csrfToken } = await (await page.request.get('/api/auth/csrf')).json();
   const signedIn = await page.request.post('/api/auth/callback/credentials', {
     form: { csrfToken, email, password: operatorPassword(), json: 'true' },

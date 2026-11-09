@@ -1,4 +1,5 @@
-import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { randomInt, timingSafeEqual } from 'node:crypto';
+import { hashLoginCode } from '@/lib/login-code-hash';
 import { prisma } from '@/lib/prisma';
 import { sendReportingFailure } from '@/lib/mail';
 import { loginCodeEmail } from '@/lib/mail/login-code';
@@ -38,23 +39,9 @@ export const LOGIN_CODE_COOLDOWN_MS = 60_000;
 export const LOGIN_CODE_MAX_ATTEMPTS = 5;
 export const LOGIN_CODE_LENGTH = 6;
 
-const CODE_DOMAIN = 'fund-for-indonesia:login-code:v1';
+export { hashLoginCode };
+
 const CODE_PATTERN = new RegExp(`^\\d{${LOGIN_CODE_LENGTH}}$`);
-
-let ephemeralSecret: string | undefined;
-
-function resolveSecret(secret?: string): string {
-  const configured = secret ?? process.env.NEXTAUTH_SECRET;
-  if (configured) return configured;
-  if (process.env.NODE_ENV === 'production') throw new Error('NEXTAUTH_SECRET is not set');
-  ephemeralSecret ??= randomBytes(32).toString('hex');
-  return ephemeralSecret;
-}
-
-export function hashLoginCode(userId: string, code: string, secret?: string): string {
-  const key = createHmac('sha256', resolveSecret(secret)).update(CODE_DOMAIN).digest();
-  return createHmac('sha256', key).update(`${userId}:${code}`).digest('hex');
-}
 
 /** Digits only: a code pasted as "123 456" or with a trailing newline still counts. */
 export function normaliseLoginCode(input: unknown): string | null {

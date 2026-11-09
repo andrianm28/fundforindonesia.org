@@ -1,5 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
-import { ADMIN_EMAIL, operatorPassword } from './fixtures';
+import {
+  ADMIN_EMAIL,
+  operatorPassword,
+  VERIFIER_EMAIL,
+} from './fixtures';
+import { signInByCode } from './operator-sign-in';
 
 /**
  * Ticket 63: reconciliation from the Admin screen, end to end. An Admin opens
@@ -16,6 +21,8 @@ import { ADMIN_EMAIL, operatorPassword } from './fixtures';
  */
 
 async function signInAs(page: Page, email: string) {
+  // Operators sign in only by mailed code (ADR 0026).
+  if (email === ADMIN_EMAIL || email === VERIFIER_EMAIL) return signInByCode(page, email);
   const { csrfToken } = await (await page.request.get('/api/auth/csrf')).json();
   const signedIn = await page.request.post('/api/auth/callback/credentials', {
     form: { csrfToken, email, password: operatorPassword(), json: 'true' },
