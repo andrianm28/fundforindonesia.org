@@ -300,17 +300,36 @@ describe.skipIf(!DATABASE_URL)('recurring donation (PKS 4.7) -- against real Pos
       await billing.runRecurringDonationBilling(NOW, mailer);
       const dec = new Date('2026-12-15T03:00:00.000Z');
 
-      // Cycle 0 still unpaid: cycle 1 is not billed.
+      // Cycle 0 still unpaid, its payment link still open: cycle 1 is not billed.
+      const [first] = await cyclesOf(rec.id);
+      await prisma.payment.updateMany({
+        where: { donationId: first.donationId!, status: 'PENDING' },
+        data: { expiresAt: new Date('2026-12-31T00:00:00.000Z') },
+      });
       await billing.runRecurringDonationBilling(dec, mailer);
       expect(await cyclesOf(rec.id)).toHaveLength(1);
 
       // Once cycle 0 lapsed (webhook expiry), cycle 1 is.
-      const [first] = await cyclesOf(rec.id);
       expect((await pay(first.donationId!, 'expire')).status).toBe(200);
       await billing.runRecurringDonationBilling(dec, mailer);
       const cycles = await cyclesOf(rec.id);
       expect(cycles.map((c) => c.cycleIndex)).toEqual([0, 1]);
       expect(cycles[1].donationId).not.toBeNull();
+    });
+
+    it('bills the next cycle when the previous link expired and no webhook ever came', async () => {
+      const rec = await makeRecurring();
+      await billing.runRecurringDonationBilling(NOW, mailer);
+      const [first] = await cyclesOf(rec.id);
+      await prisma.payment.updateMany({
+        where: { donationId: first.donationId!, status: 'PENDING' },
+        data: { expiresAt: new Date('2026-11-16T03:00:00.000Z') },
+      });
+
+      await billing.runRecurringDonationBilling(new Date('2026-12-15T03:00:00.000Z'), mailer);
+
+      expect((await cyclesOf(rec.id)).map((c) => c.cycleIndex)).toEqual([0, 1]);
+      expect((await prisma.donation.findUniqueOrThrow({ where: { id: first.donationId! } })).paymentStatus).toBe('pending');
     });
 
     it('bills only the cycle due now after the job missed several, never a backlog', async () => {

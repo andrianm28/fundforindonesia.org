@@ -438,7 +438,7 @@ describe.skipIf(!DATABASE_URL)('Tim CSR accounts -- against real Postgres (E9/01
       expect((await prisma.partnershipInquiry.findFirstOrThrow({ where: { companyId: company.id } })).contactName).toBe('Mia Theta');
     });
 
-    it('leaves the existing Inquiries that belong to no company alone', async () => {
+    it('anonymises a public-form Inquiry (no company) two years after it came in, and leaves a younger one alone', async () => {
       const programId = await makeProgram('program-lama');
       const { sealInquiryContactEmail } = await import('@/lib/contact-fields');
       const old = await prisma.partnershipInquiry.create({
@@ -451,8 +451,21 @@ describe.skipIf(!DATABASE_URL)('Tim CSR accounts -- against real Postgres (E9/01
           ...sealInquiryContactEmail('lama@lama.example'),
         },
       });
+      const recentAt = new Date();
+      recentAt.setUTCFullYear(recentAt.getUTCFullYear() - 1);
+      const recent = await prisma.partnershipInquiry.create({
+        data: {
+          programId,
+          companyName: 'Baru',
+          contactName: 'Orang Baru',
+          needs: 'tahun lalu',
+          createdAt: recentAt,
+          ...sealInquiryContactEmail('baru@baru.example'),
+        },
+      });
       await lib.anonymiseExpiredCompanies(prisma, new Date());
-      expect((await prisma.partnershipInquiry.findUniqueOrThrow({ where: { id: old.id } })).contactName).toBe('Orang Lama');
+      expect((await prisma.partnershipInquiry.findUniqueOrThrow({ where: { id: old.id } })).contactName).toBe('[dianonimkan]');
+      expect((await prisma.partnershipInquiry.findUniqueOrThrow({ where: { id: recent.id } })).contactName).toBe('Orang Baru');
     });
   });
 });
